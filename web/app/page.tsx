@@ -16,7 +16,7 @@ import VerifiedBadge from "@/components/VerifiedBadge";
 import BrandedRocket from "@/components/BrandedRocket";
 import { brandedRocket } from "@/lib/decal";
 import { isDeployed } from "@/lib/chains";
-import { watchLaunchpad } from "@/lib/events";
+import { listLaunches, watchLaunchpad } from "@/lib/events";
 import { withBase } from "@/lib/base-path";
 
 /** Rocket card model. `tk` = call sign (never a pair string). Stats are MOCK. */
@@ -138,16 +138,26 @@ export default function HomePage() {
     return () => document.body.classList.remove("home");
   }, []);
 
-  // DISCIPLE launches → new rocket cards (no-op until contracts deploy)
+  // DISCIPLE launches (Launched events since the deployment start block) → live rocket cards, refreshed.
   useEffect(() => {
     if (!isDeployed()) return;
-    return watchLaunchpad((e) => {
-      if (e.type !== "Launch") return;
-      setCoins((cs) => cs.some((c) => c.id === e.token) ? cs : [...cs, {
-        id: e.token, name: e.name, tk: e.ticker, live: true, mcap: CURVE.startMcap, chg: null, c: "#fff1c2",
-        stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
-      }]);
-    });
+    let alive = true;
+    const load = async () => {
+      try {
+        const list = await listLaunches();
+        if (!alive) return;
+        const live: Rocket[] = list.map((x) => ({
+          id: x.token, name: x.name, tk: x.ticker, live: true, mcap: x.mcapUsd, chg: null, c: "#fff1c2",
+          icon: /^https?:|^data:|^\//.test(x.imageURI) ? x.imageURI : undefined,
+          stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
+        }));
+        setCoins((cs) => [...live, ...cs.filter((c) => !live.some((l) => l.id.toLowerCase() === c.id.toLowerCase()))]);
+      } catch { /* RPC hiccup → keep current list */ }
+    };
+    load();
+    const iv = setInterval(load, 20000);
+    const stop = watchLaunchpad((e) => { if (e.type === "Launch") load(); });
+    return () => { alive = false; clearInterval(iv); stop(); };
   }, []);
 
   // Live AI/WETH mcap from RPC slot0
@@ -204,7 +214,7 @@ export default function HomePage() {
         /* ignore */
       }
       next[0] = ai;
-      if (alive) setCoins((cs) => [next[0], ...cs.slice(1)]);
+      if (alive) setCoins((cs) => cs.map((c) => (c.id === next[0].id ? next[0] : c)));
     }
     live();
     const iv = setInterval(live, 15000);

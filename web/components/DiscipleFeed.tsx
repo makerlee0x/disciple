@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { isDeployed } from "@/lib/chains";
-import { toEngine, watchCurve } from "@/lib/events";
+import { toEngine, tradeHistory, watchCurve } from "@/lib/events";
 import { curveOf, publicClient, readCurveState } from "@/lib/protocol-viem";
 import type { Address } from "@/lib/protocol";
 
@@ -17,6 +17,8 @@ export default function DiscipleFeed({ token }: { token: string }) {
         const pc = publicClient();
         const curve = await curveOf(pc, token as Address);
         const st = await readCurveState(pc, token as Address);
+        // Backfill trades since the deployment start block so the chart has history, then go live.
+        try { for (const e of await tradeHistory(token as Address, curve, pc)) toEngine(e); } catch { /* RPC range limits → live only */ }
         toEngine({ type: "State", mcapUsd: st.mcapUsd } as never);
         const u = await watchCurve(token as Address, curve, toEngine, pc);
         if (alive) stop = u; else u();
