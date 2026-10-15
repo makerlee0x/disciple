@@ -28,43 +28,41 @@ export interface Config {
 }
 
 /**
- * Builds stacks from contracts/deployments/rh-testnet-46630.json:
- *  - "previous" (v1, PR #4), current (v2, PR #10 + add-ons), and, if present, a v3 file
- *    (EXTRA_DEPLOYMENT=path to the post-redeploy json, i.e. the next rh-testnet-46630.json).
+ * Builds stacks from contracts/deployments/rh-testnet-46630.json by walking the `previous` chain:
+ *  current (v3, combined redeploy) -> previous (v2, PR #10 + add-ons) -> previous.previous (v1, PR #4).
+ * All stacks are indexed (old coins keep trading on their own hook/pools). EXTRA_DEPLOYMENT adds one more json.
  */
-export function loadConfig(env = process.env): Config {
-  const depPath =
-    env.DEPLOYMENT_JSON ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../contracts/deployments/rh-testnet-46630.json");
-  const d = JSON.parse(fs.readFileSync(depPath, "utf8"));
-  const stacks: Stack[] = [];
-  if (d.previous?.contracts?.Launchpad && d.previous.contracts.Launchpad !== d.contracts.Launchpad && !d.previous.addons) {
-    const p = d.previous.contracts;
-    stacks.push({
-      id: "v1",
-      fromBlock: BigInt(env.V1_FROM_BLOCK ?? 136090000),
-      launchpad: p.Launchpad, feeRouter: p.FeeRouter, hook: p.DiscipleHook, migration: p.Migration,
-      quotePricer: p.QuotePricer,
-    });
-  }
+function stackOf(d: any, id: string, fromBlock: bigint): Stack {
   const c = d.contracts;
-  stacks.push({
-    id: env.CURRENT_STACK_ID ?? "v2",
-    fromBlock: BigInt(d.startBlock ?? 0),
+  return {
+    id, fromBlock,
     launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.DiscipleHook, migration: c.Migration,
     trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer,
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     rewardsVault: c.RewardsVault,
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,
+  };
+}
+
+export function loadConfig(env = process.env): Config {
+  const depPath =
+    env.DEPLOYMENT_JSON ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../contracts/deployments/rh-testnet-46630.json");
+  const d = JSON.parse(fs.readFileSync(depPath, "utf8"));
+  const chain: any[] = [];
+  for (let x = d; x?.contracts?.Launchpad; x = x.previous) chain.push(x);
+  const stacks: Stack[] = [];
+  const seen = new Set<string>();
+  chain.reverse().forEach((x, i) => {
+    const L = String(x.contracts.Launchpad).toLowerCase();
+    if (seen.has(L)) return;
+    seen.add(L);
+    const id = x.id ?? `v${i + 1}`;
+    const fb = env[`${id.toUpperCase()}_FROM_BLOCK`] ?? x.startBlock ?? (id === "v1" ? 136090000 : 0);
+    stacks.push(stackOf(x, id, BigInt(fb)));
   });
   if (env.EXTRA_DEPLOYMENT) {
     const x = JSON.parse(fs.readFileSync(env.EXTRA_DEPLOYMENT, "utf8"));
-    const e = x.contracts;
-    stacks.push({
-      id: env.EXTRA_STACK_ID ?? "v3", fromBlock: BigInt(x.startBlock ?? 0),
-      launchpad: e.Launchpad, feeRouter: e.FeeRouter, hook: e.DiscipleHook, migration: e.Migration,
-      trampWallManager: e.TrampWallManager, quotePricer: e.QuotePricer, anonLauncher: e.AnonLauncher,
-      rewardsVault: e.RewardsVault, marketLens: e.MarketLens,
-    });
+    stacks.push(stackOf(x, env.EXTRA_STACK_ID ?? `v${stacks.length + 1}`, BigInt(x.startBlock ?? 0)));
   }
   return {
     chainId: d.chainId,

@@ -22,10 +22,11 @@ const next = {
   ...cur,
   deployedAt: new Date().toISOString().slice(0, 10),
   startBlock: mode === "broadcast" ? Number(run.receipts?.[0]?.blockNumber ?? 0) : null,
-  gitBranch: "flow/snipe-split",
+  id: "v" + (Number(String(cur.id ?? "v2").slice(1)) + 1),
+  gitBranch: "main",
   contracts: Object.fromEntries(NAMES.filter((n) => contracts[n]).map((n) => [n, contracts[n]])),
   hookTrustedRouters: [contracts.DiscipleRouter, cur.uniswapV4.UniversalRouter],
-  previous: { note: "v2 stack (PR #10) — superseded by combined redeploy", contracts: cur.contracts, addons: cur.addons, smoke: cur.smoke },
+  previous: { id: cur.id ?? "v2", note: "previous stack — superseded by combined redeploy", startBlock: cur.startBlock, contracts: cur.contracts, addons: cur.addons, smoke: cur.smoke, previous: cur.previous },
   estimatedGas: gas.toString(),
 };
 delete next.addons; delete next.smoke;
