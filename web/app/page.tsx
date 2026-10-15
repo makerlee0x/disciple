@@ -130,7 +130,7 @@ export default function HomePage() {
 
   // Pad rocket carries the default halo emblem until a card is picked.
   useEffect(() => {
-    brandedRocket(null).then(({ canvas }) => setPadDecal((d) => d ?? canvas.toDataURL()));
+    brandedRocket(null).then(({ canvas }) => { try { setPadDecal((d) => d ?? canvas.toDataURL()); } catch { /* tainted */ } });
   }, []);
 
   useEffect(() => {
@@ -337,7 +337,7 @@ export default function HomePage() {
       if (launchT.current >= 0) return;
       launchT.current = performance.now();
       // Fetch + composite decal in parallel with ignition; never blocks the launch.
-      brandedRocket(c.icon, 1800).then(({ canvas }) => setPadDecal(canvas.toDataURL()));
+      brandedRocket(c.icon, 1800).then(({ canvas }) => { try { setPadDecal(canvas.toDataURL()); } catch { /* tainted → keep prior */ } });
       setLaunching(true);
       setLpStatus(
         c.live

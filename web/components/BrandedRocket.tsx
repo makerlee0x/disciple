@@ -14,9 +14,11 @@ export default function BrandedRocket({ icon, height = 80, className }: { icon?:
     brandedRocket(icon).then(({ canvas }) => {
       const c = ref.current;
       if (!alive || !c) return;
-      c.width = canvas.width; c.height = canvas.height;
-      c.getContext("2d")!.drawImage(canvas, 0, 0);
-      setReady(true);
+      try {
+        c.width = canvas.width; c.height = canvas.height;
+        c.getContext("2d")!.drawImage(canvas, 0, 0);
+        setReady(true);
+      } catch { /* tainted canvas */ }
     });
     return () => { alive = false; };
   }, [icon]);
