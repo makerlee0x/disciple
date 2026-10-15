@@ -5,7 +5,7 @@ import { isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn } from "@/lib/protocol-viem";
-import { getSigner, onWallet } from "@/lib/wallet";
+import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 
 type Bridge = (side: "buy" | "sell", usd: number) => Promise<{ ok: boolean; reason?: string; txHash?: string }>;
 declare global { interface Window { __discipleTrade?: Bridge } }
@@ -30,10 +30,10 @@ export default function TradeBridge({ token }: { token: string }) {
     const pc = publicClient();
     window.__discipleTrade = async (side, usd) => {
       try {
-        setLast(`${side === "buy" ? "▲" : "▼"} $${usd} · confirm in wallet…`);
+        setLast(`${side === "buy" ? "▲" : "▼"} $${usd} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         let amountIn = await usdToAmountIn(pc, token as Address, side, usd);
         if (side === "sell") {
-          const me = (await getSigner()).account.address;
+          const me = await activeAddress();
           const bal = await tokenBalance(pc, token as Address, me);
           if (bal === BigInt(0)) { setLast("no tokens to sell"); return { ok: false, reason: "no tokens to sell" }; }
           if (amountIn > bal) amountIn = bal;

@@ -54,3 +54,57 @@ export async function getSigner(): Promise<Signer> {
   await ensureChain(w);
   return Object.assign(w, { account: { address } }) as Signer;
 }
+
+/* ---------------- smart account (one-tap) seam ---------------- */
+import type { Call } from "./aa/core";
+import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, emailVerify, googleLogin, localImport, localReset, localStart, restore } from "./aa/session";
+import type { Hex } from "viem";
+
+export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string };
+
+/** Smart-account mode is on when a session exists; otherwise the legacy EOA path is used. */
+export const isSmartMode = () => !!aaSession();
+export { aaAvailable };
+
+/** Sign in once with an existing wallet (EOA owner). */
+export async function connectSmartWithWallet(): Promise<Address> {
+  const eth = provider || ((globalThis as { ethereum?: unknown }).ethereum as Eip1193 | undefined);
+  if (!eth) throw Object.assign(new Error("No browser wallet found."), { code: "NoWallet" });
+  const a = await eoaLogin(eth); emit(a); return a;
+}
+export async function connectSmartEmail(code: string) { const a = await emailVerify(code); emit(a); return a; }
+export async function connectSmartGoogle() { const a = await googleLogin(); emit(a); return a; }
+export async function restoreSmart() { if (!aaAvailable()) return null; const a = await restore(); if (a) emit(a); return a; }
+export async function connectLocal() { const a = await localStart(); emit(a); return a; }
+export async function importLocal(k: string) { const a = await localImport(k); emit(a); return a; }
+export async function resetLocal() { await localReset(); emit(null); }
+export async function disconnect() { await aaLogout(); emit(null); }
+
+/** The address that holds funds/trades: smart account if signed in, else the EOA. */
+export async function activeAddress(): Promise<Address> {
+  const a = await aaAddress();
+  if (a) return a;
+  return (await getSigner()).account.address;
+}
+
+/**
+ * Execute a call list. Smart account ⇒ ONE sponsored (or self-paid) userOp, no popup.
+ * EOA ⇒ legacy: one tx per call, in order.
+ */
+export async function execCalls(calls: Call[]): Promise<ExecResult> {
+  if (isSmartMode()) {
+    const r = await aaSend(calls);
+    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };
+  }
+  const w = await getSigner();
+  const { createPublicClient, http } = await import("viem");
+  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+  let last: ExecResult | null = null;
+  for (const c of calls) {
+    const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: w.account.address, to: c.to, data: c.data, value: c.value });
+    const rc = await pc.waitForTransactionReceipt({ hash });
+    if (rc.status !== "success") throw new Error(`Transaction reverted (${hash})`);
+    last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
+  }
+  return last!;
+}
