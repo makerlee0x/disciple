@@ -14,6 +14,21 @@ import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
 import {SqrtPrice} from "./libraries/SqrtPrice.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+
+interface IMigrationPM {
+    function poolManager() external view returns (IPoolManager);
+}
+
+interface IQuotePricerLite {
+    function quotePriceUsd(address quote) external view returns (uint256);
+}
+
+interface ILaunchpadPricer {
+    function pricer() external view returns (address);
+}
 
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
 /// @notice Start mcap $7K → Pearly Gates $33K at exactly 72% supply sold; 7% wallet cap.
@@ -105,23 +120,41 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
     }
 
     /// @inheritdoc IBondingCurve
+    /// @dev After graduation reads the live v4 pool price (was: frozen curve-end value).
     function marketCapUsd() public view override returns (uint256) {
-        return CurveMath.marketCapUsd(_params, tokensSold);
+        return Math.mulDiv(Math.mulDiv(spotPriceWad(), _params.totalSupply, 1e18), _quoteUsdNow(), 1e18);
     }
 
-    /// @notice Alias of marketCapUsd (USD WAD).
+    /// @dev Pre-grad: launch-time quote price (curve USD targets). Post-grad: live QuotePricer via Launchpad.
+    function _quoteUsdNow() internal view returns (uint256) {
+        if (!graduated) return quotePriceUsd;
+        try ILaunchpadPricer(launchpad).pricer() returns (address p) {
+            if (p != address(0)) {
+                try IQuotePricerLite(p).quotePriceUsd(quote) returns (uint256 v) {
+                    if (v > 0) return v;
+                } catch {}
+            }
+        } catch {}
+        return quotePriceUsd;
+    }
+
+    /// @notice Alias of marketCapUsd (USD WAD). Live v4 pool price once graduated.
     function mcapNow() external view returns (uint256) {
-        return CurveMath.marketCapUsd(_params, tokensSold);
+        return marketCapUsd();
     }
 
-    /// @notice Spot price in quote wei * 1e18 / token wei.
+    /// @notice Spot price in quote wei * 1e18 / token wei (v4 pool slot0 once graduated).
     function spotPriceWad() public view returns (uint256) {
-        return CurveMath.spotPriceWad(_params, tokensSold);
+        if (!graduated) return CurveMath.spotPriceWad(_params, tokensSold);
+        IPoolManager pm = IMigrationPM(address(migration)).poolManager();
+        (uint160 sp,,,) = StateLibrary.getSlot0(pm, PoolId.wrap(migration.poolIdOf(token)));
+        if (uint160(token) < uint160(quote)) return Math.mulDiv(Math.mulDiv(sp, sp, 1 << 64), 1e18, 1 << 128);
+        return Math.mulDiv(Math.mulDiv(1e18, 1 << 96, sp), 1 << 96, sp);
     }
 
     /// @notice Alias of spotPriceWad (quote raw * 1e18 / token raw).
     function priceNow() external view returns (uint256) {
-        return CurveMath.spotPriceWad(_params, tokensSold);
+        return spotPriceWad();
     }
 
     /// @notice Progress to graduation in bps (tokensSold / 72% of supply). 10000 = graduated.

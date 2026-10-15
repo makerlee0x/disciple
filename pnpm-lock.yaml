@@ -10,6 +10,9 @@ importers:
 
   web:
     dependencies:
+      '@noble/curves':
+        specifier: ^1.9.0
+        version: 1.9.1
       '@tensorflow/tfjs':
         specifier: ^4.22.0
         version: 4.22.0(seedrandom@3.0.5)

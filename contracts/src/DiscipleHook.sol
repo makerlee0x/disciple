@@ -17,6 +17,7 @@ import {Constants} from "./libraries/Constants.sol";
 import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
 /// @notice Pool LP fee is 0; this hook takes 1% of swap output and routes via FeeRouter (33/33/33/1).
@@ -86,6 +87,23 @@ contract DiscipleHook is IHooks, ITradeEvents {
         if (msg.sender != admin) revert OnlyAdmin();
         isTrustedRouter[r] = trusted;
         emit TrustedRouterSet(r, trusted);
+    }
+
+    /// @notice Live quote/USD oracle for Trade-event mcap (falls back to launch-time price if unset/reverts).
+    IQuotePricer public pricer;
+
+    function setPricer(address p) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        pricer = IQuotePricer(p);
+    }
+
+    function _quoteUsd(PoolMeta memory m) internal view returns (uint256) {
+        if (address(pricer) != address(0)) {
+            try pricer.quotePriceUsd(m.quote) returns (uint256 p) {
+                if (p > 0) return p;
+            } catch {}
+        }
+        return m.quotePriceUsd;
     }
 
     function transferAdmin(address a) external {
@@ -217,7 +235,7 @@ contract DiscipleHook is IHooks, ITradeEvents {
         (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
         uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
-        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), m.quotePriceUsd, 1e18);
+        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), _quoteUsd(m), 1e18);
 
         emit Trade(
             m.token,
