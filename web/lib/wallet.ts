@@ -57,7 +57,7 @@ export async function getSigner(): Promise<Signer> {
 
 /* ---------------- smart account (one-tap) seam ---------------- */
 import type { Call } from "./aa/core";
-import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, emailVerify, googleLogin, restore } from "./aa/session";
+import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, emailVerify, googleLogin, localImport, localReset, localStart, restore } from "./aa/session";
 import type { Hex } from "viem";
 
 export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string };
@@ -75,6 +75,9 @@ export async function connectSmartWithWallet(): Promise<Address> {
 export async function connectSmartEmail(code: string) { const a = await emailVerify(code); emit(a); return a; }
 export async function connectSmartGoogle() { const a = await googleLogin(); emit(a); return a; }
 export async function restoreSmart() { if (!aaAvailable()) return null; const a = await restore(); if (a) emit(a); return a; }
+export async function connectLocal() { const a = await localStart(); emit(a); return a; }
+export async function importLocal(k: string) { const a = await localImport(k); emit(a); return a; }
+export async function resetLocal() { await localReset(); emit(null); }
 export async function disconnect() { await aaLogout(); emit(null); }
 
 /** The address that holds funds/trades: smart account if signed in, else the EOA. */
