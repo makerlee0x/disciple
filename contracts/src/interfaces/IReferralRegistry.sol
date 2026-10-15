@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 /// @title First-touch referral attribution (§4 / LOCKED #18–#22)
 /// @dev Path: referral link → account → USDG deposit ≥ $10, then forever.

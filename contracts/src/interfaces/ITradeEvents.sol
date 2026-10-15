@@ -13,7 +13,9 @@ interface ITradeEvents {
     /// @param snipeFee     Anti-snipe fee in quote raw units (always 0 post-grad)
     /// @param priceBeforeX18 Spot price before, quote raw * 1e18 / token raw
     /// @param priceAfterX18  Spot price after, same units
-    /// @param impactBps    |priceAfter - priceBefore| / priceBefore in bps, computed at full precision
+    /// @param impactBps    UNSIGNED absolute |priceAfter - priceBefore| / priceBefore in bps (full precision).
+    ///                     Direction is given by isBuy (buy → price up, sell → price down); negate for sells
+    ///                     client-side if a signed value is wanted.
     /// @param mcapAfterUsd Market cap after trade, USD WAD (uses launch-time quote/USD price)
     event Trade(
         address indexed token,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 /// @title Permanently locked LP + fee collection (§3 / LOCKED #16–#17)
 /// @dev Remove-liquidity is not allowed. Post-grad LP fees → 100% treasury.

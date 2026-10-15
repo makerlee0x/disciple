@@ -39,9 +39,14 @@ contract DiscipleHook is IHooks, ITradeEvents {
         uint256 quotePriceUsd; // launch-time USD WAD per 1e18 raw quote (for mcapAfterUsd)
     }
 
-    /// @notice Trusted DiscipleRouter: when it is the swap sender, hookData = abi.encode(trader).
-    address public router;
-    address public immutable admin;
+    /// @notice Allowlisted routers (DiscipleRouter, Uniswap UniversalRouter, ...). When the swap `sender` is
+    ///         trusted and hookData is exactly abi.encode(address trader), that trader is credited (Trade event +
+    ///         referral). Otherwise the `sender` itself is the trader (no referral unless sender is referred).
+    mapping(address => bool) public isTrustedRouter;
+    address public admin;
+
+    event TrustedRouterSet(address indexed router, bool trusted);
+    event AdminTransferred(address indexed admin);
 
     /// @dev transient slot for pre-swap sqrtPriceX96
     bytes32 private constant PRICE_SLOT = keccak256("disciple.hook.sqrtPriceBefore");
@@ -75,10 +80,16 @@ contract DiscipleHook is IHooks, ITradeEvents {
         migration = m;
     }
 
-    /// @notice One-time wire of the trusted router (admin only).
-    function setRouter(address r) external {
-        if (msg.sender != admin || router != address(0)) revert OnlyAdmin();
-        router = r;
+    function setTrustedRouter(address r, bool trusted) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        isTrustedRouter[r] = trusted;
+        emit TrustedRouterSet(r, trusted);
+    }
+
+    function transferAdmin(address a) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        admin = a;
+        emit AdminTransferred(a);
     }
 
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {
@@ -140,7 +151,7 @@ contract DiscipleHook is IHooks, ITradeEvents {
 
         uint256 feeAmount = uint256(uint128(swapAmount)) * Constants.TRADE_FEE_BPS / Constants.BPS_DENOM;
         address trader = sender;
-        if (sender == router && router != address(0) && hookData.length == 32) {
+        if (hookData.length == 32 && isTrustedRouter[sender]) {
             trader = abi.decode(hookData, (address));
         }
 

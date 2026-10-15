@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 /// @title DISCIPLE protocol constants
 /// @notice Named constants locked in protocol-constitution.md (v0 / Robinhood Chain).

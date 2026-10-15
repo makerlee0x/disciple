@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
+import {CurveMath} from "./libraries/CurveMath.sol";
 import {Token} from "./Token.sol";
 import {BondingCurve} from "./BondingCurve.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
@@ -213,6 +214,40 @@ contract Launchpad is ILaunchpad {
         address prev = m.creator;
         m.creator = newCreator;
         emit CreatorTransferred(token, prev, newCreator);
+    }
+
+    /// @notice Preview the optional same-tx creator buy (tax 0) — use to set creatorBuyMinTokensOut.
+    function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn)
+        external
+        view
+        returns (uint256 tokensOut, uint256 fee, uint256 snipeFee, uint256 quotePriceUsd, bool exceedsCap)
+    {
+        return quoteCreatorBuy(quote, creatorBuyQuoteIn, 0);
+    }
+
+    /// @notice Preview the same-tx creator buy at launch: anti-snipe is at its launch-time value
+    ///         (ANTI_SNIPE_START_BPS, elapsed = 0), plus 1% protocol fee + creatorTaxBps.
+    /// @param quote address(0) = defaultQuote
+    /// @return tokensOut   tokens the creator would receive
+    /// @return fee         protocol + creator tax (quote raw)
+    /// @return snipeFee    launch-time anti-snipe fee (quote raw)
+    /// @return quotePriceUsd price the pricer would bake into the curve right now
+    /// @return exceedsCap  true if tokensOut > 0.77% of supply (launch would revert CreatorBuyTooLarge)
+    function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn, uint256 creatorTaxBps)
+        public
+        view
+        returns (uint256 tokensOut, uint256 fee, uint256 snipeFee, uint256 quotePriceUsd, bool exceedsCap)
+    {
+        if (creatorTaxBps > Constants.CREATOR_TAX_MAX_BPS) revert TaxTooHigh();
+        if (quote == address(0)) quote = defaultQuote;
+        if (quote == address(0)) revert DefaultQuoteUnset();
+        if (address(pricer) == address(0)) revert PricerUnset();
+        quotePriceUsd = pricer.quotePriceUsd(quote);
+        snipeFee = (creatorBuyQuoteIn * Constants.ANTI_SNIPE_START_BPS) / Constants.BPS_DENOM;
+        uint256 afterSnipe = creatorBuyQuoteIn - snipeFee;
+        fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);
+        tokensOut = CurveMath.tokensOutForQuote(CurveMath.makeParams(quotePriceUsd), 0, afterSnipe - fee);
+        exceedsCap = tokensOut > FeeMath.creatorBuyMax();
     }
 
     /// @inheritdoc ILaunchpad

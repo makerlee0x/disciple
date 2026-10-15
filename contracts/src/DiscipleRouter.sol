@@ -10,6 +10,11 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 import {LockedLP} from "./LockedLP.sol";
+import {DiscipleHook} from "./DiscipleHook.sol";
+import {Constants} from "./libraries/Constants.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 /// @title Thin post-graduation router for DISCIPLE v4 pools (exact-in buy/sell)
 /// @notice Pre-grad trades go to the token's BondingCurve directly; post-grad trades go here.
@@ -18,6 +23,8 @@ import {LockedLP} from "./LockedLP.sol";
 ///         `poolKeyOf(token)`); the DiscipleHook 1% fee is applied inside the simulated swap.
 contract DiscipleRouter is IUnlockCallback {
     using CurrencySettler for Currency;
+    using StateLibrary for IPoolManager;
+    using PoolIdLibrary for PoolKey;
 
     IPoolManager public immutable poolManager;
     LockedLP public immutable lockedLP;
@@ -29,7 +36,7 @@ contract DiscipleRouter is IUnlockCallback {
     error NotGraduated();
     error ZeroAmount();
     error ZeroRecipient();
-    error QuoteResult(uint256 amountOut);
+    error QuoteResult(uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
 
     struct CallbackData {
         address payer;
@@ -108,7 +115,13 @@ contract DiscipleRouter is IUnlockCallback {
 
     /// @notice Exact-in quote incl. the 1% hook fee, by simulating the swap and reverting.
     /// @dev Not `view` (v4 has no view swaps) — call it with eth_call / viem `simulateContract`.
-    function quoteExactIn(address token, bool isBuy, uint256 amountIn) external returns (uint256 amountOut) {
+    /// @return amountOut   net output to the trader
+    /// @return impactBps   unsigned |Δprice|/price in bps (direction = isBuy), same semantics as Trade.impactBps
+    /// @return mcapAfterUsd USD WAD at launch-time quote/USD price, same as Trade.mcapAfterUsd
+    function quoteExactIn(address token, bool isBuy, uint256 amountIn)
+        external
+        returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd)
+    {
         PoolKey memory key = poolKeyOf(token);
         bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
         bool zeroForOne = isBuy ? !tokenIsC0 : tokenIsC0;
@@ -126,13 +139,15 @@ contract DiscipleRouter is IUnlockCallback {
         ) {
             revert();
         } catch (bytes memory reason) {
-            if (reason.length != 36 || bytes4(reason) != QuoteResult.selector) {
+            if (reason.length != 100 || bytes4(reason) != QuoteResult.selector) {
                 assembly ("memory-safe") {
                     revert(add(reason, 32), mload(reason))
                 }
             }
             assembly ("memory-safe") {
                 amountOut := mload(add(reason, 36))
+                impactBps := mload(add(reason, 68))
+                mcapAfterUsd := mload(add(reason, 100))
             }
         }
     }
@@ -164,10 +179,38 @@ contract DiscipleRouter is IUnlockCallback {
         if (amountOut < minOut) revert Slippage();
     }
 
+    bytes32 private constant SIM_SLOT = keccak256("disciple.router.simSqrtBefore");
+
+    function _tstoreSqrt(uint160 v) private {
+        bytes32 slot = SIM_SLOT;
+        assembly ("memory-safe") {
+            tstore(slot, v)
+        }
+    }
+
+    function _revertQuote(CallbackData memory d, uint256 out) private view {
+        uint160 sb;
+        bytes32 slot = SIM_SLOT;
+        assembly ("memory-safe") {
+            sb := tload(slot)
+        }
+        (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
+        // token is c0 iff buying means zeroForOne == false
+        (address tokenAddr,,,, uint256 qpx) = DiscipleHook(hook).metaOf(d.key.toId());
+        bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
+        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
+        uint256 pAfter = DiscipleHook(hook).priceX18FromSqrt(sa, tokenIsC0);
+        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), qpx, 1e18);
+        revert QuoteResult(out, impact, mcap);
+    }
+
     function unlockCallback(bytes calldata raw) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         CallbackData memory d = abi.decode(raw, (CallbackData));
 
+        uint160 sqrtBefore;
+        if (d.simulate) (sqrtBefore,,,) = poolManager.getSlot0(d.key.toId());
+        if (d.simulate) _tstoreSqrt(sqrtBefore);
         BalanceDelta delta = poolManager.swap(
             d.key,
             IPoolManager.SwapParams({
@@ -185,7 +228,7 @@ contract DiscipleRouter is IUnlockCallback {
 
         uint256 paid = uint256(uint128(-dIn));
         uint256 out = uint256(uint128(dOut));
-        if (d.simulate) revert QuoteResult(out);
+        if (d.simulate) _revertQuote(d, out);
         cin.settle(poolManager, d.payer, paid, false);
         cout.take(poolManager, d.recipient, out, false);
         return abi.encode(out);

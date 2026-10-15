@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 /// @title Anti-snipe fee decay 77.7% → 0% over 7s (§2 / LOCKED #9)
 /// @dev Snipe fee (above protocol 1%) destination: 100% locks quote into LP via FeeRouter.routeSnipeFee.

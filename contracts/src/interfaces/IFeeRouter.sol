@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 /// @title Fee routing — 33/33/33/1 + creator tax + snipe→LP (§3 / LOCKED #11–#15, §2 #9)
 interface IFeeRouter {

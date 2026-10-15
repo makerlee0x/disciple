@@ -22,10 +22,10 @@ event Trade(
 );
 ```
 
-- `trader`: on the curve, a buy's token recipient or a sell's `msg.sender`. On the hook, the real user when the swap comes through `DiscipleRouter`, and the swap `sender` (the router contract) for third-party routers.
+- `trader`: on the curve, a buy's token recipient or a sell's `msg.sender`. On the hook: if the swap `sender` is on the hook's owner-managed allowlist (`isTrustedRouter`, which includes DiscipleRouter and, optionally, UniversalRouter) **and** hookData is exactly `abi.encode(address trader)`, that trader is used. Otherwise it is the swap `sender`. Referral credit follows the same rule, so it only applies to trusted-router hookData or a direct (sender = trader) swap. Any caller of a trusted router can put any address in hookData; they still pay the fee themselves, so spoofing can only redirect the referral share of their own fee.
 - `quoteAmt` on a buy is the gross quote paid, including fees. On a sell it is the net quote received. `tokenAmt` is net tokens received (buy) or tokens sold (sell).
 - `fee` is the protocol 1% plus creator tax, in quote raw units. On the hook, an exact-in buy charges its fee in the launch token; that fee is converted to quote at `priceAfterX18`. `snipeFee` is the anti-snipe part, always 0 after graduation.
-- Prices are `quote raw * 1e18 / token raw`. `impactBps` is computed on-chain at full precision from reserves or sqrtPrice, so use it rather than recomputing from the X18 prices. For 6-decimal quotes the X18 prices are coarse.
+- Prices are `quote raw * 1e18 / token raw`. `impactBps` is an **unsigned absolute** value. Its direction comes from `isBuy`: buys push the price up and sells push it down, so negate it client-side for sells if you want a signed value. It is computed on-chain at full precision from reserves or sqrtPrice, so use it rather than recomputing from the X18 prices. For 6-decimal quotes the X18 prices are coarse.
 - `mcapAfterUsd` is in USD WAD and uses the quote/USD price fixed at launch.
 
 ## Trading paths (no custody: the Privy embedded wallet signs its own txs)
@@ -46,6 +46,15 @@ The post-grad paths are on `DiscipleRouter`:
 - `poolKeyOf(token)` reverts `NotGraduated()` before graduation.
 - Approve the router once per asset.
 
+## Creator buy preview
+
+`Launchpad.quoteCreatorBuy(quote, creatorBuyQuoteIn)` (tax 0) and `quoteCreatorBuy(quote, creatorBuyQuoteIn, creatorTaxBps)` are `view` functions. They return `(tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap)`.
+
+- `quote = 0` means `defaultQuote`.
+- `snipeFee` is the launch-time value. The creator buy runs at elapsed = 0, so it pays the full 77.7%.
+- `exceedsCap = true` means the launch would revert with `CreatorBuyTooLarge`, because 0.77% of supply is the maximum.
+- Set `creatorBuyMinTokensOut` to `tokensOut` less your slippage. The output is exact if the quote/USDG pool price does not move before the tx lands.
+
 ## Quotes / views
 
 On the curve (all `view`):
@@ -56,7 +65,7 @@ On the curve (all `view`):
 
 After graduation:
 
-- `DiscipleRouter.quoteExactIn(token, isBuy, amountIn)` returns `amountOut`. It simulates and reverts, so call it with `eth_call` / viem `simulateContract`. The result is exact and includes the hook's 1%.
+- `DiscipleRouter.quoteExactIn(token, isBuy, amountIn)` returns `(amountOut, impactBps, mcapAfterUsd)`, using the same semantics as `Trade`. It simulates and reverts, so call it with `eth_call` / viem `simulateContract`. The result is exact and includes the hook's 1%.
 - Or use the official Uniswap **V4Quoter** with `poolKeyOf(token)` and empty hookData. I checked bytecode on both RH mainnet (4663) and testnet (46630) on 2026-10-15; the addresses are identical on both chains:
   - PoolManager `0x8366a39cc670b4001a1121b8f6a443a643e40951`
   - V4Quoter `0x8dc178efb8111bb0973dd9d722ebeff267c98f94` (`poolManager()` returns the PoolManager above)
@@ -83,7 +92,7 @@ Trust assumptions:
 
 ## Deploy
 
-`forge script script/Deploy.s.sol --tc Deploy --rpc-url $RPC --broadcast` (see the env vars documented in the script header). The hook salt is mined against the CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`, and the hook flags are `BEFORE_SWAP | AFTER_SWAP | AFTER_SWAP_RETURNS_DELTA`. The script also sets `pricer`, `quoteProbe` and `defaultQuote`, and wires `hook.setRouter`.
+`forge script script/Deploy.s.sol --tc Deploy --rpc-url $RPC --broadcast` (see the env vars documented in the script header). The hook salt is mined against the CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`, and the hook flags are `BEFORE_SWAP | AFTER_SWAP | AFTER_SWAP_RETURNS_DELTA`. The script also sets `pricer`, `quoteProbe` and `defaultQuote`, and allowlists DiscipleRouter (plus `UNIVERSAL_ROUTER` if set) via `hook.setTrustedRouter`.
 
 - Local, with no env set: it deploys PoolManager, dev USDG and dev STRATEGY, plus a STRATEGY/USDG pool seeded at $0.0018.
 - RH mainnet:

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import {Constants} from "./libraries/Constants.sol";
 import {IAntiSnipe} from "./interfaces/IAntiSnipe.sol";

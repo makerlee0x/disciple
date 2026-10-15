@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 /// @title External bonding curve — hybrid Pump-early / raise-late (§2 / LOCKED #5–#8)
 interface IBondingCurve {

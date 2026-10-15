@@ -38,7 +38,7 @@ library V4Deploy {
         // Caller must owner-prank: lockedLP.setMigration + setPoolManager
 
         s.router = new DiscipleRouter(s.manager, lockedLP, address(hook));
-        hook.setRouter(address(s.router));
+        hook.setTrustedRouter(address(s.router), true);
         s.hook = hook;
         s.migration = migration;
     }

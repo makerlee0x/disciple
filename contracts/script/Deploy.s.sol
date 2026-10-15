@@ -51,12 +51,16 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       unset → deploy a fresh PoolManager (local). Quotes: DiscipleRouter.quoteExactIn
 ///   V4_QUOTER           official V4Quoter (RH: 0x8dc178efb8111bb0973dd9d722ebeff267c98f94) — logged only
 ///   USDG                USDG address (RH mainnet: 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168);
-///                       unset → deploy 18-dec DevToken "USDG" + mock STRATEGY w/ STRATEGY/USDG pool at $0.0018
+///                       unset → deploy 18-dec DevToken "USDG" + mock STRATEGY w/ STRATEGY/USDG pool at $0.00245
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
+///   UNIVERSAL_ROUTER    also allowlist in the hook for hookData trader attribution (RH: 0x8876…0904)
+///   DEPLOY_TEST_STRATEGY true → (with USDG set, DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a
+///                       STRATEGY/USDG pool at TEST_STRATEGY_PRICE_WAD (default 2.45e15 = $0.00245)
+///                       with REF_POOL_LIQUIDITY (default 1e24) full-range liquidity from the deployer
 contract Deploy is Script {
     /// @dev forge script routes `new X{salt: s}` through this deterministic CREATE2 factory.
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
@@ -112,7 +116,9 @@ contract Deploy is Script {
         lockedLP.setPoolManager(o.manager);
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
-        hook.setRouter(address(router));
+        hook.setTrustedRouter(address(router), true);
+        address ur = vm.envOr("UNIVERSAL_ROUTER", address(0));
+        if (ur != address(0)) hook.setTrustedRouter(ur, true);
 
         uint64 n = uint64(vm.getNonce(deployer));
         address launchpadAddr = vm.computeCreateAddress(deployer, n + 1);
@@ -132,9 +138,14 @@ contract Deploy is Script {
             o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
             if (o.defaultQuote == address(0)) {
                 o.defaultQuote = address(new DevToken("Strategy Coin (dev)", "STRATEGY", 18, deployer, 1e30));
-                refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, 18e14); // $0.0018
+                refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, 245e13); // $0.00245
                 hasRef = true;
             }
+        }
+        if (o.defaultQuote == address(0) && vm.envOr("DEPLOY_TEST_STRATEGY", false)) {
+            o.defaultQuote = address(new DevToken("Strategy Coin (test)", "STRATEGY", 18, deployer, 1e27));
+            refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, vm.envOr("TEST_STRATEGY_PRICE_WAD", uint256(245e13)));
+            hasRef = true;
         }
         if (o.defaultQuote == address(0)) o.defaultQuote = o.usdg;
 
@@ -217,7 +228,7 @@ contract Deploy is Script {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: TickMath.minUsableTick(60),
                 tickUpper: TickMath.maxUsableTick(60),
-                liquidityDelta: 1e24,
+                liquidityDelta: int256(vm.envOr("REF_POOL_LIQUIDITY", uint256(1e24))),
                 salt: 0
             }),
             ""

@@ -10,7 +10,7 @@ Do not add application or game UI files here. The web front end lives in `/web`.
 
 **Product:** DISCIPLE (formerly ANYPAIR)  
 **Scope:** v0 — Robinhood Chain (EVM)  
-**Stack:** Foundry (forge) + Solidity 0.8.28 + OpenZeppelin v5  
+**Stack:** Foundry (forge) + Solidity 0.8.26 (pinned; see DEPENDENCIES.md) + OpenZeppelin v5  
 **Source of truth:** [`docs/protocol-constitution.md`](docs/protocol-constitution.md)
 
 Working scaffold (Pump-style CPAMM + real Uniswap v4 graduation); **not audited** production. Deps: `lib/v4-core`, `lib/v4-periphery` (forge install).
@@ -156,4 +156,4 @@ forge install foundry-rs/forge-std uniswap/v4-core uniswap/v4-periphery OpenZepp
 
 See `foundry.toml` remappings and `DEPENDENCIES.md`. Optional `.gitmodules` appears after a maintainer runs `forge install` without `--no-commit`.
 
-**Note:** v4-core/v4-periphery may ship `pragma solidity 0.8.26;` — rewrite to `^0.8.26` after install if compiling with solc 0.8.28.
+**Note:** deps are pinned (see DEPENDENCIES.md); solc 0.8.26 compiles v4-core unpatched.

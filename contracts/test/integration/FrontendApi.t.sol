@@ -17,6 +17,9 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 contract Mock6 is ERC20 {
     constructor() ERC20("Global Dollar", "USDG") {}
@@ -27,7 +30,7 @@ contract Mock6 is ERC20 {
 }
 
 /// @notice Frontend API surface: Trade event, quoters, recipient/permit paths, oracle pricing, router.
-contract FrontendApiTest is IntegrationBase {
+abstract contract FrontendApiBase is IntegrationBase {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 
@@ -61,6 +64,11 @@ contract FrontendApiTest is IntegrationBase {
             }
         }
     }
+}
+
+contract FrontendApiTest is FrontendApiBase {
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
 
     // ── Gap 1 + 6: Trade event & quoters on the curve ──
 
@@ -262,7 +270,7 @@ contract FrontendApiTest is IntegrationBase {
         router.poolKeyOf(address(quote));
 
         uint256 qIn = 50 ether;
-        uint256 quoted = router.quoteExactIn(address(tok), true, qIn);
+        (uint256 quoted, uint256 qImpact, uint256 qMcap) = router.quoteExactIn(address(tok), true, qIn);
         assertGt(quoted, 0);
 
         quote.mint(trader2, qIn);
@@ -292,9 +300,11 @@ contract FrontendApiTest is IntegrationBase {
         assertGt(t.pAfter, t.pBefore);
         assertGt(t.impact, 0);
         assertGt(t.mcap, Constants.GRADUATION_MCAP_USD * 99 / 100);
+        assertEq(t.impact, qImpact, "quoter impact == Trade impact");
+        assertEq(t.mcap, qMcap, "quoter mcap == Trade mcap");
 
         // sell back via router
-        uint256 sq = router.quoteExactIn(address(tok), false, out);
+        (uint256 sq,,) = router.quoteExactIn(address(tok), false, out);
         vm.startPrank(trader2);
         tok.approve(address(router), out);
         vm.recordLogs();
@@ -329,6 +339,100 @@ contract FrontendApiTest is IntegrationBase {
         uint256 y = y0 - curve.tokensSold();
         uint256 x = Math.mulDiv(x0, y0, y);
         assertEq(sp, SqrtPrice.fromReserves(x, y, uint160(address(tok)) < uint160(address(quote))));
+    }
+}
+
+contract FrontendApiFollowupTest is FrontendApiBase {
+    using PoolIdLibrary for PoolKey;
+
+    function test_quoteCreatorBuy_matches_launch_and_cap() public {
+        uint256 qIn = 20 ether;
+        (uint256 tOut, uint256 fee, uint256 snipe, uint256 px, bool over) = launchpad.quoteCreatorBuy(address(0), qIn);
+        assertEq(px, 1e18);
+        assertEq(snipe, qIn * Constants.ANTI_SNIPE_START_BPS / 10_000);
+        assertGt(fee, 0);
+        assertFalse(over);
+        vm.prank(creator);
+        strategy.approve(address(launchpad), qIn);
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory r = launchpad.launchCoin(
+            ILaunchpad.LaunchParams({
+                name: "C",
+                ticker: "C",
+                imageURI: "ipfs://c",
+                description: "",
+                socialsURI: "",
+                quote: address(0),
+                creatorTaxBps: 0,
+                creatorBuyQuoteIn: qIn,
+                creatorBuyMinTokensOut: tOut,
+                deadline: block.timestamp + 1
+            })
+        );
+        assertEq(r.creatorTokensBought, tOut, "preview exact");
+
+        // with tax
+        (uint256 tOut2,,,,) = launchpad.quoteCreatorBuy(address(quote), qIn, 500);
+        assertLt(tOut2, tOut);
+        // over cap
+        (,,,, bool over2) = launchpad.quoteCreatorBuy(address(0), 5_000 ether);
+        assertTrue(over2);
+    }
+
+    function test_trusted_router_allowlist_hookData_attribution() public {
+        (BondingCurve curve, Token tok) = _launch(0, 0);
+        _graduate(curve);
+        PoolKey memory key = _poolKey(tok);
+        bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
+
+        // untrusted: hookData ignored
+        vm.recordLogs();
+        _swapWithHookData(key, !tokenIsC0, trader1, abi.encode(kol));
+        (T memory t,) = _lastTrade(address(hook));
+        assertEq(t.trader, address(swapRouter));
+
+        vm.prank(trader1);
+        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
+        hook.setTrustedRouter(address(swapRouter), true);
+        hook.setTrustedRouter(address(swapRouter), true); // admin = test (V4Deploy)
+        assertTrue(hook.isTrustedRouter(address(router)));
+
+        vm.recordLogs();
+        _swapWithHookData(key, !tokenIsC0, trader1, abi.encode(kol));
+        (t,) = _lastTrade(address(hook));
+        assertEq(t.trader, kol, "trusted router credits hookData trader");
+
+        // malformed hookData → sender
+        vm.recordLogs();
+        _swapWithHookData(key, !tokenIsC0, trader1, hex"1234");
+        (t,) = _lastTrade(address(hook));
+        assertEq(t.trader, address(swapRouter));
+    }
+
+    function _swapWithHookData(PoolKey memory key, bool zeroForOne, address trader, bytes memory hd) internal {
+        quote.mint(trader, 5 ether);
+        vm.startPrank(trader);
+        quote.approve(address(swapRouter), 5 ether);
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(5 ether),
+                sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            hd
+        );
+        vm.stopPrank();
+    }
+
+    function test_pricer_scales_by_usdg_decimals_18_and_6() public {
+        QuotePricer p18 = new QuotePricer(owner, manager, address(quote)); // 18-dec (testnet mUSDG)
+        assertEq(p18.quotePriceUsd(address(quote)), 1e18);
+        Mock6 u6 = new Mock6(); // mainnet USDG is 6-dec
+        QuotePricer p6 = new QuotePricer(owner, manager, address(u6));
+        assertEq(p6.usdgDecimals(), 6);
+        assertEq(p6.quotePriceUsd(address(u6)), 1e30);
     }
 }
 
