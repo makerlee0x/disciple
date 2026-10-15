@@ -51,7 +51,12 @@ export interface Bundler {
 export function alchemyBundler(url: string): Bundler {
   return {
     async rpc(method, params) {
-      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(30_000),
+      });
       const j = await r.json();
       if (j.error) throw new AAError("Bundler", `${method}: ${j.error.message || JSON.stringify(j.error)}`, { rpcError: j.error });
       return j.result;
@@ -171,8 +176,9 @@ export class LightSmartAccount {
     const sig = await this.o.owner.signMessage({ message: { raw: userOpHash(op, this.o.chainId, this.ep) } });
     op.signature = concat(["0x00", sig]);
     const uoh: Hex = await this.o.bundler.rpc("eth_sendUserOperation", [op, this.ep]);
-    for (let i = 0; i < 90; i++) {
-      await new Promise((r) => setTimeout(r, i < 5 ? 600 : 1500));
+    // ~30s: self-bundler already waited on the relayer receipt; long polls only mask dropped ops.
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, i < 5 ? 400 : 1200));
       const rc: UserOpReceipt | null = await this.o.bundler.rpc("eth_getUserOperationReceipt", [uoh]);
       if (rc) {
         if (!rc.success) throw new AAError("Reverted", `UserOp reverted (tx ${rc.receipt.transactionHash})`, { rc });

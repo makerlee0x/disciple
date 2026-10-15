@@ -32,7 +32,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
   switch (method) {
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
     case "eth_supportedEntryPoints": return [ENTRYPOINT_V07];
-    case "rundler_maxPriorityFeePerGas": return "0x0";
+    case "rundler_maxPriorityFeePerGas": return "0xf4240"; // 0.001 gwei
     case "alchemy_requestGasAndPaymasterAndData": throw new Error("Gas sponsorship is not enabled for this app (self-bundler)");
     case "eth_estimateUserOperationGas": {
       const op = params[0] as UserOp;
@@ -52,12 +52,24 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const op = params[0] as UserOp;
       const relayer = privateKeyToAccount(key);
       const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], relayer.address] });
-      const total = BigInt(op.verificationGasLimit!) + BigInt(op.callGasLimit!) + BigInt(op.preVerificationGas!);
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
+      const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
+      const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
       const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
       const blk = await pc.getBlock();
-      const hash = await wc.sendTransaction({ to: ENTRYPOINT_V07, data, gas: total + BigInt(150000), maxFeePerGas: (blk.baseFeePerGas ?? BigInt(0)) * BigInt(2), maxPriorityFeePerGas: BigInt(0) });
-      await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
+      const base = blk.baseFeePerGas ?? BigInt(0);
+      let networkGas = BigInt(0);
+      try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
+      const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
+      const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
+      const hash = await wc.sendTransaction({
+        to: ENTRYPOINT_V07, data, gas,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: priority,
+      });
+      const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
+      if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
+      if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);
     }
     case "eth_getUserOperationReceipt": {
