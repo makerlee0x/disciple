@@ -123,6 +123,7 @@ contract Deploy is Script {
         Migration migration = new Migration(deployer, address(lockedLP), o.manager, address(hook));
         hook.setMigration(address(migration));
         lockedLP.setMigration(address(migration));
+        lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(o.manager);
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));

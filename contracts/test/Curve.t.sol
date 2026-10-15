@@ -76,6 +76,7 @@ contract CurveTest is Test {
         migration = stack.migration;
         vm.startPrank(owner);
         lockedLP.setMigration(address(migration));
+        lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(stack.manager));
         vm.stopPrank();
         hook = stack.hook;
