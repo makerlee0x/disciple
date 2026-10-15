@@ -6,17 +6,19 @@
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
 import {
-  BaseError, ContractFunctionRevertedError, createPublicClient, http, maxUint256, type PublicClient,
+  BaseError, ContractFunctionRevertedError, createPublicClient, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
-import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
-import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
+import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { CURVE, TIERS } from "./config";
 import { applySlippage, type CurveParams } from "./curveMath";
 import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
-import { getSigner, type Signer } from "./wallet";
+import { activeAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
+import type { Call } from "./aa/core";
+const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
 const B = BigInt;
 const DEFAULT_SLIPPAGE_BPS = 100; // 1%
@@ -63,6 +65,20 @@ export function publicClient(): PublicClient {
 }
 
 /* ---------------- reads ---------------- */
+
+/**
+ * Live market for a coin. Curve mcapNow()/priceNow() and Trade.mcapAfterUsd FREEZE after graduation (FLOW bug,
+ * fixed on-chain later), so graduated coins read MarketLens.market(token) (v4 slot0 × live QuotePricer).
+ * Returns null when no lens is configured or the call fails (callers fall back to the curve).
+ */
+export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; graduated: boolean } | null> {
+  if (!hasLens()) return null;
+  try {
+    const [priceWad, mcap, graduated] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token] });
+    return { priceWad, mcapUsd: wadToNum(mcap), graduated };
+  } catch { return null; }
+}
+
 
 const paramsCache = new Map<string, CurveParams>();
 export async function curveParams(pc: PublicClient, curve: Address): Promise<CurveParams> {
@@ -117,13 +133,14 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
     pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }),
   ]);
   const quoteDecimals = await decimalsOf(pc, quote);
-  const mcapUsd = wadToNum(mcapWad);
+  const live = graduated ? await readMarket(pc, token) : null;
+  const mcapUsd = live ? live.mcapUsd : wadToNum(mcapWad);
   const soldPct = (Number(tokensSold) / Number(p.totalSupply)) * 100;
   const progressBps = Number(progress);
   return {
     token, quote, mcapUsd,
     // spot = quote raw * 1e18 / token raw; quotePriceUsd = USD WAD per 1e18 quote raw ⇒ decimal-agnostic
-    priceUsd: wadToNum(spotWad) * wadToNum(quotePriceUsd),
+    priceUsd: live ? mcapUsd / (Number(p.totalSupply) / 1e18) : wadToNum(spotWad) * wadToNum(quotePriceUsd),
     soldPct,
     curveProgressPct: graduated ? 100 : progressBps / 100,
     progressBps: graduated ? 10000 : progressBps,
@@ -154,7 +171,10 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
       address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn],
     });
     const bps = Number(impactBps) * (side === "buy" ? 1 : -1); // impactBps is unsigned; sign from side
-    return { ...base, amountOut, fee: B(0), impactBps: bps, impactPct: bps / 100, mcapAfterUsd: wadToNum(mcapAfterUsd), venue: "router" };
+    // Router's mcapAfterUsd is frozen post-grad: recompute from the live lens mcap and the on-chain impact.
+    const live = await readMarket(pc, token);
+    const mcapAfter = live ? live.mcapUsd * (1 + bps / 10000) : wadToNum(mcapAfterUsd);
+    return { ...base, amountOut, fee: B(0), impactBps: bps, impactPct: bps / 100, mcapAfterUsd: mcapAfter, venue: "router" };
   }
 
   if (side === "buy") {
@@ -191,6 +211,8 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
   ]);
   const usdMicro = B(Math.max(1, Math.round(usd * 1e6)));
   if (side === "buy") return (usdMicro * B(1e18) * B(1e18)) / (qp * B(1e6));
+  const live = await readMarket(pc, token);
+  if (live?.graduated && live.mcapUsd > 0) return (usdMicro * p.totalSupply) / B(Math.round(live.mcapUsd * 1e6)); // tokens = usd / mcap × supply
   return mcapWad > B(0) ? (usdMicro * B(1e12) * p.totalSupply) / mcapWad : B(0);
 }
 
@@ -200,15 +222,23 @@ export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Addr
 
 /* ---------------- client ---------------- */
 
-export function createViemProtocol(signer: () => Promise<Signer> = getSigner): ProtocolClient {
+export function createViemProtocol(): ProtocolClient {
   const pc = publicClient();
 
-  /** Approve once (max) so every later trade is a single tx. */
-  async function ensureAllowance(w: Signer, erc20: Address, spender: Address, amt: bigint) {
-    const cur = await pc.readContract({ address: erc20, abi: tokenAbi, functionName: "allowance", args: [w.account.address, spender] });
-    if (cur >= amt) return;
-    const h = await w.writeContract({ chain: ACTIVE_CHAIN, account: w.account.address, address: erc20, abi: tokenAbi, functionName: "approve", args: [spender, maxUint256] });
-    await pc.waitForTransactionReceipt({ hash: h });
+  /** Approval call if needed. Smart account: exact amount, batched into the same userOp. EOA: max once. */
+  async function approveCall(owner: Address, erc20: Address, spender: Address, amt: bigint): Promise<Call[]> {
+    const cur = await pc.readContract({ address: erc20, abi: tokenAbi, functionName: "allowance", args: [owner, spender] });
+    if (cur >= amt) return [];
+    return [{ to: erc20, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [spender, isSmartMode() ? amt : maxUint256] }) }];
+  }
+  /** Sum ERC-20 Transfer(to=recipient) of `asset` in the receipt logs. */
+  function received(logs: ExecResult["logs"], asset: Address, recipient: Address) {
+    let out = B(0);
+    for (const l of logs) {
+      if (l.address.toLowerCase() !== asset.toLowerCase()) continue;
+      try { const ev = decodeEventLog({ abi: erc20Events, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.eventName === "Transfer" && ev.args.to.toLowerCase() === recipient.toLowerCase()) out += ev.args.value; } catch { /* not a transfer */ }
+    }
+    return out;
   }
 
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
@@ -217,8 +247,8 @@ export function createViemProtocol(signer: () => Promise<Signer> = getSigner): P
       const curve = await curveOf(pc, t.token);
       const graduated = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "graduated" });
       const quoteAsset = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" });
-      const w = await signer();
-      const recipient = t.recipient || w.account.address;
+      const me = await activeAddress();
+      const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
       let minOut = t.minAmountOut;
       if (minOut <= B(0)) {
@@ -226,38 +256,19 @@ export function createViemProtocol(signer: () => Promise<Signer> = getSigner): P
         minOut = applySlippage(q.amountOut, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
       }
       const spendAsset = side === "buy" ? quoteAsset : t.token;
-
+      const outAsset = side === "buy" ? t.token : quoteAsset;
+      let target: Address, data: Hex;
       if (graduated) {
         if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
-        const router = deployment().router;
-        await ensureAllowance(w, spendAsset, router, t.amountIn);
-        const { request, result } = await pc.simulateContract({
-          account: w.account.address, address: router, abi: discipleRouterAbi,
-          functionName: side === "buy" ? "buyExactIn" : "sellExactIn",
-          args: [t.token, t.amountIn, minOut, recipient, deadline],
-        });
-        const hash = await w.writeContract(request);
-        await pc.waitForTransactionReceipt({ hash });
-        return { ok: true, txHash: hash, amountOut: result };
-      }
-
-      await ensureAllowance(w, spendAsset, curve, t.amountIn);
-      let hash: `0x${string}`, amountOut: bigint;
-      if (side === "buy") {
-        const { request, result } = await pc.simulateContract({
-          account: w.account.address, address: curve, abi: bondingCurveAbi,
-          functionName: "buy", args: [t.amountIn, minOut, deadline, recipient],
-        });
-        hash = await w.writeContract(request); amountOut = result;
+        target = deployment().router;
+        data = encodeFunctionData({ abi: discipleRouterAbi, functionName: side === "buy" ? "buyExactIn" : "sellExactIn", args: [t.token, t.amountIn, minOut, recipient, deadline] });
       } else {
-        const { request, result } = await pc.simulateContract({
-          account: w.account.address, address: curve, abi: bondingCurveAbi,
-          functionName: "sell", args: [t.amountIn, minOut, deadline, recipient],
-        });
-        hash = await w.writeContract(request); amountOut = result;
+        target = curve;
+        data = encodeFunctionData({ abi: bondingCurveAbi, functionName: side, args: [t.amountIn, minOut, deadline, recipient] });
       }
-      await pc.waitForTransactionReceipt({ hash });
-      return { ok: true, txHash: hash, amountOut };
+      const calls = [...(await approveCall(me, spendAsset, target, t.amountIn)), { to: target, data }];
+      const r = await execCalls(calls);
+      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut };
     } catch (e) {
       if (e instanceof ProtocolError) throw e;
       throw friendlyError(e);
@@ -279,21 +290,24 @@ export function createViemProtocol(signer: () => Promise<Signer> = getSigner): P
         deadline: B(now() + 300),
       };
       try {
-        const w = await signer();
+        const me = await activeAddress();
+        const calls: Call[] = [];
         if (creatorBuy > B(0)) {
           const cq = await readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps));
           if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy is above the allowed maximum (wallet cap). Lower it.");
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
-          await ensureAllowance(w, q, launchpad, creatorBuy);
+          // creator buy pulls amount + launch fee headroom; approve with 5% slack
+          calls.push(...(await approveCall(me, q, launchpad, creatorBuy + creatorBuy / B(20))));
         }
-        const { request, result } = await pc.simulateContract({
-          account: w.account.address, address: launchpad, abi: launchpadAbi, functionName: "launchCoin", args: [params],
-        });
-        const hash = await w.writeContract(request);
-        await pc.waitForTransactionReceipt({ hash });
-        return { token: result.token, curve: result.curve, txHash: hash };
+        calls.push({ to: launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "launchCoin", args: [params] }) });
+        const r = await execCalls(calls);
+        for (const l of r.logs) {
+          if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;
+          try { const ev = decodeEventLog({ abi: launchpadAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.eventName === "Launched") return { token: ev.args.token as Address, curve: ev.args.curve as Address, txHash: r.txHash }; } catch { /* other event */ }
+        }
+        throw new ProtocolError("NoLaunchEvent", `Launch tx ${r.txHash} had no Launched event.`);
       } catch (e) {
         throw e instanceof ProtocolError ? e : friendlyError(e);
       }

@@ -5,7 +5,7 @@ import { ACHIEVEMENT_RARITY, SEASON_PASS, type AchievementRarity } from "./confi
 import type { PlayerStats } from "./stats";
 
 export type AchievementCategory =
-  | "flight" | "crew" | "bombs" | "conviction" | "launcher" | "trencher" | "seasonal";
+  | "flight" | "crew" | "bombs" | "conviction" | "launcher" | "trencher" | "seasonal" | "tramps";
 
 export interface AchievementReward {
   points?: number; skin?: string; trail?: string; frame?: string;
@@ -25,6 +25,7 @@ export const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; label: string }[
   { id: "launcher", label: "Launcher" },
   { id: "trencher", label: "Trencher" },
   { id: "seasonal", label: "Seasonal" },
+  { id: "tramps", label: "Tramps & Walls" },
 ];
 
 const A = (
@@ -77,6 +78,12 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("season_anointed", "Season Anointed", "Reach season rank Anointed.", "seasonal", "ANOINTED", 1, { points: 1000, skin: "Anointed Livery" }, (s) => ["ANOINTED", "GLORIFIED", "DIVINE"].includes(s.rank.tier) ? 1 : 0),
   A("top_percentile", "Top of the Choir", "Finish in the top 5% of the leaderboard.", "seasonal", "GLORIFIED", 5, { points: 3000, trail: "Choir Light" }, (s) => (s.leaderboardTopPct <= 5 ? 5 : Math.max(0, 10 - s.leaderboardTopPct))),
   A("rhalo_stacker", "rHALO Stacker", "Earn 10,000 season points.", "seasonal", "ANOINTED", 10000, { points: 500 }, (s) => s.points),
+  A("first_bounce", "First Bounce", "Get a tramp filled — the rocket bounced off your support.", "tramps", "COMMON", 1, { points: 150 }, (s) => s.metrics.trampsFilled ?? 0),
+  A("trampoline_saint", "Trampoline Saint", "Get 10 tramps filled.", "tramps", "ANOINTED", 10, { points: 1200, trail: "Spring Halo" }, (s) => s.metrics.trampsFilled ?? 0),
+  A("holy_safety_net", "Holy Safety Net", "Fill a $1K+ tramp.", "tramps", "BLESSED", 1, { points: 500, frame: "Safety Net" }, (s) => s.metrics.bigTrampsFilled ?? 0),
+  A("wall_of_jericho", "Wall of Jericho", "Have a wall broken through (filled).", "tramps", "COMMON", 1, { points: 175 }, (s) => s.metrics.wallsFilled ?? 0),
+  A("stonemason", "Stonemason", "Get 10 walls filled.", "tramps", "ANOINTED", 10, { points: 1400, skin: "Marble Hull" }, (s) => s.metrics.wallsFilled ?? 0),
+  A("gatekeeper_of_range", "Range Warden", "Fill 25 tramps + walls combined.", "tramps", "GLORIFIED", 25, { points: 3500, frame: "Warden Crest" }, (s) => (s.metrics.trampsFilled ?? 0) + (s.metrics.wallsFilled ?? 0)),
   A("pass_level_25", "Halfway to Heaven", "Reach season pass level 25.", "seasonal", "BLESSED", 25, { points: 400, frame: "Pass 25" }, (s) => Math.min(25, Math.floor(s.points / 1000))),
 ];
 

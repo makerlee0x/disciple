@@ -1,0 +1,293 @@
+/**
+ * On-chain TrampWallAdapter → DISCIPLE FLOW TrampWallManager (graduated v4 coins only).
+ * Rendering stays in PR #9 (TrampWallPanel / engine); this file only talks to chain.
+ *
+ * Price/tick math (contracts/docs/frontend-api.md):
+ *   price (quote raw per token raw) = 1.0001^tick      if tokenIsCurrency0
+ *                                   = 1.0001^-tick     otherwise
+ *   mcapUsd = price × totalSupplyRaw × quotePriceUsd / 1e36   (quotePriceUsd = USD WAD per 1e18 quote raw)
+ * Tramp = quote-only range strictly below price; Wall = token-only range strictly above. Ticks are multiples of 60.
+ */
+import { maxUint256, type Log, type PublicClient } from "viem";
+import { bondingCurveAbi, discipleHookAbi, tokenAbi, trampWallManagerAbi } from "../abi";
+import { ACTIVE_CHAIN, deployment } from "../chains";
+import type { Address } from "../protocol";
+import { curveOf, curveParams, friendlyError, publicClient, quoteRawToUsd } from "../protocol-viem";
+import { getSigner } from "../wallet";
+import {
+  computePreview, pointsFor, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent,
+} from "./adapter";
+
+const B = BigInt;
+const LN_1_0001 = Math.log(1.0001);
+export const TICK_SPACING = 60;
+const mgr = () => deployment().trampWallManager;
+
+/* ---------------- tick <-> mcap ---------------- */
+
+export interface PoolCtx {
+  tick: number;
+  tickSpacing: number;
+  tokenIsCurrency0: boolean;
+  quote: Address;
+  /** USD per quote raw unit. */
+  usdPerQuoteRaw: number;
+  totalSupplyRaw: number;
+}
+
+export async function poolCtx(pc: PublicClient, token: Address): Promise<PoolCtx> {
+  const curve = await curveOf(pc, token);
+  const [[tick, , tickSpacing, tokenIsCurrency0], qp, quote, p] = await Promise.all([
+    pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "poolState", args: [token] }),
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" }),
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }),
+    curveParams(pc, curve),
+  ]);
+  return { tick: Number(tick), tickSpacing: Number(tickSpacing) || TICK_SPACING, tokenIsCurrency0, quote,
+           usdPerQuoteRaw: Number(qp) / 1e36, totalSupplyRaw: Number(p.totalSupply) };
+}
+
+/** Raw price (quote raw per token raw) at a tick. */
+export const priceAtTick = (c: PoolCtx, tick: number) => Math.exp((c.tokenIsCurrency0 ? tick : -tick) * LN_1_0001);
+export const mcapAtTick = (c: PoolCtx, tick: number) => priceAtTick(c, tick) * c.totalSupplyRaw * c.usdPerQuoteRaw;
+/** Unaligned tick for an mcap (USD). */
+export function tickAtMcap(c: PoolCtx, mcapUsd: number) {
+  const price = mcapUsd / (c.totalSupplyRaw * c.usdPerQuoteRaw);
+  const t = Math.log(price) / LN_1_0001;
+  return c.tokenIsCurrency0 ? t : -t;
+}
+const floorTo = (t: number, s: number) => Math.floor(t / s) * s;
+const ceilTo = (t: number, s: number) => Math.ceil(t / s) * s;
+
+/**
+ * Aligned [tickLower, tickUpper] for an mcap band, forced single-sided:
+ * tramp ⇒ whole range below price, wall ⇒ whole range above (in price terms; flipped in tick space when token is c1).
+ */
+export function rangeFor(c: PoolCtx, kind: "tramp" | "wall", mcapLoUsd: number, mcapHiUsd: number): [number, number] {
+  const s = c.tickSpacing;
+  const a = tickAtMcap(c, mcapLoUsd), b = tickAtMcap(c, mcapHiUsd);
+  let lo = floorTo(Math.min(a, b), s), hi = ceilTo(Math.max(a, b), s);
+  if (hi === lo) hi = lo + s;
+  // "below price" = lower ticks when token is c0, higher ticks when token is c1.
+  const belowIsLowTicks = c.tokenIsCurrency0;
+  const wantLowTicks = (kind === "tramp") === belowIsLowTicks;
+  if (wantLowTicks && hi > floorTo(c.tick, s)) { const w = hi - lo; hi = floorTo(c.tick, s); if (hi > c.tick - 1) hi -= s; lo = hi - w; }
+  if (!wantLowTicks && lo <= c.tick) { const w = hi - lo; lo = floorTo(c.tick, s) + s; hi = lo + w; }
+  return [lo, hi];
+}
+
+/** Fraction of the range the current price has crossed (0 untouched … 1 filled). */
+function filledFrac(c: PoolCtx, kind: "tramp" | "wall", lo: number, hi: number) {
+  const f = (c.tick - lo) / (hi - lo);
+  const fracUp = Math.max(0, Math.min(1, f)); // share of range below current tick
+  // tramp fills as price FALLS through it; wall as price RISES. In tick space flip for token=c1.
+  const priceUpIsTickUp = c.tokenIsCurrency0;
+  const crossedUp = priceUpIsTickUp ? fracUp : 1 - fracUp;
+  return kind === "wall" ? crossedUp : 1 - crossedUp;
+}
+
+/* ---------------- reads ---------------- */
+
+type L = Log & { eventName: string; args: Record<string, unknown> };
+
+async function readOne(pc: PublicClient, id: bigint, c: PoolCtx, placed?: { amount: bigint; at: number }): Promise<TrampWall> {
+  const [owner, token, tl, tu, , kindN, active] = await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "positions", args: [id] });
+  const kind = Number(kindN) === 0 ? "tramp" : "wall";
+  const lo = Number(tl), hi = Number(tu);
+  const [filled, fees] = await Promise.all([
+    active ? pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "isFilled", args: [id] }) : Promise.resolve(true),
+    active ? pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "pendingFees", args: [id] }) : Promise.resolve([B(0), B(0)] as const),
+  ]);
+  const mA = mcapAtTick(c, lo), mB = mcapAtTick(c, hi);
+  const mcapLoUsd = Math.min(mA, mB), mcapHiUsd = Math.max(mA, mB);
+  const tokenUsd = (raw: bigint) => Number(raw) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw;
+  const amount = placed?.amount ?? B(0);
+  const sizeUsd = kind === "tramp" ? Number(amount) * c.usdPerQuoteRaw : tokenUsd(amount);
+  const status = !active ? (filled ? "filled" : "cancelled") : filled ? "filled" : "active";
+  return {
+    id: id.toString(), token: token as Address, owner: owner as Address, kind,
+    mcapUsd: Math.sqrt(mcapLoUsd * mcapHiUsd), mcapLoUsd, mcapHiUsd, tickLower: lo, tickUpper: hi,
+    amount, sizeUsd, status, filledFrac: filled ? 1 : filledFrac(c, kind, lo, hi),
+    feesEarnedUsd: Number(fees[0]) * c.usdPerQuoteRaw + tokenUsd(fees[1]),
+    pointsEarned: filled ? pointsFor(kind, sizeUsd) : 0,
+    createdAt: placed?.at ?? Date.now(),
+  };
+}
+
+async function placedLogs(pc: PublicClient, filter: { token?: Address; owner?: Address }) {
+  const base = { address: mgr(), abi: trampWallManagerAbi, fromBlock: deployment().fromBlock, toBlock: "latest" as const };
+  const [t, w, x] = await Promise.all([
+    pc.getContractEvents({ ...base, eventName: "TrampPlaced", args: filter }),
+    pc.getContractEvents({ ...base, eventName: "WallPlaced", args: filter }),
+    pc.getContractEvents({ ...base, eventName: "Cancelled", args: filter }),
+  ]);
+  const placed = new Map<string, { id: bigint; token: Address; amount: bigint; block: bigint }>();
+  for (const l of [...t, ...w] as unknown as L[]) {
+    const a = l.args as Record<string, bigint | string>;
+    placed.set(String(a.id), { id: a.id as bigint, token: a.token as Address, amount: (a.quoteAmt ?? a.tokenAmt) as bigint, block: l.blockNumber ?? B(0) });
+  }
+  const cancelled = new Set((x as unknown as L[]).map((l) => String(l.args.id)));
+  return { placed: Array.from(placed.values()), cancelled };
+}
+
+/* ---------------- adapter ---------------- */
+
+export interface OnchainTrampWallAdapter extends TrampWallAdapter {
+  claimFees(id: string): Promise<{ ok: boolean; txHash?: string; reason?: string }>;
+  /** Permissionless: settle a crossed position to its owner (anyone may call; no tip in v0). */
+  pull(id: string): Promise<{ ok: boolean; txHash?: string; reason?: string }>;
+  /** Opportunistic keeper: pull up to `max` filled-but-unsettled positions on this coin with the connected wallet. */
+  pullFilled(token: Address, max?: number): Promise<string[]>;
+  pendingFees(id: string): Promise<{ quoteFees: bigint; tokenFees: bigint }>;
+}
+
+export function createOnchainAdapter(pc: PublicClient = publicClient()): OnchainTrampWallAdapter {
+  const ctxCache = new Map<string, { at: number; c: PoolCtx }>();
+  async function ctx(token: Address) {
+    const k = token.toLowerCase(), hit = ctxCache.get(k);
+    if (hit && Date.now() - hit.at < 5000) return hit.c;
+    const c = await poolCtx(pc, token);
+    ctxCache.set(k, { at: Date.now(), c });
+    return c;
+  }
+
+  async function send(fn: "cancel" | "claimFees" | "pull", id: string) {
+    try {
+      const w = await getSigner();
+      const { request } = await pc.simulateContract({ account: w.account.address, address: mgr(), abi: trampWallManagerAbi, functionName: fn, args: [B(id)] });
+      const txHash = await w.writeContract(request);
+      await pc.waitForTransactionReceipt({ hash: txHash });
+      return { ok: true, txHash };
+    } catch (e) { return { ok: false, reason: friendlyError(e).message }; }
+  }
+
+  async function listBy(filter: { token?: Address; owner?: Address }) {
+    const { placed, cancelled } = await placedLogs(pc, filter);
+    const out = await Promise.all(placed.map(async (p) => {
+      const tw = await readOne(pc, p.id, await ctx(p.token), { amount: p.amount, at: Date.now() });
+      if (cancelled.has(tw.id)) tw.status = "cancelled";
+      return tw;
+    }));
+    return out.sort((a, b) => b.mcapUsd - a.mcapUsd);
+  }
+
+  const adapter: OnchainTrampWallAdapter = {
+    async isGraduated(token) {
+      try {
+        const curve = await curveOf(pc, token);
+        return await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "graduated" });
+      } catch { return false; }
+    },
+    list: (token) => listBy({ token }),
+    listMine: async (owner, token) => listBy(token ? { owner, token } : { owner }),
+
+    async preview(p, currentMcapUsd) {
+      const pv = computePreview(p, currentMcapUsd);
+      try {
+        const c = await ctx(p.token);
+        const [lo, hi] = rangeFor(c, p.kind, pv.mcapLoUsd, pv.mcapHiUsd);
+        const a = mcapAtTick(c, lo), b = mcapAtTick(c, hi);
+        return { ...pv, mcapLoUsd: Math.min(a, b), mcapHiUsd: Math.max(a, b) }; // snapped to 60-tick grid
+      } catch { return pv; }
+    },
+
+    async place(p: PlaceTrampWallParams) {
+      try {
+        if (!(await adapter.isGraduated(p.token))) return { ok: false, reason: "Tramps & walls open after graduation." };
+        const c = await ctx(p.token);
+        const w = (p.rangeWidthPct ?? 2) / 100;
+        const [lo, hi] = rangeFor(c, p.kind, p.mcapUsd * (1 - w / 2), p.mcapUsd * (1 + w / 2));
+        const s = await getSigner();
+        const me = s.account.address;
+        const asset = p.kind === "tramp" ? c.quote : p.token;
+        const allowance = await pc.readContract({ address: asset, abi: tokenAbi, functionName: "allowance", args: [me, mgr()] });
+        if (allowance < p.amount) {
+          const h = await s.writeContract({ chain: ACTIVE_CHAIN, account: me, address: asset, abi: tokenAbi, functionName: "approve", args: [mgr(), maxUint256] });
+          await pc.waitForTransactionReceipt({ hash: h });
+        }
+        const deadline = B(Math.floor(Date.now() / 1000) + 300);
+        const { request, result } = await pc.simulateContract({
+          account: me, address: mgr(), abi: trampWallManagerAbi,
+          functionName: p.kind === "tramp" ? "placeTramp" : "placeWall",
+          args: [p.token, lo, hi, p.amount, B(1), deadline], // minLiquidity 1: range is single-sided, no price slippage
+        });
+        const txHash = await s.writeContract(request);
+        await pc.waitForTransactionReceipt({ hash: txHash });
+        return { ok: true, id: result[0].toString(), txHash };
+      } catch (e) { return { ok: false, reason: friendlyError(e).message }; }
+    },
+
+    cancel: (id) => send("cancel", id),
+    claimFees: (id) => send("claimFees", id),
+    pull: (id) => send("pull", id),
+
+    async pullFilled(token, max = 3) {
+      const done: string[] = [];
+      const { placed, cancelled } = await placedLogs(pc, { token });
+      for (const p of placed) {
+        if (done.length >= max) break;
+        if (cancelled.has(p.id.toString())) continue;
+        const [, , , , , , active] = await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "positions", args: [p.id] });
+        if (!active) continue;
+        if (!(await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "isFilled", args: [p.id] }))) continue;
+        const r = await send("pull", p.id.toString());
+        if (r.ok) done.push(p.id.toString());
+      }
+      return done;
+    },
+
+    async pendingFees(id) {
+      const [quoteFees, tokenFees] = await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "pendingFees", args: [B(id)] });
+      return { quoteFees, tokenFees };
+    },
+
+    onEvent(token, cb: (e: TrampWallEvent) => void) {
+      const stops: (() => void)[] = [];
+      stops.push(pc.watchContractEvent({
+        address: mgr(), abi: trampWallManagerAbi, args: { token },
+        onLogs: async (logs) => {
+          for (const l of logs as unknown as L[]) {
+            const a = l.args as Record<string, bigint | string>;
+            const id = String(a.id);
+            if (l.eventName === "TrampPlaced" || l.eventName === "WallPlaced") {
+              try { cb({ type: "Placed", tw: await readOne(pc, a.id as bigint, await ctx(token), { amount: (a.quoteAmt ?? a.tokenAmt) as bigint, at: Date.now() }) }); } catch { /* ignore */ }
+            } else if (l.eventName === "Cancelled") cb({ type: "Cancelled", id, token });
+            else if (l.eventName === "Filled") {
+              let pts = 0;
+              try { const tw = await readOne(pc, a.id as bigint, await ctx(token)); pts = pointsFor(tw.kind, tw.sizeUsd); } catch { /* ignore */ }
+              cb({ type: "Filled", id, token, filledAt: Date.now(), pointsEarned: pts });
+            } else if (l.eventName === "FeesClaimed") {
+              const c = await ctx(token).catch(() => null);
+              const usd = c ? Number(a.quoteFees as bigint) * c.usdPerQuoteRaw + Number(a.tokenFees as bigint) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw : 0;
+              cb({ type: "FeesDonated", id, token, amountUsd: usd });
+            }
+          }
+        },
+      }));
+      // Hook donation to in-range LP (all positions on this coin share it pro-rata) → id "pool".
+      stops.push(pc.watchContractEvent({
+        address: deployment().hook, abi: discipleHookAbi, eventName: "LPDonation", args: { token },
+        onLogs: async (logs) => {
+          const c = await ctx(token).catch(() => null);
+          for (const l of logs as unknown as L[]) {
+            const a = l.args as Record<string, bigint | string>;
+            const raw = a.amount as bigint;
+            const isQuote = c && String(a.currency).toLowerCase() === c.quote.toLowerCase();
+            const usd = !c ? 0 : isQuote ? Number(raw) * c.usdPerQuoteRaw : Number(raw) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw;
+            cb({ type: "FeesDonated", id: "pool", token, amountUsd: usd });
+          }
+        },
+      }));
+      return () => stops.forEach((s) => s());
+    },
+  };
+  return adapter;
+}
+
+/** USD helper for callers sizing a tramp in quote raw units. */
+export async function usdToQuoteRaw(pc: PublicClient, token: Address, usd: number) {
+  const curve = await curveOf(pc, token);
+  const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
+  return (B(Math.round(usd * 1e6)) * B(1e18) * B(1e18)) / (qp * B(1e6));
+}
+export { quoteRawToUsd };
