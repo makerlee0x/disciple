@@ -4,6 +4,7 @@
  * nsfwjs + tfjs are lazy-loaded the first time an image is picked; model is bundled (no CDN).
  */
 import { decideNsfw, type ModerationVerdict } from "./config";
+import { withBase } from "./base-path";
 
 type Model = { classify(img: HTMLImageElement): Promise<{ className: string; probability: number }[]> };
 let modelP: Promise<Model> | null = null;
@@ -13,7 +14,7 @@ async function model(): Promise<Model> {
     await import("@tensorflow/tfjs");
     // Static model files exported by scripts/export-nsfw-model.cjs (webpack can't parse nsfwjs's shard bundles).
     const { load } = await import("nsfwjs/core");
-    return (await load("/models/nsfw/mobilenet_v2/model.json", { size: 224 })) as unknown as Model;
+    return (await load(withBase("/models/nsfw/mobilenet_v2/model.json"), { size: 224 })) as unknown as Model;
   })();
   return modelP;
 }

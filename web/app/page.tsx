@@ -17,6 +17,7 @@ import BrandedRocket from "@/components/BrandedRocket";
 import { brandedRocket } from "@/lib/decal";
 import { isDeployed } from "@/lib/chains";
 import { watchLaunchpad } from "@/lib/events";
+import { withBase } from "@/lib/base-path";
 
 /** Rocket card model. `tk` = call sign (never a pair string). Stats are MOCK. */
 type Rocket = {
@@ -50,7 +51,7 @@ const SAMPLE: Rocket[] = [
     id: "sample-halo",
     name: "Halo Dog",
     tk: "HALO",
-    icon: "/test-icons/wide.png",
+    icon: withBase("/test-icons/wide.png"),
     mcap: 9.2e3,
     chg: -6.1,
     c: "#ffd0e0",
@@ -60,7 +61,7 @@ const SAMPLE: Rocket[] = [
     id: "sample-limbo",
     name: "Limbo Cat",
     tk: "LIMBO",
-    icon: "/test-icons/transparent.png",
+    icon: withBase("/test-icons/transparent.png"),
     mcap: 14.8e3,
     chg: -12.7,
     c: "#e3d6ff",
@@ -70,7 +71,7 @@ const SAMPLE: Rocket[] = [
     id: "sample-choir",
     name: "Choir of Frogs",
     tk: "CHOIR",
-    icon: "/assets/tier4.png",
+    icon: withBase("/assets/tier4.png"),
     mcap: 21.4e3,
     chg: 42.0,
     c: "#c9f5df",
@@ -171,7 +172,7 @@ export default function HomePage() {
         let ethUsd = 2400;
         let supply = 1e9;
         try {
-          const rep = await fetch("/replay.json");
+          const rep = await fetch(withBase("/replay.json"));
           const R = await rep.json();
           ethUsd = R.ethUsd || ethUsd;
           supply = R.totalSupply || supply;
@@ -182,7 +183,7 @@ export default function HomePage() {
         ai.mcap = priceUsd * supply;
       } catch {
         try {
-          const rep = await fetch("/replay.json");
+          const rep = await fetch(withBase("/replay.json"));
           const R = await rep.json();
           const sw = R.swaps || [];
           const last = sw[sw.length - 1];
@@ -371,7 +372,7 @@ export default function HomePage() {
           minHeight: 360,
           overflow: "hidden",
           background:
-            "#0b0f22 url(/assets/tier0.png) center 70% / cover no-repeat",
+            `#0b0f22 url(${withBase("/assets/tier0.png")}) center 70% / cover no-repeat`,
         }}
       >
         <div
@@ -440,7 +441,7 @@ export default function HomePage() {
         <img
           ref={rocketRef}
           id="rocket"
-          src="/assets/rocket.png"
+          src={withBase("/assets/rocket.png")}
           alt="rocket on the launch pad"
           style={{
             position: "absolute",

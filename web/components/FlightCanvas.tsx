@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
+import { BASE_PATH, withBase } from "@/lib/base-path";
 
 declare global {
   interface Window {
@@ -47,8 +48,8 @@ export default function FlightCanvas({ search }: Props) {
 
         if (!window.REPLAY) {
           setStatus("Loading replay data…");
-          const r = await fetch("/replay.json");
-          if (!r.ok) throw new Error("Failed to load /replay.json");
+          const r = await fetch(withBase("/replay.json"));
+          if (!r.ok) throw new Error("Failed to load replay.json");
           window.REPLAY = await r.json();
         } else if (needReplay && !window.REPLAY) {
           /* already handled */
@@ -67,9 +68,11 @@ export default function FlightCanvas({ search }: Props) {
           delete window.__flight;
         }
 
+        // Flight engine loads /assets/* — prefix for githack basePath.
+        (window as unknown as { __DISCIPLE_BASE_PATH__?: string }).__DISCIPLE_BASE_PATH__ = BASE_PATH;
         await new Promise<void>((resolve, reject) => {
           scriptEl = document.createElement("script");
-          scriptEl.src = "/flight/engine.js";
+          scriptEl.src = withBase("/flight/engine.js");
           scriptEl.dataset.discipleFlight = "1";
           scriptEl.async = false;
           scriptEl.onload = () => resolve();

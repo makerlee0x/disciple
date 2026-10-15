@@ -2,8 +2,9 @@
  * Token-icon decals on the chrome rocket (runtime canvas compositing).
  * Composite once into an offscreen canvas → zero per-frame cost.
  */
+import { IS_STATIC_PREVIEW, withBase } from "./base-path";
 
-export const BASE_ROCKET_SRC = "/assets/rocket.png"; // locked chrome sprite
+export const BASE_ROCKET_SRC = withBase("/assets/rocket.png"); // locked chrome sprite
 export const DECAL_SCALE = 4; // composite at 4× sprite resolution
 
 /** Roundel geometry as fractions of the sprite (tuned to /assets/rocket.png, 73×200). */
@@ -41,9 +42,12 @@ const isLocal = (u: string) =>
  */
 export async function loadIcon(url: string | undefined | null, timeoutMs = 4000): Promise<CanvasImageSource | null> {
   if (!url) return null;
+  // Static preview: no /api/img proxy — try direct CORS load, else caller falls back to halo.
   const tries = isLocal(url)
-    ? [() => loadImg(url, true, timeoutMs)]
-    : [() => loadImg("/api/img?url=" + encodeURIComponent(url), false, timeoutMs), () => loadImg(url, true, timeoutMs)];
+    ? [() => loadImg(url.startsWith("/") ? withBase(url) : url, true, timeoutMs)]
+    : IS_STATIC_PREVIEW
+      ? [() => loadImg(url, true, timeoutMs)]
+      : [() => loadImg(withBase("/api/img?url=" + encodeURIComponent(url)), false, timeoutMs), () => loadImg(url, true, timeoutMs)];
   for (const t of tries) {
     try { return await t(); } catch { /* next */ }
   }

@@ -510,7 +510,7 @@ function resize(){ const dpr=Math.min(2,devicePixelRatio||1); const wr=document.
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const names=[...new Set(TIERS.map(t=>t.bg).concat(['rocket']))];
-names.forEach(n=>{ const im=new Image(); im.onload=()=>loaded++; im.onerror=()=>{loaded++; im.bad=true; console.warn('asset failed',n);}; im.src='/assets/'+n+'.png'; IMG[n]=im; });
+names.forEach(n=>{ const im=new Image(); im.onload=()=>loaded++; im.onerror=()=>{loaded++; im.bad=true; console.warn('asset failed',n);}; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/assets/'+n+'.png'; IMG[n]=im; });
 
 // film grain: pre-rendered noise tiles
 const grain=[...Array(4)].map(()=>{ const g=document.createElement('canvas'); g.width=g.height=256; const gx=g.getContext('2d'), id=gx.createImageData(256,256);
