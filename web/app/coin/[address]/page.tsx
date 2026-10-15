@@ -7,6 +7,7 @@ import CrewPanel from "@/components/CrewPanel";
 import ShareButton from "@/components/ShareButton";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
+import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import TradeBridge from "@/components/TradeBridge";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL } from "@/lib/config";
@@ -27,6 +28,7 @@ function FlightInner({ address }: { address: string }) {
       <CrewPanel />
       <PnlHud coin={address} />
       <DiscipleFeed token={address} />
+      <TrampWallPanel token={address} />
       <TradeBridge token={address} />
       <ShareButton callSign={sp.get("cs") || "AI"} icon={sp.get("icon")} />
     </>

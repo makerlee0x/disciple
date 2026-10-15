@@ -9,7 +9,7 @@
 import type { Log, PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, launchpadAbi } from "./abi";
 import { deployment } from "./chains";
-import { publicClient, quoteRawToUsd } from "./protocol-viem";
+import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import type { Address, ProtocolEvent } from "./protocol";
 
 type Cb = (e: ProtocolEvent) => void;
@@ -38,7 +38,7 @@ export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () =>
 }
 
 /** Normalize an on-chain Trade (curve or hook) into the engine's TradeEvent. */
-export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook"): ProtocolEvent {
+export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook", mcapPerPriceWad?: number): ProtocolEvent {
   const a = l.args as Record<string, bigint | string | boolean>;
   const isBuy = a.isBuy as boolean;
   const quoteAmt = a.quoteAmt as bigint, tokenAmt = a.tokenAmt as bigint;
@@ -49,9 +49,16 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     quoteAmt, tokenAmt, fee: a.fee as bigint, snipeFee: a.snipeFee as bigint,
     usd: quoteRawToUsd(quoteAmt, quotePriceUsd),
     impactBps: bps, impactPct: bps / 100,
-    mcapUsd: wad(a.mcapAfterUsd as bigint),
+    // Post-grad Trade.mcapAfterUsd is frozen (FLOW bug): rescale the live pool price via the MarketLens ratio.
+    mcapUsd: venue === "hook" && mcapPerPriceWad ? Number(a.priceAfterX18 as bigint) * mcapPerPriceWad : wad(a.mcapAfterUsd as bigint),
     txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0),
   };
+}
+
+/** USD mcap per unit of priceWad from MarketLens (live v4 price × live quote/USD). undefined if no lens. */
+export async function lensScale(token: Address, pc: PublicClient = publicClient()): Promise<number | undefined> {
+  const m = await readMarket(pc, token);
+  return m && m.priceWad > BigInt(0) ? m.mcapUsd / Number(m.priceWad) : undefined;
 }
 
 /**
@@ -76,7 +83,7 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   if (hook !== "0x0000000000000000000000000000000000000000")
     stops.push(pc.watchContractEvent({
       address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token },
-      onLogs: (logs) => { for (const l of logs as L[]) cb(tradeFromLog(l, qp, "hook")); },
+      onLogs: async (logs) => { const k = await lensScale(token, pc); for (const l of logs as L[]) cb(tradeFromLog(l, qp, "hook", k)); },
     }));
 
   return () => stops.forEach((s) => s());
@@ -96,7 +103,7 @@ export async function listLaunches(pc: PublicClient = publicClient()): Promise<L
     const curve = a.curve as Address;
     const c = { address: curve, abi: bondingCurveAbi } as const;
     const [mcap, grad, prog, meta] = await Promise.all([
-      pc.readContract({ ...c, functionName: "mcapNow" }).catch(() => BigInt(0)),
+      readMarket(pc, a.token as Address).then((m) => (m ? BigInt(Math.round(m.mcapUsd * 1e6)) * BigInt(1e12) : pc.readContract({ ...c, functionName: "mcapNow" }))).catch(() => BigInt(0)),
       pc.readContract({ ...c, functionName: "graduated" }).catch(() => false),
       pc.readContract({ ...c, functionName: "progressBps" }).catch(() => BigInt(0)),
       pc.readContract({ address: lp, abi: launchpadAbi, functionName: "metaOf", args: [a.token as Address] }).catch(() => null),
@@ -123,7 +130,8 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
     if (l.eventName === "Trade") out.push({ k: key(l), e: tradeFromLog(l, qp, "curve") });
     else if (l.eventName === "GraduatedToV4") out.push({ k: key(l), e: { type: "Graduate", token, poolId: l.args.poolId as `0x${string}` } });
   }
-  for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook") });
+  const scale = hookLogs.length ? await lensScale(token, pc) : undefined;
+  for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook", scale) });
   out.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
   return out.map((x) => x.e);
 }
