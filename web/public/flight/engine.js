@@ -381,6 +381,23 @@ const S = {
   headTarget:Math.PI/2, headSmooth:Math.PI/2, aimDisp:0, aimVel:0, aimTgt:0, camAlt:null, camX:null,
   thrustNet:0, thrustPend:null, trailAimLP:0,
 };
+/* =====================================================================
+   POOLED PARTICLES — fixed capacity, preallocated objects, swap-remove on death.
+   No per-frame allocation. Hard caps: when full, a live slot is recycled (round-robin)
+   so a fresh blast always shows instead of being silently dropped.
+   ===================================================================== */
+function Pool(cap){ this.a=new Array(cap); for(let i=0;i<cap;i++) this.a[i]={k:'',x:0,y:0,vx:0,vy:0,r:0,r0:0,gr:0,life:0,max:1,drag:0,g:0,c:'',a:1,s:0,hot:false};
+  this.n=0; this.cap=cap; this.rr=0; this.recycled=0; }
+Pool.prototype.spawn=function(){ if(this.n<this.cap) return this.a[this.n++]; this.recycled++; this.rr=(this.rr+1)%this.cap; return this.a[this.rr]; };
+Pool.prototype.kill=function(i){ const a=this.a, j=--this.n, t=a[i]; a[i]=a[j]; a[j]=t; };   // caller iterates backwards
+Pool.prototype.clear=function(){ this.n=0; };
+Object.defineProperty(Pool.prototype,'length',{get(){ return this.n; }});
+const CAP={exhaust:360, shards:220, bfx:600};
+S.particles=new Pool(CAP.exhaust); S.shards=new Pool(CAP.shards);
+function spawnShard(x,y,vx,vy,c){ const p=S.shards.spawn(); p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.life=1; p.c=c; }
+/* in-place filter (no new array): keeps elements where pred(e) is truthy */
+function keepIf(arr,pred){ let j=0; for(let i=0;i<arr.length;i++){ const e=arr[i]; if(pred(e)) arr[j++]=e; } arr.length=j; return arr; }
+const ALIVE=e=>e.life>0, NOT_DEAD_MOTE=m=>!m.dead&&m.y<H+30, NOT_DEAD_OBS=o=>!o.dead&&o.y<H+50, TRAIL_ON=p=>p.x>-40;
 
 const source = makeSource();
 if (IS_POOL) S.fuelers={'you':0};
@@ -404,7 +421,7 @@ function onEvent(e){
   else if (e.t==='mark'){ S.confirmed.mcap=e.mcap; }
   else if (e.t==='replayRestart'){ S.feed.unshift({txt:'⟲ replay restarted',c:'#ffe7a3'}); S.displayAlt=null; S.confirmed.mcap=null; }
   else if (e.t==='levelFilled'){ const l=e.level; const y=altToScreenY(mcapToAlt(l.mcap));
-    for(let i=0;i<40;i++) S.shards.push({x:laneX(l)+ (Math.random()-.5)*laneW(l), y, vx:(Math.random()-.5)*300, vy:(Math.random()-.8)*260, life:1, c:l.side==='ask'?'#dfe8ff':'#ffd98a'});
+    for(let i=0;i<40;i++) spawnShard(laneX(l)+(Math.random()-.5)*laneW(l), y, (Math.random()-.5)*300, (Math.random()-.8)*260, l.side==='ask'?'#dfe8ff':'#ffd98a');
     // lateral gameplay: being lined up with the level when it breaks scores "Breaker"/"Bounce"
     if (Math.abs(S.x-laneX(l))<laneW(l)/2){ S.score+=Math.round(10+Math.log10(1+l.usd)*10);
       S.flashes.push({txt:l.side==='ask'?'WALL BREAKER +':'TRAMPOLINE BOUNCE +', life:1.4}); award(l.side==='ask'?'wall':'tramp',l.side==='ask'?'WALL BREAKER':'TRAMPOLINE BOUNCE','lined up when a level broke'); }
@@ -578,24 +595,32 @@ const CLOUDS=(()=>{
     for(let i=0;i<L.n;i++){
       const puffs=[]; const pc=3+((i*3+li)%4);
       for(let k=0;k<pc;k++) puffs.push({dx:(hash(i*17+k*3+li)-0.5)*L.r*1.6, dy:(hash(i*9+k+li*5)-0.5)*L.r*0.55, rr:0.45+hash(k*11+i+li)*0.7});
-      layers.push({li, x:hash(i*13+li*7)*W, y:hash(i*29+li)*H, r:L.r*(0.75+hash(i+li*3)*0.5), a:L.a, spd:L.spd, puffs, phase:hash(i+li)*6.28});
+      layers.push({li, x:hash(i*13+li*7)*W, y:hash(i*29+li)*H, r:L.r*(0.75+hash(i+li*3)*0.5), a:L.a, spd:L.spd, puffs, phase:hash(i+li)*6.28,
+        ox:0, oy:0, vx:0, vy:0, dens:1});   // dynamic: blast displacement (spring-damped back home) + density (dissipates, re-forms)
     }
   });
   return layers;
 })();
+const CB={x:0,y:0};
+function cloudBase(c){   // parallax position (no blast offset) → CB
+  const yOff=((S.cloudY||0)*c.spd)%(H+400), xOff=((S.bgScrollX||0)*c.spd*0.65)%(W+400);
+  let x=c.x - xOff; x=((x%(W+400))+(W+400))%(W+400)-200;
+  let y=c.y + yOff; y=((y%(H+400))+(H+400))%(H+400)-200; CB.x=x; CB.y=y; return CB; }
+/* Clouds: blasts push them (impulse ∝ 1/(1+(d/R)²), nearer layers move more), a soft spring-damper
+   brings them home over a few seconds; density drops with blast proximity (dissipates) and re-forms ~6 s. */
+function cloudStep(dt){ const k=1-Math.exp(-dt/6);
+  for (const c of CLOUDS){ c.vx+=(-1.1*c.ox-1.9*c.vx)*dt; c.vy+=(-1.1*c.oy-1.9*c.vy)*dt; c.ox+=c.vx*dt; c.oy+=c.vy*dt; c.dens+=(1-c.dens)*k; } }
+function cloudBlast(x,y,amp,R){
+  for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-x, dy=CB.y+c.oy-y, d=Math.hypot(dx,dy)+1, f=1/(1+(d/R)*(d/R));
+    c.vx+=dx/d*amp*f*(0.6+c.spd); c.vy+=dy/d*amp*f*(0.6+c.spd)-amp*0.15*f;   // pushed out and slightly lofted
+    c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); } }
 function drawClouds(){
-  const v=S.vUp||0, cruise=S.cruise||0;
+  const cruise=S.cruise||0;
   ctx.save();
   for (const c of CLOUDS){
-    // climb (v>0) scrolls clouds down; fall scrolls them up. Cruise adds a leftward drift.
-    const yOff=((S.cloudY||0)*c.spd)%(H+400);
-    const xOff=((S.bgScrollX||0)*c.spd*0.65)%(W+400);
-    let x=c.x - xOff; x=((x%(W+400))+(W+400))%(W+400)-200;
-    let y=c.y + yOff*Math.sign(1); y=((y%(H+400))+(H+400))%(H+400)-200;
-    for (const cp of S.cloudPush){ const age=S.t-cp.t0, dx=x-cp.x, dy=y-cp.y, d=Math.hypot(dx,dy)+1, e=cp.amp*(1-Math.exp(-age*3.5))*Math.exp(-age/2.2)*(1/(1+d/600));
-      x+=dx/d*e*(0.6+c.spd); y+=dy/d*e*(0.6+c.spd); }
-    const breathe=1+0.04*Math.sin(S.t*0.6+c.phase);
-    ctx.globalAlpha=c.a*(0.75+0.25*(1-cruise*0.25));
+    cloudBase(c); const x=CB.x+c.ox, y=CB.y+c.oy;
+    const breathe=(1+0.04*Math.sin(S.t*0.6+c.phase))*(1+0.35*(1-c.dens));   // thinning clouds spread out
+    ctx.globalAlpha=c.a*c.dens*(0.75+0.25*(1-cruise*0.25));
     for (const p of c.puffs) blit(CLOUD_SPR,x+p.dx,y+p.dy,c.r*p.rr*breathe);
   }
   ctx.restore(); ctx.globalAlpha=1;
@@ -618,14 +643,17 @@ function drawSpeedLines(){
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
+const TRAIL_PTS=Array.from({length:96},()=>({x:0,y:0,tick:false,thrust:false}));
 function drawTickTrail(){
   if (S.trail.length<2) return;
   // JET TRAIL → TICK LINE: thick/hot at the nozzle (pivot), thins into historical tick path (left=past).
   // Stair language: flat segments when sideways, angled segments on thrust (variable slope).
   // Tip = nozzle/aft pivot (rocket nose leads ahead of this point).
-  const tail={x:(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.35, y:ROCKET_Y+(S.bob||0)*0.5};
-  const pts=S.trail.map(p=>({x:p.x,y:clamp(altToScreenY(p.alt),20,H-20),tick:p.tick,thrust:p.thrust})).filter(p=>p.x<tail.x-2); pts.push(tail);
-  const n=pts.length; if(n<2) return;
+  const tailX=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.35, tailY=ROCKET_Y+(S.bob||0)*0.5;
+  const pts=TRAIL_PTS; let n=0;   // reused scratch points (no per-frame map/filter arrays)
+  for (const p of S.trail){ if(!(p.x<tailX-2)||n>=TRAIL_PTS.length-1) continue; const q=pts[n++]; q.x=p.x; q.y=clamp(altToScreenY(p.alt),20,H-20); q.tick=p.tick; q.thrust=p.thrust; }
+  { const q=pts[n++]; q.x=tailX; q.y=tailY; q.tick=false; q.thrust=false; }
+  if(n<2) return;
   const vis=Math.max(0.35, S.cruise||0); // always visible; brighter in cruise
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalCompositeOperation='lighter';
   for (let i=1;i<n;i++){ const u=i/(n-1);               // 0 = oldest (far left), 1 = at the nozzle
@@ -685,7 +713,7 @@ function drawRocket(dt){
   const tx=x, ty=y;
   ctx.save(); ctx.globalCompositeOperation='lighter';
   const HOT=softDot('255,240,200'), COLD=softDot('140,190,255');
-  for (const p of S.particles){ ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); }
+  { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // engine core bloom at nozzle
   ctx.globalAlpha=clamp(0.55*flame*flick,0,1); blit(CORE_SPR,x,y,(48+70*flame)*flick);
   ctx.restore();
@@ -722,6 +750,7 @@ function rocketSprite(im,ow,oh){ const R=rocketSprite, dec=window.__rocketDecal,
   g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.drawImage(base,P,P);
   R.key=key; return R; }
 /* Exhaust emission runs in the fixed-step sim: rate (particles/s) instead of count-per-rendered-frame. */
+function randLane(){ return LANES[Math.floor(Math.random()*3)]; }
 function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=S.pending.some(p=>p.side==='buy'&&p.state==='pending')?0.5:0;
   const I=clamp(0.25+vol*0.8+pend,0,1.4), flick=0.72+0.28*Math.abs(Math.sin(S.t*37.0))*Math.abs(Math.sin(S.t*17.3+1.7));
   const move=clamp(Math.abs(S.vUp||0)/220 + Math.abs(S.vx||0)/400, 0, 1.2), thrustBoost=clamp(Math.abs(S.aimDeg||0)/88,0,1)*(S.t-(S.thrustT||-99)<1.2?1:0);
@@ -730,7 +759,7 @@ function exhaustStep(dt){ const {flick,flame}=exhaustParams(), sa=Math.sin(S.hea
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=ROCKET_Y+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt; let n=S._exAcc|0; S._exAcc-=n;
   for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
-    S.particles.push({x:tx+(Math.random()-.5)*10, y:ty, vx:-sa*sp+ca*j, vy:ca*sp+sa*j, life:0.7+Math.random()*0.45, s:(5+Math.random()*14*flame)*flick, hot:Math.random()<0.45}); } }
+    const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j; p.vy=ca*sp+sa*j; p.life=0.7+Math.random()*0.45; p.s=(5+Math.random()*14*flame)*flick; p.hot=Math.random()<0.45; } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
@@ -787,7 +816,7 @@ function drawFx(dt){
   // collectible motes (cosmetic, lateral gameplay)
   ctx.save(); ctx.globalCompositeOperation='lighter';
   for (const m of S.motes){ const T=ORB[m.k]; blit(radialSprite('orb'+m.k,[[0,T.c0],[1,T.c1]]),m.x,m.y,T.r*(1+0.12*Math.sin(S.t*6+m.x))); }
-  for (const s of S.shards){ ctx.fillStyle=s.c; ctx.globalAlpha=s.life; ctx.fillRect(s.x,s.y,3,3); }
+  { const P=S.shards; for (let i=0;i<P.n;i++){ const s=P.a[i]; ctx.fillStyle=s.c; ctx.globalAlpha=clamp(s.life,0,1); ctx.fillRect(s.x,s.y,3,3); } }
   ctx.restore(); ctx.globalAlpha=1;
   // PENALTY orbs: dark red/black storm cores (normal blending so they read as dark), crackling rim
   for (const o of S.obstacles){ const T=ORB[o.k], r=T.r; ctx.save();
@@ -903,7 +932,7 @@ function estimateImpactPct(trade){
   return 0;
 }
 S.bombsOn=localStorage.getItem('disciple.bombs')!=='off';
-S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=[]; S.bombLabels=[]; S.cloudPush=[]; S.lastBombT=-99; S.lastPuffT=-99;
+S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=new Pool(CAP.bfx); S.bombLabels=[]; S.lastBombT=-99; S.lastPuffT=-99;
 S.scorch=0; S.slowmoUntil=-1; S.timeScale=1; S.screenFlash=null;
 function setBombs(on){ S.bombsOn=on; try{localStorage.setItem('disciple.bombs',on?'on':'off');}catch(_){} dispatchEvent(new Event('apflightbombs')); }
 function setShake(){ /* camera shake removed permanently; kept as a no-op for the settings page API */ }
@@ -927,19 +956,32 @@ function bombStep(dt){
       else if (S.bombQ.length>=BOMB_MAX_QUEUE) mergeInto(q,f);
       else S.bombQ.push(f); } }
   // 2) launch respecting gap + max active (puffs don't count)
-  const active=S.bombs.filter(b=>b.age<b.T.life*0.6).length;
+  let active=0; for (const b of S.bombs) if(b.age<b.T.life*0.6) active++;
   if (S.bombQ.length && S.t-S.bombQ[0].t>=0.05 && S.t-S.lastBombT>=BOMB_MIN_GAP && active<BOMB_MAX_ACTIVE){
     const f=S.bombQ.shift(); launchBomb(bPct(f),f); }
   for (const tm of simTimers) if(!tm.done&&S.t>=tm.at){ tm.done=true; tm.fn(); }
   // 3) advance
   for (const b of S.bombs){ b.age+=dt; if(!b.det && b.age>=(b.T.fall||0)){ b.det=true; detonate(b); } }
-  S.bombs=S.bombs.filter(b=>b.age<b.T.life+(b.T.fall||0));
-  for (const p of S.bfx){ p.x+=p.vx*dt; p.y+=p.vy*dt; const d=Math.exp(-dt*(p.drag||0)); p.vx*=d; p.vy*=d; p.vy+=(p.g||0)*dt; p.r+=(p.gr||0)*dt; p.life-=dt; }
-  S.bfx=S.bfx.filter(p=>p.life>0); if(S.bfx.length>700) S.bfx.splice(0,S.bfx.length-700);
-  for (const l of S.bombLabels) l.age+=dt; S.bombLabels=S.bombLabels.filter(l=>l.age<l.life);
-  S.cloudPush=S.cloudPush.filter(c=>S.t-c.t0<6);
+  keepIf(S.bombs,BOMB_LIVE);
+  bfxStep(dt);
+  for (const l of S.bombLabels) l.age+=dt; keepIf(S.bombLabels,LABEL_LIVE);
   S.scorch=Math.max(0,S.scorch-dt/7);
 }
+const BOMB_LIVE=b=>b.age<b.T.life+(b.T.fall||0), LABEL_LIVE=l=>l.age<l.life;
+/* SMOKE & DEBRIS PHYSICS (fixed step).
+   smoke : relaxes toward the local wind (drag = entrainment), rises with buoyancy that fades as it
+           cools, expands fast then slower (entrainment growth), fades in quickly and out smoothly.
+   others: ballistic with exponential drag + gravity (chunks/embers), unchanged look. */
+const SMOKE_BUOY=55, SMOKE_GROW=10;
+function windAt(y){ return -34 + 12*Math.sin(S.t*0.31) + 7*Math.sin(S.t*1.17 + y*0.012); }   // px/s, gentle gusts
+function bfxStep(dt){ const P=S.bfx;
+  for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.life-=dt; if(p.life<=0||p.y<-200||p.y>H+200){ P.kill(i); continue; }
+    if (p.k==='smoke'){ const u=1-p.life/p.max, k=1-Math.exp(-dt*(p.drag||1.5));
+      p.vx+=(windAt(p.y)-p.vx)*k; p.vy+=(0-p.vy)*k; p.vy-=SMOKE_BUOY*(1-u)*dt;
+      p.r+=((p.gr||0)*(1-u)*(1-u)+SMOKE_GROW)*dt; }
+    else { const d=Math.exp(-dt*(p.drag||0)); p.vx*=d; p.vy*=d; p.vy+=(p.g||0)*dt; p.r+=(p.gr||0)*dt; }
+    p.x+=p.vx*dt; p.y+=p.vy*dt; } }
+function bfxSpawn(k,x,y,vx,vy,r,gr,life,drag,c,a,g){ const p=S.bfx.spawn(); p.k=k; p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=p.r0=r; p.gr=gr; p.life=p.max=life; p.drag=drag; p.c=c; p.a=a; p.g=g||0; return p; }
 function launchBomb(pct,f){
   const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
   S.lastBombT=S.t;
@@ -952,10 +994,11 @@ function launchBomb(pct,f){
 }
 function bombY(b){ return clamp(altToScreenY(b.alt),40,H-40); }
 function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt);
-  for(let i=0;i<7;i++) S.bfx.push({k:'smoke',x:tp.x-10,y:y+(Math.random()-.5)*8,vx:-60-Math.random()*90,vy:(Math.random()-.5)*50,r:5+Math.random()*5,gr:28,life:0.6,max:0.6,drag:3,c:'225,215,190',a:0.32});
-  for(let i=0;i<4;i++) S.bfx.push({k:'spark',x:tp.x,y,vx:-120-Math.random()*120,vy:(Math.random()-.5)*90,r:1.6,life:0.3,max:0.3,drag:4,c:'255,220,150',a:0.8}); }
-function burst(x,y,n,spd,opt){ for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65);
-  S.bfx.push(Object.assign({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,r:2,life:1,max:1,drag:2,c:'255,220,140',a:1,k:'spark'},typeof opt==='function'?opt(i,a):opt)); } }
+  for(let i=0;i<7;i++) bfxSpawn('smoke',tp.x-10,y+(Math.random()-.5)*8,-60-Math.random()*90,(Math.random()-.5)*50,5+Math.random()*5,28,0.6,3,'225,215,190',0.32);
+  for(let i=0;i<4;i++) bfxSpawn('spark',tp.x,y,-120-Math.random()*120,(Math.random()-.5)*90,1.6,0,0.3,4,'255,220,150',0.8); }
+function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
+  for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65), o=fn?opt(i,a):opt;
+    bfxSpawn(o.k||'spark',x,y,o.vx!=null?o.vx:Math.cos(a)*v,o.vy!=null?o.vy:Math.sin(a)*v,o.r!=null?o.r:2,o.gr||0,o.life!=null?o.life:1,o.drag!=null?o.drag:2,o.c||'255,220,140',o.a!=null?o.a:1,o.g||0); } }
 function detonate(b){
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age;
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
@@ -965,19 +1008,19 @@ function detonate(b){
     burst(x,y,8,60,{k:'smoke',r:7,gr:30,life:0.9,max:0.9,drag:2,c:'90,80,80',a:0.45});
   } else if (k==='bunker'){
     burst(x,y,22,360,(i,a)=>({k:'chunk',r:2.5+Math.random()*2.5,life:1.1,max:1.1,drag:1.2,g:520,vy:-Math.abs(Math.sin(a))*300-60,c:i%3?'120,95,70':'255,210,120'}));
-    burst(x,y,10,90,{k:'smoke',r:10,gr:40,life:1.4,max:1.4,drag:2,c:'70,60,58',a:0.5});
+    burst(x,y,10,90,{k:'smoke',r:10,gr:40,life:1.4,max:1.4,drag:2,c:'70,60,58',a:0.5}); cloudBlast(x,y,90,160);
     b.cracks=[...Array(7)].map((_,i)=>{ let px=0,py=0,pts=[[0,0]], a=Math.PI*(0.15+0.7*i/6)+(Math.random()-.5)*0.3, L=50+Math.random()*90;
       for(let s=0;s<6;s++){ a+=(Math.random()-.5)*0.7; px+=Math.cos(a)*L/6; py+=Math.abs(Math.sin(a))*L/6; pts.push([px,py]); } return pts; });
   } else if (k==='cruise'){ // mid-size blast = former daisy-cutter impact
     burst(x,y,40,520,{k:'ember',r:2.4,life:1.3,max:1.3,drag:1.6,g:160,c:'255,200,110'});
-    burst(x,y,14,140,{k:'smoke',r:18,gr:60,life:1.8,max:1.8,drag:1.8,c:'60,48,46',a:0.5});
+    burst(x,y,14,140,{k:'smoke',r:18,gr:60,life:1.8,max:1.8,drag:1.8,c:'60,48,46',a:0.5}); cloudBlast(x,y,180,260);
   } else if (k==='nuke'){
     burst(x,y,70,760,{k:'ember',r:2.8,life:1.7,max:1.7,drag:1.3,g:140,c:'255,215,130'});
     burst(x,y,22,220,{k:'smoke',r:26,gr:80,life:2.4,max:2.4,drag:1.5,c:'55,44,44',a:0.55});
-    S.screenFlash={t0:S.t,dur:0.45,a:0.55,c:'255,240,200'}; S.cloudPush.push({x,y,amp:260,t0:S.t});
+    S.screenFlash={t0:S.t,dur:0.45,a:0.55,c:'255,240,200'}; cloudBlast(x,y,320,420);
   } else if (k==='atom'){
     burst(x,y,110,900,{k:'ember',r:3,life:2.2,max:2.2,drag:1.1,g:90,c:'255,225,150'});
-    S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'}; S.cloudPush.push({x,y,amp:520,t0:S.t});
+    S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'}; cloudBlast(x,y,600,700);
     S.slowmoUntil=S.t+SLOWMO_S*SLOWMO_SCALE; S.scorch=1;
     b.puffs=[...Array(26)].map((_,i)=>({a:Math.random()*6.2832,r:Math.random(),s:0.6+Math.random()*0.6,ph:Math.random()*6}));
   }
@@ -992,7 +1035,7 @@ function drawBombs(){
         const x1=b.x1!=null?b.x1:x, y1=b.y1!=null?b.y1:yT, x0=b.x0!=null?b.x0:x+280, y0=b.y0!=null?b.y0:yT-220;
         const mx=x0+(x1-x0)*u*u, my=y0+(y1-y0)*u*u, ang=Math.atan2(y1-y0,x1-x0);
         if ((b._trail|0)<Math.floor(u*18)){ b._trail=Math.floor(u*18);
-          S.bfx.push({k:'smoke',x:mx-Math.cos(ang)*12,y:my-Math.sin(ang)*12,vx:-20+Math.random()*10,vy:-10+Math.random()*20,r:6+Math.random()*8,gr:20,life:0.7,max:0.7,drag:2,c:'160,150,140',a:0.4}); }
+          bfxSpawn('smoke',mx-Math.cos(ang)*12,my-Math.sin(ang)*12,-20+Math.random()*10,-10+Math.random()*20,6+Math.random()*8,20,0.7,2,'160,150,140',0.4); }
         ctx.save(); ctx.translate(mx,my); ctx.rotate(ang);
         ctx.globalCompositeOperation='lighter';
         const tg=ctx.createLinearGradient(-90,0,0,0); tg.addColorStop(0,'rgba(255,230,160,0)'); tg.addColorStop(1,'rgba(255,220,140,.75)');
@@ -1030,8 +1073,9 @@ function drawBombs(){
     if (k==='atom') drawMushroom(b,x,y,t);
   }
   // particles
-  for (const p of S.bfx){ const a=p.a*clamp(p.life/p.max,0,1);
-    if (p.k==='smoke'){ ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=a; blit(softDot(p.c),p.x,p.y,p.r); ctx.globalAlpha=1; }
+  for (let i=0;i<S.bfx.n;i++){ const p=S.bfx.a[i]; const v=clamp(p.life/p.max,0,1), a=p.a*v;
+    if (p.k==='smoke'){ const age=p.max-p.life, fin=clamp(age/0.12,0,1);   // quick fade-in, smooth fade-out, thinner as it expands
+      ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=clamp(p.a*fin*Math.pow(v,1.3)*Math.min(1,1.6*p.r0/Math.max(p.r,1e-3)+0.25),0,1); blit(softDot(p.c),p.x,p.y,p.r); ctx.globalAlpha=1; }
     else if (p.k==='streak'){ ctx.globalCompositeOperation='lighter'; ctx.strokeStyle=`rgba(${p.c},${a})`; ctx.lineWidth=p.r; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*0.06,p.y-p.vy*0.06); ctx.stroke(); }
     else if (p.k==='chunk'){ ctx.globalCompositeOperation='source-over'; ctx.fillStyle=`rgba(${p.c},${a})`; ctx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2); }
     else { ctx.globalCompositeOperation='lighter'; ctx.fillStyle=`rgba(${p.c},${a})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832); ctx.fill(); } }
@@ -1213,7 +1257,7 @@ function simStep(stepDt){
     S.speedBits.push({x:Math.random()*W,y:Math.random()*H,len:40+Math.random()*90,w:1+Math.random()*1.5,life:0.45,up:vUpRaw>0,dx:(Math.random()-.5)*12});
   }
   for (const b of S.speedBits){ b.life-=dt*1.8; b.y+= (b.up?1:-1)*vUpRaw*dt*0.15; }
-  S.speedBits=S.speedBits.filter(b=>b.life>0).slice(-40);
+  keepIf(S.speedBits,ALIVE); if(S.speedBits.length>40){ S.speedBits.copyWithin(0,S.speedBits.length-40); S.speedBits.length=40; }
   // trailing tick polyline: tip at nozzle, scrolls left. Flat crawl + angled thrust segments.
   // Use stable S.x (no sway) so flat segments stay steady frame-to-frame.
   const tipX=S.x;
@@ -1228,20 +1272,20 @@ function simStep(stepDt){
     S.lastTrailAlt=S.displayAlt;
     if (S.trail.length>64) S.trail.shift();
   }
-  S.trail=S.trail.filter(p=>p.x>-40);
+  keepIf(S.trail,TRAIL_ON);
   if(S.t>S.multUntil) S.mult=1;
-  for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } S.floaters=S.floaters.filter(f=>f.life>0);
+  for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
   const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; }
   S.tierBanner=Math.max(0,S.tierBanner-dt);
   // particles
-  for (const p of S.particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; } S.particles=S.particles.filter(p=>p.life>0);
-  for (const s of S.shards){ s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; } S.shards=S.shards.filter(s=>s.life>0);
-  S.flashes.forEach(f=>f.life-=dt*0.8); S.flashes=S.flashes.filter(f=>f.life>0);
+  { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; if(p.life<=0) P.kill(i); } }
+  { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
+  for (const f of S.flashes) f.life-=dt*0.8; keepIf(S.flashes,ALIVE);
   // motes drift down (speed ∝ trade flow), collect by steering
   const flow=1+Math.log10(1+S.buyEma)*0.5;
   // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
-  const lane=()=>LANES[Math.floor(Math.random()*3)];
+  const lane=randLane;
   const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.80?'halo':r<0.95?'mult':'rhalo',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
@@ -1255,11 +1299,12 @@ function simStep(stepDt){
       const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
-      for(let i=0;i<30;i++) S.shards.push({x:o.x,y:o.y,vx:(Math.random()-.5)*320,vy:(Math.random()-.5)*320,life:1,c:'#ff3344'}); } }
-  S.motes=S.motes.filter(m=>!m.dead&&m.y<H+30); S.obstacles=S.obstacles.filter(o=>!o.dead&&o.y<H+50);
+      for(let i=0;i<30;i++) spawnShard(o.x,o.y,(Math.random()-.5)*320,(Math.random()-.5)*320,'#ff3344'); } }
+  keepIf(S.motes,NOT_DEAD_MOTE); keepIf(S.obstacles,NOT_DEAD_OBS);
   bombStep(dt);
-  S.toasts.forEach(t=>t.life-=dt*0.6); S.toasts=S.toasts.filter(t=>t.life>0);
-  if (Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1])[0][0]==='you') award('koth','KING OF THE HILL','top fueler on this coin');
+  for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
+  if (!S.ach.koth){ let top=null, tv=-Infinity; for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top fueler on this coin'); }
+  cloudStep(dt);
   twStep(); exhaustStep(dt);
 }
 function render(dt){
