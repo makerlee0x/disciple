@@ -168,7 +168,8 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
 
     if (t.side === "buy") {
       buys++;
-      if (p.size <= 0) {
+      if (p.size <= 1e-6) {
+        p.size = 0; p.cost = 0;
         p.holdStart = t.ts; p.entryPx = px; p.peakPx = px; p.troughPx = px; p.entryMcap = t.mcapAfter;
         
       }
@@ -213,7 +214,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
         if (p.peakPx > t.priceBefore) fumbled += tokens * (p.peakPx - t.priceBefore);
         if (pnl >= 0) { wins++; p.wins++; if (t.ts >= d30) wins30++; } else { losses++; p.losses++; if (t.ts >= d30) losses30++; }
         p.cost -= basis; p.size -= tokens;
-        if (p.size <= 1e-9) { p.size = 0; p.cost = 0; p.holdStart = 0; }
+        if (p.size <= 1e-6 || p.cost < 1e-6) { p.size = 0; p.cost = 0; p.holdStart = 0; }
       }
     }
     series.push({ t: t.ts, v: cum });
@@ -227,7 +228,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     upnl += u;
     const held = (now - p.holdStart) / 3.6e6;
     openHold = Math.max(openHold, held);
-    const dd = 1 - p.troughPx / p.entryPx;
+    const dd = p.peakPx > 0 ? 1 - p.troughPx / p.peakPx : 0;
     if (dd >= T.diamondDrawdown) diamonds++;
     if (dd >= T.believerDrawdownHold) ddHolds++;
     if (u < 0 && held >= T.bagHolderHoldHours) bagLoss = Math.max(bagLoss, -u / p.cost);

@@ -108,9 +108,10 @@ function believer(rand: () => number): StatsTrade[] {
     // hold through drawdown on HALO
     if (i === 0) {
       push(out, r, "buy", 250, 70_000, 20, launch + 14 * 864e5, launch, { graduated: true, peakMcap: 180_000, topFuelerAtGrad: true });
-      // force trough via a soft sell then rebuy narrative: mark trough by intermediate price via sell tiny
-      push(out, r, "sell", 20, 45_000, 60, launch + 16 * 864e5, launch, { graduated: true, peakMcap: 180_000, topFuelerAtGrad: true });
-      push(out, r, "buy", 80, 55_000, 20, launch + 18 * 864e5, launch, { graduated: true, peakMcap: 180_000, topFuelerAtGrad: true });
+      // Drawdown to ~40% of peak while still holding (Diamond Hands / Believer)
+      push(out, r, "sell", 5, 28_000, 40, launch + 16 * 864e5, launch, { graduated: true, peakMcap: 180_000, topFuelerAtGrad: true });
+      push(out, r, "buy", 40, 32_000, 15, launch + 18 * 864e5, launch, { graduated: true, peakMcap: 180_000, topFuelerAtGrad: true });
+      // leave open — no full exit
     } else if (i < 3) {
       push(out, r, "sell", 70, mcap * 1.15, 100, launch + 12 * 864e5, launch, { graduated: true, peakMcap: mcap * 1.3 });
     } else {
@@ -127,22 +128,22 @@ function trencher(rand: () => number): StatsTrade[] {
     const t0 = launch + 8_000 + rand() * 100_000;
     const mcap = 7_500 + rand() * 4_000;
     push(out, r, "buy", 30 + rand() * 50, mcap, 90, t0, launch);
-    const hold = (1 + rand() * 7) * 60_000;
+    const hold = (0.5 + rand() * 3) * 60_000;
     const up = rand() > 0.42;
     const exit = up ? mcap * (1.08 + rand() * 0.4) : mcap * (0.72 + rand() * 0.2);
-    push(out, r, "sell", 28 + rand() * 48, exit, 140 + rand() * 200, t0 + hold, launch);
+    push(out, r, "sell", 200, exit, 80 + rand() * 90, t0 + hold, launch); // impact < grenade, full exit
     if (rand() > 0.5) {
       const t1 = t0 + hold + 90_000;
       push(out, r, "buy", 22 + rand() * 30, exit * 1.01, 70, t1, launch);
-      push(out, r, "sell", 20 + rand() * 28, exit * (0.85 + rand() * 0.35), 160, t1 + 75_000, launch);
+      push(out, r, "sell", 200, exit * (0.85 + rand() * 0.35), 90, t1 + 40_000, launch);
     }
   });
   for (let k = 0; k < 14; k++) {
-    const r = ROCKETS[k % 8];
+    const r = { ticker: `TR${k}`, name: `Trench ${k}`, token: addr(0xc00 + k) };
     const launch = NOW - (2 + k) * 864e5;
     const t0 = launch + 15_000 + rand() * 50_000;
     push(out, r, "buy", 18 + rand() * 22, 8_200, 55, t0, launch);
-    push(out, r, "sell", 16 + rand() * 22, 8_200 * (0.88 + rand() * 0.3), 130, t0 + 50_000, launch);
+    push(out, r, "sell", 120, 8_200 * (0.88 + rand() * 0.3), 90, t0 + 30_000, launch);
   }
   return out;
 }
