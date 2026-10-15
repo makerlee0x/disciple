@@ -3,5 +3,6 @@ export { bondingCurveAbi } from "./BondingCurve";
 export { quoteProbeAbi } from "./QuoteProbe";
 export { discipleHookAbi } from "./DiscipleHook";
 export { discipleRouterAbi } from "./DiscipleRouter";
+export { trampWallManagerAbi } from "./TrampWallManager";
 export { tokenAbi } from "./Token";
 export { feeRouterAbi } from "./FeeRouter";
