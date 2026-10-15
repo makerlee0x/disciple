@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Test} from "forge-std/Test.sol";
@@ -84,6 +85,9 @@ contract CurveTest is Test {
         QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
+        CurveDeployer cd_ = new CurveDeployer();
+        vm.prank(owner);
+        launchpad.setCurveDeployer(address(cd_));
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));

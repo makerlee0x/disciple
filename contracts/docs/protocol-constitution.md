@@ -22,14 +22,14 @@ This document is the source of truth for locked product and protocol decisions. 
 | 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Pearly Gates); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
 | 7 | Supply on curve | **~72%** sold on curve; **7B** total supply; fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
 | 8 | Wallet cap | **7% max supply per wallet** on bonding curve only (not post-grad); **no wallet exemptions** | LOCKED |
-| 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **100% to LP lock** (not 33/33/33/1) | LOCKED 2026-10-15 |
+| 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **100% to LP lock** (not 33/33/33/1). **Creator launch buy (≤0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
 | 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** lock quote into LP / **33%** treasury / **1%** referral leftover (to treasury if no referrer) | LOCKED |
 | 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee | LOCKED |
 | 13 | Creator fees | Accrue on-chain; **pull/claim anytime** | LOCKED |
 | 14 | Treasury fees | **Auto-push** each trade | LOCKED |
 | 15 | LP-lock quote | **Auto-add** into LP each trade | LOCKED |
-| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only** → FeeRouter 33/33/33/1. (Legacy “100% LP fees→treasury” N/A with 0 pool fee; hook fees follow trade-fee split.) | LOCKED 2026-10-15 |
+| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral, where the **33% LP share = 1/3 donated** (`PoolManager.donate`, i.e. 11% of the fee) **to in-range v4 LPs** (tramps/walls and the full-range LockedLP position, pro-rata by in-range liquidity) + **2/3 auto-added to LockedLP**. Total fee stays 1%. Donation is in the fee currency (quote on sells/exact-out buys; launch token on exact-in buys); skipped (→ LockedLP) if no in-range liquidity. | LOCKED 2026-10-15 |
 | 17 | LP lock | Permanently locked at graduation in **LockedLP** (v4 position owner); fee collection allowed; **no remove-liquidity** | LOCKED 2026-10-15 |
 | 18 | Referral attribution | First-touch wallet forever after: referral link → account → **USDG deposit ≥ $10** | LOCKED |
 | 19 | Self-referral | Same-wallet self-referral **blocked only** | LOCKED |
@@ -40,7 +40,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 24 | Metadata (launch) | Like Flaunch: **image + name + ticker required**; description + socials optional | LOCKED |
 | 25 | Metadata (post-launch) | Creator can update **image, description, socials** — **NOT** name or ticker | LOCKED |
 | 26 | Ownership | Transferable anytime, multi-hop OK; full pack: metadata + fee claim + creator tax rights | LOCKED |
-| 27 | Creator buy | Optional creator buy in launch tx; max **0.77% of supply** | LOCKED |
+| 27 | Creator buy | Optional creator buy in launch tx; max **0.77% of supply**; **anti-snipe exempt** (1% protocol fee only) | LOCKED 2026-10-15 |
 | 28 | Deposits / gas | One deposit approval; user pays gas; **no gas sponsorship** | LOCKED |
 | 29 | MEV protection | **Deadline + minAmountOut** only | LOCKED |
 | 30 | Pause | **No pause** — curves and graduated pools always live | LOCKED |
@@ -55,6 +55,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 39 | Data / chart | Own RH indexer for trades, mcap, impact; DexScreener optional share link | LOCKED |
 | 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% brake; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
 | 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K) through Seventh Heaven ($3.3B–$7.77B); Pearly Gates = $33K graduation — see detailed section | LOCKED 2026-10-15 |
+| 42 | Tramps & walls | Graduated coins only. Users place **single-sided concentrated v4 LP ranges** via the `TrampWallManager` periphery: **tramp** = quote-only range strictly below price (support), **wall** = token-only range strictly above (resistance). Owner can cancel anytime (principal + fees) or claim fees; anyone can `pull` a fully crossed range (proceeds always to owner; **no keeper tip in v0**). Earn hook donations while in range | LOCKED 2026-10-15 |
 
 ---
 
@@ -336,6 +337,7 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - **Locked as of:** 2026-10-15  
 - **Revisions this date:** LOCKED #5–#6, #9, #17, #41 — curve $7K→$33K CPAMM; anti-snipe 77.7%→0% (snipe→100% LP); real v4 same-tx migrate (no-jump, LockedLP owns LP); re-priced tier ladder.  
 - **Scope label:** v0 / Robinhood Chain  
+- **Revisions 2026-10-15 (tramps & walls):** LOCKED #9/#27 creator launch buy anti-snipe exempt; #16 LP share split 1/3 donate to in-range LPs + 2/3 LockedLP; new #42 tramps & walls.  
 - **Change policy:** Treat the LOCKED table as authoritative. New decisions require an explicit unlock / revision of this constitution; do not silently override LOCKED rows.
 
 *End of DISCIPLE Protocol Constitution.*

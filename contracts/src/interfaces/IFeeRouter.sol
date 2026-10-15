@@ -19,6 +19,16 @@ interface IFeeRouter {
         uint256 creatorTaxAmount
     ) external;
 
+    /// @notice Post-grad hook fee with `donated` already donated to in-range LPs (deducted from the LP-lock share).
+    function routeHookFee(
+        address token,
+        address feeToken,
+        address trader,
+        address creator,
+        uint256 feeAmount,
+        uint256 donated
+    ) external;
+
     /// @notice Anti-snipe fee (above protocol 1%) → 100% LP lock (§2 / LOCKED #9).
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external;
 }

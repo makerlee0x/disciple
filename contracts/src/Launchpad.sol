@@ -8,6 +8,7 @@ import {FeeMath} from "./libraries/FeeMath.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
 import {Token} from "./Token.sol";
 import {BondingCurve} from "./BondingCurve.sol";
+import {CurveDeployer} from "./CurveDeployer.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
 import {AntiSnipe} from "./AntiSnipe.sol";
 import {FeeRouter} from "./FeeRouter.sol";
@@ -30,6 +31,8 @@ contract Launchpad is ILaunchpad {
     IQuoteProbe public quoteProbe;
     /// @notice Launch-time quote/USD oracle (USDG=$1; others via registered quote/USDG v4 pool).
     IQuotePricer public pricer;
+    /// @notice BondingCurve factory (separate contract to keep Launchpad under the size limit).
+    CurveDeployer public curveDeployer;
 
     mapping(address => bool) public override isLaunched;
     mapping(address => address) public override curveOf;
@@ -56,6 +59,7 @@ contract Launchpad is ILaunchpad {
     error QuoteRejected(string detail);
     error DefaultQuoteUnset();
     error PricerUnset();
+    error CurveDeployerUnset();
 
     event Launched(
         address indexed token,
@@ -91,6 +95,11 @@ contract Launchpad is ILaunchpad {
         if (quote_ == address(0)) revert DefaultQuoteUnset();
         defaultQuote = quote_;
         emit DefaultQuoteUpdated(quote_);
+    }
+
+    function setCurveDeployer(address d) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        curveDeployer = CurveDeployer(d);
     }
 
     function setPricer(address pricer_) external {
@@ -137,16 +146,11 @@ contract Launchpad is ILaunchpad {
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
         if (address(pricer) == address(0)) revert PricerUnset();
         uint256 quotePriceUsd = pricer.quotePriceUsd(quote);
-        BondingCurve curve = new BondingCurve(
-            address(t),
-            quote,
-            msg.sender,
-            address(this),
-            feeRouter,
-            antiSnipe,
-            migration,
-            params.creatorTaxBps,
-            quotePriceUsd
+        if (address(curveDeployer) == address(0)) revert CurveDeployerUnset();
+        BondingCurve curve = BondingCurve(
+            curveDeployer.deploy(
+                address(t), quote, msg.sender, feeRouter, antiSnipe, migration, params.creatorTaxBps, quotePriceUsd
+            )
         );
 
         IERC20(address(t)).safeTransfer(address(curve), Constants.TOTAL_SUPPLY);
@@ -226,11 +230,11 @@ contract Launchpad is ILaunchpad {
     }
 
     /// @notice Preview the same-tx creator buy at launch: anti-snipe is at its launch-time value
-    ///         (ANTI_SNIPE_START_BPS, elapsed = 0), plus 1% protocol fee + creatorTaxBps.
+    ///         — EXEMPT from anti-snipe (snipeFee always 0); pays 1% protocol fee + creatorTaxBps.
     /// @param quote address(0) = defaultQuote
     /// @return tokensOut   tokens the creator would receive
     /// @return fee         protocol + creator tax (quote raw)
-    /// @return snipeFee    launch-time anti-snipe fee (quote raw)
+    /// @return snipeFee    always 0 (creator buy is anti-snipe exempt; kept for ABI stability)
     /// @return quotePriceUsd price the pricer would bake into the curve right now
     /// @return exceedsCap  true if tokensOut > 0.77% of supply (launch would revert CreatorBuyTooLarge)
     function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn, uint256 creatorTaxBps)
@@ -243,8 +247,8 @@ contract Launchpad is ILaunchpad {
         if (quote == address(0)) revert DefaultQuoteUnset();
         if (address(pricer) == address(0)) revert PricerUnset();
         quotePriceUsd = pricer.quotePriceUsd(quote);
-        snipeFee = (creatorBuyQuoteIn * Constants.ANTI_SNIPE_START_BPS) / Constants.BPS_DENOM;
-        uint256 afterSnipe = creatorBuyQuoteIn - snipeFee;
+        // Creator launch buy is anti-snipe exempt (LOCKED #27): snipeFee is always 0.
+        uint256 afterSnipe = creatorBuyQuoteIn;
         fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);
         tokensOut = CurveMath.tokensOutForQuote(CurveMath.makeParams(quotePriceUsd), 0, afterSnipe - fee);
         exceedsCap = tokensOut > FeeMath.creatorBuyMax();
