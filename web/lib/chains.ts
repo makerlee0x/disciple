@@ -55,6 +55,8 @@ export interface Deployment {
   migration: Address;
   antiSnipe: Address;
   trampWallManager: Address;
+  /** Read-only MarketLens add-on: live v4 mcap/price for graduated coins (curve mcapNow freezes post-grad). */
+  marketLens: Address;
   poolManager: Address;
   v4Quoter: Address;
   stateView: Address;
@@ -82,6 +84,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     migration: addr(process.env.NEXT_PUBLIC_RH_MIGRATION),
     antiSnipe: addr(process.env.NEXT_PUBLIC_RH_ANTI_SNIPE),
     trampWallManager: addr(process.env.NEXT_PUBLIC_RH_TRAMP_WALL_MANAGER),
+    marketLens: addr(process.env.NEXT_PUBLIC_RH_MARKET_LENS),
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
@@ -101,6 +104,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0xFabc75DF0996083FC05fF7D63e8f11eF20421684"),
     antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0x0af141f678677293ca1B8B0a0ba6078888CeCC7A"),
     trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0x901B5059BEE5aFd94C38069d6B10d5890ED533bd"),
+    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9"),
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
@@ -118,6 +122,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     migration: addr(process.env.NEXT_PUBLIC_ANVIL_MIGRATION),
     antiSnipe: addr(process.env.NEXT_PUBLIC_ANVIL_ANTI_SNIPE),
     trampWallManager: addr(process.env.NEXT_PUBLIC_ANVIL_TRAMP_WALL_MANAGER),
+    marketLens: addr(process.env.NEXT_PUBLIC_ANVIL_MARKET_LENS),
     poolManager: addr(process.env.NEXT_PUBLIC_ANVIL_POOL_MANAGER),
     v4Quoter: Z, stateView: Z, universalRouter: Z, permit2: RH_V4.permit2,
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
@@ -138,6 +143,7 @@ export const ACTIVE_CHAIN = CHAINS[WANT as keyof typeof CHAINS] ?? robinhoodTest
 export const deployment = () => DEPLOYMENTS[ACTIVE_CHAIN.id];
 export const isDeployed = () => deployment().launchpad !== Z;
 export const hasRouter = () => deployment().router !== Z;
+export const hasLens = () => deployment().marketLens !== Z;
 export const ZERO = Z;
 /** Testnet gas faucet (ETH). */
 export const GAS_FAUCET = "https://faucet.testnet.chain.robinhood.com/";
