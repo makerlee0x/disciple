@@ -117,7 +117,6 @@ export function seasonPassProgress(points: number) {
 }
 
 
-
 /** Display glyphs / fills for leaderboard square badges */
 export const ACHIEVEMENT_DISPLAY: Record<string, { icon: string; color: string }> = {
   first_blessing: { icon: "🚀", color: "#7ec8ff" },

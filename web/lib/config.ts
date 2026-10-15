@@ -282,7 +282,6 @@ export function holdBonus(uPnlUsd: number, heldHours: number, sellScale: number,
   return 1 + pnlTerm * time * Math.max(0, Math.min(1, sellScale));
 }
 
-
 /* ------------------------------------------------------------------ */
 /* Season ranks (profile framed border)                                */
 /* ------------------------------------------------------------------ */

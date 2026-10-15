@@ -123,10 +123,10 @@ function Row({ row }: { row: LeaderboardRow }) {
       </div>
       <div className="lb-cell lb-badges">
         {badges.map((b) => (
-          <AchievementBadge key={b.id} a={b} size={22} />
+          <AchievementBadge key={b.id} a={b} size={18} />
         ))}
         {Array.from({ length: empties }, (_, i) => (
-          <EmptyBadge key={`e${i}`} size={22} />
+          <EmptyBadge key={`e${i}`} size={18} />
         ))}
       </div>
       <div className="lb-cell lb-tier">

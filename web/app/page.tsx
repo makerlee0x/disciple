@@ -130,7 +130,7 @@ export default function HomePage() {
 
   // Pad rocket carries the default halo emblem until a card is picked.
   useEffect(() => {
-    brandedRocket(null).then(({ canvas }) => { try { setPadDecal((d) => d ?? canvas.toDataURL()); } catch { /* tainted */ } });
+    brandedRocket(null).then(({ canvas }) => { try { const url = canvas.toDataURL(); setPadDecal((d) => d ?? url); } catch { /* tainted */ } });
   }, []);
 
   useEffect(() => {
@@ -285,7 +285,7 @@ export default function HomePage() {
             Math.random() < 0.35,
           );
         const lift = L < 0.6 ? 0 : Math.pow(L - 0.6, 2) * 900;
-        rk!.style.transform = `translateX(-50%) translateY(${-lift}px) rotate(${(Math.random() - 0.5) * (L < 0.6 ? 1.5 : 0.6)}deg)`;
+        rk!.style.transform = `translateX(-50%) translateY(${-lift}px)`;
         if (decalRef.current) decalRef.current.style.transform = rk!.style.transform;
       }
       ctx!.clearRect(0, 0, cv!.width, cv!.height);
@@ -681,7 +681,6 @@ export default function HomePage() {
         }
         body.home.launching #hero,
         #hero.launching {
-          animation: shake 0.08s linear infinite;
         }
         @keyframes shake {
           0% {

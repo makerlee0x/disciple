@@ -27,7 +27,7 @@ function loadImg(src: string, cors: boolean, timeoutMs: number): Promise<HTMLIma
 
 let baseP: Promise<HTMLImageElement> | null = null;
 export function loadBaseRocket() {
-  return (baseP ||= loadImg(BASE_ROCKET_SRC, false, 10000));
+  return (baseP ||= loadImg(BASE_ROCKET_SRC, true, 10000));
 }
 
 const isLocal = (u: string) =>
