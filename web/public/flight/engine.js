@@ -349,7 +349,10 @@ class DiscipleSource {
     addEventListener('disciple:event',this.h); }
   stop(){ removeEventListener('disciple:event',this.h); }
   impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
-  async submitTrade(side,usd){ return {ok:true}; } // paper; real path = ProtocolClient (custody executor)
+  // Real on-chain shot when the page registered a wallet bridge (components/TradeBridge.tsx: the user's wallet signs,
+  // curve pre-grad / DiscipleRouter post-grad). No wallet → paper fill, as before.
+  async submitTrade(side,usd){ const b=window.__discipleTrade; if(!b) return {ok:true,paper:true};
+    try{ const r=await b(side,usd); return r||{ok:false,reason:'no result'}; }catch(err){ return {ok:false,reason:String((err&&err.message)||err).slice(0,80)}; } }
 }
 const IS_POOL=!['mock','dexscreener','rpc','disciple'].includes(Q.get('source')||'pool');
 function makeSource(){
@@ -453,7 +456,7 @@ function trade(side,opt){
   if (md.usd<MIN_SHOT){                                   // below net-buy minimum: blocked (no gas sponsorship)
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
-  if (side==='buy' && S.balance<md.usd){ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
+  if (side==='buy' && !window.__discipleTrade && S.balance<md.usd){ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
   // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
   applyThrust(side, md.usd);
   submit(side, md.usd);
@@ -477,6 +480,8 @@ function submit(side,usd,force){
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
   });
 }
+// DOM ammo buttons (TradeBridge) → same path as keyboard shots.
+addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode)); if(d.side==='buy'||d.side==='sell') trade(d.side); });
 addEventListener('keydown',e=>{
   S.keys[e.code]=true;
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }

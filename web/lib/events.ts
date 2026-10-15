@@ -4,24 +4,17 @@
  *  BondingCurve (per coin): Trade (pre-grad), GraduatedToV4 (→ "Graduate")
  *  DiscipleHook (all coins, filtered by indexed token): Trade (post-grad v4 swaps, any router)
  * Trade.impactBps / mcapAfterUsd come straight from chain and drive bomb tiers + the chart.
- * Legacy Buy/Sell (pre-PR #4 testnet deploy) are still decoded with client-side impact as a fallback.
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
-import { parseAbi, type Log, type PublicClient } from "viem";
+import type { Log, PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, launchpadAbi } from "./abi";
 import { deployment } from "./chains";
-import { curveParams, publicClient, quoteRawToUsd } from "./protocol-viem";
-import { impactPctBetween, spotPriceWad } from "./curveMath";
+import { publicClient, quoteRawToUsd } from "./protocol-viem";
 import type { Address, ProtocolEvent } from "./protocol";
 
 type Cb = (e: ProtocolEvent) => void;
 type L = Log & { eventName: string; args: Record<string, unknown> };
 const wad = (v: bigint) => Number(v) / 1e18;
-
-const legacyCurveAbi = parseAbi([
-  "event Buy(address indexed buyer, uint256 quoteIn, uint256 tokensOut, uint256 fee, uint256 snipeFee)",
-  "event Sell(address indexed seller, uint256 tokensIn, uint256 quoteOut, uint256 fee)",
-]);
 
 /** Launchpad-wide events (new rockets → launchpad cards). */
 export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () => void {
@@ -86,31 +79,53 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
       onLogs: (logs) => { for (const l of logs as L[]) cb(tradeFromLog(l, qp, "hook")); },
     }));
 
-  // Legacy (pre-PR #4) curves: Buy/Sell without impact → reconstruct spot-to-spot impact.
-  const p = await curveParams(pc, curve);
-  const mcapAt = (sold: bigint) => quoteRawToUsd((spotPriceWad(p, sold) * p.totalSupply) / BigInt(1e18), qp);
-  stops.push(pc.watchContractEvent({
-    address: curve, abi: legacyCurveAbi,
-    onLogs: async (logs) => {
-      for (const l of logs as L[]) {
-        const a = l.args as Record<string, bigint | string>;
-        const buy = l.eventName === "Buy";
-        const after = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "tokensSold", blockNumber: l.blockNumber ?? undefined });
-        const dTok = (buy ? a.tokensOut : a.tokensIn) as bigint;
-        const before = buy ? after - dTok : after + dTok;
-        const quoteAmt = (buy ? a.quoteIn : a.quoteOut) as bigint;
-        const pct = impactPctBetween(p, before, after);
-        cb({
-          type: "Trade", token, trader: (buy ? a.buyer : a.seller) as Address, side: buy ? "buy" : "sell", venue: "curve",
-          amountIn: (buy ? a.quoteIn : a.tokensIn) as bigint, amountOut: (buy ? a.tokensOut : a.quoteOut) as bigint,
-          usd: quoteRawToUsd(quoteAmt, qp), impactBps: Math.round(pct * 100), impactPct: pct,
-          mcapUsd: mcapAt(after), txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0),
-        });
-      }
-    },
-  }));
-
   return () => stops.forEach((s) => s());
+}
+
+export interface LaunchedCoin {
+  token: Address; curve: Address; creator: Address; quote: Address; name: string; ticker: string;
+  imageURI: string; mcapUsd: number; graduated: boolean; progressBps: number; block: bigint;
+}
+
+/** All launches since the deployment start block, newest first, with live mcap/progress (launchpad home list). */
+export async function listLaunches(pc: PublicClient = publicClient()): Promise<LaunchedCoin[]> {
+  const lp = deployment().launchpad;
+  const logs = await pc.getContractEvents({ address: lp, abi: launchpadAbi, eventName: "Launched", fromBlock: deployment().fromBlock, toBlock: "latest" });
+  const coins = await Promise.all((logs as unknown as L[]).map(async (l) => {
+    const a = l.args as Record<string, string>;
+    const curve = a.curve as Address;
+    const c = { address: curve, abi: bondingCurveAbi } as const;
+    const [mcap, grad, prog, meta] = await Promise.all([
+      pc.readContract({ ...c, functionName: "mcapNow" }).catch(() => BigInt(0)),
+      pc.readContract({ ...c, functionName: "graduated" }).catch(() => false),
+      pc.readContract({ ...c, functionName: "progressBps" }).catch(() => BigInt(0)),
+      pc.readContract({ address: lp, abi: launchpadAbi, functionName: "metaOf", args: [a.token as Address] }).catch(() => null),
+    ]);
+    return {
+      token: a.token as Address, curve, creator: a.creator as Address, quote: a.quote as Address, name: a.name, ticker: a.ticker,
+      imageURI: meta ? String((meta as readonly unknown[])[2] ?? "") : "",
+      mcapUsd: wad(mcap as bigint), graduated: grad as boolean, progressBps: Number(prog), block: l.blockNumber ?? BigInt(0),
+    };
+  }));
+  return coins.sort((x, y) => (x.block > y.block ? -1 : 1));
+}
+
+/** Backfill a coin's Trades (curve + hook) and graduation from `fromBlock` (default: deployment start block). */
+export async function tradeHistory(token: Address, curve: Address, pc: PublicClient = publicClient(), fromBlock = deployment().fromBlock): Promise<ProtocolEvent[]> {
+  const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
+  const [curveLogs, hookLogs] = await Promise.all([
+    pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock, toBlock: "latest" }),
+    pc.getContractEvents({ address: deployment().hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock, toBlock: "latest" }),
+  ]);
+  const key = (l: L) => (l.blockNumber ?? BigInt(0)) * BigInt(100000) + BigInt(l.logIndex ?? 0);
+  const out: { k: bigint; e: ProtocolEvent }[] = [];
+  for (const l of curveLogs as unknown as L[]) {
+    if (l.eventName === "Trade") out.push({ k: key(l), e: tradeFromLog(l, qp, "curve") });
+    else if (l.eventName === "GraduatedToV4") out.push({ k: key(l), e: { type: "Graduate", token, poolId: l.args.poolId as `0x${string}` } });
+  }
+  for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook") });
+  out.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+  return out.map((x) => x.e);
 }
 
 /** Bridge to the flight engine: dispatches window "disciple:event" CustomEvents. */

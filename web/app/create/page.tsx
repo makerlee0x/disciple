@@ -6,7 +6,8 @@ import { contrastWarning, loadIcon } from "@/lib/decal";
 import { precheck } from "@/lib/moderation-client";
 import RocketStudio from "@/components/RocketStudio";
 import { DEFAULT_QUOTE, protocolStub, type Address } from "@/lib/protocol";
-import { isDeployed } from "@/lib/chains";
+import { ZERO, deployment, isDeployed } from "@/lib/chains";
+import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
@@ -16,6 +17,7 @@ const labelCls = "mb-1 block text-xs tracking-wider text-[#ffe7a3]";
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 
 export default function LaunchRocketPage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
   const [image, setImage] = useState(""); // URL input (optional if a file is uploaded)
@@ -82,6 +84,9 @@ export default function LaunchRocketPage() {
   function resolveQuote(): Address | null {
     if (!advanced) return DEFAULT_QUOTE;
     if (quoteSym === "CUSTOM") return isAddr(customQuote) ? (customQuote as Address) : null;
+    // Active-chain addresses win (testnet: test STRATEGY / mUSDG).
+    if (quoteSym === "STRATEGY") return deployment().defaultQuote;
+    if (quoteSym === "USDG" && deployment().usdg !== ZERO) return deployment().usdg;
     const p = QUOTE_PRESETS.find((q) => q.symbol === quoteSym);
     return p && isAddr(p.address) ? (p.address as Address) : null;
   }
@@ -116,7 +121,8 @@ export default function LaunchRocketPage() {
         quoteToken: quote,
         creatorTaxPct: effTax,
       });
-      setMsg(`🚀 Launched! Rocket ${res.token}`);
+      setMsg(`🚀 Launched! Rocket ${res.token} — taking you to it…`);
+      setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
       setMsg(isDeployed() ? String((err as Error).message) : "Contracts not deployed yet (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));
     }
@@ -126,7 +132,7 @@ export default function LaunchRocketPage() {
     <div className="page-shell">
       <h1>Launch a Rocket</h1>
       <div className="sub">EVERYONE ABOARD FLIES TOGETHER · PRICES IN $</div>
-      <span className="tag mock">MOCK FORM · NOT ON-CHAIN YET</span>
+      <span className="tag mock">{isDeployed() ? `ON-CHAIN · ${deployment() && "Robinhood Chain testnet"} · connect wallet (top right)` : "MOCK FORM · NOT ON-CHAIN YET"}</span>
       <form className="card space-y-4" onSubmit={onSubmit}>
         <label className="block">
           <span className={labelCls}>ROCKET NAME *</span>

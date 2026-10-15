@@ -1,6 +1,7 @@
 "use client";
 
 import Sidebar from "./Sidebar";
+import WalletButton from "./WalletButton";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
@@ -10,6 +11,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar forceCollapsed={isGame ? undefined : undefined} />
+      <WalletButton />
       {isGame ? children : <div className="main-offset min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (
         <div

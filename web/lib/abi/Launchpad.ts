@@ -406,6 +406,99 @@ export const launchpadAbi = [
   },
   {
     "type": "function",
+    "name": "quoteCreatorBuy",
+    "inputs": [
+      {
+        "name": "quote",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creatorBuyQuoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "snipeFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quotePriceUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "exceedsCap",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteCreatorBuy",
+    "inputs": [
+      {
+        "name": "quote",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creatorBuyQuoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "creatorTaxBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "snipeFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quotePriceUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "exceedsCap",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "quoteProbe",
     "inputs": [],
     "outputs": [
@@ -720,7 +813,17 @@ export const launchpadAbi = [
   },
   {
     "type": "error",
+    "name": "InsufficientLiquidity",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidMetadata",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidQuotePrice",
     "inputs": []
   },
   {

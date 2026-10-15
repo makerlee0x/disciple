@@ -23,6 +23,8 @@ export interface LaunchCoinParams {
   creatorBuyPct?: number; // max 0.77% of supply (UI hint)
   /** Optional same-tx creator buy, in quote raw units (decimals per quote token). */
   creatorBuyQuoteIn?: bigint;
+  /** Slippage on the creator buy's minTokensOut (default 1%). */
+  slippageBps?: number;
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.
 }
 

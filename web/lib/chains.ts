@@ -22,6 +22,7 @@ export const robinhoodTestnet = defineChain({
   name: "Robinhood Chain Testnet",
   nativeCurrency: CHAIN.nativeCurrency,
   rpcUrls: { default: { http: [process.env.NEXT_PUBLIC_RHT_RPC_URL || "https://rpc.testnet.chain.robinhood.com"] } },
+  blockExplorers: { default: { name: "RH Testnet Explorer", url: "https://explorer.testnet.chain.robinhood.com" } },
   testnet: true,
 });
 
@@ -49,6 +50,10 @@ export interface Deployment {
   feeRouter: Address;
   referralRegistry: Address;
   lockedLP: Address;
+  quotePricer: Address;
+  quoteProbe: Address;
+  migration: Address;
+  antiSnipe: Address;
   poolManager: Address;
   v4Quoter: Address;
   stateView: Address;
@@ -71,23 +76,32 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     feeRouter: addr(process.env.NEXT_PUBLIC_RH_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_RH_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_RH_LOCKED_LP),
+    quotePricer: addr(process.env.NEXT_PUBLIC_RH_QUOTE_PRICER),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_RH_QUOTE_PROBE),
+    migration: addr(process.env.NEXT_PUBLIC_RH_MIGRATION),
+    antiSnipe: addr(process.env.NEXT_PUBLIC_RH_ANTI_SNIPE),
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet (current FLOW deploy; swap these defaults or set env after a redeploy).
+  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (FLOW redeploy 2026-10-15, flow/contracts-api 44d8525).
+  // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env.
   [robinhoodTestnet.id]: {
-    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x69099D5671D6552a9e4719bEDc6667E97b423307"),
-    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0xccd8C0c61Df704606893bc182721eF140a7f8044"),
-    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER), // TODO(FLOW): DiscipleRouter not in the current testnet deploy
-    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0x95Ef3F9AF98b170Cae31D2DBD946A7F99Fbc7d7a"),
-    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x85988aA832821592d9d0Dc1A7460AD4Bbc03e48d"),
-    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0xFca2093D86Fc6D9247d4cf901984996048720B12"),
+    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x71c36E59be17710a15e7E8a6348467330fB93B24"),
+    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0xeB517C9F9171325E43048B25ECf63A42b1A640C4"),
+    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xC83EEDbA3455F71d053c847e55d5742E549fcf44"),
+    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0x8A80e1c181bdddfeA432aB816ac16E65efDA57EF"),
+    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0xceDA0CB8d7ABB9f3D962746B9148bB6B403F5425"),
+    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0xDaa97b1F70a97B9656D899341DC24170325f8455"),
+    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0x4297b9f559148b19773DaFb6DD173A793EcaB54F"),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0xCbc584333C4eC81c00acc81b2Ef09F8394E51015"),
+    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0xBc33E74c576b90Ef93526bd45155fC429F79647b"),
+    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0x0F47b2FB55004ac12ced8e2Caa1fD5829f93321a"),
     ...RH_V4,
-    defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0x95879e72F56916DfFd09511dd91A0E999ac38C7E"), // mock STRATEGY
-    usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG
-    fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "0"),
+    defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec)
+    usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
+    fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "136090192"),
   },
   [anvil.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_ANVIL_LAUNCHPAD),
@@ -96,6 +110,10 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     feeRouter: addr(process.env.NEXT_PUBLIC_ANVIL_FEE_ROUTER),
     referralRegistry: addr(process.env.NEXT_PUBLIC_ANVIL_REFERRAL_REGISTRY),
     lockedLP: addr(process.env.NEXT_PUBLIC_ANVIL_LOCKED_LP),
+    quotePricer: addr(process.env.NEXT_PUBLIC_ANVIL_QUOTE_PRICER),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_ANVIL_QUOTE_PROBE),
+    migration: addr(process.env.NEXT_PUBLIC_ANVIL_MIGRATION),
+    antiSnipe: addr(process.env.NEXT_PUBLIC_ANVIL_ANTI_SNIPE),
     poolManager: addr(process.env.NEXT_PUBLIC_ANVIL_POOL_MANAGER),
     v4Quoter: Z, stateView: Z, universalRouter: Z, permit2: RH_V4.permit2,
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
@@ -104,10 +122,12 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
   },
 };
 
-/** Known test coins on the current testnet deploy (dev/QA shortcuts). */
+/** Smoke-test coins on the current testnet deploy (rh-testnet-46630.json → smoke). */
 export const TESTNET_COINS = {
-  graduated: "0x946cd557Ec702f2C9060cc3e0B4EaFe26A9e1492" as Address,
-  liveCurve: "0x6b3333C0f9FA6Fe92e7AA4A9D6d844fdeDCFe0D6" as Address,
+  /** default-quote (test STRATEGY) coin, live on the curve */
+  liveCurve: "0x7b154cf513f4c3bbc0f880b6bb92ff864e4b5b57" as Address,
+  /** mUSDG coin, graduated to v4 (pool 0x8f2d43d3…5350) */
+  graduated: "0x59f3a103f665a5dd3427cc26f8a749bcf3eb38e0" as Address,
 };
 
 const CHAINS = { [robinhood.id]: robinhood, [robinhoodTestnet.id]: robinhoodTestnet, [anvil.id]: anvil } as const;
@@ -117,3 +137,12 @@ export const deployment = () => DEPLOYMENTS[ACTIVE_CHAIN.id];
 export const isDeployed = () => deployment().launchpad !== Z;
 export const hasRouter = () => deployment().router !== Z;
 export const ZERO = Z;
+/** Testnet gas faucet (ETH). */
+export const GAS_FAUCET = "https://faucet.testnet.chain.robinhood.com/";
+/** Test quote tokens with a public mint(address,uint256) — testnet only. */
+export const MINTABLE_TEST_TOKENS = ACTIVE_CHAIN.id === 46630
+  ? [
+      { symbol: "STRATEGY", address: deployment().defaultQuote, amount: "1000000" },
+      { symbol: "mUSDG", address: deployment().usdg, amount: "1000" },
+    ]
+  : [];

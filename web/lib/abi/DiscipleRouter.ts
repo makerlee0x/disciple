@@ -224,6 +224,16 @@ export const discipleRouterAbi = [
         "name": "amountOut",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "impactBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "mcapAfterUsd",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -361,6 +371,16 @@ export const discipleRouterAbi = [
     "inputs": [
       {
         "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "impactBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "mcapAfterUsd",
         "type": "uint256",
         "internalType": "uint256"
       }

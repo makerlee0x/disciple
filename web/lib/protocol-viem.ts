@@ -11,7 +11,7 @@ import {
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { CURVE, TIERS } from "./config";
-import { applySlippage, impactPctBetween, quoteBuy as mathBuy, quoteSell as mathSell, spotPriceWad, type CurveParams } from "./curveMath";
+import { applySlippage, type CurveParams } from "./curveMath";
 import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
@@ -95,11 +95,6 @@ export async function curveOf(pc: PublicClient, token: Address): Promise<Address
   return c;
 }
 
-/** Reads a view that only exists on PR #4 contracts; undefined on older deploys. */
-async function tryRead<T>(f: () => Promise<T>): Promise<T | undefined> {
-  try { return await f(); } catch { return undefined; }
-}
-
 function nextTierOf(mcap: number) {
   const t = TIERS.find((x) => x.lo > mcap);
   return t ? { name: t.name, mcapUsd: t.lo } : null;
@@ -118,13 +113,13 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
     pc.readContract({ ...c, functionName: "quotePriceUsd" }),
     pc.readContract({ ...c, functionName: "creatorTaxBps" }),
     curveParams(pc, curve),
-    tryRead(() => pc.readContract({ ...c, functionName: "progressBps" })),
-    tryRead(() => pc.readContract({ ...c, functionName: "currentSnipeFeeBps" })),
+    pc.readContract({ ...c, functionName: "progressBps" }),
+    pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }),
   ]);
   const quoteDecimals = await decimalsOf(pc, quote);
   const mcapUsd = wadToNum(mcapWad);
   const soldPct = (Number(tokensSold) / Number(p.totalSupply)) * 100;
-  const progressBps = progress !== undefined ? Number(progress) : Math.min(10000, Math.round((Number(tokensSold) / Number(p.sCurve)) * 10000));
+  const progressBps = Number(progress);
   return {
     token, quote, mcapUsd,
     // spot = quote raw * 1e18 / token raw; quotePriceUsd = USD WAD per 1e18 quote raw ⇒ decimal-agnostic
@@ -132,7 +127,7 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
     soldPct,
     curveProgressPct: graduated ? 100 : progressBps / 100,
     progressBps: graduated ? 10000 : progressBps,
-    snipeFeeBps: snipe !== undefined ? Number(snipe) : undefined,
+    snipeFeeBps: Number(snipe),
     quoteDecimals,
     nextTier: nextTierOf(mcapUsd),
     graduated, reserveQuote: quoteReserve, reserveToken: p.sCurve - tokensSold, tokensSold,
@@ -145,49 +140,62 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
 export async function readQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint): Promise<TradeQuote> {
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const [graduated, quote, qp] = await Promise.all([
+  const [graduated, quote] = await Promise.all([
     pc.readContract({ ...c, functionName: "graduated" }),
     pc.readContract({ ...c, functionName: "quote" }),
-    pc.readContract({ ...c, functionName: "quotePriceUsd" }),
   ]);
   const quoteDecimals = await decimalsOf(pc, quote);
   const base = { side, amountIn, quoteDecimals, snipeFee: B(0), graduates: false } as const;
 
   if (graduated) {
     if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
-    const { result } = await pc.simulateContract({
+    // Not a view (v4 has no view swaps): eth_call via simulateContract. Includes the hook's 1%.
+    const { result: [amountOut, impactBps, mcapAfterUsd] } = await pc.simulateContract({
       address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn],
     });
-    // Router returns only amountOut; impact/mcap come from the hook's Trade event after the swap.
-    return { ...base, amountOut: result, fee: B(0), impactBps: 0, impactPct: 0, mcapAfterUsd: 0, venue: "router" };
+    const bps = Number(impactBps) * (side === "buy" ? 1 : -1); // impactBps is unsigned; sign from side
+    return { ...base, amountOut, fee: B(0), impactBps: bps, impactPct: bps / 100, mcapAfterUsd: wadToNum(mcapAfterUsd), venue: "router" };
   }
 
   if (side === "buy") {
-    const q = await tryRead(() => pc.readContract({ ...c, functionName: "quoteBuy", args: [amountIn] }));
-    if (q) {
-      const bps = Number(q.impactBps);
-      return { ...base, amountOut: q.tokensOut, fee: q.fee, snipeFee: q.snipeFee, impactBps: bps, impactPct: bps / 100,
-               mcapAfterUsd: wadToNum(q.mcapAfterUsd), graduates: q.graduates, venue: "curve" };
-    }
-  } else {
-    const q = await tryRead(() => pc.readContract({ ...c, functionName: "quoteSell", args: [amountIn] }));
-    if (q) {
-      const bps = Number(q.impactBps);
-      return { ...base, amountOut: q.quoteOut, fee: q.fee, impactBps: -bps, impactPct: -bps / 100,
-               mcapAfterUsd: wadToNum(q.mcapAfterUsd), venue: "curve" };
-    }
+    const q = await pc.readContract({ ...c, functionName: "quoteBuy", args: [amountIn] });
+    const bps = Number(q.impactBps);
+    return { ...base, amountOut: q.tokensOut, fee: q.fee, snipeFee: q.snipeFee, impactBps: bps, impactPct: bps / 100,
+             mcapAfterUsd: wadToNum(q.mcapAfterUsd), graduates: q.graduates, venue: "curve" };
   }
-  // Legacy deploy (pre-PR #4, no quote views): off-chain curve math, anti-snipe not modelled.
-  const [sold, taxBps, p] = await Promise.all([
-    pc.readContract({ ...c, functionName: "tokensSold" }),
-    pc.readContract({ ...c, functionName: "creatorTaxBps" }),
+  const q = await pc.readContract({ ...c, functionName: "quoteSell", args: [amountIn] });
+  const bps = -Number(q.impactBps);
+  return { ...base, amountOut: q.quoteOut, fee: q.fee, impactBps: bps, impactPct: bps / 100,
+           mcapAfterUsd: wadToNum(q.mcapAfterUsd), venue: "curve" };
+}
+
+/** Launchpad.quoteCreatorBuy: preview the optional same-tx creator buy. quote = 0 ⇒ default quote. */
+export async function readCreatorBuyQuote(pc: PublicClient, quote: Address, quoteIn: bigint, creatorTaxBps: number) {
+  const [tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap] = await pc.readContract({
+    address: deployment().launchpad, abi: launchpadAbi, functionName: "quoteCreatorBuy", args: [quote, quoteIn, B(creatorTaxBps)],
+  });
+  return { tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap };
+}
+
+/**
+ * Convert a $ shot into the raw amount to spend: quote raw for buys, token raw (18 dec) for sells,
+ * using the curve's launch-fixed quotePriceUsd (USD WAD per 1e18 quote raw ⇒ decimal-agnostic).
+ */
+export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
+  const curve = await curveOf(pc, token);
+  const c = { address: curve, abi: bondingCurveAbi } as const;
+  const [qp, mcapWad, p] = await Promise.all([
+    pc.readContract({ ...c, functionName: "quotePriceUsd" }),
+    pc.readContract({ ...c, functionName: "mcapNow" }),
     curveParams(pc, curve),
   ]);
-  const out = side === "buy" ? mathBuy(p, sold, amountIn, taxBps) : mathSell(p, sold, amountIn, taxBps);
-  const after = side === "buy" ? sold + out : sold > amountIn ? sold - amountIn : B(0);
-  const pct = impactPctBetween(p, sold, after);
-  const mcapAfterUsd = quoteRawToUsd((spotPriceWad(p, after) * p.totalSupply) / B(1e18), qp);
-  return { ...base, amountOut: out, fee: B(0), impactBps: Math.round(pct * 100), impactPct: pct, mcapAfterUsd, venue: "curve" };
+  const usdMicro = B(Math.max(1, Math.round(usd * 1e6)));
+  if (side === "buy") return (usdMicro * B(1e18) * B(1e18)) / (qp * B(1e6));
+  return mcapWad > B(0) ? (usdMicro * B(1e12) * p.totalSupply) / mcapWad : B(0);
+}
+
+export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Address) {
+  return pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] });
 }
 
 /* ---------------- client ---------------- */
@@ -267,12 +275,15 @@ export function createViemProtocol(signer: () => Promise<Signer> = getSigner): P
         quote: lp.quoteToken, // address(0) → Launchpad.defaultQuote (STRATEGY); priced on-chain by QuotePricer
         creatorTaxBps: B(Math.round(lp.creatorTaxPct * 100)),
         creatorBuyQuoteIn: creatorBuy,
-        creatorBuyMinTokensOut: B(0), // TODO: no pre-launch quote view for the creator buy (see PR notes)
+        creatorBuyMinTokensOut: B(0), // filled from Launchpad.quoteCreatorBuy below
         deadline: B(now() + 300),
-      } as const;
+      };
       try {
         const w = await signer();
         if (creatorBuy > B(0)) {
+          const cq = await readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps));
+          if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy is above the allowed maximum (wallet cap). Lower it.");
+          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
           await ensureAllowance(w, q, launchpad, creatorBuy);
@@ -292,14 +303,7 @@ export function createViemProtocol(signer: () => Promise<Signer> = getSigner): P
     quote: (token, side, amountIn) => readQuote(pc, token, side, amountIn),
     getCurveState: (token) => readCurveState(pc, token),
     async impactPct(token, side, usd) {
-      // Pre-trade estimate from the on-chain quote views. usd → quote raw via quotePriceUsd (decimal-agnostic).
-      const curve = await curveOf(pc, token);
-      const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
-      const quoteRaw = (B(Math.round(usd * 1e6)) * B(1e18) * B(1e18)) / (qp * B(1e6));
-      if (side === "buy") return (await readQuote(pc, token, "buy", quoteRaw)).impactPct;
-      const spot = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "spotPriceWad" });
-      const tokensIn = (quoteRaw * B(1e18)) / (spot || B(1));
-      return (await readQuote(pc, token, "sell", tokensIn)).impactPct;
+      return (await readQuote(pc, token, side, await usdToAmountIn(pc, token, side, usd))).impactPct;
     },
   };
 }
