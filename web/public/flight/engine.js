@@ -532,10 +532,9 @@ const softDot=rgb=>radialSprite('d'+rgb,[[0,`rgba(${rgb},1)`],[1,`rgba(${rgb},0)
 const CLOUD_SPR=radialSprite('cloud',[[0,'rgba(255,253,250,1)'],[0.15,'rgba(255,253,250,1)'],[0.49,'rgba(236,242,255,0.72)'],[1,'rgba(200,214,255,0)']],128);
 const FIRE_SPR=radialSprite('fire',[[0,'rgba(255,255,250,1)'],[0.25,'rgba(255,240,180,1)'],[0.55,'rgba(255,170,60,.8)'],[0.8,'rgba(220,70,30,.45)'],[1,'rgba(120,20,10,0)']],128);
 const CORE_SPR=radialSprite('core',[[0,'rgba(255,250,230,1)'],[1,'rgba(120,170,255,0)']],128);
-// vignette + bloom buffers (bloom = 1/8-res copy upscaled additively; replaces the full-screen blur(14px) filter)
+// cached vignette (was a new full-screen radial gradient every frame)
 const VIGNETTE=(()=>{ const c=document.createElement('canvas'); c.width=W/2; c.height=H/2; const g=c.getContext('2d');
   const v=g.createRadialGradient(W/4,H/4,H*0.175,W/4,H/4,H*0.475); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(4,4,16,.6)'); g.fillStyle=v; g.fillRect(0,0,W/2,H/2); return c; })();
-const BLOOM=document.createElement('canvas'); BLOOM.width=W/8; BLOOM.height=H/8; const bctx=BLOOM.getContext('2d');
 
 const ROCKET_Y = H*0.58;
 const HUD_BOTTOM=140, BANNER_Y=HUD_BOTTOM+70, SAFE_LEFT=24;   // tier banner below the top HUD row; canvas is pushed right of the sidebar so no rail clearance needed
@@ -684,9 +683,6 @@ function drawRocket(dt){
   const sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   // nozzle is at (x,y); exhaust streams aft = opposite nose (+rotated down-vector)
   const tx=x, ty=y;
-  const n=Math.round((2+flame*9)*(0.55+flick));
-  for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
-    S.particles.push({x:tx+(Math.random()-.5)*10, y:ty, vx:-sa*sp+ca*j, vy:ca*sp+sa*j, life:0.7+Math.random()*0.45, s:(5+Math.random()*14*flame)*flick, hot:Math.random()<0.45}); }
   ctx.save(); ctx.globalCompositeOperation='lighter';
   const HOT=softDot('255,240,200'), COLD=softDot('140,190,255');
   for (const p of S.particles){ ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); }
@@ -725,6 +721,16 @@ function rocketSprite(im,ow,oh){ const R=rocketSprite, dec=window.__rocketDecal,
   const P=R.pad=24, gl=R.glow||(R.glow=document.createElement('canvas')); gl.width=ow+2*P; gl.height=oh+2*P; const g=gl.getContext('2d');
   g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.drawImage(base,P,P);
   R.key=key; return R; }
+/* Exhaust emission runs in the fixed-step sim: rate (particles/s) instead of count-per-rendered-frame. */
+function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=S.pending.some(p=>p.side==='buy'&&p.state==='pending')?0.5:0;
+  const I=clamp(0.25+vol*0.8+pend,0,1.4), flick=0.72+0.28*Math.abs(Math.sin(S.t*37.0))*Math.abs(Math.sin(S.t*17.3+1.7));
+  const move=clamp(Math.abs(S.vUp||0)/220 + Math.abs(S.vx||0)/400, 0, 1.2), thrustBoost=clamp(Math.abs(S.aimDeg||0)/88,0,1)*(S.t-(S.thrustT||-99)<1.2?1:0);
+  return {flick, flame:I*(0.65+0.9*move+0.55*thrustBoost)*flick*(0.85+0.3*(S.cruise||0))}; }
+function exhaustStep(dt){ const {flick,flame}=exhaustParams(), sa=Math.sin(S.heading), ca=Math.cos(S.heading);
+  const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=ROCKET_Y+(S.bob||0)*0.55;
+  S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt; let n=S._exAcc|0; S._exAcc-=n;
+  for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
+    S.particles.push({x:tx+(Math.random()-.5)*10, y:ty, vx:-sa*sp+ca*j, vy:ca*sp+sa*j, life:0.7+Math.random()*0.45, s:(5+Math.random()*14*flame)*flick, hot:Math.random()<0.45}); } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
@@ -795,10 +801,8 @@ function drawFx(dt){
 
 function drawPost(){
   // bloom-ish: brighten highlights by re-drawing the frame blurred & additive (cheap: downscaled copy)
-  // 1/8-res downsample, upscaled with bilinear filtering = soft bloom without a full-screen blur filter
-  bctx.globalCompositeOperation='copy'; bctx.drawImage(cv,0,0,cv.width,cv.height,0,0,BLOOM.width,BLOOM.height);
-  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.07; ctx.imageSmoothingEnabled=true;
-  ctx.drawImage(BLOOM,0,0,W,H); ctx.restore();
+  // (full-screen self-copy bloom removed: reading the canvas back every frame stalls the GPU pipeline;
+  //  glow now comes from the cached additive sprites themselves)
   ctx.drawImage(VIGNETTE,0,0,W,H);   // cached vignette
   // grain
   const g=grain[(S.t*24|0)%4]; ctx.save(); ctx.globalCompositeOperation='overlay'; const ox=(Math.random()*256)|0, oy=(Math.random()*256)|0;
@@ -1088,10 +1092,16 @@ function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Mat
    Clamped to [AIM_MIN, AIM_MAX]: never past vertical, never nose-down/backward, never flips.
    Sells/dumps/bombs may only dip the nose to AIM_MIN. Critically damped spring on a
    rate-limited target, angular speed capped at AIM_MAX_RATE. No angle wrapping anywhere. */
-const AIM_MIN=-15, AIM_MAX=88, AIM_MAX_RATE=110, AIM_W=9, AIM_MAX_STEP=2.5;
+const AIM_MIN=-15, AIM_MAX=88, AIM_MAX_RATE=110, AIM_W=9, AIM_SUB=1/120;   // max internal substep (s)
 function stepHeading(st, wantAimDeg, bankDeg, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!(dt>0)) return st.aimDisp;
+  // dt-based: large dt is split into ≤AIM_SUB substeps so the spring is stable at any caller rate
+  if (dt>AIM_SUB*1.0001){ const n=Math.ceil(dt/AIM_SUB-1e-6), h=dt/n; for(let i=0;i<n;i++) stepHeadingOnce(st,wantAimDeg,bankDeg,h); return st.aimDisp; }
+  return stepHeadingOnce(st,wantAimDeg,bankDeg,dt);
+}
+function stepHeadingOnce(st, wantAimDeg, bankDeg, dt){
+  const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!Number.isFinite(st.aimDisp)) st.aimDisp=0;
   if (!Number.isFinite(st.aimVel)) st.aimVel=0;
   if (!Number.isFinite(st.aimTgt)) st.aimTgt=st.aimDisp;
@@ -1104,8 +1114,7 @@ function stepHeading(st, wantAimDeg, bankDeg, dt){
   const e=st.aimTgt-st.aimDisp;
   st.aimVel+= (AIM_W*AIM_W*e - 2*AIM_W*st.aimVel)*dt;
   st.aimVel=cl(st.aimVel,-AIM_MAX_RATE,AIM_MAX_RATE);
-  const mv=cl(st.aimVel*dt,-AIM_MAX_STEP,AIM_MAX_STEP);   // also hard-cap per-frame change (slow frames)
-  st.aimDisp=cl(st.aimDisp+mv, AIM_MIN, AIM_MAX);
+  st.aimDisp=cl(st.aimDisp+st.aimVel*dt, AIM_MIN, AIM_MAX);   // |Δ| ≤ AIM_MAX_RATE·dt (rate cap, not a per-frame cap)
   if ((st.aimDisp===AIM_MIN&&st.aimVel<0)||(st.aimDisp===AIM_MAX&&st.aimVel>0)) st.aimVel=0;
   return st.aimDisp;
 }
@@ -1116,13 +1125,28 @@ function stepHeading(st, wantAimDeg, bankDeg, dt){
 let last=performance.now();
 const FIXED_DT=+Q.get('fixedDt')>0?1/+Q.get('fixedDt'):0, CAPTURE=Q.get('capture')==='1';   // ?fixedDt=30 deterministic step; ?capture=1 = manual __flight.step(n)
 const RAF=f=>{ if(!CAPTURE) requestAnimationFrame(f); };
+/* Fixed-timestep simulation (60 Hz) decoupled from rendering. Each rAF accumulates real time, runs
+   0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
+   (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
+const SIM_DT=1/60, MAX_STEPS=5; let acc=0;
+const LERP_KEYS=['displayAlt','camAlt','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS'];
+const PREV={}, CUR={};
 function frame(now){
-  // Clamp dt hard so headless rAF stalls cannot blow the heading/alt springs.
-  const rawDt=FIXED_DT||Math.min(1/20,Math.max(1/240,(now-last)/1000)); last=now;
+  const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
+  if (S.confirmed.mcap===null || loaded<names.length){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
+  acc+=rawDt; let n=0;
+  while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; simStep(SIM_DT); acc-=SIM_DT; n++; }
+  if (n===MAX_STEPS && acc>SIM_DT) acc=0;             // long stall: drop the backlog instead of spiralling
+  const alpha=n?clamp(acc/SIM_DT,0,1):1;
+  for (const k of LERP_KEYS){ const a=PREV[k], b=S[k]; CUR[k]=b; if(typeof a==='number'&&typeof b==='number') S[k]=a+(b-a)*alpha; }
+  render(rawDt);
+  for (const k of LERP_KEYS) S[k]=CUR[k];
+  RAF(frame);
+}
+function simStep(stepDt){
   // ATOM slow-mo: eased time scale (uniform dt scaling keeps every spring smooth)
-  const tsT=S.t<S.slowmoUntil?SLOWMO_SCALE:1; S.timeScale=lerp(S.timeScale,tsT,1-Math.exp(-rawDt*(tsT<1?30:5)));
-  const dt=rawDt*S.timeScale; S.t+=dt;
-  if (S.confirmed.mcap===null || loaded<names.length){ drawLoading(); RAF(frame); return; }
+  const tsT=S.t<S.slowmoUntil?SLOWMO_SCALE:1; S.timeScale=lerp(S.timeScale,tsT,1-Math.exp(-stepDt*(tsT<1?30:5)));
+  const dt=stepDt*S.timeScale; S.t+=dt;
   if (DEBUG_BOMB && !S._dbgFired && S.t>=DEBUG_BOMB_AT){ S._dbgFired=true; runDebugBomb(); }
   /* SPRING — altitude tracks price. ω≈22 rad/s, ζ≈0.72 → ~150 ms rise with a little overshoot.
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
@@ -1135,7 +1159,7 @@ function frame(now){
   // volume EMAs decay (τ≈6s) → exhaust intensity
   const dec=Math.exp(-dt/6); S.volEma*=dec; S.buyEma*=dec; S.sellEma*=dec;
   // lateral steering — cosmetic only. Laggy follow so A/D banks instead of teleporting.
-  const steer=performance.now()<S.slowUntil?3:7;           // VOID orb penalty: sluggish steering
+  const steer=S.t<S.slowUntil?3:7;           // VOID orb penalty: sluggish steering
   const nx=lerp(S.x,LANES[S.lane],1-Math.exp(-dt*steer)); S.vx=(nx-S.x)/Math.max(dt,1e-3); S.x=nx;
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
@@ -1205,7 +1229,7 @@ function frame(now){
     if (S.trail.length>64) S.trail.shift();
   }
   S.trail=S.trail.filter(p=>p.x>-40);
-  if(performance.now()>S.multUntil) S.mult=1;
+  if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } S.floaters=S.floaters.filter(f=>f.life>0);
   // tier change banner
   const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; }
@@ -1222,13 +1246,13 @@ function frame(now){
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.80?'halo':r<0.95?'mult':'rhalo',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
   for (const m of S.motes){ m.y+=m.v*dt*flow; if (Math.abs(m.x-S.x)<50&&Math.abs(m.y-ROCKET_Y)<40){ m.dead=true; const T=ORB[m.k];
-      if (m.k==='mult'){ S.mult=2; S.multUntil=performance.now()+10000; }
+      if (m.k==='mult'){ S.mult=2; S.multUntil=S.t+10; }
       if (m.k==='rhalo') S.rhalo++;
       const pts=T.pts*S.mult*(1+Math.floor(S.streak/10)); S.score+=pts; S.streak++; S.collected++;
       S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':m.k==='rhalo'?'+1 rHALO claim':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
       if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
   for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&Math.abs(o.x-S.x)<50&&Math.abs(o.y-ROCKET_Y)<40){ o.hit=true; o.dead=true; const T=ORB[o.k];
-      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=performance.now()+3000;
+      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
       for(let i=0;i<30;i++) S.shards.push({x:o.x,y:o.y,vx:(Math.random()-.5)*320,vy:(Math.random()-.5)*320,life:1,c:'#ff3344'}); } }
@@ -1236,18 +1260,19 @@ function frame(now){
   bombStep(dt);
   S.toasts.forEach(t=>t.life-=dt*0.6); S.toasts=S.toasts.filter(t=>t.life>0);
   if (Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1])[0][0]==='you') award('koth','KING OF THE HILL','top fueler on this coin');
-
+  twStep(); exhaustStep(dt);
+}
+function render(dt){
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); twStep(); drawTrampWalls(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); drawTrampWalls(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
-  RAF(frame);
 }
 RAF(frame);
 if (Q.get('launched')==='1'){ const f=document.getElementById('launchFade'); f.style.transition='none'; f.style.opacity=1; S.altVel=-0.25; requestAnimationFrame(()=>requestAnimationFrame(()=>{ f.style.transition='opacity .9s ease'; f.style.opacity=0; })); }
 const DEBUG_BOMB=Q.get('debugBomb'), DEBUG_BOMB_AT=+(Q.get('debugBombAt')||1.2);
 function runDebugBomb(){ if(DEBUG_BOMB==='cycle'){ ['puff','grenade','bunker','cruise','nuke','atom'].forEach((k,i)=>setTimeoutSim(()=>debugBomb(k),i*2.4)); } else debugBomb(isNaN(+DEBUG_BOMB)?DEBUG_BOMB:+DEBUG_BOMB,{fullStack:Q.get('fullStack')==='1'}); }
 const simTimers=[]; function setTimeoutSim(fn,d){ simTimers.push({at:S.t+d,fn}); }
-window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(performance.now()); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
