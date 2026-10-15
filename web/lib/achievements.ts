@@ -1,7 +1,7 @@
 /**
  * ~40 DISCIPLE achievements — angel/CT names, rarity frames, rewards.
  */
-import { SEASON_PASS, type AchievementRarity } from "./config";
+import { ACHIEVEMENT_RARITY, SEASON_PASS, type AchievementRarity } from "./config";
 import type { PlayerStats } from "./stats";
 
 export type AchievementCategory =
@@ -114,4 +114,75 @@ export function seasonPassProgress(points: number) {
     level, into, need: SEASON_PASS.xpPerLevel, progress: into / SEASON_PASS.xpPerLevel,
     seasonName: SEASON_PASS.seasonName, maxLevel: SEASON_PASS.maxLevel,
   };
+}
+
+
+/** Display glyphs / fills for leaderboard square badges */
+export const ACHIEVEMENT_DISPLAY: Record<string, { icon: string; color: string }> = {
+  first_blessing: { icon: "🚀", color: "#7ec8ff" },
+  through_pearly_gates: { icon: "🚪", color: "#fff7df" },
+  seventh_heaven: { icon: "☁️", color: "#ffffff" },
+  narrow_gate: { icon: "⛩️", color: "#a8e0ff" },
+  firmament_walker: { icon: "🌌", color: "#c9b6f2" },
+  angel_altitude: { icon: "👼", color: "#ffe7a3" },
+  seraphim_sight: { icon: "✨", color: "#fff7df" },
+  tier_tourist: { icon: "🗺️", color: "#9fd0ff" },
+  best_x_10: { icon: "📈", color: "#ffe7a3" },
+  best_x_50: { icon: "🏆", color: "#ffd060" },
+  crew_captain_ach: { icon: "👑", color: "#ffd060" },
+  gate_keeper_ach: { icon: "🔑", color: "#d9c4ff" },
+  choir_of_three: { icon: "🪽", color: "#a8e0ff" },
+  full_congregation: { icon: "👥", color: "#c9b6f2" },
+  co_fueler: { icon: "⛽", color: "#7ec8ff" },
+  ascension_assist: { icon: "🕊️", color: "#ffe7a3" },
+  first_grenade: { icon: "💣", color: "#ff8fab" },
+  bunker_buster_ach: { icon: "🧨", color: "#ff7eb9" },
+  cruise_missile_ach: { icon: "🚀", color: "#ff6b6b" },
+  nuke_ach: { icon: "☢️", color: "#ff6b6b" },
+  atom_bomber: { icon: "💥", color: "#ff4d6d" },
+  carpet_bomber: { icon: "🌩️", color: "#ff8fab" },
+  shock_and_awe: { icon: "⚡", color: "#ffb37e" },
+  diamond_halo: { icon: "💎", color: "#9fd0ff" },
+  believer_badge: { icon: "🙏", color: "#ffe7a3" },
+  round_tripper: { icon: "🔄", color: "#c8cde0" },
+  iron_seat: { icon: "⏳", color: "#ffe7a3" },
+  unfumbled: { icon: "💰", color: "#7dffa0" },
+  bag_redemption: { icon: "🎒", color: "#c9b6f2" },
+  pad_ignition: { icon: "🕯️", color: "#ffd98a" },
+  graduated_dev: { icon: "🎓", color: "#c9b6f2" },
+  serial_launcher: { icon: "🛫", color: "#ffd060" },
+  kingmaker_ach: { icon: "👑", color: "#ffd060" },
+  trench_warfare: { icon: "⛏️", color: "#9ff3c8" },
+  flip_artist: { icon: "🎴", color: "#7dffa0" },
+  sniper_nest: { icon: "🎯", color: "#7dffa0" },
+  degen_passport: { icon: "🛂", color: "#ff7eb9" },
+  ape_awakening: { icon: "🦍", color: "#ffb37e" },
+  season_initiate: { icon: "⭐", color: "#8cc8ff" },
+  season_blessed: { icon: "🌟", color: "#ffe7a3" },
+  season_anointed: { icon: "✦", color: "#c9b6f2" },
+  top_percentile: { icon: "🏅", color: "#ffd060" },
+  rhalo_stacker: { icon: "✨", color: "#fff7df" },
+  pass_level_25: { icon: "📜", color: "#c9b6f2" },
+};
+
+export function rarityStyle(rarity: AchievementRarity) {
+  return ACHIEVEMENT_RARITY[rarity];
+}
+
+export function achievementById(id: string): AchievementDef | undefined {
+  return ACHIEVEMENTS.find((a) => a.id === id);
+}
+
+/** Pick up to n highest-rarity achievements from catalog ids. */
+export function topAchievements(ids: string[], n = 6): AchievementDef[] {
+  const order: AchievementRarity[] = ["DIVINE", "GLORIFIED", "ANOINTED", "BLESSED", "COMMON"];
+  return ids
+    .map((id) => achievementById(id))
+    .filter((a): a is AchievementDef => !!a)
+    .sort((a, b) => order.indexOf(a.rarity) - order.indexOf(b.rarity))
+    .slice(0, n);
+}
+
+export function achievementDisplay(id: string): { icon: string; color: string } {
+  return ACHIEVEMENT_DISPLAY[id] ?? { icon: "⭐", color: "#ffe7a3" };
 }
