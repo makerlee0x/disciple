@@ -9,7 +9,7 @@ import { hamming } from "./image";
  * Swap for KV/Redis/Postgres in production via the same two functions.
  */
 type Entry = { sha256: string; phash: string; reason: string; at: string };
-const FILE = process.env.DENYLIST_PATH || path.join(process.cwd(), ".data", "denylist.json");
+const FILE = process.env.DENYLIST_PATH || path.join(process.env.VERCEL ? "/tmp" : process.cwd(), ".data", "denylist.json"); // Vercel FS is read-only except /tmp
 
 async function readAll(): Promise<Entry[]> {
   try { return JSON.parse(await fs.readFile(FILE, "utf8")); } catch { return []; }
@@ -24,6 +24,8 @@ export async function deny(sha: string, phash: string, reason: string) {
   const all = await readAll();
   if (all.some((e) => e.sha256 === sha)) return;
   all.push({ sha256: sha, phash, reason, at: new Date().toISOString() });
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(all, null, 2));
+  try {
+    await fs.mkdir(path.dirname(FILE), { recursive: true });
+    await fs.writeFile(FILE, JSON.stringify(all, null, 2));
+  } catch { /* read-only FS: best effort (TODO: KV store) */ }
 }
