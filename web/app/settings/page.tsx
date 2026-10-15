@@ -99,7 +99,7 @@ export default function SettingsPage() {
         </div>
         <div className="row">
           <span>Replay</span>
-          <span>add ?replay=1 on a coin URL</span>
+          <span>add ?replay=1 on a rocket URL</span>
         </div>
         <p className="note">
           Keys: disciple.orbs / disciple.bombs / disciple.shake

@@ -122,3 +122,162 @@ export const SETTINGS_KEYS = {
   sidebarHome: "disciple.sidebar.home",
   sidebarGame: "disciple.sidebar.game",
 } as const;
+
+/* ------------------------------------------------------------------ */
+/* Default quote pairing                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * STRATEGY ("Strategy Coin") on Robinhood Chain (4663).
+ * Source: /workspace/anypair/ds_0x1686…1e18.json (DexScreener snapshot).
+ * Every launch pairs with this quote by default; Advanced mode can override.
+ */
+export const STRATEGY_TOKEN = {
+  address: "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18" as const,
+  symbol: "STRATEGY",
+  name: "Strategy Coin",
+  decimals: 18,
+} as const;
+
+/** Quote presets offered in the Advanced pair picker (address = TODO where unknown). */
+export const QUOTE_PRESETS = [
+  { symbol: "STRATEGY", address: STRATEGY_TOKEN.address as string, note: "default" },
+  // TODO(addresses): fill USDG / WETH / MSTR Robinhood Chain addresses from contracts workstream.
+  { symbol: "USDG", address: "", note: "TODO address" },
+  { symbol: "WETH", address: "", note: "TODO address" },
+  { symbol: "MSTR", address: "", note: "TODO address" },
+] as const;
+
+/* ------------------------------------------------------------------ */
+/* Verified tiers (modelled on fomo's blue-check minimums)             */
+/* ------------------------------------------------------------------ */
+/*
+ * fomo blue check (per fomotrendings.com/tools/fomo-token-verification-checker,
+ * describing fomo.family/verify-token): ≥$1M 24h DEX volume, ≥$5M mcap,
+ * ≥1,000 holders, unique name+symbol, then manual review.
+ * fomo publishes NO token-age or liquidity minimum that we could find → our
+ * age/liquidity numbers below are DISCIPLE proposals, marked UNVERIFIED.
+ */
+export type VerifiedLevel = "UNVERIFIED" | "BLESSED" | "ANOINTED" | "GLORIFIED";
+
+export interface VerifiedTierRule {
+  level: VerifiedLevel;
+  label: string;
+  icon: string;
+  minVolume24hUsd: number;
+  minAgeHours: number;
+  minHolders: number;
+  minLiquidityUsd: number;
+  minMcapUsd: number;
+  /** Which numbers trace to a fomo source vs. our own guess. */
+  provenance: string;
+}
+
+export const VERIFIED_TIERS: readonly VerifiedTierRule[] = [
+  {
+    level: "UNVERIFIED", label: "Unverified", icon: "○",
+    minVolume24hUsd: 0, minAgeHours: 0, minHolders: 0, minLiquidityUsd: 0, minMcapUsd: 0,
+    provenance: "default",
+  },
+  {
+    // Scaled for a $7K→$33K curve: fomo's bar would exclude every pre-grad rocket.
+    level: "BLESSED", label: "Blessed", icon: "✦",
+    minVolume24hUsd: 10_000, minAgeHours: 24, minHolders: 100, minLiquidityUsd: 5_000, minMcapUsd: 33_000,
+    provenance: "DISCIPLE proposal (UNVERIFIED vs fomo; ~1/100 of fomo volume, 1/10 holders; mcap = graduation)",
+  },
+  {
+    level: "ANOINTED", label: "Anointed", icon: "✶",
+    minVolume24hUsd: 100_000, minAgeHours: 72, minHolders: 500, minLiquidityUsd: 50_000, minMcapUsd: 1_000_000,
+    provenance: "DISCIPLE proposal (age/liquidity UNVERIFIED)",
+  },
+  {
+    // Matches fomo's blue check on volume / mcap / holders.
+    level: "GLORIFIED", label: "Glorified", icon: "☀",
+    minVolume24hUsd: 1_000_000, minAgeHours: 168, minHolders: 1_000, minLiquidityUsd: 250_000, minMcapUsd: 5_000_000,
+    provenance: "volume/mcap/holders = fomo blue check; age/liquidity UNVERIFIED",
+  },
+] as const;
+
+export interface RocketStats {
+  volume24hUsd: number;
+  ageHours: number;
+  holders: number;
+  liquidityUsd: number;
+  mcapUsd: number;
+}
+
+export function verifiedLevel(s: RocketStats): VerifiedTierRule {
+  let best = VERIFIED_TIERS[0];
+  for (const t of VERIFIED_TIERS)
+    if (
+      s.volume24hUsd >= t.minVolume24hUsd &&
+      s.ageHours >= t.minAgeHours &&
+      s.holders >= t.minHolders &&
+      s.liquidityUsd >= t.minLiquidityUsd &&
+      s.mcapUsd >= t.minMcapUsd
+    )
+      best = t;
+  return best;
+}
+
+/** fomo shows all tokens by default with a "verified" filter → default "all". */
+export const LAUNCHPAD_DEFAULT_FILTER: "all" | "verified" = "all";
+
+/** Next unlock reward per altitude tier index (PvE crew rewards; mock copy). */
+export function nextUnlock(mcap: number) {
+  const i = TIERS.findIndex((t) => mcap < t.hi);
+  const idx = i < 0 ? TIERS.length - 1 : i;
+  const t = TIERS[idx];
+  const next = TIERS[Math.min(idx + 1, TIERS.length - 1)];
+  const pct = Math.max(0, Math.min(100, ((mcap - t.lo) / (t.hi - t.lo)) * 100));
+  return { current: t.name, next: next.name, targetUsd: t.hi, pct };
+}
+
+/* ------------------------------------------------------------------ */
+/* Image moderation (see docs/moderation.md)                           */
+/* ------------------------------------------------------------------ */
+export const MODERATION = {
+  /** nsfwjs class thresholds: block when exceeded. */
+  block: { Porn: 0.6, Hentai: 0.6, Sexy: 0.85 },
+  /** Grey zone → "review" (held, launch not allowed until a human clears it). */
+  review: { Porn: 0.35, Hentai: 0.35, Sexy: 0.6 },
+  maxBytes: 2 * 1024 * 1024,
+  maxDim: 1024,
+  mimeTypes: ["image/png", "image/jpeg", "image/webp", "image/gif"],
+  /** Perceptual-hash Hamming distance treated as "same image" for the denylist. */
+  phashMaxDistance: 6,
+} as const;
+
+export type ModerationVerdict = "allow" | "block" | "review";
+
+/** Shared verdict logic for nsfwjs-style class probabilities. */
+export function decideNsfw(scores: Record<string, number>): ModerationVerdict {
+  const b = MODERATION.block, r = MODERATION.review;
+  const s = (k: string) => scores[k] ?? 0;
+  if (s("Porn") > b.Porn || s("Hentai") > b.Hentai || s("Sexy") > b.Sexy) return "block";
+  if (s("Porn") > r.Porn || s("Hentai") > r.Hentai || s("Sexy") > r.Sexy) return "review";
+  return "allow";
+}
+
+/* ------------------------------------------------------------------ */
+/* Hold bonus (PROPOSAL — Maker to tune). Off-chain points only.        */
+/* ------------------------------------------------------------------ */
+export const HOLD_BONUS = {
+  /** multiplier = 1 + min(maxBoost, k·log10(1 + uPnL$/pnlScaleUsd)) × holdTimeFactor × sellScale */
+  k: 0.5,
+  pnlScaleUsd: 10,
+  maxBoost: 1.5,
+  /** holdTimeFactor ramps linearly 0 → 1 over this many hours of continuous holding. */
+  rampHours: 24,
+  /** Position below this $ value earns no bonus (anti-dust / anti-farming). */
+  minPositionUsd: 25,
+  /** Points are snapshotted at random times per day, not continuously. */
+  snapshotsPerDay: 6,
+} as const;
+
+export function holdBonus(uPnlUsd: number, heldHours: number, sellScale: number, positionUsd: number): number {
+  if (positionUsd < HOLD_BONUS.minPositionUsd || uPnlUsd <= 0) return 1;
+  const pnlTerm = Math.min(HOLD_BONUS.maxBoost, HOLD_BONUS.k * Math.log10(1 + uPnlUsd / HOLD_BONUS.pnlScaleUsd));
+  const time = Math.max(0, Math.min(1, heldHours / HOLD_BONUS.rampHours));
+  return 1 + pnlTerm * time * Math.max(0, Math.min(1, sellScale));
+}

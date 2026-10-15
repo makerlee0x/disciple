@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { brandedRocket } from "@/lib/decal";
 
 declare global {
   interface Window {
     REPLAY?: unknown;
     __flight?: unknown;
+    __rocketDecal?: { canvas: HTMLCanvasElement; t0: number; fallback: boolean };
   }
 }
 
@@ -85,6 +87,11 @@ export default function FlightCanvas({ search }: Props) {
     }
 
     boot();
+    // Token decal loads in parallel with the engine; never blocks flight.
+    const icon = new URLSearchParams(search).get("icon");
+    brandedRocket(icon).then(({ canvas, fallback }) => {
+      if (!cancelled) window.__rocketDecal = { canvas, t0: performance.now(), fallback };
+    });
 
     return () => {
       cancelled = true;
