@@ -115,7 +115,6 @@ export default function LaunchRocketPage() {
         imageUri: mod.uri, // moderated URI only — contracts store this metadata URI
         quoteToken: quote,
         creatorTaxPct: effTax,
-        quotePriceUsd: undefined, // TODO: quote USD price source (Launchpad has no oracle)
       });
       setMsg(`🚀 Launched! Rocket ${res.token}`);
     } catch (err) {
