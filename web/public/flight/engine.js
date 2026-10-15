@@ -368,14 +368,14 @@ function makeSource(){
 const S = {
   confirmed:{mcap:null, block:0, lastSwapTs:0, lastBlockTs:0},
   displayAlt:null, levels:[], pending:[], feed:[], volEma:0, buyEma:0, sellEma:0,
-  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, rhalo:0, shake:0, floaters:[], heading:0, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
+  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, rhalo:0, shake:0, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
   orbsOn:localStorage.getItem('disciple.orbs')!=='off', lastOrbT:-99,
   tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
   altVel:0, flatSince:0, cruise:0, bank:0, bob:0, sway:0, roll:1, glint:0,
   trail:[], bgScrollX:0, speedBits:[],
   aimDeg:0, thrustT:-99, lastTrailAlt:null,
-  headTarget:Math.PI/2, headSmooth:Math.PI/2, camAlt:null, camX:null,
+  headTarget:Math.PI/2, headSmooth:Math.PI/2, aimDisp:0, aimVel:0, aimTgt:0, camAlt:null, camX:null,
   thrustNet:0, thrustPend:null, trailAimLP:0,
 };
 
@@ -427,7 +427,7 @@ function queueThrust(side, usd){
 function applyThrust(side, usd){
   // Immediate path (tests / explicit); also used when flushing the per-frame queue.
   const deg = climbAngleDeg(usd);
-  S.aimDeg = side==='buy' ? deg : -deg;
+  S.aimDeg = side==='buy' ? deg : -Math.min(15, deg*0.25);   // dumps only dip the nose (min −15°)
   S.thrustT = S.t;
   S.flatSince = 0;
   S.cruise = Math.min(S.cruise||0, 0.25);
@@ -696,7 +696,7 @@ function drawRocket(dt){
   ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(bx,by,(48+70*flame)*flick,0,7); ctx.fill();
   ctx.restore();
   // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
-  ctx.save(); ctx.translate(x,y); ctx.rotate(S.heading+(S.microRot||0));
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rocketDrawAngle());
   ctx.shadowColor='rgba(200,220,255,.8)'; ctx.shadowBlur=24;
   if(im.complete&&!im.bad){
     const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas')), ow=Math.ceil(w), oh=Math.ceil(h);
@@ -895,7 +895,7 @@ function launchBomb(pct,f){
   return b;
 }
 function bombY(b){ return clamp(altToScreenY(b.alt),40,H-40); }
-function addShake(amp,f,tau){ if(!S.shakeOn||amp<=0) return; S.camShakes.push({amp,f,tau,t0:S.t,ph:Math.random()*6.28,ph2:Math.random()*6.28}); }
+function addShake(amp,f,tau){ return; /* camera shake removed (motion sickness) */ S.camShakes.push({amp,f,tau,t0:S.t,ph:Math.random()*6.28,ph2:Math.random()*6.28}); }
 /* Damped, smooth camera offset: Σ A·e^(−t/τ)·sin(2πft+φ) with a 40 ms attack. No per-frame randomness → never jittery. */
 function camOffset(){ let x=0,y=0;
   for (const s of S.camShakes){ const t=S.t-s.t0, env=s.amp*Math.exp(-t/s.tau)*(1-Math.exp(-t/0.04));
@@ -1037,6 +1037,35 @@ function debugBomb(spec,opt){ opt=opt||{};
   const pct=typeof spec==='number'?spec:[0.8,3.2,8,18,35,55][Math.max(0,i)];
   noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }
 
+/*HEADING-BEGIN*/
+function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI,AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }
+/* Rocket heading physics (pure; unit-tested by web/scripts/test-heading.mjs).
+   aim = degrees above horizontal with nose right: 0 = sideways cruise, 88 = near vertical.
+   Clamped to [AIM_MIN, AIM_MAX]: never past vertical, never nose-down/backward, never flips.
+   Sells/dumps/bombs may only dip the nose to AIM_MIN. Critically damped spring on a
+   rate-limited target, angular speed capped at AIM_MAX_RATE. No angle wrapping anywhere. */
+const AIM_MIN=-15, AIM_MAX=88, AIM_MAX_RATE=110, AIM_W=9, AIM_MAX_STEP=2.5;
+function stepHeading(st, wantAimDeg, bankDeg, dt){
+  const cl=(v,a,b)=>v<a?a:v>b?b:v;
+  if (!(dt>0)) return st.aimDisp;
+  if (!Number.isFinite(st.aimDisp)) st.aimDisp=0;
+  if (!Number.isFinite(st.aimVel)) st.aimVel=0;
+  if (!Number.isFinite(st.aimTgt)) st.aimTgt=st.aimDisp;
+  let want=Number.isFinite(wantAimDeg)?wantAimDeg:0;
+  want=cl(want - (Number.isFinite(bankDeg)?cl(bankDeg,-10,10):0), AIM_MIN, AIM_MAX);
+  // rate-limit the target itself
+  const step=AIM_MAX_RATE*dt, dT=want-st.aimTgt;
+  st.aimTgt=Math.abs(dT)>step ? st.aimTgt+Math.sign(dT)*step : want;
+  // critically damped (ζ=1) spring toward target; linear degrees, so diff is already shortest-path
+  const e=st.aimTgt-st.aimDisp;
+  st.aimVel+= (AIM_W*AIM_W*e - 2*AIM_W*st.aimVel)*dt;
+  st.aimVel=cl(st.aimVel,-AIM_MAX_RATE,AIM_MAX_RATE);
+  const mv=cl(st.aimVel*dt,-AIM_MAX_STEP,AIM_MAX_STEP);   // also hard-cap per-frame change (slow frames)
+  st.aimDisp=cl(st.aimDisp+mv, AIM_MIN, AIM_MAX);
+  if ((st.aimDisp===AIM_MIN&&st.aimVel<0)||(st.aimDisp===AIM_MAX&&st.aimVel>0)) st.aimVel=0;
+  return st.aimDisp;
+}
+/*HEADING-END*/
 /* =====================================================================
    UPDATE LOOP — render at rAF, state only from confirmed events
    ===================================================================== */
@@ -1089,25 +1118,11 @@ function frame(now){
     showAim=showAim*(1-s);
     if (u>=1) S.aimDeg=0;
   }
-  // atan2(priceΔ,timeΔ) blend removed — tiny noisy deltas were flipping the heading target every frame.
-  // Single heading target: rate-limit aim (max deg/s), then critically-damped spring.
-  const MAX_AIM_RATE=110; // deg/s
-  let wantAim=showAim;
-  const curAimFromTarget=((Math.PI/2)-(S.headTarget??Math.PI/2))*180/Math.PI;
-  const dAim=wantAim-curAimFromTarget;
-  const maxStep=MAX_AIM_RATE*dt;
-  if (Math.abs(dAim)>maxStep) wantAim=curAimFromTarget+Math.sign(dAim)*maxStep;
-  const bankAmt=(S.bank||0)*(sinceThrust>EASE_S?1:0.15);
-  S.headTarget=Math.PI/2 - wantAim*Math.PI/180 + bankAmt;
-  // Critically damped (ζ=1) heading spring — no overshoot. Shortest-angle error.
-  const HEAD_W=9; // rad/s natural freq (~settles ~0.45s)
-  let d=S.headTarget-S.heading; d=Math.atan2(Math.sin(d),Math.cos(d));
-  S.headVel=(S.headVel||0)+(HEAD_W*HEAD_W*d - 2*1.0*HEAD_W*(S.headVel||0))*dt;
-  // also rate-limit angular velocity (~180 deg/s)
-  const MAX_OMEGA=Math.PI; // rad/s
-  S.headVel=clamp(S.headVel,-MAX_OMEGA,MAX_OMEGA);
-  S.heading+=S.headVel*dt;
-  S.heading=Math.atan2(Math.sin(S.heading),Math.cos(S.heading)); S.tilt=S.heading;
+  // HEADING — solved in aim-degree space (deg above horizontal, nose right), never as a wrapped
+  // world angle, so there is no ±180° seam to cross and nothing can spin. See stepHeading().
+  const bankDeg=(S.bank||0)*(180/Math.PI)*(sinceThrust>EASE_S?1:0.15);
+  stepHeading(S, showAim, bankDeg, dt);
+  S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // Camera follows smoothed rocket / altitude (kills spring overshoot jitter at 10× zoom).
   if (S.camAlt==null) S.camAlt=S.displayAlt;
   if (S.camX==null) S.camX=S.x;
@@ -1178,10 +1193,10 @@ function frame(now){
   S.toasts.forEach(t=>t.life-=dt*0.6); S.toasts=S.toasts.filter(t=>t.life>0);
   if (Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1])[0][0]==='you') award('koth','KING OF THE HILL','top fueler on this coin');
 
-  const co=camOffset(); ctx.save(); ctx.translate(co.x,co.y);   // damped smooth shake (bombs + legacy orb hit)
+  ctx.save();   // camera is stable: no shake of any kind
   drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
-    window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
+    window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
   RAF(frame);
 }
 RAF(frame);

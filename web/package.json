@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "build:static-preview": "node scripts/build-static-preview.mjs"
+    "build:static-preview": "node scripts/build-static-preview.mjs",
+    "test:heading": "node scripts/test-heading.mjs"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
