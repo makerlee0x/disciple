@@ -1,0 +1,192 @@
+{
+  "chainId": 46630,
+  "network": "Robinhood Chain Testnet",
+  "rpc": "https://rpc.testnet.chain.robinhood.com",
+  "explorer": "https://explorer.testnet.chain.robinhood.com",
+  "deployedAt": "2026-10-15",
+  "deployer": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+  "startBlock": null,
+  "gitBranch": "flow/snipe-split",
+  "contracts": {
+    "ReferralRegistry": "0xc0d538863c6e6ab1128c6149e173b55f77938478",
+    "LockedLP": "0x954c768562756c291c29cb14ec08604c2e00eb11",
+    "FeeRouter": "0x50d039086f2fd46d200e5111f3915231042416e4",
+    "DiscipleHook": "0x065e6e6f391aeea6b11cba111d4a714c2f93c0c4",
+    "Migration": "0xe561dfe17036635bd74f5eac5f81a19f8731cb5c",
+    "DiscipleRouter": "0xf04f7d3b54f86cc5333e7e2302850b023c796e69",
+    "TrampWallManager": "0xdd4aaacc95c19169ddd50991de64da28f053259f",
+    "AntiSnipe": "0x2738a2fa95b023e2ea91dd26f905cf43de586cea",
+    "Launchpad": "0x5537c8e1a329ea9628251caa602ca49bb8e45529",
+    "QuotePricer": "0x0bc08f97e7e4669bf3760b3534f681cdff28961a",
+    "QuoteProbe": "0xf5c09182091e527f0445ce065f7fc59d4b55cede",
+    "CurveDeployer": "0x37427357b6d0db92137872d6b7d17c9cede72c40",
+    "RewardsVault": "0xbd7cb15c0d8900dcabd6421439a47f5b163fd0c3",
+    "AnonLauncher": "0x57792df0ed8772fc6135e17c45099e9c06455e37",
+    "MarketLens": "0x56b742ec5410996eac56b36c477ee9548c0caa9c"
+  },
+  "uniswapV4": {
+    "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+    "V4Quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+    "StateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+    "UniversalRouter": "0x8876789976decbfcbbbe364623c63652db8c0904",
+    "Permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "hookTrustedRouters": [
+    "0xf04f7d3b54f86cc5333e7e2302850b023c796e69",
+    "0x8876789976decbfcbbbe364623c63652db8c0904"
+  ],
+  "tokens": {
+    "USDG": {
+      "address": "0x25030Bff74764aD72b912276a603717DB1C00644",
+      "symbol": "mUSDG",
+      "decimals": 18,
+      "usdPrice": "1 (QuotePricer USDG)"
+    },
+    "STRATEGY": {
+      "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+      "symbol": "STRATEGY",
+      "decimals": 18,
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
+      "defaultQuote": true
+    }
+  },
+  "strategyUsdgRefPool": {
+    "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
+    "currency0": "0x25030Bff74764aD72b912276a603717DB1C00644",
+    "currency1": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "hooks": "0x0000000000000000000000000000000000000000",
+    "initPriceUsd": 0.00245,
+    "liquidity": "4e22 full-range",
+    "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
+  },
+  "previous": {
+    "note": "v2 stack (PR #10) — superseded by combined redeploy",
+    "contracts": {
+      "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
+      "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
+      "DiscipleHook": "0x40Cb2f2a91eD48B013D88dA410Bb7F66Baa280C4",
+      "QuotePricer": "0xf2258181F75d3B7D74FDCeD6D116CC1D5e379778",
+      "QuoteProbe": "0xC3C18ebCBE5E66300dA35c6046a0B3c40dB38bbf",
+      "FeeRouter": "0x13F813cFb0B14EFd01EB5026A92420b0A84C346C",
+      "LockedLP": "0xc2D4c8796A8753c61c77bC65AE523DDecd1dF5e3",
+      "Migration": "0xFabc75DF0996083FC05fF7D63e8f11eF20421684",
+      "AntiSnipe": "0x0af141f678677293ca1B8B0a0ba6078888CeCC7A",
+      "ReferralRegistry": "0x1e124C3654B9880FBB6459ecfabE05E69058fcC2",
+      "TrampWallManager": "0x901B5059BEE5aFd94C38069d6B10d5890ED533bd",
+      "CurveDeployer": "0x534F50f7C976E463a2329501012E467D8B75A155"
+    },
+    "addons": {
+      "note": "Add-on contracts only (core stack unchanged). Branch flow/anon-launch.",
+      "deployedAt": "2026-10-15",
+      "AnonLauncher": {
+        "address": "0x722a7927B5496b10C58e50628ab7787f1Eec0696",
+        "deployTx": "0x311ec36f3e6713c1177f061965f2cf2334671782e2cecf9d25560e87b72247f8",
+        "launchFeeUSDG": "0.25",
+        "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+        "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564"
+      },
+      "MarketLens": {
+        "address": "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9",
+        "deployTx": "0x1c00351bcc40b34b78daf2261e85d578c595265832b068e64445c4b861b7ef1c",
+        "trmpCheck": "market(TRMP) = $45,284.87 (curve.mcapNow() on live curve = $33,000)"
+      },
+      "erc4337": {
+        "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+        "accountFactory": "0x0000000000400CdFef5E2714E63d8040b700BC24 (LightAccount v2)",
+        "sponsored": false,
+        "sponsorshipError": "alchemy_requestGasAndPaymasterAndData / pm_getPaymasterStubData: 'Gas sponsorship is not enabled for this app' (-32602)"
+      },
+      "smoke": {
+        "userOps": [
+          {
+            "label": "launch0",
+            "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
+            "userOpHash": "0x63f3d338709934dfa7fe6dbe897a52575c8d889dcf3ce0dcc3098b48c41340b1",
+            "tx": "0xf81d0ff4f7d0f411aa347ff787b227968821e652b04b1960b7e8bdc3db650e9c",
+            "success": true,
+            "paymaster": "0x0000000000000000000000000000000000000000",
+            "actualGasCost": "0x243751c50e70"
+          },
+          {
+            "label": "launch1",
+            "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
+            "userOpHash": "0xd844c4c4368a02c00bfc1a4a06ded4cc697d1839e5a7bf67fbef9aa602166fa2",
+            "tx": "0xe89123d3774c9de9b0c1f3024116211ac87cd73bfe818a9a1376d9c22747961e",
+            "success": true,
+            "paymaster": "0x0000000000000000000000000000000000000000",
+            "actualGasCost": "0x243748e52ce0"
+          },
+          {
+            "label": "claimBatch",
+            "sender": "0x1B948f51eC6e04EA9809819444d6A079cA70F31A",
+            "userOpHash": "0xdeafe9028ba43b548d9373983ea0b99a05be8e315e94b39393f457fb2637d82b",
+            "tx": "0x5e21dbe131d742829bfe53ffd5cb08aed5e6cdf18cd3c33241ce31762a34100e",
+            "success": true,
+            "paymaster": "0x0000000000000000000000000000000000000000",
+            "actualGasCost": "0x47ba34d9860"
+          }
+        ],
+        "ethFund_0xAe025acD32c9642172567426e6BB0fEF6082563f": "0x3b3599bffea863df2697a3721b8a88dd6215c382088eb8892cdeaa6e009a5556",
+        "fundTx": "0x6487ab6c65c66e520a10788f254b2e5ae63b48dce7637640510c54fd81ee1554",
+        "coins": [
+          "0x423B741F4366Ae7B0cAf7D7d6b1035B70701ced5",
+          "0x9a19Acd130E10EE6423b82E58599B203253e2c78"
+        ],
+        "stealths": [
+          "0x5023c3FD84e0022e0bb8C6B2F6F24A506A8D0fE5",
+          "0x0CEb4FccAB44FAE14c0716636864f91f1387A3c9"
+        ],
+        "claimDest": "0x362A34e2BCc9754fBDBc97EBfC863630e0dd0eb2",
+        "claimedUSDG": "33000000000000000",
+        "pending": [
+          "16500000000000000",
+          "16500000000000000"
+        ]
+      }
+    },
+    "smoke": {
+      "graduatedStrategyCoin": {
+        "token": "0xfa86b94d37cba24910bd68426c5c0ace683d6628",
+        "curve": "0x87beb3c5a9a7b45956a9e8905a43133b3b3afbf4",
+        "launchTx": "0xff5f9b3fb11ea53fc860052f80a45963e543083a05afa1496fa5609532347060",
+        "graduationTx": "0x31fb550564078bb0f413322e9e57f20252998ea4ba1fac1af8903e6376f1a9e4",
+        "quoteSpentOnCurve": "4.95M test STRATEGY (~$12.1K)"
+      },
+      "trampsWalls": {
+        "tramp": {
+          "id": 1,
+          "ticks": [
+            59640,
+            59760
+          ],
+          "placeTx": "0x870e875a64c8ca5d6264fb4a08f814e5da0f0379803db76478a88c50776ce0c9",
+          "quoteIn": "50000 STRATEGY",
+          "claimFeesTx": "0x9304bad69902ebf340bb9df8cb06f2029565ad63d56916c667dac0cb7f349319",
+          "pullTx": "0x5dbc786ca0cbc0491958169516b9c3e5ebc0c9455e32a40b3577da8d44631397",
+          "filledOut": {
+            "quote": "36.89 (fees)",
+            "token": "19569441.58"
+          }
+        },
+        "wall": {
+          "id": 2,
+          "ticks": [
+            59460,
+            59580
+          ],
+          "placeTx": "0x5bb3eea197b45cd79afa442900b5d1bfcb1d0198b31bf064b20ad4e21fd1423a",
+          "tokenIn": "20000000",
+          "pullTx": "0x0093c28473713c86273bf237fa3eee67fb1811ae177b93baadf6ac3ec41a3247",
+          "filledOut": {
+            "quote": "52028.16",
+            "token": "22560.73 (fees)"
+          }
+        },
+        "donationCheck": "tramp in range earned pendingFees 29.72 STRATEGY + 1691.7 token after 3 round trips; out-of-range wall earned 0"
+      }
+    }
+  },
+  "estimatedGas": "25989493"
+}

@@ -21,6 +21,8 @@ import {BondingCurve} from "../src/BondingCurve.sol";
 import {V4Deploy} from "./helpers/V4Deploy.sol";
 import {DiscipleHook} from "../src/DiscipleHook.sol";
 
+import {RewardsVault} from "../src/RewardsVault.sol";
+
 contract MockQuote is ERC20 {
     constructor() ERC20("USD Mock", "USDG") {}
 
@@ -35,6 +37,7 @@ contract MockQuote is ERC20 {
 
 /// @notice Pure-math + integration tests for Pump-style CPAMM curve ($7K→$33K @ 72%).
 contract CurveTest is Test {
+    RewardsVault internal rewardsVault;
     address internal treasury = makeAddr("treasury");
     address internal owner = makeAddr("owner");
     address internal alice = makeAddr("alice");
@@ -93,6 +96,9 @@ contract CurveTest is Test {
         feeRouter.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(hook), true);
+        rewardsVault = new RewardsVault(owner);
+        rewardsVault.setFeeRouter(address(feeRouter));
+        feeRouter.setRewardsVault(address(rewardsVault));
         vm.stopPrank();
 
         quote.mint(alice, 10_000_000 ether);
@@ -335,7 +341,7 @@ contract CurveTest is Test {
         curve; // silence
     }
 
-    function test_snipeFee_routes_100pct_to_LP() public {
+    function test_snipeFee_splits_70_rewards_30_treasury() public {
         // Launch WITHOUT warping past anti-snipe — buy in window so snipeFee > 0
         uint256 ts = vm.getBlockTimestamp();
         vm.startPrank(alice);
@@ -363,7 +369,7 @@ contract CurveTest is Test {
         uint256 quoteIn = 100 ether;
         uint256 expectedSnipe = (quoteIn * 7770) / 10_000; // 77.7 ether
 
-        // Snapshot LockedLP escrow + treasury + creator accrued
+        // Snapshot LockedLP escrow + treasury + creator accrued + rewards vault
         (,,,, uint256 escrowBefore,,) = lockedLP.positions(tok);
         uint256 treBefore = quote.balanceOf(treasury);
         uint256 creatorBefore = feeRouter.creatorAccrued(tok, alice);
@@ -374,26 +380,18 @@ contract CurveTest is Test {
         vm.stopPrank();
 
         (,,,, uint256 escrowAfter,,) = lockedLP.positions(tok);
-        uint256 treAfter = quote.balanceOf(treasury);
-        uint256 creatorAfter = feeRouter.creatorAccrued(tok, alice);
 
-        // Protocol 1% on (quoteIn - snipe) still uses 33/33/33/1
         uint256 afterSnipe = quoteIn - expectedSnipe;
         uint256 protoFee = (afterSnipe * 100) / 10_000;
-        uint256 lpFromProto = (protoFee * 33) / 100;
-        uint256 creatorFromProto = (protoFee * 33) / 100;
+        (uint256 cs, uint256 lps, uint256 ts_, uint256 rs) = FeeMath.splitTradeFee(protoFee);
+        uint256 toRewards = (expectedSnipe * 7000) / 10_000;
 
-        // Escrow = 100% of snipe + LP share of protocol fee only
-        assertEq(escrowAfter - escrowBefore, expectedSnipe + lpFromProto, "snipe 100% + proto LP share");
-
-        // Treasury gets proto treasury share (+ referral residual); never the snipe amount
-        assertGe(treAfter - treBefore, (protoFee * 33) / 100);
-        assertLe(treAfter - treBefore, protoFee);
-        assertLt(treAfter - treBefore, expectedSnipe);
-
-        // Creator only gets 33% of protoFee — zero of snipe
-        assertEq(creatorAfter - creatorBefore, creatorFromProto);
-        assertLt(creatorAfter - creatorBefore, expectedSnipe);
+        // LOCKED #9 rev.: snipe 70% → RewardsVault, 30% → treasury; LP only gets proto LP share
+        assertEq(quote.balanceOf(address(rewardsVault)), toRewards, "70% rewards");
+        assertEq(rewardsVault.totalAccrued(address(quote)), toRewards);
+        assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP");
+        assertEq(quote.balanceOf(treasury) - treBefore, expectedSnipe - toRewards + ts_ + rs, "30% + proto treasury");
+        assertEq(feeRouter.creatorAccrued(tok, alice) - creatorBefore, cs);
     }
 
     function test_afterSnipeWindow_noSnipeFee_onlyProtocol1pct() public {

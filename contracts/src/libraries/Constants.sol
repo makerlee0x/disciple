@@ -84,6 +84,8 @@ library Constants {
     uint256 internal constant ANTI_SNIPE_START_BPS = 7770; // 77.7%
     uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% after 7s — protocol 1% only
     uint256 internal constant ANTI_SNIPE_DURATION = 7; // seconds
+    /// @dev Anti-snipe tax split (LOCKED #9 rev. 2026-10-15): 70% community RewardsVault / 30% treasury.
+    uint256 internal constant SNIPE_REWARDS_BPS = 7000;
 
     // ── Base trade fee + split (§3 / LOCKED #11) ──────────────────────────────
     /// @dev 1% protocol trade fee in basis points of notional.
@@ -110,7 +112,10 @@ library Constants {
     uint256 internal constant REFERRAL_USDG_GATE = 10 * 1e18; // $10 USDG deposit
 
     // ── Creator buy at launch (§5 / LOCKED #27) ───────────────────────────────
-    uint256 internal constant CREATOR_BUY_MAX_BPS = 77; // 0.77% of supply
+    /// @dev Default protocol-owner-settable creator-buy cap (Launchpad.creatorBuyMaxBps) — 0.77% of supply.
+    uint256 internal constant CREATOR_BUY_MAX_BPS_DEFAULT = 77;
+    /// @dev Hard ceiling for Launchpad.creatorBuyMaxBps — 7% of supply.
+    uint256 internal constant CREATOR_BUY_MAX_BPS_CEILING = 700;
 
     // ── BPS helper ───────────────────────────────────────────────────────────
     uint256 internal constant BPS_DENOM = 10_000;

@@ -22,7 +22,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Pearly Gates); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
 | 7 | Supply on curve | **~72%** sold on curve; **7B** total supply; fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
 | 8 | Wallet cap | **7% max supply per wallet** on bonding curve only (not post-grad); **no wallet exemptions** | LOCKED |
-| 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **100% to LP lock** (not 33/33/33/1). **Creator launch buy (≤0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
+| 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **70% to the community RewardsVault / 30% to treasury** (not 33/33/33/1; rev. 2026-10-15, was 100% LP lock). **Creator launch buy (≤ creatorBuyMaxBps, default 0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
 | 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** lock quote into LP / **33%** treasury / **1%** referral leftover (to treasury if no referrer) | LOCKED |
 | 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee | LOCKED |
@@ -40,7 +40,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 24 | Metadata (launch) | Like Flaunch: **image + name + ticker required**; description + socials optional | LOCKED |
 | 25 | Metadata (post-launch) | Creator can update **image, description, socials** — **NOT** name or ticker | LOCKED |
 | 26 | Ownership | Transferable anytime, multi-hop OK; full pack: metadata + fee claim + creator tax rights | LOCKED |
-| 27 | Creator buy | Optional creator buy in launch tx; max **0.77% of supply**; **anti-snipe exempt** (1% protocol fee only) | LOCKED 2026-10-15 |
+| 27 | Creator buy | Optional creator buy in launch tx; max **`Launchpad.creatorBuyMaxBps`** of supply — default **0.77%** (77 bps), protocol-owner-settable (never the coin creator), hard ceiling **7%** (700 bps), snapshotted per coin at launch (changes affect future coins only); **anti-snipe exempt** (1% protocol fee only) | LOCKED 2026-10-15 |
 | 28 | Deposits / gas | One deposit approval; user pays gas; **no gas sponsorship** | LOCKED |
 | 29 | MEV protection | **Deadline + minAmountOut** only | LOCKED |
 | 30 | Pause | **No pause** — curves and graduated pools always live | LOCKED |
@@ -115,7 +115,7 @@ This document is the source of truth for locked product and protocol decisions. 
 ### Anti-snipe
 - Buy-side fee decays from **77.7% → 0%** over **7 seconds** after launch.
 - After the window, total fee is only the protocol **1%** trade fee (no residual snipe fee).
-- The anti-snipe fee portion (**above** the protocol 1%) routes **100% to LP lock** — it does **not** use the 33/33/33/1 trade-fee split (`FeeRouter.routeSnipeFee`).
+- The anti-snipe fee portion (**above** the protocol 1%) routes **70% to the community `RewardsVault`** (owner-settable on FeeRouter via `setRewardsVault`; accrues for later USDG/rewards distribution) and **30% to treasury** (incl. rounding remainder) — it does **not** use the 33/33/33/1 trade-fee split (`FeeRouter.routeSnipeFee`). If no vault is set, 100% goes to treasury. No anti-snipe exists post-graduation (hook path).
 
 ### Token deployment
 - Standard **CREATE** address generation.
@@ -202,7 +202,7 @@ Style target: Flaunch-like required set (image + name + ticker).
 
 ### Optional creator buy
 - Allowed in the **same launch transaction**.
-- Cap: **max 0.77% of supply**.
+- Cap: **max `creatorBuyMaxBps` of supply** — default 0.77%, set by the protocol owner via `Launchpad.setCreatorBuyMaxBps` (emits `CreatorBuyMaxSet`), ceiling 7%; per-coin snapshot `creatorBuyMaxBpsOf(token)`.
 
 ### Deposits, gas, MEV, liveness
 | Topic | Rule |
@@ -347,3 +347,5 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - LOCKED #16: pool LP fee 0; 1% hook only.
 - LOCKED #31: defaultQuote=STRATEGY; custom quote via probe.
 - Verified tiers: offchain/indexer; emit LaunchTierContext.
+- **Revisions 2026-10-15 (snipe split):** LOCKED #9 — anti-snipe tax now 70% community RewardsVault / 30% treasury (was 100% LP lock). Requires FeeRouter redeploy (core).
+- **Revisions 2026-10-15 (creator buy cap):** LOCKED #27 — creator-buy cap is now protocol-owner-settable `creatorBuyMaxBps` (default 0.77%, ceiling 7%), snapshotted per coin. Requires Launchpad redeploy (core).

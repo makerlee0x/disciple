@@ -72,7 +72,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertGt(feeRouter.creatorAccrued(address(curve.token()), creator), before);
     }
 
-    function test_antiSnipe_decay_and_100pct_to_LP() public {
+    function test_antiSnipe_decay_and_70_30_split() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         assertEq(antiSnipe.currentFeeBps(address(tok)), 7770);
 
@@ -88,11 +88,13 @@ contract LifecycleIntegrationTest is IntegrationBase {
         uint256 afterSnipe = qIn - expectedSnipe;
         uint256 proto = (afterSnipe * 100) / 10_000;
         uint256 lpFromProto = (proto * 33) / 100;
-        assertEq(escrow1 - escrow0, expectedSnipe + lpFromProto, "snipe 100% LP + proto LP share");
+        assertEq(escrow1 - escrow0, lpFromProto, "snipe no longer to LP");
+        assertEq(quote.balanceOf(address(rewardsVault)), (expectedSnipe * 7000) / 10_000, "70% rewards");
+        (,, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(proto);
+        assertEq(quote.balanceOf(treasury) - tre0, expectedSnipe - (expectedSnipe * 7000) / 10_000 + tsh + rsh, "30%");
 
-        // Creator/treasury only get protocol-fee slices, not snipe
+        // Creator only gets protocol-fee slice, not snipe
         assertEq(feeRouter.creatorAccrued(address(tok), creator) - creator0, (proto * 33) / 100);
-        assertLt(quote.balanceOf(treasury) - tre0, expectedSnipe);
 
         // Mid decay
         vm.warp(block.timestamp + 3);

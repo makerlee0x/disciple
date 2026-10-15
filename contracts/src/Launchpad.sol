@@ -51,6 +51,11 @@ contract Launchpad is ILaunchpad {
 
     uint256 public launchCount;
 
+    /// @notice Creator same-tx buy cap in bps of supply (protocol owner only; never the coin creator).
+    uint256 public creatorBuyMaxBps = Constants.CREATOR_BUY_MAX_BPS_DEFAULT;
+    /// @notice Cap snapshotted per coin at launch (later changes only affect future coins).
+    mapping(address => uint256) public creatorBuyMaxBpsOf;
+
     error InvalidMetadata();
     error TaxTooHigh();
     error CreatorBuyTooLarge();
@@ -60,6 +65,7 @@ contract Launchpad is ILaunchpad {
     error DefaultQuoteUnset();
     error PricerUnset();
     error CurveDeployerUnset();
+    error CreatorBuyMaxTooHigh();
 
     event Launched(
         address indexed token,
@@ -75,6 +81,7 @@ contract Launchpad is ILaunchpad {
     event DefaultQuoteUpdated(address indexed quote);
     event QuoteProbeUpdated(address indexed probe);
     event PricerUpdated(address indexed pricer);
+    event CreatorBuyMaxSet(uint256 bps);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
     event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd);
     /// @notice Emitted at launch for off-chain/indexer tier tracking (no on-chain tier hooks).
@@ -100,6 +107,14 @@ contract Launchpad is ILaunchpad {
     function setCurveDeployer(address d) external {
         if (msg.sender != owner) revert OnlyOwner();
         curveDeployer = CurveDeployer(d);
+    }
+
+    /// @notice Protocol owner sets the creator-buy cap for FUTURE launches (ceiling 7%).
+    function setCreatorBuyMaxBps(uint256 bps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (bps > Constants.CREATOR_BUY_MAX_BPS_CEILING) revert CreatorBuyMaxTooHigh();
+        creatorBuyMaxBps = bps;
+        emit CreatorBuyMaxSet(bps);
     }
 
     function setPricer(address pricer_) external {
@@ -171,18 +186,20 @@ contract Launchpad is ILaunchpad {
             creatorTaxBps: params.creatorTaxBps,
             launchedAt: block.timestamp
         });
+        uint256 capBps = creatorBuyMaxBps;
+        creatorBuyMaxBpsOf[address(t)] = capBps;
         unchecked {
             ++launchCount;
         }
 
         uint256 bought;
         if (params.creatorBuyQuoteIn > 0) {
-            // Optional same-tx creator buy; max 0.77% of supply (§5 / #27)
+            // Optional same-tx creator buy; max creatorBuyMaxBps of supply (default 0.77%, §5 / #27)
             IERC20(quote).safeTransferFrom(msg.sender, address(this), params.creatorBuyQuoteIn);
             IERC20(quote).forceApprove(address(curve), params.creatorBuyQuoteIn);
             bought = BondingCurve(curve)
                 .buyFor(msg.sender, params.creatorBuyQuoteIn, params.creatorBuyMinTokensOut, params.deadline);
-            if (bought > FeeMath.creatorBuyMax()) revert CreatorBuyTooLarge();
+            if (bought > FeeMath.creatorBuyMax(capBps)) revert CreatorBuyTooLarge();
         }
 
         result = LaunchResult({token: address(t), curve: address(curve), creatorTokensBought: bought});
@@ -236,7 +253,7 @@ contract Launchpad is ILaunchpad {
     /// @return fee         protocol + creator tax (quote raw)
     /// @return snipeFee    always 0 (creator buy is anti-snipe exempt; kept for ABI stability)
     /// @return quotePriceUsd price the pricer would bake into the curve right now
-    /// @return exceedsCap  true if tokensOut > 0.77% of supply (launch would revert CreatorBuyTooLarge)
+    /// @return exceedsCap  true if tokensOut > creatorBuyMaxBps of supply (current setting) (launch would revert CreatorBuyTooLarge)
     function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn, uint256 creatorTaxBps)
         public
         view
@@ -251,7 +268,7 @@ contract Launchpad is ILaunchpad {
         uint256 afterSnipe = creatorBuyQuoteIn;
         fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);
         tokensOut = CurveMath.tokensOutForQuote(CurveMath.makeParams(quotePriceUsd), 0, afterSnipe - fee);
-        exceedsCap = tokensOut > FeeMath.creatorBuyMax();
+        exceedsCap = tokensOut > FeeMath.creatorBuyMax(creatorBuyMaxBps);
     }
 
     /// @inheritdoc ILaunchpad

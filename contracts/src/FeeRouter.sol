@@ -12,6 +12,10 @@ import {Constants} from "./libraries/Constants.sol";
 
 /// @title Fee router — 33/33/33/1 split + creator tax + snipe→LP (§3 / LOCKED #11–#15, #20–#22; §2 #9)
 /// @dev Creator + referrer accrue (claim anytime). Treasury auto-pushed. LP-lock auto-added.
+interface IRewardsVault {
+    function notifyReward(address token, address asset, uint256 amount) external;
+}
+
 contract FeeRouter is IFeeRouter {
     using SafeERC20 for IERC20;
 
@@ -46,7 +50,11 @@ contract FeeRouter is IFeeRouter {
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount);
     event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount);
     event TreasuryUpdated(address indexed treasury);
-    event SnipeFeeRoutedToLP(address indexed token, address indexed quote, uint256 amount);
+    event SnipeFeeRouted(address indexed token, address indexed quote, uint256 toRewards, uint256 toTreasury);
+    event RewardsVaultUpdated(address indexed vault);
+
+    /// @notice Community rewards vault (70% of anti-snipe tax).
+    address public rewardsVault;
 
     constructor(address owner_, address treasury_, address referrals_) {
         if (owner_ == address(0) || treasury_ == address(0) || referrals_ == address(0)) {
@@ -205,15 +213,29 @@ contract FeeRouter is IFeeRouter {
     }
 
     /// @inheritdoc IFeeRouter
-    /// @dev Anti-snipe fee above protocol 1% — entire amount locks quote into LP (§2 / LOCKED #9).
+    /// @dev Anti-snipe fee above protocol 1% (§2 / LOCKED #9 rev. 2026-10-15): 70% → community RewardsVault,
+    ///      30% (incl. rounding remainder) → treasury. If no vault is set, 100% → treasury (never blocks buys).
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external override {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
         if (snipeFeeAmount == 0) return;
-        if (address(lockedLP) == address(0)) revert ZeroAddress();
 
-        IERC20(quote).forceApprove(address(lockedLP), snipeFeeAmount);
-        lockedLP.addLockedLiquidity(token, quote, 0, snipeFeeAmount);
-        emit SnipeFeeRoutedToLP(token, quote, snipeFeeAmount);
+        address vault = rewardsVault;
+        uint256 toRewards =
+            vault == address(0) ? 0 : (snipeFeeAmount * Constants.SNIPE_REWARDS_BPS) / Constants.BPS_DENOM;
+        uint256 toTreasury = snipeFeeAmount - toRewards;
+        if (toRewards > 0) {
+            IERC20(quote).safeTransfer(vault, toRewards);
+            IRewardsVault(vault).notifyReward(token, quote, toRewards);
+        }
+        if (toTreasury > 0) IERC20(quote).safeTransfer(treasury, toTreasury);
+        emit SnipeFeeRouted(token, quote, toRewards, toTreasury);
+    }
+
+    /// @notice Owner sets the community rewards vault (70% of anti-snipe tax). address(0) = all to treasury.
+    function setRewardsVault(address vault) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        rewardsVault = vault;
+        emit RewardsVaultUpdated(vault);
     }
 
     /// @inheritdoc IFeeRouter

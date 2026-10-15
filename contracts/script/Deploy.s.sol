@@ -18,6 +18,9 @@ import {QuoteProbe} from "../src/QuoteProbe.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
 import {DiscipleRouter} from "../src/DiscipleRouter.sol";
 import {DiscipleHook} from "../src/DiscipleHook.sol";
+import {RewardsVault} from "../src/RewardsVault.sol";
+import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
+import {MarketLens} from "../src/addons/MarketLens.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
@@ -60,6 +63,9 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
 ///   UNIVERSAL_ROUTER    also allowlist in the hook for hookData trader attribution (RH: 0x8876…0904)
+///   REWARDS_VAULT_OWNER community RewardsVault owner/multisig (default deployer); 70% of anti-snipe tax
+///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee (default 0.25e18, cap 5e18)
+///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
 ///   DEPLOY_TEST_STRATEGY true → (with USDG set, DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a
 ///                       STRATEGY/USDG pool at TEST_STRATEGY_PRICE_WAD (default 2.45e15 = $0.00245)
 ///                       with REF_POOL_LIQUIDITY (default 1e24) full-range liquidity from the deployer
@@ -182,6 +188,10 @@ contract Deploy is Script {
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
 
+        // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
+        // LOCKED #9 rev.: anti-snipe tax 70% community RewardsVault / 30% treasury.
+        _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg);
+
         vm.stopBroadcast();
 
         o.hook = address(hook);
@@ -212,6 +222,38 @@ contract Deploy is Script {
         console2.log("USDG", o.usdg);
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));
+    }
+
+    function _addons(
+        address deployer,
+        address treasury,
+        FeeRouter feeRouter,
+        DiscipleHook hook,
+        Launchpad launchpad,
+        Migration migration,
+        QuotePricer pricer,
+        address usdg
+    ) internal {
+        RewardsVault vault = new RewardsVault(deployer);
+        vault.setFeeRouter(address(feeRouter));
+        feeRouter.setRewardsVault(address(vault));
+        address vOwner = vm.envOr("REWARDS_VAULT_OWNER", deployer);
+        if (vOwner != deployer) vault.transferOwnership(vOwner);
+        // mcapNow / Trade-event mcap fix: live QuotePricer on the hook (curves read Launchpad.pricer()).
+        hook.setPricer(address(pricer));
+        AnonLauncher anon = new AnonLauncher(
+            deployer,
+            address(launchpad),
+            address(feeRouter),
+            usdg,
+            treasury,
+            vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564)),
+            vm.envOr("ANON_LAUNCH_FEE", uint256(0.25 ether))
+        );
+        MarketLens lens = new MarketLens(address(launchpad), address(migration));
+        console2.log("RewardsVault", address(vault));
+        console2.log("AnonLauncher", address(anon));
+        console2.log("MarketLens", address(lens));
     }
 
     /// @dev price = usdg raw per quote raw, WAD.

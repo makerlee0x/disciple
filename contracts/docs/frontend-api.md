@@ -52,7 +52,7 @@ The post-grad paths are on `DiscipleRouter`:
 
 - `quote = 0` means `defaultQuote`.
 - `snipeFee` is always **0**: the creator launch buy is anti-snipe exempt and pays only the 1% protocol fee plus its own creator tax.
-- `exceedsCap = true` means the launch would revert with `CreatorBuyTooLarge`, because 0.77% of supply is the maximum.
+- `exceedsCap = true` means the launch would revert with `CreatorBuyTooLarge`. The cap is `Launchpad.creatorBuyMaxBps()` bps of supply (default 77 = 0.77%, ceiling 700 = 7%, protocol owner only, event `CreatorBuyMaxSet(bps)`). Read it live for the UI limit; each coin's cap at launch is `creatorBuyMaxBpsOf(token)`. AnonLauncher launches use the same cap.
 - Set `creatorBuyMinTokensOut` to `tokensOut` less your slippage. The output is exact if the quote/USDG pool price does not move before the tx lands.
 
 ## Quotes / views
@@ -61,7 +61,7 @@ On the curve (all `view`):
 
 - `quoteBuy(quoteIn)` returns `BuyQuote{tokensOut, fee, snipeFee, quoteToCurve, priceAfterX18, impactBps, mcapAfterUsd, graduates}`. It is exact for the current block, including the anti-snipe fee. Pass `minTokensOut = tokensOut * (1 - slippage)`.
 - `quoteSell(tokensIn)` returns `SellQuote{quoteOut, fee, grossQuote, priceAfterX18, impactBps, mcapAfterUsd}`.
-- `priceNow()` (= `spotPriceWad`), `mcapNow()` (= `marketCapUsd`), `progressBps()` (tokensSold / 72% supply, 10000 once graduated), `currentSnipeFeeBps()`, `tokensSold()`, `graduated()`, `quotePriceUsd()`, `creatorTaxBps()`, `balanceOnCurve(addr)`.
+- `priceNow()` (= `spotPriceWad`), `mcapNow()` (= `marketCapUsd`; after graduation these read the v4 pool slot0 × live `QuotePricer` — curves deployed before this fix return the frozen curve-end value, use `MarketLens.market(token)` for those), `progressBps()` (tokensSold / 72% supply, 10000 once graduated), `currentSnipeFeeBps()`, `tokensSold()`, `graduated()`, `quotePriceUsd()`, `creatorTaxBps()`, `balanceOnCurve(addr)`.
 
 After graduation:
 
@@ -138,3 +138,9 @@ Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLo
 **Earnings.** On every post-grad swap, `DiscipleHook` donates `donationOf(fee)` (11% of the 1% fee, which is 1/3 of the 33% LP share) to in-range liquidity, and emits `LPDonation(token, currency, amount)`. The remaining 2/3 of the LP share still goes to LockedLP, and creator, treasury and referral shares are unchanged. The full-range LockedLP position is always in range, so it receives its pro-rata part of every donation. Tramps and walls earn only while the price is inside their range. Exact-in buys donate in the launch token; sells donate in quote.
 
 Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee` was added for the hook.
+
+## Anti-snipe tax routing (LOCKED #9 rev. 2026-10-15)
+- `snipeFee` in `Trade` / `quoteBuy` is split by `FeeRouter.routeSnipeFee`: `toRewards = snipeFee * 7000 / 10000` → `FeeRouter.rewardsVault()` (community `RewardsVault`), `snipeFee - toRewards` → treasury.
+- Event: `FeeRouter.SnipeFeeRouted(token indexed, quote indexed, toRewards, toTreasury)` (replaces `SnipeFeeRoutedToLP`). `RewardsVault.RewardAccrued(token indexed, asset indexed, amount)`; `RewardsVault.totalAccrued(asset)` = lifetime total; payouts emit `Distributed(asset, to, amount)`.
+- Anti-snipe tax is no longer added to LockedLP, so `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee.
+- Post-graduation there is no anti-snipe (`snipeFee` is always 0 on hook `Trade` events).

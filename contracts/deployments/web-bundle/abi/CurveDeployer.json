@@ -1,0 +1,56 @@
+[
+  {
+    "type": "function",
+    "name": "deploy",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "quote",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feeRouter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "antiSnipe",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "migration",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creatorTaxBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quotePriceUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  }
+]
