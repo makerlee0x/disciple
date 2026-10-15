@@ -1,0 +1,13 @@
+# Foundry
+cache/
+out/
+broadcast/
+lib/
+
+# Local env
+.env
+.env.*
+
+# Coverage / gas
+lcov.info
+gas-report.txt
