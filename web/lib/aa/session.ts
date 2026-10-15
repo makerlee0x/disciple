@@ -53,7 +53,7 @@ async function getAlchemySigner() {
   let el = document.getElementById("alchemy-signer-iframe");
   if (!el) { el = document.createElement("div"); el.id = "alchemy-signer-iframe"; el.style.display = "none"; document.body.appendChild(el); }
   alchemySigner = new AlchemyWebSigner({
-    client: { connection: { apiKey: ALCHEMY_KEY }, iframeConfig: { iframeContainerId: "alchemy-signer-iframe" } },
+    client: { connection: { apiKey: ALCHEMY_KEY }, iframeConfig: { iframeContainerId: "alchemy-signer-iframe" }, enablePopupOauth: true },
     sessionConfig: { storage: "localStorage", sessionKey: "disciple.alchemy.signer", expirationTimeMs: SESSION_TTL_MS },
   });
   return alchemySigner;
@@ -77,18 +77,25 @@ export function drip(a: Address) {
   fetch("/api/drip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) }).catch(() => {});
 }
 
+/** The signer API answers 401 without CORS headers when the Alchemy app has no Smart Wallets/Account Kit config, so the browser only sees "Failed to fetch". */
+function signerErr(e: unknown): Error {
+  const m = (e as Error)?.message || String(e);
+  if (/failed to fetch|networkerror|load failed|must be authenticated/i.test(m))
+    return new Error("Login service unavailable: the Alchemy app's Smart Wallets (Account Kit) login isn't enabled for this site yet.");
+  return e as Error;
+}
 export async function emailStart(email: string) {
   const s = await getAlchemySigner();
-  await s.authenticate({ type: "email", emailMode: "otp", email });
+  try { await s.authenticate({ type: "email", emailMode: "otp", email }); } catch (e) { throw signerErr(e); }
 }
 export async function emailVerify(otpCode: string): Promise<Address> {
   const s = await getAlchemySigner();
-  await s.authenticate({ type: "otp", otpCode });
+  try { await s.authenticate({ type: "otp", otpCode }); } catch (e) { throw signerErr(e); }
   return startSession("email", alchemyOwner(s, (await s.getAddress()) as Address));
 }
 export async function googleLogin(): Promise<Address> {
   const s = await getAlchemySigner();
-  await s.authenticate({ type: "oauth", authProviderId: "google", mode: "popup" });
+  try { await s.authenticate({ type: "oauth", authProviderId: "google", mode: "popup" }); } catch (e) { throw signerErr(e); }
   return startSession("google", alchemyOwner(s, (await s.getAddress()) as Address));
 }
 
