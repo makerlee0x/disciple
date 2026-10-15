@@ -11,6 +11,7 @@
     "test:heading": "node scripts/test-heading.mjs"
   },
   "dependencies": {
+    "@account-kit/signer": "^4.88.5",
     "@tensorflow/tfjs": "^4.22.0",
     "next": "14.2.35",
     "nsfwjs": "^4.4.0",
