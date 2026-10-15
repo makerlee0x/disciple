@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {QuotePricer} from "../src/QuotePricer.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Constants} from "../src/libraries/Constants.sol";
@@ -79,6 +81,9 @@ contract CurveTest is Test {
         antiSnipe = new AntiSnipe(launchpadAddr);
         launchpad = new Launchpad(owner, address(feeRouter), address(antiSnipe), address(migration));
         require(address(launchpad) == launchpadAddr, "predict");
+        QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
+        vm.prank(owner);
+        launchpad.setPricer(address(pricer_));
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
@@ -102,7 +107,6 @@ contract CurveTest is Test {
             description: "",
             socialsURI: "",
             quote: address(quote),
-            quotePriceUsd: 1e18,
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,
@@ -338,7 +342,6 @@ contract CurveTest is Test {
             description: "",
             socialsURI: "",
             quote: address(quote),
-            quotePriceUsd: 1e18,
             creatorTaxBps: 0,
             creatorBuyQuoteIn: 0,
             creatorBuyMinTokensOut: 0,

@@ -15,6 +15,10 @@ Do not add application or game UI files here. The web front end lives in `/web`.
 
 Working scaffold (Pump-style CPAMM + real Uniswap v4 graduation); **not audited** production. Deps: `lib/v4-core`, `lib/v4-periphery` (forge install).
 
+## Frontend API
+
+The events (`Launched`, `GraduatedToV4`, unified `Trade`), quoters, permit and recipient paths, `DiscipleRouter`, `QuotePricer` trust assumptions and deploy env are all covered in [`docs/frontend-api.md`](docs/frontend-api.md).
+
 ## Quick start
 
 ```bash
@@ -26,7 +30,7 @@ forge test
 Deploy stub (anvil / RH RPC):
 
 ```bash
-forge script script/Deploy.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --broadcast
+forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --broadcast
 ```
 
 ## File → constitution map
@@ -38,6 +42,9 @@ forge script script/Deploy.s.sol --rpc-url "$ROBINHOOD_RPC_URL" --broadcast
 | `src/Token.sol` | ERC-20, 18 dec, 7B fixed, no further mint, CREATE | §2; LOCKED #7, #10 |
 | `src/BondingCurve.sol` | Pump-style CPAMM curve; 7% wallet cap; graduate trigger | §2 Option B; LOCKED #5–#8 |
 | `src/libraries/CurveMath.sol` | Single CPAMM buy/sell math; quotePriceUsd scaling | §2; LOCKED #5–#7 |
+| `src/QuotePricer.sol` | Launch-time quote/USD oracle (USDG=$1, else quote/USDG v4 spot) | §2 |
+| `src/DiscipleRouter.sol` | Post-grad exact-in buy/sell + quoteExactIn via v4 unlock | §3 |
+| `src/interfaces/ITradeEvents.sol` | Unified `Trade` event (curve + hook) | — |
 | `docs/curve.md` | Curve formula, worked table, rounding | §2 |
 | `src/Launchpad.sol` | Permissionless factory; metadata; optional creator buy ≤0.77% | §5; LOCKED #23–#27 |
 | `src/FeeRouter.sol` | Fee split routing; creator/referrer accrue; treasury push; LP auto-add | §3; LOCKED #11–#15, #20–#22 |
@@ -79,7 +86,7 @@ See [`docs/curve.md`](docs/curve.md).
 
 - **Single** constant-product virtual-reserve curve (steep / Pump-like).
 - Start **$7K** → Pearly Gates **$33K** exactly at **72%** supply sold.
-- **Quote:** any ERC-20; USD targets scaled by `LaunchParams.quotePriceUsd`.
+- **Quote:** any ERC-20 with a registered quote/USDG pool; USD targets scaled by the on-chain `QuotePricer` price at launch (see docs/frontend-api.md).
 - **Rounding:** floor against user on buy and sell (fuzzed no round-trip profit).
 - Raise to grad (net of fees on curve) ≈ **$10,943**.
 

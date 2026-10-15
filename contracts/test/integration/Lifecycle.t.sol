@@ -53,7 +53,6 @@ contract LifecycleIntegrationTest is IntegrationBase {
                 description: "",
                 socialsURI: "",
                 quote: address(quote),
-                quotePriceUsd: 1e18,
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: huge,
                 creatorBuyMinTokensOut: 0,

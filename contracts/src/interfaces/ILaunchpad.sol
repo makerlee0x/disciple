@@ -10,7 +10,6 @@ interface ILaunchpad {
         string description; // optional
         string socialsURI; // optional JSON / URI
         address quote;
-        uint256 quotePriceUsd; // USD WAD per 1 full quote token (e.g. 1e18 for USDG)
         uint256 creatorTaxBps; // 0..CREATOR_TAX_MAX_BPS, immutable
         uint256 creatorBuyQuoteIn; // optional same-tx buy; 0 = skip
         uint256 creatorBuyMinTokensOut;

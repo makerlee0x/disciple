@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
@@ -26,9 +28,13 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPrice} from "../../src/libraries/SqrtPrice.sol";
 import {QuoteProbe} from "../../src/QuoteProbe.sol";
+import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
+import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 
-contract MockUSDG is ERC20 {
-    constructor() ERC20("USD Mock", "USDG") {}
+contract MockUSDG is ERC20, ERC20Permit {
+    constructor() ERC20("USD Mock", "USDG") ERC20Permit("USD Mock") {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -79,6 +85,10 @@ abstract contract IntegrationBase is Test {
     PoolSwapTest internal swapRouter;
     QuoteProbe internal quoteProbe;
     MockUSDG internal strategy; // mock STRATEGY default quote
+    QuotePricer internal pricer;
+    DiscipleRouter internal router;
+    PoolKey internal strategyUsdgKey; // reference STRATEGY/USDG pool priced 1:1 ($1)
+    uint256 internal refPoolQuoteSeed; // USDG seeded into the reference pool (excluded from accounting)
 
     // Accounting trackers (quote wei paid by users into the system)
     uint256 internal totalQuoteIn;
@@ -93,6 +103,7 @@ abstract contract IntegrationBase is Test {
         migration = stack.migration;
         hook = stack.hook;
         manager = stack.manager;
+        router = stack.router;
 
         vm.startPrank(owner);
         lockedLP.setMigration(address(migration));
@@ -119,6 +130,15 @@ abstract contract IntegrationBase is Test {
         launchpad.setQuoteProbe(address(quoteProbe));
         quoteProbe.setAlwaysPass(address(strategy), true);
         quoteProbe.setAlwaysPass(address(quote), true);
+        vm.stopPrank();
+
+        // Launch-time oracle: USDG ($1) + STRATEGY priced from a STRATEGY/USDG v4 pool at 1:1
+        pricer = new QuotePricer(owner, manager, address(quote));
+        strategyUsdgKey = _initRefPool(address(strategy), address(quote), uint160(1) << 96);
+        refPoolQuoteSeed = quote.balanceOf(address(manager));
+        vm.startPrank(owner);
+        pricer.setPricePool(address(strategy), strategyUsdgKey);
+        launchpad.setPricer(address(pricer));
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);
@@ -165,7 +185,6 @@ abstract contract IntegrationBase is Test {
                 description: "e2e",
                 socialsURI: "",
                 quote: quoteToken,
-                quotePriceUsd: 1e18,
                 creatorTaxBps: taxBps,
                 creatorBuyQuoteIn: creatorBuyQuote,
                 creatorBuyMinTokensOut: 0,
@@ -227,6 +246,30 @@ abstract contract IntegrationBase is Test {
         require(curve.graduated(), "IntegrationBase: not graduated");
     }
 
+    function _initRefPool(address a, address b, uint160 sqrtP) internal returns (PoolKey memory key) {
+        (address c0, address c1) = uint160(a) < uint160(b) ? (a, b) : (b, a);
+        key = PoolKey({
+            currency0: Currency.wrap(c0),
+            currency1: Currency.wrap(c1),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
+        });
+        manager.initialize(key, sqrtP);
+        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
+        MockUSDG(a).mint(address(this), 1e30);
+        MockUSDG(b).mint(address(this), 1e30);
+        IERC20(a).approve(address(lp), type(uint256).max);
+        IERC20(b).approve(address(lp), type(uint256).max);
+        lp.modifyLiquidity(
+            key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: -887220, tickUpper: 887220, liquidityDelta: 100_000 ether, salt: 0
+            }),
+            ""
+        );
+    }
+
     function _poolKey(Token tok) internal view returns (PoolKey memory) {
         return lockedLP.getPoolKey(address(tok));
     }
@@ -285,7 +328,7 @@ abstract contract IntegrationBase is Test {
         // FeeRouter may hold unclaimed briefly (should be 0 after routes)
         sum += quote.balanceOf(address(feeRouter));
         // PoolManager holds seeded quote liquidity
-        sum += quote.balanceOf(address(manager));
+        sum += quote.balanceOf(address(manager)) - refPoolQuoteSeed;
         return sum;
     }
 }

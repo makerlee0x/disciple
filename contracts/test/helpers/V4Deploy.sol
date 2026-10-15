@@ -9,6 +9,7 @@ import {FeeRouter} from "../../src/FeeRouter.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 
 /// @dev Shared v4 stack deployer for tests (PoolManager + mined DiscipleHook + Migration).
 library V4Deploy {
@@ -16,25 +17,28 @@ library V4Deploy {
         IPoolManager manager;
         DiscipleHook hook;
         Migration migration;
+        DiscipleRouter router;
     }
 
     function deploy(address owner, LockedLP lockedLP, FeeRouter feeRouter) internal returns (Stack memory s) {
         PoolManager manager = new PoolManager(owner);
         s.manager = IPoolManager(address(manager));
 
-        uint160 flags = uint160(Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG);
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG);
 
-        bytes memory ctorArgs = abi.encode(s.manager, feeRouter, address(0));
+        bytes memory ctorArgs = abi.encode(s.manager, feeRouter, address(0), address(this));
         (address hookAddr, bytes32 salt) =
             HookMiner.find(address(this), flags, type(DiscipleHook).creationCode, ctorArgs);
 
-        DiscipleHook hook = new DiscipleHook{salt: salt}(s.manager, feeRouter, address(0));
+        DiscipleHook hook = new DiscipleHook{salt: salt}(s.manager, feeRouter, address(0), address(this));
         require(address(hook) == hookAddr, "hook addr");
 
         Migration migration = new Migration(owner, address(lockedLP), address(s.manager), address(hook));
         hook.setMigration(address(migration));
         // Caller must owner-prank: lockedLP.setMigration + setPoolManager
 
+        s.router = new DiscipleRouter(s.manager, lockedLP, address(hook));
+        hook.setRouter(address(s.router));
         s.hook = hook;
         s.migration = migration;
     }

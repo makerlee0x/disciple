@@ -12,6 +12,7 @@ import {AntiSnipe} from "./AntiSnipe.sol";
 import {FeeRouter} from "./FeeRouter.sol";
 import {IReferralRegistry} from "./interfaces/IReferralRegistry.sol";
 import {IQuoteProbe} from "./interfaces/IQuoteProbe.sol";
+import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 
 /// @title Permissionless DISCIPLE launchpad / factory (§5 / LOCKED #23–#27)
 /// @notice Anyone can launch. Metadata: image+name+ticker required; description/socials optional.
@@ -26,6 +27,8 @@ contract Launchpad is ILaunchpad {
     /// @notice Default quote (STRATEGY on RH chain). Used when launch/launchCoin passes quote=address(0).
     address public defaultQuote;
     IQuoteProbe public quoteProbe;
+    /// @notice Launch-time quote/USD oracle (USDG=$1; others via registered quote/USDG v4 pool).
+    IQuotePricer public pricer;
 
     mapping(address => bool) public override isLaunched;
     mapping(address => address) public override curveOf;
@@ -51,6 +54,7 @@ contract Launchpad is ILaunchpad {
     error OnlyOwner();
     error QuoteRejected(string detail);
     error DefaultQuoteUnset();
+    error PricerUnset();
 
     event Launched(
         address indexed token,
@@ -65,6 +69,9 @@ contract Launchpad is ILaunchpad {
     event CreatorTransferred(address indexed token, address indexed previousCreator, address indexed newCreator);
     event DefaultQuoteUpdated(address indexed quote);
     event QuoteProbeUpdated(address indexed probe);
+    event PricerUpdated(address indexed pricer);
+    /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
+    event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd);
     /// @notice Emitted at launch for off-chain/indexer tier tracking (no on-chain tier hooks).
     event LaunchTierContext(
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
@@ -83,6 +90,12 @@ contract Launchpad is ILaunchpad {
         if (quote_ == address(0)) revert DefaultQuoteUnset();
         defaultQuote = quote_;
         emit DefaultQuoteUpdated(quote_);
+    }
+
+    function setPricer(address pricer_) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        pricer = IQuotePricer(pricer_);
+        emit PricerUpdated(pricer_);
     }
 
     function setQuoteProbe(address probe_) external {
@@ -120,7 +133,9 @@ contract Launchpad is ILaunchpad {
 
         Token t = new Token(params.name, params.ticker, msg.sender, address(this), address(this));
 
-        uint256 quotePriceUsd = params.quotePriceUsd == 0 ? 1e18 : params.quotePriceUsd;
+        // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
+        if (address(pricer) == address(0)) revert PricerUnset();
+        uint256 quotePriceUsd = pricer.quotePriceUsd(quote);
         BondingCurve curve = new BondingCurve(
             address(t),
             quote,
@@ -168,6 +183,7 @@ contract Launchpad is ILaunchpad {
         result = LaunchResult({token: address(t), curve: address(curve), creatorTokensBought: bought});
         emit Launched(address(t), address(curve), msg.sender, quote, params.name, params.ticker, params.creatorTaxBps);
         // Off-chain/indexer consumes this for verified tier ladder — no on-chain tier hooks.
+        emit QuotePriced(address(t), quote, quotePriceUsd);
         emit LaunchTierContext(
             address(t), Constants.START_MCAP_USD, Constants.GRADUATION_MCAP_USD, Constants.TOTAL_SUPPLY, 18
         );

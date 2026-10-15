@@ -14,14 +14,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IFeeRouter} from "./interfaces/IFeeRouter.sol";
 import {Constants} from "./libraries/Constants.sol";
+import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
 /// @notice Pool LP fee is 0; this hook takes 1% of swap output and routes via FeeRouter (33/33/33/1).
-/// @dev Must be mined to an address with AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
-contract DiscipleHook is IHooks {
+/// @dev Must be mined to an address with BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
+///      beforeSwap only snapshots sqrtPrice (transient) so afterSwap can emit the unified Trade event.
+contract DiscipleHook is IHooks, ITradeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
+    using StateLibrary for IPoolManager;
 
     IPoolManager public immutable poolManager;
     IFeeRouter public immutable feeRouter;
@@ -31,7 +36,15 @@ contract DiscipleHook is IHooks {
         address quote;
         address creator;
         bool registered;
+        uint256 quotePriceUsd; // launch-time USD WAD per 1e18 raw quote (for mcapAfterUsd)
     }
+
+    /// @notice Trusted DiscipleRouter: when it is the swap sender, hookData = abi.encode(trader).
+    address public router;
+    address public immutable admin;
+
+    /// @dev transient slot for pre-swap sqrtPriceX96
+    bytes32 private constant PRICE_SLOT = keccak256("disciple.hook.sqrtPriceBefore");
 
     mapping(PoolId => PoolMeta) public metaOf;
 
@@ -41,13 +54,15 @@ contract DiscipleHook is IHooks {
     error OnlyMigration();
     error HookNotImplemented();
     error NotRegistered();
+    error OnlyAdmin();
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         _;
     }
 
-    constructor(IPoolManager poolManager_, IFeeRouter feeRouter_, address migration_) {
+    constructor(IPoolManager poolManager_, IFeeRouter feeRouter_, address migration_, address admin_) {
+        admin = admin_;
         poolManager = poolManager_;
         feeRouter = feeRouter_;
         migration = migration_;
@@ -60,6 +75,12 @@ contract DiscipleHook is IHooks {
         migration = m;
     }
 
+    /// @notice One-time wire of the trusted router (admin only).
+    function setRouter(address r) external {
+        if (msg.sender != admin || router != address(0)) revert OnlyAdmin();
+        router = r;
+    }
+
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -68,7 +89,7 @@ contract DiscipleHook is IHooks {
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
-            beforeSwap: false,
+            beforeSwap: true,
             afterSwap: true,
             beforeDonate: false,
             afterDonate: false,
@@ -80,9 +101,25 @@ contract DiscipleHook is IHooks {
     }
 
     /// @notice Called by Migration at graduation to bind pool → token/quote/creator.
-    function registerPool(PoolKey calldata key, address token, address quote, address creator) external {
+    function registerPool(PoolKey calldata key, address token, address quote, address creator, uint256 quotePriceUsd)
+        external
+    {
         if (msg.sender != migration) revert OnlyMigration();
-        metaOf[key.toId()] = PoolMeta({token: token, quote: quote, creator: creator, registered: true});
+        metaOf[key.toId()] =
+            PoolMeta({token: token, quote: quote, creator: creator, registered: true, quotePriceUsd: quotePriceUsd});
+    }
+
+    function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, bytes calldata)
+        external
+        onlyPoolManager
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
+        bytes32 slot = PRICE_SLOT;
+        assembly ("memory-safe") {
+            tstore(slot, sqrtP)
+        }
+        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     function afterSwap(
@@ -90,7 +127,7 @@ contract DiscipleHook is IHooks {
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
         BalanceDelta delta,
-        bytes calldata
+        bytes calldata hookData
     ) external onlyPoolManager returns (bytes4, int128) {
         PoolMeta memory m = metaOf[key.toId()];
         if (!m.registered) revert NotRegistered();
@@ -102,17 +139,86 @@ contract DiscipleHook is IHooks {
         if (swapAmount < 0) swapAmount = -swapAmount;
 
         uint256 feeAmount = uint256(uint128(swapAmount)) * Constants.TRADE_FEE_BPS / Constants.BPS_DENOM;
-        if (feeAmount == 0) return (IHooks.afterSwap.selector, 0);
+        address trader = sender;
+        if (sender == router && router != address(0) && hookData.length == 32) {
+            trader = abi.decode(hookData, (address));
+        }
 
         address feeToken = Currency.unwrap(feeCurrency);
-        poolManager.take(feeCurrency, address(this), feeAmount);
+        if (feeAmount > 0) {
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            IERC20(feeToken).safeTransfer(address(feeRouter), feeAmount);
+            // For FeeRouter.routeTradeFee the `quote` param is the fee asset being split
+            feeRouter.routeTradeFee(m.token, feeToken, trader, m.creator, feeAmount, 0);
+        }
 
-        // Route only when fee is in the quote asset (typical); if fee is in launch token, send to treasury path via FeeRouter still
-        IERC20(feeToken).safeTransfer(address(feeRouter), feeAmount);
-        // For FeeRouter.routeTradeFee the `quote` param is the fee asset being split
-        feeRouter.routeTradeFee(m.token, feeToken, sender, m.creator, feeAmount, 0);
-
+        _emitTrade(key, m, trader, delta, feeToken, feeAmount);
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
+    }
+
+    function _emitTrade(
+        PoolKey calldata key,
+        PoolMeta memory m,
+        address trader,
+        BalanceDelta delta,
+        address feeToken,
+        uint256 feeAmount
+    ) internal {
+        bool tokenIsC0 = Currency.unwrap(key.currency0) == m.token;
+        int128 dToken = tokenIsC0 ? delta.amount0() : delta.amount1();
+        int128 dQuote = tokenIsC0 ? delta.amount1() : delta.amount0();
+        bool isBuy = dToken > 0; // swapper receives token
+        uint256 tokenAmt = _abs(dToken);
+        uint256 quoteAmt = _abs(dQuote);
+        // Net out the hook fee from the side it was charged on (output side for exact-in)
+        bool feeInToken = feeToken == m.token;
+        if (feeInToken) tokenAmt = isBuy ? tokenAmt - feeAmount : tokenAmt + feeAmount;
+        else quoteAmt = isBuy ? quoteAmt + feeAmount : quoteAmt - feeAmount;
+
+        uint160 sqrtBefore;
+        bytes32 slot = PRICE_SLOT;
+        assembly ("memory-safe") {
+            sqrtBefore := tload(slot)
+        }
+        (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
+        uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
+        uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
+        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), m.quotePriceUsd, 1e18);
+
+        emit Trade(
+            m.token,
+            trader,
+            isBuy,
+            quoteAmt,
+            tokenAmt,
+            feeQuote,
+            0,
+            priceX18FromSqrt(sqrtBefore, tokenIsC0),
+            pAfter,
+            impactBpsFromSqrt(sqrtBefore, sqrtAfter, tokenIsC0),
+            mcap
+        );
+    }
+
+    /// @notice quote raw * 1e18 / token raw from a v4 sqrtPriceX96.
+    function priceX18FromSqrt(uint160 sqrtP, bool tokenIsC0) public pure returns (uint256) {
+        if (sqrtP == 0) return 0;
+        uint256 pX128 = Math.mulDiv(sqrtP, sqrtP, 1 << 64); // c1 per c0, X128
+        return tokenIsC0 ? Math.mulDiv(pX128, 1e18, 1 << 128) : Math.mulDiv(1 << 128, 1e18, pX128);
+    }
+
+    /// @notice |Δprice|/price in bps, price = quote per token, from sqrt prices (full precision).
+    function impactBpsFromSqrt(uint160 sb, uint160 sa, bool tokenIsC0) public pure returns (uint256) {
+        if (sb == 0 || sa == 0) return 0;
+        uint256 d = sa > sb ? uint256(sa - sb) : uint256(sb - sa);
+        uint256 sum = uint256(sa) + uint256(sb);
+        // token c0: p ∝ s² → |sa²-sb²|/sb² ; token c1: p ∝ 1/s² → |sa²-sb²|/sa²
+        uint256 denomRoot = tokenIsC0 ? sb : sa;
+        return Math.mulDiv(Math.mulDiv(d, sum, denomRoot), Constants.BPS_DENOM, denomRoot);
+    }
+
+    function _abs(int128 x) private pure returns (uint256) {
+        return uint256(uint128(x < 0 ? -x : x));
     }
 
     // ── unused hooks revert ──────────────────────────────────────────────────
@@ -160,14 +266,6 @@ contract DiscipleHook is IHooks {
         BalanceDelta,
         bytes calldata
     ) external pure returns (bytes4, BalanceDelta) {
-        revert HookNotImplemented();
-    }
-
-    function beforeSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
         revert HookNotImplemented();
     }
 

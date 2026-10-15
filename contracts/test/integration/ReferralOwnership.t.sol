@@ -144,7 +144,6 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
                 description: "",
                 socialsURI: "",
                 quote: address(quote),
-                quotePriceUsd: 1e18,
                 creatorTaxBps: 0,
                 creatorBuyQuoteIn: 0,
                 creatorBuyMinTokensOut: 0,

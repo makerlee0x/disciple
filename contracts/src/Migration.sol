@@ -6,7 +6,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IMigration} from "./interfaces/IMigration.sol";
 import {LockedLP} from "./LockedLP.sol";
 import {DiscipleHook} from "./DiscipleHook.sol";
-import {SqrtPrice} from "./libraries/SqrtPrice.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -56,7 +55,7 @@ contract Migration is IMigration {
     }
 
     /// @inheritdoc IMigration
-    function migrate(address token, address quote, uint256 tokenAmount, uint256 quoteAmount, uint256 priceWad)
+    function migrate(address token, address quote, uint256 tokenAmount, uint256 quoteAmount, uint160 sqrtPriceX96)
         external
         override
         returns (bytes32 poolId)
@@ -76,8 +75,6 @@ contract Migration is IMigration {
         bool tokenIsC0 = uint160(token) < uint160(quote);
         Currency currency0 = Currency.wrap(tokenIsC0 ? token : quote);
         Currency currency1 = Currency.wrap(tokenIsC0 ? quote : token);
-
-        uint160 sqrtPriceX96 = SqrtPrice.fromPriceWad(priceWad, tokenIsC0);
 
         PoolKey memory key = PoolKey({
             currency0: currency0,
@@ -105,7 +102,7 @@ contract Migration is IMigration {
 
         // Register for hook fee routing — creator = tx.origin is weak; use BondingCurve.creator via msg.sender if curve
         address creator = _creatorFromCurve(msg.sender);
-        hook.registerPool(key, token, quote, creator);
+        hook.registerPool(key, token, quote, creator, _quotePriceFromCurve(msg.sender));
 
         PoolId id = key.toId();
         poolId = PoolId.unwrap(id);
@@ -113,6 +110,12 @@ contract Migration is IMigration {
         poolIdOf[token] = poolId;
 
         emit Migrated(token, quote, poolId, tokenAmount, quoteAmount, sqrtPriceX96);
+    }
+
+    function _quotePriceFromCurve(address curve) internal view returns (uint256) {
+        (bool ok, bytes memory data) = curve.staticcall(abi.encodeWithSignature("quotePriceUsd()"));
+        if (ok && data.length >= 32) return abi.decode(data, (uint256));
+        return 0;
     }
 
     function _creatorFromCurve(address curve) internal view returns (address) {

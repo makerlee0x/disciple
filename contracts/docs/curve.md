@@ -37,13 +37,13 @@ x_0=\frac{M_0}{S}\,y_0
 
 ### Quote asset pricing
 
-USD targets → quote units via `quotePriceUsd` (USD WAD per 1 full quote token):
+USD targets → quote units via `quotePriceUsd` (USD WAD per 1e18 raw quote units; = USD per full token for 18-dec quotes), read from `QuotePricer` at launch:
 
 ```
 mcapQuote = mcapUsd * 1e18 / quotePriceUsd
 ```
 
-`LaunchParams.quotePriceUsd == 0` defaults to `1e18` (stablecoin).
+The price is never caller-supplied and 0 never means $1: launch reverts if the quote has no registered quote/USDG pool. USDG (6 dec) = `1e30`.
 
 ## Worked table (USDG @$1)
 
