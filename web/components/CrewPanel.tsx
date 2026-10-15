@@ -42,7 +42,7 @@ export default function CrewPanel() {
     <aside
       aria-label="Crew"
       style={{
-        position: "fixed", left: "calc(var(--ap-rail-w, 64px) + 14px)", top: 215, zIndex: 30, width: 260,
+        position: "fixed", right: 14, top: 305, zIndex: 30, width: 250,
         padding: 12, borderRadius: 14, background: "rgba(10,12,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
         font: "11px ui-monospace,monospace",
@@ -75,7 +75,6 @@ export default function CrewPanel() {
               <span>{m.key} {m.name}</span><span>${m.usd < 1 ? m.usd.toFixed(2) : m.usd.toLocaleString()}</span>
             </div>
           ))}
-          <div style={{ marginTop: 8, opacity: 0.75 }}>SPACE = FIRE AMMO / FUEL · SHIFT = BRAKE / DROP BOMB</div>
         </>
       )}
     </aside>

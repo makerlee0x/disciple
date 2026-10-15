@@ -5,6 +5,7 @@ import { Suspense, useMemo } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
 import ShareButton from "@/components/ShareButton";
+import PnlHud from "@/components/PnlHud";
 
 function FlightInner({ address }: { address: string }) {
   const sp = useSearchParams();
@@ -18,6 +19,7 @@ function FlightInner({ address }: { address: string }) {
     <>
       <FlightCanvas search={search} />
       <CrewPanel />
+      <PnlHud coin={address} />
       <ShareButton callSign={sp.get("cs") || "AI"} icon={sp.get("icon")} />
     </>
   );

@@ -68,6 +68,11 @@ export interface ProtocolClient {
   getCurveState(token: Address): Promise<CurveState>;
   /** Subscribe to Launch / Trade / Graduate events. Returns unsubscribe. */
   onEvent?(cb: (e: ProtocolEvent) => void): () => void;
+  /**
+   * Player position for a coin (vault/indexer later; paper ledger in lib/pnl.ts now).
+   * costBasis includes the 1% fee and gas; realized is net $ on sells (average cost).
+   */
+  getPosition?(user: Address, coin: Address): Promise<{ size: bigint; costBasisUsd: number; realizedUsd: number }>;
   /** Estimate price impact % for a notional USD trade (nuke tier seam). */
   impactPct(token: Address, side: "buy" | "sell", usd: number): Promise<number>;
 }

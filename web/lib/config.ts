@@ -258,3 +258,26 @@ export function decideNsfw(scores: Record<string, number>): ModerationVerdict {
   if (s("Porn") > r.Porn || s("Hentai") > r.Hentai || s("Sexy") > r.Sexy) return "review";
   return "allow";
 }
+
+/* ------------------------------------------------------------------ */
+/* Hold bonus (PROPOSAL — Maker to tune). Off-chain points only.        */
+/* ------------------------------------------------------------------ */
+export const HOLD_BONUS = {
+  /** multiplier = 1 + min(maxBoost, k·log10(1 + uPnL$/pnlScaleUsd)) × holdTimeFactor × sellScale */
+  k: 0.5,
+  pnlScaleUsd: 10,
+  maxBoost: 1.5,
+  /** holdTimeFactor ramps linearly 0 → 1 over this many hours of continuous holding. */
+  rampHours: 24,
+  /** Position below this $ value earns no bonus (anti-dust / anti-farming). */
+  minPositionUsd: 25,
+  /** Points are snapshotted at random times per day, not continuously. */
+  snapshotsPerDay: 6,
+} as const;
+
+export function holdBonus(uPnlUsd: number, heldHours: number, sellScale: number, positionUsd: number): number {
+  if (positionUsd < HOLD_BONUS.minPositionUsd || uPnlUsd <= 0) return 1;
+  const pnlTerm = Math.min(HOLD_BONUS.maxBoost, HOLD_BONUS.k * Math.log10(1 + uPnlUsd / HOLD_BONUS.pnlScaleUsd));
+  const time = Math.max(0, Math.min(1, heldHours / HOLD_BONUS.rampHours));
+  return 1 + pnlTerm * time * Math.max(0, Math.min(1, sellScale));
+}

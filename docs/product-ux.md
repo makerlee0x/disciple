@@ -42,3 +42,31 @@ Source of the fomo baseline: [fomotrendings.com FOMO verification checker](https
 - Loading: same-origin, blob and data URLs load directly. Remote URLs go through `/api/img` first (most token CDNs send no CORS header, and a failed CORS load logs a console error), then fall back to a direct `crossOrigin=anonymous` load. If loading fails or times out, the rocket gets the DISCIPLE halo emblem, and the launch is never blocked.
 - Clicking a card starts the fetch during ignition, and the decal fades in over 300 ms on the pad. In flight, `window.__rocketDecal` fades in over 300 ms.
 - It's used on home rocket cards, the pad rocket, the flight sprite, the `/create` studio (large rotatable preview, light/dark backdrop, "see it in flight" mini preview, zoom/offset, contrast warning) and the **Share** PNG card (`canvas.toBlob`).
+
+## 5. Holdings / PnL HUD (`/coin/[address]`)
+
+The compact gold/white glass panel under the market cap reads **FUEL IN TANK**. It collapses on mobile. It shows holdings (tokens and $ value), avg entry ($ and entry MC), % gain/loss, uPnL (green/red), realized PnL for this rocket, a session total (realized on other rockets) and **HOLD BONUS ×N**. A faint dashed "YOUR ENTRY" altitude line is drawn on the flight canvas when the entry is in view.
+
+Math (`web/lib/pnl.ts`) uses **average cost basis**:
+- buy: `tokens = usd·(1−1%)/price`, `costBasis += usd + gas`
+- sell: `tokens = usd/price` (capped at size), `proceeds = tokens·price·(1−1%) − gas`, `realized += proceeds − costBasis·frac`, `costBasis −= costBasis·frac`
+- mark: `value = size·price·(1−1%)` (net of exit fee), `uPnL = value − costBasis`
+
+The data source today is the **paper ledger** (engine `disciple:paperfill` events, persisted per coin in localStorage). Later it will be `ProtocolClient.getPosition(user, coin) → { size, costBasisUsd, realizedUsd }` from the vault/indexer.
+
+## 6. Hold bonus: **PROPOSAL for Maker to tune** (off-chain points only)
+
+```
+multiplier = 1 + min(1.5, 0.5·log10(1 + uPnL$/10)) × holdTimeFactor × sellScale
+holdTimeFactor = clamp(hoursHeldContinuously / 24, 0, 1)
+sellScale      = Π(1 − fractionSold) over partial sells; a full exit resets it
+```
+
+- Every knob lives in `HOLD_BONUS` in `web/lib/config.ts` (k, pnlScaleUsd, maxBoost, rampHours, minPositionUsd = $25, snapshotsPerDay = 6).
+- The multiplier applies only to daily **rHALO** points. It never touches on-chain value.
+- Anti-gaming:
+  - **wash-trade detection** (self/linked-wallet round trips, buy→sell inside N blocks, funding-graph clustering) zeroes points for the day
+  - a **minimum position size** stops dust farming
+  - **snapshots at random times** each day instead of continuous measurement, so there's no timing the snapshot
+  - uPnL is capped via the log term
+  - hold time resets on full exit
