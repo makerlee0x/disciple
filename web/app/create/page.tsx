@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PSEUDONYMOUS_COPY } from "@/lib/anon";
 import { CURVE, MODERATION, QUOTE_PRESETS, STRATEGY_TOKEN, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning, loadIcon } from "@/lib/decal";
 import { iconDataUri, precheckWithin, preloadModeration } from "@/lib/moderation-client";
@@ -33,6 +34,7 @@ export default function LaunchRocketPage() {
   const [quoteSym, setQuoteSym] = useState<string>(STRATEGY_TOKEN.symbol);
   const [customQuote, setCustomQuote] = useState("");
   const [tax, setTax] = useState(0);
+  const [pseudonymous, setPseudonymous] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const blocked = mod.state === "block";
@@ -201,6 +203,13 @@ export default function LaunchRocketPage() {
             <label className="block">
               <span className={labelCls}>CREATOR TAX (0–{CURVE.creatorTaxMaxPct}%, immutable)</span>
               <input type="number" min={0} max={CURVE.creatorTaxMaxPct} step={0.1} className={inputCls} value={tax} onChange={(e) => setTax(+e.target.value)} />
+            </label>
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" checked={pseudonymous} onChange={(e) => setPseudonymous(e.target.checked)} />
+              <span>
+                <span className={labelCls}>PSEUDONYMOUS CREATOR (beta)</span>
+                <span className="block text-[rgba(220,228,255,.7)]">{PSEUDONYMOUS_COPY}</span>
+              </span>
             </label>
           </div>
         )}

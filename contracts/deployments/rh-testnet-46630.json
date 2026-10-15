@@ -131,5 +131,74 @@
         "routerSellTx": "0x6c085e9dfae77423c1d050a1d96b5979c5df474f370e4712d2d3ffa431896a7e"
       }
     }
+  },
+  "addons": {
+    "note": "Add-on contracts only (core stack unchanged). Branch flow/anon-launch.",
+    "deployedAt": "2026-10-15",
+    "AnonLauncher": {
+      "address": "0x722a7927B5496b10C58e50628ab7787f1Eec0696",
+      "deployTx": "0x311ec36f3e6713c1177f061965f2cf2334671782e2cecf9d25560e87b72247f8",
+      "launchFeeUSDG": "0.25",
+      "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564"
+    },
+    "MarketLens": {
+      "address": "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9",
+      "deployTx": "0x1c00351bcc40b34b78daf2261e85d578c595265832b068e64445c4b861b7ef1c",
+      "trmpCheck": "market(TRMP) = $45,284.87 (curve.mcapNow() on live curve = $33,000)"
+    },
+    "erc4337": {
+      "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "accountFactory": "0x0000000000400CdFef5E2714E63d8040b700BC24 (LightAccount v2)",
+      "sponsored": false,
+      "sponsorshipError": "alchemy_requestGasAndPaymasterAndData / pm_getPaymasterStubData: 'Gas sponsorship is not enabled for this app' (-32602)"
+    },
+    "smoke": {
+      "userOps": [
+        {
+          "label": "launch0",
+          "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
+          "userOpHash": "0x63f3d338709934dfa7fe6dbe897a52575c8d889dcf3ce0dcc3098b48c41340b1",
+          "tx": "0xf81d0ff4f7d0f411aa347ff787b227968821e652b04b1960b7e8bdc3db650e9c",
+          "success": true,
+          "paymaster": "0x0000000000000000000000000000000000000000",
+          "actualGasCost": "0x243751c50e70"
+        },
+        {
+          "label": "launch1",
+          "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
+          "userOpHash": "0xd844c4c4368a02c00bfc1a4a06ded4cc697d1839e5a7bf67fbef9aa602166fa2",
+          "tx": "0xe89123d3774c9de9b0c1f3024116211ac87cd73bfe818a9a1376d9c22747961e",
+          "success": true,
+          "paymaster": "0x0000000000000000000000000000000000000000",
+          "actualGasCost": "0x243748e52ce0"
+        },
+        {
+          "label": "claimBatch",
+          "sender": "0x1B948f51eC6e04EA9809819444d6A079cA70F31A",
+          "userOpHash": "0xdeafe9028ba43b548d9373983ea0b99a05be8e315e94b39393f457fb2637d82b",
+          "tx": "0x5e21dbe131d742829bfe53ffd5cb08aed5e6cdf18cd3c33241ce31762a34100e",
+          "success": true,
+          "paymaster": "0x0000000000000000000000000000000000000000",
+          "actualGasCost": "0x47ba34d9860"
+        }
+      ],
+      "ethFund_0xAe025acD32c9642172567426e6BB0fEF6082563f": "0x3b3599bffea863df2697a3721b8a88dd6215c382088eb8892cdeaa6e009a5556",
+      "fundTx": "0x6487ab6c65c66e520a10788f254b2e5ae63b48dce7637640510c54fd81ee1554",
+      "coins": [
+        "0x423B741F4366Ae7B0cAf7D7d6b1035B70701ced5",
+        "0x9a19Acd130E10EE6423b82E58599B203253e2c78"
+      ],
+      "stealths": [
+        "0x5023c3FD84e0022e0bb8C6B2F6F24A506A8D0fE5",
+        "0x0CEb4FccAB44FAE14c0716636864f91f1387A3c9"
+      ],
+      "claimDest": "0x362A34e2BCc9754fBDBc97EBfC863630e0dd0eb2",
+      "claimedUSDG": "33000000000000000",
+      "pending": [
+        "16500000000000000",
+        "16500000000000000"
+      ]
+    }
   }
 }
