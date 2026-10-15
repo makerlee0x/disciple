@@ -1,0 +1,11 @@
+{
+  "name": "disciple-session-keys-demo",
+  "private": true,
+  "type": "module",
+  "scripts": { "demo": "node demo.mjs", "demo:bundler": "node demo-bundler.mjs" },
+  "dependencies": {
+    "@aa-sdk/core": "^4.88.5",
+    "@account-kit/smart-contracts": "^4.88.5",
+    "viem": "^2.57.7"
+  }
+}
