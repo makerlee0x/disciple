@@ -28,6 +28,8 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     address public treasury;
     address public owner;
     address public migration;
+    /// @notice FeeRouter allowed to lock LP shares / snipe escrow (SEC-01: addLockedLiquidity is caller-restricted).
+    address public feeRouter;
     IPoolManager public poolManager;
 
     int24 public constant TICK_SPACING = 60;
@@ -50,6 +52,7 @@ contract LockedLP is ILockedLP, IUnlockCallback {
 
     error OnlyOwner();
     error OnlyMigration();
+    error Unauthorized();
     error OnlyPoolManager();
     error RemoveLiquidityDisabled();
     error NotGraduated();
@@ -72,6 +75,11 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         treasury = t;
     }
 
+    function setFeeRouter(address r) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        feeRouter = r;
+    }
+
     function setMigration(address m) external {
         if (msg.sender != owner) revert OnlyOwner();
         migration = m;
@@ -88,6 +96,9 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         override
         returns (uint256 lpShares)
     {
+        // SEC-01: only FeeRouter (fee LP share) and Migration (graduation) may add; otherwise anyone could
+        // overflow escrowQuote with a worthless token and brick all fee routing for a coin.
+        if (msg.sender != feeRouter && msg.sender != migration) revert Unauthorized();
         Position storage p = _positions[token];
         if (p.quote == address(0)) p.quote = quote;
         p.token = token;
