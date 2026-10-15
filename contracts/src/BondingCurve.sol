@@ -297,7 +297,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
             feeRouter.routeTradeFee(token, quote, recipient, creator, protoFee, q.fee - protoFee);
         }
         if (q.snipeFee > 0) {
-            // Anti-snipe portion (above protocol 1%) → 100% LP lock (§2 / LOCKED #9)
+            // Anti-snipe portion (above protocol 1%) → 70% RewardsVault / 30% treasury (§2 / LOCKED #9 rev.)
             IERC20(quote).safeTransfer(address(feeRouter), q.snipeFee);
             feeRouter.routeSnipeFee(token, quote, q.snipeFee);
         }

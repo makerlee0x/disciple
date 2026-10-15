@@ -78,7 +78,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `TRADE_FEE_BPS` | 100 (1%) |
 | Fee shares | 33 / 33 / 33 / 1 |
 | `CREATOR_TAX_MAX_BPS` | 700 (≤7%, immutable) |
-| Anti-snipe | 7770 → 0 BPS over 7s; excess → 100% LP lock |
+| Anti-snipe | 7770 → 0 BPS over 7s; excess → 70% RewardsVault / 30% treasury |
 | `CREATOR_BUY_MAX_BPS` | 77 (0.77%) |
 | `REFERRAL_USDG_GATE` | 10e18 USDG |
 

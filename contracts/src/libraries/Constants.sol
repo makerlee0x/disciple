@@ -84,6 +84,8 @@ library Constants {
     uint256 internal constant ANTI_SNIPE_START_BPS = 7770; // 77.7%
     uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% after 7s — protocol 1% only
     uint256 internal constant ANTI_SNIPE_DURATION = 7; // seconds
+    /// @dev Anti-snipe tax split (LOCKED #9 rev. 2026-10-15): 70% community RewardsVault / 30% treasury.
+    uint256 internal constant SNIPE_REWARDS_BPS = 7000;
 
     // ── Base trade fee + split (§3 / LOCKED #11) ──────────────────────────────
     /// @dev 1% protocol trade fee in basis points of notional.

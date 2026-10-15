@@ -33,6 +33,7 @@ import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {RewardsVault} from "../../src/RewardsVault.sol";
 
 contract MockUSDG is ERC20, ERC20Permit {
     constructor() ERC20("USD Mock", "USDG") ERC20Permit("USD Mock") {}
@@ -74,6 +75,7 @@ abstract contract IntegrationBase is Test {
     address internal referred = makeAddr("referred");
 
     MockUSDG internal quote;
+    RewardsVault internal rewardsVault;
     ReferralRegistry internal referrals;
     DepositHookMock internal depositHook;
     LockedLP internal lockedLP;
@@ -127,6 +129,9 @@ abstract contract IntegrationBase is Test {
         feeRouter.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(hook), true);
+        rewardsVault = new RewardsVault(owner);
+        rewardsVault.setFeeRouter(address(feeRouter));
+        feeRouter.setRewardsVault(address(rewardsVault));
         launchpad.setDefaultQuote(address(strategy));
         launchpad.setQuoteProbe(address(quoteProbe));
         quoteProbe.setAlwaysPass(address(strategy), true);
