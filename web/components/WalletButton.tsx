@@ -5,10 +5,10 @@ import { encodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
 import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
 import {
-  aaAvailable, activeAddress, connectSmartEmail, connectSmartGoogle, connectSmartWithWallet, connectWallet, disconnect,
+  aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectSmartEmail, connectSmartGoogle, connectSmartWithWallet, connectWallet, disconnect,
   execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
-import { DEV_WALLETS, SPONSOR, aaSession, emailStart, onGasMode } from "@/lib/aa/session";
+import { DEV_WALLETS, SIGNER_MODE, SPONSOR, aaSession, emailStart, localExport, onGasMode } from "@/lib/aa/session";
 import type { Address } from "@/lib/protocol";
 
 const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
@@ -29,6 +29,9 @@ export default function WalletButton() {
   const [otp, setOtp] = useState<null | string>(null);
   const [selfPay, setSelfPay] = useState(!SPONSOR);
   const [copied, setCopied] = useState(false);
+  const [acct, setAcct] = useState(false);
+  const [shownKey, setShownKey] = useState("");
+  const [imp, setImp] = useState("");
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
   useEffect(() => onGasMode((m) => setSelfPay(m === "self-pay")), []);
@@ -91,16 +94,22 @@ export default function WalletButton() {
                 {busy || "Get test funds"}
               </button>
             )}
-            <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+            <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart && SIGNER_MODE === "local") { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
               style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
               {smart ? "⚡ " : ""}{copied ? "copied" : `${addr.slice(0, 6)}…${addr.slice(-4)}`}
             </button>
-            {smart && <button type="button" onClick={() => run("", disconnect)} style={{ ...pill, background: "rgba(255,255,255,.08)" }}>×</button>}
+            {smart && SIGNER_MODE !== "local" && <button type="button" onClick={() => run("", disconnect)} style={{ ...pill, background: "rgba(255,255,255,.08)" }}>×</button>}
           </>
         ) : (
+          aaAvailable() && SIGNER_MODE === "local" ? (
+            <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>
+              {busy || "▶ Play"}
+            </button>
+          ) : (
           <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>
             {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
           </button>
+          )
         )}
       </div>
       {!addr && menu && (
@@ -128,6 +137,24 @@ export default function WalletButton() {
           ) : (
             <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#ffe7a3", color: "#1a1630", textAlign: "center" }}>Connect wallet</button>
           )}
+        </div>
+      )}
+      {addr && acct && smart && SIGNER_MODE === "local" && (
+        <div aria-label="account" style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, borderRadius: 12, background: "rgba(20,18,40,.96)", alignItems: "stretch", width: 300, fontSize: 10 }}>
+          <span style={{ color: "#ffe7a3" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
+          <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
+          <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
+          {bal && <span>{bal}</span>}
+          {shownKey ? (
+            <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
+          ) : (
+            <button type="button" onClick={() => { if (confirm("Reveal your private key? Anyone with it controls this account. Never share it.")) setShownKey(localExport() || ""); }} style={{ ...pill, background: "#2a3a7a", textAlign: "center" }}>Export key</button>
+          )}
+          <div style={{ display: "flex", gap: 4 }}>
+            <input aria-label="import key" placeholder="0x… private key" value={imp} onChange={(e) => setImp(e.target.value)} style={{ ...input, minWidth: 0, flex: 1 }} />
+            <button type="button" disabled={!imp || !!busy} onClick={() => { if (confirm("Replace this browser's wallet with the imported key? Export the current key first if it holds funds.")) run("importing", async () => { await importLocal(imp); setImp(""); setAcct(false); }); }} style={{ ...pill, background: "#2a3a7a" }}>Import</button>
+          </div>
+          <button type="button" onClick={() => { if (confirm("Reset wallet? This deletes the key from this browser. Funds are lost unless you exported the key.")) run("", async () => { await resetLocal(); setAcct(false); setShownKey(""); }); }} style={{ ...pill, background: "#7a1f2f", color: "#ffd0d8", textAlign: "center" }}>Reset wallet</button>
         </div>
       )}
       {addr && bal && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}

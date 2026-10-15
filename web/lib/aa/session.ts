@@ -7,7 +7,7 @@
  * Every userOp passes the session policy (aa/policy.ts) first.
  */
 import { createPublicClient, createWalletClient, custom, http, keccak256, type Address, type Hex, type PublicClient } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { AAError, DEFAULT_GAS_POLICY_ID, LightSmartAccount, alchemyBundler, type Call, type GasMode, type OwnerSigner } from "./core";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
@@ -24,7 +24,10 @@ export const aaAvailable = () => !!BUNDLER_URL && ACTIVE_CHAIN.id === 46630;
 const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
 const SESSION_LIMIT = BigInt(process.env.NEXT_PUBLIC_SESSION_SPEND_LIMIT_WEI || "1000000000000000000000000"); // 1M tokens (18 dec)
 
-export type OwnerKind = "email" | "google" | "eoa";
+export type OwnerKind = "email" | "google" | "eoa" | "local";
+/** "local" (default, testnet): random key in this browser. "alchemy": Account Kit email/Google signer (needs Smart Wallets config). */
+export const SIGNER_MODE = process.env.NEXT_PUBLIC_AA_SIGNER === "alchemy" ? "alchemy" : "local";
+const LOCAL_KEY = "disciple.local.ownerKey.v1";
 const LS = "disciple.aa.session.v1";
 type Stored = SessionState & { kind: OwnerKind; owner: Address; key?: Hex };
 
@@ -111,8 +114,27 @@ export async function eoaLogin(eth: Parameters<typeof custom>[0]): Promise<Addre
   return startSession("eoa", privateKeyToAccount(key), key);
 }
 
+/* ---------- local browser-key owner (testnet) ---------- */
+export function localKey(): Hex | null { try { const k = localStorage.getItem(LOCAL_KEY); return k && /^0x[0-9a-fA-F]{64}$/.test(k) ? (k as Hex) : null; } catch { return null; } }
+/** Create (or reuse) the browser key and start a session. Zero popups. */
+export async function localStart(): Promise<Address> {
+  let k = localKey();
+  if (!k) { k = generatePrivateKey(); localStorage.setItem(LOCAL_KEY, k); }
+  return startSession("local", privateKeyToAccount(k));
+}
+export async function localImport(k: string): Promise<Address> {
+  const key = k.trim().startsWith("0x") ? k.trim() : `0x${k.trim()}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("Not a valid private key (64 hex chars).");
+  privateKeyToAccount(key as Hex);
+  localStorage.setItem(LOCAL_KEY, key);
+  return startSession("local", privateKeyToAccount(key as Hex));
+}
+export function localExport(): Hex | null { return localKey(); }
+export async function localReset() { try { localStorage.removeItem(LOCAL_KEY); } catch {} await aaLogout(); }
+
 /** Restore a live session on reload (no prompts). */
 export async function restore(): Promise<Address | null> {
+  if (SIGNER_MODE === "local") { const k = localKey(); if (!k) return null; return startSession("local", privateKeyToAccount(k)); }
   const s = load();
   if (!s) return null;
   try {
