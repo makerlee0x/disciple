@@ -641,25 +641,7 @@ function drawLevels(){
     ctx.save(); ctx.strokeStyle='rgba(255,236,190,.55)'; ctx.setLineDash([2,10]); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
     ctx.setLineDash([]); ctx.fillStyle='rgba(255,236,190,.9)'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('▲ '+TIERS[k].name+'  '+fmtUsd(TIERS[k].lo),SAFE_LEFT,Math.max(HUD_BOTTOM+18,y-8)); ctx.restore();
   }
-  for (const l of S.levels){
-    const y=altToScreenY(mcapToAlt(l.mcap)); if (y<-40||y>H+40) continue;
-    const w=laneW(l), x=laneX(l), th=clamp(3+Math.log10(1+l.usd)*3.2,4,22), ask=l.side==='ask';
-    ctx.save(); ctx.globalAlpha=0.55*(1-0.6*(S.cruise||0));   // soft depth cue, never a barrier
-    const col= ask? (l.src==='hook'?'210,225,255':'170,190,255') : (l.src==='hook'?'255,215,120':'255,190,110');
-    ctx.shadowColor=`rgba(${col},.9)`; ctx.shadowBlur=14;
-    const g=ctx.createLinearGradient(x-w/2,0,x+w/2,0); g.addColorStop(0,`rgba(${col},0)`); g.addColorStop(.15,`rgba(${col},.85)`); g.addColorStop(.85,`rgba(${col},.85)`); g.addColorStop(1,`rgba(${col},0)`);
-    ctx.fillStyle=g;
-    if (ask){ // WALL: cloud-marble slab hanging above
-      for(let k=0;k<5;k++){ ctx.beginPath(); ctx.arc(x-w/2+w*(k+.5)/5, y-th, th*0.7*(0.7+hash(k+l.mcap)*.6),Math.PI,0); ctx.fill(); }
-    } else { // TRAMPOLINE: glowing sprung arc below
-      ctx.lineWidth=th*0.6; ctx.strokeStyle=`rgba(${col},.8)`; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.6+Math.sin(S.t*6+l.mcap)*2,x+w/2,y); ctx.stroke();
-      ctx.lineWidth=2; for(const s of [-1,1]){ ctx.beginPath(); ctx.moveTo(x+s*w/2,y); ctx.lineTo(x+s*w/2,y+14); ctx.stroke(); }
-    }
-    ctx.shadowColor='rgba(0,0,20,.9)'; ctx.shadowBlur=4;
-    ctx.fillStyle=ask?'rgba(225,232,255,.9)':'rgba(255,226,160,.9)'; ctx.font='11px ui-monospace,monospace';
-    ctx.fillText(`${ask?'WALL':'TRAMP'} ${fmtUsd(l.usd)}${l.src==='hook'?' · limit':''}${l.tick!==undefined?' · tick '+l.tick:''}`, x-w/2+8, ask? y-th-8 : y+th+16);
-    ctx.restore();
-  }
+  // order-book levels are no longer drawn; only tramp/wall positions render (drawTrampWalls).
 }
 
 function drawRocket(dt){
@@ -726,6 +708,49 @@ function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==n
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=ctx.strokeStyle; ctx.font='bold 11px ui-monospace,monospace';
   ctx.fillText('YOUR ENTRY '+fmtUsd(m),W/2+60,y-6); ctx.restore(); }
+// ── TRAMPS & WALLS (graduated coins): individual small elements, sized by $ (log), compact $ tag.
+//    React pushes window.__trampWalls [{id,kind:'tramp'|'wall',mcap,lo,hi,sizeUsd,mine,status}] + window.__twPreview.
+//    Max ~8 nearest the price, same-level merged. Never over the rocket; no camera shake; heading untouched.
+const TW_FX={}, TW_MAX=8;
+function twStep(){ const cur=S.confirmed&&S.confirmed.mcap; if(!(cur>0)) return;
+  for(const l of (window.__trampWalls||[])){ const st=TW_FX[l.id]||(TW_FX[l.id]={side:null,t0:null});
+    const side= l.kind==='tramp' ? (cur<=l.hi?'in':'out') : (cur>=l.hi?'in':'out');
+    if(st.side==='out' && side==='in' && l.status==='active' && st.t0==null){ st.t0=S.t;
+      try{ dispatchEvent(new CustomEvent('twfilled',{detail:{id:l.id,kind:l.kind}})); }catch(_){} }
+    if(l.status==='filled' && st.t0==null) st.t0=S.t-10;
+    st.side=side; } }
+function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':v>=1e3?'$'+(v/1e3).toFixed(1).replace(/\.0$/,'')+'K':'$'+Math.round(v); }
+function twGroups(){ const cur=S.confirmed&&S.confirmed.mcap||0, src=(window.__trampWalls||[]).filter(l=>l.status!=='cancelled');
+  const g=[]; // merge same kind within ~2px of altitude
+  for(const l of src){ const a=mcapToAlt(l.mcap); let m=g.find(q=>q.kind===l.kind&&Math.abs(q.alt-a)*PX_PER_ALT<14);
+    if(m){ m.sizeUsd+=l.sizeUsd||0; m.mine=m.mine||l.mine; m.ids.push(l.id); if(l.status==='active') m.status='active'; }
+    else g.push({kind:l.kind,alt:a,mcap:l.mcap,sizeUsd:l.sizeUsd||0,mine:!!l.mine,status:l.status,ids:[l.id]}); }
+  g.sort((x,y)=>Math.abs(x.mcap-cur)-Math.abs(y.mcap-cur)); return g.slice(0,TW_MAX); }
+function drawTrampWalls(){ if(S.displayAlt==null) return; const list=twGroups(); const pv=window.__twPreview;
+  if(pv) list.push({kind:pv.kind,alt:mcapToAlt(pv.mcap),mcap:pv.mcap,sizeUsd:pv.sizeUsd||0,mine:true,status:'active',ids:['__pv'],preview:true});
+  if(!list.length) return;
+  const px=(S.camX!=null?S.camX:S.x), kx=px+75*Math.sin(S.heading), ky=ROCKET_Y-75*Math.cos(S.heading);
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.ellipse(kx,ky,110,120,0,0,Math.PI*2); ctx.clip('evenodd');   // keep-out around rocket
+  for(const l of list){ const y=altToScreenY(l.alt); if(y<-30||y>H+30) continue;
+    const L=Math.log10(1+l.sizeUsd), w=clamp(24+L*26,28,150), th=clamp(1+L*1.1,1.5,6), tramp=l.kind==='tramp';
+    let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
+    const age=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.t0!=null?Math.min(a,S.t-f.t0):a; },Infinity), fresh=age<1.5, done=!l.preview&&(l.status==='filled'||isFinite(age));
+    const col= tramp?(l.mine?'255,215,110':'140,230,170'):(l.mine?'255,140,130':'205,190,185');
+    ctx.globalAlpha= l.preview?0.5+0.3*Math.sin(S.t*8): done&&!fresh?0.3:0.85;
+    ctx.strokeStyle=ctx.fillStyle=`rgba(${col},1)`; ctx.lineWidth=th; ctx.shadowColor=`rgba(${col},.7)`; ctx.shadowBlur=l.mine?8:3;
+    if(l.preview) ctx.setLineDash([5,4]);
+    if(tramp){ const sag=fresh?6*Math.exp(-age*3)*Math.cos(age*16):0;   // small trampoline: sprung arc + 2 legs; subtle bounce on fill
+      ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.4+3+sag,x+w/2,y); ctx.stroke();
+      ctx.setLineDash([]); ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2+3,y+7); ctx.moveTo(x+w/2,y); ctx.lineTo(x+w/2-3,y+7); ctx.stroke();
+    } else { // small stone wall: a dome-topped slab; subtle crack chips on fill
+      const hgt=th*1.8; ctx.globalAlpha*=0.8; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
+      if(fresh){ const u=age/1.5; ctx.shadowBlur=0; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
+    ctx.setLineDash([]); ctx.shadowBlur=2; ctx.shadowColor='rgba(0,0,20,.9)'; ctx.globalAlpha=done&&!fresh?0.45:0.9;
+    ctx.font=(l.mine?'bold ':'')+'10px ui-monospace,monospace'; ctx.textAlign='left';
+    ctx.fillText(fmtTag(l.sizeUsd)+(l.ids.length>1?' ×'+l.ids.length:''), x+w/2+5, tramp?y+4:y-th);
+    ctx.globalAlpha=1; ctx.shadowBlur=0; }
+  ctx.restore(); }
+function screenYToMcap(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return altToMcap(base-(y-ROCKET_Y)/PX_PER_ALT); }
 function drawLanes(){ ctx.save(); ctx.strokeStyle='rgba(220,230,255,.08)'; ctx.setLineDash([6,18]); ctx.lineDashOffset=-S.t*60*(1+Math.log10(1+S.volEma));
   for (const lx of [W/2-130,W/2+130]){ ctx.beginPath(); ctx.moveTo(lx,0); ctx.lineTo(lx,H); ctx.stroke(); } ctx.restore(); }
 function drawFx(dt){
@@ -1199,7 +1224,7 @@ function frame(now){
   if (Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1])[0][0]==='you') award('koth','KING OF THE HILL','top fueler on this coin');
 
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); twStep(); drawTrampWalls(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
   RAF(frame);
@@ -1209,6 +1234,6 @@ if (Q.get('launched')==='1'){ const f=document.getElementById('launchFade'); f.s
 const DEBUG_BOMB=Q.get('debugBomb'), DEBUG_BOMB_AT=+(Q.get('debugBombAt')||1.2);
 function runDebugBomb(){ if(DEBUG_BOMB==='cycle'){ ['puff','grenade','bunker','cruise','nuke','atom'].forEach((k,i)=>setTimeoutSim(()=>debugBomb(k),i*2.4)); } else debugBomb(isNaN(+DEBUG_BOMB)?DEBUG_BOMB:+DEBUG_BOMB,{fullStack:Q.get('fullStack')==='1'}); }
 const simTimers=[]; function setTimeoutSim(fn,d){ simTimers.push({at:S.t+d,fn}); }
-window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(performance.now()); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(performance.now()); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
