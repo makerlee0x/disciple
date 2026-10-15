@@ -334,10 +334,28 @@ class PoolLiveSource extends PoolV3Base {
     poll(); this.iv=setInterval(poll,1000); this.startPaperDecay(); }
 }
 
-const IS_POOL=!['mock','dexscreener','rpc'].includes(Q.get('source')||'pool');
+/* DISCIPLE bonding-curve coins: events arrive from lib/events.ts via window 'disciple:event'
+   (Trade carries impactPct for bombs). Paper shots supported like the pool sources. */
+class DiscipleSource {
+  constructor(){ this.name='DISCIPLE'; this.supply=+(Q.get('supply')||7e9); this.mcap=null; this.block=0; }
+  start(emit){ this.emit=emit; emit({t:'status',source:this.name,ok:true,msg:'curve events'});
+    this.h=(ev)=>{ const e=ev.detail; if(!e) return;
+      if(e.type==='Trade'){ const pre=this.mcap; this.mcap=e.mcapUsd; this.block=+e.block||this.block;
+        emit({t:'block',block:this.block,ts:Date.now()});
+        emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:e.mcapUsd,price:e.mcapUsd/this.supply,
+              prePrice:(pre||e.mcapUsd)/this.supply,postPrice:e.mcapUsd/this.supply,impactPct:e.impactPct,trader:e.trader}); }
+      else if(e.type==='Graduate') emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'});
+      else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:e.mcapUsd,price:e.mcapUsd/this.supply}); } };
+    addEventListener('disciple:event',this.h); }
+  stop(){ removeEventListener('disciple:event',this.h); }
+  impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
+  async submitTrade(side,usd){ return {ok:true}; } // paper; real path = ProtocolClient (custody executor)
+}
+const IS_POOL=!['mock','dexscreener','rpc','disciple'].includes(Q.get('source')||'pool');
 function makeSource(){
   const s=Q.get('source')||'pool';
   if (Q.get('replay')==='1'||s==='replay'){ if(window.REPLAY) return new ReplaySource(REPLAY); }
+  if (s==='disciple') return new DiscipleSource();
   if (s==='pool') return new PoolLiveSource();
   if (s==='dexscreener') return new DexScreenerSource(Q.get('chain')||'robinhood', Q.get('pair')||'0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a');
   if (s==='rpc') return new RpcSource({poolId:Q.get('pool'),ws:Q.get('ws')||null,supply:+(Q.get('supply')||1e9)});

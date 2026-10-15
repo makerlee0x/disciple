@@ -15,6 +15,8 @@ import {
 import VerifiedBadge from "@/components/VerifiedBadge";
 import BrandedRocket from "@/components/BrandedRocket";
 import { brandedRocket } from "@/lib/decal";
+import { isDeployed } from "@/lib/chains";
+import { watchLaunchpad } from "@/lib/events";
 
 /** Rocket card model. `tk` = call sign (never a pair string). Stats are MOCK. */
 type Rocket = {
@@ -135,6 +137,18 @@ export default function HomePage() {
     return () => document.body.classList.remove("home");
   }, []);
 
+  // DISCIPLE launches → new rocket cards (no-op until contracts deploy)
+  useEffect(() => {
+    if (!isDeployed()) return;
+    return watchLaunchpad((e) => {
+      if (e.type !== "Launch") return;
+      setCoins((cs) => cs.some((c) => c.id === e.token) ? cs : [...cs, {
+        id: e.token, name: e.name, tk: e.ticker, live: true, mcap: CURVE.startMcap, chg: null, c: "#fff1c2",
+        stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
+      }]);
+    });
+  }, []);
+
   // Live AI/WETH mcap from RPC slot0
   useEffect(() => {
     let alive = true;
@@ -189,7 +203,7 @@ export default function HomePage() {
         /* ignore */
       }
       next[0] = ai;
-      if (alive) setCoins(next);
+      if (alive) setCoins((cs) => [next[0], ...cs.slice(1)]);
     }
     live();
     const iv = setInterval(live, 15000);
