@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CurveDeployer} from "../../src/CurveDeployer.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -139,6 +140,7 @@ abstract contract IntegrationBase is Test {
         vm.startPrank(owner);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
         launchpad.setPricer(address(pricer));
+        launchpad.setCurveDeployer(address(new CurveDeployer()));
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);

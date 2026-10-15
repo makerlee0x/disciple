@@ -45,6 +45,8 @@ contract DiscipleHook is IHooks, ITradeEvents {
     mapping(address => bool) public isTrustedRouter;
     address public admin;
 
+    /// @notice Fee-currency amount donated to in-range LPs on this swap.
+    event LPDonation(address indexed token, address indexed currency, uint256 amount);
     event TrustedRouterSet(address indexed router, bool trusted);
     event AdminTransferred(address indexed admin);
 
@@ -157,14 +159,35 @@ contract DiscipleHook is IHooks, ITradeEvents {
 
         address feeToken = Currency.unwrap(feeCurrency);
         if (feeAmount > 0) {
-            poolManager.take(feeCurrency, address(this), feeAmount);
-            IERC20(feeToken).safeTransfer(address(feeRouter), feeAmount);
-            // For FeeRouter.routeTradeFee the `quote` param is the fee asset being split
-            feeRouter.routeTradeFee(m.token, feeToken, trader, m.creator, feeAmount, 0);
+            // 1/3 of the 33% LP share → donated to in-range LPs (tramps/walls + LockedLP full-range)
+            uint256 donated = _donateToLPs(key, feeCurrency, feeAmount);
+            uint256 routed = feeAmount - donated;
+            poolManager.take(feeCurrency, address(this), routed);
+            IERC20(feeToken).safeTransfer(address(feeRouter), routed);
+            // For FeeRouter the `quote` param is the fee asset being split
+            feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount, donated);
+            emit LPDonation(m.token, feeToken, donated);
         }
 
         _emitTrade(key, m, trader, delta, feeToken, feeAmount);
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
+    }
+
+    /// @notice Donated share of the hook fee: 33% LP share / 3 = 11% of the 1% fee.
+    function donationOf(uint256 feeAmount) public pure returns (uint256) {
+        return (feeAmount * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM / 3;
+    }
+
+    /// @dev Donates in the fee currency (whichever side the fee was charged on: quote for sells / exact-out buys,
+    ///      token for exact-in buys). Skipped if the pool has no in-range liquidity (v4 donate would revert).
+    function _donateToLPs(PoolKey calldata key, Currency feeCurrency, uint256 feeAmount)
+        internal
+        returns (uint256 donated)
+    {
+        donated = donationOf(feeAmount);
+        if (donated == 0 || poolManager.getLiquidity(key.toId()) == 0) return 0;
+        bool is0 = Currency.unwrap(feeCurrency) == Currency.unwrap(key.currency0);
+        poolManager.donate(key, is0 ? donated : 0, is0 ? 0 : donated, "");
     }
 
     function _emitTrade(

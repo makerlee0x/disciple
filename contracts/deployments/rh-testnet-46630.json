@@ -5,19 +5,21 @@
   "explorer": "https://explorer.testnet.chain.robinhood.com",
   "deployedAt": "2026-10-15",
   "deployer": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
-  "startBlock": 136090192,
-  "gitBranch": "flow/contracts-api",
+  "startBlock": 136100595,
+  "gitBranch": "flow/tramps-walls",
   "contracts": {
-    "Launchpad": "0x71c36E59be17710a15e7E8a6348467330fB93B24",
-    "DiscipleRouter": "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
-    "DiscipleHook": "0xeB517C9F9171325E43048B25ECf63A42b1A640C4",
-    "QuotePricer": "0x4297b9f559148b19773DaFb6DD173A793EcaB54F",
-    "QuoteProbe": "0xCbc584333C4eC81c00acc81b2Ef09F8394E51015",
-    "FeeRouter": "0x8A80e1c181bdddfeA432aB816ac16E65efDA57EF",
-    "LockedLP": "0xDaa97b1F70a97B9656D899341DC24170325f8455",
-    "Migration": "0xBc33E74c576b90Ef93526bd45155fC429F79647b",
-    "AntiSnipe": "0x0F47b2FB55004ac12ced8e2Caa1fD5829f93321a",
-    "ReferralRegistry": "0xceDA0CB8d7ABB9f3D962746B9148bB6B403F5425"
+    "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
+    "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
+    "DiscipleHook": "0x40Cb2f2a91eD48B013D88dA410Bb7F66Baa280C4",
+    "QuotePricer": "0xf2258181F75d3B7D74FDCeD6D116CC1D5e379778",
+    "QuoteProbe": "0xC3C18ebCBE5E66300dA35c6046a0B3c40dB38bbf",
+    "FeeRouter": "0x13F813cFb0B14EFd01EB5026A92420b0A84C346C",
+    "LockedLP": "0xc2D4c8796A8753c61c77bC65AE523DDecd1dF5e3",
+    "Migration": "0xFabc75DF0996083FC05fF7D63e8f11eF20421684",
+    "AntiSnipe": "0x0af141f678677293ca1B8B0a0ba6078888CeCC7A",
+    "ReferralRegistry": "0x1e124C3654B9880FBB6459ecfabE05E69058fcC2",
+    "TrampWallManager": "0x901B5059BEE5aFd94C38069d6B10d5890ED533bd",
+    "CurveDeployer": "0x534F50f7C976E463a2329501012E467D8B75A155"
   },
   "uniswapV4": {
     "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
@@ -27,7 +29,7 @@
     "Permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
   },
   "hookTrustedRouters": [
-    "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
+    "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
     "0x8876789976decbfcbbbe364623c63652db8c0904"
   ],
   "tokens": {
@@ -41,7 +43,7 @@
       "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only)",
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
       "defaultQuote": true
     }
   },
@@ -57,21 +59,77 @@
     "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
   },
   "smoke": {
-    "defaultQuoteCoin": {
-      "token": "0x7b154cf513f4c3bbc0f880b6bb92ff864e4b5b57",
-      "curve": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
-      "launchTx": "0x77a79d26037e2b1f94d97086cf8e87e382de739149d6ccd9a26d852dc7742839",
-      "buyRecipientTx": "0xb866ca4a15a80911a526c5db8c57fcf5e73e482d17b6b9bce17afee740786ae8"
+    "graduatedStrategyCoin": {
+      "token": "0xfa86b94d37cba24910bd68426c5c0ace683d6628",
+      "curve": "0x87beb3c5a9a7b45956a9e8905a43133b3b3afbf4",
+      "launchTx": "0xff5f9b3fb11ea53fc860052f80a45963e543083a05afa1496fa5609532347060",
+      "graduationTx": "0x31fb550564078bb0f413322e9e57f20252998ea4ba1fac1af8903e6376f1a9e4",
+      "quoteSpentOnCurve": "4.95M test STRATEGY (~$12.1K)"
     },
-    "graduatedUsdgCoin": {
-      "token": "0x59f3a103f665a5dd3427cc26f8a749bcf3eb38e0",
-      "curve": "0xa74555c61b2cf1f27b150530b7960c1918ff4ba5",
-      "launchTx": "0xc6b6ab9070c7f44417a65d92ac79e82693beaf71279b3e8e3e127b3391421c53",
-      "graduationTx": "0x8fa5333f461a5991c5eb872425b503d8fa4bb5c02d07e936e5301e3bce2cca9f",
-      "v4PoolId": "0x8f2d43d30a554d27a4bda1cf315cc797aa0b4da9fd0905e003eacd666e505350",
-      "quoteSpentOnCurve": "12375 mUSDG",
-      "routerBuyTx": "0xd9a9bafab2c6a524ba671c0fd0cf9e22712aaaff0e1ad823b8ae7238c718b54c",
-      "routerSellTx": "0x6c085e9dfae77423c1d050a1d96b5979c5df474f370e4712d2d3ffa431896a7e"
+    "trampsWalls": {
+      "tramp": {
+        "id": 1,
+        "ticks": [
+          59640,
+          59760
+        ],
+        "placeTx": "0x870e875a64c8ca5d6264fb4a08f814e5da0f0379803db76478a88c50776ce0c9",
+        "quoteIn": "50000 STRATEGY",
+        "claimFeesTx": "0x9304bad69902ebf340bb9df8cb06f2029565ad63d56916c667dac0cb7f349319",
+        "pullTx": "0x5dbc786ca0cbc0491958169516b9c3e5ebc0c9455e32a40b3577da8d44631397",
+        "filledOut": {
+          "quote": "36.89 (fees)",
+          "token": "19569441.58"
+        }
+      },
+      "wall": {
+        "id": 2,
+        "ticks": [
+          59460,
+          59580
+        ],
+        "placeTx": "0x5bb3eea197b45cd79afa442900b5d1bfcb1d0198b31bf064b20ad4e21fd1423a",
+        "tokenIn": "20000000",
+        "pullTx": "0x0093c28473713c86273bf237fa3eee67fb1811ae177b93baadf6ac3ec41a3247",
+        "filledOut": {
+          "quote": "52028.16",
+          "token": "22560.73 (fees)"
+        }
+      },
+      "donationCheck": "tramp in range earned pendingFees 29.72 STRATEGY + 1691.7 token after 3 round trips; out-of-range wall earned 0"
+    }
+  },
+  "previous": {
+    "note": "v1 stack (PR #4, superseded by hook change)",
+    "contracts": {
+      "Launchpad": "0x71c36E59be17710a15e7E8a6348467330fB93B24",
+      "DiscipleRouter": "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
+      "DiscipleHook": "0xeB517C9F9171325E43048B25ECf63A42b1A640C4",
+      "QuotePricer": "0x4297b9f559148b19773DaFb6DD173A793EcaB54F",
+      "QuoteProbe": "0xCbc584333C4eC81c00acc81b2Ef09F8394E51015",
+      "FeeRouter": "0x8A80e1c181bdddfeA432aB816ac16E65efDA57EF",
+      "LockedLP": "0xDaa97b1F70a97B9656D899341DC24170325f8455",
+      "Migration": "0xBc33E74c576b90Ef93526bd45155fC429F79647b",
+      "AntiSnipe": "0x0F47b2FB55004ac12ced8e2Caa1fD5829f93321a",
+      "ReferralRegistry": "0xceDA0CB8d7ABB9f3D962746B9148bB6B403F5425"
+    },
+    "smoke": {
+      "defaultQuoteCoin": {
+        "token": "0x7b154cf513f4c3bbc0f880b6bb92ff864e4b5b57",
+        "curve": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+        "launchTx": "0x77a79d26037e2b1f94d97086cf8e87e382de739149d6ccd9a26d852dc7742839",
+        "buyRecipientTx": "0xb866ca4a15a80911a526c5db8c57fcf5e73e482d17b6b9bce17afee740786ae8"
+      },
+      "graduatedUsdgCoin": {
+        "token": "0x59f3a103f665a5dd3427cc26f8a749bcf3eb38e0",
+        "curve": "0xa74555c61b2cf1f27b150530b7960c1918ff4ba5",
+        "launchTx": "0xc6b6ab9070c7f44417a65d92ac79e82693beaf71279b3e8e3e127b3391421c53",
+        "graduationTx": "0x8fa5333f461a5991c5eb872425b503d8fa4bb5c02d07e936e5301e3bce2cca9f",
+        "v4PoolId": "0x8f2d43d30a554d27a4bda1cf315cc797aa0b4da9fd0905e003eacd666e505350",
+        "quoteSpentOnCurve": "12375 mUSDG",
+        "routerBuyTx": "0xd9a9bafab2c6a524ba671c0fd0cf9e22712aaaff0e1ad823b8ae7238c718b54c",
+        "routerSellTx": "0x6c085e9dfae77423c1d050a1d96b5979c5df474f370e4712d2d3ffa431896a7e"
+      }
     }
   }
 }

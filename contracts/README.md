@@ -43,6 +43,8 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `src/BondingCurve.sol` | Pump-style CPAMM curve; 7% wallet cap; graduate trigger | §2 Option B; LOCKED #5–#8 |
 | `src/libraries/CurveMath.sol` | Single CPAMM buy/sell math; quotePriceUsd scaling | §2; LOCKED #5–#7 |
 | `src/QuotePricer.sol` | Launch-time quote/USD oracle (USDG=$1, else quote/USDG v4 spot) | §2 |
+| `src/TrampWallManager.sol` | Tramps & walls: single-sided concentrated v4 ranges (support/resistance) | #42 |
+| `src/CurveDeployer.sol` | BondingCurve factory (Launchpad size) | — |
 | `src/DiscipleRouter.sol` | Post-grad exact-in buy/sell + quoteExactIn via v4 unlock | §3 |
 | `src/interfaces/ITradeEvents.sol` | Unified `Trade` event (curve + hook) | — |
 | `docs/curve.md` | Curve formula, worked table, rounding | §2 |

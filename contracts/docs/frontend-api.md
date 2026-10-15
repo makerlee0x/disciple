@@ -51,7 +51,7 @@ The post-grad paths are on `DiscipleRouter`:
 `Launchpad.quoteCreatorBuy(quote, creatorBuyQuoteIn)` (tax 0) and `quoteCreatorBuy(quote, creatorBuyQuoteIn, creatorTaxBps)` are `view` functions. They return `(tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap)`.
 
 - `quote = 0` means `defaultQuote`.
-- `snipeFee` is the launch-time value. The creator buy runs at elapsed = 0, so it pays the full 77.7%.
+- `snipeFee` is always **0**: the creator launch buy is anti-snipe exempt and pays only the 1% protocol fee plus its own creator tax.
 - `exceedsCap = true` means the launch would revert with `CreatorBuyTooLarge`, because 0.77% of supply is the maximum.
 - Set `creatorBuyMinTokensOut` to `tokensOut` less your slippage. The output is exact if the quote/USDG pool price does not move before the tx lands.
 
@@ -101,3 +101,40 @@ Trust assumptions:
 POOL_MANAGER=0x8366a39cc670b4001a1121b8f6a443a643e40951 USDG=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 \
 DEFAULT_QUOTE=0x168661C52E5922288dFb2b3f323b6Cf90eb21e18 DEFAULT_QUOTE_POOL_FEE=36900 DEFAULT_QUOTE_POOL_TICK_SPACING=369
 ```
+
+## Tramps & walls (`TrampWallManager`, graduated coins only)
+
+These are single-sided concentrated v4 LP ranges in the coin's DISCIPLE pool. "Price" here means quote per token.
+
+| | Side | Placement rule | When it is "filled" |
+|---|---|---|---|
+| **Tramp** (support) | quote only | range strictly **below** current price | price falls through the bottom, so all quote has converted to token |
+| **Wall** (resistance) | token only | range strictly **above** current price | price rises through the top, so all token has converted to quote |
+
+Ticks must be multiples of `tickSpacing` (60). Placement reverts with `NotSingleSided` if the range touches the current price. Converting ticks: with `(tick, sqrtPriceX96, tickSpacing, tokenIsCurrency0) = poolState(token)`, price(quote/token) = 1.0001^tick when the token is currency0, and 1.0001^-tick otherwise. So with token = c0, a tramp uses ticks below `tick`. With token = c1, a tramp uses ticks above `tick`.
+
+Writes: approve the manager once per asset. Positions are held by the manager and tracked per user by id.
+- `placeTramp(token, tickLower, tickUpper, quoteAmt, minLiquidity, deadline) → (id, liquidity)`
+- `placeWall(token, tickLower, tickUpper, tokenAmt, minLiquidity, deadline) → (id, liquidity)`
+- `cancel(id) → (quoteOut, tokenOut)` (owner only). Returns the remaining principal of both assets plus accrued fees.
+- `claimFees(id) → (quoteFees, tokenFees)` (owner only)
+- `pull(id) → (quoteOut, tokenOut)`. Permissionless keeper call that only works once `isFilled(id)` is true; everything goes to the owner, and v0 pays no tip.
+
+Views:
+- `poolState(token)`, `poolKeyOf(token)`
+- `positions(id) → (owner, token, tickLower, tickUpper, liquidity, kind (0 tramp / 1 wall), active)`
+- `positionsOf(owner) → uint256[]`
+- `pendingFees(id) → (quoteFees, tokenFees)`, `isFilled(id)`, `nextId()`
+
+Events (every one carries tick ranges for chart lines):
+- `TrampPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 quoteAmt)`
+- `WallPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 tokenAmt)`
+- `Filled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, address keeper)`
+- `Cancelled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, uint256 quoteFees, uint256 tokenFees)`
+- `FeesClaimed(uint256 indexed id, address indexed owner, address indexed token, uint256 quoteFees, uint256 tokenFees)`
+
+Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLow(uint128)`, `NotOwner`, `Inactive`, `NotFilled`, `ZeroAmount`.
+
+**Earnings.** On every post-grad swap, `DiscipleHook` donates `donationOf(fee)` (11% of the 1% fee, which is 1/3 of the 33% LP share) to in-range liquidity, and emits `LPDonation(token, currency, amount)`. The remaining 2/3 of the LP share still goes to LockedLP, and creator, treasury and referral shares are unchanged. The full-range LockedLP position is always in range, so it receives its pro-rata part of every donation. Tramps and walls earn only while the price is inside their range. Exact-in buys donate in the launch token; sells donate in quote.
+
+Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee` was added for the hook.

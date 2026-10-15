@@ -12,6 +12,8 @@ import {FeeRouter} from "../src/FeeRouter.sol";
 import {AntiSnipe} from "../src/AntiSnipe.sol";
 import {Migration} from "../src/Migration.sol";
 import {Launchpad} from "../src/Launchpad.sol";
+import {CurveDeployer} from "../src/CurveDeployer.sol";
+import {TrampWallManager} from "../src/TrampWallManager.sol";
 import {QuoteProbe} from "../src/QuoteProbe.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
 import {DiscipleRouter} from "../src/DiscipleRouter.sol";
@@ -70,6 +72,8 @@ contract Deploy is Script {
         address quoter;
         address hook;
         address router;
+        address trampWall;
+        address curveDeployer;
         address lockedLP;
         address feeRouter;
         address referrals;
@@ -116,6 +120,7 @@ contract Deploy is Script {
         lockedLP.setPoolManager(o.manager);
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
+        o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
         hook.setTrustedRouter(address(router), true);
         address ur = vm.envOr("UNIVERSAL_ROUTER", address(0));
         if (ur != address(0)) hook.setTrustedRouter(ur, true);
@@ -172,6 +177,8 @@ contract Deploy is Script {
         probe.setAlwaysPass(o.usdg, true);
 
         launchpad.setPricer(address(pricer));
+        o.curveDeployer = address(new CurveDeployer());
+        launchpad.setCurveDeployer(o.curveDeployer);
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
 
@@ -192,6 +199,8 @@ contract Deploy is Script {
         console2.log("V4Quoter", o.quoter);
         console2.log("DiscipleHook", o.hook);
         console2.log("DiscipleRouter", o.router);
+        console2.log("TrampWallManager", o.trampWall);
+        console2.log("CurveDeployer", o.curveDeployer);
         console2.log("ReferralRegistry", o.referrals);
         console2.log("LockedLP", o.lockedLP);
         console2.log("FeeRouter", o.feeRouter);

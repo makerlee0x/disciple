@@ -138,8 +138,13 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
     /// @notice Exact preview of `buy(quoteIn, ...)` at the current block (incl. 1% fee, creator tax, anti-snipe).
     /// @dev Does not check wallet cap. Reverts when graduated.
     function quoteBuy(uint256 quoteIn) public view returns (BuyQuote memory q) {
+        return _quoteBuy(quoteIn, false);
+    }
+
+    /// @dev `snipeExempt` = Launchpad creator buy (LOCKED #27: creator launch buy pays only the 1% protocol fee).
+    function _quoteBuy(uint256 quoteIn, bool snipeExempt) internal view returns (BuyQuote memory q) {
         if (graduated) revert Graduated();
-        (q.snipeFee,) = antiSnipe.applyBuyFee(token, quoteIn);
+        if (!snipeExempt) (q.snipeFee,) = antiSnipe.applyBuyFee(token, quoteIn);
         uint256 afterSnipe = quoteIn - q.snipeFee;
         uint256 protoFee = FeeMath.protocolFee(afterSnipe);
         uint256 tax = FeeMath.creatorTax(afterSnipe, creatorTaxBps);
@@ -184,7 +189,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         override
         returns (uint256 tokensOut)
     {
-        return _buy(msg.sender, msg.sender, quoteIn, minTokensOut, deadline);
+        return _buy(msg.sender, msg.sender, quoteIn, minTokensOut, deadline, false);
     }
 
     /// @notice Buy paying from msg.sender, tokens to `recipient` (wallet cap applies to recipient).
@@ -193,7 +198,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         returns (uint256 tokensOut)
     {
         if (recipient == address(0)) revert ZeroRecipient();
-        return _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline);
+        return _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline, false);
     }
 
     /// @notice Single-tx buy with an EIP-2612 permit on the quote token (STRATEGY and USDG support it).
@@ -210,22 +215,27 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
     ) external returns (uint256 tokensOut) {
         if (recipient == address(0)) revert ZeroRecipient();
         try IERC20Permit(quote).permit(msg.sender, address(this), quoteIn, permitDeadline, v, r, s) {} catch {}
-        return _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline);
+        return _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline, false);
     }
 
     /// @notice Same-tx creator buy from Launchpad: payer pulls quote, tokens go to `buyer`.
+    ///         Exempt from anti-snipe (pays only 1% protocol fee + creator tax, which is 0 to self-net).
     function buyFor(address buyer, uint256 quoteIn, uint256 minTokensOut, uint256 deadline)
         external
         returns (uint256 tokensOut)
     {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
-        return _buy(msg.sender, buyer, quoteIn, minTokensOut, deadline);
+        return _buy(msg.sender, buyer, quoteIn, minTokensOut, deadline, true);
     }
 
-    function _buy(address payer, address recipient, uint256 quoteIn, uint256 minTokensOut, uint256 deadline)
-        internal
-        returns (uint256 tokensOut)
-    {
+    function _buy(
+        address payer,
+        address recipient,
+        uint256 quoteIn,
+        uint256 minTokensOut,
+        uint256 deadline,
+        bool snipeExempt
+    ) internal returns (uint256 tokensOut) {
         if (graduated) revert Graduated();
         if (block.timestamp > deadline) revert Expired();
         if (quoteIn == 0) revert ZeroAmount();
@@ -233,7 +243,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         IERC20(quote).safeTransferFrom(payer, address(this), quoteIn);
 
         uint256 priceBefore = CurveMath.spotPriceWad(_params, tokensSold);
-        BuyQuote memory q = quoteBuy(quoteIn);
+        BuyQuote memory q = _quoteBuy(quoteIn, snipeExempt);
         tokensOut = q.tokensOut;
         if (tokensOut < minTokensOut) revert Slippage();
         if (tokensOut == 0) revert ZeroAmount();

@@ -349,7 +349,7 @@ contract FrontendApiFollowupTest is FrontendApiBase {
         uint256 qIn = 20 ether;
         (uint256 tOut, uint256 fee, uint256 snipe, uint256 px, bool over) = launchpad.quoteCreatorBuy(address(0), qIn);
         assertEq(px, 1e18);
-        assertEq(snipe, qIn * Constants.ANTI_SNIPE_START_BPS / 10_000);
+        assertEq(snipe, 0, "creator buy anti-snipe exempt");
         assertGt(fee, 0);
         assertFalse(over);
         vm.prank(creator);
