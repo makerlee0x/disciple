@@ -328,7 +328,7 @@ class PoolLiveSource extends PoolV3Base {
           for(const l of logs){ const s=this.decode(l); if(s.removed){ emit({t:'swap',removed:true,txHash:s.tx}); continue; } s.trader=from[s.tx]; this.applyReal(s); }
           this.from=to+1; }
         this.block=head; emit({t:'block',block:head,ts:Date.now()}); this.fails=0;
-        emit({t:'status',source:this.name,ok:true,msg:'AI/WETH v3 1% · polling 1s'});
+        emit({t:'status',source:this.name,ok:true,msg:'live · polling 1s'});
       }catch(e){ this.fails++; emit({t:'status',source:this.name,ok:false,msg:String(e.message||e)});
         if(!this.got && this.fails>=3 && window.REPLAY){ this.stop(); emit({t:'status',source:'LIVE FAILED → REPLAY',ok:false,msg:String(e.message||e)}); const r=new ReplaySource(REPLAY); window.__flight&&(window.__flight.source=r); r.start(emit); } } finally{ this.busy=false; } };
     poll(); this.iv=setInterval(poll,1000); this.startPaperDecay(); }
@@ -375,7 +375,7 @@ function onEvent(e){
     if (e.side==='sell'&&e.usd>0){ const fs=e.mine&&S.fullStackNext; if(e.mine) S.fullStackNext=false; noteSell({side:'sell',usd:e.usd,prePrice:e.prePrice,postPrice:e.postPrice,impactPct:e.impactPct,trader:e.trader,mine:e.mine,fullStack:fs}); }
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd);
-      S.feed.unshift({txt:`${e.side==='buy'?'▲ BUY ':'▼ SELL'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
+      S.feed.unshift({txt:`${e.side==='buy'?'▲ FUEL':'▼ BOMB'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
     if (e.usd>0 && !e.mine && e.trader){ const up=e.side==='buy'; S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:ROCKET_Y+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
@@ -393,7 +393,7 @@ function onEvent(e){
 }
 source.start(onEvent);
 
-// ---------- trading (Space = BUY THRUST, Shift = SELL BRAKE) ----------
+// ---------- trading (Space = FIRE AMMO / FUEL, Shift = BRAKE / DROP BOMB) ----------
 const COOLDOWN_MS=250, MAX_PENDING=3;
 /* Climb angle from horizontal (deg). Buys +, sells −.
    angleDeg = clamp(15 + 22*log10(1+usd), 15, 88)
@@ -683,6 +683,7 @@ function drawRocket(dt){
     const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas')), ow=Math.ceil(w), oh=Math.ceil(h);
     if(oc.width!==ow||oc.height!==oh){ oc.width=ow; oc.height=oh; }
     const o=oc.getContext('2d'); o.clearRect(0,0,ow,oh); o.globalCompositeOperation='source-over'; o.drawImage(im,0,0,ow,oh);
+    { const dec=window.__rocketDecal; if(dec&&dec.canvas){ const fa=clamp((performance.now()-dec.t0)/300,0,1); o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; } } // token decal (pre-composited offscreen, 300ms cross-fade)
     try{ const d=o.getImageData(0,0,ow,oh), px=d.data; for(let i=3;i<px.length;i+=4) if(px[i]<64) px[i]=0; o.putImageData(d,0,0); }catch(_){}
     const gx=ow/2+(S.glint||0)*w*0.28, gg=o.createLinearGradient(gx-14,oh*0.08,gx+14,oh*0.9);
     gg.addColorStop(0,'rgba(255,255,255,0)'); gg.addColorStop(0.45,`rgba(255,252,240,${0.08+0.12*Math.abs(S.glint||0)})`); gg.addColorStop(1,'rgba(255,255,255,0)');
@@ -734,7 +735,7 @@ function drawHud(){
   ctx.save(); ctx.textBaseline='alphabetic';
   // top-left: MCAP + tier
   panel(20,18,380,112);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`AI/WETH v3 · $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:'MARKET CAP · confirmed',36,42);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:'MARKET CAP · confirmed',36,42);
   ctx.fillStyle='#fff'; ctx.shadowColor='rgba(180,200,255,.9)'; ctx.shadowBlur=14; ctx.font='bold 40px ui-monospace,monospace'; ctx.fillText(fmtUsd(m),34,84); ctx.shadowBlur=0;
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
   // progress to next tier
@@ -753,14 +754,14 @@ function drawHud(){
   S.feed.slice(0,7).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.11; ctx.fillText(r.txt.slice(0,40),36,H-144+i*19); }); ctx.globalAlpha=1;
   // bottom-right: controls + trade size
   panel(W-330,H-150,310,130);
-  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText(`MODE ${md.name}  ${fmtShot(md.usd)}/shot  [1-6]`,W-314,H-124);
-  ctx.font='12px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE  buy thrust',W-314,H-100);
-  ctx.fillStyle='#ffb0c8'; ctx.fillText('SHIFT  sell brake',W-314,H-82);
+  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText(`MODE ${md.name}  ammo ${fmtShot(md.usd)}/shot  [1-6]`,W-314,H-124);
+  ctx.font='12px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE  FIRE AMMO / FUEL',W-314,H-100);
+  ctx.fillStyle='#ffb0c8'; ctx.fillText('SHIFT  BRAKE / DROP BOMB',W-314,H-82);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('A/D ←/→  switch lane (cosmetic)',W-314,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,W-314,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}  rHALO ${S.rhalo}`,W-314,H-28); }
   const am=autoMode(m); panel(420,18,520,118);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`COIN MODE · auto by depth: ${MODES[am].name} (${MODES[am].range})`,434,36);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`AMMO MODE · auto by depth: ${MODES[am].name} (${MODES[am].range})`,434,36);
   MODES.forEach((q,i)=>{ const bx=434+i*84, by=44, below=q.usd<MIN_SHOT; ctx.fillStyle=i===S.mode?'rgba(255,231,163,.9)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,78,28);
     ctx.strokeStyle=i===am?'#9ff3c8':'rgba(255,255,255,.2)'; ctx.lineWidth=i===am?2:1; ctx.strokeRect(bx,by,78,28);
     ctx.fillStyle=i===S.mode?'#1a1630':'#e8ecff'; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillText(`${q.key} ${q.name}`,bx+5,by+12); ctx.font='10px ui-monospace,monospace'; ctx.fillText(fmtShot(q.usd)+(below?' ·min✗':''),bx+5,by+24); });

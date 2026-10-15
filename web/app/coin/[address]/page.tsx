@@ -3,6 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
+import CrewPanel from "@/components/CrewPanel";
+import ShareButton from "@/components/ShareButton";
 
 function FlightInner({ address }: { address: string }) {
   const sp = useSearchParams();
@@ -12,7 +14,13 @@ function FlightInner({ address }: { address: string }) {
     return q.toString();
   }, [sp, address]);
 
-  return <FlightCanvas search={search} />;
+  return (
+    <>
+      <FlightCanvas search={search} />
+      <CrewPanel />
+      <ShareButton callSign={sp.get("cs") || "AI"} icon={sp.get("icon")} />
+    </>
+  );
 }
 
 export default function CoinPage({

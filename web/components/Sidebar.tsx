@@ -260,12 +260,12 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           <Link
             href="/create"
             className={pathname === "/create" ? "on" : ""}
-            title="Launch a coin"
+            title="Launch a Rocket"
           >
             <span className="ic">
               <Icon name="create" />
             </span>
-            <span className="lb">Launch Coin</span>
+            <span className="lb">Launch a Rocket</span>
           </Link>
         </nav>
         <div className="ap-promo">

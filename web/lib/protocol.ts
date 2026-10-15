@@ -3,14 +3,19 @@
  * Stubs only — do not call in production until wired to deployed contracts.
  */
 
-import { CHAIN, CURVE } from "./config";
+import { CHAIN, CURVE, STRATEGY_TOKEN } from "./config";
 
 export type Address = `0x${string}`;
 
 export interface LaunchCoinParams {
   name: string;
   ticker: string;
+  /** Metadata URI. Contracts store only this; the image MUST pass /api/moderate-image first. */
   imageUri: string;
+  /**
+   * ERC-20 quote. address(0) → factory `defaultQuote` (STRATEGY today; owner-settable
+   * on-chain, so never assume). Advanced mode passes a custom ERC-20.
+   */
   quoteToken: Address;
   creatorTaxPct: number; // 0–7, immutable at launch
   description?: string;
@@ -61,6 +66,8 @@ export interface ProtocolClient {
   sell(params: TradeParams): Promise<TradeResult>;
   /** Read live curve / pool state. */
   getCurveState(token: Address): Promise<CurveState>;
+  /** Subscribe to Launch / Trade / Graduate events. Returns unsubscribe. */
+  onEvent?(cb: (e: ProtocolEvent) => void): () => void;
   /** Estimate price impact % for a notional USD trade (nuke tier seam). */
   impactPct(token: Address, side: "buy" | "sell", usd: number): Promise<number>;
 }
@@ -84,8 +91,70 @@ export const protocolStub: ProtocolClient = {
   },
 };
 
+export const ZERO_ADDRESS: Address = "0x0000000000000000000000000000000000000000";
+
+/** Passing address(0) lets the factory pick its owner-settable defaultQuote. */
+export const DEFAULT_QUOTE: Address = ZERO_ADDRESS;
+
+/** What the factory's defaultQuote is expected to be today (display/indexer hint only). */
+export const EXPECTED_DEFAULT_QUOTE: Address = STRATEGY_TOKEN.address;
+
+/** Off-chain coin metadata (indexer / UI). Verified tiers + moderation live here, NOT on-chain. */
+export interface CoinMetadata {
+  token: Address;
+  name: string;
+  ticker: string;
+  imageUri: string;
+  image: {
+    sha256: string;
+    phash: string;
+    moderation: "allow" | "block" | "review";
+    provider: string;
+    checkedAt: string;
+  };
+  /** Off-chain verified level (see VERIFIED_TIERS in config.ts). */
+  verifiedLevel?: "UNVERIFIED" | "BLESSED" | "ANOINTED" | "GLORIFIED";
+  /** Set by indexer if the image is flagged post-launch → UI must hide the coin. */
+  hidden?: boolean;
+}
+
+/* ---- Contract events (DISCIPLE FLOW) ---- */
+export interface LaunchEvent {
+  type: "Launch";
+  token: Address;
+  curve: Address;
+  creator: Address;
+  quote: Address;
+  creatorTaxBps: number;
+  metadataUri: string;
+}
+export interface TradeEvent {
+  type: "Trade";
+  token: Address;
+  trader: Address;
+  side: "buy" | "sell";
+  amountIn: bigint;
+  amountOut: bigint;
+  /** Price impact (bps) emitted by the contract — drives bomb tiers. */
+  impactBps: number;
+}
+export interface GraduateEvent {
+  type: "Graduate";
+  token: Address;
+  pool: Address; // Uniswap v4 pool id/address
+}
+export type ProtocolEvent = LaunchEvent | TradeEvent | GraduateEvent;
+
+/**
+ * Fees: the Uniswap v4 pool itself has fee = 0; the 1% trade fee (CURVE.tradeFeeBps)
+ * is taken by the DISCIPLE hook only.
+ */
+export const V4_POOL_FEE = 0;
+
 export const PROTOCOL_META = {
   chainId: CHAIN.id,
   curve: CURVE,
-  note: "Stubs only. Deposit = one USDG approval; no per-trade signing. Gas not sponsored.",
+  hookFeeBps: CURVE.tradeFeeBps,
+  v4PoolFee: V4_POOL_FEE,
+  note: "Stubs only. Verified tiers are off-chain (indexer/UI). Deposit = one USDG approval; no per-trade signing. Gas not sponsored.",
 } as const;
