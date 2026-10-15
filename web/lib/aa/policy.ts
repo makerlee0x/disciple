@@ -17,9 +17,11 @@ const erc20 = parseAbi(["function approve(address spender, uint256 amount) retur
 export type PolicyCfg = {
   launchpad: Address; router: Address; trampWallManager: Address;
   mintable: Address[];
-  /** per-token cap in raw units; tokens not listed use defaultLimit */
+  /** per-token cap in raw units for spend (quote) tokens; tokens not listed use defaultLimit */
   limits?: Record<string, bigint>;
   defaultLimit: bigint;
+  /** Tokens whose approvals count toward the spend limit (quote assets). Rocket-token approvals (sells) are uncapped. */
+  spendTokens?: Address[];
 };
 export type SessionState = { expiresAt: number; spent: Record<string, string> };
 
@@ -59,7 +61,9 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     if (await isCurve(c.to)) continue;
     throw new PolicyError(`Session can't call ${c.to}.`);
   }
+  const capped = cfg.spendTokens?.map(lc);
   for (const [t, d] of Object.entries(delta)) {
+    if (capped && !capped.includes(t)) continue;
     const lim = cfg.limits?.[t] ?? cfg.defaultLimit;
     const used = BigInt(s.spent[t] ?? "0") + d;
     if (used > lim) throw new PolicyError("Session spend limit reached — sign in again to raise it.");

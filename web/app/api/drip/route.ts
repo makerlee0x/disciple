@@ -32,8 +32,10 @@ export async function POST(req: Request) {
   if (hits.length >= PER_IP_DAY) return NextResponse.json({ ok: false, reason: "rate limited" }, { status: 429 });
 
   const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
-  const bal = await pc.getBalance({ address: address as Hex });
+  const [bal, code] = await Promise.all([pc.getBalance({ address: address as Hex }), pc.getCode({ address: address as Hex })]);
   if (bal >= AMOUNT) return NextResponse.json({ ok: true, skipped: true, reason: "balance ok" });
+  // once per account: a deployed smart account has already been funded and used
+  if (code && code !== "0x") return NextResponse.json({ ok: true, skipped: true, reason: "account already active" });
   seenAddr.set(a, now); hits.push(now); seenIp.set(ip, hits);
   try {
     const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: privateKeyToAccount(key) });
