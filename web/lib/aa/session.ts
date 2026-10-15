@@ -15,7 +15,8 @@ import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./po
 export const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "";
 export const GAS_POLICY_ID = process.env.NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID || DEFAULT_GAS_POLICY_ID;
 /** Alchemy supports RH testnet as robinhood-testnet (bundler + gas manager). */
-export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || (ALCHEMY_KEY ? `https://robinhood-testnet.g.alchemy.com/v2/${ALCHEMY_KEY}` : "");
+/** Bundler goes through our server proxy (/api/bundler); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
+export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
 /** Paymaster behind a flag; testnet default is self-paid gas (+ one-time /api/drip top-up). */
 export const SPONSOR = process.env.NEXT_PUBLIC_AA_SPONSOR === "1";
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
