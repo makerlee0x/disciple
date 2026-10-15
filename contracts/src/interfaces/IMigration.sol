@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+/// @title Synthetic / atomic migrate to locked Uniswap v4 (§2 / LOCKED #5, #17)
+interface IMigration {
+    /// @notice Same-tx graduation: init v4 pool at curve-end price and seed full-range LockedLP position.
+    /// @param sqrtPriceX96 Curve-end price encoded for the v4 pool (computed by the curve from its
+    ///        virtual reserves at full precision) — no price jump.
+    /// @return poolId v4 PoolId as bytes32
+    function migrate(address token, address quote, uint256 tokenAmount, uint256 quoteAmount, uint160 sqrtPriceX96)
+        external
+        returns (bytes32 poolId);
+
+    function isGraduated(address token) external view returns (bool);
+    function poolIdOf(address token) external view returns (bytes32);
+}

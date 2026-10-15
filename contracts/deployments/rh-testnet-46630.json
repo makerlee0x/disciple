@@ -1,0 +1,77 @@
+{
+  "chainId": 46630,
+  "network": "Robinhood Chain Testnet",
+  "rpc": "https://rpc.testnet.chain.robinhood.com",
+  "explorer": "https://explorer.testnet.chain.robinhood.com",
+  "deployedAt": "2026-10-15",
+  "deployer": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+  "startBlock": 136090192,
+  "gitBranch": "flow/contracts-api",
+  "contracts": {
+    "Launchpad": "0x71c36E59be17710a15e7E8a6348467330fB93B24",
+    "DiscipleRouter": "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
+    "DiscipleHook": "0xeB517C9F9171325E43048B25ECf63A42b1A640C4",
+    "QuotePricer": "0x4297b9f559148b19773DaFb6DD173A793EcaB54F",
+    "QuoteProbe": "0xCbc584333C4eC81c00acc81b2Ef09F8394E51015",
+    "FeeRouter": "0x8A80e1c181bdddfeA432aB816ac16E65efDA57EF",
+    "LockedLP": "0xDaa97b1F70a97B9656D899341DC24170325f8455",
+    "Migration": "0xBc33E74c576b90Ef93526bd45155fC429F79647b",
+    "AntiSnipe": "0x0F47b2FB55004ac12ced8e2Caa1fD5829f93321a",
+    "ReferralRegistry": "0xceDA0CB8d7ABB9f3D962746B9148bB6B403F5425"
+  },
+  "uniswapV4": {
+    "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+    "V4Quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+    "StateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+    "UniversalRouter": "0x8876789976decbfcbbbe364623c63652db8c0904",
+    "Permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "hookTrustedRouters": [
+    "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
+    "0x8876789976decbfcbbbe364623c63652db8c0904"
+  ],
+  "tokens": {
+    "USDG": {
+      "address": "0x25030Bff74764aD72b912276a603717DB1C00644",
+      "symbol": "mUSDG",
+      "decimals": 18,
+      "usdPrice": "1 (QuotePricer USDG)"
+    },
+    "STRATEGY": {
+      "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+      "symbol": "STRATEGY",
+      "decimals": 18,
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only)",
+      "defaultQuote": true
+    }
+  },
+  "strategyUsdgRefPool": {
+    "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
+    "currency0": "0x25030Bff74764aD72b912276a603717DB1C00644",
+    "currency1": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "hooks": "0x0000000000000000000000000000000000000000",
+    "initPriceUsd": 0.00245,
+    "liquidity": "4e22 full-range",
+    "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
+  },
+  "smoke": {
+    "defaultQuoteCoin": {
+      "token": "0x7b154cf513f4c3bbc0f880b6bb92ff864e4b5b57",
+      "curve": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+      "launchTx": "0x77a79d26037e2b1f94d97086cf8e87e382de739149d6ccd9a26d852dc7742839",
+      "buyRecipientTx": "0xb866ca4a15a80911a526c5db8c57fcf5e73e482d17b6b9bce17afee740786ae8"
+    },
+    "graduatedUsdgCoin": {
+      "token": "0x59f3a103f665a5dd3427cc26f8a749bcf3eb38e0",
+      "curve": "0xa74555c61b2cf1f27b150530b7960c1918ff4ba5",
+      "launchTx": "0xc6b6ab9070c7f44417a65d92ac79e82693beaf71279b3e8e3e127b3391421c53",
+      "graduationTx": "0x8fa5333f461a5991c5eb872425b503d8fa4bb5c02d07e936e5301e3bce2cca9f",
+      "v4PoolId": "0x8f2d43d30a554d27a4bda1cf315cc797aa0b4da9fd0905e003eacd666e505350",
+      "quoteSpentOnCurve": "12375 mUSDG",
+      "routerBuyTx": "0xd9a9bafab2c6a524ba671c0fd0cf9e22712aaaff0e1ad823b8ae7238c718b54c",
+      "routerSellTx": "0x6c085e9dfae77423c1d050a1d96b5979c5df474f370e4712d2d3ffa431896a7e"
+    }
+  }
+}
