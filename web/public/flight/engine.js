@@ -371,7 +371,7 @@ function makeSource(){
 const S = {
   confirmed:{mcap:null, block:0, lastSwapTs:0, lastBlockTs:0},
   displayAlt:null, levels:[], pending:[], feed:[], volEma:0, buyEma:0, sellEma:0,
-  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, rhalo:0, shake:0, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
+  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, rhalo:0, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
   orbsOn:localStorage.getItem('disciple.orbs')!=='off', lastOrbT:-99,
   tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
@@ -521,6 +521,22 @@ names.forEach(n=>{ const im=new Image(); im.onload=()=>loaded++; im.onerror=()=>
 const grain=[...Array(4)].map(()=>{ const g=document.createElement('canvas'); g.width=g.height=256; const gx=g.getContext('2d'), id=gx.createImageData(256,256);
   for(let i=0;i<id.data.length;i+=4){ const v=Math.random()*255; id.data[i]=id.data[i+1]=id.data[i+2]=v; id.data[i+3]=22; } gx.putImageData(id,0,0); return g; });
 
+/* SPRITE CACHE — every soft radial disc (exhaust, smoke, clouds, orbs, fireballs, mushroom puffs) is
+   pre-rendered once and stamped with drawImage + globalAlpha. No per-frame gradient objects. */
+const SPR=new Map();
+function radialSprite(key,stops,size){ let c=SPR.get(key); if(c) return c; size=size||64;
+  c=document.createElement('canvas'); c.width=c.height=size; const g=c.getContext('2d'), h=size/2, gr=g.createRadialGradient(h,h,0,h,h,h);
+  for(const st of stops) gr.addColorStop(st[0],st[1]); g.fillStyle=gr; g.fillRect(0,0,size,size); SPR.set(key,c); return c; }
+function blit(spr,x,y,r){ if(r>0.5) ctx.drawImage(spr,x-r,y-r,2*r,2*r); }
+const softDot=rgb=>radialSprite('d'+rgb,[[0,`rgba(${rgb},1)`],[1,`rgba(${rgb},0)`]]);
+const CLOUD_SPR=radialSprite('cloud',[[0,'rgba(255,253,250,1)'],[0.15,'rgba(255,253,250,1)'],[0.49,'rgba(236,242,255,0.72)'],[1,'rgba(200,214,255,0)']],128);
+const FIRE_SPR=radialSprite('fire',[[0,'rgba(255,255,250,1)'],[0.25,'rgba(255,240,180,1)'],[0.55,'rgba(255,170,60,.8)'],[0.8,'rgba(220,70,30,.45)'],[1,'rgba(120,20,10,0)']],128);
+const CORE_SPR=radialSprite('core',[[0,'rgba(255,250,230,1)'],[1,'rgba(120,170,255,0)']],128);
+// vignette + bloom buffers (bloom = 1/8-res copy upscaled additively; replaces the full-screen blur(14px) filter)
+const VIGNETTE=(()=>{ const c=document.createElement('canvas'); c.width=W/2; c.height=H/2; const g=c.getContext('2d');
+  const v=g.createRadialGradient(W/4,H/4,H*0.175,W/4,H/4,H*0.475); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(4,4,16,.6)'); g.fillStyle=v; g.fillRect(0,0,W/2,H/2); return c; })();
+const BLOOM=document.createElement('canvas'); BLOOM.width=W/8; BLOOM.height=H/8; const bctx=BLOOM.getContext('2d');
+
 const ROCKET_Y = H*0.58;
 const HUD_BOTTOM=140, BANNER_Y=HUD_BOTTOM+70, SAFE_LEFT=24;   // tier banner below the top HUD row; canvas is pushed right of the sidebar so no rail clearance needed
 function altToScreenY(a){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return ROCKET_Y - (a - base)*PX_PER_ALT; }
@@ -581,13 +597,7 @@ function drawClouds(){
       x+=dx/d*e*(0.6+c.spd); y+=dy/d*e*(0.6+c.spd); }
     const breathe=1+0.04*Math.sin(S.t*0.6+c.phase);
     ctx.globalAlpha=c.a*(0.75+0.25*(1-cruise*0.25));
-    ctx.fillStyle='rgba(255,252,245,1)';
-    for (const p of c.puffs){
-      const rr=c.r*p.rr*breathe;
-      const g=ctx.createRadialGradient(x+p.dx,y+p.dy,rr*0.15,x+p.dx,y+p.dy,rr);
-      g.addColorStop(0,'rgba(255,253,250,1)'); g.addColorStop(0.4,'rgba(236,242,255,0.72)'); g.addColorStop(1,'rgba(200,214,255,0)');
-      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x+p.dx,y+p.dy,rr,0,7); ctx.fill();
-    }
+    for (const p of c.puffs) blit(CLOUD_SPR,x+p.dx,y+p.dy,c.r*p.rr*breathe);
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
@@ -624,9 +634,12 @@ function drawTickTrail(){
     const hot=pts[i].thrust||pts[i-1].thrust ? 1 : u;
     const sc=S.scorch||0; // ATOM: trail scorched to charcoal with ember edges, cools back over ~7 s
     ctx.strokeStyle=`rgba(${Math.round(lerp(255,70,sc))},${Math.round(lerp(190+55*hot,40,sc))},${Math.round(lerp(140+90*u,30,sc))},${0.18+0.72*a})`;
-    ctx.lineWidth=1.2+16*Math.pow(u,2.6);               // thickest at nozzle, hairline far back
-    ctx.shadowColor=(S.scorch||0)>0.05?`rgba(255,${Math.round(lerp(230,90,S.scorch))},40,.9)`:'rgba(255,230,180,.85)'; ctx.shadowBlur=12*u+10*(S.scorch||0);
-    ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
+    const lw=1.2+16*Math.pow(u,2.6);                    // thickest at nozzle, hairline far back
+    ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y);
+    // glow underlay (replaces per-segment shadowBlur): wide faint stroke in the glow colour
+    const gw=(12*u+10*sc)*1.6; if(gw>1){ ctx.lineWidth=lw+gw; ctx.save(); ctx.globalAlpha=0.16;
+      ctx.strokeStyle=sc>0.05?`rgb(255,${Math.round(lerp(230,90,sc))},40)`:'rgb(255,230,180)'; ctx.stroke(); ctx.restore(); }
+    ctx.lineWidth=lw; ctx.stroke(); }
   ctx.restore();
   // tick marks on thrust corners (Papertrade stair vertices)
   for (let i=0;i<n-1;i++){ const p=pts[i]; if(!p.tick) continue; const u=i/(n-1); ctx.strokeStyle=`rgba(255,255,255,${0.18+0.5*u})`; ctx.lineWidth=1.2;
@@ -675,25 +688,23 @@ function drawRocket(dt){
   for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
     S.particles.push({x:tx+(Math.random()-.5)*10, y:ty, vx:-sa*sp+ca*j, vy:ca*sp+sa*j, life:0.7+Math.random()*0.45, s:(5+Math.random()*14*flame)*flick, hot:Math.random()<0.45}); }
   ctx.save(); ctx.globalCompositeOperation='lighter';
-  for (const p of S.particles){ const r=p.s*(1.3-p.life*0.3);
-    const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r); const c=p.hot?'255,240,200':'140,190,255';
-    g.addColorStop(0,`rgba(${c},${0.32*p.life})`); g.addColorStop(1,`rgba(${c},0)`); ctx.fillStyle=g; ctx.fillRect(p.x-r,p.y-r,2*r,2*r); }
+  const HOT=softDot('255,240,200'), COLD=softDot('140,190,255');
+  for (const p of S.particles){ ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); }
   // engine core bloom at nozzle
-  const bx=x, by=y, cg=ctx.createRadialGradient(bx,by,0,bx,by,(48+70*flame)*flick); cg.addColorStop(0,`rgba(255,250,230,${0.55*flame*flick})`); cg.addColorStop(1,'rgba(120,170,255,0)');
-  ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(bx,by,(48+70*flame)*flick,0,7); ctx.fill();
+  ctx.globalAlpha=clamp(0.55*flame*flick,0,1); blit(CORE_SPR,x,y,(48+70*flame)*flick);
   ctx.restore();
   // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
   ctx.save(); ctx.translate(x,y); ctx.rotate(rocketDrawAngle());
-  ctx.shadowColor='rgba(200,220,255,.8)'; ctx.shadowBlur=24;
   if(im.complete&&!im.bad){
-    const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas')), ow=Math.ceil(w), oh=Math.ceil(h);
+    const ow=Math.ceil(w), oh=Math.ceil(h), RB=rocketSprite(im,ow,oh), P=RB.pad;
+    ctx.drawImage(RB.glow,-w/2-P,-pivotY-P,w+2*P,h+2*P);          // cached rocket + glow (was shadowBlur 24 every frame)
+    // moving glint: gradient masked to the silhouette on a small scratch canvas
+    const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas'));
     if(oc.width!==ow||oc.height!==oh){ oc.width=ow; oc.height=oh; }
-    const o=oc.getContext('2d'); o.clearRect(0,0,ow,oh); o.globalCompositeOperation='source-over'; o.drawImage(im,0,0,ow,oh);
-    { const dec=window.__rocketDecal; if(dec&&dec.canvas){ const fa=clamp((performance.now()-dec.t0)/300,0,1); o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; } } // token decal (pre-composited offscreen, 300ms cross-fade)
-    try{ const d=o.getImageData(0,0,ow,oh), px=d.data; for(let i=3;i<px.length;i+=4) if(px[i]<64) px[i]=0; o.putImageData(d,0,0); }catch(_){}
+    const o=oc.getContext('2d'); o.globalCompositeOperation='copy'; o.drawImage(RB.base,0,0);
     const gx=ow/2+(S.glint||0)*w*0.28, gg=o.createLinearGradient(gx-14,oh*0.08,gx+14,oh*0.9);
     gg.addColorStop(0,'rgba(255,255,255,0)'); gg.addColorStop(0.45,`rgba(255,252,240,${0.08+0.12*Math.abs(S.glint||0)})`); gg.addColorStop(1,'rgba(255,255,255,0)');
-    o.globalCompositeOperation='source-atop'; o.fillStyle=gg; o.fillRect(0,0,ow,oh);
+    o.globalCompositeOperation='source-in'; o.fillStyle=gg; o.fillRect(0,0,ow,oh);
     ctx.drawImage(oc,-w/2,-pivotY,w,h);
   }
   ctx.restore();
@@ -703,6 +714,17 @@ function drawRocket(dt){
     for(let k=0;k<3;k++){ ctx.beginPath(); ctx.arc(noseX,noseY,30+k*12+Math.sin(S.t*20)*3,Math.PI*1.15+S.heading,Math.PI*1.85+S.heading); ctx.stroke(); } ctx.restore(); }
 }
 
+/* Rocket base (sprite + token decal + alpha threshold) and its glow are rebuilt only when the size or
+   decal changes (and during the 300 ms decal cross-fade) — previously getImageData ran every frame. */
+function rocketSprite(im,ow,oh){ const R=rocketSprite, dec=window.__rocketDecal, has=!!(dec&&dec.canvas);
+  const fa=has?clamp((performance.now()-dec.t0)/300,0,1):0, key=ow+'x'+oh+'|'+(has?dec.t0+':'+fa.toFixed(2):'-');
+  if(R.key===key) return R;
+  const base=R.base||(R.base=document.createElement('canvas')); base.width=ow; base.height=oh; const o=base.getContext('2d');
+  o.drawImage(im,0,0,ow,oh); if(has){ o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; }
+  try{ const d=o.getImageData(0,0,ow,oh), px=d.data; for(let i=3;i<px.length;i+=4) if(px[i]<64) px[i]=0; o.putImageData(d,0,0); }catch(_){}
+  const P=R.pad=24, gl=R.glow||(R.glow=document.createElement('canvas')); gl.width=ow+2*P; gl.height=oh+2*P; const g=gl.getContext('2d');
+  g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.drawImage(base,P,P);
+  R.key=key; return R; }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
@@ -737,18 +759,20 @@ function drawTrampWalls(){ if(S.displayAlt==null) return; const list=twGroups();
     const age=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.t0!=null?Math.min(a,S.t-f.t0):a; },Infinity), fresh=age<1.5, done=!l.preview&&(l.status==='filled'||isFinite(age));
     const col= tramp?(l.mine?'255,215,110':'140,230,170'):(l.mine?'255,140,130':'205,190,185');
     ctx.globalAlpha= l.preview?0.5+0.3*Math.sin(S.t*8): done&&!fresh?0.3:0.85;
-    ctx.strokeStyle=ctx.fillStyle=`rgba(${col},1)`; ctx.lineWidth=th; ctx.shadowColor=`rgba(${col},.7)`; ctx.shadowBlur=l.mine?8:3;
+    ctx.strokeStyle=ctx.fillStyle=`rgba(${col},1)`; ctx.lineWidth=th;
     if(l.preview) ctx.setLineDash([5,4]);
     if(tramp){ const sag=fresh?6*Math.exp(-age*3)*Math.cos(age*16):0;   // small trampoline: sprung arc + 2 legs; subtle bounce on fill
-      ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.4+3+sag,x+w/2,y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.4+3+sag,x+w/2,y);
+      { const a0=ctx.globalAlpha; ctx.globalAlpha=a0*(l.mine?0.3:0.18); ctx.lineWidth=th+(l.mine?7:4); ctx.stroke(); ctx.globalAlpha=a0; ctx.lineWidth=th; } ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2+3,y+7); ctx.moveTo(x+w/2,y); ctx.lineTo(x+w/2-3,y+7); ctx.stroke();
     } else { // small stone wall: a dome-topped slab; subtle crack chips on fill
       const hgt=th*1.8; ctx.globalAlpha*=0.8; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
-      if(fresh){ const u=age/1.5; ctx.shadowBlur=0; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
-    ctx.setLineDash([]); ctx.shadowBlur=2; ctx.shadowColor='rgba(0,0,20,.9)'; ctx.globalAlpha=done&&!fresh?0.45:0.9;
+      if(fresh){ const u=age/1.5; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
+    ctx.setLineDash([]); ctx.globalAlpha=done&&!fresh?0.45:0.9;
     ctx.font=(l.mine?'bold ':'')+'10px ui-monospace,monospace'; ctx.textAlign='left';
-    ctx.fillText(fmtTag(l.sizeUsd)+(l.ids.length>1?' ×'+l.ids.length:''), x+w/2+5, tramp?y+4:y-th);
-    ctx.globalAlpha=1; ctx.shadowBlur=0; }
+    const tag=fmtTag(l.sizeUsd)+(l.ids.length>1?' ×'+l.ids.length:''), tyy=tramp?y+4:y-th;
+    ctx.lineWidth=2.5; ctx.strokeStyle='rgba(0,0,20,.75)'; ctx.strokeText(tag,x+w/2+5,tyy); ctx.fillText(tag,x+w/2+5,tyy);
+    ctx.globalAlpha=1; }
   ctx.restore(); }
 function screenYToMcap(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return altToMcap(base-(y-ROCKET_Y)/PX_PER_ALT); }
 function drawLanes(){ ctx.save(); ctx.strokeStyle='rgba(220,230,255,.08)'; ctx.setLineDash([6,18]); ctx.lineDashOffset=-S.t*60*(1+Math.log10(1+S.volEma));
@@ -756,26 +780,26 @@ function drawLanes(){ ctx.save(); ctx.strokeStyle='rgba(220,230,255,.08)'; ctx.s
 function drawFx(dt){
   // collectible motes (cosmetic, lateral gameplay)
   ctx.save(); ctx.globalCompositeOperation='lighter';
-  for (const m of S.motes){ const T=ORB[m.k], r=T.r*(1+0.12*Math.sin(S.t*6+m.x)); const g=ctx.createRadialGradient(m.x,m.y,0,m.x,m.y,r); g.addColorStop(0,T.c0); g.addColorStop(1,T.c1); ctx.fillStyle=g; ctx.fillRect(m.x-r,m.y-r,2*r,2*r); }
+  for (const m of S.motes){ const T=ORB[m.k]; blit(radialSprite('orb'+m.k,[[0,T.c0],[1,T.c1]]),m.x,m.y,T.r*(1+0.12*Math.sin(S.t*6+m.x))); }
   for (const s of S.shards){ ctx.fillStyle=s.c; ctx.globalAlpha=s.life; ctx.fillRect(s.x,s.y,3,3); }
   ctx.restore(); ctx.globalAlpha=1;
   // PENALTY orbs: dark red/black storm cores (normal blending so they read as dark), crackling rim
   for (const o of S.obstacles){ const T=ORB[o.k], r=T.r; ctx.save();
-    const g=ctx.createRadialGradient(o.x,o.y,0,o.x,o.y,r*1.6); g.addColorStop(0,T.c0); g.addColorStop(.55,T.c1); g.addColorStop(1,'rgba(40,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(o.x,o.y,r*1.6,0,7); ctx.fill();
-    ctx.strokeStyle=T.rim; ctx.lineWidth=2; ctx.shadowColor=T.rim; ctx.shadowBlur=12; ctx.beginPath();
-    for(let k=0;k<=10;k++){ const a=k/10*6.283+S.t*3, rr=r*(0.9+0.25*hash(k+Math.floor(S.t*12)+o.x)); k?ctx.lineTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr):ctx.moveTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr); } ctx.stroke();
-    ctx.shadowBlur=0; ctx.fillStyle=T.rim; ctx.font='bold 10px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(T.tag,o.x,o.y+r+14); ctx.restore(); }
+    blit(radialSprite('obs'+o.k,[[0,T.c0],[.55,T.c1],[1,'rgba(40,0,0,0)']]),o.x,o.y,r*1.6);
+    ctx.strokeStyle=T.rim; ctx.beginPath();
+    for(let k=0;k<=10;k++){ const a=k/10*6.283+S.t*3, rr=r*(0.9+0.25*hash(k+Math.floor(S.t*12)+o.x)); k?ctx.lineTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr):ctx.moveTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr); }
+    ctx.globalAlpha=0.3; ctx.lineWidth=7; ctx.stroke(); ctx.globalAlpha=1; ctx.lineWidth=2; ctx.stroke();   // glow underlay instead of shadowBlur
+    ctx.fillStyle=T.rim; ctx.font='bold 10px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(T.tag,o.x,o.y+r+14); ctx.restore(); }
   for (const f of S.floaters){ ctx.save(); ctx.globalAlpha=clamp(f.life,0,1); ctx.fillStyle=f.c; ctx.font=f.small?'bold 13px ui-monospace,monospace':'bold 16px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(f.txt,f.x,f.y); ctx.restore(); }
-  if (performance.now()<S.slowUntil||S.shake>0.3){ ctx.save(); ctx.fillStyle=`rgba(120,0,10,${0.10+0.1*Math.sin(S.t*20)})`; ctx.fillRect(0,0,W,H); ctx.restore(); }
 }
 
 function drawPost(){
   // bloom-ish: brighten highlights by re-drawing the frame blurred & additive (cheap: downscaled copy)
-  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.07; ctx.filter='blur(14px)';
-  ctx.drawImage(cv,0,0,cv.width,cv.height,0,0,W,H); ctx.restore();
-  // vignette
-  const v=ctx.createRadialGradient(W/2,H/2,H*0.35,W/2,H/2,H*0.95); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(4,4,16,.6)');
-  ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+  // 1/8-res downsample, upscaled with bilinear filtering = soft bloom without a full-screen blur filter
+  bctx.globalCompositeOperation='copy'; bctx.drawImage(cv,0,0,cv.width,cv.height,0,0,BLOOM.width,BLOOM.height);
+  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.07; ctx.imageSmoothingEnabled=true;
+  ctx.drawImage(BLOOM,0,0,W,H); ctx.restore();
+  ctx.drawImage(VIGNETTE,0,0,W,H);   // cached vignette
   // grain
   const g=grain[(S.t*24|0)%4]; ctx.save(); ctx.globalCompositeOperation='overlay'; const ox=(Math.random()*256)|0, oy=(Math.random()*256)|0;
   for(let x=-ox;x<W;x+=256) for(let y=-oy;y<H;y+=256) ctx.drawImage(g,x,y); ctx.restore();
@@ -847,19 +871,18 @@ function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fill
    ===================================================================== */
 const BOMB_PCT={GRENADE:2, BUNKER:5, CRUISE:12, NUKE:25, ATOM:50};
 const BOMB_TIERS=[
-  {k:'puff',    name:'BRAKE',         min:0,                life:0.6, shake:0,  sf:0,   tau:0},
-  {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, shake:2,  sf:11,  tau:0.12},
-  {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, shake:5,  sf:9,   tau:0.22, fall:0.45},
-  {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, shake:10, sf:7,   tau:0.40, fall:0.55},
-  {k:'nuke',    name:'NUKE',          min:BOMB_PCT.NUKE,    life:2.8, shake:15, sf:5.5, tau:0.70, fall:0.30},
-  {k:'atom',    name:'ATOM BOMB',     min:BOMB_PCT.ATOM,    life:4.6, shake:20, sf:3.2, tau:1.10, fall:0.40},
+  {k:'puff',    name:'BRAKE',         min:0,                life:0.6, sf:0,   tau:0},
+  {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
+  {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
+  {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
+  {k:'nuke',    name:'NUKE',          min:BOMB_PCT.NUKE,    life:2.8, sf:5.5, tau:0.70, fall:0.30},
+  {k:'atom',    name:'ATOM BOMB',     min:BOMB_PCT.ATOM,    life:4.6, sf:3.2, tau:1.10, fall:0.40},
 ];
 const BOMB_ALIASES={daisy:'cruise', moab:'nuke'};
 const BOMB_MERGE_WIN=0.30;   // s (sim time): sells landing within this window merge into one bomb
 const BOMB_MIN_GAP=0.55;     // s between detonations (queue otherwise)
 const BOMB_MAX_ACTIVE=2;     // live blasts on screen (puffs excluded)
 const BOMB_MAX_QUEUE=2;      // overflow merges into the last queued bomb (×N)
-const SHAKE_MAX=24;          // px cap on total camera offset
 const SLOWMO_S=0.6, SLOWMO_SCALE=0.3;
 function bombTierOf(pct,fullStack){ if(fullStack) return 5; let i=0; for(let k=0;k<BOMB_TIERS.length;k++) if(pct>=BOMB_TIERS[k].min) i=k; return i; }
 /* Single seam for the future backend impact API: return |Δprice| in % for this trade.
@@ -875,11 +898,11 @@ function estimateImpactPct(trade){
   if (source.impact && trade.usd>0 && source.L) return Math.abs(source.impact(trade.usd,trade.side==='buy'?'buy':'sell')-1)*100;
   return 0;
 }
-S.bombsOn=localStorage.getItem('disciple.bombs')!=='off'; S.shakeOn=localStorage.getItem('disciple.shake')!=='off';
-S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=[]; S.bombLabels=[]; S.camShakes=[]; S.cloudPush=[]; S.lastBombT=-99; S.lastPuffT=-99;
+S.bombsOn=localStorage.getItem('disciple.bombs')!=='off';
+S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=[]; S.bombLabels=[]; S.cloudPush=[]; S.lastBombT=-99; S.lastPuffT=-99;
 S.scorch=0; S.slowmoUntil=-1; S.timeScale=1; S.screenFlash=null;
 function setBombs(on){ S.bombsOn=on; try{localStorage.setItem('disciple.bombs',on?'on':'off');}catch(_){} dispatchEvent(new Event('apflightbombs')); }
-function setShake(on){ S.shakeOn=on; if(!on) S.camShakes=[]; try{localStorage.setItem('disciple.shake',on?'on':'off');}catch(_){} dispatchEvent(new Event('apflightbombs')); }
+function setShake(){ /* camera shake removed permanently; kept as a no-op for the settings page API */ }
 /* Called from onEvent for every sell. Trades in the same frame are combined (compounded impact). */
 function noteSell(t){
   const pct=estimateImpactPct(t);
@@ -910,7 +933,6 @@ function bombStep(dt){
   for (const p of S.bfx){ p.x+=p.vx*dt; p.y+=p.vy*dt; const d=Math.exp(-dt*(p.drag||0)); p.vx*=d; p.vy*=d; p.vy+=(p.g||0)*dt; p.r+=(p.gr||0)*dt; p.life-=dt; }
   S.bfx=S.bfx.filter(p=>p.life>0); if(S.bfx.length>700) S.bfx.splice(0,S.bfx.length-700);
   for (const l of S.bombLabels) l.age+=dt; S.bombLabels=S.bombLabels.filter(l=>l.age<l.life);
-  S.camShakes=S.camShakes.filter(s=>S.t-s.t0<s.tau*6);
   S.cloudPush=S.cloudPush.filter(c=>S.t-c.t0<6);
   S.scorch=Math.max(0,S.scorch-dt/7);
 }
@@ -925,14 +947,6 @@ function launchBomb(pct,f){
   return b;
 }
 function bombY(b){ return clamp(altToScreenY(b.alt),40,H-40); }
-function addShake(amp,f,tau){ return; /* camera shake removed (motion sickness) */ S.camShakes.push({amp,f,tau,t0:S.t,ph:Math.random()*6.28,ph2:Math.random()*6.28}); }
-/* Damped, smooth camera offset: Σ A·e^(−t/τ)·sin(2πft+φ) with a 40 ms attack. No per-frame randomness → never jittery. */
-function camOffset(){ let x=0,y=0;
-  for (const s of S.camShakes){ const t=S.t-s.t0, env=s.amp*Math.exp(-t/s.tau)*(1-Math.exp(-t/0.04));
-    x+=env*(Math.sin(6.2832*s.f*t+s.ph)+0.35*Math.sin(6.2832*s.f*1.73*t+s.ph2));
-    y+=env*0.8*(Math.cos(6.2832*s.f*0.87*t+s.ph2)+0.3*Math.sin(6.2832*s.f*2.1*t+s.ph)); }
-  if (S.shakeOn && S.shake>0){ const a=7*S.shake; x+=a*Math.sin(S.t*47); y+=a*Math.cos(S.t*39); }   // legacy orb-hit shake, now smooth
-  const m=Math.hypot(x,y); if(m>SHAKE_MAX){ x*=SHAKE_MAX/m; y*=SHAKE_MAX/m; } return {x,y}; }
 function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt);
   for(let i=0;i<7;i++) S.bfx.push({k:'smoke',x:tp.x-10,y:y+(Math.random()-.5)*8,vx:-60-Math.random()*90,vy:(Math.random()-.5)*50,r:5+Math.random()*5,gr:28,life:0.6,max:0.6,drag:3,c:'225,215,190',a:0.32});
   for(let i=0;i<4;i++) S.bfx.push({k:'spark',x:tp.x,y,vx:-120-Math.random()*120,vy:(Math.random()-.5)*90,r:1.6,life:0.3,max:0.3,drag:4,c:'255,220,150',a:0.8}); }
@@ -940,7 +954,6 @@ function burst(x,y,n,spd,opt){ for(let i=0;i<n;i++){ const a=Math.random()*6.283
   S.bfx.push(Object.assign({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,r:2,life:1,max:1,drag:2,c:'255,220,140',a:1,k:'spark'},typeof opt==='function'?opt(i,a):opt)); } }
 function detonate(b){
   const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age;
-  addShake(b.T.shake*(k==='atom'?1:clamp(0.8+b.pct/(b.T.min*4),0.8,1.2)), b.T.sf, b.T.tau);
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0});
   if (k==='grenade'){
@@ -962,7 +975,6 @@ function detonate(b){
     burst(x,y,110,900,{k:'ember',r:3,life:2.2,max:2.2,drag:1.1,g:90,c:'255,225,150'});
     S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'}; S.cloudPush.push({x,y,amp:520,t0:S.t});
     S.slowmoUntil=S.t+SLOWMO_S*SLOWMO_SCALE; S.scorch=1;
-    addShake(9,1.6,1.6);   // low rumble layered under the main hit
     b.puffs=[...Array(26)].map((_,i)=>({a:Math.random()*6.2832,r:Math.random(),s:0.6+Math.random()*0.6,ph:Math.random()*6}));
   }
 }
@@ -1001,7 +1013,7 @@ function drawBombs(){
     if (k==='bunker'){ const a=Math.max(0,1-u);
       ctx.globalCompositeOperation='source-over'; ctx.save(); ctx.translate(x,y);   // ground crack w/ divine glow in the seams
       for (const c of b.cracks){ ctx.beginPath(); c.forEach((p,i)=>i?ctx.lineTo(p[0]*(0.4+0.6*Math.min(1,t*5)),p[1]*(0.4+0.6*Math.min(1,t*5))):ctx.moveTo(0,0));
-        ctx.strokeStyle=`rgba(20,12,10,${0.8*a})`; ctx.lineWidth=4; ctx.stroke(); ctx.strokeStyle=`rgba(255,215,120,${0.9*a})`; ctx.lineWidth=1.4; ctx.shadowColor='rgba(255,200,90,.9)'; ctx.shadowBlur=8; ctx.stroke(); ctx.shadowBlur=0; }
+        ctx.strokeStyle=`rgba(20,12,10,${0.8*a})`; ctx.lineWidth=4; ctx.stroke(); ctx.strokeStyle=`rgba(255,200,90,${0.3*a})`; ctx.lineWidth=5; ctx.stroke(); ctx.strokeStyle=`rgba(255,215,120,${0.9*a})`; ctx.lineWidth=1.4; ctx.stroke(); }
       ctx.restore(); ctx.globalCompositeOperation='lighter';
       fireball(x,y,60*(1-Math.exp(-t*8)),Math.max(0,1-t/0.6));
       ring(x,y,30+260*(1-Math.exp(-t*3.5)),Math.max(0,1-t/1.0)*0.8,4,'255,225,160'); }
@@ -1015,19 +1027,19 @@ function drawBombs(){
   }
   // particles
   for (const p of S.bfx){ const a=p.a*clamp(p.life/p.max,0,1);
-    if (p.k==='smoke'){ ctx.globalCompositeOperation='source-over'; const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r); g.addColorStop(0,`rgba(${p.c},${a})`); g.addColorStop(1,`rgba(${p.c},0)`); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832); ctx.fill(); }
+    if (p.k==='smoke'){ ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=a; blit(softDot(p.c),p.x,p.y,p.r); ctx.globalAlpha=1; }
     else if (p.k==='streak'){ ctx.globalCompositeOperation='lighter'; ctx.strokeStyle=`rgba(${p.c},${a})`; ctx.lineWidth=p.r; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*0.06,p.y-p.vy*0.06); ctx.stroke(); }
     else if (p.k==='chunk'){ ctx.globalCompositeOperation='source-over'; ctx.fillStyle=`rgba(${p.c},${a})`; ctx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2); }
     else { ctx.globalCompositeOperation='lighter'; ctx.fillStyle=`rgba(${p.c},${a})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832); ctx.fill(); } }
   ctx.restore(); ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
 }
-function fireball(x,y,r,a){ if(a<=0||r<=1) return; const g=ctx.createRadialGradient(x,y,0,x,y,r);
-  g.addColorStop(0,`rgba(255,255,250,${a})`); g.addColorStop(0.25,`rgba(255,240,180,${a})`); g.addColorStop(0.55,`rgba(255,170,60,${0.8*a})`); g.addColorStop(0.8,`rgba(220,70,30,${0.45*a})`); g.addColorStop(1,'rgba(120,20,10,0)');
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
-function ring(x,y,r,a,w,c){ if(a<=0) return; ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=w; ctx.shadowColor=`rgba(${c},${a})`; ctx.shadowBlur=w*3; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.stroke(); ctx.shadowBlur=0; }
-function godRays(x,y,R,a,seed,n){ if(a<=0) return; for(let i=0;i<n;i++){ const ang=hash(seed+i)*6.2832, w=0.04+0.05*hash(seed+i*3);
-  const g=ctx.createRadialGradient(x,y,0,x,y,R); g.addColorStop(0,`rgba(255,248,215,${a})`); g.addColorStop(1,'rgba(255,230,160,0)'); ctx.fillStyle=g;
-  ctx.beginPath(); ctx.moveTo(x,y); ctx.arc(x,y,R,ang-w,ang+w); ctx.closePath(); ctx.fill(); } }
+function fireball(x,y,r,a){ if(a<=0||r<=1) return; const ga=ctx.globalAlpha; ctx.globalAlpha=ga*clamp(a,0,1); blit(FIRE_SPR,x,y,r); ctx.globalAlpha=ga; }
+function ring(x,y,r,a,w,c){ if(a<=0) return; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832);
+  ctx.strokeStyle=`rgba(${c},${a*0.28})`; ctx.lineWidth=w*3.2; ctx.stroke();   // glow underlay (was shadowBlur w*3)
+  ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=w; ctx.stroke(); }
+function godRays(x,y,R,a,seed,n){ if(a<=0) return;
+  const g=ctx.createRadialGradient(x,y,0,x,y,R); g.addColorStop(0,`rgba(255,248,215,${a})`); g.addColorStop(1,'rgba(255,230,160,0)'); ctx.fillStyle=g;   // one gradient for all rays
+  ctx.beginPath(); for(let i=0;i<n;i++){ const ang=hash(seed+i)*6.2832, w=0.04+0.05*hash(seed+i*3); ctx.moveTo(x,y); ctx.arc(x,y,R,ang-w,ang+w); ctx.closePath(); } ctx.fill(); }
 function drawMushroom(b,x,y,t){
   const grow=1-Math.exp(-t*1.4), fade=clamp((b.T.life-t)/1.4,0,1), H0=300*grow, capR=60+120*grow, cy=y-H0;
   ctx.globalCompositeOperation='lighter';
@@ -1039,14 +1051,16 @@ function drawMushroom(b,x,y,t){
   ctx.globalCompositeOperation='source-over';
   const sg=ctx.createLinearGradient(0,cy,0,y); sg.addColorStop(0,`rgba(255,190,90,${0.85*fade})`); sg.addColorStop(0.5,`rgba(170,90,50,${0.75*fade})`); sg.addColorStop(1,`rgba(90,60,55,${0.6*fade})`);
   ctx.fillStyle=sg; const sw=18+26*grow; ctx.beginPath(); ctx.moveTo(x-sw*1.8,y); ctx.quadraticCurveTo(x-sw*0.6,(y+cy)/2,x-sw,cy); ctx.lineTo(x+sw,cy); ctx.quadraticCurveTo(x+sw*0.6,(y+cy)/2,x+sw*1.8,y); ctx.fill();
-  for(let i=0;i<9;i++){ const v=i/8, py=lerp(y,cy,v), rr=sw*(1.6-0.6*v)+6, g=ctx.createRadialGradient(x,py,0,x,py,rr); g.addColorStop(0,`rgba(${Math.round(lerp(120,240,v))},${Math.round(lerp(80,150,v))},60,${0.6*fade})`); g.addColorStop(1,'rgba(80,55,50,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x+Math.sin(t*2+i)*3,py,rr,0,6.2832); ctx.fill(); }
+  ctx.globalAlpha=0.6*fade;
+  for(let i=0;i<9;i++){ const v=i/8, py=lerp(y,cy,v), rr=sw*(1.6-0.6*v)+6;
+    blit(radialSprite('stem'+i,[[0,`rgba(${Math.round(lerp(120,240,v))},${Math.round(lerp(80,150,v))},60,1)`],[1,'rgba(80,55,50,0)']]),x+Math.sin(t*2+i)*3,py,rr); }
+  ctx.globalAlpha=fade;
   // cap: rolling toroid of puffs, hot gold core cooling to smoke at the rim
   for (const p of b.puffs){ const ang=p.a+t*0.35*p.s, rx=Math.cos(ang)*capR*(0.35+0.7*p.r), ry=Math.sin(ang)*capR*0.42*(0.4+0.6*p.r)-capR*0.12;
     const rr=capR*0.42*p.s, px=x+rx, py=cy+ry, hot=clamp(1-p.r*0.8-t*0.18,0,1);
-    const g=ctx.createRadialGradient(px,py,0,px,py,rr);
-    g.addColorStop(0,`rgba(${Math.round(lerp(120,255,hot))},${Math.round(lerp(70,170,hot))},${Math.round(lerp(55,70,hot))},${fade})`); g.addColorStop(0.65,`rgba(${Math.round(lerp(80,200,hot))},${Math.round(lerp(55,90,hot))},45,${0.75*fade})`); g.addColorStop(1,`rgba(60,45,45,0)`);
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,rr,0,6.2832); ctx.fill(); }
-  ctx.globalCompositeOperation='lighter'; fireball(x,cy-capR*0.1,capR*0.45,0.35*fade*clamp(1.4-t*0.35,0,1));
+    const q=Math.round(hot*15), h=q/15;   // 16 cached heat levels
+    blit(radialSprite('cap'+q,[[0,`rgba(${Math.round(lerp(120,255,h))},${Math.round(lerp(70,170,h))},${Math.round(lerp(55,70,h))},1)`],[0.65,`rgba(${Math.round(lerp(80,200,h))},${Math.round(lerp(55,90,h))},45,.75)`],[1,'rgba(60,45,45,0)']],96),px,py,rr); }
+  ctx.globalAlpha=1; ctx.globalCompositeOperation='lighter'; fireball(x,cy-capR*0.1,capR*0.45,0.35*fade*clamp(1.4-t*0.35,0,1));
   ctx.globalCompositeOperation='source-over';
 }
 function drawBombScreen(){ // un-shaken overlays: flash + label pops
@@ -1191,7 +1205,7 @@ function frame(now){
     if (S.trail.length>64) S.trail.shift();
   }
   S.trail=S.trail.filter(p=>p.x>-40);
-  S.shake=Math.max(0,S.shake-dt*2); if(performance.now()>S.multUntil) S.mult=1;
+  if(performance.now()>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } S.floaters=S.floaters.filter(f=>f.life>0);
   // tier change banner
   const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; }
@@ -1214,7 +1228,7 @@ function frame(now){
       S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':m.k==='rhalo'?'+1 rHALO claim':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
       if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
   for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&Math.abs(o.x-S.x)<50&&Math.abs(o.y-ROCKET_Y)<40){ o.hit=true; o.dead=true; const T=ORB[o.k];
-      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; S.shake=1; if(o.k==='void') S.slowUntil=performance.now()+3000;
+      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=performance.now()+3000;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
       for(let i=0;i<30;i++) S.shards.push({x:o.x,y:o.y,vx:(Math.random()-.5)*320,vy:(Math.random()-.5)*320,life:1,c:'#ff3344'}); } }
