@@ -24,12 +24,10 @@ function write(key: string, on: boolean) {
 export default function SettingsPage() {
   const [orbs, setOrbs] = useState(true);
   const [bombs, setBombs] = useState(true);
-  const [shake, setShake] = useState(true);
 
   useEffect(() => {
     setOrbs(read(SETTINGS_KEYS.orbs));
     setBombs(read(SETTINGS_KEYS.bombs));
-    setShake(read(SETTINGS_KEYS.shake));
   }, []);
 
   const Toggle = ({
@@ -86,13 +84,6 @@ export default function SettingsPage() {
           keyName={SETTINGS_KEYS.bombs}
           flight="setBombs"
         />
-        <Toggle
-          label="Camera shake"
-          on={shake}
-          set={setShake}
-          keyName={SETTINGS_KEYS.shake}
-          flight="setShake"
-        />
         <div className="row">
           <span>Shortcut</span>
           <span>O orbs · B bombs in flight</span>
@@ -102,7 +93,7 @@ export default function SettingsPage() {
           <span>add ?replay=1 on a rocket URL</span>
         </div>
         <p className="note">
-          Keys: disciple.orbs / disciple.bombs / disciple.shake
+          Keys: disciple.orbs / disciple.bombs (camera shake removed)
         </p>
       </div>
     </div>
