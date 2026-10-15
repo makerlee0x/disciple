@@ -125,7 +125,7 @@ function trencher(rand: () => number): StatsTrade[] {
   ROCKETS.forEach((r, i) => {
     const launch = NOW - (22 - (i % 18)) * 864e5;
     const t0 = launch + 8_000 + rand() * 100_000;
-    let mcap = 7_500 + rand() * 4_000;
+    const mcap = 7_500 + rand() * 4_000;
     push(out, r, "buy", 30 + rand() * 50, mcap, 90, t0, launch);
     const hold = (1 + rand() * 7) * 60_000;
     const up = rand() > 0.42;
@@ -174,7 +174,7 @@ function bomber(rand: () => number): StatsTrade[] {
 }
 
 export function sampleTrades(persona: PersonaId): StatsTrade[] {
-  const seed = persona === "believer" ? 0xbe11e7 : persona === "trencher" ? 0x72e11c : 0xb0mb42;
+  const seed = persona === "believer" ? 0xbe11e7 : persona === "trencher" ? 0x72e11c : 0xb0bb42;
   const rand = rng(seed);
   if (persona === "believer") return believer(rand);
   if (persona === "trencher") return trencher(rand);

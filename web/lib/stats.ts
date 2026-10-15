@@ -221,7 +221,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
   }
 
   let upnl = 0, diamonds = 0, ddHolds = 0, openHold = 0, bagLoss = 0;
-  for (const p of pos.values()) {
+  for (const p of Array.from(pos.values())) {
     if (p.size <= 0) continue;
     const u = p.size * p.lastPx - p.cost;
     upnl += u;
@@ -278,7 +278,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     { key: "hold", label: "Avg Hold", total: avgHold, d30: avgHold30, format: "hours", sparkTotal: holdSeries, spark30: holdSeries.filter((p) => p.t >= d30) },
   ];
 
-  const all = [...pos.values()];
+  const all = Array.from(pos.values());
   const crewCaptainGrads = all.filter((p) => p.topFuelerAtGrad && p.graduated).length;
   const gateKeeperAssists = all.filter((p) => p.assistedGraduation).length;
   const launches = all.filter((p) => p.isLauncher).length;
@@ -315,7 +315,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     crewSpirit: score(gateKeeperAssists * 2 + crewCaptainGrads * 3 + grads, 0, 14),
   };
 
-  const rockets: RocketRow[] = [...pos.entries()].map(([token, p]) => {
+  const rockets: RocketRow[] = Array.from(pos.entries()).map(([token, p]) => {
     const ti = tierAt(p.peakMcap);
     const badges: string[] = [];
     if (p.graduated) badges.push("Gates");
@@ -348,9 +348,9 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     leaderboardRank: o.leaderboardRank, leaderboardTopPct: topPct,
     pointsBehindFirst: Math.max(0, o.firstPlacePoints - o.points), pointsToNextRank: rank.pointsToNext,
     kpis, rings, cumulativePnl: series,
-    volumeByDay: [...volDay.entries()].sort().map(([day, volume]) => ({ day, volume })),
+    volumeByDay: Array.from(volDay.entries()).sort().map(([day, volume]) => ({ day, volume })),
     holdHist: holdOrder.map((bucket) => ({ bucket, count: holdBuckets.get(bucket) ?? 0 })),
-    pnlCalendar: [...pnlDay.entries()].sort().map(([date, pnl]) => ({ date, pnl })),
+    pnlCalendar: Array.from(pnlDay.entries()).sort().map(([date, pnl]) => ({ date, pnl })),
     playstyle, pveScore, pvpScore, traits, rockets, activity: activity.slice(0, 30),
     ct: { ruggedCount: rugged, roundsTripped: roundTrips, biggestW: bigW, biggestL: bigL, fumbledBag: fumbled,
       timeInTrenchesHours: (now - firstTs) / 3.6e6, apeScore: Math.round(score(buys, 0, 60) * 0.4 + score(pos.size, 0, 18) * 0.3 + (100 - score(avgHold, 0, 24)) * 0.3),
