@@ -371,7 +371,7 @@ function makeSource(){
 const S = {
   confirmed:{mcap:null, block:0, lastSwapTs:0, lastBlockTs:0},
   displayAlt:null, levels:[], pending:[], feed:[], volEma:0, buyEma:0, sellEma:0,
-  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, rhalo:0, shake:0, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
+  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, rhalo:0, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
   orbsOn:localStorage.getItem('disciple.orbs')!=='off', lastOrbT:-99,
   tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
@@ -381,6 +381,23 @@ const S = {
   headTarget:Math.PI/2, headSmooth:Math.PI/2, aimDisp:0, aimVel:0, aimTgt:0, camAlt:null, camX:null,
   thrustNet:0, thrustPend:null, trailAimLP:0,
 };
+/* =====================================================================
+   POOLED PARTICLES — fixed capacity, preallocated objects, swap-remove on death.
+   No per-frame allocation. Hard caps: when full, a live slot is recycled (round-robin)
+   so a fresh blast always shows instead of being silently dropped.
+   ===================================================================== */
+function Pool(cap){ this.a=new Array(cap); for(let i=0;i<cap;i++) this.a[i]={k:'',x:0,y:0,vx:0,vy:0,r:0,r0:0,gr:0,life:0,max:1,drag:0,g:0,c:'',a:1,s:0,hot:false};
+  this.n=0; this.cap=cap; this.rr=0; this.recycled=0; }
+Pool.prototype.spawn=function(){ if(this.n<this.cap) return this.a[this.n++]; this.recycled++; this.rr=(this.rr+1)%this.cap; return this.a[this.rr]; };
+Pool.prototype.kill=function(i){ const a=this.a, j=--this.n, t=a[i]; a[i]=a[j]; a[j]=t; };   // caller iterates backwards
+Pool.prototype.clear=function(){ this.n=0; };
+Object.defineProperty(Pool.prototype,'length',{get(){ return this.n; }});
+const CAP={exhaust:360, shards:220, bfx:600};
+S.particles=new Pool(CAP.exhaust); S.shards=new Pool(CAP.shards);
+function spawnShard(x,y,vx,vy,c){ const p=S.shards.spawn(); p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.life=1; p.c=c; }
+/* in-place filter (no new array): keeps elements where pred(e) is truthy */
+function keepIf(arr,pred){ let j=0; for(let i=0;i<arr.length;i++){ const e=arr[i]; if(pred(e)) arr[j++]=e; } arr.length=j; return arr; }
+const ALIVE=e=>e.life>0, NOT_DEAD_MOTE=m=>!m.dead&&m.y<H+30, NOT_DEAD_OBS=o=>!o.dead&&o.y<H+50, TRAIL_ON=p=>p.x>-40;
 
 const source = makeSource();
 if (IS_POOL) S.fuelers={'you':0};
@@ -404,7 +421,7 @@ function onEvent(e){
   else if (e.t==='mark'){ S.confirmed.mcap=e.mcap; }
   else if (e.t==='replayRestart'){ S.feed.unshift({txt:'⟲ replay restarted',c:'#ffe7a3'}); S.displayAlt=null; S.confirmed.mcap=null; }
   else if (e.t==='levelFilled'){ const l=e.level; const y=altToScreenY(mcapToAlt(l.mcap));
-    for(let i=0;i<40;i++) S.shards.push({x:laneX(l)+ (Math.random()-.5)*laneW(l), y, vx:(Math.random()-.5)*300, vy:(Math.random()-.8)*260, life:1, c:l.side==='ask'?'#dfe8ff':'#ffd98a'});
+    for(let i=0;i<40;i++) spawnShard(laneX(l)+(Math.random()-.5)*laneW(l), y, (Math.random()-.5)*300, (Math.random()-.8)*260, l.side==='ask'?'#dfe8ff':'#ffd98a');
     // lateral gameplay: being lined up with the level when it breaks scores "Breaker"/"Bounce"
     if (Math.abs(S.x-laneX(l))<laneW(l)/2){ S.score+=Math.round(10+Math.log10(1+l.usd)*10);
       S.flashes.push({txt:l.side==='ask'?'WALL BREAKER +':'TRAMPOLINE BOUNCE +', life:1.4}); award(l.side==='ask'?'wall':'tramp',l.side==='ask'?'WALL BREAKER':'TRAMPOLINE BOUNCE','lined up when a level broke'); }
@@ -521,6 +538,21 @@ names.forEach(n=>{ const im=new Image(); im.onload=()=>loaded++; im.onerror=()=>
 const grain=[...Array(4)].map(()=>{ const g=document.createElement('canvas'); g.width=g.height=256; const gx=g.getContext('2d'), id=gx.createImageData(256,256);
   for(let i=0;i<id.data.length;i+=4){ const v=Math.random()*255; id.data[i]=id.data[i+1]=id.data[i+2]=v; id.data[i+3]=22; } gx.putImageData(id,0,0); return g; });
 
+/* SPRITE CACHE — every soft radial disc (exhaust, smoke, clouds, orbs, fireballs, mushroom puffs) is
+   pre-rendered once and stamped with drawImage + globalAlpha. No per-frame gradient objects. */
+const SPR=new Map();
+function radialSprite(key,stops,size){ let c=SPR.get(key); if(c) return c; size=size||64;
+  c=document.createElement('canvas'); c.width=c.height=size; const g=c.getContext('2d'), h=size/2, gr=g.createRadialGradient(h,h,0,h,h,h);
+  for(const st of stops) gr.addColorStop(st[0],st[1]); g.fillStyle=gr; g.fillRect(0,0,size,size); SPR.set(key,c); return c; }
+function blit(spr,x,y,r){ if(r>0.5) ctx.drawImage(spr,x-r,y-r,2*r,2*r); }
+const softDot=rgb=>radialSprite('d'+rgb,[[0,`rgba(${rgb},1)`],[1,`rgba(${rgb},0)`]]);
+const CLOUD_SPR=radialSprite('cloud',[[0,'rgba(255,253,250,1)'],[0.15,'rgba(255,253,250,1)'],[0.49,'rgba(236,242,255,0.72)'],[1,'rgba(200,214,255,0)']],128);
+const FIRE_SPR=radialSprite('fire',[[0,'rgba(255,255,250,1)'],[0.25,'rgba(255,240,180,1)'],[0.55,'rgba(255,170,60,.8)'],[0.8,'rgba(220,70,30,.45)'],[1,'rgba(120,20,10,0)']],128);
+const CORE_SPR=radialSprite('core',[[0,'rgba(255,250,230,1)'],[1,'rgba(120,170,255,0)']],128);
+// cached vignette (was a new full-screen radial gradient every frame)
+const VIGNETTE=(()=>{ const c=document.createElement('canvas'); c.width=W/2; c.height=H/2; const g=c.getContext('2d');
+  const v=g.createRadialGradient(W/4,H/4,H*0.175,W/4,H/4,H*0.475); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(4,4,16,.6)'); g.fillStyle=v; g.fillRect(0,0,W/2,H/2); return c; })();
+
 const ROCKET_Y = H*0.58;
 const HUD_BOTTOM=140, BANNER_Y=HUD_BOTTOM+70, SAFE_LEFT=24;   // tier banner below the top HUD row; canvas is pushed right of the sidebar so no rail clearance needed
 function altToScreenY(a){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return ROCKET_Y - (a - base)*PX_PER_ALT; }
@@ -563,31 +595,33 @@ const CLOUDS=(()=>{
     for(let i=0;i<L.n;i++){
       const puffs=[]; const pc=3+((i*3+li)%4);
       for(let k=0;k<pc;k++) puffs.push({dx:(hash(i*17+k*3+li)-0.5)*L.r*1.6, dy:(hash(i*9+k+li*5)-0.5)*L.r*0.55, rr:0.45+hash(k*11+i+li)*0.7});
-      layers.push({li, x:hash(i*13+li*7)*W, y:hash(i*29+li)*H, r:L.r*(0.75+hash(i+li*3)*0.5), a:L.a, spd:L.spd, puffs, phase:hash(i+li)*6.28});
+      layers.push({li, x:hash(i*13+li*7)*W, y:hash(i*29+li)*H, r:L.r*(0.75+hash(i+li*3)*0.5), a:L.a, spd:L.spd, puffs, phase:hash(i+li)*6.28,
+        ox:0, oy:0, vx:0, vy:0, dens:1});   // dynamic: blast displacement (spring-damped back home) + density (dissipates, re-forms)
     }
   });
   return layers;
 })();
+const CB={x:0,y:0};
+function cloudBase(c){   // parallax position (no blast offset) → CB
+  const yOff=((S.cloudY||0)*c.spd)%(H+400), xOff=((S.bgScrollX||0)*c.spd*0.65)%(W+400);
+  let x=c.x - xOff; x=((x%(W+400))+(W+400))%(W+400)-200;
+  let y=c.y + yOff; y=((y%(H+400))+(H+400))%(H+400)-200; CB.x=x; CB.y=y; return CB; }
+/* Clouds: blasts push them (impulse ∝ 1/(1+(d/R)²), nearer layers move more), a soft spring-damper
+   brings them home over a few seconds; density drops with blast proximity (dissipates) and re-forms ~6 s. */
+function cloudStep(dt){ const k=1-Math.exp(-dt/6);
+  for (const c of CLOUDS){ c.vx+=(-1.1*c.ox-1.9*c.vx)*dt; c.vy+=(-1.1*c.oy-1.9*c.vy)*dt; c.ox+=c.vx*dt; c.oy+=c.vy*dt; c.dens+=(1-c.dens)*k; } }
+function cloudBlast(x,y,amp,R){
+  for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-x, dy=CB.y+c.oy-y, d=Math.hypot(dx,dy)+1, f=1/(1+(d/R)*(d/R));
+    c.vx+=dx/d*amp*f*(0.6+c.spd); c.vy+=dy/d*amp*f*(0.6+c.spd)-amp*0.15*f;   // pushed out and slightly lofted
+    c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); } }
 function drawClouds(){
-  const v=S.vUp||0, cruise=S.cruise||0;
+  const cruise=S.cruise||0;
   ctx.save();
   for (const c of CLOUDS){
-    // climb (v>0) scrolls clouds down; fall scrolls them up. Cruise adds a leftward drift.
-    const yOff=((S.cloudY||0)*c.spd)%(H+400);
-    const xOff=((S.bgScrollX||0)*c.spd*0.65)%(W+400);
-    let x=c.x - xOff; x=((x%(W+400))+(W+400))%(W+400)-200;
-    let y=c.y + yOff*Math.sign(1); y=((y%(H+400))+(H+400))%(H+400)-200;
-    for (const cp of S.cloudPush){ const age=S.t-cp.t0, dx=x-cp.x, dy=y-cp.y, d=Math.hypot(dx,dy)+1, e=cp.amp*(1-Math.exp(-age*3.5))*Math.exp(-age/2.2)*(1/(1+d/600));
-      x+=dx/d*e*(0.6+c.spd); y+=dy/d*e*(0.6+c.spd); }
-    const breathe=1+0.04*Math.sin(S.t*0.6+c.phase);
-    ctx.globalAlpha=c.a*(0.75+0.25*(1-cruise*0.25));
-    ctx.fillStyle='rgba(255,252,245,1)';
-    for (const p of c.puffs){
-      const rr=c.r*p.rr*breathe;
-      const g=ctx.createRadialGradient(x+p.dx,y+p.dy,rr*0.15,x+p.dx,y+p.dy,rr);
-      g.addColorStop(0,'rgba(255,253,250,1)'); g.addColorStop(0.4,'rgba(236,242,255,0.72)'); g.addColorStop(1,'rgba(200,214,255,0)');
-      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x+p.dx,y+p.dy,rr,0,7); ctx.fill();
-    }
+    cloudBase(c); const x=CB.x+c.ox, y=CB.y+c.oy;
+    const breathe=(1+0.04*Math.sin(S.t*0.6+c.phase))*(1+0.35*(1-c.dens));   // thinning clouds spread out
+    ctx.globalAlpha=c.a*c.dens*(0.75+0.25*(1-cruise*0.25));
+    for (const p of c.puffs) blit(CLOUD_SPR,x+p.dx,y+p.dy,c.r*p.rr*breathe);
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
@@ -609,14 +643,17 @@ function drawSpeedLines(){
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
+const TRAIL_PTS=Array.from({length:96},()=>({x:0,y:0,tick:false,thrust:false}));
 function drawTickTrail(){
   if (S.trail.length<2) return;
   // JET TRAIL → TICK LINE: thick/hot at the nozzle (pivot), thins into historical tick path (left=past).
   // Stair language: flat segments when sideways, angled segments on thrust (variable slope).
   // Tip = nozzle/aft pivot (rocket nose leads ahead of this point).
-  const tail={x:(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.35, y:ROCKET_Y+(S.bob||0)*0.5};
-  const pts=S.trail.map(p=>({x:p.x,y:clamp(altToScreenY(p.alt),20,H-20),tick:p.tick,thrust:p.thrust})).filter(p=>p.x<tail.x-2); pts.push(tail);
-  const n=pts.length; if(n<2) return;
+  const tailX=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.35, tailY=ROCKET_Y+(S.bob||0)*0.5;
+  const pts=TRAIL_PTS; let n=0;   // reused scratch points (no per-frame map/filter arrays)
+  for (const p of S.trail){ if(!(p.x<tailX-2)||n>=TRAIL_PTS.length-1) continue; const q=pts[n++]; q.x=p.x; q.y=clamp(altToScreenY(p.alt),20,H-20); q.tick=p.tick; q.thrust=p.thrust; }
+  { const q=pts[n++]; q.x=tailX; q.y=tailY; q.tick=false; q.thrust=false; }
+  if(n<2) return;
   const vis=Math.max(0.35, S.cruise||0); // always visible; brighter in cruise
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalCompositeOperation='lighter';
   for (let i=1;i<n;i++){ const u=i/(n-1);               // 0 = oldest (far left), 1 = at the nozzle
@@ -624,9 +661,12 @@ function drawTickTrail(){
     const hot=pts[i].thrust||pts[i-1].thrust ? 1 : u;
     const sc=S.scorch||0; // ATOM: trail scorched to charcoal with ember edges, cools back over ~7 s
     ctx.strokeStyle=`rgba(${Math.round(lerp(255,70,sc))},${Math.round(lerp(190+55*hot,40,sc))},${Math.round(lerp(140+90*u,30,sc))},${0.18+0.72*a})`;
-    ctx.lineWidth=1.2+16*Math.pow(u,2.6);               // thickest at nozzle, hairline far back
-    ctx.shadowColor=(S.scorch||0)>0.05?`rgba(255,${Math.round(lerp(230,90,S.scorch))},40,.9)`:'rgba(255,230,180,.85)'; ctx.shadowBlur=12*u+10*(S.scorch||0);
-    ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
+    const lw=1.2+16*Math.pow(u,2.6);                    // thickest at nozzle, hairline far back
+    ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y);
+    // glow underlay (replaces per-segment shadowBlur): wide faint stroke in the glow colour
+    const gw=(12*u+10*sc)*1.6; if(gw>1){ ctx.lineWidth=lw+gw; ctx.save(); ctx.globalAlpha=0.16;
+      ctx.strokeStyle=sc>0.05?`rgb(255,${Math.round(lerp(230,90,sc))},40)`:'rgb(255,230,180)'; ctx.stroke(); ctx.restore(); }
+    ctx.lineWidth=lw; ctx.stroke(); }
   ctx.restore();
   // tick marks on thrust corners (Papertrade stair vertices)
   for (let i=0;i<n-1;i++){ const p=pts[i]; if(!p.tick) continue; const u=i/(n-1); ctx.strokeStyle=`rgba(255,255,255,${0.18+0.5*u})`; ctx.lineWidth=1.2;
@@ -671,29 +711,24 @@ function drawRocket(dt){
   const sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   // nozzle is at (x,y); exhaust streams aft = opposite nose (+rotated down-vector)
   const tx=x, ty=y;
-  const n=Math.round((2+flame*9)*(0.55+flick));
-  for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
-    S.particles.push({x:tx+(Math.random()-.5)*10, y:ty, vx:-sa*sp+ca*j, vy:ca*sp+sa*j, life:0.7+Math.random()*0.45, s:(5+Math.random()*14*flame)*flick, hot:Math.random()<0.45}); }
   ctx.save(); ctx.globalCompositeOperation='lighter';
-  for (const p of S.particles){ const r=p.s*(1.3-p.life*0.3);
-    const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r); const c=p.hot?'255,240,200':'140,190,255';
-    g.addColorStop(0,`rgba(${c},${0.32*p.life})`); g.addColorStop(1,`rgba(${c},0)`); ctx.fillStyle=g; ctx.fillRect(p.x-r,p.y-r,2*r,2*r); }
+  const HOT=softDot('255,240,200'), COLD=softDot('140,190,255');
+  { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // engine core bloom at nozzle
-  const bx=x, by=y, cg=ctx.createRadialGradient(bx,by,0,bx,by,(48+70*flame)*flick); cg.addColorStop(0,`rgba(255,250,230,${0.55*flame*flick})`); cg.addColorStop(1,'rgba(120,170,255,0)');
-  ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(bx,by,(48+70*flame)*flick,0,7); ctx.fill();
+  ctx.globalAlpha=clamp(0.55*flame*flick,0,1); blit(CORE_SPR,x,y,(48+70*flame)*flick);
   ctx.restore();
   // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
   ctx.save(); ctx.translate(x,y); ctx.rotate(rocketDrawAngle());
-  ctx.shadowColor='rgba(200,220,255,.8)'; ctx.shadowBlur=24;
   if(im.complete&&!im.bad){
-    const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas')), ow=Math.ceil(w), oh=Math.ceil(h);
+    const ow=Math.ceil(w), oh=Math.ceil(h), RB=rocketSprite(im,ow,oh), P=RB.pad;
+    ctx.drawImage(RB.glow,-w/2-P,-pivotY-P,w+2*P,h+2*P);          // cached rocket + glow (was shadowBlur 24 every frame)
+    // moving glint: gradient masked to the silhouette on a small scratch canvas
+    const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas'));
     if(oc.width!==ow||oc.height!==oh){ oc.width=ow; oc.height=oh; }
-    const o=oc.getContext('2d'); o.clearRect(0,0,ow,oh); o.globalCompositeOperation='source-over'; o.drawImage(im,0,0,ow,oh);
-    { const dec=window.__rocketDecal; if(dec&&dec.canvas){ const fa=clamp((performance.now()-dec.t0)/300,0,1); o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; } } // token decal (pre-composited offscreen, 300ms cross-fade)
-    try{ const d=o.getImageData(0,0,ow,oh), px=d.data; for(let i=3;i<px.length;i+=4) if(px[i]<64) px[i]=0; o.putImageData(d,0,0); }catch(_){}
+    const o=oc.getContext('2d'); o.globalCompositeOperation='copy'; o.drawImage(RB.base,0,0);
     const gx=ow/2+(S.glint||0)*w*0.28, gg=o.createLinearGradient(gx-14,oh*0.08,gx+14,oh*0.9);
     gg.addColorStop(0,'rgba(255,255,255,0)'); gg.addColorStop(0.45,`rgba(255,252,240,${0.08+0.12*Math.abs(S.glint||0)})`); gg.addColorStop(1,'rgba(255,255,255,0)');
-    o.globalCompositeOperation='source-atop'; o.fillStyle=gg; o.fillRect(0,0,ow,oh);
+    o.globalCompositeOperation='source-in'; o.fillStyle=gg; o.fillRect(0,0,ow,oh);
     ctx.drawImage(oc,-w/2,-pivotY,w,h);
   }
   ctx.restore();
@@ -703,6 +738,28 @@ function drawRocket(dt){
     for(let k=0;k<3;k++){ ctx.beginPath(); ctx.arc(noseX,noseY,30+k*12+Math.sin(S.t*20)*3,Math.PI*1.15+S.heading,Math.PI*1.85+S.heading); ctx.stroke(); } ctx.restore(); }
 }
 
+/* Rocket base (sprite + token decal + alpha threshold) and its glow are rebuilt only when the size or
+   decal changes (and during the 300 ms decal cross-fade) — previously getImageData ran every frame. */
+function rocketSprite(im,ow,oh){ const R=rocketSprite, dec=window.__rocketDecal, has=!!(dec&&dec.canvas);
+  const fa=has?clamp((performance.now()-dec.t0)/300,0,1):0, key=ow+'x'+oh+'|'+(has?dec.t0+':'+fa.toFixed(2):'-');
+  if(R.key===key) return R;
+  const base=R.base||(R.base=document.createElement('canvas')); base.width=ow; base.height=oh; const o=base.getContext('2d');
+  o.drawImage(im,0,0,ow,oh); if(has){ o.globalAlpha=fa; o.drawImage(dec.canvas,0,0,ow,oh); o.globalAlpha=1; }
+  try{ const d=o.getImageData(0,0,ow,oh), px=d.data; for(let i=3;i<px.length;i+=4) if(px[i]<64) px[i]=0; o.putImageData(d,0,0); }catch(_){}
+  const P=R.pad=24, gl=R.glow||(R.glow=document.createElement('canvas')); gl.width=ow+2*P; gl.height=oh+2*P; const g=gl.getContext('2d');
+  g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.drawImage(base,P,P);
+  R.key=key; return R; }
+/* Exhaust emission runs in the fixed-step sim: rate (particles/s) instead of count-per-rendered-frame. */
+function randLane(){ return LANES[Math.floor(Math.random()*3)]; }
+function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=S.pending.some(p=>p.side==='buy'&&p.state==='pending')?0.5:0;
+  const I=clamp(0.25+vol*0.8+pend,0,1.4), flick=0.72+0.28*Math.abs(Math.sin(S.t*37.0))*Math.abs(Math.sin(S.t*17.3+1.7));
+  const move=clamp(Math.abs(S.vUp||0)/220 + Math.abs(S.vx||0)/400, 0, 1.2), thrustBoost=clamp(Math.abs(S.aimDeg||0)/88,0,1)*(S.t-(S.thrustT||-99)<1.2?1:0);
+  return {flick, flame:I*(0.65+0.9*move+0.55*thrustBoost)*flick*(0.85+0.3*(S.cruise||0))}; }
+function exhaustStep(dt){ const {flick,flame}=exhaustParams(), sa=Math.sin(S.heading), ca=Math.cos(S.heading);
+  const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=ROCKET_Y+(S.bob||0)*0.55;
+  S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt; let n=S._exAcc|0; S._exAcc-=n;
+  for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
+    const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j; p.vy=ca*sp+sa*j; p.life=0.7+Math.random()*0.45; p.s=(5+Math.random()*14*flame)*flick; p.hot=Math.random()<0.45; } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
@@ -726,29 +783,37 @@ function twGroups(){ const cur=S.confirmed&&S.confirmed.mcap||0, src=(window.__t
     if(m){ m.sizeUsd+=l.sizeUsd||0; m.mine=m.mine||l.mine; m.ids.push(l.id); if(l.status==='active') m.status='active'; }
     else g.push({kind:l.kind,alt:a,mcap:l.mcap,sizeUsd:l.sizeUsd||0,mine:!!l.mine,status:l.status,ids:[l.id]}); }
   g.sort((x,y)=>Math.abs(x.mcap-cur)-Math.abs(y.mcap-cur)); return g.slice(0,TW_MAX); }
+/* tramp/wall geometry shared by the renderer and blast hit-testing (sized by $: log width/thickness) */
+const TWP={x:0,y:0,w:0,th:0};
+function twPos(l,kx,ky){ const y=altToScreenY(l.alt), L=Math.log10(1+l.sizeUsd), w=clamp(24+L*26,28,150), th=clamp(1+L*1.1,1.5,6);
+  let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
+  TWP.x=x; TWP.y=y; TWP.w=w; TWP.th=th; return TWP; }
+function twKeep(){ const px=(S.camX!=null?S.camX:S.x); return [px+75*Math.sin(S.heading), ROCKET_Y-75*Math.cos(S.heading)]; }
 function drawTrampWalls(){ if(S.displayAlt==null) return; const list=twGroups(); const pv=window.__twPreview;
   if(pv) list.push({kind:pv.kind,alt:mcapToAlt(pv.mcap),mcap:pv.mcap,sizeUsd:pv.sizeUsd||0,mine:true,status:'active',ids:['__pv'],preview:true});
   if(!list.length) return;
   const px=(S.camX!=null?S.camX:S.x), kx=px+75*Math.sin(S.heading), ky=ROCKET_Y-75*Math.cos(S.heading);
   ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.ellipse(kx,ky,110,120,0,0,Math.PI*2); ctx.clip('evenodd');   // keep-out around rocket
-  for(const l of list){ const y=altToScreenY(l.alt); if(y<-30||y>H+30) continue;
-    const L=Math.log10(1+l.sizeUsd), w=clamp(24+L*26,28,150), th=clamp(1+L*1.1,1.5,6), tramp=l.kind==='tramp';
-    let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
+  for(const l of list){ twPos(l,kx,ky); const y=TWP.y; if(y<-30||y>H+30) continue;
+    const w=TWP.w, th=TWP.th, tramp=l.kind==='tramp', x=TWP.x;
+    const hit=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.hitT!=null&&S.t-f.hitT<a.t?{t:S.t-f.hitT,amp:f.hitAmp}:a; },{t:Infinity,amp:0});
     const age=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.t0!=null?Math.min(a,S.t-f.t0):a; },Infinity), fresh=age<1.5, done=!l.preview&&(l.status==='filled'||isFinite(age));
     const col= tramp?(l.mine?'255,215,110':'140,230,170'):(l.mine?'255,140,130':'205,190,185');
     ctx.globalAlpha= l.preview?0.5+0.3*Math.sin(S.t*8): done&&!fresh?0.3:0.85;
-    ctx.strokeStyle=ctx.fillStyle=`rgba(${col},1)`; ctx.lineWidth=th; ctx.shadowColor=`rgba(${col},.7)`; ctx.shadowBlur=l.mine?8:3;
+    ctx.strokeStyle=ctx.fillStyle=`rgba(${col},1)`; ctx.lineWidth=th;
     if(l.preview) ctx.setLineDash([5,4]);
-    if(tramp){ const sag=fresh?6*Math.exp(-age*3)*Math.cos(age*16):0;   // small trampoline: sprung arc + 2 legs; subtle bounce on fill
-      ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.4+3+sag,x+w/2,y); ctx.stroke();
+    if(tramp){ const sag=(fresh?6*Math.exp(-age*3)*Math.cos(age*16):0) + (hit.t<1.2?hit.amp*7*Math.exp(-hit.t*4)*Math.cos(hit.t*22):0);   // blast shock flexes the bed   // small trampoline: sprung arc + 2 legs; subtle bounce on fill
+      ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.4+3+sag,x+w/2,y);
+      { const a0=ctx.globalAlpha; ctx.globalAlpha=a0*(l.mine?0.3:0.18); ctx.lineWidth=th+(l.mine?7:4); ctx.stroke(); ctx.globalAlpha=a0; ctx.lineWidth=th; } ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2+3,y+7); ctx.moveTo(x+w/2,y); ctx.lineTo(x+w/2-3,y+7); ctx.stroke();
     } else { // small stone wall: a dome-topped slab; subtle crack chips on fill
-      const hgt=th*1.8; ctx.globalAlpha*=0.8; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
-      if(fresh){ const u=age/1.5; ctx.shadowBlur=0; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
-    ctx.setLineDash([]); ctx.shadowBlur=2; ctx.shadowColor='rgba(0,0,20,.9)'; ctx.globalAlpha=done&&!fresh?0.45:0.9;
+      const hgt=th*1.8; ctx.globalAlpha*=0.8; if(hit.t<0.25){ ctx.globalAlpha=Math.min(1,ctx.globalAlpha+0.6*(1-hit.t/0.25)); }   // brief hot flash where the shock struck ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
+      if(fresh){ const u=age/1.5; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
+    ctx.setLineDash([]); ctx.globalAlpha=done&&!fresh?0.45:0.9;
     ctx.font=(l.mine?'bold ':'')+'10px ui-monospace,monospace'; ctx.textAlign='left';
-    ctx.fillText(fmtTag(l.sizeUsd)+(l.ids.length>1?' ×'+l.ids.length:''), x+w/2+5, tramp?y+4:y-th);
-    ctx.globalAlpha=1; ctx.shadowBlur=0; }
+    const tag=fmtTag(l.sizeUsd)+(l.ids.length>1?' ×'+l.ids.length:''), tyy=tramp?y+4:y-th;
+    ctx.lineWidth=2.5; ctx.strokeStyle='rgba(0,0,20,.75)'; ctx.strokeText(tag,x+w/2+5,tyy); ctx.fillText(tag,x+w/2+5,tyy);
+    ctx.globalAlpha=1; }
   ctx.restore(); }
 function screenYToMcap(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return altToMcap(base-(y-ROCKET_Y)/PX_PER_ALT); }
 function drawLanes(){ ctx.save(); ctx.strokeStyle='rgba(220,230,255,.08)'; ctx.setLineDash([6,18]); ctx.lineDashOffset=-S.t*60*(1+Math.log10(1+S.volEma));
@@ -756,26 +821,24 @@ function drawLanes(){ ctx.save(); ctx.strokeStyle='rgba(220,230,255,.08)'; ctx.s
 function drawFx(dt){
   // collectible motes (cosmetic, lateral gameplay)
   ctx.save(); ctx.globalCompositeOperation='lighter';
-  for (const m of S.motes){ const T=ORB[m.k], r=T.r*(1+0.12*Math.sin(S.t*6+m.x)); const g=ctx.createRadialGradient(m.x,m.y,0,m.x,m.y,r); g.addColorStop(0,T.c0); g.addColorStop(1,T.c1); ctx.fillStyle=g; ctx.fillRect(m.x-r,m.y-r,2*r,2*r); }
-  for (const s of S.shards){ ctx.fillStyle=s.c; ctx.globalAlpha=s.life; ctx.fillRect(s.x,s.y,3,3); }
+  for (const m of S.motes){ const T=ORB[m.k]; blit(radialSprite('orb'+m.k,[[0,T.c0],[1,T.c1]]),m.x,m.y,T.r*(1+0.12*Math.sin(S.t*6+m.x))); }
+  { const P=S.shards; for (let i=0;i<P.n;i++){ const s=P.a[i]; ctx.fillStyle=s.c; ctx.globalAlpha=clamp(s.life,0,1); ctx.fillRect(s.x,s.y,3,3); } }
   ctx.restore(); ctx.globalAlpha=1;
   // PENALTY orbs: dark red/black storm cores (normal blending so they read as dark), crackling rim
   for (const o of S.obstacles){ const T=ORB[o.k], r=T.r; ctx.save();
-    const g=ctx.createRadialGradient(o.x,o.y,0,o.x,o.y,r*1.6); g.addColorStop(0,T.c0); g.addColorStop(.55,T.c1); g.addColorStop(1,'rgba(40,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(o.x,o.y,r*1.6,0,7); ctx.fill();
-    ctx.strokeStyle=T.rim; ctx.lineWidth=2; ctx.shadowColor=T.rim; ctx.shadowBlur=12; ctx.beginPath();
-    for(let k=0;k<=10;k++){ const a=k/10*6.283+S.t*3, rr=r*(0.9+0.25*hash(k+Math.floor(S.t*12)+o.x)); k?ctx.lineTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr):ctx.moveTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr); } ctx.stroke();
-    ctx.shadowBlur=0; ctx.fillStyle=T.rim; ctx.font='bold 10px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(T.tag,o.x,o.y+r+14); ctx.restore(); }
+    blit(radialSprite('obs'+o.k,[[0,T.c0],[.55,T.c1],[1,'rgba(40,0,0,0)']]),o.x,o.y,r*1.6);
+    ctx.strokeStyle=T.rim; ctx.beginPath();
+    for(let k=0;k<=10;k++){ const a=k/10*6.283+S.t*3, rr=r*(0.9+0.25*hash(k+Math.floor(S.t*12)+o.x)); k?ctx.lineTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr):ctx.moveTo(o.x+Math.cos(a)*rr,o.y+Math.sin(a)*rr); }
+    ctx.globalAlpha=0.3; ctx.lineWidth=7; ctx.stroke(); ctx.globalAlpha=1; ctx.lineWidth=2; ctx.stroke();   // glow underlay instead of shadowBlur
+    ctx.fillStyle=T.rim; ctx.font='bold 10px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(T.tag,o.x,o.y+r+14); ctx.restore(); }
   for (const f of S.floaters){ ctx.save(); ctx.globalAlpha=clamp(f.life,0,1); ctx.fillStyle=f.c; ctx.font=f.small?'bold 13px ui-monospace,monospace':'bold 16px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(f.txt,f.x,f.y); ctx.restore(); }
-  if (performance.now()<S.slowUntil||S.shake>0.3){ ctx.save(); ctx.fillStyle=`rgba(120,0,10,${0.10+0.1*Math.sin(S.t*20)})`; ctx.fillRect(0,0,W,H); ctx.restore(); }
 }
 
 function drawPost(){
   // bloom-ish: brighten highlights by re-drawing the frame blurred & additive (cheap: downscaled copy)
-  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.07; ctx.filter='blur(14px)';
-  ctx.drawImage(cv,0,0,cv.width,cv.height,0,0,W,H); ctx.restore();
-  // vignette
-  const v=ctx.createRadialGradient(W/2,H/2,H*0.35,W/2,H/2,H*0.95); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(4,4,16,.6)');
-  ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+  // (full-screen self-copy bloom removed: reading the canvas back every frame stalls the GPU pipeline;
+  //  glow now comes from the cached additive sprites themselves)
+  ctx.drawImage(VIGNETTE,0,0,W,H);   // cached vignette
   // grain
   const g=grain[(S.t*24|0)%4]; ctx.save(); ctx.globalCompositeOperation='overlay'; const ox=(Math.random()*256)|0, oy=(Math.random()*256)|0;
   for(let x=-ox;x<W;x+=256) for(let y=-oy;y<H;y+=256) ctx.drawImage(g,x,y); ctx.restore();
@@ -847,19 +910,18 @@ function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fill
    ===================================================================== */
 const BOMB_PCT={GRENADE:2, BUNKER:5, CRUISE:12, NUKE:25, ATOM:50};
 const BOMB_TIERS=[
-  {k:'puff',    name:'BRAKE',         min:0,                life:0.6, shake:0,  sf:0,   tau:0},
-  {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, shake:2,  sf:11,  tau:0.12},
-  {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, shake:5,  sf:9,   tau:0.22, fall:0.45},
-  {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, shake:10, sf:7,   tau:0.40, fall:0.55},
-  {k:'nuke',    name:'NUKE',          min:BOMB_PCT.NUKE,    life:2.8, shake:15, sf:5.5, tau:0.70, fall:0.30},
-  {k:'atom',    name:'ATOM BOMB',     min:BOMB_PCT.ATOM,    life:4.6, shake:20, sf:3.2, tau:1.10, fall:0.40},
+  {k:'puff',    name:'BRAKE',         min:0,                life:0.6, sf:0,   tau:0},
+  {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
+  {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
+  {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
+  {k:'nuke',    name:'NUKE',          min:BOMB_PCT.NUKE,    life:2.8, sf:5.5, tau:0.70, fall:0.30},
+  {k:'atom',    name:'ATOM BOMB',     min:BOMB_PCT.ATOM,    life:4.6, sf:3.2, tau:1.10, fall:0.40},
 ];
 const BOMB_ALIASES={daisy:'cruise', moab:'nuke'};
 const BOMB_MERGE_WIN=0.30;   // s (sim time): sells landing within this window merge into one bomb
 const BOMB_MIN_GAP=0.55;     // s between detonations (queue otherwise)
 const BOMB_MAX_ACTIVE=2;     // live blasts on screen (puffs excluded)
 const BOMB_MAX_QUEUE=2;      // overflow merges into the last queued bomb (×N)
-const SHAKE_MAX=24;          // px cap on total camera offset
 const SLOWMO_S=0.6, SLOWMO_SCALE=0.3;
 function bombTierOf(pct,fullStack){ if(fullStack) return 5; let i=0; for(let k=0;k<BOMB_TIERS.length;k++) if(pct>=BOMB_TIERS[k].min) i=k; return i; }
 /* Single seam for the future backend impact API: return |Δprice| in % for this trade.
@@ -875,11 +937,11 @@ function estimateImpactPct(trade){
   if (source.impact && trade.usd>0 && source.L) return Math.abs(source.impact(trade.usd,trade.side==='buy'?'buy':'sell')-1)*100;
   return 0;
 }
-S.bombsOn=localStorage.getItem('disciple.bombs')!=='off'; S.shakeOn=localStorage.getItem('disciple.shake')!=='off';
-S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=[]; S.bombLabels=[]; S.camShakes=[]; S.cloudPush=[]; S.lastBombT=-99; S.lastPuffT=-99;
+S.bombsOn=localStorage.getItem('disciple.bombs')!=='off';
+S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=new Pool(CAP.bfx); S.bombLabels=[]; S.lastBombT=-99; S.lastPuffT=-99;
 S.scorch=0; S.slowmoUntil=-1; S.timeScale=1; S.screenFlash=null;
 function setBombs(on){ S.bombsOn=on; try{localStorage.setItem('disciple.bombs',on?'on':'off');}catch(_){} dispatchEvent(new Event('apflightbombs')); }
-function setShake(on){ S.shakeOn=on; if(!on) S.camShakes=[]; try{localStorage.setItem('disciple.shake',on?'on':'off');}catch(_){} dispatchEvent(new Event('apflightbombs')); }
+function setShake(){ /* camera shake removed permanently; kept as a no-op for the settings page API */ }
 /* Called from onEvent for every sell. Trades in the same frame are combined (compounded impact). */
 function noteSell(t){
   const pct=estimateImpactPct(t);
@@ -900,20 +962,77 @@ function bombStep(dt){
       else if (S.bombQ.length>=BOMB_MAX_QUEUE) mergeInto(q,f);
       else S.bombQ.push(f); } }
   // 2) launch respecting gap + max active (puffs don't count)
-  const active=S.bombs.filter(b=>b.age<b.T.life*0.6).length;
+  let active=0; for (const b of S.bombs) if(b.age<b.T.life*0.6) active++;
   if (S.bombQ.length && S.t-S.bombQ[0].t>=0.05 && S.t-S.lastBombT>=BOMB_MIN_GAP && active<BOMB_MAX_ACTIVE){
     const f=S.bombQ.shift(); launchBomb(bPct(f),f); }
   for (const tm of simTimers) if(!tm.done&&S.t>=tm.at){ tm.done=true; tm.fn(); }
   // 3) advance
   for (const b of S.bombs){ b.age+=dt; if(!b.det && b.age>=(b.T.fall||0)){ b.det=true; detonate(b); } }
-  S.bombs=S.bombs.filter(b=>b.age<b.T.life+(b.T.fall||0));
-  for (const p of S.bfx){ p.x+=p.vx*dt; p.y+=p.vy*dt; const d=Math.exp(-dt*(p.drag||0)); p.vx*=d; p.vy*=d; p.vy+=(p.g||0)*dt; p.r+=(p.gr||0)*dt; p.life-=dt; }
-  S.bfx=S.bfx.filter(p=>p.life>0); if(S.bfx.length>700) S.bfx.splice(0,S.bfx.length-700);
-  for (const l of S.bombLabels) l.age+=dt; S.bombLabels=S.bombLabels.filter(l=>l.age<l.life);
-  S.camShakes=S.camShakes.filter(s=>S.t-s.t0<s.tau*6);
-  S.cloudPush=S.cloudPush.filter(c=>S.t-c.t0<6);
+  keepIf(S.bombs,BOMB_LIVE);
+  bfxStep(dt);
+  for (const l of S.bombLabels) l.age+=dt; keepIf(S.bombLabels,LABEL_LIVE);
   S.scorch=Math.max(0,S.scorch-dt/7);
 }
+const BOMB_LIVE=b=>b.age<b.T.life+(b.T.fall||0), LABEL_LIVE=l=>l.age<l.life;
+/* SMOKE & DEBRIS PHYSICS (fixed step).
+   smoke : relaxes toward the local wind (drag = entrainment), rises with buoyancy that fades as it
+           cools, expands fast then slower (entrainment growth), fades in quickly and out smoothly.
+   others: ballistic with exponential drag + gravity (chunks/embers), unchanged look. */
+const SMOKE_BUOY=55, SMOKE_GROW=10;
+function windAt(y){ return -34 + 12*Math.sin(S.t*0.31) + 7*Math.sin(S.t*1.17 + y*0.012); }   // px/s, gentle gusts
+function bfxStep(dt){ const P=S.bfx;
+  for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.life-=dt; if(p.life<=0||p.y<-200||p.y>H+200){ P.kill(i); continue; }
+    if (p.k==='smoke'){ const u=1-p.life/p.max, k=1-Math.exp(-dt*(p.drag||1.5));
+      p.vx+=(windAt(p.y)-p.vx)*k; p.vy+=(0-p.vy)*k; p.vy-=SMOKE_BUOY*(1-u)*dt;
+      p.r+=((p.gr||0)*(1-u)*(1-u)+SMOKE_GROW)*dt; }
+    else { const d=Math.exp(-dt*(p.drag||0)); p.vx*=d; p.vy*=d; p.vy+=(p.g||0)*dt; p.r+=(p.gr||0)*dt; }
+    p.x+=p.vx*dt; p.y+=p.vy*dt; } }
+/* =====================================================================
+   SHOCKWAVES — every bomb launches an expanding front from its real blast point. Things react when the
+   front reaches them (d crosses r between steps), with falloff (1-d/R)²:
+     smoke/embers/exhaust: radial velocity kick (smoke also puffs up)
+     clouds: pushed/lofted and thinned (dissipate, then re-form)
+     tramps/walls: hit-tested against their $-sized box → bed flex / wall flash + chips
+     rocket: hit-tested against its capsule silhouette → small attitude wobble (spring), still clamped
+   ===================================================================== */
+const SHOCK={grenade:{v:520,R:140,amp:70}, bunker:{v:700,R:240,amp:150}, cruise:{v:900,R:440,amp:260}, nuke:{v:1150,R:720,amp:420}, atom:{v:1300,R:1150,amp:640}};
+const WOB_MAX=6, WOB_W=13, WOB_Z=0.32;   // deg, rad/s, damping ratio (underdamped → a couple of visible rocks)
+S.shocks=[]; S.wob=0; S.wobV=0;
+function addShock(x,y,k){ const T=SHOCK[k]; if(T) S.shocks.push({x,y,r:0,v:T.v,R:T.R,amp:T.amp}); }
+const fall=(d,R)=>{ if(d>=R) return 0; const u=1-d/R; return u*u; };
+function rocketCapsule(){ const h=S.heading, px=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, py=ROCKET_Y+(S.bob||0)*0.55, L=144;
+  RC.ax=px; RC.ay=py; RC.bx=px+Math.sin(h)*L; RC.by=py-Math.cos(h)*L; RC.r=18; return RC; }
+const RC={ax:0,ay:0,bx:0,by:0,r:0};
+function segDist(px,py,c){ const vx=c.bx-c.ax, vy=c.by-c.ay, t=clamp(((px-c.ax)*vx+(py-c.ay)*vy)/(vx*vx+vy*vy||1),0,1);
+  SD.t=t; SD.x=c.ax+vx*t; SD.y=c.ay+vy*t; return Math.hypot(px-SD.x,py-SD.y); }
+const SD={t:0,x:0,y:0};
+function kickPool(P,sx,sy,r0,r1,R,amp,mul){ for(let i=0;i<P.n;i++){ const p=P.a[i], dx=p.x-sx, dy=p.y-sy, d=Math.hypot(dx,dy)+1e-3;
+  if(d<=r0||d>r1) continue; const f=fall(d,R); if(!f) continue; const kv=amp*f*mul; p.vx+=dx/d*kv; p.vy+=dy/d*kv; if(p.k==='smoke') p.r+=8*f; } }
+function shockStep(dt){
+  if(!S.shocks.length){ wobStep(dt); return; }
+  let tw=null;
+  for (const sh of S.shocks){ const r0=sh.r; sh.r+=sh.v*dt; const r1=sh.r;
+    kickPool(S.bfx,sh.x,sh.y,r0,r1,sh.R,sh.amp,1.4); kickPool(S.particles,sh.x,sh.y,r0,r1,sh.R,sh.amp,0.6);
+    for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-sh.x, dy=CB.y+c.oy-sh.y, d=Math.hypot(dx,dy)+1; if(d<=r0-c.r*0.5||d>r1+c.r*0.5||c._sh===sh) continue;
+      const f=1/(1+(d/sh.R)*(d/sh.R)); c._sh=sh; c.vx+=dx/d*sh.amp*f*(0.6+c.spd); c.vy+=dy/d*sh.amp*f*(0.6+c.spd)-sh.amp*0.15*f; c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,sh.amp/500)); }
+    // rocket silhouette
+    const rc=rocketCapsule(), dr=Math.max(0,segDist(sh.x,sh.y,rc)-rc.r);
+    if ((dr>r0||r0===0) && dr<=r1){ const f=fall(dr,sh.R); if(f>0){
+      // torque: push the hit point away from the blast; lever = distance from the nozzle pivot along the body
+      const nx=rc.bx-rc.ax, ny=rc.by-rc.ay, L=Math.hypot(nx,ny)||1, px=SD.x-sh.x, py=SD.y-sh.y, pl=Math.hypot(px,py)||1;
+      const dAim=(-nx*(py/pl)+ny*(px/pl))/L;   // d(aim)/d(push) sign in screen coords (y down), deg-agnostic
+      const sg=Math.abs(dAim)>0.12?Math.sign(dAim):(sh.y>=SD.y?1:-1);   // along-axis hits still rock it (blast below → nose kicks up)
+      S.wobV+=sg*clamp(0.35*sh.amp*f*(0.5+0.5*Math.abs(dAim)),0,140); } }
+    // tramps & walls ($-sized boxes)
+    if (window.__trampWalls && window.__trampWalls.length){ if(!tw){ tw=twGroups(); } const [kx,ky]=twKeep();
+      for (const l of tw){ const g=twPos(l,kx,ky), hx=g.w/2, hy=g.th*2+4, ddx=Math.max(0,Math.abs(sh.x-g.x)-hx), ddy=Math.max(0,Math.abs(sh.y-(g.y-hy/2))-hy/2), d=Math.hypot(ddx,ddy);
+        if (d>r0 && d<=r1){ const f=fall(d,sh.R); if(f>0) for (const id of l.ids){ const st=TW_FX[id]||(TW_FX[id]={side:null,t0:null}); st.hitT=S.t; st.hitAmp=clamp(f*sh.amp/200,0.2,1);
+          if(l.kind!=='tramp') for(let i=0;i<Math.round(4+8*f);i++) spawnShard(g.x+(Math.random()-.5)*g.w, g.y-g.th, (Math.random()-.5)*220, -80-Math.random()*200, '#d8ccc6'); } } } }
+  }
+  keepIf(S.shocks,SHOCK_LIVE); wobStep(dt); }
+const SHOCK_LIVE=sh=>sh.r<sh.R;
+function wobStep(dt){ S.wobV+=(-WOB_W*WOB_W*S.wob-2*WOB_Z*WOB_W*S.wobV)*dt; S.wob=clamp(S.wob+S.wobV*dt,-WOB_MAX,WOB_MAX); if(Math.abs(S.wob)===WOB_MAX) S.wobV*=-0.3; }
+function bfxSpawn(k,x,y,vx,vy,r,gr,life,drag,c,a,g){ const p=S.bfx.spawn(); p.k=k; p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=p.r0=r; p.gr=gr; p.life=p.max=life; p.drag=drag; p.c=c; p.a=a; p.g=g||0; return p; }
 function launchBomb(pct,f){
   const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
   S.lastBombT=S.t;
@@ -925,22 +1044,14 @@ function launchBomb(pct,f){
   return b;
 }
 function bombY(b){ return clamp(altToScreenY(b.alt),40,H-40); }
-function addShake(amp,f,tau){ return; /* camera shake removed (motion sickness) */ S.camShakes.push({amp,f,tau,t0:S.t,ph:Math.random()*6.28,ph2:Math.random()*6.28}); }
-/* Damped, smooth camera offset: Σ A·e^(−t/τ)·sin(2πft+φ) with a 40 ms attack. No per-frame randomness → never jittery. */
-function camOffset(){ let x=0,y=0;
-  for (const s of S.camShakes){ const t=S.t-s.t0, env=s.amp*Math.exp(-t/s.tau)*(1-Math.exp(-t/0.04));
-    x+=env*(Math.sin(6.2832*s.f*t+s.ph)+0.35*Math.sin(6.2832*s.f*1.73*t+s.ph2));
-    y+=env*0.8*(Math.cos(6.2832*s.f*0.87*t+s.ph2)+0.3*Math.sin(6.2832*s.f*2.1*t+s.ph)); }
-  if (S.shakeOn && S.shake>0){ const a=7*S.shake; x+=a*Math.sin(S.t*47); y+=a*Math.cos(S.t*39); }   // legacy orb-hit shake, now smooth
-  const m=Math.hypot(x,y); if(m>SHAKE_MAX){ x*=SHAKE_MAX/m; y*=SHAKE_MAX/m; } return {x,y}; }
 function spawnPuff(){ const tp=tipPoint(), y=altToScreenY(tp.alt);
-  for(let i=0;i<7;i++) S.bfx.push({k:'smoke',x:tp.x-10,y:y+(Math.random()-.5)*8,vx:-60-Math.random()*90,vy:(Math.random()-.5)*50,r:5+Math.random()*5,gr:28,life:0.6,max:0.6,drag:3,c:'225,215,190',a:0.32});
-  for(let i=0;i<4;i++) S.bfx.push({k:'spark',x:tp.x,y,vx:-120-Math.random()*120,vy:(Math.random()-.5)*90,r:1.6,life:0.3,max:0.3,drag:4,c:'255,220,150',a:0.8}); }
-function burst(x,y,n,spd,opt){ for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65);
-  S.bfx.push(Object.assign({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,r:2,life:1,max:1,drag:2,c:'255,220,140',a:1,k:'spark'},typeof opt==='function'?opt(i,a):opt)); } }
+  for(let i=0;i<7;i++) bfxSpawn('smoke',tp.x-10,y+(Math.random()-.5)*8,-60-Math.random()*90,(Math.random()-.5)*50,5+Math.random()*5,28,0.6,3,'225,215,190',0.32);
+  for(let i=0;i<4;i++) bfxSpawn('spark',tp.x,y,-120-Math.random()*120,(Math.random()-.5)*90,1.6,0,0.3,4,'255,220,150',0.8); }
+function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
+  for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65), o=fn?opt(i,a):opt;
+    bfxSpawn(o.k||'spark',x,y,o.vx!=null?o.vx:Math.cos(a)*v,o.vy!=null?o.vy:Math.sin(a)*v,o.r!=null?o.r:2,o.gr||0,o.life!=null?o.life:1,o.drag!=null?o.drag:2,o.c||'255,220,140',o.a!=null?o.a:1,o.g||0); } }
 function detonate(b){
-  const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age;
-  addShake(b.T.shake*(k==='atom'?1:clamp(0.8+b.pct/(b.T.min*4),0.8,1.2)), b.T.sf, b.T.tau);
+  const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0});
   if (k==='grenade'){
@@ -957,12 +1068,11 @@ function detonate(b){
   } else if (k==='nuke'){
     burst(x,y,70,760,{k:'ember',r:2.8,life:1.7,max:1.7,drag:1.3,g:140,c:'255,215,130'});
     burst(x,y,22,220,{k:'smoke',r:26,gr:80,life:2.4,max:2.4,drag:1.5,c:'55,44,44',a:0.55});
-    S.screenFlash={t0:S.t,dur:0.45,a:0.55,c:'255,240,200'}; S.cloudPush.push({x,y,amp:260,t0:S.t});
+    S.screenFlash={t0:S.t,dur:0.45,a:0.55,c:'255,240,200'};
   } else if (k==='atom'){
     burst(x,y,110,900,{k:'ember',r:3,life:2.2,max:2.2,drag:1.1,g:90,c:'255,225,150'});
-    S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'}; S.cloudPush.push({x,y,amp:520,t0:S.t});
+    S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'};
     S.slowmoUntil=S.t+SLOWMO_S*SLOWMO_SCALE; S.scorch=1;
-    addShake(9,1.6,1.6);   // low rumble layered under the main hit
     b.puffs=[...Array(26)].map((_,i)=>({a:Math.random()*6.2832,r:Math.random(),s:0.6+Math.random()*0.6,ph:Math.random()*6}));
   }
 }
@@ -976,7 +1086,7 @@ function drawBombs(){
         const x1=b.x1!=null?b.x1:x, y1=b.y1!=null?b.y1:yT, x0=b.x0!=null?b.x0:x+280, y0=b.y0!=null?b.y0:yT-220;
         const mx=x0+(x1-x0)*u*u, my=y0+(y1-y0)*u*u, ang=Math.atan2(y1-y0,x1-x0);
         if ((b._trail|0)<Math.floor(u*18)){ b._trail=Math.floor(u*18);
-          S.bfx.push({k:'smoke',x:mx-Math.cos(ang)*12,y:my-Math.sin(ang)*12,vx:-20+Math.random()*10,vy:-10+Math.random()*20,r:6+Math.random()*8,gr:20,life:0.7,max:0.7,drag:2,c:'160,150,140',a:0.4}); }
+          bfxSpawn('smoke',mx-Math.cos(ang)*12,my-Math.sin(ang)*12,-20+Math.random()*10,-10+Math.random()*20,6+Math.random()*8,20,0.7,2,'160,150,140',0.4); }
         ctx.save(); ctx.translate(mx,my); ctx.rotate(ang);
         ctx.globalCompositeOperation='lighter';
         const tg=ctx.createLinearGradient(-90,0,0,0); tg.addColorStop(0,'rgba(255,230,160,0)'); tg.addColorStop(1,'rgba(255,220,140,.75)');
@@ -1001,7 +1111,7 @@ function drawBombs(){
     if (k==='bunker'){ const a=Math.max(0,1-u);
       ctx.globalCompositeOperation='source-over'; ctx.save(); ctx.translate(x,y);   // ground crack w/ divine glow in the seams
       for (const c of b.cracks){ ctx.beginPath(); c.forEach((p,i)=>i?ctx.lineTo(p[0]*(0.4+0.6*Math.min(1,t*5)),p[1]*(0.4+0.6*Math.min(1,t*5))):ctx.moveTo(0,0));
-        ctx.strokeStyle=`rgba(20,12,10,${0.8*a})`; ctx.lineWidth=4; ctx.stroke(); ctx.strokeStyle=`rgba(255,215,120,${0.9*a})`; ctx.lineWidth=1.4; ctx.shadowColor='rgba(255,200,90,.9)'; ctx.shadowBlur=8; ctx.stroke(); ctx.shadowBlur=0; }
+        ctx.strokeStyle=`rgba(20,12,10,${0.8*a})`; ctx.lineWidth=4; ctx.stroke(); ctx.strokeStyle=`rgba(255,200,90,${0.3*a})`; ctx.lineWidth=5; ctx.stroke(); ctx.strokeStyle=`rgba(255,215,120,${0.9*a})`; ctx.lineWidth=1.4; ctx.stroke(); }
       ctx.restore(); ctx.globalCompositeOperation='lighter';
       fireball(x,y,60*(1-Math.exp(-t*8)),Math.max(0,1-t/0.6));
       ring(x,y,30+260*(1-Math.exp(-t*3.5)),Math.max(0,1-t/1.0)*0.8,4,'255,225,160'); }
@@ -1014,20 +1124,21 @@ function drawBombs(){
     if (k==='atom') drawMushroom(b,x,y,t);
   }
   // particles
-  for (const p of S.bfx){ const a=p.a*clamp(p.life/p.max,0,1);
-    if (p.k==='smoke'){ ctx.globalCompositeOperation='source-over'; const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r); g.addColorStop(0,`rgba(${p.c},${a})`); g.addColorStop(1,`rgba(${p.c},0)`); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832); ctx.fill(); }
+  for (let i=0;i<S.bfx.n;i++){ const p=S.bfx.a[i]; const v=clamp(p.life/p.max,0,1), a=p.a*v;
+    if (p.k==='smoke'){ const age=p.max-p.life, fin=clamp(age/0.12,0,1);   // quick fade-in, smooth fade-out, thinner as it expands
+      ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=clamp(p.a*fin*Math.pow(v,1.3)*Math.min(1,1.6*p.r0/Math.max(p.r,1e-3)+0.25),0,1); blit(softDot(p.c),p.x,p.y,p.r); ctx.globalAlpha=1; }
     else if (p.k==='streak'){ ctx.globalCompositeOperation='lighter'; ctx.strokeStyle=`rgba(${p.c},${a})`; ctx.lineWidth=p.r; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*0.06,p.y-p.vy*0.06); ctx.stroke(); }
     else if (p.k==='chunk'){ ctx.globalCompositeOperation='source-over'; ctx.fillStyle=`rgba(${p.c},${a})`; ctx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2); }
     else { ctx.globalCompositeOperation='lighter'; ctx.fillStyle=`rgba(${p.c},${a})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832); ctx.fill(); } }
   ctx.restore(); ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
 }
-function fireball(x,y,r,a){ if(a<=0||r<=1) return; const g=ctx.createRadialGradient(x,y,0,x,y,r);
-  g.addColorStop(0,`rgba(255,255,250,${a})`); g.addColorStop(0.25,`rgba(255,240,180,${a})`); g.addColorStop(0.55,`rgba(255,170,60,${0.8*a})`); g.addColorStop(0.8,`rgba(220,70,30,${0.45*a})`); g.addColorStop(1,'rgba(120,20,10,0)');
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fill(); }
-function ring(x,y,r,a,w,c){ if(a<=0) return; ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=w; ctx.shadowColor=`rgba(${c},${a})`; ctx.shadowBlur=w*3; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.stroke(); ctx.shadowBlur=0; }
-function godRays(x,y,R,a,seed,n){ if(a<=0) return; for(let i=0;i<n;i++){ const ang=hash(seed+i)*6.2832, w=0.04+0.05*hash(seed+i*3);
-  const g=ctx.createRadialGradient(x,y,0,x,y,R); g.addColorStop(0,`rgba(255,248,215,${a})`); g.addColorStop(1,'rgba(255,230,160,0)'); ctx.fillStyle=g;
-  ctx.beginPath(); ctx.moveTo(x,y); ctx.arc(x,y,R,ang-w,ang+w); ctx.closePath(); ctx.fill(); } }
+function fireball(x,y,r,a){ if(a<=0||r<=1) return; const ga=ctx.globalAlpha; ctx.globalAlpha=ga*clamp(a,0,1); blit(FIRE_SPR,x,y,r); ctx.globalAlpha=ga; }
+function ring(x,y,r,a,w,c){ if(a<=0) return; ctx.beginPath(); ctx.arc(x,y,r,0,6.2832);
+  ctx.strokeStyle=`rgba(${c},${a*0.28})`; ctx.lineWidth=w*3.2; ctx.stroke();   // glow underlay (was shadowBlur w*3)
+  ctx.strokeStyle=`rgba(${c},${a})`; ctx.lineWidth=w; ctx.stroke(); }
+function godRays(x,y,R,a,seed,n){ if(a<=0) return;
+  const g=ctx.createRadialGradient(x,y,0,x,y,R); g.addColorStop(0,`rgba(255,248,215,${a})`); g.addColorStop(1,'rgba(255,230,160,0)'); ctx.fillStyle=g;   // one gradient for all rays
+  ctx.beginPath(); for(let i=0;i<n;i++){ const ang=hash(seed+i)*6.2832, w=0.04+0.05*hash(seed+i*3); ctx.moveTo(x,y); ctx.arc(x,y,R,ang-w,ang+w); ctx.closePath(); } ctx.fill(); }
 function drawMushroom(b,x,y,t){
   const grow=1-Math.exp(-t*1.4), fade=clamp((b.T.life-t)/1.4,0,1), H0=300*grow, capR=60+120*grow, cy=y-H0;
   ctx.globalCompositeOperation='lighter';
@@ -1039,14 +1150,16 @@ function drawMushroom(b,x,y,t){
   ctx.globalCompositeOperation='source-over';
   const sg=ctx.createLinearGradient(0,cy,0,y); sg.addColorStop(0,`rgba(255,190,90,${0.85*fade})`); sg.addColorStop(0.5,`rgba(170,90,50,${0.75*fade})`); sg.addColorStop(1,`rgba(90,60,55,${0.6*fade})`);
   ctx.fillStyle=sg; const sw=18+26*grow; ctx.beginPath(); ctx.moveTo(x-sw*1.8,y); ctx.quadraticCurveTo(x-sw*0.6,(y+cy)/2,x-sw,cy); ctx.lineTo(x+sw,cy); ctx.quadraticCurveTo(x+sw*0.6,(y+cy)/2,x+sw*1.8,y); ctx.fill();
-  for(let i=0;i<9;i++){ const v=i/8, py=lerp(y,cy,v), rr=sw*(1.6-0.6*v)+6, g=ctx.createRadialGradient(x,py,0,x,py,rr); g.addColorStop(0,`rgba(${Math.round(lerp(120,240,v))},${Math.round(lerp(80,150,v))},60,${0.6*fade})`); g.addColorStop(1,'rgba(80,55,50,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x+Math.sin(t*2+i)*3,py,rr,0,6.2832); ctx.fill(); }
+  ctx.globalAlpha=0.6*fade;
+  for(let i=0;i<9;i++){ const v=i/8, py=lerp(y,cy,v), rr=sw*(1.6-0.6*v)+6;
+    blit(radialSprite('stem'+i,[[0,`rgba(${Math.round(lerp(120,240,v))},${Math.round(lerp(80,150,v))},60,1)`],[1,'rgba(80,55,50,0)']]),x+Math.sin(t*2+i)*3,py,rr); }
+  ctx.globalAlpha=fade;
   // cap: rolling toroid of puffs, hot gold core cooling to smoke at the rim
   for (const p of b.puffs){ const ang=p.a+t*0.35*p.s, rx=Math.cos(ang)*capR*(0.35+0.7*p.r), ry=Math.sin(ang)*capR*0.42*(0.4+0.6*p.r)-capR*0.12;
     const rr=capR*0.42*p.s, px=x+rx, py=cy+ry, hot=clamp(1-p.r*0.8-t*0.18,0,1);
-    const g=ctx.createRadialGradient(px,py,0,px,py,rr);
-    g.addColorStop(0,`rgba(${Math.round(lerp(120,255,hot))},${Math.round(lerp(70,170,hot))},${Math.round(lerp(55,70,hot))},${fade})`); g.addColorStop(0.65,`rgba(${Math.round(lerp(80,200,hot))},${Math.round(lerp(55,90,hot))},45,${0.75*fade})`); g.addColorStop(1,`rgba(60,45,45,0)`);
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,rr,0,6.2832); ctx.fill(); }
-  ctx.globalCompositeOperation='lighter'; fireball(x,cy-capR*0.1,capR*0.45,0.35*fade*clamp(1.4-t*0.35,0,1));
+    const q=Math.round(hot*15), h=q/15;   // 16 cached heat levels
+    blit(radialSprite('cap'+q,[[0,`rgba(${Math.round(lerp(120,255,h))},${Math.round(lerp(70,170,h))},${Math.round(lerp(55,70,h))},1)`],[0.65,`rgba(${Math.round(lerp(80,200,h))},${Math.round(lerp(55,90,h))},45,.75)`],[1,'rgba(60,45,45,0)']],96),px,py,rr); }
+  ctx.globalAlpha=1; ctx.globalCompositeOperation='lighter'; fireball(x,cy-capR*0.1,capR*0.45,0.35*fade*clamp(1.4-t*0.35,0,1));
   ctx.globalCompositeOperation='source-over';
 }
 function drawBombScreen(){ // un-shaken overlays: flash + label pops
@@ -1068,16 +1181,22 @@ function debugBomb(spec,opt){ opt=opt||{};
   noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }
 
 /*HEADING-BEGIN*/
-function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI,AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }
+function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI+(S.wob||0),AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }   // blast wobble ≤ ±6°, final angle still clamped
 /* Rocket heading physics (pure; unit-tested by web/scripts/test-heading.mjs).
    aim = degrees above horizontal with nose right: 0 = sideways cruise, 88 = near vertical.
    Clamped to [AIM_MIN, AIM_MAX]: never past vertical, never nose-down/backward, never flips.
    Sells/dumps/bombs may only dip the nose to AIM_MIN. Critically damped spring on a
    rate-limited target, angular speed capped at AIM_MAX_RATE. No angle wrapping anywhere. */
-const AIM_MIN=-15, AIM_MAX=88, AIM_MAX_RATE=110, AIM_W=9, AIM_MAX_STEP=2.5;
+const AIM_MIN=-15, AIM_MAX=88, AIM_MAX_RATE=110, AIM_W=9, AIM_SUB=1/120;   // max internal substep (s)
 function stepHeading(st, wantAimDeg, bankDeg, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!(dt>0)) return st.aimDisp;
+  // dt-based: large dt is split into ≤AIM_SUB substeps so the spring is stable at any caller rate
+  if (dt>AIM_SUB*1.0001){ const n=Math.ceil(dt/AIM_SUB-1e-6), h=dt/n; for(let i=0;i<n;i++) stepHeadingOnce(st,wantAimDeg,bankDeg,h); return st.aimDisp; }
+  return stepHeadingOnce(st,wantAimDeg,bankDeg,dt);
+}
+function stepHeadingOnce(st, wantAimDeg, bankDeg, dt){
+  const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!Number.isFinite(st.aimDisp)) st.aimDisp=0;
   if (!Number.isFinite(st.aimVel)) st.aimVel=0;
   if (!Number.isFinite(st.aimTgt)) st.aimTgt=st.aimDisp;
@@ -1090,8 +1209,7 @@ function stepHeading(st, wantAimDeg, bankDeg, dt){
   const e=st.aimTgt-st.aimDisp;
   st.aimVel+= (AIM_W*AIM_W*e - 2*AIM_W*st.aimVel)*dt;
   st.aimVel=cl(st.aimVel,-AIM_MAX_RATE,AIM_MAX_RATE);
-  const mv=cl(st.aimVel*dt,-AIM_MAX_STEP,AIM_MAX_STEP);   // also hard-cap per-frame change (slow frames)
-  st.aimDisp=cl(st.aimDisp+mv, AIM_MIN, AIM_MAX);
+  st.aimDisp=cl(st.aimDisp+st.aimVel*dt, AIM_MIN, AIM_MAX);   // |Δ| ≤ AIM_MAX_RATE·dt (rate cap, not a per-frame cap)
   if ((st.aimDisp===AIM_MIN&&st.aimVel<0)||(st.aimDisp===AIM_MAX&&st.aimVel>0)) st.aimVel=0;
   return st.aimDisp;
 }
@@ -1102,13 +1220,28 @@ function stepHeading(st, wantAimDeg, bankDeg, dt){
 let last=performance.now();
 const FIXED_DT=+Q.get('fixedDt')>0?1/+Q.get('fixedDt'):0, CAPTURE=Q.get('capture')==='1';   // ?fixedDt=30 deterministic step; ?capture=1 = manual __flight.step(n)
 const RAF=f=>{ if(!CAPTURE) requestAnimationFrame(f); };
+/* Fixed-timestep simulation (60 Hz) decoupled from rendering. Each rAF accumulates real time, runs
+   0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
+   (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
+const SIM_DT=1/60, MAX_STEPS=5; let acc=0;
+const LERP_KEYS=['displayAlt','camAlt','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS','wob'];
+const PREV={}, CUR={};
 function frame(now){
-  // Clamp dt hard so headless rAF stalls cannot blow the heading/alt springs.
-  const rawDt=FIXED_DT||Math.min(1/20,Math.max(1/240,(now-last)/1000)); last=now;
+  const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
+  if (S.confirmed.mcap===null || loaded<names.length){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
+  acc+=rawDt; let n=0;
+  while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; simStep(SIM_DT); acc-=SIM_DT; n++; }
+  if (n===MAX_STEPS && acc>SIM_DT) acc=0;             // long stall: drop the backlog instead of spiralling
+  const alpha=n?clamp(acc/SIM_DT,0,1):1;
+  for (const k of LERP_KEYS){ const a=PREV[k], b=S[k]; CUR[k]=b; if(typeof a==='number'&&typeof b==='number') S[k]=a+(b-a)*alpha; }
+  render(rawDt);
+  for (const k of LERP_KEYS) S[k]=CUR[k];
+  RAF(frame);
+}
+function simStep(stepDt){
   // ATOM slow-mo: eased time scale (uniform dt scaling keeps every spring smooth)
-  const tsT=S.t<S.slowmoUntil?SLOWMO_SCALE:1; S.timeScale=lerp(S.timeScale,tsT,1-Math.exp(-rawDt*(tsT<1?30:5)));
-  const dt=rawDt*S.timeScale; S.t+=dt;
-  if (S.confirmed.mcap===null || loaded<names.length){ drawLoading(); RAF(frame); return; }
+  const tsT=S.t<S.slowmoUntil?SLOWMO_SCALE:1; S.timeScale=lerp(S.timeScale,tsT,1-Math.exp(-stepDt*(tsT<1?30:5)));
+  const dt=stepDt*S.timeScale; S.t+=dt;
   if (DEBUG_BOMB && !S._dbgFired && S.t>=DEBUG_BOMB_AT){ S._dbgFired=true; runDebugBomb(); }
   /* SPRING — altitude tracks price. ω≈22 rad/s, ζ≈0.72 → ~150 ms rise with a little overshoot.
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
@@ -1121,7 +1254,7 @@ function frame(now){
   // volume EMAs decay (τ≈6s) → exhaust intensity
   const dec=Math.exp(-dt/6); S.volEma*=dec; S.buyEma*=dec; S.sellEma*=dec;
   // lateral steering — cosmetic only. Laggy follow so A/D banks instead of teleporting.
-  const steer=performance.now()<S.slowUntil?3:7;           // VOID orb penalty: sluggish steering
+  const steer=S.t<S.slowUntil?3:7;           // VOID orb penalty: sluggish steering
   const nx=lerp(S.x,LANES[S.lane],1-Math.exp(-dt*steer)); S.vx=(nx-S.x)/Math.max(dt,1e-3); S.x=nx;
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
@@ -1175,7 +1308,7 @@ function frame(now){
     S.speedBits.push({x:Math.random()*W,y:Math.random()*H,len:40+Math.random()*90,w:1+Math.random()*1.5,life:0.45,up:vUpRaw>0,dx:(Math.random()-.5)*12});
   }
   for (const b of S.speedBits){ b.life-=dt*1.8; b.y+= (b.up?1:-1)*vUpRaw*dt*0.15; }
-  S.speedBits=S.speedBits.filter(b=>b.life>0).slice(-40);
+  keepIf(S.speedBits,ALIVE); if(S.speedBits.length>40){ S.speedBits.copyWithin(0,S.speedBits.length-40); S.speedBits.length=40; }
   // trailing tick polyline: tip at nozzle, scrolls left. Flat crawl + angled thrust segments.
   // Use stable S.x (no sway) so flat segments stay steady frame-to-frame.
   const tipX=S.x;
@@ -1190,50 +1323,52 @@ function frame(now){
     S.lastTrailAlt=S.displayAlt;
     if (S.trail.length>64) S.trail.shift();
   }
-  S.trail=S.trail.filter(p=>p.x>-40);
-  S.shake=Math.max(0,S.shake-dt*2); if(performance.now()>S.multUntil) S.mult=1;
-  for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } S.floaters=S.floaters.filter(f=>f.life>0);
+  keepIf(S.trail,TRAIL_ON);
+  if(S.t>S.multUntil) S.mult=1;
+  for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
   const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; }
   S.tierBanner=Math.max(0,S.tierBanner-dt);
   // particles
-  for (const p of S.particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; } S.particles=S.particles.filter(p=>p.life>0);
-  for (const s of S.shards){ s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; } S.shards=S.shards.filter(s=>s.life>0);
-  S.flashes.forEach(f=>f.life-=dt*0.8); S.flashes=S.flashes.filter(f=>f.life>0);
+  { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; if(p.life<=0) P.kill(i); } }
+  { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
+  for (const f of S.flashes) f.life-=dt*0.8; keepIf(S.flashes,ALIVE);
   // motes drift down (speed ∝ trade flow), collect by steering
   const flow=1+Math.log10(1+S.buyEma)*0.5;
   // OFF-CHAIN ORB LAYER: reward spawn ∝ buy flow, penalty spawn ∝ sell flow (server-seeded in prod)
-  const lane=()=>LANES[Math.floor(Math.random()*3)];
+  const lane=randLane;
   const P=ORB_SPAWN, room=S.orbsOn&&S.motes.length+S.obstacles.length<P.maxOnScreen&&S.t-S.lastOrbT>=P.minGap;
   if (room&&Math.random()<dt*Math.min(P.rewardMax,P.rewardBase+P.rewardFlow*Math.log10(1+S.buyEma))){ const r=Math.random(); S.motes.push({k:r<0.80?'halo':r<0.95?'mult':'rhalo',x:lane(),y:-20,v:90+Math.random()*40}); S.lastOrbT=S.t; }
   else if (room&&Math.random()<dt*Math.min(P.penaltyMax,P.penaltyBase+P.penaltyFlow*Math.log10(1+S.sellEma))){ S.obstacles.push({k:Math.random()<0.7?'storm':'void',x:lane(),y:-40,v:100}); S.lastOrbT=S.t; }
   for (const m of S.motes){ m.y+=m.v*dt*flow; if (Math.abs(m.x-S.x)<50&&Math.abs(m.y-ROCKET_Y)<40){ m.dead=true; const T=ORB[m.k];
-      if (m.k==='mult'){ S.mult=2; S.multUntil=performance.now()+10000; }
+      if (m.k==='mult'){ S.mult=2; S.multUntil=S.t+10; }
       if (m.k==='rhalo') S.rhalo++;
       const pts=T.pts*S.mult*(1+Math.floor(S.streak/10)); S.score+=pts; S.streak++; S.collected++;
       S.floaters.push({x:m.x,y:m.y-20,txt:m.k==='mult'?'×2 POINTS 10s':m.k==='rhalo'?'+1 rHALO claim':'+'+pts,c:T.rim||'#ffe7a3',life:1.2});
       if(S.streak===10) award('streak10','PERFECT LANE ×10','10 reward orbs in a row'); if(S.collected===25) award('c25','HALO HOARDER','25 reward orbs collected'); } }
   for (const o of S.obstacles){ o.y+=o.v*dt*flow; if (!o.hit&&Math.abs(o.x-S.x)<50&&Math.abs(o.y-ROCKET_Y)<40){ o.hit=true; o.dead=true; const T=ORB[o.k];
-      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; S.shake=1; if(o.k==='void') S.slowUntil=performance.now()+3000;
+      const loss=Math.min(S.score,T.pts); S.score-=loss; S.streak=0; if(o.k==='void') S.slowUntil=S.t+3;
       S.floaters.push({x:o.x,y:o.y-20,txt:'−'+loss+(o.k==='void'?' · SLOWED 3s':' · streak lost'),c:'#ff5a6a',life:1.4});
       S.flashes.push({txt:o.k==='void'?'VOID ORB · steering slowed':'STORM ORB · −'+loss+' pts',life:1.2,c:'#ff7a85'});
-      for(let i=0;i<30;i++) S.shards.push({x:o.x,y:o.y,vx:(Math.random()-.5)*320,vy:(Math.random()-.5)*320,life:1,c:'#ff3344'}); } }
-  S.motes=S.motes.filter(m=>!m.dead&&m.y<H+30); S.obstacles=S.obstacles.filter(o=>!o.dead&&o.y<H+50);
+      for(let i=0;i<30;i++) spawnShard(o.x,o.y,(Math.random()-.5)*320,(Math.random()-.5)*320,'#ff3344'); } }
+  keepIf(S.motes,NOT_DEAD_MOTE); keepIf(S.obstacles,NOT_DEAD_OBS);
   bombStep(dt);
-  S.toasts.forEach(t=>t.life-=dt*0.6); S.toasts=S.toasts.filter(t=>t.life>0);
-  if (Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1])[0][0]==='you') award('koth','KING OF THE HILL','top fueler on this coin');
-
+  for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
+  if (!S.ach.koth){ let top=null, tv=-Infinity; for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top fueler on this coin'); }
+  cloudStep(dt); shockStep(dt);
+  twStep(); exhaustStep(dt);
+}
+function render(dt){
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); twStep(); drawTrampWalls(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLanes(); drawLevels(); drawEntryLine(); drawTrampWalls(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
-  RAF(frame);
 }
 RAF(frame);
 if (Q.get('launched')==='1'){ const f=document.getElementById('launchFade'); f.style.transition='none'; f.style.opacity=1; S.altVel=-0.25; requestAnimationFrame(()=>requestAnimationFrame(()=>{ f.style.transition='opacity .9s ease'; f.style.opacity=0; })); }
 const DEBUG_BOMB=Q.get('debugBomb'), DEBUG_BOMB_AT=+(Q.get('debugBombAt')||1.2);
 function runDebugBomb(){ if(DEBUG_BOMB==='cycle'){ ['puff','grenade','bunker','cruise','nuke','atom'].forEach((k,i)=>setTimeoutSim(()=>debugBomb(k),i*2.4)); } else debugBomb(isNaN(+DEBUG_BOMB)?DEBUG_BOMB:+DEBUG_BOMB,{fullStack:Q.get('fullStack')==='1'}); }
 const simTimers=[]; function setTimeoutSim(fn,d){ simTimers.push({at:S.t+d,fn}); }
-window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(performance.now()); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
