@@ -80,7 +80,7 @@ export function drip(a: Address) {
 /** The signer API answers 401 without CORS headers when the Alchemy app has no Smart Wallets/Account Kit config, so the browser only sees "Failed to fetch". */
 function signerErr(e: unknown): Error {
   const m = (e as Error)?.message || String(e);
-  if (/failed to fetch|networkerror|load failed|must be authenticated/i.test(m))
+  if (/failed to fetch|networkerror|load failed|must be authenticated|enablePopupOauth/i.test(m))
     return new Error("Login service unavailable: the Alchemy app's Smart Wallets (Account Kit) login isn't enabled for this site yet.");
   return e as Error;
 }
