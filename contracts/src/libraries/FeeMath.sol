@@ -46,6 +46,10 @@ library FeeMath {
 
     /// @notice Max creator buy at launch (0.77% of supply).
     function creatorBuyMax() internal pure returns (uint256) {
-        return (Constants.TOTAL_SUPPLY * Constants.CREATOR_BUY_MAX_BPS) / Constants.BPS_DENOM;
+        return creatorBuyMax(Constants.CREATOR_BUY_MAX_BPS_DEFAULT);
+    }
+
+    function creatorBuyMax(uint256 bps) internal pure returns (uint256) {
+        return (Constants.TOTAL_SUPPLY * bps) / Constants.BPS_DENOM;
     }
 }

@@ -77,7 +77,8 @@ contract FeeMathTest is Test {
     }
 
     function test_creatorBuyMax_0_77pct() public pure {
-        assertEq(Constants.CREATOR_BUY_MAX_BPS, 77);
+        assertEq(Constants.CREATOR_BUY_MAX_BPS_DEFAULT, 77);
+        assertEq(Constants.CREATOR_BUY_MAX_BPS_CEILING, 700);
         assertEq(FeeMath.creatorBuyMax(), (Constants.TOTAL_SUPPLY * 77) / 10_000);
     }
 

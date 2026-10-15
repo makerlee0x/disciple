@@ -112,7 +112,10 @@ library Constants {
     uint256 internal constant REFERRAL_USDG_GATE = 10 * 1e18; // $10 USDG deposit
 
     // ── Creator buy at launch (§5 / LOCKED #27) ───────────────────────────────
-    uint256 internal constant CREATOR_BUY_MAX_BPS = 77; // 0.77% of supply
+    /// @dev Default protocol-owner-settable creator-buy cap (Launchpad.creatorBuyMaxBps) — 0.77% of supply.
+    uint256 internal constant CREATOR_BUY_MAX_BPS_DEFAULT = 77;
+    /// @dev Hard ceiling for Launchpad.creatorBuyMaxBps — 7% of supply.
+    uint256 internal constant CREATOR_BUY_MAX_BPS_CEILING = 700;
 
     // ── BPS helper ───────────────────────────────────────────────────────────
     uint256 internal constant BPS_DENOM = 10_000;

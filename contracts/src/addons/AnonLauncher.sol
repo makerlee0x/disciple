@@ -32,7 +32,8 @@ interface IERC5564Announcer {
 ///         owner is a one-time ERC-5564-style address; it never needs gas: metadata, creator transfer and
 ///         fee claims are EIP-712 signatures that anyone (a relayer) can submit.
 /// @dev Fees are unchanged (1% protocol, 33/33/33/1 split in FeeRouter). The creator buy goes through
-///      Launchpad -> curve.buyFor (anti-snipe exempt) and the tokens are forwarded to `buyRecipient`.
+///      Launchpad -> curve.buyFor (anti-snipe exempt, capped by Launchpad.creatorBuyMaxBps snapshotted per coin)
+///      and the tokens are forwarded to `buyRecipient`.
 ///      Gas sponsorship happens off-chain (ERC-4337 paymaster); `launchFee` (USDG) recoups it to treasury.
 ///      Pseudonymous, not anonymous: the payer of the launch fee / creator buy is visible on-chain.
 contract AnonLauncher is EIP712, ReentrancyGuard {

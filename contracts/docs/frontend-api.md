@@ -52,7 +52,7 @@ The post-grad paths are on `DiscipleRouter`:
 
 - `quote = 0` means `defaultQuote`.
 - `snipeFee` is always **0**: the creator launch buy is anti-snipe exempt and pays only the 1% protocol fee plus its own creator tax.
-- `exceedsCap = true` means the launch would revert with `CreatorBuyTooLarge`, because 0.77% of supply is the maximum.
+- `exceedsCap = true` means the launch would revert with `CreatorBuyTooLarge`. The cap is `Launchpad.creatorBuyMaxBps()` bps of supply (default 77 = 0.77%, ceiling 700 = 7%, protocol owner only, event `CreatorBuyMaxSet(bps)`). Read it live for the UI limit; each coin's cap at launch is `creatorBuyMaxBpsOf(token)`. AnonLauncher launches use the same cap.
 - Set `creatorBuyMinTokensOut` to `tokensOut` less your slippage. The output is exact if the quote/USDG pool price does not move before the tx lands.
 
 ## Quotes / views
