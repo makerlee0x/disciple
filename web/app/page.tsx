@@ -130,7 +130,7 @@ export default function HomePage() {
 
   // Pad rocket carries the default halo emblem until a card is picked.
   useEffect(() => {
-    brandedRocket(null).then(({ canvas }) => { try { setPadDecal((d) => d ?? canvas.toDataURL()); } catch { /* tainted */ } });
+    brandedRocket(null).then(({ canvas }) => { try { const url = canvas.toDataURL(); setPadDecal((d) => d ?? url); } catch { /* tainted */ } });
   }, []);
 
   useEffect(() => {
