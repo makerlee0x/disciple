@@ -73,6 +73,8 @@ export interface IdentityMetrics {
   graduatedLaunches: number; kingmakerCount: number; points: number; realizedPnl: number;
   roi: number; roiPercentile: number; closedTrades: number; jeetCount: number;
   heldThroughDrawdownFrac: number;
+  /** Tramps & walls (FLOW indexer; mock ledger now). */
+  trampsFilled?: number; wallsFilled?: number; bigTrampsFilled?: number;
 }
 
 export interface PlayerStats {
