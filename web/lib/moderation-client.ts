@@ -39,3 +39,28 @@ export async function precheck(img: HTMLImageElement): Promise<{ verdict: Modera
   const scores = Object.fromEntries(preds.map((p) => [p.className, p.probability]));
   return { verdict: decideNsfw(scores), scores };
 }
+
+/** Start loading the model in the background (call on page mount) so the first check is instant. */
+export function preloadModeration() {
+  if (typeof window === "undefined") return;
+  model().catch(() => { modelP = null; });
+}
+
+/** precheck with a hard timeout. Resolves "timeout" instead of hanging. */
+export async function precheckWithin(img: HTMLImageElement, ms = 3000) {
+  return Promise.race([
+    precheck(img),
+    new Promise<"timeout">((r) => setTimeout(() => r("timeout"), ms)),
+  ]);
+}
+
+/** Small on-chain-safe icon URI: 128px WEBP data URL (~3–8 KB). */
+export function iconDataUri(img: HTMLImageElement, size = 128): string {
+  const c = document.createElement("canvas");
+  const s = Math.min(1, size / Math.max(img.naturalWidth || size, img.naturalHeight || size));
+  c.width = Math.max(1, Math.round((img.naturalWidth || size) * s));
+  c.height = Math.max(1, Math.round((img.naturalHeight || size) * s));
+  c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+  const webp = c.toDataURL("image/webp", 0.8);
+  return webp.startsWith("data:image/webp") ? webp : c.toDataURL("image/png");
+}

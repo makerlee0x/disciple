@@ -9,7 +9,7 @@ import { pickProvider } from "@/lib/server/moderation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STORE = process.env.IMAGE_STORE_DIR || path.join(process.cwd(), ".data", "images");
+const STORE = process.env.IMAGE_STORE_DIR || path.join(process.env.VERCEL ? "/tmp" : process.cwd(), ".data", "images"); // Vercel: only /tmp is writable
 
 /**
  * POST multipart/form-data { file } → { verdict: allow|block|review, sha256, phash, imageUri? }.
@@ -51,8 +51,10 @@ export async function POST(req: NextRequest) {
 
   let imageUri: string | undefined;
   if (res.verdict === "allow") {
-    await fs.mkdir(STORE, { recursive: true });
-    await fs.writeFile(path.join(STORE, img.sha256 + ".webp"), img.buf);
+    try {
+      await fs.mkdir(STORE, { recursive: true });
+      await fs.writeFile(path.join(STORE, img.sha256 + ".webp"), img.buf);
+    } catch { /* storage is best-effort; the verdict still returns */ }
     imageUri = `disciple-img://${img.sha256}`; // TODO: pin to IPFS/R2 and return the public URI
   }
   return NextResponse.json({

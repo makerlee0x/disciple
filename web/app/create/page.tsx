@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CURVE, MODERATION, QUOTE_PRESETS, STRATEGY_TOKEN, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning, loadIcon } from "@/lib/decal";
-import { precheck } from "@/lib/moderation-client";
+import { iconDataUri, precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import RocketStudio from "@/components/RocketStudio";
 import { DEFAULT_QUOTE, protocolStub, type Address } from "@/lib/protocol";
 import { ZERO, deployment, isDeployed } from "@/lib/chains";
@@ -36,6 +36,7 @@ export default function LaunchRocketPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const blocked = mod.state === "block";
+  useEffect(() => { preloadModeration(); }, []);
 
   async function onPickFile(f: File | null) {
     setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" });
@@ -43,33 +44,32 @@ export default function LaunchRocketPage() {
     if (!(MODERATION.mimeTypes as readonly string[]).includes(f.type)) return setMod({ state: "block", note: "Only PNG, JPG, WEBP or GIF." });
     if (f.size > MODERATION.maxBytes) return setMod({ state: "block", note: "Max 2 MB." });
     setMod({ state: "checking" });
+    const t0 = performance.now();
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.src = url;
     try { await img.decode(); } catch { return setMod({ state: "block", note: "Not a readable image." }); }
-    // 1) instant client pre-check (blocks preview on fail)
-    try {
-      const pre = await precheck(img);
-      if (pre.verdict === "block") return setMod({ state: "block" });
-      // Static preview: no /api/moderate-image — browser nsfwjs is authoritative.
-      if (IS_STATIC_PREVIEW) {
-        setIconSrc(img);
-        setContrast(contrastWarning(img));
-        if (pre.verdict === "allow") setMod({ state: "allow", uri: url, note: "Static preview · client-only check" });
-        else setMod({ state: pre.verdict, note: "Static preview · client-only check" });
-        return;
-      }
-    } catch { /* model failed to load → rely on server */ }
     setIconSrc(img);
     setContrast(contrastWarning(img));
-    // 2) authoritative server check (stores image + returns URI only on allow)
-    try {
+    // Fast client check (model preloaded on mount, hard 3s timeout). Explicit → block.
+    // Timeout/error → fail OPEN on testnet with "pending server review" (never hang the form).
+    let pre: Awaited<ReturnType<typeof precheckWithin>> | null = null;
+    try { pre = await precheckWithin(img, 3000); } catch { pre = null; }
+    const ms = Math.round(performance.now() - t0);
+    if (pre && pre !== "timeout" && pre.verdict === "block") {
+      setIconSrc(null); setContrast(null);
+      return setMod({ state: "block", note: `Rejected by image check (${ms} ms).` });
+    }
+    const uri = iconDataUri(img);
+    const pending = !pre || pre === "timeout" || pre.verdict === "review";
+    setMod({ state: "allow", uri, note: pending ? `pending server review (${ms} ms)` : `approved in ${ms} ms` });
+    // Async authoritative server check; only an explicit server block revokes approval.
+    if (!IS_STATIC_PREVIEW) {
       const fd = new FormData(); fd.append("file", f);
-      const r = await (await fetch("/api/moderate-image", { method: "POST", body: fd })).json();
-      if (r.verdict === "block") { setIconSrc(null); setContrast(null); }
-      setMod({ state: r.verdict, uri: r.imageUri, note: r.error });
-    } catch {
-      setMod({ state: "review", note: "Moderation service unreachable — try again." });
+      fetch("/api/moderate-image", { method: "POST", body: fd })
+        .then((r) => r.json())
+        .then((r) => { if (r?.verdict === "block") { setIconSrc(null); setContrast(null); setMod({ state: "block", note: "Rejected by server review." }); } })
+        .catch(() => { /* server unavailable: keep client verdict (testnet) */ });
     }
   }
 
@@ -151,6 +151,7 @@ export default function LaunchRocketPage() {
           <input className={inputCls} value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" disabled={!!file} />
         </label>
         {mod.state === "checking" && <p className="text-xs text-[#ffe7a3]">Checking image…</p>}
+        {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]">✓ Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
         {blocked && (
           <p role="alert" className="rounded-lg border border-[rgba(255,120,140,.5)] bg-[rgba(50,10,20,.6)] p-3 text-sm text-[#ffb0c0]">
             This image can&apos;t be used. Please pick a different one.{mod.note ? ` (${mod.note})` : ""}
@@ -188,7 +189,7 @@ export default function LaunchRocketPage() {
               <select className={inputCls} value={quoteSym} onChange={(e) => setQuoteSym(e.target.value)}>
                 {QUOTE_PRESETS.map((q) => (
                   <option key={q.symbol} value={q.symbol}>
-                    {q.symbol} {q.address ? `· ${q.address.slice(0, 6)}…${q.address.slice(-4)}` : ""} ({q.note})
+                    {q.symbol} {(() => { const a = q.symbol === "STRATEGY" ? deployment().defaultQuote : q.symbol === "USDG" && deployment().usdg !== ZERO ? deployment().usdg : q.address; return a ? `· ${a.slice(0, 6)}…${a.slice(-4)}` : ""; })()} ({q.note})
                   </option>
                 ))}
                 <option value="CUSTOM">Custom ERC-20 address…</option>
@@ -211,13 +212,13 @@ export default function LaunchRocketPage() {
         <details className="text-xs text-[rgba(220,228,255,.7)]">
           <summary className="cursor-pointer">What am I launching?</summary>
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
-          {advanced ? "" : ` paired with ${STRATEGY_TOKEN.symbol} (${STRATEGY_TOKEN.address})`}. Fuel/ammo buys it; brake/bomb sells it.
+          {advanced ? "" : ` paired with ${STRATEGY_TOKEN.symbol} (${deployment().defaultQuote})`}. Fuel/ammo buys it; brake/bomb sells it.
         </details>
         <button
           type="submit"
           className="w-full rounded-xl border border-[rgba(255,231,163,.5)] bg-gradient-to-b from-[#2a2440] to-[#16122a] py-3 font-bold text-[#fff7df] shadow-[0_0_20px_rgba(255,220,150,.15)] hover:from-[#3a3258]"
         >
-          🚀 Launch Rocket (UI only)
+          {isDeployed() ? "🚀 Launch Rocket on-chain (testnet)" : "🚀 Launch Rocket (UI only)"}
         </button>
         {msg && (
           <p className="rounded-lg border border-[rgba(255,180,100,.4)] bg-[rgba(40,20,10,.5)] p-3 text-sm text-[#ffd0a0]">{msg}</p>
