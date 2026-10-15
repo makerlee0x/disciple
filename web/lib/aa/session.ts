@@ -158,7 +158,7 @@ export async function aaSend(calls: Call[]) {
   const me = await sa.address();
   const delta = await checkCalls(publicClient(), {
     launchpad: d.launchpad, router: d.router, trampWallManager: d.trampWallManager,
-    mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT,
+    mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT, spendTokens: [d.defaultQuote, d.usdg],
   }, state, calls, me);
   const r = await sa.sendCalls(calls);
   state = { ...state, ...recordSpend(state, delta) }; save();
