@@ -4,6 +4,7 @@
  * key off the client. Only ERC-4337 methods are forwarded.
  */
 import { NextResponse } from "next/server";
+import { selfBundle } from "@/lib/server/selfBundler";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,11 +17,21 @@ const ALLOWED = new Set([
 
 export async function POST(req: Request) {
   const key = process.env.ALCHEMY_API_KEY || process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
-  if (!key) return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "bundler not configured" } }, { status: 503 });
-  let body: { method?: string; id?: unknown };
+  let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   if (Array.isArray(body) || !body.method || !ALLOWED.has(body.method))
     return NextResponse.json({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32601, message: "method not allowed" } }, { status: 400 });
-  const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  return new NextResponse(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+  if (key && process.env.AA_SELF_BUNDLER !== "1") {
+    const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const text = await r.text();
+    // Alchemy key rejected (401 "Must be authenticated!") ⇒ fall back to the built-in self-bundler.
+    if (r.status !== 401 && !/must be authenticated/i.test(text)) return new NextResponse(text, { status: r.status, headers: { "content-type": "application/json" } });
+  }
+  try {
+    const result = await selfBundle(body.method, body.params || []);
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, result });
+  } catch (e) {
+    const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}` } });
+  }
 }
