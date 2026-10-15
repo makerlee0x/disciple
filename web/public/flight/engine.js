@@ -783,25 +783,31 @@ function twGroups(){ const cur=S.confirmed&&S.confirmed.mcap||0, src=(window.__t
     if(m){ m.sizeUsd+=l.sizeUsd||0; m.mine=m.mine||l.mine; m.ids.push(l.id); if(l.status==='active') m.status='active'; }
     else g.push({kind:l.kind,alt:a,mcap:l.mcap,sizeUsd:l.sizeUsd||0,mine:!!l.mine,status:l.status,ids:[l.id]}); }
   g.sort((x,y)=>Math.abs(x.mcap-cur)-Math.abs(y.mcap-cur)); return g.slice(0,TW_MAX); }
+/* tramp/wall geometry shared by the renderer and blast hit-testing (sized by $: log width/thickness) */
+const TWP={x:0,y:0,w:0,th:0};
+function twPos(l,kx,ky){ const y=altToScreenY(l.alt), L=Math.log10(1+l.sizeUsd), w=clamp(24+L*26,28,150), th=clamp(1+L*1.1,1.5,6);
+  let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
+  TWP.x=x; TWP.y=y; TWP.w=w; TWP.th=th; return TWP; }
+function twKeep(){ const px=(S.camX!=null?S.camX:S.x); return [px+75*Math.sin(S.heading), ROCKET_Y-75*Math.cos(S.heading)]; }
 function drawTrampWalls(){ if(S.displayAlt==null) return; const list=twGroups(); const pv=window.__twPreview;
   if(pv) list.push({kind:pv.kind,alt:mcapToAlt(pv.mcap),mcap:pv.mcap,sizeUsd:pv.sizeUsd||0,mine:true,status:'active',ids:['__pv'],preview:true});
   if(!list.length) return;
   const px=(S.camX!=null?S.camX:S.x), kx=px+75*Math.sin(S.heading), ky=ROCKET_Y-75*Math.cos(S.heading);
   ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.ellipse(kx,ky,110,120,0,0,Math.PI*2); ctx.clip('evenodd');   // keep-out around rocket
-  for(const l of list){ const y=altToScreenY(l.alt); if(y<-30||y>H+30) continue;
-    const L=Math.log10(1+l.sizeUsd), w=clamp(24+L*26,28,150), th=clamp(1+L*1.1,1.5,6), tramp=l.kind==='tramp';
-    let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
+  for(const l of list){ twPos(l,kx,ky); const y=TWP.y; if(y<-30||y>H+30) continue;
+    const w=TWP.w, th=TWP.th, tramp=l.kind==='tramp', x=TWP.x;
+    const hit=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.hitT!=null&&S.t-f.hitT<a.t?{t:S.t-f.hitT,amp:f.hitAmp}:a; },{t:Infinity,amp:0});
     const age=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.t0!=null?Math.min(a,S.t-f.t0):a; },Infinity), fresh=age<1.5, done=!l.preview&&(l.status==='filled'||isFinite(age));
     const col= tramp?(l.mine?'255,215,110':'140,230,170'):(l.mine?'255,140,130':'205,190,185');
     ctx.globalAlpha= l.preview?0.5+0.3*Math.sin(S.t*8): done&&!fresh?0.3:0.85;
     ctx.strokeStyle=ctx.fillStyle=`rgba(${col},1)`; ctx.lineWidth=th;
     if(l.preview) ctx.setLineDash([5,4]);
-    if(tramp){ const sag=fresh?6*Math.exp(-age*3)*Math.cos(age*16):0;   // small trampoline: sprung arc + 2 legs; subtle bounce on fill
+    if(tramp){ const sag=(fresh?6*Math.exp(-age*3)*Math.cos(age*16):0) + (hit.t<1.2?hit.amp*7*Math.exp(-hit.t*4)*Math.cos(hit.t*22):0);   // blast shock flexes the bed   // small trampoline: sprung arc + 2 legs; subtle bounce on fill
       ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.quadraticCurveTo(x,y+th*1.4+3+sag,x+w/2,y);
       { const a0=ctx.globalAlpha; ctx.globalAlpha=a0*(l.mine?0.3:0.18); ctx.lineWidth=th+(l.mine?7:4); ctx.stroke(); ctx.globalAlpha=a0; ctx.lineWidth=th; } ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2+3,y+7); ctx.moveTo(x+w/2,y); ctx.lineTo(x+w/2-3,y+7); ctx.stroke();
     } else { // small stone wall: a dome-topped slab; subtle crack chips on fill
-      const hgt=th*1.8; ctx.globalAlpha*=0.8; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
+      const hgt=th*1.8; ctx.globalAlpha*=0.8; if(hit.t<0.25){ ctx.globalAlpha=Math.min(1,ctx.globalAlpha+0.6*(1-hit.t/0.25)); }   // brief hot flash where the shock struck ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
       if(fresh){ const u=age/1.5; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
     ctx.setLineDash([]); ctx.globalAlpha=done&&!fresh?0.45:0.9;
     ctx.font=(l.mine?'bold ':'')+'10px ui-monospace,monospace'; ctx.textAlign='left';
@@ -981,6 +987,51 @@ function bfxStep(dt){ const P=S.bfx;
       p.r+=((p.gr||0)*(1-u)*(1-u)+SMOKE_GROW)*dt; }
     else { const d=Math.exp(-dt*(p.drag||0)); p.vx*=d; p.vy*=d; p.vy+=(p.g||0)*dt; p.r+=(p.gr||0)*dt; }
     p.x+=p.vx*dt; p.y+=p.vy*dt; } }
+/* =====================================================================
+   SHOCKWAVES — every bomb launches an expanding front from its real blast point. Things react when the
+   front reaches them (d crosses r between steps), with falloff (1-d/R)²:
+     smoke/embers/exhaust: radial velocity kick (smoke also puffs up)
+     clouds: pushed/lofted and thinned (dissipate, then re-form)
+     tramps/walls: hit-tested against their $-sized box → bed flex / wall flash + chips
+     rocket: hit-tested against its capsule silhouette → small attitude wobble (spring), still clamped
+   ===================================================================== */
+const SHOCK={grenade:{v:520,R:140,amp:70}, bunker:{v:700,R:240,amp:150}, cruise:{v:900,R:440,amp:260}, nuke:{v:1150,R:720,amp:420}, atom:{v:1300,R:1150,amp:640}};
+const WOB_MAX=6, WOB_W=13, WOB_Z=0.32;   // deg, rad/s, damping ratio (underdamped → a couple of visible rocks)
+S.shocks=[]; S.wob=0; S.wobV=0;
+function addShock(x,y,k){ const T=SHOCK[k]; if(T) S.shocks.push({x,y,r:0,v:T.v,R:T.R,amp:T.amp}); }
+const fall=(d,R)=>{ if(d>=R) return 0; const u=1-d/R; return u*u; };
+function rocketCapsule(){ const h=S.heading, px=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, py=ROCKET_Y+(S.bob||0)*0.55, L=144;
+  RC.ax=px; RC.ay=py; RC.bx=px+Math.sin(h)*L; RC.by=py-Math.cos(h)*L; RC.r=18; return RC; }
+const RC={ax:0,ay:0,bx:0,by:0,r:0};
+function segDist(px,py,c){ const vx=c.bx-c.ax, vy=c.by-c.ay, t=clamp(((px-c.ax)*vx+(py-c.ay)*vy)/(vx*vx+vy*vy||1),0,1);
+  SD.t=t; SD.x=c.ax+vx*t; SD.y=c.ay+vy*t; return Math.hypot(px-SD.x,py-SD.y); }
+const SD={t:0,x:0,y:0};
+function kickPool(P,sx,sy,r0,r1,R,amp,mul){ for(let i=0;i<P.n;i++){ const p=P.a[i], dx=p.x-sx, dy=p.y-sy, d=Math.hypot(dx,dy)+1e-3;
+  if(d<=r0||d>r1) continue; const f=fall(d,R); if(!f) continue; const kv=amp*f*mul; p.vx+=dx/d*kv; p.vy+=dy/d*kv; if(p.k==='smoke') p.r+=8*f; } }
+function shockStep(dt){
+  if(!S.shocks.length){ wobStep(dt); return; }
+  let tw=null;
+  for (const sh of S.shocks){ const r0=sh.r; sh.r+=sh.v*dt; const r1=sh.r;
+    kickPool(S.bfx,sh.x,sh.y,r0,r1,sh.R,sh.amp,1.4); kickPool(S.particles,sh.x,sh.y,r0,r1,sh.R,sh.amp,0.6);
+    for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-sh.x, dy=CB.y+c.oy-sh.y, d=Math.hypot(dx,dy)+1; if(d<=r0-c.r*0.5||d>r1+c.r*0.5||c._sh===sh) continue;
+      const f=1/(1+(d/sh.R)*(d/sh.R)); c._sh=sh; c.vx+=dx/d*sh.amp*f*(0.6+c.spd); c.vy+=dy/d*sh.amp*f*(0.6+c.spd)-sh.amp*0.15*f; c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,sh.amp/500)); }
+    // rocket silhouette
+    const rc=rocketCapsule(), dr=Math.max(0,segDist(sh.x,sh.y,rc)-rc.r);
+    if ((dr>r0||r0===0) && dr<=r1){ const f=fall(dr,sh.R); if(f>0){
+      // torque: push the hit point away from the blast; lever = distance from the nozzle pivot along the body
+      const nx=rc.bx-rc.ax, ny=rc.by-rc.ay, L=Math.hypot(nx,ny)||1, px=SD.x-sh.x, py=SD.y-sh.y, pl=Math.hypot(px,py)||1;
+      const dAim=(-nx*(py/pl)+ny*(px/pl))/L;   // d(aim)/d(push) sign in screen coords (y down), deg-agnostic
+      const sg=Math.abs(dAim)>0.12?Math.sign(dAim):(sh.y>=SD.y?1:-1);   // along-axis hits still rock it (blast below → nose kicks up)
+      S.wobV+=sg*clamp(0.35*sh.amp*f*(0.5+0.5*Math.abs(dAim)),0,140); } }
+    // tramps & walls ($-sized boxes)
+    if (window.__trampWalls && window.__trampWalls.length){ if(!tw){ tw=twGroups(); } const [kx,ky]=twKeep();
+      for (const l of tw){ const g=twPos(l,kx,ky), hx=g.w/2, hy=g.th*2+4, ddx=Math.max(0,Math.abs(sh.x-g.x)-hx), ddy=Math.max(0,Math.abs(sh.y-(g.y-hy/2))-hy/2), d=Math.hypot(ddx,ddy);
+        if (d>r0 && d<=r1){ const f=fall(d,sh.R); if(f>0) for (const id of l.ids){ const st=TW_FX[id]||(TW_FX[id]={side:null,t0:null}); st.hitT=S.t; st.hitAmp=clamp(f*sh.amp/200,0.2,1);
+          if(l.kind!=='tramp') for(let i=0;i<Math.round(4+8*f);i++) spawnShard(g.x+(Math.random()-.5)*g.w, g.y-g.th, (Math.random()-.5)*220, -80-Math.random()*200, '#d8ccc6'); } } } }
+  }
+  keepIf(S.shocks,SHOCK_LIVE); wobStep(dt); }
+const SHOCK_LIVE=sh=>sh.r<sh.R;
+function wobStep(dt){ S.wobV+=(-WOB_W*WOB_W*S.wob-2*WOB_Z*WOB_W*S.wobV)*dt; S.wob=clamp(S.wob+S.wobV*dt,-WOB_MAX,WOB_MAX); if(Math.abs(S.wob)===WOB_MAX) S.wobV*=-0.3; }
 function bfxSpawn(k,x,y,vx,vy,r,gr,life,drag,c,a,g){ const p=S.bfx.spawn(); p.k=k; p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=p.r0=r; p.gr=gr; p.life=p.max=life; p.drag=drag; p.c=c; p.a=a; p.g=g||0; return p; }
 function launchBomb(pct,f){
   const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
@@ -1000,7 +1051,7 @@ function burst(x,y,n,spd,opt){ const fn=typeof opt==='function';
   for(let i=0;i<n;i++){ const a=Math.random()*6.2832, v=spd*(0.35+Math.random()*0.65), o=fn?opt(i,a):opt;
     bfxSpawn(o.k||'spark',x,y,o.vx!=null?o.vx:Math.cos(a)*v,o.vy!=null?o.vy:Math.sin(a)*v,o.r!=null?o.r:2,o.gr||0,o.life!=null?o.life:1,o.drag!=null?o.drag:2,o.c||'255,220,140',o.a!=null?o.a:1,o.g||0); } }
 function detonate(b){
-  const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age;
+  const x=b.x, y=bombY(b), k=b.T.k; b.y0=y; b.detAge=b.age; addShock(x,y,k);   // real blast point
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0});
   if (k==='grenade'){
@@ -1008,19 +1059,19 @@ function detonate(b){
     burst(x,y,8,60,{k:'smoke',r:7,gr:30,life:0.9,max:0.9,drag:2,c:'90,80,80',a:0.45});
   } else if (k==='bunker'){
     burst(x,y,22,360,(i,a)=>({k:'chunk',r:2.5+Math.random()*2.5,life:1.1,max:1.1,drag:1.2,g:520,vy:-Math.abs(Math.sin(a))*300-60,c:i%3?'120,95,70':'255,210,120'}));
-    burst(x,y,10,90,{k:'smoke',r:10,gr:40,life:1.4,max:1.4,drag:2,c:'70,60,58',a:0.5}); cloudBlast(x,y,90,160);
+    burst(x,y,10,90,{k:'smoke',r:10,gr:40,life:1.4,max:1.4,drag:2,c:'70,60,58',a:0.5});
     b.cracks=[...Array(7)].map((_,i)=>{ let px=0,py=0,pts=[[0,0]], a=Math.PI*(0.15+0.7*i/6)+(Math.random()-.5)*0.3, L=50+Math.random()*90;
       for(let s=0;s<6;s++){ a+=(Math.random()-.5)*0.7; px+=Math.cos(a)*L/6; py+=Math.abs(Math.sin(a))*L/6; pts.push([px,py]); } return pts; });
   } else if (k==='cruise'){ // mid-size blast = former daisy-cutter impact
     burst(x,y,40,520,{k:'ember',r:2.4,life:1.3,max:1.3,drag:1.6,g:160,c:'255,200,110'});
-    burst(x,y,14,140,{k:'smoke',r:18,gr:60,life:1.8,max:1.8,drag:1.8,c:'60,48,46',a:0.5}); cloudBlast(x,y,180,260);
+    burst(x,y,14,140,{k:'smoke',r:18,gr:60,life:1.8,max:1.8,drag:1.8,c:'60,48,46',a:0.5});
   } else if (k==='nuke'){
     burst(x,y,70,760,{k:'ember',r:2.8,life:1.7,max:1.7,drag:1.3,g:140,c:'255,215,130'});
     burst(x,y,22,220,{k:'smoke',r:26,gr:80,life:2.4,max:2.4,drag:1.5,c:'55,44,44',a:0.55});
-    S.screenFlash={t0:S.t,dur:0.45,a:0.55,c:'255,240,200'}; cloudBlast(x,y,320,420);
+    S.screenFlash={t0:S.t,dur:0.45,a:0.55,c:'255,240,200'};
   } else if (k==='atom'){
     burst(x,y,110,900,{k:'ember',r:3,life:2.2,max:2.2,drag:1.1,g:90,c:'255,225,150'});
-    S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'}; cloudBlast(x,y,600,700);
+    S.screenFlash={t0:S.t,dur:0.9,a:0.95,c:'255,255,250'};
     S.slowmoUntil=S.t+SLOWMO_S*SLOWMO_SCALE; S.scorch=1;
     b.puffs=[...Array(26)].map((_,i)=>({a:Math.random()*6.2832,r:Math.random(),s:0.6+Math.random()*0.6,ph:Math.random()*6}));
   }
@@ -1130,7 +1181,7 @@ function debugBomb(spec,opt){ opt=opt||{};
   noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }
 
 /*HEADING-BEGIN*/
-function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI,AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }
+function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI+(S.wob||0),AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }   // blast wobble ≤ ±6°, final angle still clamped
 /* Rocket heading physics (pure; unit-tested by web/scripts/test-heading.mjs).
    aim = degrees above horizontal with nose right: 0 = sideways cruise, 88 = near vertical.
    Clamped to [AIM_MIN, AIM_MAX]: never past vertical, never nose-down/backward, never flips.
@@ -1173,7 +1224,7 @@ const RAF=f=>{ if(!CAPTURE) requestAnimationFrame(f); };
    0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
    (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
 const SIM_DT=1/60, MAX_STEPS=5; let acc=0;
-const LERP_KEYS=['displayAlt','camAlt','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS'];
+const LERP_KEYS=['displayAlt','camAlt','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS','wob'];
 const PREV={}, CUR={};
 function frame(now){
   const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
@@ -1304,7 +1355,7 @@ function simStep(stepDt){
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
   if (!S.ach.koth){ let top=null, tv=-Infinity; for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top fueler on this coin'); }
-  cloudStep(dt);
+  cloudStep(dt); shockStep(dt);
   twStep(); exhaustStep(dt);
 }
 function render(dt){
