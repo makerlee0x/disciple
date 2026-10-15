@@ -281,3 +281,121 @@ export function holdBonus(uPnlUsd: number, heldHours: number, sellScale: number,
   const time = Math.max(0, Math.min(1, heldHours / HOLD_BONUS.rampHours));
   return 1 + pnlTerm * time * Math.max(0, Math.min(1, sellScale));
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Season ranks (profile framed border)                                */
+/* ------------------------------------------------------------------ */
+export type SeasonRankTier =
+  | "UNRANKED"
+  | "NOVICE"
+  | "ASCENDANT"
+  | "BLESSED"
+  | "ANOINTED"
+  | "GLORIFIED"
+  | "DIVINE";
+
+export const SEASON_RANKS: readonly {
+  tier: SeasonRankTier;
+  label: string;
+  minPoints: number;
+  border: string;
+}[] = [
+  { tier: "UNRANKED", label: "Unranked", minPoints: 0, border: "rgba(180,190,220,0.35)" },
+  { tier: "NOVICE", label: "Novice", minPoints: 100, border: "rgba(200,210,230,0.55)" },
+  { tier: "ASCENDANT", label: "Ascendant", minPoints: 500, border: "rgba(140,200,255,0.7)" },
+  { tier: "BLESSED", label: "Blessed", minPoints: 2_000, border: "#ffe7a3" },
+  { tier: "ANOINTED", label: "Anointed", minPoints: 8_000, border: "#c9b6f2" },
+  { tier: "GLORIFIED", label: "Glorified", minPoints: 25_000, border: "#ffd060" },
+  { tier: "DIVINE", label: "Divine", minPoints: 80_000, border: "#fff7df" },
+] as const;
+
+export function seasonRank(points: number) {
+  let best = SEASON_RANKS[0];
+  for (const r of SEASON_RANKS) if (points >= r.minPoints) best = r;
+  const idx = SEASON_RANKS.findIndex((r) => r.tier === best.tier);
+  const next = SEASON_RANKS[Math.min(idx + 1, SEASON_RANKS.length - 1)];
+  const span = Math.max(1, next.minPoints - best.minPoints);
+  const progress = best.tier === next.tier ? 1 : Math.min(1, (points - best.minPoints) / span);
+  return { ...best, next, progress, pointsToNext: Math.max(0, next.minPoints - points) };
+}
+
+/** Level from rHALO points (XP bar). */
+export function levelFromPoints(points: number): { level: number; xpInto: number; xpNeed: number; progress: number } {
+  let level = 1;
+  let spent = 0;
+  for (;;) {
+    const need = Math.floor(100 * Math.pow(level, 1.35));
+    if (spent + need > points) {
+      const xpInto = points - spent;
+      return { level, xpInto, xpNeed: need, progress: xpInto / need };
+    }
+    spent += need;
+    level += 1;
+    if (level > 500) return { level, xpInto: 0, xpNeed: need, progress: 1 };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Identity thresholds (CT-native playstyle labels)                    */
+/* ------------------------------------------------------------------ */
+export const IDENTITY_THRESHOLDS = {
+  believerHoldHours: 12,
+  believerDrawdownHold: 0.35,
+  trencherHoldMinutes: 8,
+  trencherMinTrades: 40,
+  sniperEntrySec: 120,
+  sniperBuyFraction: 0.35,
+  diamondDrawdown: 0.5,
+  paperHandsSellMinutes: 5,
+  paperHandsDip: 0.08,
+  exitLiqNearHigh: 0.05,
+  exitLiqDrawdown: 0.4,
+  exitLiqMinEvents: 3,
+  whaleSizePercentile: 0.99,
+  degenMinRockets: 15,
+  degenMinTrades: 60,
+  bagHolderUpnlLoss: 0.5,
+  bagHolderHoldHours: 24,
+  jeetPumpMultiple: 1.5,
+  jeetDumpMinutes: 10,
+  bomberMinBombs: 8,
+  nukerMinNukes: 2,
+  crewCaptainGradTop: 2,
+  gateKeeperAssists: 3,
+  launcherMinLaunches: 1,
+  launcherGraduated: 1,
+  kingmakerTierIndex: 6,
+  kingmakerCount: 2,
+  farmerMaxPnl: 50,
+  farmerMinPoints: 5_000,
+  smartMoneyRoiDecile: 0.9,
+  smartMoneyMinTrades: 10,
+  roundTripMultiple: 2,
+  ruggedMcapFraction: 0.05,
+} as const;
+
+/* ------------------------------------------------------------------ */
+/* Achievement rarity frames                                           */
+/* ------------------------------------------------------------------ */
+export type AchievementRarity = "COMMON" | "BLESSED" | "ANOINTED" | "GLORIFIED" | "DIVINE";
+
+export const ACHIEVEMENT_RARITY: Record<
+  AchievementRarity,
+  { label: string; border: string; glow: string }
+> = {
+  COMMON: { label: "Common", border: "rgba(180,190,220,0.45)", glow: "rgba(180,190,220,0.15)" },
+  BLESSED: { label: "Blessed", border: "#ffe7a3", glow: "rgba(255,231,163,0.35)" },
+  ANOINTED: { label: "Anointed", border: "#c9b6f2", glow: "rgba(201,182,242,0.4)" },
+  GLORIFIED: { label: "Glorified", border: "#ffd060", glow: "rgba(255,208,96,0.45)" },
+  DIVINE: { label: "Divine", border: "#fff7df", glow: "rgba(255,247,223,0.55)" },
+};
+
+export const SEASON_PASS = {
+  xpPerLevel: 1_000,
+  maxLevel: 50,
+  seasonName: "Season 1 — Ascension",
+} as const;
+
+/** Demo wallet treated as the signed-in pilot on sample screens. */
+export const DEMO_SELF_ADDRESS = "0xYouSelf0000000000000000000000Angel" as const;
