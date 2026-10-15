@@ -2,8 +2,9 @@
  * Token-icon decals on the chrome rocket (runtime canvas compositing).
  * Composite once into an offscreen canvas → zero per-frame cost.
  */
+import { IS_STATIC_PREVIEW, withBase } from "./base-path";
 
-export const BASE_ROCKET_SRC = "/assets/rocket.png"; // locked chrome sprite
+export const BASE_ROCKET_SRC = withBase("/assets/rocket.png"); // locked chrome sprite
 export const DECAL_SCALE = 4; // composite at 4× sprite resolution
 
 /** Roundel geometry as fractions of the sprite (tuned to /assets/rocket.png, 73×200). */
@@ -33,19 +34,39 @@ const isLocal = (u: string) =>
   u.startsWith("blob:") || u.startsWith("data:") || u.startsWith("/") ||
   (typeof location !== "undefined" && u.startsWith(location.origin));
 
+/** True when img pixels are readable (CORS actually granted). */
+function canvasSafe(img: CanvasImageSource): boolean {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    const g = c.getContext("2d")!;
+    g.drawImage(img, 0, 0, 1, 1);
+    g.getImageData(0, 0, 1, 1);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Load a token icon. Local/blob/data URLs load directly. Remote URLs go through
  * /api/img first (most token CDNs send no CORS headers, and a failed CORS load
  * logs a console error), then fall back to a direct crossOrigin=anonymous load.
  * Resolves null on failure/timeout → caller uses the halo emblem.
+ * Static preview: no proxy — remote CDNs are skipped (halo) to avoid CORS console noise
+ * and tainted-canvas crashes; local/public assets still load.
  */
 export async function loadIcon(url: string | undefined | null, timeoutMs = 4000): Promise<CanvasImageSource | null> {
   if (!url) return null;
+  if (!isLocal(url) && IS_STATIC_PREVIEW) return null; // no /api/img → halo emblem
   const tries = isLocal(url)
-    ? [() => loadImg(url, true, timeoutMs)]
-    : [() => loadImg("/api/img?url=" + encodeURIComponent(url), false, timeoutMs), () => loadImg(url, true, timeoutMs)];
+    ? [() => loadImg(url.startsWith("/") ? withBase(url) : url, true, timeoutMs)]
+    : [() => loadImg(withBase("/api/img?url=" + encodeURIComponent(url)), false, timeoutMs), () => loadImg(url, true, timeoutMs)];
   for (const t of tries) {
-    try { return await t(); } catch { /* next */ }
+    try {
+      const img = await t();
+      if (canvasSafe(img)) return img;
+    } catch { /* next */ }
   }
   return null;
 }

@@ -21,6 +21,8 @@ export interface LaunchCoinParams {
   description?: string;
   socials?: { twitter?: string; telegram?: string; website?: string };
   creatorBuyPct?: number; // max 0.77% of supply
+  /** USD per 1 full quote token (contract param quotePriceUsd, WAD). Required by Launchpad. */
+  quotePriceUsd?: number;
 }
 
 export interface LaunchCoinResult {
@@ -33,8 +35,11 @@ export interface TradeParams {
   token: Address;
   side: "buy" | "sell";
   amountIn: bigint;
+  /** 0 = derive from an off-chain quote + slippageBps. */
   minAmountOut: bigint;
+  /** unix seconds; 0 = now + 120s */
   deadline: number;
+  slippageBps?: number;
 }
 
 export interface TradeResult {
@@ -49,7 +54,13 @@ export interface CurveState {
   quote: Address;
   mcapUsd: number;
   priceUsd: number;
+  /** % of TOTAL supply sold (graduates at 72). */
   soldPct: number;
+  /** 0–100 progress toward the 72% graduation point. */
+  curveProgressPct: number;
+  nextTier: { name: string; mcapUsd: number } | null;
+  tokensSold: bigint;
+  creatorTaxBps: number;
   graduated: boolean;
   reserveQuote: bigint;
   reserveToken: bigint;
@@ -124,6 +135,7 @@ export interface CoinMetadata {
 }
 
 /* ---- Contract events (DISCIPLE FLOW) ---- */
+/** Launchpad.Launched */
 export interface LaunchEvent {
   type: "Launch";
   token: Address;
@@ -131,7 +143,25 @@ export interface LaunchEvent {
   creator: Address;
   quote: Address;
   creatorTaxBps: number;
-  metadataUri: string;
+  name: string;
+  ticker: string;
+  block: bigint;
+}
+/** Launchpad.LaunchTierContext */
+export interface LaunchTierContextEvent {
+  type: "LaunchTierContext";
+  token: Address;
+  startMcapUsd: number;
+  graduationMcapUsd: number;
+  totalSupply: bigint;
+  decimals: number;
+}
+/** Launchpad.CreatorTransferred */
+export interface CreatorTransferredEvent {
+  type: "CreatorTransferred";
+  token: Address;
+  previousCreator: Address;
+  newCreator: Address;
 }
 export interface TradeEvent {
   type: "Trade";
@@ -140,15 +170,23 @@ export interface TradeEvent {
   side: "buy" | "sell";
   amountIn: bigint;
   amountOut: bigint;
-  /** Price impact (bps) emitted by the contract — drives bomb tiers. */
-  impactBps: number;
+  /** USD notional (quote × quotePriceUsd at launch). */
+  usd: number;
+  /**
+   * Price impact %. GAP: BondingCurve Buy/Sell events carry no impact field, so this is
+   * computed client-side from tokensSold before/after via CurveMath. Drives bomb tiers.
+   */
+  impactPct: number;
+  mcapUsd: number;
+  txHash: string;
+  block: bigint;
 }
 export interface GraduateEvent {
   type: "Graduate";
   token: Address;
-  pool: Address; // Uniswap v4 pool id/address
+  poolId: `0x${string}`; // BondingCurve.GraduatedToV4 poolId
 }
-export type ProtocolEvent = LaunchEvent | TradeEvent | GraduateEvent;
+export type ProtocolEvent = LaunchEvent | LaunchTierContextEvent | CreatorTransferredEvent | TradeEvent | GraduateEvent;
 
 /**
  * Fees: the Uniswap v4 pool itself has fee = 0; the 1% trade fee (CURVE.tradeFeeBps)

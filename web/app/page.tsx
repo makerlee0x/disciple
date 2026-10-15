@@ -15,6 +15,9 @@ import {
 import VerifiedBadge from "@/components/VerifiedBadge";
 import BrandedRocket from "@/components/BrandedRocket";
 import { brandedRocket } from "@/lib/decal";
+import { isDeployed } from "@/lib/chains";
+import { watchLaunchpad } from "@/lib/events";
+import { withBase } from "@/lib/base-path";
 
 /** Rocket card model. `tk` = call sign (never a pair string). Stats are MOCK. */
 type Rocket = {
@@ -48,7 +51,7 @@ const SAMPLE: Rocket[] = [
     id: "sample-halo",
     name: "Halo Dog",
     tk: "HALO",
-    icon: "/test-icons/wide.png",
+    icon: withBase("/test-icons/wide.png"),
     mcap: 9.2e3,
     chg: -6.1,
     c: "#ffd0e0",
@@ -58,7 +61,7 @@ const SAMPLE: Rocket[] = [
     id: "sample-limbo",
     name: "Limbo Cat",
     tk: "LIMBO",
-    icon: "/test-icons/transparent.png",
+    icon: withBase("/test-icons/transparent.png"),
     mcap: 14.8e3,
     chg: -12.7,
     c: "#e3d6ff",
@@ -68,7 +71,7 @@ const SAMPLE: Rocket[] = [
     id: "sample-choir",
     name: "Choir of Frogs",
     tk: "CHOIR",
-    icon: "/assets/tier4.png",
+    icon: withBase("/assets/tier4.png"),
     mcap: 21.4e3,
     chg: 42.0,
     c: "#c9f5df",
@@ -127,12 +130,24 @@ export default function HomePage() {
 
   // Pad rocket carries the default halo emblem until a card is picked.
   useEffect(() => {
-    brandedRocket(null).then(({ canvas }) => setPadDecal((d) => d ?? canvas.toDataURL()));
+    brandedRocket(null).then(({ canvas }) => { try { setPadDecal((d) => d ?? canvas.toDataURL()); } catch { /* tainted */ } });
   }, []);
 
   useEffect(() => {
     document.body.classList.add("home");
     return () => document.body.classList.remove("home");
+  }, []);
+
+  // DISCIPLE launches → new rocket cards (no-op until contracts deploy)
+  useEffect(() => {
+    if (!isDeployed()) return;
+    return watchLaunchpad((e) => {
+      if (e.type !== "Launch") return;
+      setCoins((cs) => cs.some((c) => c.id === e.token) ? cs : [...cs, {
+        id: e.token, name: e.name, tk: e.ticker, live: true, mcap: CURVE.startMcap, chg: null, c: "#fff1c2",
+        stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
+      }]);
+    });
   }, []);
 
   // Live AI/WETH mcap from RPC slot0
@@ -157,7 +172,7 @@ export default function HomePage() {
         let ethUsd = 2400;
         let supply = 1e9;
         try {
-          const rep = await fetch("/replay.json");
+          const rep = await fetch(withBase("/replay.json"));
           const R = await rep.json();
           ethUsd = R.ethUsd || ethUsd;
           supply = R.totalSupply || supply;
@@ -168,7 +183,7 @@ export default function HomePage() {
         ai.mcap = priceUsd * supply;
       } catch {
         try {
-          const rep = await fetch("/replay.json");
+          const rep = await fetch(withBase("/replay.json"));
           const R = await rep.json();
           const sw = R.swaps || [];
           const last = sw[sw.length - 1];
@@ -189,7 +204,7 @@ export default function HomePage() {
         /* ignore */
       }
       next[0] = ai;
-      if (alive) setCoins(next);
+      if (alive) setCoins((cs) => [next[0], ...cs.slice(1)]);
     }
     live();
     const iv = setInterval(live, 15000);
@@ -322,7 +337,7 @@ export default function HomePage() {
       if (launchT.current >= 0) return;
       launchT.current = performance.now();
       // Fetch + composite decal in parallel with ignition; never blocks the launch.
-      brandedRocket(c.icon, 1800).then(({ canvas }) => setPadDecal(canvas.toDataURL()));
+      brandedRocket(c.icon, 1800).then(({ canvas }) => { try { setPadDecal(canvas.toDataURL()); } catch { /* tainted → keep prior */ } });
       setLaunching(true);
       setLpStatus(
         c.live
@@ -357,7 +372,7 @@ export default function HomePage() {
           minHeight: 360,
           overflow: "hidden",
           background:
-            "#0b0f22 url(/assets/tier0.png) center 70% / cover no-repeat",
+            `#0b0f22 url(${withBase("/assets/tier0.png")}) center 70% / cover no-repeat`,
         }}
       >
         <div
@@ -426,7 +441,7 @@ export default function HomePage() {
         <img
           ref={rocketRef}
           id="rocket"
-          src="/assets/rocket.png"
+          src={withBase("/assets/rocket.png")}
           alt="rocket on the launch pad"
           style={{
             position: "absolute",

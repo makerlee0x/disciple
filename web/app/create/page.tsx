@@ -6,6 +6,9 @@ import { contrastWarning, loadIcon } from "@/lib/decal";
 import { precheck } from "@/lib/moderation-client";
 import RocketStudio from "@/components/RocketStudio";
 import { DEFAULT_QUOTE, protocolStub, type Address } from "@/lib/protocol";
+import { isDeployed } from "@/lib/chains";
+import { createViemProtocol } from "@/lib/protocol-viem";
+import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(255,231,163,.35)] bg-[rgba(8,10,28,.8)] px-3 py-2 text-[#eef0ff] outline-none focus:border-[rgba(255,231,163,.7)]";
@@ -46,6 +49,14 @@ export default function LaunchRocketPage() {
     try {
       const pre = await precheck(img);
       if (pre.verdict === "block") return setMod({ state: "block" });
+      // Static preview: no /api/moderate-image — browser nsfwjs is authoritative.
+      if (IS_STATIC_PREVIEW) {
+        setIconSrc(img);
+        setContrast(contrastWarning(img));
+        if (pre.verdict === "allow") setMod({ state: "allow", uri: url, note: "Static preview · client-only check" });
+        else setMod({ state: pre.verdict, note: "Static preview · client-only check" });
+        return;
+      }
     } catch { /* model failed to load → rely on server */ }
     setIconSrc(img);
     setContrast(contrastWarning(img));
@@ -97,15 +108,18 @@ export default function LaunchRocketPage() {
       return;
     }
     try {
-      await protocolStub.launchCoin({
+      const client = isDeployed() ? createViemProtocol() : protocolStub;
+      const res = await client.launchCoin({
         name: name.trim(),
         ticker: callSign.trim().toUpperCase(),
         imageUri: mod.uri, // moderated URI only — contracts store this metadata URI
         quoteToken: quote,
         creatorTaxPct: effTax,
+        quotePriceUsd: undefined, // TODO: quote USD price source (Launchpad has no oracle)
       });
+      setMsg(`🚀 Launched! Rocket ${res.token}`);
     } catch (err) {
-      setMsg("TODO: wire to contracts (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));
+      setMsg(isDeployed() ? String((err as Error).message) : "Contracts not deployed yet (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));
     }
   }
 
