@@ -1,0 +1,15 @@
+{
+  "name": "disciple",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DISCIPLE — launchpad + rocket flight game on Robinhood Chain",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "start": "pnpm --filter web start"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

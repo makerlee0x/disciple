@@ -1,0 +1,363 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #05060c;
+  --foreground: #eef0ff;
+  --ap-side-w: 270px;
+  --ap-rail-w: 64px;
+  --ap-gold: #ffe7a3;
+  --ap-gold-hot: #fff7df;
+  --ap-ink: #0a0c1a;
+  --ap-muted: rgba(220, 228, 255, 0.62);
+  --ap-lavender: #c9b6f2;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body.game {
+  overflow: hidden;
+  height: 100%;
+}
+
+/* —— Sidebar —— */
+#apSide {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  width: var(--ap-side-w);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 16px 16px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #12152a 0%, #0a0c18 55%, #080a14 100%);
+  border-right: 1px solid rgba(255, 231, 163, 0.18);
+  border-radius: 0 0 0 28px;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45), 0 0 40px rgba(255, 220, 150, 0.06);
+  color: #eef0ff;
+  font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  transition: width 0.22s ease, padding 0.22s ease, transform 0.22s ease;
+  overflow: hidden;
+}
+#apSide.collapsed {
+  width: var(--ap-rail-w);
+  padding: 14px 10px 12px;
+}
+#apSide .ap-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 18px;
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+#apSide .ap-logo {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff7df, #d4a84b 55%, #8a6a20);
+  box-shadow: 0 0 16px rgba(255, 220, 150, 0.55), inset 0 0 8px rgba(255, 255, 255, 0.35);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+#apSide .ap-logo svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+#apSide .ap-name {
+  font: bold 18px Georgia, serif;
+  letter-spacing: 0.06em;
+  color: var(--ap-gold-hot);
+  text-shadow: 0 0 14px rgba(255, 220, 150, 0.7);
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+#apSide.collapsed .ap-name {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+}
+#apSide .ap-tog {
+  all: unset;
+  cursor: pointer;
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--ap-gold);
+  font-size: 18px;
+  border: 1px solid transparent;
+}
+#apSide .ap-tog:hover {
+  background: rgba(255, 231, 163, 0.12);
+  border-color: rgba(255, 231, 163, 0.35);
+}
+#apSide.collapsed .ap-brand {
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+#apSide.collapsed .ap-tog {
+  margin-left: 0;
+}
+#apSide .ap-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 0 0 8px;
+}
+#apSide .ap-nav button,
+#apSide .ap-nav a,
+#apSide .ap-foot button,
+#apSide .ap-foot a {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: var(--ap-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+  text-decoration: none;
+}
+#apSide .ap-nav button:hover,
+#apSide .ap-nav a:hover,
+#apSide .ap-foot button:hover,
+#apSide .ap-foot a:hover {
+  background: rgba(255, 231, 163, 0.1);
+  color: var(--ap-gold-hot);
+}
+#apSide .ap-nav a.on,
+#apSide .ap-nav button.on,
+#apSide .ap-foot a.on,
+#apSide .ap-foot button.on {
+  color: var(--ap-gold);
+  background: rgba(255, 231, 163, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 231, 163, 0.35);
+  text-shadow: 0 0 10px rgba(255, 220, 150, 0.45);
+}
+#apSide .ic {
+  width: 24px;
+  flex: 0 0 24px;
+  text-align: center;
+  line-height: 1;
+  color: inherit;
+  display: grid;
+  place-items: center;
+}
+#apSide .lb {
+  opacity: 1;
+  transition: opacity 0.15s;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+#apSide.collapsed .lb {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  padding: 0;
+}
+#apSide.collapsed .ap-nav button,
+#apSide.collapsed .ap-nav a,
+#apSide.collapsed .ap-foot button,
+#apSide.collapsed .ap-foot a {
+  justify-content: center;
+  padding: 0;
+  gap: 0;
+  width: 44px;
+  margin: 0 auto;
+}
+#apSide .ap-promo {
+  margin: 12px 0 auto;
+  padding: 16px 14px 14px;
+  border-radius: 18px;
+  background: linear-gradient(
+    165deg,
+    rgba(180, 150, 240, 0.28),
+    rgba(255, 220, 150, 0.12) 45%,
+    rgba(40, 28, 70, 0.55)
+  );
+  border: 1px solid rgba(201, 182, 242, 0.35);
+  box-shadow: inset 0 0 24px rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  transition: opacity 0.18s, max-height 0.22s, margin 0.22s, padding 0.22s;
+  overflow: hidden;
+}
+#apSide .ap-promo h3 {
+  margin: 0;
+  font: bold 14px/1.35 Georgia, serif;
+  color: var(--ap-gold-hot);
+  text-shadow: 0 0 10px rgba(255, 220, 150, 0.4);
+}
+#apSide .ap-promo p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: rgba(230, 228, 255, 0.72);
+}
+#apSide .ap-promo .ap-cta {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  margin-top: 6px;
+  padding: 10px 18px;
+  width: 100%;
+  text-align: center;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #2a2440, #16122a);
+  color: #fff;
+  font: bold 12px ui-sans-serif, system-ui, sans-serif;
+  border: 1px solid rgba(255, 231, 163, 0.35);
+  box-shadow: 0 0 16px rgba(255, 220, 150, 0.12);
+  text-decoration: none;
+}
+#apSide .ap-promo .ap-cta:hover {
+  background: linear-gradient(180deg, #3a3258, #1e1838);
+  color: var(--ap-gold-hot);
+}
+#apSide.collapsed .ap-promo {
+  opacity: 0;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+}
+#apSide .ap-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 231, 163, 0.15);
+}
+#apSide.collapsed .ap-foot {
+  border-top-color: transparent;
+  padding-top: 6px;
+}
+#apReopen {
+  display: none;
+  position: fixed;
+  left: 10px;
+  top: 12px;
+  z-index: 31;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 231, 163, 0.45);
+  background: rgba(10, 12, 28, 0.85);
+  color: var(--ap-gold);
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 0 16px rgba(255, 220, 150, 0.2);
+}
+body.side-hidden #apReopen {
+  display: grid;
+}
+@media (max-width: 760px) {
+  #apSide.collapsed {
+    width: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    transform: translateX(-100%);
+  }
+}
+
+/* Main content offset */
+.main-offset {
+  transition: padding-left 0.22s;
+  padding-left: calc(var(--ap-rail-w) + 28px);
+}
+body.side-open .main-offset {
+  padding-left: calc(var(--ap-side-w) + 28px);
+}
+@media (max-width: 760px) {
+  .main-offset,
+  body.side-open .main-offset {
+    padding-left: 24px;
+  }
+}
+
+/* Placeholder page shell */
+.page-shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+.page-shell h1 {
+  font: bold 28px Georgia, serif;
+  color: #fff7df;
+  text-shadow: 0 0 18px rgba(255, 220, 150, 0.6);
+  margin: 0 0 6px;
+}
+.page-shell .sub {
+  color: #ffe7a3;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin-bottom: 20px;
+}
+.page-shell .card {
+  background: radial-gradient(
+    120% 80% at 50% 0%,
+    rgba(255, 244, 214, 0.12),
+    rgba(14, 16, 40, 0.94) 60%
+  );
+  border: 1px solid rgba(255, 231, 163, 0.35);
+  border-radius: 18px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+.page-shell .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px dashed rgba(255, 231, 163, 0.18);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+}
+.page-shell .note {
+  opacity: 0.65;
+  font-size: 12px;
+  margin-top: 10px;
+}
+.page-shell .tag {
+  display: inline-block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(220, 228, 255, 0.7);
+  margin-bottom: 8px;
+}
+.page-shell .tag.mock {
+  background: rgba(255, 180, 100, 0.18);
+  color: #ffd0a0;
+}
