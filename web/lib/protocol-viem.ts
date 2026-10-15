@@ -8,8 +8,8 @@
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, http, maxUint256, type PublicClient,
 } from "viem";
-import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
-import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
+import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { CURVE, TIERS } from "./config";
 import { applySlippage, type CurveParams } from "./curveMath";
 import type {
@@ -64,6 +64,20 @@ export function publicClient(): PublicClient {
 
 /* ---------------- reads ---------------- */
 
+/**
+ * Live market for a coin. Curve mcapNow()/priceNow() and Trade.mcapAfterUsd FREEZE after graduation (FLOW bug,
+ * fixed on-chain later), so graduated coins read MarketLens.market(token) (v4 slot0 × live QuotePricer).
+ * Returns null when no lens is configured or the call fails (callers fall back to the curve).
+ */
+export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; graduated: boolean } | null> {
+  if (!hasLens()) return null;
+  try {
+    const [priceWad, mcap, graduated] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token] });
+    return { priceWad, mcapUsd: wadToNum(mcap), graduated };
+  } catch { return null; }
+}
+
+
 const paramsCache = new Map<string, CurveParams>();
 export async function curveParams(pc: PublicClient, curve: Address): Promise<CurveParams> {
   const hit = paramsCache.get(curve);
@@ -117,13 +131,14 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
     pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }),
   ]);
   const quoteDecimals = await decimalsOf(pc, quote);
-  const mcapUsd = wadToNum(mcapWad);
+  const live = graduated ? await readMarket(pc, token) : null;
+  const mcapUsd = live ? live.mcapUsd : wadToNum(mcapWad);
   const soldPct = (Number(tokensSold) / Number(p.totalSupply)) * 100;
   const progressBps = Number(progress);
   return {
     token, quote, mcapUsd,
     // spot = quote raw * 1e18 / token raw; quotePriceUsd = USD WAD per 1e18 quote raw ⇒ decimal-agnostic
-    priceUsd: wadToNum(spotWad) * wadToNum(quotePriceUsd),
+    priceUsd: live ? mcapUsd / (Number(p.totalSupply) / 1e18) : wadToNum(spotWad) * wadToNum(quotePriceUsd),
     soldPct,
     curveProgressPct: graduated ? 100 : progressBps / 100,
     progressBps: graduated ? 10000 : progressBps,
@@ -154,7 +169,10 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
       address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn],
     });
     const bps = Number(impactBps) * (side === "buy" ? 1 : -1); // impactBps is unsigned; sign from side
-    return { ...base, amountOut, fee: B(0), impactBps: bps, impactPct: bps / 100, mcapAfterUsd: wadToNum(mcapAfterUsd), venue: "router" };
+    // Router's mcapAfterUsd is frozen post-grad: recompute from the live lens mcap and the on-chain impact.
+    const live = await readMarket(pc, token);
+    const mcapAfter = live ? live.mcapUsd * (1 + bps / 10000) : wadToNum(mcapAfterUsd);
+    return { ...base, amountOut, fee: B(0), impactBps: bps, impactPct: bps / 100, mcapAfterUsd: mcapAfter, venue: "router" };
   }
 
   if (side === "buy") {
@@ -191,6 +209,8 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
   ]);
   const usdMicro = B(Math.max(1, Math.round(usd * 1e6)));
   if (side === "buy") return (usdMicro * B(1e18) * B(1e18)) / (qp * B(1e6));
+  const live = await readMarket(pc, token);
+  if (live?.graduated && live.mcapUsd > 0) return (usdMicro * p.totalSupply) / B(Math.round(live.mcapUsd * 1e6)); // tokens = usd / mcap × supply
   return mcapWad > B(0) ? (usdMicro * B(1e12) * p.totalSupply) / mcapWad : B(0);
 }
 

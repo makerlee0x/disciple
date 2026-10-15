@@ -6,3 +6,4 @@ export { discipleRouterAbi } from "./DiscipleRouter";
 export { trampWallManagerAbi } from "./TrampWallManager";
 export { tokenAbi } from "./Token";
 export { feeRouterAbi } from "./FeeRouter";
+export { marketLensAbi } from "./MarketLens";
