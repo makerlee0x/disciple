@@ -76,6 +76,23 @@ for (const v of [NaN, Infinity, -Infinity, undefined]) { const a = aimFromMotion
 for (const big of [0.05, 0.25, 1]) { const st = fresh();
   const h = stepHeading(st, 400, 0, big), h2 = stepHeading(st, -400, 0, big);
   if (h < AIM_MIN || h > AIM_MAX || h2 < AIM_MIN || h2 > AIM_MAX || h - AIM_REST > 110 * big + 1e-6) bad(`bigDt=${big} h=${h} h2=${h2}`); }
+// ---- hold-to-steer (STEER block): holding D 1.5 s reaches within 5% of the right edge; A the left; tilt stays narrow ----
+{ const sc = src.slice(src.indexOf("/*STEER-BEGIN*/"), src.indexOf("/*STEER-END*/"));
+  const { stepSteer, STEER_VMAX } = new Function(sc + "return {stepSteer,STEER_VMAX};")();
+  for (const W of [800, 1440, 2560]) {   // engine sim is a fixed 60 Hz step
+    const hold = (dir, secs, st) => { let t = 0, tilt = 0, hst = fresh(); while (t < secs - 1e-9) { stepSteer(st, dir, SIM_DT, W); const lat = st.vx / (STEER_VMAX * W);
+      tilt = Math.max(tilt, Math.abs(th(stepHeading(hst, aimFromMotion(0, lat, 0, V0, hst), 0, SIM_DT)))); t += SIM_DT; } return tilt; };
+    const st = { x: W / 2, vx: 0 }; const tl = hold(1, 1.5, st), xR = st.x;
+    if (!(st.x >= W * 0.95)) bad(`hold D 1.5 s W=${W}: x=${st.x.toFixed(0)} (< 95%)`);
+    if (tl > 12) bad(`steer tilt ${tl.toFixed(1)}° > 12°`);
+    let tcross = 0; const s2 = { x: W - 1, vx: 0 }; while (s2.x > W * 0.06 && tcross < 3) { stepSteer(s2, -1, SIM_DT, W); tcross += SIM_DT; }
+    if (!(tcross >= 0.8 && tcross <= 1.2)) bad(`full-width crossing ${tcross.toFixed(2)} s not in 0.8–1.2 s (W=${W})`);
+    hold(-1, 1.5, st); if (!(st.x <= W * 0.05)) bad(`hold A: x=${st.x.toFixed(0)}`);
+    const s3 = { x: W / 2, vx: 0 }; hold(1, 0.4, s3); const xr = s3.x; hold(0, 1.5, s3);
+    if (Math.abs(s3.vx) > 2 || s3.x < xr) bad(`release should ease to a stop (vx=${s3.vx})`);
+    if (W === 1440) rows.push(`steer W=1440: hold D 1.5 s → x=${(xR / W * 100).toFixed(1)}% of width, hold A → ${(st.x / W * 100).toFixed(1)}%, crossing ${tcross.toFixed(2)} s, max tilt ${tl.toFixed(1)}°`);
+  }
+  for (const v of [NaN, Infinity]) { const s = { x: v, vx: v }; stepSteer(s, v, SIM_DT, 1000); if (!Number.isFinite(s.x)) bad("steer garbage"); } }
 console.log(rows.join("\n"));
 console.log(`replay θ range [${lo.toFixed(1)}, ${hi.toFixed(1)}]° from up (left −, right +), max Δ/step ${maxD.toFixed(2)}°, bottom crossings ${crossings}`);
 if (fail) { console.error(`${fail} violations`); process.exit(1); } else console.log("PASS");

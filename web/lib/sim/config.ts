@@ -80,27 +80,40 @@ export interface Difficulty {
   maxBots: number;
   /** per-run "hype" (log-σ on arrivals and bot cash): how much attention this launch gets — the source of run-to-run variance */
   hypeSigma: number;
+  /** launch bots (non-sniper) make their first decision uniformly inside this window, s (default [0.5, 8]) */
+  startS?: [number, number];
+  /** multiplier on every bot's buy / sell fraction (more frequent, smaller trades; default 1) */
+  tradeScale?: number;
+  /** per decision: a holder in profit (> +4%) trims a slice — steady profit-taking red candles (default 0) */
+  takeProfit?: number;
+  /** pullback waves: every everyS a wave of profit-taking lasts durS; holders sell with sellBoost odds per
+   *  decision, buys are scaled by buyCut. Dip buyers then recover it (healthy chart: −10–30%, then higher). */
+  waves?: { everyS: [number, number]; durS: [number, number]; sellBoost: number; buyCut: number };
 }
 export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   pve: {
     label: "PvE", tag: "CREW", color: "#8ff0c0",
     blurb: "Your crew helps the rocket climb. Bots buy dips at support and take modest profits at resistance. Low volatility, steady growth, an occasional small sell.",
-    initial: { crew: 6, diamond: 2 }, arrivalsPerMin: 7, mix: { crew: 0.62, diamond: 0.25, paperhand: 0.08, scalper: 0.05 },
-    activity: 0.9, size: 1.3, maxBots: 90, hypeSigma: 0.12,
+    initial: { crew: 20, diamond: 5, scalper: 4, paperhand: 3 }, arrivalsPerMin: 10, mix: { crew: 0.55, diamond: 0.2, paperhand: 0.13, scalper: 0.12 },
+    activity: 5.5, size: 1.9, maxBots: 90, hypeSigma: 0.12,
+    startS: [0.3, 1.4], tradeScale: 0.25, takeProfit: 0.055,
+    waves: { everyS: [12, 28], durS: [4, 9], sellBoost: 0.42, buyCut: 0.1 },
   },
   pvp: {
     label: "PvP", tag: "DOG EAT DOG", color: "#ffd24a",
     blurb: "Pump-and-dump traders maximise their own PnL: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high mcap is still possible.",
-    initial: { momentum: 3, scalper: 3, paperhand: 2, whale: 1, crew: 2 }, arrivalsPerMin: 6,
+    initial: { momentum: 5, scalper: 5, paperhand: 4, whale: 1, crew: 3 }, arrivalsPerMin: 6,
     mix: { momentum: 0.26, scalper: 0.22, paperhand: 0.2, whale: 0.07, diamond: 0.13, crew: 0.12 },
-    activity: 1.2, size: 0.8, maxBots: 100, hypeSigma: 0.7,
+    activity: 2.4, size: 0.8, maxBots: 100, hypeSigma: 0.7,
+    startS: [0.3, 1.5], tradeScale: 0.55, takeProfit: 0.06,
   },
   trench: {
     label: "TRENCH WARFARE", tag: "MERCENARY", color: "#ff6b7d",
     blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: altitude is possible, but hard.",
     initial: { sniper: 4, bundler: 6, rugger: 1, cto: 1, momentum: 2, scalper: 2, paperhand: 3, whale: 1 }, arrivalsPerMin: 4,
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
-    activity: 1.5, size: 0.55, maxBots: 100, hypeSigma: 0.7,
+    activity: 2.4, size: 0.55, maxBots: 100, hypeSigma: 0.7,
+    startS: [0.3, 1.5], tradeScale: 0.65, takeProfit: 0.05,
     rug: { chance: 0.85, earliestS: 40, latestS: 300, minMcap: 2.2, ctoChance: 0.6, ctoDelayS: [20, 70], ctoArrivalBoost: 2.5 },
   },
 };
