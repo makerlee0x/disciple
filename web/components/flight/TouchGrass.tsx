@@ -13,6 +13,7 @@ const typing = (t: EventTarget | null) => { const e = t as HTMLElement | null; r
 export default function TouchGrass() {
   const [on, setOn] = useState(false);
   const [hint, setHint] = useState(false);
+  const [cine, setCine] = useState(false);   // cinematic camera (experimental): ?cinecam=1 or the 🎥 button, remembered
   const onRef = useRef(on); onRef.current = on;
 
   useEffect(() => {
@@ -20,15 +21,17 @@ export default function TouchGrass() {
     let init = false; try { init = localStorage.getItem(KEY) === "1"; } catch { /* */ }
     if (q === "1") init = true; else if (q === "0") init = false;
     setOn(init);
+    const c = new URLSearchParams(location.search).get("cinecam"); let ci = false; try { ci = localStorage.getItem(KEY + ".cine") === "1"; } catch { /* */ }
+    setCine(c === "1" ? true : c === "0" ? false : ci);
   }, []);
   useEffect(() => {
-    const push = () => dispatchEvent(new CustomEvent("disciple:grass", { detail: { on } }));
-    push(); try { localStorage.setItem(KEY, on ? "1" : "0"); } catch { /* */ }
+    const push = () => dispatchEvent(new CustomEvent("disciple:grass", { detail: { on, cine } }));
+    push(); try { localStorage.setItem(KEY, on ? "1" : "0"); localStorage.setItem(KEY + ".cine", cine ? "1" : "0"); } catch { /* */ }
     document.documentElement.classList.toggle("ap-grass", on);
     const t = setTimeout(() => dispatchEvent(new Event("resize")), 30);   // canvas goes full-bleed (rail hidden)
     addEventListener("disciple:ammo", push);   // engine (re)booted after us → resend
     return () => { clearTimeout(t); removeEventListener("disciple:ammo", push); };
-  }, [on]);
+  }, [on, cine]);
   useEffect(() => () => document.documentElement.classList.remove("ap-grass"), []);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -50,14 +53,22 @@ export default function TouchGrass() {
 
   return (
     <>
-      {on && <button type="button" className="ap-grass-ui" data-testid="grass-exit" aria-label="Exit Touch Grass" title="Exit Touch Grass (G / Esc)" onClick={() => setOn(false)}
-        style={{ position: "fixed", right: 16, bottom: 16, zIndex: 80, cursor: "pointer", width: 34, height: 34, borderRadius: "50%", border: "1px solid rgba(255,255,255,.18)",
-          background: "rgba(0,0,0,.18)", color: "rgba(255,255,255,.75)", fontSize: 14, opacity: hint ? 0.55 : 0, transition: "opacity .6s", pointerEvents: hint ? "auto" : "none" }}>🌿</button>}
+      {on && <div className="ap-grass-ui ap-grass-tl" data-hint={hint ? "1" : "0"} style={{ position: "fixed", left: 16, top: 16, zIndex: 80, display: "flex", gap: 8 }}>
+        <button type="button" data-testid="grass-exit" aria-label="Exit Touch Grass" title="Exit Touch Grass (G / Esc)" onClick={() => setOn(false)}>✕</button>
+        <button type="button" data-testid="grass-cine" aria-pressed={cine} aria-label="Cinematic camera" title={`Cinematic camera: ${cine ? "on" : "off"} (experimental)`}
+          onClick={() => setCine((v) => !v)} style={{ fontSize: 12 }}>{cine ? "🎥" : "📷"}</button>
+      </div>}
       <style>{`
         html.ap-grass body { visibility: hidden; }
         html.ap-grass .flight-wrap, html.ap-grass .flight-wrap *, html.ap-grass .ap-grass-ui { visibility: visible; }
         html.ap-grass .flight-wrap { left: 0 !important; z-index: 70 !important; }
         html.ap-grass .flight-wrap * { cursor: ${hint ? "default" : "none"}; }
+        .ap-grass-tl button { all: unset; box-sizing: border-box; cursor: pointer; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%;
+          font: 14px system-ui, sans-serif; color: #fff; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.25);
+          opacity: .14; transition: opacity .5s, background .3s; }
+        .ap-grass-tl[data-hint="1"] button { opacity: .5; }
+        .ap-grass-tl button:hover, .ap-grass-tl button:focus-visible { opacity: 1; background: rgba(0,0,0,.45); }
+        .ap-grass-tl button:focus-visible { outline: 2px solid #c8ffd8; outline-offset: 2px; }
         html.ap-grass body { cursor: ${hint ? "default" : "none"}; }
       `}</style>
     </>

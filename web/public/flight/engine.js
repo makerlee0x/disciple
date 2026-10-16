@@ -1662,9 +1662,14 @@ function simStep(stepDt){
   if (S.camX==null) S.camX=S.x;
   stepCamera(S, S.displayAlt*PX_PER_ALT, dt);
   S.camAlt=S.camPx/PX_PER_ALT;
-  { const e=S.x-S.camX, w=8; S.camXV=(S.camXV||0)+(w*w*e-2*w*(S.camXV||0))*dt; S.camX+=S.camXV*dt; }
+  /* CINEMATIC CAMERA (Touch Grass + cine flag only): a second, much slower critically-damped follow on top of the
+     normal camera (~1.6 s settle vs ~0.4 s), softer lateral follow, the anchor a little higher (more sky under the
+     rocket) and a slow sub-pixel drift so the frame breathes. Off ⇒ the exact normal camera. */
+  if (S.cine){ if(S.cinePx==null){ S.cinePx=S.camPx; S.cineV=0; } const w=2.4, e=S.camPx-S.cinePx; S.cineV+=(w*w*e-2*w*S.cineV)*dt; S.cinePx+=S.cineV*dt;
+    S.camAlt=(S.cinePx+Math.sin(S.t*0.21)*10+Math.sin(S.t*0.083)*16)/PX_PER_ALT; } else S.cinePx=null;
+  { const e=S.x+(S.cine?Math.sin(S.t*0.11)*22:0)-S.camX, w=S.cine?2.6:8; S.camXV=(S.camXV||0)+(w*w*e-2*w*(S.camXV||0))*dt; S.camX+=S.camXV*dt; }
   // screen anchor eases on resize (no jump when the window / sidebar changes)
-  S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ROCKET_Y,1-Math.exp(-dt*5));
+  S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,S.cine?H*0.55:ROCKET_Y,1-Math.exp(-dt*(S.cine?0.8:5)));
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
   S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) - 22*(S.wBoost||0) - 34*(S.buyBoost||0) + 40*(S.dive||0);   // W nudge / buy turbo hop, decays back
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
@@ -1702,7 +1707,7 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown) S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; if(p.life<=0) P.kill(i); } }
@@ -1927,9 +1932,9 @@ function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }
 /* TOUCH GRASS — ambient mode (disciple:grass {on}, owned by components/flight/TouchGrass.tsx; ?grass=1 shares it).
    Only sky, clouds/parallax, rocket + trail and one faded mcap readout; no HUD, fx, bombs, walls, tags or chart.
    Reuses #50's clean-mode idea at runtime: everything gated here is simply not drawn (cheaper frames). */
-addEventListener('disciple:grass',e=>{ S.grass=!!(e.detail&&e.detail.on); S._grassA=S._grassA||0; });
+addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.cine=!!(d.on&&d.cine); S._grassA=S._grassA||0; });
 function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)+dt*0.8);
-  if(m>0){ const ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), tk=String(source.ticker||Q.get('ticker')||'').slice(0,10).toUpperCase();
+  if(m>0){ const tk=String(source.ticker||Q.get('ticker')||'').slice(0,10).toUpperCase();
     ctx.save(); ctx.globalAlpha=S._grassA;   // soft dark halo so the thin number reads over white clouds
     { const g=ctx.createRadialGradient(W/2,H-100,0,W/2,H-100,Math.min(W*0.32,380)); g.addColorStop(0,'rgba(6,8,20,.55)'); g.addColorStop(0.55,'rgba(6,8,20,.28)'); g.addColorStop(1,'rgba(6,8,20,0)');
       ctx.fillStyle=g; ctx.save(); ctx.translate(W/2,H-100); ctx.scale(1,0.42); ctx.translate(-W/2,-(H-100)); ctx.fillRect(W/2-400,H-100-400,800,800); ctx.restore(); }
@@ -1937,11 +1942,11 @@ function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)
     const fs=Math.round(clamp(W*0.06,46,96)); ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`;
     glowText(fmtUsd(m),W/2,H-86,'rgba(255,236,200,1)',10,0.18);
     ctx.globalAlpha=0.7*S._grassA; ctx.font='300 14px "Helvetica Neue","Inter",system-ui,sans-serif'; ctx.fillStyle='#ffe9c4';
-    ctx.fillText(((tk?'$'+tk+'   ·   ':'')+TIERS[ti].name).split('').join(String.fromCharCode(8202)),W/2,H-86+28);
+    ctx.fillText(('MARKET CAP'+(tk&&tk.length<=8?'   ·   $'+tk:'')).split('').join(String.fromCharCode(8202)),W/2,H-86+28);
     const c=S.grassCard||0; if(c>0&&S.tierShown>=0){ const a=Math.min(1,c/1.2,(4.5-c)/1.2);   // tier title card: fade in, hold, fade out
       ctx.globalAlpha=0.85*a; ctx.font=`300 ${Math.round(clamp(W*0.045,32,64))}px Georgia,serif`; ctx.fillStyle='#fff3dc';
-      glowText(TIERS[S.tierShown].name,W/2,H*0.36,'rgba(255,220,160,1)',12,0.25);
-      ctx.globalAlpha=0.45*a; ctx.font='300 12px "Helvetica Neue",system-ui,sans-serif'; ctx.fillText('ENTERED  ·  '+fmtUsd(TIERS[S.tierShown].lo),W/2,H*0.36+30); }
+      glowText(fmtUsd(TIERS[S.tierShown].lo),W/2,H*0.2,'rgba(255,220,160,1)',12,0.25);   // milestone, never the tier name
+      ctx.globalAlpha=0.45*a; ctx.font='300 12px "Helvetica Neue",system-ui,sans-serif'; ctx.fillText('M I L E S T O N E',W/2,H*0.2+30); }
     ctx.restore(); } }
 function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
