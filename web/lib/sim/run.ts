@@ -23,7 +23,7 @@ export class SimRun {
   player: { cash: number; cash0: number; pos: Position; buys: number; sells: number; volume: number; firstBuyT: number | null; tokens: number };
   emaF: number; emaS: number; hist: number[] = []; histT = 0; peak: number; peakT = 0; peakTier = 0;
   lastPlayerBigBuy = -1e9; rugged: { t: number; peakBefore: number } | null = null; ctoAt: number | null = null; ctoActive = false;
-  rugPlan: { at: number; minMcap: number } | null = null; ctoPlan: boolean; hype = 1; nextId = 1; listeners = new Set<(e: { trade?: SimTrade; event?: SimEvent }) => void>();
+  rugPlan: { at: number; minMcap: number } | null = null; waveAt = Infinity; waveUntil = -1; waves = 0; ctoPlan: boolean; hype = 1; nextId = 1; listeners = new Set<(e: { trade?: SimTrade; event?: SimEvent }) => void>();
   constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number } = {}) {
     this.rng = mulberry32(seed);
     this.m = new Market(cfg);
@@ -35,6 +35,7 @@ export class SimRun {
     const rug = D.rug;
     this.rugPlan = rug && this.rng() < rug.chance ? { at: rug.earliestS + this.rng() * (rug.latestS - rug.earliestS), minMcap: cfg.launch.startMcapUsd * rug.minMcap * (0.8 + this.rng() * 0.8) } : null;
     this.ctoPlan = !!rug && this.rng() < rug.ctoChance;
+    if (D.waves) this.waveAt = this.r(D.waves.everyS[0], D.waves.everyS[1]);
     let cluster = 0;
     for (const [a, n] of Object.entries(D.initial) as [ArchetypeId, number][]) for (let i = 0; i < n; i++) this.spawn(a, 0, a === "bundler" ? (cluster || (cluster = 1)) : undefined);
     this.emitEvent("launch", `LAUNCH · ${D.label} · seed ${seed}`);
@@ -51,7 +52,8 @@ export class SimRun {
     const name = arch === "bundler" ? `Bundle#${cluster}·${nm}` : arch === "rugger" ? "DEV" : arch === "cto" ? "CTO Council" : `${A.label.split(" ")[0]}·${nm}${id}`;
     const launchy = arch === "sniper" || arch === "bundler" || arch === "rugger";
     const b: Bot = { id, name, wallet, arch, cash, cash0: cash, pos: emptyPosition(), cluster, joinT: t, active: arch !== "cto",
-      nextT: launchy && t === 0 ? this.cfg.launch.antiSnipeDurationS + this.r(0.2, arch === "rugger" ? 0.6 : 4) : t + this.r(0.5, t === 0 ? 8 : 60 / Math.max(0.1, A.rate)), buys: 0, sells: 0, volume: 0 };
+      nextT: launchy && t === 0 ? this.cfg.launch.antiSnipeDurationS + this.r(0.2, arch === "rugger" ? 0.6 : 4)
+        : t === 0 ? this.r(...(this.diff().startS ?? [0.5, 8]) as [number, number]) : t + this.r(0.5, 60 / Math.max(0.1, A.rate)), buys: 0, sells: 0, volume: 0 };
     this.bots.push(b); return b;
   }
   on(f: (e: { trade?: SimTrade; event?: SimEvent }) => void) { this.listeners.add(f); return () => this.listeners.delete(f); }
@@ -93,11 +95,16 @@ export class SimRun {
     const f = this.exec("sell", null, tokens);
     return { ...f, mcap: f.price * this.m.S };
   }
-  private botBuy(b: Bot, frac: number) { const usd = Math.min(b.cash, b.cash * frac); if (usd >= 1) this.exec("buy", b, usd); }
+  inWave() { return this.t < this.waveUntil; }
+  private botBuy(b: Bot, frac: number) {
+    // non-launch bots don't pay the anti-snipe tax: they nibble during the first 7 s, full size after
+    const as = b.arch === "sniper" || b.arch === "bundler" || b.arch === "rugger" ? 0 : this.m.antiSnipe(this.t);
+    if (as > 0) frac *= Math.max(0.04, 1 - as) ** 2;
+    const usd = Math.min(b.cash, b.cash * frac); if (usd >= 1) this.exec("buy", b, usd); }
   private botSell(b: Bot, frac: number) { let tk = b.pos.size * Math.min(1, frac); if (tk * this.m.price() < 1) tk = b.pos.size; if (tk > 0 && tk * this.m.price() >= 0.5) this.exec("sell", b, tk); }   // no dust sells
   private decide(b: Bot, F: ReturnType<SimRun["feat"]>) {
     const A = this.cfg.archetypes[b.arch], R = () => this.rng();
-    const u = b.pos.size > 0 ? F.p / (b.pos.costBasis / b.pos.size) - 1 : 0, has = b.pos.size > 0, bf = () => this.r(A.buyFrac[0], A.buyFrac[1]), sf = () => this.r(A.sellFrac[0], A.sellFrac[1]);
+    const u = b.pos.size > 0 ? F.p / (b.pos.costBasis / b.pos.size) - 1 : 0, has = b.pos.size > 0, ts = this.diff().tradeScale ?? 1, bf = () => this.r(A.buyFrac[0], A.buyFrac[1]) * ts, sf = () => this.r(A.sellFrac[0], A.sellFrac[1]);
     const age = this.t - b.joinT;
     switch (b.arch) {
       case "rugger": {   // dev: buys at launch (after anti-snipe), then waits for the rug plan
@@ -123,7 +130,10 @@ export class SimRun {
       }
     }
     // generic traders (crew, scalper, whale, momentum, paperhand, diamond)
-    if (has && u >= A.tp && (A.resist === 0 || F.nearRes || R() < 0.5)) return this.botSell(b, sf());
+    const D = this.diff(), wave = this.inWave() && D.waves;
+    if (has && wave && u > -0.08 && R() < wave.sellBoost * (A.resist > 0 ? 1 : 0.4)) return this.botSell(b, this.r(0.25, 0.55));   // pullback wave: holders take real profit
+    if (has && D.takeProfit && u > 0.04 && R() < D.takeProfit * (A.tp > 5 ? 0.3 : 1)) return this.botSell(b, sf() * 0.6);         // steady profit-taking
+    if (has && u >= A.tp && (A.resist === 0 || F.nearRes || R() < 0.5) && R() < (D.tradeScale ?? 1)) return this.botSell(b, sf());
     if (has && u <= A.sl) return this.botSell(b, 1);
     if (has && F.nearRes && A.resist > 0 && u > 0.15 && R() < A.resist * 0.35) return this.botSell(b, A.sellFrac[0]);
     if (has && b.arch === "momentum" && F.mom < -0.02 && R() < 0.6) return this.botSell(b, sf());
@@ -132,6 +142,7 @@ export class SimRun {
     if (b.arch === "scalper" && has) w = 0;
     if (b.arch === "crew" && F.nearRes) w *= 0.5;
     if (this.rugged && !this.ctoActive) w *= 0.25;
+    if (wave) w *= wave.buyCut;
     if (b.cash >= 1 && R() < Math.min(0.95, w * 0.6)) return this.botBuy(b, bf());
   }
   private rug(dev: Bot) {
@@ -156,6 +167,8 @@ export class SimRun {
       this.ctoActive = true; const c = this.bots.find((b) => b.arch === "cto") || this.spawn("cto", this.t); c.active = true; c.nextT = this.t;
       this.emitEvent("cto", `CTO · community takeover at ${fmt(this.m.mcap())}`);
     }
+    if (D.waves && this.t >= this.waveAt) { const W = D.waves; this.waves++;
+      this.waveUntil = this.t + this.r(W.durS[0], W.durS[1]); this.waveAt = this.waveUntil + this.r(W.everyS[0], W.everyS[1]); }
     const F = this.feat();
     for (const b of this.bots) {
       if (!b.active || this.t < b.nextT) continue;

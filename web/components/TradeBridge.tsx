@@ -8,7 +8,9 @@ import { createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountI
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
-import { FEE } from "@/lib/pnl";
+import { FEE, fmtMoney } from "@/lib/pnl";
+import SwapSettingsModal from "./trade/SwapSettingsModal";
+import { SELL_KEYS, SWAP_PREFIX, loadSettings, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -21,14 +23,16 @@ declare global { interface Window { __discipleTrade?: Bridge } }
  * No chain or no wallet ⇒ no bridge ⇒ engine keeps paper fills (mock/replay unchanged).
  */
 type Pos = { size: number; valueUsd: number; costBasis: number };
-/** % sells and "sell initials" (recover cost basis incl. fees). Keys Z/X/C/V (W = off-chain mini acceleration, Space = buy turbo). */
-const SELLS = [{ id: "12", label: "12%", frac: 0.12, key: "KeyZ" }, { id: "33", label: "33%", frac: 0.33, key: "KeyX" },
-  { id: "77", label: "77%", frac: 0.77, key: "KeyC" }, { id: "init", label: "INITIALS", frac: 0, key: "KeyV" }] as const;
+/** % sells and "sell initials" (recover cost basis incl. fees). Keys Z/X/C/V; the 4 slots are editable in Swap settings.
+ * The SELL row itself is drawn in the engine's AMMO panel (clicks come back as disciple:sellpreset). */
+type Sell = { id: string; label: string; frac: number; key: string };
+const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: v === "init" ? "init" : String(v), label: sellLabel(v), frac: v === "init" ? 0 : v / 100, key: SELL_KEYS[i] }));
 
-export default function TradeBridge({ token }: { token: string }) {
+/** Bottom bar = custom $ + BOOST (buy) / DUMP (sell) + position/paper badge. storagePrefix scopes Swap settings (sim has its own). */
+export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
   const [mode, setMode] = useState(2);
   const [custom, setCustom] = useState("");
-  const sellRef = useRef<((s: (typeof SELLS)[number]) => void) | null>(null);
+  const sellRef = useRef<((s: Sell) => void) | null>(null);
   const [pos, setPos] = useState<Pos>({ size: 0, valueUsd: 0, costBasis: 0 });
   useEffect(() => {
     const h = (e: Event) => setPos((e as CustomEvent<Pos>).detail);
@@ -49,6 +53,21 @@ export default function TradeBridge({ token }: { token: string }) {
   const valid = isDeployed() && /^0x[0-9a-fA-F]{40}$/.test(token);
   useEffect(() => onWallet(setAddr), []);
   const live = valid && !!addr;
+  // Swap settings, per scope (sim / paper / live)
+  const scope = storagePrefix + (live ? "live" : "paper");
+  const [cfg, setCfg] = useState<SwapSettings>(() => loadSettings(scope));
+  const cfgRef = useRef(cfg); cfgRef.current = cfg;
+  const [showCfg, setShowCfg] = useState(false);
+  useEffect(() => { setCfg(loadSettings(scope)); }, [scope]);
+  const SELLS = toSells(cfg.sells);
+  // push overrides + tag state to the engine (again whenever it (re)announces ammo, i.e. after boot)
+  const pushCfg = useRef(() => {});
+  pushCfg.current = () => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: cfgRef.current.buy } })); dispatchEvent(new CustomEvent("disciple:pnltag", { detail: { on: cfgRef.current.tag } })); };
+  const booted = useRef(false);
+  useEffect(() => { pushCfg.current(); }, [cfg]);
+  useEffect(() => { const h = () => { if (!booted.current) { booted.current = true; pushCfg.current(); } }; addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, []);
+  useEffect(() => { const o = () => setShowCfg(true); const t = (e: Event) => { const on = !!(e as CustomEvent<{ on: boolean }>).detail?.on; if (on !== cfgRef.current.tag) { const n = { ...cfgRef.current, tag: on }; setCfg(n); saveSettings(scope, n); } };
+    addEventListener("disciple:swapsettings", o); addEventListener("disciple:pnltag-state", t); return () => { removeEventListener("disciple:swapsettings", o); removeEventListener("disciple:pnltag-state", t); }; }, [scope]);
 
   useEffect(() => {
     if (!live) return;
@@ -56,7 +75,7 @@ export default function TradeBridge({ token }: { token: string }) {
     const pc = publicClient();
     window.__discipleTrade = async (side, usd, o) => {
       try {
-        setLast(`${side === "buy" ? "▲" : "▼"} $${usd} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
+        setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         let amountIn = await usdToAmountIn(pc, token as Address, side, usd);
         if (side === "sell") {
           const me = await activeAddress();
@@ -65,8 +84,9 @@ export default function TradeBridge({ token }: { token: string }) {
           if (o?.frac && o.frac > 0) amountIn = (bal * BigInt(Math.round(Math.min(1, o.frac) * 1e6))) / BigInt(1e6);   // % of the real balance
           if (amountIn > bal) amountIn = bal;
         }
-        const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0 });
-        setLast(`${side === "buy" ? "▲" : "▼"} $${usd} ✓ ${r.txHash.slice(0, 10)}…`);
+        // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
+        const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slippageBps(cfgRef.current) });
+        setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
         return { ok: r.ok, txHash: r.txHash, reason: r.reason };
       } catch (e) {
         const m = (e as Error).message.split("\n")[0].slice(0, 90);
@@ -96,62 +116,54 @@ export default function TradeBridge({ token }: { token: string }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      const s = SELLS.find((x) => x.key === e.code); if (s && !e.repeat && !e.ctrlKey && !e.metaKey) sellRef.current?.(s);
+      const i = (SELL_KEYS as readonly string[]).indexOf(e.code); if (i >= 0 && !e.repeat && !e.ctrlKey && !e.metaKey) sellRef.current?.(toSells(cfgRef.current.sells)[i]);
     };
-    addEventListener("keydown", k); return () => removeEventListener("keydown", k);
+    const c = (e: Event) => { const i = (e as CustomEvent<{ i: number }>).detail?.i; const s = toSells(cfgRef.current.sells)[i]; if (s) sellRef.current?.(s); };
+    addEventListener("keydown", k); addEventListener("disciple:sellpreset", c); return () => { removeEventListener("keydown", k); removeEventListener("disciple:sellpreset", c); };
   }, []);
-  if (!valid) return <AmmoTierNotice />;
+  // SELL row labels/enabled → engine ammo panel
+  const sellSig = SELLS.map((x) => x.id).join() + "|" + (pos.valueUsd > 0 ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0);
+  useEffect(() => {
+    const items = toSells(cfgRef.current.sells).map((x) => ({ label: x.label, key: x.key.slice(3), on: pos.valueUsd > 0 }));
+    dispatchEvent(new CustomEvent("disciple:sellpresets", { detail: { items } }));
+  }, [sellSig, pos.valueUsd]);   // eslint-disable-line react-hooks/exhaustive-deps
   const customUsd = +custom > 0 ? +custom : 0;
   const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number }) =>
     window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } }));
   // sell sizing from the PnL ledger (real mark): x% of the position value, or enough to recover the cost basis
-  const sellPlan = (s: (typeof SELLS)[number]) => {
+  const sellPlan = (s: Sell) => {
     if (!(pos.valueUsd > 0)) return null;
     if (s.id === "init") { const usd = Math.min(pos.valueUsd, pos.costBasis / (1 - FEE)); return { usd, frac: usd / pos.valueUsd }; }
     return { usd: pos.valueUsd * s.frac, frac: s.frac };
   };
-  const sell = (s: (typeof SELLS)[number]) => { const p = sellPlan(s); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
+  const sell = (s: Sell) => { const p = sellPlan(s); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
   sellRef.current = sell;
-  const btn = { all: "unset" as const, cursor: "pointer", padding: "6px 10px", borderRadius: 8, fontWeight: 700, fontSize: 12 };
+  const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
+  const autoUsd = ammo.tier != null ? AMMO_TIERS[ammo.tier].usd.slice() : MODES.map((m) => m.usd);
+  const shotUsd = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
   return (
     <>
     <AmmoTierNotice />
-    <div aria-label="ammo" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 2,
-      maxWidth: "min(530px, 92vw)", padding: "5px 8px", borderRadius: 12, background: "rgba(8,10,28,.85)",
-      border: "1px solid rgba(255,231,163,.35)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-      <input aria-label="custom buy amount" inputMode="decimal" placeholder="$ custom" value={custom}
-        onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
-        onKeyDown={(e) => { if (e.key === "Enter" && customUsd) { e.preventDefault(); shoot("buy"); } e.stopPropagation(); }}
-        style={{ width: 70, fontSize: 11, padding: "3px 6px", borderRadius: 6, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.2)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-      <select aria-label="ammo size" value={mode} onChange={(e) => setMode(+e.target.value)}
-        style={{ background: "transparent", color: "#ffe7a3", border: "none", fontSize: 12, maxWidth: 130 }}>
-        {MODES.map((m, i) => <option key={m.key} value={i} style={{ color: "#000" }}>{ammo.names[i] ?? m.name} ${(ammo.usd[i] ?? m.usd).toLocaleString()}</option>)}
-      </select>
-      {ammo.tier != null && (
-        <select aria-label="ammo tier" title="ammo tier: presets scale with the rocket's mcap (pick any)" value={ammo.tier}
-          onChange={(e) => dispatchEvent(new CustomEvent("disciple:ammo-tier", { detail: { tier: +e.target.value } }))}
-          style={{ fontSize: 10, padding: "2px 4px", borderRadius: 6, border: "none", background: "rgba(159,243,200,.14)", color: "#9ff3c8" }}>
-          {AMMO_TIERS.map((t, i) => <option key={t.id} value={i} style={{ color: "#000" }}>{t.name}{i === ammo.rocketTier ? " ●" : ""}</option>)}
-        </select>
-      )}
-      <button type="button" aria-label="buy" onClick={() => shoot("buy")} style={{ ...btn, background: "#1f6f4a", color: "#c8ffe4" }}>▲ FUEL {customUsd ? `$${customUsd}` : "(buy)"}</button>
-      <button type="button" aria-label="sell" onClick={() => shoot("sell")} style={{ ...btn, background: "#7a2236", color: "#ffd0dc" }}>▼ BOMB {customUsd ? `$${customUsd}` : "(sell)"}</button>
+    <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
+      padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
+        <input aria-label="custom amount" inputMode="decimal" placeholder={`$ ${shotUsd < 1 ? shotUsd.toFixed(2) : shotUsd.toLocaleString()}`} value={custom} title="custom $ per shot (empty = selected ammo)"
+          onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
+          onKeyDown={(e) => { if (e.key === "Enter" && customUsd) { e.preventDefault(); shoot("buy"); } e.stopPropagation(); }}
+          style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
+        <button type="button" aria-label="buy" data-testid="buy-btn" title="BOOST: buy (Space)" onClick={() => shoot("buy")} style={{ ...btn, minWidth: 104, background: "#1f6f4a", color: "#c8ffe4" }}>▲ BOOST <span style={{ opacity: 0.75, fontWeight: 600 }}>(buy)</span></button>
+        <button type="button" aria-label="sell" data-testid="sell-btn" title="DUMP: sell (Shift)" onClick={() => shoot("sell")} style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc" }}>▼ DUMP <span style={{ opacity: 0.75, fontWeight: 600 }}>(sell)</span></button>
+        <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
+          <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
+            background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
+          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `pos ${fmtMoney(pos.valueUsd)}` : "no position"}</span>
+        </div>
       </div>
-      <div aria-label="sell presets" style={{ display: "flex", gap: 4, alignItems: "center", fontSize: 10 }}>
-        <span style={{ opacity: 0.6 }}>SELL</span>
-        {SELLS.map((s) => { const p = sellPlan(s); return (
-          <button key={s.id} type="button" aria-label={`sell ${s.label}`} disabled={!p || !(p.usd > 0)} onClick={() => sell(s)}
-            title={`${s.id === "init" ? "sell enough to recover your cost basis" : `sell ${s.label} of your position`}${p ? ` ≈ $${p.usd.toFixed(2)}` : ""} · key ${s.key.slice(3)}`}
-            className="ap-sellbtn"
-            style={{ all: "unset", cursor: p && p.usd > 0 ? "pointer" : "default", padding: "2px 7px", borderRadius: 6, fontWeight: 700,
-              background: "rgba(122,34,54,.55)", color: "#ffd0dc", opacity: p && p.usd > 0 ? 1 : 0.4 }}>{s.label}<span style={{ opacity: 0.55, marginLeft: 3 }}>{s.key.slice(3)}</span></button>); })}
-        <span style={{ opacity: 0.6, marginLeft: "auto" }}>{pos.valueUsd > 0 ? `pos $${pos.valueUsd.toFixed(2)}` : "no position"}</span>
-        <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 6,
-        background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : "PAPER"}</span>
-      </div>
-      {(last || preview) && <div style={{ fontSize: 10, opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
+      {(last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
+    {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
+      onClose={() => setShowCfg(false)}
+      onSave={(n, t) => { setCfg(n); saveSettings(scope, n); if (t != null && t !== ammo.tier && !n.buy) dispatchEvent(new CustomEvent("disciple:ammo-tier", { detail: { tier: t } })); setShowCfg(false); }} />}
     </>
   );
 }

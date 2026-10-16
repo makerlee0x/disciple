@@ -33,7 +33,13 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e * Math.max(1, Math.abs(a),
   const rt = new Market(cloneConfig()); const f1 = rt.buy(200, 60, 0), f2 = rt.sell(f1.tokens); if (!(f2.usd * 0.99 < 200 && f2.usd * 0.99 > 196)) bad(`round trip ${f2.usd}`); }
 
 // ---- determinism ----
-const runOnce = (d, seed, minutes = MIN, play) => { const r = new SimRun(cloneConfig(), d, seed); if (play) play(r); for (let s = 0; s < minutes * 60; s++) { r.step(1); if (play && play.tick) play.tick(r); } return r; };
+// chart stats via a trade listener (r.trades is a capped ring): first trade, rate, buy share, ≥10% drawdowns (zigzag)
+const statsOf = (r) => { const st = { first: null, n: 0, n60: 0, buyUsd: 0, usd: 0, buys: 0, dd: 0, hi: 0, lo: Infinity, down: false };
+  r.on(({ trade: tr }) => { if (!tr || tr.mine) return; if (st.first == null) st.first = tr.t; st.n++; if (tr.t <= 60) st.n60++; st.usd += tr.usd; if (tr.side === "buy") { st.buys++; st.buyUsd += tr.usd; }
+    const m = tr.mcap; if (!st.down) { if (m > st.hi) st.hi = m; if (m < st.hi * 0.9) { st.dd++; st.down = true; st.lo = m; } }
+    else { if (m < st.lo) st.lo = m; if (m > st.lo * 1.1) { st.down = false; st.hi = m; } } });
+  return st; };
+const runOnce = (d, seed, minutes = MIN, play, stats) => { const r = new SimRun(cloneConfig(), d, seed); if (stats) stats.s = statsOf(r); if (play) play(r); for (let s = 0; s < minutes * 60; s++) { r.step(1); if (play && play.tick) play.tick(r); } return r; };
 { const a = JSON.stringify(runOnce("trench", 42, 4).summary()), b = JSON.stringify(runOnce("trench", 42, 4).summary());
   if (a !== b) bad("same seed produced a different run"); else console.log("determinism: trench seed 42 ×2 identical"); }
 
@@ -52,8 +58,12 @@ const D = ["pve", "pvp", "trench"], out = {}, raw = [];
 const q = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 const t0 = Date.now();
 for (const d of D) { const peaks = [], fin = [], rugs = [], ctos = [], bots = [], grads = [];
-  for (let i = 0; i < N; i++) { const s = runOnce(d, 1000 + i).summary(); raw.push(s); peaks.push(s.peakMcap); fin.push(s.finalMcap); rugs.push(!!s.rug); ctos.push(!!s.cto); bots.push(s.bots); grads.push(s.graduatedAtS != null); }
+  const ST = [];
+  for (let i = 0; i < N; i++) { const box = {}; const s = runOnce(d, 1000 + i, MIN, undefined, box).summary(); ST.push(box.s); raw.push(s); peaks.push(s.peakMcap); fin.push(s.finalMcap); rugs.push(!!s.rug); ctos.push(!!s.cto); bots.push(s.bots); grads.push(s.graduatedAtS != null); }
   out[d] = { peaks, fin, rugs: rugs.filter(Boolean).length, ctos: ctos.filter(Boolean).length, grads: grads.filter(Boolean).length, bots: Math.round(bots.reduce((a, b) => a + b) / N), med: q(peaks, 0.5), p10: q(peaks, 0.1), p90: q(peaks, 0.9), max: Math.max(...peaks), min: Math.min(...peaks), finMed: q(fin, 0.5) };
+  { const f = ST.map((x) => x.first ?? MIN * 60), tpm = ST.map((x) => x.n / MIN), bs = ST.reduce((a, x) => a + x.buys, 0) / Math.max(1, ST.reduce((a, x) => a + x.n, 0)), dd = ST.map((x) => x.dd);
+    out[d].stats = { firstMed: q(f, 0.5), firstMax: Math.max(...f), tpm: q(tpm, 0.5), buyShare: bs, ddMed: q(dd, 0.5), ddMean: dd.reduce((a, b) => a + b, 0) / N, tpm1: q(ST.map((x) => x.n60), 0.5), buyUsd: ST.reduce((a, x) => a + x.buyUsd, 0) / ST.reduce((a, x) => a + x.usd, 0) };
+    const S = out[d].stats; console.log(`${d.padEnd(6)} stats: first trade median ${S.firstMed.toFixed(1)} s (max ${S.firstMax.toFixed(1)} s) · ${S.tpm.toFixed(0)} trades/min (median; ${S.tpm1} in minute 1) · buys ${(S.buyShare * 100).toFixed(1)}% by count (${(S.buyUsd * 100).toFixed(0)}% by $) · drawdowns >10% per run median ${S.ddMed} (mean ${S.ddMean.toFixed(1)})`); }
   const o = out[d], cv = Math.sqrt(peaks.reduce((s, v) => s + Math.log(v / o.med) ** 2, 0) / N);
   o.logSpread = cv;
   console.log(`${d.padEnd(6)} ${MIN} min × ${N} seeds: peak median ${fmt(o.med)}  p10 ${fmt(o.p10)}  p90 ${fmt(o.p90)}  min ${fmt(o.min)}  max ${fmt(o.max)}  · final median ${fmt(o.finMed)} · graduated ${o.grads}/${N} · rugs ${o.rugs} · CTO ${o.ctos} · ~${o.bots} bots · log-spread ${cv.toFixed(2)}`); }

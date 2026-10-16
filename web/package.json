@@ -12,10 +12,14 @@
     "test:camera": "node scripts/test-camera.mjs",
     "test:pnl": "node scripts/test-pnl.mjs",
     "test:trail": "node scripts/test-trail.mjs",
+    "test:gamechat": "node scripts/test-gamechat.mjs",
     "test:chat": "node scripts/test-chat.mjs",
     "test:sim": "node scripts/test-sim.mjs",
     "test:share-pnl": "node scripts/test-share-pnl.mjs",
-    "test:username-claim": "node scripts/test-username-claim.mjs"
+    "test:username-claim": "node scripts/test-username-claim.mjs",
+    "test:replay": "node scripts/test-replay.mjs",
+    "gen:flight": "node scripts/gen-flight-data.mjs",
+    "test:flightdata": "node scripts/gen-flight-data.mjs --check"
   },
   "dependencies": {
     "@account-kit/signer": "^4.88.5",

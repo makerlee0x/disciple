@@ -1,5 +1,6 @@
 "use client";
 
+import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -7,6 +8,8 @@ import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
+import GameChat from "@/components/gamechat/GameChat";
+import ControlsPill from "@/components/ControlsPill";
 
 declare global {
   interface Window {
@@ -125,6 +128,12 @@ export default function FlightCanvas({ search }: Props) {
         if (!ok) await bootMain();
 
         if (!cancelled) setStatus("Live");
+        // equipped Rocket Factory parts (cosmetic) → engine loadout; the token decal still owns the nose roundel
+        if (!cancelled) try {
+          const e = (JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string> }).equipped || {};
+          const f = window.__flight as { setLoadout?: (l: unknown) => unknown } | undefined;
+          if (e.body || e.thrusters || e.coin) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, "") });
+        } catch { /* no loadout */ }
       } catch (e) {
         if (!cancelled) {
           setErr(String((e as Error).message || e));
@@ -188,6 +197,12 @@ export default function FlightCanvas({ search }: Props) {
   const toggleSim = () =>
     window.dispatchEvent(new CustomEvent("disciple:sim", { detail: { mode: sim.on ? "off" : "on" } }));
 
+  // Live chat overlay: live coin pages only (needs a coin address); in /flight/sim only with ?chatmock=1
+  const chatCoin = (() => { const q = new URLSearchParams(search); const coin = q.get("coin") || "";
+    if (!/^0x[0-9a-fA-F]{40}$/.test(coin) && !(q.get("source") === "sim" && q.get("chatmock") === "1")) return null;
+    if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
+    return coin || "0x000000000000000000000000000000000000c0de"; })();
+
   return (
     <>
       <div
@@ -229,7 +244,9 @@ export default function FlightCanvas({ search }: Props) {
       >
         ✕
       </Link>
+      {chatCoin && <GameChat coin={chatCoin} />}
       <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
+        <ControlsPill simulator={isSimulator} />
         <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
           ORBS ON · O
         </button>

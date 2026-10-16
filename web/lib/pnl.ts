@@ -58,6 +58,17 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
   return q;
 }
 
+/** Shared PnL money/percent formatting (HUD, rocket tag, bottom bar, toasts).
+ *  $ always 2 decimals; ≥ $1K compact with 2 decimals ($1.23K / $4.56M / $7.89B). Percent: 1 decimal. */
+export function fmtMoney(v: number): string {
+  const a = Math.abs(v), s = v < 0 ? "−" : "";
+  const n = a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(2) + "M" : a >= 1e3 ? (a / 1e3).toFixed(2) + "K" : a.toFixed(2);
+  return s + "$" + n;
+}
+/** Signed: "+$0.11" / "−$0.11"; zero (and −0.00 after rounding) shows "+$0.00". */
+export function fmtPnl(v: number): string { return (v < 0 && Math.abs(v) >= 0.005 ? "−" : "+") + fmtMoney(Math.abs(v)); }
+export function fmtPct(v: number): string { return (v < 0 && Math.abs(v) >= 0.05 ? "−" : "+") + Math.abs(v).toFixed(1) + "%"; }
+
 export interface PositionView {
   size: number;
   valueUsd: number;
