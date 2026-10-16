@@ -1079,3 +1079,12 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 /* Leaderboard: whole row navigates */
 .lb-row-link { cursor: pointer; }
 .lb-row-link:focus-visible { outline: 2px solid rgba(255, 231, 163, 0.7); outline-offset: -2px; }
+
+/* —— Achievements: grouped by category, locked collapsed —— */
+.ach-groups { display: flex; flex-direction: column; gap: 22px; margin-top: 8px; }
+.ach-group-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.ach-group-head h2 { margin: 0; font: bold 18px Georgia, serif; color: #fff1c4; letter-spacing: .04em; }
+.ach-group-count { font-size: 12px; color: rgba(220, 228, 255, 0.6); font-variant-numeric: tabular-nums; }
+.ach-group-bar { flex: 1; max-width: 220px; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.ach-group-bar > div { height: 100%; background: linear-gradient(90deg, #e9c56e, #fff1c4); }
+.ach-more { margin-top: 10px; }

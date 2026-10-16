@@ -19,13 +19,47 @@ function rewardPreview(a: AchievementView) {
   return bits.join(" · ") || "—";
 }
 
+const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
+const RARITY_ORDER = ["DIVINE", "GLORIFIED", "ANOINTED", "BLESSED", "COMMON"];
+
 export default function AchievementsGrid() {
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
   const data = useMemo(() => buildPersonaStats("believer"), []);
   const views = useMemo(() => evaluateAchievements(data), [data]);
   const pass = prestigeFromPoints(data.points);
-  const filtered = views.filter((v) => (cat === "all" ? true : v.category === cat));
+  const [openLocked, setOpenLocked] = useState<Record<string, boolean>>({});
   const unlocked = views.filter((v) => v.state === "unlocked").length;
+
+  const card = (a: AchievementView) => {
+    const rarity = ACHIEVEMENT_RARITY[a.rarity];
+    return (
+      <article key={a.id} className={`ach-card state-${a.state}`}
+        style={{ borderColor: rarity.border, boxShadow: a.state === "unlocked" ? `0 0 24px ${rarity.glow}` : undefined }}>
+        <div className="ach-frame" style={{ borderColor: rarity.border }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="ach-svg" src={withBase(achievementIconPath(a.id))} alt="" width={60} height={60} />
+          {a.state === "locked" && <span className="ach-lock" aria-label="locked">🔒</span>}
+        </div>
+        <div className="ach-body">
+          <div className="ach-rarity" style={{ color: rarity.border }}>{rarity.label}</div>
+          <h3>{a.name}</h3>
+          <p>{a.description}</p>
+          <div className="ach-progress">
+            <div className="ach-bar"><div style={{ width: `${a.pct}%`, background: rarity.border }} /></div>
+            <span>{a.current}/{a.target}</span>
+          </div>
+          <div className="ach-reward">Reward: {rewardPreview(a)}</div>
+        </div>
+      </article>
+    );
+  };
+  const groups = ACHIEVEMENT_CATEGORIES
+    .filter((c) => cat === "all" || c.id === cat)
+    .map((c) => {
+      const items = views.filter((v) => v.category === c.id).sort((x, y) => STATE_ORDER[x.state] - STATE_ORDER[y.state] || RARITY_ORDER.indexOf(x.rarity) - RARITY_ORDER.indexOf(y.rarity));
+      return { ...c, items, active: items.filter((v) => v.state !== "locked"), locked: items.filter((v) => v.state === "locked") };
+    })
+    .filter((g) => g.items.length);
 
   return (
     <div className="ach-page">
@@ -62,28 +96,28 @@ export default function AchievementsGrid() {
         ))}
       </div>
 
-      <div className="ach-grid">
-        {filtered.map((a) => {
-          const rarity = ACHIEVEMENT_RARITY[a.rarity];
+      <div className="ach-groups">
+        {groups.map((g) => {
+          const done = g.items.filter((v) => v.state === "unlocked").length;
+          const showLocked = cat !== "all" || openLocked[g.id];
           return (
-            <article key={a.id} className={`ach-card state-${a.state}`}
-              style={{ borderColor: rarity.border, boxShadow: a.state === "unlocked" ? `0 0 24px ${rarity.glow}` : undefined }}>
-              <div className="ach-frame" style={{ borderColor: rarity.border }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="ach-svg" src={withBase(achievementIconPath(a.id))} alt="" width={60} height={60} />
-                {a.state === "locked" && <span className="ach-lock" aria-label="locked">🔒</span>}
+            <section key={g.id} className="ach-group" aria-label={g.label}>
+              <header className="ach-group-head">
+                <h2>{g.label}</h2>
+                <span className="ach-group-count">{done}/{g.items.length}</span>
+                <div className="ach-group-bar"><div style={{ width: `${(done / g.items.length) * 100}%` }} /></div>
+              </header>
+              <div className="ach-grid">
+                {g.active.map(card)}
+                {showLocked && g.locked.map(card)}
               </div>
-              <div className="ach-body">
-                <div className="ach-rarity" style={{ color: rarity.border }}>{rarity.label}</div>
-                <h3>{a.name}</h3>
-                <p>{a.description}</p>
-                <div className="ach-progress">
-                  <div className="ach-bar"><div style={{ width: `${a.pct}%`, background: rarity.border }} /></div>
-                  <span>{a.current}/{a.target}</span>
-                </div>
-                <div className="ach-reward">Reward: {rewardPreview(a)}</div>
-              </div>
-            </article>
+              {g.locked.length > 0 && cat === "all" && (
+                <button type="button" className="ds-btn ach-more" onClick={() => setOpenLocked((o) => ({ ...o, [g.id]: !o[g.id] }))}>
+                  {openLocked[g.id] ? "Hide locked" : `Show ${g.locked.length} locked`}
+                </button>
+              )}
+              {g.active.length === 0 && !showLocked && <p className="muted tiny">Nothing started here yet.</p>}
+            </section>
           );
         })}
       </div>
