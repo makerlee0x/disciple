@@ -1208,3 +1208,7 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .share-link { opacity: 0.7; word-break: break-all; }
 .share-flash { color: #ffe7a3; }
 @media (max-width: 640px) { .share-card-frame { width: 100%; } }
+.share-video-btn { background: rgba(255, 231, 163, 0.16) !important; }
+.share-progress { position: relative; height: 26px; border: 1px solid rgba(255, 231, 163, 0.4); border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.04); }
+.share-progress-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(57, 255, 106, 0.35), rgba(57, 255, 106, 0.7)); transition: width 0.15s linear; }
+.share-progress span { position: relative; display: block; text-align: center; font: 600 11px ui-monospace, monospace; line-height: 24px; color: #fff7df; }

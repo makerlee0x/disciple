@@ -8,12 +8,12 @@ import "server-only";
  */
 import { createHmac, timingSafeEqual } from "crypto";
 import { createPublicClient, http, keccak256, recoverMessageAddress, stringToBytes, type Address, type Hex } from "viem";
-import { promises as fs } from "fs";
 import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
 import { factoryAbi, LIGHT_ACCOUNT_V2_FACTORY } from "@/lib/aa/core";
 import { launchpadAbi } from "@/lib/abi";
 import { CHAT_LIMITS, type ChatBadge, type ChatFrom } from "@/lib/chat/types";
 import { chatLoginMessage } from "@/lib/chat/login";
+import { usernameOf as registryUsernameOf } from "../usernames";
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 let pcInst: ReturnType<typeof createPublicClient> | null = null;
@@ -45,13 +45,23 @@ export function verifyToken(tok: string | null | undefined, now = Date.now()): T
 export const chatSecretConfigured = () => !!secret();
 
 export async function verifyLogin(body: { addr?: string; ts?: number; sig?: string; owner?: string }): Promise<string | null> {
-  const addr = String(body.addr ?? ""), sig = String(body.sig ?? "") as Hex, ts = Number(body.ts);
-  if (!isAddr(addr) || !/^0x[0-9a-fA-F]+$/.test(sig) || !Number.isFinite(ts) || Math.abs(Date.now() - ts) > 10 * 60_000) return null;
-  const msg = chatLoginMessage(addr, ts);
+  const addr = String(body.addr ?? ""), ts = Number(body.ts);
+  if (!isAddr(addr) || !Number.isFinite(ts) || Math.abs(Date.now() - ts) > 10 * 60_000) return null;
+  return verifyWalletSignature(addr, chatLoginMessage(addr, ts), String(body.sig ?? ""), body.owner);
+}
+
+/**
+ * Verify `msg` was signed for `addr`: EOA / ERC-1271 / ERC-6492 via viem verifyMessage, or a DISCIPLE LightAccount
+ * (counterfactual ok) whose OWNER signed keccak(msg) raw, checked via factory.getAddress(owner, 0) === addr.
+ * Returns the lowercase address or null. Shared by chat login and username claims.
+ */
+export async function verifyWalletSignature(addr: string, msg: string, sigIn: string, owner?: string | null): Promise<string | null> {
+  const sig = sigIn as Hex;
+  if (!isAddr(addr) || !/^0x[0-9a-fA-F]+$/.test(sig)) return null;
   const pc = serverPc();
-  if (body.owner && isAddr(body.owner)) {
+  if (owner && isAddr(owner)) {
     const rec = await recoverMessageAddress({ message: { raw: keccak256(stringToBytes(msg)) }, signature: sig }).catch(() => null);
-    if (!rec || rec.toLowerCase() !== body.owner.toLowerCase()) return null;
+    if (!rec || rec.toLowerCase() !== owner.toLowerCase()) return null;
     const sa = await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: factoryAbi, functionName: "getAddress", args: [rec, BigInt(0)] }).catch(() => null);
     return sa && sa.toLowerCase() === addr.toLowerCase() ? addr.toLowerCase() : null;
   }
@@ -60,14 +70,9 @@ export async function verifyLogin(body: { addr?: string; ts?: number; sig?: stri
 }
 
 /* ---------- display identity: username store + badge ---------- */
-// Reads the same registry as /api/profile/username (in-memory global + USERNAME_STORE_FILE). Best effort.
+// Same registry as /api/profile/username (lib/server/usernames: Upstash, local file fallback). Best effort.
 async function usernameOf(addr: string): Promise<string | undefined> {
-  const g = globalThis as unknown as { __discipleUsernames?: Map<string, string> };
-  let entries: [string, string][] = g.__discipleUsernames ? Array.from(g.__discipleUsernames.entries()) : [];
-  if (!entries.length) {
-    try { entries = Object.entries(JSON.parse(await fs.readFile(process.env.USERNAME_STORE_FILE || "/tmp/disciple-usernames.json", "utf8")) as Record<string, string>); } catch { /* none */ }
-  }
-  return entries.find(([, v]) => v === addr)?.[0];
+  try { return (await registryUsernameOf(addr)) ?? undefined; } catch { return undefined; }
 }
 const creatorCache = new Map<string, { c: string | null; at: number }>();
 async function creatorOf(coin: string): Promise<string | null> {

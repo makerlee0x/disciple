@@ -1,8 +1,8 @@
 /**
- * Share media abstraction. Today: a static PNG from /api/share/card. When GAME ships a deterministic replay hook,
- * add a `kind: "video"` producer here (same params) and ShareModal will share/download it unchanged.
+ * Share media abstraction: PNG from /api/share/card (imageMedia) or an MP4/WebM rendered in the browser from the
+ * deterministic replay + end card (lib/share/video.ts → videoMedia). ShareModal shares/downloads either unchanged.
  */
-export interface ShareParams { wallet: string | null; coin: string; ticker?: string; username?: string | null; demo?: boolean; at?: number }
+export interface ShareParams { wallet: string | null; coin: string; ticker?: string; username?: string | null; demo?: boolean; at?: number; loadout?: { skin: string; coin: string; thruster: string } }
 export interface ShareMedia {
   kind: "image" | "video";
   mime: string;
@@ -18,6 +18,7 @@ export function cardQuery(p: ShareParams, format: "story" | "og") {
   if (p.username) q.set("username", p.username);
   if (p.demo) q.set("demo", "1");
   if (p.at) q.set("at", String(p.at));
+  if (p.loadout) { q.set("skin", p.loadout.skin); q.set("nose", p.loadout.coin); q.set("thruster", p.loadout.thruster); }
   return q.toString();
 }
 export function imageMedia(p: ShareParams, format: "story" | "og" = "story"): ShareMedia {
@@ -31,3 +32,13 @@ export function imageMedia(p: ShareParams, format: "story" | "og" = "story"): Sh
 }
 /** Single entry point the modal uses; swap the body for a video producer later. */
 export function shareMediaFor(p: ShareParams): ShareMedia { return imageMedia(p, "story"); }
+
+/** Wrap an encoded video as ShareMedia (same interface as the PNG, so the modal shares/downloads it unchanged). */
+export function videoMedia(blob: Blob, mime: string, ext: string, ticker?: string): ShareMedia {
+  return { kind: "video", mime, url: URL.createObjectURL(blob), filename: `disciple-${(ticker || "trade").toLowerCase()}.${ext}`, blob: async () => blob };
+}
+/** Is a video render possible here at all? (replay hook is checked lazily in lib/share/video.getReplay) */
+export function canEncodeVideo(): boolean {
+  if (typeof window === "undefined") return false;
+  return typeof (window as unknown as { VideoEncoder?: unknown }).VideoEncoder !== "undefined" || typeof MediaRecorder !== "undefined";
+}
