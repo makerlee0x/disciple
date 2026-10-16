@@ -32,6 +32,40 @@ export function openDb(path: string): DB {
   );
   CREATE INDEX IF NOT EXISTS fee_token ON fee_events(token, kind);
   CREATE TABLE IF NOT EXISTS balances (token TEXT, holder TEXT, bal TEXT, PRIMARY KEY (token, holder));
+  CREATE TABLE IF NOT EXISTS tier_breaks (
+    id TEXT PRIMARY KEY, stack TEXT, token TEXT NOT NULL, source TEXT, from_tier INTEGER, to_tier INTEGER, mcap_usd TEXT, block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS tier_breaks_token ON tier_breaks(token, block);
+  CREATE TABLE IF NOT EXISTS keeper_tips (
+    id TEXT PRIMARY KEY, stack TEXT, order_id INTEGER, keeper TEXT, quote_tip TEXT, token_tip TEXT, block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS keeper_tips_keeper ON keeper_tips(keeper);
+  CREATE TABLE IF NOT EXISTS referrals (
+    stack TEXT, wallet TEXT, referrer TEXT, status TEXT, block INTEGER, ts INTEGER, tx TEXT, PRIMARY KEY (stack, wallet)
+  );
+  CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer);
+  -- last indexed block hash per stack, for reorg detection
+  CREATE TABLE IF NOT EXISTS block_hashes (stack TEXT, block INTEGER, hash TEXT, PRIMARY KEY (stack, block));
   `);
+  // additive migrations for DBs created by the v0 scaffold
+  const cols = (t: string) => new Set((db.prepare(`PRAGMA table_info(${t})`).all() as any[]).map((c) => c.name));
+  const add = (t: string, defs: Record<string, string>) => {
+    const have = cols(t);
+    for (const [c, d] of Object.entries(defs)) if (!have.has(c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`);
+  };
+  add("coins", {
+    tier: "INTEGER", altitude_mcap_usd: "TEXT", altitude_block: "INTEGER", start_mcap_usd: "TEXT", graduation_mcap_usd: "TEXT",
+    total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT",
+  });
+  add("orders", { placed_block: "INTEGER", keeper_quote_tip: "TEXT DEFAULT '0'", keeper_token_tip: "TEXT DEFAULT '0'" });
   return db;
+}
+
+/** Tables holding event-derived rows keyed by stack (used for reorg rewind / rebuild). */
+export function wipeStack(db: DB, stack: string) {
+  db.transaction(() => {
+    db.prepare("DELETE FROM balances WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
+    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes"])
+      db.prepare(`DELETE FROM ${t} WHERE stack=?`).run(stack);
+  })();
 }
