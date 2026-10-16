@@ -14,7 +14,7 @@ for (const f of ["pnl", "config"]) {
   const src = fs.readFileSync(path.join(dir, `../lib/${f}.ts`), "utf8").replace(/from "\.\/config"/g, 'from "./config.mjs"');
   fs.writeFileSync(path.join(tmp, f + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }
-const { applyFill, emptyPosition, view } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
 const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
@@ -73,3 +73,14 @@ S.simF = 0.9; if (!(uv(pos).uPnl < view(pos, 13200 / SUP, SUP, t0).uPnl)) bad("p
   delete window.__discipleTrade; }
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fail) process.exit(1); else console.log("PASS");
+
+// shared formatter: $ PnL always 2 decimals, compact ≥ $1K with 2 decimals, percents 1 decimal
+{ const eq = (a, b) => { if (a !== b) { console.error(`FAIL fmt: ${JSON.stringify(a)} !== ${JSON.stringify(b)}`); process.exit(1); } };
+  eq(fmtPnl(0.11), "+$0.11"); eq(fmtPnl(-0.11), "−$0.11"); eq(fmtPnl(0), "+$0.00"); eq(fmtPnl(-0.001), "+$0.00");
+  eq(fmtMoney(1.11), "$1.11"); eq(fmtMoney(1), "$1.00"); eq(fmtMoney(999.994), "$999.99"); eq(fmtMoney(1234), "$1.23K");
+  eq(fmtMoney(4_560_000), "$4.56M"); eq(fmtMoney(7.89e9), "$7.89B"); eq(fmtPnl(-1234.5), "−$1.23K");
+  eq(fmtPct(10.94), "+10.9%"); eq(fmtPct(-23.25), "−23.3%"); eq(fmtPct(0), "+0.0%");
+  const eng2 = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
+  const mirror = new Function(eng2.match(/function fmtMoney\(v\)\{[^\n]*\n/)[0] + eng2.match(/function fmtPnlUsd\(v\)\{[^\n]*\n/)[0] + "return [fmtMoney, fmtPnlUsd];")();
+  for (const v of [0, 0.11, -0.11, 1, 999.994, 1234, -1234.5, 4.56e6, 7.89e9]) { eq(mirror[0](v), fmtMoney(v)); eq(mirror[1](v), fmtPnl(v)); }
+  console.log("ok  shared PnL formatter (2-decimal $, compact K/M/B, 1-decimal %) + engine fallback mirror"); }

@@ -444,7 +444,7 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift({txt:`${e.side==='buy'?'▲ FUEL':'▼ BOMB'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
+      S.feed.unshift({txt:`${e.side==='buy'?'▲ BOOST':'▼ DUMP'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
     if (e.usd>0 && !e.mine && e.trader && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
@@ -564,15 +564,15 @@ function simTrade(){
   S.volEma+=usd; if(buy) S.buyEma+=usd; else S.sellEma+=usd;
   queueThrust(buy?'buy':'sell',usd,pct);
   if(!buy) noteSell({side:'sell',usd,impactPct:pct,trader:null,mine:false});
-  S.feed.unshift({txt:`${buy?'▲ FUEL':'▼ BOMB'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  sim${whale?' WHALE':''}`,c:buy?'rgba(159,243,200,.65)':'rgba(255,176,200,.65)'});
+  S.feed.unshift({txt:`${buy?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  sim${whale?' WHALE':''}`,c:buy?'rgba(159,243,200,.65)':'rgba(255,176,200,.65)'});
   S.feed.length=Math.min(S.feed.length,7);
 }
 setTimeout(pushSim,0);
-const AMMO_HIT=[0,1,2,3,4,5].map(()=>({x:-1,y:-1,w:0,h:0}));
+const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1,y:-1,w:0,h:0}));   // 0–5 ammo tiles · 6–9 SELL presets · 10 gear (Advanced)
 function pushAmmo(){ try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
   name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
-  const u=AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
+  const u=S.ammoOverride||AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
 function ammoTierStep(){ if(!AMMO_TIERS) return; const m=S.confirmed.mcap; if(!(m>0)) return; const T=AMMO_TIERS;
   if (S.rocketAmmoTier==null){ S.rocketAmmoTier=ammoTierOf(m); if(S.ammoTier==null) setAmmoTier(S.rocketAmmoTier); return; }
   let t=S.rocketAmmoTier;
@@ -580,7 +580,7 @@ function ammoTierStep(){ if(!AMMO_TIERS) return; const m=S.confirmed.mcap; if(!(
   else if (t>0 && m<T[t-1].maxMcap/AMMO_HYST) t--;
   if (t===S.rocketAmmoTier) return;
   const up=t>S.rocketAmmoTier; S.rocketAmmoTier=t;
-  if (up && t>S.ammoTier && !S.ammoKept[t]) try{ dispatchEvent(new CustomEvent('disciple:ammotier',{detail:{from:S.ammoTier,to:t,
+  if (up && t>S.ammoTier && !S.ammoKept[t] && !S.ammoOverride) try{ dispatchEvent(new CustomEvent('disciple:ammotier',{detail:{from:S.ammoTier,to:t,
     fromName:T[S.ammoTier].name,toName:T[t].name,usd:T[t].usd.slice(),current:MODES.map(q=>q.usd),mode:S.mode,mcap:m}})); }catch(_){}
   pushAmmo(); }
 S.ammoTier=null; S.rocketAmmoTier=null; S.ammoKept={};
@@ -588,6 +588,17 @@ addEventListener('disciple:ammo-upgrade',e=>{ const d=e.detail||{}; setAmmoTier(
 addEventListener('disciple:ammo-keep',e=>{ const d=e.detail||{}; if(d.tier!=null) S.ammoKept[d.tier]=1; });
 addEventListener('disciple:ammo-tier',e=>{ const d=e.detail||{}; if(d.tier!=null) setAmmoTier(d.tier); });
 addEventListener('disciple:ammo-query',()=>pushAmmo());
+/* Swap settings (components/trade/SwapSettings.tsx): custom $ presets override the mcap-scaled tier amounts; null = auto */
+addEventListener('disciple:ammo-override',e=>{ const u=e.detail&&e.detail.usd; S.ammoOverride=Array.isArray(u)&&u.length===MODES.length&&u.every(v=>v>0)?u.map(Number):null;
+  if(AMMO_TIERS&&S.ammoTier!=null) setAmmoTier(S.ammoTier); else if(S.ammoOverride){ for(let i=0;i<MODES.length;i++) MODES[i].usd=S.ammoOverride[i]; pushAmmo(); } });
+/* SELL row in the ammo panel: labels/enabled pushed by TradeBridge (which owns the sell sizing from the PnL ledger); clicks go back to it */
+S.sellPresets=[{label:'12%',key:'Z',on:false},{label:'33%',key:'X',on:false},{label:'77%',key:'C',on:false},{label:'INITIALS',key:'V',on:false}];
+addEventListener('disciple:sellpresets',e=>{ const a=e.detail&&e.detail.items; if(Array.isArray(a)) S.sellPresets=a.slice(0,4); });
+/* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
+S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
+addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
+function setPnlTag(on){ S.pnlTagOn=on==null?!S.pnlTagOn:!!on; try{ localStorage.setItem('disciple.pnltag',S.pnlTagOn?'on':'off'); }catch(_){} try{ dispatchEvent(new CustomEvent('disciple:pnltag-state',{detail:{on:S.pnlTagOn}})); }catch(_){} }
+addEventListener('disciple:pnltag',e=>setPnlTag(e.detail&&e.detail.on));
 /* mcap push for the React HUD (replaces its 500 ms poll): on change, at most 10×/s */
 /* PnL MARK — one price for what the player sees, trades at and is marked at.
    PAPER (no wallet bridge): the SHOWN price = confirmed mcap × simulated-market offset (and, for pool
@@ -644,6 +655,7 @@ function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|i
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode));
   if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0?{usd:d.usd,frac:d.frac}:undefined); });
 addEventListener('keydown',e=>{
+  { const t=e.target; if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||''))) return; }   // typing in chat / inputs: no game hotkeys
   S.keys[e.code]=true;
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
   if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat) trade('sell',{all:e.ctrlKey||e.metaKey}); }
@@ -654,6 +666,7 @@ addEventListener('keydown',e=>{
   if (!e.repeat&&(e.code==='KeyD'||e.code==='ArrowRight')) S.lane=Math.min(2,S.lane+1);
   if (e.code==='KeyW'||e.code==='ArrowUp') e.preventDefault();   // W/↑ held = mini acceleration (S.keys → S.wBoost; off-chain, no trade)
   if (e.code==='KeyO'&&!e.repeat) setOrbs(!S.orbsOn);
+  if (e.code==='KeyP'&&!e.repeat) setPnlTag();   /* position tag near the rocket */
   if (e.code==='KeyB'&&!e.repeat) setBombs(!S.bombsOn);
   if (e.code==='KeyF' && window.__flight.source.faster) window.__flight.source.faster();
   if (e.code==='KeyT' && source instanceof MockReplaySource){ source.turbo=!source.turbo; S.turbo=source.turbo; }
@@ -697,7 +710,10 @@ function ammoAt(e){ const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r
   for(let i=0;i<AMMO_HIT.length;i++){ const R=AMMO_HIT[i]; if(x>=R.x&&x<=R.x+R.w&&y>=R.y&&y<=R.y+R.h) return i; } return -1; }
 cv.addEventListener('pointermove',e=>{ const i=ammoAt(e); if(i!==S.ammoHover){ S.ammoHover=i; cv.style.cursor=i>=0?'pointer':''; } });
 cv.addEventListener('pointerleave',()=>{ S.ammoHover=-1; cv.style.cursor=''; });
-cv.addEventListener('pointerdown',e=>{ const i=ammoAt(e); if(i<0) return; e.preventDefault(); S.mode=i; pushAmmo(); });
+cv.addEventListener('pointerdown',e=>{ const i=ammoAt(e); if(i<0) return; e.preventDefault();
+  if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
+  if(i>=6){ dispatchEvent(new CustomEvent('disciple:sellpreset',{detail:{i:i-6}})); return; }
+  S.mode=i; pushAmmo(); });
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const names=[...new Set(TIERS.map(t=>t.bg).concat(['rocket']))];
@@ -1008,6 +1024,14 @@ function twStep(){ const cur=S.confirmed&&S.confirmed.mcap; if(!(cur>0)) return;
 function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':v>=1e3?'$'+(v/1e3).toFixed(1).replace(/\.0$/,'')+'K':'$'+Math.round(v); }
 /* low-frequency caches (were rebuilt every frame) */
 let _topT=-1, _top=[];
+/* chat dock with a HOLDERS tab (components/gamechat/GameChat.tsx) → the canvas KOTH panel steps aside; holders pushed ≤2 Hz on change */
+addEventListener('disciple:chatdock',e=>{ const d=e.detail||{}; S.kothDocked=!!(d.open&&d.holders); S._holdersSig=''; });
+addEventListener('disciple:controlsdock',e=>{ S.controlsDocked=!!(e.detail&&e.detail.docked); S._ctlSig=''; });
+function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const md=MODES[S.mode];
+  const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
+  const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
+function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
+  try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:S.fuelers&&S.fuelers.you||0}})); }catch(_){} }
 function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t; _top=Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
 let _twT=-1, _twSrc=null, _twLen=-1, _tw=[]; const TW_LIST=[]; let _pvRef=null, _pvObj=null;
 function twGroupsCached(){ const src=window.__trampWalls||null, len=src?src.length:0;
@@ -1109,31 +1133,43 @@ function drawHud(){
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
-  const top=topFuelers(); panel(RX,RT+100,310,96);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top fuelers (sim)':'KING OF THE HILL · top fuelers (mock)',RX+16,RT+120);
-  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`${i===0?'👑':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,RT+140+i*18); });
+  const top=topFuelers(), kothTitle=IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top fuelers (sim)':'KING OF THE HILL · top fuelers (mock)';
+  if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
+  else { panel(RX,RT+100,310,96);
+  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
+  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`${i===0?'👑':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,RT+140+i*18); }); }
   // bottom-left: trade feed (compact)
   panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText(IS_POOL?'TRADES (real onchain + your paper)':'TRADES (onchain only)',36,H-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; ctx.fillText(r.txt.slice(0,38),36,H-116+i*17); }); ctx.globalAlpha=1;
-  // bottom-right: controls (compact)
-  panel(RX,H-104,310,84);
-  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`MODE ${md.name} · ${fmtShot(md.usd)}/shot  [1-6 / click]`,RX+16,H-82);
+  // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
+  if (S.controlsDocked) pushControls(); else { panel(RX,H-104,310,84);
+  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · 1-6 / click`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
-  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); }
+  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
-  const am=autoMode(m), AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,82);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`AMMO · auto by depth: ${MODES[am].name} (${MODES[am].range})`,ax+12,ay+16);
+  const am=autoMode(m), AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16);
   MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
     ctx.strokeStyle=hov?'#fff':i===am?'#9ff3c8':'rgba(255,255,255,.2)'; ctx.lineWidth=hov||i===am?2:1; ctx.strokeRect(bx,by,72,30);
-    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillText(`${q.key} ${q.name}`,bx+5,by+13); ctx.font='10px ui-monospace,monospace'; ctx.fillText(fmtShot(q.usd)+(below?' ·min✗':''),bx+5,by+25); });
+    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+36,by+20); ctx.textAlign='left';
+    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+69,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
   ctx.font='11px ui-monospace,monospace';
   if (MODES[S.mode].usd<MIN_SHOT){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
-  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER $${S.balance.toFixed(2)} · min shot ${fmtShot(MIN_SHOT)} · gas ≈$${GAS_USD.toFixed(4)}`,ax+12,ay+72); }
-  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=ay+92+i*58, tx=Math.round(ax+(AW-300)/2); ctx.globalAlpha=a; panel(tx,y,300,50);
+  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
+  // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
+  { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
+    S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
+      ctx.globalAlpha=p.on?1:0.4; ctx.fillStyle=hov&&p.on?'rgba(160,50,80,.85)':'rgba(122,34,54,.55)'; ctx.fillRect(bx,sy,82,sh);
+      ctx.strokeStyle=hov?'#ffd0dc':'rgba(255,176,200,.25)'; ctx.lineWidth=1; ctx.strokeRect(bx+.5,sy+.5,81,sh-1);
+      ctx.fillStyle='#ffd0dc'; ctx.fillText(String(p.label).slice(0,9),bx+6,sy+14); ctx.fillStyle='rgba(255,208,220,.55)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+77,sy+14); ctx.textAlign='left'; ctx.globalAlpha=1; });
+    const gx=ax+AW-12-62, R=AMMO_HIT[10], hov=S.ammoHover===10; R.x=gx; R.y=sy; R.w=62; R.h=sh;
+    ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
+    ctx.fillStyle='#ffe7a3'; ctx.fillText('⚙ ADV',gx+10,sy+14); }
+  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=ay+118+i*58, tx=Math.round(ax+(AW-300)/2); ctx.globalAlpha=a; panel(tx,y,300,50);
     ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('★ ACHIEVEMENT · '+t.title,tx+14,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,tx+14,y+39); ctx.globalAlpha=1; });
   // tier banner
   if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
@@ -1677,9 +1713,33 @@ function simStep(stepDt){
   cloudStep(dt); shockStep(dt);
   twStep(); exhaustStep(dt);
 }
+/* POSITION TAG — compact label beside the rocket (perpendicular to its axis, so never on the nose or the trail),
+   eased toward its target each frame; values = PnlHud's lib/pnl.ts view() via disciple:pnlview. Shown only with a position. */
+function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.size>0)){ S._tagXY=null; return; }
+  const [nx,ny]=nozzleXY(), h=S.heading, dx=Math.cos(h), dy=-Math.sin(h), cx=nx+dx*55, cy=ny+dy*55;   // body centre
+  let px=-dy, py=dx; if(px<0){ px=-px; py=-py; } if(cx>W-360){ px=-px; py=-py; }                          // side away from the right HUD column
+  const TW=196, TH=58, off=78; let tx=cx+px*off-(px<0?TW:0), ty=cy+py*off-TH/2;
+  tx=clamp(tx,SAFE_LEFT,W-TW-12); ty=clamp(ty,HUD_BOTTOM,H-TH-170);
+  const P=S._tagXY||(S._tagXY={x:tx,y:ty}); P.x+=(tx-P.x)*0.18; P.y+=(ty-P.y)*0.18;
+  const up=v.uPnl>=0, col=up?'#8ff0c0':'#ff9fb8', x=Math.round(P.x), y=Math.round(P.y);
+  ctx.save(); ctx.globalAlpha=0.92; ctx.fillStyle='rgba(8,10,24,.78)'; ctx.fillRect(x,y,TW,TH); ctx.fillStyle=col; ctx.fillRect(x,y,3,TH);
+  ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.lineWidth=1; ctx.strokeRect(x+.5,y+.5,TW-1,TH-1);
+  ctx.textBaseline='alphabetic'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col;
+  const T=v.txt||{pnl:fmtPnlUsd(v.uPnl),pct:(v.pnlPct<0?'−':'+')+Math.abs(v.pnlPct).toFixed(1)+'%',pos:fmtMoney(v.valueUsd),realized:fmtPnlUsd(v.realized)};   // txt = lib/pnl.ts fmtPnl/fmtPct/fmtMoney
+  ctx.fillText(`${T.pnl} ${T.pct}`,x+10,y+16);
+  ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
+  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)} tok`,x+10,y+31);
+  ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
+  ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
+  ctx.restore(); }
+/* fallback mirror of lib/pnl.ts fmtMoney/fmtPnl (React normally sends preformatted txt) */
+function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e9?(a/1e9).toFixed(2)+'B':a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(2)+'K':a.toFixed(2)); }
+function fmtPnlUsd(v){ return (v<0&&Math.abs(v)>=0.005?'−':'+')+fmtMoney(Math.abs(v)); }
+function fmtTok(n){ return n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n.toFixed(0); }
+function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }
 function render(dt){
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
@@ -1692,6 +1752,6 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,setPnlTag,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
