@@ -64,5 +64,5 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 
 ## 8. Open security items (from security-review.md)
 - SEC-01 (High) is fixed in #27, and the redeploy must include it. The live testnet v2 stays vulnerable until then.
-- SEC-02 and SEC-03 (Medium) are fixed in source on flow/jit-twap (hook LP-add gate, TrampWallManager hold + fee vesting, truncated TWAP oracles); they ship with that redeploy. Ops: run a `QuotePricer.poke` keeper (~60 s), add TrampWallManager to the Safe ownership list, and verify `hook.isLiquidityManager(lockedLP/twm)`. SEC-04 is addressed by the Safe plus timelock.
+- SEC-02 and SEC-03 (Medium) are fixed in source on PR #44 (hook LP-add gate, TrampWallManager 5-min hold, QuotePricer truncated TWAP); they ship with that redeploy. Ops: run a `QuotePricer.poke` keeper (~60 s), add TrampWallManager to the Safe ownership list, and verify `hook.isLiquidityManager(lockedLP/twm)`, and run a tramp/wall `pull` bot (earns `keeperTipBps`). SEC-04 is addressed by the Safe plus timelock.
 - SEC-05 to SEC-09 are documented and accepted or tracked.

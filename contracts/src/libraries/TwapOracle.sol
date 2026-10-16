@@ -5,7 +5,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Truncated, time-weighted tick oracle (ring buffer of tick accumulators)
-/// @notice Shared by DiscipleHook (post-grad pools), BondingCurve (curve phase) and QuotePricer (reference pool).
+/// @notice Used by QuotePricer (reference pool, lagged mode). Generic: non-lagged mode suits hook-written pools.
 ///         Ticks are always in "quote per token" orientation (callers convert pool ticks).
 /// @dev Manipulation resistance, Uniswap-v3 style:
 ///      - at most one observation per block (the first write in a block wins);

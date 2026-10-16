@@ -57,19 +57,6 @@
   },
   {
     "type": "function",
-    "name": "MAX_TICK_DELTA",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "int24",
-        "internalType": "int24"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "altitudeTier",
     "inputs": [],
     "outputs": [
@@ -77,19 +64,6 @@
         "name": "",
         "type": "uint8",
         "internalType": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "altitudeWindow",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint32",
-        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -757,30 +731,6 @@
   },
   {
     "type": "function",
-    "name": "twapMcapUsd",
-    "inputs": [
-      {
-        "name": "window",
-        "type": "uint32",
-        "internalType": "uint32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "mcapUsd",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "actualWindow",
-        "type": "uint32",
-        "internalType": "uint32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "walletCapBps",
     "inputs": [],
     "outputs": [
@@ -803,13 +753,7 @@
         "internalType": "address"
       },
       {
-        "name": "twapMcapUsd",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "spotMcapUsd",
+        "name": "mcapUsd",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -819,12 +763,6 @@
         "type": "uint8",
         "indexed": false,
         "internalType": "uint8"
-      },
-      {
-        "name": "window",
-        "type": "uint32",
-        "indexed": false,
-        "internalType": "uint32"
       }
     ],
     "anonymous": false
@@ -883,7 +821,7 @@
         "internalType": "uint8"
       },
       {
-        "name": "twapMcapUsd",
+        "name": "mcapUsd",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -992,11 +930,6 @@
   {
     "type": "error",
     "name": "OnlyLaunchpad",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "OracleUninitialized",
     "inputs": []
   },
   {

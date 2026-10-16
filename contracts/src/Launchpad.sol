@@ -55,11 +55,6 @@ contract Launchpad is ILaunchpad {
 
     uint256 public launchCount;
 
-    /// @notice TWAP window (seconds) curves use for altitude tiers (read live by every curve). Owner-settable.
-    uint32 public altitudeWindow = 300;
-
-    event AltitudeWindowSet(uint32 window);
-
     /// @notice Creator same-tx buy cap in bps of supply (protocol owner only; never the coin creator).
     uint256 public creatorBuyMaxBps = Constants.CREATOR_BUY_MAX_BPS_DEFAULT;
     /// @notice Cap snapshotted per coin at launch (later changes only affect future coins).
@@ -79,7 +74,6 @@ contract Launchpad is ILaunchpad {
     error PricerUnset();
     error CurveDeployerUnset();
     error CreatorBuyMaxTooHigh();
-    error AltitudeWindowInvalid();
     error WalletCapTooHigh();
 
     event Launched(
@@ -139,13 +133,6 @@ contract Launchpad is ILaunchpad {
         if (bps > Constants.BPS_DENOM) revert WalletCapTooHigh();
         walletCapBps = bps;
         emit WalletCapSet(bps);
-    }
-
-    function setAltitudeWindow(uint32 w) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (w == 0 || w > 1 days) revert AltitudeWindowInvalid();
-        altitudeWindow = w;
-        emit AltitudeWindowSet(w);
     }
 
     function setPricer(address pricer_) external {

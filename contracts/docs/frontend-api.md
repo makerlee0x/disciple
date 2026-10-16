@@ -105,7 +105,7 @@ DEFAULT_QUOTE=0x168661C52E5922288dFb2b3f323b6Cf90eb21e18 DEFAULT_QUOTE_POOL_FEE=
 
 ## Tramps & walls (`TrampWallManager`, graduated coins only)
 
-These are single-sided concentrated v4 LP ranges in the coin's DISCIPLE pool. "Price" here means quote per token.
+These are single-sided concentrated v4 LP ranges in the coin's DISCIPLE pool, and they behave like **limit orders**. "Price" here means quote per token. A tramp is a floor: it buys the dip. A wall is a sell wall: it sells into pumps. Placement is always one-sided: a two-sided or straddling range reverts.
 
 | | Side | Placement rule | When it is "filled" |
 |---|---|---|---|
@@ -117,15 +117,20 @@ Ticks must be multiples of `tickSpacing` (60). Placement reverts with `NotSingle
 Writes: approve the manager once per asset. Positions are held by the manager and tracked per user by id.
 - `placeTramp(token, tickLower, tickUpper, quoteAmt, minLiquidity, deadline) → (id, liquidity)`
 - `placeWall(token, tickLower, tickUpper, tokenAmt, minLiquidity, deadline) → (id, liquidity)`
-- `cancel(id) → (quoteOut, tokenOut)` (owner only). Returns the remaining principal of both assets plus accrued fees.
-- `claimFees(id) → (quoteFees, tokenFees)` (owner only)
-- `pull(id) → (quoteOut, tokenOut)`. Permissionless keeper call that only works once `isFilled(id)` is true; everything goes to the owner, and v0 pays no tip.
+- `cancel(id) → (quoteOut, tokenOut)` (owner only, after `unlockAt(id)`). Returns the remaining principal of both assets plus 100% of accrued fees.
+- `claimFees(id) → (quoteFees, tokenFees)` (owner only, any time, 100% of fees).
+- `pull(id) → (quoteOut, tokenOut)`: **auto-close of a filled order.** It is permissionless and works once `isFilled(id)` is true and `unlockAt(id)` has passed.
+  - The owner receives proceeds + fees minus the keeper tip; the return values and `Filled` amounts are the owner's net.
+  - The caller receives `keeperTipBps` (default 10 = 0.1%, owner-settable, max 100 = 1%) of each asset paid out, reported in `KeeperTipPaid`.
+  - Bots watch `isFilled` and close filled orders. The UI can also offer a "close now" button; when the owner calls it, they pay the tip to themselves.
+- Minimum hold (SEC-02 anti-JIT): `minHoldSeconds` (default 300 s, owner-settable). `cancel` and `pull` revert `HoldActive(unlockAt)` before that time.
 
 Views:
 - `poolState(token)`, `poolKeyOf(token)`
 - `positions(id) → (owner, token, tickLower, tickUpper, liquidity, kind (0 tramp / 1 wall), active)`
 - `positionsOf(owner) → uint256[]`
 - `pendingFees(id) → (quoteFees, tokenFees)`, `isFilled(id)`, `nextId()`
+- `placedAt(id)`, `unlockAt(id)`, `minHoldSeconds()`, `keeperTipBps()`, `MAX_KEEPER_TIP_BPS()`, `owner()`
 
 Events (every one carries tick ranges for chart lines):
 - `TrampPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 quoteAmt)`
@@ -133,8 +138,23 @@ Events (every one carries tick ranges for chart lines):
 - `Filled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, address keeper)`
 - `Cancelled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, uint256 quoteFees, uint256 tokenFees)`
 - `FeesClaimed(uint256 indexed id, address indexed owner, address indexed token, uint256 quoteFees, uint256 tokenFees)`
+- `KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)` (emitted by `pull`, before `Filled`)
+- `MinHoldSet(uint32)`, `KeeperTipSet(uint16)`, `OwnerTransferred(address indexed)`
 
-Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLow(uint128)`, `NotOwner`, `Inactive`, `NotFilled`, `ZeroAmount`.
+Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLow(uint128)`, `NotOwner`, `Inactive`, `NotFilled`, `ZeroAmount`, `HoldActive(uint256 unlockAt)`, `OnlyOwner`, `BadParam`.
+
+LP adds to DISCIPLE pools from anything other than LockedLP or TrampWallManager are rejected by the hook (`OnlyLiquidityManager`).
+
+## Altitude events (spot)
+After every `Trade`, BondingCurve (pre-grad) and DiscipleHook (post-grad) emit:
+- `AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier)`. `mcapUsd` equals `Trade.mcapAfterUsd`, which is the spot price after the trade.
+- `TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd)`, emitted only when the tier changes (either direction).
+- `tier` is the index into the 18-tier `TIERS` ladder (0 = LAUNCH PAD … 17 = SEVENTH HEAVEN).
+- At graduation the hook emits one `AltitudeUpdate` at the curve-end mcap, and the hook's stream takes over.
+- Getters: `BondingCurve.altitudeTier()` and `DiscipleHook.altitudeTierOf(poolId)`.
+
+## QuotePricer
+`quotePriceUsd(quote)` is a truncated TWAP (default 30 min window, ±2000 ticks per poke). It is used to bake the curve's USD targets at launch, and it is also the live mcap quote price. Use `spotPriceUsd(quote)` for display. `poke(quote)` is permissionless.
 
 **Earnings.** On every post-grad swap, `DiscipleHook` donates `donationOf(fee)` (11% of the 1% fee, which is 1/3 of the 33% LP share) to in-range liquidity, and emits `LPDonation(token, currency, amount)`. The remaining 2/3 of the LP share still goes to LockedLP, and creator, treasury and referral shares are unchanged. The full-range LockedLP position is always in range, so it receives its pro-rata part of every donation. Tramps and walls earn only while the price is inside their range. Exact-in buys donate in the launch token; sells donate in quote.
 

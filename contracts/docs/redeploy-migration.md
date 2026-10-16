@@ -47,66 +47,91 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 
 ---
 
-# JIT / TWAP / altitude redeploy (PR "flow/jit-twap", batched with #35 wallet cap) — 2026-10-16
+# JIT guard / QuotePricer TWAP / tramp-wall auto-close / spot altitude (PR #44 `flow/jit-twap`, batched with #35 wallet cap). Revised 2026-10-16.
 
-**Status:** code + tests only. NOT deployed. Supersedes #35's "partial redeploy" note: the hook's permission bits change, so the v4 side must be redeployed too.
+**Status:** code + tests only. NOT deployed. This supersedes #35's "partial redeploy" note. The hook's permission bits change, so the v4 side must be redeployed too.
+
+**Revision 2 (user decisions):**
+- Altitude/tier breaks use **SPOT** mcap; there is no TWAP and no window setter.
+- The hook no longer keeps an oracle. The TWAP lives only in QuotePricer, for the launch-time quote price.
+- TrampWallManager **fee vesting has been removed**; the 5-min hold stays.
+- Filled tramps/walls are **auto-closed** by keepers for a small tip.
+- Donation is unchanged: 11% of the 1% fee goes to in-range LPs, LockedLP included.
 
 ## Why the scope grows
-- `DiscipleHook` now needs `BEFORE_ADD_LIQUIDITY_FLAG` (SEC-02 gate). Hook permissions are encoded in the hook **address**, so a new salt must be mined and the hook redeployed. Every contract that stores the hook immutably follows.
-- `LockedLP` cannot be shared between the old and new stacks: it has a single `migration` slot, so re-pointing it at the new Migration would make every **pre-grad v3 coin's graduation revert** (`Unauthorized` on `addLockedLiquidity`). Deploy a fresh one.
+- `DiscipleHook` now needs `BEFORE_ADD_LIQUIDITY_FLAG` for the SEC-02 LP-add gate. Hook permissions are encoded in the hook **address**, so a new salt must be mined and the hook redeployed. Every contract that stores the hook immutably follows.
+- `LockedLP` cannot be shared between the old and new stacks. It has a single `migration` slot, so re-pointing it would make every **pre-grad v3 coin's graduation revert** (`Unauthorized`). Deploy a fresh one.
 
 ## Redeploy list
 | Contract | Redeploy? | Reason |
 |---|---|---|
-| DiscipleHook | **yes** (re-mine salt: `BEFORE_ADD_LIQUIDITY | BEFORE_SWAP | AFTER_SWAP | AFTER_SWAP_RETURNS_DELTA`) | flags, TWAP oracle, altitude events, LP gate |
+| DiscipleHook | **yes**; re-mine the salt for `BEFORE_ADD_LIQUIDITY \| BEFORE_SWAP \| AFTER_SWAP \| AFTER_SWAP_RETURNS_DELTA` | new flags, LP gate, altitude events |
 | Migration | **yes** | immutable `hook` |
-| LockedLP | **yes** | see above (single migration slot); new hook's pools |
-| TrampWallManager | **yes** | immutable `hook`/`lockedLP`; hold + fee vesting; now has an `owner` |
+| LockedLP | **yes** | single migration slot (see above) |
+| TrampWallManager | **yes** | immutable `hook`/`lockedLP`; min hold, keeper tip, new `owner` |
 | DiscipleRouter | **yes** | immutable `hook`/`lockedLP` |
 | QuotePricer | **yes** | TWAP + `poke` (state layout change) |
-| Launchpad, CurveDeployer (→ BondingCurve) | **yes** | #35 wallet cap + `altitudeWindow` + pricer poke; curve oracle/altitude |
-| AntiSnipe, AnonLauncher, MarketLens | **yes** | immutable `launchpad` (MarketLens also new `twapMcapUsd`) |
-| FeeRouter | yes (recommended) | owner-settable, but `setLaunchpad` is single-valued (old coins' creator lookup); simplest is the full `Deploy.s.sol` stack. If reused: `setLaunchpad(new)`, `setLockedLP(new)`, `setAuthorized(newHook,true)` |
-| RewardsVault, ReferralRegistry | optional reuse | owner-settable wiring (`vault.setFeeRouter`) |
+| Launchpad, CurveDeployer (→ BondingCurve) | **yes** | #35 wallet cap, pricer poke on launch, curve altitude events |
+| AntiSnipe, AnonLauncher, MarketLens | **yes** | immutable `launchpad` (MarketLens code itself is unchanged) |
+| FeeRouter | yes (recommended) | owner-settable, but `setLaunchpad` is single-valued (old coins' creator lookup). If reused, call `setLaunchpad(new)`, `setLockedLP(new)` and `setAuthorized(newHook,true)` |
+| RewardsVault, ReferralRegistry | optional reuse | owner-settable wiring |
 | PoolManager / Quoter / StateView / UR / Permit2 / mUSDG / STRATEGY / ref pool | reuse | — |
 
-`script/Deploy.s.sol` already does all of it (it now also calls `hook.setLiquidityManager(lockedLP)` and `hook.setLiquidityManager(trampWall)`). **New post-deploy checks:** `hook.isLiquidityManager(lockedLP) && hook.isLiquidityManager(twm)` (if LockedLP is missing, graduation reverts); `QuotePricer.setPricePool` initializes the quote oracle; run a keeper that calls `QuotePricer.poke(STRATEGY)` every ~60 s (anyone can; Launchpad also pokes on each launch); add TrampWallManager to the Safe ownership transfer list.
+`script/Deploy.s.sol` does all of this. It also calls `hook.setLiquidityManager(lockedLP)` and `hook.setLiquidityManager(trampWall)`.
 
-Sizes (runtime): Hook 12,645 B · BondingCurve 15,734 · CurveDeployer 17,990 · Launchpad 14,566 · TrampWallManager 12,817 · QuotePricer 7,542 · MarketLens 3,141 — all < 24,576.
+**Post-deploy checks:**
+- `hook.isLiquidityManager(lockedLP) && hook.isLiquidityManager(twm)`. If LockedLP is missing, graduation reverts.
+- `QuotePricer.setPricePool` initializes the quote oracle.
+- Run a keeper that calls `QuotePricer.poke(STRATEGY)` about every 60 s. Anyone can call it, and Launchpad also pokes on each launch.
+- Run, or let third parties run, a **tramp/wall closer bot**: watch `isFilled(id)` and call `pull(id)`. It earns `keeperTipBps`.
+- Add TrampWallManager to the Safe ownership transfer.
+
+Sizes (runtime, all < 24,576 B):
+- Hook 8,258 B
+- BondingCurve 11,506 B
+- CurveDeployer 13,748 B
+- Launchpad 14,358 B
+- TrampWallManager 12,395 B
+- QuotePricer 7,542 B
+- MarketLens 2,380 B
 
 ## New owner/admin parameters (defaults)
 | Where | Setter | Default | Meaning |
 |---|---|---|---|
-| DiscipleHook (admin) | `setAltitudeWindow(uint32)` 1..86400 | 300 s | TWAP window for post-grad tiers |
-| DiscipleHook | `setMaxTickDelta(int24)` | 9116 | truncation per observation (~×2.49/block) |
-| DiscipleHook | `setLiquidityManager(addr,bool)` | — | LP add allowlist |
-| Launchpad (owner) | `setAltitudeWindow(uint32)` 1..86400 | 300 s | TWAP window for curve-phase tiers (read live by all new curves) |
-| Launchpad | `setWalletCapBps` (#35) | 0 | per-wallet curve cap |
-| QuotePricer (owner) | `setTwapParams(window, maxTickDelta)` | 1800 s, 2000 | quote/USD TWAP |
-| TrampWallManager (owner) | `setJitParams(minHold, vest)` ≤ 7 d | 300 s, 3600 s | hold before cancel/pull; linear fee vesting |
+| DiscipleHook (admin) | `setLiquidityManager(addr,bool)` | LockedLP + TWM | LP add allowlist |
+| QuotePricer (owner) | `setTwapParams(window, maxTickDelta)` | 1800 s, 2000 | quote/USD TWAP for launch price |
+| TrampWallManager (owner) | `setMinHold(uint32)` ≤ 7 d | 300 s | hold before cancel/pull |
+| TrampWallManager (owner) | `setKeeperTipBps(uint16)` ≤ 100 (1%) | 10 (0.1%) | keeper tip on pull |
+| Launchpad (owner) | `setWalletCapBps` (#35) | 0 | per-wallet curve cap |
 
 ## ABI / event changes for SITE / GAME
-**Trade event: unchanged** (same signature, same fields; `mcapAfterUsd` is still SPOT). All existing events keep their shapes.
+**The `Trade` event is unchanged**, and all pre-existing events keep their shapes.
 
-New interface `IAltitudeEvents`, emitted by **BondingCurve (pre-grad)** and **DiscipleHook (post-grad)** right after each `Trade`:
+New `IAltitudeEvents`, emitted by **BondingCurve (pre-grad)** and **DiscipleHook (post-grad)** right after every `Trade` from the same contract:
 ```solidity
-event AltitudeUpdate(address indexed token, uint256 twapMcapUsd, uint256 spotMcapUsd, uint8 tier, uint32 window);
-event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 twapMcapUsd);
+event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier);
+event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd);
 ```
-- `tier` is the 0..17 index of `web/lib/config.ts` `TIERS` (same breakpoints, `Altitude.tierOf`).
-- **GAME:** drive tier breaks / altitude rewards / achievements from `TierBreak` (or `AltitudeUpdate.tier`), **not** from `Trade.mcapAfterUsd`. The rocket's visual height can keep following spot; "breaks" must follow TWAP.
-- `window` = seconds actually covered (shorter while a coin/pool is young; 0 at the first observation).
-- At graduation the hook emits one `AltitudeUpdate` (window 0) at the seeded curve-end mcap (normally tier 4, PEARLY GATES) without a `TierBreak`; from then on the hook's stream supersedes the curve's for that token. The curve's stream may still be at a lower tier at that point because its TWAP lags.
-- Old (v3) coins don't emit these; SITE/GAME keep the spot fallback for them.
+- Altitude is **spot**: `mcapUsd` == the `Trade.mcapAfterUsd` just emitted. `tier` is the 0..17 index of `web/lib/config.ts` `TIERS`, using the same breakpoints as `Altitude.tierOf`.
+- `TierBreak` fires on any spot tier change, up or down, on the trade that caused it. GAME can use it directly or keep deriving tiers from `Trade.mcapAfterUsd`; both give the same result.
+- At graduation the hook emits one `AltitudeUpdate` at the seeded curve-end mcap (normally tier 4, PEARLY GATES), with no `TierBreak`. From then on the hook's stream replaces the curve's.
+- Getters: `BondingCurve.altitudeTier()` and `DiscipleHook.altitudeTierOf(PoolId)`.
+- Old (v3) coins don't emit these events.
 
-Function additions:
-- DiscipleHook: `twapTick(PoolId,uint32)`, `twapPriceX18(PoolId,uint32)`, `twapMcapUsd(PoolId,uint32)`, `oracleState(PoolId)`, `altitudeTierOf(PoolId)`, `altitudeWindow()`, `maxTickDelta()`, `isLiquidityManager(address)`, setters above; events `LiquidityManagerSet`, `AltitudeWindowSet`, `MaxTickDeltaSet`; errors `OnlyLiquidityManager`, `BadParam`.
-- BondingCurve: `twapMcapUsd(uint32)`, `altitudeWindow()`, `altitudeTier()`, `MAX_TICK_DELTA()`.
-- Launchpad: `altitudeWindow()`, `setAltitudeWindow`, event `AltitudeWindowSet`, error `AltitudeWindowInvalid` (+ #35's `walletCapBps`, `walletCapBpsOf`, `setWalletCapBps`, `WalletCapSet`, `WalletCapTooHigh`).
-- QuotePricer: `poke(address)`, `twapTick(address)`, `spotPriceUsd(address)`, `twapWindow()`, `maxTickDelta()`, `setTwapParams`; events `TwapParamsSet`, `Poked`; error `BadParam`. **Behaviour change:** `quotePriceUsd` is now the TWAP (display spot via `spotPriceUsd`).
-- MarketLens: `twapMcapUsd(address token, uint32 window)` (falls back to spot with window 0 on old coins). `market`/`mcapNow` stay spot (display).
-- TrampWallManager: `owner()`, `transferOwnership`, `setJitParams`, `minHoldSeconds()`, `feeVestSeconds()`, `MAX_HOLD()`, `placedAt(id)`, `unlockAt(id)`, `vestedBps(id)`, `claimableFees(id)`; events `JitParamsSet`, `OwnerTransferred`, `FeesForfeited(id, to, quoteFees, tokenFees)`; errors `OnlyOwner`, `BadParam`, `HoldActive(unlockAt)`. `positions(id)` tuple is **unchanged**.
-  - **Semantics change:** `cancel`/`pull` revert `HoldActive` for `minHoldSeconds` after placement (UI: show a countdown from `unlockAt`). `claimFees`/`cancel`/`pull` pay only the vested share of fees; the rest goes to the treasury (`FeesForfeited`). `Cancelled.quoteFees/tokenFees` now report the **paid (vested)** fees. `pendingFees` stays gross; show `claimableFees` in the UI, and warn that claiming early forfeits the unvested part permanently.
-  - Raw v4 LP adds to DISCIPLE pools (any router other than LockedLP/TrampWallManager) now revert.
+Function changes:
+- **DiscipleHook:** `isLiquidityManager(address)`, `setLiquidityManager`, `altitudeTierOf(PoolId)`; event `LiquidityManagerSet`; error `OnlyLiquidityManager`. Raw v4 LP adds to DISCIPLE pools (any router other than LockedLP/TWM) now revert.
+- **BondingCurve:** `altitudeTier()`.
+- **Launchpad:** #35's `walletCapBps`, `walletCapBpsOf`, `setWalletCapBps`, `WalletCapSet`, `WalletCapTooHigh`. `launch` now pokes the pricer (no ABI change).
+- **QuotePricer:** `poke(address)`, `twapTick(address)`, `spotPriceUsd(address)`, `twapWindow()`, `maxTickDelta()`, `setTwapParams`; events `TwapParamsSet`, `Poked`; error `BadParam`. **Behaviour change:** `quotePriceUsd` is now the TWAP (use `spotPriceUsd` for display).
+- **TrampWallManager:**
+  - Additions: `owner()`, `transferOwnership`, `setMinHold`, `setKeeperTipBps`, `minHoldSeconds()`, `MAX_HOLD()`, `keeperTipBps()`, `MAX_KEEPER_TIP_BPS()`, `placedAt(id)`, `unlockAt(id)`.
+  - New events: `MinHoldSet`, `KeeperTipSet`, `OwnerTransferred`, `KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)`.
+  - New errors: `OnlyOwner`, `BadParam`, `HoldActive(uint256 unlockAt)`.
+  - `positions(id)` is **unchanged**.
+  - **Semantics:**
+    - `cancel` and `pull` revert `HoldActive` for `minHoldSeconds` after placement. The UI should show a countdown to `unlockAt(id)`.
+    - `pull` now pays a keeper tip to `msg.sender`: `keeperTipBps` of each asset paid out (proceeds + fees). `Filled.quoteOut/tokenOut` are the owner's net amounts; the tip is in `KeeperTipPaid`.
+    - `cancel` and `claimFees` pay 100% of fees (no vesting, no forfeits).
+- MarketLens: unchanged.
 
-Web bundle ABIs regenerated: DiscipleHook, BondingCurve, Launchpad, QuotePricer, TrampWallManager, MarketLens (`deployments/web-bundle/abi/*.json` + `index.ts`). Addresses unchanged until broadcast.
+The web-bundle ABIs are regenerated (`deployments/web-bundle/abi/*.json` + `index.ts`). Addresses stay unchanged until broadcast.

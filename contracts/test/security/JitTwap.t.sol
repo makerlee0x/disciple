@@ -10,9 +10,9 @@ import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
+import {ITradeEvents} from "../../src/interfaces/ITradeEvents.sol";
 import {IAltitudeEvents} from "../../src/interfaces/IAltitudeEvents.sol";
 import {Altitude} from "../../src/libraries/Altitude.sol";
-import {MarketLens} from "../../src/addons/MarketLens.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -21,7 +21,7 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @notice SEC-02 (JIT) + SEC-03 (TWAP) + altitude-on-TWAP simulations.
+/// @notice SEC-02 (JIT hold + LP gate), SEC-03 (QuotePricer TWAP), limit-order auto-close, altitude on spot.
 contract JitTwapTest is IntegrationBase {
     using PoolIdLibrary for PoolKey;
 
@@ -72,11 +72,6 @@ contract JitTwapTest is IntegrationBase {
 
     function _tIs0() internal view returns (bool) {
         return uint160(address(tok)) < uint160(address(quote));
-    }
-
-    function _spotTokenTick() internal view returns (int24) {
-        (int24 t,,,) = twm.poolState(address(tok));
-        return _tIs0() ? t : -t;
     }
 
     function _floor(int24 t, int24 ts) internal pure returns (int24) {
@@ -153,134 +148,27 @@ contract JitTwapTest is IntegrationBase {
         twm.pull(id);
     }
 
-    function test_jit_add_swap_remove_one_block_earns_nothing() public {
-        vm.prank(twm.owner());
-        twm.setJitParams(0, 3600); // even with no hold, vesting zeroes same-block fees
-        uint256 id = _jitAroundSells(jit);
-        (uint256 pq, uint256 pt) = twm.pendingFees(id);
-        uint256 tq0 = quote.balanceOf(treasury);
-        uint256 tt0 = tok.balanceOf(treasury);
-        (uint256 cq, uint256 ct) = twm.claimableFees(id);
-        assertEq(cq + ct, 0, "nothing claimable at age 0");
-
-        vm.recordLogs();
-        vm.prank(jit);
-        twm.cancel(id);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bool forfeited;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == TrampWallManager.Cancelled.selector) {
-                (,,,, uint256 qf, uint256 tf) =
-                    abi.decode(logs[i].data, (int24, int24, uint256, uint256, uint256, uint256));
-                assertEq(qf + tf, 0, "JIT fees paid");
-            }
-            if (logs[i].topics[0] == TrampWallManager.FeesForfeited.selector) forfeited = true;
-        }
-        assertTrue(forfeited);
-        // every wei of accrued donation went to the treasury instead (±1 rounding)
-        assertApproxEqAbs(quote.balanceOf(treasury) - tq0, pq, 1);
-        assertApproxEqAbs(tok.balanceOf(treasury) - tt0, pt, 1);
-    }
-
-    function test_jit_fees_vest_linearly_and_fully_after_period() public {
-        uint256 id = _jitAroundSells(alice);
-        (uint256 pq, uint256 pt) = twm.pendingFees(id);
-        _next(1800); // half vested
-        assertEq(twm.vestedBps(id), 5000);
-        (uint256 cq, uint256 ct) = twm.claimableFees(id);
-        assertApproxEqAbs(cq, pq / 2, 1);
-        assertApproxEqAbs(ct, pt / 2, 1);
-        _next(1800); // fully vested
-        uint256 q0 = quote.balanceOf(alice);
-        uint256 t0 = tok.balanceOf(alice);
-        uint256 tq0 = quote.balanceOf(treasury);
-        vm.prank(alice);
-        (uint256 fq, uint256 ft) = twm.claimFees(id);
-        assertApproxEqAbs(fq, pq, 1);
-        assertApproxEqAbs(ft, pt, 1);
-        assertEq(quote.balanceOf(alice) - q0, fq);
-        assertEq(tok.balanceOf(alice) - t0, ft);
-        assertEq(quote.balanceOf(treasury), tq0, "no forfeit when vested");
-    }
-
-    function test_jit_honest_cancel_after_hold_partial_vest() public {
-        uint256 id = _jitAroundSells(alice);
-        (uint256 pq, uint256 pt) = twm.pendingFees(id);
-        _next(300);
-        uint256 tq0 = quote.balanceOf(treasury);
-        uint256 tt0 = tok.balanceOf(treasury);
-        vm.prank(alice);
-        twm.cancel(id);
-        // 300/3600 vested → ~91.7% forfeited
-        uint256 forfeitQ = quote.balanceOf(treasury) - tq0;
-        uint256 forfeitT = tok.balanceOf(treasury) - tt0;
-        assertApproxEqAbs(forfeitQ, pq - pq * 833 / 10_000, pq / 1000 + 2);
-        assertApproxEqAbs(forfeitT, pt - pt * 833 / 10_000, pt / 1000 + 2);
-    }
-
-    function test_jit_params_owner_only_and_bounded() public {
+    function test_twm_params_owner_only_and_bounded() public {
         vm.prank(alice);
         vm.expectRevert(TrampWallManager.OnlyOwner.selector);
-        twm.setJitParams(1, 1);
+        twm.setMinHold(1);
         vm.expectRevert(TrampWallManager.BadParam.selector);
-        twm.setJitParams(8 days, 1);
-        twm.setJitParams(600, 7200);
+        twm.setMinHold(8 days);
+        twm.setMinHold(600);
         assertEq(twm.minHoldSeconds(), 600);
-        assertEq(twm.feeVestSeconds(), 7200);
+        vm.prank(alice);
+        vm.expectRevert(TrampWallManager.OnlyOwner.selector);
+        twm.setKeeperTipBps(5);
+        vm.expectRevert(TrampWallManager.BadParam.selector);
+        twm.setKeeperTipBps(101);
+        twm.setKeeperTipBps(100);
+        assertEq(twm.keeperTipBps(), 100);
         vm.prank(alice);
         vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
         hook.setLiquidityManager(alice, true);
     }
 
     // ───────────── SEC-03: TWAP manipulation ─────────────
-
-    function _buildHistory() internal {
-        for (uint256 i; i < 12; i++) {
-            _next(60);
-            _buy(alice, 1 ether);
-        }
-    }
-
-    function test_twap_same_block_pump_and_dump_has_zero_weight() public {
-        _buildHistory();
-        _next(30);
-        (int24 before,) = hook.twapTick(pid, 600);
-        // flash pump + dump inside one block
-        _buy(whale, 3_000_000 ether);
-        assertGt(_spotTokenTick(), before + 5000, "pump moved spot");
-        (int24 mid,) = hook.twapTick(pid, 600);
-        assertEq(mid, before, "same-block pump moved TWAP");
-        _sell(whale, tok.balanceOf(whale) / 2);
-        (int24 afterDump,) = hook.twapTick(pid, 600);
-        assertEq(afterDump, before, "same-block dump moved TWAP");
-    }
-
-    function test_twap_truncation_bounds_per_block_move() public {
-        _buildHistory();
-        _next(1);
-        _buy(whale, 9_000_000 ether); // huge pump held into the next block
-        int24 spot = _spotTokenTick();
-        (,,, int24 lastBefore) = hook.oracleState(pid);
-        _next(1);
-        _buy(alice, 1 ether); // first swap of next block writes the (truncated) pump tick
-        (,,, int24 lastAfter) = hook.oracleState(pid);
-        assertGt(spot - lastBefore, hook.maxTickDelta(), "pump bigger than cap");
-        assertEq(lastAfter - lastBefore, hook.maxTickDelta(), "recorded tick clamped");
-    }
-
-    function test_twap_follows_sustained_move() public {
-        _buildHistory();
-        _next(1);
-        _buy(whale, 20_000 ether);
-        int24 target = _spotTokenTick();
-        for (uint256 i; i < 20; i++) {
-            _next(60);
-            _buy(alice, 1 ether);
-        }
-        (int24 t, uint32 w) = hook.twapTick(pid, 600);
-        assertEq(w, 600);
-        assertApproxEqAbs(int256(t), int256(target), 20, "TWAP converges on a held price");
-    }
 
     function _refSwap(bool strategyIn, uint256 amt) internal {
         bool zeroForOne = strategyIn == (uint160(address(strategy)) < uint160(address(quote)));
@@ -346,125 +234,178 @@ contract JitTwapTest is IntegrationBase {
 
     // ───────────── Altitude on TWAP (post-grad, hook) ─────────────
 
-    function test_altitude_hook_spot_spike_no_tier_break() public {
-        _buildHistory();
-        uint8 tier0 = hook.altitudeTierOf(pid);
-        _next(30);
-        vm.recordLogs();
-        _buy(whale, 3_000_000 ether);
-        assertGt(Altitude.tierOf(_mcapSpot()), tier0, "spike crosses tiers on spot");
-        _sell(whale, tok.balanceOf(whale) / 2);
-        (uint256 n,) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
-        assertEq(n, 0, "spot spike caused a TierBreak");
-        assertEq(hook.altitudeTierOf(pid), tier0);
-    }
-
-    function test_altitude_hook_sustained_move_breaks_tier() public {
-        _buildHistory();
-        uint8 tier0 = hook.altitudeTierOf(pid);
-        _next(1);
-        _buy(whale, 20_000 ether);
-        uint8 spotTier = Altitude.tierOf(_mcapSpot());
-        assertGt(spotTier, tier0);
-        vm.recordLogs();
-        for (uint256 i; i < 25; i++) {
-            _next(60);
-            _buy(alice, 1 ether);
-        }
-        (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
-        assertGt(n, 0, "no TierBreak after sustained move");
-        assertEq(lastTo, spotTier);
-        assertEq(hook.altitudeTierOf(pid), spotTier);
-    }
-
-    function test_altitude_window_settable() public {
-        vm.prank(alice);
-        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
-        hook.setAltitudeWindow(60);
-        vm.expectRevert(DiscipleHook.BadParam.selector);
-        hook.setAltitudeWindow(0);
-        hook.setAltitudeWindow(60);
-        assertEq(hook.altitudeWindow(), 60);
-        // shorter window → a held move breaks sooner
-        _buildHistory();
-        uint8 tier0 = hook.altitudeTierOf(pid);
-        _next(1);
-        _buy(whale, 3_000_000 ether);
-        _next(61);
-        _buy(alice, 1 ether);
-        _next(1);
-        _buy(alice, 1 ether);
-        assertGt(hook.altitudeTierOf(pid), tier0);
-
-        vm.prank(alice);
-        vm.expectRevert(Launchpad.OnlyOwner.selector);
-        launchpad.setAltitudeWindow(60);
-        vm.prank(owner);
-        launchpad.setAltitudeWindow(120);
-        assertEq(launchpad.altitudeWindow(), 120);
-    }
-
     // ───────────── Altitude on TWAP (curve phase) ─────────────
 
-    function _curveBuyUntil(BondingCurve c, uint256 mcap) internal {
-        for (uint256 i; i < 400 && c.mcapNow() < mcap; i++) {
+    // ───────────── limit-order auto-close (keeper tip) ─────────────
+
+    /// @dev one-sided range: c0-only sits above the pool tick, c1-only below.
+    function _sideRange(bool c0Side, int24 w) internal view returns (int24 lo, int24 hi) {
+        (int24 tick,, int24 ts,) = twm.poolState(address(tok));
+        int24 a = _floor(tick, ts);
+        if (c0Side) {
+            lo = a + ts;
+            hi = lo + ts * w;
+        } else {
+            hi = a;
+            lo = hi - ts * w;
+        }
+    }
+
+    function _placeAndFillWall() internal returns (uint256 id) {
+        (int24 lo, int24 hi) = _sideRange(_tIs0(), 4); // wall = token side, above price
+        vm.prank(alice);
+        (id,) = twm.placeWall(address(tok), lo, hi, 5_000_000 ether, 0, block.timestamp + 1);
+        for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
+            _buy(whale, 20_000 ether);
+        }
+        require(twm.isFilled(id), "wall not filled");
+    }
+
+    function test_pull_filled_wall_pays_owner_minus_keeper_tip() public {
+        uint256 id = _placeAndFillWall();
+        address keeper = makeAddr("keeper");
+        vm.expectRevert(abi.encodeWithSelector(TrampWallManager.HoldActive.selector, block.timestamp + 300));
+        vm.prank(keeper);
+        twm.pull(id);
+        _next(300);
+        (uint256 fq,) = twm.pendingFees(id);
+        uint256 q0 = quote.balanceOf(alice);
+        uint256 t0 = tok.balanceOf(alice);
+        vm.recordLogs();
+        vm.prank(keeper);
+        (uint256 qOut, uint256 tOut) = twm.pull(id);
+        assertEq(quote.balanceOf(alice) - q0, qOut);
+        assertEq(tok.balanceOf(alice) - t0, tOut);
+        assertGt(qOut, 0, "wall sold into quote");
+        uint256 kq = quote.balanceOf(keeper);
+        uint256 kt = tok.balanceOf(keeper);
+        // tip = 0.1% of the whole payout (proceeds + fees)
+        assertApproxEqAbs(kq, (qOut + kq) * 10 / 10_000, 1);
+        assertApproxEqAbs(kt, (tOut + kt) * 10 / 10_000, 1);
+        assertGt(kq, 0);
+        assertGe(qOut + kq + 1, fq);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool tipEv;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == TrampWallManager.KeeperTipPaid.selector) tipEv = true;
+        }
+        assertTrue(tipEv);
+        vm.expectRevert(TrampWallManager.Inactive.selector);
+        twm.pull(id);
+    }
+
+    function test_pull_filled_tramp_floor_pays_owner_tokens() public {
+        (int24 lo, int24 hi) = _sideRange(!_tIs0(), 4); // tramp = quote side, below price
+        vm.prank(alice);
+        (uint256 id,) = twm.placeTramp(address(tok), lo, hi, 2_000 ether, 0, block.timestamp + 1);
+        for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
+            _sell(whale, 5_000_000 ether);
+        }
+        assertTrue(twm.isFilled(id), "tramp not filled");
+        _next(300);
+        uint256 t0 = tok.balanceOf(alice);
+        address keeper = makeAddr("keeperT");
+        vm.prank(keeper);
+        (, uint256 tOut) = twm.pull(id);
+        assertGt(tOut, 0, "floor bought tokens");
+        assertEq(tok.balanceOf(alice) - t0, tOut);
+        assertApproxEqAbs(tok.balanceOf(keeper), (tOut + tok.balanceOf(keeper)) * 10 / 10_000, 1);
+    }
+
+    function test_pull_zero_tip_and_unfilled_reverts() public {
+        twm.setKeeperTipBps(0);
+        (int24 lo, int24 hi) = _sideRange(!_tIs0(), 4); // tramp below price
+        vm.prank(alice);
+        (uint256 tid,) = twm.placeTramp(address(tok), lo, hi, 1_000 ether, 0, block.timestamp + 1);
+        _next(300);
+        vm.expectRevert(TrampWallManager.NotFilled.selector);
+        twm.pull(tid);
+        uint256 id = _placeAndFillWall();
+        _next(300);
+        address keeper = makeAddr("keeper0");
+        vm.prank(keeper);
+        twm.pull(id);
+        assertEq(quote.balanceOf(keeper) + tok.balanceOf(keeper), 0);
+    }
+
+    function test_cancel_pays_all_fees_no_forfeit() public {
+        uint256 id = _jitAroundSells(alice);
+        (uint256 pq, uint256 pt) = twm.pendingFees(id);
+        _next(300);
+        uint256 tq0 = quote.balanceOf(treasury);
+        vm.recordLogs();
+        vm.prank(alice);
+        twm.cancel(id);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool seen;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == TrampWallManager.Cancelled.selector) {
+                (,,,, uint256 qf, uint256 tf) =
+                    abi.decode(logs[i].data, (int24, int24, uint256, uint256, uint256, uint256));
+                assertEq(qf, pq);
+                assertEq(tf, pt);
+                seen = true;
+            }
+        }
+        assertTrue(seen);
+        assertEq(quote.balanceOf(treasury), tq0, "no forfeit");
+    }
+
+    // ───────────── Altitude = SPOT ─────────────
+
+    function test_altitude_hook_tier_follows_spot_each_trade() public {
+        uint8 tier0 = hook.altitudeTierOf(pid);
+        vm.recordLogs();
+        _buy(whale, 20_000 ether);
+        uint8 up = Altitude.tierOf(_mcapSpot());
+        assertGt(up, tier0);
+        (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
+        assertEq(n, 1, "break on the same trade");
+        assertEq(lastTo, up);
+        assertEq(hook.altitudeTierOf(pid), up);
+        vm.recordLogs();
+        _sell(whale, tok.balanceOf(whale) / 2);
+        uint8 down = Altitude.tierOf(_mcapSpot());
+        (n, lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
+        assertLt(down, up);
+        assertEq(n, 1);
+        assertEq(lastTo, down);
+        assertEq(hook.altitudeTierOf(pid), down);
+    }
+
+    function test_altitude_update_equals_trade_mcap() public {
+        vm.recordLogs();
+        _buy(alice, 100 ether);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 tradeMcap;
+        uint256 altMcap;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter != address(hook)) continue;
+            if (logs[i].topics[0] == IAltitudeEvents.AltitudeUpdate.selector) {
+                (altMcap,) = abi.decode(logs[i].data, (uint256, uint8));
+            }
+            if (logs[i].topics[0] == ITradeEvents.Trade.selector) {
+                (,,,,,,,, uint256 m) = abi.decode(
+                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
+                );
+                tradeMcap = m;
+            }
+        }
+        assertGt(altMcap, 0);
+        assertEq(altMcap, tradeMcap);
+    }
+
+    function test_altitude_curve_spot_break() public {
+        (BondingCurve c,) = _launch(0, 0);
+        _warpPastSnipe();
+        vm.recordLogs();
+        for (uint256 i; i < 400 && c.mcapNow() < 13_000 ether; i++) {
             _buy(c, trader1, 50 ether, 0);
         }
-        require(c.mcapNow() >= mcap, "curve not pumped");
-    }
-
-    function test_altitude_curve_spike_vs_sustained() public {
-        (BondingCurve c, Token t) = _launch(0, 0);
-        _warpPastSnipe();
-        vm.roll(block.number + 1);
-        _buy(c, trader2, 1 ether, 0);
-        _next(600);
-        assertEq(c.altitudeTier(), 0);
-
-        // spike + dump in one block → spot crosses $12K, TWAP doesn't
-        vm.recordLogs();
-        uint256 before = t.balanceOf(trader1);
-        _curveBuyUntil(c, 13_000 ether);
-        assertGe(Altitude.tierOf(c.mcapNow()), 1);
-        _sell(c, t, trader1, t.balanceOf(trader1) - before, 0);
-        (uint256 n,) = _countTierBreaks(vm.getRecordedLogs(), address(c));
-        assertEq(n, 0, "curve spike caused TierBreak");
-        assertEq(c.altitudeTier(), 0);
-
-        // sustained: pump and hold past the window
-        _next(1);
-        _curveBuyUntil(c, 13_000 ether);
-        vm.recordLogs();
-        for (uint256 i; i < 7; i++) {
-            _next(60);
-            _buy(c, trader2, 1 ether, 0);
-        }
-        uint8 lastTo;
-        (n, lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(c));
+        (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(c));
         assertEq(n, 1);
         assertEq(lastTo, 1);
-        (uint256 twap, uint32 w) = c.twapMcapUsd(c.altitudeWindow());
-        assertEq(w, 300);
-        assertGe(twap, 12_000 ether);
-    }
-
-    function test_marketlens_twap_resists_spike() public {
-        MarketLens lens = new MarketLens(address(launchpad), address(migration));
-        _buildHistory();
-        _next(5);
-        (uint256 m0, uint32 w0) = lens.twapMcapUsd(address(tok), 300);
-        (uint256 h0,) = hook.twapMcapUsd(pid, 300);
-        assertEq(m0, h0);
-        assertEq(w0, 300);
-        uint256 spot0 = lens.mcapNow(address(tok));
-        _buy(whale, 3_000_000 ether);
-        assertGt(lens.mcapNow(address(tok)), spot0 * 10, "spot spiked");
-        (uint256 m1,) = lens.twapMcapUsd(address(tok), 300);
-        assertEq(m1, m0, "lens TWAP moved in-block");
-        // pre-grad coin: curve TWAP path
-        (BondingCurve c,) = _launch(0, 0);
-        (, uint32 wc) = lens.twapMcapUsd(c.token(), 300);
-        assertEq(wc, 0);
+        assertEq(c.altitudeTier(), 1);
     }
 
     function test_altitude_tier_ladder() public pure {
@@ -475,17 +416,5 @@ contract JitTwapTest is IntegrationBase {
         assertEq(Altitude.tierOf(100_000 ether), 6);
         assertEq(Altitude.tierOf(3_300_000_000 ether), 17);
         assertEq(Altitude.tierOf(1e40), 17);
-    }
-
-    function testFuzz_twap_never_moves_within_a_block(uint96 amt, bool buyFirst) public {
-        _buildHistory();
-        _next(17);
-        (int24 b,) = hook.twapTick(pid, 300);
-        uint256 a = bound(uint256(amt), 1 ether, 3_000_000 ether);
-        if (buyFirst) _buy(whale, a);
-        else _sell(whale, a * 100);
-        _buy(jit, a / 2 + 1);
-        (int24 x,) = hook.twapTick(pid, 300);
-        assertEq(x, b);
     }
 }
