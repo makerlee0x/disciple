@@ -1,14 +1,14 @@
 // Camera smoothness check (pure, headless): drives the engine's stepCamera() with adversarial targets —
 // price gaps of 10–10^6 px, replay restarts, sim whales, NaN, tab-resume dt spikes — at 30/60/144 fps and
 // asserts per-frame camera delta ≤ CAM_VMAX/fps (no jump), per-frame velocity change ≤ CAM_AMAX/fps, and
-// that rocketScreenY stays inside the safe band.  Run: node scripts/test-camera.mjs
+// that rocketScreenY keeps the rocket inside the chase-cam band (0.53–0.68 of screen height, anchor 0.60).  Run: node scripts/test-camera.mjs
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const src = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const code = src.slice(src.indexOf("/*CAMERA-BEGIN*/"), src.indexOf("/*CAMERA-END*/"));
 const { stepCamera, rocketScreenY, CAM_VMAX, CAM_AMAX } = new Function(code + "return {stepCamera,rocketScreenY,CAM_VMAX,CAM_AMAX};")();
 let fail = 0; const bad = (m) => { if (fail++ < 8) console.error("FAIL " + m); };
-let worst = 0, worstV = 0;
+let worst = 0, worstV = 0, ryLo = 1, ryHi = 0;
 for (const fps of [30, 60, 144]) {
   const st = {}; let target = 0, prev = null, prevV = 0; const dt = 1 / fps;
   for (let f = 0; f < fps * 120; f++) {
@@ -23,8 +23,8 @@ for (const fps of [30, 60, 144]) {
       if (step === dt) { worst = Math.max(worst, d * (fps / 60)); worstV = Math.max(worstV, dv); }
       if (!(d <= lim) || !(dv <= vlim) || !Number.isFinite(p)) bad(`fps=${fps} f=${f} d=${d} dv=${dv}`); }
     prev = p; prevV = st.camV;
-    const ry = rocketScreenY(464, (target - p), 800); if (!(ry > 464 - 800 * 0.2 - 1e-6 && ry < 464 + 800 * 0.22 + 1e-6)) bad(`ry=${ry}`);
+    const ry = rocketScreenY(480, (target - p), 800); if (!(ry >= 800 * 0.53 - 1e-6 && ry <= 800 * 0.68 + 1e-6)) bad(`ry=${ry}`); ryLo = Math.min(ryLo, ry / 800); ryHi = Math.max(ryHi, ry / 800);
   }
 }
-console.log(`max camera delta ${worst.toFixed(2)} px per 1/60 s frame (cap ${(CAM_VMAX / 60).toFixed(1)}), max Δv ${worstV.toFixed(1)} px/s per frame (cap ${(CAM_AMAX / 30).toFixed(0)} @30fps)`);
+console.log(`max camera delta ${worst.toFixed(2)} px per 1/60 s frame (cap ${(CAM_VMAX / 60).toFixed(1)}), max Δv ${worstV.toFixed(1)} px/s per frame (cap ${(CAM_AMAX / 30).toFixed(0)} @30fps), rocket y ${ryLo.toFixed(3)}–${ryHi.toFixed(3)} H`);
 if (fail) { console.error(`${fail} violations`); process.exit(1); } else console.log("PASS");
