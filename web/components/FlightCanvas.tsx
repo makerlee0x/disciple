@@ -8,6 +8,7 @@ import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
+import ControlsPill from "@/components/ControlsPill";
 
 declare global {
   interface Window {
@@ -238,6 +239,7 @@ export default function FlightCanvas({ search }: Props) {
       </Link>
       {chatCoin && <GameChat coin={chatCoin} />}
       <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
+        <ControlsPill simulator={isSimulator} />
         <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
           ORBS ON · O
         </button>

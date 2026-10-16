@@ -23,11 +23,11 @@ type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode
 export default function CrewPanel() {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
-  // Compact card at the bottom of the right HUD column, right above the MODE panel. Always visible (no longer hidden by
+  // Card at the bottom of the right HUD column (the MODE panel moved to the ? CONTROLS pill), expanded by default. Always visible (no longer hidden by
   // chat); its height is published as --ap-crew-h so the CHAT | HOLDERS panel ends above it. Expanded state remembered.
-  const [open, setOpenS] = useState(false);
+  const [open, setOpenS] = useState(true);
   const setOpen = (f: (o: boolean) => boolean) => setOpenS((o) => { const n = f(o); try { localStorage.setItem("disciple.crew.open", n ? "1" : "0"); } catch { /* */ } return n; });
-  useEffect(() => { try { setOpenS(localStorage.getItem("disciple.crew.open") === "1"); } catch { /* */ } }, []);
+  useEffect(() => { try { setOpenS(localStorage.getItem("disciple.crew.open") !== "0"); } catch { /* */ } }, []);
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = ref.current, st = document.documentElement.style; if (!el) return;
@@ -58,7 +58,7 @@ export default function CrewPanel() {
     <aside
       ref={ref} aria-label="Crew" data-testid="crew-panel"
       style={{
-        position: "fixed", right: 20, bottom: 112, maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 420px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
+        position: "fixed", right: 20, bottom: 20, maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 300px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
         padding: "8px 12px", borderRadius: 12, background: "rgba(10,12,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
         font: "11px ui-monospace,monospace",
@@ -70,12 +70,10 @@ export default function CrewPanel() {
         <span style={{ color: "#e8ecff", fontWeight: 400 }}>👥 {MOCK_CREW.aboard} aboard</span>
         <span style={{ marginLeft: "auto" }}>{open ? "−" : "+"}</span>
       </button>
-      {/* NOTE: this NEXT UNLOCK bar duplicates the canvas tier bar (PR #50); kept on purpose: it is the crew reward track */}
-      <div style={{ marginTop: 5, display: "flex", justifyContent: "space-between", color: "#ffe7a3" }}><span>NEXT UNLOCK · {u.next}</span><span style={{ opacity: 0.8 }}>{u.pct.toFixed(0)}%</span></div>
-      <div style={{ height: 5, borderRadius: 4, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 3 }}>
-        <i style={{ display: "block", height: "100%", width: `${u.pct}%`, background: "linear-gradient(90deg,#ffd98a,#fff7df)" }} />
+      {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}
+      <div data-testid="crew-unlock" style={{ marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        🎁 Next unlock at <b style={{ color: "#ffe7a3" }}>{u.next}</b>: {reward.replace(/^Crew /, "").toLowerCase()} for everyone aboard
       </div>
-      <div style={{ marginTop: 3, opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtUsd(mcap)} / {fmtUsd(u.targetUsd)} → 🎁 {reward}</div>
       {open && (
         <>
           <div style={{ marginTop: 6 }}><VerifiedBadge tier={tier} /></div>

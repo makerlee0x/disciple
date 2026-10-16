@@ -1011,6 +1011,10 @@ function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':
 let _topT=-1, _top=[];
 /* chat dock with a HOLDERS tab (components/gamechat/GameChat.tsx) → the canvas KOTH panel steps aside; holders pushed ≤2 Hz on change */
 addEventListener('disciple:chatdock',e=>{ const d=e.detail||{}; S.kothDocked=!!(d.open&&d.holders); S._holdersSig=''; });
+addEventListener('disciple:controlsdock',e=>{ S.controlsDocked=!!(e.detail&&e.detail.docked); S._ctlSig=''; });
+function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const md=MODES[S.mode];
+  const d={mode:md.name,key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
+  const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
 function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
   try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:S.fuelers&&S.fuelers.you||0}})); }catch(_){} }
 function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t; _top=Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
@@ -1123,13 +1127,13 @@ function drawHud(){
   panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText(IS_POOL?'TRADES (real onchain + your paper)':'TRADES (onchain only)',36,H-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; ctx.fillText(r.txt.slice(0,38),36,H-116+i*17); }); ctx.globalAlpha=1;
-  // bottom-right: controls (compact)
-  panel(RX,H-104,310,84);
+  // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
+  if (S.controlsDocked) pushControls(); else { panel(RX,H-104,310,84);
   const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`MODE ${md.name} · ${fmtShot(md.usd)}/shot  [1-6 / click]`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
-  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); }
+  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const am=autoMode(m), AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,82);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`AMMO · auto by depth: ${MODES[am].name} (${MODES[am].range})`,ax+12,ay+16);
