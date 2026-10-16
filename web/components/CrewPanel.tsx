@@ -23,7 +23,7 @@ type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode
 export default function CrewPanel() {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
-  // Card at the bottom of the right HUD column (the MODE panel moved to the ? CONTROLS pill), expanded by default. Always visible (no longer hidden by
+  // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
   // chat); its height is published as --ap-crew-h so the CHAT | HOLDERS panel ends above it. Expanded state remembered.
   const [open, setOpenS] = useState(true);
   const setOpen = (f: (o: boolean) => boolean) => setOpenS((o) => { const n = f(o); try { localStorage.setItem("disciple.crew.open", n ? "1" : "0"); } catch { /* */ } return n; });
@@ -58,7 +58,7 @@ export default function CrewPanel() {
     <aside
       ref={ref} aria-label="Crew" data-testid="crew-panel"
       style={{
-        position: "fixed", right: 20, bottom: 20, maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 300px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
+        position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px)", maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 360px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
         padding: "8px 12px", borderRadius: 12, background: "rgba(10,12,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
         font: "11px ui-monospace,monospace",

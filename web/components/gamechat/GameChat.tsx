@@ -131,7 +131,7 @@ export default function GameChat({ coin }: { coin: string }) {
   const rl = err?.until ? Math.max(0, Math.ceil((err.until - Date.now()) / 1000)) : 0;
   return (
     <aside data-testid="chat-dock" aria-label="Live chat"
-      style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px)", bottom: "calc(20px + var(--ap-crew-h, 0px))", width, zIndex: 32, display: "flex", flexDirection: "column",
+      style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px + var(--ap-crew-h, 0px))", bottom: 20, width, zIndex: 32, display: "flex", flexDirection: "column",
         background: "linear-gradient(90deg, rgba(8,10,24,.38), rgba(8,10,24,.62))", border: "1px solid rgba(255,231,163,.22)", borderRadius: 12,
         font: `12.5px/1.38 ${mono}`, color: "#e8ecff", contain: "layout paint" }}>
       <div onPointerDown={drag} title="drag to resize" style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />
