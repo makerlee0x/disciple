@@ -69,6 +69,8 @@ export function startWorkerRender(o: {
     get S() { return snap.S; },
     get source() { return { supply: snap.supply }; },
     screenYToMcap,
+    /* replay renders on the main thread in its own sandboxed engine instance (public/flight/replay.js) */
+    replay: (opts: unknown) => loadReplay(o.basePath).then((f) => f(opts)),
   } as Record<string, unknown>;
   w.__flight = new Proxy(api, {
     get(t, p: string) { if (p in t) return t[p]; if (typeof p !== "string" || p === "then") return undefined; return (...args: unknown[]) => post({ k: "call", name: p, args }); },
@@ -152,4 +154,15 @@ export function startWorkerRender(o: {
     if (w.__flight && (w.__flight as Record<string, unknown>).mode === "worker") delete w.__flight;
     void ready;
   };
+}
+
+/** Loads public/flight/replay.js once and returns window.__flightReplay. */
+function loadReplay(basePath: string): Promise<(opts: unknown) => unknown> {
+  const w = window as unknown as { __flightReplay?: (opts: unknown) => unknown };
+  if (w.__flightReplay) return Promise.resolve(w.__flightReplay);
+  return new Promise((res, rej) => {
+    const s = document.createElement("script"); s.src = basePath + "/flight/replay.js";
+    s.onload = () => (w.__flightReplay ? res(w.__flightReplay) : rej(new Error("replay.js did not register")));
+    s.onerror = () => rej(new Error("replay.js failed to load")); document.head.appendChild(s);
+  });
 }

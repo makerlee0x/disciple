@@ -377,12 +377,22 @@ class SimBridgeSource {
   submitTrade(side,usd,o){ const b=window.__discipleSim; if(!b) return Promise.resolve({ok:false,reason:'simulator not running'});
     return new Promise(res=>setTimeout(()=>res(b.trade(side,usd,o)),120+Math.random()*180)); }   // 1–2 RH blocks
 }
+/* HOOK source (?source=hook): an embedding driver (public/flight/replay.js) pushes swaps itself via
+   window.__flightFeed(e). Paper-free, no network, no timers. */
+class HookSource {
+  constructor(){ const o=window.__flightHookOpts||{}; this.name=o.name||'REPLAY'; this.supply=o.supply||7e9; this.ticker=o.ticker||''; this.mcap=o.startMcap||0; }
+  start(emit){ this.emit=emit; window.__flightFeed=e=>{ if(e.t==='swap'&&e.mcap>0) this.mcap=e.mcap; emit(e); }; emit({t:'status',source:this.name,ok:true,msg:'replay'}); }
+  stop(){ window.__flightFeed=null; }
+  impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
+  submitTrade(){ return Promise.resolve({ok:false,reason:'replay'}); }
+}
 const IS_POOL=!['mock','dexscreener','rpc','disciple','sim'].includes(Q.get('source')||'pool');
 function makeSource(){
   const s=Q.get('source')||'pool';
   if (Q.get('replay')==='1'||s==='replay'){ if(window.REPLAY) return new ReplaySource(REPLAY); }
   if (s==='disciple') return new DiscipleSource();
   if (s==='sim') return new SimBridgeSource();
+  if (s==='hook') return new HookSource();   /* replay.js driver */
   if (s==='pool') return new PoolLiveSource();
   if (s==='dexscreener') return new DexScreenerSource(Q.get('chain')||'robinhood', Q.get('pair')||'0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a');
   if (s==='rpc') return new RpcSource({poolId:Q.get('pool'),ws:Q.get('ws')||null,supply:+(Q.get('supply')||1e9)});
@@ -435,7 +445,7 @@ function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); }
   else if (e.t==='swap'){
     if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
-    S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now();
+    S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
     if (S.displayAlt===null) S.displayAlt=mcapToAlt(e.mcap);
     if(e.side==='buy'&&e.usd>0){ const who=e.mine?'you':e.trader?short(e.trader):['0xA11…ce','0xB0b…42','0xC4t…77'][Math.floor(Math.random()*3)]; S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }
     if(e.side==='sell'&&e.mine) S.fuelers.you=Math.max(0,S.fuelers.you-e.usd);
@@ -445,7 +455,7 @@ function onEvent(e){
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
       S.feed.unshift({txt:`${e.side==='buy'?'▲ FUEL':'▼ BOMB'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
-    if (e.usd>0 && !e.mine && e.trader && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
+    if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
@@ -654,6 +664,7 @@ addEventListener('keydown',e=>{
   if (!e.repeat&&(e.code==='KeyD'||e.code==='ArrowRight')) S.lane=Math.min(2,S.lane+1);
   if (e.code==='KeyW'||e.code==='ArrowUp') e.preventDefault();   // W/↑ held = mini acceleration (S.keys → S.wBoost; off-chain, no trade)
   if (e.code==='KeyO'&&!e.repeat) setOrbs(!S.orbsOn);
+  if (e.code==='KeyM'&&!e.repeat) setChartMap();   /* HUD+ chart-map */
   if (e.code==='KeyB'&&!e.repeat) setBombs(!S.bombsOn);
   if (e.code==='KeyF' && window.__flight.source.faster) window.__flight.source.faster();
   if (e.code==='KeyT' && source instanceof MockReplaySource){ source.turbo=!source.turbo; S.turbo=source.turbo; }
@@ -1092,13 +1103,13 @@ function drawHud(){
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
   ctx.save(); ctx.textBaseline='alphabetic';
   // top-left: MCAP + tier
-  panel(20,18,380,112);
+  panel(20,18,380,130);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:'MARKET CAP · confirmed',36,42);
   ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
   // progress to next tier
-  const f=clamp(mcapToAlt(m)-ti,0,1); ctx.fillStyle='rgba(255,255,255,.12)'; ctx.fillRect(36,116,348,4); ctx.fillStyle='#ffe7a3'; ctx.fillRect(36,116,348*f,4);
-  if (ti<TIERS.length-1){ ctx.fillStyle='rgba(255,255,255,.55)'; ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillText('next '+fmtUsd(TIERS[ti+1].lo),384,108); ctx.textAlign='left'; }
+  drawTierBar(m,ti);   /* HUD+ block */
+  if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); const RT=Math.round(S.hudRT), RX=W-330;   // eased: no HUD jump when the wallet strip changes height
   panel(RX,RT,310,92);
@@ -1135,6 +1146,7 @@ function drawHud(){
   else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER $${S.balance.toFixed(2)} · min shot ${fmtShot(MIN_SHOT)} · gas ≈$${GAS_USD.toFixed(4)}`,ax+12,ay+72); }
   S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=ay+92+i*58, tx=Math.round(ax+(AW-300)/2); ctx.globalAlpha=a; panel(tx,y,300,50);
     ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('★ ACHIEVEMENT · '+t.title,tx+14,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,tx+14,y+39); ctx.globalAlpha=1; });
+  }   /* end !CLEAN */
   // tier banner
   if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
     const BY=BANNER_Y; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(TIERS[S.tierShown].name).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(TIERS[S.tierShown].name,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
@@ -1278,7 +1290,7 @@ function wobStep(dt){ S.wobV+=(-WOB_W*WOB_W*S.wob-2*WOB_Z*WOB_W*S.wobV)*dt; S.wo
 function bfxSpawn(k,x,y,vx,vy,r,gr,life,drag,c,a,g){ const p=S.bfx.spawn(); p.k=k; p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=p.r0=r; p.gr=gr; p.life=p.max=life; p.drag=drag; p.c=c; p.a=a; p.g=g||0; return p; }
 function launchBomb(pct,f){
   const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
-  S.lastBombT=S.t;
+  S.lastBombT=S.t; HOOK('bomb',{tier,name:T.name,pct,mine:!!(f&&f.mine)});
   const b={tier,T,pct,x:tp.x,alt:tp.alt,age:0,det:!T.fall,seed:Math.random()*1000,n:(f&&f.n)||1,usd:(f&&f.usd)||0,trader:f&&f.trader,fullStack:f&&f.fullStack};
   if (T.k==='cruise'){ // inbound from above; smoke trail while streaking
     b.x0=tp.x+70; b.y0=bombY(b)-360; b.x1=tp.x; b.y1=bombY(b); }   // drops in from above (vertical world)
@@ -1647,7 +1659,7 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; }
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; if(p.life<=0) P.kill(i); } }
@@ -1677,9 +1689,141 @@ function simStep(stepDt){
   cloudStep(dt); shockStep(dt);
   twStep(); exhaustStep(dt);
 }
+/* =====================================================================
+   HUD+ (feat/hud-replay) — tier progress bar, chart-map (mini candle chart), replay hooks.
+   Self-contained block: drawHud/render/onEvent only call drawTierBar / drawChartMap / hudNoteTrade / HOOK.
+   Restyle: edit CHART_STYLE below (colours, alpha, size, grid letters).
+   ===================================================================== */
+var CLEAN=Q.get('clean')==='1';   // ?clean=1 (replay/share videos): no feed, status, KOTH, ammo or controls text
+/* Bridge for an embedding driver (public/flight/replay.js): tier crossings and bomb launches. No-op otherwise. */
+function HOOK(type,detail){ const h=window.__flightHook; if(h) try{ h(type,detail); }catch(_){} }
+
+/* ---- 1) tier progress: USD buy pressure to reach the next tier ----
+   Model (float copy of CurveMath.sol / lib/sim/market.ts):
+   - pre-grad (mcap < $33K): virtual-reserve curve, spot = x/y and x·y = x0·y0  ⇒  x(M) = x0·√(M/M0).
+     Quote needed = [x(M1) − x(M)] / (1 − 1% fee)   (exact for the curve, ignores the 7 s anti-snipe tax).
+   - post-grad: constant-product pool seeded at the curve-end price with Y = 28% of supply
+     ⇒ X(M) = X_grad·√(M/33K); needed = [X(M1) − X(M)] / (1 − fee)  (CPAMM approximation, no other flow).
+   - crossing graduation: curve part to $33K + pool part beyond.
+   - /flight/sim: the depth comes from the sim's own market (source.impact inverts to the live quote depth d,
+     needed = d·(√(M1/M) − 1)/(1 − fee)) whenever start and target are in the same phase. */
+const TB_FEE=0.01, TB_M0=FLOOR_MCAP, TB_M1=GRADUATION_MCAP, TB_SR=Math.sqrt(TB_M1/TB_M0);
+const TB_X0=TB_M0*(CURVE_SOLD_PCT/100)*TB_SR/(TB_SR-1), TB_XG=TB_M1*(1-CURVE_SOLD_PCT/100);
+function curveQuote(M){ return TB_X0*Math.sqrt(Math.max(M,TB_M0)/TB_M0); }
+function poolQuote(M){ return TB_XG*Math.sqrt(M/TB_M1); }
+function usdToReach(M,Mt){
+  if (!(M>0)||!(Mt>M)) return 0;
+  if (source.isSim&&source.impact&&(Mt<=TB_M1||M>=TB_M1)){ const imp=source.impact(100,'buy');
+    if (imp>1){ const d=100*(1-TB_FEE)/(Math.sqrt(imp)-1); return d*(Math.sqrt(Mt/M)-1)/(1-TB_FEE); } }
+  let q=0;
+  if (M<TB_M1) q+=curveQuote(Math.min(Mt,TB_M1))-curveQuote(M);
+  if (Mt>TB_M1) q+=poolQuote(Mt)-poolQuote(Math.max(M,TB_M1));
+  return q/(1-TB_FEE);
+}
+/* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = log progress inside the tier band */
+function drawTierBar(m,ti){
+  const t=TIERS[ti], nx=TIERS[ti+1], lo=t.lo, hi=nx?nx.lo:t.hi, f=clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1);
+  const X=36, Y=114, BW=348, BH=7;
+  ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
+  const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
+  ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
+  ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
+  ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillText(`${(f*100).toFixed(0)}%`,384,108);
+  ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
+  if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
+    const need=usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8'; ctx.fillText(`≈${fmtUsd(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
+  else { ctx.fillStyle='#ffe7a3'; ctx.fillText('★ TOP TIER',X,Y+BH+13); }
+}
+
+/* ---- 2) chart-map: mini candle chart of mcap in a game-map frame (M toggles) ---- */
+const CHART_STYLE={
+  w:300, h:196, alpha:0.86, title:22, axis:46, gutter:14, top:12, candles:36, candleSec:+(Q.get('candleSec')||5), hz:6,
+  frameOuter:'#0b0a12', frameBevelHi:'rgba(255,255,255,.18)', frameBevelLo:'rgba(0,0,0,.6)', frameMid:'#2a2638',
+  titleBg:'rgba(24,20,36,.92)', titleFg:'#f3e6c2', bg:'rgba(8,10,20,.62)', grid:'rgba(190,200,255,.10)', edgeFg:'rgba(220,228,255,.55)',
+  up:'#3ddc97', down:'#ff5c7a', wick:.9, tier:'rgba(255,231,163,.55)', tierFg:'rgba(255,231,163,.85)', cross:'rgba(255,255,255,.55)',
+  marker:'#9ff3c8', mineBuy:'#3ddc97', mineSell:'#ff5c7a', axisFg:'rgba(220,228,255,.75)', priceTag:'#ffe7a3',
+};
+var CH=null;   // lazily created (onEvent may fire before this block runs)
+function chartState(){ return CH||(CH={on:(()=>{ try{ return localStorage.getItem('disciple.chartmap')!=='off'; }catch(_){ return true; } })(), c:[], mine:[], cv:null, at:-1, x:0, y:0}); }
+function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
+function chartSample(){ const m=shownMcap(); if(!(m>0)) return; const C=chartState(), b=Math.floor(S.t/CHART_STYLE.candleSec), k=C.c[C.c.length-1];
+  if (k&&k.b===b){ k.h=Math.max(k.h,m); k.l=Math.min(k.l,m); k.c=m; } else { C.c.push({b,o:k?k.c:m,h:m,l:m,c:m}); if(C.c.length>CHART_STYLE.candles*3) C.c.splice(0,C.c.length-CHART_STYLE.candles*3); } }
+function hudNoteTrade(e){ if(!e.mine||!(e.usd>0)||!(e.mcap>0)) return; const C=chartState(); C.mine.push({t:S.t,side:e.side,m:e.mcap,usd:e.usd}); if(C.mine.length>60) C.mine.shift(); }
+const GRID_COLS='ABCDEFGH';
+/* live: between the React PnL panel (top 212, ~240 tall when open) and the trades feed (H−160); shrinks to fit, min 132 */
+const CHART_PNL_BOTTOM=456;
+function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
+  if (source.isSim){ const y=Math.round((S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
+  const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
+function redrawChart(){
+  const st=CHART_STYLE, C=chartState(), h=chartRect().h, w=st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.height!==h) C.cv.height=h;
+  const g=C.cv.getContext('2d'); g.clearRect(0,0,w,h);
+  // Guild Wars window: dark outer frame, bevel, title bar
+  g.fillStyle=st.frameOuter; g.fillRect(0,0,w,h); g.fillStyle=st.frameMid; g.fillRect(3,3,w-6,h-6);
+  g.strokeStyle=st.frameBevelHi; g.lineWidth=1; g.beginPath(); g.moveTo(1.5,h-1.5); g.lineTo(1.5,1.5); g.lineTo(w-1.5,1.5); g.stroke();
+  g.strokeStyle=st.frameBevelLo; g.beginPath(); g.moveTo(w-1.5,1.5); g.lineTo(w-1.5,h-1.5); g.lineTo(1.5,h-1.5); g.stroke();
+  g.fillStyle=st.titleBg; g.fillRect(5,5,w-10,st.title-4);
+  const m=shownMcap(), ti=clamp(Math.floor(mcapToAlt(m||FLOOR_MCAP)),0,TIERS.length-1);
+  g.font='bold 11px Georgia,serif'; g.fillStyle=st.titleFg; g.textBaseline='middle';
+  const tk=(source.ticker||Q.get('ticker')||'COIN').toString().slice(0,10);
+  g.fillText(`$${tk}  ·  ${TIERS[ti].name}`,11,5+(st.title-4)/2); g.textAlign='right'; g.font='9px ui-monospace,monospace'; g.fillStyle='rgba(243,230,194,.6)'; g.fillText(CLEAN?'':'[M]',w-10,5+(st.title-4)/2); g.textAlign='left';
+  // plot area (Warzone grid with lettered/numbered edges)
+  const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, ph=h-6-py; g.fillStyle=st.bg; g.fillRect(5,st.title+3,w-10,h-st.title-8);
+  const cs=C.c.slice(-st.candles);
+  g.font='8px ui-monospace,monospace'; g.fillStyle=st.edgeFg; g.textAlign='center';
+  const NC=GRID_COLS.length, NR=5;
+  for(let i=0;i<NC;i++) g.fillText(GRID_COLS[i],px+pw*(i+.5)/NC,st.title+3+st.top/2+1);
+  for(let j=0;j<NR;j++) g.fillText(String(j+1),5+st.gutter/2,py+ph*(j+.5)/NR);
+  g.strokeStyle=st.grid; g.lineWidth=1; g.beginPath();
+  for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }
+  for(let j=0;j<=NR;j++){ const y=Math.round(py+ph*j/NR)+.5; g.moveTo(px,y); g.lineTo(px+pw,y); } g.stroke();
+  g.textAlign='left';
+  if (!cs.length){ g.fillStyle=st.edgeFg; g.fillText('waiting for trades…',px+8,py+ph/2); return; }
+  let lo=Infinity, hi=-Infinity; for(const k of cs){ lo=Math.min(lo,k.l); hi=Math.max(hi,k.h); }
+  const lg=Math.log, span=Math.max(lg(hi/lo),0.02), pad=span*0.12, L0=lg(lo)-pad, L1=lg(hi)+pad;
+  const Y=v=>py+ph*(1-(lg(v)-L0)/(L1-L0)), cw=pw/st.candles, X=i=>px+pw-(cs.length-i-.5)*cw;
+  g.save(); g.beginPath(); g.rect(px,py,pw+st.axis,ph); g.clip();
+  // tier thresholds (labelled lines)
+  g.font='8px ui-monospace,monospace';
+  for(const t of TIERS){ const v=t.lo; if(v<Math.exp(L0)||v>Math.exp(L1)) continue; const y=Math.round(Y(v))+.5;
+    g.strokeStyle=st.tier; g.setLineDash([4,3]); g.beginPath(); g.moveTo(px,y); g.lineTo(px+pw,y); g.stroke(); g.setLineDash([]);
+    g.fillStyle=st.tierFg; g.fillText(t.name,px+3,y-3); }
+  // candles
+  const bw=Math.max(1,Math.floor(cw*0.62));
+  cs.forEach((k,i)=>{ const x=Math.round(X(i)), up=k.c>=k.o; g.fillStyle=g.strokeStyle=up?st.up:st.down;
+    g.fillRect(x,Math.round(Y(k.h)),1,Math.max(1,Math.round(Y(k.l)-Y(k.h))));
+    const yo=Y(k.o), yc=Y(k.c); g.fillRect(x-(bw>>1),Math.round(Math.min(yo,yc)),bw,Math.max(1,Math.round(Math.abs(yc-yo)))); });
+  // own buys/sells on their candle
+  const b0=cs[0].b;
+  for(const t of C.mine){ const bi=Math.floor(t.t/st.candleSec)-b0; if(bi<0||bi>=cs.length) continue; const x=X(bi), y=Y(t.m), buy=t.side==='buy';
+    g.fillStyle=buy?st.mineBuy:st.mineSell; g.strokeStyle='#0b0a12'; g.lineWidth=1; g.beginPath();
+    if(buy){ g.moveTo(x,y+3); g.lineTo(x-4,y+10); g.lineTo(x+4,y+10); } else { g.moveTo(x,y-3); g.lineTo(x-4,y-10); g.lineTo(x+4,y-10); }
+    g.closePath(); g.fill(); g.stroke(); }
+  // Warzone crosshair through the latest candle / current price + glowing ringed marker
+  const cx=Math.round(X(cs.length-1))+.5, cy=Math.round(Y(cs[cs.length-1].c))+.5;
+  g.strokeStyle=st.cross; g.lineWidth=1; g.beginPath(); g.moveTo(px,cy); g.lineTo(px+pw,cy); g.moveTo(cx,py); g.lineTo(cx,py+ph); g.stroke();
+  const pulse=0.5+0.5*Math.sin(S.t*4);
+  g.fillStyle='rgba(159,243,200,.18)'; g.beginPath(); g.arc(cx,cy,9+pulse*2,0,Math.PI*2); g.fill();   /* glow without shadowBlur (cheap) */
+  g.strokeStyle=st.marker; g.lineWidth=1.5; g.beginPath(); g.arc(cx,cy,6+pulse*1.5,0,Math.PI*2); g.stroke();
+  g.globalAlpha=.45; g.beginPath(); g.arc(cx,cy,10+pulse*2,0,Math.PI*2); g.stroke(); g.globalAlpha=1;
+  g.fillStyle='#fff'; g.beginPath(); g.arc(cx,cy,2.2,0,Math.PI*2); g.fill();
+  g.restore();
+  // right price axis
+  const ax=px+pw+2; g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(ax,py,st.axis-7,ph); g.font='8px ui-monospace,monospace'; g.fillStyle=st.axisFg;
+  for(let j=0;j<=4;j++){ const v=Math.exp(L1-(L1-L0)*j/4), y=py+ph*j/4; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,py+ph-1)); }
+  g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cs[cs.length-1].c),ax+3,cy+3);
+}
+function drawChartMap(){
+  const C=chartState(); chartSample(); if(!C.on) return;
+  const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ C.at=S.t; redrawChart(); }   // cached: redrawn at st.hz (sim time), blitted every frame
+  const r=chartRect(); ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
+}
+/* window.__flight.replay(opts) → Promise<handle>; the implementation lives in public/flight/replay.js (loaded on first use) */
+function flightReplay(o){ const w=window; if(w.__flightReplay) return w.__flightReplay(o);
+  return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=(w.__DISCIPLE_BASE_PATH__||'')+'/flight/replay.js'; s.onload=()=>res(w.__flightReplay(o)); s.onerror=()=>rej(new Error('replay.js failed to load')); document.head.appendChild(s); }); }
 function render(dt){
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawHud(); drawChartMap();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
@@ -1692,6 +1836,6 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,replay:flightReplay,setChartMap,usdToReach,assetsReady:()=>loaded>=names.length,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
