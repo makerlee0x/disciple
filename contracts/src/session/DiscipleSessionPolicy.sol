@@ -175,7 +175,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.1.0";
+        return "disciple.session-policy.1.1.1";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -224,7 +224,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (value != 0) revert EthValueNotAllowed();
         Session storage s = _active(entityId & ~EXEC_HOOK_FLAG, msg.sender);
         _checkTime(s.cfg); // runtime path / defense in depth (userOp path is enforced by EntryPoint)
-        Call[] memory calls = _decode(data);
+        Call[] memory calls = _decode(_unwrapExecuteUserOp(data));
         uint256 add0;
         uint256 add1;
         for (uint256 i; i < calls.length; ++i) {
@@ -258,6 +258,25 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
 
     function _checkTime(SessionConfig storage c) internal view {
         if (block.timestamp > c.validUntil || block.timestamp < c.validAfter) revert SessionExpired();
+    }
+
+    /// @dev MAv2 `executeUserOp` passes its full `msg.data` (`executeUserOp(PackedUserOperation,bytes32)`) to
+    ///      validation-associated pre-exec hooks (ExecutionLib.allocatePreExecHookCallBuffer(msg.data)).
+    ///      Unwrap to `userOp.callData[4:]` (the inner execute/executeBatch); otherwise pass `data` through.
+    function _unwrapExecuteUserOp(bytes calldata data) internal pure returns (bytes calldata) {
+        if (data.length < 4 || bytes4(data[:4]) != EXECUTE_USER_OP) return data;
+        bytes calldata args = data[4:];
+        if (args.length < 64) revert OnlyExecuteCalls();
+        uint256 rel = uint256(bytes32(args[:32]));
+        if (rel > args.length - 32) revert OnlyExecuteCalls();
+        PackedUserOperation calldata op;
+        assembly ("memory-safe") {
+            op := add(args.offset, rel)
+        }
+        bytes calldata inner = op.callData; // Solidity bounds-checks the dynamic field against calldatasize
+        if (inner.length < 4) revert OnlyExecuteCalls();
+        if (bytes4(inner[:4]) != EXECUTE_USER_OP) revert OnlyExecuteCalls();
+        return inner[4:];
     }
 
     /// @dev Decodes `execute` / `executeBatch` account calldata. Anything else is rejected.

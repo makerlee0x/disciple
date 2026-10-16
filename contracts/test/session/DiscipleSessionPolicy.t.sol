@@ -149,8 +149,21 @@ contract MockMAv2 {
         sessionKey = address(0);
     }
 
+    /// @dev Mirrors MAv2 ModularAccountBase.executeUserOp: validation-associated pre-exec hooks receive the
+    ///      FULL `msg.data` (executeUserOp selector + abi(PackedUserOperation, bytes32)), sender = EntryPoint,
+    ///      then the account self-calls `userOp.callData[4:]` (self-calls skip validation hooks).
+    address public constant ENTRY_POINT = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+
+    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external {
+        require(msg.sender == ENTRY_POINT, "ep");
+        policy.preUserOpValidationHook(entity, userOp, userOpHash); // EntryPoint validation phase (simplified)
+        policy.preExecutionHook(entity | policy.EXEC_HOOK_FLAG(), msg.sender, 0, msg.data);
+        (bool ok, bytes memory r) = address(this).call(userOp.callData[4:]);
+        if (!ok) assembly { revert(add(r, 32), mload(r)) }
+    }
+
     function _auth() internal {
-        if (msg.sender == owner) return;
+        if (msg.sender == owner || msg.sender == address(this)) return;
         require(msg.sender == sessionKey && sessionKey != address(0), "unauthorized");
         policy.preRuntimeValidationHook(entity, msg.sender, msg.value, msg.data, "");
         policy.preExecutionHook(entity | policy.EXEC_HOOK_FLAG(), msg.sender, msg.value, msg.data);
@@ -552,5 +565,53 @@ contract DiscipleSessionPolicyTest is Test {
     function test_signatureValidationDisabled() public {
         vm.expectRevert(P.SignatureValidationNotAllowed.selector);
         policy.preSignatureValidationHook(E, key, bytes32(0), "");
+    }
+
+    // ───────── executeUserOp path (real MAv2 exec-hook data shape) ─────────
+
+    function _uo(bytes memory inner) internal view returns (PackedUserOperation memory op) {
+        op.sender = address(acct);
+        op.callData = abi.encodePacked(bytes4(0x8dd7712f), inner);
+    }
+
+    function test_regression_executeUserOpPrefixedSessionOp() public {
+        bytes memory inner = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 1))));
+        vm.prank(acct.ENTRY_POINT());
+        acct.executeUserOp(_uo(inner), keccak256("uo"));
+        assertEq(usdg.allowance(address(acct), address(router)), 1);
+    }
+
+    function test_executeUserOpBatchAndRulesStillEnforced() public {
+        MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
+        cs[0] = MockMAv2.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 2)));
+        vm.prank(acct.ENTRY_POINT());
+        acct.executeUserOp(_uo(abi.encodeCall(MockMAv2.executeBatch, (cs))), bytes32(0));
+        assertEq(usdg.allowance(address(acct), address(router)), 2);
+        // disallowed inner call still rejected by the exec hook (bypass validation hook to isolate it)
+        PackedUserOperation memory op = _uo(abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (attacker, 1)))));
+        uint32 hE = E | policy.EXEC_HOOK_FLAG();
+        address ep = acct.ENTRY_POINT();
+        vm.prank(address(acct));
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(usdg), ERC20.transfer.selector));
+        policy.preExecutionHook(hE, ep, 0, abi.encodeCall(MockMAv2.executeUserOp, (op, bytes32(0))));
+    }
+
+    function test_executeUserOpNonExecuteInnerRejected() public {
+        PackedUserOperation memory op = _uo(abi.encodeCall(ERC20.approve, (address(router), 1)));
+        bytes memory hookData = abi.encodeCall(MockMAv2.executeUserOp, (op, bytes32(0)));
+        uint32 hE = E | policy.EXEC_HOOK_FLAG();
+        address ep = acct.ENTRY_POINT();
+        vm.startPrank(address(acct));
+        vm.expectRevert(P.OnlyExecuteCalls.selector);
+        policy.preExecutionHook(hE, ep, 0, hookData);
+        // inner callData lacking the executeUserOp prefix is rejected too
+        op.callData = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, ""));
+        hookData = abi.encodeCall(MockMAv2.executeUserOp, (op, bytes32(0)));
+        vm.expectRevert(P.OnlyExecuteCalls.selector);
+        policy.preExecutionHook(hE, ep, 0, hookData);
+        // truncated / malformed
+        vm.expectRevert(P.OnlyExecuteCalls.selector);
+        policy.preExecutionHook(hE, ep, 0, abi.encodePacked(bytes4(0x8dd7712f), uint256(0x40)));
+        vm.stopPrank();
     }
 }
