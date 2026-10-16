@@ -1189,3 +1189,16 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
   .lp-trend-row { grid-auto-columns: 132px; }
   .lp-tart .branded, .lp-tart > span:last-child { transform: scale(.8); }
 }
+
+/* ---- pair insignia ---- */
+.lp-av-ins { border: 0; box-shadow: none; background: transparent; }
+.lp-av-ins svg { display: block; }
+.lp-tart { isolation: isolate; }
+.lp-tpair { position: absolute; right: -52px; top: 50%; transform: translateY(-50%); opacity: .16; z-index: -1; line-height: 0; filter: saturate(.9); }
+.lp-tcrest { filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
+.lp-follows { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: rgba(220,228,255,.75); }
+.lp-follows b { color: #ffe7a3; font-weight: 600; }
+.lp-follows svg { flex: none; }
+.lp-c-pair svg { margin-right: 6px; vertical-align: -3px; }
+.lp-card-art { width: 92px; }
+.lp-tmeta { flex-wrap: wrap; column-gap: 6px; }

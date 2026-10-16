@@ -3,7 +3,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { CURVE, fmtUsd, gradProgress, verifiedLevel } from "@/lib/config";
 import VerifiedBadge from "@/components/VerifiedBadge";
-import BrandedRocket from "@/components/BrandedRocket";
+import PairInsignia from "@/components/insignia/PairInsignia";
+import { PairMark, pairInfo } from "@/components/insignia/pairs";
 import DsSelect from "@/components/ui/DsSelect";
 import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
 
@@ -41,14 +42,17 @@ function useWatchlist() {
 
 function Avatar({ c, size = 34 }: { c: Rocket; size?: number }) {
   return (
-    <span className="lp-av" style={{ width: size, height: size, background: c.c }}>
-      {c.icon
-        // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={c.icon} alt="" loading="lazy" width={size} height={size} />
-        : <span className="lp-av-mono">{c.tk.slice(0, 2)}</span>}
+    <span className="lp-av lp-av-ins" style={{ width: size, height: size }}>
+      <PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} variant="badge" size={size} />
       <span className="lp-av-check"><VerifiedBadge tier={tierOf(c)} size={13} /></span>
     </span>
   );
+}
+
+/** "Follows STRATEGY" — Disciple's take on Long's "Anchored to". */
+function Follows({ c }: { c: Rocket }) {
+  const sym = c.pairSym ?? "STRATEGY";
+  return <span className="lp-follows"><PairMark sym={sym} size={13} /> Follows <b>{sym}</b></span>;
 }
 
 const Spark = memo(function Spark({ seed, chg, w = 96, h = 26 }: { seed?: number; chg: number | null; w?: number; h?: number }) {
@@ -90,13 +94,14 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
       <div className="lp-trend-row" ref={ref}>
         {items.map((c, i) => (
           <button key={c.id} type="button" className="lp-tcard" onClick={() => onPick(c)}>
-            <span className="lp-tart" style={{ background: `radial-gradient(90% 80% at 50% 30%, ${c.c}33, #0b0f22 70%)` }}>
+            <span className="lp-tart" style={{ background: `radial-gradient(90% 80% at 30% 30%, ${pairInfo(c.pairSym).color}22, #0b0f22 70%)` }}>
+              <span className="lp-tpair" aria-hidden><PairMark sym={c.pairSym} size={150} /></span>
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
-              <BrandedRocket icon={c.icon} height={118} />
+              <PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} size={150} className="lp-tcrest" />
             </span>
             <span className="lp-tname">{c.name} <VerifiedBadge tier={tierOf(c)} size={13} /></span>
-            <span className="lp-tmeta"><b>${c.tk}</b></span>
+            <span className="lp-tmeta"><b>${c.tk}</b> <Follows c={c} /></span>
             <span className="lp-tmeta"><b className="lp-mc">{c.mcap ? fmtUsd(c.mcap) : "…"}</b> <Chg v={c.chg} /></span>
           </button>
         ))}
@@ -117,7 +122,7 @@ const Row = memo(function Row({ c, rank, starred, onStar, onPick }: { c: Rocket;
           <span className="lp-tok-sub">{c.creator ?? "—"} · {c.live && !c.stats.ageHours ? "live" : fmtAge(c.stats.ageHours)}</span>
         </span>
       </span>
-      <span className="lp-c-pair"><i className={"lp-pdot " + (c.pair ?? "STRATEGY").toLowerCase()} />{c.pairSym ?? "STRATEGY"}</span>
+      <span className="lp-c-pair"><PairMark sym={c.pairSym} size={16} />{c.pairSym ?? "STRATEGY"}</span>
       <span className="lp-c-graph"><Spark seed={c.seed} chg={c.chg} /></span>
       <span className="lp-c-mc">
         <b>{c.mcap ? fmtUsd(c.mcap) : "…"}</b>
@@ -135,11 +140,12 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
   return (
     <div role="link" tabIndex={0} className="rocket-card lp-card" onClick={() => onPick(c)} onKeyDown={(e) => { if (e.key === "Enter") onPick(c); }}
       style={{ border: c.live ? "1px solid rgba(143,240,192,.6)" : undefined }}>
-      <div className="lp-card-art"><BrandedRocket icon={c.icon} height={64} /></div>
+      <div className="lp-card-art"><PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} size={92} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
         <div className="lp-card-name">{c.name} <VerifiedBadge tier={tierOf(c)} size={14} /></div>
-        <div className="lp-card-sub">${c.tk} · {c.pairSym ?? "STRATEGY"} · {c.stats.holders} crew</div>
+        <div className="lp-card-sub">${c.tk} · {c.stats.holders} crew</div>
+        <div className="lp-card-sub"><Follows c={c} /></div>
         <div className="lp-card-mc">{c.mcap ? fmtUsd(c.mcap) : "…"} <Chg v={c.chg} /></div>
         <i className="lp-bar"><i style={{ width: `${grad ? 100 : p || 0}%` }} /></i>
         <div className="lp-card-sub">{grad ? "GRADUATED · past the Pearly Gates" : p == null ? "…" : `${p.toFixed(0)}% to orbit`}</div>
@@ -168,7 +174,7 @@ function Rail({ coins, watch, onPick }: { coins: Rocket[]; watch: Set<string>; o
       {list.map((c) => (
         <button key={c.id} type="button" className="lp-rrow" onClick={() => onPick(c)}>
           <Avatar c={c} size={30} />
-          <span className="lp-rr-txt"><b>{c.tk}</b><span className="lp-dim">{c.stats.holders} crew</span></span>
+          <span className="lp-rr-txt"><b>{c.tk}</b><span className="lp-dim">follows {c.pairSym ?? "STRATEGY"}</span></span>
           <span className="lp-rr-num"><b>{c.mcap ? fmtUsd(c.mcap) : "…"}</b><Chg v={c.chg} /></span>
         </button>
       ))}
