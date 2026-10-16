@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyFill, emptyPosition, view, type Position, fmtMoney, fmtPct, fmtPnl } from "@/lib/pnl";
+import { applyFill, emptyPosition, view, type Position, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
 
-type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number };
-type Mark = { mcap: number; supply: number };
+type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number; frac?: number; session?: string | null };
+type Mark = { mcap: number; supply: number; session?: string | null };
 type FlightWin = {
-  __flight?: { S?: { confirmed?: { mcap?: number | null } }; source?: { supply?: number } };
+  __flight?: { S?: { confirmed?: { mcap?: number | null } }; source?: { supply?: number }; markMcap?: () => number };
   __entryMcap?: number;
   __pnl?: { fill(f: Fill): void; reset(): void };
 };
@@ -64,7 +64,7 @@ function sessionRealized(coin: string, KEY: string) {
 export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }: { coin: string; storagePrefix?: string; modeLabel?: string }) {
   const KEY = storagePrefix;
   const [pos, setPos] = useState<Position>(emptyPosition);
-  const [mark, setMark] = useState<Mark>({ mcap: 0, supply: 1e9 });
+  const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
   const [open, setOpen] = useState(true);
   const [session, setSession] = useState(0);
   const posRef = useRef(pos);
@@ -82,18 +82,26 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
   useEffect(() => {
     const w = window as unknown as FlightWin;
     const onFill = (f: Fill) => {
-      const price = f.mcap / (f.supply || 1e9);
-      const next = applyFill(posRef.current, f.side, f.usd, price, f.gas, f.at);
+      const supply = f.supply || DEFAULT_SUPPLY, price = f.mcap / supply;
+      let cur = rebase(posRef.current, supply);
+      if (f.session !== undefined && cur.session !== undefined && cur.session !== f.session && cur.size > 0) cur = { ...emptyPosition(), realized: 0 };   // mock restarted: drop the stale bag
+      const next = { ...applyFill(cur, f.side, f.usd, price, f.gas, f.at, f.frac), supply, session: f.session ?? null };
       posRef.current = next;
       setPos(next);
       try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ }
     };
     const h = (e: Event) => onFill((e as CustomEvent<Fill>).detail);
-    const onMark = (e: Event) => { const d = (e as CustomEvent<Mark>).detail; if (d && d.mcap > 0) setMark({ mcap: d.mcap, supply: d.supply || 1e9 }); };
+    const onMark = (e: Event) => { const d = (e as CustomEvent<Mark>).detail; if (!(d && d.mcap > 0)) return;
+      const supply = d.supply || DEFAULT_SUPPLY; setMark({ mcap: d.mcap, supply, session: d.session });
+      const p = posRef.current;
+      // ephemeral mock market restarted since this bag was booked → drop it (its entry belongs to another price history)
+      if (p.size > 0 && d.session && p.session !== d.session) { const n = emptyPosition(); posRef.current = n; setPos(n); try { localStorage.removeItem(KEY + coin); } catch { /* */ } return; }
+      if (p.size > 0 && (p.supply || supply) !== supply) { const n = rebase(p, supply); posRef.current = n; setPos(n); } };
     addEventListener("disciple:paperfill", h);
     addEventListener("disciple:mark", onMark);
     const m0 = w.__flight?.S?.confirmed?.mcap;
-    if (m0) setMark({ mcap: m0, supply: w.__flight?.source?.supply || 1e9 });
+    const m0s = w.__flight?.markMcap?.() || m0;   // same shown price the HUD/rocket use (paper: × sim offset)
+    if (m0s) setMark({ mcap: m0s, supply: w.__flight?.source?.supply || DEFAULT_SUPPLY });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
     return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); };
   }, [coin, KEY]);

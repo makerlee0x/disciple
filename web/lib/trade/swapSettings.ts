@@ -9,11 +9,16 @@ export interface SwapSettings {
   sells: SellSlot[];
   slippage: { mode: "auto" | "custom"; pct: number };
   tag: boolean;
+  v?: number;
 }
 export const SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"] as const;
-export const DEFAULT_SELLS: SellSlot[] = [12, 33, 77, "init"];
+export const DEFAULT_SELLS: SellSlot[] = [25, 50, 100, "init"];
+/** v1 defaults (before the 2026-10 audit). A saved slot still equal to its old default is migrated to the new one;
+ *  any slot the user edited is kept. */
+export const OLD_DEFAULT_SELLS: SellSlot[] = [12, 33, 77, "init"];
+export const SETTINGS_VERSION = 2;
 export const AUTO_SLIPPAGE_PCT = 1;   // = protocol-viem DEFAULT_SLIPPAGE_BPS (100)
-export const DEFAULT_SETTINGS: SwapSettings = { buy: null, sells: DEFAULT_SELLS, slippage: { mode: "auto", pct: AUTO_SLIPPAGE_PCT }, tag: true };
+export const DEFAULT_SETTINGS: SwapSettings = { buy: null, sells: DEFAULT_SELLS, slippage: { mode: "auto", pct: AUTO_SLIPPAGE_PCT }, tag: true, v: SETTINGS_VERSION };
 export const SWAP_PREFIX = "disciple.swap.";
 
 export function sellLabel(s: SellSlot) { return s === "init" ? "INITIALS" : `${+s.toFixed(2)}%`; }
@@ -24,11 +29,13 @@ export function slippageBps(s: SwapSettings): number | undefined {
 export function sanitize(x: unknown): SwapSettings {
   const o = (x && typeof x === "object" ? x : {}) as Partial<SwapSettings>;
   const buy = Array.isArray(o.buy) && o.buy.length === 6 && o.buy.every((v) => +v > 0) ? o.buy.map(Number) : null;
-  const sells = Array.isArray(o.sells) && o.sells.length === 4 ? o.sells.map((v, i) => (v === "init" ? "init" : +v > 0 && +v <= 100 ? +v : DEFAULT_SELLS[i])) as SellSlot[] : DEFAULT_SELLS;
+  const old = !(+(o.v ?? 0) >= SETTINGS_VERSION);
+  const sells = Array.isArray(o.sells) && o.sells.length === 4
+    ? o.sells.map((v, i) => (old && v === OLD_DEFAULT_SELLS[i] ? DEFAULT_SELLS[i] : v === "init" ? "init" : +v > 0 && +v <= 100 ? +v : DEFAULT_SELLS[i])) as SellSlot[] : DEFAULT_SELLS;
   const sl = o.slippage && (o.slippage.mode === "custom" || o.slippage.mode === "auto") ? { mode: o.slippage.mode, pct: +o.slippage.pct > 0 ? Math.min(50, +o.slippage.pct) : AUTO_SLIPPAGE_PCT } : DEFAULT_SETTINGS.slippage;
-  return { buy, sells, slippage: sl, tag: o.tag !== false };
+  return { buy, sells, slippage: sl, tag: o.tag !== false, v: SETTINGS_VERSION };
 }
 export function loadSettings(key: string): SwapSettings {
   try { return sanitize(JSON.parse(localStorage.getItem(key) || "null")); } catch { return DEFAULT_SETTINGS; }
 }
-export function saveSettings(key: string, s: SwapSettings) { try { localStorage.setItem(key, JSON.stringify(s)); } catch { /* private mode */ } }
+export function saveSettings(key: string, s: SwapSettings) { try { localStorage.setItem(key, JSON.stringify({ ...s, v: SETTINGS_VERSION })); } catch { /* private mode */ } }

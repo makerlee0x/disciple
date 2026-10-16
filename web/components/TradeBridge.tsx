@@ -87,6 +87,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
         const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slippageBps(cfgRef.current) });
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
+        setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
         return { ok: r.ok, txHash: r.txHash, reason: r.reason };
       } catch (e) {
         const m = (e as Error).message.split("\n")[0].slice(0, 90);
@@ -122,21 +123,34 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     addEventListener("keydown", k); addEventListener("disciple:sellpreset", c); return () => { removeEventListener("keydown", k); removeEventListener("disciple:sellpreset", c); };
   }, []);
   // SELL row labels/enabled → engine ammo panel
-  const sellSig = SELLS.map((x) => x.id).join() + "|" + (pos.valueUsd > 0 ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0);
+  // live: the wallet's real token balance decides whether selling is possible (polled + after each trade) → engine guard
+  const [liveHas, setLiveHas] = useState<boolean | null>(null);
   useEffect(() => {
-    const items = toSells(cfgRef.current.sells).map((x) => ({ label: x.label, key: x.key.slice(3), on: pos.valueUsd > 0 }));
+    if (!live) { setLiveHas(null); dispatchEvent(new CustomEvent("disciple:holdings", { detail: null })); return; }
+    let alive = true; const pc = publicClient();
+    const poll = async () => { try { const me = await activeAddress(); if (!me) return; const b = await tokenBalance(pc, token as Address, me);
+      if (alive) { setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0) } })); } } catch { /* keep last */ } };
+    void poll(); const iv = setInterval(poll, 10_000); addEventListener("disciple:livetrade", poll);
+    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", poll); };
+  }, [live, token]);
+  const has = live && liveHas != null ? liveHas : pos.size > 0;
+  const [hint, setHint] = useState("");
+  useEffect(() => { if (!hint) return; const t = setTimeout(() => setHint(""), 1400); return () => clearTimeout(t); }, [hint]);
+  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0);
+  useEffect(() => {
+    const items = toSells(cfgRef.current.sells).map((x) => ({ label: x.label, key: x.key.slice(3), on: has }));
     dispatchEvent(new CustomEvent("disciple:sellpresets", { detail: { items } }));
-  }, [sellSig, pos.valueUsd]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sellSig]);   // eslint-disable-line react-hooks/exhaustive-deps
   const customUsd = +custom > 0 ? +custom : 0;
   const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number }) =>
     window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } }));
   // sell sizing from the PnL ledger (real mark): x% of the position value, or enough to recover the cost basis
   const sellPlan = (s: Sell) => {
-    if (!(pos.valueUsd > 0)) return null;
+    if (!(pos.valueUsd > 0)) return live && liveHas ? { usd: 0.01, frac: s.id === "init" ? 1 : s.frac } : null;   // live wallet bag the ledger doesn't know: frac of the real balance
     if (s.id === "init") { const usd = Math.min(pos.valueUsd, pos.costBasis / (1 - FEE)); return { usd, frac: usd / pos.valueUsd }; }
     return { usd: pos.valueUsd * s.frac, frac: s.frac };
   };
-  const sell = (s: Sell) => { const p = sellPlan(s); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
+  const sell = (s: Sell) => { if (!has) { setHint("no tokens to sell"); return; } const p = sellPlan(s); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
   sellRef.current = sell;
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
   const autoUsd = ammo.tier != null ? AMMO_TIERS[ammo.tier].usd.slice() : MODES.map((m) => m.usd);
@@ -152,14 +166,16 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           onKeyDown={(e) => { if (e.key === "Enter" && customUsd) { e.preventDefault(); shoot("buy"); } e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
         <button type="button" aria-label="buy" data-testid="buy-btn" title="BOOST: buy (Space)" onClick={() => shoot("buy")} style={{ ...btn, minWidth: 104, background: "#1f6f4a", color: "#c8ffe4" }}>▲ BOOST <span style={{ opacity: 0.75, fontWeight: 600 }}>(buy)</span></button>
-        <button type="button" aria-label="sell" data-testid="sell-btn" title="DUMP: sell (Shift)" onClick={() => shoot("sell")} style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc" }}>▼ DUMP <span style={{ opacity: 0.75, fontWeight: 600 }}>(sell)</span></button>
+        <button type="button" aria-label="sell" data-testid="sell-btn" title={has ? "DUMP: sell (Shift)" : "no tokens to sell"} aria-disabled={!has} onClick={() => (has ? shoot("sell") : setHint("no tokens to sell"))}
+          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ DUMP <span style={{ opacity: 0.75, fontWeight: 600 }}>(sell)</span></button>
         <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
           <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
             background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
           <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `pos ${fmtMoney(pos.valueUsd)}` : "no position"}</span>
         </div>
       </div>
-      {(last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
+      {hint && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint}</div>}
+      {!hint && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}

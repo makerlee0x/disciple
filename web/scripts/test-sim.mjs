@@ -72,7 +72,12 @@ console.log(`(${((Date.now() - t0) / 1000).toFixed(1)} s wall for ${3 * N} runs)
 const P = out.pve, V = out.pvp, T = out.trench;
 if (!(P.p10 >= LAUNCH.graduationMcapUsd)) bad(`PvE should graduate reliably (p10 ${fmt(P.p10)})`);
 if (!(P.p10 > V.p10 && P.p10 > T.p10)) bad("PvE should have the best floor (p10)");
-if (!(P.finMed > V.finMed && P.finMed > T.finMed)) bad("PvE should hold its altitude best (final median)");
+// #49 retuned PvE with profit-taking + pullback waves, so PvP whales can now END higher on some seeds; what PvE must
+// keep is a reliable, calm hold: final median above graduation and above TRENCH, and more of its peak kept than PvP
+// (TRENCH is excluded from retention: rug + CTO leave a low peak that is trivially "kept").
+const keep = (o) => o.finMed / o.med;
+if (!(P.finMed >= LAUNCH.graduationMcapUsd && P.finMed > T.finMed)) bad(`PvE should hold its altitude (final median ${fmt(P.finMed)} ≥ graduation, > TRENCH)`);
+if (!(keep(P) > keep(V))) bad(`PvE should keep more of its peak than PvP (final/peak PvE ${keep(P).toFixed(2)} · PvP ${keep(V).toFixed(2)} · TRENCH ${keep(T).toFixed(2)})`);
 if (!(V.logSpread > P.logSpread)) bad("PvP should be more volatile than PvE");
 if (!(V.max >= 100_000)) bad(`PvP should be able to go high (max ${fmt(V.max)})`);
 if (!(T.med < P.med)) bad("TRENCH should be harder than PvE (median peak)");

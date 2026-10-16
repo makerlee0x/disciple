@@ -26,6 +26,20 @@ export interface Position {
   holdStart: number;
   /** partial sells scale the hold bonus down proportionally */
   sellScale: number;
+  /** token supply the sizes were booked with (mcap ↔ price); a different mark supply rescales size on load */
+  supply?: number;
+  /** ephemeral market session (mock replay); a position from another session is dropped */
+  session?: string | null;
+}
+
+/** DISCIPLE total supply (lib/sim/config TOTAL_SUPPLY); every source defaults to it. */
+export const DEFAULT_SUPPLY = 7_000_000_000;
+
+/** Re-express a stored position under the mark's supply (same $ cost basis and same entry MCAP). */
+export function rebase(p: Position, supply: number): Position {
+  const s0 = p.supply || supply;
+  if (!(supply > 0) || s0 === supply || !(p.size > 0)) return { ...p, supply };
+  return { ...p, size: p.size * (supply / s0), supply };
 }
 
 export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, holdStart: 0, sellScale: 1 });
@@ -34,8 +48,10 @@ export function gasUsd(): number {
   return GAS.execGas * GAS.robinhoodGwei * 1e-9 * GAS.ethUsd;
 }
 
-/** Apply a fill. usd = gross notional; price = $ per token at fill. */
-export function applyFill(p: Position, side: "buy" | "sell", usd: number, price: number, gas = gasUsd(), at = Date.now()): Position {
+/** Apply a fill. usd = gross notional; price = $ per token at fill.
+ *  frac (sells): close exactly that fraction of the bag (a "50%" button sells half the TOKENS, whatever the fill price);
+ *  otherwise tokens = usd / price. A sell never exceeds holdings; selling with no holdings is a no-op. */
+export function applyFill(p: Position, side: "buy" | "sell", usd: number, price: number, gas = gasUsd(), at = Date.now(), sellFrac?: number): Position {
   const q = { ...p };
   if (price <= 0 || usd <= 0) return q;
   if (side === "buy") {
@@ -45,7 +61,7 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
     q.costBasis += usd + gas;
   } else {
     if (q.size <= 0) return q;
-    const tokens = Math.min(q.size, usd / price);
+    const tokens = sellFrac && sellFrac > 0 ? q.size * Math.min(1, sellFrac) : Math.min(q.size, usd / price);
     const frac = tokens / q.size;
     const basisOut = q.costBasis * frac;
     q.realized += tokens * price - basisOut;                 // = closed uPnL at this price
