@@ -1,19 +1,23 @@
 # Flight trading controls & PnL rules (2026-10 gameplay audit)
 
-## Buy / sell shortcuts
+## Buy / sell: select, then fire (shortcuts fire instantly)
 | Input | Action |
 |---|---|
-| Click a `$` tile in the BUY row, or `1`–`6` | **Buys** that preset now (same as the SELL row: click = trade). Hover shows "click to buy $X"; a short flash confirms the press. The tile also becomes the amount for `Space`. |
-| `Space` / ▲ BOOST | Buy the selected preset (or the custom $ field when filled). |
-| Click a SELL preset, or `Z` `X` `C` `V` | Sell **25% · 50% · 100% · INITIALS** of the bag (fraction of tokens; INITIALS = recover the cost basis). |
-| `Shift` / ▼ DUMP | Sell the selected $ amount (capped at the bag's value). |
+| Click a `$` tile in the BUY row | **Selects** it (gold tile). Never trades. Hover: "click to select $X". |
+| Click a SELL preset | **Selects** it (filled pink). Never trades. Default selection 25% (slot 1). |
+| ▲ BOOST / `Space` | Buys the **custom $ field if one is typed**, otherwise the selected BUY preset. The button shows the amount (`▲ BOOST $5`, or `▲ BOOST $12 custom`). |
+| ▼ DUMP / `Shift` | Sells the selected SELL preset (`▼ DUMP 50%`; INITIALS = recover the cost basis). Disabled with 0 tokens. |
+| `1`–`6` | Shortcut: **buy** that preset instantly and select it. |
+| `Z` `X` `C` `V` | Shortcut: **sell** 25% · 50% · 100% · INITIALS instantly and select it. |
+
+Both selections are remembered (localStorage `${scope}sel`, per paper / live / simulator scope).
 
 Sell presets are editable in ⚙ ADV → Swap settings. Saved presets from before the audit that still equal the old
 defaults (12 / 33 / 77) are migrated to 25 / 50 / 100; any slot you edited is kept (settings `v: 2`).
 
 **No tokens ⇒ no sell.** DUMP, the SELL row and Z/X/C/V are greyed out with zero holdings; pressing them shows
-"no tokens to sell" and makes no trade and no bomb. Guards: the engine (`trade()`), the paper/sim ledgers
-(`applyFill` never sells more than the bag; the sim refuses with "no tokens to sell") and the live path (real wallet
+"NO TOKENS IN WALLET" and makes no trade and no bomb. Guards: the engine (`trade()`), the paper/sim ledgers
+(`applyFill` never sells more than the bag; the sim refuses with "NO TOKENS IN WALLET") and the live path (real wallet
 balance, `amountIn ≤ balance`). Live holdings come from the wallet's token balance (polled, refreshed after trades).
 
 ## Steering

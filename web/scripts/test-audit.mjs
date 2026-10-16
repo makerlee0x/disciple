@@ -30,4 +30,16 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
 { const tr = eng.slice(eng.indexOf("function trade(side,opt){"), eng.indexOf("function submit(")); const g = tr.indexOf("!hasTokens()"), th = tr.indexOf("applyThrust(");
   ok(g > 0 && g < th, "engine: no-tokens guard runs before any thrust/bomb visual or submit");
   ok(/md\.usd>S\.hold\.valueUsd/.test(tr), "engine: paper sell capped at holdings value"); }
+// 4) select-then-fire: clicks only select, shortcuts fire, DUMP/Shift sells the selected %
+{ const pd = eng.slice(eng.indexOf("cv.addEventListener('pointerdown'"), eng.indexOf("function buyPreset"));
+  ok(pd.length > 0 && !/trade\(|buyPreset\(|disciple:sellpreset/.test(pd), "engine: clicking a buy/sell preset never trades (select only)");
+  ok(/disciple:sellselect/.test(pd), "engine: sell preset click → disciple:sellselect");
+  const kd = eng.slice(eng.indexOf("addEventListener('keydown'"), eng.indexOf("addEventListener('keyup'") > 0 ? eng.indexOf("addEventListener('keyup'") : undefined);
+  ok(/Digit\(\[1-6\]\)[\s\S]{0,120}buyPreset/.test(kd), "engine: 1–6 shortcut buys instantly");
+  ok(/ShiftLeft[\s\S]{0,200}disciple:dump/.test(kd), "engine: Shift = DUMP the selected preset");
+  ok(/NO TOKENS IN WALLET/.test(eng) && !/no tokens to sell/i.test(eng), "engine hint says NO TOKENS IN WALLET");
+  const tb = fs.readFileSync(path.join(dir, "../components/TradeBridge.tsx"), "utf8");
+  ok(/disciple:sellselect/.test(tb) && /disciple:dump/.test(tb) && /selSell\.current\(i\); sellRef/.test(tb), "TradeBridge: select / dump / Z-X-C-V sell + select wired");
+  ok(/▲ BOOST \{fmtShot\(shotUsd\)\}/.test(tb) && /▼ DUMP \{/.test(tb) && /disabled=\{!has\}/.test(tb), "BOOST/DUMP show the selected amount; DUMP disabled with 0 tokens");
+  ok(!/no tokens to sell/i.test(tb), "TradeBridge hint says NO TOKENS IN WALLET"); }
 if (bad) { console.error(bad + " FAILED"); process.exit(1); } console.log("PASS");

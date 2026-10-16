@@ -594,7 +594,7 @@ S.hold={tokens:0,valueUsd:0}; S.liveHas=null;
 addEventListener('disciple:position',e=>{ const d=e.detail||{}; S.hold={tokens:+d.size||0,valueUsd:+d.valueUsd||0}; });
 addEventListener('disciple:holdings',e=>{ const d=e.detail; S.liveHas=d&&typeof d.has==='boolean'?d.has:null; });
 function hasTokens(){ return isLive()&&S.liveHas!=null ? S.liveHas : S.hold.tokens>0; }
-function noTokens(){ if(S.t-(S._ntT??-9)>0.8){ S._ntT=S.t; S.flashes.push({txt:'NO TOKENS TO SELL',life:1.2,c:'#ffb0c8'}); } }
+function noTokens(){ if(S.t-(S._ntT??-9)>0.8){ S._ntT=S.t; S.flashes.push({txt:'NO TOKENS IN WALLET',life:1.2,c:'#ffb0c8'}); } }
 addEventListener('disciple:sellpresets',e=>{ const a=e.detail&&e.detail.items; if(Array.isArray(a)) S.sellPresets=a.slice(0,4); });
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
@@ -660,6 +660,7 @@ function submit(side,usd,force,opt){
 function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient)/i.test(reason); }
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode));
+  if(typeof d.mode==='number'&&!d.side) pushAmmo();
   if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0?{usd:d.usd,frac:d.frac}:undefined); });
 const isTyping=e=>{ const t=e.target; return !!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')); };
 addEventListener('keydown',e=>{
@@ -668,8 +669,8 @@ addEventListener('keydown',e=>{
   S.keys[e.code]=true;
   if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
-  if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat) trade('sell',{all:e.ctrlKey||e.metaKey}); }
-  const dm=/^Digit([1-6])$/.exec(e.code); if(dm&&!e.repeat){ S.mode=+dm[1]-1; pushAmmo(); buyPreset(S.mode); }   // digit = BUY that preset now (like Z/X/C/V sell)
+  if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
+  const dm=/^Digit([1-6])$/.exec(e.code); if(dm&&!e.repeat){ S.mode=+dm[1]-1; pushAmmo(); buyPreset(S.mode); }   // shortcut: digit = BUY that preset now + select it (Z/X/C/V likewise for sells)
   if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
@@ -723,8 +724,8 @@ cv.addEventListener('pointermove',e=>{ const i=ammoAt(e); if(i!==S.ammoHover){ S
 cv.addEventListener('pointerleave',()=>{ S.ammoHover=-1; cv.style.cursor=''; });
 cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const i=ammoAt(e); if(i<0) return; e.preventDefault();
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
-  if(i>=6){ if(!hasTokens()){ noTokens(); return; } S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellpreset',{detail:{i:i-6}})); return; }
-  S.mode=i; pushAmmo(); buyPreset(i); });   // click a $ tile = BUY it (consistent with the SELL row)
+  if(i>=6){ S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:i-6}})); return; }   // click = SELECT only (DUMP / Shift sells it)
+  S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
 function buyPreset(i){ S.pressFx={i,t:S.t}; trade('buy'); }
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
@@ -1163,9 +1164,12 @@ function drawHud(){
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const am=autoMode(m), AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('click / 1–6 = buy',ax+44,ay+16);
-  { const hv=S.ammoHover; if(hv>=0&&hv<6){ ctx.fillStyle='#9ff3c8'; ctx.textAlign='right'; ctx.fillText(`click to buy ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); ctx.textAlign='left'; }
-    else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.textAlign='right'; ctx.fillText(p&&p.on?`click to sell ${p.label}`:'no tokens to sell',ax+AW-12,ay+16); ctx.textAlign='left'; } }
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select, then BOOST (or 1–6)',ax+40,ay+16);
+  { const hv=S.ammoHover; ctx.textAlign='right';
+    if(hv>=0&&hv<6){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
+    else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
+    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText('SELL · select, then DUMP (or Z/X/C/V)',ax+AW-12,ay+16); }
+    ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
     ctx.strokeStyle=hov?'#fff':i===am?'#9ff3c8':'rgba(255,255,255,.2)'; ctx.lineWidth=hov||i===am?2:1; ctx.strokeRect(bx,by,72,30);
@@ -1176,12 +1180,12 @@ function drawHud(){
   if (MODES[S.mode].usd<MIN_SHOT){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
   else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
-  { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14); ctx.font='8px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.45)'; ctx.fillText('click',ax+12,sy+23); ctx.font='bold 10px ui-monospace,monospace';
+  { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
     S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
-      ctx.globalAlpha=p.on?1:0.4; ctx.fillStyle=hov&&p.on?'rgba(160,50,80,.85)':'rgba(122,34,54,.55)'; ctx.fillRect(bx,sy,82,sh);
+      ctx.globalAlpha=p.on?1:0.45; ctx.fillStyle=p.sel?'rgba(255,176,200,.92)':hov?'rgba(160,50,80,.85)':'rgba(122,34,54,.55)'; ctx.fillRect(bx,sy,82,sh);   // selected = filled pink (like the gold buy tile)
       { const f=S.pressFx; if(f&&f.i===6+k&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#ffd0dc'; ctx.fillRect(bx,sy,82,sh); ctx.globalAlpha=p.on?1:0.4; } }
-      ctx.strokeStyle=hov?'#ffd0dc':'rgba(255,176,200,.25)'; ctx.lineWidth=1; ctx.strokeRect(bx+.5,sy+.5,81,sh-1);
-      ctx.fillStyle='#ffd0dc'; ctx.fillText(String(p.label).slice(0,9),bx+6,sy+14); ctx.fillStyle='rgba(255,208,220,.55)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+77,sy+14); ctx.textAlign='left'; ctx.globalAlpha=1; });
+      ctx.strokeStyle=p.sel?'#fff':hov?'#ffd0dc':'rgba(255,176,200,.25)'; ctx.lineWidth=p.sel?2:1; ctx.strokeRect(bx+.5,sy+.5,81,sh-1); ctx.lineWidth=1;
+      ctx.fillStyle=p.sel?'#3a0f1c':'#ffd0dc'; ctx.fillText(String(p.label).slice(0,9),bx+6,sy+14); ctx.fillStyle=p.sel?'rgba(58,15,28,.7)':'rgba(255,208,220,.55)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+77,sy+14); ctx.textAlign='left'; ctx.globalAlpha=1; });
     const gx=ax+AW-12-62, R=AMMO_HIT[10], hov=S.ammoHover===10; R.x=gx; R.y=sy; R.w=62; R.h=sh;
     ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
     ctx.fillStyle='#ffe7a3'; ctx.fillText('⚙ ADV',gx+10,sy+14); }

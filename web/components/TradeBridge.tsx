@@ -24,7 +24,8 @@ declare global { interface Window { __discipleTrade?: Bridge } }
  */
 type Pos = { size: number; valueUsd: number; costBasis: number };
 /** % sells and "sell initials" (recover cost basis incl. fees). Keys Z/X/C/V; the 4 slots are editable in Swap settings.
- * The SELL row itself is drawn in the engine's AMMO panel (clicks come back as disciple:sellpreset). */
+ * The SELL row itself is drawn in the engine's AMMO panel. Clicking a preset only SELECTS it (disciple:sellselect);
+ * DUMP / Shift (disciple:dump) sells the selected %, Z/X/C/V sell instantly and select. */
 type Sell = { id: string; label: string; frac: number; key: string };
 const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: v === "init" ? "init" : String(v), label: sellLabel(v), frac: v === "init" ? 0 : v / 100, key: SELL_KEYS[i] }));
 
@@ -80,7 +81,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (side === "sell") {
           const me = await activeAddress();
           const bal = await tokenBalance(pc, token as Address, me);
-          if (bal === BigInt(0)) { setLast("no tokens to sell"); return { ok: false, reason: "no tokens to sell" }; }
+          if (bal === BigInt(0)) { setLast("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
           if (o?.frac && o.frac > 0) amountIn = (bal * BigInt(Math.round(Math.min(1, o.frac) * 1e6))) / BigInt(1e6);   // % of the real balance
           if (amountIn > bal) amountIn = bal;
         }
@@ -114,13 +115,29 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     return () => { alive = false; };
   }, [mode, token, valid, ammo.usd]);
 
+  // remembered selections: buy preset (engine S.mode, restored on boot) and sell preset (default 25% = slot 0)
+  const SEL_KEY = storagePrefix + "sel";
+  const [sellSel, setSellSel] = useState(0);
+  const selSell = useRef<(i: number) => void>(() => {}); selSell.current = (i: number) => { setSellSel(i); try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}"); localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, sell: i })); } catch { /* */ } };
+  useEffect(() => { try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}"); if (o.sell >= 0 && o.sell < 4) setSellSel(o.sell); } catch { /* */ } }, [SEL_KEY]);
+  useEffect(() => {   // restore the buy selection once the engine announces its ammo, then remember every change
+    let restored = false, tries = 0;   // retry until the engine (maybe still booting in its worker) echoes the saved mode
+    const h = (e: Event) => { const m = (e as CustomEvent<{ mode: number }>).detail?.mode;
+      try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}");
+        if (!restored) { if (!(o.buy >= 0 && o.buy < 6) || o.buy === m || ++tries > 20) restored = true; else { dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: o.buy } })); setMode(o.buy); return; } }
+        if (typeof m === "number" && o.buy !== m) localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, buy: m })); } catch { /* */ } };
+    addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h);
+  }, [SEL_KEY]);
+  const dumpRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      const i = (SELL_KEYS as readonly string[]).indexOf(e.code); if (i >= 0 && !e.repeat && !e.ctrlKey && !e.metaKey) sellRef.current?.(toSells(cfgRef.current.sells)[i]);
+      const i = (SELL_KEYS as readonly string[]).indexOf(e.code); if (i >= 0 && !e.repeat && !e.ctrlKey && !e.metaKey) { selSell.current(i); sellRef.current?.(toSells(cfgRef.current.sells)[i]); }   // shortcut: sell now + select
     };
-    const c = (e: Event) => { const i = (e as CustomEvent<{ i: number }>).detail?.i; const s = toSells(cfgRef.current.sells)[i]; if (s) sellRef.current?.(s); };
-    addEventListener("keydown", k); addEventListener("disciple:sellpreset", c); return () => { removeEventListener("keydown", k); removeEventListener("disciple:sellpreset", c); };
+    const c = (e: Event) => { const i = (e as CustomEvent<{ i: number }>).detail?.i; if (i >= 0 && i < 4) selSell.current(i); };
+    const d = () => dumpRef.current?.();
+    addEventListener("keydown", k); addEventListener("disciple:sellselect", c); addEventListener("disciple:dump", d);
+    return () => { removeEventListener("keydown", k); removeEventListener("disciple:sellselect", c); removeEventListener("disciple:dump", d); };
   }, []);
   // SELL row labels/enabled → engine ammo panel
   // live: the wallet's real token balance decides whether selling is possible (polled + after each trade) → engine guard
@@ -136,9 +153,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const has = live && liveHas != null ? liveHas : pos.size > 0;
   const [hint, setHint] = useState("");
   useEffect(() => { if (!hint) return; const t = setTimeout(() => setHint(""), 1400); return () => clearTimeout(t); }, [hint]);
-  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0);
+  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0) + "|" + sellSel;
   useEffect(() => {
-    const items = toSells(cfgRef.current.sells).map((x) => ({ label: x.label, key: x.key.slice(3), on: has }));
+    const items = toSells(cfgRef.current.sells).map((x, i) => ({ label: x.label, key: x.key.slice(3), on: has, sel: i === sellSel }));
     dispatchEvent(new CustomEvent("disciple:sellpresets", { detail: { items } }));
   }, [sellSig]);   // eslint-disable-line react-hooks/exhaustive-deps
   const customUsd = +custom > 0 ? +custom : 0;
@@ -150,8 +167,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (s.id === "init") { const usd = Math.min(pos.valueUsd, pos.costBasis / (1 - FEE)); return { usd, frac: usd / pos.valueUsd }; }
     return { usd: pos.valueUsd * s.frac, frac: s.frac };
   };
-  const sell = (s: Sell) => { if (!has) { setHint("no tokens to sell"); return; } const p = sellPlan(s); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
+  const sell = (s: Sell) => { if (!has) { setHint("NO TOKENS IN WALLET"); return; } const p = sellPlan(s); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
   sellRef.current = sell;
+  const selSellPreset = SELLS[sellSel] || SELLS[0];
+  dumpRef.current = () => sell(selSellPreset);
+  const fmtShot = (v: number) => (v < 1 ? "$" + v.toFixed(2) : "$" + (+v.toFixed(2)).toLocaleString());
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
   const autoUsd = ammo.tier != null ? AMMO_TIERS[ammo.tier].usd.slice() : MODES.map((m) => m.usd);
   const shotUsd = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
@@ -161,13 +181,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
       padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
       <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
-        <input aria-label="custom amount" inputMode="decimal" placeholder={`$ ${shotUsd < 1 ? shotUsd.toFixed(2) : shotUsd.toLocaleString()}`} value={custom} title="custom $ per shot (empty = selected ammo)"
+        <input aria-label="custom amount" inputMode="decimal" placeholder={`$ ${shotUsd < 1 ? shotUsd.toFixed(2) : shotUsd.toLocaleString()}`} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
           onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
           onKeyDown={(e) => { if (e.key === "Enter" && customUsd) { e.preventDefault(); shoot("buy"); } e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-        <button type="button" aria-label="buy" data-testid="buy-btn" title="BOOST: buy (Space)" onClick={() => shoot("buy")} style={{ ...btn, minWidth: 104, background: "#1f6f4a", color: "#c8ffe4" }}>▲ BOOST <span style={{ opacity: 0.75, fontWeight: 600 }}>(buy)</span></button>
-        <button type="button" aria-label="sell" data-testid="sell-btn" title={has ? "DUMP: sell (Shift)" : "no tokens to sell"} aria-disabled={!has} onClick={() => (has ? shoot("sell") : setHint("no tokens to sell"))}
-          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ DUMP <span style={{ opacity: 0.75, fontWeight: 600 }}>(sell)</span></button>
+        <button type="button" aria-label="buy" data-testid="buy-btn" title={`BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4" }}>▲ BOOST {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> custom</span> : null}</button>
+        <button type="button" aria-label="sell" data-testid="sell-btn" title={has ? `DUMP (Shift): sell ${selSellPreset.label} — the selected SELL preset` : "NO TOKENS IN WALLET"} aria-disabled={!has} disabled={!has} onClick={() => dumpRef.current?.()}
+          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ DUMP {selSellPreset.id === "init" ? "INIT" : selSellPreset.label}</button>
         <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
           <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
             background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>

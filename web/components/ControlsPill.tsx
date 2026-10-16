@@ -11,8 +11,8 @@ import { useEffect, useRef, useState } from "react";
 type Ctl = { mode: string; key: string; shot: string; pending: number; max: number; turbo: boolean | null; orbs: boolean; score: number; streak: number; mult: number };
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 const KEYS: [string, string, string?][] = [
-  ["SPACE", "boost (buy) · hold = turbo", "#9ff3c8"], ["SHIFT", "dump (sell)", "#ffb0c8"], ["P", "position tag on rocket", "#ffe7a3"], ["G", "touch grass: ambient, mcap only (Esc exits)", "#c8ffd8"], ["Z X C V", "sell 25% · 50% · 100% · initials (click = sell)", "#ffb0c8"],
-  ["1–6 / click", "buy that $ preset now"], ["W / ↑", "boost (hold)"], ["A / D", "steer (idle 1.5 s ⇒ re-centres)"], ["O", "orbs on/off"], ["B", "bombs on/off"],
+  ["SPACE", "boost: buy the selected $ (custom $ wins) · hold = turbo", "#9ff3c8"], ["SHIFT", "dump: sell the selected %", "#ffb0c8"], ["P", "position tag on rocket", "#ffe7a3"], ["G", "touch grass: ambient, mcap only (Esc exits)", "#c8ffd8"], ["Z X C V", "sell 25% · 50% · 100% · initials now (+ select)", "#ffb0c8"],
+  ["1–6", "buy that $ preset now (+ select)"], ["click preset", "select only (then BOOST / DUMP)"], ["W / ↑", "boost (hold)"], ["A / D", "steer (idle 1.5 s ⇒ re-centres)"], ["O", "orbs on/off"], ["B", "bombs on/off"],
   ["ENTER", "chat"], ["H", "chat ↔ holders"], ["/ or F1", "this help"],
 ];
 
