@@ -20,7 +20,7 @@ import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
 const inputCls =
-  "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(8,10,28,.8)] px-3 py-2 text-[#eef0ff] outline-none focus:border-[rgba(201,206,214,.7)]";
+  "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
 const labelCls = "mb-1 block text-xs tracking-wider text-[#C9CED6]";
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 
@@ -260,7 +260,7 @@ export default function LaunchRocketPage() {
               <input type="checkbox" checked={pseudonymous} onChange={(e) => setPseudonymous(e.target.checked)} />
               <span>
                 <span className={labelCls}>PSEUDONYMOUS CREATOR (beta)</span>
-                <span className="block text-[rgba(220,228,255,.7)]">{PSEUDONYMOUS_COPY}</span>
+                <span className="block text-[rgba(232,234,238,.7)]">{PSEUDONYMOUS_COPY}</span>
               </span>
             </label>
           </div>
@@ -270,14 +270,14 @@ export default function LaunchRocketPage() {
           Rockets lift off at ${CURVE.startMcap.toLocaleString()} and reach orbit at $
           {CURVE.graduationMcap.toLocaleString()}. Name and call sign are permanent after launch.
         </p>
-        <details className="text-xs text-[rgba(220,228,255,.7)]">
+        <details className="text-xs text-[rgba(232,234,238,.7)]">
           <summary className="cursor-pointer">What am I launching?</summary>
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
           {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. Fuel/ammo buys it; brake/bomb sells it.
         </details>
         <button
           type="submit"
-          className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#2a2440] to-[#16122a] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#3a3258]"
+          className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
         >
           {isDeployed() ? "🚀 Launch Rocket on-chain (testnet)" : "🚀 Launch Rocket (UI only)"}
         </button>
