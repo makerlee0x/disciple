@@ -8,9 +8,13 @@ import type { Call } from "./aa/core";
 import { maxUint256 } from "viem";
 
 const twm = () => deployment().trampWallManager;
+// Audit #8: in smart (session-key) mode always approve the exact amount in the same batch (never reuse a
+// leftover allowance); the session policy caps actual quote spent. EOA mode keeps the one-time max approve.
 async function approve(me: Address, erc20: Address, amt: bigint): Promise<Call[]> {
+  const exact = [{ to: erc20, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [twm(), amt] }) }];
+  if (isSmartMode()) return exact;
   const cur = await publicClient().readContract({ address: erc20, abi: tokenAbi, functionName: "allowance", args: [me, twm()] });
-  return cur >= amt ? [] : [{ to: erc20, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [twm(), isSmartMode() ? amt : maxUint256] }) }];
+  return cur >= amt ? [] : [{ to: erc20, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [twm(), maxUint256] }) }];
 }
 const dl = () => BigInt(Math.floor(Date.now() / 1000) + 300);
 

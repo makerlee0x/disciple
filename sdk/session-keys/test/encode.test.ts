@@ -26,6 +26,15 @@ test("rejects bad ttl / caps", () => {
   assert.throws(() => buildCreateSession({ modules, targets, sessionSigner: A(5), caps: [{ token: A(6), cap: 1n }], ttlSec: 30 * 86400 }));
 });
 
+test("audit #7: limits match DiscipleSessionPolicy (ttl <= 24h, slippage 10..5000)", () => {
+  const base = { modules, targets, sessionSigner: A(5), caps: [{ token: A(6), cap: 1n }] as [{ token: `0x${string}`; cap: bigint }] };
+  assert.throws(() => buildCreateSession({ ...base, ttlSec: 86400 + 1 }));
+  assert.doesNotThrow(() => buildCreateSession({ ...base, ttlSec: 86400 }));
+  assert.throws(() => buildCreateSession({ ...base, maxSlippageBps: 9 }));
+  assert.doesNotThrow(() => buildCreateSession({ ...base, maxSlippageBps: 10 }));
+  assert.throws(() => buildCreateSession({ ...base, maxSlippageBps: 5001 }));
+});
+
 test("uninstall + fixture for forge", () => {
   assert.equal(decodeFunctionData({ abi: semiModularAccountBytecodeAbi, data: buildUninstallSession(8, modules) }).functionName, "uninstallValidation");
   assert.equal(encodePolicyInstallData(8, { targets, caps: [{ token: A(6), cap: 100n }], validUntil: 1_800_086_400, permissions: TRADE_PERMS }), FIXTURE);

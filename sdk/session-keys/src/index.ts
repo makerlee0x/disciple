@@ -21,14 +21,16 @@ import {
 
 export const EXEC_HOOK_FLAG = 2 ** 31;
 export const DEFAULT_TTL_SEC = 24 * 60 * 60;
-export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
+export const MAX_TTL_SEC = 24 * 60 * 60; // DiscipleSessionPolicy.MAX_SESSION_DURATION (enforced on-chain)
 export const DEFAULT_MAX_SLIPPAGE_BPS = 500;
+export const MIN_SLIPPAGE_BPS = 10; // 0.1% — DiscipleSessionPolicy.MIN_SLIPPAGE_BPS_LIMIT
 export const MAX_SLIPPAGE_BPS = 5000;
 
 /** Permission bits — must match DiscipleSessionPolicy.P_* */
 export const Perm = {
   ROUTER_BUY: 1n << 0n, ROUTER_SELL: 1n << 1n, CURVE_BUY: 1n << 2n, CURVE_SELL: 1n << 3n,
   TRAMP: 1n << 4n, WALL: 1n << 5n, CANCEL: 1n << 6n, LAUNCH: 1n << 7n, ANON_LAUNCH: 1n << 8n, APPROVE: 1n << 9n,
+  REFERRAL: 1n << 10n,
 } as const;
 /** Default "quick trade" set: buy/sell (router + curves), tramps/walls/cancel, approve. Launches are opt-in. */
 export const TRADE_PERMS = Perm.ROUTER_BUY | Perm.ROUTER_SELL | Perm.CURVE_BUY | Perm.CURVE_SELL |
@@ -50,9 +52,9 @@ export type CreateSessionParams = {
   sessionSigner: Address;        // public address of the browser-held session key
   caps: [QuoteCap] | [QuoteCap, QuoteCap];
   entityId?: number;             // default: random in [1, 2^31)
-  ttlSec?: number;               // default 24h, max 7d
+  ttlSec?: number;               // default 24h, max 24h (on-chain limit)
   permissions?: bigint;          // default TRADE_PERMS
-  maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, max 5000
+  maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, range [10, 5000]
   now?: number;                  // unix seconds (tests)
 };
 
@@ -101,7 +103,7 @@ export function buildCreateSession(p: CreateSessionParams) {
   const validUntil = now + ttl;
   const permissions = p.permissions ?? TRADE_PERMS;
   const maxSlippageBps = p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS;
-  if (!Number.isInteger(maxSlippageBps) || maxSlippageBps <= 0 || maxSlippageBps > MAX_SLIPPAGE_BPS) throw new Error(`maxSlippageBps must be in [1, ${MAX_SLIPPAGE_BPS}]`);
+  if (!Number.isInteger(maxSlippageBps) || maxSlippageBps < MIN_SLIPPAGE_BPS || maxSlippageBps > MAX_SLIPPAGE_BPS) throw new Error(`maxSlippageBps must be in [${MIN_SLIPPAGE_BPS}, ${MAX_SLIPPAGE_BPS}]`);
   const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions, maxSlippageBps });
 
   const hooks: Hex[] = [

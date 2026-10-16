@@ -49,7 +49,7 @@ contract MockRouter {
 
 contract MockCurve {
     address public token;
-    TKN quote;
+    TKN public quote;
 
     constructor(address t, TKN q) {
         token = t;
@@ -84,6 +84,11 @@ contract MockCurve {
 
 contract MockLaunchpad {
     mapping(address => address) public curveOf;
+    address public defaultQuote;
+
+    function setDefaultQuote(address q) external {
+        defaultQuote = q;
+    }
 
     function set(address t, address c) external {
         curveOf[t] = c;
@@ -221,6 +226,7 @@ contract DiscipleSessionPolicyTest is Test {
         curve = new MockCurve(address(rocket2), usdg);
         fakeCurve = new MockCurve(address(rocket2), usdg); // not registered
         lp.set(address(rocket2), address(curve));
+        lp.set(address(rocket), address(new MockCurve(address(rocket), usdg))); // router-traded rocket's quote
         twm = new MockTWM(usdg);
         acct = new MockMAv2(owner);
         usdg.mint(address(acct), 1000e18);
@@ -410,23 +416,72 @@ contract DiscipleSessionPolicyTest is Test {
         assertEq(policy.sessionOf(address(acct), E).spent0, CAP);
     }
 
-    function test_capCountsAllApprovesInBatch() public {
+    /// @dev Audit #8: approvals are not counted; the cap counts quote actually spent.
+    function test_capCountsActualSpendNotApprovals() public {
+        _batch(_approve(address(usdg), address(router), 60e18), _approve(address(usdg), address(twm), 60e18));
+        assertEq(policy.sessionOf(address(acct), E).spent0, 0);
         _expectBatchRevert(
             abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 120e18, CAP),
-            _approve(address(usdg), address(router), 60e18),
-            _approve(address(usdg), address(twm), 60e18)
+            _buy(60e18, address(acct)),
+            _buy(60e18, address(acct))
         );
     }
 
+    /// @dev Audit #8 regression: a leftover / pre-existing allowance used to let buys skip the cap entirely.
+    function test_audit8_leftoverAllowanceCannotBypassCap() public {
+        vm.prank(owner); // owner grants a standing max allowance (no session hooks)
+        acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), type(uint256).max)));
+        MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
+        cs[0] = _buy(60e18, address(acct));
+        vm.prank(key);
+        acct.executeBatch(cs);
+        assertEq(policy.sessionOf(address(acct), E).spent0, 60e18);
+        cs[0] = _buy(41e18, address(acct));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        acct.executeBatch(cs);
+        // tramps also count
+        cs[0] = MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 41e18, 0, 0)));
+        vm.prank(owner);
+        acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(twm), type(uint256).max)));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        acct.executeBatch(cs);
+    }
+
     function testFuzz_spentNeverExceedsCap(uint96[5] memory amts) public {
+        vm.prank(owner);
+        acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), type(uint256).max)));
         for (uint256 i; i < amts.length; ++i) {
-            uint256 a = uint256(amts[i]) % 80e18;
+            uint256 a = uint256(amts[i]) % 80e18 + 1;
             MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
-            cs[0] = _approve(address(usdg), address(router), a);
+            cs[0] = _buy(a, address(acct));
             vm.prank(key);
             try acct.executeBatch(cs) {} catch {}
             assertLe(policy.sessionOf(address(acct), E).spent0, CAP);
         }
+    }
+
+    /// @dev Audit #7: on-chain session lifetime ≤ 24h and slippage in [10, 5000] bps.
+    function test_audit7_expiryAndSlippageBounds() public {
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 24 hours + 1));
+        vm.prank(owner);
+        vm.expectRevert(P.InvalidConfig.selector);
+        acct.installSession(policy, E, key, c);
+        c = _cfg(uint48(block.timestamp + 24 hours));
+        c.maxSlippageBps = 9;
+        vm.prank(owner);
+        vm.expectRevert(P.InvalidConfig.selector);
+        acct.installSession(policy, E, key, c);
+        c.maxSlippageBps = 10;
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        // delayed start: 24h window counted from validAfter
+        c.validAfter = uint48(block.timestamp + 1 hours);
+        c.validUntil = uint48(block.timestamp + 25 hours);
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        assertEq(policy.MAX_SESSION_DURATION(), 24 hours);
     }
 
     // ───────── slippage (minOut vs on-chain quote) ─────────
