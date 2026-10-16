@@ -30,12 +30,24 @@ contract DiscipleRouter is IUnlockCallback {
     LockedLP public immutable lockedLP;
     address public immutable hook;
 
+    /// @notice Hard cap on the price move of a single router swap, in bps of the pre-swap price
+    ///         (same |Δprice|/price metric as Trade.impactBps / quoteExactIn). Owner-settable within
+    ///         [MIN_MAX_IMPACT_BPS, MAX_MAX_IMPACT_BPS]. Router-only: direct PoolManager swaps are unaffected.
+    uint256 public maxImpactBps = 5000;
+    uint256 public constant MIN_MAX_IMPACT_BPS = 100; // 1%
+    uint256 public constant MAX_MAX_IMPACT_BPS = 100_000; // 10x price move (buys measure Δp/p, can exceed 100%)
+    address public owner;
+
     error OnlyPoolManager();
     error Expired();
     error Slippage();
     error NotGraduated();
     error ZeroAmount();
     error ZeroRecipient();
+    error ZeroMinOut();
+    error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps);
+    error OnlyOwner();
+    error BadParam();
     error QuoteResult(uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
 
     struct CallbackData {
@@ -51,6 +63,24 @@ contract DiscipleRouter is IUnlockCallback {
         poolManager = poolManager_;
         lockedLP = lockedLP_;
         hook = hook_;
+        owner = msg.sender;
+    }
+
+    event MaxImpactSet(uint256 maxImpactBps);
+    event OwnerTransferred(address indexed owner);
+
+    function setMaxImpactBps(uint256 bps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (bps < MIN_MAX_IMPACT_BPS || bps > MAX_MAX_IMPACT_BPS) revert BadParam();
+        maxImpactBps = bps;
+        emit MaxImpactSet(bps);
+    }
+
+    function transferOwnership(address o) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (o == address(0)) revert ZeroRecipient();
+        owner = o;
+        emit OwnerTransferred(o);
     }
 
     /// @notice The graduated v4 pool key for `token` (reverts if not graduated).
@@ -163,6 +193,7 @@ contract DiscipleRouter is IUnlockCallback {
         if (block.timestamp > deadline) revert Expired();
         if (amountIn == 0) revert ZeroAmount();
         if (recipient == address(0)) revert ZeroRecipient();
+        if (minOut == 0) revert ZeroMinOut();
         bytes memory res = poolManager.unlock(
             abi.encode(
                 CallbackData({
@@ -204,12 +235,19 @@ contract DiscipleRouter is IUnlockCallback {
         revert QuoteResult(out, impact, mcap);
     }
 
+    function _checkImpact(PoolKey memory key, uint160 sb) private view {
+        (uint160 sa,,,) = poolManager.getSlot0(key.toId());
+        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(key.toId());
+        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(key.currency0) == tokenAddr);
+        uint256 cap = maxImpactBps;
+        if (impact > cap) revert PriceImpactTooHigh(impact, cap);
+    }
+
     function unlockCallback(bytes calldata raw) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         CallbackData memory d = abi.decode(raw, (CallbackData));
 
-        uint160 sqrtBefore;
-        if (d.simulate) (sqrtBefore,,,) = poolManager.getSlot0(d.key.toId());
+        (uint160 sqrtBefore,,,) = poolManager.getSlot0(d.key.toId());
         if (d.simulate) _tstoreSqrt(sqrtBefore);
         BalanceDelta delta = poolManager.swap(
             d.key,
@@ -229,6 +267,7 @@ contract DiscipleRouter is IUnlockCallback {
         uint256 paid = uint256(uint128(-dIn));
         uint256 out = uint256(uint128(dOut));
         if (d.simulate) _revertQuote(d, out);
+        _checkImpact(d.key, sqrtBefore);
         cin.settle(poolManager, d.payer, paid, false);
         cout.take(poolManager, d.recipient, out, false);
         return abi.encode(out);

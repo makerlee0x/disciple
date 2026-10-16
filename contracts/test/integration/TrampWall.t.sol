@@ -92,12 +92,12 @@ contract TrampWallTest is IntegrationBase {
 
     function _sell(address u, uint256 amt) internal {
         vm.prank(u);
-        router.sellExactIn(address(tok), amt, 0, u, block.timestamp + 1);
+        router.sellExactIn(address(tok), amt, 1, u, block.timestamp + 1);
     }
 
     function _buy(address u, uint256 amt) internal {
         vm.prank(u);
-        router.buyExactIn(address(tok), amt, 0, u, block.timestamp + 1);
+        router.buyExactIn(address(tok), amt, 1, u, block.timestamp + 1);
     }
 
     /// @dev Sell until price is below `p` (quote per token).

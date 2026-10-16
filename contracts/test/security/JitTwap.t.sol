@@ -35,6 +35,9 @@ contract JitTwapTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
+        // whale stress trades intentionally exceed the router default 50% impact cap
+        vm.prank(router.owner());
+        router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         twm = new TrampWallManager(manager, lockedLP, address(hook));
         hook.setLiquidityManager(address(twm), true);
         (curve, tok) = _launch(0, 0);
@@ -62,12 +65,12 @@ contract JitTwapTest is IntegrationBase {
 
     function _buy(address u, uint256 amt) internal {
         vm.prank(u);
-        router.buyExactIn(address(tok), amt, 0, u, block.timestamp + 1);
+        router.buyExactIn(address(tok), amt, 1, u, block.timestamp + 1);
     }
 
     function _sell(address u, uint256 amt) internal {
         vm.prank(u);
-        router.sellExactIn(address(tok), amt, 0, u, block.timestamp + 1);
+        router.sellExactIn(address(tok), amt, 1, u, block.timestamp + 1);
     }
 
     function _tIs0() internal view returns (bool) {
