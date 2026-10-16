@@ -25,7 +25,7 @@ declare global { interface Window { __discipleTrade?: Bridge } }
 type Pos = { size: number; valueUsd: number; costBasis: number };
 /** % sells (default 10/25/50/100). Keys Z/X/C/V; the 4 slots are editable in Swap settings.
  * The SELL row itself is drawn in the engine's AMMO panel. Clicking a preset only SELECTS it (disciple:sellselect);
- * DUMP / Shift (disciple:dump) sells the selected %, Z/X/C/V sell instantly and select. */
+ * DUMP / Shift (disciple:dump) sells the selected % (or the custom sell field); Z/X/C/V only SELECT (never trade). */
 type Sell = { id: string; label: string; frac: number; key: string };
 const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: String(v), label: sellLabel(v), frac: v / 100, key: SELL_KEYS[i] }));
 const DEFAULT_SELL_SEL = 1;   // 25%
@@ -34,7 +34,6 @@ const DEFAULT_SELL_SEL = 1;   // 25%
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
   const [mode, setMode] = useState(2);
   const [custom, setCustom] = useState("");
-  const sellRef = useRef<((s: Sell) => void) | null>(null);
   const [pos, setPos] = useState<Pos>({ size: 0, valueUsd: 0, costBasis: 0 });
   useEffect(() => {
     const h = (e: Event) => setPos((e as CustomEvent<Pos>).detail);
@@ -139,7 +138,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      const i = (SELL_KEYS as readonly string[]).indexOf(e.code); if (i >= 0 && !e.repeat && !e.ctrlKey && !e.metaKey) { selSell.current(i); sellRef.current?.(toSells(cfgRef.current.sells)[i]); }   // shortcut: sell now + select
+      const i = (SELL_KEYS as readonly string[]).indexOf(e.code); if (i >= 0 && !e.repeat && !e.ctrlKey && !e.metaKey) { selSell.current(i); }   // selector only: updates the DUMP selection/label, never trades (Shift / DUMP sells)
     };
     const c = (e: Event) => { const i = (e as CustomEvent<{ i: number }>).detail?.i; if (i >= 0 && i < 4) selSell.current(i); };
     const d = () => dumpRef.current?.();
@@ -176,7 +175,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   };
   const sellFrac = (frac: number) => { if (!has) { setHint("NO TOKENS IN WALLET"); return; } const p = sellPlan(Math.min(1, frac)); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
   const sell = (s: Sell) => sellFrac(s.frac);
-  sellRef.current = sell;
   const selSellPreset = SELLS[sellSel] || SELLS[DEFAULT_SELL_SEL];
   // custom sell: % of holdings (≤ 100) or a $ value capped at the position value; overrides the selected preset (same rule as custom buy $)
   const sellCustomN = +sellCustom > 0 ? +sellCustom : 0;
