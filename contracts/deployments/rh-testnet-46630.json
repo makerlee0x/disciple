@@ -46,7 +46,7 @@
       "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
       "defaultQuote": true
     }
   },
@@ -62,7 +62,7 @@
     "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
   },
   "previous": {
-    "note": "v2 stack (PR #10) — superseded by combined redeploy",
+    "note": "v2 stack (PR #10) \u2014 superseded by combined redeploy",
     "contracts": {
       "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
       "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
@@ -248,6 +248,18 @@
       "graduated": true,
       "postGradMcapUsd": "32999.99",
       "note": "7% wallet cap: buys spread over throwaway recipients (script/redeploy/graduate.mjs)"
+    }
+  },
+  "addons": {
+    "DiscipleSessionPolicy": {
+      "address": "0x476a7ed0775f6c7720c9157e4dade639424218cc",
+      "deployTx": "0x52d54c5cf0d9790a0ccb74c06d0276c995272793085b6597968a487fce5f49e5",
+      "deployedAt": "2026-10-16",
+      "moduleId": "disciple.session-policy.1.1.0",
+      "constructor": {
+        "referralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac"
+      },
+      "note": "ERC-6900 session hook (MAv2). Per-session config (router/launchpad/anonLauncher/trampWallManager/quotes/caps) is passed at onInstall; only ReferralRegistry is fixed. Branch feat/session-policy-referral."
     }
   }
 }
