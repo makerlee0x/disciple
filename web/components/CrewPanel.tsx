@@ -84,11 +84,11 @@ export default function CrewPanel() {
             </div>
           ))}
           <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
-          <div style={{ marginTop: 6, color: "#ffe7a3" }}>AMMO COST</div>
+          <div style={{ marginTop: 6, color: "#ffe7a3" }}>BUY PRESETS</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 14 }}>
             {MODES.map((m, i) => (
               <div key={m.key} style={{ display: "flex", justifyContent: "space-between", color: i === mode ? "#9ff3c8" : undefined }}>
-                <span>{m.key} {m.name}</span><span>{ammoTxt(i, m.usd)}</span>
+                <span>{m.key}</span><span>{ammoTxt(i, m.usd)}</span>
               </div>
             ))}
           </div>

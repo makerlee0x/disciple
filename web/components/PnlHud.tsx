@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyFill, emptyPosition, view, type Position } from "@/lib/pnl";
+import { applyFill, emptyPosition, view, type Position, fmtMoney, fmtPct, fmtPnl } from "@/lib/pnl";
 
 type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number };
 type Mark = { mcap: number; supply: number };
@@ -13,7 +13,7 @@ type FlightWin = {
 };
 
 const DEFAULT_KEY = "disciple.pnl.";
-const usd = (v: number) => (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const usd = fmtPnl;
 const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
 const amt = (v: number) => (v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "K" : v.toFixed(0));
 const GREEN = "#8ff0c0", RED = "#ff9fb8", FLAT = "#e8ecff";
@@ -107,6 +107,11 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
   useEffect(() => {
     dispatchEvent(new CustomEvent("disciple:position", { detail: { size: v.size, valueUsd: v.valueUsd, costBasis: pos.costBasis } }));
   }, [v.size, v.valueUsd, pos.costBasis]);
+  // the engine's rocket position tag reads the SAME view() (P toggles it)
+  useEffect(() => {
+    dispatchEvent(new CustomEvent("disciple:pnlview", { detail: v.size > 0 ? { size: v.size, valueUsd: v.valueUsd, entryMcap: v.entryMcap, uPnl: v.uPnl, pnlPct: v.pnlPct, realized: v.realized,
+      txt: { pnl: fmtPnl(v.uPnl), pct: fmtPct(v.pnlPct), pos: fmtMoney(v.valueUsd), realized: fmtPnl(v.realized) } } : null }));
+  }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
 
   const holding = v.size > 0;
   const maxMult = 1 + HOLD_BONUS.maxBoost;
@@ -138,7 +143,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>
           <div style={row}><span style={label}>MCAP</span><Num value={mark.mcap} fmt={fmtUsd} style={{ fontWeight: 700 }} /></div>
           <div style={row}><span style={label}>HOLDINGS</span>
-            <span>{amt(v.size)} · <Num value={v.valueUsd} fmt={(x) => "$" + x.toFixed(2)} /></span></div>
+            <span>{amt(v.size)} · <Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
           <div style={row}><span style={label}>AVG ENTRY</span><span>{holding ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>REALIZED</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
           {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>EXIT FEES</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}

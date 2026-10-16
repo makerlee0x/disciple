@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 type Ctl = { mode: string; key: string; shot: string; pending: number; max: number; turbo: boolean | null; orbs: boolean; score: number; streak: number; mult: number };
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 const KEYS: [string, string, string?][] = [
-  ["SPACE", "fuel (buy) · hold = turbo", "#9ff3c8"], ["SHIFT", "bomb (sell)", "#ffb0c8"], ["Z X C V", "sell 12% · 33% · 77% · initials", "#ffb0c8"],
+  ["SPACE", "boost (buy) · hold = turbo", "#9ff3c8"], ["SHIFT", "dump (sell)", "#ffb0c8"], ["P", "position tag on rocket", "#ffe7a3"], ["Z X C V", "sell 12% · 33% · 77% · initials", "#ffb0c8"],
   ["1–6 / click", "ammo size"], ["W / ↑", "boost (hold)"], ["A / D", "steer"], ["O", "orbs on/off"], ["B", "bombs on/off"],
   ["ENTER", "chat"], ["H", "chat ↔ holders"], ["/ or F1", "this help"],
 ];
@@ -47,7 +47,7 @@ export default function ControlsPill({ simulator = false }: { simulator?: boolea
         <div data-testid="controls-pop" role="dialog" aria-label="Controls"
           style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, width: 300, padding: "10px 12px", borderRadius: 12, zIndex: 40,
             background: "rgba(10,12,28,.92)", border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff", font: "11px/1.5 ui-monospace,monospace", boxShadow: "0 8px 24px rgba(0,0,0,.45)" }}>
-          {c && <div style={{ fontWeight: 800, color: "#fff", marginBottom: 6 }}>MODE {c.mode} · {c.shot}/shot <span style={{ opacity: 0.6, fontWeight: 400 }}>[{c.key}]</span></div>}
+          {c && <div style={{ fontWeight: 800, color: "#fff", marginBottom: 6 }}>BUY {c.shot}/shot <span style={{ opacity: 0.6, fontWeight: 400 }}>[{c.key}]</span></div>}
           {KEYS.filter(([k]) => !(simulator && (k === "ENTER" || k === "H"))).map(([k, d, col]) => (
             <div key={k} style={{ display: "flex", gap: 8 }}><b style={{ minWidth: 96, color: col || "#ffe7a3" }}>{k}</b><span style={{ opacity: 0.9 }}>{d}</span></div>))}
           {c && <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,.1)", opacity: 0.9 }}>
