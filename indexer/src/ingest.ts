@@ -83,10 +83,10 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
             usd = (Number(a.tokenAmt) / 1e18) * (last?.price_usd ?? 0);
           }
           db.prepare(
-            `INSERT OR IGNORE INTO orders (stack,id,kind,owner,token,tick_lower,tick_upper,liquidity,amount_in,amount_in_usd,placed_tx,placed_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT OR IGNORE INTO orders (stack,id,kind,owner,token,tick_lower,tick_upper,liquidity,amount_in,amount_in_usd,placed_tx,placed_at,placed_block)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(stack.id, Number(a.id), ev.eventName === "TrampPlaced" ? "tramp" : "wall", lc(a.owner), lc(a.token), a.tickLower, a.tickUpper,
-            s(a.liquidity), s(ev.eventName === "TrampPlaced" ? a.quoteAmt : a.tokenAmt), usd, l.transactionHash, ts);
+            s(a.liquidity), s(ev.eventName === "TrampPlaced" ? a.quoteAmt : a.tokenAmt), usd, l.transactionHash, ts, block);
           break;
         }
         case "Filled":
@@ -104,7 +104,46 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
                 (BigInt(o.fees_quote) + a.quoteFees).toString(), (BigInt(o.fees_token) + a.tokenFees).toString(), stack.id, Number(a.id));
           }
           break;
-        case "LPDonation":
+        case "LaunchTierContext":
+          if (isCore(stack.launchpad))
+            db.prepare("UPDATE coins SET start_mcap_usd=?, graduation_mcap_usd=?, total_supply=?, decimals=? WHERE token=?").run(
+              s(a.startMcapUsd), s(a.graduationMcapUsd), s(a.totalSupply), Number(a.decimals_), lc(a.token));
+          break;
+        case "AltitudeUpdate":
+        case "TierBreak": {
+          const coin: any = coinBy.get(lc(a.token));
+          if (!coin) break;
+          const fromCurve = src === coin.curve;
+          if (!fromCurve && !isCore(stack.hook)) break;
+          if (ev.eventName === "AltitudeUpdate")
+            db.prepare("UPDATE coins SET tier=?, altitude_mcap_usd=?, altitude_block=? WHERE token=?").run(Number(a.tier), s(a.mcapUsd), block, coin.token);
+          else
+            db.prepare("INSERT OR IGNORE INTO tier_breaks VALUES (?,?,?,?,?,?,?,?,?,?)").run(
+              id, stack.id, coin.token, fromCurve ? "curve" : "hook", Number(a.fromTier), Number(a.toTier), s(a.mcapUsd), block, ts, l.transactionHash);
+          break;
+        }
+        case "KeeperTipPaid": {
+          if (!isCore(stack.trampWallManager)) break;
+          db.prepare("INSERT OR IGNORE INTO keeper_tips VALUES (?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, Number(a.id), lc(a.keeper), s(a.quoteTip), s(a.tokenTip), block, ts, l.transactionHash);
+          db.prepare("UPDATE orders SET keeper_quote_tip=?, keeper_token_tip=?, keeper=COALESCE(keeper, ?) WHERE stack=? AND id=?").run(
+            s(a.quoteTip), s(a.tokenTip), lc(a.keeper), stack.id, Number(a.id));
+          break;
+        }
+        case "ReferrerAttributed":
+        case "ReferrerPending":
+          if (!isCore(stack.referralRegistry)) break;
+          // Attributed is final; Pending never downgrades an Attributed row.
+          db.prepare(
+            `INSERT INTO referrals VALUES (?,?,?,?,?,?,?) ON CONFLICT(stack, wallet) DO UPDATE SET referrer=excluded.referrer, status=excluded.status,
+             block=excluded.block, ts=excluded.ts, tx=excluded.tx WHERE referrals.status != 'attributed' OR excluded.status = 'attributed'`,
+          ).run(stack.id, lc(a.wallet), lc(a.referrer), ev.eventName === "ReferrerAttributed" ? "attributed" : "pending", block, ts, l.transactionHash);
+          break;
+        case "LaunchFeePaid":
+          if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
+          break;
+        case "ReferrerFeesClaimed":
+        case "UsdgDepositRecorded":
         case "TradeFeeRouted":
         case "CreatorFeesClaimed":
         case "SnipeFeeRoutedToLP":
@@ -112,12 +151,12 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "Claimed":
         case "RewardAccrued":
         case "Distributed": {
-          const ok = { LPDonation: stack.hook, Claimed: stack.anonLauncher, RewardAccrued: stack.rewardsVault, Distributed: stack.rewardsVault }[ev.eventName as string] ?? stack.feeRouter;
+          const ok = { UsdgDepositRecorded: stack.referralRegistry, Claimed: stack.anonLauncher, RewardAccrued: stack.rewardsVault, Distributed: stack.rewardsVault }[ev.eventName as string] ?? stack.feeRouter;
           if (!isCore(ok)) break;
-          const vals = Object.values(a).map(s);
+          const vals = Object.values(a).filter((v) => typeof v === "bigint").map(s); // numeric args only, in ABI order
           db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
             id, stack.id, ev.eventName, a.token ? lc(a.token) : null,
-            lc(a.creator ?? a.trader ?? a.stealthOwner ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : a.currency ? lc(a.currency) : null,
+            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : null,
             vals[0] ?? null, vals[1] ?? null, vals[2] ?? null, vals[3] ?? null, vals.slice(4).join(",") || null, block, ts, l.transactionHash);
           break;
         }

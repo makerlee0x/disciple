@@ -3,7 +3,8 @@ import { parseAbi } from "viem";
 const TRADE =
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd)";
 
-/** Every event the indexer stores (union across stacks; old stacks simply never emit the newer ones). */
+/** LPDonation (removed in PR #44) is intentionally not decoded. FeesClaimed / SnipeFeeRoutedToLP stay for older stacks.
+ * Every event the indexer stores (union across stacks; old stacks simply never emit the newer ones). */
 export const EVENTS = parseAbi([
   "event Launched(address indexed token, address indexed curve, address indexed creator, address quote, string name, string ticker, uint256 creatorTaxBps)",
   "event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd)",
@@ -12,7 +13,6 @@ export const EVENTS = parseAbi([
   TRADE,
   "event GraduatedToV4(address indexed token, bytes32 poolId, uint256 tokenLiq, uint256 quoteLiq)",
   "event Migrated(address indexed token, address indexed quote, bytes32 poolId, uint256 tokenAmount, uint256 quoteAmount, uint160 sqrtPriceX96)",
-  "event LPDonation(address indexed token, address indexed currency, uint256 amount)",
   "event TrampPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 quoteAmt)",
   "event WallPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 tokenAmt)",
   "event Filled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, address keeper)",
@@ -27,6 +27,16 @@ export const EVENTS = parseAbi([
   "event StealthOwnerTransferred(address indexed token, address indexed from, address indexed to)",
   "event RewardAccrued(address indexed token, address indexed asset, uint256 amount)",
   "event Distributed(address indexed asset, address indexed to, uint256 amount)",
+  // flow/jit-twap (PR #44) additions
+  "event LaunchTierContext(address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_)",
+  "event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier)",
+  "event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd)",
+  "event KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)",
+  "event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount)",
+  "event ReferrerAttributed(address indexed wallet, address indexed referrer)",
+  "event ReferrerPending(address indexed wallet, address indexed referrer)",
+  "event UsdgDepositRecorded(address indexed wallet, uint256 amount, uint256 total)",
+  "event LaunchFeePaid(address indexed token, uint256 amount)",
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 ]);
 
