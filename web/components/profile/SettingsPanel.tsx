@@ -47,7 +47,7 @@ export default function SettingsPanel() {
       <span>{label}</span>
       <button
         type="button"
-        className="rounded-lg border border-[rgba(255,231,163,.6)] px-3 py-1 text-[#ffe7a3]"
+        className="rounded-lg border border-[rgba(201,206,214,.6)] px-3 py-1 text-[#C9CED6]"
         onClick={() => {
           const next = !on;
           set(next);

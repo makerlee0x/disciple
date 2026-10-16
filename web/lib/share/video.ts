@@ -60,8 +60,8 @@ export function loadShareFonts() {
 }
 export async function endCardAssets(mcapEnd: number, lo: Loadout) {
   await loadShareFonts();
-  const [bg, base] = await Promise.all([img(`${BASE()}${tierAt(mcapEnd).sky}`), img(`${BASE()}/assets/rocket.png`)]);
-  return { bg, rocket: base ? composeRocket(mkDom, base, lo, 4) : null };
+  const [bg, base, wordmark] = await Promise.all([img(`${BASE()}${tierAt(mcapEnd).sky}`), img(`${BASE()}/assets/rocket.png`), img(`${BASE()}/brand/disciple-wordmark-light-1200.png`)]);
+  return { bg, rocket: base ? composeRocket(mkDom, base, lo, 4) : null, wordmark };
 }
 
 /* ---------------- encoders ---------------- */
