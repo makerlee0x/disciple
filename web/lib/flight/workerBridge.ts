@@ -41,7 +41,7 @@ export function chooseRenderMode(search: string): "main" | "worker" {
   return "main";
 }
 
-const INBOUND = ["disciple:event", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "apsidebar"];
+const INBOUND = ["disciple:event", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "apsidebar"];
 const GLOBALS = ["__trampWalls", "__twPreview", "__entryMcap", "__hudRT"];
 const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim"];
 

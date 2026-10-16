@@ -90,7 +90,7 @@ export class SimRun {
       if (f.ok && (f.usd >= this.cfg.market.playerBigBuyUsd || f.usd >= this.m.depth() * 0.02)) this.lastPlayerBigBuy = this.t;
       return { ...f, mcap: f.price * this.m.S };
     }
-    if (P.pos.size <= 0) return { ok: false, reason: "no tokens to sell", tokens: 0, usd: 0, price: 0, preMcap: this.m.mcap(), postMcap: this.m.mcap(), mcap: this.m.mcap() };
+    if (P.pos.size <= 0) return { ok: false, reason: "NO TOKENS IN WALLET", tokens: 0, usd: 0, price: 0, preMcap: this.m.mcap(), postMcap: this.m.mcap(), mcap: this.m.mcap() };
     const tokens = o?.frac ? P.pos.size * Math.min(1, o.frac) : Math.min(P.pos.size, usd / this.m.price());
     const f = this.exec("sell", null, tokens);
     return { ...f, mcap: f.price * this.m.S };

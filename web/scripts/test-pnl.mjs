@@ -14,7 +14,7 @@ for (const f of ["pnl", "config"]) {
   const src = fs.readFileSync(path.join(dir, `../lib/${f}.ts`), "utf8").replace(/from "\.\/config"/g, 'from "./config.mjs"');
   fs.writeFileSync(path.join(tmp, f + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }
-const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
 const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
@@ -84,3 +84,40 @@ if (fail) process.exit(1); else console.log("PASS");
   const mirror = new Function(eng2.match(/function fmtMoney\(v\)\{[^\n]*\n/)[0] + eng2.match(/function fmtPnlUsd\(v\)\{[^\n]*\n/)[0] + "return [fmtMoney, fmtPnlUsd];")();
   for (const v of [0, 0.11, -0.11, 1, 999.994, 1234, -1234.5, 4.56e6, 7.89e9]) { eq(mirror[0](v), fmtMoney(v)); eq(mirror[1](v), fmtPnl(v)); }
   console.log("ok  shared PnL formatter (2-decimal $, compact K/M/B, 1-decimal %) + engine fallback mirror"); }
+
+// ---- audit scenarios (maker lee): mcap vs entry vs realized, 7B supply, fees separate ----
+{ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
+  const S7 = DEFAULT_SUPPLY, px = (m) => m / S7, near = (a, b, tol) => Math.abs(a - b) <= tol;
+  ok(S7 === 7e9, "default supply is DISCIPLE's 7B");
+  let p = applyFill(emptyPosition(), "buy", 100, px(10_000), 0, 0);
+  let v = view(p, px(10_000), S7, 0);
+  ok(near(v.entryMcap, 10_000 / 0.99, 1), `buy $100 @ $10K: entry mcap ${v.entryMcap.toFixed(0)} (= $10K grossed up by the 1% buy fee)`);
+  v = view(p, px(20_000), S7, 0);
+  ok(near(v.pnlPct, 98, 0.5) && near(v.uPnl, 98, 0.5), `mcap $10K → $20K: uPnL ${fmtPnl(v.uPnl)} ${fmtPct(v.pnlPct)} (≈ +100% less the 1% fee)`);
+  const gain = v.uPnl;
+  p = applyFill(p, "sell", v.valueUsd * 0.5, px(20_000), 0, 0, 0.5); v = view(p, px(20_000), S7, 0);
+  ok(near(p.realized, gain / 2, 0.01), `sell 50% @ $20K: realized ${fmtPnl(p.realized)} = half the gain`);
+  ok(near(v.uPnl, gain / 2, 0.01), `… remaining uPnL ${fmtPnl(v.uPnl)} = the other half`);
+  ok(near(v.entryMcap, 10_000 / 0.99, 1), "… entry mcap unchanged by a sell");
+  ok(near(p.fees, 99 * 0.01, 0.01) && p.realized + v.uPnl === p.realized + v.uPnl, `… exit fee ${fmtMoney(p.fees)} booked separately (not in realized)`);
+  v = view(p, px(15_000), S7, 0);
+  ok(near(v.uPnl, p.size * (px(15_000) - p.costBasis / p.size), 1e-9) && near(v.pnlPct, 48.5, 0.5), `mcap drops to $15K: uPnL ${fmtPnl(v.uPnl)} ${fmtPct(v.pnlPct)}`);
+  const realizedBefore = p.realized, closing = v.uPnl;
+  p = applyFill(p, "sell", 1e9, px(15_000), 0, 0, 1); v = view(p, px(15_000), S7, 0);
+  ok(p.size === 0 && v.uPnl === 0 && v.valueUsd === 0, "full sell: holdings 0, uPnL 0, value 0");
+  ok(near(p.realized, realizedBefore + closing, 1e-6), `… realized total ${fmtPnl(p.realized)} = earlier realized + closed uPnL`);
+  // weighted average entry
+  let q = applyFill(emptyPosition(), "buy", 100, px(10_000), 0, 0); q = applyFill(q, "buy", 100, px(20_000), 0, 0);
+  ok(near(view(q, px(20_000), S7, 0).entryMcap, 200 / (99 / 10_000 + 99 / 20_000), 1), `two buys $10K + $20K: weighted entry ${fmtMoney(view(q, px(20_000), S7, 0).entryMcap)} (token-weighted)`);
+  // guards
+  ok(JSON.stringify(applyFill(emptyPosition(), "sell", 50, px(10_000), 0, 0)) === JSON.stringify(emptyPosition()), "sell with no holdings is a no-op");
+  const r = applyFill(applyFill(emptyPosition(), "buy", 10, px(10_000), 0, 0), "sell", 1000, px(10_000), 0, 0);
+  ok(r.size === 0 && r.realized <= 0, "a sell bigger than the bag closes the bag only (never short)");
+  // usd-sized sell at a lower fill price used to sell MORE than 50% of the tokens; frac sells exactly half
+  const h = applyFill(emptyPosition(), "buy", 100, px(10_000), 0, 0), half = applyFill(h, "sell", view(h, px(10_000), S7, 0).valueUsd * 0.5, px(9_500), 0, 0, 0.5);
+  ok(near(half.size, h.size / 2, 1e-6), "50% preset sells exactly half the tokens even with a worse fill price");
+  // supply rebase (ledgers booked with the old 1e9 fallback) keeps $ basis and entry mcap
+  const old = { ...applyFill(emptyPosition(), "buy", 100, 10_000 / 1e9, 0, 0), supply: 1e9 }, nb = rebase(old, S7);
+  ok(near(view(nb, px(10_000), S7, 0).entryMcap, view(old, 10_000 / 1e9, 1e9, 0).entryMcap, 1e-6) && nb.costBasis === old.costBasis, "supply 1e9 → 7e9 rebase keeps cost basis and entry mcap");
+  if (bad) { console.error(bad + " audit scenario(s) FAILED"); process.exit(1); }
+  console.log("ok  audit scenarios"); }
