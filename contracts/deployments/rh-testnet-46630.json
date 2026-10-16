@@ -249,5 +249,18 @@
       "postGradMcapUsd": "32999.99",
       "note": "7% wallet cap: buys spread over throwaway recipients (script/redeploy/graduate.mjs)"
     }
+  },
+  "addons": {
+    "DiscipleSessionPolicy": {
+      "address": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2",
+      "deployTx": "0xaee4434aed9086afeb31dfcc79183261702d8dee1e39bbad899347cc28155c1c",
+      "deployedAt": "2026-10-16",
+      "moduleId": "disciple.session-policy.1.1.1",
+      "supersedes": "0x476a7ed0775f6c7720c9157e4dade639424218cc (1.1.0: preExecutionHook rejected MAv2 executeUserOp calldata)",
+      "constructor": {
+        "referralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac"
+      },
+      "note": "ERC-6900 session hook (MAv2). Per-session config (router/launchpad/anonLauncher/trampWallManager/quotes/caps) is passed at onInstall; only ReferralRegistry is fixed. Branch feat/session-policy-referral."
+    }
   }
 }
