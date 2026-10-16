@@ -1200,5 +1200,7 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .lp-follows b { color: #ffe7a3; font-weight: 600; }
 .lp-follows svg { flex: none; }
 .lp-c-pair svg { margin-right: 6px; vertical-align: -3px; }
-.lp-card-art { width: 92px; }
+.lp-card-art { width: 124px; }
 .lp-tmeta { flex-wrap: wrap; column-gap: 6px; }
+.lp-tcrest { width: 92%; height: auto; }
+.lp-tart { grid-template-columns: minmax(0, 1fr); }

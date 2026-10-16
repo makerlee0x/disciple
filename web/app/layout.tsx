@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import { Anton } from "next/font/google";
+
+/** Heavy condensed display face for the WITH matchup cards. */
+const vsFont = Anton({ weight: "400", subsets: ["latin"], variable: "--font-vs", display: "swap" });
 
 export const metadata: Metadata = {
   title: "DISCIPLE — Every coin is a rocket",
@@ -16,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={vsFont.variable}>
       <body className="antialiased">
         <AppShell>{children}</AppShell>
       </body>

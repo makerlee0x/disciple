@@ -9,7 +9,7 @@ export function pairInfo(sym = "STRATEGY"): PairInfo {
   if (s === "USDG" || s === "MUSDG") return { key: "USDG", label: sym, short: sym, color: "#2fd39a", color2: "#0b6b52" };
   if (s === "WETH" || s === "ETH") return { key: "WETH", label: "WETH", short: "WETH", color: "#8c9cff", color2: "#3a3f8f" };
   const e = emblemFor("pair:" + s, s);
-  return { key: "OTHER", label: sym, short: sym.slice(0, 8), color: e.bg, color2: e.bg2 };
+  return { key: "OTHER", label: sym, short: sym.slice(0, 8), color: e.hi, color2: e.lo };
 }
 
 /** `bare` = mark only (no disc), for use inside the pair shield. */

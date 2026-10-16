@@ -17,6 +17,8 @@ export type Rocket = {
   c: string;
   icon?: string;
   hidden?: boolean;
+  /** Generated portrait-silhouette emblem instead of a monogram (no real likeness). */
+  portrait?: boolean;
   /** Quote pair bucket + display symbol (e.g. "mUSDG"). */
   pair?: PairKey;
   pairSym?: string;
@@ -56,6 +58,17 @@ export function sampleRockets(n: number, withBase: (p: string) => string): Rocke
     const pair: PairKey = pr < 0.5 ? "STRATEGY" : pr < 0.75 ? "USDG" : "OTHER";
     const icon = ICONS[Math.floor(r() * ICONS.length)];
     const ageHours = Math.round(r() ** 2 * 24 * 90) + 1;
+    if (i === 0) {
+      // Hero example: SAYLOR WITH STRATEGY — top SAMPLE by volume so it leads the sample trending row.
+      out.push({ id: "sample-saylor", name: "Saylor", tk: "SAYLOR", portrait: true, mcap: CURVE.graduationMcap * 3.2, chg: 21.4, c: "#ffe7a3",
+        pair: "STRATEGY", pairSym: "STRATEGY", creator: CREW[0], graduated: true, seed: 2121, born: -6,
+        stats: { volume24hUsd: 950_000, ageHours: 6, holders: 1210, liquidityUsd: 180_000 } });
+      // Ticker-length fixtures for the name-plate fitter (2 and 10 chars).
+      out.push({ id: "sample-om", name: "Om", tk: "OM", mcap: 41_000, chg: 6.2, c: "#cfe0ff", pair: "OTHER", pairSym: "WETH", creator: CREW[1], seed: 77, born: -3,
+        stats: { volume24hUsd: 410_000, ageHours: 3, holders: 88, liquidityUsd: 6_000 } });
+      out.push({ id: "sample-hallelujah", name: "Hallelujah", tk: "HALLELUJAH", mcap: 64_000, chg: -4.1, c: "#c9f5df", pair: "USDG", pairSym: "mUSDG", creator: CREW[2], seed: 78, born: -9,
+        stats: { volume24hUsd: 380_000, ageHours: 9, holders: 140, liquidityUsd: 9_000 } });
+    }
     out.push({
       id: `sample-${i.toString(16).padStart(4, "0")}`,
       name, tk,

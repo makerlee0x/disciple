@@ -43,7 +43,7 @@ function useWatchlist() {
 function Avatar({ c, size = 34 }: { c: Rocket; size?: number }) {
   return (
     <span className="lp-av lp-av-ins" style={{ width: size, height: size }}>
-      <PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} variant="badge" size={size} />
+      <PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} portrait={c.portrait} variant="badge" size={size} />
       <span className="lp-av-check"><VerifiedBadge tier={tierOf(c)} size={13} /></span>
     </span>
   );
@@ -98,7 +98,7 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
               <span className="lp-tpair" aria-hidden><PairMark sym={c.pairSym} size={150} /></span>
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
-              <PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} size={150} className="lp-tcrest" />
+              <PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} portrait={c.portrait} size={150} className="lp-tcrest" />
             </span>
             <span className="lp-tname">{c.name} <VerifiedBadge tier={tierOf(c)} size={13} /></span>
             <span className="lp-tmeta"><b>${c.tk}</b> <Follows c={c} /></span>
@@ -140,7 +140,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
   return (
     <div role="link" tabIndex={0} className="rocket-card lp-card" onClick={() => onPick(c)} onKeyDown={(e) => { if (e.key === "Enter") onPick(c); }}
       style={{ border: c.live ? "1px solid rgba(143,240,192,.6)" : undefined }}>
-      <div className="lp-card-art"><PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} size={92} /></div>
+      <div className="lp-card-art"><PairInsignia id={c.id} sym={c.tk} image={c.icon} pairSym={c.pairSym} portrait={c.portrait} size={124} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
         <div className="lp-card-name">{c.name} <VerifiedBadge tier={tierOf(c)} size={14} /></div>
