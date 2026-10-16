@@ -12,7 +12,8 @@
     "test:camera": "node scripts/test-camera.mjs",
     "test:pnl": "node scripts/test-pnl.mjs",
     "test:trail": "node scripts/test-trail.mjs",
-    "test:chat": "node scripts/test-chat.mjs"
+    "test:chat": "node scripts/test-chat.mjs",
+    "test:sim": "node scripts/test-sim.mjs"
   },
   "dependencies": {
     "@account-kit/signer": "^4.88.5",

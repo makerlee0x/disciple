@@ -261,7 +261,7 @@ class RpcSource {
    ===================================================================== */
 const POOL={addr:'0xc4a21f9d6485fc5893dd4a491b320a83daf4da1d', http:RH.http, dec0:18, dec1:18, spacing:200,
   topic:'0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'};  // v3 Swap(address,address,int256,int256,uint160,uint128,int24)
-const short=a=>a? a.slice(0,6)+'…'+a.slice(-4) : '?';
+const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4) : String(a).slice(0,16);   // sim bots pass names
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {
   constructor(){ this.paper=1; this.real=null; this.L=null; this.levels=[]; this.supply=(window.REPLAY&&REPLAY.totalSupply)||null; this.ethUsd=(window.REPLAY&&REPLAY.ethUsd)||null; }
@@ -365,11 +365,24 @@ class DiscipleSource {
   async submitTrade(side,usd,o){ const b=window.__discipleTrade; if(!b) return {ok:true,paper:true};
     try{ const r=await (o?b(side,usd,o):b(side,usd)); return r||{ok:false,reason:'no result'}; }catch(err){ return {ok:false,reason:String((err&&err.message)||err).slice(0,80)}; } }
 }
-const IS_POOL=!['mock','dexscreener','rpc','disciple'].includes(Q.get('source')||'pool');
+/* SIMULATOR bridge (?source=sim, /sim route): the local market + bots live in lib/sim (React page registers
+   window.__discipleSim). Paper only — no wallet, no RPC, no transactions. Fills come back from the sim's own
+   curve/pool so the PnL HUD books the exact execution price. */
+class SimBridgeSource {
+  constructor(){ this.name='SIMULATOR'; this.isSim=true; const b=window.__discipleSim; this.supply=b?b.supply:7e9; this.startBalance=b?b.balance():0; this.block=0; }
+  start(emit){ this.emit=emit; const b=window.__discipleSim; if(!b){ emit({t:'status',source:this.name,ok:false,msg:'no simulator attached'}); return; }
+    emit({t:'status',source:this.name,ok:true,msg:'local paper market · no wallet'}); this.off=b.attach(emit); }
+  stop(){ if(this.off) this.off(); this.off=null; }
+  impact(usd,side){ const b=window.__discipleSim; return b?b.impact(usd,side):1; }
+  submitTrade(side,usd,o){ const b=window.__discipleSim; if(!b) return Promise.resolve({ok:false,reason:'simulator not running'});
+    return new Promise(res=>setTimeout(()=>res(b.trade(side,usd,o)),120+Math.random()*180)); }   // 1–2 RH blocks
+}
+const IS_POOL=!['mock','dexscreener','rpc','disciple','sim'].includes(Q.get('source')||'pool');
 function makeSource(){
   const s=Q.get('source')||'pool';
   if (Q.get('replay')==='1'||s==='replay'){ if(window.REPLAY) return new ReplaySource(REPLAY); }
   if (s==='disciple') return new DiscipleSource();
+  if (s==='sim') return new SimBridgeSource();
   if (s==='pool') return new PoolLiveSource();
   if (s==='dexscreener') return new DexScreenerSource(Q.get('chain')||'robinhood', Q.get('pair')||'0x4be9657ec9002e528f4f17a5c43edc525a07f888f7b180c2afbf75e096c4f38a');
   if (s==='rpc') return new RpcSource({poolId:Q.get('pool'),ws:Q.get('ws')||null,supply:+(Q.get('supply')||1e9)});
@@ -416,7 +429,8 @@ function keepIf(arr,pred){ let j=0; for(let i=0;i<arr.length;i++){ const e=arr[i
 const ALIVE=e=>e.life>0, NOT_DEAD_MOTE=m=>!m.dead&&m.y<H+30, NOT_DEAD_OBS=o=>!o.dead&&o.y<H+50, TRAIL_ON=p=>{ const y=trailY(p); return y<H+60&&y>-H; };
 
 const source = makeSource();
-if (IS_POOL) S.fuelers={'you':0};
+if (IS_POOL||source.isSim) S.fuelers={'you':0};
+if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
 function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); }
   else if (e.t==='swap'){
@@ -431,7 +445,7 @@ function onEvent(e){
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
       S.feed.unshift({txt:`${e.side==='buy'?'▲ FUEL':'▼ BOMB'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
-    if (e.usd>0 && !e.mine && e.trader){ const up=e.side==='buy'; S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
+    if (e.usd>0 && !e.mine && e.trader && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
@@ -524,7 +538,8 @@ function flushThrustQueue(){
 const SIM_REG=[{n:'lull',rate:0.2},{n:'flow',rate:0.9},{n:'burst',rate:3.2}];
 const SIM={on:false, mode:(()=>{ try{ const v=localStorage.getItem('disciple.sim'); return v==='on'||v==='off'?v:'auto'; }catch(_){ return 'auto'; } })(),
   regime:1, regT:4, bias:0, realRate:0};
-function simActive(){ if(SIM.mode==='off') return false; if(SIM.mode==='on') return true; return !!window.__DISCIPLE_TESTNET || SIM.realRate<0.05; }
+function simActive(){ if(source&&source.isSim) return false;   // SIMULATOR: the local market IS the market (no display offset)
+  if(SIM.mode==='off') return false; if(SIM.mode==='on') return true; return !!window.__DISCIPLE_TESTNET || SIM.realRate<0.05; }
 function pushSim(){ try{ dispatchEvent(new CustomEvent('disciple:simstate',{detail:{on:SIM.on,mode:SIM.mode}})); }catch(_){} }
 addEventListener('disciple:sim',e=>{ const m=e.detail&&e.detail.mode; if(m==='on'||m==='off'||m==='auto'){ SIM.mode=m; try{ m==='auto'?localStorage.removeItem('disciple.sim'):localStorage.setItem('disciple.sim',m); }catch(_){} }
   SIM.on=simActive(); pushSim(); });
@@ -615,8 +630,9 @@ function submit(side,usd,force,opt){
   const fillMark=markMcap()*(source.impact&&!isLive()?Math.sqrt(source.impact(S.tradeUsd,side)):1);
   source.submitTrade(side,S.tradeUsd,opt&&opt.frac?{frac:opt.frac}:undefined).then(r=>{
     p.state=r.ok?'confirmed':'failed';
-    if(r.ok) S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
-    if(r.ok) dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fillMark,supply:source.supply||1e9,gas:GAS_USD}}));   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
+    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply,gas:r.gas||0,at:r.at}})); }   // SIMULATOR: exact sim fill
+    else if(r.ok){ S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
+    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fillMark,supply:source.supply||1e9,gas:GAS_USD}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f'}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
@@ -1094,7 +1110,7 @@ function drawHud(){
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
   const top=topFuelers(); panel(RX,RT+100,310,96);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(IS_POOL?'TOP BUYERS · real wallets in feed':'KING OF THE HILL · top fuelers (mock)',RX+16,RT+120);
+  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top fuelers (sim)':'KING OF THE HILL · top fuelers (mock)',RX+16,RT+120);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`${i===0?'👑':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,RT+140+i*18); });
   // bottom-left: trade feed (compact)
   panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
