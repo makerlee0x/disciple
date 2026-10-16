@@ -6,6 +6,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Constants} from "../libraries/Constants.sol";
+import {McapMath} from "../libraries/McapMath.sol";
 
 interface ILensLaunchpad {
     function curveOf(address token) external view returns (address);
@@ -17,6 +18,7 @@ interface ILensCurve {
     function graduated() external view returns (bool);
     function priceNow() external view returns (uint256);
     function quotePriceUsd() external view returns (uint256);
+    function mcapNow() external view returns (uint256);
 }
 
 interface ILensMigration {
@@ -59,10 +61,12 @@ contract MarketLens {
                     if (v > 0) qUsd = v;
                 } catch {}
             }
+            // full precision from sqrtPrice (a floored priceWad under-reports 6-dec quotes by up to ~15%)
+            mcapUsd = McapMath.mcapUsdFromSqrt(sp, uint160(token) < uint160(q), Constants.TOTAL_SUPPLY, qUsd);
         } else {
             priceWad = c.priceNow();
+            mcapUsd = c.mcapNow(); // the curve's own value (full precision on current curves)
         }
-        mcapUsd = Math.mulDiv(Math.mulDiv(priceWad, Constants.TOTAL_SUPPLY, 1e18), qUsd, 1e18);
     }
 
     function mcapNow(address token) external view returns (uint256 m) {

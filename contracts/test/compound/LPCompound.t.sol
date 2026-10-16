@@ -141,8 +141,9 @@ contract LPCompoundTest is IntegrationBase {
         uint128 l0 = _liq(tok);
         vm.recordLogs();
         uint256 adds;
-        for (uint256 i; i < 10; i++) {
-            _buy(tok, 300 ether);
+        // small buys (each moves price < the 3% deviation guard at graduation depth)
+        for (uint256 i; i < 20; i++) {
+            _buy(tok, 50 ether);
             adds += _count(COMPOUNDED);
             vm.recordLogs();
             _assertInvariant(_one(tok));
@@ -167,15 +168,15 @@ contract LPCompoundTest is IntegrationBase {
         assertEq(_count(COMPOUNDED), 1, "paired: add");
         assertGt(_liq(tok), l0);
         (uint256 bt2,) = _bucket(tok);
-        assertLe(bt2, 1, "token (scarce side) fully used, quote carries");
+        assertLt(bt2, bt / 1e9, "token (scarce side) used up to < 1 liquidity unit, quote carries");
         _assertInvariant(_one(tok));
     }
 
     function test_one_sided_accumulation_then_pairing() public {
         _params(1, 0, 5000);
-        _buy(tok, 200 ether); // pairs against the leftover → token side exhausted
+        _buy(tok, 50 ether); // pairs against the leftover → token side exhausted (dust < 1 liquidity unit)
         (uint256 bt,) = _bucket(tok);
-        assertLe(bt, 1);
+        assertLt(bt, 1e6);
         vm.recordLogs();
         for (uint256 i; i < 4; i++) _sellFrac(tok, 10); // quote-only fees: one-sided, no add
         assertEq(_count(COMPOUNDED), 0);
@@ -185,7 +186,7 @@ contract LPCompoundTest is IntegrationBase {
         _buy(tok, 50 ether);
         assertEq(_count(COMPOUNDED), 1);
         (uint256 bt2, uint256 bq2) = _bucket(tok);
-        assertLe(bt2, 1);
+        assertLt(bt2, 1e6);
         assertLt(bq2, bq);
         assertGt(_liq(tok), l0);
         _assertInvariant(_one(tok));
@@ -206,9 +207,10 @@ contract LPCompoundTest is IntegrationBase {
     }
 
     function test_cap_limits_each_add() public {
+        _params(1_000_000, 0, 5000);
+        _buy(tok, 500 ether); // accumulate token side
         _params(1, 2, 5000); // cap = 2 ppm of position liquidity
         uint128 l0 = _liq(tok);
-        _buy(tok, 500 ether);
         _sellFrac(tok, 2);
         uint128 added = _liq(tok) - l0;
         assertEq(added, uint128(uint256(l0) * 2 / 1e6), "added == cap");
