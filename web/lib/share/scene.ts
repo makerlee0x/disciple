@@ -25,7 +25,7 @@ export interface SceneData {
   username: string | null; refLabel: string; sample: boolean;
   fills: { side: string; mcapUsd: number }[];
 }
-export interface SceneAssets { bg: Img | null; rocket: Img | null }
+export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null }
 export const FONT = { black: "GeistBlack", mono: "GeistMonoBold", monoMed: "GeistMonoMed" };
 
 const GREEN = "#5FF0A0", RED = "#F0307F", INK = "#E8EAEE";
@@ -169,7 +169,8 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   // 5) type
   const L = 64, R = W - 64;
   ctx.textBaseline = "alphabetic"; ctx.fillStyle = INK;
-  ctx.font = `30px ${FONT.mono}`; tracked(ctx, "DISCIPLE", L, story ? 120 : 92, 8);
+  if (a.wordmark) { const wh = 30, ww = (a.wordmark.width / a.wordmark.height) * wh; ctx.drawImage(a.wordmark, L, (story ? 120 : 92) - wh + 2, ww, wh); } // W1 outlined wordmark
+  else { ctx.font = `30px ${FONT.mono}`; tracked(ctx, "DISCIPLE", L, story ? 120 : 92, 8); }
   ctx.font = `26px ${FONT.monoMed}`; ctx.fillStyle = "rgba(232,234,238,.75)"; tracked(ctx, fmtCt(d.endTs || Date.now()), R, story ? 120 : 92, 3, "right");
   ctx.fillStyle = INK; ctx.fillRect(L, story ? 146 : 114, R - L, 5);
   // tier tag

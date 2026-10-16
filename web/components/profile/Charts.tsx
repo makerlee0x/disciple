@@ -42,7 +42,7 @@ export function StatRing({
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round"
           strokeDasharray={`${c * p} ${c * (1 - p)}`} transform={`rotate(-90 ${size / 2} ${size / 2})`}
           style={{ filter: `drop-shadow(0 0 6px ${color})` }} />
-        <text x="50%" y="48%" textAnchor="middle" fill="#E8EAEE" fontSize={15} fontWeight={700} fontFamily="Georgia, serif">{value}</text>
+        <text x="50%" y="48%" textAnchor="middle" fill="#E8EAEE" fontSize={15} fontWeight={400} fontFamily="var(--dsc-font-display)">{value}</text>
         {sub ? <text x="50%" y="62%" textAnchor="middle" fill="rgba(220,228,255,0.55)" fontSize={9}>{sub}</text> : null}
       </svg>
       <div className="stat-ring-label">{label}</div>
@@ -59,7 +59,7 @@ export function Gauge({ value, label, max = 100, color = "#ff7eb9" }: { value: n
         <path d="M16 78 A54 54 0 0 1 124 78" fill="none" stroke="rgba(201,206,214,0.12)" strokeWidth={10} strokeLinecap="round" />
         <path d="M16 78 A54 54 0 0 1 124 78" fill="none" stroke={color} strokeWidth={10} strokeLinecap="round"
           strokeDasharray={`${circ * pct} ${circ}`} style={{ filter: `drop-shadow(0 0 8px ${color})` }} />
-        <text x="70" y="68" textAnchor="middle" fill="#E8EAEE" fontSize={22} fontWeight={700} fontFamily="Georgia, serif">
+        <text x="70" y="68" textAnchor="middle" fill="#E8EAEE" fontSize={22} fontWeight={400} fontFamily="var(--dsc-font-display)">
           {Math.round(value).toLocaleString()}
         </text>
       </svg>

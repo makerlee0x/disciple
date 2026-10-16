@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./brand-tokens.css";
 import "./globals.css";
+import { geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 
@@ -45,7 +46,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${geist.variable} ${instrumentSerif.variable}`}>
       <body className="antialiased">
         <AppShell>{children}</AppShell>
         <ChatBridge />

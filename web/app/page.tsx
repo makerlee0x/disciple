@@ -436,16 +436,16 @@ export default function HomePage() {
           }}
           className="home-title"
         >
-          <h1
-            style={{
-              margin: 0,
-              font: "bold clamp(24px,3.6vw,40px) Georgia,serif",
-              letterSpacing: ".12em",
-              color: "#E8EAEE",
-              textShadow: "0 0 26px rgba(201,206,214,.9)",
-            }}
-          >
-            DISCIPLE
+          <h1 style={{ margin: 0, lineHeight: 0 }}>
+            {/* W1 outlined wordmark (brand kit v1) — never re-typed in a live font */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/disciple-wordmark-light.svg"
+              alt="DISCIPLE"
+              width={4862}
+              height={739}
+              style={{ display: "inline-block", height: "clamp(22px,3.2vw,36px)", width: "auto" }}
+            />
           </h1>
           <p
             style={{

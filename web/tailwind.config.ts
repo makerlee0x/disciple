@@ -25,7 +25,9 @@ const config: Config = {
         warning: "var(--dsc-warning)",
       },
       fontFamily: {
-        display: ["Georgia", "serif"],
+        display: ["var(--dsc-font-display)"],
+        sans: ["var(--dsc-font-ui)"],
+        ui: ["var(--dsc-font-ui)"],
         mono: ["ui-monospace", "Menlo", "Consolas", "monospace"],
       },
     },

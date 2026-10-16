@@ -11,7 +11,7 @@
   --dsc-up: #5FF0A0;
   --dsc-down: #F0307F;
   --dsc-warning: #FFD84D;
-  --dsc-font-display: 'Instrument Serif', serif;
-  --dsc-font-ui: 'Geist', 'Space Grotesk', system-ui, sans-serif;
+  --dsc-font-display: var(--font-instrument-serif), 'Instrument Serif', Georgia, serif;
+  --dsc-font-ui: var(--font-geist), 'Geist', system-ui, sans-serif;
   --dsc-font-mono: 'Geist Mono', ui-monospace, monospace;
 }

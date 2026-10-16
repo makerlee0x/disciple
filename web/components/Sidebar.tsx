@@ -306,7 +306,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             onClick={(e) => e.stopPropagation()}
             role="dialog"
           >
-            <h2 className="m-0 mb-2 font-[Georgia,serif] text-2xl font-bold text-[#E8EAEE]">
+            <h2 className="m-0 mb-2 font-display text-2xl font-normal text-[#E8EAEE]">
               Log out
             </h2>
             <p className="text-sm opacity-75">
