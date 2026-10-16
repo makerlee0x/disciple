@@ -107,6 +107,10 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
   useEffect(() => {
     dispatchEvent(new CustomEvent("disciple:position", { detail: { size: v.size, valueUsd: v.valueUsd, costBasis: pos.costBasis } }));
   }, [v.size, v.valueUsd, pos.costBasis]);
+  // the engine's rocket position tag reads the SAME view() (P toggles it)
+  useEffect(() => {
+    dispatchEvent(new CustomEvent("disciple:pnlview", { detail: v.size > 0 ? { size: v.size, valueUsd: v.valueUsd, entryMcap: v.entryMcap, uPnl: v.uPnl, pnlPct: v.pnlPct, realized: v.realized } : null }));
+  }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
 
   const holding = v.size > 0;
   const maxMult = 1 + HOLD_BONUS.maxBoost;

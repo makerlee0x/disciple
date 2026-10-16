@@ -91,7 +91,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <FlightCanvas key={runN} search={search} />
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" />
           <TrampWallPanel token="SIMULATOR" />
-          <TradeBridge token="SIMULATOR" />
+          <TradeBridge token="SIMULATOR" storagePrefix="disciple.sim.swap." />
         </>
       )}
       {phase === "run" && run && (
@@ -140,7 +140,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <span style={{ opacity: 0.75 }}>balance ${(initial.balance || cfg.player.startBalanceUsd).toLocaleString()} paper</span>
               <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }}>START ▸</button>
             </div>
-            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 14 }}>Keys in flight: Space buy · Z/X/C/V sell · Shift bomb · W boost · A/D lane · ` tuning panel. Same seed = same bots and market.</div>
+            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 14 }}>Keys in flight: Space buy · Z/X/C/V sell · Shift dump · W boost · A/D lane · ` tuning panel. Same seed = same bots and market.</div>
           </div>
         </div>
       )}

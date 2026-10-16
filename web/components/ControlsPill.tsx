@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 type Ctl = { mode: string; key: string; shot: string; pending: number; max: number; turbo: boolean | null; orbs: boolean; score: number; streak: number; mult: number };
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 const KEYS: [string, string, string?][] = [
-  ["SPACE", "fuel (buy) · hold = turbo", "#9ff3c8"], ["SHIFT", "bomb (sell)", "#ffb0c8"], ["Z X C V", "sell 12% · 33% · 77% · initials", "#ffb0c8"],
+  ["SPACE", "boost (buy) · hold = turbo", "#9ff3c8"], ["SHIFT", "dump (sell)", "#ffb0c8"], ["P", "position tag on rocket", "#ffe7a3"], ["Z X C V", "sell 12% · 33% · 77% · initials", "#ffb0c8"],
   ["1–6 / click", "ammo size"], ["W / ↑", "boost (hold)"], ["A / D", "steer"], ["O", "orbs on/off"], ["B", "bombs on/off"],
   ["ENTER", "chat"], ["H", "chat ↔ holders"], ["/ or F1", "this help"],
 ];
