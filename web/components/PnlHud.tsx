@@ -139,6 +139,7 @@ export default function PnlHud({ coin }: { coin: string }) {
             <span>{amt(v.size)} · <Num value={v.valueUsd} fmt={(x) => "$" + x.toFixed(2)} /></span></div>
           <div style={row}><span style={label}>AVG ENTRY</span><span>{holding ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>REALIZED</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
+          {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>EXIT FEES</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
           <div style={row}><span style={label}>OTHER ROCKETS</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
 
           {/* reward-share hook: hold bonus grows with unrealized PnL (lib/config holdBonus) */}
