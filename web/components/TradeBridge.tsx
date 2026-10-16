@@ -6,6 +6,8 @@ import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn } from "@/lib/protocol-viem";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
+import { sessionMaxSlippageBps } from "@/lib/aa/session";
+import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { fmtMoney } from "@/lib/pnl";
@@ -87,7 +89,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           if (amountIn > bal) amountIn = bal;
         }
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
-        const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slippageBps(cfgRef.current) });
+        // One-tap session active ⇒ never exceed its on-chain max slippage (the policy would revert the trade).
+        const slip = clampSlippage(slippageBps(cfgRef.current), sessionMaxSlippageBps());
+        if (slip.capped) dispatchEvent(new CustomEvent("disciple:slippagecap", { detail: { maxBps: slip.sessionMaxBps, requestedBps: slip.requestedBps, suggestBps: suggestedSessionMax(slip) } }));
+        const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps });
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
         return { ok: r.ok, txHash: r.txHash, reason: r.reason };

@@ -182,6 +182,16 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
 }
 
+/** Active on-chain session's max slippage (bps), or null (no session / policy not deployed ⇒ no clamp). */
+export function sessionMaxSlippageBps(): number | null {
+  return onchain && onchain.validUntil * 1000 > Date.now() + 30_000 ? onchain.maxSlippageBps : null;
+}
+/** Replace the session with one allowing a higher max slippage (owner signs: uninstall old, install new). */
+export async function restartOneTap(maxSlippageBps: number) {
+  await endOneTap();
+  return enableOneTap({ maxSlippageBps });
+}
+
 /** Owner removes the session (validation + hooks, storage cleared). */
 export async function endOneTap() {
   if (!sa || !onchain || !SESSION_POLICY) return null;

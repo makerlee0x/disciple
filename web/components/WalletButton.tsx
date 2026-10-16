@@ -10,8 +10,9 @@ import {
 } from "@/lib/wallet";
 import {
   DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, SPONSOR, aaSession, enableOneTap, endOneTap,
-  localExport, onGasMode, onSessionChange, oneTapAvailable,
+  localExport, onGasMode, onSessionChange, oneTapAvailable, restartOneTap,
 } from "@/lib/aa/session";
+import { pct } from "@/lib/aa/slippage";
 import type { Address } from "@/lib/protocol";
 
 const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
@@ -40,6 +41,12 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
   useEffect(() => onGasMode((m) => setSelfPay(m === "self-pay")), []);
   useEffect(() => onSessionChange(() => bump((n) => n + 1)), []);
+  const [slipCap, setSlipCap] = useState<{ maxBps: number; suggestBps: number } | null>(null);
+  useEffect(() => {
+    const f = (e: Event) => setSlipCap((e as CustomEvent<{ maxBps: number; suggestBps: number }>).detail);
+    addEventListener("disciple:slippagecap", f);
+    return () => removeEventListener("disciple:slippagecap", f);
+  }, []);
 
   async function refresh(a: Address) {
     try {
@@ -214,6 +221,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       </div>
       {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
       {needFund && <span role="status" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
+      {slipCap && sess?.oneTap && (
+        <span role="status" aria-label="slippage cap" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>
+          Slippage capped at {pct(slipCap.maxBps)} by your session. Start a new session with a higher max (up to 50%)?{" "}
+          <button type="button" disabled={!!busy} onClick={() => run("restarting session", async () => { await restartOneTap(slipCap.suggestBps); setSlipCap(null); })} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "#ffe7a3", color: "#1a1630" }}>New session at {pct(slipCap.suggestBps)}</button>{" "}
+          <button type="button" onClick={() => setSlipCap(null)} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "rgba(255,255,255,.08)" }}>Keep {pct(slipCap.maxBps)}</button>
+        </span>
+      )}
       {err && <span role="alert" style={{ fontSize: 10, color: "#ffb0c0", maxWidth: 320, textAlign: "right" }}>{err}</span>}
     </div>
   );

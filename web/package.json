@@ -22,7 +22,8 @@
     "test:replay": "node scripts/test-replay.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check",
-    "test:mav2": "tsx scripts/test-mav2-e2e.mts"
+    "test:mav2": "tsx scripts/test-mav2-e2e.mts",
+    "test:slippage": "tsx --test scripts/test-slippage.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
