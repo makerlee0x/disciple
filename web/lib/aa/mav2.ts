@@ -8,9 +8,9 @@
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, split, type SmartAccountSigner } from "@aa-sdk/core";
 import { http, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { MAV2_FACTORY } from "./constants";
 import { AAError, type Call, type GasMode, type OwnerSigner, type UserOpReceipt } from "./core";
 
-export const MAV2_FACTORY = "0x00000000000017c61b5bEe81050EC8eFc9c6fecd" as Address;
 const BUNDLER_METHODS = [
   "eth_sendUserOperation", "eth_estimateUserOperationGas", "eth_getUserOperationReceipt", "eth_getUserOperationByHash",
   "eth_supportedEntryPoints", "rundler_maxPriorityFeePerGas",
@@ -60,6 +60,8 @@ export class Mav2Account {
   get ownerAddress(): Address { return this.owner.address; }
   get ownerSigner(): OwnerSigner { return { address: this.owner.address, signMessage: (a) => this.owner.signMessage(a) }; }
   signOwnerRaw(raw: Hex): Promise<Hex> { return this.owner.signMessage({ message: { raw } }); }
+  /** ERC-1271 signature (ERC-6492-wrapped while the account is counterfactual). */
+  async signMessage(message: string): Promise<Hex> { return (await this.owned()).account.signMessageWith6492({ message }); }
   async address(): Promise<Address> { return (await this.owned()).account.address; }
 
   /** Send calls as ONE userOp. `as: "session"` signs with the session key (no Privy prompt); default owner. */

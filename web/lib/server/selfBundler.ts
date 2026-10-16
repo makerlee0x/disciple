@@ -8,7 +8,8 @@ import "server-only";
 import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
-import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, userOpHash, type UserOp } from "../aa/core";
+import { userOpHash, type UserOp } from "../aa/core";
+import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -17,8 +18,6 @@ const epAbi = parseAbi([
 ]);
 const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
 const implAbi = parseAbi(["function ACCOUNT_IMPLEMENTATION() view returns (address)"]);
-/** MAv2 factory (Privy-owned SemiModularAccountBytecode accounts). */
-const MAV2_FACTORY = "0x00000000000017c61b5bEe81050EC8eFc9c6fecd";
 const mav2ImplAbi = parseAbi(["function SEMI_MODULAR_ACCOUNT_IMPL() view returns (address)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
 const p16 = (x?: Hex) => pad(x || "0x0", { size: 16 });
@@ -46,19 +45,22 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
     case "eth_supportedEntryPoints": return [ENTRYPOINT_V07];
     case "rundler_maxPriorityFeePerGas": return "0xf4240"; // 0.001 gwei
-    case "alchemy_requestGasAndPaymasterAndData": throw new Error("Gas sponsorship is not enabled for this app (self-bundler)");
     case "eth_estimateUserOperationGas": {
       const op = params[0] as UserOp;
       const code = await pc.getCode({ address: op.sender });
       let stateOverride;
       if (!code || code === "0x") {
         // not deployed yet: estimate execution against the account implementation code at the sender address
-        if (op.factory?.toLowerCase() === MAV2_FACTORY.toLowerCase()) {
+        const f = op.factory?.toLowerCase();
+        if (!f) throw new BundlerRpcError(`account ${op.sender} is not deployed and the userOp has no factory/initCode`);
+        if (f === MAV2_FACTORY.toLowerCase()) {
           if (!mav2ImplCode) mav2ImplCode = await pc.getCode({ address: await pc.readContract({ address: MAV2_FACTORY, abi: mav2ImplAbi, functionName: "SEMI_MODULAR_ACCOUNT_IMPL" }) });
           stateOverride = [{ address: op.sender, code: mav2ImplCode }];
-        } else {
+        } else if (f === LIGHT_ACCOUNT_V2_FACTORY.toLowerCase()) {
           if (!implCode) implCode = await pc.getCode({ address: await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: implAbi, functionName: "ACCOUNT_IMPLEMENTATION" }) });
           stateOverride = [{ address: op.sender, code: implCode }];
+        } else {
+          throw new BundlerRpcError(`unsupported account factory ${op.factory} (self-bundler supports MAv2 and LightAccount v2)`);
         }
       }
       let g: bigint;

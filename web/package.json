@@ -23,7 +23,8 @@
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
-    "test:slippage": "tsx --test scripts/test-slippage.mts"
+    "test:slippage": "tsx --test scripts/test-slippage.mts",
+    "test:verify-sig": "tsx --test scripts/test-verify-sig.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

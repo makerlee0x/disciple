@@ -14,14 +14,13 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
-import { Mav2Account } from "./mav2";
+import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
 export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
-/** Self-pay only (no paymaster). Kept exported for UI copy; always false after the Privy migration. */
-export const SPONSOR = false;
-export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
+/** Privy app id. Vercel previews use a separate dev app (NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW) — see PR #59 notes. */
+export const PRIVY_APP_ID = (process.env.NEXT_PUBLIC_VERCEL_ENV === "preview" && process.env.NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW) || process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
 /** Deployed DiscipleSessionPolicy (PR #53). Unset ⇒ no on-chain session keys yet; owner signs every op. */
 export const SESSION_POLICY = (/^0x[0-9a-fA-F]{40}$/.test(process.env.NEXT_PUBLIC_SESSION_POLICY || "") ? process.env.NEXT_PUBLIC_SESSION_POLICY : "") as Address | "";
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
@@ -45,6 +44,7 @@ type Stored = SessionState & { kind: OwnerKind; owner: Address; key?: Hex };
 type StoredSessionKey = { account: Address; entityId: number; key: Hex; validUntil: number; maxSlippageBps: number };
 
 let sa: Mav2Account | null = null;
+let ownerAcct: LocalAccount | null = null;
 let state: Stored | null = null;
 let onchain: StoredSessionKey | null = null;
 const gasListeners = new Set<(m: GasMode, r?: string) => void>();
@@ -62,12 +62,14 @@ function loadSessionKey(account: Address): StoredSessionKey | null {
   } catch { return null; }
 }
 
-function makeAccount(owner: LocalAccount) {
+async function makeAccount(owner: LocalAccount) {
+  const { Mav2Account } = await import("./mav2");
   return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL }, owner);
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
-  sa = makeAccount(owner);
+  sa = await makeAccount(owner);
+  ownerAcct = owner;
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
   save();
   const a = await sa.address();
@@ -144,12 +146,59 @@ export function aaSession() {
 }
 export async function aaLogout() {
   const kind = state?.kind;
-  state = null; sa = null; onchain = null; save(); changed();
+  state = null; sa = null; ownerAcct = null; onchain = null; save(); changed();
   if (kind === "privy") { try { await privyHooks?.logout(); } catch {} }
 }
 /** Owner signs a raw hash (chat login / username proof). Null when no smart session. */
 export async function aaOwnerSign(raw: Hex): Promise<{ owner: Address; sig: Hex } | null> { return sa ? { owner: sa.ownerAddress, sig: await sa.signOwnerRaw(raw) } : null; }
+/**
+ * Smart-account signature over a plain message: ERC-1271 once deployed, ERC-6492-wrapped while counterfactual.
+ * Servers verify it with viem verifyMessage (lib/aa/verify.ts). `owner` is sent for legacy compatibility only.
+ */
+export async function aaSignMessage(message: string): Promise<{ owner: Address; sig: Hex } | null> {
+  return sa ? { owner: sa.ownerAddress, sig: await sa.signMessage(message) } : null;
+}
 export async function aaAddress() { return sa ? sa.address() : null; }
+
+/* ---------- TEMP (testnet): sweep the pre-Privy LightAccount v2 of the SAME owner key into the new MAv2 ---------- */
+// Remove once testnet users have migrated. Only "local"/"eoa" owners can match: Turnkey-owned accounts have a different key.
+export type LegacyBalances = { account: Address; eth: bigint; tokens: { address: Address; symbol: string; amount: bigint }[] };
+const sweepTokens = () => {
+  const d = deployment();
+  const seen = new Set<string>(); const out: { address: Address; symbol: string }[] = [];
+  for (const t of [...MINTABLE_TEST_TOKENS, { address: d.defaultQuote, symbol: "STRATEGY" }, { address: d.usdg, symbol: "USDG" }])
+    if (!seen.has(t.address.toLowerCase()) && !/^0x0{40}$/i.test(t.address)) { seen.add(t.address.toLowerCase()); out.push({ address: t.address, symbol: t.symbol }); }
+  return out;
+};
+const balAbi = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
+/** Old LightAccount for the current owner, with balances; null if none / empty / not testnet. */
+export async function legacyBalances(): Promise<LegacyBalances | null> {
+  if (!ownerAcct || !sa || ACTIVE_CHAIN.id !== 46630) return null;
+  const pc = publicClient();
+  const { LIGHT_ACCOUNT_V2_FACTORY, factoryAbi } = await import("./core");
+  const account = await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: factoryAbi, functionName: "getAddress", args: [ownerAcct.address, BigInt(0)] });
+  if (account.toLowerCase() === (await sa.address()).toLowerCase()) return null;
+  const [eth, ...amts] = await Promise.all([pc.getBalance({ address: account }), ...sweepTokens().map((t) => pc.readContract({ address: t.address, abi: balAbi, functionName: "balanceOf", args: [account] }).catch(() => BigInt(0)))]);
+  const tokens = sweepTokens().map((t, i) => ({ ...t, amount: amts[i] as bigint })).filter((t) => t.amount > BigInt(0));
+  return eth > BigInt(0) || tokens.length ? { account, eth, tokens } : null;
+}
+/** Old account (self-pay, owner-signed) sends known tokens + ETH (minus a gas reserve) to the new MAv2 in ONE userOp. */
+export async function sweepLegacy() {
+  const lb = await legacyBalances();
+  if (!lb || !ownerAcct || !sa) return null;
+  const { LightSmartAccount, alchemyBundler } = await import("./core");
+  const { encodeFunctionData, parseAbi } = await import("viem");
+  const to = await sa.address();
+  const pc = publicClient();
+  const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
+  const calls: Call[] = lb.tokens.map((t) => ({ to: t.address, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [to, t.amount] }) }));
+  const blk = await pc.getBlock();
+  const reserve = ((blk.baseFeePerGas ?? BigInt(0)) * BigInt(2) + BigInt(1_000_000)) * BigInt(800_000); // worst-case gas for this op
+  if (lb.eth > reserve * BigInt(2)) calls.push({ to, data: "0x", value: lb.eth - reserve });
+  if (!calls.length) throw new AAError("FundAccount", "Old account only holds gas dust — nothing worth sweeping.");
+  const old = new LightSmartAccount({ pc, chainId: ACTIVE_CHAIN.id, bundler: alchemyBundler(BUNDLER_URL), owner: ownerAcct });
+  return old.sendCalls(calls);
+}
 
 /* ---------- on-chain one-tap session (DiscipleSessionPolicy, PR #53) ---------- */
 export const oneTapAvailable = () => !!SESSION_POLICY && ACTIVE_CHAIN.id === 46630;

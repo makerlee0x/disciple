@@ -1,53 +1,21 @@
 "use client";
 /**
- * Privy = auth + embedded EOA custody only. The embedded Ethereum wallet becomes the OWNER of the user's Alchemy
- * Modular Account v2 (lib/aa/session.ts). No Privy smart wallets, no Privy gas sponsorship, no Solana.
- * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
+ * Privy = auth + embedded EOA custody only (owner of the user's Alchemy MAv2, lib/aa/session.ts).
+ * @privy-io/react-auth is lazy-loaded into its own chunk (PrivyMount) so it is NOT in any page's first-load JS,
+ * and is never fetched when Privy is off (no app id / NEXT_PUBLIC_AA_SIGNER=local). Children render immediately;
+ * the login modal portals itself, and WalletButton reaches it through registerPrivy()/privyLogin().
  */
-import { useEffect, useRef, type ReactNode } from "react";
-import { PrivyProvider, toViemAccount, usePrivy, useWallets } from "@privy-io/react-auth";
-import { ACTIVE_CHAIN } from "@/lib/chains";
-import { PRIVY_APP_ID, SIGNER_MODE, aaSession, registerPrivy } from "@/lib/aa/session";
-import { connectPrivyOwner, disconnect } from "@/lib/wallet";
+import dynamic from "next/dynamic";
+import type { ReactNode } from "react";
+import { PRIVY_APP_ID, SIGNER_MODE } from "@/lib/aa/session";
 
-function PrivyBridge() {
-  const { ready, authenticated, login, logout } = usePrivy();
-  const { wallets, ready: walletsReady } = useWallets();
-  const linked = useRef<string | null>(null);
-
-  useEffect(() => { registerPrivy({ login, logout }); return () => registerPrivy(null); }, [login, logout]);
-
-  useEffect(() => {
-    if (!ready || !walletsReady) return;
-    if (!authenticated) {
-      if (linked.current) { linked.current = null; if (aaSession()?.kind === "privy") disconnect().catch(() => {}); }
-      return;
-    }
-    const w = wallets.find((x) => x.walletClientType === "privy");
-    if (!w || linked.current === w.address.toLowerCase()) return;
-    linked.current = w.address.toLowerCase();
-    toViemAccount({ wallet: w })
-      .then((owner) => connectPrivyOwner(owner))
-      .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); });
-  }, [ready, walletsReady, authenticated, wallets]);
-  return null;
-}
+const PrivyMount = dynamic(() => import("./PrivyMount"), { ssr: false });
 
 export default function PrivyProviders({ children }: { children: ReactNode }) {
-  if (!PRIVY_APP_ID || SIGNER_MODE !== "privy") return <>{children}</>;
   return (
-    <PrivyProvider
-      appId={PRIVY_APP_ID}
-      config={{
-        loginMethods: ["email", "google"],
-        appearance: { theme: "dark", accentColor: "#ffe7a3", showWalletLoginFirst: false },
-        embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
-        defaultChain: ACTIVE_CHAIN,
-        supportedChains: [ACTIVE_CHAIN],
-      }}
-    >
-      <PrivyBridge />
+    <>
       {children}
-    </PrivyProvider>
+      {PRIVY_APP_ID && SIGNER_MODE === "privy" ? <PrivyMount /> : null}
+    </>
   );
 }

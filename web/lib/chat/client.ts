@@ -12,7 +12,6 @@
  * meta.impactBps signed: + buy, − sell). There is no client postEvent.
  * Identity: first send() asks the connected smart account / wallet to sign one message; token cached per tab.
  */
-import { keccak256, stringToBytes } from "viem";
 import { withBase } from "@/lib/base-path";
 import { chatLoginMessage } from "./login";
 import { EMOTES } from "./emotes";
@@ -75,7 +74,7 @@ export async function login(): Promise<Tok | null> {
   let body: Record<string, unknown>;
   try {
     if (smart) {
-      const o = await s.aaOwnerSign(keccak256(stringToBytes(msg)));
+      const o = await s.aaSignMessage(msg);
       if (!o) return null;
       body = { addr, ts, sig: o.sig, owner: o.owner };
     } else {

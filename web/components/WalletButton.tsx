@@ -9,8 +9,8 @@ import {
   execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
-  DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, SPONSOR, aaSession, enableOneTap, endOneTap,
-  localExport, onGasMode, onSessionChange, oneTapAvailable, restartOneTap,
+  DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, aaSession, enableOneTap, endOneTap,
+  legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap,
 } from "@/lib/aa/session";
 import { pct } from "@/lib/aa/slippage";
 import type { Address } from "@/lib/protocol";
@@ -32,15 +32,16 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const [menu, setMenu] = useState(false);
   const [slipPct, setSlipPct] = useState(String(SLIPPAGE_DEFAULT_BPS / 100));
   const [, bump] = useState(0);
-  const [selfPay, setSelfPay] = useState(!SPONSOR);
   const [copied, setCopied] = useState(false);
   const [acct, setAcct] = useState(false);
   const [shownKey, setShownKey] = useState("");
   const [imp, setImp] = useState("");
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
-  useEffect(() => onGasMode((m) => setSelfPay(m === "self-pay")), []);
   useEffect(() => onSessionChange(() => bump((n) => n + 1)), []);
+  // TEMP (testnet): old LightAccount of the same owner still holding funds ⇒ offer a one-click sweep. Remove after migration.
+  const [legacy, setLegacy] = useState<Awaited<ReturnType<typeof legacyBalances>>>(null);
+  useEffect(() => { if (!addr) { setLegacy(null); return; } legacyBalances().then(setLegacy).catch(() => setLegacy(null)); }, [addr]);
   const [slipCap, setSlipCap] = useState<{ maxBps: number; suggestBps: number } | null>(null);
   useEffect(() => {
     const f = (e: Event) => setSlipCap((e as CustomEvent<{ maxBps: number; suggestBps: number }>).detail);
@@ -66,7 +67,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
 
   const fail = (e: unknown) => {
     const m = (e as Error).message.split("\n")[0];
-    if ((e as { code?: string }).code === "FundAccount") setSelfPay(true);
     setErr(m.slice(0, 160));
   };
   async function run(label: string, f: () => Promise<unknown>) {
@@ -116,7 +116,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   if (!isDeployed()) return null;
   const smart = isSmartMode();
   const sess = aaSession();
-  const needFund = smart && selfPay && eth !== null && eth < BigInt(3e12);
+  const needFund = smart && eth !== null && eth < BigInt(3e12);
   const pill = { all: "unset" as const, cursor: "pointer", padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: ".04em" };
   const input = { all: "unset" as const, padding: "5px 8px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,.1)", minWidth: 180 };
   // Popover panel: out of flow so [aria-label=wallet] layout height stays the trigger strip
@@ -219,8 +219,14 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           </div>
         )}
       </div>
-      {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
+      {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? " · self-pay gas" : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
       {needFund && <span role="status" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
+      {addr && legacy && (
+        <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>
+          Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}
+          <button type="button" disabled={!!busy} onClick={() => run("sweeping", async () => { await sweepLegacy(); setLegacy(await legacyBalances().catch(() => null)); await refresh(addr); })} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "#ffe7a3", color: "#1a1630" }}>Sweep old account</button>
+        </span>
+      )}
       {slipCap && sess?.oneTap && (
         <span role="status" aria-label="slippage cap" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>
           Slippage capped at {pct(slipCap.maxBps)} by your session. Start a new session with a higher max (up to 50%)?{" "}
