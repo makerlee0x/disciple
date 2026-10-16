@@ -120,7 +120,7 @@ function roundel(o: CanvasRenderingContext2D, icon: CanvasImageSource, cx: numbe
  * pixels), then the base is multiplied back (picks up shading) and screen-blended
  * highlights restore chrome specular on top.
  */
-export function composeRocket(base: HTMLImageElement | HTMLCanvasElement, icon: CanvasImageSource | null, scale = DECAL_SCALE, opt: DecalOpts = {}): HTMLCanvasElement {
+export function composeRocket(base: HTMLImageElement | HTMLCanvasElement, icon: CanvasImageSource | null, scale = DECAL_SCALE, opt: DecalOpts = {}, shade: HTMLImageElement | HTMLCanvasElement = base): HTMLCanvasElement {
   const [bw, bh] = srcSize(base);
   const w = bw * scale, h = bh * scale;
   const c = document.createElement("canvas");
@@ -138,7 +138,7 @@ export function composeRocket(base: HTMLImageElement | HTMLCanvasElement, icon: 
   // shading pass: multiply base, masked to decal
   const sh = document.createElement("canvas"); sh.width = w; sh.height = h;
   const sx = sh.getContext("2d")!;
-  sx.drawImage(base, 0, 0, w, h);
+  sx.drawImage(shade, 0, 0, w, h); // shading source (untinted chrome keeps coin colours true on skins)
   sx.globalCompositeOperation = "destination-in"; sx.drawImage(d, 0, 0);
   o.globalCompositeOperation = "multiply"; o.globalAlpha = 0.45; o.drawImage(sh, 0, 0);
   // chrome highlights on top

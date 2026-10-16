@@ -10,14 +10,16 @@ export function tickerFromName(name: string): string {
   return t.toUpperCase();
 }
 
-const FILLER = new Set(["MK", "II", "III", "THE", "OF", "A"]);
+const FILLER = new Set(["MK", "II", "III", "THE", "OF", "A", "ONE", "PRIME", "ZERO"]);
 /**
  * Call-sign variants derived from a rocket name (all valid: A–Z/0–9, 2–10 chars), best first:
  * first word → last word → acronym → first-letter + 3 → first-3 + first-3.
  * "Blessed Falcon" → BLESSED, FALCON, BF, BFAL, BLEFAL.
  */
 export function tickerVariants(name: string): string[] {
-  const w = name.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter((x) => x && !FILLER.has(x));
+  const all = name.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  const kept = all.filter((x) => !FILLER.has(x));
+  const w = kept.length ? kept : all; // suffixes like "Mk II" / "Prime" never lead the ticker
   if (!w.length) return [];
   const out = [
     w[0],

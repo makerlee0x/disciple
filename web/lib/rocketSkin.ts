@@ -83,7 +83,7 @@ export function tintBase(base: HTMLImageElement, skin: Skin, scale = 1): HTMLCan
 export async function skinnedRocket(skinId: string, coinId: string): Promise<HTMLCanvasElement> {
   const base = await loadBaseRocket();
   const tinted = tintBase(base, skinById(skinId), 4);
-  return composeRocket(tinted, coinEmblem(coinById(coinId)), 1);
+  return composeRocket(tinted, coinEmblem(coinById(coinId)), 1, {}, base);
 }
 
 export const LOADOUT_KEY = "disciple.rocket.loadout.v1";

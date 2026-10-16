@@ -1088,3 +1088,12 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .ach-group-bar { flex: 1; max-width: 220px; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .ach-group-bar > div { height: 100%; background: linear-gradient(90deg, #e9c56e, #fff1c4); }
 .ach-more { margin-top: 10px; }
+
+/* Docked sidebar (desktop, non-game): no dark drop-shadow / gold rule bleeding onto page content. */
+@media (min-width: 761px) {
+  body.side-open #apSide:not(.collapsed) {
+    box-shadow: none;
+    border-right-color: rgba(255, 231, 163, 0.05);
+    border-radius: 0;
+  }
+}
