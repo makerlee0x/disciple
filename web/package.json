@@ -11,7 +11,8 @@
     "test:heading": "node scripts/test-heading.mjs",
     "test:camera": "node scripts/test-camera.mjs",
     "test:pnl": "node scripts/test-pnl.mjs",
-    "test:trail": "node scripts/test-trail.mjs"
+    "test:trail": "node scripts/test-trail.mjs",
+    "test:chat": "node scripts/test-chat.mjs"
   },
   "dependencies": {
     "@account-kit/signer": "^4.88.5",

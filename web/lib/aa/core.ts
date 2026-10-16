@@ -120,6 +120,10 @@ export class LightSmartAccount {
   get factory() { return this.o.factory ?? LIGHT_ACCOUNT_V2_FACTORY; }
   get salt() { return this.o.salt ?? BigInt(0); }
 
+  /** Owner-key signature over a raw 32-byte hash (off-chain proofs, e.g. chat login). */
+  signOwnerRaw(raw: Hex): Promise<Hex> { return this.o.owner.signMessage({ message: { raw } }); }
+  get ownerAddress(): Address { return this.o.owner.address; }
+
   async address(): Promise<Address> {
     if (!this.addr) this.addr = await this.o.pc.readContract({ address: this.factory, abi: factoryAbi, functionName: "getAddress", args: [this.o.owner.address, this.salt] });
     return this.addr;

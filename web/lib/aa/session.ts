@@ -149,6 +149,8 @@ export async function restore(): Promise<Address | null> {
 
 export function aaSession() { return state && sa ? { kind: state.kind, owner: state.owner, expiresAt: state.expiresAt, gasMode: sa.gasMode } : null; }
 export async function aaLogout() { state = null; sa = null; save(); try { await alchemySigner?.disconnect(); } catch {} }
+/** Owner signs a raw hash (chat login proof). Null when no smart session. */
+export async function aaOwnerSign(raw: Hex): Promise<{ owner: Address; sig: Hex } | null> { return sa ? { owner: sa.ownerAddress, sig: await sa.signOwnerRaw(raw) } : null; }
 export async function aaAddress() { return sa ? sa.address() : null; }
 
 /** One userOp for the whole call list, checked against the session policy. */
