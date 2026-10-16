@@ -139,13 +139,10 @@ export const STRATEGY_TOKEN = {
   decimals: 18,
 } as const;
 
-/** Quote presets offered in the Advanced pair picker (address = TODO where unknown). */
+/** Quote presets with known addresses. The /create pair picker builds its curated list from the
+ * active deployment (lib/pairs.ts); unknown-address tokens are NOT listed (use "Paste ERC-20"). */
 export const QUOTE_PRESETS = [
   { symbol: "STRATEGY", address: STRATEGY_TOKEN.address as string, note: "default" },
-  // TODO(addresses): fill USDG / WETH / MSTR Robinhood Chain addresses from contracts workstream.
-  { symbol: "USDG", address: "", note: "TODO address" },
-  { symbol: "WETH", address: "", note: "TODO address" },
-  { symbol: "MSTR", address: "", note: "TODO address" },
 ] as const;
 
 /* ------------------------------------------------------------------ */
