@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.
 const rec = path.join(root, "broadcast/Deploy.s.sol/46630", mode === "broadcast" ? "" : "dry-run", "run-latest.json");
 const run = JSON.parse(fs.readFileSync(rec, "utf8"));
 const NAMES = ["ReferralRegistry", "LockedLP", "FeeRouter", "DiscipleHook", "Migration", "DiscipleRouter", "TrampWallManager",
-  "AntiSnipe", "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens"];
+  "AntiSnipe", "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens", "UsdgDepositNotifier"];
 const contracts = {};
 let gas = 0n;
 for (const t of run.transactions) {
