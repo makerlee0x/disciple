@@ -120,8 +120,9 @@ function roundel(o: CanvasRenderingContext2D, icon: CanvasImageSource, cx: numbe
  * pixels), then the base is multiplied back (picks up shading) and screen-blended
  * highlights restore chrome specular on top.
  */
-export function composeRocket(base: HTMLImageElement, icon: CanvasImageSource | null, scale = DECAL_SCALE, opt: DecalOpts = {}): HTMLCanvasElement {
-  const w = base.naturalWidth * scale, h = base.naturalHeight * scale;
+export function composeRocket(base: HTMLImageElement | HTMLCanvasElement, icon: CanvasImageSource | null, scale = DECAL_SCALE, opt: DecalOpts = {}): HTMLCanvasElement {
+  const [bw, bh] = srcSize(base);
+  const w = bw * scale, h = bh * scale;
   const c = document.createElement("canvas");
   c.width = w; c.height = h;
   const o = c.getContext("2d")!;
