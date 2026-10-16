@@ -15,7 +15,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { SESSION_POLICY_MODULE_ID, moduleIdAbi, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
+import { SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -42,7 +42,7 @@ const LOCAL_KEY = "disciple.local.ownerKey.v1";
 const LS = "disciple.aa.session.v2";
 const SK = "disciple.aa.sessionKey.v2"; // per-account on-chain session key (testnet; never sent anywhere)
 type Stored = SessionState & { kind: OwnerKind; owner: Address; key?: Hex };
-type StoredSessionKey = { account: Address; entityId: number; key: Hex; validUntil: number; maxSlippageBps: number };
+type StoredSessionKey = CachedSession;
 
 let sa: Mav2Account | null = null;
 let ownerAcct: LocalAccount | null = null;
@@ -59,7 +59,9 @@ function load(): Stored | null { try { const s = JSON.parse(localStorage.getItem
 function loadSessionKey(account: Address): StoredSessionKey | null {
   try {
     const s = JSON.parse(localStorage.getItem(SK) || "null") as StoredSessionKey | null;
-    return s && s.account.toLowerCase() === account.toLowerCase() && s.validUntil * 1000 > Date.now() + 60_000 ? s : null;
+    if (cachedSessionUsable(s, { account, policy: SESSION_POLICY })) return s;
+    if (s) localStorage.removeItem(SK); // stale: expired, other account, or an older policy (e.g. 1.1.0) ⇒ reinstall
+    return null;
   } catch { return null; }
 }
 
@@ -228,7 +230,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
     permissions: sessionPermissions(sk.TRADE_PERMS), // + P_REFERRAL when NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1
   });
   const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
-  onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps };
+  onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY };
   try { localStorage.setItem(SK, JSON.stringify(onchain)); } catch {}
   await sa.useSession(s.entityId, privateKeyToAccount(key));
   changed();

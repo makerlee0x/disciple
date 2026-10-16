@@ -1,12 +1,12 @@
 /**
- * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy v1.1.0, PR #60). Shared by session.ts (browser),
+ * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy v1.1.1, PR #60). Shared by session.ts (browser),
  * WalletButton, and scripts/test-session-e2e.mts (node), so tests exercise the exact logic the app uses.
  */
 import { toFunctionSelector, type Address, type Hex } from "viem";
 import type { Call } from "./core";
 
 /** Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else. */
-export const SESSION_POLICY_MODULE_ID = "disciple.session-policy.1.1.0";
+export const SESSION_POLICY_MODULE_ID = "disciple.session-policy.1.1.1";
 export const moduleIdAbi = [{ type: "function", name: "moduleId", stateMutability: "pure", inputs: [], outputs: [{ type: "string" }] }] as const;
 /** P_REFERRAL (1<<10): ReferralRegistry.tryAttribute(wallet == account, referrer). Not in the SDK's TRADE_PERMS. */
 export const P_REFERRAL = BigInt(1) << BigInt(10);
@@ -50,4 +50,18 @@ export function fmtSessionExpiry(validUntilSec: number, nowMs = Date.now(), loca
   const left = h >= 1 ? `${h}h${m ? ` ${m}m` : ""}` : `${Math.max(1, m)}m`;
   const at = new Date(validUntilSec * 1000).toLocaleString(locale, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone });
   return `${left} left (until ${at})`;
+}
+
+/** A one-tap session key cached in the browser. `policy` = the DiscipleSessionPolicy it was installed against. */
+export type CachedSession = { account: Address; entityId: number; key: Hex; validUntil: number; maxSlippageBps: number; policy?: Address };
+/**
+ * Is a cached session still usable? Same account, not about to expire, and installed on the CURRENT policy.
+ * Sessions from an older policy (e.g. 1.1.0, or cached before the policy was recorded) count as off ⇒ the UI prompts
+ * "Enable one-tap" again (the old validation stays on-chain until it expires; harmless, it can't sign for the new hooks).
+ */
+export function cachedSessionUsable(s: CachedSession | null | undefined, o: { account: Address; policy: Address | ""; nowMs?: number }): boolean {
+  if (!s || !o.policy) return false;
+  if (s.account.toLowerCase() !== o.account.toLowerCase()) return false;
+  if (!s.policy || s.policy.toLowerCase() !== o.policy.toLowerCase()) return false;
+  return s.validUntil * 1000 > (o.nowMs ?? Date.now()) + 60_000;
 }

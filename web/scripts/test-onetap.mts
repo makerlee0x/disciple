@@ -42,3 +42,17 @@ test("expiry label: partial hours, minutes, expired", () => {
   // a ms value passed by mistake would read ~55,000 years ahead — guard by making sure seconds round-trip sanely
   assert.doesNotMatch(fmtSessionExpiry(now / 1000 + 86400, now, "en-US", "UTC"), /\d{5,}h/);
 });
+
+import { SESSION_POLICY_MODULE_ID, cachedSessionUsable } from "../lib/aa/oneTap";
+test("policy version: expects 1.1.1", () => assert.equal(SESSION_POLICY_MODULE_ID, "disciple.session-policy.1.1.1"));
+test("cached session on an old policy (1.1.0) or without a policy is treated as OFF ⇒ reinstall", () => {
+  const NEW = "0x0399d58C802CfEfE0A559Fe9bBC147Ad92212bE2" as const, OLD = "0x476a7ed0775f6c7720c9157e4dade639424218cc" as const;
+  const now = 1_800_000_000_000;
+  const s = { account: A, entityId: 7, key: ("0x" + "1".repeat(64)) as `0x${string}`, validUntil: now / 1000 + 86400, maxSlippageBps: 500, policy: NEW };
+  assert.equal(cachedSessionUsable(s, { account: A, policy: NEW.toLowerCase() as `0x${string}`, nowMs: now }), true);
+  assert.equal(cachedSessionUsable({ ...s, policy: OLD }, { account: A, policy: NEW, nowMs: now }), false);
+  assert.equal(cachedSessionUsable({ ...s, policy: undefined }, { account: A, policy: NEW, nowMs: now }), false);
+  assert.equal(cachedSessionUsable(s, { account: REG, policy: NEW, nowMs: now }), false);
+  assert.equal(cachedSessionUsable({ ...s, validUntil: now / 1000 + 30 }, { account: A, policy: NEW, nowMs: now }), false);
+  assert.equal(cachedSessionUsable(s, { account: A, policy: "", nowMs: now }), false);
+});
