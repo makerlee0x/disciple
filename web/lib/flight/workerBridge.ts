@@ -4,6 +4,8 @@
  * React→engine events, window globals and wallet trades in, and engine→React events, DOM writes and a ≤10 Hz
  * HUD/tooling snapshot out. window.__flight on the main thread becomes a read-only snapshot + call proxy.
  */
+import { FLIGHT_TIERS } from "./tiers";
+
 type Snap = { S: Record<string, unknown>; supply?: number; ys: [number, number][]; perf: Record<string, number> };
 type Msg =
   | { k: "ready"; raf: boolean }
@@ -69,6 +71,7 @@ export function startWorkerRender(o: {
     get S() { return snap.S; },
     get source() { return { supply: snap.supply }; },
     screenYToMcap,
+    tiers: FLIGHT_TIERS,
     /* replay renders on the main thread in its own sandboxed engine instance (public/flight/replay.js) */
     replay: (opts: unknown) => loadReplay(o.basePath).then((f) => f(opts)),
   } as Record<string, unknown>;

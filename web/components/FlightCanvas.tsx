@@ -1,5 +1,6 @@
 "use client";
 
+import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -125,6 +126,12 @@ export default function FlightCanvas({ search }: Props) {
         if (!ok) await bootMain();
 
         if (!cancelled) setStatus("Live");
+        // equipped Rocket Factory parts (cosmetic) → engine loadout; the token decal still owns the nose roundel
+        if (!cancelled) try {
+          const e = (JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string> }).equipped || {};
+          const f = window.__flight as { setLoadout?: (l: unknown) => unknown } | undefined;
+          if (e.body || e.thrusters || e.coin) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, "") });
+        } catch { /* no loadout */ }
       } catch (e) {
         if (!cancelled) {
           setErr(String((e as Error).message || e));

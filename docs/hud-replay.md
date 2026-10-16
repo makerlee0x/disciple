@@ -48,3 +48,22 @@ r.dispose()
 - **Clean mode:** hides the status, KOTH, feed, controls, ammo, achievement toasts and trader floaters.
 - **Demo:** /dev/replay renders the replay and records WebM with MediaRecorder.
 - **Test:** `BASE_URL=… npm run test:replay`.
+
+## Rocket loadout (cosmetic)
+`replay({..., loadout:{skin, thruster, noseCoin}})`. The live engine has the same thing: `window.__flight.setLoadout(l)` and
+`getLoadout()`. FlightCanvas applies the equipped Rocket Factory parts from `disciple.rocket.loadout.v1`.
+- **Ids:** these are SITE's rocket upgrades (`web/lib/rocketSkin.ts`, without the `body-` / `thr-` / `coin-` prefixes).
+  - skin: chrome (default), gold, rose, green, cobalt, violet, matte, crimson
+  - thruster: stock (default), seraph, ion, plasma, venom, inferno
+  - noseCoin: halo (default), sun, star, moon, diamond, frog, plus `'ticker'` (a badge with the ticker) and `'none'`
+- **Unknown values** fall back to the default. `r.loadout` returns the normalized ids.
+- **Skin:** uses the same tint recipe as SITE's tintBase.
+- **Thruster:** changes the flame colours (core/flame) and the length/width of the flame.
+- **Nose coin:** the emblem sits on the decal roundel. In the live game, the token decal keeps the roundel.
+- **Determinism:** test:replay also runs a loadout case, so loadouts stay deterministic.
+
+## Tier list (single source of truth)
+`web/lib/flight/tiers.ts` exports `FLIGHT_TIERS` ({name, lo, hi, bg, sky}), `tierIndexAt` and `tierAt`.
+- **Embedding:** `engine.js` and `replay.js` include a block generated from tiers.ts + rocketSkin.ts. Run `npm run gen:flight`
+  to regenerate it; `npm run test:flightdata` fails if the block has drifted.
+- **Runtime access:** `window.__flight.tiers` (main and worker), `window.__flightReplay.tiers` / `.cosmetics`, and `r.tiers`.
