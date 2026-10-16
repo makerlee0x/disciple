@@ -408,7 +408,7 @@ Pool.prototype.lerpOut=function(){ const a=this.a; for(let i=0;i<this.n;i++){ co
 Pool.prototype.kill=function(i){ const a=this.a, j=--this.n, t=a[i]; a[i]=a[j]; a[j]=t; };   // caller iterates backwards
 Pool.prototype.clear=function(){ this.n=0; };
 Object.defineProperty(Pool.prototype,'length',{get(){ return this.n; }});
-const CAP={exhaust:360, shards:220, bfx:600};
+const CAP={exhaust:260, shards:160, bfx:420};   // trimmed (round 3 perf pass: burst frames were exhaust/bfx-bound)
 S.particles=new Pool(CAP.exhaust); S.shards=new Pool(CAP.shards);
 function spawnShard(x,y,vx,vy,c){ const p=S.shards.spawn(); p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.life=1; p.c=c; }
 /* in-place filter (no new array): keeps elements where pred(e) is truthy */
@@ -710,29 +710,37 @@ const BAND_SPLIT=5;
 function bandOf(alt){ alt=Math.max(0,alt||0); return alt<BAND_SPLIT ? alt*2 : BAND_SPLIT*2+(alt-BAND_SPLIT); }
 const plateOf=b=>PLATES[((Math.floor(b)%PLATES.length)+PLATES.length)%PLATES.length];
 let bgT=0;
+/* Cached plates: each plate is pre-cropped, pre-scaled and mirror-tiled once into a (2w × h) canvas, so a frame is
+   1–3 plain drawImage calls (no scaling, no save/scale/restore). During a crossfade the pair is blended into one
+   cached canvas keyed by (band, alpha quantised to 1/32), which re-renders at most 32× per band transition. */
+const BGC={key:'', tiles:new Map(), blend:null, bkey:''};
+function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'x'+h;
+  if(BGC.key!==k){ BGC.key=k; BGC.tiles.clear(); BGC.blend=null; BGC.bkey=''; }
+  let t=BGC.tiles.get(name); if(t){ BGC.tiles.delete(name); BGC.tiles.set(name,t); return t; }   // LRU touch
+  const im=IMG[name]; if(!im||!im.complete||im.bad) return null;
+  t=document.createElement('canvas'); t.width=2*w; t.height=h; const g=t.getContext('2d');
+  const sx=im.naturalWidth*0.1, sw=im.naturalWidth*0.8, ih=im.naturalHeight;
+  g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(2*w,0); g.scale(-1,1); g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.restore();
+  BGC.tiles.set(name,t); while(BGC.tiles.size>3) BGC.tiles.delete(BGC.tiles.keys().next().value);
+  return t; }
+function bgFrame(i,aq){ const A=bgTile(plateOf(i)); if(!aq||!A) return A; const B=bgTile(plateOf(i+1)); if(!B) return A;
+  const k=i+'|'+aq; if(BGC.bkey===k&&BGC.blend) return BGC.blend;
+  if(!BGC.blend||BGC.blend.width!==A.width||BGC.blend.height!==A.height){ BGC.blend=document.createElement('canvas'); BGC.blend.width=A.width; BGC.blend.height=A.height; }
+  const g=BGC.blend.getContext('2d'); g.globalAlpha=1; g.drawImage(A,0,0); g.globalAlpha=aq/32; g.drawImage(B,0,0); g.globalAlpha=1; BGC.bkey=k; return BGC.blend; }
 function drawBg(){
   // displayed band is rate-limited (≤1.5 bands/s) so a fast altitude swing crossfades plate by plate instead of strobing;
   // a jump of >4 bands (first frame, coin switch) snaps
   const a=S.displayAlt, tgt=bandOf(a), now=performance.now(), dt=Math.min(0.1,(now-(bgT||now))/1000); bgT=now;
   if(S.bgU==null||Math.abs(tgt-S.bgU)>4) S.bgU=tgt; else S.bgU+=clamp(tgt-S.bgU,-1.5*dt,1.5*dt);
   const u=S.bgU, i=Math.floor(u), f=u-i;
-  const s=1.12, w=W*s, h=H*s, scrollX=((S.bgScrollX||0)*0.05)%(2*w);
-  const draw=(idx,alpha)=>{ if(idx<0||alpha<=0.003) return; const im=IMG[plateOf(idx)]; if(!im||!im.complete||im.bad) return;
-    ctx.globalAlpha=alpha;
-    // vertical offset is a continuous function of altitude for EVERY plate (no wrap at tier boundaries)
-    const off=clamp((u-(idx+0.5))*H*0.08,-H*0.06,H*0.06), y0=(H-h)/2+off;
-    const x0=(W-w)/2+(S.x-W/2)*-0.03-scrollX;
-    // mirrored tiling (period 2w) so neighbouring edges always match
-    for (let k=-1;k<=3;k++){ const tx=x0+k*w; if(tx>W||tx+w<0) continue;
-      const odd=((k%2)+2)%2===1, sx=im.naturalWidth*0.1, sw=im.naturalWidth*0.8, ih=im.naturalHeight;
-      if(!odd) ctx.drawImage(im,sx,0,sw,ih,tx,y0,w,h); else { ctx.save(); ctx.translate(tx+w,y0); ctx.scale(-1,1); ctx.drawImage(im,sx,0,sw,ih,0,0,w,h); ctx.restore(); } }
-  };
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
-  // crossfade over the last 45% of each band: next plate reaches alpha 1 exactly at the boundary → no pop when i changes
-  const edge=0.45, sm=x=>{ x=clamp(x,0,1); return x*x*(3-2*x); };
-  draw(i,1);
-  if (f>1-edge) draw(i+1, sm((f-(1-edge))/edge));
-  ctx.globalAlpha=1;
+  // crossfade over the last 45% of each band: next plate reaches alpha 1 exactly at the boundary → no pop
+  const edge=0.45, x=clamp((f-(1-edge))/edge,0,1), sm=x*x*(3-2*x), aq=Math.round(sm*32);
+  const T=aq>=32?bgFrame(i+1,0):bgFrame(i,aq);
+  if(T){ const w=T.width/2, h=T.height, scrollX=((S.bgScrollX||0)*0.05)%(2*w);
+    const off=Math.sin(u*0.9)*H*0.045, y0=Math.round((H-h)/2+off);   // continuous vertical drift with altitude
+    const x0=(W-w)/2+(S.x-W/2)*-0.03-scrollX;
+    for(let k=-1;k<=1;k++){ const tx=Math.round(x0+k*2*w); if(tx>W||tx+2*w<0) continue; ctx.drawImage(T,tx,y0); } }
   ctx.fillStyle='rgba(8,10,34,.30)'; ctx.fillRect(0,0,W,H);
 }
 /* Sky tint per tier plate (average colour, sampled once per image) → rocket rim light + cloud shading */
@@ -1387,7 +1395,7 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
 /* Debug hooks: ?debugBomb=puff|grenade|bunker|cruise|nuke|atom|cycle  [&debugBombAt=1.2]
    Aliases: daisy→cruise, moab→nuke. window.__flight.bomb('nuke') or bomb(7.5) (impact %). */
 function debugBomb(spec,opt){ opt=opt||{};
-  if (typeof spec==='string' && BOMB_ALIASES[spec]) spec=BOMB_ALIASES[spec];
+  if (typeof spec==='string'){ spec=spec.toLowerCase(); if(BOMB_ALIASES[spec]) spec=BOMB_ALIASES[spec]; }   // 'NUKE' and 'nuke' both work
   const i=typeof spec==='number'?null:BOMB_TIERS.findIndex(t=>t.k===spec);
   const pct=typeof spec==='number'?spec:[0.8,3.2,8,18,35,55][Math.max(0,i)];
   noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }

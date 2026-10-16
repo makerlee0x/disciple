@@ -118,7 +118,7 @@ export default function FlightCanvas({ search }: Props) {
           REPLAY: window.REPLAY,
         };
         Object.assign(window, globals);
-        // ?render=main|worker forces a path; default = worker when OffscreenCanvas etc. are supported
+        // ?render=main|worker forces a path; default = main; worker is opt-in (?render=worker) and falls back to main if unsupported/failed
         const mode = chooseRenderMode(qs);
         const ok = mode === "worker" && (await bootWorker(globals));
         if (cancelled) return;

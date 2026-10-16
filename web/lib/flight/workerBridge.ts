@@ -33,9 +33,10 @@ export function workerRenderSupported(): boolean {
 /** ?render=main|worker forces a path; otherwise worker when supported. */
 export function chooseRenderMode(search: string): "main" | "worker" {
   const want = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("render");
-  if (want === "main") return "main";
+  // Main thread is the default (worker idled ~44 fps vs ~59 in headless benches); the worker is opt-in via
+  // ?render=worker until it's checked on real hardware. Unsupported/failed worker still falls back to main.
   if (want === "worker") return workerRenderSupported() ? "worker" : "main";
-  return workerRenderSupported() ? "worker" : "main";
+  return "main";
 }
 
 const INBOUND = ["disciple:event", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "apsidebar"];
