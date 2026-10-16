@@ -1,17 +1,18 @@
 "use client";
 
-import Sidebar from "./Sidebar";
+import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import WalletButton from "./WalletButton";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isGame = pathname.startsWith("/coin/");
+  const isGame = isCollapsibleRoute(pathname);
   return (
     <>
-      <Sidebar forceCollapsed={isGame ? undefined : undefined} />
-      <WalletButton />
+      <Sidebar />
+      {!isGame && <div className="ap-topbar" aria-hidden="true" />}
+      <WalletButton compact={!isGame} />
       {isGame ? children : <div className="main-offset min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (
         <div

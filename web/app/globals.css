@@ -7,6 +7,7 @@
   --foreground: #eef0ff;
   --ap-side-w: 270px;
   --ap-rail-w: 64px;
+  --ap-topbar-h: 56px;
   --ap-gold: #ffe7a3;
   --ap-gold-hot: #fff7df;
   --ap-ink: #0a0c1a;
@@ -291,18 +292,42 @@ body.side-hidden #apReopen {
 }
 
 /* Main content offset */
+/* Content starts flush at the sidebar edge (no dark gutter); pages own their inner padding.
+ * Top padding reserves the chrome strip so network / test funds / wallet never overlap headers. */
 .main-offset {
   transition: padding-left 0.22s;
-  padding-left: calc(var(--ap-rail-w) + 28px);
+  padding-left: var(--ap-rail-w);
+  padding-top: var(--ap-topbar-h);
+  background: var(--background);
 }
 body.side-open .main-offset {
-  padding-left: calc(var(--ap-side-w) + 28px);
+  padding-left: var(--ap-side-w);
 }
 @media (max-width: 760px) {
   .main-offset,
   body.side-open .main-offset {
-    padding-left: 24px;
+    padding-left: 0;
   }
+}
+/* Top chrome strip (non-game routes) */
+.ap-topbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: var(--ap-side-w);
+  height: var(--ap-topbar-h);
+  z-index: 25;
+  background: linear-gradient(180deg, rgba(8, 10, 22, 0.96), rgba(8, 10, 22, 0.78));
+  border-bottom: 1px solid rgba(255, 231, 163, 0.12);
+  backdrop-filter: blur(8px);
+}
+@media (max-width: 760px) {
+  .ap-topbar { left: 0; }
+}
+/* Sidebar toggle only exists on mobile for non-game routes */
+#apSide .ap-tog.ap-tog-mobile { display: none; }
+@media (max-width: 760px) {
+  #apSide .ap-tog.ap-tog-mobile { display: grid; }
 }
 
 /* Placeholder page shell */

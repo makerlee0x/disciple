@@ -18,7 +18,7 @@ const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
  * Options: email (OTP) / Google via Account Kit signer, or an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
-export default function WalletButton() {
+export default function WalletButton({ compact = false }: { compact?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [busy, setBusy] = useState("");
   const [eth, setEth] = useState<bigint | null>(null);
@@ -117,11 +117,11 @@ export default function WalletButton() {
     boxShadow: "0 8px 24px rgba(0,0,0,.45)",
   };
   return (
-    <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: 10, right: 12, zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
+    <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
       fontFamily: "ui-monospace,monospace", color: "#eef0ff" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ fontSize: 10, opacity: 0.7 }}>{ACTIVE_CHAIN.name}</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+          <span title="Network" style={{ fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(255,231,163,.25)", color: "#ffe7a3", opacity: 0.85 }}>{ACTIVE_CHAIN.name}</span>
           {addr ? (
             <>
               {MINTABLE_TEST_TOKENS.length > 0 && (
@@ -180,6 +180,7 @@ export default function WalletButton() {
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
             {bal && <span>{bal}</span>}
+            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a>
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
             ) : (
@@ -193,7 +194,7 @@ export default function WalletButton() {
           </div>
         )}
       </div>
-      {addr && bal && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
+      {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
       {needFund && <span role="status" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
       {err && <span role="alert" style={{ fontSize: 10, color: "#ffb0c0", maxWidth: 320, textAlign: "right" }}>{err}</span>}
     </div>
