@@ -46,7 +46,7 @@
       "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
       "defaultQuote": true
     }
   },
@@ -62,7 +62,7 @@
     "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
   },
   "previous": {
-    "note": "v2 stack (PR #10) \u2014 superseded by combined redeploy",
+    "note": "v2 stack (PR #10) — superseded by combined redeploy",
     "contracts": {
       "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
       "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
