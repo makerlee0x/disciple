@@ -6,7 +6,8 @@ import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type R
 
 /**
  * In-game live chat overlay (Twitch-style column, right side). DOM overlay only: the canvas never reads it.
- * Docks in the right HUD column between the KOTH panel and the MODE panel (replaces the Crew panel while open),
+ * One tabbed panel CHAT | HOLDERS (H switches, not while typing) in the right HUD column: from the KOTH slot
+ * (the canvas KOTH steps aside while it is open) down to the Crew card above the MODE panel (--ap-crew-h),
  * so it never covers the HUD or the ammo bar at any width. ≤200 rows, batched flushes, column-reverse scroller
  * (newest at the bottom with no scroll math on append).
  */
@@ -20,6 +21,8 @@ const STATE: Record<ChatState | "init", { c: string; t: string }> = {
 const W_MIN = 240, W_DEF = 310, W_MAX = 560, FLUSH_MS = 200;
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
+type Tab = "chat" | "holders";
+type Holders = { title: string; rows: [string, number][]; you: number };
 
 export default function GameChat({ coin }: { coin: string }) {
   const [api, setApi] = useState<{ api: ChatApi; svg: boolean; source: string } | null>(null);
@@ -33,6 +36,11 @@ export default function GameChat({ coin }: { coin: string }) {
   const [picker, setPicker] = useState(false);
   const [sending, setSending] = useState(false);
   const [, tick] = useState(0);
+  const [tab, setTabS] = useState<Tab>("chat");
+  const [tabUnread, setTabUnread] = useState(0);   // chat messages that arrived while HOLDERS was showing
+  const [holders, setHolders] = useState<Holders | null>(null);
+  const tabRef = useRef<Tab>("chat");
+  const setTab = useCallback((t: Tab) => { tabRef.current = t; setTabS(t); if (t === "chat") setTabUnread(0); try { localStorage.setItem("disciple.gamechat.tab", t); } catch { /* */ } }, []);
   const buf = useRef<ChatMsg[]>([]);
   const seen = useRef(new Set<string>());   // send() returns the msg AND the stream delivers it: dedupe by id
   const pinned = useRef(true);
@@ -40,7 +48,7 @@ export default function GameChat({ coin }: { coin: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const c = coin.toLowerCase();
 
-  useEffect(() => { try { setOpen(localStorage.getItem("disciple.gamechat.open") !== "0"); const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); } catch { /* */ } }, []);
+  useEffect(() => { try { setOpen(localStorage.getItem("disciple.gamechat.open") !== "0"); const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); const t = localStorage.getItem("disciple.gamechat.tab"); if (t === "holders") { tabRef.current = "holders"; setTabS("holders"); } } catch { /* */ } }, []);
   useEffect(() => { let alive = true; resolveChat().then((r) => { if (alive && r) setApi({ api: r.api, svg: r.svgEmotes, source: r.source }); }); return () => { alive = false; }; }, []);
   // history + subscribe; incoming messages are buffered and flushed ≤ every 150 ms (one React commit per batch)
   useEffect(() => {
@@ -55,20 +63,32 @@ export default function GameChat({ coin }: { coin: string }) {
       if (!inc.length) return; if (inc.length > 400) inc.splice(0, inc.length - 400);
       setRows((r) => appendRows(r, inc));
       if (!pinned.current) setUnread((u) => u + inc.length);
+      if (tabRef.current === "holders") setTabUnread((u) => u + inc.filter((m) => m.kind !== "event").length);
     }, FLUSH_MS);
     const rate = stressRate(); let sv = 0;
     if (rate > 0) { let acc = 0; sv = window.setInterval(() => { acc += rate * 0.05; while (acc >= 1) { acc -= 1; buf.current.push(synthMsg(c)); } }, 50); }
     return () => { alive = false; stop(); clearInterval(fl); if (sv) clearInterval(sv); };
   }, [api, c]);
-  // tell the HUD (Crew panel) the dock is in use
-  useEffect(() => { if (!api) return; dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open } })); try { localStorage.setItem("disciple.gamechat.open", open ? "1" : "0"); } catch { /* */ } }, [open, api]);
+  // tell the engine the dock (with its HOLDERS tab) is in use → the canvas KOTH panel steps aside and streams holders here.
+  // Re-announced every 3 s while no holders arrived (engine may boot after us); the engine only pushes on change.
+  const lastHolders = useRef(0);
+  useEffect(() => {
+    const h = (e: Event) => { lastHolders.current = Date.now(); setHolders((e as CustomEvent<Holders>).detail); };
+    addEventListener("disciple:holders", h);
+    const iv = window.setInterval(() => { if (api && open && Date.now() - lastHolders.current > 3000) dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); }, 3000);
+    return () => { removeEventListener("disciple:holders", h); clearInterval(iv); };
+  }, [api, open]);
+  useEffect(() => { if (!api) return; dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); try { localStorage.setItem("disciple.gamechat.open", open ? "1" : "0"); } catch { /* */ } }, [open, api]);
   useEffect(() => () => { dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open: false } })); }, []);
   // Enter (not typing anywhere) → open + focus the input
   useEffect(() => {
     if (!api) return;
-    const k = (e: KeyboardEvent) => { if (e.code !== "Enter" && e.code !== "NumpadEnter") return; if (typingTarget(e.target)) return; e.preventDefault(); setOpen(true); requestAnimationFrame(() => inputRef.current?.focus()); };
+    const k = (e: KeyboardEvent) => {
+      if (typingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code === "KeyH" && !e.repeat) { setOpen(true); setTab(tabRef.current === "chat" ? "holders" : "chat"); return; }   // H: CHAT ↔ HOLDERS (unused by the game)
+      if (e.code !== "Enter" && e.code !== "NumpadEnter") return; e.preventDefault(); setOpen(true); setTab("chat"); requestAnimationFrame(() => inputRef.current?.focus()); };
     addEventListener("keydown", k); return () => removeEventListener("keydown", k);
-  }, [api]);
+  }, [api, setTab]);
   // rate-limit countdown
   useEffect(() => { if (!err?.until) return; const iv = window.setInterval(() => { if (Date.now() >= err.until!) setErr(null); else tick((x) => x + 1); }, 250); return () => clearInterval(iv); }, [err]);
 
@@ -111,16 +131,25 @@ export default function GameChat({ coin }: { coin: string }) {
   const rl = err?.until ? Math.max(0, Math.ceil((err.until - Date.now()) / 1000)) : 0;
   return (
     <aside data-testid="chat-dock" aria-label="Live chat"
-      style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 206px)", bottom: 112, width, zIndex: 32, display: "flex", flexDirection: "column",
+      style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px)", bottom: "calc(112px + var(--ap-crew-h, 0px))", width, zIndex: 32, display: "flex", flexDirection: "column",
         background: "linear-gradient(90deg, rgba(8,10,24,.38), rgba(8,10,24,.62))", border: "1px solid rgba(255,231,163,.22)", borderRadius: 12,
         font: `12.5px/1.38 ${mono}`, color: "#e8ecff", contain: "layout paint" }}>
       <div onPointerDown={drag} title="drag to resize" style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,.08)", fontSize: 11 }}>
-        <b style={{ color: "#ffe7a3", letterSpacing: 1 }}>LIVE CHAT</b>
-        <span data-testid="chat-state" style={{ color: st.c }}>● {st.t}</span>
+        <div role="tablist" aria-label="Chat or holders" style={{ display: "flex", gap: 2 }}>
+          {(["chat", "holders"] as Tab[]).map((t) => <button key={t} role="tab" aria-selected={tab === t} data-testid={`chat-tab-${t}`} onClick={() => setTab(t)} title={`${t === "chat" ? "Live chat" : "Top holders"} (H)`}
+            style={{ all: "unset", cursor: "pointer", padding: "3px 8px", borderRadius: 6, fontWeight: 800, letterSpacing: 1, position: "relative",
+              color: tab === t ? "#151830" : "#ffe7a3", background: tab === t ? "#ffe7a3" : "rgba(255,231,163,.08)", border: "1px solid rgba(255,231,163,.35)" }}>
+            {t === "chat" ? "CHAT" : "HOLDERS"}
+            {t === "chat" && tab !== "chat" && tabUnread > 0 && <span data-testid="chat-tab-unread" style={{ marginLeft: 5, padding: "0 5px", borderRadius: 8, background: "#ff5c7a", color: "#fff", fontSize: 10 }}>{tabUnread > 99 ? "99+" : tabUnread}</span>}
+          </button>)}
+        </div>
+        <span data-testid="chat-state" style={{ color: st.c }} title={`chat ${st.t}`}>●{tab === "chat" ? " " + st.t : ""}</span>
         {api.source === "fallback-mock" && <span style={{ opacity: 0.55 }}>mock</span>}
         <button data-testid="chat-collapse" onClick={() => setOpen(false)} title="Collapse" style={{ marginLeft: "auto", all: "unset", cursor: "pointer", padding: "0 4px", opacity: 0.8, marginInlineStart: "auto" }}>▸</button>
       </div>
+      {tab === "holders" && <HoldersView h={holders} />}
+      <div style={{ display: tab === "chat" ? "contents" : "none" }}>
       <div ref={listRef} onScroll={onScroll} data-testid="chat-list"
         style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column-reverse", padding: "4px 8px", overscrollBehavior: "contain", scrollbarWidth: "thin" }}>
         <div>{rows.map((r) => <ChatRow key={r.key} row={r} svg={api.svg} known={known} emotes={api.api.EMOTES} />)}</div>
@@ -144,6 +173,7 @@ export default function GameChat({ coin }: { coin: string }) {
           onKeyUp={(e) => e.stopPropagation()}
           style={{ flex: 1, minWidth: 0, font: `12px ${mono}`, color: "#e8ecff", background: "rgba(0,0,0,.35)", border: `1px solid ${len > MAX_LEN ? "#ff6b7d" : "rgba(255,255,255,.18)"}`, borderRadius: 8, padding: "6px 8px", outline: "none" }} />
         <span data-testid="chat-count" style={{ fontSize: 10, minWidth: 44, textAlign: "right", color: len > MAX_LEN ? "#ff6b7d" : len > MAX_LEN * 0.85 ? "#ffd24a" : "rgba(220,228,255,.5)" }}>{len}/{MAX_LEN}</span>
+      </div>
       </div>
     </aside>
   );
@@ -177,3 +207,13 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
     <b style={{ color: f ? nameColor(f.addr) : "#ccc" }}>{f ? f.name || shortAddr(f.addr) : "?"}</b><span style={{ opacity: 0.6 }}>: </span>
     <span>{body(m.text)}</span></div>;
 });
+
+function HoldersView({ h }: { h: Holders | null }) {
+  return <div data-testid="holders-list" style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "thin" }}>
+    <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top fuelers"}</div>
+    {!h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no fuelers yet</div> : h.rows.map(([w, v], i) =>
+      <div key={w} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", color: w === "you" ? "#9ff3c8" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : 400 }}>
+        <span>{i === 0 ? "👑" : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
+    {h && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your fuel: {fmtUsd(h.you)}</div>}
+  </div>;
+}

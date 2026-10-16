@@ -1009,6 +1009,10 @@ function twStep(){ const cur=S.confirmed&&S.confirmed.mcap; if(!(cur>0)) return;
 function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':v>=1e3?'$'+(v/1e3).toFixed(1).replace(/\.0$/,'')+'K':'$'+Math.round(v); }
 /* low-frequency caches (were rebuilt every frame) */
 let _topT=-1, _top=[];
+/* chat dock with a HOLDERS tab (components/gamechat/GameChat.tsx) → the canvas KOTH panel steps aside; holders pushed ≤2 Hz on change */
+addEventListener('disciple:chatdock',e=>{ const d=e.detail||{}; S.kothDocked=!!(d.open&&d.holders); S._holdersSig=''; });
+function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
+  try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:S.fuelers&&S.fuelers.you||0}})); }catch(_){} }
 function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t; _top=Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
 let _twT=-1, _twSrc=null, _twLen=-1, _tw=[]; const TW_LIST=[]; let _pvRef=null, _pvObj=null;
 function twGroupsCached(){ const src=window.__trampWalls||null, len=src?src.length:0;
@@ -1110,9 +1114,11 @@ function drawHud(){
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
-  const top=topFuelers(); panel(RX,RT+100,310,96);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top fuelers (sim)':'KING OF THE HILL · top fuelers (mock)',RX+16,RT+120);
-  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`${i===0?'👑':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,RT+140+i*18); });
+  const top=topFuelers(), kothTitle=IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top fuelers (sim)':'KING OF THE HILL · top fuelers (mock)';
+  if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
+  else { panel(RX,RT+100,310,96);
+  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
+  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`${i===0?'👑':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,RT+140+i*18); }); }
   // bottom-left: trade feed (compact)
   panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText(IS_POOL?'TRADES (real onchain + your paper)':'TRADES (onchain only)',36,H-138);

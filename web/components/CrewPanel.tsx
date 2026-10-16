@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MODES, fmtUsd, nextUnlock, verifiedLevel } from "@/lib/config";
 import VerifiedBadge from "./VerifiedBadge";
 
@@ -23,10 +23,17 @@ type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode
 export default function CrewPanel() {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
-  const [open, setOpen] = useState(true);
-  // the live-chat overlay docks in this slot while open (components/gamechat/GameChat.tsx)
-  const [chatDocked, setChatDocked] = useState(false);
-  useEffect(() => { const h = (e: Event) => setChatDocked(!!(e as CustomEvent<{ open?: boolean }>).detail?.open); addEventListener("disciple:chatdock", h); return () => removeEventListener("disciple:chatdock", h); }, []);
+  // Compact card at the bottom of the right HUD column, right above the MODE panel. Always visible (no longer hidden by
+  // chat); its height is published as --ap-crew-h so the CHAT | HOLDERS panel ends above it. Expanded state remembered.
+  const [open, setOpenS] = useState(false);
+  const setOpen = (f: (o: boolean) => boolean) => setOpenS((o) => { const n = f(o); try { localStorage.setItem("disciple.crew.open", n ? "1" : "0"); } catch { /* */ } return n; });
+  useEffect(() => { try { setOpenS(localStorage.getItem("disciple.crew.open") === "1"); } catch { /* */ } }, []);
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = ref.current, st = document.documentElement.style; if (!el) return;
+    const ro = new ResizeObserver(() => st.setProperty("--ap-crew-h", Math.ceil(el.getBoundingClientRect().height + 8) + "px")); ro.observe(el);
+    return () => { ro.disconnect(); st.removeProperty("--ap-crew-h"); };
+  }, []);
 
   const [ammoUsd, setAmmoUsd] = useState<number[]>(MODES.map((m) => m.usd));
   // Engine pushes marks + scaled ammo presets on change (no 1 s poll).
@@ -46,44 +53,47 @@ export default function CrewPanel() {
   const tier = verifiedLevel({ ...MOCK_CREW.stats, mcapUsd: mcap });
   const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
-  if (chatDocked) return null;
+  const ammoTxt = (i: number, d: number) => { const v = ammoUsd[i] ?? d; return "$" + (v < 1 ? v.toFixed(2) : v.toLocaleString()); };
   return (
     <aside
-      aria-label="Crew"
+      ref={ref} aria-label="Crew" data-testid="crew-panel"
       style={{
-        position: "fixed", right: 14, top: "calc(var(--ap-hud-rt, 58px) + 206px)", maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 330px)", overflowY: "auto", zIndex: 30, width: 250,
-        padding: 12, borderRadius: 14, background: "rgba(10,12,28,.82)",
+        position: "fixed", right: 20, bottom: 112, maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 420px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
+        padding: "8px 12px", borderRadius: 12, background: "rgba(10,12,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
         font: "11px ui-monospace,monospace",
       }}
     >
-      <button type="button" onClick={() => setOpen((o) => !o)}
-        style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", justifyContent: "space-between", color: "#ffe7a3", fontWeight: "bold" }}>
+      <button type="button" data-testid="crew-toggle" onClick={() => setOpen((o) => !o)} title={open ? "Collapse crew" : "Expand crew"}
+        style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", gap: 8, alignItems: "center", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>CREW <span style={{ color: "#ffb0c8" }}>· MOCK</span></span>
-        <span>{open ? "−" : "+"}</span>
+        <span style={{ color: "#e8ecff", fontWeight: 400 }}>👥 {MOCK_CREW.aboard} aboard</span>
+        <span style={{ marginLeft: "auto" }}>{open ? "−" : "+"}</span>
       </button>
-      <div style={{ marginTop: 4 }}><VerifiedBadge tier={tier} /></div>
+      {/* NOTE: this NEXT UNLOCK bar duplicates the canvas tier bar (PR #50); kept on purpose: it is the crew reward track */}
+      <div style={{ marginTop: 5, display: "flex", justifyContent: "space-between", color: "#ffe7a3" }}><span>NEXT UNLOCK · {u.next}</span><span style={{ opacity: 0.8 }}>{u.pct.toFixed(0)}%</span></div>
+      <div style={{ height: 5, borderRadius: 4, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 3 }}>
+        <i style={{ display: "block", height: "100%", width: `${u.pct}%`, background: "linear-gradient(90deg,#ffd98a,#fff7df)" }} />
+      </div>
+      <div style={{ marginTop: 3, opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtUsd(mcap)} / {fmtUsd(u.targetUsd)} → 🎁 {reward}</div>
       {open && (
         <>
-          <div style={{ marginTop: 8 }}>👥 {MOCK_CREW.aboard} players aboard</div>
+          <div style={{ marginTop: 6 }}><VerifiedBadge tier={tier} /></div>
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP FUELERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
               <span>{i === 0 ? "👑" : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
             </div>
           ))}
-          <div style={{ marginTop: 6, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
-          <div style={{ marginTop: 10, color: "#ffe7a3" }}>NEXT UNLOCK · {u.next}</div>
-          <div style={{ height: 6, borderRadius: 4, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 4 }}>
-            <i style={{ display: "block", height: "100%", width: `${u.pct}%`, background: "linear-gradient(90deg,#ffd98a,#fff7df)" }} />
+          <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
+          <div style={{ marginTop: 6, color: "#ffe7a3" }}>AMMO COST</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 14 }}>
+            {MODES.map((m, i) => (
+              <div key={m.key} style={{ display: "flex", justifyContent: "space-between", color: i === mode ? "#9ff3c8" : undefined }}>
+                <span>{m.key} {m.name}</span><span>{ammoTxt(i, m.usd)}</span>
+              </div>
+            ))}
           </div>
-          <div style={{ marginTop: 3, opacity: 0.8 }}>{u.pct.toFixed(0)}% · {fmtUsd(mcap)} / {fmtUsd(u.targetUsd)} → 🎁 {reward} for everyone aboard</div>
-          <div style={{ marginTop: 10, color: "#ffe7a3" }}>AMMO COST</div>
-          {MODES.map((m, i) => (
-            <div key={m.key} style={{ display: "flex", justifyContent: "space-between", color: i === mode ? "#9ff3c8" : undefined }}>
-              <span>{m.key} {m.name}</span><span>{(() => { const u = ammoUsd[i] ?? m.usd; return "$" + (u < 1 ? u.toFixed(2) : u.toLocaleString()); })()}</span>
-            </div>
-          ))}
         </>
       )}
     </aside>
