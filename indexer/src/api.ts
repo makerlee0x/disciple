@@ -311,6 +311,20 @@ export class Api {
   }
 
   /** Minimal router; returns [status, body]. */
+  /** LP auto-compound history: 33% LP share added to the locked full-range position (raw units). */
+  lpCompounds(token: string) {
+    const t = token.toLowerCase();
+    const rows = this.db.prepare(
+      "SELECT liquidity, token_used tokenUsed, quote_used quoteUsed, token_carry tokenCarry, quote_carry quoteCarry, block, ts, tx FROM lp_compounds WHERE token=? ORDER BY block, id",
+    ).all(t) as any[];
+    const sum = (k: string) => rows.reduce((acc, r) => acc + BigInt(r[k]), 0n).toString();
+    const last = rows[rows.length - 1];
+    return {
+      token: t, count: rows.length, totalLiquidity: sum("liquidity"), totalTokenUsed: sum("tokenUsed"), totalQuoteUsed: sum("quoteUsed"),
+      tokenCarry: last?.tokenCarry ?? "0", quoteCarry: last?.quoteCarry ?? "0", events: rows,
+    };
+  }
+
   async route(method: string, url: URL): Promise<[number, unknown]> {
     if (method !== "GET") return [405, { error: "GET only" }];
     const p = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
@@ -329,6 +343,7 @@ export class Api {
       if (p[2] === "holders") return nf(this.holders(t, q));
       if (p[2] === "altitude") return nf(this.altitude(t));
       if (p[2] === "fee-routing") return nf(this.feeRouting(t));
+      if (p[2] === "lp-compounds") return [200, this.lpCompounds(t)];
     }
     if (p[0] === "users" && addr(p[1])) {
       if (p.length === 2) return [200, this.profile(p[1])];

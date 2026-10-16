@@ -8,7 +8,7 @@ import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../s
 import type { Config, Stack } from "../src/config";
 
 const A = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Hex;
-const stack: Stack = { id: "t", fromBlock: 0n, launchpad: A(1), feeRouter: A(2), hook: A(3), migration: A(4), trampWallManager: A(5), anonLauncher: A(6), rewardsVault: A(7) };
+const stack: Stack = { id: "t", fromBlock: 0n, launchpad: A(1), feeRouter: A(2), hook: A(3), migration: A(4), trampWallManager: A(5), anonLauncher: A(6), rewardsVault: A(7), lockedLP: A(8) };
 const cfg: Config = { chainId: 1, rpcUrl: "", stateView: A(9), stacks: [stack], dbPath: ":memory:", port: 0, chunk: 1000n, pollMs: 0, confirmations: 0, reorgDepth: 64, rpcRps: 0, minChunk: 10n };
 const TOKEN = A(0x100), CURVE = A(0x101), QUOTE = A(0x102), ALICE = A(0xa1), BOB = A(0xb0b);
 let li = 0;
@@ -109,5 +109,21 @@ describe("ingest + api", () => {
     expect(rw[0].kind).toBe("SnipeFeeRouted");
     const [st]: any = await api.route("GET", new URL("http://x/nope"));
     expect(st).toBe(404);
+  });
+});
+
+describe("lp auto-compound", () => {
+  it("indexes LiquidityCompounded from LockedLP only and serves /lp-compounds", async () => {
+    const db = seeded();
+    const ts = (b: bigint) => 1_000_000 + Number(b) * 60;
+    applyLogs(db, stack, [
+      mk("LiquidityCompounded", { token: TOKEN, liquidity: 1000n, tokenUsed: 50n, quoteUsed: 7n, tokenCarry: 1n, quoteCarry: 3n }, stack.lockedLP!, 80n),
+      mk("LiquidityCompounded", { token: TOKEN, liquidity: 500n, tokenUsed: 20n, quoteUsed: 4n, tokenCarry: 9n, quoteCarry: 1n }, stack.lockedLP!, 81n),
+      mk("LiquidityCompounded", { token: TOKEN, liquidity: 999n, tokenUsed: 1n, quoteUsed: 1n, tokenCarry: 0n, quoteCarry: 0n }, A(0xbad), 82n), // spoof
+    ], ts);
+    const api = new Api(db, null, cfg);
+    const [st, r]: any = await api.route("GET", new URL(`http://x/coins/${TOKEN}/lp-compounds`));
+    expect(st).toBe(200);
+    expect(r).toMatchObject({ count: 2, totalLiquidity: "1500", totalTokenUsed: "70", totalQuoteUsed: "11", tokenCarry: "9", quoteCarry: "1" });
   });
 });
