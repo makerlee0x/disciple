@@ -44,7 +44,7 @@ export function friendlyError(e: unknown): ProtocolError {
       NoPricePool: "That pair has no USD price pool registered, so it can't be used yet.",
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
-      CreatorBuyTooLarge: "Creator buy is above the allowed maximum.",
+      CreatorBuyTooLarge: "Creator buy is above Launchpad.creatorBuyMaxBps() (and/or the 7% wallet cap).",
       Slippage: "Price moved too much. Try again or raise slippage.",
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
@@ -197,6 +197,11 @@ export async function readCreatorBuyQuote(pc: PublicClient, quote: Address, quot
   return { tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap };
 }
 
+/** On-chain creator-buy supply cap in bps (v3 default 77 = 0.77%). Prefer this over any hardcoded UI limit. */
+export async function readCreatorBuyMaxBps(pc: PublicClient) {
+  return Number(await pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "creatorBuyMaxBps" }));
+}
+
 /**
  * Convert a $ shot into the raw amount to spend: quote raw for buys, token raw (18 dec) for sells,
  * using the curve's launch-fixed quotePriceUsd (USD WAD per 1e18 quote raw ⇒ decimal-agnostic).
@@ -294,7 +299,7 @@ export function createViemProtocol(): ProtocolClient {
         const calls: Call[] = [];
         if (creatorBuy > B(0)) {
           const cq = await readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps));
-          if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy is above the allowed maximum (wallet cap). Lower it.");
+          if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy exceeds Launchpad.creatorBuyMaxBps() / wallet cap. Lower it.");
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
