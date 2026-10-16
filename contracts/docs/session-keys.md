@@ -31,6 +31,7 @@ Each session is stored per account and per entity id. The validation hook uses e
 | Recipient pinning | execution | `recipient == account` for router buy/sell and 4-arg curve buy/sell. `buyRecipient == account` for `launchAnon`. |
 | Approve spender pinning | execution | spender must be one of the 4 DISCIPLE targets or a registered curve |
 | Spend cap | execution | the total `approve` amount on `quote0`/`quote1` (e.g. USDG, STRATEGY) is capped at `cap0`/`cap1` per session. This overcounts on purpose: approve exactly the trade size. Rocket-token approves (sells and walls) are uncapped, but they are spender-pinned and their proceeds go to the account. |
+| Slippage (minOut) | execution | for router `buyExactIn`/`sellExactIn` and curve `buy`/`sell`: `minOut != 0` (`ZeroMinOut`) and `minOut >= quote × (1 − maxSlippageBps)` (`MinOutTooLow`). The quote is read on-chain in the execution hook: `DiscipleRouter.quoteExactIn` after graduation (simulate-and-revert, includes the 1% hook fee), `curve.quoteBuy`/`quoteSell` before. `maxSlippageBps` is set by the owner per session (default 500 = 5%, max 5000). If the quote fails, the trade reverts (`QuoteFailed`). |
 | ETH | both | `value` must be 0 on the account call and on every inner call |
 | ERC-1271 | sig hook | reverts. Session keys never sign messages. |
 
@@ -42,8 +43,13 @@ Storage is keyed `mapping(entityId => mapping(account => Session))`, so validati
 * **Kill switch (cheap):** the owner calls `execute(policy, 0, revoke(E))`. SDK: `buildRevokeSession`.
 * Expiry is automatic. Install a new session for a new key/budget (random `entityId`); stale sessions can be uninstalled lazily.
 
+### Slippage check limits
+* The quote is taken **in the same tx, right before the trade**. It stops a session key from sending zero or absurd `minOut`. It does **not** stop a sandwich: a front-run in an *earlier* tx has already moved the price when the quote is read. That leg is bounded by DiscipleRouter's `maxImpactBps` (PR #44, default 50%), by the client's own `minOut` (computed off-chain before signing, so it reflects the pre-attack price), and by the session cap.
+* In a batch, every trade is quoted against the **pre-batch** state. A later trade in the same batch on the same pool can fail falsely if an earlier one moved the price. Send one trade per pool per batch.
+* Clients: compute `minOut` with `minOutFor(quote, slippage)` (SDK) using `slippage ≤ maxSlippageBps`.
+
 ### Residual risks (stolen session key, within one session)
-* It can spend up to the cap on bad trades, for example `minOut = 0` sandwich trades. Mitigation: a small cap, a short TTL, and the client always sets slippage.
+* It can spend up to the cap on poor trades. `minOut = 0` is now blocked, but self-sandwiching within the router impact cap is still possible (see above). Mitigation: a small cap and a short TTL.
 * It can launch coins (if `P_LAUNCH`/`P_ANON_LAUNCH` was granted) and pick `stealthOwner`, which redirects creator fees. That is why launches are **off by default** in `TRADE_PERMS`.
 * It can place tramps or walls at bad ticks and cancel them. Positions stay owned by the account.
 * Allowances left over after the session stay granted only to DISCIPLE contracts, and those only pull funds from `msg.sender` for its own trade.

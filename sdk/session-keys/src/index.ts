@@ -22,6 +22,8 @@ import {
 export const EXEC_HOOK_FLAG = 2 ** 31;
 export const DEFAULT_TTL_SEC = 24 * 60 * 60;
 export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
+export const DEFAULT_MAX_SLIPPAGE_BPS = 500;
+export const MAX_SLIPPAGE_BPS = 5000;
 
 /** Permission bits — must match DiscipleSessionPolicy.P_* */
 export const Perm = {
@@ -50,12 +52,13 @@ export type CreateSessionParams = {
   entityId?: number;             // default: random in [1, 2^31)
   ttlSec?: number;               // default 24h, max 7d
   permissions?: bigint;          // default TRADE_PERMS
+  maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, max 5000
   now?: number;                  // unix seconds (tests)
 };
 
 export const policyAbi = parseAbi([
   "function revoke(uint32 entityId)",
-  "function sessionOf(address account, uint32 entityId) view returns (((uint48 validUntil,uint48 validAfter,uint256 permissions,address router,address launchpad,address anonLauncher,address trampWallManager,address quote0,address quote1,uint128 cap0,uint128 cap1) cfg,uint128 spent0,uint128 spent1,bool active))",
+  "function sessionOf(address account, uint32 entityId) view returns (((uint48 validUntil,uint48 validAfter,uint256 permissions,address router,address launchpad,address anonLauncher,address trampWallManager,address quote0,address quote1,uint128 cap0,uint128 cap1,uint16 maxSlippageBps) cfg,uint128 spent0,uint128 spent1,bool active))",
   "event SessionSpend(address indexed account, uint32 indexed entityId, address quote, uint256 amount, uint256 spent)",
 ]);
 
@@ -64,7 +67,7 @@ const sessionCfgAbi = [{
     { name: "validUntil", type: "uint48" }, { name: "validAfter", type: "uint48" }, { name: "permissions", type: "uint256" },
     { name: "router", type: "address" }, { name: "launchpad", type: "address" }, { name: "anonLauncher", type: "address" },
     { name: "trampWallManager", type: "address" }, { name: "quote0", type: "address" }, { name: "quote1", type: "address" },
-    { name: "cap0", type: "uint128" }, { name: "cap1", type: "uint128" },
+    { name: "cap0", type: "uint128" }, { name: "cap1", type: "uint128" }, { name: "maxSlippageBps", type: "uint16" },
   ],
 }] as const;
 
@@ -76,13 +79,14 @@ export function randomEntityId(): number {
   return (b[0] % (EXEC_HOOK_FLAG - 2)) + 1;
 }
 
-export function encodePolicyInstallData(entityId: number, p: Required<Pick<CreateSessionParams, "targets" | "caps">> & { validUntil: number; validAfter?: number; permissions: bigint }): Hex {
+export function encodePolicyInstallData(entityId: number, p: Required<Pick<CreateSessionParams, "targets" | "caps">> & { validUntil: number; validAfter?: number; permissions: bigint; maxSlippageBps?: number }): Hex {
   const [q0, q1] = p.caps;
   return encodeAbiParameters([{ type: "uint32" }, ...sessionCfgAbi], [entityId, {
     validUntil: p.validUntil, validAfter: p.validAfter ?? 0, permissions: p.permissions,
     router: p.targets.router, launchpad: p.targets.launchpad, anonLauncher: p.targets.anonLauncher ?? ZERO,
     trampWallManager: p.targets.trampWallManager,
     quote0: q0.token, quote1: q1?.token ?? ZERO, cap0: q0.cap, cap1: q1?.cap ?? 0n,
+    maxSlippageBps: p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS,
   }]);
 }
 
@@ -96,7 +100,9 @@ export function buildCreateSession(p: CreateSessionParams) {
   const now = p.now ?? Math.floor(Date.now() / 1000);
   const validUntil = now + ttl;
   const permissions = p.permissions ?? TRADE_PERMS;
-  const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions });
+  const maxSlippageBps = p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS;
+  if (!Number.isInteger(maxSlippageBps) || maxSlippageBps <= 0 || maxSlippageBps > MAX_SLIPPAGE_BPS) throw new Error(`maxSlippageBps must be in [1, ${MAX_SLIPPAGE_BPS}]`);
+  const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions, maxSlippageBps });
 
   const hooks: Hex[] = [
     concat([serializeHookConfig({ address: p.modules.policy, entityId, hookType: HookType.VALIDATION, hasPreHooks: true, hasPostHooks: false }), policyData]),
@@ -114,7 +120,7 @@ export function buildCreateSession(p: CreateSessionParams) {
       SESSION_SELECTORS, SingleSignerValidationModule.encodeOnInstallData({ entityId, signer: p.sessionSigner }), hooks,
     ],
   });
-  return { entityId, validUntil, permissions, data };
+  return { entityId, validUntil, permissions, maxSlippageBps, data };
 }
 
 /** Owner: fully remove the session (validation + all hooks, storage cleared). Preferred "End session". */
@@ -134,14 +140,25 @@ export function buildRevokeSession(entityId: number, policy: Address): Hex {
     args: [policy, 0n, encodeFunctionData({ abi: policyAbi, functionName: "revoke", args: [entityId] })] });
 }
 
-export type SessionInfo = { active: boolean; validUntil: number; permissions: bigint; spent: bigint[]; caps: bigint[]; quotes: Address[] };
+export type SessionInfo = { maxSlippageBps: number; active: boolean; validUntil: number; permissions: bigint; spent: bigint[]; caps: bigint[]; quotes: Address[] };
 export async function readSession(pc: PublicClient, policy: Address, account: Address, entityId: number): Promise<SessionInfo> {
   const s = await pc.readContract({ address: policy, abi: policyAbi, functionName: "sessionOf", args: [account, entityId] });
   const now = Math.floor(Date.now() / 1000);
   return {
-    active: s.active && Number(s.cfg.validUntil) > now, validUntil: Number(s.cfg.validUntil), permissions: s.cfg.permissions,
+    maxSlippageBps: s.cfg.maxSlippageBps, active: s.active && Number(s.cfg.validUntil) > now, validUntil: Number(s.cfg.validUntil), permissions: s.cfg.permissions,
     quotes: [s.cfg.quote0, s.cfg.quote1], caps: [s.cfg.cap0, s.cfg.cap1], spent: [s.spent0, s.spent1],
   };
+}
+
+/**
+ * minOut for a session trade from an off-chain quote (router.quoteExactIn / curve.quoteBuy|quoteSell via eth_call).
+ * Use a slippage <= the session's maxSlippageBps so the on-chain check (quote at execution) still passes if the
+ * price moves slightly in your favour; never returns 0.
+ */
+export function minOutFor(quotedOut: bigint, slippageBps: number): bigint {
+  if (quotedOut <= 0n) throw new Error("quote is zero");
+  const m = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
+  return m > 0n ? m : 1n;
 }
 
 /* ---------- call builders for the session key (always recipient = account) ---------- */

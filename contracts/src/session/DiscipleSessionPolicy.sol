@@ -7,6 +7,13 @@ interface ICurveOf {
     function curveOf(address token) external view returns (address);
 }
 
+interface IQuoteSources {
+    // DiscipleRouter: simulate-and-revert quote (non-view, safe: no state change survives)
+    function quoteExactIn(address token, bool isBuy, uint256 amountIn)
+        external
+        returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
+}
+
 interface ITokenOf {
     function token() external view returns (address);
 }
@@ -36,6 +43,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     uint256 public constant P_APPROVE = 1 << 9; // ERC20.approve(spender ∈ DISCIPLE contracts | registered curve)
 
     uint32 public constant EXEC_HOOK_FLAG = 1 << 31;
+    uint16 public constant DEFAULT_MAX_SLIPPAGE_BPS = 500; // 5%
+    uint16 public constant MAX_SLIPPAGE_BPS_LIMIT = 5000; // 50%
+    uint256 internal constant BPS = 10_000;
 
     // selectors
     bytes4 internal constant EXECUTE = bytes4(keccak256("execute(address,uint256,bytes)"));
@@ -74,6 +84,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         address quote1;
         uint128 cap0; // max total approve() of quote0 during the session (raw units)
         uint128 cap1;
+        uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT_MAX_SLIPPAGE_BPS
     }
 
     struct Session {
@@ -107,6 +118,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error NotCurve(address target);
     error OnlyExecuteCalls();
     error SignatureValidationNotAllowed();
+    error ZeroMinOut();
+    error MinOutTooLow(uint256 minOut, uint256 required);
+    error QuoteFailed(address target);
 
     // ───────────────────────── install / uninstall / revoke ─────────────────────────
 
@@ -119,7 +133,8 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (cfg.validUntil == 0 || cfg.validUntil <= cfg.validAfter || cfg.validUntil <= block.timestamp) {
             revert InvalidConfig();
         }
-        if (cfg.permissions == 0) revert InvalidConfig();
+        if (cfg.permissions == 0 || cfg.maxSlippageBps > MAX_SLIPPAGE_BPS_LIMIT) revert InvalidConfig();
+        if (cfg.maxSlippageBps == 0) cfg.maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS;
         Session storage s = _sessions[entityId][msg.sender];
         s.cfg = cfg;
         s.spent0 = 0;
@@ -263,7 +278,6 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     /// @return add0 / add1 quote spend to count against cap0 / cap1.
     function _fullCheck(SessionConfig storage c, address account, Call memory k)
         internal
-        view
         returns (uint256 add0, uint256 add1)
     {
         if (k.value != 0) revert EthValueNotAllowed();
@@ -274,14 +288,18 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         bytes memory args = _args(k.data);
 
         if (p == P_ROUTER_BUY || p == P_ROUTER_SELL) {
-            (,,, address recipient,) = abi.decode(args, (address, uint256, uint256, address, uint256));
+            (address token, uint256 amountIn, uint256 minOut, address recipient,) =
+                abi.decode(args, (address, uint256, uint256, address, uint256));
             if (recipient != account) revert RecipientNotAccount();
+            _checkMinOut(c, minOut, _routerQuote(k.target, token, p == P_ROUTER_BUY, amountIn), k.target);
         } else if (p == P_CURVE_BUY || p == P_CURVE_SELL) {
             if (!_isCurve(c, k.target)) revert NotCurve(k.target);
             if (sel == CURVE_BUY4 || sel == CURVE_SELL4) {
                 (,,, address recipient) = abi.decode(args, (uint256, uint256, uint256, address));
                 if (recipient != account) revert RecipientNotAccount();
             }
+            (uint256 amountIn, uint256 minOut) = abi.decode(args, (uint256, uint256));
+            _checkMinOut(c, minOut, _curveQuote(k.target, p == P_CURVE_BUY, amountIn), k.target);
         } else if (p == P_ANON_LAUNCH) {
             // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
             address buyRecipient = _word(args, 2);
@@ -294,6 +312,33 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             // non-quote tokens (rocket tokens for sells / walls): uncapped, spender-pinned, proceeds pinned to account
         }
         // P_TRAMP / P_WALL / P_CANCEL / P_LAUNCH: positions & launches are owned by msg.sender (= account)
+    }
+
+    /// @dev Quotes are read at execution-hook time, i.e. against the state the trade will execute on (same tx).
+    ///      This blocks zero / absurd minOut from the session key; it does NOT defend against a price already
+    ///      moved by an earlier tx (a sandwich front-run) — the router's maxImpactBps bounds that leg.
+    function _checkMinOut(SessionConfig storage c, uint256 minOut, uint256 quoted, address target) internal view {
+        if (minOut == 0) revert ZeroMinOut();
+        if (quoted == 0) revert QuoteFailed(target);
+        uint256 req = quoted * (BPS - c.maxSlippageBps) / BPS;
+        if (minOut < req) revert MinOutTooLow(minOut, req);
+    }
+
+    function _routerQuote(address router, address token, bool isBuy, uint256 amountIn) internal returns (uint256 out) {
+        try IQuoteSources(router).quoteExactIn(token, isBuy, amountIn) returns (uint256 o, uint256, uint256) {
+            out = o;
+        } catch {
+            revert QuoteFailed(router);
+        }
+    }
+
+    /// @dev BondingCurve.quoteBuy / quoteSell return all-static structs whose first word is the net output.
+    function _curveQuote(address curve, bool isBuy, uint256 amountIn) internal view returns (uint256) {
+        (bool ok, bytes memory r) = curve.staticcall(
+            abi.encodeWithSignature(isBuy ? "quoteBuy(uint256)" : "quoteSell(uint256)", amountIn)
+        );
+        if (!ok || r.length < 32) revert QuoteFailed(curve);
+        return abi.decode(r, (uint256));
     }
 
     function _permissionFor(SessionConfig storage c, address target, bytes4 sel) internal view returns (uint256) {

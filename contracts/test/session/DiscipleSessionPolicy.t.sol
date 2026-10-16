@@ -33,6 +33,16 @@ contract MockRouter {
         return tokensIn;
     }
 
+    uint256 public quoteBps = 10_000; // quote = amountIn * quoteBps / 1e4 (mock 1:1 pool)
+
+    function setQuoteBps(uint256 b) external {
+        quoteBps = b;
+    }
+
+    function quoteExactIn(address, bool, uint256 amountIn) external view returns (uint256, uint256, uint256) {
+        return (amountIn * quoteBps / 10_000, 0, 0);
+    }
+
     function sweep(address to) external {} // not allowlisted
 }
 
@@ -43,6 +53,19 @@ contract MockCurve {
     constructor(address t, TKN q) {
         token = t;
         quote = q;
+    }
+
+    struct BuyQuote {
+        uint256 tokensOut;
+        uint256 fee;
+    }
+
+    function quoteBuy(uint256 q) external pure returns (BuyQuote memory) {
+        return BuyQuote(q, 0);
+    }
+
+    function quoteSell(uint256 t) external pure returns (BuyQuote memory) {
+        return BuyQuote(t, 0);
     }
 
     function buy(uint256 q, uint256, uint256, address recipient) external returns (uint256) {
@@ -208,7 +231,7 @@ contract DiscipleSessionPolicyTest is Test {
 
     function _buy(uint256 a, address recipient) internal view returns (MockMAv2.Call memory) {
         return MockMAv2.Call(
-            address(router), 0, abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, 0, recipient, block.timestamp))
+            address(router), 0, abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, a, recipient, block.timestamp))
         );
     }
 
@@ -240,7 +263,7 @@ contract DiscipleSessionPolicyTest is Test {
             MockMAv2.Call(
                 address(router),
                 0,
-                abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 5e18, 0, address(acct), block.timestamp))
+                abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 5e18, 5e18, address(acct), block.timestamp))
             )
         );
         assertEq(policy.sessionOf(address(acct), E).spent0, 10e18); // sells don't consume the quote cap
@@ -250,7 +273,7 @@ contract DiscipleSessionPolicyTest is Test {
         _batch(
             _approve(address(usdg), address(curve), 3e18),
             MockMAv2.Call(
-                address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 0, 0, address(acct))
+                address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 3e18, 0, address(acct))
             )
         );
         assertEq(rocket2.balanceOf(address(acct)), 3e18);
@@ -290,7 +313,7 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.NotCurve.selector, address(fakeCurve)));
         acct.execute(
-            address(fakeCurve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1, 0, 0)
+            address(fakeCurve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1, 1, 0)
         );
     }
 
@@ -347,7 +370,7 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.RecipientNotAccount.selector));
         acct.execute(
-            address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 1, 0, 0, attacker)
+            address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 1, 1, 0, attacker)
         );
     }
 
@@ -388,6 +411,83 @@ contract DiscipleSessionPolicyTest is Test {
             try acct.executeBatch(cs) {} catch {}
             assertLe(policy.sessionOf(address(acct), E).spent0, CAP);
         }
+    }
+
+    // ───────── slippage (minOut vs on-chain quote) ─────────
+
+    function test_defaultSlippageIs500() public view {
+        assertEq(policy.sessionOf(address(acct), E).cfg.maxSlippageBps, 500);
+    }
+
+    function _routerBuy(uint256 a, uint256 minOut) internal view returns (MockMAv2.Call memory) {
+        return MockMAv2.Call(
+            address(router), 0, abi.encodeCall(MockRouter.buyExactIn, (address(rocket), a, minOut, address(acct), block.timestamp))
+        );
+    }
+
+    function test_zeroMinOutRejected() public {
+        _expectBatchRevert(
+            abi.encodeWithSelector(P.ZeroMinOut.selector), _approve(address(usdg), address(router), 1e18), _routerBuy(1e18, 0)
+        );
+        vm.prank(key);
+        vm.expectRevert(P.ZeroMinOut.selector);
+        acct.execute(
+            address(router), 0, abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 1e18, 0, address(acct), 0))
+        );
+        vm.prank(key);
+        vm.expectRevert(P.ZeroMinOut.selector);
+        acct.execute(address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1e18, 0, 0));
+    }
+
+    function test_minOutBelowQuoteMinusSlippageRejected() public {
+        // quote 10e18, 5% → required 9.5e18
+        _expectBatchRevert(
+            abi.encodeWithSelector(P.MinOutTooLow.selector, 9.4e18, 9.5e18),
+            _approve(address(usdg), address(router), 10e18),
+            _routerBuy(10e18, 9.4e18)
+        );
+        _batch(_approve(address(usdg), address(router), 10e18), _routerBuy(10e18, 9.5e18)); // exactly at bound
+    }
+
+    function test_minOutUsesLiveQuote() public {
+        router.setQuoteBps(5000); // pool now quotes half
+        // minOut 4.75e18 = 0.95 * 5e18 passes the policy (router then enforces its own slippage on the real fill)
+        _batch(_approve(address(usdg), address(router), 10e18), _routerBuy(10e18, 4.75e18));
+        _expectBatchRevert(
+            abi.encodeWithSelector(P.MinOutTooLow.selector, 4.7e18, 4.75e18),
+            _approve(address(usdg), address(router), 10e18),
+            _routerBuy(10e18, 4.7e18)
+        );
+    }
+
+    function test_curveSlippageEnforced() public {
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.MinOutTooLow.selector, 1, 2.85e18));
+        acct.execute(
+            address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 1, 0, address(acct))
+        );
+    }
+
+    function test_perSessionSlippageAndBounds() public {
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 1 hours));
+        c.maxSlippageBps = 100; // 1%
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        _expectBatchRevert(
+            abi.encodeWithSelector(P.MinOutTooLow.selector, 9.8e18, 9.9e18),
+            _approve(address(usdg), address(router), 10e18),
+            _routerBuy(10e18, 9.8e18)
+        );
+        c.maxSlippageBps = 5001;
+        vm.prank(owner);
+        vm.expectRevert(P.InvalidConfig.selector);
+        acct.installSession(policy, E, key, c);
+    }
+
+    function test_quoteFailureRejects() public {
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.QuoteFailed.selector, address(curve)));
+        acct.execute(address(curve), 0, abi.encodeWithSignature("sell(uint256,uint256,uint256)", 0, 1, 0));
     }
 
     // ───────── expiry ─────────
