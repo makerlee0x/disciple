@@ -21,9 +21,9 @@ declare global { interface Window { __discipleTrade?: Bridge } }
  * No chain or no wallet ⇒ no bridge ⇒ engine keeps paper fills (mock/replay unchanged).
  */
 type Pos = { size: number; valueUsd: number; costBasis: number };
-/** % sells and "sell initials" (recover cost basis incl. fees). Keys Q/W/E/R. */
-const SELLS = [{ id: "12", label: "12%", frac: 0.12, key: "KeyQ" }, { id: "33", label: "33%", frac: 0.33, key: "KeyW" },
-  { id: "77", label: "77%", frac: 0.77, key: "KeyE" }, { id: "init", label: "INITIALS", frac: 0, key: "KeyR" }] as const;
+/** % sells and "sell initials" (recover cost basis incl. fees). Keys Z/X/C/V (W = off-chain mini acceleration, Space = buy turbo). */
+const SELLS = [{ id: "12", label: "12%", frac: 0.12, key: "KeyZ" }, { id: "33", label: "33%", frac: 0.33, key: "KeyX" },
+  { id: "77", label: "77%", frac: 0.77, key: "KeyC" }, { id: "init", label: "INITIALS", frac: 0, key: "KeyV" }] as const;
 
 export default function TradeBridge({ token }: { token: string }) {
   const [mode, setMode] = useState(2);

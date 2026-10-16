@@ -1,6 +1,13 @@
 /**
  * Average-cost-basis position ledger (paper now; vault/indexer later via
- * ProtocolClient.getPosition). Fees (1% hook/protocol fee) and gas are in cost basis.
+ * ProtocolClient.getPosition).
+ *
+ * Invariants (maker lee):
+ *   uPnL     = holdings × (mark − avgEntry)            avgEntry = costBasis / size (buy fee + gas included)
+ *   realized += exactly the uPnL portion closed by a sell  = tokens × (fillPrice − avgEntry)
+ *   exit fee + sell gas are booked separately in `fees` (they are costs of the exit, not price PnL),
+ *   so a rising mark with size > 0 always means rising uPnL, and a sell at the mark moves PnL from
+ *   uPnL into realized one-for-one.
  */
 import { CURVE, GAS, holdBonus } from "./config";
 
@@ -13,13 +20,15 @@ export interface Position {
   costBasis: number;
   /** $ realized on sells (net of fees + gas) */
   realized: number;
+  /** $ exit fees + sell gas paid (kept out of realized so realized == closed uPnL) */
+  fees?: number;
   /** ms timestamp continuous holding started (0 = flat) */
   holdStart: number;
   /** partial sells scale the hold bonus down proportionally */
   sellScale: number;
 }
 
-export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, holdStart: 0, sellScale: 1 });
+export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, holdStart: 0, sellScale: 1 });
 
 export function gasUsd(): number {
   return GAS.execGas * GAS.robinhoodGwei * 1e-9 * GAS.ethUsd;
@@ -38,9 +47,9 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
     if (q.size <= 0) return q;
     const tokens = Math.min(q.size, usd / price);
     const frac = tokens / q.size;
-    const proceeds = tokens * price * (1 - FEE) - gas;
     const basisOut = q.costBasis * frac;
-    q.realized += proceeds - basisOut;
+    q.realized += tokens * price - basisOut;                 // = closed uPnL at this price
+    q.fees = (q.fees || 0) + tokens * price * FEE + gas;     // exit cost, shown separately
     q.costBasis -= basisOut;
     q.size -= tokens;
     q.sellScale *= 1 - frac;
@@ -57,19 +66,20 @@ export interface PositionView {
   pnlPct: number;
   uPnl: number;
   realized: number;
+  fees: number;
   bonus: number;
 }
 
-/** Mark-to-market (value net of the 1% exit fee). */
+/** Mark-to-market: uPnL = size × (mark − avgEntry). valueUsd = size × mark (gross, before the exit fee). */
 export function view(p: Position, price: number, supply: number, now = Date.now()): PositionView {
-  const valueUsd = p.size * price * (1 - FEE);
+  const valueUsd = p.size * price;
   const avg = p.size > 0 ? p.costBasis / p.size : 0;
-  const uPnl = p.size > 0 ? valueUsd - p.costBasis : 0;
+  const uPnl = p.size > 0 ? p.size * (price - avg) : 0;
   const held = p.holdStart ? (now - p.holdStart) / 3.6e6 : 0;
   return {
     size: p.size, valueUsd, avgEntryUsd: avg, entryMcap: avg * supply,
     pnlPct: p.costBasis > 0 ? (uPnl / p.costBasis) * 100 : 0,
-    uPnl, realized: p.realized,
+    uPnl, realized: p.realized, fees: p.fees || 0,
     bonus: holdBonus(uPnl, held, p.sellScale, valueUsd),
   };
 }

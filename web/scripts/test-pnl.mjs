@@ -1,8 +1,11 @@
-// PnL regression: with a flat REAL price and no new trades, the player's PnL must stay constant.
-// Root cause guarded here: pool sources apply the player's paper impact as a decaying offset
-// (source.paper, τ20 s). Fills were booked at the bumped price and marks followed the decaying offset,
-// so PnL bled after the player stopped buying. Fills + marks now use source.realMcap().
-// Uses the engine's actual PoolV3Base + markMcap and the app's lib/pnl.ts ledger.   Run: node scripts/test-pnl.mjs
+// PnL consistency (maker lee): one price for what the player sees, trades at and is marked at.
+//   uPnL = holdings × (mark − avgEntry); a sell moves exactly the closed uPnL into realized;
+//   price up with holdings ⇒ uPnL up; flat price, no trades ⇒ uPnL and realized constant.
+//   PAPER: mark = shown mcap (confirmed × sim offset). LIVE: mark = real pool price (no sim/paper offsets).
+// Root cause guarded: marks used the real/confirmed mcap while the rocket + HUD showed confirmed × simF (and
+// pool paper impact), so the shown mcap rose but uPnL didn't; and realized subtracted exit fee + gas, so it
+// never matched the uPnL that was closed.  Uses the engine's actual shownMcap/markMcap + PoolV3Base and
+// lib/pnl.ts.   Run: node scripts/test-pnl.mjs
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -14,38 +17,59 @@ for (const f of ["pnl", "config"]) {
 const { applyFill, emptyPosition, view } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
-const mark = eng.slice(eng.indexOf("function markMcap(){"), eng.indexOf("function pushMark(){"));
-// fake timers so paper decay can be stepped deterministically
+const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
 let ivs = [], tos = [];
-const env = { setInterval: (f, ms) => (ivs.push({ f, ms }), ivs.length), clearInterval() {}, setTimeout: (f) => (tos.push(f), 1), window: {}, REPLAY: undefined, S: { confirmed: { mcap: null } } };
-const make = new Function(...Object.keys(env), "source", cls + mark + "return { PoolV3Base, markMcap: () => markMcap() };");
+const window = {}, S = { confirmed: { mcap: null }, simF: 1 };
+const env = { setInterval: (f, ms) => (ivs.push({ f, ms }), ivs.length), clearInterval() {}, setTimeout: (f) => (tos.push(f), 1), window, REPLAY: undefined, S };
+const build = new Function(...Object.keys(env), "let source;" + cls + markSrc + "return { PoolV3Base, shownMcap, markMcap, setSource:(s)=>{source=s;} };");
+const E = build(...Object.values(env));
 let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
-const S = env.S; let source;
-const api = make(...Object.values(env), undefined);
-// re-bind with a live source reference
-const bind = new Function(...Object.keys(env), cls + mark + "return (src)=>{ source=src; return { PoolV3Base, markMcap }; };");
-const pool = new (api.PoolV3Base)(); pool.supply = 1e9; pool.real = 0.094; pool.L = 5e20; pool.ethUsd = 3000; pool.emit = (e) => { if (e.mcap) S.confirmed.mcap = e.mcap; };
-const { markMcap } = bind(...Object.values(env))(pool);
-pool.startPaperDecay();
-let pos = emptyPosition(); const t0 = Date.now();
-for (const usd of [250, 250, 500]) {                                            // player buys, paper impact bumps the mark
-  const fillAt = markMcap(); const p = pool.submitTrade("buy", usd); tos.splice(0).forEach((f) => f()); await p;
-  pos = applyFill(pos, "buy", usd, fillAt / pool.supply, 0.01, t0);
-}
-if (!(pool.paper > 1)) bad("paper impact not applied (test setup)");
-const pnlAt = () => view(pos, markMcap() / pool.supply, pool.supply, t0).uPnl;
-const p0 = pnlAt(); let lo = p0, hi = p0;
-for (let i = 0; i < 4 * 120; i++) { for (const iv of ivs) iv.f(); const v = pnlAt(); lo = Math.min(lo, v); hi = Math.max(hi, v); }   // 120 s, flat real price
-const drift = hi - lo;
-if (drift > 1e-9) bad(`PnL drifted ${drift} over 120 s of flat real price`);
-// the old behaviour (fill + mark on the paper-bumped mcap) must show the bleed this test guards against
-{ const p2 = new (api.PoolV3Base)(); p2.supply = 1e9; p2.real = 0.094; p2.L = 5e20; p2.ethUsd = 3000; p2.emit = () => {}; ivs = []; p2.startPaperDecay();
-  let q = emptyPosition(); for (const usd of [250, 250, 500]) { const pr = p2.submitTrade("buy", usd); tos.splice(0).forEach((f) => f()); await pr; q = applyFill(q, "buy", usd, p2.mcap() / p2.supply, 0.01, t0); }
-  const a = view(q, p2.mcap() / p2.supply, p2.supply, t0).uPnl; for (let i = 0; i < 480; i++) for (const iv of ivs) iv.f(); const b = view(q, p2.mcap() / p2.supply, p2.supply, t0).uPnl;
-  console.log(`old marking (paper-bumped price): PnL ${a.toFixed(4)} → ${b.toFixed(4)} after 120 s flat  (bleed ${(b - a).toFixed(4)})`);
-  if (!(b < a - 1e-6)) bad("could not reproduce the old bleed (test is not guarding anything)"); }
-// ledger alone: same price, time passing → uPnl constant (hold bonus must not leak into PnL)
-{ let q = applyFill(emptyPosition(), "buy", 1000, 0.1, 0.01, t0); const a = view(q, 0.1, 1e9, t0).uPnl, b = view(q, 0.1, 1e9, t0 + 48 * 3.6e6).uPnl; if (a !== b) bad(`ledger uPnl changed with time ${a} → ${b}`); }
-console.log(`flat real price, no new trades: PnL ${p0.toFixed(4)} stays within ${drift.toExponential(1)} over 120 s (paper offset decayed ${((pool.paper - 1) * 100).toFixed(3)}% left)`);
+const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(a), Math.abs(b));
+const SUP = 1e9, t0 = Date.now(), GAS = 0.01;
+const uv = (pos) => view(pos, E.markMcap() / SUP, SUP, t0);
+
+// ---- PAPER (sim market): mark = shown price -------------------------------------------------------------
+E.setSource({ supply: SUP, impact: () => 1 }); delete window.__discipleTrade;
+S.confirmed.mcap = 10000; S.simF = 1;
+let pos = applyFill(emptyPosition(), "buy", 100, E.markMcap() / SUP, GAS, t0);
+const u0 = uv(pos).uPnl;
+// 1) shown mcap rises (sim offset) → uPnL rises, exactly size × (mark − avgEntry)
+S.simF = 1.2;
+if (!(E.shownMcap() === 12000 && E.markMcap() === 12000)) bad(`paper mark ${E.markMcap()} ≠ shown ${E.shownMcap()}`);
+const v1 = uv(pos);
+if (!(v1.uPnl > u0)) bad(`price up but uPnL ${u0} → ${v1.uPnl}`);
+if (!near(v1.uPnl, pos.size * (12000 / SUP - pos.costBasis / pos.size))) bad("uPnL ≠ size × (mark − avgEntry)");
+// confirmed mcap rises too (real trades) → uPnL rises
+S.confirmed.mcap = 11000; const v1b = uv(pos); if (!(v1b.uPnl > v1.uPnl)) bad("confirmed mcap up but uPnL did not rise");
+console.log(`price up: uPnL ${u0.toFixed(4)} → ${v1.uPnl.toFixed(4)} → ${v1b.uPnl.toFixed(4)} (shown $10.0K → $12.0K → $13.2K)`);
+// 2) sell 40% at the mark → realized += closed uPnL portion, exactly
+{ const before = uv(pos), price = E.markMcap() / SUP, sellUsd = pos.size * 0.4 * price;
+  const q = applyFill(pos, "sell", sellUsd, price, GAS, t0), after = view(q, price, SUP, t0);
+  const closed = before.uPnl - after.uPnl, dReal = after.realized - before.realized;
+  if (!near(closed, dReal)) bad(`sell: closed uPnL ${closed} ≠ Δrealized ${dReal}`);
+  if (!near(closed, before.uPnl * 0.4)) bad(`sell 40%: closed ${closed} ≠ 40% of uPnL ${before.uPnl}`);
+  if (!(after.fees > 0)) bad("exit fee + gas not booked");
+  console.log(`sell 40%: uPnL ${before.uPnl.toFixed(4)} → ${after.uPnl.toFixed(4)}, realized +${dReal.toFixed(4)} (= closed ${closed.toFixed(4)}), exit fees ${after.fees.toFixed(4)}`);
+  pos = q; }
+// 3) flat price, no trades, time passes → uPnL + realized constant
+{ const a = uv(pos); const later = view(pos, E.markMcap() / SUP, SUP, t0 + 36e5);
+  if (a.uPnl !== later.uPnl || a.realized !== later.realized) bad(`flat: ${a.uPnl}/${a.realized} → ${later.uPnl}/${later.realized}`);
+  console.log(`flat price 1 h: uPnL ${a.uPnl.toFixed(4)} / realized ${a.realized.toFixed(4)} unchanged`); }
+// 4) price down → uPnL down
+S.simF = 0.9; if (!(uv(pos).uPnl < view(pos, 13200 / SUP, SUP, t0).uPnl)) bad("price down but uPnL did not fall");
+
+// ---- LIVE: mark = real pool price; flat real price ⇒ constant PnL even while the paper offset decays ----
+{ window.__discipleTrade = () => {}; S.simF = 1.3; ivs = [];
+  const pool = new E.PoolV3Base(); pool.supply = SUP; pool.real = 0.094; pool.L = 5e20; pool.ethUsd = 3000; pool.emit = (e) => { if (e.mcap) S.confirmed.mcap = e.mcap; };
+  E.setSource(pool); S.confirmed.mcap = pool.mcap(); pool.startPaperDecay();
+  let q = emptyPosition();
+  for (const usd of [250, 250, 500]) { const fill = E.markMcap(); const p = pool.submitTrade("buy", usd); tos.splice(0).forEach((f) => f()); await p; q = applyFill(q, "buy", usd, fill / SUP, GAS, t0); }
+  if (!(pool.paper > 1)) bad("paper impact not applied (test setup)");
+  if (!near(E.markMcap(), pool.real * SUP)) bad(`live mark ${E.markMcap()} ≠ real ${pool.real * SUP} (sim/paper leaked into live)`);
+  const p0 = view(q, E.markMcap() / SUP, SUP, t0).uPnl; let lo = p0, hi = p0;
+  for (let i = 0; i < 480; i++) { for (const iv of ivs) iv.f(); const v = view(q, E.markMcap() / SUP, SUP, t0).uPnl; lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (hi - lo > 1e-9) bad(`live PnL drifted ${hi - lo} over 120 s of flat real price`);
+  console.log(`live, flat real price 120 s (paper offset decaying, sim ×1.3 ignored): uPnL ${p0.toFixed(4)} drift ${(hi - lo).toExponential(1)}`);
+  delete window.__discipleTrade; }
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fail) process.exit(1); else console.log("PASS");
