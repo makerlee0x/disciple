@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {DiscipleSessionPolicy as P} from "../../src/session/DiscipleSessionPolicy.sol";
 import {PackedUserOperation} from "../../src/session/IERC6900.sol";
+import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 
 contract TKN is ERC20 {
     constructor(string memory n) ERC20(n, n) {}
@@ -179,6 +180,7 @@ contract MockMAv2 {
 
 contract DiscipleSessionPolicyTest is Test {
     P policy;
+    ReferralRegistry registry;
     TKN usdg;
     TKN rocket;
     TKN rocket2;
@@ -196,7 +198,8 @@ contract DiscipleSessionPolicyTest is Test {
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        policy = new P();
+        registry = new ReferralRegistry(address(this));
+        policy = new P(address(registry));
         usdg = new TKN("USDG");
         rocket = new TKN("RKT");
         rocket2 = new TKN("RKT2");
