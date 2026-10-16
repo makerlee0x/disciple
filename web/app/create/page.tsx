@@ -163,8 +163,8 @@ export default function LaunchRocketPage() {
           <div className="space-y-4">
             <label className="block">
               <span className={labelCls}>ROCKET NAME *</span>
-              <div className="pid-edit">
-                <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
+              <div className="pid-edit" style={{ flexWrap: "nowrap" }}>
+                <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
                 <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={() => setName(randomRocketName())}>🎲 Shuffle</button>
               </div>
             </label>

@@ -1015,3 +1015,5 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .ds-lost h2 { font: bold 22px Georgia, serif; color: #ffe7a3; margin: 6px 0 10px; }
 .ds-lost p { color: rgba(220, 228, 255, 0.7); max-width: 420px; margin: 0 auto 18px; }
 .ds-lost .actions { display: flex; gap: 10px; justify-content: center; }
+#settings .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed rgba(255, 231, 163, 0.12); font-size: 13px; }
+#settings .card { background: transparent; border: 0; padding: 0; }
