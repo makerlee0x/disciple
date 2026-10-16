@@ -254,7 +254,10 @@ contract CurveTest is Test {
     }
 
     function test_walletCap_7pct() public {
+        vm.prank(owner);
+        launchpad.setWalletCapBps(700);
         (BondingCurve curve,) = _launch();
+        assertEq(curve.walletCapBps(), 700);
         assertEq(FeeMath.walletCap(), (Constants.TOTAL_SUPPLY * 700) / 10_000);
 
         vm.startPrank(alice);

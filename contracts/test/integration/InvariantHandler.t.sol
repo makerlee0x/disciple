@@ -70,6 +70,8 @@ contract InvariantIntegrationTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
+        vm.prank(owner);
+        launchpad.setWalletCapBps(700); // exercise the cap path in the invariant run
         (invCurve, invTok) = _launch(0, 0);
         _warpPastSnipe();
         address[] memory acts = new address[](4);
@@ -111,7 +113,7 @@ contract InvariantIntegrationTest is IntegrationBase {
 
     function invariant_walletCapNeverExceeded() public view {
         address[4] memory acts = [trader1, trader2, sniper, referred];
-        uint256 cap = FeeMath.walletCap();
+        uint256 cap = FeeMath.walletCap(invCurve.walletCapBps());
         for (uint256 i = 0; i < acts.length; i++) {
             assertLe(invCurve.balanceOnCurve(acts[i]), cap);
         }

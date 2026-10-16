@@ -23,6 +23,32 @@ export const discipleRouterAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_MAX_IMPACT_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_MAX_IMPACT_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "buyExactIn",
     "inputs": [
       {
@@ -136,6 +162,32 @@ export const discipleRouterAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract LockedLP"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxImpactBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -333,6 +385,32 @@ export const discipleRouterAbi = [
   },
   {
     "type": "function",
+    "name": "setMaxImpactBps",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "o",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "unlockCallback",
     "inputs": [
       {
@@ -351,6 +429,37 @@ export const discipleRouterAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "event",
+    "name": "MaxImpactSet",
+    "inputs": [
+      {
+        "name": "maxImpactBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnerTransferred",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BadParam",
+    "inputs": []
+  },
+  {
     "type": "error",
     "name": "Expired",
     "inputs": []
@@ -362,8 +471,29 @@ export const discipleRouterAbi = [
   },
   {
     "type": "error",
+    "name": "OnlyOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OnlyPoolManager",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PriceImpactTooHigh",
+    "inputs": [
+      {
+        "name": "impactBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxImpactBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -394,6 +524,11 @@ export const discipleRouterAbi = [
   {
     "type": "error",
     "name": "ZeroAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroMinOut",
     "inputs": []
   },
   {

@@ -36,7 +36,11 @@ library FeeMath {
 
     /// @notice Max tokens a wallet may hold while on the bonding curve (7% of supply).
     function walletCap() internal pure returns (uint256) {
-        return (Constants.TOTAL_SUPPLY * Constants.WALLET_CAP_BPS) / Constants.BPS_DENOM;
+        return walletCap(Constants.WALLET_CAP_BPS);
+    }
+
+    function walletCap(uint256 bps) internal pure returns (uint256) {
+        return (Constants.TOTAL_SUPPLY * bps) / Constants.BPS_DENOM;
     }
 
     /// @notice Tokens sold on curve before graduation (~72%).
