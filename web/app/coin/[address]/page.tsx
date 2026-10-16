@@ -9,6 +9,7 @@ import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import TradeBridge from "@/components/TradeBridge";
+import CoinIdentity from "@/components/pairart/CoinIdentity";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL } from "@/lib/config";
 
@@ -30,6 +31,7 @@ function FlightInner({ address }: { address: string }) {
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />
       <TradeBridge token={address} />
+      <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <ShareButton callSign={sp.get("cs") || "AI"} icon={sp.get("icon")} />
     </>
   );

@@ -1157,9 +1157,12 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .lp-av-check { position: absolute; right: -5px; bottom: -5px; line-height: 0; background: #0a0c1a; border-radius: 50%; padding: 1px; }
 .lp-star { all: unset; cursor: pointer; width: 18px; text-align: center; color: rgba(220,228,255,.35); font-size: 14px; }
 .lp-star:hover, .lp-star.on { color: var(--lp-gold); text-shadow: 0 0 8px rgba(255,220,150,.7); }
-.lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
-.lp-card { box-sizing: border-box; cursor: pointer; display: flex; gap: 10px; padding: 10px 12px; border-radius: 14px; background: radial-gradient(120% 90% at 0% 0%, rgba(255,244,214,.10), rgba(14,16,40,.9) 55%); border: 1px solid rgba(255,231,163,.22); transition: transform .12s, border-color .12s, box-shadow .12s; content-visibility: auto; contain-intrinsic-size: auto 110px; }
-.lp-card-art { width: 30px; flex: none; display: grid; place-items: center; }
+.lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; }
+.lp-card { box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 10px; border-radius: 14px; background: radial-gradient(120% 90% at 0% 0%, rgba(255,244,214,.10), rgba(14,16,40,.9) 55%); border: 1px solid rgba(255,231,163,.22); transition: transform .12s, border-color .12s, box-shadow .12s; content-visibility: auto; contain-intrinsic-size: auto 330px; }
+.lp-card-art { width: 100%; flex: none; display: block; line-height: 0; }
+.lp-card-art .pa { border-radius: 10px; }
+.lp-av2 { position: relative; flex: none; display: inline-block; line-height: 0; }
+.lp-tart .pa { position: absolute; inset: 0; border-radius: 0; }
 .lp-card-top { display: flex; justify-content: space-between; align-items: center; }
 .lp-card-top .rc-live, .lp-card-top .rc-sample { margin: 0; }
 .lp-card-name { font-weight: 700; color: #fff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
@@ -1187,7 +1190,7 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
   .lp-c-mc .lp-bar { display: none; }
   .lp-tok-sub { font-size: 10px; }
   .lp-trend-row { grid-auto-columns: 132px; }
-  .lp-tart .branded, .lp-tart > span:last-child { transform: scale(.8); }
+  .lp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
 
 /* ---- Share this trade (components/share/ShareModal) ---- */
@@ -1212,3 +1215,28 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .share-progress { position: relative; height: 26px; border: 1px solid rgba(255, 231, 163, 0.4); border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.04); }
 .share-progress-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(57, 255, 106, 0.35), rgba(57, 255, 106, 0.7)); transition: width 0.15s linear; }
 .share-progress span { position: relative; display: block; text-align: center; font: 600 11px ui-monospace, monospace; line-height: 24px; color: #fff7df; }
+
+/* ---- Pair art (components/pairart/PairArt) — geometry mirrors scripts/pair-art/gen.py GEOM ---- */
+.pa { --u: 86%; --o: 7%; position: relative; display: inline-block; flex: none; overflow: hidden; contain: strict; border-radius: 14px; vertical-align: middle; }
+.pa img { display: block; user-select: none; -webkit-user-drag: none; }
+.pa-sky { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pa-sq { position: absolute; left: var(--o); top: var(--o); width: calc(var(--u) * .742); height: calc(var(--u) * .742); border-radius: 11.25%; overflow: hidden; box-shadow: 0 2px 6px rgba(20,8,40,.35); display: grid; place-items: center; }
+.pa-sq img { width: 100%; height: 100%; object-fit: cover; }
+.pa-sq { container-type: inline-size; }
+.pa-mono { font: 800 44cqw/1 Georgia, serif; color: #1a1630; letter-spacing: -.02em; }
+/* chrome coin webp carries 16% shadow padding each side of its diameter (D = .468u) */
+.pa-coin { position: absolute; left: calc(var(--o) + var(--u) * .532 - var(--u) * .468 * .16); top: calc(var(--o) + var(--u) * .532 - var(--u) * .468 * .16); width: calc(var(--u) * .468 * 1.32); height: calc(var(--u) * .468 * 1.32); }
+.pa-coin-sm { position: absolute; left: calc(var(--o) + var(--u) * .532); top: calc(var(--o) + var(--u) * .532); width: calc(var(--u) * .468); height: calc(var(--u) * .468); }
+.pa-list, .pa-icon { --u: 100%; --o: 0%; overflow: visible; contain: layout size style; border-radius: 0; }
+.pa-icon .pa-sq { box-shadow: none; }
+.pa-solo .pa-sq { left: 0; top: 0; width: 100%; height: 100%; }
+.pa-grid.pa-solo .pa-sq, .pa-header.pa-solo .pa-sq { left: 13%; top: 13%; width: 74%; height: 74%; }
+.pa-header { border-radius: 22px; }
+.pa-fluid { width: 100%; height: auto; aspect-ratio: 1; }
+.lp-av2 .lp-av-check { top: -5px; right: -5px; bottom: auto; }
+.hold-tok { display: flex; align-items: center; gap: 10px; }
+.coin-id { position: fixed; left: 8px; bottom: 12px; z-index: 60; display: flex; align-items: center; gap: 8px; padding: 4px; max-width: 200px; border-radius: 14px; background: rgba(8,10,24,.72); border: 1px solid rgba(255,231,163,.28); pointer-events: none; }
+.coin-id-txt { display: none; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.25; color: #cfd8ff; white-space: nowrap; }
+.coin-id-txt b { font: bold 13px Georgia, serif; color: #fff7df; overflow: hidden; text-overflow: ellipsis; }
+.coin-id-txt span { color: #ffe7a3; font-weight: 600; }
+@media (max-width: 760px) { .coin-id { left: 66px; top: 10px; bottom: auto; padding: 3px; } }

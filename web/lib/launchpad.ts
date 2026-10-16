@@ -4,6 +4,7 @@
  * labelled SAMPLE in the UI. LIVE rockets come from chain (Launched events) / the AI demo pool.
  */
 import { CURVE, type RocketStats } from "./config";
+import { BASE_PAIRS, SAMPLE_SQUARES } from "./pairArt";
 
 export type PairKey = "STRATEGY" | "USDG" | "OTHER";
 
@@ -39,7 +40,15 @@ function rng(seed: number) {
 
 const A = ["Halo", "Limbo", "Seraph", "Pearly", "Choir", "Psalm", "Manna", "Exodus", "Zion", "Gospel", "Ember", "Vesper", "Relic", "Abbey", "Orbit", "Nimbus", "Cherub", "Lantern", "Chalice", "Comet", "Glory", "Saint", "Hymn", "Covenant", "Ark", "Lumen", "Aether", "Rapture"];
 const B = ["Dog", "Cat", "Frog", "Inu", "Ape", "Owl", "Lamb", "Dove", "Coin", "Moon", "Rocket", "Bird", "Whale", "Bear", "Fox", "Goat", "Toad", "Crab", "Duck", "Pig"];
-const ICONS = ["/test-icons/wide.png", "/test-icons/transparent.png", "/assets/tier4.png", undefined, undefined];
+const ICONS = ["/test-icons/wide.png", "/test-icons/transparent.png", "/assets/tier4.png", ...SAMPLE_SQUARES];
+/** SAMPLE base-pair spread: STRATEGY + USDG heavier, the rest even. */
+const PAIR_W = BASE_PAIRS.map((p) => (p.tk === "strategy" ? 5 : p.tk === "usdg" ? 3 : p.tk === "eth" ? 2 : 1));
+const PAIR_SUM = PAIR_W.reduce((a, b) => a + b, 0);
+function pickPair(x: number) {
+  let t = x * PAIR_SUM;
+  for (let i = 0; i < BASE_PAIRS.length; i++) { t -= PAIR_W[i]; if (t < 0) return BASE_PAIRS[i]; }
+  return BASE_PAIRS[0];
+}
 const TINTS = ["#ffd0e0", "#e3d6ff", "#c9f5df", "#cfe0ff", "#fff1c2", "#ffe7a3"];
 const CREW = ["SlowNeonThrush", "MerryPearlShark", "SecretMintLemur", "CandidSilverMoose", "GildedQuietOwl", "BraveIvoryFinch", "HushedAmberYak"];
 
@@ -53,7 +62,8 @@ export function sampleRockets(n: number, withBase: (p: string) => string): Rocke
     const grad = r() < 0.08;
     const mcap = grad ? CURVE.graduationMcap * (1 + r() * 60) : CURVE.startMcap + r() ** 1.6 * (CURVE.graduationMcap - CURVE.startMcap);
     const pr = r();
-    const pair: PairKey = pr < 0.6 ? "STRATEGY" : pr < 0.88 ? "USDG" : "OTHER";
+    const bp = pickPair(pr);
+    const pair: PairKey = bp.tk === "strategy" ? "STRATEGY" : bp.tk === "usdg" ? "USDG" : "OTHER";
     const icon = ICONS[Math.floor(r() * ICONS.length)];
     const ageHours = Math.round(r() ** 2 * 24 * 90) + 1;
     out.push({
@@ -63,7 +73,7 @@ export function sampleRockets(n: number, withBase: (p: string) => string): Rocke
       mcap,
       chg: Math.round((r() - 0.42) * 900) / 10,
       c: TINTS[i % TINTS.length],
-      pair, pairSym: pair === "USDG" ? "mUSDG" : pair === "OTHER" ? ["WETH", "NVDA", "TSLA"][i % 3] : "STRATEGY",
+      pair, pairSym: bp.sym,
       creator: CREW[Math.floor(r() * CREW.length)],
       graduated: grad,
       seed: Math.floor(r() * 1e9),

@@ -13,6 +13,7 @@ import { listLaunches, watchLaunchpad } from "@/lib/events";
 import { withBase } from "@/lib/base-path";
 import { recommendedPairs } from "@/lib/pairs";
 import { sampleRockets, type Rocket } from "@/lib/launchpad";
+import { SAYLOR_SQUARE } from "@/lib/pairArt";
 import Launchpad from "@/components/launchpad/Launchpad";
 
 const SEED: Rocket[] = [
@@ -26,9 +27,25 @@ const SEED: Rocket[] = [
     chg: null,
     c: "#ffe7a3",
     pair: "OTHER",
-    pairSym: "WETH",
+    pairSym: "ETH",
     creator: "Robinhood pool",
     stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
+  },
+  {
+    // Hero SAMPLE: SAYLOR paired with STRATEGY — kept at the top of Altitude + Trending.
+    id: "sample-saylor",
+    name: "Saylor",
+    tk: "SAYLOR",
+    icon: withBase(SAYLOR_SQUARE),
+    mcap: 2.4e6,
+    chg: 21.0,
+    c: "#ffe7a3",
+    pair: "STRATEGY",
+    pairSym: "STRATEGY",
+    creator: "GildedQuietOwl",
+    graduated: true,
+    seed: 4242,
+    stats: { volume24hUsd: 61_000, ageHours: 300, holders: 1_480, liquidityUsd: 240_000 },
   },
   {
     id: "sample-halo",
@@ -38,6 +55,8 @@ const SEED: Rocket[] = [
     mcap: 9.2e3,
     chg: -6.1,
     c: "#ffd0e0",
+    pair: "USDG",
+    pairSym: "USDG",
     stats: { volume24hUsd: 800, ageHours: 5, holders: 22, liquidityUsd: 1_200 },
   },
   {
@@ -48,6 +67,8 @@ const SEED: Rocket[] = [
     mcap: 14.8e3,
     chg: -12.7,
     c: "#e3d6ff",
+    pair: "OTHER",
+    pairSym: "ETH",
     stats: { volume24hUsd: 3_100, ageHours: 30, holders: 61, liquidityUsd: 2_900 },
   },
   {
@@ -58,6 +79,8 @@ const SEED: Rocket[] = [
     mcap: 21.4e3,
     chg: 42.0,
     c: "#c9f5df",
+    pair: "OTHER",
+    pairSym: "PONS",
     stats: { volume24hUsd: 18_000, ageHours: 40, holders: 140, liquidityUsd: 7_400 },
   },
   {
@@ -67,6 +90,8 @@ const SEED: Rocket[] = [
     mcap: 28.6e3,
     chg: 18.4,
     c: "#cfe0ff",
+    pair: "OTHER",
+    pairSym: "NVDA",
     stats: { volume24hUsd: 6_000, ageHours: 12, holders: 95, liquidityUsd: 6_100 },
   },
   {
@@ -76,6 +101,8 @@ const SEED: Rocket[] = [
     mcap: 41.0e3,
     chg: 3.2,
     c: "#fff1c2",
+    pair: "STRATEGY",
+    pairSym: "STRATEGY",
     stats: { volume24hUsd: 25_000, ageHours: 80, holders: 220, liquidityUsd: 12_000 },
   },
 ];
@@ -361,6 +388,8 @@ export default function HomePage() {
       if (!c.live) q.set("replay", "1");
       q.set("launched", "1");
       if (c.icon) q.set("icon", c.icon);
+      if (c.pairSym) q.set("pair", c.pairSym);
+      q.set("nm", c.name);
       q.set("cs", c.tk);
       const addr = c.live ? c.id : AI_POOL;
       setTimeout(() => {
