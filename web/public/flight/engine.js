@@ -99,7 +99,7 @@ const AMMO_TIERS=Array.isArray(window.__AMMO_TIERS)&&window.__AMMO_TIERS.length?
 function ammoTierOf(m){ if(!AMMO_TIERS||!(m>0)) return 0; for(let k=0;k<AMMO_TIERS.length;k++){ const x=AMMO_TIERS[k].maxMcap; if(x==null||m<x) return k; } return AMMO_TIERS.length-1; }
 function autoMode(m){ const x=m<=50e3?Math.sqrt(Math.max(m,2e3)*5000):0.09*m, t=0.001*x;
   let b=0; MODES.forEach((md,i)=>{ if(Math.abs(Math.log(md.usd/t))<Math.abs(Math.log(MODES[b].usd/t))) b=i; }); return b; }
-const LANES=[W/2-260,W/2,W/2+260];   // recomputed in relayout()
+const LANES=[W/2-150,W/2,W/2+150];   // recomputed in relayout()
 // [PARAM] orb table (off-chain points layer; see game-modes-and-progression.md §6)
 const ORB={
   halo: {pts:5,  r:14, c0:'rgba(255,245,200,.95)', c1:'rgba(255,220,140,0)', rim:'#ffe7a3'},
@@ -389,7 +389,7 @@ const S = {
   altVel:0, flatSince:0, cruise:0, bank:0, bob:0, sway:0, roll:1, glint:0,
   trail:[], bgScrollX:0, speedBits:[],
   aimDeg:0, thrustT:-99, lastTrailAlt:null,
-  headTarget:Math.PI/2, headSmooth:Math.PI/2, aimDisp:0, aimVel:0, aimTgt:0, camAlt:null, camX:null,
+  headTarget:Math.PI/2, headSmooth:Math.PI/2, aimDisp:90, aimVel:0, aimTgt:90, camAlt:null, camX:null,
   thrustNet:0, thrustPend:null, trailAimLP:0,
 };
 /* =====================================================================
@@ -413,7 +413,7 @@ S.particles=new Pool(CAP.exhaust); S.shards=new Pool(CAP.shards);
 function spawnShard(x,y,vx,vy,c){ const p=S.shards.spawn(); p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.life=1; p.c=c; }
 /* in-place filter (no new array): keeps elements where pred(e) is truthy */
 function keepIf(arr,pred){ let j=0; for(let i=0;i<arr.length;i++){ const e=arr[i]; if(pred(e)) arr[j++]=e; } arr.length=j; return arr; }
-const ALIVE=e=>e.life>0, NOT_DEAD_MOTE=m=>!m.dead&&m.y<H+30, NOT_DEAD_OBS=o=>!o.dead&&o.y<H+50, TRAIL_ON=p=>p.x>-40;
+const ALIVE=e=>e.life>0, NOT_DEAD_MOTE=m=>!m.dead&&m.y<H+30, NOT_DEAD_OBS=o=>!o.dead&&o.y<H+50, TRAIL_ON=p=>{ const y=trailY(p); return y<H+60&&y>-H; };
 
 const source = makeSource();
 if (IS_POOL) S.fuelers={'you':0};
@@ -493,7 +493,7 @@ function applyThrust(side, usd, pct){
   // sells into a pump push it over. Decays τ1.6 s; the heading spring + rate cap make it a gradual turn.
   const kn=impactNorm(Number.isFinite(pct)?pct:(source.impact&&S.confirmed.mcap?Math.abs(source.impact(usd,side)-1)*100:0.1));
   if (side==='buy'){ const diving=(S.aimDisp||AIM_REST)<30; S.fight=clamp((S.fight||0)+(10+28*kn)*(diving?1.6:1),-60,60); S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
-  else { const pumping=(S.aimDisp||AIM_REST)>82; S.fight=clamp((S.fight||0)-(8+24*kn)*(pumping?1.5:1),-60,60); }
+  else { const pumping=(S.vyAtt||0)>0; S.fight=clamp((S.fight||0)-(4+16*kn)*(pumping?1.4:1),-60,60); }   // a single small sell nudges; a heavy sell wave tips a pump over
   S.thrustT = S.t;
   S.flatSince = 0;
   S.cruise = Math.min(S.cruise||0, 0.25);
@@ -663,7 +663,7 @@ function resize(){ const dpr=Math.min(DPR_PIN||DPR_STEPS[dprIx],devicePixelRatio
   cv.style.width=cw+'px'; cv.style.height=ch+'px'; cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr);
   ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0); }
 function relayout(w,h){ if(w===W&&h===H&&typeof ROCKET_Y!=='undefined') return; const ow=W;
-  W=w; H=h; LANES[0]=W/2-260; LANES[1]=W/2; LANES[2]=W/2+260; ROCKET_Y=H*0.58;
+  W=w; H=h; LANES[0]=W/2-150; LANES[1]=W/2; LANES[2]=W/2+150; ROCKET_Y=H*0.60;
   if(typeof S!=='undefined'&&S){ S.x=S.x*(W/ow); } }
 // ammo tiles are mouse targets: whole tile = hit area, hover highlight, click selects (same as 1-6)
 function ammoAt(e){ const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height;
@@ -696,7 +696,7 @@ const CORE_SPR=radialSprite('core',[[0,'rgba(255,250,230,1)'],[1,'rgba(120,170,2
 const VIGNETTE=(()=>{ const c=document.createElement('canvas'); c.width=W/2; c.height=H/2; const g=c.getContext('2d');
   const v=g.createRadialGradient(W/4,H/4,H*0.175,W/4,H/4,H*0.475); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(4,4,16,.6)'); g.fillStyle=v; g.fillRect(0,0,W/2,H/2); return c; })();
 
-var ROCKET_Y = H*0.58;
+var ROCKET_Y = H*0.60;   // chase cam: rocket rides at ~60% screen height (band 0.53–0.68)
 const HUD_BOTTOM=140, BANNER_Y=HUD_BOTTOM+70, SAFE_LEFT=24;   // tier banner below the top HUD row; canvas is pushed right of the sidebar so no rail clearance needed
 function altToScreenY(a){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return (S.anch??ROCKET_Y) - (a - base)*PX_PER_ALT; }
 function laneW(l){ return clamp(90+Math.log10(1+l.usd)*55, 110, 420); }
@@ -706,40 +706,39 @@ function laneX(l){ return 140 + hash(Math.round(l.mcap*7)%9973 + (l.side==='ask'
    initial scaffold; tiers 10+ reuse plates). The fractional altitude is the tier index, so `u` below is in tiers. */
 const bandOf=alt=>Math.max(0,alt||0);
 const plateOf=i=>TIERS[clamp(Math.floor(i),0,TIERS.length-1)].bg;
-const BG_X=0.08;   // crossfade window: ±0.08 tier around each threshold (≈ ±4% mcap on a 1.5× tier)
-let bgT=0;
-/* Cached plates: each plate is pre-cropped, pre-scaled and mirror-tiled once into a (2w × h) canvas, so a frame is
-   1–3 plain drawImage calls (no scaling, no save/scale/restore). During a crossfade the pair is blended into one
-   cached canvas keyed by (band, alpha quantised to 1/32), which re-renders at most 32× per band transition. */
-const BGC={key:'', tiles:new Map(), blend:null, bkey:''};
+/* VERTICAL SKY. The world is a vertical column: tier k's sky occupies altitudes [k, k+1). Each plate is
+   pre-cropped, pre-scaled and mirror-tiled VERTICALLY once into a cached (w × 2h) canvas (LRU of 3) and drawn
+   as plain row blits (no per-frame scaling or compositing canvases). Tier thresholds are real seams at their
+   true altitude: on a climb the next tier's sky comes down from the top of the screen and you fly up into it,
+   through a soft BG_F-tall gradient (row strips). The seam moves with the camera, so it is rate-limited by
+   the camera caps (CAM_VMAX) — fast swings scroll, never strobe. The texture itself drifts down slowly with
+   the world scroll (altitude + airspeed) for parallax. */
+const BG_STRIPS=12;
+const BGC={key:'', tiles:new Map()};
 function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'x'+h;
-  if(BGC.key!==k){ BGC.key=k; BGC.tiles.clear(); BGC.blend=null; BGC.bkey=''; }
+  if(BGC.key!==k){ BGC.key=k; BGC.tiles.clear(); }
   let t=BGC.tiles.get(name); if(t){ BGC.tiles.delete(name); BGC.tiles.set(name,t); return t; }   // LRU touch
   const im=IMG[name]; if(!im||!im.complete||im.bad) return null;
-  t=document.createElement('canvas'); t.width=2*w; t.height=h; const g=t.getContext('2d');
+  t=document.createElement('canvas'); t.width=w; t.height=2*h; const g=t.getContext('2d');
   const sx=im.naturalWidth*0.1, sw=im.naturalWidth*0.8, ih=im.naturalHeight;
-  g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(2*w,0); g.scale(-1,1); g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.restore();
+  g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(0,2*h); g.scale(1,-1); g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.restore();
   BGC.tiles.set(name,t); while(BGC.tiles.size>3) BGC.tiles.delete(BGC.tiles.keys().next().value);
   return t; }
-function bgFrame(i,aq){ const A=bgTile(plateOf(i)); if(!aq||!A) return A; if(plateOf(i+1)===plateOf(i)) return A; const B=bgTile(plateOf(i+1)); if(!B) return A;
-  const k=i+'|'+aq; if(BGC.bkey===k&&BGC.blend) return BGC.blend;
-  if(!BGC.blend||BGC.blend.width!==A.width||BGC.blend.height!==A.height){ BGC.blend=document.createElement('canvas'); BGC.blend.width=A.width; BGC.blend.height=A.height; }
-  const g=BGC.blend.getContext('2d'); g.globalAlpha=1; g.drawImage(A,0,0); g.globalAlpha=aq/32; g.drawImage(B,0,0); g.globalAlpha=1; BGC.bkey=k; return BGC.blend; }
+function plateRows(T,y0,y1,oy,x0){ y0=Math.max(0,Math.floor(y0)); y1=Math.min(H,Math.ceil(y1)); const P=T.height, w=T.width;
+  let y=y0; while(y<y1){ const r=(((y-oy)%P)+P)%P, seg=Math.min(y1-y,P-r); ctx.drawImage(T,0,r,w,seg,x0,y,w,seg); y+=seg; } }
+function altAtY(y){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); return base+((S.anch??ROCKET_Y)-y)/PX_PER_ALT; }
 function drawBg(){
-  // displayed band is rate-limited (≤1.5 bands/s) so a fast altitude swing crossfades plate by plate instead of strobing;
-  // a jump of >4 bands (first frame, coin switch) snaps
-  const a=S.displayAlt, tgt=bandOf(a), now=performance.now(), dt=Math.min(0.1,(now-(bgT||now))/1000); bgT=now;
-  if(S.bgU==null||Math.abs(tgt-S.bgU)>3) S.bgU=tgt; else S.bgU+=clamp(tgt-S.bgU,-1.5*dt,1.5*dt);
-  // shift by the half-window so the fade is centred on the threshold: 50/50 exactly at tier lo
-  const u=S.bgU, v=u-BG_X, i=Math.floor(v), f=v-i;
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
-  // crossfade across the threshold; next plate reaches alpha 1 at the end of the window → no pop
-  const edge=2*BG_X, x=clamp((f-(1-edge))/edge,0,1), sm=x*x*(3-2*x), aq=Math.round(sm*32);
-  const T=aq>=32?bgFrame(i+1,0):bgFrame(i,aq);
-  if(T){ const w=T.width/2, h=T.height, scrollX=((S.bgScrollX||0)*0.05)%(2*w);
-    const off=Math.sin(u*2.1)*H*0.045, y0=Math.round((H-h)/2+off);   // continuous vertical drift with altitude
-    const x0=(W-w)/2+(S.x-W/2)*-0.03-scrollX;
-    for(let k=-1;k<=1;k++){ const tx=Math.round(x0+k*2*w); if(tx>W||tx+2*w<0) continue; ctx.drawImage(T,tx,y0); } }
+  const F=H*0.5, oy=Math.round(((S.cloudY||0)*0.06)), w=Math.round(W*1.12), x0=Math.round((W-w)/2-((S.camX!=null?S.camX:S.x)-W/2)*0.03);
+  S.bgU=tipPoint().alt;   // sky tint follows the rocket's own altitude
+  const kb=Math.floor(altAtY(H+F/2)), kt=Math.floor(altAtY(-F/2));
+  const B=bgTile(plateOf(Math.max(0,kb))); if(B) plateRows(B,0,H,oy,x0);
+  for(let k=Math.max(1,kb+1);k<=kt;k++){ if(plateOf(k)===plateOf(k-1)) continue; const T=bgTile(plateOf(k)); if(!T) continue;
+    const yk=altToScreenY(k), top=yk-F/2;
+    if(top>0) plateRows(T,0,top,oy,x0);
+    for(let j=0;j<BG_STRIPS;j++){ const a0=top+F*j/BG_STRIPS, a1=top+F*(j+1)/BG_STRIPS; if(a1<0||a0>H) continue;
+      const u=(j+0.5)/BG_STRIPS, al=1-u*u*(3-2*u); ctx.globalAlpha=al; plateRows(T,a0,a1,oy,x0); }
+    ctx.globalAlpha=1; }
   ctx.fillStyle='rgba(8,10,34,.30)'; ctx.fillRect(0,0,W,H);
 }
 /* Sky tint per tier plate (average colour, sampled once per image) → rocket rim light + cloud shading */
@@ -793,7 +792,7 @@ const CLOUDS=(()=>{
 const CB={x:0,y:0};
 function cloudBase(c){   // parallax position (no blast offset) → CB. Wrap span includes the sprite size → no edge pop.
   const m=c.sp.w, sw=W+2*m, sh=H+2*c.sp.h;
-  const xOff=(S.bgScrollX||0)*c.spd*0.6, yOff=(S.cloudY||0)*c.spd*0.65;   // climb → clouds fall past, drop → they rise
+  const xOff=((S.camX!=null?S.camX:S.x)-W/2)*c.spd*0.25, yOff=(S.cloudY||0)*c.spd*0.65;   // world scroll: climb → clouds fall past, drop → they rise   // climb → clouds fall past, drop → they rise
   let x=c.x-xOff; x=((x%sw)+sw)%sw-m;
   let y=c.y+yOff; y=((y%sh)+sh)%sh-c.sp.h; CB.x=x; CB.y=y; return CB; }
 function cloudStep(dt){ const k=1-Math.exp(-dt/6);
@@ -809,13 +808,14 @@ function drawClouds(front){
     if (x>W+sp.w||x+sp.w<-sp.w||y>H+sp.h||y+sp.h<-sp.h) continue;
     const bob=Math.sin(S.t*0.35+c.phase)*3, cx=x+sp.w/2, cy=y+sp.h/2+bob;
     const dd=Math.hypot(cx-ex,cy-ey), lit=clamp(fl*0.9/(1+(dd/(220+sp.w*0.4))**2),0,0.9);
-    if (d<0.03){ ctx.globalAlpha=c.a; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
+    const see=front&&Math.abs(cx-ex)<sp.w*0.5+40&&cy>ey-170&&cy<ey+sp.h*0.5+60 ? 0.35 : 1;   // near clouds thin out where they'd hide the rocket
+    if (d<0.03){ ctx.globalAlpha=c.a*see; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
       if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38; ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
     else {
       // clean shape breakup: the silhouette splits into 3 slabs that drift apart, shrink and fade — no fog
       const sw=sp.spr.width/3, k=1-d*0.3;
       for (let j=0;j<3;j++){ const dx=(j-1)*d*sp.w*0.45, dy=-d*sp.h*(j===1?0.35:0.12), pw=sp.w/3*k, ph=sp.h*k;
-        ctx.globalAlpha=c.a*(0.25+0.75*c.dens); ctx.drawImage(sp.spr,j*sw,0,sw,sp.spr.height,x+j*sp.w/3+dx+(sp.w/3-pw)/2,y+bob+dy+(sp.h-ph),pw,ph); }
+        ctx.globalAlpha=c.a*see*(0.25+0.75*c.dens); ctx.drawImage(sp.spr,j*sw,0,sw,sp.spr.height,x+j*sp.w/3+dx+(sp.w/3-pw)/2,y+bob+dy+(sp.h-ph),pw,ph); }
     }
   }
   ctx.globalAlpha=1;
@@ -823,43 +823,37 @@ function drawClouds(front){
 function drawSpeedLines(){
   if (!S.speedBits.length) return;
   ctx.save(); ctx.lineCap='round';
-  const vx=S.fwd||0, vy=S.vyS||0;
+  const vx=-(S.vxS||0)*0.3, vy=(S.vyS||0)+(S.air||0);   // streaks run vertically (air rushing down past a climb)
   for (const b of S.speedBits){
     ctx.globalAlpha=clamp(b.life,0,1)*0.5; ctx.strokeStyle=b.up?'rgba(235,240,255,.9)':'rgba(255,220,235,.85)'; ctx.lineWidth=b.w;
     ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx*0.14*b.k,b.y-vy*0.14*b.k); ctx.stroke();
   }
   ctx.restore(); ctx.globalAlpha=1;
 }
-const TRAIL_PTS=Array.from({length:96},()=>({x:0,y:0,tick:false,thrust:false}));
+const TRAIL_MAX=150, TRAIL_PTS=Array.from({length:TRAIL_MAX+2},()=>({x:0,y:0,age:0,thrust:false}));
 function nozzleXY(){ return [(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, S.ry+(S.bob||0)*0.55]; }
-function drawTickTrail(){
-  if (S.trail.length<2) return;
-  // JET TRAIL → TICK LINE: thick/hot at the nozzle (pivot), thins into historical tick path (left=past).
-  // Stair language: flat segments when sideways, angled segments on thrust (variable slope).
-  // Tip = nozzle/aft pivot (rocket nose leads ahead of this point).
+function trailY(p){ return altToScreenY(p.alt)+((S.airPx||0)-p.air); }
+function drawTickTrail(){   // (name kept for callers) — vertical contrail from the nozzle
+  if (!S.trail.length) return;
   const [tailX,tailY]=nozzleXY();   // head = exactly drawRocket's nozzle pivot
-  const pts=TRAIL_PTS; let n=0;   // reused scratch points (no per-frame map/filter arrays)
-  for (const p of S.trail){ if(!(p.x<tailX-2)||n>=TRAIL_PTS.length-1) continue; const q=pts[n++]; q.x=p.x; q.y=clamp(altToScreenY(p.alt),20,H-20); q.tick=p.tick; q.thrust=p.thrust; }
-  { const q=pts[n++]; q.x=tailX; q.y=tailY; q.tick=false; q.thrust=false; }
+  const pts=TRAIL_PTS; let n=0;
+  for (const p of S.trail){ const q=pts[n++]; q.x=p.x; q.y=trailY(p); q.thrust=p.thrust; }
+  { const q=pts[n++]; q.x=tailX; q.y=tailY; q.thrust=true; }
   if(n<2) return;
-  const vis=Math.max(0.35, S.cruise||0); // always visible; brighter in cruise
-  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalCompositeOperation='lighter';
-  for (let i=1;i<n;i++){ const u=i/(n-1);               // 0 = oldest (far left), 1 = at the nozzle
-    const a=vis*Math.pow(u,1.25);
-    const hot=pts[i].thrust||pts[i-1].thrust ? 1 : u;
-    const sc=S.scorch||0; // ATOM: trail scorched to charcoal with ember edges, cools back over ~7 s
-    ctx.strokeStyle=`rgba(${Math.round(lerp(255,70,sc))},${Math.round(lerp(190+55*hot,40,sc))},${Math.round(lerp(140+90*u,30,sc))},${0.18+0.72*a})`;
-    const lw=1.2+16*Math.pow(u,2.6);                    // thickest at nozzle, hairline far back
-    ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y);
-    // glow underlay (replaces per-segment shadowBlur): wide faint stroke in the glow colour
-    const gw=(12*u+10*sc)*1.6; if(gw>1){ ctx.lineWidth=lw+gw; ctx.save(); ctx.globalAlpha=0.16;
-      ctx.strokeStyle=sc>0.05?`rgb(255,${Math.round(lerp(230,90,sc))},40)`:'rgb(255,230,180)'; ctx.stroke(); ctx.restore(); }
-    ctx.lineWidth=lw; ctx.stroke(); }
-  ctx.restore();
-  // tick marks on thrust corners (Papertrade stair vertices)
-  for (let i=0;i<n-1;i++){ const p=pts[i]; if(!p.tick) continue; const u=i/(n-1); ctx.strokeStyle=`rgba(255,255,255,${0.18+0.5*u})`; ctx.lineWidth=1.2;
-    ctx.beginPath(); ctx.moveTo(p.x,p.y-6); ctx.lineTo(p.x,p.y+6); ctx.stroke(); }
-  ctx.globalAlpha=1;
+  const sc=S.scorch||0, fl=clamp(exhaustParams().flame,0,1.6);
+  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
+  // 1) soft contrail body: widens and fades with age (source-over smoke)
+  for (let i=1;i<n;i++){ const u=i/(n-1);                 // 0 = oldest, 1 = at the nozzle
+    const a=Math.pow(u,0.9)*(0.32+0.2*fl);
+    ctx.strokeStyle=`rgba(${Math.round(lerp(236,60,sc))},${Math.round(lerp(238,45,sc))},${Math.round(lerp(255,40,sc))},${a})`;
+    ctx.lineWidth=5+22*Math.pow(1-u,0.8);
+    ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
+  // 2) hot core just behind the nozzle (additive), length/brightness from the plume
+  ctx.globalCompositeOperation='lighter'; const hotN=Math.max(2,Math.round(n*0.18));
+  for (let i=Math.max(1,n-hotN);i<n;i++){ const u=(i-(n-hotN))/hotN;
+    ctx.strokeStyle=`rgba(255,${Math.round(200+40*u)},${Math.round(150+80*u)},${(0.15+0.55*u)*(0.4+0.6*Math.min(1,fl))})`;
+    ctx.lineWidth=2+7*u; ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
+  ctx.restore(); ctx.globalAlpha=1;
 }
 
 function drawLevels(){
@@ -911,9 +905,9 @@ function drawRocket(dt){
     // squash & stretch along the body: stretch on hard climbs, slight squash when sinking (≤6%)
     const st=clamp((S.vyS||0)/1400,-0.5,1)*0.06, sx=1-st*0.5, sy=1+st;
     // motion blur: two faint ghosts trailing along the velocity when fast
-    const spd=Math.hypot(S.fwd||0,S.vyS||0);
+    const spd=Math.abs(S.vyS||0);
     if (spd>260){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k;
-      ctx.translate(x-(S.fwd||0)*0.03*k, y+(S.vyS||0)*0.03*k); ctx.rotate(ang); ctx.scale(sx,sy); ctx.drawImage(RB.base,-w/2,-pivotY,w,h); ctx.restore(); } }
+      ctx.translate(x, y+(S.vyS||0)*0.03*k); ctx.rotate(ang); ctx.scale(sx,sy); ctx.drawImage(RB.base,-w/2,-pivotY,w,h); ctx.restore(); } }
     ctx.save(); ctx.translate(x,y); ctx.rotate(ang); ctx.scale(sx,sy);
     // rim light from the sky colour: tinted silhouette offset toward the sky (up-left in world), additive
     const sky=skyNow(), RL=rimSprite(RB,ow,oh,sky); const lx=-1.6*Math.cos(ang)+1.6*Math.sin(ang), ly=-1.6*Math.sin(ang)-1.6*Math.cos(ang);
@@ -965,7 +959,7 @@ function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustPar
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=S.ry+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt*(0.75+0.3*(S.fwdN||0)); let n=S._exAcc|0; S._exAcc-=n;
   for(let i=0;i<n;i++){ const sp=(140+Math.random()*280*flame)*(0.75+flick*0.5), j=(Math.random()-.5)*(40+30*flick);
-    const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.fwd||0)*0.7; p.vy=ca*sp+sa*j; p.life=0.7+Math.random()*0.45; p.s=(5+Math.random()*14*flame)*flick; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
+    const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.vxS||0)*0.3; p.vy=ca*sp+sa*j+(S.air||0)*0.6+Math.max(0,S.vyS||0)*0.4; p.life=0.7+Math.random()*0.45; p.s=(5+Math.random()*14*flame)*flick; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
@@ -997,15 +991,15 @@ function twGroups(){ const cur=S.confirmed&&S.confirmed.mcap||0, src=(window.__t
   g.sort((x,y)=>Math.abs(x.mcap-cur)-Math.abs(y.mcap-cur)); return g.slice(0,TW_MAX); }
 /* tramp/wall geometry shared by the renderer and blast hit-testing (sized by $: log width/thickness) */
 const TWP={x:0,y:0,w:0,th:0};
-function twPos(l,kx,ky){ const y=altToScreenY(l.alt), L=Math.log10(1+l.sizeUsd), w=clamp(24+L*26,28,150), th=clamp(1+L*1.1,1.5,6);
-  let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
+function twPos(l,kx,ky){ const y=altToScreenY(l.alt), L=Math.log10(1+l.sizeUsd), w=clamp(40+L*30,48,200), th=clamp(1.5+L*1.1,2,7);   // $-sized net/ceiling spans
+  const x=W/2+(hash(Math.round(l.mcap))-.5)*W*0.10;   // in the flight column: tramps are nets below, walls are ceilings above
   TWP.x=x; TWP.y=y; TWP.w=w; TWP.th=th; return TWP; }
 function twKeep(){ const px=(S.camX!=null?S.camX:S.x); return [px+75*Math.sin(S.heading), S.ry-75*Math.cos(S.heading)]; }
 function drawTrampWalls(){ if(S.displayAlt==null) return; const list=TW_LIST; list.length=0; for(const g of twGroupsCached()) list.push(g); const pv=window.__twPreview;
   if(pv){ if(pv!==_pvRef||!_pvObj||_pvObj.mcap!==pv.mcap||_pvObj.sizeUsd!==(pv.sizeUsd||0)){ _pvRef=pv; _pvObj={kind:pv.kind,alt:mcapToAlt(pv.mcap),mcap:pv.mcap,sizeUsd:pv.sizeUsd||0,mine:true,status:'active',ids:['__pv'],preview:true}; } list.push(_pvObj); }
   if(!list.length) return;
   const px=(S.camX!=null?S.camX:S.x), kx=px+75*Math.sin(S.heading), ky=S.ry-75*Math.cos(S.heading);
-  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.ellipse(kx,ky,110,120,0,0,Math.PI*2); ctx.clip('evenodd');   // keep-out around rocket
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.ellipse(kx,ky,46,92,-S.heading,0,Math.PI*2); ctx.clip('evenodd');   // keep-out: just the rocket body (nets/ceilings pass behind it)
   for(const l of list){ twPos(l,kx,ky); const y=TWP.y; if(y<-30||y>H+30) continue;
     const w=TWP.w, th=TWP.th, tramp=l.kind==='tramp', x=TWP.x;
     const hit=l.ids.reduce((a,id)=>{ const f=TW_FX[id]; return f&&f.hitT!=null&&S.t-f.hitT<a.t?{t:S.t-f.hitT,amp:f.hitAmp}:a; },{t:Infinity,amp:0});
@@ -1019,7 +1013,8 @@ function drawTrampWalls(){ if(S.displayAlt==null) return; const list=TW_LIST; li
       { const a0=ctx.globalAlpha; ctx.globalAlpha=a0*(l.mine?0.3:0.18); ctx.lineWidth=th+(l.mine?7:4); ctx.stroke(); ctx.globalAlpha=a0; ctx.lineWidth=th; } ctx.stroke();
       ctx.setLineDash([]); ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2+3,y+7); ctx.moveTo(x+w/2,y); ctx.lineTo(x+w/2-3,y+7); ctx.stroke();
     } else { // small stone wall: a dome-topped slab; subtle crack chips on fill
-      const hgt=th*1.8; ctx.globalAlpha*=0.8; if(hit.t<0.25){ ctx.globalAlpha=Math.min(1,ctx.globalAlpha+0.6*(1-hit.t/0.25)); }   // brief hot flash where the shock struck ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
+      const hgt=th*1.8; ctx.globalAlpha*=0.8; if(hit.t<0.25){ ctx.globalAlpha=Math.min(1,ctx.globalAlpha+0.6*(1-hit.t/0.25)); }   // brief hot flash where the shock struck
+      ctx.beginPath(); ctx.moveTo(x-w/2,y); ctx.lineTo(x-w/2,y-hgt); ctx.quadraticCurveTo(x,y-hgt-th*1.5,x+w/2,y-hgt); ctx.lineTo(x+w/2,y); ctx.closePath(); ctx.fill();
       if(fresh){ const u=age/1.5; ctx.globalAlpha=0.8*(1-u); for(let j=0;j<6;j++){ const a=hash(j+l.mcap)*6.28; ctx.fillRect(x+Math.cos(a)*u*18,y-hgt/2+Math.sin(a)*u*12+u*u*10,2,2); } } }
     ctx.setLineDash([]); ctx.globalAlpha=done&&!fresh?0.45:0.9;
     ctx.font=(l.mine?'bold ':'')+'10px ui-monospace,monospace'; ctx.textAlign='left';
@@ -1171,7 +1166,7 @@ function noteSell(t){
 }
 function mergeInto(a,b){ a.keep*=b.keep; a.usd+=b.usd; a.n+=b.n; a.fullStack=a.fullStack||b.fullStack; a.mine=a.mine||b.mine; if(b.topUsd>a.topUsd){a.topUsd=b.topUsd;a.trader=b.trader;} return a; }
 const bPct=b=>(1-b.keep)*100;
-function tipPoint(){ return {x:(S.camX!=null?S.camX:S.x), alt:S.displayAlt}; }
+function tipPoint(){ const [x,y]=nozzleXY(); return {x, alt:(S.camAlt!=null?S.camAlt:S.displayAlt)+((S.anch??ROCKET_Y)-y)/PX_PER_ALT}; }
 function bombStep(dt){
   // 1) per-frame combine → merge window → queue
   if (S.bombFrame){ const f=S.bombFrame; S.bombFrame=null; f.t=S.t;
@@ -1257,8 +1252,8 @@ function launchBomb(pct,f){
   const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
   S.lastBombT=S.t;
   const b={tier,T,pct,x:tp.x,alt:tp.alt,age:0,det:!T.fall,seed:Math.random()*1000,n:(f&&f.n)||1,usd:(f&&f.usd)||0,trader:f&&f.trader,fullStack:f&&f.fullStack};
-  if (T.k==='cruise'){ // diagonal inbound from upper-right; smoke trail while streaking
-    b.x0=tp.x+280; b.y0=bombY(b)-220; b.x1=tp.x; b.y1=bombY(b); }
+  if (T.k==='cruise'){ // inbound from above; smoke trail while streaking
+    b.x0=tp.x+70; b.y0=bombY(b)-360; b.x1=tp.x; b.y1=bombY(b); }   // drops in from above (vertical world)
   S.bombs.push(b); if(b.det) detonate(b);
   if(tier>=1) S.bombs.length>6&&S.bombs.shift();
   return b;
@@ -1407,19 +1402,19 @@ function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Mat
    Clamped to [AIM_MIN, AIM_MAX]: never past vertical, never nose-down/backward, never flips.
    Sells/dumps/bombs may only dip the nose to AIM_MIN. Critically damped spring on a
    rate-limited target, angular speed capped at AIM_MAX_RATE. No angle wrapping anywhere. */
-const AIM_MIN=-60, AIM_MAX=90, AIM_MAX_RATE=110, AIM_W=9, AIM_SUB=1/120;   // max internal substep (s)
-/* Attitude v3 (maker lee): the nose follows the candle. aim = degrees above horizontal, nose right.
-   A hard pump stands the rocket vertical (90°), a fast dump dives it nose-DOWN to −60°, a flat candle
-   cruises at a forward lean (AIM_REST 74°). vy = momentum over the selected candle window (world px/s, +up),
-   fwdN = 0..1 forward speed, fight = degrees of buy/sell push-back (buys pull a dive up, sells push a pump
-   over). The band is one contiguous interval that never reaches ±180°: it cannot pass vertical or flip,
-   and stepHeading rate-limits every change to AIM_MAX_RATE °/s. */
-const AIM_REST=74;
-function aimFromMotion(vy, fwdN, fight, v0){
-  const cl=(v,a,b)=>v<a?a:v>b?b:v; vy=Number.isFinite(vy)?vy:0; fwdN=Number.isFinite(fwdN)?cl(fwdN,0,1):0; fight=Number.isFinite(fight)?cl(fight,-60,60):0;
+const AIM_MIN=-60, AIM_MAX=98, AIM_MAX_RATE=110, AIM_W=9, AIM_SUB=1/120;   // max internal substep (s)
+/* Attitude v4 — VERTICAL SCROLLER (maker lee). aim = degrees above horizontal, nose right; 90 = straight up.
+   Default is UP. A rising or flat price keeps the nose up (90°); a falling price loses thrust and the rocket
+   tips over to the right, down to −60° (nose-down) on a hard dump. lean = small cosmetic lateral lean (±8°,
+   from lateral drift: + = drifting right → nose tips right), fight = buy/sell push-back (buys pull a dive up,
+   sells tip a pump over). AIM_MAX = 98 only so a leftward drift can lean the nose a few degrees left; the band
+   is one contiguous interval far from ±180°, so it can never flip, and stepHeading rate-limits every change. */
+const AIM_REST=90;
+function aimFromMotion(vy, lean, fight, v0){
+  const cl=(v,a,b)=>v<a?a:v>b?b:v; vy=Number.isFinite(vy)?vy:0; lean=Number.isFinite(lean)?cl(lean,-8,8):0; fight=Number.isFinite(fight)?cl(fight,-60,60):0;
   const u=Math.tanh(vy/(v0>0?v0:140));
-  const a=AIM_REST + (u>0?(AIM_MAX-AIM_REST)*u:(AIM_REST-AIM_MIN)*u) - 5*fwdN + fight;
-  return cl(a,AIM_MIN,AIM_MAX);
+  const base=Math.min(90, 90 - (u<0?150*u*u:0) + fight);   // u² near zero: a mild dip barely tips, a dump goes nose-down
+  return cl(base-lean,AIM_MIN,AIM_MAX);
 }
 function stepHeading(st, wantAimDeg, bankDeg, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
@@ -1472,7 +1467,7 @@ function stepCamera(st, targetPx, dt){
   }
   return st.camPx;
 }
-function rocketScreenY(anchor, offPx, Hh){ const up=Hh*0.20, dn=Hh*0.22; const o=Number.isFinite(offPx)?offPx:0;
+function rocketScreenY(anchor, offPx, Hh){ const up=Hh*0.07, dn=Hh*0.08; const o=Number.isFinite(offPx)?offPx:0;
   return anchor - (o>0? up*Math.tanh(o/up) : dn*Math.tanh(o/dn)); }
 /*CAMERA-END*/
 /* =====================================================================
@@ -1487,7 +1482,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafO
    0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
    (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
 const SIM_DT=1/60, MAX_STEPS=5; let acc=0;
-const LERP_KEYS=['displayAlt','camAlt','camPx','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS','wob','ry','anch','fwd','vyS'];
+const LERP_KEYS=['airPx','displayAlt','camAlt','camPx','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS','wob','ry','anch','fwd','vyS'];
 const PREV={}, CUR={};
 /* frame-time stats (both render modes): long = >25 ms (missed a 60 Hz vsync), >50 ms = visible hitch */
 const PERF=window.__flightPerf={n:0,long25:0,long50:0,max:0,sum:0,reset(){ this.n=this.long25=this.long50=this.max=this.sum=0; }};
@@ -1525,7 +1520,10 @@ function simStep(stepDt){
   const dec=Math.exp(-dt/6); S.volEma*=dec; S.buyEma*=dec; S.sellEma*=dec;
   // lateral steering — cosmetic only. Laggy follow so A/D banks instead of teleporting.
   const steer=S.t<S.slowUntil?3:7;           // VOID orb penalty: sluggish steering
-  const nx=lerp(S.x,LANES[S.lane],1-Math.exp(-dt*steer)); S.vx=(nx-S.x)/Math.max(dt,1e-3); S.x=nx;
+  // lateral = lane + small cosmetic drift (buy/sell imbalance + slow wind). Never a sideways cruise.
+  const imb=MOM.vol>0?clamp((MOM.buy-MOM.sell)/MOM.vol,-1,1):0;
+  S.drift=lerp(S.drift||0, imb*26 + 16*Math.sin(S.t*0.23) + 7*Math.sin(S.t*0.61+1.3), 1-Math.exp(-dt*0.8));
+  const nx=lerp(S.x,LANES[S.lane]+S.drift,1-Math.exp(-dt*steer)); S.vx=(nx-S.x)/Math.max(dt,1e-3); S.x=nx;
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
   // price velocity in px/s (unsmoothed, for clouds / speed lines) then a short visual smoother
@@ -1539,6 +1537,13 @@ function simStep(stepDt){
   { const ref=Math.max(MIN_SHOT,MODES[2].usd), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
     const tgt=60+460*(1-Math.exp(-x*0.8)), w=1.4; S.fwdV=(S.fwdV||0)+(w*w*(tgt-(S.fwd||60))-2*w*(S.fwdV||0))*dt; S.fwd=(S.fwd||60)+S.fwdV*dt;
     S.fwdN=clamp((S.fwd-60)/460,0,1); }
+  /* AIRSPEED (vertical scroller): the rocket is always flying up through the air, so cosmetic layers
+     (clouds, contrail, exhaust, speed streaks, bg texture) scroll DOWN by S.airPx on top of the camera's
+     altitude scroll. Flat = slow hover drift; volume + a rising price = faster; a falling price kills it
+     (the camera then scrolls the world UP as the rocket falls). Altitude-tied things (tier seams, levels,
+     tramps/walls, bombs) use the camera only. */
+  { const up=Math.max(0,S.vyS||0), tgt=(34+110*S.fwdN+up*0.4)*clamp(1+(S.vyS||0)/220,0,1);
+    S.air=lerp(S.air||38,tgt,1-Math.exp(-dt*2.2)); S.airPx=(S.airPx||0)+S.air*dt; }
   S.vxS=lerp(S.vxS||0,S.vx*0.55,1-Math.exp(-dt*8));
   // Flush coalesced thrusts once per frame (many swaps → one net size-based angle).
   flushThrustQueue();
@@ -1547,8 +1552,11 @@ function simStep(stepDt){
   S.cruise=0;                                       // legacy sideways-cruise mode retired (rocket stays upright)
   momentumStep(dt);
   if (sinceThrust>1.2) S.aimDeg=0;
-  const bankDeg=(S.bank||0)*(180/Math.PI)*0.5;
-  stepHeading(S, aimFromMotion(S.momV, S.fwdN, S.fight, 140/Math.sqrt(TF.sec)), bankDeg, dt);
+  S.lean=clamp((S.vxS||0)/14,-8,8);                // drifting right → nose leans right (follows velocity)
+  // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
+  // so a dump tips the nose over promptly instead of waiting for the window to turn
+  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);
+  stepHeading(S, aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // CAMERA — critically damped spring in pixel space, then hard caps on speed and acceleration.
   // It lags the rocket on purpose, so the ROCKET visibly rises / drops on screen, then the view follows.
@@ -1571,31 +1579,26 @@ function simStep(stepDt){
   S.glint=Math.sin(S.t*1.8);
   // parallax scroll: clouds/bg move with price velocity; sideways adds horizontal drift
   // parallax: vertical is tied to the camera POSITION (not raw price velocity), horizontal to forward speed
-  S.cloudY=S.camPx;
-  S.bgScrollX=(S.bgScrollX||0)+S.fwd*dt;
+  S.cloudY=S.camPx+S.airPx;   // world scroll (px): + = world moved down past the rocket
+  S.bgScrollX=0;
   // speed streaks on strong moves
   // speed lines: rate and length scale with total speed; they flow opposite the rocket's motion
-  { const sp=Math.hypot(S.fwd,S.vyS); if (sp>140 && Math.random()<dt*Math.min(30,(sp-140)/18)){
-    S.speedBits.push({x:Math.random()*(W+200),y:Math.random()*H,len:0,w:0.8+Math.random()*1.4,life:0.5,up:S.vyS>0,k:0.6+Math.random()*0.8}); } }
-  for (const b of S.speedBits){ b.life-=dt*1.6; b.x-=S.fwd*dt*1.6*b.k; b.y+=S.vyS*dt*1.2*b.k; }
+  { const vw=(S.vyS||0)+S.air, sp=Math.abs(vw); if (sp>140 && Math.random()<dt*Math.min(30,(sp-140)/18)){
+    S.speedBits.push({x:Math.random()*W,y:Math.random()*H,len:0,w:0.8+Math.random()*1.4,life:0.5,up:vw>0,k:0.6+Math.random()*0.8}); }
+    for (const b of S.speedBits){ b.life-=dt*1.6; b.x-=(S.vxS||0)*dt*0.3*b.k; b.y+=vw*dt*1.4*b.k; } }
   keepIf(S.speedBits,ALIVE); if(S.speedBits.length>40){ S.speedBits.copyWithin(0,S.speedBits.length-40); S.speedBits.length=40; }
-  // trailing tick polyline: tip at nozzle, scrolls left. Flat crawl + angled thrust segments.
-  // Use stable S.x (no sway) so flat segments stay steady frame-to-frame.
-  // Trail = the rocket's own path. The rocket is drawn at S.ry (soft screen band around the anchor), NOT at
-  // altToScreenY(displayAlt) — the old trail stored displayAlt, so on fast moves it was plotted hundreds of px
-  // above/below the rocket ("pulling it up"). Emit the world altitude that projects exactly onto the nozzle.
-  const tipX=S.camX!=null?S.camX:S.x, nozY=S.ry+(S.bob||0)*0.55, nozAlt=(S.camAlt!=null?S.camAlt:S.displayAlt)+((S.anch??ROCKET_Y)-nozY)/PX_PER_ALT;
-  const scroll=S.fwd*0.9*dt; // trail scrolls with forward speed (volume)
-  for (const p of S.trail) p.x-=scroll;
-  for (const b of S.bombs) b.x-=scroll*(b.tier>=4?0.3:1);   // big blasts hang on screen longer for (const p of S.bfx) p.x-=scroll; for (const l of S.bombLabels) l.x-=scroll;
+  /* CONTRAIL — the rocket's own world-space path. Each point stores the nozzle's world position: lateral x
+     and the altitude that projects exactly onto the nozzle (the rocket rides a soft screen band, so this is
+     NOT displayAlt), plus the airspeed odometer at emission. Drawn at altToScreenY(alt)+(airPx−air): it
+     streams down beneath the rocket on a climb/hover and is left above it on a fall. Time never maps to X. */
+  const [nozX,nozY]=nozzleXY(), nozAlt=(S.camAlt!=null?S.camAlt:S.displayAlt)+((S.anch??ROCKET_Y)-nozY)/PX_PER_ALT;
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
-  const moved=S.lastTrailAlt==null || Math.abs(nozAlt-S.lastTrailAlt)*PX_PER_ALT>1.5;
-  if (S._trailAcc>0.07 || moved){ S._trailAcc=0;
-    const tick=moved && Math.abs(vUpRaw)>10;
-    S.trail.push({x:tipX, alt:nozAlt, tick, thrust:tick && sinceThrust<0.25});
-    S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(altToScreenY(nozAlt)-nozY));   // test hook: ≈0 by construction
-    S.lastTrailAlt=nozAlt;
-    if (S.trail.length>64) S.trail.shift();
+  const lt=S.trail[S.trail.length-1], moved=!lt || Math.hypot(lt.x-nozX, trailY(lt)-nozY)>1.8;
+  if (S._trailAcc>0.05 || moved){ S._trailAcc=0;
+    S.trail.push({x:nozX, alt:nozAlt, air:S.airPx||0, thrust:sinceThrust<0.25});
+    S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(trailY(S.trail[S.trail.length-1])-nozY));   // test hook: ≈0 by construction
+    if (S.trail.length>TRAIL_MAX){ const T=S.trail, half=T.length>>1; let j=1;   // decimate the older half (fine detail only near the nozzle)
+      for(let i=1;i<half;i++){ if(i&1) continue; T[j++]=T[i]; } for(let i=half;i<T.length;i++) T[j++]=T[i]; T.length=j; }
   }
   keepIf(S.trail,TRAIL_ON);
   if(S.t>S.multUntil) S.mult=1;
@@ -1633,7 +1636,7 @@ function simStep(stepDt){
 }
 function render(dt){
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTrampWalls(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawHud();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
@@ -1646,6 +1649,6 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,PX_PER_ALT,trailHead:()=>nozzleXY(),bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
