@@ -1,8 +1,9 @@
-// Headless rocket-attitude sim (v2, upright model): replays real pool swaps (public/replay.json) plus
-// synthetic whale pumps, dumps and nukes through the engine's actual aimFromMotion() + stepHeading(),
-// and asserts the rocket stays upright: aim ∈ [AIM_MIN, AIM_MAX] ⊂ [55°, 90°] (≤35° from vertical, never
-// past vertical → cannot flip), |Δ| < 3° per 60 Hz sim step at 20–144 fps, climbs read nose-up (>84°),
-// drops read as sinking with the nose still up (≥60°).  Run: node scripts/test-heading.mjs
+// Headless rocket-attitude sim (v3, candle model): replays real pool swaps (public/replay.json) plus
+// synthetic whale pumps, dumps, nukes and buy/sell "fights" through the engine's actual aimFromMotion() +
+// stepHeading(), and asserts: aim ∈ [AIM_MIN, AIM_MAX] = [−60°, 90°] (never past vertical, never beyond a
+// 60° nose-down dive → no flip, no wrap), |Δ| < 3° per 60 Hz sim step at 20–144 fps, a hard pump stands it
+// vertical (>84°), a fast dump dives it nose-down (<−45°), and buys into a dive pull it up gradually.
+// Run: node scripts/test-heading.mjs
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const src = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
@@ -10,7 +11,7 @@ const code = src.slice(src.indexOf("/*HEADING-BEGIN*/"), src.indexOf("/*HEADING-
   .replace(/^function rocketDrawAngle.*$/m, "");
 const { stepHeading, aimFromMotion, AIM_MIN, AIM_MAX, AIM_REST } = new Function(code + "return {stepHeading,aimFromMotion,AIM_MIN,AIM_MAX,AIM_REST};")();
 let fail = 0; const bad = (m) => { if (fail++ < 8) console.error("FAIL " + m); };
-if (AIM_MIN < 55 || AIM_MAX > 90) bad(`band [${AIM_MIN},${AIM_MAX}] too wide`);
+if (AIM_MIN < -60 || AIM_MAX > 90) bad(`band [${AIM_MIN},${AIM_MAX}] too wide`);
 const R = JSON.parse(fs.readFileSync(path.join(dir, "../public/replay.json"), "utf8"));
 let events = R.swaps.map((s) => ({ t: (s.ts - R.fromTs) / 20, side: s.side, usd: s.usd }));
 const end = events.at(-1).t;
@@ -28,7 +29,7 @@ for (const fps of [30, 60, 144, 20]) {
     while (i < events.length && events[i].t <= t) { const e = events[i++]; net += (e.side === "buy" ? 1 : -1) * e.usd; }
     if (net) { vy += Math.sign(net) * Math.min(3000, 60 * Math.log10(1 + Math.abs(net)) ** 1.5); kick = net > 0 ? Math.min(1, Math.log10(1 + net) / 6) : -1; kT = t; }
     vy *= Math.exp(-dt / 0.6);
-    const k = t - kT < 1 ? kick * (1 - (t - kT)) : 0, fwdN = 0.5 + 0.5 * Math.sin(t * 0.3);
+    const k = t - kT < 1 ? kick * 40 * (1 - (t - kT)) : 0, fwdN = 0.5 + 0.5 * Math.sin(t * 0.3);
     acc += dt; let h = st.aimDisp, d = 0;
     while (acc >= SIM_DT - 1e-9) { acc -= SIM_DT; h = stepHeading(st, aimFromMotion(vy, fwdN, k), Math.sin(t) * 6, SIM_DT); d = Math.max(d, Math.abs(h - prev)); prev = h; }
     lo = Math.min(lo, h); hi = Math.max(hi, h); maxD = Math.max(maxD, d);
@@ -39,8 +40,16 @@ for (const fps of [30, 60, 144, 20]) {
 for (const [vy, want] of [[600, "climb"], [2000, "climb"], [-600, "drop"], [-1e6, "drop"], [0, "rest"]]) {
   const st = { aimDisp: AIM_REST, aimVel: 0, aimTgt: AIM_REST }; let h = 0; for (let k = 0; k < 240; k++) h = stepHeading(st, aimFromMotion(vy, 0.3, 0), 0, SIM_DT);
   if (want === "climb") { climbMax = Math.max(climbMax, h); if (h < 84) bad(`climb vy=${vy} aim=${h.toFixed(1)} (not nose-up)`); }
-  if (want === "drop") { dropMin = Math.min(dropMin, h); if (h < 60 || h > AIM_REST - 5) bad(`drop vy=${vy} aim=${h.toFixed(1)}`); }
+  if (want === "drop") { dropMin = Math.min(dropMin, h); if (vy <= -600 && h > -45) bad(`dump vy=${vy} aim=${h.toFixed(1)} (not nose-down)`); }
 }
+// momentum battle: steady dive, then buys push back (fight +40°) → nose rises gradually, never jumps
+{ const st = { aimDisp: AIM_REST, aimVel: 0, aimTgt: AIM_REST }; let h = 0, prev = 0, maxStep = 0;
+  for (let k = 0; k < 240; k++) h = stepHeading(st, aimFromMotion(-900, 0.5, 0), 0, SIM_DT);
+  const dive = h; prev = h;
+  for (let k = 0; k < 90; k++) { h = stepHeading(st, aimFromMotion(-900, 0.5, 40), 0, SIM_DT); maxStep = Math.max(maxStep, Math.abs(h - prev)); prev = h; }
+  if (!(h > dive + 25)) bad(`pull-up: dive ${dive.toFixed(1)} → ${h.toFixed(1)}`);
+  if (maxStep >= 3) bad(`pull-up step ${maxStep}`);
+  console.log(`pull-up: dive ${dive.toFixed(1)}° → ${h.toFixed(1)}° after 1.5 s of buys (max ${maxStep.toFixed(2)}°/step)`); }
 // garbage input + tab stalls
 for (const v of [NaN, Infinity, -Infinity, undefined]) { const a = aimFromMotion(v, v, v); if (!(a >= AIM_MIN && a <= AIM_MAX)) bad(`aimFromMotion(${v})=${a}`); }
 for (const big of [0.05, 0.25, 1]) { const st = { aimDisp: AIM_REST, aimVel: 0, aimTgt: AIM_REST };

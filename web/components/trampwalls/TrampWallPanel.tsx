@@ -10,6 +10,13 @@ type TwWindow = Window & { __flight?: unknown; __trampWalls?: unknown[]; __twPre
 const w = () => window as unknown as TwWindow;
 const flight = () => w().__flight as FlightApi | undefined;
 const curMcap = () => flight()?.S?.confirmed?.mcap || 0;
+/** One-tap presets: distance from price, range width, size × the ammo tier's FLARE preset (same scale as buys). */
+const PRESETS = [
+  { id: "tight", label: "Tight", dist: 3, width: 1, mult: 1, blurb: "close · fills often" },
+  { id: "medium", label: "Medium", dist: 8, width: 3, mult: 2.5, blurb: "balanced" },
+  { id: "wide", label: "Wide", dist: 18, width: 8, mult: 5, blurb: "deep · big moves only" },
+] as const;
+type Preset = (typeof PRESETS)[number];
 const fmt = (n: number) => n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n / 1e3).toFixed(1)}K` : `$${n.toFixed(2)}`;
 
 export default function TrampWallPanel({ token }: { token: string }) {
@@ -28,6 +35,36 @@ export default function TrampWallPanel({ token }: { token: string }) {
   const [mine, setMine] = useState<TrampWall[]>([]);
   const [pv, setPv] = useState<TrampWallPreview | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [step, setStep] = useState<"kind" | "preset" | "custom">("kind");
+  const [flare, setFlare] = useState(20);
+  const [pvs, setPvs] = useState<Record<string, TrampWallPreview>>({});
+  useEffect(() => {
+    const h = (e: Event) => { const u = (e as CustomEvent<{ usd?: number[] }>).detail?.usd; if (u && u[2] > 0) setFlare(u[2]); };
+    addEventListener("disciple:ammo", h); dispatchEvent(new Event("disciple:ammo-query"));
+    return () => removeEventListener("disciple:ammo", h);
+  }, []);
+  const presetParams = useCallback((k: TrampWallKind, p: Preset) => {
+    const pc = k === "tramp" ? -p.dist : p.dist, pm = cur * (1 + pc / 100), su = flare * p.mult;
+    const amt = k === "tramp" ? su : (pm > 0 ? su / (pm / 1e9) : 0);   // mock pricing (see below): wall amount is tokens
+    return { pct: pc, priceMcap: pm, width: p.width, sizeUsd: su, amount: amt };
+  }, [cur, flare]);
+  useEffect(() => {
+    if (!open || step !== "preset" || !(cur > 0)) return;
+    let alive = true;
+    Promise.all(PRESETS.map((p) => { const q = presetParams(kind, p);
+      return adapter.preview({ token: coin, kind, mcapUsd: q.priceMcap, rangeWidthPct: q.width, amount: BigInt(0), sizeUsd: q.sizeUsd }, cur).then((r) => [p.id, r] as const); }))
+      .then((rs) => { if (alive) setPvs(Object.fromEntries(rs)); });
+    return () => { alive = false; };
+  }, [open, step, kind, cur, adapter, coin, presetParams]);
+  const placePreset = async (p: Preset) => {
+    const q = presetParams(kind, p);
+    const pre = await adapter.preview({ token: coin, kind, mcapUsd: q.priceMcap, rangeWidthPct: q.width, amount: BigInt(0), sizeUsd: q.sizeUsd }, cur);
+    if (!pre.valid) { setMsg(pre.reason || "invalid"); return; }
+    const r = await adapter.place({ token: coin, kind, mcapUsd: q.priceMcap, rangeWidthPct: q.width, amount: BigInt(Math.floor(q.amount * 1e6)), sizeUsd: q.sizeUsd });
+    setMsg(r.ok ? `${kind === "tramp" ? "Tramp" : "Wall"} placed ✦ ${p.label} · ${fmt(q.sizeUsd)}` : r.reason || "failed");
+    if (r.ok) { setOpen(false); refresh(); }
+  };
+  const openFlow = () => { setStep("kind"); setMsg(null); setOpen(true); };
 
   const refresh = useCallback(async () => {
     const m = curMcap(); setCur(m);
@@ -41,7 +78,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
     const off = adapter.onEvent(coin, () => refresh());
     const onFill = (e: Event) => { mockMarkFilled((e as CustomEvent).detail.id); refresh(); };
     addEventListener("twfilled", onFill);
-    if (new URLSearchParams(location.search).get("tw") === "open") setOpen(true);
+    if (new URLSearchParams(location.search).get("tw") === "open") { setStep("kind"); setOpen(true); }
     return () => { clearInterval(iv); off(); removeEventListener("twfilled", onFill); };
   }, [adapter, coin, refresh]);
 
@@ -54,11 +91,11 @@ export default function TrampWallPanel({ token }: { token: string }) {
   const priceMcap = cur * (1 + pct / 100);
   const sizeUsd = kind === "tramp" ? +amount || 0 : (+amount || 0) * (cur > 0 ? priceMcap / 1e9 : 0);
   useEffect(() => {
-    if (!open || !(cur > 0)) { w().__twPreview = null; return; }
+    if (!open || step !== "custom" || !(cur > 0)) { w().__twPreview = null; return; }
     adapter.preview({ token: coin, kind, mcapUsd: priceMcap, rangeWidthPct: width, amount: BigInt(0), sizeUsd }, cur).then((p) => {
       setPv(p); w().__twPreview = { kind, mcap: priceMcap, lo: p.mcapLoUsd, hi: p.mcapHiUsd, sizeUsd, mine: true, status: "active" };
     });
-  }, [open, kind, priceMcap, width, sizeUsd, cur, adapter, coin]);
+  }, [open, step, kind, priceMcap, width, sizeUsd, cur, adapter, coin]);
   useEffect(() => () => { w().__twPreview = null; }, []);
 
   const chooseKind = (k: TrampWallKind) => { setKind(k); setPct(k === "tramp" ? -Math.abs(pct || 8) : Math.abs(pct || 8)); setAmount(k === "tramp" ? "250" : "1000000"); };
@@ -72,8 +109,8 @@ export default function TrampWallPanel({ token }: { token: string }) {
   if (!graduated) return null;
   return (
     <>
-      <div className="ap-bc z-30 flex gap-2" style={{ bottom: 70 }}>
-        <button data-testid="tw-open" onClick={() => setOpen(true)}
+      <div className="ap-bc z-30 flex gap-2" style={{ bottom: 96 }}>
+        <button data-testid="tw-open" onClick={openFlow}
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
           🛟 TRAMP / 🧱 WALL
         </button>
@@ -84,7 +121,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
       </div>
 
       {listOpen && (
-        <div data-testid="tw-list" style={{ bottom: 156 }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
+        <div data-testid="tw-list" style={{ bottom: 190 }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
           <div className="mb-2 font-display text-base text-[#ffe7a3]">My tramps & walls</div>
           {mine.length === 0 && <div className="text-white/50">None yet — place a trampoline under the rocket.</div>}
           {mine.map((t) => (
@@ -119,13 +156,32 @@ export default function TrampWallPanel({ token }: { token: string }) {
             <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · earn the ~0.11% hook donation while in range</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(["tramp", "wall"] as const).map((k) => (
-                <button key={k} data-testid={`tw-kind-${k}`} onClick={() => chooseKind(k)}
-                  className={`rounded-xl border-2 px-3 py-3 text-left transition ${kind === k ? (k === "tramp" ? "border-[#ffd76e] bg-[#ffd76e]/15 shadow-[0_0_20px_rgba(255,215,110,.4)]" : "border-[#ff8a7a] bg-[#ff8a7a]/15 shadow-[0_0_20px_rgba(255,120,100,.4)]") : "border-white/15 bg-white/5"}`}>
+                <button key={k} data-testid={`tw-kind-${k}`} onClick={() => { chooseKind(k); setStep("preset"); }}
+                  className={`rounded-xl border-2 px-3 py-3 text-left transition ${step !== "kind" && kind === k ? (k === "tramp" ? "border-[#ffd76e] bg-[#ffd76e]/15 shadow-[0_0_20px_rgba(255,215,110,.4)]" : "border-[#ff8a7a] bg-[#ff8a7a]/15 shadow-[0_0_20px_rgba(255,120,100,.4)]") : "border-white/15 bg-white/5 hover:border-white/40"}`}>
                   <div className="font-display text-lg">{k === "tramp" ? "🛟 Tramp" : "🧱 Wall"}</div>
                   <div className="font-mono text-[10px] text-white/60">{k === "tramp" ? "Quote LP below · support" : "Token LP above · resistance"}</div>
                 </button>
               ))}
             </div>
+            {step === "kind" && <p className="text-center font-mono text-[11px] text-white/50">Pick one — then choose a preset.</p>}
+            {step === "preset" && (
+              <div data-testid="tw-presets" className="grid grid-cols-2 gap-2">
+                {PRESETS.map((p) => { const q = presetParams(kind, p), r = pvs[p.id]; return (
+                  <button key={p.id} data-testid={`tw-preset-${p.id}`} disabled={r ? !r.valid : false} onClick={() => placePreset(p)}
+                    className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left font-mono text-[11px] transition hover:border-[#ffe7a3] hover:bg-[#ffe7a3]/10 disabled:opacity-40">
+                    <div className="flex items-baseline justify-between"><span className="font-display text-base text-[#ffe7a3]">{p.label}</span><span className="text-sm font-bold">{fmt(q.sizeUsd)}</span></div>
+                    <div className="text-white/70">{q.pct > 0 ? "+" : ""}{q.pct}% · ±{p.width / 2}% · @ {fmt(q.priceMcap)}</div>
+                    <div className="text-white/45">{p.blurb}{r ? ` · ~${fmt(r.estFeeShareUsdPerDay)}/day` : ""}</div>
+                  </button>); })}
+                <button data-testid="tw-preset-custom" onClick={() => setStep("custom")}
+                  className="rounded-xl border border-dashed border-white/25 px-3 py-2 text-left font-mono text-[11px] text-white/70 hover:border-white/60">
+                  <div className="font-display text-base">Custom…</div><div className="text-white/45">advanced: price, range, amount</div>
+                </button>
+              </div>
+            )}
+            {step === "preset" && msg && <div className="mt-2 text-center font-mono text-xs text-[#ffe7a3]">{msg}</div>}
+            {step === "custom" && (<>
+            <button onClick={() => setStep("preset")} className="mb-2 font-mono text-[10px] text-white/50 hover:text-white">← presets</button>
             <label className="font-mono text-[11px] uppercase text-white/60">Price ({pct >= 0 ? "+" : ""}{pct.toFixed(1)}% from current)</label>
             <div className="mb-3 flex items-center gap-2">
               <input type="range" min={kind === "tramp" ? -60 : 1} max={kind === "tramp" ? -1 : 200} step={0.5} value={pct} onChange={(e) => setPct(+e.target.value)} className="flex-1 accent-[#ffd76e]" />
@@ -149,6 +205,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
               className="w-full rounded-xl bg-gradient-to-r from-[#ffd76e] via-[#fff7df] to-[#ffd76e] py-3 font-display text-lg font-bold text-[#2a1d00] shadow-[0_0_30px_rgba(255,215,110,.6)] disabled:opacity-40">
               ✦ Confirm {kind === "tramp" ? "Tramp" : "Wall"} ({fmt(sizeUsd)})
             </button>
+            </>)}
           </div>
         </div>
       )}

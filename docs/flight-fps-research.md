@@ -20,3 +20,17 @@
 3. Do a WebGL2 instanced renderer (PixiJS v8 is the fastest path) only if we want 120/144 Hz at full DPR, or 10× the particles.
 
 A rough 120 Hz budget for this scene on WebGL2 is under 3 ms of GPU time, so a 240 Hz display is realistic for the sim+render path. Canvas2D tops out near 60–90 fps at 2× DPR on a mid laptop during bursts.
+
+## Implemented: OffscreenCanvas + Worker renderer (feat/worker-render)
+- **Files:**
+  - `public/flight/worker.js`: a DOM/window shim plus the bridge; it runs the unmodified engine.
+  - `lib/flight/workerBridge.ts`: the main-thread side.
+  - `components/FlightCanvas.tsx`: picks the mode.
+- **Mode selection:** `?render=main|worker` forces a path. Otherwise the worker path is used when OffscreenCanvas 2D, `transferControlToOffscreen`, `createImageBitmap` and Worker all exist.
+- **Fallback:** if the worker fails to start (error or 10 s timeout), it falls back to the main thread automatically.
+- **Main → worker:** keys, pointer events, React→engine events, window globals and resize, at most every 100 ms.
+- **Worker → main:**
+  - engine→React events (`disciple:mark` etc., 10 Hz from the engine)
+  - DOM writes (orb button, cursor, launch fade)
+  - trade calls to `window.__discipleTrade`
+  - a 10 Hz snapshot behind a read-only `window.__flight` proxy
