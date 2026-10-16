@@ -61,15 +61,16 @@ const mkEvent = (type, props) => { const e = new Event(type, { cancelable: true 
 
 /* ---------- trades: window.__discipleTrade proxied to the page's wallet bridge ---------- */
 let tradeAvail = false, tradeSeq = 0; const tradeWait = new Map();
-const tradeProxy = (side, usd) => new Promise((res) => { const id = ++tradeSeq; tradeWait.set(id, res); post({ k: 'trade', id, side, usd }); });
+const tradeProxy = (side, usd, o) => new Promise((res) => { const id = ++tradeSeq; tradeWait.set(id, res); post({ k: 'trade', id, side, usd, o: o || null }); });
 Object.defineProperty(self, '__discipleTrade', { get: () => (tradeAvail ? tradeProxy : undefined), configurable: true });
 
 /* ---------- HUD / tooling snapshot (≤10 Hz) ---------- */
-const SNAP_KEYS = ['mode', 'aimDisp', 'heading', 'camPx', 'camAlt', 'ry', 'anch', 'bgScrollX', 'fwd', 'vyS', 'simF', 'simT', 'displayAlt', 'balance', 'orbsOn', 'bombsOn', 'score', 'ammoTier', 'volEma', 'buyEma', 'sellEma'];
+const SNAP_KEYS = ['fight', 'flare', 'momV', 'mode', 'aimDisp', 'heading', 'camPx', 'camAlt', 'ry', 'anch', 'bgScrollX', 'fwd', 'vyS', 'simF', 'simT', 'displayAlt', 'balance', 'orbsOn', 'bombsOn', 'score', 'ammoTier', 'volEma', 'buyEma', 'sellEma'];
 function snapshot() {
   const F = self.__flight; if (!F || !F.S) return;
   const S = F.S, o = { confirmed: { mcap: S.confirmed.mcap, block: S.confirmed.block } };
   for (const k of SNAP_KEYS) o[k] = S[k];
+  o.mom = self.__flightMom ? self.__flightMom() : null;
   o.feed = (S.feed || []).slice(0, 6).map((f) => ({ txt: f.txt }));   // HUD tooling: recent feed lines
   // screenYToMcap samples (main interpolates in log space between them)
   const H = WRAP.clientHeight, ys = [];

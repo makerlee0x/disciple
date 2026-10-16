@@ -227,7 +227,7 @@ export default function FlightCanvas({ search }: Props) {
       >
         ✕
       </Link>
-      <div className="ap-bc" style={{ bottom: 116, zIndex: 25, display: "flex", gap: 8 }}>
+      <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
         <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
           ORBS ON · O
         </button>

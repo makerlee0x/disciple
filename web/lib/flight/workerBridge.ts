@@ -11,11 +11,11 @@ type Msg =
   | { k: "evt"; type: string; detail: unknown; custom: boolean }
   | { k: "dom"; id: string; op: string; a: unknown; b: unknown }
   | { k: "ls"; key: string; v: string | null }
-  | { k: "trade"; id: number; side: "buy" | "sell"; usd: number }
+  | { k: "trade"; id: number; side: "buy" | "sell"; usd: number; o?: { frac?: number } }
   | ({ k: "snap" } & Snap);
 
 type Win = Window & Record<string, unknown> & {
-  __discipleTrade?: (side: "buy" | "sell", usd: number) => Promise<unknown>;
+  __discipleTrade?: (side: "buy" | "sell", usd: number, o?: { frac?: number }) => Promise<unknown>;
   __rocketDecal?: { canvas: HTMLCanvasElement; t0: number; fallback: boolean };
 };
 
@@ -98,7 +98,7 @@ export function startWorkerRender(o: {
       case "trade": {
         const b = w.__discipleTrade;
         let result: unknown;
-        try { result = b ? await b(d.side, d.usd) : { ok: false, reason: "wallet bridge unavailable" }; }
+        try { result = b ? await (d.o ? b(d.side, d.usd, d.o) : b(d.side, d.usd)) : { ok: false, reason: "wallet bridge unavailable" }; }
         catch (e) { result = { ok: false, reason: String((e as Error)?.message || e).slice(0, 80) }; }
         post({ k: "tradeRes", id: d.id, result: JSON.parse(JSON.stringify(result ?? null)) });
         break;
