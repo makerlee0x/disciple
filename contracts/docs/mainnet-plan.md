@@ -76,4 +76,5 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 - [ ] Check that `isTrustedRouter` is true only for DiscipleRouter (never UniversalRouter).
 - [ ] Set the `UsdgDepositNotifier` attestors (on-ramp watcher) and any `ReferralRegistry` attestors, or leave them empty on purpose.
 - [ ] Redeploy (hook flags changed: BEFORE_INITIALIZE added; the salt is re-mined by Deploy.s.sol).
-- [ ] Post-graduation LP-share compound feature (the LP share is currently held in LockedLP).
+- [x] Post-graduation LP-share auto-compound (PR feat/lp-compound). Wire `hook.setCompounder(lockedLP, 250000)` + `lockedLP.setHook(hook)` (Deploy.s.sol does this); review `setCompoundParams` defaults.
+- [x] Unabsorbed graduation quote → coin's compound quote bucket (decided 2026-10-16; `LockedLP._graduationQuoteLeftover`).

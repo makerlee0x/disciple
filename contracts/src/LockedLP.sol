@@ -106,9 +106,10 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     event LiquidityLocked(address indexed token, address indexed quote, uint256 tokenAmount, uint256 quoteAmount);
     event QuoteEscrowed(address indexed token, address indexed quote, uint256 amount);
     event FeesCollected(address indexed token, uint256 amount0, uint256 amount1);
-    /// @notice Audit #4: quote not absorbed by the full-range add at curve-end price → treasury (explicit);
-    ///         token dust (rounding only) → burn address. Emitted once per graduation.
-    event GraduationLeftover(address indexed token, uint256 quoteToTreasury, uint256 tokenBurned);
+    /// @notice Audit #4 (rev. 2026-10-16): quote not absorbed by the full-range add at the curve-end price goes
+    ///         into the coin's compound quote bucket (pairs with incoming token fees over time); token dust
+    ///         (rounding only) → burn address. Emitted once per graduation. Same signature as before.
+    event GraduationLeftover(address indexed token, uint256 quoteToCompoundBucket, uint256 tokenBurned);
     event V4PositionSeeded(
         address indexed token, PoolId poolId, uint128 liquidity, int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96
     );
@@ -289,11 +290,10 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         emit V4PositionSeeded(token, key.toId(), liquidity, p.tickLower, p.tickUpper, sqrtPriceX96);
     }
 
-    /// @dev Pending decision: where unabsorbed graduation quote goes. Today → treasury. To route it into the
-    ///      compound bucket instead, replace the body with: `_buckets[token].quote += SafeCast.toUint128(amount);`
-    ///      (the bucket invariant holds either way; GraduationLeftover.quoteToTreasury would then read as 0).
-    function _graduationQuoteLeftover(address, address quote, uint256 amount) internal {
-        IERC20(quote).safeTransfer(treasury, amount);
+    /// @dev Decision (Maker lee, 2026-10-16): unabsorbed graduation quote stays in LockedLP as the coin's compound
+    ///      quote bucket (previously swept to treasury). It is already held here, so the bucket invariant holds.
+    function _graduationQuoteLeftover(address token, address, uint256 amount) internal {
+        _buckets[token].quote += SafeCast.toUint128(amount);
     }
 
     // ── LP auto-compound ─────────────────────────────────────────────────────

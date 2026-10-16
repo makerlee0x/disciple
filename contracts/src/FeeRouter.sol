@@ -115,7 +115,7 @@ contract FeeRouter is IFeeRouter {
     }
 
     /// @notice Post-grad hook fee: the hook transfers the full `feeAmount` here. Split 33/33/33/1; the whole 33%
-    ///         LP share goes to LockedLP, held there pending the compound feature (no in-range donation).
+    ///         LP share goes to LockedLP, which auto-compounds it per trade into the locked position (no in-range donation).
     function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
         external
         override
