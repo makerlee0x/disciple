@@ -25,13 +25,18 @@ export default function CrewPanel() {
   const [mode, setMode] = useState(2);
   const [open, setOpen] = useState(true);
 
+  const [ammoUsd, setAmmoUsd] = useState<number[]>(MODES.map((m) => m.usd));
+  // Engine pushes marks + scaled ammo presets on change (no 1 s poll).
   useEffect(() => {
-    const iv = setInterval(() => {
-      const S = (window as unknown as FlightWin).__flight?.S;
-      if (S?.confirmed?.mcap) setMcap(S.confirmed.mcap);
-      if (typeof S?.mode === "number") setMode(S.mode);
-    }, 1000);
-    return () => clearInterval(iv);
+    const S = (window as unknown as FlightWin).__flight?.S;
+    if (S?.confirmed?.mcap) setMcap(S.confirmed.mcap);
+    if (typeof S?.mode === "number") setMode(S.mode);
+    const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap: number }>).detail?.mcap; if (m) setMcap(m); };
+    const onAmmo = (e: Event) => { const d = (e as CustomEvent<{ usd: number[]; mode: number }>).detail; if (d?.usd) setAmmoUsd(d.usd); if (typeof d?.mode === "number") setMode(d.mode); };
+    addEventListener("disciple:mark", onMark);
+    addEventListener("disciple:ammo", onAmmo);
+    dispatchEvent(new Event("disciple:ammo-query"));
+    return () => { removeEventListener("disciple:mark", onMark); removeEventListener("disciple:ammo", onAmmo); };
   }, []);
 
   const u = nextUnlock(mcap);
@@ -72,7 +77,7 @@ export default function CrewPanel() {
           <div style={{ marginTop: 10, color: "#ffe7a3" }}>AMMO COST</div>
           {MODES.map((m, i) => (
             <div key={m.key} style={{ display: "flex", justifyContent: "space-between", color: i === mode ? "#9ff3c8" : undefined }}>
-              <span>{m.key} {m.name}</span><span>${m.usd < 1 ? m.usd.toFixed(2) : m.usd.toLocaleString()}</span>
+              <span>{m.key} {m.name}</span><span>{(() => { const u = ammoUsd[i] ?? m.usd; return "$" + (u < 1 ? u.toFixed(2) : u.toLocaleString()); })()}</span>
             </div>
           ))}
         </>

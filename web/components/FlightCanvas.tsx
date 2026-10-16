@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
 import { BASE_PATH, withBase } from "@/lib/base-path";
+import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 
 declare global {
   interface Window {
@@ -70,6 +71,8 @@ export default function FlightCanvas({ search }: Props) {
 
         // Flight engine loads /assets/* — prefix for githack basePath.
         (window as unknown as { __DISCIPLE_BASE_PATH__?: string }).__DISCIPLE_BASE_PATH__ = BASE_PATH;
+        // Ammo preset tiers (single source: lib/flight/ammoTiers.ts) — engine scales its presets from this.
+        (window as unknown as { __AMMO_TIERS?: unknown }).__AMMO_TIERS = AMMO_TIERS;
         await new Promise<void>((resolve, reject) => {
           scriptEl = document.createElement("script");
           scriptEl.src = withBase("/flight/engine.js");

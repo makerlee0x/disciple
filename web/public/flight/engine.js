@@ -4,6 +4,10 @@
  * Query string: ?replay=1&speed=&zoom=&source=&coin=&launched=1&debugBomb=
  */
 (function(){
+/* Hidden tab: interval ticks are skipped (sources, polls, paper decay) and the rAF loop stops; both resume on
+   visibilitychange. Shadowing setInterval here covers every source class below without touching each one. */
+const _setInterval=window.setInterval.bind(window);
+function setInterval(fn,ms){ return _setInterval(()=>{ if(!document.hidden) fn(); }, ms); }
 'use strict';
 /* =====================================================================
    DISCIPLE flight prototype — single file, no build step, runs offline.
@@ -86,6 +90,13 @@ const MAX_GAS_OVERHEAD=0.05;                       // [PARAM] min shot = gas / 5
 const MIN_SHOT=GAS_USD/MAX_GAS_OVERHEAD;           // ≈ $0.20 on RH/ARB, ≈ $0.06 on Base
 const PROMO_GAS=false;                             // no gas sponsorship: shots below the min are blocked
 // auto label: shot* ≈ 0.1% of quote depth x (≈0.2% price per press), snapped to nearest mode (log distance)
+/* AMMO TIERS — preset $ sizes scale with the rocket's mcap tier so each preset is a similar % impact.
+   Single source of truth: web/lib/flight/ammoTiers.ts (documented in docs/ammo-tiers.md), handed to the engine as
+   window.__AMMO_TIERS by FlightCanvas before this script loads. Without it, MODES keep their fixed defaults.
+   S.ammoTier = the player's chosen preset tier; S.rocketAmmoTier = the tier the rocket's mcap is in (5% hysteresis).
+   Tier-up → 'disciple:ammotier' (UI shows Upgrade / Keep). Keeping is always allowed. */
+const AMMO_TIERS=Array.isArray(window.__AMMO_TIERS)&&window.__AMMO_TIERS.length?window.__AMMO_TIERS:null, AMMO_HYST=1.05;
+function ammoTierOf(m){ if(!AMMO_TIERS||!(m>0)) return 0; for(let k=0;k<AMMO_TIERS.length;k++){ const x=AMMO_TIERS[k].maxMcap; if(x==null||m<x) return k; } return AMMO_TIERS.length-1; }
 function autoMode(m){ const x=m<=50e3?Math.sqrt(Math.max(m,2e3)*5000):0.09*m, t=0.001*x;
   let b=0; MODES.forEach((md,i)=>{ if(Math.abs(Math.log(md.usd/t))<Math.abs(Math.log(MODES[b].usd/t))) b=i; }); return b; }
 const LANES=[W/2-260,W/2,W/2+260];
@@ -283,7 +294,7 @@ class ReplaySource extends PoolV3Base {
     this.levels=D.levels.map(l=>({id:l.tick,mcap:l.mcap,usd:l.usd,tick:l.tick}));
     const reset=()=>{ this.i=0; this.paper=1; this.real=null; this.clock=(D.swaps[0]?D.swaps[0].ts:D.fromTs)-2; this.blk=D.fromBlock; };
     reset(); let lastT=performance.now(), endAt=0;
-    this.iv=setInterval(()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; this.clock+=dt*this.speed;
+    this.iv=setInterval(()=>{ const now=performance.now(), dt=Math.min(0.25,(now-lastT)/1000); lastT=now; this.clock+=dt*this.speed;   // clamp: no swap burst after a hidden tab
       const span=D.toTs-D.fromTs, blk=Math.round(D.fromBlock+(D.toBlock-D.fromBlock)*clamp((this.clock-D.fromTs)/span,0,1));
       if(blk!==this.blk){ this.blk=blk; if(this.real!==null) this.block=blk; emit({t:'block',block:blk,ts:this.clock*1000}); }
       while(this.i<D.swaps.length && D.swaps[this.i].ts<=this.clock) this.applyReal(D.swaps[this.i++]);
@@ -388,7 +399,12 @@ const S = {
    ===================================================================== */
 function Pool(cap){ this.a=new Array(cap); for(let i=0;i<cap;i++) this.a[i]={k:'',x:0,y:0,vx:0,vy:0,r:0,r0:0,gr:0,life:0,max:1,drag:0,g:0,c:'',a:1,s:0,hot:false};
   this.n=0; this.cap=cap; this.rr=0; this.recycled=0; }
-Pool.prototype.spawn=function(){ if(this.n<this.cap) return this.a[this.n++]; this.recycled++; this.rr=(this.rr+1)%this.cap; return this.a[this.rr]; };
+Pool.prototype.spawn=function(){ let p; if(this.n<this.cap) p=this.a[this.n++]; else { this.recycled++; this.rr=(this.rr+1)%this.cap; p=this.a[this.rr]; } p.fresh=true; return p; };
+/* render interpolation for 120 Hz+: snapshot before each sim step, lerp positions for the draw, restore after.
+   Particles spawned during the latest step (fresh) draw at their sim position. */
+Pool.prototype.snap=function(){ const a=this.a; for(let i=0;i<this.n;i++){ const p=a[i]; p.px=p.x; p.py=p.y; p.fresh=false; } };
+Pool.prototype.lerpIn=function(al){ const a=this.a; for(let i=0;i<this.n;i++){ const p=a[i]; p.cx=p.x; p.cy=p.y; if(!p.fresh){ p.x=p.px+(p.x-p.px)*al; p.y=p.py+(p.y-p.py)*al; } } };
+Pool.prototype.lerpOut=function(){ const a=this.a; for(let i=0;i<this.n;i++){ const p=a[i]; p.x=p.cx; p.y=p.cy; } };
 Pool.prototype.kill=function(i){ const a=this.a, j=--this.n, t=a[i]; a[i]=a[j]; a[j]=t; };   // caller iterates backwards
 Pool.prototype.clear=function(){ this.n=0; };
 Object.defineProperty(Pool.prototype,'length',{get(){ return this.n; }});
@@ -465,6 +481,28 @@ function flushThrustQueue(){
   S.thrustNet=0; S.thrustPend=null;
   applyThrust(side, usd);
 }
+function pushAmmo(){ try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
+  name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
+function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
+  const u=AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
+function ammoTierStep(){ if(!AMMO_TIERS) return; const m=S.confirmed.mcap; if(!(m>0)) return; const T=AMMO_TIERS;
+  if (S.rocketAmmoTier==null){ S.rocketAmmoTier=ammoTierOf(m); if(S.ammoTier==null) setAmmoTier(S.rocketAmmoTier); return; }
+  let t=S.rocketAmmoTier;
+  if (t<T.length-1 && T[t].maxMcap!=null && m>=T[t].maxMcap*AMMO_HYST) t++;
+  else if (t>0 && m<T[t-1].maxMcap/AMMO_HYST) t--;
+  if (t===S.rocketAmmoTier) return;
+  const up=t>S.rocketAmmoTier; S.rocketAmmoTier=t;
+  if (up && t>S.ammoTier && !S.ammoKept[t]) try{ dispatchEvent(new CustomEvent('disciple:ammotier',{detail:{from:S.ammoTier,to:t,
+    fromName:T[S.ammoTier].name,toName:T[t].name,usd:T[t].usd.slice(),current:MODES.map(q=>q.usd),mode:S.mode,mcap:m}})); }catch(_){}
+  pushAmmo(); }
+S.ammoTier=null; S.rocketAmmoTier=null; S.ammoKept={};
+addEventListener('disciple:ammo-upgrade',e=>{ const d=e.detail||{}; setAmmoTier(d.tier!=null?d.tier:S.rocketAmmoTier); });
+addEventListener('disciple:ammo-keep',e=>{ const d=e.detail||{}; if(d.tier!=null) S.ammoKept[d.tier]=1; });
+addEventListener('disciple:ammo-tier',e=>{ const d=e.detail||{}; if(d.tier!=null) setAmmoTier(d.tier); });
+addEventListener('disciple:ammo-query',()=>pushAmmo());
+/* mcap push for the React HUD (replaces its 500 ms poll): on change, at most 10×/s */
+function pushMark(){ const m=S.confirmed.mcap; if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
+  try{ dispatchEvent(new CustomEvent('disciple:mark',{detail:{mcap:m,supply:source.supply||1e9}})); }catch(_){} }
 function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({title,sub,life:4}); }
 function trade(side,opt){
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
@@ -503,9 +541,9 @@ addEventListener('keydown',e=>{
   S.keys[e.code]=true;
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
   if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat) trade('sell',{all:e.ctrlKey||e.metaKey}); }
-  const dm=/^Digit([1-6])$/.exec(e.code); if(dm){ S.mode=+dm[1]-1; }
-  if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1); }
-  if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1); }
+  const dm=/^Digit([1-6])$/.exec(e.code); if(dm){ S.mode=+dm[1]-1;  pushAmmo(); }
+  if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
+  if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   if (!e.repeat&&(e.code==='KeyA'||e.code==='ArrowLeft')) S.lane=Math.max(0,S.lane-1);
   if (!e.repeat&&(e.code==='KeyD'||e.code==='ArrowRight')) S.lane=Math.min(2,S.lane+1);
   if (e.code==='KeyO'&&!e.repeat) setOrbs(!S.orbsOn);
@@ -777,6 +815,12 @@ function twStep(){ const cur=S.confirmed&&S.confirmed.mcap; if(!(cur>0)) return;
     if(l.status==='filled' && st.t0==null) st.t0=S.t-10;
     st.side=side; } }
 function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':v>=1e3?'$'+(v/1e3).toFixed(1).replace(/\.0$/,'')+'K':'$'+Math.round(v); }
+/* low-frequency caches (were rebuilt every frame) */
+let _topT=-1, _top=[];
+function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t; _top=Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
+let _twT=-1, _twSrc=null, _twLen=-1, _tw=[]; const TW_LIST=[]; let _pvRef=null, _pvObj=null;
+function twGroupsCached(){ const src=window.__trampWalls||null, len=src?src.length:0;
+  if (src!==_twSrc || len!==_twLen || S.t-_twT>0.25){ _twSrc=src; _twLen=len; _twT=S.t; _tw=twGroups(); } return _tw; }
 function twGroups(){ const cur=S.confirmed&&S.confirmed.mcap||0, src=(window.__trampWalls||[]).filter(l=>l.status!=='cancelled');
   const g=[]; // merge same kind within ~2px of altitude
   for(const l of src){ const a=mcapToAlt(l.mcap); let m=g.find(q=>q.kind===l.kind&&Math.abs(q.alt-a)*PX_PER_ALT<14);
@@ -789,8 +833,8 @@ function twPos(l,kx,ky){ const y=altToScreenY(l.alt), L=Math.log10(1+l.sizeUsd),
   let x=W*0.56+(hash(Math.round(l.mcap))-.5)*W*0.16; if(Math.abs(x-kx)<w/2+120&&Math.abs(y-ky)<140) x=kx+(x<kx?-1:1)*(w/2+130);   // slide aside if it would sit under the rocket
   TWP.x=x; TWP.y=y; TWP.w=w; TWP.th=th; return TWP; }
 function twKeep(){ const px=(S.camX!=null?S.camX:S.x); return [px+75*Math.sin(S.heading), ROCKET_Y-75*Math.cos(S.heading)]; }
-function drawTrampWalls(){ if(S.displayAlt==null) return; const list=twGroups(); const pv=window.__twPreview;
-  if(pv) list.push({kind:pv.kind,alt:mcapToAlt(pv.mcap),mcap:pv.mcap,sizeUsd:pv.sizeUsd||0,mine:true,status:'active',ids:['__pv'],preview:true});
+function drawTrampWalls(){ if(S.displayAlt==null) return; const list=TW_LIST; list.length=0; for(const g of twGroupsCached()) list.push(g); const pv=window.__twPreview;
+  if(pv){ if(pv!==_pvRef||!_pvObj||_pvObj.mcap!==pv.mcap||_pvObj.sizeUsd!==(pv.sizeUsd||0)){ _pvRef=pv; _pvObj={kind:pv.kind,alt:mcapToAlt(pv.mcap),mcap:pv.mcap,sizeUsd:pv.sizeUsd||0,mine:true,status:'active',ids:['__pv'],preview:true}; } list.push(_pvObj); }
   if(!list.length) return;
   const px=(S.camX!=null?S.camX:S.x), kx=px+75*Math.sin(S.heading), ky=ROCKET_Y-75*Math.cos(S.heading);
   ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.ellipse(kx,ky,110,120,0,0,Math.PI*2); ctx.clip('evenodd');   // keep-out around rocket
@@ -844,6 +888,10 @@ function drawPost(){
   for(let x=-ox;x<W;x+=256) for(let y=-oy;y<H;y+=256) ctx.drawImage(g,x,y); ctx.restore();
 }
 
+/* text glow without shadowBlur: a wide, faint round stroke in the glow colour under the fill */
+function glowText(t,x,y,glow,lw,a){ ctx.save(); ctx.lineJoin='round'; ctx.strokeStyle=glow; const g=ctx.globalAlpha*(a||0.35)*0.4;
+  for(const f of GLOW_STEPS){ ctx.globalAlpha=g; ctx.lineWidth=lw*f; ctx.strokeText(t,x,y); } ctx.restore(); ctx.fillText(t,x,y); }   // 3 soft rings ≈ blur halo
+const GLOW_STEPS=[1.6,1.0,0.5];
 function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.strokeStyle='rgba(220,230,255,.18)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,y,w,h,10) : ctx.rect(x,y,w,h); ctx.fill(); ctx.stroke(); ctx.restore(); }
 
@@ -853,7 +901,7 @@ function drawHud(){
   // top-left: MCAP + tier
   panel(20,18,380,112);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:'MARKET CAP · confirmed',36,42);
-  ctx.fillStyle='#fff'; ctx.shadowColor='rgba(180,200,255,.9)'; ctx.shadowBlur=14; ctx.font='bold 40px ui-monospace,monospace'; ctx.fillText(fmtUsd(m),34,84); ctx.shadowBlur=0;
+  ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
   // progress to next tier
   const f=clamp(mcapToAlt(m)-ti,0,1); ctx.fillStyle='rgba(255,255,255,.12)'; ctx.fillRect(36,116,348,4); ctx.fillStyle='#ffe7a3'; ctx.fillRect(36,116,348*f,4);
@@ -887,16 +935,16 @@ function drawHud(){
   ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER BALANCE $${S.balance.toFixed(2)} · 1 approval at deposit, no per-trade signing`,434,108);
   if (MODES[S.mode].usd<MIN_SHOT){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label}: blocked`,434,128); }
   else if (source.submitTrade && IS_POOL){ ctx.fillStyle='#ffd98a'; ctx.fillText('your shots = PAPER on top of the real price (no tx sent)',434,128); }
-  const top=Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); panel(W-330,120,310,96);
+  const top=topFuelers(); panel(W-330,120,310,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(IS_POOL?'TOP BUYERS · real wallets in feed':'KING OF THE HILL · top fuelers (mock)',W-314,140);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`${i===0?'👑':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,W-314,160+i*18); });
-  if (top[0][0]==='you'){ ctx.save(); ctx.fillStyle='#ffd24a'; ctx.shadowColor='#ffb000'; ctx.shadowBlur=16; ctx.font='bold 16px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText('👑 KOTH',S.x,ROCKET_Y-100); ctx.restore(); }
+  if (top[0][0]==='you'){ ctx.save(); ctx.fillStyle='#ffd24a'; ctx.font='bold 16px ui-monospace,monospace'; ctx.textAlign='center'; glowText('👑 KOTH',S.x,ROCKET_Y-100,'#ffb000',8,0.4); ctx.restore(); }
   S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=150+i*62; ctx.globalAlpha=a; panel(20,y,300,52);
     ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; ctx.fillText('★ ACHIEVEMENT · '+t.title,34,y+22); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,34,y+40); ctx.globalAlpha=1; });
   // tier banner
-  if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df'; ctx.shadowColor='rgba(255,220,150,1)'; ctx.shadowBlur=30;
-    const BY=BANNER_Y; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(TIERS[S.tierShown].name).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } ctx.fillText(TIERS[S.tierShown].name,W/2,BY); ctx.font='16px ui-monospace,monospace'; ctx.fillText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30);
-    ctx.shadowBlur=0; ctx.textAlign='left'; ctx.globalAlpha=1; }
+  if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
+    const BY=BANNER_Y; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(TIERS[S.tierShown].name).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(TIERS[S.tierShown].name,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
+    ctx.textAlign='left'; ctx.globalAlpha=1; }
   S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font='bold 18px ui-monospace,monospace'; ctx.fillText(fl.txt,W/2,H*0.40-i*24); ctx.textAlign='left'; ctx.globalAlpha=1; });
   ctx.restore();
 }
@@ -1024,7 +1072,7 @@ function shockStep(dt){
       const sg=Math.abs(dAim)>0.12?Math.sign(dAim):(sh.y>=SD.y?1:-1);   // along-axis hits still rock it (blast below → nose kicks up)
       S.wobV+=sg*clamp(0.35*sh.amp*f*(0.5+0.5*Math.abs(dAim)),0,140); } }
     // tramps & walls ($-sized boxes)
-    if (window.__trampWalls && window.__trampWalls.length){ if(!tw){ tw=twGroups(); } const [kx,ky]=twKeep();
+    if (window.__trampWalls && window.__trampWalls.length){ if(!tw){ tw=twGroupsCached(); } const [kx,ky]=twKeep();
       for (const l of tw){ const g=twPos(l,kx,ky), hx=g.w/2, hy=g.th*2+4, ddx=Math.max(0,Math.abs(sh.x-g.x)-hx), ddy=Math.max(0,Math.abs(sh.y-(g.y-hy/2))-hy/2), d=Math.hypot(ddx,ddy);
         if (d>r0 && d<=r1){ const f=fall(d,sh.R); if(f>0) for (const id of l.ids){ const st=TW_FX[id]||(TW_FX[id]={side:null,t0:null}); st.hitT=S.t; st.hitAmp=clamp(f*sh.amp/200,0.2,1);
           if(l.kind!=='tramp') for(let i=0;i<Math.round(4+8*f);i++) spawnShard(g.x+(Math.random()-.5)*g.w, g.y-g.th, (Math.random()-.5)*220, -80-Math.random()*200, '#d8ccc6'); } } } }
@@ -1170,7 +1218,7 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
     ctx.translate(lx,ly); ctx.scale(pop,pop);
     ctx.fillStyle='rgba(10,8,20,.62)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(-w/2-12,-fs*0.95,w+24,fs*1.45,8):ctx.rect(-w/2-12,-fs*0.95,w+24,fs*1.45); ctx.fill();
     ctx.lineWidth=3; ctx.strokeStyle='rgba(60,20,0,.9)'; ctx.strokeText(l.txt,0,0);
-    ctx.shadowColor='rgba(255,210,120,.9)'; ctx.shadowBlur=12; ctx.fillStyle=l.tier>=5?'#fffdf2':'#ffd77a'; ctx.fillText(l.txt,0,0); ctx.restore(); }
+    ctx.fillStyle=l.tier>=5?'#fffdf2':'#ffd77a'; glowText(l.txt,0,0,'rgb(255,210,120)',9,0.3); ctx.restore(); }
 }
 /* Debug hooks: ?debugBomb=puff|grenade|bunker|cruise|nuke|atom|cycle  [&debugBombAt=1.2]
    Aliases: daisy→cruise, moab→nuke. window.__flight.bomb('nuke') or bomb(7.5) (impact %). */
@@ -1219,7 +1267,9 @@ function stepHeadingOnce(st, wantAimDeg, bankDeg, dt){
    ===================================================================== */
 let last=performance.now();
 const FIXED_DT=+Q.get('fixedDt')>0?1/+Q.get('fixedDt'):0, CAPTURE=Q.get('capture')==='1';   // ?fixedDt=30 deterministic step; ?capture=1 = manual __flight.step(n)
-const RAF=f=>{ if(!CAPTURE) requestAnimationFrame(f); };
+let _rafOn=false;
+const RAF=f=>{ if(CAPTURE) return; if(document.hidden){ _rafOn=false; return; } _rafOn=true; requestAnimationFrame(f); };   // hidden tab: loop stops
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafOn && !CAPTURE){ last=performance.now(); acc=0; _rafOn=true; requestAnimationFrame(frame); } });
 /* Fixed-timestep simulation (60 Hz) decoupled from rendering. Each rAF accumulates real time, runs
    0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
    (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
@@ -1230,11 +1280,13 @@ function frame(now){
   const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
   if (S.confirmed.mcap===null || loaded<names.length){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
   acc+=rawDt; let n=0;
-  while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; simStep(SIM_DT); acc-=SIM_DT; n++; }
+  while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; S.particles.snap(); S.shards.snap(); S.bfx.snap(); simStep(SIM_DT); acc-=SIM_DT; n++; }
   if (n===MAX_STEPS && acc>SIM_DT) acc=0;             // long stall: drop the backlog instead of spiralling
   const alpha=n?clamp(acc/SIM_DT,0,1):1;
   for (const k of LERP_KEYS){ const a=PREV[k], b=S[k]; CUR[k]=b; if(typeof a==='number'&&typeof b==='number') S[k]=a+(b-a)*alpha; }
+  const lp=alpha<0.999; if(lp){ S.particles.lerpIn(alpha); S.shards.lerpIn(alpha); S.bfx.lerpIn(alpha); }
   render(rawDt);
+  if(lp){ S.particles.lerpOut(); S.shards.lerpOut(); S.bfx.lerpOut(); }
   for (const k of LERP_KEYS) S[k]=CUR[k];
   RAF(frame);
 }
@@ -1243,6 +1295,7 @@ function simStep(stepDt){
   const tsT=S.t<S.slowmoUntil?SLOWMO_SCALE:1; S.timeScale=lerp(S.timeScale,tsT,1-Math.exp(-stepDt*(tsT<1?30:5)));
   const dt=stepDt*S.timeScale; S.t+=dt;
   if (DEBUG_BOMB && !S._dbgFired && S.t>=DEBUG_BOMB_AT){ S._dbgFired=true; runDebugBomb(); }
+  ammoTierStep(); pushMark();
   /* SPRING — altitude tracks price. ω≈22 rad/s, ζ≈0.72 → ~150 ms rise with a little overshoot.
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
   const SPRING_W=22, SPRING_Z=0.72;
