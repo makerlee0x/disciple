@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn } from "@/lib/protocol-viem";
+import { balanceHint, createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn, warmQuote } from "@/lib/protocol-viem";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
-import { sessionMaxSlippageBps } from "@/lib/aa/session";
+import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
@@ -29,6 +29,8 @@ type Pos = { size: number; valueUsd: number; costBasis: number };
  * The SELL row itself is drawn in the engine's AMMO panel. Clicking a preset only SELECTS it (disciple:sellselect);
  * DUMP / Shift (disciple:dump) sells the selected %, Z/X/C/V sell instantly and select. */
 type Sell = { id: string; label: string; frac: number; key: string };
+/** frac of a raw balance (1e-6 precision), same rounding everywhere so warmed sell quotes are cache hits. */
+const sellAmount = (bal: bigint, frac: number) => (bal * BigInt(Math.round(Math.min(1, frac) * 1e6))) / BigInt(1e6);
 const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: String(v), label: sellLabel(v), frac: v / 100, key: SELL_KEYS[i] }));
 const DEFAULT_SELL_SEL = 1;   // 25%
 
@@ -61,6 +63,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const scope = storagePrefix + (live ? "live" : "paper");
   const [cfg, setCfg] = useState<SwapSettings>(() => loadSettings(scope));
   const cfgRef = useRef(cfg); cfgRef.current = cfg;
+  const sellSelRef = useRef(DEFAULT_SELL_SEL);
   const [showCfg, setShowCfg] = useState(false);
   useEffect(() => { setCfg(loadSettings(scope)); }, [scope]);
   const SELLS = toSells(cfg.sells);
@@ -80,12 +83,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     window.__discipleTrade = async (side, usd, o) => {
       try {
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
-        let amountIn = await usdToAmountIn(pc, token as Address, side, usd);
+        // % sells size from the (polled, ≤5 s) balance hint; $ shots from the cached launch quote price ⇒ no reads when warm
+        let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await usdToAmountIn(pc, token as Address, side, usd);
         if (side === "sell") {
           const me = await activeAddress();
-          const bal = await tokenBalance(pc, token as Address, me);
+          const bal = await balanceHint(pc, token as Address, me);
           if (bal === BigInt(0)) { setLast("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
-          if (o?.frac && o.frac > 0) amountIn = (bal * BigInt(Math.round(Math.min(1, o.frac) * 1e6))) / BigInt(1e6);   // % of the real balance
+          if (o?.frac && o.frac > 0) amountIn = sellAmount(bal, o.frac);   // % of the real balance
           if (amountIn > bal) amountIn = bal;
         }
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
@@ -94,6 +98,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (slip.capped) dispatchEvent(new CustomEvent("disciple:slippagecap", { detail: { maxBps: slip.sessionMaxBps, requestedBps: slip.requestedBps, suggestBps: suggestedSessionMax(slip) } }));
         const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps });
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
+        void tokenBalance(pc, token as Address, await activeAddress()).catch(() => undefined);   // refresh the hint for the next shot
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
         return { ok: r.ok, txHash: r.txHash, reason: r.reason };
       } catch (e) {
@@ -104,6 +109,31 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     };
     return () => { delete window.__discipleTrade; };
   }, [token, live]);
+
+  // HOT PATH warm-up (live only): smart account clients/fees/relay + the selected presets' quotes every ~1 s, so a tap
+  // signs and sends with no chain reads. Optimistic UI: "sent" the moment the op is submitted (disciple:op).
+  useEffect(() => {
+    if (!live) return;
+    let alive = true; const pc = publicClient();
+    const tick = async () => {
+      if (!alive || document.hidden) return;
+      try {
+        const usd = ammo.usd[mode] ?? MODES[mode].usd;
+        const me = await activeAddress();
+        const bal = me ? await balanceHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
+        const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
+        await Promise.all([
+          usdToAmountIn(pc, token as Address, "buy", usd).then((a) => warmQuote(pc, token as Address, "buy", a)),
+          bal > BigInt(0) ? warmQuote(pc, token as Address, "sell", sellAmount(bal, sellFrac)) : null,
+        ]);
+      } catch { /* next tick */ }
+    };
+    void aaWarm().catch(() => undefined); void tick();
+    const iv = setInterval(tick, 1000);
+    const sub = (e: Event) => { const d = (e as CustomEvent<{ phase: string; txHash?: string }>).detail; if (d?.phase === "submitted") setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· sent ⚡")); };
+    addEventListener("disciple:op", sub);
+    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:op", sub); };
+  }, [live, token, mode, ammo.usd]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Preview for the selected ammo from on-chain views (curve quoteBuy/quoteSell, router quoteExactIn).
   useEffect(() => {
@@ -123,7 +153,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
 
   // remembered selections: buy preset (engine S.mode, restored on boot) and sell preset (default 25% = slot 0)
   const SEL_KEY = storagePrefix + "sel";
-  const [sellSel, setSellSel] = useState(DEFAULT_SELL_SEL);
+  const [sellSel, setSellSel] = useState(DEFAULT_SELL_SEL); sellSelRef.current = sellSel;
   const [sellCustom, setSellCustom] = useState("");
   const [sellUnit, setSellUnit] = useState<"%" | "$">("%");
   const selSell = useRef<(i: number) => void>(() => {}); selSell.current = (i: number) => { setSellSel(i); try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}"); localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, sell: i, sv: 2 })); } catch { /* */ } };

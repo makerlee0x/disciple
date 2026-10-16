@@ -1,31 +1,41 @@
-/** Unit tests: per-account op queue, relayer lock/retry, chain-ordered mcap, balance line.  pnpm test:trade-order */
+/** Unit tests: parallel nonce keys, gas/fee/quote caches, relayer lock/retry, chain-ordered mcap, balance line.  pnpm test:trade-order */
 import assert from "node:assert/strict";
-import { serializeBy, queued } from "../lib/aa/opQueue";
+import { NonceCursor, GasCache, FeeCache, callsKind } from "../lib/aa/fastPath";
+import { TtlCache } from "../lib/trade/hotCache";
 import { withRelayer, isNonceError } from "../lib/server/relayer";
 import { mcapOrderer } from "../lib/events";
 import { balanceLine } from "../lib/balanceLine";
 let n = 0; const t = async (name: string, f: () => Promise<void> | void) => { await f(); n++; console.log("ok  ", name); };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-await t("serializeBy: same account never overlaps, keeps order, survives failures", async () => {
-  let active = 0, peak = 0; const log: number[] = [];
-  const job = (i: number, ms: number, fail = false) => serializeBy("0xAbC", async () => { active++; peak = Math.max(peak, active); await sleep(ms); log.push(i); active--; if (fail) throw new Error("boom"); return i; });
-  const rs = await Promise.allSettled([job(0, 30), job(1, 5, true), job(2, 1), job(3, 10)]);
-  assert.equal(peak, 1); assert.deepEqual(log, [0, 1, 2, 3]);
-  assert.deepEqual(rs.map((r) => r.status), ["fulfilled", "rejected", "fulfilled", "fulfilled"]);
-  await sleep(1); assert.equal(queued("0xabc"), false);
+await t("NonceCursor: parallel nonce keys are unique, < 2^152, seq 0, MAv2 layout (entityId/global flag)", () => {
+  const c = new NonceCursor(() => 0xabcdefn); const seen = new Set<bigint>();
+  for (let i = 0; i < 5000; i++) { const n = c.next(7, false); assert.equal(n & ((1n << 64n) - 1n), 0n, "seq 0"); assert.ok(!seen.has(n)); seen.add(n);
+    const full = n >> 64n; assert.equal(full & 0xffn, 0n, "non-global flag"); assert.equal((full >> 8n) & 0xffffffffn, 7n, "entityId"); assert.ok(full >> 40n < 1n << 152n); }
+  const o = c.next(0, true) >> 64n; assert.equal(o & 0xffn, 1n, "owner = global validation"); assert.equal((o >> 8n) & 0xffffffffn, 0n);
+  const a = new NonceCursor(), b = new NonceCursor(); assert.notEqual(a.next(0, true), b.next(0, true), "two tabs/devices don't collide");
 });
-await t("serializeBy: different accounts run in parallel", async () => {
-  let active = 0, peak = 0; const job = (k: string) => serializeBy(k, async () => { active++; peak = Math.max(peak, active); await sleep(20); active--; });
-  await Promise.all([job("0x1"), job("0x2"), job("0x3")]); assert.equal(peak, 3);
+await t("parallel nonces: 3 rapid ops all valid on a nonce-checking fake EntryPoint (no queue, no waiting)", async () => {
+  const used = new Set<bigint>(); const ep = async (nonce: bigint) => { await sleep(5); if (used.has(nonce)) throw new Error("AA25 invalid account nonce"); used.add(nonce); return nonce; };
+  const c = new NonceCursor(); const t0 = Date.now();
+  const rs = await Promise.all([0, 1, 2].map(() => ep(c.next(1, false))));
+  assert.equal(new Set(rs).size, 3); assert.ok(Date.now() - t0 < 40, "concurrent, not serialized");
 });
-await t("nonce collision (pre-fix behaviour): parallel sends read the same nonce; queued sends don't", async () => {
-  let chainNonce = 0; let pending = false;
-  const send = async () => { const mine = chainNonce; await sleep(10); if (pending && mine === chainNonce) { throw new Error("Nonce provided for the transaction is lower than the current nonce of the account."); } pending = true; await sleep(15); chainNonce++; pending = false; return mine; };
-  const par = await Promise.allSettled([send(), send(), send()]);
-  assert.ok(par.filter((r) => r.status === "rejected").length >= 1, "parallel reproduces the collision");
-  chainNonce = 0; const ser = await Promise.all([0, 1, 2].map(() => serializeBy("acct", send)));
-  assert.deepEqual(ser, [0, 1, 2]);
+await t("GasCache: per preset kind with headroom; dropped after a gas failure", () => {
+  const g = new GasCache(); const kind = callsKind([{ to: "0xAa00000000000000000000000000000000000001", data: "0x095ea7b3ff" }, { to: "0xBb00000000000000000000000000000000000002", data: "0x12345678ff" }]);
+  assert.equal(kind, "0xaa00000000000000000000000000000000000001:0x095ea7b3,0xbb00000000000000000000000000000000000002:0x12345678");
+  g.set(kind, { callGasLimit: 100000n, verificationGasLimit: 200000n, preVerificationGas: 50000n });
+  assert.deepEqual(g.get(kind), { callGasLimit: 150000n, verificationGasLimit: 240000n, preVerificationGas: 50000n }); g.drop(kind); assert.equal(g.get(kind), undefined);
+});
+await t("FeeCache: stale-while-revalidate, one in-flight fetch, never blocks once warm", async () => {
+  let now = 0, calls = 0; const f = new FeeCache(3000, () => now); const fetch = async () => { calls++; await sleep(20); return { maxFeePerGas: 10n, maxPriorityFeePerGas: 1n }; };
+  assert.equal(f.peek(), undefined); const [a, b] = await Promise.all([f.get(fetch), f.get(fetch)]); assert.equal(calls, 1); assert.equal(a.maxFeePerGas, 20n); assert.equal(b, a);
+  now = 5000; const t0 = Date.now(); const c = await f.get(fetch); assert.ok(Date.now() - t0 < 10, "stale value returned immediately"); assert.equal(c, a); await sleep(30); assert.equal(calls, 2);
+});
+await t("TtlCache (quotes/balances): hit within TTL, shared in-flight read, refetch after", async () => {
+  let now = 0, reads = 0; const q = new TtlCache<number>(1500, () => now); const read = async () => { reads++; await sleep(5); return reads; };
+  assert.equal(await Promise.all([q.get("k", read), q.get("k", read)]).then((r) => r[0]), 1); assert.equal(reads, 1);
+  now = 1000; assert.equal(await q.get("k", read), 1); now = 2000; assert.equal(await q.get("k", read), 2);
 });
 await t("withRelayer: serial + retries nonce errors, not other errors", async () => {
   assert.ok(isNonceError(new Error("Nonce provided for the transaction is lower than the current nonce of the account.")));

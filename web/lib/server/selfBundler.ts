@@ -27,13 +27,17 @@ const implAbi = parseAbi(["function ACCOUNT_IMPLEMENTATION() view returns (addre
 const mav2ImplAbi = parseAbi(["function SEMI_MODULAR_ACCOUNT_IMPL() view returns (address)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
 const p16 = (x?: Hex) => pad(x || "0x0", { size: 16 });
-const pack = (op: UserOp) => ({
+export const packUserOp = (op: UserOp) => ({
+  ...packFields(op),
+});
+const packFields = (op: UserOp) => ({
   sender: op.sender, nonce: BigInt(op.nonce), initCode: op.factory ? concat([op.factory, op.factoryData!]) : ("0x" as Hex), callData: op.callData,
   accountGasLimits: concat([p16(op.verificationGasLimit), p16(op.callGasLimit)]), preVerificationGas: BigInt(op.preVerificationGas || "0x0"),
   gasFees: concat([p16(op.maxPriorityFeePerGas), p16(op.maxFeePerGas)]),
   paymasterAndData: op.paymaster ? concat([op.paymaster, p16(op.paymasterVerificationGasLimit), p16(op.paymasterPostOpGasLimit), op.paymasterData || "0x"]) : ("0x" as Hex),
   signature: op.signature,
 });
+const pack = packUserOp;
 let implCode: Hex | undefined;
 let mav2ImplCode: Hex | undefined;
 
@@ -49,6 +53,8 @@ function estimateError(e: unknown): BundlerRpcError {
 export async function selfBundle(method: string, params: unknown[]): Promise<unknown> {
   switch (method) {
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
+    case "disciple_sendUserOperationSync": { const { sendUserOperationSync } = await import("./fastRelay"); return sendUserOperationSync(params[0] as UserOp); }
+    case "disciple_warm": { const { warmRelay } = await import("./fastRelay"); await warmRelay(); return true; }
     case "eth_supportedEntryPoints": return [ENTRYPOINT_V07];
     case "rundler_maxPriorityFeePerGas": return "0xf4240"; // 0.001 gwei
     case "eth_estimateUserOperationGas": {

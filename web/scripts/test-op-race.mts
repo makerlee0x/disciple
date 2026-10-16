@@ -9,6 +9,7 @@ const erc20 = parseAbi(["function mint(address,uint256)"]);
 const sa = new Mav2Account({ chain: robinhoodTestnet, pc: pc as never, bundlerUrl: `${APP}/api/bundler` }, privateKeyToAccount(generatePrivateKey()));
 const me = await sa.address(); console.log("account", me);
 await fetch(`${APP}/api/drip`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: me }) });
+for (let i = 0; i < 100 && (await pc.getBalance({ address: me })) === BigInt(0); i++) await new Promise((r) => setTimeout(r, 200)); // drip mined
 console.log("deploy", (await sa.sendCalls([{ to: d.defaultQuote, data: encodeFunctionData({ abi: erc20, functionName: "mint", args: [me, parseEther("1")] }) }])).txHash);
 const N = +(process.env.N || 3);
 const rs = await Promise.allSettled(Array.from({ length: N }, () => sa.sendCalls([{ to: d.defaultQuote, data: encodeFunctionData({ abi: erc20, functionName: "mint", args: [me, parseEther("1")] }) }])));

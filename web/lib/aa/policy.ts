@@ -29,10 +29,11 @@ export class PolicyError extends Error { code = "SessionPolicy"; }
 
 const lc = (a: string) => a.toLowerCase();
 
+/** Curve-address verdicts survive across trades (a curve stays a curve): no 2 reads per pre-grad trade. */
+const curveOk = new Map<string, boolean>();
 export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionState, calls: Call[], account: Address): Promise<Record<string, bigint>> {
   if (Date.now() > s.expiresAt) throw new PolicyError("Session expired — sign in again to keep one-tap trading.");
   const fixed = new Set([cfg.launchpad, cfg.router, cfg.trampWallManager].map(lc));
-  const curveOk = new Map<string, boolean>();
   async function isCurve(a: Address) {
     if (curveOk.has(lc(a))) return curveOk.get(lc(a))!;
     let ok = false;

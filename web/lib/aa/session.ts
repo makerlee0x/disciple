@@ -260,6 +260,15 @@ export async function endOneTap() {
   return r;
 }
 
+/** Keep the smart account hot: clients + deployment status + fee cache (client) and relayer nonce/fees (server). */
+export async function aaWarm() {
+  if (!sa) return;
+  await Promise.all([
+    sa.warm(),
+    fetch("/api/bundler", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_warm", params: [] }) }).catch(() => undefined),
+  ]);
+}
+
 async function canUseSessionKey(calls: Call[]) {
   if (!sa?.hasSession || !onchain || onchain.validUntil * 1000 < Date.now() + 30_000) return false;
   return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry });
