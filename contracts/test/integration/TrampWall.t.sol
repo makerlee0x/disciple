@@ -67,11 +67,11 @@ contract TrampWallTest is IntegrationBase {
         int24 a = _floor(tick, ts);
         if (sideIsC0) {
             lo = a + ts * off;
-            hi = lo + ts * w;
+            hi = lo + ts * w / w; // audit #6: bands are exactly one tick spacing
         } else {
             hi = a - ts * (off - 1);
             if (hi > a) hi = a;
-            lo = hi - ts * w;
+            lo = hi - ts * w / w; // audit #6
         }
     }
 
@@ -167,7 +167,7 @@ contract TrampWallTest is IntegrationBase {
         (int24 tick, int24 ts,) = _state();
         int24 a = _floor(tick, ts);
         vm.expectRevert(TrampWallManager.NotSingleSided.selector);
-        twm.placeTramp(address(tok), a - ts, a + ts, 100 ether, 0, block.timestamp + 1);
+        twm.placeTramp(address(tok), a, a + ts, 100 ether, 0, block.timestamp + 1);
         vm.expectRevert(TrampWallManager.BadRange.selector);
         twm.placeTramp(address(tok), lo + 1, hi, 100 ether, 0, block.timestamp + 1);
         vm.expectRevert(TrampWallManager.BadRange.selector);
@@ -366,7 +366,7 @@ contract TrampWallReentrancyTest is IntegrationBase {
         int24 a = (tick / ts) * ts;
         if (tick < 0 && tick % ts != 0) a -= ts;
         // tramp side = quote(rq): if token is c0, quote is c1 → below
-        (int24 lo, int24 hi) = tIs0 ? (a - 5 * ts, a - ts) : (a + 2 * ts, a + 6 * ts);
+        (int24 lo, int24 hi) = tIs0 ? (a - 2 * ts, a - ts) : (a + 2 * ts, a + 3 * ts);
         address u = makeAddr("u");
         rq.mint(u, 1_000 ether);
         vm.startPrank(u);
