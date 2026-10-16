@@ -107,6 +107,8 @@ contract LifecycleIntegrationTest is IntegrationBase {
     }
 
     function test_walletCap_7pct_enforced() public {
+        vm.prank(owner);
+        launchpad.setWalletCapBps(700);
         (BondingCurve curve,) = _launch(0, 0);
         _warpPastSnipe();
         vm.startPrank(trader1);

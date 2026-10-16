@@ -46,6 +46,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
 
     uint256 public immutable creatorTaxBps; // immutable at launch (§3 / #12)
     uint256 public immutable quotePriceUsd; // USD WAD per 1e18 raw quote units (from QuotePricer at launch)
+    /// @notice Per-wallet curve holding cap in bps of supply, snapshotted from Launchpad at launch (0 = no cap).
+    uint256 public immutable walletCapBps;
 
     CurveMath.Params private _params;
 
@@ -95,8 +97,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         address antiSnipe_,
         address migration_,
         uint256 creatorTaxBps_,
-        uint256 quotePriceUsd_
+        uint256 quotePriceUsd_,
+        uint256 walletCapBps_
     ) {
+        require(walletCapBps_ <= Constants.BPS_DENOM, "cap");
         require(creatorTaxBps_ <= Constants.CREATOR_TAX_MAX_BPS, "tax");
         token = token_;
         quote = quote_;
@@ -107,6 +111,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         migration = IMigration(migration_);
         creatorTaxBps = creatorTaxBps_;
         quotePriceUsd = quotePriceUsd_;
+        walletCapBps = walletCapBps_;
 
         _params = CurveMath.makeParams(quotePriceUsd_);
     }
@@ -281,9 +286,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         if (tokensOut < minTokensOut) revert Slippage();
         if (tokensOut == 0) revert ZeroAmount();
 
-        // 7% wallet cap on curve only (§2 / #8)
+        // Per-wallet curve holding cap, snapshotted from Launchpad.walletCapBps at launch (0 = no cap).
         uint256 newBal = balanceOnCurve[recipient] + tokensOut;
-        if (newBal > FeeMath.walletCap()) revert WalletCap();
+        if (walletCapBps != 0 && newBal > FeeMath.walletCap(walletCapBps)) revert WalletCap();
         balanceOnCurve[recipient] = newBal;
 
         tokensSold += tokensOut;

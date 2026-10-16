@@ -21,7 +21,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 5 | Architecture | **Option B:** external bonding curve (**single steep Pump-style CPAMM**) + **same-tx** Uniswap v4 migrate (init at curve-end sqrtPriceX96 — **no price jump**; full-range LP owned forever by LockedLP); **no migration pause/gap** | LOCKED 2026-10-15 |
 | 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Pearly Gates); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
 | 7 | Supply on curve | **~72%** sold on curve; **7B** total supply; fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
-| 8 | Wallet cap | **7% max supply per wallet** on bonding curve only (not post-grad); **no wallet exemptions** | LOCKED |
+| 8 | Wallet cap | Per-wallet holding cap on the bonding curve only (not post-grad) = **`Launchpad.walletCapBps`** of supply — default **0 (no cap)**, protocol-owner-settable 0–10000 bps (event `WalletCapSet`), **snapshotted per coin at launch** (`walletCapBpsOf(token)`, immutable in the curve; changes affect future coins only); when set, **no wallet exemptions** (rev. 2026-10-15, was fixed 7%) | LOCKED 2026-10-15 |
 | 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **70% to the community RewardsVault / 30% to treasury** (not 33/33/33/1; rev. 2026-10-15, was 100% LP lock). **Creator launch buy (≤ creatorBuyMaxBps, default 0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
 | 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** lock quote into LP / **33%** treasury / **1%** referral leftover (to treasury if no referrer) | LOCKED |
@@ -108,7 +108,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | Quote pricing | Any ERC-20; USD start/grad converted via quote price at launch |
 
 ### Wallet limits (bonding curve only)
-- **Max 7% of total supply** per wallet while on the bonding curve.
+- Per-wallet cap while on the bonding curve = `walletCapBps` of total supply, snapshotted at launch. **Default 0 = no cap.** The protocol owner sets it with `Launchpad.setWalletCapBps(bps)` (0–10000, emits `WalletCapSet`). Coins launched before a change keep their snapshot (v1–v3 testnet coins keep the old fixed 7%).
 - Cap does **not** apply post-graduation.
 - **No wallet exemptions.**
 
@@ -348,4 +348,5 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - LOCKED #31: defaultQuote=STRATEGY; custom quote via probe.
 - Verified tiers: offchain/indexer; emit LaunchTierContext.
 - **Revisions 2026-10-15 (snipe split):** LOCKED #9 — anti-snipe tax now 70% community RewardsVault / 30% treasury (was 100% LP lock). Requires FeeRouter redeploy (core).
+- **Revisions 2026-10-15 (wallet cap):** LOCKED #8 — the fixed 7% curve wallet cap becomes protocol-owner-settable `walletCapBps` (default 0 = no cap, range 0–10000), snapshotted per coin. Creator-buy cap (#27) unchanged. Requires Launchpad + CurveDeployer (+ AntiSnipe, add-ons) redeploy.
 - **Revisions 2026-10-15 (creator buy cap):** LOCKED #27 — creator-buy cap is now protocol-owner-settable `creatorBuyMaxBps` (default 0.77%, ceiling 7%), snapshotted per coin. Requires Launchpad redeploy (core).

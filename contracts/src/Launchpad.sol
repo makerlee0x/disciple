@@ -55,6 +55,10 @@ contract Launchpad is ILaunchpad {
     uint256 public creatorBuyMaxBps = Constants.CREATOR_BUY_MAX_BPS_DEFAULT;
     /// @notice Cap snapshotted per coin at launch (later changes only affect future coins).
     mapping(address => uint256) public creatorBuyMaxBpsOf;
+    /// @notice Per-wallet bonding-curve holding cap for FUTURE launches, bps of supply (0 = no cap, max 10000).
+    uint256 public walletCapBps = Constants.WALLET_CAP_BPS_DEFAULT;
+    /// @notice walletCapBps snapshotted per coin at launch (immutable in the curve).
+    mapping(address => uint256) public walletCapBpsOf;
 
     error InvalidMetadata();
     error TaxTooHigh();
@@ -66,6 +70,7 @@ contract Launchpad is ILaunchpad {
     error PricerUnset();
     error CurveDeployerUnset();
     error CreatorBuyMaxTooHigh();
+    error WalletCapTooHigh();
 
     event Launched(
         address indexed token,
@@ -82,6 +87,7 @@ contract Launchpad is ILaunchpad {
     event QuoteProbeUpdated(address indexed probe);
     event PricerUpdated(address indexed pricer);
     event CreatorBuyMaxSet(uint256 bps);
+    event WalletCapSet(uint256 bps);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
     event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd);
     /// @notice Emitted at launch for off-chain/indexer tier tracking (no on-chain tier hooks).
@@ -115,6 +121,14 @@ contract Launchpad is ILaunchpad {
         if (bps > Constants.CREATOR_BUY_MAX_BPS_CEILING) revert CreatorBuyMaxTooHigh();
         creatorBuyMaxBps = bps;
         emit CreatorBuyMaxSet(bps);
+    }
+
+    /// @notice Protocol owner sets the per-wallet curve holding cap for FUTURE launches (0 = no cap).
+    function setWalletCapBps(uint256 bps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (bps > Constants.BPS_DENOM) revert WalletCapTooHigh();
+        walletCapBps = bps;
+        emit WalletCapSet(bps);
     }
 
     function setPricer(address pricer_) external {
@@ -162,9 +176,19 @@ contract Launchpad is ILaunchpad {
         if (address(pricer) == address(0)) revert PricerUnset();
         uint256 quotePriceUsd = pricer.quotePriceUsd(quote);
         if (address(curveDeployer) == address(0)) revert CurveDeployerUnset();
+        uint256 wcap = walletCapBps;
+        walletCapBpsOf[address(t)] = wcap;
         BondingCurve curve = BondingCurve(
             curveDeployer.deploy(
-                address(t), quote, msg.sender, feeRouter, antiSnipe, migration, params.creatorTaxBps, quotePriceUsd
+                address(t),
+                quote,
+                msg.sender,
+                feeRouter,
+                antiSnipe,
+                migration,
+                params.creatorTaxBps,
+                quotePriceUsd,
+                wcap
             )
         );
 

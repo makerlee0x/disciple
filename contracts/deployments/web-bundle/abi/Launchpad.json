@@ -621,6 +621,19 @@
   },
   {
     "type": "function",
+    "name": "setWalletCapBps",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "transferCreator",
     "inputs": [
       {
@@ -664,6 +677,38 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "walletCapBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "walletCapBpsOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",
@@ -885,6 +930,19 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "WalletCapSet",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "CreatorBuyMaxTooHigh",
     "inputs": []
@@ -959,6 +1017,11 @@
   {
     "type": "error",
     "name": "TaxTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WalletCapTooHigh",
     "inputs": []
   }
 ]
