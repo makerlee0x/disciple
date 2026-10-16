@@ -84,11 +84,12 @@ export default function TradeBridge({ token }: { token: string }) {
   return (
     <>
     <AmmoTierNotice />
-    <div aria-label="ammo" style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 31, display: "flex", gap: 6,
-      alignItems: "center", flexWrap: "wrap", maxWidth: "92vw", padding: "6px 8px", borderRadius: 12, background: "rgba(8,10,28,.85)",
+    <div aria-label="ammo" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 2,
+      maxWidth: "min(530px, 92vw)", padding: "5px 8px", borderRadius: 12, background: "rgba(8,10,28,.85)",
       border: "1px solid rgba(255,231,163,.35)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
       <select aria-label="ammo size" value={mode} onChange={(e) => setMode(+e.target.value)}
-        style={{ background: "transparent", color: "#ffe7a3", border: "none", fontSize: 12 }}>
+        style={{ background: "transparent", color: "#ffe7a3", border: "none", fontSize: 12, maxWidth: 130 }}>
         {MODES.map((m, i) => <option key={m.key} value={i} style={{ color: "#000" }}>{ammo.names[i] ?? m.name} ${(ammo.usd[i] ?? m.usd).toLocaleString()}</option>)}
       </select>
       {ammo.tier != null && (
@@ -100,9 +101,10 @@ export default function TradeBridge({ token }: { token: string }) {
       )}
       <button type="button" aria-label="buy" onClick={() => shoot("buy")} style={{ ...btn, background: "#1f6f4a", color: "#c8ffe4" }}>▲ FUEL (buy)</button>
       <button type="button" aria-label="sell" onClick={() => shoot("sell")} style={{ ...btn, background: "#7a2236", color: "#ffd0dc" }}>▼ BOMB (sell)</button>
-      <span style={{ fontSize: 11, color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE · wallet signs" : "PAPER · connect wallet to trade"}</span>
-      {preview && <span style={{ fontSize: 11, opacity: 0.75 }}>{preview}</span>}
-      {last && <span style={{ fontSize: 11, color: "#ffe7a3" }}>{last}</span>}
+      <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 6,
+        background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : "PAPER"}</span>
+      </div>
+      {(last || preview) && <div style={{ fontSize: 10, opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
     </>
   );

@@ -16,7 +16,7 @@ const MOCK_CREW = {
   stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
 };
 
-const REWARDS = ["Crew orb rain", "Halo trail skin", "rHALO airdrop ×2", "Choir soundtrack", "Golden wings"];
+const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir soundtrack", "Golden wings"];
 
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
@@ -47,7 +47,7 @@ export default function CrewPanel() {
     <aside
       aria-label="Crew"
       style={{
-        position: "fixed", right: 14, top: 305, zIndex: 30, width: 250,
+        position: "fixed", right: 14, top: "calc(var(--ap-hud-rt, 58px) + 206px)", maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 330px)", overflowY: "auto", zIndex: 30, width: 250,
         padding: 12, borderRadius: 14, background: "rgba(10,12,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
         font: "11px ui-monospace,monospace",

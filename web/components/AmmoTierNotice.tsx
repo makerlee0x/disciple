@@ -30,7 +30,7 @@ export default function AmmoTierNotice() {
   };
   const b = { all: "unset" as const, cursor: "pointer", padding: "4px 10px", borderRadius: 7, fontWeight: 700, fontSize: 11 };
   return (
-    <div role="status" aria-label="ammo tier up" style={{ position: "fixed", bottom: 96, left: "50%", transform: "translateX(-50%)", zIndex: 32,
+    <div role="status" aria-label="ammo tier up" style={{ position: "fixed", bottom: 160, left: "calc(50% + var(--ap-rail-w, 64px) / 2)", transform: "translateX(-50%)", zIndex: 32,
       display: "flex", gap: 10, alignItems: "center", padding: "7px 10px", borderRadius: 11, maxWidth: "92vw",
       background: "rgba(14,12,34,.9)", border: "1px solid rgba(159,243,200,.55)", color: "#eef0ff",
       font: "11px ui-monospace,monospace", boxShadow: "0 6px 24px rgba(0,0,0,.35)", animation: "apAmmoIn .35s ease-out" }}>

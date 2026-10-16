@@ -72,7 +72,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
   if (!graduated) return null;
   return (
     <>
-      <div className="fixed bottom-[72px] left-1/2 z-30 flex -translate-x-1/2 gap-2">
+      <div className="ap-bc z-30 flex gap-2" style={{ bottom: 70 }}>
         <button data-testid="tw-open" onClick={() => setOpen(true)}
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
           🛟 TRAMP / 🧱 WALL
@@ -84,7 +84,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
       </div>
 
       {listOpen && (
-        <div data-testid="tw-list" className="fixed bottom-[124px] left-1/2 z-30 w-[420px] -translate-x-1/2 rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
+        <div data-testid="tw-list" style={{ bottom: 156 }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
           <div className="mb-2 font-display text-base text-[#ffe7a3]">My tramps & walls</div>
           {mine.length === 0 && <div className="text-white/50">None yet — place a trampoline under the rocket.</div>}
           {mine.map((t) => (
