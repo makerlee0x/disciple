@@ -5,7 +5,7 @@ import "server-only";
  * by the EntryPoint from the account's prefund, so it is cost-neutral apart from failed sims (we eth_call first).
  * Stateless (serverless-safe): receipts come from EntryPoint UserOperationEvent logs.
  */
-import { concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
+import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, userOpHash, type UserOp } from "../aa/core";
@@ -28,6 +28,15 @@ const pack = (op: UserOp) => ({
 });
 let implCode: Hex | undefined;
 
+/** Error carrying the inner call's revert data so /api/bundler can return it as JSON-RPC error.data (client decodes it). */
+export class BundlerRpcError extends Error { constructor(msg: string, public data?: Hex) { super(msg); } }
+function estimateError(e: unknown): BundlerRpcError {
+  let data: Hex | undefined;
+  if (e instanceof BaseError) e.walk((x) => { const d = (x as { data?: unknown }).data; if (typeof d === "string" && /^0x[0-9a-fA-F]{8,}$/.test(d)) { data = d as Hex; return true; } return false; });
+  const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message || String(e);
+  return new BundlerRpcError(`execution reverted in simulation${data ? ` (${data.slice(0, 10)})` : ""}: ${m.split("\n")[0].slice(0, 200)}`, data);
+}
+
 export async function selfBundle(method: string, params: unknown[]): Promise<unknown> {
   switch (method) {
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
@@ -43,7 +52,9 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
         if (!implCode) implCode = await pc.getCode({ address: await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: implAbi, functionName: "ACCOUNT_IMPLEMENTATION" }) });
         stateOverride = [{ address: op.sender, code: implCode }];
       }
-      const g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data: op.callData, stateOverride });
+      let g: bigint;
+      try { g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data: op.callData, stateOverride }); }
+      catch (e) { throw estimateError(e); }
       return { callGasLimit: numberToHex(g * BigInt(13) / BigInt(10) + BigInt(20000)), verificationGasLimit: numberToHex(op.factory ? 450000 : 150000), preVerificationGas: numberToHex(60000) };
     }
     case "eth_sendUserOperation": {

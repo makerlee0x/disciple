@@ -6,7 +6,7 @@
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
 import {
-  BaseError, ContractFunctionRevertedError, createPublicClient, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
+  BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
@@ -17,7 +17,7 @@ import type {
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
-import type { Call } from "./aa/core";
+import { AAError, type Call } from "./aa/core";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
 const B = BigInt;
@@ -27,16 +27,39 @@ const wadToNum = (v: bigint) => Number(v) / 1e18;
 /** USD value of `raw` quote units given quotePriceUsd (USD WAD per 1e18 raw units). */
 export const quoteRawToUsd = (raw: bigint, quotePriceUsd: bigint) => Number((raw * quotePriceUsd) / B(1e18)) / 1e18;
 
+const fmtUnits = (v: bigint, dec = 18) => { const d = Number(v) / 10 ** dec; return d >= 1e-4 || d === 0 ? d.toPrecision(4) : d.toExponential(2); };
+
 export class ProtocolError extends Error {
   constructor(public code: string, msg: string) { super(msg); }
 }
 
 /** Map contract custom errors to friendly copy. */
+const ozErrors = parseAbi([
+  "error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)",
+  "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)",
+  "error Error(string)",
+]);
+function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[] } | null {
+  if (!data) return null;
+  for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors] as const) {
+    try { const r = decodeErrorResult({ abi: abi as never, data }); return { errorName: r.errorName, args: r.args as readonly unknown[] | undefined }; } catch { /* next */ }
+  }
+  return null;
+}
+
 export function friendlyError(e: unknown): ProtocolError {
-  if (e instanceof BaseError) {
+  let name: string | undefined, args: unknown[] | undefined;
+  if (e instanceof AAError && e.code === "Estimate") {
+    const d = decodeRevert(e.extra?.revertData as Hex | undefined);
+    if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
+    else return new ProtocolError("Estimate", e.message);
+  }
+  if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
-    const name = rev?.data?.errorName;
-    const args = rev?.data?.args as unknown[] | undefined;
+    name = rev?.data?.errorName;
+    args = rev?.data?.args as unknown[] | undefined;
+  }
+  {
     const M: Record<string, string> = {
       QuoteRejected: `That pair token can't be used${args?.[0] ? ` (${String(args[0])})` : ""}. Pick another quote token.`,
       DefaultQuoteUnset: "Launches are paused: the default pair isn't configured yet.",
@@ -53,8 +76,12 @@ export function friendlyError(e: unknown): ProtocolError {
       InsufficientLiquidity: "Not enough left on the curve for that size.",
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
+      ERC20InsufficientBalance: "Not enough balance for that shot size — top up the quote token or pick a smaller ammo.",
+      ERC20InsufficientAllowance: "Approval too small for that shot size.",
+      Error: args?.[0] ? String(args[0]) : "reverted",
     };
-    if (name) return new ProtocolError(name, M[name] || name);
+    const pre = e instanceof AAError && e.code === "Estimate" ? "simulation: " : "";
+    if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
   return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e));
@@ -270,6 +297,15 @@ export function createViemProtocol(): ProtocolClient {
       } else {
         target = curve;
         data = encodeFunctionData({ abi: bondingCurveAbi, functionName: side, args: [t.amountIn, minOut, deadline, recipient] });
+      }
+      // Preflight: an underfunded spend otherwise surfaces only as an opaque eth_estimateUserOperationGas failure.
+      const have = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });
+      if (have < t.amountIn) {
+        const [sym, dec] = await Promise.all([
+          pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "symbol" }).catch(() => "token"),
+          pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "decimals" }).catch(() => 18),
+        ]);
+        throw new ProtocolError("InsufficientBalance", `not enough ${sym}: need ${fmtUnits(t.amountIn, Number(dec))} have ${fmtUnits(have, Number(dec))}`);
       }
       const calls = [...(await approveCall(me, spendAsset, target, t.amountIn)), { to: target, data }];
       const r = await execCalls(calls);
