@@ -20,7 +20,7 @@ export interface LaunchCoinParams {
   creatorTaxPct: number; // 0–7, immutable at launch
   description?: string;
   socials?: { twitter?: string; telegram?: string; website?: string };
-  creatorBuyPct?: number; // max 0.77% of supply (UI hint)
+  creatorBuyPct?: number; // UI hint; on-chain limit is Launchpad.creatorBuyMaxBps() (v3 default 77 = 0.77% of supply)
   /** Optional same-tx creator buy, in quote raw units (decimals per quote token). */
   creatorBuyQuoteIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */

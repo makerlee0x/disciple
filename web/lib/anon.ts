@@ -7,10 +7,11 @@ import { keccak256, toHex, hexToBigInt, numberToHex, pad, type Hex, type Address
 import { publicKeyToAddress } from "viem/accounts";
 import { secp256k1 } from "@noble/curves/secp256k1";
 
+/** Add-ons for RH testnet 46630 — AnonLauncher/MarketLens from web-bundle @ 27e92d8; announcer is the ERC-5564 singleton (on-chain AnonLauncher.announcer()). */
 export const ANON_ADDONS: Record<number, { anonLauncher: Address; marketLens: Address; announcer: Address }> = {
   46630: {
-    anonLauncher: "0x722a7927B5496b10C58e50628ab7787f1Eec0696",
-    marketLens: "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9",
+    anonLauncher: "0xd38e9DB3790e4587f97D0541943CF5a0239F1870",
+    marketLens: "0x4683F586aD2F70443f74f40751D202494EC9d0Ed",
     announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
   },
 };

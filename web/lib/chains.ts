@@ -90,25 +90,25 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (FLOW redeploy v2 2026-10-15, PR #10 9d9c311).
-  // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env.
+  // Testnet — source of truth: contracts/deployments/web-bundle @ 27e92d8 (FLOW combined redeploy v3, startBlock 136187963).
+  // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
-    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006"),
-    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0x40Cb2f2a91eD48B013D88dA410Bb7F66Baa280C4"),
-    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9"),
-    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0x13F813cFb0B14EFd01EB5026A92420b0A84C346C"),
-    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x1e124C3654B9880FBB6459ecfabE05E69058fcC2"),
-    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0xc2D4c8796A8753c61c77bC65AE523DDecd1dF5e3"),
-    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0xf2258181F75d3B7D74FDCeD6D116CC1D5e379778"),
-    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0xC3C18ebCBE5E66300dA35c6046a0B3c40dB38bbf"),
-    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0xFabc75DF0996083FC05fF7D63e8f11eF20421684"),
-    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0x0af141f678677293ca1B8B0a0ba6078888CeCC7A"),
-    trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0x901B5059BEE5aFd94C38069d6B10d5890ED533bd"),
-    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9"),
+    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0xf5c09182091e527f0445ce065f7fc59d4b55cede"),
+    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0xbc13b0bb1b18f479872f52dcddc840b8041300c4"),
+    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xCfb16275fCbcF124dDe54F3dbc36ddC684111564"),
+    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xf04f7d3b54f86cc5333e7e2302850b023c796e69"),
+    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x633be77ee01aafb35297950d88168ca052e1f9ac"),
+    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x09cdfa29e3a25c91c7807ef779b0e376d5f1fd11"),
+    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0x37427357b6d0db92137872d6b7d17c9cede72c40"),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0xeec226531767a8da505af01f11399ebb3dc9ca36"),
+    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0x67830dba366f2ae12cb7285d50cb22a721549285"),
+    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0x44afe78fc0ef4578d1d1d461b2eb23585615209a"),
+    trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0xCCD9c94D7d4877fb487b01960C77917f6Df2F3fE"),
+    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x4683F586aD2F70443f74f40751D202494EC9d0Ed"),
     ...RH_V4,
-    defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec)
+    defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec; reused from v1)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
-    fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "136100595"),
+    fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "136187963"),
   },
   [anvil.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_ANVIL_LAUNCHPAD),
@@ -131,10 +131,13 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
   },
 };
 
-/** Smoke-test coins on the current testnet deploy (rh-testnet-46630.json → smoke). */
+/** Smoke-test coins on the current testnet deploy (web-bundle @ 27e92d8 → smoke). */
 export const TESTNET_COINS = {
-  /** test-STRATEGY coin, graduated to v4 (has tramp/wall smoke positions) */
-  graduated: "0xfa86b94d37cba24910bd68426c5c0ace683d6628" as Address,
+  /**
+   * v3 smoke coin (graduated to v4). Old v2 graduated coin 0xfa86…6628 is stale —
+   * do not send new launches to the v2 stack (SEC-01).
+   */
+  graduated: "0xcac8A9654dE3aE01470fC9E93e58fb97d5B86bb3" as Address,
 };
 
 const CHAINS = { [robinhood.id]: robinhood, [robinhoodTestnet.id]: robinhoodTestnet, [anvil.id]: anvil } as const;
