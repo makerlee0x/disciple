@@ -13,7 +13,8 @@
     "test:pnl": "node scripts/test-pnl.mjs",
     "test:trail": "node scripts/test-trail.mjs",
     "test:chat": "node scripts/test-chat.mjs",
-    "test:sim": "node scripts/test-sim.mjs"
+    "test:sim": "node scripts/test-sim.mjs",
+    "test:share-pnl": "node scripts/test-share-pnl.mjs"
   },
   "dependencies": {
     "@account-kit/signer": "^4.88.5",

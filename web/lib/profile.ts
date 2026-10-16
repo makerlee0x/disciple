@@ -4,6 +4,7 @@
  * Static preview (no API) falls back to browser-only storage and says so.
  */
 import { IS_STATIC_PREVIEW } from "./base-path";
+import { refLink } from "./referral";
 
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
@@ -27,9 +28,9 @@ export const rememberReferrer = (u: string) => { if (!get(K.ref)) set(K.ref, nor
 export const referrer = () => get(K.ref);
 
 export function profileUrl(username: string) { return `/u/${encodeURIComponent(normalizeUsername(username))}`; }
-export function referralUrl(username: string) {
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://disciple.vip";
-  return `${origin}${profileUrl(username)}?ref=1`;
+/** Ref link: /r/<username> (wallet fallback). Legacy /u/<name>?ref=1 links still record the referrer. */
+export function referralUrl(username: string | null, wallet?: string | null) {
+  return refLink(username ? normalizeUsername(username) : null, wallet);
 }
 
 export async function checkUsername(u: string): Promise<{ available: boolean; reason?: string }> {

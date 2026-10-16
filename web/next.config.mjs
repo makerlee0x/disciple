@@ -18,6 +18,8 @@ const nextConfig = {
   experimental: {
     // server-side moderation fallback (pure-JS tfjs + nsfwjs) and image normalisation
     serverComponentsExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs"],
+    // share card reads the Geist woff files at runtime
+    outputFileTracingIncludes: { "/api/share/card": ["./app/fonts/**"] },
   },
   env: isStatic
     ? {

@@ -10,6 +10,14 @@ import {
 } from "viem";
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
+import { referrerWallet } from "./referral";
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address;
+const referralRegistryAbi = parseAbi([
+  "function referrerOf(address wallet) view returns (address)",
+  "function pendingReferrer(address wallet) view returns (address)",
+  "function tryAttribute(address wallet, address referrer) returns (bool)",
+]);
 import { CURVE, TIERS } from "./config";
 import { applySlippage, type CurveParams } from "./curveMath";
 import type {
@@ -273,6 +281,26 @@ export function createViemProtocol(): ProtocolClient {
     return out;
   }
 
+  /**
+   * Referrer (from /r/<name>, lib/referral) → chain. Neither BondingCurve.buy nor DiscipleRouter.buyExactIn takes a
+   * referrer arg: FeeRouter pays the trader's ReferralRegistry.referrerOf(trader). So on a buy we prepend
+   * ReferralRegistry.tryAttribute(me, ref) once, only when nothing is pending/attributed (it reverts otherwise).
+   * Opt-in via NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1 until contracts confirm who may call tryAttribute.
+   */
+  async function referralCall(me: Address): Promise<{ to: Address; data: Hex }[]> {
+    const reg = deployment().referralRegistry;
+    const ref = referrerWallet(me);
+    if (process.env.NEXT_PUBLIC_REFERRAL_ATTRIBUTE !== "1" || !ref || reg === ZERO_ADDR) return [];
+    try {
+      const [cur, pending] = await Promise.all([
+        pc.readContract({ address: reg, abi: referralRegistryAbi, functionName: "referrerOf", args: [me] }),
+        pc.readContract({ address: reg, abi: referralRegistryAbi, functionName: "pendingReferrer", args: [me] }),
+      ]);
+      if (cur !== ZERO_ADDR || pending !== ZERO_ADDR) return [];
+      return [{ to: reg, data: encodeFunctionData({ abi: referralRegistryAbi, functionName: "tryAttribute", args: [me, ref] }) }];
+    } catch { return []; }
+  }
+
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
@@ -307,7 +335,7 @@ export function createViemProtocol(): ProtocolClient {
         ]);
         throw new ProtocolError("InsufficientBalance", `not enough ${sym}: need ${fmtUnits(t.amountIn, Number(dec))} have ${fmtUnits(have, Number(dec))}`);
       }
-      const calls = [...(await approveCall(me, spendAsset, target, t.amountIn)), { to: target, data }];
+      const calls = [...(side === "buy" ? await referralCall(me) : []), ...(await approveCall(me, spendAsset, target, t.amountIn)), { to: target, data }];
       const r = await execCalls(calls);
       return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut };
     } catch (e) {
