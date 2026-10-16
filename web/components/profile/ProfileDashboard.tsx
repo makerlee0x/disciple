@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { localUsername } from "@/lib/profile";
 import BrandedRocket from "@/components/BrandedRocket";
 import {
   BarChart, Donut, Gauge, Heatmap, Histogram, LineChart,
@@ -8,7 +9,12 @@ import {
 } from "./Charts";
 import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
 import { fmtUsd } from "@/lib/config";
-import { identityRuleText } from "@/lib/identity";
+import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
+import { prestigeFromPoints } from "@/lib/prestige";
+import { withBase } from "@/lib/base-path";
+import ProfileIdentity from "./ProfileIdentity";
+import CashPanel from "./CashPanel";
+import SettingsPanel from "./SettingsPanel";
 
 function fmtKpi(v: number, format: string) {
   if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
@@ -30,8 +36,20 @@ function fmtRing(v: number, format: string) {
 
 type SortKey = "ticker" | "tier" | "entries" | "pnl" | "winRate" | "avgHold" | "bombs";
 
-export default function ProfileDashboard() {
-  const [persona, setPersona] = useState<PersonaId>("believer");
+/** Deterministic sample stats for a username (until the indexer serves real history). */
+function samplePersonaFor(username?: string): PersonaId {
+  if (!username) return "believer";
+  const ids = Object.keys(PERSONAS) as PersonaId[];
+  let h = 0;
+  for (const c of username) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return ids[h % ids.length];
+}
+
+export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
+  const isPrivate = mode === "private";
+  const persona = samplePersonaFor(username);
+  const [me, setMe] = useState("");
+  useEffect(() => { if (isPrivate) setMe(localUsername()); }, [isPrivate]);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "pnl", dir: "desc" });
   const data = useMemo(() => buildPersonaStats(persona), [persona]);
   const { identity } = data;
@@ -58,30 +76,31 @@ export default function ProfileDashboard() {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
 
   const border = data.rank.border;
+  const badge = PERSONA_BADGES[personaBadge(identity)];
+  const prestige = prestigeFromPoints(data.points);
 
   return (
     <div className="profile-page">
       <header className="profile-head">
         <div>
-          <h1>Profile</h1>
-          <div className="sub">HALO PILOT · DASHBOARD</div>
-        </div>
-        <div className="persona-switch" role="tablist" aria-label="Sample persona">
-          {(Object.keys(PERSONAS) as PersonaId[]).map((id) => (
-            <button key={id} type="button" role="tab" aria-selected={persona === id}
-              className={persona === id ? "on" : ""} onClick={() => setPersona(id)}>
-              {PERSONAS[id].label}
-            </button>
-          ))}
+          <h1>{isPrivate ? "Your Profile" : `@${username}`}</h1>
+          <div className="sub">{isPrivate ? "PRIVATE · ONLY YOU SEE CASH & SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
         </div>
       </header>
-      <span className="tag mock">{SAMPLE_DATA_LABEL}</span>
+      {isPrivate && <ProfileIdentity />}
+      {isPrivate && <CashPanel />}
+      <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
       <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(255,220,150,0.12)` }}>
         <div className="banner-frame" style={{ borderColor: border }}>
           <div className="banner-rocket"><BrandedRocket height={160} icon={data.showcaseIcon} /></div>
           <div className="banner-meta">
-            <div className="banner-handle">{data.handle}</div>
+            <div className="banner-handle">{isPrivate ? (me ? `@${me}` : data.handle) : `@${username}`}</div>
+            <div className="persona-badge" title={`${badge.label} — earned from your playstyle. ${badge.blurb}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={withBase(badge.icon)} alt="" width={28} height={28} />
+              <span>{badge.label}</span>
+            </div>
             <div className="banner-title" title={identityRuleText(identity.primary.id)}>{identity.primary.label}</div>
             <div className="banner-tags">
               {identity.secondary.map((t) => (
@@ -91,16 +110,17 @@ export default function ProfileDashboard() {
             <p className="banner-blurb">{identity.primary.blurb}</p>
             <div className="banner-rank">
               <span className="rank-pill" style={{ borderColor: border, color: border }}>{data.rank.label}</span>
-              <span className="muted">Season rank · {data.points.toLocaleString()} pts</span>
+              <span className="muted">Rank tier · {data.points.toLocaleString()} pts</span>
             </div>
           </div>
           <div className="banner-level">
-            <div className="level-badge" style={{ borderColor: border }}>
-              <span className="lvl">LVL</span><span className="num">{data.level.level}</span>
+            <div className="level-badge" style={{ borderColor: border }} title={`Prestige ${prestige.prestige} · ${prestige.prestigeName}`}>
+              <span className="lvl">P{prestige.prestige} · LVL</span><span className="num">{prestige.level}</span>
             </div>
-            <div className="xp-bar">
-              <div className="xp-fill" style={{ width: `${data.level.progress * 100}%` }} />
-              <span>{data.level.xpInto.toLocaleString()} / {data.level.xpNeed.toLocaleString()} XP</span>
+            <div className="prestige-name">{prestige.prestigeName} prestige</div>
+            <div className="xp-bar" title={`Next: ${prestige.nextLabel}`}>
+              <div className="xp-fill" style={{ width: `${prestige.progress * 100}%` }} />
+              <span>{prestige.into.toLocaleString()} / {prestige.need.toLocaleString()} pts → {prestige.nextLabel}</span>
             </div>
             <div className="top-badges">
               {data.topBadges.length === 0 ? <span className="muted">No badges unlocked yet</span> : data.topBadges.map((b) => (
@@ -225,6 +245,7 @@ export default function ProfileDashboard() {
           ))}
         </ul>
       </section>
+      {isPrivate && <SettingsPanel />}
     </div>
   );
 }

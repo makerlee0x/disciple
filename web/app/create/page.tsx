@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PSEUDONYMOUS_COPY } from "@/lib/anon";
-import { CURVE, MODERATION, QUOTE_PRESETS, STRATEGY_TOKEN, type ModerationVerdict } from "@/lib/config";
-import { contrastWarning, loadIcon } from "@/lib/decal";
-import { iconDataUri, precheckWithin, preloadModeration } from "@/lib/moderation-client";
-import RocketStudio from "@/components/RocketStudio";
-import { DEFAULT_QUOTE, protocolStub, type Address } from "@/lib/protocol";
-import { ZERO, deployment, isDeployed } from "@/lib/chains";
+import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
+import { contrastWarning } from "@/lib/decal";
+import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
+import BrandedRocket from "@/components/BrandedRocket";
+import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
+import PairPicker from "@/components/create/PairPicker";
+import { protocolStub, type Address } from "@/lib/protocol";
+import { deployment, isDeployed } from "@/lib/chains";
+import { recommendedPairs } from "@/lib/pairs";
+import { randomRocketName } from "@/lib/rocketNames";
+import { activeAddress, execCalls } from "@/lib/wallet";
+import { launchpadAbi } from "@/lib/abi";
+import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
@@ -21,24 +28,32 @@ export default function LaunchRocketPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [callSign, setCallSign] = useState("");
-  const [image, setImage] = useState(""); // URL input (optional if a file is uploaded)
   const [file, setFile] = useState<File | null>(null);
-  const [iconSrc, setIconSrc] = useState<CanvasImageSource | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [ox, setOx] = useState(0);
-  const [oy, setOy] = useState(0);
+  const [iconSrc, setIconSrc] = useState<HTMLImageElement | null>(null);
+  const [crop, setCrop] = useState({ x: 0.5, y: 0.5 });
   const [contrast, setContrast] = useState<string | null>(null);
   const [mod, setMod] = useState<{ state: "idle" | "checking" | ModerationVerdict; uri?: string; note?: string }>({ state: "idle" });
-  const opts = useMemo(() => ({ zoom, ox, oy }), [zoom, ox, oy]);
   const [advanced, setAdvanced] = useState(false);
-  const [quoteSym, setQuoteSym] = useState<string>(STRATEGY_TOKEN.symbol);
-  const [customQuote, setCustomQuote] = useState("");
+  const defaultPair = useMemo(() => recommendedPairs()[0], []);
+  const [quote, setQuote] = useState<{ address: Address | null; label: string }>({ address: defaultPair?.address ?? null, label: defaultPair?.symbol ?? "" });
+  const [twitter, setTwitter] = useState("");
+  const [website, setWebsite] = useState("");
+  const [feeReceiver, setFeeReceiver] = useState("");
+  const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
   const [pseudonymous, setPseudonymous] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const blocked = mod.state === "block";
   useEffect(() => { preloadModeration(); }, []);
+  // Fresh random name every page open.
+  useEffect(() => { setName(randomRocketName()); }, []);
+  // Square crop → decal preview (debounced while dragging).
+  useEffect(() => {
+    if (!iconSrc) { setCroppedUri(null); return; }
+    const t = setTimeout(() => setCroppedUri(cropSquare(iconSrc, crop)), 120);
+    return () => clearTimeout(t);
+  }, [iconSrc, crop]);
 
   async function onPickFile(f: File | null) {
     setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" });
@@ -51,6 +66,7 @@ export default function LaunchRocketPage() {
     const img = new Image();
     img.src = url;
     try { await img.decode(); } catch { return setMod({ state: "block", note: "Not a readable image." }); }
+    setCrop({ x: 0.5, y: 0.5 });
     setIconSrc(img);
     setContrast(contrastWarning(img));
     // Fast client check (model preloaded on mount, hard 3s timeout). Explicit → block.
@@ -62,7 +78,7 @@ export default function LaunchRocketPage() {
       setIconSrc(null); setContrast(null);
       return setMod({ state: "block", note: `Rejected by image check (${ms} ms).` });
     }
-    const uri = iconDataUri(img);
+    const uri = cropSquare(img, { x: 0.5, y: 0.5 });
     const pending = !pre || pre === "timeout" || pre.verdict === "review";
     setMod({ state: "allow", uri, note: pending ? `pending server review (${ms} ms)` : `approved in ${ms} ms` });
     // Async authoritative server check; only an explicit server block revokes approval.
@@ -73,24 +89,6 @@ export default function LaunchRocketPage() {
         .then((r) => { if (r?.verdict === "block") { setIconSrc(null); setContrast(null); setMod({ state: "block", note: "Rejected by server review." }); } })
         .catch(() => { /* server unavailable: keep client verdict (testnet) */ });
     }
-  }
-
-  // URL icons (no upload): preview only; launching still requires an uploaded, moderated file.
-  useEffect(() => {
-    if (file || !image.trim()) return;
-    let alive = true;
-    const t = setTimeout(() => loadIcon(image.trim()).then((ic) => { if (alive) { setIconSrc(ic); setContrast(ic ? contrastWarning(ic) : null); } }), 400);
-    return () => { alive = false; clearTimeout(t); };
-  }, [image, file]);
-
-  function resolveQuote(): Address | null {
-    if (!advanced) return DEFAULT_QUOTE;
-    if (quoteSym === "CUSTOM") return isAddr(customQuote) ? (customQuote as Address) : null;
-    // Active-chain addresses win (testnet: test STRATEGY / mUSDG).
-    if (quoteSym === "STRATEGY") return deployment().defaultQuote;
-    if (quoteSym === "USDG" && deployment().usdg !== ZERO) return deployment().usdg;
-    const p = QUOTE_PRESETS.find((q) => q.symbol === quoteSym);
-    return p && isAddr(p.address) ? (p.address as Address) : null;
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -109,20 +107,45 @@ export default function LaunchRocketPage() {
       setMsg(`Creator tax must be 0–${CURVE.creatorTaxMaxPct}%.`);
       return;
     }
-    const quote = resolveQuote();
-    if (!quote) {
-      setMsg("Pick a pair with a valid ERC-20 address (TODO: preset addresses pending).");
+    const quoteAddr = quote.address;
+    if (!quoteAddr) {
+      setMsg("Pick a pair or paste a valid ERC-20 address.");
       return;
     }
+    const fr = feeReceiver.trim();
+    if (fr && !isAddr(fr)) {
+      setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
+      return;
+    }
+    const web = website.trim();
+    if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
+      setMsg("Website must start with https://");
+      return;
+    }
+    // Moderated at center; launch with the user's chosen square crop of the same approved image.
+    const imageUri = iconSrc ? cropSquare(iconSrc, crop) : mod.uri;
     try {
       const client = isDeployed() ? createViemProtocol() : protocolStub;
       const res = await client.launchCoin({
         name: name.trim(),
         ticker: callSign.trim().toUpperCase(),
-        imageUri: mod.uri, // moderated URI only — contracts store this metadata URI
-        quoteToken: quote,
+        imageUri, // square crop of the moderated upload
+        quoteToken: quoteAddr,
         creatorTaxPct: effTax,
+        socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
       });
+      if (fr && isDeployed()) {
+        const me = await activeAddress();
+        if (fr.toLowerCase() !== me.toLowerCase()) {
+          setMsg(`🚀 Launched ${res.token}. Assigning fee receiver ${fr.slice(0, 8)}… (one more confirmation)`);
+          try {
+            await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
+          } catch (err) {
+            setMsg(`🚀 Launched ${res.token}, but setting the fee receiver failed: ${String((err as Error).message).split("\n")[0]}. You can retry from the rocket page later.`);
+            return;
+          }
+        }
+      }
       setMsg(`🚀 Launched! Rocket ${res.token} — taking you to it…`);
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
@@ -135,44 +158,78 @@ export default function LaunchRocketPage() {
       <h1>Launch a Rocket</h1>
       <div className="sub">EVERYONE ABOARD FLIES TOGETHER · PRICES IN $</div>
       <span className="tag mock">{isDeployed() ? `ON-CHAIN · ${deployment() && "Robinhood Chain testnet"} · connect wallet (top right)` : "MOCK FORM · NOT ON-CHAIN YET"}</span>
-      <form className="card space-y-4" onSubmit={onSubmit}>
-        <label className="block">
-          <span className={labelCls}>ROCKET NAME *</span>
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
-        </label>
-        <label className="block">
-          <span className={labelCls}>CALL SIGN *</span>
-          <input className={inputCls} value={callSign} onChange={(e) => setCallSign(e.target.value)} placeholder="AI" maxLength={10} />
-        </label>
-        <label className="block">
-          <span className={labelCls}>ROCKET ICON * (PNG/JPG/WEBP/GIF · ≤2 MB)</span>
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" className={inputCls} onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
-        </label>
-        <label className="block">
-          <span className={labelCls}>…or preview an icon URL</span>
-          <input className={inputCls} value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" disabled={!!file} />
-        </label>
-        {mod.state === "checking" && <p className="text-xs text-[#ffe7a3]">Checking image…</p>}
-        {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]">✓ Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
-        {blocked && (
-          <p role="alert" className="rounded-lg border border-[rgba(255,120,140,.5)] bg-[rgba(50,10,20,.6)] p-3 text-sm text-[#ffb0c0]">
-            This image can&apos;t be used. Please pick a different one.{mod.note ? ` (${mod.note})` : ""}
-          </p>
-        )}
-        {mod.state === "review" && <p className="text-xs text-[#ffd98a]">Held for review — you can launch once it&apos;s cleared.{mod.note ? ` ${mod.note}` : ""}</p>}
-        {mod.state === "allow" && <p className="text-xs text-[#9ff3c8]">✓ Icon approved</p>}
-
-        {!blocked && (
-          <div className="space-y-2">
-            <RocketStudio icon={iconSrc} opts={opts} />
-            <div className="grid grid-cols-3 gap-2 text-[11px] text-[#ffe7a3]">
-              <label>ZOOM {zoom.toFixed(2)}×<input type="range" min={1} max={3} step={0.05} value={zoom} onChange={(e) => setZoom(+e.target.value)} className="w-full" /></label>
-              <label>OFFSET X<input type="range" min={-1} max={1} step={0.05} value={ox} onChange={(e) => setOx(+e.target.value)} className="w-full" /></label>
-              <label>OFFSET Y<input type="range" min={-1} max={1} step={0.05} value={oy} onChange={(e) => setOy(+e.target.value)} className="w-full" /></label>
+      <form className="card create-form" onSubmit={onSubmit}>
+        <div className="create-grid">
+          <div className="space-y-4">
+            <label className="block">
+              <span className={labelCls}>ROCKET NAME *</span>
+              <div className="pid-edit" style={{ flexWrap: "nowrap" }}>
+                <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
+                <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={() => setName(randomRocketName())}>🎲 Shuffle</button>
+              </div>
+            </label>
+            <label className="block">
+              <span className={labelCls}>CALL SIGN * <span className="normal-case opacity-70">— your $TICKER, e.g. $AI for Artificial Inu</span></span>
+              <div className="ticker-input">
+                <span>$</span>
+                <input className={inputCls} value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="AI" maxLength={10} />
+              </div>
+            </label>
+            <div className="block">
+              <span className={labelCls}>ROCKET ICON * <span className="normal-case opacity-70">square · PNG/JPG/WEBP/GIF · ≤2 MB</span></span>
+              <label className="upload-drop">
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" className="sr-only" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
+                <span>{file ? `${file.name} · click to replace` : "Click to upload an image"}</span>
+              </label>
+              {iconSrc && !blocked && (
+                <div className="crop-row">
+                  <SquareCrop img={iconSrc} pos={crop} onChange={setCrop} />
+                  <span className="muted tiny">Images are always cropped square. Drag to choose what shows on your hull.</span>
+                </div>
+              )}
+              {mod.state === "checking" && <p className="text-xs text-[#ffe7a3]">Checking image…</p>}
+              {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]">✓ Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
+              {blocked && (
+                <p role="alert" className="ds-msg bad">
+                  This image can&apos;t be used. Please pick a different one.{mod.note ? ` (${mod.note})` : ""}
+                </p>
+              )}
+              {mod.state === "review" && <p className="text-xs text-[#ffd98a]">Held for review — you can launch once it&apos;s cleared.{mod.note ? ` ${mod.note}` : ""}</p>}
+              {contrast && <p className="text-xs text-[#ffd98a]">⚠ {contrast}</p>}
             </div>
-            {contrast && <p className="text-xs text-[#ffd98a]">⚠ {contrast}</p>}
           </div>
-        )}
+
+          <div className="staging" aria-label="Rocket on the staging block">
+            <div className="staging-sky" />
+            <div className="staging-tower"><span /><span /><span /><span /></div>
+            <div className="staging-rocket"><BrandedRocket height={240} icon={croppedUri} /></div>
+            <div className="staging-block"><span>{callSign ? `$${callSign}` : "$TICKER"}</span></div>
+            <div className="staging-label">{name || "Your rocket"} · READY FOR LAUNCH</div>
+          </div>
+        </div>
+
+        <div className="block">
+          <span className={labelCls}>PAIR WITH *</span>
+          <PairPicker value={quote.address} onChange={(address, label) => setQuote({ address, label })} />
+          {quote.address && <p className="muted tiny">Paired with <strong className="text-[#fff7df]">{quote.label}</strong> · {quote.address}</p>}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block">
+            <span className={labelCls}>X / SOCIAL LINK <span className="normal-case opacity-70">(optional)</span></span>
+            <input className={inputCls} value={twitter} onChange={(e) => setTwitter(e.target.value)} placeholder="@handle or https://x.com/…" maxLength={80} />
+          </label>
+          <label className="block">
+            <span className={labelCls}>WEBSITE <span className="normal-case opacity-70">(optional)</span></span>
+            <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" maxLength={120} />
+          </label>
+        </div>
+
+        <label className="block">
+          <span className={labelCls}>FEE RECEIVER WALLET <span className="normal-case opacity-70">(optional — defaults to the deployer)</span></span>
+          <input className={`${inputCls} font-mono`} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="0x… (leave empty to receive fees yourself)" />
+          <span className="muted tiny block mt-1">Set via Launchpad.transferCreator right after launch (one extra confirmation). That wallet becomes the rocket&apos;s creator and receives creator fees.</span>
+        </label>
 
         <button
           type="button"
@@ -180,26 +237,12 @@ export default function LaunchRocketPage() {
           onClick={() => setAdvanced((a) => !a)}
           className="flex w-full items-center justify-between rounded-xl border border-[rgba(255,231,163,.25)] px-3 py-2 text-xs tracking-wider text-[#ffe7a3]"
         >
-          <span>ADVANCED · pair &amp; creator tax</span>
+          <span>ADVANCED · creator tax &amp; pseudonymous</span>
           <span>{advanced ? "▲ ON" : "▼ OFF"}</span>
         </button>
 
         {advanced && (
           <div className="space-y-4 rounded-xl border border-[rgba(255,231,163,.2)] p-3">
-            <label className="block">
-              <span className={labelCls}>PAIRED QUOTE TOKEN (any ERC-20)</span>
-              <select className={inputCls} value={quoteSym} onChange={(e) => setQuoteSym(e.target.value)}>
-                {QUOTE_PRESETS.map((q) => (
-                  <option key={q.symbol} value={q.symbol}>
-                    {q.symbol} {(() => { const a = q.symbol === "STRATEGY" ? deployment().defaultQuote : q.symbol === "USDG" && deployment().usdg !== ZERO ? deployment().usdg : q.address; return a ? `· ${a.slice(0, 6)}…${a.slice(-4)}` : ""; })()} ({q.note})
-                  </option>
-                ))}
-                <option value="CUSTOM">Custom ERC-20 address…</option>
-              </select>
-            </label>
-            {quoteSym === "CUSTOM" && (
-              <input className={inputCls} value={customQuote} onChange={(e) => setCustomQuote(e.target.value)} placeholder="0x…" />
-            )}
             <label className="block">
               <span className={labelCls}>CREATOR TAX (0–{CURVE.creatorTaxMaxPct}%, immutable)</span>
               <input type="number" min={0} max={CURVE.creatorTaxMaxPct} step={0.1} className={inputCls} value={tax} onChange={(e) => setTax(+e.target.value)} />
@@ -221,7 +264,7 @@ export default function LaunchRocketPage() {
         <details className="text-xs text-[rgba(220,228,255,.7)]">
           <summary className="cursor-pointer">What am I launching?</summary>
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
-          {advanced ? "" : ` paired with ${STRATEGY_TOKEN.symbol} (${deployment().defaultQuote})`}. Fuel/ammo buys it; brake/bomb sells it.
+          {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. Fuel/ammo buys it; brake/bomb sells it.
         </details>
         <button
           type="submit"
@@ -230,7 +273,7 @@ export default function LaunchRocketPage() {
           {isDeployed() ? "🚀 Launch Rocket on-chain (testnet)" : "🚀 Launch Rocket (UI only)"}
         </button>
         {msg && (
-          <p className="rounded-lg border border-[rgba(255,180,100,.4)] bg-[rgba(40,20,10,.5)] p-3 text-sm text-[#ffd0a0]">{msg}</p>
+          <p role="status" className={`ds-msg ${msg.startsWith("🚀") ? "ok" : "bad"}`}>{msg}</p>
         )}
       </form>
     </div>

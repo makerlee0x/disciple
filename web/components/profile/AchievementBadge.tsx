@@ -1,5 +1,6 @@
 import type { AchievementDef } from "@/lib/achievements";
-import { achievementDisplay, rarityStyle } from "@/lib/achievements";
+import { achievementDisplay, achievementIconPath, rarityStyle } from "@/lib/achievements";
+import { withBase } from "@/lib/base-path";
 
 /** Small square colored trophy badge (leaderboard rows, profile chips). */
 export default function AchievementBadge({ a, size = 22 }: { a: AchievementDef; size?: number }) {
@@ -16,9 +17,13 @@ export default function AchievementBadge({ a, size = 22 }: { a: AchievementDef; 
         borderColor: r.border,
         boxShadow: `0 0 8px ${r.glow}`,
         fontSize: size * 0.55,
+        padding: 0,
+        overflow: "hidden",
       }}
+      data-fallback={d.icon}
     >
-      {d.icon}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={withBase(achievementIconPath(a.id))} alt={a.name} width={size} height={size} style={{ display: "block", width: "100%", height: "100%" }} />
     </span>
   );
 }

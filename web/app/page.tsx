@@ -512,12 +512,13 @@ export default function HomePage() {
         </div>
       </section>
 
-      <main style={{ maxWidth: 1180, margin: "-40px auto 40px", padding: "0 24px", position: "relative", zIndex: 5 }}>
+      <main style={{ maxWidth: 1180, margin: "20px auto 40px", padding: "0 24px", position: "relative", zIndex: 5 }}>
         <div
           style={{
             display: "flex",
+            flexWrap: "wrap",
             alignItems: "baseline",
-            gap: 14,
+            gap: "6px 14px",
             margin: "0 0 12px",
           }}
         >

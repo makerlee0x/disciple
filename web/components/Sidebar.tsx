@@ -11,7 +11,6 @@ const NAV = [
   { href: "/rocket", key: "upgrade", label: "Upgrade Rocket", icon: "upgrade" },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leader" },
   { href: "/achievements", key: "ach", label: "Achievements", icon: "ach" },
-  { href: "/wallet", key: "wallet", label: "Wallet / Deposit", icon: "wallet" },
 ] as const;
 
 function Icon({ name }: { name: string }) {
@@ -161,10 +160,16 @@ function Wings() {
 
 
 
+/** Only chart / flight (game) routes may collapse the sidebar. Launchpad, create, profile,
+ * leaderboard, achievements etc. are always expanded on desktop (mobile keeps a drawer). */
+export function isCollapsibleRoute(pathname: string) {
+  return pathname.startsWith("/coin/") || pathname.startsWith("/flight");
+}
+
 export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isGame = pathname.startsWith("/coin/");
+  const isGame = isCollapsibleRoute(pathname);
   const storageKey = isGame ? SETTINGS_KEYS.sidebarGame : SETTINGS_KEYS.sidebarHome;
 
   const [open, setOpen] = useState(!isGame);
@@ -184,6 +189,8 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     let next = saved ? saved === "open" : !isGame;
     if (forceCollapsed) next = false;
     if (mobile && !saved) next = false;
+    // Marketing / launchpad / profile routes: always expanded on desktop.
+    if (!isGame && !mobile) next = true;
     setOpen(next);
     setReady(true);
   }, [storageKey, isGame, forceCollapsed]);
@@ -197,7 +204,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
       !open && window.matchMedia("(max-width:760px)").matches,
     );
     try {
-      localStorage.setItem(storageKey, open ? "open" : "collapsed");
+      if (isGame) localStorage.setItem(storageKey, open ? "open" : "collapsed");
     } catch {
       /* ignore */
     }
@@ -209,8 +216,11 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
   }, [open, ready, storageKey, isGame]);
 
   const toggle = useCallback((force?: boolean) => {
+    const mobile = window.matchMedia("(max-width:760px)").matches;
+    if (!isGame && !mobile) return; // not collapsible here
     setOpen((o) => (typeof force === "boolean" ? force : !o));
-  }, []);
+  }, [isGame]);
+  const canCollapse = isGame;
 
 
   if (!ready) return null;
@@ -229,7 +239,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           <span className="ap-name">DISCIPLE</span>
           <button
             type="button"
-            className="ap-tog"
+            className={`ap-tog${canCollapse ? "" : " ap-tog-mobile"}`}
             title="Collapse / expand menu"
             aria-label="Toggle menu"
             onClick={() => toggle()}
@@ -272,26 +282,16 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           <div className="ap-illu">
             <Wings />
           </div>
-          <h3>Bless your rocket</h3>
+          <h3>Launch a Rocket</h3>
           <p>
-            Gild your hull with halo trails and seraph thrusters — or bid on
-            today&apos;s Angel Rocket.
+            Pair your coin with any ERC-20, pick a call sign, and put it on the
+            pad. Everyone aboard flies together.
           </p>
-          <Link href="/rocket" className="ap-cta">
-            Upgrade
+          <Link href="/create" className="ap-cta">
+            Launch
           </Link>
         </div>
         <div className="ap-foot">
-          <Link
-            href="/settings"
-            className={pathname === "/settings" ? "on" : ""}
-            title="Settings"
-          >
-            <span className="ic">
-              <Icon name="settings" />
-            </span>
-            <span className="lb">Settings</span>
-          </Link>
           <button
             type="button"
             title="Log out"

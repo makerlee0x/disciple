@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="best_x_50">
+<defs>
+<radialGradient id="bg" cx="50%" cy="38%" r="65%"><stop offset="0" stop-color="#26306a"/><stop offset=".7" stop-color="#121634"/><stop offset="1" stop-color="#080a18"/></radialGradient>
+<linearGradient id="ring" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1c4"/><stop offset=".5" stop-color="#d9a640"/><stop offset="1" stop-color="#fff1c4"/></linearGradient>
+<linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7df"/><stop offset=".55" stop-color="#ffe7a3"/><stop offset="1" stop-color="#d9a640"/></linearGradient>
+<radialGradient id="glow" cx="50%" cy="45%" r="50%"><stop offset="0" stop-color="#ffe7a3" stop-opacity=".28"/><stop offset="1" stop-color="#ffe7a3" stop-opacity="0"/></radialGradient>
+</defs>
+<style>.s{fill:none;stroke:url(#gold);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.f{fill:url(#gold);stroke:#8a6420;stroke-width:.8;stroke-linejoin:round}.w{fill:#9fd0ff}.d{fill:#121634}.sd{fill:none;stroke:#121634;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.flame{fill:#ffb36b;stroke:#ff7e5f;stroke-width:1}.t{fill:url(#gold);font-family:Georgia,serif;font-weight:700}</style>
+<circle cx="32" cy="32" r="30" fill="url(#ring)"/>
+<circle cx="32" cy="32" r="26.5" fill="url(#bg)" stroke="#05060c" stroke-width="1"/>
+<circle cx="32" cy="32" r="24" fill="url(#glow)"/>
+<g transform="translate(32 32) scale(.78) translate(-32 -32)"><path d="M14 46l10-12 8 6 16-20" class="s"/><path d="M42 20h6v6" class="s"/><text x="32" y="58" text-anchor="middle" class="t" font-size="11">50×</text><circle cx="48" cy="20" r="3" class="w"/></g>
+<path d="M14 20a22 22 0 0136 0" fill="none" stroke="#fff" stroke-opacity=".12" stroke-width="2"/>
+</svg>

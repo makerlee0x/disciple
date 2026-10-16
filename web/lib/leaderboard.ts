@@ -22,6 +22,10 @@ export interface LeaderboardRow {
   pctGain: number;
   volumeUsd: number;
   avgHoldHours: number;
+  /** Cumulative hold time across positions in the window (leaderboard "Hold" column). */
+  totalHoldHours: number;
+  /** Public profile slug (/u/[username]) */
+  username: string;
   /** PvP when bomber/nuker-heavy or dumps; else PvE */
   mode: "pve" | "pvp";
   achievementIds: string[];
