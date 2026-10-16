@@ -8,12 +8,14 @@ import { useEffect, useRef, useState } from "react";
  * the html.ap-grass rule below (visibility, so the sim, chat, PnL etc. keep running underneath).
  */
 const KEY = "disciple.grass";
+/** v2: cinematic camera is the default in Touch Grass (the old disciple.grass.cine "off" from testing is ignored/removed). */
+const CINE_KEY = "disciple.grass.cine.v2";
 const typing = (t: EventTarget | null) => { const e = t as HTMLElement | null; return !!e && (e.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName || "")); };
 
 export default function TouchGrass() {
   const [on, setOn] = useState(false);
   const [hint, setHint] = useState(false);
-  const [cine, setCine] = useState(false);   // cinematic camera (experimental): ?cinecam=1 or the 🎥 button, remembered
+  const [cine, setCine] = useState(true);   // cinematic camera: default on; ?cinecam=0 or the 🎥 button turns it off (remembered)
   const onRef = useRef(on); onRef.current = on;
 
   useEffect(() => {
@@ -21,12 +23,12 @@ export default function TouchGrass() {
     let init = false; try { init = localStorage.getItem(KEY) === "1"; } catch { /* */ }
     if (q === "1") init = true; else if (q === "0") init = false;
     setOn(init);
-    const c = new URLSearchParams(location.search).get("cinecam"); let ci = false; try { ci = localStorage.getItem(KEY + ".cine") === "1"; } catch { /* */ }
+    const c = new URLSearchParams(location.search).get("cinecam"); let ci = true; try { ci = localStorage.getItem(CINE_KEY) !== "0"; } catch { /* */ }
     setCine(c === "1" ? true : c === "0" ? false : ci);
   }, []);
   useEffect(() => {
     const push = () => dispatchEvent(new CustomEvent("disciple:grass", { detail: { on, cine } }));
-    push(); try { localStorage.setItem(KEY, on ? "1" : "0"); localStorage.setItem(KEY + ".cine", cine ? "1" : "0"); } catch { /* */ }
+    push(); try { localStorage.setItem(KEY, on ? "1" : "0"); localStorage.setItem(CINE_KEY, cine ? "1" : "0"); localStorage.removeItem(KEY + ".cine"); } catch { /* */ }
     document.documentElement.classList.toggle("ap-grass", on);
     const t = setTimeout(() => dispatchEvent(new Event("resize")), 30);   // canvas goes full-bleed (rail hidden)
     addEventListener("disciple:ammo", push);   // engine (re)booted after us → resend
@@ -55,7 +57,7 @@ export default function TouchGrass() {
     <>
       {on && <div className="ap-grass-ui ap-grass-tl" data-hint={hint ? "1" : "0"} style={{ position: "fixed", left: 16, top: 16, zIndex: 80, display: "flex", gap: 8 }}>
         <button type="button" data-testid="grass-exit" aria-label="Exit Touch Grass" title="Exit Touch Grass (G / Esc)" onClick={() => setOn(false)}>✕</button>
-        <button type="button" data-testid="grass-cine" aria-pressed={cine} aria-label="Cinematic camera" title={`Cinematic camera: ${cine ? "on" : "off"} (experimental)`}
+        <button type="button" data-testid="grass-cine" aria-pressed={cine} aria-label="Cinematic camera" title={`Cinematic camera: ${cine ? "on" : "off"}`}
           onClick={() => setCine((v) => !v)} style={{ fontSize: 12 }}>{cine ? "🎥" : "📷"}</button>
       </div>}
       <style>{`

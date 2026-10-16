@@ -1942,7 +1942,7 @@ function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)
     const fs=Math.round(clamp(W*0.06,46,96)); ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`;
     glowText(fmtUsd(m),W/2,H-86,'rgba(255,236,200,1)',10,0.18);
     ctx.globalAlpha=0.7*S._grassA; ctx.font='300 14px "Helvetica Neue","Inter",system-ui,sans-serif'; ctx.fillStyle='#ffe9c4';
-    ctx.fillText(('MARKET CAP'+(tk&&tk.length<=8?'   ·   $'+tk:'')).split('').join(String.fromCharCode(8202)),W/2,H-86+28);
+    ctx.fillText(((tk&&tk.length<=8?'$'+tk+'   ·   ':'')+'MARKET CAP').split('').join(String.fromCharCode(8202)),W/2,H-86+28);
     const c=S.grassCard||0; if(c>0&&S.tierShown>=0){ const a=Math.min(1,c/1.2,(4.5-c)/1.2);   // tier title card: fade in, hold, fade out
       ctx.globalAlpha=0.85*a; ctx.font=`300 ${Math.round(clamp(W*0.045,32,64))}px Georgia,serif`; ctx.fillStyle='#fff3dc';
       glowText(fmtUsd(TIERS[S.tierShown].lo),W/2,H*0.2,'rgba(255,220,160,1)',12,0.25);   // milestone, never the tier name
