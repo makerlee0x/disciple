@@ -158,10 +158,10 @@ class MockReplaySource {
         if (usd<=0){ after=l.mcap; break; } }
     }
     this.levels=this.levels.filter(l=>!l.dead);
-    this.mcap=after;
+    this.mcap=after;   // a whale buy stays where it landed; the home-band drift only biases later bot flow (no snap-back)
     this.emit({t:'swap',block:this.block,ts:Date.now(),txHash:txHash||'0x'+Math.random().toString(16).slice(2,10),
       side,usd,mcap:this.mcap,price:this.mcap/this.supply,mine});
-    this.emitDepth();
+    this.emitDepth(); return {pre:before,post:after};
   }
   emitDepth(){ this.emit({t:'depth',block:this.block,mcap:this.mcap,levels:this.levels.map(l=>({...l}))}); }
   // Mock "session-key" trade: sequencer soft-confirm after a simulated block delay
@@ -170,7 +170,7 @@ class MockReplaySource {
     const delay=180+Math.random()*700;          // bundler + 1-3 RH blocks
     return new Promise(res=>setTimeout(()=>{
       if (Math.random()<0.06) return res({ok:false,hash,reason:'slippage guard (amountOutMin)'});
-      this.applyTrade(side,usd,true,hash); res({ok:true,hash,block:this.block});
+      const m=this.applyTrade(side,usd,true,hash); res({ok:true,hash,block:this.block,pre:m.pre,post:m.post});
     },delay)).then(r=>r).catch(e=>({ok:false,hash,reason:String(e)}));
   }
 }
@@ -268,7 +268,7 @@ class PoolV3Base {
   submitTrade(side,usd){ const hash='paper-'+Math.random().toString(16).slice(2,10);
     return new Promise(res=>setTimeout(()=>{ const b=this.mcap(); this.paper*=this.impact(usd,side); const m=this.mcap(); this.crossCheck(b,m);
       this.emit({t:'swap',block:this.block,ts:Date.now(),txHash:hash,side,usd,mcap:m,price:m/this.supply,prePrice:b/this.supply,postPrice:m/this.supply,impactSrc:'v3sim',mine:true,trader:'you'}); this.emitDepth();
-      res({ok:true,hash,block:this.block}); },150+Math.random()*250)); }
+      res({ok:true,hash,block:this.block,pre:b,post:m}); },150+Math.random()*250)); }
   stop(){ clearInterval(this.iv); clearInterval(this.dv); }
 }
 class ReplaySource extends PoolV3Base {
@@ -333,21 +333,29 @@ class PoolLiveSource extends PoolV3Base {
 /* DISCIPLE bonding-curve coins: events arrive from lib/events.ts via window 'disciple:event'
    (Trade carries impactPct for bombs). Paper shots supported like the pool sources. */
 class DiscipleSource {
-  constructor(){ this.name='DISCIPLE'; this.supply=+(Q.get('supply')||7e9); this.mcap=null; this.block=0; }
+  constructor(){ this.name='DISCIPLE'; this.supply=+(Q.get('supply')||7e9); this.mcap=null; this.block=0; this.paper=1; }
+  shown(){ return this.mcap*this.paper; }
   start(emit){ this.emit=emit; emit({t:'status',source:this.name,ok:true,msg:'curve events'});
+    // paper shots (no wallet) move a multiplicative offset that decays like arbitrage would (τ 20 s), same as PoolV3Base
+    this.dv=setInterval(()=>{ if(this.mcap==null||this.paper===1) return; this.paper=1+(this.paper-1)*Math.exp(-0.25/20); if(Math.abs(this.paper-1)<1e-5) this.paper=1; emit({t:'mark',mcap:this.shown()}); },250);
     this.h=(ev)=>{ const e=ev.detail; if(!e) return;
       if(e.type==='Trade'){ const pre=this.mcap; this.mcap=e.mcapUsd; this.block=+e.block||this.block;
         emit({t:'block',block:this.block,ts:Date.now()});
-        emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:e.mcapUsd,price:e.mcapUsd/this.supply,
-              prePrice:(pre||e.mcapUsd)/this.supply,postPrice:e.mcapUsd/this.supply,impactPct:e.impactPct,trader:e.trader}); }
+        emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
+              prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader}); }
       else if(e.type==='Graduate') emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'});
-      else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:e.mcapUsd,price:e.mcapUsd/this.supply}); } };
+      else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
     addEventListener('disciple:event',this.h); }
-  stop(){ removeEventListener('disciple:event',this.h); }
-  impact(usd,side){ const m=this.mcap||1; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
+  stop(){ removeEventListener('disciple:event',this.h); clearInterval(this.dv); }
+  realMcap(){ return this.mcap; }
+  impact(usd,side){ const m=(this.mcap||1)*this.paper; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
   // Real on-chain shot when the page registered a wallet bridge (components/TradeBridge.tsx: the user's wallet signs,
   // curve pre-grad / DiscipleRouter post-grad). No wallet → paper fill, as before.
-  async submitTrade(side,usd,o){ const b=window.__discipleTrade; if(!b) return {ok:true,paper:true};
+  async submitTrade(side,usd,o){ const b=window.__discipleTrade;
+    if(!b){ if(!(this.mcap>0)) return {ok:false,reason:'no price yet'}; await new Promise(r=>setTimeout(r,150+Math.random()*250));
+      const pre=this.shown(); this.paper*=this.impact(usd,side); const post=this.shown();
+      this.emit({t:'swap',block:this.block,ts:Date.now(),txHash:'paper-'+Math.random().toString(16).slice(2,10),side,usd,mcap:post,price:post/this.supply,prePrice:pre/this.supply,postPrice:post/this.supply,mine:true,trader:'you'});
+      return {ok:true,paper:true,pre,post}; }
     try{ const r=await (o?b(side,usd,o):b(side,usd)); return r||{ok:false,reason:'no result'}; }catch(err){ return {ok:false,reason:String((err&&err.message)||err).slice(0,80)}; } }
 }
 /* SIMULATOR bridge (?source=sim, /sim route): the local market + bots live in lib/sim (React page registers
@@ -457,7 +465,7 @@ function onEvent(e){
 }
 source.start(onEvent);
 
-// ---------- trading (Space = FIRE AMMO / FUEL, Shift = BRAKE / DROP BOMB) ----------
+// ---------- trading (Space = BOOST: buy the selection, Shift = DUMP: sell the selection; Z/X/C/V only select) ----------
 const COOLDOWN_MS=250, MAX_PENDING=3;
 /* Climb angle from horizontal (deg). Buys +, sells −.
    angleDeg = clamp(15 + 22*log10(1+usd), 15, 88)
@@ -617,6 +625,22 @@ function markMcap(){ if(isLive()){ const r=source&&source.realMcap?source.realMc
 function pushMark(){ const m=markMcap(); if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:mark',{detail:{mcap:m,supply:source.supply||7e9,session:SESSION}})); }catch(_){} }
 function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({title,sub,life:4}); }
+/* PAPER wallet cap (curve rule WALLET_CAP_BPS = 7% of supply while pre-graduation): a paper buy on the mock / a DISCIPLE
+   coin fills only up to the cap; the unfilled $ is never debited or booked. Tokens for $u at the AMM average:
+   u·(1−fee) / (p0·√impact(u)); solved for u by bisection (monotone). Sim + live enforce the cap in their own markets. */
+const WALLET_CAP_FRAC=0.07, PAPER_FEE=0.01;
+const capApplies=m=>!isLive()&&!source.isSim&&(source instanceof MockReplaySource||source instanceof DiscipleSource)&&!!source.impact&&m>0&&m<GRADUATION_MCAP;
+/* after the fill: the mock's walls can make the actual fill cheaper than the estimate → clamp the booked $ to the cap too
+   (the unfilled $ is refunded to the paper balance) */
+function capFilledUsd(usd,fillMcap,preMcap){ if(!capApplies(preMcap)||!(fillMcap>0)) return usd; const sup=source.supply||7e9;
+  const room=Math.max(0,WALLET_CAP_FRAC*sup-(S.hold.tokens||0)), tok=usd*(1-PAPER_FEE)/(fillMcap/sup);
+  return tok<=room?usd:Math.floor(room*(fillMcap/sup)/(1-PAPER_FEE)*100)/100; }
+function paperCap(usd){
+  const m=S.confirmed.mcap, sup=source.supply||7e9; if(!capApplies(m)) return {usd};
+  const room=WALLET_CAP_FRAC*sup-(S.hold.tokens||0), tok=u=>u*(1-PAPER_FEE)/((m/sup)*Math.sqrt(source.impact(u,'buy')));
+  if(room<=sup*1e-6) return {usd:0,blocked:true}; if(tok(usd)<=room) return {usd};
+  let lo=0, hi=usd; for(let i=0;i<50;i++){ const mid=(lo+hi)/2; if(tok(mid)<=room) lo=mid; else hi=mid; }
+  return {usd:+lo.toFixed(2)}; }
 function trade(side,opt){
   if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
@@ -628,6 +652,8 @@ function trade(side,opt){
   if (md.usd<MIN_SHOT){                                   // below net-buy minimum: blocked (no gas sponsorship)
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
+  if (side==='buy'){ const c=paperCap(md.usd); if(c.blocked){ S.flashes.push({txt:'WALLET CAP 7% REACHED · no buy',life:1.6}); return; }
+    if(c.usd<md.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(c.usd)} of ${fmtShot(md.usd)}`,life:1.8}); md={...md,usd:c.usd}; } }
   if (side==='buy' && !window.__discipleTrade && S.balance<md.usd){ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
   // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
   applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(source.impact(md.usd,side)-1)*100:undefined);
@@ -649,8 +675,14 @@ function submit(side,usd,force,opt){
   source.submitTrade(side,S.tradeUsd,opt&&opt.frac?{frac:opt.frac}:undefined).then(r=>{
     p.state=r.ok?'confirmed':'failed';
     if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:r.gas||0,at:r.at,session:SESSION}})); }   // SIMULATOR: exact sim fill
-    else if(r.ok){ S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
-    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fillMark,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
+    else if(r.ok){
+    // fill = AMM average of the move the market ACTUALLY made (√(pre·post) on a constant-product curve), on the shown scale.
+    // (Was: mark × √(estimated impact) — DISCIPLE paper never moved the price and mock walls could absorb the move,
+    //  so a $60K buy was booked far above the mark → uPnL deeply negative right after the buy.)
+    const fm=r.pre>0&&r.post>0&&!isLive()?Math.sqrt(r.pre*r.post)*(S.simF||1):fillMark;
+    if(side==='buy'&&r.pre>0){ const u=capFilledUsd(p.usd,fm,r.pre); if(u<p.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(u)}, ${fmtShot(p.usd-u)} refunded`,life:1.8}); p.usd=u; } }
+    S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
+    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f'}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
@@ -669,8 +701,8 @@ addEventListener('keydown',e=>{
   S.keys[e.code]=true;
   if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
-  if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
-  const dm=/^Digit([1-6])$/.exec(e.code); if(dm&&!e.repeat){ S.mode=+dm[1]-1; pushAmmo(); buyPreset(S.mode); }   // shortcut: digit = BUY that preset now + select it (Z/X/C/V likewise for sells)
+  if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
+  const dm=/^Digit([1-6])$/.exec(e.code); if(dm&&!e.repeat){ S.mode=+dm[1]-1; pushAmmo(); buyPreset(S.mode); }   // shortcut: digit = BUY that preset now + select it (Z/X/C/V only SELECT a sell %; Shift dumps)
   if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
@@ -1168,7 +1200,7 @@ function drawHud(){
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<6){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
-    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText('SELL · select, then DUMP (or Z/X/C/V)',ax+AW-12,ay+16); }
+    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText('SELL · Z/X/C/V select, SHIFT dump',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);

@@ -1,6 +1,6 @@
 # Flight trading controls & PnL rules (2026-10 gameplay audit)
 
-## Buy / sell: select, then fire (shortcuts fire instantly)
+## Buy / sell: select, then fire (1–6 buy instantly; Z/X/C/V only select)
 | Input | Action |
 |---|---|
 | Click a `$` tile in the BUY row | **Selects** it (gold tile). Never trades. Hover: "click to select $X". |
@@ -9,7 +9,7 @@
 | ▼ DUMP / `Shift` | Sells the **custom sell field if one is typed**, otherwise the selected SELL preset. The button shows the exact amount (`▼ DUMP 10%`, `▼ DUMP 37% custom`, `▼ DUMP $129.12K custom`). Disabled with 0 tokens. |
 | Custom sell field + `%`/`$` toggle (next to DUMP) | `%` (default) = percent of holdings (max 100). `$` = USD value, capped at the position value. Enter fires it. The unit is remembered. |
 | `1`–`6` | Shortcut: **buy** that preset instantly and select it. |
-| `Z` `X` `C` `V` | Shortcut: **sell** 10% · 25% · 50% · 100% instantly and select it (presets, ignore the custom field). |
+| `Z` `X` `C` `V` | **Select only** 10% · 25% · 50% · 100% (updates the DUMP selection and label). They never trade: pressing `V` does not dump everything. `Shift` / DUMP sells. |
 
 Amounts on buttons and labels use the shared formatter (`fmtMoney`, lib/pnl.ts): under $1K two decimals (`$0.20`, `$129.12`), from $1K always two decimals with K/M/B/T (`$129.12K`, `$1.50M`).
 
