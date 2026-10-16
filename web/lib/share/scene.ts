@@ -179,7 +179,7 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   ctx.fillStyle = INK; ctx.fillRect(L, story ? 146 : 114, R - L, 5);
   // tier tag
   ctx.font = `24px ${FONT.mono}`; ctx.fillStyle = "rgba(246,241,228,.85)";
-  tracked(ctx, `TIER ${tier.index + 1} · ${tier.name}`, L, story ? 200 : 160, 6);
+  tracked(ctx, `TIER ${tier.index} · ${tier.name}`, L, story ? 200 : 160, 6);
   if (d.sample) { ctx.save(); ctx.translate(R - 150, story ? 196 : 156); ctx.rotate(0.05); ctx.fillStyle = "#ffd166"; ctx.fillRect(-110, -32, 250, 46); ctx.fillStyle = "#0a0a0a"; ctx.font = `24px ${FONT.mono}`; tracked(ctx, "SAMPLE DATA", -96, 0, 4); ctx.restore(); }
 
   // ticker block
