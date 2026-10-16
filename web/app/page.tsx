@@ -89,7 +89,7 @@ const SEED: Rocket[] = [
     tk: "SRPH",
     mcap: 28.6e3,
     chg: 18.4,
-    c: "#cfe0ff",
+    c: "#C9CED6",
     pair: "OTHER",
     pairSym: "NVDA",
     stats: { volume24hUsd: 6_000, ageHours: 12, holders: 95, liquidityUsd: 6_100 },
@@ -411,7 +411,7 @@ export default function HomePage() {
           minHeight: 220,
           overflow: "hidden",
           background:
-            `#0b0f22 url(${withBase("/assets/tier0.png")}) center 70% / cover no-repeat`,
+            `#16181C url(${withBase("/assets/tier0.png")}) center 70% / cover no-repeat`,
         }}
       >
         <div
@@ -419,7 +419,7 @@ export default function HomePage() {
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(180deg,rgba(8,10,34,.15),rgba(8,10,34,.25) 60%,#05060c 100%)",
+              "linear-gradient(180deg,rgba(22,24,28,.15),rgba(22,24,28,.25) 60%,#05060c 100%)",
             pointerEvents: "none",
           }}
         />

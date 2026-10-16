@@ -28,7 +28,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             borderRadius: 8,
             fontSize: 10,
             letterSpacing: ".08em",
-            color: "#0a0c1a",
+            color: "#0B0C0E",
             background: "rgba(201,206,214,.92)",
             border: "1px solid rgba(201,206,214,.8)",
             boxShadow: "0 2px 12px rgba(0,0,0,.35)",

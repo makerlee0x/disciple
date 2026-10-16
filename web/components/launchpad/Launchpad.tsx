@@ -52,7 +52,7 @@ function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
 const Spark = memo(function Spark({ seed, chg, w = 96, h = 26 }: { seed?: number; chg: number | null; w?: number; h?: number }) {
   const pts = sparkPoints(seed, chg);
   const d = pts.map((p, i) => `${((i / (pts.length - 1)) * w).toFixed(1)},${(h - 2 - p * (h - 4)).toFixed(1)}`).join(" ");
-  const col = seed == null ? "rgba(220,228,255,.35)" : (chg ?? 0) >= 0 ? "#8ff0c0" : "#ff9fb8";
+  const col = seed == null ? "rgba(232,234,238,.35)" : (chg ?? 0) >= 0 ? "#8ff0c0" : "#ff9fb8";
   return <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="lp-spark"><polyline points={d} fill="none" stroke={col} strokeWidth="1.6" strokeLinejoin="round" /></svg>;
 });
 

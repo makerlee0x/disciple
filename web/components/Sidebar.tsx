@@ -119,13 +119,13 @@ function Wings() {
       <path
         d="M36 34C26 24 12 22 4 28c8 1 12 5 14 9-6-1-10 1-12 4 8 0 14 2 20 0z"
         fill="#E8EAEE"
-        stroke="#d9c4ff"
+        stroke="#C9CED6"
         strokeWidth="1"
       />
       <path
         d="M44 34c10-10 24-12 32-6-8 1-12 5-14 9 6-1 10 1 12 4-8 0-14 2-20 0z"
         fill="#E8EAEE"
-        stroke="#d9c4ff"
+        stroke="#C9CED6"
         strokeWidth="1"
       />
       <path
@@ -302,7 +302,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           role="presentation"
         >
           <div
-            className="w-[min(420px,90vw)] rounded-2xl border border-[rgba(201,206,214,.55)] bg-[radial-gradient(120%_80%_at_50%_0%,rgba(232,234,238,.22),rgba(14,16,40,.94)_60%)] p-6 text-[#eef0ff] shadow-[0_0_60px_rgba(201,206,214,.25)]"
+            className="w-[min(420px,90vw)] rounded-2xl border border-[rgba(201,206,214,.55)] bg-[radial-gradient(120%_80%_at_50%_0%,rgba(232,234,238,.22),rgba(22,24,28,.94)_60%)] p-6 text-[#E8EAEE] shadow-[0_0_60px_rgba(201,206,214,.25)]"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
           >

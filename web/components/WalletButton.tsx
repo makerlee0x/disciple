@@ -113,19 +113,19 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const popover: CSSProperties = {
     position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 70,
     display: "flex", flexDirection: "column", gap: 6, padding: 10, borderRadius: 12,
-    background: "rgba(20,18,40,.96)", alignItems: "stretch",
+    background: "rgba(22,24,28,.96)", alignItems: "stretch",
     boxShadow: "0 8px 24px rgba(0,0,0,.45)",
   };
   return (
     <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
-      fontFamily: "ui-monospace,monospace", color: "#eef0ff" }}>
+      fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
           <span title="Network" style={{ fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(201,206,214,.25)", color: "#C9CED6", opacity: 0.85 }}>{ACTIVE_CHAIN.name}</span>
           {addr ? (
             <>
               {MINTABLE_TEST_TOKENS.length > 0 && (
-                <button type="button" disabled={!!busy} onClick={getFunds} style={{ ...pill, background: "#2a3a7a", color: "#cfe0ff" }}>
+                <button type="button" disabled={!!busy} onClick={getFunds} style={{ ...pill, background: "#2E323A", color: "#C9CED6" }}>
                   {busy || "Get test funds"}
                 </button>
               )}
@@ -137,11 +137,11 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>
+              <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
                 {busy || "▶ Play"}
               </button>
             ) : (
-            <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>
+            <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
               {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
             </button>
             )
@@ -155,22 +155,22 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 {otp === null ? (
                   <div style={{ display: "flex", gap: 4 }}>
                     <input aria-label="email" placeholder="you@email.com" value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
-                    <button type="button" disabled={!!busy || !email} onClick={() => run("sending code", async () => { await emailStart(email); setOtp(""); })} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>Email</button>
+                    <button type="button" disabled={!!busy || !email} onClick={() => run("sending code", async () => { await emailStart(email); setOtp(""); })} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>Email</button>
                   </div>
                 ) : (
                   <div style={{ display: "flex", gap: 4 }}>
                     <input aria-label="code" placeholder="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value)} style={input} />
-                    <button type="button" disabled={!!busy || !otp} onClick={() => run("verifying", () => connectSmartEmail(otp))} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>Verify</button>
+                    <button type="button" disabled={!!busy || !otp} onClick={() => run("verifying", () => connectSmartEmail(otp))} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>Verify</button>
                   </div>
                 )}
-                <button type="button" disabled={!!busy} onClick={() => run("google", connectSmartGoogle)} style={{ ...pill, background: "#fff", color: "#1a1630", textAlign: "center" }}>Continue with Google</button>
+                <button type="button" disabled={!!busy} onClick={() => run("google", connectSmartGoogle)} style={{ ...pill, background: "#fff", color: "#0B0C0E", textAlign: "center" }}>Continue with Google</button>
                 {DEV_WALLETS && <>
-                <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("sign once in wallet", connectSmartWithWallet)} style={{ ...pill, background: "#2a3a7a", color: "#cfe0ff", textAlign: "center" }}>Use my wallet as owner</button>
+                <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("sign once in wallet", connectSmartWithWallet)} style={{ ...pill, background: "#2E323A", color: "#C9CED6", textAlign: "center" }}>Use my wallet as owner</button>
                 <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("connecting", connectWallet)} style={{ ...pill, fontSize: 10, opacity: 0.7, textAlign: "center" }}>Plain wallet (sign every tx)</button>
                 </>}
               </>
             ) : (
-              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#C9CED6", color: "#1a1630", textAlign: "center" }}>Connect wallet</button>
+              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Connect wallet</button>
             )}
           </div>
         )}
@@ -184,11 +184,11 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
             ) : (
-              <button type="button" onClick={() => { if (confirm("Reveal your private key? Anyone with it controls this account. Never share it.")) setShownKey(localExport() || ""); }} style={{ ...pill, background: "#2a3a7a", textAlign: "center" }}>Export key</button>
+              <button type="button" onClick={() => { if (confirm("Reveal your private key? Anyone with it controls this account. Never share it.")) setShownKey(localExport() || ""); }} style={{ ...pill, background: "#2E323A", textAlign: "center" }}>Export key</button>
             )}
             <div style={{ display: "flex", gap: 4 }}>
               <input aria-label="import key" placeholder="0x… private key" value={imp} onChange={(e) => setImp(e.target.value)} style={{ ...input, minWidth: 0, flex: 1 }} />
-              <button type="button" disabled={!imp || !!busy} onClick={() => { if (confirm("Replace this browser's wallet with the imported key? Export the current key first if it holds funds.")) run("importing", async () => { await importLocal(imp); setImp(""); setAcct(false); }); }} style={{ ...pill, background: "#2a3a7a" }}>Import</button>
+              <button type="button" disabled={!imp || !!busy} onClick={() => { if (confirm("Replace this browser's wallet with the imported key? Export the current key first if it holds funds.")) run("importing", async () => { await importLocal(imp); setImp(""); setAcct(false); }); }} style={{ ...pill, background: "#2E323A" }}>Import</button>
             </div>
             <button type="button" onClick={() => { if (confirm("Reset wallet? This deletes the key from this browser. Funds are lost unless you exported the key.")) run("", async () => { await resetLocal(); setAcct(false); setShownKey(""); }); }} style={{ ...pill, background: "#7a1f2f", color: "#ffd0d8", textAlign: "center" }}>Reset wallet</button>
           </div>
