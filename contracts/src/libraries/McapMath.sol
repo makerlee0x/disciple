@@ -5,8 +5,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Full-precision market cap math
 /// @notice Computes mcap directly from reserves / sqrtPriceX96 instead of from a WAD spot price. The WAD price
-///         (quote raw * 1e18 / token raw) is a small integer for 6-decimal quotes (~33 at a $33K graduation for
-///         a 1e9 x 1e18 supply), so flooring it first under-reported mcap by up to ~15% (e.g. $28K vs $33K).
+///         (quote raw * 1e18 / token raw) is a single-digit integer for 6-decimal quotes (~4.7 at a $33K graduation
+///         with the 7B x 1e18 supply), so flooring it first under-reported mcap by up to ~15% (e.g. $28K vs $33K).
 ///         Here mcap is floored only once, at the end, so it is exact to 1 raw quote unit for any decimals.
 library McapMath {
     /// @notice mcap in raw quote units = supply * price, with price = sqrtP^2 / 2^192 (c1 per c0).

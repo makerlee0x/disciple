@@ -4,7 +4,7 @@ import { EVENTS } from "../src/abi";
 import { openDb } from "../src/db";
 import { applyLogs, type RawLog } from "../src/ingest";
 import { Api } from "../src/api";
-import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../src/math";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../src/math";
 import type { Config, Stack } from "../src/config";
 
 const A = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Hex;
@@ -125,5 +125,29 @@ describe("lp auto-compound", () => {
     const [st, r]: any = await api.route("GET", new URL(`http://x/coins/${TOKEN}/lp-compounds`));
     expect(st).toBe(200);
     expect(r).toMatchObject({ count: 2, totalLiquidity: "1500", totalTokenUsed: "70", totalQuoteUsed: "11", tokenCarry: "9", quoteCarry: "1" });
+  });
+});
+
+describe("mcap precision", () => {
+  const sqrt = (x: bigint) => { let z = x, y = (x + 1n) / 2n; while (y < z) { z = y; y = (x / y + y) / 2n; } return z; };
+  // $33K over 7B tokens; quote raw per token raw = 33000*10^dec / 7e27
+  const sqrtFor = (dec: bigint, c0: boolean) => {
+    const num = 33_000n * 10n ** dec, den = 7_000_000_000n * 10n ** 18n;
+    return c0 ? sqrt((num << 192n) / den) : sqrt((den << 192n) / num);
+  };
+  const near = (a: bigint, b: bigint) => expect(Number(a) / Number(b)).toBeCloseTo(1, 4);
+  it("6-dec quote: $33K exact from sqrt (priceWad path floors to ~$28K)", () => {
+    for (const c0 of [true, false]) {
+      const sp = sqrtFor(6n, c0);
+      near(mcapUsdFromSqrt(sp, c0, 10n ** 30n), 33_000n * 10n ** 18n);
+      expect(mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 30n) < 30_000n * 10n ** 18n).toBe(true);
+    }
+  });
+  it("18-dec quote: unchanged", () => {
+    for (const c0 of [true, false]) {
+      const sp = sqrtFor(18n, c0);
+      near(mcapUsdFromSqrt(sp, c0, 10n ** 18n), 33_000n * 10n ** 18n);
+      near(mcapUsdFromSqrt(sp, c0, 10n ** 18n), mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 18n));
+    }
   });
 });

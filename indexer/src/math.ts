@@ -11,6 +11,14 @@ export function priceWadFromSqrt(sqrtP: bigint, tokenIsC0: boolean): bigint {
   return tokenIsC0 ? (sqrtP * sqrtP * WAD) >> 192n : (WAD * Q96 * Q96) / (sqrtP * sqrtP);
 }
 
+/** Full-precision mcap (USD WAD) straight from sqrtPriceX96 — avoids flooring priceWad, which is single-digit
+ *  for 6-dec quotes (USDG) and under-reported mcap by up to ~15%. quoteUsdWad = USD WAD per 1e18 raw quote. */
+export function mcapUsdFromSqrt(sqrtP: bigint, tokenIsC0: boolean, quoteUsdWad: bigint, supply = TOTAL_SUPPLY): bigint {
+  if (sqrtP === 0n) return 0n;
+  const mcapQuote = tokenIsC0 ? (sqrtP * sqrtP * supply) >> 192n : (supply * Q96 * Q96) / (sqrtP * sqrtP);
+  return (mcapQuote * quoteUsdWad) / WAD;
+}
+
 export function mcapUsdWad(priceWad: bigint, quoteUsdWad: bigint): bigint {
   return (((priceWad * TOTAL_SUPPLY) / WAD) * quoteUsdWad) / WAD;
 }

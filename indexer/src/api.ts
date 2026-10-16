@@ -3,7 +3,7 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import type { DB } from "./db.js";
-import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
 
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
@@ -51,7 +51,7 @@ export class Api {
           const p = priceWadFromSqrt(sqrtP, tokenIsC0);
           const curveM = (await client.readContract({ address: coin.curve, abi: READS, functionName: "mcapNow" }).catch(() => 0n)) as bigint;
           return {
-            priceWad: p.toString(), mcapUsd: wad(mcapUsdWad(p, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
+            priceWad: p.toString(), mcapUsd: wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
             liquidityUsd: 2 * wad(virtualQuoteReserve(L, sqrtP, tokenIsC0)) * wad(qUsd),
             curveMcapNowUsd: wad(curveM),
           };
