@@ -3,7 +3,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { CURVE, fmtUsd, gradProgress, verifiedLevel } from "@/lib/config";
 import VerifiedBadge from "@/components/VerifiedBadge";
-import BrandedRocket from "@/components/BrandedRocket";
+import PairArt from "@/components/pairart/PairArt";
+import { BASE_PAIRS, basePair } from "@/lib/pairArt";
 import DsSelect from "@/components/ui/DsSelect";
 import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
 
@@ -17,10 +18,10 @@ const TABS: { k: Tab; label: string; hint: string }[] = [
 ];
 const PAIRS = [
   { value: "any", label: "Any pair" },
-  { value: "STRATEGY", label: "STRATEGY", hint: "default" },
-  { value: "USDG", label: "USDG / mUSDG", hint: "stable" },
-  { value: "OTHER", label: "Other" },
+  ...BASE_PAIRS.map((p) => ({ value: p.tk, label: p.sym, hint: p.tk === "strategy" ? "default" : p.tk === "usdg" ? "stable" : undefined })),
+  { value: "other", label: "Other" },
 ];
+const baseOf = (c: Rocket) => basePair(c.pairSym ?? (c.pair === "USDG" ? "USDG" : c.pair === "OTHER" ? null : "STRATEGY"))?.tk ?? "other";
 const CHUNK = 40;
 const VIEW_KEY = "disciple.launchpad.view";
 const WATCH_KEY = "disciple.watchlist";
@@ -39,13 +40,10 @@ function useWatchlist() {
   return [w, toggle] as const;
 }
 
-function Avatar({ c, size = 34 }: { c: Rocket; size?: number }) {
+function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
   return (
-    <span className="lp-av" style={{ width: size, height: size, background: c.c }}>
-      {c.icon
-        // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={c.icon} alt="" loading="lazy" width={size} height={size} />
-        : <span className="lp-av-mono">{c.tk.slice(0, 2)}</span>}
+    <span className="lp-av2">
+      <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size={size <= 32 ? "icon" : "list"} px={size} />
       <span className="lp-av-check"><VerifiedBadge tier={tierOf(c)} size={13} /></span>
     </span>
   );
@@ -90,10 +88,10 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
       <div className="lp-trend-row" ref={ref}>
         {items.map((c, i) => (
           <button key={c.id} type="button" className="lp-tcard" onClick={() => onPick(c)}>
-            <span className="lp-tart" style={{ background: `radial-gradient(90% 80% at 50% 30%, ${c.c}33, #0b0f22 70%)` }}>
+            <span className="lp-tart">
+              <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid eager={i < 6} />
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
-              <BrandedRocket icon={c.icon} height={118} />
             </span>
             <span className="lp-tname">{c.name} <VerifiedBadge tier={tierOf(c)} size={13} /></span>
             <span className="lp-tmeta"><b>${c.tk}</b></span>
@@ -135,7 +133,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
   return (
     <div role="link" tabIndex={0} className="rocket-card lp-card" onClick={() => onPick(c)} onKeyDown={(e) => { if (e.key === "Enter") onPick(c); }}
       style={{ border: c.live ? "1px solid rgba(143,240,192,.6)" : undefined }}>
-      <div className="lp-card-art"><BrandedRocket icon={c.icon} height={64} /></div>
+      <div className="lp-card-art"><PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
         <div className="lp-card-name">{c.name} <VerifiedBadge tier={tierOf(c)} size={14} /></div>
@@ -167,7 +165,7 @@ function Rail({ coins, watch, onPick }: { coins: Rocket[]; watch: Set<string>; o
       {list.length === 0 && <p className="lp-dim" style={{ fontSize: 12, padding: "8px 4px" }}>Star a rocket (☆) to keep it here.</p>}
       {list.map((c) => (
         <button key={c.id} type="button" className="lp-rrow" onClick={() => onPick(c)}>
-          <Avatar c={c} size={30} />
+          <Avatar c={c} size={32} />
           <span className="lp-rr-txt"><b>{c.tk}</b><span className="lp-dim">{c.stats.holders} crew</span></span>
           <span className="lp-rr-num"><b>{c.mcap ? fmtUsd(c.mcap) : "…"}</b><Chg v={c.chg} /></span>
         </button>
@@ -195,7 +193,7 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/^\$/, "");
     let r = visible.filter((c) => {
-      if (pair !== "any" && (c.pair ?? "STRATEGY") !== pair) return false;
+      if (pair !== "any" && baseOf(c) !== pair) return false;
       if (needle && !(c.name.toLowerCase().includes(needle) || c.tk.toLowerCase().includes(needle) || c.id.toLowerCase().includes(needle))) return false;
       if (verified === "verified" && tierOf(c).level === "UNVERIFIED") return false;
       if (tab === "graduated") return isGrad(c);

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { localUsername } from "@/lib/profile";
 import BrandedRocket from "@/components/BrandedRocket";
+import PairArt from "@/components/pairart/PairArt";
+import { sampleArtFor } from "@/lib/pairArt";
 import {
   CrosshairChart, RangeToggle, sliceRange, type RangeKey, Donut, Gauge, Heatmap, Histogram, 
   PlaystyleMeter, RadarChart, Sparkline, StatRing,
@@ -169,7 +171,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             <tbody>
               {rockets.map((r) => (
                 <tr key={r.token}>
-                  <td><strong>{r.ticker}</strong><div className="muted tiny">{r.name}</div></td>
+                  <td><div className="hold-tok"><PairArt {...sampleArtFor(r.ticker)} tk={r.ticker} size="list" px={36} /><div><strong>{r.ticker}</strong><div className="muted tiny">{r.name}</div></div></div></td>
                   <td><span className="tier-chip">{r.tierName}</span></td>
                   <td>{r.entries}</td>
                   <td className={r.pnl >= 0 ? "pos" : "neg"}>{fmtUsd(r.pnl)}</td>
