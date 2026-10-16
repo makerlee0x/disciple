@@ -34,10 +34,10 @@ export default function AmmoTierNotice() {
       display: "flex", gap: 10, alignItems: "center", padding: "7px 10px", borderRadius: 11, maxWidth: "92vw",
       background: "rgba(14,12,34,.9)", border: "1px solid rgba(159,243,200,.55)", color: "#eef0ff",
       font: "11px ui-monospace,monospace", boxShadow: "0 6px 24px rgba(0,0,0,.35)", animation: "apAmmoIn .35s ease-out" }}>
-      <span style={{ color: "#9ff3c8", fontWeight: 700 }}>▲ {n.toName} TIER</span>
+      <span style={{ color: "#9ff3c8", fontWeight: 700 }}>▲ ROCKET GREW</span>
       <span style={{ opacity: 0.85 }}>
-        bigger ammo fits: {short(n.current[2])}→<b style={{ color: "#ffe7a3" }}>{short(n.usd[2])}</b> FLARE · {short(n.current[5])}→
-        <b style={{ color: "#ffe7a3" }}>{short(n.usd[5])}</b> GLORY
+        bigger ammo fits: {short(n.current[2])}→<b style={{ color: "#ffe7a3" }}>{short(n.usd[2])}</b> · {short(n.current[5])}→
+        <b style={{ color: "#ffe7a3" }}>{short(n.usd[5])}</b>
       </span>
       <button type="button" aria-label="upgrade ammo" onClick={() => act("upgrade")} style={{ ...b, background: "#1f6f4a", color: "#c8ffe4" }}>Upgrade</button>
       <button type="button" aria-label="keep ammo" onClick={() => act("keep")} style={{ ...b, background: "rgba(255,255,255,.1)", color: "#e8ecff" }}>Keep</button>
