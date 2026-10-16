@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fmtUsd } from "@/lib/config";
+import { fmtUsd, HOLD_BONUS } from "@/lib/config";
 import { applyFill, emptyPosition, view, type Position } from "@/lib/pnl";
 
 type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number };
+type Mark = { mcap: number; supply: number };
 type FlightWin = {
   __flight?: { S?: { confirmed?: { mcap?: number | null } }; source?: { supply?: number } };
   __entryMcap?: number;
@@ -13,13 +14,55 @@ type FlightWin = {
 
 const KEY = "disciple.pnl.";
 const usd = (v: number) => (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
 const amt = (v: number) => (v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "K" : v.toFixed(0));
+const GREEN = "#8ff0c0", RED = "#ff9fb8", FLAT = "#e8ecff";
+const col = (x: number) => (x > 0.005 ? GREEN : x < -0.005 ? RED : FLAT);
 
-/** Holdings / PnL HUD (PAPER ledger now; ProtocolClient.getPosition later). */
+/** Smoothly tweened number: animates text in place via rAF (no React re-render per frame). */
+function Num({ value, fmt, style }: { value: number; fmt: (v: number) => string; style?: React.CSSProperties }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const shown = useRef(value);
+  const fmtRef = useRef(fmt);
+  fmtRef.current = fmt;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const from = shown.current, to = value;
+    if (!Number.isFinite(from) || from === to || document.hidden) { shown.current = to; el.textContent = fmtRef.current(to); return; }
+    const t0 = performance.now(), dur = 420;
+    let raf = 0;
+    const tick = (now: number) => {
+      const u = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - u, 3);
+      shown.current = from + (to - from) * e;
+      el.textContent = fmtRef.current(shown.current);
+      if (u < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <span ref={ref} style={style}>{fmt(shown.current)}</span>;
+}
+
+function sessionRealized(coin: string) {
+  let tot = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(KEY) && k !== KEY + coin) try { tot += JSON.parse(localStorage.getItem(k) || "{}").realized || 0; } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  return tot;
+}
+
+/**
+ * Holdings / PnL HUD — PnL is the game. PAPER ledger now; ProtocolClient.getPosition later.
+ * Marks are pushed by the engine (`disciple:mark`, on change, ≤10/s); no polling. Other rockets' realized
+ * total is read from localStorage once on mount and on cross-tab `storage` events only.
+ */
 export default function PnlHud({ coin }: { coin: string }) {
   const [pos, setPos] = useState<Position>(emptyPosition);
-  const [mcap, setMcap] = useState(0);
-  const [supply, setSupply] = useState(1e9);
+  const [mark, setMark] = useState<Mark>({ mcap: 0, supply: 1e9 });
   const [open, setOpen] = useState(true);
   const [session, setSession] = useState(0);
   const posRef = useRef(pos);
@@ -28,6 +71,10 @@ export default function PnlHud({ coin }: { coin: string }) {
   useEffect(() => {
     try { const s = localStorage.getItem(KEY + coin); if (s) setPos(JSON.parse(s)); } catch { /* ignore */ }
     if (window.matchMedia?.("(max-width: 760px)").matches) setOpen(false);
+    setSession(sessionRealized(coin));
+    const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin)); };
+    addEventListener("storage", onStorage);
+    return () => removeEventListener("storage", onStorage);
   }, [coin]);
 
   useEffect(() => {
@@ -40,57 +87,74 @@ export default function PnlHud({ coin }: { coin: string }) {
       try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ }
     };
     const h = (e: Event) => onFill((e as CustomEvent<Fill>).detail);
+    const onMark = (e: Event) => { const d = (e as CustomEvent<Mark>).detail; if (d && d.mcap > 0) setMark({ mcap: d.mcap, supply: d.supply || 1e9 }); };
     addEventListener("disciple:paperfill", h);
+    addEventListener("disciple:mark", onMark);
+    const m0 = w.__flight?.S?.confirmed?.mcap;
+    if (m0) setMark({ mcap: m0, supply: w.__flight?.source?.supply || 1e9 });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
-    const iv = setInterval(() => {
-      const m = w.__flight?.S?.confirmed?.mcap;
-      if (m) setMcap(m);
-      if (w.__flight?.source?.supply) setSupply(w.__flight.source.supply);
-      // session total across rockets (sum of each coin's ledger at its last known mark is not available → realized + this coin's uPnL)
-      let tot = 0;
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k?.startsWith(KEY) && k !== KEY + coin) try { tot += JSON.parse(localStorage.getItem(k) || "{}").realized || 0; } catch { /* ignore */ }
-      }
-      setSession(tot);
-    }, 500);
-    return () => { removeEventListener("disciple:paperfill", h); clearInterval(iv); };
+    return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); };
   }, [coin]);
 
-  const price = mcap / supply;
-  const v = view(pos, price, supply);
+  const price = mark.mcap / mark.supply;
+  const v = view(pos, price, mark.supply);
   useEffect(() => {
     (window as unknown as FlightWin).__entryMcap = v.size > 0 ? v.entryMcap : undefined;
   }, [v.size, v.entryMcap]);
 
-  const up = v.uPnl >= 0;
-  const c = (x: number) => (x > 0 ? "#8ff0c0" : x < 0 ? "#ff9fb8" : "#e8ecff");
-  const row = { display: "flex", justifyContent: "space-between", gap: 10 } as const;
+  const holding = v.size > 0;
+  const maxMult = 1 + HOLD_BONUS.maxBoost;
+  const share = Math.max(0, Math.min(1, (v.bonus - 1) / HOLD_BONUS.maxBoost));
+  const label = { color: "rgba(220,228,255,.62)", fontSize: 10, letterSpacing: ".06em" } as const;
+  const row = { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 } as const;
+  const glow = (c: string) => `0 0 10px ${c}55`;
 
   return (
     <aside aria-label="Holdings and PnL" className="pnl-hud"
-      style={{ position: "fixed", top: 212, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 31, width: 260, padding: "8px 11px",
-        borderRadius: 12, background: "rgba(10,12,28,.78)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,231,163,.5)",
-        color: "#fff7df", font: "11px ui-monospace,monospace" }}>
+      style={{ position: "fixed", top: 212, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 31, width: 272, padding: "9px 12px 10px",
+        borderRadius: 14, background: "linear-gradient(180deg,rgba(16,14,40,.88),rgba(8,10,26,.84))", backdropFilter: "blur(6px)",
+        border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
+        transition: "border-color .4s" }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
-        <span>FUEL IN TANK <span style={{ color: "#ffb0c8" }}>· PAPER</span></span>
-        <span style={{ color: c(v.uPnl) }}>{v.size > 0 ? `${up ? "▲" : "▼"} ${Math.abs(v.pnlPct).toFixed(1)}%` : "—"} {open ? "−" : "+"}</span>
+        <span>YOUR RUN <span style={{ color: "#ffb0c8", fontWeight: 400 }}>· PAPER</span></span>
+        <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>
+
+      {/* hero: unrealized PnL + % */}
+      <div style={{ ...row, marginTop: 4 }}>
+        <Num value={v.uPnl} fmt={usd} style={{ fontSize: 22, fontWeight: 800, color: col(v.uPnl), textShadow: glow(col(v.uPnl)), letterSpacing: "-.02em" }} />
+        <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
+          background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
+      </div>
+      <div style={label}>UNREALIZED PNL</div>
+
       {open && (
-        <div style={{ marginTop: 5, lineHeight: 1.55 }}>
-          <div style={row}><span>Holdings</span><span>{amt(v.size)} · {fmtUsd(v.valueUsd)}</span></div>
-          <div style={row}><span>Avg entry</span><span>{v.size > 0 ? `$${v.avgEntryUsd.toPrecision(3)} · MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
-          <div style={row}><span>uPnL</span><span style={{ color: c(v.uPnl), fontWeight: "bold" }}>{usd(v.uPnl)}</span></div>
-          <div style={row}><span>Realized</span><span style={{ color: c(v.realized) }}>{usd(v.realized)}</span></div>
-          <div style={row}><span>Session (other rockets)</span><span style={{ color: c(session) }}>{usd(session)}</span></div>
-          <div style={{ ...row, marginTop: 3, color: v.bonus > 1 ? "#ffd98a" : "rgba(220,228,255,.6)", fontWeight: "bold" }}>
-            <span>HOLD BONUS</span><span>×{v.bonus.toFixed(2)}</span>
+        <div style={{ marginTop: 7, lineHeight: 1.6 }}>
+          <div style={row}><span style={label}>MCAP</span><Num value={mark.mcap} fmt={fmtUsd} style={{ fontWeight: 700 }} /></div>
+          <div style={row}><span style={label}>HOLDINGS</span>
+            <span>{amt(v.size)} · <Num value={v.valueUsd} fmt={(x) => "$" + x.toFixed(2)} /></span></div>
+          <div style={row}><span style={label}>AVG ENTRY</span><span>{holding ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
+          <div style={row}><span style={label}>REALIZED</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
+          <div style={row}><span style={label}>OTHER ROCKETS</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
+
+          {/* reward-share hook: hold bonus grows with unrealized PnL (lib/config holdBonus) */}
+          <div title={`Reward share multiplier grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}`} style={{ marginTop: 6 }}>
+            <div style={{ ...row, color: v.bonus > 1 ? "#ffd98a" : "rgba(220,228,255,.6)", fontWeight: 700 }}>
+              <span>REWARD SHARE</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
+            </div>
+            <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,.08)", overflow: "hidden", marginTop: 3 }}>
+              <div style={{ width: `${Math.max(3, share * 100)}%`, height: "100%", borderRadius: 3, transition: "width .5s ease-out",
+                background: "linear-gradient(90deg,#ffd98a,#9ff3c8)", boxShadow: v.uPnl > 0 ? "0 0 8px rgba(255,217,138,.6)" : "none" }} />
+            </div>
+            <div style={{ fontSize: 10, marginTop: 3, color: v.uPnl > 0 ? "#ffe7a3" : "rgba(220,228,255,.5)" }}>
+              {v.uPnl > 0 ? "▲ more uPnL → bigger reward share · hold to ramp" : "stay green to earn a bigger reward share"}
+            </div>
           </div>
         </div>
       )}
       <style jsx>{`
         @media (max-width: 760px) {
-          .pnl-hud { left: 8px !important; top: auto !important; bottom: 60px; width: 200px !important; }
+          .pnl-hud { left: 8px !important; top: auto !important; bottom: 60px; width: 210px !important; }
         }
       `}</style>
     </aside>

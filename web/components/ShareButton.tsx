@@ -43,7 +43,7 @@ export default function ShareButton({ callSign, icon }: { callSign: string; icon
   return (
     <>
       <button type="button" onClick={onShare} aria-label="Share rocket card"
-        style={{ position: "fixed", top: 12, right: 60, zIndex: 35, height: 38, padding: "0 14px", borderRadius: 19,
+        style={{ position: "fixed", top: "var(--ap-tr-top, 12px)", right: 60, zIndex: 35, height: 38, padding: "0 14px", borderRadius: 19,
           color: "#fff7df", background: "rgba(10,12,28,.82)", border: "1px solid rgba(255,231,163,.7)", font: "bold 12px ui-monospace,monospace", cursor: "pointer" }}>
         ⤴ SHARE
       </button>

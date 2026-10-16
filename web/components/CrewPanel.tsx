@@ -16,7 +16,7 @@ const MOCK_CREW = {
   stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
 };
 
-const REWARDS = ["Crew orb rain", "Halo trail skin", "rHALO airdrop ×2", "Choir soundtrack", "Golden wings"];
+const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir soundtrack", "Golden wings"];
 
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
@@ -25,13 +25,18 @@ export default function CrewPanel() {
   const [mode, setMode] = useState(2);
   const [open, setOpen] = useState(true);
 
+  const [ammoUsd, setAmmoUsd] = useState<number[]>(MODES.map((m) => m.usd));
+  // Engine pushes marks + scaled ammo presets on change (no 1 s poll).
   useEffect(() => {
-    const iv = setInterval(() => {
-      const S = (window as unknown as FlightWin).__flight?.S;
-      if (S?.confirmed?.mcap) setMcap(S.confirmed.mcap);
-      if (typeof S?.mode === "number") setMode(S.mode);
-    }, 1000);
-    return () => clearInterval(iv);
+    const S = (window as unknown as FlightWin).__flight?.S;
+    if (S?.confirmed?.mcap) setMcap(S.confirmed.mcap);
+    if (typeof S?.mode === "number") setMode(S.mode);
+    const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap: number }>).detail?.mcap; if (m) setMcap(m); };
+    const onAmmo = (e: Event) => { const d = (e as CustomEvent<{ usd: number[]; mode: number }>).detail; if (d?.usd) setAmmoUsd(d.usd); if (typeof d?.mode === "number") setMode(d.mode); };
+    addEventListener("disciple:mark", onMark);
+    addEventListener("disciple:ammo", onAmmo);
+    dispatchEvent(new Event("disciple:ammo-query"));
+    return () => { removeEventListener("disciple:mark", onMark); removeEventListener("disciple:ammo", onAmmo); };
   }, []);
 
   const u = nextUnlock(mcap);
@@ -42,7 +47,7 @@ export default function CrewPanel() {
     <aside
       aria-label="Crew"
       style={{
-        position: "fixed", right: 14, top: 305, zIndex: 30, width: 250,
+        position: "fixed", right: 14, top: "calc(var(--ap-hud-rt, 58px) + 206px)", maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 330px)", overflowY: "auto", zIndex: 30, width: 250,
         padding: 12, borderRadius: 14, background: "rgba(10,12,28,.82)",
         border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
         font: "11px ui-monospace,monospace",
@@ -72,7 +77,7 @@ export default function CrewPanel() {
           <div style={{ marginTop: 10, color: "#ffe7a3" }}>AMMO COST</div>
           {MODES.map((m, i) => (
             <div key={m.key} style={{ display: "flex", justifyContent: "space-between", color: i === mode ? "#9ff3c8" : undefined }}>
-              <span>{m.key} {m.name}</span><span>${m.usd < 1 ? m.usd.toFixed(2) : m.usd.toLocaleString()}</span>
+              <span>{m.key} {m.name}</span><span>{(() => { const u = ammoUsd[i] ?? m.usd; return "$" + (u < 1 ? u.toFixed(2) : u.toLocaleString()); })()}</span>
             </div>
           ))}
         </>
