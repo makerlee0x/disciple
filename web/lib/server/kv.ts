@@ -1,0 +1,85 @@
+import "server-only";
+/**
+ * Small durable KV for site data (usernames, trade index). Same Upstash REST pattern as lib/server/chat/store.ts
+ * (UPSTASH_REDIS_REST_URL/TOKEN or KV_REST_API_URL/TOKEN, plain fetch, no SDK). Without env it falls back to an
+ * in-memory store persisted best-effort to KV_LOCAL_FILE (default /tmp/disciple-kv.json): dev only, not shared
+ * across Vercel lambdas.
+ */
+import { promises as fs } from "fs";
+
+export interface Kv {
+  kind: "upstash" | "local";
+  get(k: string): Promise<string | null>;
+  set(k: string, v: string): Promise<void>;
+  /** SET NX (no ttl when ttlSec is 0). true if written. */
+  setNX(k: string, v: string, ttlSec?: number): Promise<boolean>;
+  del(...k: string[]): Promise<void>;
+  /** ZADD NX for each member (dedupe by member). */
+  zadd(k: string, items: { score: number; member: string }[]): Promise<void>;
+  /** ascending by score */
+  zrange(k: string, limit?: number): Promise<string[]>;
+  sadd(k: string, ...m: string[]): Promise<void>;
+  smembers(k: string): Promise<string[]>;
+}
+
+/* ---------------- local ---------------- */
+type LocalState = { kv: Record<string, { v: string; exp: number }>; z: Record<string, Record<string, number>>; s: Record<string, string[]> };
+const g = globalThis as unknown as { __discipleKv?: LocalState; __discipleKvLoaded?: Promise<void> };
+const FILE = process.env.KV_LOCAL_FILE || "/tmp/disciple-kv.json";
+function local(): Kv {
+  const st: LocalState = (g.__discipleKv ??= { kv: {}, z: {}, s: {} });
+  const ready = (g.__discipleKvLoaded ??= (async () => {
+    try { const j = JSON.parse(await fs.readFile(FILE, "utf8")) as LocalState; Object.assign(st, { kv: j.kv ?? {}, z: j.z ?? {}, s: j.s ?? {} }); } catch { /* first run */ }
+  })());
+  let t: ReturnType<typeof setTimeout> | null = null;
+  const save = () => { if (t) return; t = setTimeout(() => { t = null; fs.writeFile(FILE, JSON.stringify(st)).catch(() => {}); }, 50); };
+  const live = (k: string) => { const e = st.kv[k]; if (e && e.exp && e.exp < Date.now()) { delete st.kv[k]; return undefined; } return e; };
+  return {
+    kind: "local",
+    async get(k) { await ready; return live(k)?.v ?? null; },
+    async set(k, v) { await ready; st.kv[k] = { v, exp: 0 }; save(); },
+    async setNX(k, v, ttl = 0) { await ready; if (live(k)) return false; st.kv[k] = { v, exp: ttl ? Date.now() + ttl * 1000 : 0 }; save(); return true; },
+    async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
+    async zadd(k, items) { await ready; const z = (st.z[k] ??= {}); for (const i of items) if (!(i.member in z)) z[i.member] = i.score; save(); },
+    async zrange(k, limit = 1000) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => a[1] - b[1]).slice(0, limit).map(([m]) => m); },
+    async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
+    async smembers(k) { await ready; return st.s[k] ?? []; },
+  };
+}
+
+/* ---------------- Upstash REST ---------------- */
+function upstash(url: string, token: string): Kv {
+  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const cmd = async <T = unknown>(...args: (string | number)[]): Promise<T> => {
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(args), cache: "no-store" });
+    const j = (await r.json()) as { result?: T; error?: string };
+    if (!r.ok || j.error) throw new Error(`upstash: ${j.error || r.status}`);
+    return j.result as T;
+  };
+  return {
+    kind: "upstash",
+    get: (k) => cmd<string | null>("GET", k),
+    async set(k, v) { await cmd("SET", k, v); },
+    async setNX(k, v, ttl = 0) { return (await cmd<string | null>(...(ttl ? ["SET", k, v, "NX", "EX", ttl] : ["SET", k, v, "NX"]))) === "OK"; },
+    async del(...ks) { if (ks.length) await cmd("DEL", ...ks); },
+    async zadd(k, items) {
+      for (let i = 0; i < items.length; i += 200) {
+        const args: (string | number)[] = ["ZADD", k, "NX"];
+        for (const it of items.slice(i, i + 200)) args.push(it.score, it.member);
+        await cmd(...args);
+      }
+    },
+    async zrange(k, limit = 1000) { return (await cmd<string[]>("ZRANGE", k, 0, limit - 1)) ?? []; },
+    async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
+    async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
+  };
+}
+
+let inst: Kv | null = null;
+export function kv(): Kv {
+  if (inst) return inst;
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const tok = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  inst = url && tok ? upstash(url, tok) : local();
+  return inst;
+}

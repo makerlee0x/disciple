@@ -2,6 +2,7 @@
 
 import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import WalletButton from "./WalletButton";
+import RefCapture from "./RefCapture";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
@@ -11,6 +12,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar />
+      <RefCapture />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
       <WalletButton compact={!isGame} />
       {isGame ? children : <div className="main-offset min-h-screen">{children}</div>}
