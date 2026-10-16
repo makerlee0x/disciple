@@ -34,11 +34,13 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
     }
 
     function test_selfReferral_blocked() public {
+        vm.prank(kol);
         vm.expectRevert(ReferralRegistry.SelfReferral.selector);
         referrals.tryAttribute(kol, kol);
     }
 
     function test_referral_notFinal_without_usdgGate() public {
+        vm.prank(trader1);
         referrals.tryAttribute(trader1, kol);
         assertEq(referrals.referrerOf(trader1), address(0));
         assertEq(referrals.pendingReferrer(trader1), kol);
