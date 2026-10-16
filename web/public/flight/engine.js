@@ -648,6 +648,7 @@ addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode===
 const isTyping=e=>{ const t=e.target; return !!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')); };
 addEventListener('keydown',e=>{
   if (isTyping(e)) return;   // typing in a field (chat, amount) never steers or trades
+  if (S.grass && !/^(Arrow(Left|Right|Up|Down)|Key[WASD])$/.test(e.code)) return;   // TOUCH GRASS: steering may nudge, nothing can trade
   S.keys[e.code]=true;
   if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
@@ -704,7 +705,7 @@ function ammoAt(e){ const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r
   for(let i=0;i<AMMO_HIT.length;i++){ const R=AMMO_HIT[i]; if(x>=R.x&&x<=R.x+R.w&&y>=R.y&&y<=R.y+R.h) return i; } return -1; }
 cv.addEventListener('pointermove',e=>{ const i=ammoAt(e); if(i!==S.ammoHover){ S.ammoHover=i; cv.style.cursor=i>=0?'pointer':''; } });
 cv.addEventListener('pointerleave',()=>{ S.ammoHover=-1; cv.style.cursor=''; });
-cv.addEventListener('pointerdown',e=>{ const i=ammoAt(e); if(i<0) return; e.preventDefault();
+cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const i=ammoAt(e); if(i<0) return; e.preventDefault();
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
   if(i>=6){ dispatchEvent(new CustomEvent('disciple:sellpreset',{detail:{i:i-6}})); return; }
   S.mode=i; pushAmmo(); });
@@ -1701,8 +1702,8 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
-  S.tierBanner=Math.max(0,S.tierBanner-dt);
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
+  S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; if(p.life<=0) P.kill(i); } }
   { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
@@ -1923,7 +1924,28 @@ function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e9?(a/
 function fmtPnlUsd(v){ return (v<0&&Math.abs(v)>=0.005?'−':'+')+fmtMoney(Math.abs(v)); }
 function fmtTok(n){ return n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n.toFixed(0); }
 function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }
+/* TOUCH GRASS — ambient mode (disciple:grass {on}, owned by components/flight/TouchGrass.tsx; ?grass=1 shares it).
+   Only sky, clouds/parallax, rocket + trail and one faded mcap readout; no HUD, fx, bombs, walls, tags or chart.
+   Reuses #50's clean-mode idea at runtime: everything gated here is simply not drawn (cheaper frames). */
+addEventListener('disciple:grass',e=>{ S.grass=!!(e.detail&&e.detail.on); S._grassA=S._grassA||0; });
+function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)+dt*0.8);
+  if(m>0){ const ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), tk=String(source.ticker||Q.get('ticker')||'').slice(0,10).toUpperCase();
+    ctx.save(); ctx.globalAlpha=S._grassA;   // soft dark halo so the thin number reads over white clouds
+    { const g=ctx.createRadialGradient(W/2,H-100,0,W/2,H-100,Math.min(W*0.32,380)); g.addColorStop(0,'rgba(6,8,20,.55)'); g.addColorStop(0.55,'rgba(6,8,20,.28)'); g.addColorStop(1,'rgba(6,8,20,0)');
+      ctx.fillStyle=g; ctx.save(); ctx.translate(W/2,H-100); ctx.scale(1,0.42); ctx.translate(-W/2,-(H-100)); ctx.fillRect(W/2-400,H-100-400,800,800); ctx.restore(); }
+    ctx.globalAlpha=0.86*S._grassA; ctx.textAlign='center'; ctx.fillStyle='#fff7ef';
+    const fs=Math.round(clamp(W*0.06,46,96)); ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`;
+    glowText(fmtUsd(m),W/2,H-86,'rgba(255,236,200,1)',10,0.18);
+    ctx.globalAlpha=0.7*S._grassA; ctx.font='300 14px "Helvetica Neue","Inter",system-ui,sans-serif'; ctx.fillStyle='#ffe9c4';
+    ctx.fillText(((tk?'$'+tk+'   ·   ':'')+TIERS[ti].name).split('').join(String.fromCharCode(8202)),W/2,H-86+28);
+    const c=S.grassCard||0; if(c>0&&S.tierShown>=0){ const a=Math.min(1,c/1.2,(4.5-c)/1.2);   // tier title card: fade in, hold, fade out
+      ctx.globalAlpha=0.85*a; ctx.font=`300 ${Math.round(clamp(W*0.045,32,64))}px Georgia,serif`; ctx.fillStyle='#fff3dc';
+      glowText(TIERS[S.tierShown].name,W/2,H*0.36,'rgba(255,220,160,1)',12,0.25);
+      ctx.globalAlpha=0.45*a; ctx.font='300 12px "Helvetica Neue",system-ui,sans-serif'; ctx.fillText('ENTERED  ·  '+fmtUsd(TIERS[S.tierShown].lo),W/2,H*0.36+30); }
+    ctx.restore(); } }
 function render(dt){
+  if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
+  S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
   drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
