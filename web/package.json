@@ -14,7 +14,10 @@
     "test:trail": "node scripts/test-trail.mjs",
     "test:gamechat": "node scripts/test-gamechat.mjs",
     "test:chat": "node scripts/test-chat.mjs",
-    "test:sim": "node scripts/test-sim.mjs"
+    "test:sim": "node scripts/test-sim.mjs",
+    "test:replay": "node scripts/test-replay.mjs",
+    "gen:flight": "node scripts/gen-flight-data.mjs",
+    "test:flightdata": "node scripts/gen-flight-data.mjs --check"
   },
   "dependencies": {
     "@account-kit/signer": "^4.88.5",
