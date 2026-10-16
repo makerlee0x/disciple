@@ -20,6 +20,8 @@ contract SecurityFuzzTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         twm = new TrampWallManager(manager, lockedLP, address(hook));
+        hook.setLiquidityManager(address(twm), true);
+        twm.setJitParams(0, 0); // legacy behaviour tests; JIT guards covered in test/security/JitTwap.t.sol
         (curve, tok) = _launch(0, 0);
         _graduate(curve);
         quote.mint(alice, 1_000_000 ether);

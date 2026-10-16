@@ -113,7 +113,10 @@ contract Deploy is Script {
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
 
         // Hook salt is mined against the CREATE2 factory that actually deploys it (not the EOA).
-        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+        );
         bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
         (address hookAddr, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, ctorArgs);
@@ -128,6 +131,9 @@ contract Deploy is Script {
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
         o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
+        // SEC-02: only LockedLP + TrampWallManager may add liquidity to DISCIPLE pools.
+        hook.setLiquidityManager(address(lockedLP), true);
+        hook.setLiquidityManager(o.trampWall, true);
         hook.setTrustedRouter(address(router), true);
         address ur = vm.envOr("UNIVERSAL_ROUTER", address(0));
         if (ur != address(0)) hook.setTrustedRouter(ur, true);

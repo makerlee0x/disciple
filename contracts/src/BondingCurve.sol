@@ -12,6 +12,9 @@ import {IAntiSnipe} from "./interfaces/IAntiSnipe.sol";
 import {IMigration} from "./interfaces/IMigration.sol";
 import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
 import {SqrtPrice} from "./libraries/SqrtPrice.sol";
+import {TwapOracle} from "./libraries/TwapOracle.sol";
+import {Altitude} from "./libraries/Altitude.sol";
+import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -30,10 +33,17 @@ interface ILaunchpadPricer {
     function pricer() external view returns (address);
 }
 
+interface ILaunchpadAltitude {
+    function altitudeWindow() external view returns (uint32);
+}
+
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
 /// @notice Start mcap $7K → Pearly Gates $33K at exactly 72% supply sold; 7% wallet cap.
 /// @dev Single constant-product virtual reserves; quotePriceUsd scales USD targets into quote units.
-contract BondingCurve is IBondingCurve, ITradeEvents {
+/// @dev Altitude: a truncated TWAP oracle of the curve price is written (pre-trade, once per block) on every
+///      buy/sell; tiers are taken from the TWAP over Launchpad.altitudeWindow() and streamed as
+///      AltitudeUpdate / TierBreak after each Trade. Single-block pumps cannot cause a tier break.
+contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     using SafeERC20 for IERC20;
 
     address public immutable override token;
@@ -56,6 +66,13 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
     bool public override graduated;
 
     mapping(address => uint256) public balanceOnCurve; // for wallet cap tracking
+
+    /// @notice Max recorded tick move per observation (≈ ×2.49 per block).
+    int24 public constant MAX_TICK_DELTA = 9116;
+    uint32 internal constant DEFAULT_ALTITUDE_WINDOW = 300;
+    /// @notice Last TWAP altitude tier (0..17).
+    uint8 public altitudeTier;
+    TwapOracle.State internal _oracle;
 
     error Graduated();
     error NotGraduated();
@@ -281,6 +298,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         IERC20(quote).safeTransferFrom(payer, address(this), quoteIn);
 
         uint256 priceBefore = CurveMath.spotPriceWad(_params, tokensSold);
+        TwapOracle.write(_oracle, _curveTick(), MAX_TICK_DELTA, false);
         BuyQuote memory q = _quoteBuy(quoteIn, snipeExempt);
         tokensOut = q.tokensOut;
         if (tokensOut < minTokensOut) revert Slippage();
@@ -320,6 +338,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
             q.impactBps,
             q.mcapAfterUsd
         );
+        _emitAltitude(q.mcapAfterUsd);
 
         if (q.graduates) _graduate();
     }
@@ -369,6 +388,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokensIn);
 
         uint256 priceBefore = CurveMath.spotPriceWad(_params, tokensSold);
+        TwapOracle.write(_oracle, _curveTick(), MAX_TICK_DELTA, false);
         SellQuote memory q = quoteSell(tokensIn);
         quoteOut = q.quoteOut;
         if (quoteOut < minQuoteOut) revert Slippage();
@@ -402,6 +422,41 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
             q.impactBps,
             q.mcapAfterUsd
         );
+        _emitAltitude(q.mcapAfterUsd);
+    }
+
+    // ── altitude TWAP ──
+
+    /// @dev Current curve price tick (quote per token), full precision from virtual reserves.
+    function _curveTick() internal view returns (int24) {
+        return TwapOracle.tickFromReserves(CurveMath.virtualQuote(_params, tokensSold), _params.y0 - tokensSold);
+    }
+
+    function altitudeWindow() public view returns (uint32) {
+        try ILaunchpadAltitude(launchpad).altitudeWindow() returns (uint32 w) {
+            if (w > 0) return w;
+        } catch {}
+        return DEFAULT_ALTITUDE_WINDOW;
+    }
+
+    /// @notice Curve-phase TWAP mcap (USD WAD, launch-time quote price) over `window` seconds.
+    /// @dev After graduation the curve oracle is frozen; use DiscipleHook.twapMcapUsd / MarketLens instead.
+    function twapMcapUsd(uint32 window) public view returns (uint256 mcapUsd, uint32 actualWindow) {
+        if (!TwapOracle.isInitialized(_oracle)) return (marketCapUsd(), 0);
+        int24 t;
+        (t, actualWindow) = TwapOracle.consult(_oracle, window, TwapOracle.tail(_oracle, _curveTick(), MAX_TICK_DELTA));
+        mcapUsd = TwapOracle.mcapUsdAtTick(t, _params.totalSupply, quotePriceUsd);
+    }
+
+    function _emitAltitude(uint256 spotMcap) internal {
+        (uint256 twap, uint32 w) = twapMcapUsd(altitudeWindow());
+        uint8 tier = Altitude.tierOf(twap);
+        emit AltitudeUpdate(token, twap, spotMcap, tier, w);
+        uint8 prev = altitudeTier;
+        if (tier != prev) {
+            altitudeTier = tier;
+            emit TierBreak(token, prev, tier, twap);
+        }
     }
 
     /// @dev Atomic same-tx migrate to locked v4 at curve-end price — no pause/gap (§2 / LOCKED #5).

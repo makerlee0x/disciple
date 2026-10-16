@@ -8,8 +8,8 @@
 | ID | Severity | Title | Status |
 |---|---|---|---|
 | SEC-01 | **High** | `LockedLP.addLockedLiquidity` unauthenticated: anyone can brick any coin (all trades revert) | **Fixed** in source; **live testnet v2 is vulnerable** (PoC) until the redeploy |
-| SEC-02 | Medium | JIT liquidity can capture hook LP donations (1/3 of LP share) | Open (design) |
-| SEC-03 | Medium | QuotePricer uses the v4 spot price at launch (flash-manipulable); bakes into curve USD targets | Open; recommend TWAP / deviation bound |
+| SEC-02 | Medium | JIT liquidity can capture hook LP donations (1/3 of LP share) | **Fixed in source** (flow/jit-twap): hook LP-add allowlist + TWM hold/vesting; needs redeploy |
+| SEC-03 | Medium | QuotePricer uses the v4 spot price at launch (flash-manipulable); bakes into curve USD targets | **Fixed in source** (flow/jit-twap): lagged truncated TWAP + poke; needs redeploy |
 | SEC-04 | Medium | Admin centralization: FeeRouter/Launchpad/LockedLP/hook owner can repoint core wiring (`setLaunchpad`, `setLockedLP`, `setMigration`, `setTrustedRouter`, `setPricer`) | Open; Safe multisig + timelock (mainnet plan) |
 | SEC-05 | Low | Trusted UniversalRouter → `hookData` trader attribution is caller-chosen (spoofable Trade attribution / referral destination) | Open; document or attribute only via DiscipleRouter |
 | SEC-06 | Low | TrampWallManager `pull` is permissionless: a whale can force-fill a range by pushing price through it (owner still gets their range price) | By design; document |
@@ -49,6 +49,13 @@
 - A flash swap around `Launchpad.launch` changes `quotePriceUsd`. That value is immutable per curve, so the coin's USD targets ($7K → $33K) end up mis-scaled.
 - The impact falls mostly on that coin's buyers, through mis-stated USD mcap and an earlier or later graduation.
 - **Recommendation:** set `minLiquidity` on mainnet; add a TWAP (an oracle hook or an observation ring) or a max-deviation bound against an owner-set reference.
+
+## SEC-02 / SEC-03 fix (flow/jit-twap, 2026-10-16)
+- **JIT:** `DiscipleHook.beforeAddLiquidity` only accepts `isLiquidityManager` senders (LockedLP, TrampWallManager), so no raw v4 positions can be added around a swap. TrampWallManager enforces `minHoldSeconds` (default 300 s) before `cancel`/`pull` and vests donation fees linearly over `feeVestSeconds` (default 3600 s); the unvested part is forfeited to the treasury. An add→swap→remove in one block earns 0 (`test_jit_add_swap_remove_one_block_earns_nothing`). LockedLP's position is permanent and unaffected.
+- **TWAP:** `libraries/TwapOracle.sol` is a v3-style ring (1024 observations), one write per block, pre-trade tick, truncated by `maxTickDelta` per write. Used by the hook (post-grad pools, written in `beforeSwap`), BondingCurve (curve phase) and QuotePricer (lagged mode, written by permissionless `poke` and by `Launchpad.launch`). A same-block move has zero weight; a held move is rate-limited by truncation.
+- **Consumers moved to TWAP:** QuotePricer.quotePriceUsd (launch-time curve USD targets, hook mcap), altitude tiers (hook + curve), `MarketLens.twapMcapUsd`. Display paths (`Trade.mcapAfterUsd`, `mcapNow`, `spotPriceWad`, `MarketLens.market`) intentionally stay spot.
+- **Not oracle-based (no change needed):** anti-snipe tax is purely time-based (`AntiSnipe`); graduation is triggered by tokens sold on the curve (72% supply), which needs real buys and cannot be faked by a price read; `QuoteProbe` is an allowlist and reads no price.
+- Residual: a multi-block manipulator (builder control) can still move the TWAP by ≤ `maxTickDelta` per block; a young pool/coin has a short effective window (`window` field). QuotePricer depends on pokes for freshness (stale ≠ manipulable). Tests: `test/security/JitTwap.t.sol` (19 tests incl. fuzz).
 
 ## SEC-04 (Medium): admin powers
 - **FeeRouter owner:** `setLaunchpad` (the creator lookup, which redirects creator fees), `setLockedLP`, `setTreasury`, `setRewardsVault`, `setAuthorized`.

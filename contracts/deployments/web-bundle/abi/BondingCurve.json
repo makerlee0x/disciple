@@ -57,6 +57,45 @@
   },
   {
     "type": "function",
+    "name": "MAX_TICK_DELTA",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "altitudeTier",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "altitudeWindow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "antiSnipe",
     "inputs": [],
     "outputs": [
@@ -718,6 +757,30 @@
   },
   {
     "type": "function",
+    "name": "twapMcapUsd",
+    "inputs": [
+      {
+        "name": "window",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "mcapUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualWindow",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "walletCapBps",
     "inputs": [],
     "outputs": [
@@ -728,6 +791,43 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AltitudeUpdate",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "twapMcapUsd",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "spotMcapUsd",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "window",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -753,6 +853,37 @@
       },
       {
         "name": "quoteLiq",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TierBreak",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "fromTier",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "toTier",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "twapMcapUsd",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -861,6 +992,11 @@
   {
     "type": "error",
     "name": "OnlyLaunchpad",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleUninitialized",
     "inputs": []
   },
   {

@@ -20,8 +20,17 @@ interface ILensCurve {
 }
 
 interface ILensMigration {
+    function hook() external view returns (address);
     function poolIdOf(address token) external view returns (bytes32);
     function poolManager() external view returns (IPoolManager);
+}
+
+interface ILensTwapCurve {
+    function twapMcapUsd(uint32 window) external view returns (uint256, uint32);
+}
+
+interface ILensTwapHook {
+    function twapMcapUsd(PoolId id, uint32 window) external view returns (uint256, uint32);
 }
 
 interface ILensPricer {
@@ -67,5 +76,24 @@ contract MarketLens {
 
     function mcapNow(address token) external view returns (uint256 m) {
         (, m,) = market(token);
+    }
+
+    /// @notice Manipulation-resistant mcap (USD WAD) over `window` seconds: curve TWAP pre-grad, hook TWAP post-grad.
+    /// @dev Use this (never `market`/`mcapNow`, which are spot) for any safety check or altitude/tier logic.
+    ///      Coins on older stacks without an oracle fall back to spot and return actualWindow = 0.
+    function twapMcapUsd(address token, uint32 window) external view returns (uint256 mcapUsd, uint32 actualWindow) {
+        ILensCurve c = ILensCurve(launchpad.curveOf(token));
+        if (c.graduated()) {
+            try ILensTwapHook(migration.hook()).twapMcapUsd(PoolId.wrap(migration.poolIdOf(token)), window) returns (
+                uint256 m, uint32 w
+            ) {
+                return (m, w);
+            } catch {}
+        } else {
+            try ILensTwapCurve(address(c)).twapMcapUsd(window) returns (uint256 m, uint32 w) {
+                return (m, w);
+            } catch {}
+        }
+        (, mcapUsd,) = market(token);
     }
 }

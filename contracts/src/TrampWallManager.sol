@@ -24,6 +24,9 @@ import {LockedLP} from "./LockedLP.sol";
 ///         In-range positions earn the DiscipleHook donation (1/3 of the 33% LP share of the 1% fee).
 /// @dev Pool LP fee is 0, so fees come only from hook donations. No custody beyond the v4 position itself;
 ///      only the position owner can cancel/claim; `pull` is permissionless but always pays the owner.
+///      SEC-02 (JIT): a position cannot be cancelled or pulled before `minHoldSeconds`, and donation fees vest
+///      linearly over `feeVestSeconds` from placement. Unvested fees taken out by cancel/pull/claim are
+///      forfeited to the treasury (LockedLP.treasury()). An add→swap→remove in one block therefore earns 0.
 contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -51,6 +54,15 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     uint256 public nextId = 1;
     mapping(uint256 => Position) public positions;
     mapping(address => uint256[]) internal _idsOf;
+    /// @notice Placement timestamp per position id (kept out of `positions` so its ABI is unchanged).
+    mapping(uint256 => uint64) public placedAt;
+
+    address public owner;
+    /// @notice Minimum seconds between place and cancel/pull (SEC-02).
+    uint32 public minHoldSeconds = 300;
+    /// @notice Donation fees vest linearly over this many seconds from placement (SEC-02).
+    uint32 public feeVestSeconds = 3600;
+    uint32 public constant MAX_HOLD = 7 days;
 
     error OnlyPoolManager();
     error NotGraduated();
@@ -62,6 +74,9 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     error Inactive();
     error NotFilled();
     error ZeroAmount();
+    error OnlyOwner();
+    error BadParam();
+    error HoldActive(uint256 unlockAt);
 
     event TrampPlaced(
         uint256 indexed id,
@@ -104,6 +119,10 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         uint256 quoteFees,
         uint256 tokenFees
     );
+    event JitParamsSet(uint32 minHoldSeconds, uint32 feeVestSeconds);
+    event OwnerTransferred(address indexed owner);
+    /// @notice Unvested donation fees withheld on cancel/pull/claim and sent to the treasury.
+    event FeesForfeited(uint256 indexed id, address indexed to, uint256 quoteFees, uint256 tokenFees);
     event FeesClaimed(
         uint256 indexed id, address indexed owner, address indexed token, uint256 quoteFees, uint256 tokenFees
     );
@@ -123,12 +142,41 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         bytes32 salt;
         address payer; // Add
         address recipient; // Remove / Poke
+        uint256 vestBps; // Remove / Poke: share of accrued fees paid to recipient (rest → forfeitTo)
+        address forfeitTo;
     }
 
     constructor(IPoolManager poolManager_, LockedLP lockedLP_, address hook_) {
         poolManager = poolManager_;
         lockedLP = lockedLP_;
         hook = hook_;
+        owner = msg.sender;
+    }
+
+    function setJitParams(uint32 minHold, uint32 vest) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (minHold > MAX_HOLD || vest > MAX_HOLD) revert BadParam();
+        minHoldSeconds = minHold;
+        feeVestSeconds = vest;
+        emit JitParamsSet(minHold, vest);
+    }
+
+    function transferOwnership(address o) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        owner = o;
+        emit OwnerTransferred(o);
+    }
+
+    /// @notice Share of accrued fees (bps) the owner would receive right now.
+    function vestedBps(uint256 id) public view returns (uint256) {
+        uint256 age = block.timestamp - placedAt[id];
+        if (feeVestSeconds == 0 || age >= feeVestSeconds) return 10_000;
+        return age * 10_000 / feeVestSeconds;
+    }
+
+    /// @notice Earliest timestamp at which `cancel` / `pull` are allowed.
+    function unlockAt(uint256 id) public view returns (uint256) {
+        return uint256(placedAt[id]) + minHoldSeconds;
     }
 
     // ───────────────────────────── views ─────────────────────────────
@@ -170,6 +218,13 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
             f1 = FullMath.mulDiv(g1 - last1, liq, FixedPoint128.Q128);
         }
         (quoteFees, tokenFees) = Currency.unwrap(key.currency0) == p.token ? (f1, f0) : (f0, f1);
+    }
+
+    /// @notice Fees the owner would actually receive now (pendingFees × vestedBps).
+    function claimableFees(uint256 id) external view returns (uint256 quoteFees, uint256 tokenFees) {
+        (uint256 q, uint256 t) = pendingFees(id);
+        uint256 v = vestedBps(id);
+        return (q * v / 10_000, t * v / 10_000);
     }
 
     /// @notice True when the price has moved fully through the range (position is now 100% the other asset).
@@ -255,6 +310,7 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
             active: true
         });
         _idsOf[msg.sender].push(id);
+        placedAt[id] = uint64(block.timestamp);
 
         poolManager.unlock(
             abi.encode(
@@ -266,7 +322,9 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
                     liquidityDelta: int256(uint256(liquidity)),
                     salt: bytes32(id),
                     payer: msg.sender,
-                    recipient: address(0)
+                    recipient: address(0),
+                    vestBps: 0,
+                    forfeitTo: address(0)
                 })
             )
         );
@@ -279,9 +337,11 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         Position memory p = positions[id];
         if (!p.active) revert Inactive();
         if (p.owner != msg.sender) revert NotOwner();
+        _checkHold(id);
         (uint256 qf, uint256 tf) = pendingFees(id);
+        uint256 v = vestedBps(id);
         (quoteOut, tokenOut) = _remove(id, p);
-        emit Cancelled(id, p.owner, p.token, p.tickLower, p.tickUpper, quoteOut, tokenOut, qf, tf);
+        emit Cancelled(id, p.owner, p.token, p.tickLower, p.tickUpper, quoteOut, tokenOut, qf * v / 1e4, tf * v / 1e4);
     }
 
     /// @notice Permissionless keeper: remove a fully-crossed range and send everything to its owner. No tip (v0).
@@ -289,6 +349,7 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         Position memory p = positions[id];
         if (!p.active) revert Inactive();
         if (!isFilled(id)) revert NotFilled();
+        _checkHold(id);
         (quoteOut, tokenOut) = _remove(id, p);
         emit Filled(id, p.owner, p.token, p.tickLower, p.tickUpper, quoteOut, tokenOut, msg.sender);
     }
@@ -300,6 +361,16 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         if (p.owner != msg.sender) revert NotOwner();
         (quoteFees, tokenFees) = _modify(id, p, Op.Poke, 0);
         emit FeesClaimed(id, p.owner, p.token, quoteFees, tokenFees);
+    }
+
+    function _forfeitTo() internal view returns (address t) {
+        t = lockedLP.treasury();
+        if (t == address(0)) t = owner;
+    }
+
+    function _checkHold(uint256 id) internal view {
+        uint256 u = unlockAt(id);
+        if (block.timestamp < u) revert HoldActive(u);
     }
 
     function _remove(uint256 id, Position memory p) internal returns (uint256 quoteOut, uint256 tokenOut) {
@@ -323,18 +394,25 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
                     liquidityDelta: liqDelta,
                     salt: bytes32(id),
                     payer: address(0),
-                    recipient: p.owner
+                    recipient: p.owner,
+                    vestBps: vestedBps(id),
+                    forfeitTo: _forfeitTo()
                 })
             )
         );
-        (uint256 a0, uint256 a1) = abi.decode(res, (uint256, uint256));
-        (quoteOut, tokenOut) = Currency.unwrap(key.currency0) == p.token ? (a1, a0) : (a0, a1);
+        (uint256 a0, uint256 a1, uint256 f0, uint256 f1) = abi.decode(res, (uint256, uint256, uint256, uint256));
+        bool tIs0 = Currency.unwrap(key.currency0) == p.token;
+        (quoteOut, tokenOut) = tIs0 ? (a1, a0) : (a0, a1);
+        if (f0 | f1 != 0) {
+            (uint256 fq, uint256 ft) = tIs0 ? (f1, f0) : (f0, f1);
+            emit FeesForfeited(id, _forfeitTo(), fq, ft);
+        }
     }
 
     function unlockCallback(bytes calldata raw) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         CallbackData memory d = abi.decode(raw, (CallbackData));
-        (BalanceDelta delta,) = poolManager.modifyLiquidity(
+        (BalanceDelta delta, BalanceDelta fees) = poolManager.modifyLiquidity(
             d.key,
             IPoolManager.ModifyLiquidityParams({
                 tickLower: d.tickLower, tickUpper: d.tickUpper, liquidityDelta: d.liquidityDelta, salt: d.salt
@@ -350,8 +428,26 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         }
         uint256 a0 = d0 > 0 ? uint256(uint128(d0)) : 0;
         uint256 a1 = d1 > 0 ? uint256(uint128(d1)) : 0;
+        // SEC-02: withhold the unvested part of the accrued fees (fees are included in the caller delta).
+        uint256 f0;
+        uint256 f1;
+        if (d.vestBps < 10_000 && d.forfeitTo != address(0)) {
+            f0 = _unvested(fees.amount0(), d.vestBps, a0);
+            f1 = _unvested(fees.amount1(), d.vestBps, a1);
+            a0 -= f0;
+            a1 -= f1;
+            if (f0 > 0) d.key.currency0.take(poolManager, d.forfeitTo, f0, false);
+            if (f1 > 0) d.key.currency1.take(poolManager, d.forfeitTo, f1, false);
+        }
         if (a0 > 0) d.key.currency0.take(poolManager, d.recipient, a0, false);
         if (a1 > 0) d.key.currency1.take(poolManager, d.recipient, a1, false);
-        return abi.encode(a0, a1);
+        return abi.encode(a0, a1, f0, f1);
+    }
+
+    function _unvested(int128 fee, uint256 vestBps, uint256 cap) private pure returns (uint256 u) {
+        if (fee <= 0) return 0;
+        uint256 f = uint256(uint128(fee));
+        u = f - f * vestBps / 10_000;
+        if (u > cap) u = cap;
     }
 }

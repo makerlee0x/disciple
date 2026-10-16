@@ -18,12 +18,19 @@ import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
+import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
+import {TwapOracle} from "./libraries/TwapOracle.sol";
+import {Altitude} from "./libraries/Altitude.sol";
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
 /// @notice Pool LP fee is 0; this hook takes 1% of swap output and routes via FeeRouter (33/33/33/1).
-/// @dev Must be mined to an address with BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
-///      beforeSwap only snapshots sqrtPrice (transient) so afterSwap can emit the unified Trade event.
-contract DiscipleHook is IHooks, ITradeEvents {
+/// @dev Must be mined to an address with
+///      BEFORE_ADD_LIQUIDITY_FLAG | BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
+///      beforeSwap snapshots sqrtPrice (transient) for the Trade event and writes the pool's TWAP oracle
+///      (pre-swap tick, once per block, truncated). afterSwap emits Trade + AltitudeUpdate (TWAP) + TierBreak.
+///      beforeAddLiquidity (SEC-02): only allowlisted liquidity managers (LockedLP, TrampWallManager) may add,
+///      so nobody can JIT raw v4 positions around a swap; TrampWallManager enforces hold time + fee vesting.
+contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
@@ -63,6 +70,23 @@ contract DiscipleHook is IHooks, ITradeEvents {
     error HookNotImplemented();
     error NotRegistered();
     error OnlyAdmin();
+    error OnlyLiquidityManager();
+    error BadParam();
+
+    // ── SEC-02 / SEC-03 / altitude TWAP ─────────────────────────────────────
+    /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
+    mapping(address => bool) public isLiquidityManager;
+    /// @notice Max |tick change| recorded per oracle observation (truncated oracle). 9116 ≈ ×2.49 per block.
+    int24 public maxTickDelta = 9116;
+    /// @notice TWAP window (seconds) for altitude tiers. Owner(admin)-settable.
+    uint32 public altitudeWindow = 300;
+    /// @notice Last TWAP altitude tier per pool (0..17).
+    mapping(PoolId => uint8) public altitudeTierOf;
+    mapping(PoolId => TwapOracle.State) internal _oracle;
+
+    event LiquidityManagerSet(address indexed manager, bool allowed);
+    event AltitudeWindowSet(uint32 window);
+    event MaxTickDeltaSet(int24 maxTickDelta);
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
@@ -106,6 +130,28 @@ contract DiscipleHook is IHooks, ITradeEvents {
         return m.quotePriceUsd;
     }
 
+    function setLiquidityManager(address mgr, bool allowed) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        isLiquidityManager[mgr] = allowed;
+        emit LiquidityManagerSet(mgr, allowed);
+    }
+
+    /// @param w seconds, 1..86400
+    function setAltitudeWindow(uint32 w) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        if (w == 0 || w > 1 days) revert BadParam();
+        altitudeWindow = w;
+        emit AltitudeWindowSet(w);
+    }
+
+    /// @param d ticks, 1..887272 (887272 ≈ no truncation)
+    function setMaxTickDelta(int24 d) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        if (d <= 0) revert BadParam();
+        maxTickDelta = d;
+        emit MaxTickDeltaSet(d);
+    }
+
     function transferAdmin(address a) external {
         if (msg.sender != admin) revert OnlyAdmin();
         admin = a;
@@ -116,7 +162,7 @@ contract DiscipleHook is IHooks, ITradeEvents {
         return Hooks.Permissions({
             beforeInitialize: false,
             afterInitialize: false,
-            beforeAddLiquidity: false,
+            beforeAddLiquidity: true,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
@@ -136,8 +182,23 @@ contract DiscipleHook is IHooks, ITradeEvents {
         external
     {
         if (msg.sender != migration) revert OnlyMigration();
-        metaOf[key.toId()] =
+        PoolId id = key.toId();
+        PoolMeta memory m =
             PoolMeta({token: token, quote: quote, creator: creator, registered: true, quotePriceUsd: quotePriceUsd});
+        metaOf[id] = m;
+        // Oracle starts at the seeded (curve-end) price, which is set atomically by Migration.
+        int24 t = _tokenTick(key, token);
+        TwapOracle.initialize(_oracle[id], t);
+        uint256 mcap = TwapOracle.mcapUsdAtTick(t, Constants.TOTAL_SUPPLY, _quoteUsd(m));
+        uint8 tier = Altitude.tierOf(mcap);
+        altitudeTierOf[id] = tier;
+        emit AltitudeUpdate(token, mcap, mcap, tier, 0);
+    }
+
+    /// @dev Pool tick in quote-per-token orientation.
+    function _tokenTick(PoolKey calldata key, address token) internal view returns (int24) {
+        (, int24 tick,,) = poolManager.getSlot0(key.toId());
+        return Currency.unwrap(key.currency0) == token ? tick : -tick;
     }
 
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, bytes calldata)
@@ -145,10 +206,16 @@ contract DiscipleHook is IHooks, ITradeEvents {
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
+        PoolId id = key.toId();
+        (uint160 sqrtP, int24 tick,,) = poolManager.getSlot0(id);
         bytes32 slot = PRICE_SLOT;
         assembly ("memory-safe") {
             tstore(slot, sqrtP)
+        }
+        address token = metaOf[id].token;
+        if (token != address(0)) {
+            // Pre-swap tick, once per block, truncated → a same-block pump has zero TWAP weight.
+            TwapOracle.write(_oracle[id], Currency.unwrap(key.currency0) == token ? tick : -tick, maxTickDelta, false);
         }
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -187,7 +254,9 @@ contract DiscipleHook is IHooks, ITradeEvents {
             emit LPDonation(m.token, feeToken, donated);
         }
 
-        _emitTrade(key, m, trader, delta, feeToken, feeAmount);
+        uint256 qUsd = _quoteUsd(m);
+        uint256 spotMcap = _emitTrade(key, m, trader, delta, feeToken, feeAmount, qUsd);
+        _emitAltitude(key, m, spotMcap, qUsd);
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
     }
 
@@ -214,8 +283,9 @@ contract DiscipleHook is IHooks, ITradeEvents {
         address trader,
         BalanceDelta delta,
         address feeToken,
-        uint256 feeAmount
-    ) internal {
+        uint256 feeAmount,
+        uint256 qUsd
+    ) internal returns (uint256 mcap) {
         bool tokenIsC0 = Currency.unwrap(key.currency0) == m.token;
         int128 dToken = tokenIsC0 ? delta.amount0() : delta.amount1();
         int128 dQuote = tokenIsC0 ? delta.amount1() : delta.amount0();
@@ -235,7 +305,7 @@ contract DiscipleHook is IHooks, ITradeEvents {
         (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
         uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
-        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), _quoteUsd(m), 1e18);
+        mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), qUsd, 1e18);
 
         emit Trade(
             m.token,
@@ -250,6 +320,63 @@ contract DiscipleHook is IHooks, ITradeEvents {
             impactBpsFromSqrt(sqrtBefore, sqrtAfter, tokenIsC0),
             mcap
         );
+    }
+
+    function _emitAltitude(PoolKey calldata key, PoolMeta memory m, uint256 spotMcap, uint256 qUsd) internal {
+        PoolId id = key.toId();
+        TwapOracle.State storage o = _oracle[id];
+        (int24 mean, uint32 w) =
+            TwapOracle.consult(o, altitudeWindow, TwapOracle.tail(o, _tokenTick(key, m.token), maxTickDelta));
+        uint256 twapMcap = TwapOracle.mcapUsdAtTick(mean, Constants.TOTAL_SUPPLY, qUsd);
+        uint8 tier = Altitude.tierOf(twapMcap);
+        emit AltitudeUpdate(m.token, twapMcap, spotMcap, tier, w);
+        uint8 prev = altitudeTierOf[id];
+        if (tier != prev) {
+            altitudeTierOf[id] = tier;
+            emit TierBreak(m.token, prev, tier, twapMcap);
+        }
+    }
+
+    // ── TWAP views (MarketLens / GAME / safety consumers) ──
+
+    /// @notice Time-weighted mean tick (quote-per-token orientation) over `window` seconds.
+    /// @return tick mean tick; actualWindow seconds covered (≤ window while the pool is young)
+    function twapTick(PoolId id, uint32 window) public view returns (int24 tick, uint32 actualWindow) {
+        PoolMeta memory m = metaOf[id];
+        if (!m.registered) revert NotRegistered();
+        TwapOracle.State storage o = _oracle[id];
+        (, int24 t,,) = poolManager.getSlot0(id);
+        (address c0,) = _sorted(m.token, m.quote);
+        int24 spot = c0 == m.token ? t : -t;
+        return TwapOracle.consult(o, window, TwapOracle.tail(o, spot, maxTickDelta));
+    }
+
+    /// @notice TWAP price, quote raw * 1e18 / token raw.
+    function twapPriceX18(PoolId id, uint32 window) external view returns (uint256 priceX18, uint32 actualWindow) {
+        int24 t;
+        (t, actualWindow) = twapTick(id, window);
+        priceX18 = TwapOracle.priceX18AtTick(t);
+    }
+
+    /// @notice TWAP market cap, USD WAD (quote/USD from the pricer, itself a TWAP).
+    function twapMcapUsd(PoolId id, uint32 window) external view returns (uint256 mcapUsd, uint32 actualWindow) {
+        int24 t;
+        (t, actualWindow) = twapTick(id, window);
+        mcapUsd = TwapOracle.mcapUsdAtTick(t, Constants.TOTAL_SUPPLY, _quoteUsd(metaOf[id]));
+    }
+
+    /// @notice Oracle ring state: (latest index, populated count, latest observation ts/tick).
+    function oracleState(PoolId id) external view returns (uint16 index, uint16 count, uint32 lastTs, int24 lastTick) {
+        TwapOracle.State storage o = _oracle[id];
+        index = o.index;
+        count = o.count;
+        TwapOracle.Observation memory l = o.obs[o.index];
+        lastTs = l.ts;
+        lastTick = l.tick;
+    }
+
+    function _sorted(address a, address b) private pure returns (address, address) {
+        return uint160(a) < uint160(b) ? (a, b) : (b, a);
     }
 
     /// @notice quote raw * 1e18 / token raw from a v4 sqrtPriceX96.
@@ -291,12 +418,15 @@ contract DiscipleHook is IHooks, ITradeEvents {
         revert HookNotImplemented();
     }
 
-    function beforeAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
-        revert HookNotImplemented();
+    /// @dev SEC-02: raw v4 adds are blocked; only LockedLP / TrampWallManager (which enforces hold + vesting).
+    function beforeAddLiquidity(
+        address sender,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external view onlyPoolManager returns (bytes4) {
+        if (!isLiquidityManager[sender]) revert OnlyLiquidityManager();
+        return IHooks.beforeAddLiquidity.selector;
     }
 
     function afterAddLiquidity(

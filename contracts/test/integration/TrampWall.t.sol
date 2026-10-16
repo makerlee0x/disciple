@@ -30,6 +30,8 @@ contract TrampWallTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         twm = new TrampWallManager(manager, lockedLP, address(hook));
+        hook.setLiquidityManager(address(twm), true);
+        twm.setJitParams(0, 0); // legacy behaviour tests; JIT guards covered in test/security/JitTwap.t.sol
         (curve, tok) = _launch(0, 0);
         _graduate(curve);
         quote.mint(alice, 1_000_000 ether);
@@ -434,6 +436,8 @@ contract TrampWallReentrancyTest is IntegrationBase {
         (BondingCurve c, Token t) = _launchWithQuote(address(rq), 0, 0);
         _graduateWith(c, MockUSDG(address(rq)));
         TrampWallManager twm = new TrampWallManager(manager, lockedLP, address(hook));
+        hook.setLiquidityManager(address(twm), true);
+        twm.setJitParams(0, 0); // legacy behaviour tests; JIT guards covered in test/security/JitTwap.t.sol
         (int24 tick,, int24 ts, bool tIs0) = twm.poolState(address(t));
         int24 a = (tick / ts) * ts;
         if (tick < 0 && tick % ts != 0) a -= ts;

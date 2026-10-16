@@ -18,6 +18,10 @@ import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 
 /// @title Permissionless DISCIPLE launchpad / factory (§5 / LOCKED #23–#27)
 /// @notice Anyone can launch. Metadata: image+name+ticker required; description/socials optional.
+interface IPricerPoke {
+    function poke(address quote) external;
+}
+
 contract Launchpad is ILaunchpad {
     using SafeERC20 for IERC20;
 
@@ -51,6 +55,11 @@ contract Launchpad is ILaunchpad {
 
     uint256 public launchCount;
 
+    /// @notice TWAP window (seconds) curves use for altitude tiers (read live by every curve). Owner-settable.
+    uint32 public altitudeWindow = 300;
+
+    event AltitudeWindowSet(uint32 window);
+
     /// @notice Creator same-tx buy cap in bps of supply (protocol owner only; never the coin creator).
     uint256 public creatorBuyMaxBps = Constants.CREATOR_BUY_MAX_BPS_DEFAULT;
     /// @notice Cap snapshotted per coin at launch (later changes only affect future coins).
@@ -70,6 +79,7 @@ contract Launchpad is ILaunchpad {
     error PricerUnset();
     error CurveDeployerUnset();
     error CreatorBuyMaxTooHigh();
+    error AltitudeWindowInvalid();
     error WalletCapTooHigh();
 
     event Launched(
@@ -131,6 +141,13 @@ contract Launchpad is ILaunchpad {
         emit WalletCapSet(bps);
     }
 
+    function setAltitudeWindow(uint32 w) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (w == 0 || w > 1 days) revert AltitudeWindowInvalid();
+        altitudeWindow = w;
+        emit AltitudeWindowSet(w);
+    }
+
     function setPricer(address pricer_) external {
         if (msg.sender != owner) revert OnlyOwner();
         pricer = IQuotePricer(pricer_);
@@ -174,6 +191,8 @@ contract Launchpad is ILaunchpad {
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
         if (address(pricer) == address(0)) revert PricerUnset();
+        // SEC-03: keep the quote TWAP fresh; the poke is lagged, so a same-tx flash move has no effect.
+        try IPricerPoke(address(pricer)).poke(quote) {} catch {}
         uint256 quotePriceUsd = pricer.quotePriceUsd(quote);
         if (address(curveDeployer) == address(0)) revert CurveDeployerUnset();
         uint256 wcap = walletCapBps;

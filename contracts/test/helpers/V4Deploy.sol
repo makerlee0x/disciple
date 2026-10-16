@@ -24,7 +24,10 @@ library V4Deploy {
         PoolManager manager = new PoolManager(owner);
         s.manager = IPoolManager(address(manager));
 
-        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+        );
 
         bytes memory ctorArgs = abi.encode(s.manager, feeRouter, address(0), address(this));
         (address hookAddr, bytes32 salt) =
@@ -39,6 +42,7 @@ library V4Deploy {
 
         s.router = new DiscipleRouter(s.manager, lockedLP, address(hook));
         hook.setTrustedRouter(address(s.router), true);
+        hook.setLiquidityManager(address(lockedLP), true);
         s.hook = hook;
         s.migration = migration;
     }
