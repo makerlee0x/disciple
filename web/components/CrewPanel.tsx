@@ -24,6 +24,9 @@ export default function CrewPanel() {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
   const [open, setOpen] = useState(true);
+  // the live-chat overlay docks in this slot while open (components/gamechat/GameChat.tsx)
+  const [chatDocked, setChatDocked] = useState(false);
+  useEffect(() => { const h = (e: Event) => setChatDocked(!!(e as CustomEvent<{ open?: boolean }>).detail?.open); addEventListener("disciple:chatdock", h); return () => removeEventListener("disciple:chatdock", h); }, []);
 
   const [ammoUsd, setAmmoUsd] = useState<number[]>(MODES.map((m) => m.usd));
   // Engine pushes marks + scaled ammo presets on change (no 1 s poll).
@@ -43,6 +46,7 @@ export default function CrewPanel() {
   const tier = verifiedLevel({ ...MOCK_CREW.stats, mcapUsd: mcap });
   const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
+  if (chatDocked) return null;
   return (
     <aside
       aria-label="Crew"

@@ -644,6 +644,7 @@ function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|i
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode));
   if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0?{usd:d.usd,frac:d.frac}:undefined); });
 addEventListener('keydown',e=>{
+  { const t=e.target; if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||''))) return; }   // typing in chat / inputs: no game hotkeys
   S.keys[e.code]=true;
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
   if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat) trade('sell',{all:e.ctrlKey||e.metaKey}); }

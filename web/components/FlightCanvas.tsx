@@ -7,6 +7,7 @@ import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
+import GameChat from "@/components/gamechat/GameChat";
 
 declare global {
   interface Window {
@@ -188,6 +189,12 @@ export default function FlightCanvas({ search }: Props) {
   const toggleSim = () =>
     window.dispatchEvent(new CustomEvent("disciple:sim", { detail: { mode: sim.on ? "off" : "on" } }));
 
+  // Live chat overlay: live coin pages only (needs a coin address); in /flight/sim only with ?chatmock=1
+  const chatCoin = (() => { const q = new URLSearchParams(search); const coin = q.get("coin") || "";
+    if (!/^0x[0-9a-fA-F]{40}$/.test(coin) && !(q.get("source") === "sim" && q.get("chatmock") === "1")) return null;
+    if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
+    return coin || "0x000000000000000000000000000000000000c0de"; })();
+
   return (
     <>
       <div
@@ -229,6 +236,7 @@ export default function FlightCanvas({ search }: Props) {
       >
         ✕
       </Link>
+      {chatCoin && <GameChat coin={chatCoin} />}
       <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
         <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
           ORBS ON · O

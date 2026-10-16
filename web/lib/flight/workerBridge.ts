@@ -122,7 +122,8 @@ export function startWorkerRender(o: {
   // ---- input
   for (const t of INBOUND) on(window, t, (e) => { const ce = e as CustomEvent; post({ k: "ev", type: t, detail: "detail" in ce ? ce.detail ?? null : null, custom: "detail" in ce }); });
   const typing = (e: Event) => { const el = e.target as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
-  const key = (e: Event) => { const k = e as KeyboardEvent; if (k.code === "Space" && k.type === "keydown" && !typing(e)) k.preventDefault();
+  const key = (e: Event) => { const k = e as KeyboardEvent; if (k.type === "keydown" && typing(e)) return;   // typing in chat / inputs: no game hotkeys
+    if (k.code === "Space" && k.type === "keydown") k.preventDefault();
     post({ k: "key", type: k.type, code: k.code, key: k.key, repeat: k.repeat, ctrlKey: k.ctrlKey, metaKey: k.metaKey, shiftKey: k.shiftKey }); };
   on(window, "keydown", key); on(window, "keyup", key);
   on(window, "blur", () => post({ k: "blur" }));
