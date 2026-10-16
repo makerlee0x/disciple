@@ -17,6 +17,11 @@ const epAbi = parseAbi([
   "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
 ]);
 const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
+const execUserOpAbi = parseAbi([
+  "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
+  "function executeUserOp(P userOp, bytes32 userOpHash)",
+]);
+const EXECUTE_USER_OP = "0x8dd7712f";
 const implAbi = parseAbi(["function ACCOUNT_IMPLEMENTATION() view returns (address)"]);
 const mav2ImplAbi = parseAbi(["function SEMI_MODULAR_ACCOUNT_IMPL() view returns (address)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
@@ -64,7 +69,12 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
         }
       }
       let g: bigint;
-      try { g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data: op.callData, stateOverride }); }
+      // ERC-4337 v0.7: callData prefixed with executeUserOp ⇒ the EntryPoint calls account.executeUserOp(op, hash)
+      // (MAv2 uses it when the validation has execution hooks, e.g. DiscipleSessionPolicy session keys).
+      const data = op.callData.slice(0, 10).toLowerCase() === EXECUTE_USER_OP
+        ? encodeFunctionData({ abi: execUserOpAbi, functionName: "executeUserOp", args: [pack({ ...op, signature: "0x" }), userOpHash({ ...op, callGasLimit: op.callGasLimit || "0x0", verificationGasLimit: op.verificationGasLimit || "0x0", preVerificationGas: op.preVerificationGas || "0x0", maxFeePerGas: op.maxFeePerGas || "0x0", maxPriorityFeePerGas: op.maxPriorityFeePerGas || "0x0" }, robinhoodTestnet.id)] })
+        : op.callData;
+      try { g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data, stateOverride }); }
       catch (e) { throw estimateError(e); }
       return { callGasLimit: numberToHex(g * BigInt(13) / BigInt(10) + BigInt(20000)), verificationGasLimit: numberToHex(op.factory ? 450000 : 150000), preVerificationGas: numberToHex(60000) };
     }

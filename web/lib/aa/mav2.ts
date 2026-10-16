@@ -78,7 +78,10 @@ export class Mav2Account {
         const have = await this.o.pc.getBalance({ address: sender });
         throw new AAError("FundAccount", "Fund your account with test ETH to pay gas.", { have, address: sender });
       }
-      throw new AAError("Estimate", `trade simulation failed: ${msg.split("\n")[0].slice(0, 200)}`);
+      // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
+      let revertData: string | undefined;
+      (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const dd = (x as { data?: unknown }).data; if (typeof dd === "string" && /^0x[0-9a-fA-F]{8,}$/.test(dd)) { revertData = dd; return true; } return false; });
+      throw new AAError("Estimate", `trade simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
     }
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 25, intervalMs: 1200, multiplier: 1 } }); }

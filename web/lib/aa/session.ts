@@ -15,6 +15,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
+import { SESSION_POLICY_MODULE_ID, moduleIdAbi, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -213,6 +214,8 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const sk = await import("@disciple/session-keys");
   const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
   const d = deployment();
+  const id = await publicClient().readContract({ address: SESSION_POLICY, abi: moduleIdAbi, functionName: "moduleId" }).catch(() => "");
+  if (id !== SESSION_POLICY_MODULE_ID) throw new AAError("Policy", `Session policy at ${SESSION_POLICY} reports "${id || "?"}", expected ${SESSION_POLICY_MODULE_ID}.`);
   const key = generatePrivateKey();
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
   const account = await sa.address();
@@ -222,6 +225,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
     sessionSigner: privateKeyToAccount(key).address,
     caps: [{ token: d.defaultQuote, cap: SESSION_LIMIT }, { token: d.usdg, cap: SESSION_LIMIT }],
     ttlSec: opts.ttlSec ?? SESSION_TTL_MS / 1000, maxSlippageBps,
+    permissions: sessionPermissions(sk.TRADE_PERMS), // + P_REFERRAL when NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1
   });
   const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
   onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps };
@@ -254,24 +258,9 @@ export async function endOneTap() {
   return r;
 }
 
-/** Selectors the session key may use (mirrors DiscipleSessionPolicy P_*); anything else goes to the owner signer. */
-const SESSION_SELECTORS = new Set([
-  "0x095ea7b3", // approve
-]);
-async function sessionSelectors() {
-  if (SESSION_SELECTORS.size > 1) return SESSION_SELECTORS;
-  const { toFunctionSelector } = await import("viem");
-  for (const sig of [
-    "buyExactIn(address,uint256,uint256,address,uint256)", "sellExactIn(address,uint256,uint256,address,uint256)",
-    "buy(uint256,uint256,uint256)", "sell(uint256,uint256,uint256)", "buy(uint256,uint256,uint256,address)", "sell(uint256,uint256,uint256,address)",
-    "placeTramp(address,int24,int24,uint256,uint128,uint256)", "placeWall(address,int24,int24,uint256,uint128,uint256)", "cancel(uint256)",
-  ]) SESSION_SELECTORS.add(toFunctionSelector(sig));
-  return SESSION_SELECTORS;
-}
 async function canUseSessionKey(calls: Call[]) {
   if (!sa?.hasSession || !onchain || onchain.validUntil * 1000 < Date.now() + 30_000) return false;
-  const sel = await sessionSelectors();
-  return calls.every((c) => !c.value && sel.has(c.data.slice(0, 10).toLowerCase()));
+  return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry });
 }
 
 /** One userOp for the whole call list, pre-checked against the client policy. Session key if eligible, else owner. */

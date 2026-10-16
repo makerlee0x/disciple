@@ -13,6 +13,7 @@ import {
   legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap,
 } from "@/lib/aa/session";
 import { pct } from "@/lib/aa/slippage";
+import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 
 const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
@@ -181,7 +182,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             {bal && <span>{bal}</span>}
             {sess?.oneTap ? (
               <>
-                <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · until {new Date(sess.oneTap.validUntil * 1000).toLocaleTimeString()}</span>
+                <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
                 <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
               </>
             ) : oneTapAvailable() ? (
