@@ -14,7 +14,7 @@ import type {
 } from "../leaderboard";
 import type { IdentityId } from "../identity";
 
-type Seed = Omit<LeaderboardRow, "rank" | "badges" | "pnlUsd" | "pctGain" | "volumeUsd" | "avgHoldHours"> & {
+type Seed = Omit<LeaderboardRow, "rank" | "badges" | "pnlUsd" | "pctGain" | "volumeUsd" | "avgHoldHours" | "totalHoldHours" | "username"> & {
   pnl: { "24h": number; "7d": number; all: number };
   pct: { "24h": number; "7d": number; all: number };
   vol: { "24h": number; "7d": number; all: number };
@@ -214,15 +214,22 @@ function sortKey(sort: LeaderboardSort, row: LeaderboardRow): number {
     case "volume":
       return row.volumeUsd;
     case "holdTime":
-      return row.avgHoldHours;
+      return row.totalHoldHours;
   }
 }
 
+export function usernameSlug(handle: string) {
+  return handle.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 20);
+}
+/** Sample pilot usernames (static export pre-renders /u/[username] for these). */
+export const SAMPLE_USERNAMES: string[] = SEEDS.map((s) => usernameSlug(s.handle));
+
 export function buildMockRows(query: LeaderboardQuery): LeaderboardRow[] {
   const w = query.window;
-  const mapped: LeaderboardRow[] = SEEDS.map((s) => ({
+  const mapped: LeaderboardRow[] = SEEDS.map((s, i) => ({
     address: s.address,
     handle: s.handle,
+    username: usernameSlug(s.handle),
     country: s.country,
     identity: s.identity as IdentityId,
     mode: s.mode,
@@ -236,6 +243,8 @@ export function buildMockRows(query: LeaderboardQuery): LeaderboardRow[] {
     pctGain: s.pct[w],
     volumeUsd: s.vol[w],
     avgHoldHours: s.hold[w],
+    // Cumulative hold = avg hold × positions held in window (sample position counts).
+    totalHoldHours: s.hold[w] * (w === "24h" ? 2 + (i % 3) : w === "7d" ? 6 + (i * 5) % 11 : 20 + (i * 7) % 31),
     rank: 0,
   }));
 

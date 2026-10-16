@@ -118,3 +118,18 @@ export function identityRuleText(id: IdentityId): string {
     default: return "";
   }
 }
+
+/** The ONE playstyle badge shown on a profile — earned from behavior, never user-switchable. */
+export type PersonaBadgeId = "believer" | "trencher" | "bomber";
+export const PERSONA_BADGES: Record<PersonaBadgeId, { label: string; blurb: string; icon: string }> = {
+  believer: { label: "Believer", blurb: "Long holds. Rides drawdowns with the crew.", icon: "/achievements/believer_badge.svg" },
+  trencher: { label: "Trencher", blurb: "Seconds in, seconds out. High trade count.", icon: "/achievements/trench_warfare.svg" },
+  bomber: { label: "Bomber", blurb: "Lives for impact. Grenades and worse.", icon: "/achievements/carpet_bomber.svg" },
+};
+export function personaBadge(d: DerivedIdentity): PersonaBadgeId {
+  const ids = d.matched.map((m) => m.id);
+  const pick = ids.find((id) => id === "bomber" || id === "nuker" || id === "trencher" || id === "believer");
+  if (pick === "nuker" || pick === "bomber") return "bomber";
+  if (pick === "trencher") return "trencher";
+  return "believer";
+}

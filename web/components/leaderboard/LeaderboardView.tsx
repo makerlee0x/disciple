@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AchievementBadge, { EmptyBadge } from "@/components/profile/AchievementBadge";
-import IdentitySigil, { identityLabel } from "@/components/profile/IdentitySigil";
+import { identityLabel } from "@/components/profile/IdentitySigil";
+import { rarityStyle } from "@/lib/achievements";
+import { profileUrl } from "@/lib/profile";
 import {
   flagEmoji,
   fmtHold,
@@ -22,7 +24,7 @@ const SORTS: { key: LeaderboardSort; label: string }[] = [
   { key: "pnl", label: "PnL" },
   { key: "pctGain", label: "% Gain" },
   { key: "volume", label: "Volume" },
-  { key: "holdTime", label: "Hold time" },
+  { key: "holdTime", label: "Total hold" },
 ];
 
 const WINDOWS: { key: LeaderboardWindow; label: string }[] = [
@@ -57,30 +59,18 @@ function HourglassIcon() {
   );
 }
 
-function CrossedSwords({ lit }: { lit: boolean }) {
+function BadgeWithStats({ a }: { a: LeaderboardRow["badges"][number] }) {
+  const r = rarityStyle(a.rarity);
   return (
-    <span className={`lb-swords ${lit ? "lit" : ""}`} title={lit ? "PvP / Bomber" : "PvE"}>
-      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M5 3l6 6M3 5l6 6M14 15l6 6M15 14l6 6M19 3l-6 6M21 5l-6 6M10 15l-6 6M9 14l-6 6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-      </svg>
+    <span className="lb-badge-wrap" tabIndex={0}>
+      <AchievementBadge a={a} size={20} />
+      <span className="lb-badge-pop" role="tooltip">
+        <strong>{a.name}</strong>
+        <span style={{ color: r.border }}>{r.label}</span>
+        <span>{a.description}</span>
+        <span className="muted">Target {a.target.toLocaleString()} · +{(a.reward.points ?? 0).toLocaleString()} pts</span>
+      </span>
     </span>
-  );
-}
-
-function PlayButton({ href, ticker }: { href: string; ticker: string }) {
-  return (
-    <Link href={href} className="lb-play" title={`Open ${ticker} rocket`} aria-label={`Play ${ticker}`}>
-      <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M8 5v14l12-7z" fill="currentColor" />
-      </svg>
-    </Link>
   );
 }
 
@@ -89,18 +79,18 @@ function Row({ row }: { row: LeaderboardRow }) {
   const badges = row.badges.slice(0, 6);
   const empties = Math.max(0, 6 - badges.length);
   const tierColor = ladderColor(row.ladderTier);
+  const name = row.handle;
 
   return (
     <div className={`lb-row ${row.isSelf ? "self" : ""}`} data-rank={row.rank}>
       <div className="lb-cell lb-rank">
         {row.rank <= 3 ? <span className={`lb-medal m${row.rank}`}>#{row.rank}</span> : `#${row.rank}`}
       </div>
-      <div className="lb-cell lb-avatar">
-        <IdentitySigil id={row.identity} size={40} />
-      </div>
       <div className="lb-cell lb-player">
         <div className="lb-name">
-          <span>{row.handle}</span>
+          <Link href={profileUrl(row.username)} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
+            {name || `${row.address.slice(0, 6)}…${row.address.slice(-4)}`}
+          </Link>
           <span className="lb-flag" title={row.country}>
             {flagEmoji(row.country)}
           </span>
@@ -114,31 +104,22 @@ function Row({ row }: { row: LeaderboardRow }) {
       </div>
       <div className={`lb-cell lb-pct ${row.pctGain >= 0 ? "pos" : "neg"}`}>{fmtPct(row.pctGain)}</div>
       <div className="lb-cell lb-vol">{fmtUsd(row.volumeUsd)}</div>
-      <div className="lb-cell lb-hold">
+      <div className="lb-cell lb-hold" title={`Cumulative hold time · avg ${fmtHold(row.avgHoldHours)} per position`}>
         <HourglassIcon />
-        <span>{fmtHold(row.avgHoldHours)}</span>
-      </div>
-      <div className="lb-cell lb-mode">
-        <CrossedSwords lit={row.mode === "pvp"} />
+        <span>{fmtHold(row.totalHoldHours)}</span>
       </div>
       <div className="lb-cell lb-badges">
         {badges.map((b) => (
-          <AchievementBadge key={b.id} a={b} size={18} />
+          <BadgeWithStats key={b.id} a={b} />
         ))}
         {Array.from({ length: empties }, (_, i) => (
-          <EmptyBadge key={`e${i}`} size={18} />
+          <EmptyBadge key={`e${i}`} size={20} />
         ))}
       </div>
       <div className="lb-cell lb-tier">
-        <span className="lb-tier-tag" style={{ color: tierColor, borderColor: `${tierColor}99` }}>
+        <span className="lb-tier-tag" title="Prestige rank tier — climbs with points, like CoD prestige" style={{ color: tierColor, borderColor: `${tierColor}99` }}>
           {row.ladderTier}
         </span>
-      </div>
-      <div className="lb-cell lb-actions">
-        <Link href="/profile" className="lb-profile-link">
-          Profile
-        </Link>
-        <PlayButton href={`/coin/${row.rocketAddress}`} ticker={row.rocketTicker} />
       </div>
     </div>
   );
@@ -173,7 +154,7 @@ export default function LeaderboardView() {
       <header className="lb-head">
         <div>
           <h1>Leaderboard</h1>
-          <div className="sub">HEAVEN LADDER · TOP PILOTS</div>
+          <div className="sub">PRESTIGE LADDER · TOP PILOTS</div>
           <span className={`tag ${source === "mock" ? "mock" : ""}`}>
             {source === "mock" ? "SAMPLE DATA · INDEXER TBD" : "LIVE INDEXER"}
           </span>
@@ -209,16 +190,13 @@ export default function LeaderboardView() {
       <div className="lb-table-shell" aria-busy={busy || undefined}>
         <div className="lb-colhead" aria-hidden="true">
           <span className="lb-cell lb-rank">#</span>
-          <span className="lb-cell lb-avatar" />
           <span className="lb-cell lb-player">Pilot</span>
           <span className="lb-cell lb-pnl">PnL</span>
           <span className="lb-cell lb-pct">% Gain</span>
           <span className="lb-cell lb-vol">Volume</span>
-          <span className="lb-cell lb-hold">Hold</span>
-          <span className="lb-cell lb-mode">PvP</span>
+          <span className="lb-cell lb-hold" title="Cumulative hold time">Total hold</span>
           <span className="lb-cell lb-badges">Badges</span>
-          <span className="lb-cell lb-tier">Ladder</span>
-          <span className="lb-cell lb-actions" />
+          <span className="lb-cell lb-tier" title="Prestige rank tier">Prestige tier</span>
         </div>
         <div className="lb-body">
           {rows.map((r) => (
@@ -227,8 +205,9 @@ export default function LeaderboardView() {
         </div>
       </div>
       <p className="lb-footnote">
-        Angel / heaven theme · Scores are sample until the indexer wires Trade events. PvP swords light for
-        bomber / nuker dump playstyles.
+        Prestige tier = your rank on the heaven ladder: earn points, climb tiers (Pilgrim → Angels → Seraphim…), like
+        CoD prestige. Hold = cumulative time held across positions. Click a pilot to open their public profile. Scores
+        are SAMPLE until the indexer wires Trade events.
       </p>
     </div>
   );

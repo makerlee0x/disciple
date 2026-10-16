@@ -824,3 +824,100 @@ body.side-open .main-offset {
 .ach-bar{flex:1;height:6px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden}
 .ach-bar>div{height:100%;border-radius:999px}
 .ach-reward{margin-top:6px;font-size:10px;color:#ffe7a3}
+
+/* —— Leaderboard v2 (no avatars / PvP / play button) —— */
+.lb-colhead,
+.lb-row {
+  grid-template-columns:
+    52px minmax(150px, 1.6fr) minmax(88px, 0.9fr) minmax(72px, 0.7fr)
+    minmax(72px, 0.8fr) minmax(80px, 0.8fr) minmax(170px, 1.2fr) minmax(110px, 0.9fr);
+}
+.lb-name-link { color: #fff7df; text-decoration: none; }
+.lb-name-link:hover { color: #ffe7a3; text-decoration: underline; }
+.lb-badge-wrap { position: relative; display: inline-flex; outline: none; }
+.lb-badge-pop {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  display: none; flex-direction: column; gap: 3px; width: 220px; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid rgba(255, 231, 163, 0.45);
+  background: rgba(12, 14, 34, 0.97); color: #eef0ff; font-size: 11px; line-height: 1.35;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 220, 150, 0.12); z-index: 20;
+  white-space: normal; text-align: left;
+}
+.lb-badge-pop strong { color: #fff7df; font-size: 12px; }
+.lb-badge-wrap:hover .lb-badge-pop, .lb-badge-wrap:focus .lb-badge-pop { display: flex; }
+.lb-table-shell { overflow: visible; }
+@media (max-width: 1100px) {
+  .lb-row {
+    grid-template-columns: 44px 1fr auto auto;
+    grid-template-areas:
+      "rank player pnl pct"
+      "rank vol hold hold"
+      "badges badges badges tier";
+  }
+}
+@media (max-width: 560px) {
+  .lb-row {
+    grid-template-columns: 40px 1fr auto;
+    grid-template-areas:
+      "rank player player"
+      "pnl pnl pct"
+      "vol vol hold"
+      "badges badges badges"
+      "tier tier tier";
+  }
+}
+
+/* —— Disciple form primitives (themed inputs / selects / buttons / messages) —— */
+.ds-input, select.ds-input {
+  appearance: none; box-sizing: border-box; min-width: 0; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid rgba(255, 231, 163, 0.35); background: rgba(8, 10, 28, 0.85); color: #eef0ff;
+  font: 13px ui-sans-serif, system-ui, sans-serif; outline: none;
+}
+select.ds-input {
+  padding-right: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, #ffe7a3 50%), linear-gradient(135deg, #ffe7a3 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px; background-repeat: no-repeat;
+}
+select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
+.ds-input:focus { border-color: rgba(255, 231, 163, 0.8); box-shadow: 0 0 0 3px rgba(255, 231, 163, 0.12); }
+.ds-btn {
+  all: unset; cursor: pointer; padding: 7px 12px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  border: 1px solid rgba(255, 231, 163, 0.35); color: #ffe7a3; background: rgba(255, 231, 163, 0.06);
+  white-space: nowrap; text-align: center;
+}
+.ds-btn:hover { background: rgba(255, 231, 163, 0.14); }
+.ds-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ds-btn.gold { background: linear-gradient(180deg, #fff1c4, #e9c56e); color: #1a1630; border-color: #ffe7a3; }
+.ds-btn.x { background: #0b0b0f; color: #fff; border-color: rgba(255, 255, 255, 0.3); }
+.ds-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid rgba(255, 231, 163, 0.25); background: rgba(10, 12, 28, 0.7); margin: 10px 0; }
+.ds-seg button { all: unset; cursor: pointer; padding: 6px 14px; border-radius: 9px; font-size: 12px; font-weight: 600; color: rgba(220, 228, 255, 0.65); }
+.ds-seg button.on { background: rgba(255, 231, 163, 0.18); color: #fff7df; }
+.ds-msg { margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; font-size: 12px; }
+.ds-msg.ok { border: 1px solid rgba(120, 240, 190, 0.4); background: rgba(10, 40, 30, 0.5); color: #9ff3c8; }
+.ds-msg.bad, .ds-error { border: 1px solid rgba(255, 120, 140, 0.5); background: rgba(50, 10, 20, 0.6); color: #ffb0c0; }
+.mono { font-family: ui-monospace, monospace; }
+.tiny { font-size: 11px; }
+.beta { font-size: 9px; padding: 1px 5px; border-radius: 6px; background: rgba(201, 182, 242, 0.2); color: #c9b6f2; letter-spacing: .06em; margin-left: 4px; }
+
+/* —— Private profile identity / cash —— */
+.profile-identity, .cash-panel { margin: 10px 0 14px; }
+.pid-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.pid-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pid-label { font-size: 10px; letter-spacing: .1em; color: #ffe7a3; }
+.pid-value, .pid-edit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.pid-value a { color: #fff7df; font-weight: 600; }
+.pid-edit .ds-input { flex: 1; min-width: 100px; }
+.pid-status { font-size: 11px; }
+.pid-status.ok { color: #9ff3c8; }
+.pid-status.bad { color: #ffb0c0; }
+.cash-balances { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.cash-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 14px; border: 1px solid rgba(255, 231, 163, 0.2); background: rgba(255, 231, 163, 0.04); }
+.cash-tile span { font-size: 11px; color: rgba(220, 228, 255, 0.6); }
+.cash-tile strong { font: bold 20px Georgia, serif; color: #fff7df; }
+.cash-addr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; word-break: break-all; padding: 10px 12px; border-radius: 12px; border: 1px dashed rgba(255, 231, 163, 0.35); font-size: 12px; }
+.cash-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cash-form .wide { flex: 1 1 260px; }
+.cash-panel a { color: #ffe7a3; }
+.persona-badge { display: inline-flex; align-items: center; gap: 8px; margin: 6px 0; padding: 4px 12px 4px 4px; border-radius: 999px; border: 1px solid rgba(255, 231, 163, 0.55); background: linear-gradient(180deg, rgba(255, 231, 163, 0.16), rgba(14, 16, 40, 0.6)); color: #fff7df; font-weight: 700; font-size: 13px; letter-spacing: .04em; }
+.prestige-name { font-size: 11px; letter-spacing: .1em; color: #ffe7a3; text-transform: uppercase; margin: 4px 0; }
