@@ -5,13 +5,17 @@ import { brandedRocket } from "@/lib/decal";
 import { withBase } from "@/lib/base-path";
 
 /** Small rocket preview with token decal; base chrome shows until the decal cross-fades in. */
+/** Per-icon composite cache — the launchpad renders many rockets sharing a few icons. */
+const CACHE = new Map<string, ReturnType<typeof brandedRocket>>();
+const cached = (icon?: string | null) => { const k = icon ?? ""; let p = CACHE.get(k); if (!p) { p = brandedRocket(icon); CACHE.set(k, p); if (CACHE.size > 400) CACHE.delete(CACHE.keys().next().value as string); } return p; };
+
 export default function BrandedRocket({ icon, height = 80, className }: { icon?: string | null; height?: number; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let alive = true;
     setReady(false);
-    brandedRocket(icon).then(({ canvas }) => {
+    cached(icon).then(({ canvas }) => {
       const c = ref.current;
       if (!alive || !c) return;
       try {
