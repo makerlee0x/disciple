@@ -31,8 +31,7 @@ contract TrampWallTest is IntegrationBase {
         super.setUp();
         twm = new TrampWallManager(manager, lockedLP, address(hook));
         hook.setLiquidityManager(address(twm), true);
-        twm.setMinHold(0); // legacy behaviour tests; hold + keeper tip covered in test/security/JitTwap.t.sol
-        twm.setKeeperTipBps(0);
+        twm.setKeeperTipBps(0); // legacy owner-gets-all assertions; tip covered in test/security/JitTwap.t.sol
         (curve, tok) = _launch(0, 0);
         _graduate(curve);
         quote.mint(alice, 1_000_000 ether);
@@ -184,81 +183,8 @@ contract TrampWallTest is IntegrationBase {
         twm.placeTramp(address(fresh), lo, hi, 1 ether, 0, block.timestamp + 1);
     }
 
-    // ── donations ──
-
-    function test_donation_reaches_in_range_tramp_not_out_of_range() public {
-        (int24 lo, int24 hi) = _trampRange(1, 6);
-        (int24 flo, int24 fhi) = _trampRange(60, 6); // far below
-        vm.startPrank(alice);
-        (uint256 near,) = twm.placeTramp(address(tok), lo, hi, 500 ether, 0, block.timestamp + 1);
-        (uint256 far,) = twm.placeTramp(address(tok), flo, fhi, 500 ether, 0, block.timestamp + 1);
-        vm.stopPrank();
-
-        // push price into the near tramp (below its top edge) but not through it
-        uint256 top = _priceAtTick(_tokenIsC0() ? hi : lo);
-        _sellUntilBelow(top, 200_000 ether);
-        assertFalse(twm.isFilled(near));
-        // trade inside the range
-        for (uint256 i; i < 4; i++) {
-            _buy(bob, 1 ether);
-            _sell(whale, 50_000 ether);
-        }
-        (uint256 nq, uint256 nt) = twm.pendingFees(near);
-        (uint256 fq, uint256 ft) = twm.pendingFees(far);
-        assertGt(nq + nt, 0, "in-range tramp earns donation");
-        assertEq(fq + ft, 0, "out-of-range tramp earns nothing");
-
-        // claim
-        uint256 q0 = quote.balanceOf(alice);
-        uint256 t0 = tok.balanceOf(alice);
-        vm.prank(alice);
-        (uint256 cq, uint256 ct) = twm.claimFees(near);
-        assertApproxEqAbs(cq, nq, 1);
-        assertApproxEqAbs(ct, nt, 1);
-        assertEq(quote.balanceOf(alice) - q0, cq);
-        assertEq(tok.balanceOf(alice) - t0, ct);
-        (nq, nt) = twm.pendingFees(near);
-        assertEq(nq + nt, 0);
-        vm.prank(bob);
-        vm.expectRevert(TrampWallManager.NotOwner.selector);
-        twm.claimFees(near);
-    }
-
     function _tokenIsC0() internal view returns (bool t) {
         (,, t) = _state();
-    }
-
-    function test_hook_fee_split_accounting_with_donation() public {
-        bytes32 routedTopic =
-            keccak256("TradeFeeRouted(address,address,address,uint256,uint256,uint256,uint256,uint256)");
-        bytes32 donTopic = keccak256("LPDonation(address,address,uint256)");
-        for (uint256 dir; dir < 2; dir++) {
-            vm.recordLogs();
-            if (dir == 0) _buy(bob, 100 ether);
-            else _sell(alice, 1_000_000 ether);
-            Vm.Log[] memory logs = vm.getRecordedLogs();
-            uint256 donated;
-            uint256 sumShares;
-            bool sawDon;
-            for (uint256 i; i < logs.length; i++) {
-                if (logs[i].topics[0] == donTopic) {
-                    donated = abi.decode(logs[i].data, (uint256));
-                    sawDon = true;
-                }
-                if (logs[i].topics[0] == routedTopic) {
-                    (uint256 c, uint256 lp, uint256 t, uint256 r,) =
-                        abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
-                    sumShares = c + lp + t + r;
-                }
-            }
-            assertTrue(sawDon);
-            // Find fee from Trade: reconstruct via donationOf inverse bounds
-            assertGt(donated, 0);
-            // creator+lp+treasury+ref (+kol, 0 here) + donated == full 1% fee; donated == fee*33/100/3
-            uint256 fee = sumShares + donated;
-            assertEq(donated, hook.donationOf(fee), "donation = 1/3 of 33% LP share");
-            assertEq(fee * 100 / 100, fee);
-        }
     }
 
     // ── fills / pull / cancel ──
@@ -281,8 +207,8 @@ contract TrampWallTest is IntegrationBase {
         (uint256 qOut, uint256 tOut) = twm.pull(id);
         assertGt(tOut, 0, "converted to token");
         assertEq(tok.balanceOf(alice) - t0, tOut);
-        assertEq(quote.balanceOf(alice) - q0, qOut); // only donation fees in quote, if any
-        assertLt(qOut, 1 ether);
+        assertEq(quote.balanceOf(alice) - q0, qOut);
+        assertEq(qOut, 0, "no yield: nothing but the fill");
         assertEq(tok.balanceOf(keeper), 0);
         // bought ~200 quote worth of token at ~range price (well, at least something sane)
         assertGt(tOut * _priceAtTick(_tokenIsC0() ? lo : hi) / 1e18, 190 ether);
@@ -306,13 +232,13 @@ contract TrampWallTest is IntegrationBase {
         (uint256 qOut, uint256 tOut) = twm.pull(id);
         assertGt(qOut, 0);
         assertEq(quote.balanceOf(alice) - q0, qOut);
-        assertLt(tOut, 1e18, "token fully converted (maybe dust fees)");
+        assertEq(tOut, 0, "token fully converted, no yield");
         // sold at >= range bottom
         uint256 botP = _priceAtTick(_tokenIsC0() ? lo : hi);
         assertGe(qOut * 1e18 / amt, botP * 999 / 1000);
     }
 
-    function test_cancel_mid_range_returns_both_assets_and_fees() public {
+    function test_cancel_mid_range_returns_both_assets_no_yield() public {
         (int24 lo, int24 hi) = _trampRange(1, 8);
         vm.prank(alice);
         (uint256 id,) = twm.placeTramp(address(tok), lo, hi, 300 ether, 0, block.timestamp + 1);
@@ -320,7 +246,6 @@ contract TrampWallTest is IntegrationBase {
         _sellUntilBelow(top, 100_000 ether);
         _sell(whale, 100_000 ether);
         assertFalse(twm.isFilled(id));
-        (uint256 pq, uint256 pt) = twm.pendingFees(id);
 
         vm.prank(bob);
         vm.expectRevert(TrampWallManager.NotOwner.selector);
@@ -332,11 +257,9 @@ contract TrampWallTest is IntegrationBase {
         (uint256 qOut, uint256 tOut) = twm.cancel(id);
         assertGt(qOut, 0, "unfilled quote back");
         assertGt(tOut, 0, "filled part as token");
-        assertGe(qOut, pq);
-        assertGe(tOut, pt);
         assertEq(quote.balanceOf(alice) - q0, qOut);
         assertEq(tok.balanceOf(alice) - t0, tOut);
-        assertLe(qOut, 300 ether + pq + 1);
+        assertLe(qOut, 300 ether);
     }
 
     function test_cancel_untouched_returns_principal() public {
@@ -438,8 +361,7 @@ contract TrampWallReentrancyTest is IntegrationBase {
         _graduateWith(c, MockUSDG(address(rq)));
         TrampWallManager twm = new TrampWallManager(manager, lockedLP, address(hook));
         hook.setLiquidityManager(address(twm), true);
-        twm.setMinHold(0); // legacy behaviour tests; hold + keeper tip covered in test/security/JitTwap.t.sol
-        twm.setKeeperTipBps(0);
+        twm.setKeeperTipBps(0); // legacy owner-gets-all assertions; tip covered in test/security/JitTwap.t.sol
         (int24 tick,, int24 ts, bool tIs0) = twm.poolState(address(t));
         int24 a = (tick / ts) * ts;
         if (tick < 0 && tick % ts != 0) a -= ts;

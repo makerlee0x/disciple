@@ -117,31 +117,28 @@ Ticks must be multiples of `tickSpacing` (60). Placement reverts with `NotSingle
 Writes: approve the manager once per asset. Positions are held by the manager and tracked per user by id.
 - `placeTramp(token, tickLower, tickUpper, quoteAmt, minLiquidity, deadline) → (id, liquidity)`
 - `placeWall(token, tickLower, tickUpper, tokenAmt, minLiquidity, deadline) → (id, liquidity)`
-- `cancel(id) → (quoteOut, tokenOut)` (owner only, after `unlockAt(id)`). Returns the remaining principal of both assets plus 100% of accrued fees.
-- `claimFees(id) → (quoteFees, tokenFees)` (owner only, any time, 100% of fees).
-- `pull(id) → (quoteOut, tokenOut)`: **auto-close of a filled order.** It is permissionless and works once `isFilled(id)` is true and `unlockAt(id)` has passed.
-  - The owner receives proceeds + fees minus the keeper tip; the return values and `Filled` amounts are the owner's net.
+- `cancel(id) → (quoteOut, tokenOut)` (owner only, any time, no hold). Returns the remaining assets of the range (unfilled principal + any filled proceeds). There is no yield.
+- `pull(id) → (quoteOut, tokenOut)`: **auto-close of a filled order.** It is permissionless and works as soon as `isFilled(id)` is true (no hold).
+  - The owner receives proceeds minus the keeper tip; the return values and `Filled` amounts are the owner's net.
   - The caller receives `keeperTipBps` (default 10 = 0.1%, owner-settable, max 100 = 1%) of each asset paid out, reported in `KeeperTipPaid`.
   - Bots watch `isFilled` and close filled orders. The UI can also offer a "close now" button; when the owner calls it, they pay the tip to themselves.
-- Minimum hold (SEC-02 anti-JIT): `minHoldSeconds` (default 300 s, owner-settable). `cancel` and `pull` revert `HoldActive(unlockAt)` before that time.
 
 Views:
 - `poolState(token)`, `poolKeyOf(token)`
 - `positions(id) → (owner, token, tickLower, tickUpper, liquidity, kind (0 tramp / 1 wall), active)`
 - `positionsOf(owner) → uint256[]`
-- `pendingFees(id) → (quoteFees, tokenFees)`, `isFilled(id)`, `nextId()`
-- `placedAt(id)`, `unlockAt(id)`, `minHoldSeconds()`, `keeperTipBps()`, `MAX_KEEPER_TIP_BPS()`, `owner()`
+- `isFilled(id)`, `nextId()`
+- `keeperTipBps()`, `MAX_KEEPER_TIP_BPS()`, `owner()`
 
 Events (every one carries tick ranges for chart lines):
 - `TrampPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 quoteAmt)`
 - `WallPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 tokenAmt)`
 - `Filled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, address keeper)`
-- `Cancelled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, uint256 quoteFees, uint256 tokenFees)`
-- `FeesClaimed(uint256 indexed id, address indexed owner, address indexed token, uint256 quoteFees, uint256 tokenFees)`
+- `Cancelled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, uint256 quoteFees, uint256 tokenFees)`. `quoteFees`/`tokenFees` are **always 0** (kept for ABI stability).
 - `KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)` (emitted by `pull`, before `Filled`)
-- `MinHoldSet(uint32)`, `KeeperTipSet(uint16)`, `OwnerTransferred(address indexed)`
+- `KeeperTipSet(uint16)`, `OwnerTransferred(address indexed)`
 
-Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLow(uint128)`, `NotOwner`, `Inactive`, `NotFilled`, `ZeroAmount`, `HoldActive(uint256 unlockAt)`, `OnlyOwner`, `BadParam`.
+Errors: `NotGraduated`, `Expired`, `BadRange`, `NotSingleSided`, `LiquidityTooLow(uint128)`, `NotOwner`, `Inactive`, `NotFilled`, `ZeroAmount`, `OnlyOwner`, `BadParam`.
 
 LP adds to DISCIPLE pools from anything other than LockedLP or TrampWallManager are rejected by the hook (`OnlyLiquidityManager`).
 
@@ -156,9 +153,9 @@ After every `Trade`, BondingCurve (pre-grad) and DiscipleHook (post-grad) emit:
 ## QuotePricer
 `quotePriceUsd(quote)` is a truncated TWAP (default 30 min window, ±2000 ticks per poke). It is used to bake the curve's USD targets at launch, and it is also the live mcap quote price. Use `spotPriceUsd(quote)` for display. `poke(quote)` is permissionless.
 
-**Earnings.** On every post-grad swap, `DiscipleHook` donates `donationOf(fee)` (11% of the 1% fee, which is 1/3 of the 33% LP share) to in-range liquidity, and emits `LPDonation(token, currency, amount)`. The remaining 2/3 of the LP share still goes to LockedLP, and creator, treasury and referral shares are unchanged. The full-range LockedLP position is always in range, so it receives its pro-rata part of every donation. Tramps and walls earn only while the price is inside their range. Exact-in buys donate in the launch token; sells donate in quote.
+**No yield (2026-10-16).** Tramps and walls are pure limit orders: the pool LP fee is 0 and the hook no longer donates to in-range liquidity. **`LPDonation` and `donationOf` have been removed** from DiscipleHook; `TrampWallManager.claimFees`, `pendingFees` and `FeesClaimed` are gone too. The full 33% LP share of the 1% hook fee goes to LockedLP (`TradeFeeRouted.lpShare` = 33%). Indexers should drop any `LPDonation` handlers.
 
-Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee` was added for the hook.
+Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee(token, feeToken, trader, creator, feeAmount)` is called by the hook (the `donated` argument has been removed).
 
 ## Anti-snipe tax routing (LOCKED #9 rev. 2026-10-15)
 - `snipeFee` in `Trade` / `quoteBuy` is split by `FeeRouter.routeSnipeFee`: `toRewards = snipeFee * 7000 / 10000` → `FeeRouter.rewardsVault()` (community `RewardsVault`), `snipeFee - toRewards` → treasury.

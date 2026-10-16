@@ -54,9 +54,14 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 **Revision 2 (user decisions):**
 - Altitude/tier breaks use **SPOT** mcap; there is no TWAP and no window setter.
 - The hook no longer keeps an oracle. The TWAP lives only in QuotePricer, for the launch-time quote price.
-- TrampWallManager **fee vesting has been removed**; the 5-min hold stays.
+- TrampWallManager **fee vesting has been removed** (the 5-min hold was later removed in revision 3).
 - Filled tramps/walls are **auto-closed** by keepers for a small tip.
-- Donation is unchanged: 11% of the 1% fee goes to in-range LPs, LockedLP included.
+- ~~Donation is unchanged~~ (superseded by revision 3).
+
+**Revision 3 (2026-10-16, no LP yield):**
+- The hook's in-range donation is **removed** (`PoolManager.donate`, `LPDonation`, `donationOf` gone). The full 33% LP share is auto-added to LockedLP.
+- `FeeRouter.routeHookFee` lost its `donated` argument, so **FeeRouter must be redeployed** (the new hook calls the new ABI).
+- TrampWallManager: the min hold is **removed** (cancel anytime, pull immediately) and `claimFees`/`pendingFees` are removed. Keeper tip and hook LP-add gate stay.
 
 ## Why the scope grows
 - `DiscipleHook` now needs `BEFORE_ADD_LIQUIDITY_FLAG` for the SEC-02 LP-add gate. Hook permissions are encoded in the hook **address**, so a new salt must be mined and the hook redeployed. Every contract that stores the hook immutably follows.
@@ -68,12 +73,12 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 | DiscipleHook | **yes**; re-mine the salt for `BEFORE_ADD_LIQUIDITY \| BEFORE_SWAP \| AFTER_SWAP \| AFTER_SWAP_RETURNS_DELTA` | new flags, LP gate, altitude events |
 | Migration | **yes** | immutable `hook` |
 | LockedLP | **yes** | single migration slot (see above) |
-| TrampWallManager | **yes** | immutable `hook`/`lockedLP`; min hold, keeper tip, new `owner` |
+| TrampWallManager | **yes** | immutable `hook`/`lockedLP`; keeper tip, new `owner`, no fees/hold |
 | DiscipleRouter | **yes** | immutable `hook`/`lockedLP` |
 | QuotePricer | **yes** | TWAP + `poke` (state layout change) |
 | Launchpad, CurveDeployer (→ BondingCurve) | **yes** | #35 wallet cap, pricer poke on launch, curve altitude events |
 | AntiSnipe, AnonLauncher, MarketLens | **yes** | immutable `launchpad` (MarketLens code itself is unchanged) |
-| FeeRouter | yes (recommended) | owner-settable, but `setLaunchpad` is single-valued (old coins' creator lookup). If reused, call `setLaunchpad(new)`, `setLockedLP(new)` and `setAuthorized(newHook,true)` |
+| FeeRouter | **yes (required)** | `routeHookFee` ABI changed (no `donated`); also `setLaunchpad` is single-valued |
 | RewardsVault, ReferralRegistry | optional reuse | owner-settable wiring |
 | PoolManager / Quoter / StateView / UR / Permit2 / mUSDG / STRATEGY / ref pool | reuse | — |
 
@@ -87,11 +92,12 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 - Add TrampWallManager to the Safe ownership transfer.
 
 Sizes (runtime, all < 24,576 B):
-- Hook 8,258 B
+- Hook 8,204 B
 - BondingCurve 11,506 B
 - CurveDeployer 13,748 B
 - Launchpad 14,358 B
-- TrampWallManager 12,395 B
+- TrampWallManager 10,669 B
+- FeeRouter 6,278 B
 - QuotePricer 7,542 B
 - MarketLens 2,380 B
 
@@ -100,7 +106,6 @@ Sizes (runtime, all < 24,576 B):
 |---|---|---|---|
 | DiscipleHook (admin) | `setLiquidityManager(addr,bool)` | LockedLP + TWM | LP add allowlist |
 | QuotePricer (owner) | `setTwapParams(window, maxTickDelta)` | 1800 s, 2000 | quote/USD TWAP for launch price |
-| TrampWallManager (owner) | `setMinHold(uint32)` ≤ 7 d | 300 s | hold before cancel/pull |
 | TrampWallManager (owner) | `setKeeperTipBps(uint16)` ≤ 100 (1%) | 10 (0.1%) | keeper tip on pull |
 | Launchpad (owner) | `setWalletCapBps` (#35) | 0 | per-wallet curve cap |
 
@@ -119,19 +124,21 @@ event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mca
 - Old (v3) coins don't emit these events.
 
 Function changes:
-- **DiscipleHook:** `isLiquidityManager(address)`, `setLiquidityManager`, `altitudeTierOf(PoolId)`; event `LiquidityManagerSet`; error `OnlyLiquidityManager`. Raw v4 LP adds to DISCIPLE pools (any router other than LockedLP/TWM) now revert.
+- **DiscipleHook:** removed `LPDonation` event and `donationOf`; added `isLiquidityManager(address)`, `setLiquidityManager`, `altitudeTierOf(PoolId)`; event `LiquidityManagerSet`; error `OnlyLiquidityManager`. Raw v4 LP adds to DISCIPLE pools (any router other than LockedLP/TWM) now revert.
 - **BondingCurve:** `altitudeTier()`.
 - **Launchpad:** #35's `walletCapBps`, `walletCapBpsOf`, `setWalletCapBps`, `WalletCapSet`, `WalletCapTooHigh`. `launch` now pokes the pricer (no ABI change).
 - **QuotePricer:** `poke(address)`, `twapTick(address)`, `spotPriceUsd(address)`, `twapWindow()`, `maxTickDelta()`, `setTwapParams`; events `TwapParamsSet`, `Poked`; error `BadParam`. **Behaviour change:** `quotePriceUsd` is now the TWAP (use `spotPriceUsd` for display).
 - **TrampWallManager:**
-  - Additions: `owner()`, `transferOwnership`, `setMinHold`, `setKeeperTipBps`, `minHoldSeconds()`, `MAX_HOLD()`, `keeperTipBps()`, `MAX_KEEPER_TIP_BPS()`, `placedAt(id)`, `unlockAt(id)`.
-  - New events: `MinHoldSet`, `KeeperTipSet`, `OwnerTransferred`, `KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)`.
-  - New errors: `OnlyOwner`, `BadParam`, `HoldActive(uint256 unlockAt)`.
+  - Additions: `owner()`, `transferOwnership`, `setKeeperTipBps`, `keeperTipBps()`, `MAX_KEEPER_TIP_BPS()`.
+  - Removed: `claimFees`, `pendingFees`, event `FeesClaimed`.
+  - New events: `KeeperTipSet`, `OwnerTransferred`, `KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)`.
+  - New errors: `OnlyOwner`, `BadParam`.
   - `positions(id)` is **unchanged**.
   - **Semantics:**
-    - `cancel` and `pull` revert `HoldActive` for `minHoldSeconds` after placement. The UI should show a countdown to `unlockAt(id)`.
-    - `pull` now pays a keeper tip to `msg.sender`: `keeperTipBps` of each asset paid out (proceeds + fees). `Filled.quoteOut/tokenOut` are the owner's net amounts; the tip is in `KeeperTipPaid`.
-    - `cancel` and `claimFees` pay 100% of fees (no vesting, no forfeits).
+    - No hold: `cancel` works any time, `pull` as soon as `isFilled`.
+    - `pull` now pays a keeper tip to `msg.sender`: `keeperTipBps` of each asset paid out (proceeds). `Filled.quoteOut/tokenOut` are the owner's net amounts; the tip is in `KeeperTipPaid`.
+    - No yield: `Cancelled.quoteFees/tokenFees` are always 0.
+- **FeeRouter:** `routeHookFee(token, feeToken, trader, creator, feeAmount)` (was 6 args with `donated`). Events unchanged; `TradeFeeRouted.lpShare` is the full 33%.
 - MarketLens: unchanged.
 
 The web-bundle ABIs are regenerated (`deployments/web-bundle/abi/*.json` + `index.ts`). Addresses stay unchanged until broadcast.

@@ -101,22 +101,17 @@ contract FeeRouter is IFeeRouter {
         uint256 creatorTaxAmount
     ) external override {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
-        _route(token, quote, trader, creator, feeAmount, creatorTaxAmount, 0);
+        _route(token, quote, trader, creator, feeAmount, creatorTaxAmount);
     }
 
-    /// @notice Post-grad hook fee: the hook already donated `donated` (= 1/3 of the 33% LP share) to in-range
-    ///         v4 LPs via PoolManager.donate, and transferred only `feeAmount - donated` here. Split is computed on
-    ///         the full `feeAmount` (creator/treasury/referral unchanged); LockedLP auto-add gets lpShare - donated.
-    function routeHookFee(
-        address token,
-        address feeToken,
-        address trader,
-        address creator,
-        uint256 feeAmount,
-        uint256 donated
-    ) external override {
+    /// @notice Post-grad hook fee: the hook transfers the full `feeAmount` here. Split 33/33/33/1; the whole 33%
+    ///         LP share is auto-added to LockedLP (no in-range donation).
+    function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
+        external
+        override
+    {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
-        _route(token, feeToken, trader, creator, feeAmount, 0, donated);
+        _route(token, feeToken, trader, creator, feeAmount, 0);
     }
 
     function _route(
@@ -125,8 +120,7 @@ contract FeeRouter is IFeeRouter {
         address trader,
         address creator,
         uint256 feeAmount,
-        uint256 creatorTaxAmount,
-        uint256 lpDeduct
+        uint256 creatorTaxAmount
     ) internal {
         if (feeAmount == 0 && creatorTaxAmount == 0) return;
 
@@ -141,7 +135,6 @@ contract FeeRouter is IFeeRouter {
 
         (uint256 creatorShare, uint256 lpShare, uint256 treasuryShare, uint256 referralShare) =
             FeeMath.splitTradeFee(feeAmount);
-        lpShare -= lpDeduct; // donated portion already paid to in-range LPs
 
         // KOL destination for the 1% leftover
         address launchKol = tokenLaunchKol[token];

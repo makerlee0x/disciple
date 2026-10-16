@@ -21,7 +21,7 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @notice SEC-02 (JIT hold + LP gate), SEC-03 (QuotePricer TWAP), limit-order auto-close, altitude on spot.
+/// @notice SEC-02 (LP-add gate, no LP yield), SEC-03 (QuotePricer TWAP), limit-order auto-close, altitude on spot.
 contract JitTwapTest is IntegrationBase {
     using PoolIdLibrary for PoolKey;
 
@@ -115,8 +115,6 @@ contract JitTwapTest is IntegrationBase {
         for (uint256 i; i < 6; i++) {
             _sell(whale, 2_000_000 ether);
         }
-        (uint256 q, uint256 t) = twm.pendingFees(id);
-        require(q + t > 0, "range never earned");
         require(!twm.isFilled(id), "filled");
     }
 
@@ -139,23 +137,51 @@ contract JitTwapTest is IntegrationBase {
         assertTrue(hook.isLiquidityManager(address(lockedLP)));
     }
 
-    function test_jit_same_block_cancel_and_pull_revert_hold() public {
+    /// @notice No yield: an in-range position around swaps, cancelled in the same block, gets back only the
+    ///         assets it held (no donation, pool LP fee 0). Cancel is allowed immediately (no hold).
+    function test_jit_same_block_add_swap_cancel_earns_no_yield() public {
+        vm.recordLogs();
         uint256 id = _jitAroundSells(jit);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            assertTrue(logs[i].topics[0] != keccak256("LPDonation(address,address,uint256)"), "donation emitted");
+        }
+        vm.recordLogs();
         vm.prank(jit);
-        vm.expectRevert(abi.encodeWithSelector(TrampWallManager.HoldActive.selector, block.timestamp + 300));
         twm.cancel(id);
-        vm.expectRevert(); // NotFilled or HoldActive
-        twm.pull(id);
+        logs = vm.getRecordedLogs();
+        bool seen;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == TrampWallManager.Cancelled.selector) {
+                (,,,, uint256 qf, uint256 tf) =
+                    abi.decode(logs[i].data, (int24, int24, uint256, uint256, uint256, uint256));
+                assertEq(qf + tf, 0);
+                seen = true;
+            }
+        }
+        assertTrue(seen);
+    }
+
+    function test_hook_fee_full_lp_share_to_lockedLP() public {
+        vm.recordLogs();
+        _sell(whale, 2_000_000 ether); // fee in quote
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,uint256,uint256,uint256,uint256,uint256)");
+        uint256 cs;
+        uint256 lps;
+        uint256 ts;
+        uint256 rs;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == tfr) {
+                (cs, lps, ts, rs,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+            }
+        }
+        uint256 fee = cs + lps + ts + rs;
+        assertGt(fee, 0);
+        assertEq(lps, fee * 33 / 100, "full 33% LP share routed to LockedLP");
     }
 
     function test_twm_params_owner_only_and_bounded() public {
-        vm.prank(alice);
-        vm.expectRevert(TrampWallManager.OnlyOwner.selector);
-        twm.setMinHold(1);
-        vm.expectRevert(TrampWallManager.BadParam.selector);
-        twm.setMinHold(8 days);
-        twm.setMinHold(600);
-        assertEq(twm.minHoldSeconds(), 600);
         vm.prank(alice);
         vm.expectRevert(TrampWallManager.OnlyOwner.selector);
         twm.setKeeperTipBps(5);
@@ -264,11 +290,6 @@ contract JitTwapTest is IntegrationBase {
     function test_pull_filled_wall_pays_owner_minus_keeper_tip() public {
         uint256 id = _placeAndFillWall();
         address keeper = makeAddr("keeper");
-        vm.expectRevert(abi.encodeWithSelector(TrampWallManager.HoldActive.selector, block.timestamp + 300));
-        vm.prank(keeper);
-        twm.pull(id);
-        _next(300);
-        (uint256 fq,) = twm.pendingFees(id);
         uint256 q0 = quote.balanceOf(alice);
         uint256 t0 = tok.balanceOf(alice);
         vm.recordLogs();
@@ -279,11 +300,10 @@ contract JitTwapTest is IntegrationBase {
         assertGt(qOut, 0, "wall sold into quote");
         uint256 kq = quote.balanceOf(keeper);
         uint256 kt = tok.balanceOf(keeper);
-        // tip = 0.1% of the whole payout (proceeds + fees)
+        // tip = 0.1% of each asset paid out
         assertApproxEqAbs(kq, (qOut + kq) * 10 / 10_000, 1);
         assertApproxEqAbs(kt, (tOut + kt) * 10 / 10_000, 1);
         assertGt(kq, 0);
-        assertGe(qOut + kq + 1, fq);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bool tipEv;
         for (uint256 i; i < logs.length; i++) {
@@ -302,7 +322,6 @@ contract JitTwapTest is IntegrationBase {
             _sell(whale, 5_000_000 ether);
         }
         assertTrue(twm.isFilled(id), "tramp not filled");
-        _next(300);
         uint256 t0 = tok.balanceOf(alice);
         address keeper = makeAddr("keeperT");
         vm.prank(keeper);
@@ -317,38 +336,13 @@ contract JitTwapTest is IntegrationBase {
         (int24 lo, int24 hi) = _sideRange(!_tIs0(), 4); // tramp below price
         vm.prank(alice);
         (uint256 tid,) = twm.placeTramp(address(tok), lo, hi, 1_000 ether, 0, block.timestamp + 1);
-        _next(300);
         vm.expectRevert(TrampWallManager.NotFilled.selector);
         twm.pull(tid);
-        uint256 id = _placeAndFillWall();
-        _next(300);
+        uint256 id = _placeAndFillWall(); // pulled in the same block it filled (no hold)
         address keeper = makeAddr("keeper0");
         vm.prank(keeper);
         twm.pull(id);
         assertEq(quote.balanceOf(keeper) + tok.balanceOf(keeper), 0);
-    }
-
-    function test_cancel_pays_all_fees_no_forfeit() public {
-        uint256 id = _jitAroundSells(alice);
-        (uint256 pq, uint256 pt) = twm.pendingFees(id);
-        _next(300);
-        uint256 tq0 = quote.balanceOf(treasury);
-        vm.recordLogs();
-        vm.prank(alice);
-        twm.cancel(id);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bool seen;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == TrampWallManager.Cancelled.selector) {
-                (,,,, uint256 qf, uint256 tf) =
-                    abi.decode(logs[i].data, (int24, int24, uint256, uint256, uint256, uint256));
-                assertEq(qf, pq);
-                assertEq(tf, pt);
-                seen = true;
-            }
-        }
-        assertTrue(seen);
-        assertEq(quote.balanceOf(treasury), tq0, "no forfeit");
     }
 
     // ───────────── Altitude = SPOT ─────────────
