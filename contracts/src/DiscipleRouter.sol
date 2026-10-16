@@ -232,8 +232,7 @@ contract DiscipleRouter is IUnlockCallback {
         uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
         uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
-        uint256 pAfter = DiscipleHook(hook).priceX18FromSqrt(sa, tokenIsC0);
-        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), qpx, 1e18);
+        uint256 mcap = DiscipleHook(hook).mcapUsdFromSqrt(sa, tokenIsC0, qpx);
         revert QuoteResult(out, impact, mcap);
     }
 

@@ -20,6 +20,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {Altitude} from "./libraries/Altitude.sol";
+import {McapMath} from "./libraries/McapMath.sol";
 
 interface IMigrationLockedLP {
     function lockedLP() external view returns (address);
@@ -210,8 +211,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         metaOf[id] = m;
         // Altitude stream starts at the seeded (curve-end) spot price.
         (uint160 sp,,,) = poolManager.getSlot0(id);
-        uint256 p = priceX18FromSqrt(sp, Currency.unwrap(key.currency0) == token);
-        uint256 mcap = Math.mulDiv(Math.mulDiv(p, Constants.TOTAL_SUPPLY, 1e18), _quoteUsd(m), 1e18);
+        uint256 mcap = mcapUsdFromSqrt(sp, Currency.unwrap(key.currency0) == token, _quoteUsd(m));
         uint8 tier = Altitude.tierOf(mcap);
         altitudeTierOf[id] = tier;
         emit AltitudeUpdate(token, mcap, tier);
@@ -317,7 +317,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
         uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
-        mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), qUsd, 1e18);
+        mcap = mcapUsdFromSqrt(sqrtAfter, tokenIsC0, qUsd);
 
         emit Trade(
             m.token,
@@ -343,6 +343,11 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             altitudeTierOf[id] = tier;
             emit TierBreak(token, prev, tier, mcap);
         }
+    }
+
+    /// @notice Full-precision spot mcap (USD WAD) from sqrtPriceX96; qUsd = USD WAD per 1e18 raw quote.
+    function mcapUsdFromSqrt(uint160 sqrtP, bool tokenIsC0, uint256 qUsd) public pure returns (uint256) {
+        return McapMath.mcapUsdFromSqrt(sqrtP, tokenIsC0, Constants.TOTAL_SUPPLY, qUsd);
     }
 
     /// @notice quote raw * 1e18 / token raw from a v4 sqrtPriceX96.
