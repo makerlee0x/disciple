@@ -6,6 +6,7 @@ import { brandedRocket } from "@/lib/decal";
 import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { ACTIVE_CHAIN } from "@/lib/chains";
+import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 
 declare global {
   interface Window {
@@ -32,6 +33,53 @@ export default function FlightCanvas({ search }: Props) {
   useEffect(() => {
     let cancelled = false;
     let scriptEl: HTMLScriptElement | null = null;
+    let stopWorker: (() => void) | null = null;
+    let cv: HTMLCanvasElement | null = null;
+    // The canvas is created per boot (not by React): a canvas can be transferred to a worker only once,
+    // and Strict Mode / fallback need a fresh one.
+    const freshCanvas = () => {
+      cv?.remove();
+      cv = document.createElement("canvas");
+      cv.id = "c";
+      wrapRef.current?.appendChild(cv);
+      return cv;
+    };
+    const bootMain = async () => {
+      freshCanvas();
+      if (wrapRef.current) wrapRef.current.dataset.render = "main";
+      const existing = document.querySelector('script[data-disciple-flight="1"]') as HTMLScriptElement | null;
+      if (existing) {
+        existing.remove();
+        // Engine is an IIFE — remount requires a fresh script after clearing __flight
+        delete window.__flight;
+      }
+      await new Promise<void>((resolve, reject) => {
+        scriptEl = document.createElement("script");
+        scriptEl.src = withBase("/flight/engine.js");
+        scriptEl.dataset.discipleFlight = "1";
+        scriptEl.async = false;
+        scriptEl.onload = () => resolve();
+        scriptEl.onerror = () => reject(new Error("Failed to load flight engine"));
+        document.body.appendChild(scriptEl);
+      });
+    };
+    // Worker path: resolves true when the engine is running in the worker, false → caller falls back.
+    const bootWorker = (globals: Record<string, unknown>) =>
+      new Promise<boolean>((resolve) => {
+        const c = freshCanvas();
+        if (wrapRef.current) wrapRef.current.dataset.render = "worker";
+        let done = false;
+        const finish = (ok: boolean, why?: string) => {
+          if (done) return; done = true; clearTimeout(to);
+          if (!ok) { console.warn("[flight] worker render unavailable, falling back to main thread:", why); stopWorker?.(); stopWorker = null; }
+          resolve(ok);
+        };
+        const to = window.setTimeout(() => finish(false, "worker start timeout"), 10000);
+        try {
+          stopWorker = startWorkerRender({ canvas: c, wrap: wrapRef.current!, basePath: BASE_PATH, globals,
+            onReady: () => finish(true), onError: (m) => (done ? console.error("[flight worker]", m) : finish(false, m)) });
+        } catch (e) { finish(false, String(e)); }
+      });
 
     async function boot() {
       try {
@@ -60,31 +108,21 @@ export default function FlightCanvas({ search }: Props) {
         if (cancelled) return;
         setStatus("Starting engine…");
 
-        // Avoid double-inject on React Strict Mode remount
-        const existing = document.querySelector(
-          'script[data-disciple-flight="1"]',
-        ) as HTMLScriptElement | null;
-        if (existing) {
-          existing.remove();
-          // Engine is an IIFE — remount requires a fresh script after clearing __flight
-          delete window.__flight;
-        }
-
         // Flight engine loads /assets/* — prefix for githack basePath.
-        (window as unknown as { __DISCIPLE_BASE_PATH__?: string }).__DISCIPLE_BASE_PATH__ = BASE_PATH;
-        // Ammo preset tiers (single source: lib/flight/ammoTiers.ts) — engine scales its presets from this.
-        (window as unknown as { __AMMO_TIERS?: unknown }).__AMMO_TIERS = AMMO_TIERS;
-        // Simulated market defaults ON for testnet chains (no address hardcoding — chain flag only).
-        (window as unknown as { __DISCIPLE_TESTNET?: boolean }).__DISCIPLE_TESTNET = !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet;
-        await new Promise<void>((resolve, reject) => {
-          scriptEl = document.createElement("script");
-          scriptEl.src = withBase("/flight/engine.js");
-          scriptEl.dataset.discipleFlight = "1";
-          scriptEl.async = false;
-          scriptEl.onload = () => resolve();
-          scriptEl.onerror = () => reject(new Error("Failed to load flight engine"));
-          document.body.appendChild(scriptEl);
-        });
+        const globals = {
+          __DISCIPLE_BASE_PATH__: BASE_PATH,
+          // Ammo preset tiers (single source: lib/flight/ammoTiers.ts) — engine scales its presets from this.
+          __AMMO_TIERS: AMMO_TIERS,
+          // Simulated market defaults ON for testnet chains (no address hardcoding — chain flag only).
+          __DISCIPLE_TESTNET: !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet,
+          REPLAY: window.REPLAY,
+        };
+        Object.assign(window, globals);
+        // ?render=main|worker forces a path; default = worker when OffscreenCanvas etc. are supported
+        const mode = chooseRenderMode(qs);
+        const ok = mode === "worker" && (await bootWorker(globals));
+        if (cancelled) return;
+        if (!ok) await bootMain();
 
         if (!cancelled) setStatus("Live");
       } catch (e) {
@@ -104,6 +142,8 @@ export default function FlightCanvas({ search }: Props) {
 
     return () => {
       cancelled = true;
+      stopWorker?.();
+      cv?.remove();
       // Stop RAF / intervals by reloading is heavy; clear known hooks
       try {
         const src = (window.__flight as { source?: { stop?: () => void } } | undefined)
@@ -161,7 +201,6 @@ export default function FlightCanvas({ search }: Props) {
         }}
         className="flight-wrap"
       >
-        <canvas id="c" />
       </div>
       <Link
         id="exitX"
@@ -272,6 +311,10 @@ export default function FlightCanvas({ search }: Props) {
         #c {
           display: block;
           image-rendering: auto;
+        }
+        .flight-wrap[data-render="worker"] #c {
+          width: 100%;
+          height: 100%;
         }
       `}</style>
       <span className="sr-only">{status}</span>

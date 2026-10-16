@@ -571,10 +571,13 @@ function submit(side,usd,force){
     p.state=r.ok?'confirmed':'failed';
     if(r.ok) S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
     if(r.ok) dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:S.confirmed.mcap,supply:source.supply||1e9,gas:GAS_USD}}));   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
-    if(!r.ok){ S.feed.unshift({txt:'✕ tx reverted: '+r.reason,c:'#ff8f8f'}); S.flashes.push({txt:'TX REVERTED · '+r.reason,life:1.6}); }
+    if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
+      S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f'}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
   });
 }
+// Pre-flight failures (gas estimate / simulation / balance) are not reverts — show the reason as-is.
+function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient)/i.test(reason); }
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode)); if(d.side==='buy'||d.side==='sell') trade(d.side); });
 addEventListener('keydown',e=>{
@@ -634,7 +637,8 @@ cv.addEventListener('pointerdown',e=>{ const i=ammoAt(e); if(i<0) return; e.prev
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const names=[...new Set(TIERS.map(t=>t.bg).concat(['rocket']))];
-names.forEach(n=>{ const im=new Image(); im.onload=()=>loaded++; im.onerror=()=>{loaded++; im.bad=true; console.warn('asset failed',n);}; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/assets/'+n+'.png'; IMG[n]=im; });
+names.forEach(n=>{ const im=new Image(); im.onload=()=>{ if(im.bitmap) IMG[n]=im.bitmap; loaded++; };   // worker: shim decodes via createImageBitmap
+  im.onerror=()=>{loaded++; im.bad=true; console.warn('asset failed',n);}; im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/assets/'+n+'.png'; IMG[n]=im; });
 
 // film grain: pre-rendered noise tiles
 const grain=[...Array(4)].map(()=>{ const g=document.createElement('canvas'); g.width=g.height=256; const gx=g.getContext('2d'), id=gx.createImageData(256,256);
@@ -1426,7 +1430,10 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafO
 const SIM_DT=1/60, MAX_STEPS=5; let acc=0;
 const LERP_KEYS=['displayAlt','camAlt','camPx','camX','x','aimDisp','bob','sway','microRot','heading','bank','cloudY','bgScrollX','vxS','wob','ry','anch','fwd','vyS'];
 const PREV={}, CUR={};
+/* frame-time stats (both render modes): long = >25 ms (missed a 60 Hz vsync), >50 ms = visible hitch */
+const PERF=window.__flightPerf={n:0,long25:0,long50:0,max:0,sum:0,reset(){ this.n=this.long25=this.long50=this.max=this.sum=0; }};
 function frame(now){
+  { const d=now-last; if(d>0&&d<5000){ PERF.n++; PERF.sum+=d; if(d>25) PERF.long25++; if(d>50) PERF.long50++; if(d>PERF.max) PERF.max=d; } }
   const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
   if (S.confirmed.mcap===null || loaded<names.length){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
   acc+=rawDt; let n=0;
