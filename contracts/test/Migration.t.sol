@@ -93,6 +93,7 @@ contract MigrationTest is Test {
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
+        migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(hook), true);
         vm.stopPrank();
