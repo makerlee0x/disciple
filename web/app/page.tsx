@@ -4,38 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CHAIN,
-  CURVE,
   DEMO_POOL,
-  fmtUsd,
-  gradProgress,
   LAUNCHPAD_DEFAULT_FILTER,
-  verifiedLevel,
-  type RocketStats,
 } from "@/lib/config";
-import VerifiedBadge from "@/components/VerifiedBadge";
-import BrandedRocket from "@/components/BrandedRocket";
 import { brandedRocket } from "@/lib/decal";
 import { isDeployed } from "@/lib/chains";
 import { listLaunches, watchLaunchpad } from "@/lib/events";
 import { withBase } from "@/lib/base-path";
+import { recommendedPairs } from "@/lib/pairs";
+import { sampleRockets, type Rocket } from "@/lib/launchpad";
+import Launchpad from "@/components/launchpad/Launchpad";
 
-/** Rocket card model. `tk` = call sign (never a pair string). Stats are MOCK. */
-type Rocket = {
-  id: string;
-  name: string;
-  tk: string;
-  live?: boolean;
-  mcap: number | null;
-  chg: number | null;
-  c: string;
-  /** Token icon URL (decal). Missing → DISCIPLE halo emblem. */
-  icon?: string;
-  /** Indexer flag: image moderated post-launch → never render. */
-  hidden?: boolean;
-  stats: Omit<RocketStats, "mcapUsd">;
-};
-
-const SAMPLE: Rocket[] = [
+const SEED: Rocket[] = [
   {
     id: DEMO_POOL.address,
     name: "Artificial Inu",
@@ -45,6 +25,9 @@ const SAMPLE: Rocket[] = [
     mcap: null,
     chg: null,
     c: "#ffe7a3",
+    pair: "OTHER",
+    pairSym: "WETH",
+    creator: "Robinhood pool",
     stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
   },
   {
@@ -97,15 +80,31 @@ const SAMPLE: Rocket[] = [
   },
 ];
 
+/** Hand-made SAMPLE cards + generated SAMPLE rockets so the launchpad is exercised at 500+ items. */
+const SAMPLE: Rocket[] = [...SEED, ...sampleRockets(600, withBase)];
+
 const LAUNCH_MS = 2300;
 const RPC = CHAIN.rpcUrl;
 const AI_POOL = DEMO_POOL.address;
 
+const short = (a: string) => (a ? a.slice(0, 6) + "…" + a.slice(-4) : "—");
+function pairOf(quote: string): Rocket["pair"] {
+  const q = (quote || "").toLowerCase();
+  const ps = recommendedPairs();
+  if (!q || /^0x0+$/.test(q) || q === ps[0]?.address.toLowerCase()) return "STRATEGY";
+  if (ps[1] && q === ps[1].address.toLowerCase()) return "USDG";
+  return "OTHER";
+}
+function pairSymOf(quote: string): string {
+  const k = pairOf(quote);
+  if (k === "OTHER") return short(quote);
+  return k === "USDG" ? (recommendedPairs()[1]?.symbol ?? "USDG") : "STRATEGY";
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [coins, setCoins] = useState<Rocket[]>(SAMPLE);
-  const [filter, setFilter] = useState<"all" | "verified">(LAUNCHPAD_DEFAULT_FILTER);
-  const [launching, setLaunching] = useState(false);
+    const [launching, setLaunching] = useState(false);
   const [lpStatus, setLpStatus] = useState("ON THE PAD · PICK A ROCKET TO BOARD");
   const [flash, setFlash] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
@@ -149,6 +148,7 @@ export default function HomePage() {
         const live: Rocket[] = list.map((x) => ({
           id: x.token, name: x.name, tk: x.ticker, live: true, mcap: x.mcapUsd, chg: null, c: "#fff1c2",
           icon: /^https?:|^data:|^\//.test(x.imageURI) ? x.imageURI : undefined,
+          pair: pairOf(x.quote), pairSym: pairSymOf(x.quote), creator: short(x.creator), graduated: x.graduated, born: Number(x.block),
           stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
         }));
         setCoins((cs) => [...live, ...cs.filter((c) => !live.some((l) => l.id.toLowerCase() === c.id.toLowerCase()))]);
@@ -378,8 +378,8 @@ export default function HomePage() {
         className={launching ? "launching" : ""}
         style={{
           position: "relative",
-          height: "min(62vh, 560px)",
-          minHeight: 360,
+          height: "min(34vh, 300px)",
+          minHeight: 220,
           overflow: "hidden",
           background:
             `#0b0f22 url(${withBase("/assets/tier0.png")}) center 70% / cover no-repeat`,
@@ -400,7 +400,7 @@ export default function HomePage() {
             position: "absolute",
             left: 0,
             right: 0,
-            top: 22,
+            top: 14,
             zIndex: 4,
             textAlign: "center",
             pointerEvents: "none",
@@ -410,7 +410,7 @@ export default function HomePage() {
           <h1
             style={{
               margin: 0,
-              font: "bold clamp(28px,5vw,52px) Georgia,serif",
+              font: "bold clamp(24px,3.6vw,40px) Georgia,serif",
               letterSpacing: ".12em",
               color: "#fff7df",
               textShadow: "0 0 26px rgba(255,220,150,.9)",
@@ -434,8 +434,8 @@ export default function HomePage() {
           style={{
             position: "absolute",
             left: "50%",
-            bottom: "calc(16% - 14px)",
-            width: "min(34vw, 300px)",
+            bottom: "calc(18% - 12px)",
+            width: "min(24vw, 200px)",
             height: 22,
             transform: "translateX(-50%)",
             zIndex: 2,
@@ -454,8 +454,8 @@ export default function HomePage() {
           style={{
             position: "absolute",
             left: "50%",
-            bottom: "16%",
-            height: "min(30vh, 240px)",
+            bottom: "18%",
+            height: "min(19vh, 150px)",
             transform: "translateX(-50%)",
             zIndex: 3,
             filter: "drop-shadow(0 0 14px rgba(200,220,255,.55))",
@@ -472,8 +472,8 @@ export default function HomePage() {
             style={{
               position: "absolute",
               left: "50%",
-              bottom: "16%",
-              height: "min(30vh, 240px)",
+              bottom: "18%",
+              height: "min(19vh, 150px)",
               transform: "translateX(-50%)",
               zIndex: 3,
               pointerEvents: "none",
@@ -510,152 +510,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <main style={{ maxWidth: 1180, margin: "20px auto 40px", padding: "0 24px", position: "relative", zIndex: 5 }}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "baseline",
-            gap: "6px 14px",
-            margin: "0 0 12px",
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              font: "bold 20px Georgia,serif",
-              color: "#fff7df",
-            }}
-          >
-            Launchpad
-          </h2>
-          <span style={{ color: "rgba(220,228,255,.6)", fontSize: 11 }}>
-            1 live rocket · other cards are SAMPLE data · badges use MOCK stats
-          </span>
-          <div role="group" aria-label="Verified filter" style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            {(["all", "verified"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                aria-pressed={filter === f}
-                onClick={() => setFilter(f)}
-                style={{
-                  padding: "4px 10px", borderRadius: 8, fontSize: 11, cursor: "pointer",
-                  border: "1px solid rgba(255,231,163,.4)",
-                  background: filter === f ? "rgba(255,231,163,.2)" : "transparent",
-                  color: "#ffe7a3",
-                }}
-              >
-                {f === "all" ? "All" : "Verified only"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div
-          id="grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))",
-            gap: 14,
-          }}
-        >
-          {coins
-            .filter((c) => !c.hidden)
-            .map((c) => ({ c, tier: verifiedLevel({ ...c.stats, mcapUsd: c.mcap ?? 0 }) }))
-            .filter(({ tier }) => filter === "all" || tier.level !== "UNVERIFIED")
-            .map(({ c, tier }) => {
-            const p = gradProgress(c.mcap);
-            const grad = c.mcap != null && c.mcap >= CURVE.graduationMcap;
-            const sold =
-              p == null ? "" : ((p / 100) * CURVE.soldPctAtGrad).toFixed(0);
-            const pl = grad
-              ? "GRADUATED · past the Pearly Gates"
-              : p == null
-                ? "…"
-                : `${p.toFixed(0)}% to orbit (${fmtUsd(CURVE.graduationMcap)}) · ${sold}% of seats filled`;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => launch(c)}
-                className="rocket-card"
-                style={{
-                  all: "unset",
-                  boxSizing: "border-box",
-                  cursor: "pointer",
-                  display: "flex",
-                  gap: 12,
-                  padding: 14,
-                  borderRadius: 16,
-                  position: "relative",
-                  background:
-                    "radial-gradient(120% 90% at 0% 0%,rgba(255,244,214,.10),rgba(14,16,40,.9) 55%)",
-                  border: c.live
-                    ? "1px solid rgba(143,240,192,.6)"
-                    : "1px solid rgba(255,231,163,.22)",
-                  transition: "transform .12s,border-color .12s,box-shadow .12s",
-                }}
-              >
-                <div style={{ width: 58, flex: "0 0 58px", display: "grid", placeItems: "center" }}>
-                  <BrandedRocket icon={c.icon} height={84} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span className={c.live ? "rc-live" : "rc-sample"}>{c.live ? "LIVE" : "SAMPLE"}</span>
-                  <div
-                    style={{
-                      fontWeight: "bold",
-                      color: "#fff",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {c.name}
-                    <VerifiedBadge tier={tier} />
-                  </div>
-                  <div style={{ color: "#ffe7a3", fontSize: 11 }}>Call sign {c.tk}</div>
-                  <div style={{ marginTop: 6, fontSize: 12, color: "#cfd8ff" }}>
-                    Altitude {c.mcap ? fmtUsd(c.mcap) : "loading…"}{" "}
-                    {c.chg != null && (
-                      <span
-                        style={{ color: c.chg >= 0 ? "#8ff0c0" : "#ff9fb8" }}
-                      >
-                        {c.chg >= 0 ? "▲" : "▼"} {Math.abs(c.chg).toFixed(1)}%
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 8,
-                      height: 6,
-                      borderRadius: 4,
-                      background: "rgba(255,255,255,.1)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <i
-                      style={{
-                        display: "block",
-                        height: "100%",
-                        width: `${grad ? 100 : p || 0}%`,
-                        background: "linear-gradient(90deg,#ffd98a,#fff7df)",
-                      }}
-                    />
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: "rgba(220,228,255,.6)",
-                      marginTop: 4,
-                    }}
-                  >
-                    {pl}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+      <main className="lp-wrap" style={{ maxWidth: 1440, margin: "14px auto 40px", padding: "0 24px", position: "relative", zIndex: 5 }}>
+        <Launchpad coins={coins} onPick={launch} defaultVerified={LAUNCHPAD_DEFAULT_FILTER} />
       </main>
       <div
         id="flash"
