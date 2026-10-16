@@ -18,12 +18,18 @@ import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
+import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
+import {Altitude} from "./libraries/Altitude.sol";
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
 /// @notice Pool LP fee is 0; this hook takes 1% of swap output and routes via FeeRouter (33/33/33/1).
-/// @dev Must be mined to an address with BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
-///      beforeSwap only snapshots sqrtPrice (transient) so afterSwap can emit the unified Trade event.
-contract DiscipleHook is IHooks, ITradeEvents {
+/// @dev Must be mined to an address with
+///      BEFORE_ADD_LIQUIDITY_FLAG | BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
+///      beforeSwap snapshots sqrtPrice (transient) for the Trade event. afterSwap emits Trade, then
+///      AltitudeUpdate (SPOT mcap after the trade) and TierBreak when the spot tier changes.
+///      beforeAddLiquidity (SEC-02): only allowlisted liquidity managers (LockedLP, TrampWallManager) may add,
+///      so nobody can JIT raw v4 positions around a swap; TrampWallManager enforces a minimum hold.
+contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
@@ -46,8 +52,6 @@ contract DiscipleHook is IHooks, ITradeEvents {
     mapping(address => bool) public isTrustedRouter;
     address public admin;
 
-    /// @notice Fee-currency amount donated to in-range LPs on this swap.
-    event LPDonation(address indexed token, address indexed currency, uint256 amount);
     event TrustedRouterSet(address indexed router, bool trusted);
     event AdminTransferred(address indexed admin);
 
@@ -63,6 +67,15 @@ contract DiscipleHook is IHooks, ITradeEvents {
     error HookNotImplemented();
     error NotRegistered();
     error OnlyAdmin();
+    error OnlyLiquidityManager();
+
+    // ── SEC-02 LP gate / altitude ───────────────────────────────────────────
+    /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
+    mapping(address => bool) public isLiquidityManager;
+    /// @notice Last spot altitude tier per pool (0..17).
+    mapping(PoolId => uint8) public altitudeTierOf;
+
+    event LiquidityManagerSet(address indexed manager, bool allowed);
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
@@ -106,6 +119,12 @@ contract DiscipleHook is IHooks, ITradeEvents {
         return m.quotePriceUsd;
     }
 
+    function setLiquidityManager(address mgr, bool allowed) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        isLiquidityManager[mgr] = allowed;
+        emit LiquidityManagerSet(mgr, allowed);
+    }
+
     function transferAdmin(address a) external {
         if (msg.sender != admin) revert OnlyAdmin();
         admin = a;
@@ -116,7 +135,7 @@ contract DiscipleHook is IHooks, ITradeEvents {
         return Hooks.Permissions({
             beforeInitialize: false,
             afterInitialize: false,
-            beforeAddLiquidity: false,
+            beforeAddLiquidity: true,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
@@ -136,8 +155,17 @@ contract DiscipleHook is IHooks, ITradeEvents {
         external
     {
         if (msg.sender != migration) revert OnlyMigration();
-        metaOf[key.toId()] =
+        PoolId id = key.toId();
+        PoolMeta memory m =
             PoolMeta({token: token, quote: quote, creator: creator, registered: true, quotePriceUsd: quotePriceUsd});
+        metaOf[id] = m;
+        // Altitude stream starts at the seeded (curve-end) spot price.
+        (uint160 sp,,,) = poolManager.getSlot0(id);
+        uint256 p = priceX18FromSqrt(sp, Currency.unwrap(key.currency0) == token);
+        uint256 mcap = Math.mulDiv(Math.mulDiv(p, Constants.TOTAL_SUPPLY, 1e18), _quoteUsd(m), 1e18);
+        uint8 tier = Altitude.tierOf(mcap);
+        altitudeTierOf[id] = tier;
+        emit AltitudeUpdate(token, mcap, tier);
     }
 
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, bytes calldata)
@@ -177,35 +205,16 @@ contract DiscipleHook is IHooks, ITradeEvents {
 
         address feeToken = Currency.unwrap(feeCurrency);
         if (feeAmount > 0) {
-            // 1/3 of the 33% LP share → donated to in-range LPs (tramps/walls + LockedLP full-range)
-            uint256 donated = _donateToLPs(key, feeCurrency, feeAmount);
-            uint256 routed = feeAmount - donated;
-            poolManager.take(feeCurrency, address(this), routed);
-            IERC20(feeToken).safeTransfer(address(feeRouter), routed);
-            // For FeeRouter the `quote` param is the fee asset being split
-            feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount, donated);
-            emit LPDonation(m.token, feeToken, donated);
+            // Full 1% fee → FeeRouter (33/33/33/1); no in-range LP donation (tramps/walls earn no yield).
+            poolManager.take(feeCurrency, address(this), feeAmount);
+            IERC20(feeToken).safeTransfer(address(feeRouter), feeAmount);
+            feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount);
         }
 
-        _emitTrade(key, m, trader, delta, feeToken, feeAmount);
+        uint256 qUsd = _quoteUsd(m);
+        uint256 spotMcap = _emitTrade(key, m, trader, delta, feeToken, feeAmount, qUsd);
+        _emitAltitude(key.toId(), m.token, spotMcap);
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
-    }
-
-    /// @notice Donated share of the hook fee: 33% LP share / 3 = 11% of the 1% fee.
-    function donationOf(uint256 feeAmount) public pure returns (uint256) {
-        return (feeAmount * Constants.FEE_SHARE_LP_LOCK) / Constants.FEE_SHARE_DENOM / 3;
-    }
-
-    /// @dev Donates in the fee currency (whichever side the fee was charged on: quote for sells / exact-out buys,
-    ///      token for exact-in buys). Skipped if the pool has no in-range liquidity (v4 donate would revert).
-    function _donateToLPs(PoolKey calldata key, Currency feeCurrency, uint256 feeAmount)
-        internal
-        returns (uint256 donated)
-    {
-        donated = donationOf(feeAmount);
-        if (donated == 0 || poolManager.getLiquidity(key.toId()) == 0) return 0;
-        bool is0 = Currency.unwrap(feeCurrency) == Currency.unwrap(key.currency0);
-        poolManager.donate(key, is0 ? donated : 0, is0 ? 0 : donated, "");
     }
 
     function _emitTrade(
@@ -214,8 +223,9 @@ contract DiscipleHook is IHooks, ITradeEvents {
         address trader,
         BalanceDelta delta,
         address feeToken,
-        uint256 feeAmount
-    ) internal {
+        uint256 feeAmount,
+        uint256 qUsd
+    ) internal returns (uint256 mcap) {
         bool tokenIsC0 = Currency.unwrap(key.currency0) == m.token;
         int128 dToken = tokenIsC0 ? delta.amount0() : delta.amount1();
         int128 dQuote = tokenIsC0 ? delta.amount1() : delta.amount0();
@@ -235,7 +245,7 @@ contract DiscipleHook is IHooks, ITradeEvents {
         (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
         uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
-        uint256 mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), _quoteUsd(m), 1e18);
+        mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), qUsd, 1e18);
 
         emit Trade(
             m.token,
@@ -250,6 +260,17 @@ contract DiscipleHook is IHooks, ITradeEvents {
             impactBpsFromSqrt(sqrtBefore, sqrtAfter, tokenIsC0),
             mcap
         );
+    }
+
+    /// @dev Altitude = SPOT mcap after the trade (same value as Trade.mcapAfterUsd).
+    function _emitAltitude(PoolId id, address token, uint256 mcap) internal {
+        uint8 tier = Altitude.tierOf(mcap);
+        emit AltitudeUpdate(token, mcap, tier);
+        uint8 prev = altitudeTierOf[id];
+        if (tier != prev) {
+            altitudeTierOf[id] = tier;
+            emit TierBreak(token, prev, tier, mcap);
+        }
     }
 
     /// @notice quote raw * 1e18 / token raw from a v4 sqrtPriceX96.
@@ -291,12 +312,15 @@ contract DiscipleHook is IHooks, ITradeEvents {
         revert HookNotImplemented();
     }
 
-    function beforeAddLiquidity(address, PoolKey calldata, IPoolManager.ModifyLiquidityParams calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
-        revert HookNotImplemented();
+    /// @dev SEC-02: raw v4 adds are blocked; only LockedLP / TrampWallManager (which enforces a minimum hold).
+    function beforeAddLiquidity(
+        address sender,
+        PoolKey calldata,
+        IPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external view onlyPoolManager returns (bytes4) {
+        if (!isLiquidityManager[sender]) revert OnlyLiquidityManager();
+        return IHooks.beforeAddLiquidity.selector;
     }
 
     function afterAddLiquidity(

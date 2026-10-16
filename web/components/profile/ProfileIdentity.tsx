@@ -9,6 +9,7 @@ import {
   profileUrl, referralUrl, setLocalXHandle, validateUsername,
 } from "@/lib/profile";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+import { refLabel } from "@/lib/referral";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -106,10 +107,11 @@ export default function ProfileIdentity() {
         <div className="pid-block">
           <span className="pid-label">REFERRAL LINK</span>
           <div className="pid-value">
-            {username ? <>
-              <span className="mono tiny">{profileUrl(username)}</span>
-              <button type="button" className="ds-btn" onClick={() => copy("ref", referralUrl(username))}>{copied === "ref" ? "Copied" : "Copy link"}</button>
-            </> : <span className="muted">Set a username to get one</span>}
+            {username || addr ? <>
+              <span className="mono tiny">{refLabel(username || null, addr, typeof window !== "undefined" ? window.location.host : undefined)}</span>
+              <button type="button" className="ds-btn" onClick={() => copy("ref", referralUrl(username || null, addr))}>{copied === "ref" ? "Copied" : "Copy link"}</button>
+              {!username && <span className="muted tiny">Set a username for a shorter link</span>}
+            </> : <span className="muted">Sign in to get one</span>}
           </div>
         </div>
       </div>

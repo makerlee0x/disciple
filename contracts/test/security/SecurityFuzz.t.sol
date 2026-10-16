@@ -15,11 +15,15 @@ contract SecurityFuzzTest is IntegrationBase {
     address whale = makeAddr("whale");
 
     bytes32 constant TFR = keccak256("TradeFeeRouted(address,address,address,uint256,uint256,uint256,uint256,uint256)");
-    bytes32 constant DON = keccak256("LPDonation(address,address,uint256)");
 
     function setUp() public override {
         super.setUp();
+        // whale stress trades intentionally exceed the router default 50% impact cap
+        vm.prank(router.owner());
+        router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         twm = new TrampWallManager(manager, lockedLP, address(hook));
+        hook.setLiquidityManager(address(twm), true);
+        twm.setKeeperTipBps(0); // legacy owner-gets-all assertions; tip covered in test/security/JitTwap.t.sol
         (curve, tok) = _launch(0, 0);
         _graduate(curve);
         quote.mint(alice, 1_000_000 ether);
@@ -37,40 +41,36 @@ contract SecurityFuzzTest is IntegrationBase {
         }
     }
 
-    /// Hook fee: creator 33 / LP 33 (incl. 1/3 donated) / treasury 33 / referral-or-treasury 1, no value lost.
+    /// Hook fee: creator 33 / LP 33 (all to LockedLP, no donation) / treasury 33 / referral-or-treasury 1, no value lost.
     function testFuzz_hook_fee_split_33_33_33_1(uint256 amt, bool isBuy) public {
         vm.recordLogs();
         if (isBuy) {
-            amt = bound(amt, 1 ether, 50_000 ether);
+            amt = bound(amt, 1 ether, 5_000 ether); // <= router MAX_MAX_IMPACT_BPS (10x)
             vm.prank(whale);
-            router.buyExactIn(address(tok), amt, 0, whale, block.timestamp + 1);
+            router.buyExactIn(address(tok), amt, 1, whale, block.timestamp + 1);
         } else {
             amt = bound(amt, 1_000 ether, 50_000_000 ether);
             vm.prank(whale);
-            router.sellExactIn(address(tok), amt, 0, whale, block.timestamp + 1);
+            router.sellExactIn(address(tok), amt, 1, whale, block.timestamp + 1);
         }
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 cs;
         uint256 lps;
         uint256 ts;
         uint256 rs;
-        uint256 donated;
         bool seen;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == TFR) {
                 (cs, lps, ts, rs,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
                 seen = true;
-            } else if (logs[i].topics[0] == DON && logs[i].emitter == address(hook)) {
-                donated += abi.decode(logs[i].data, (uint256));
             }
         }
         assertTrue(seen, "fee routed");
-        uint256 fee = cs + lps + donated + ts + rs; // treasury absorbs the 1% when no referrer
+        uint256 fee = cs + lps + ts + rs; // treasury absorbs the 1% when no referrer
         assertEq(cs, (fee * 33) / 100, "creator 33%");
-        assertEq(lps + donated, (fee * 33) / 100, "LP 33% (donate + lock)");
-        assertApproxEqAbs(donated, (fee * 33) / 100 / 3, 1, "1/3 of LP share donated");
+        assertEq(lps, (fee * 33) / 100, "full LP 33% to LockedLP");
         assertEq(rs, 0, "no referrer -> 0");
-        assertEq(ts, fee - cs - lps - donated, "treasury 33% + 1% residual");
+        assertEq(ts, fee - cs - lps, "treasury 33% + 1% residual");
     }
 
     function _trampRange() internal view returns (int24 lo, int24 hi) {

@@ -1,9 +1,11 @@
 /**
  * Client profile identity: unique username (referral handle) + X/Twitter handle.
- * Username uniqueness is enforced by /api/profile/username (testnet: in-memory/file store).
+ * Username uniqueness is enforced by /api/profile/username (Upstash; claims are signed by the wallet).
  * Static preview (no API) falls back to browser-only storage and says so.
  */
 import { IS_STATIC_PREVIEW } from "./base-path";
+import { refLink } from "./referral";
+import { claimMessage } from "./usernameClaim";
 
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
@@ -27,9 +29,9 @@ export const rememberReferrer = (u: string) => { if (!get(K.ref)) set(K.ref, nor
 export const referrer = () => get(K.ref);
 
 export function profileUrl(username: string) { return `/u/${encodeURIComponent(normalizeUsername(username))}`; }
-export function referralUrl(username: string) {
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://disciple.vip";
-  return `${origin}${profileUrl(username)}?ref=1`;
+/** Ref link: /r/<username> (wallet fallback). Legacy /u/<name>?ref=1 links still record the referrer. */
+export function referralUrl(username: string | null, wallet?: string | null) {
+  return refLink(username ? normalizeUsername(username) : null, wallet);
 }
 
 export async function checkUsername(u: string): Promise<{ available: boolean; reason?: string }> {
@@ -49,9 +51,15 @@ export async function claimUsername(u: string, address: string | null): Promise<
   if (!address) return { ok: false, reason: "Sign in first — usernames are bound to your wallet." };
   if (!IS_STATIC_PREVIEW) {
     try {
+      const a = address.toLowerCase();
+      const nr = await fetch(`/api/profile/username?nonce=1&address=${a}`, { cache: "no-store" });
+      const { nonce } = (await nr.json()) as { nonce?: string };
+      if (!nonce) return { ok: false, reason: "Could not start the claim." };
+      const signed = await signClaim(n, a, nonce);
+      if (!signed) return { ok: false, reason: "Signature declined. Your wallet has to sign to claim a name." };
       const r = await fetch("/api/profile/username", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: n, address, previous: localUsername() || undefined }),
+        body: JSON.stringify({ username: n, address: a, nonce, ...signed }),
       });
       const j = await r.json();
       if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken." };
@@ -59,4 +67,22 @@ export async function claimUsername(u: string, address: string | null): Promise<
   }
   set(K.username, n);
   return { ok: true };
+}
+
+/** Sign the claim with the connected wallet: DISCIPLE smart account → owner signs keccak(msg) raw; else signMessage. */
+async function signClaim(username: string, address: string, nonce: string): Promise<{ signature: string; owner?: string } | null> {
+  const msg = claimMessage(username, address, nonce);
+  try {
+    const s = await import("./aa/session");
+    const smart = await s.aaAddress().catch(() => null);
+    if (smart && smart.toLowerCase() === address) {
+      const { keccak256, stringToBytes } = await import("viem");
+      const o = await s.aaOwnerSign(keccak256(stringToBytes(msg)));
+      return o ? { signature: o.sig, owner: o.owner } : null;
+    }
+    const w = await import("./wallet");
+    const signer = await w.getSigner();
+    if (signer.account.address.toLowerCase() !== address) return null;
+    return { signature: await signer.signMessage({ account: signer.account.address, message: msg }) };
+  } catch { return null; }
 }

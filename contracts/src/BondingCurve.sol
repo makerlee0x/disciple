@@ -12,6 +12,8 @@ import {IAntiSnipe} from "./interfaces/IAntiSnipe.sol";
 import {IMigration} from "./interfaces/IMigration.sol";
 import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
 import {SqrtPrice} from "./libraries/SqrtPrice.sol";
+import {Altitude} from "./libraries/Altitude.sol";
+import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -33,7 +35,9 @@ interface ILaunchpadPricer {
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
 /// @notice Start mcap $7K → Pearly Gates $33K at exactly 72% supply sold; 7% wallet cap.
 /// @dev Single constant-product virtual reserves; quotePriceUsd scales USD targets into quote units.
-contract BondingCurve is IBondingCurve, ITradeEvents {
+/// @dev Altitude: after each Trade the SPOT mcap (Trade.mcapAfterUsd) is streamed as AltitudeUpdate, plus
+///      TierBreak when the spot tier changes.
+contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     using SafeERC20 for IERC20;
 
     address public immutable override token;
@@ -46,6 +50,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
 
     uint256 public immutable creatorTaxBps; // immutable at launch (§3 / #12)
     uint256 public immutable quotePriceUsd; // USD WAD per 1e18 raw quote units (from QuotePricer at launch)
+    /// @notice Per-wallet curve holding cap in bps of supply, snapshotted from Launchpad at launch (0 = no cap).
+    uint256 public immutable walletCapBps;
 
     CurveMath.Params private _params;
 
@@ -54,6 +60,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
     bool public override graduated;
 
     mapping(address => uint256) public balanceOnCurve; // for wallet cap tracking
+
+    /// @notice Last spot altitude tier (0..17).
+    uint8 public altitudeTier;
 
     error Graduated();
     error NotGraduated();
@@ -95,8 +104,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         address antiSnipe_,
         address migration_,
         uint256 creatorTaxBps_,
-        uint256 quotePriceUsd_
+        uint256 quotePriceUsd_,
+        uint256 walletCapBps_
     ) {
+        require(walletCapBps_ <= Constants.BPS_DENOM, "cap");
         require(creatorTaxBps_ <= Constants.CREATOR_TAX_MAX_BPS, "tax");
         token = token_;
         quote = quote_;
@@ -107,6 +118,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         migration = IMigration(migration_);
         creatorTaxBps = creatorTaxBps_;
         quotePriceUsd = quotePriceUsd_;
+        walletCapBps = walletCapBps_;
 
         _params = CurveMath.makeParams(quotePriceUsd_);
     }
@@ -281,9 +293,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
         if (tokensOut < minTokensOut) revert Slippage();
         if (tokensOut == 0) revert ZeroAmount();
 
-        // 7% wallet cap on curve only (§2 / #8)
+        // Per-wallet curve holding cap, snapshotted from Launchpad.walletCapBps at launch (0 = no cap).
         uint256 newBal = balanceOnCurve[recipient] + tokensOut;
-        if (newBal > FeeMath.walletCap()) revert WalletCap();
+        if (walletCapBps != 0 && newBal > FeeMath.walletCap(walletCapBps)) revert WalletCap();
         balanceOnCurve[recipient] = newBal;
 
         tokensSold += tokensOut;
@@ -315,6 +327,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
             q.impactBps,
             q.mcapAfterUsd
         );
+        _emitAltitude(q.mcapAfterUsd);
 
         if (q.graduates) _graduate();
     }
@@ -397,6 +410,19 @@ contract BondingCurve is IBondingCurve, ITradeEvents {
             q.impactBps,
             q.mcapAfterUsd
         );
+        _emitAltitude(q.mcapAfterUsd);
+    }
+
+    // ── altitude (spot) ──
+
+    function _emitAltitude(uint256 mcap) internal {
+        uint8 tier = Altitude.tierOf(mcap);
+        emit AltitudeUpdate(token, mcap, tier);
+        uint8 prev = altitudeTier;
+        if (tier != prev) {
+            altitudeTier = tier;
+            emit TierBreak(token, prev, tier, mcap);
+        }
     }
 
     /// @dev Atomic same-tx migrate to locked v4 at curve-end price — no pause/gap (§2 / LOCKED #5).

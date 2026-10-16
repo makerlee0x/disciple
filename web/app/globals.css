@@ -1189,3 +1189,26 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
   .lp-trend-row { grid-auto-columns: 132px; }
   .lp-tart .branded, .lp-tart > span:last-child { transform: scale(.8); }
 }
+
+/* ---- Share this trade (components/share/ShareModal) ---- */
+.share-btn { font-size: 11px; padding: 3px 8px; white-space: nowrap; }
+.share-modal-bg { position: fixed; inset: 0; z-index: 80; background: rgba(4, 5, 10, 0.78); display: grid; place-items: center; padding: 16px; }
+.share-modal { width: min(860px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: #0d0e14; border: 1px solid rgba(255, 231, 163, 0.35); border-radius: 14px; padding: 16px 18px; }
+.share-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.share-modal-head h3 { margin: 0; font-weight: 800; letter-spacing: 0.02em; }
+.share-modal-body { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.share-card-frame { position: relative; width: 300px; aspect-ratio: 9 / 16; background: #0a0a0a; border: 1px solid rgba(244, 241, 232, 0.2); border-radius: 8px; overflow: hidden; flex: none; }
+.share-card-frame img, .share-card-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.share-card-loading { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0.6; }
+.share-side { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 8px; }
+.share-side .ds-btn { display: block; box-sizing: border-box; width: 100%; }
+.share-primary { background: rgba(57, 255, 106, 0.14) !important; border-color: rgba(57, 255, 106, 0.6) !important; }
+.share-stats .big { font-size: 28px; font-weight: 900; }
+.share-stats .pos { color: #39ff6a; } .share-stats .neg { color: #ff3b3b; }
+.share-link { opacity: 0.7; word-break: break-all; }
+.share-flash { color: #ffe7a3; }
+@media (max-width: 640px) { .share-card-frame { width: 100%; } }
+.share-video-btn { background: rgba(255, 231, 163, 0.16) !important; }
+.share-progress { position: relative; height: 26px; border: 1px solid rgba(255, 231, 163, 0.4); border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.04); }
+.share-progress-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(57, 255, 106, 0.35), rgba(57, 255, 106, 0.7)); transition: width 0.15s linear; }
+.share-progress span { position: relative; display: block; text-align: center; font: 600 11px ui-monospace, monospace; line-height: 24px; color: #fff7df; }

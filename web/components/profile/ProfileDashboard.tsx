@@ -13,6 +13,8 @@ import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import SettingsModal from "./SettingsModal";
+import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
+import { onWallet } from "@/lib/wallet";
 
 function fmtKpi(v: number, format: string) {
   if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
@@ -49,6 +51,17 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [me, setMe] = useState("");
   useEffect(() => { if (isPrivate) setMe(localUsername()); }, [isPrivate]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [share, setShare] = useState<ShareTarget | null>(null);
+  const [wallet, setWallet] = useState<string | null>(null);
+  // Private: the signed-in wallet. Public: reverse lookup username → wallet.
+  useEffect(() => {
+    if (isPrivate) return onWallet((a) => setWallet(a ? a.toLowerCase() : null));
+    if (!username) return;
+    let alive = true;
+    fetch(`/api/profile/username?resolve=${encodeURIComponent(username)}`).then((r) => r.json())
+      .then((j: { address?: string | null }) => { if (alive) setWallet(j.address ?? null); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isPrivate, username]);
   const [pnlRange, setPnlRange] = useState<RangeKey>("30d");
   const [volRange, setVolRange] = useState<RangeKey>("30d");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "pnl", dir: "desc" });
@@ -98,6 +111,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}>⚙ Settings</button>
         )}
       </header>
+      {share && <ShareModal target={share} onClose={() => setShare(null)} />}
       {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
       <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
@@ -150,6 +164,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
                 <th key={k}><button type="button" onClick={() => toggleSort(k)}>{label}{sort.key === k ? (sort.dir === "asc" ? " ^" : " v") : ""}</button></th>
               ))}
               <th>Badges</th>
+              <th aria-label="Share" />
             </tr></thead>
             <tbody>
               {rockets.map((r) => (
@@ -162,6 +177,13 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
                   <td>{fmtKpi(r.avgHoldHours, "hours")}</td>
                   <td>{r.bombs}</td>
                   <td><div className="row-badges">{r.badges.map((b) => <span key={b} className="id-tag">{b}</span>)}</div></td>
+                  <td>
+                    {/* Rows are still sample data; the modal checks the wallet's indexed fills and stamps SAMPLE when there are none. */}
+                    <button type="button" className="ds-btn share-btn" aria-label={`Share this ${r.ticker} trade`}
+                      onClick={() => setShare({ coin: r.token, ticker: r.ticker, wallet, username: (isPrivate ? me : username) || null })}>
+                      Share this trade
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

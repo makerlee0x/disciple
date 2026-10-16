@@ -1,5 +1,6 @@
 "use client";
 
+import TouchGrass, { TouchGrassPill } from "./flight/TouchGrass";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -244,9 +245,11 @@ export default function FlightCanvas({ search }: Props) {
       >
         ✕
       </Link>
+      <TouchGrass />
       {chatCoin && <GameChat coin={chatCoin} />}
       <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
         <ControlsPill simulator={isSimulator} />
+        <TouchGrassPill />
         <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
           ORBS ON · O
         </button>

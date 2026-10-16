@@ -78,7 +78,9 @@ library Constants {
     uint256 internal constant TIER_SEVENTH_HEAVEN_USD = TIER_SEVENTH_HEAVEN_HI_USD;
 
     // ── Wallet cap on curve only (§2 / LOCKED #8) ────────────────────────────
-    uint256 internal constant WALLET_CAP_BPS = 700; // 7% of total supply; no exemptions
+    /// @dev Legacy 7% reference value (v1–v3 curves). The live cap is Launchpad.walletCapBps (default 0 = no cap).
+    uint256 internal constant WALLET_CAP_BPS = 700;
+    uint256 internal constant WALLET_CAP_BPS_DEFAULT = 0;
 
     // ── Anti-snipe (§2 / LOCKED #9) ───────────────────────────────────────────
     uint256 internal constant ANTI_SNIPE_START_BPS = 7770; // 77.7%

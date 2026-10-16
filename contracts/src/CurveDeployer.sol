@@ -15,11 +15,21 @@ contract CurveDeployer {
         address antiSnipe,
         address migration,
         uint256 creatorTaxBps,
-        uint256 quotePriceUsd
+        uint256 quotePriceUsd,
+        uint256 walletCapBps
     ) external returns (address) {
         return address(
             new BondingCurve(
-                token, quote, creator, msg.sender, feeRouter, antiSnipe, migration, creatorTaxBps, quotePriceUsd
+                token,
+                quote,
+                creator,
+                msg.sender,
+                feeRouter,
+                antiSnipe,
+                migration,
+                creatorTaxBps,
+                quotePriceUsd,
+                walletCapBps
             )
         );
     }

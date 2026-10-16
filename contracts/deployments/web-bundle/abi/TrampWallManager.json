@@ -22,6 +22,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_KEEPER_TIP_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "cancel",
     "inputs": [
       {
@@ -38,30 +51,6 @@
       },
       {
         "name": "tokenOut",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "claimFees",
-    "inputs": [
-      {
-        "name": "id",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "quoteFees",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "tokenFees",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -102,6 +91,19 @@
   },
   {
     "type": "function",
+    "name": "keeperTipBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lockedLP",
     "inputs": [],
     "outputs": [
@@ -128,24 +130,13 @@
   },
   {
     "type": "function",
-    "name": "pendingFees",
-    "inputs": [
-      {
-        "name": "id",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "name": "owner",
+    "inputs": [],
     "outputs": [
       {
-        "name": "quoteFees",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "tokenFees",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -435,6 +426,32 @@
   },
   {
     "type": "function",
+    "name": "setKeeperTipBps",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "o",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "unlockCallback",
     "inputs": [
       {
@@ -515,43 +532,6 @@
   },
   {
     "type": "event",
-    "name": "FeesClaimed",
-    "inputs": [
-      {
-        "name": "id",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "owner",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "quoteFees",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "tokenFees",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "Filled",
     "inputs": [
       {
@@ -600,6 +580,63 @@
         "name": "keeper",
         "type": "address",
         "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "KeeperTipPaid",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "keeper",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "quoteTip",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokenTip",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "KeeperTipSet",
+    "inputs": [
+      {
+        "name": "keeperTipBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnerTransferred",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
         "internalType": "address"
       }
     ],
@@ -705,6 +742,11 @@
   },
   {
     "type": "error",
+    "name": "BadParam",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadRange",
     "inputs": []
   },
@@ -747,6 +789,11 @@
   {
     "type": "error",
     "name": "NotSingleSided",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyOwner",
     "inputs": []
   },
   {
