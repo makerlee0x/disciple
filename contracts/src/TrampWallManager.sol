@@ -9,8 +9,6 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
-import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
-import {FixedPoint128} from "@uniswap/v4-core/src/libraries/FixedPoint128.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
@@ -21,9 +19,16 @@ import {LockedLP} from "./LockedLP.sol";
 ///         Tramp = quote-only range strictly BELOW the current price (support: buys the dip, converts quote→token).
 ///         Wall  = token-only range strictly ABOVE the current price (resistance: sells into pumps, token→quote).
 ///         Positions are owned by this contract in the PoolManager (salt = id) and tracked per user here.
-///         In-range positions earn the DiscipleHook donation (1/3 of the 33% LP share of the 1% fee).
-/// @dev Pool LP fee is 0, so fees come only from hook donations. No custody beyond the v4 position itself;
-///      only the position owner can cancel/claim; `pull` is permissionless but always pays the owner.
+///         Pure limit orders: NO yield. The pool LP fee is 0 and the hook donates nothing, so positions earn
+///         only their fill (the range price).
+/// @dev No custody beyond the v4 position itself; only the owner can cancel (any time); `pull` is
+///      permissionless once filled (immediately) and pays the owner minus the keeper tip.
+///      Positions are strictly one-sided and behave like limit orders: a tramp (quote below price) is a floor that
+///      buys the dip; a wall (token above price) sells into pumps. Once price has crossed the whole range the
+///      order is filled and anyone may `pull` it: the owner gets the proceeds minus a small keeper tip
+///      (`keeperTipBps`, default 10 = 0.1%, owner-settable up to MAX_KEEPER_TIP_BPS = 1%) paid to the caller,
+///      so bots auto-close filled orders.
+///      The hook only accepts LP adds from LockedLP and this contract (SEC-02 LP gate).
 contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -52,6 +57,11 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     mapping(uint256 => Position) public positions;
     mapping(address => uint256[]) internal _idsOf;
 
+    address public owner;
+    /// @notice Keeper tip on `pull`, bps of everything paid out . Default 0.1%.
+    uint16 public keeperTipBps = 10;
+    uint16 public constant MAX_KEEPER_TIP_BPS = 100;
+
     error OnlyPoolManager();
     error NotGraduated();
     error Expired();
@@ -62,6 +72,8 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
     error Inactive();
     error NotFilled();
     error ZeroAmount();
+    error OnlyOwner();
+    error BadParam();
 
     event TrampPlaced(
         uint256 indexed id,
@@ -81,7 +93,7 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         uint128 liquidity,
         uint256 tokenAmt
     );
-    /// @notice Range fully crossed and removed via `pull`. Amounts include fees.
+    /// @notice Range fully crossed and removed via `pull`. Amounts are the owner's net (after keeper tip).
     event Filled(
         uint256 indexed id,
         address indexed owner,
@@ -92,7 +104,7 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         uint256 tokenOut,
         address keeper
     );
-    /// @notice Owner removed the position. Amounts include fees (also reported separately).
+    /// @notice Owner removed the position. quoteFees/tokenFees are always 0 (kept for ABI stability).
     event Cancelled(
         uint256 indexed id,
         address indexed owner,
@@ -104,14 +116,14 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         uint256 quoteFees,
         uint256 tokenFees
     );
-    event FeesClaimed(
-        uint256 indexed id, address indexed owner, address indexed token, uint256 quoteFees, uint256 tokenFees
-    );
+    event KeeperTipSet(uint16 keeperTipBps);
+    event OwnerTransferred(address indexed owner);
+    /// @notice Tip paid to the `pull` caller (amounts are NOT included in Filled.quoteOut/tokenOut).
+    event KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip);
 
     enum Op {
         Add,
-        Remove,
-        Poke
+        Remove
     }
 
     struct CallbackData {
@@ -122,13 +134,29 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         int256 liquidityDelta;
         bytes32 salt;
         address payer; // Add
-        address recipient; // Remove / Poke
+        address recipient; // Remove
+        uint256 tipBps; // Remove via pull: share of the payout sent to `keeper`
+        address keeper;
     }
 
     constructor(IPoolManager poolManager_, LockedLP lockedLP_, address hook_) {
         poolManager = poolManager_;
         lockedLP = lockedLP_;
         hook = hook_;
+        owner = msg.sender;
+    }
+
+    function setKeeperTipBps(uint16 bps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (bps > MAX_KEEPER_TIP_BPS) revert BadParam();
+        keeperTipBps = bps;
+        emit KeeperTipSet(bps);
+    }
+
+    function transferOwnership(address o) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        owner = o;
+        emit OwnerTransferred(o);
     }
 
     // ───────────────────────────── views ─────────────────────────────
@@ -152,24 +180,6 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
 
     function positionsOf(address owner) external view returns (uint256[] memory) {
         return _idsOf[owner];
-    }
-
-    /// @notice Unclaimed donation fees of a position, in (quote, token).
-    function pendingFees(uint256 id) public view returns (uint256 quoteFees, uint256 tokenFees) {
-        Position memory p = positions[id];
-        if (!p.active) return (0, 0);
-        PoolKey memory key = poolKeyOf(p.token);
-        PoolId pid = key.toId();
-        (uint128 liq, uint256 last0, uint256 last1) =
-            poolManager.getPositionInfo(pid, address(this), p.tickLower, p.tickUpper, bytes32(id));
-        (uint256 g0, uint256 g1) = poolManager.getFeeGrowthInside(pid, p.tickLower, p.tickUpper);
-        uint256 f0;
-        uint256 f1;
-        unchecked {
-            f0 = FullMath.mulDiv(g0 - last0, liq, FixedPoint128.Q128);
-            f1 = FullMath.mulDiv(g1 - last1, liq, FixedPoint128.Q128);
-        }
-        (quoteFees, tokenFees) = Currency.unwrap(key.currency0) == p.token ? (f1, f0) : (f0, f1);
     }
 
     /// @notice True when the price has moved fully through the range (position is now 100% the other asset).
@@ -266,49 +276,46 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
                     liquidityDelta: int256(uint256(liquidity)),
                     salt: bytes32(id),
                     payer: msg.sender,
-                    recipient: address(0)
+                    recipient: address(0),
+                    tipBps: 0,
+                    keeper: address(0)
                 })
             )
         );
     }
 
-    // ───────────────────────────── remove / fees ─────────────────────────────
+    // ───────────────────────────── remove ─────────────────────────────
 
-    /// @notice Owner removes the position; receives remaining principal (either/both assets) + accrued fees.
+    /// @notice Owner removes the position at any time; receives remaining principal (either/both assets).
     function cancel(uint256 id) external nonReentrant returns (uint256 quoteOut, uint256 tokenOut) {
         Position memory p = positions[id];
         if (!p.active) revert Inactive();
         if (p.owner != msg.sender) revert NotOwner();
-        (uint256 qf, uint256 tf) = pendingFees(id);
-        (quoteOut, tokenOut) = _remove(id, p);
-        emit Cancelled(id, p.owner, p.token, p.tickLower, p.tickUpper, quoteOut, tokenOut, qf, tf);
+        (quoteOut, tokenOut) = _remove(id, p, 0, address(0));
+        // quoteFees/tokenFees kept for ABI stability; always 0 (no LP yield)
+        emit Cancelled(id, p.owner, p.token, p.tickLower, p.tickUpper, quoteOut, tokenOut, 0, 0);
     }
 
-    /// @notice Permissionless keeper: remove a fully-crossed range and send everything to its owner. No tip (v0).
+    /// @notice Permissionless keeper: close a fully-crossed (filled) order. Owner receives the proceeds minus
+    ///         `keeperTipBps`; the caller receives the tip. Returns the owner's amounts.
     function pull(uint256 id) external nonReentrant returns (uint256 quoteOut, uint256 tokenOut) {
         Position memory p = positions[id];
         if (!p.active) revert Inactive();
         if (!isFilled(id)) revert NotFilled();
-        (quoteOut, tokenOut) = _remove(id, p);
+        (quoteOut, tokenOut) = _remove(id, p, keeperTipBps, msg.sender);
         emit Filled(id, p.owner, p.token, p.tickLower, p.tickUpper, quoteOut, tokenOut, msg.sender);
     }
 
-    /// @notice Owner collects accrued donation fees without touching principal.
-    function claimFees(uint256 id) external nonReentrant returns (uint256 quoteFees, uint256 tokenFees) {
-        Position memory p = positions[id];
-        if (!p.active) revert Inactive();
-        if (p.owner != msg.sender) revert NotOwner();
-        (quoteFees, tokenFees) = _modify(id, p, Op.Poke, 0);
-        emit FeesClaimed(id, p.owner, p.token, quoteFees, tokenFees);
-    }
-
-    function _remove(uint256 id, Position memory p) internal returns (uint256 quoteOut, uint256 tokenOut) {
+    function _remove(uint256 id, Position memory p, uint256 tipBps, address keeper)
+        internal
+        returns (uint256 quoteOut, uint256 tokenOut)
+    {
         positions[id].active = false; // effects before interaction
         positions[id].liquidity = 0;
-        (quoteOut, tokenOut) = _modify(id, p, Op.Remove, -int256(uint256(p.liquidity)));
+        (quoteOut, tokenOut) = _modify(id, p, Op.Remove, -int256(uint256(p.liquidity)), tipBps, keeper);
     }
 
-    function _modify(uint256 id, Position memory p, Op op, int256 liqDelta)
+    function _modify(uint256 id, Position memory p, Op op, int256 liqDelta, uint256 tipBps, address keeper)
         internal
         returns (uint256 quoteOut, uint256 tokenOut)
     {
@@ -323,12 +330,19 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
                     liquidityDelta: liqDelta,
                     salt: bytes32(id),
                     payer: address(0),
-                    recipient: p.owner
+                    recipient: p.owner,
+                    tipBps: tipBps,
+                    keeper: keeper
                 })
             )
         );
-        (uint256 a0, uint256 a1) = abi.decode(res, (uint256, uint256));
-        (quoteOut, tokenOut) = Currency.unwrap(key.currency0) == p.token ? (a1, a0) : (a0, a1);
+        (uint256 a0, uint256 a1, uint256 f0, uint256 f1) = abi.decode(res, (uint256, uint256, uint256, uint256));
+        bool tIs0 = Currency.unwrap(key.currency0) == p.token;
+        (quoteOut, tokenOut) = tIs0 ? (a1, a0) : (a0, a1);
+        if (f0 | f1 != 0) {
+            (uint256 tq, uint256 tt) = tIs0 ? (f1, f0) : (f0, f1);
+            emit KeeperTipPaid(id, keeper, tq, tt);
+        }
     }
 
     function unlockCallback(bytes calldata raw) external returns (bytes memory) {
@@ -350,8 +364,19 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         }
         uint256 a0 = d0 > 0 ? uint256(uint128(d0)) : 0;
         uint256 a1 = d1 > 0 ? uint256(uint128(d1)) : 0;
+        // Keeper tip on pull (bps of each asset paid out).
+        uint256 f0;
+        uint256 f1;
+        if (d.tipBps > 0 && d.keeper != address(0)) {
+            f0 = a0 * d.tipBps / 10_000;
+            f1 = a1 * d.tipBps / 10_000;
+            a0 -= f0;
+            a1 -= f1;
+            if (f0 > 0) d.key.currency0.take(poolManager, d.keeper, f0, false);
+            if (f1 > 0) d.key.currency1.take(poolManager, d.keeper, f1, false);
+        }
         if (a0 > 0) d.key.currency0.take(poolManager, d.recipient, a0, false);
         if (a1 > 0) d.key.currency1.take(poolManager, d.recipient, a1, false);
-        return abi.encode(a0, a1);
+        return abi.encode(a0, a1, f0, f1);
     }
 }

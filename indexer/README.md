@@ -8,13 +8,14 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 ## What it indexes
 | Source | Events |
 |---|---|
-| Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred` |
-| BondingCurve (each coin) | `Trade`, `GraduatedToV4` |
-| DiscipleHook | `Trade` (post-grad), `LPDonation` |
+| Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext` |
+| BondingCurve (each coin) | `Trade`, `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44) |
+| DiscipleHook | `Trade` (post-grad), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
 | Migration | `Migrated` |
-| TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `FeesClaimed` |
-| FeeRouter | `TradeFeeRouted`, `CreatorFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
-| AnonLauncher | `AnonLaunched`, `Claimed`, `StealthOwnerTransferred` |
+| TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `KeeperTipPaid` (PR #44), `FeesClaimed` (≤v3 only) |
+| FeeRouter | `TradeFeeRouted`, `CreatorFeesClaimed`, `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
+| AnonLauncher | `AnonLaunched`, `Claimed`, `StealthOwnerTransferred`, `LaunchFeePaid` |
+| ReferralRegistry | `ReferrerPending`, `ReferrerAttributed` (sticky), `UsdgDepositRecorded` |
 | RewardsVault | `RewardAccrued`, `Distributed` |
 | Token (each coin) | `Transfer` (holder balances) |
 
@@ -33,6 +34,16 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/users/:addr/orders` · `/users/:addr/trades` · `/users/:addr/coins` | per-user data |
 | `/users/:addr/counters` | `trampsPlaced/wallsPlaced/trampsFilled/wallsFilled/bigTrampsFilled` (tramp ≥ **$1K** at placement), trades, volumeUsd, coinsLaunched |
 | `/rewards` | anti-snipe routing + RewardsVault totals |
+| `/coins/:token/holders?limit=` | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
+| `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
+| `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax shares, snipe 70/30, claims (wei + USD) |
+| `/tier-breaks?limit=` | global tier-break feed (GAME) |
+| `/orders?status=&kind=&token=&owner=&stack=` | tramp/wall orders incl. keeper + keeper tip |
+| `/leaderboard/:board?by=&since=&limit=` | `traders` (by volumeUsd\|trades), `creators`, `coins` (by volume\|mcap\|tier\|new), `tramps`, `keepers`, `referrers` |
+| `/users/:addr` | profile: counters, holdings, launched coins, anon (stealth-owned) coins, referrals, keeper tips |
+| `/users/:addr/holdings` · `/users/:addr/referrals` | per-user holdings (with last price) / referred-by, referred wallets, referrer claims, USDG deposits |
+
+A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy into `/web` when wanted; this PR doesn't touch `/web`).
 
 **Live market (`live`):**
 - After graduation, the price comes from v4 `StateView.getSlot0(poolId)` × the live `QuotePricer`. The fallback order is launch quote price, then `MarketLens.market`. `curveMcapNowUsd` is also returned so the old curve bug stays visible.
@@ -55,7 +66,14 @@ curl localhost:4200/coins/0xfa86b94d37cba24910bd68426c5c0ace683d6628   # TRMP
 
 | Env var | Default |
 |---|---|
-| `RPC_URL` | public RH testnet RPC |
+| `RPC_URL` | public RH testnet RPC (set via env / `.env`; never commit keys) |
+| `STACK_ID` | id for the newest stack in the json (needed for `web-bundle/addresses.json`, which has no `id`) |
+| `STACKS` | comma list to restrict stacks, e.g. `v3` |
+| `START_BLOCK` | override the newest stack's start block |
+| `CONFIRMATIONS` | `2` — index up to head − N |
+| `REORG_DEPTH` | `64` — block hashes retained for reorg checks |
+| `RPC_RPS` | `20` — token-bucket limit on RPC calls |
+| `MIN_LOG_CHUNK` | `500` — floor for adaptive getLogs range splitting |
 | `DB_PATH` | `./disciple-indexer.sqlite` |
 | `PORT` | `4200` |
 | `POLL_MS` | `4000` |
@@ -64,11 +82,44 @@ curl localhost:4200/coins/0xfa86b94d37cba24910bd68426c5c0ace683d6628   # TRMP
 | `EXTRA_DEPLOYMENT` | (new stack json) |
 | `V1_FROM_BLOCK` | `136090000` |
 
+## Config: current v3 stack and the PR #44 redeploy
+Addresses and start blocks come from JSON only — no addresses in code.
+```bash
+# v3 only, straight from the web bundle (start block 136187963)
+DEPLOYMENT_JSON=../contracts/deployments/web-bundle/addresses.json STACK_ID=v3 npm start
+# after the PR #44 redeploy: either regenerate the web bundle and point at it with STACK_ID=v4,
+# or keep the chain json and add the new stack:
+EXTRA_DEPLOYMENT=../contracts/deployments/<new>.json EXTRA_STACK_ID=v4 npm start
+```
+Old stacks never emit the new events, so a single union ABI decodes every stack. Each event is only accepted from the expected emitter of its stack (or a curve/token discovered through that stack's Launchpad).
+
+## Reliability
+- **Atomic chunks.** Each `LOG_CHUNK` range does core-contract logs → decode any `Launched` in that batch → curve/token logs for known and new coins → one merged, (block, logIndex)-ordered SQLite transaction that also advances the cursor. A crash never half-applies a chunk, so balances are never double-counted.
+- **Reorgs.** The indexer stays `CONFIRMATIONS` behind head and stores the hash of each cursor block. On every pass it re-reads the cursor block. If the hash changed, that stack's derived rows are wiped and replayed from its start block. That takes ~15 s for v3 today; the RH testnet is an Arbitrum Orbit chain, so reorgs past the confirmation lag are very rare. Upgrade path for mainnet scale: per-block undo logs or Ponder.
+- **RPC limits.** A token-bucket limiter (`RPC_RPS`) covers all calls. Retries use exponential backoff with jitter, and 429s back off 4× longer. When a provider rejects a range ("block range"/"too many results"), getLogs splits it in half recursively down to `MIN_LOG_CHUNK`. Block timestamps are fetched 10 at a time and cached.
+
+## Tests
+`npm test` runs 19 vitest cases on synthetic logs:
+- spoofed emitters
+- trades and candles
+- counters
+- PR #44 altitude, tier breaks, keeper tips, sticky referrals, fee-routing shares, leaderboards and profile
+- adaptive getLogs splitting, 429 retry, the rate limiter
+- coins launched mid-chunk, idempotent re-sync, and reorg detection and rebuild against a fake chain
+- loading the web-bundle config
+
 ## Docker
 ```bash
 docker build -f indexer/Dockerfile -t disciple-indexer .    # from the repo root
 docker run -p 4200:4200 -v disciple-data:/data disciple-indexer
 ```
+
+## Verified against testnet (2026-10-16, branch flow/indexer-v4)
+- **v3 only** (`web-bundle/addresses.json`, from 136187963): a cold backfill to head 136724193 took **14 s**. It indexed 1 coin (SMK `0xcac8…6bb3`, graduated) with 63 trades, 66 fee events and 27 balances.
+  - `/coins/:t/fee-routing`: creator 30,277.9 / LP 25,380.2 / treasury 31,195.5 STRATEGY (≈ $74 / $62 / $76), referral 0
+  - Snipe fees: 3.108 to rewards and 1.332 to treasury (70/30). RewardsVault `RewardAccrued` = 3.108.
+  - The v3 contracts predate PR #44, so `altitude.tier` is null. `LaunchTierContext` is populated (start $7K, graduation $33K).
+- **All stacks** (v1+v2+v3 via `rh-testnet-46630.json`): backfill took 34 s. Totals: 11 coins, 122 trades, 2 orders, 133 fee events, 91 balances.
 
 ## Verified against testnet (2026-10-15)
 - 10 coins and 60 trades across v1 and v2.

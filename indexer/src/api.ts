@@ -80,8 +80,8 @@ export class Api {
     const st = this.stackOf(coin.stack);
     const v = this.db.prepare("SELECT COALESCE(SUM(volume_usd),0) v, COUNT(*) n FROM trades WHERE token=?").get(coin.token) as any;
     const v24 = this.db.prepare("SELECT COALESCE(SUM(volume_usd),0) v FROM trades WHERE token=? AND ts>=?").get(coin.token, now - 86400) as any;
-    const exclude = [coin.curve, POOL_MANAGER, st?.migration, st?.anonLauncher, st?.hook, st?.trampWallManager]
-      .filter(Boolean).map((x) => String(x).toLowerCase());
+    void st;
+    const exclude = this.excluded(coin);
     const holders = (this.db.prepare(`SELECT holder FROM balances WHERE token=? AND bal != '0' AND bal NOT LIKE '-%'`).all(coin.token) as any[])
       .filter((h) => !exclude.includes(h.holder)).length;
     return { volumeUsd: v.v, volume24hUsd: v24.v, trades: v.n, ageSec: now - coin.launched_at, holders };
@@ -121,7 +121,7 @@ export class Api {
     if (q.get("stack")) { where.push("c.stack=?"); args.push(q.get("stack")); }
     if (q.get("graduated")) { where.push("c.graduated=?"); args.push(q.get("graduated") === "true" ? 1 : 0); }
     if (q.get("creator")) { where.push("c.creator=?"); args.push(q.get("creator")!.toLowerCase()); }
-    const order = sort === "volume" ? "volume_usd DESC" : sort === "mcap" ? "last_mcap DESC" : "c.launched_block DESC";
+    const order = sort === "volume" ? "volume_usd DESC" : sort === "mcap" ? "last_mcap DESC" : sort === "tier" ? "COALESCE(c.tier,-1) DESC, last_mcap DESC" : "c.launched_block DESC";
     return this.db.prepare(
       `SELECT c.*, COALESCE(SUM(t.volume_usd),0) volume_usd, COUNT(t.id) trades,
         (SELECT CAST(mcap_usd AS REAL)/1e18 FROM trades x WHERE x.token=c.token ORDER BY x.ts DESC, x.block DESC LIMIT 1) last_mcap
@@ -168,14 +168,135 @@ export class Api {
 
   rewards() {
     return this.db.prepare(
-      `SELECT stack, quote asset, kind, COUNT(*) n, SUM(CAST(b AS REAL))/1e18 sum_b, SUM(CAST(c AS REAL))/1e18 sum_c FROM fee_events
+      `SELECT stack, quote asset, kind, COUNT(*) n, SUM(CAST(a AS REAL))/1e18 sum_a, SUM(CAST(b AS REAL))/1e18 sum_b FROM fee_events
        WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed') GROUP BY stack, quote, kind`,
     ).all();
   }
 
+  holders(token: string, q: URLSearchParams) {
+    const c = this.coin(token);
+    if (!c) return null;
+    const limit = Math.min(Number(q.get("limit") ?? 100), 1000);
+    const ex = this.excluded(c);
+    const rows = (this.db.prepare(`SELECT holder, bal FROM balances WHERE token=? AND bal != '0' AND bal NOT LIKE '-%'`).all(c.token) as any[])
+      .map((r) => ({ holder: r.holder, balance: r.bal, protocol: ex.includes(r.holder) }))
+      .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : BigInt(b.balance) < BigInt(a.balance) ? -1 : 0));
+    const supply = BigInt(c.total_supply ?? "1000000000000000000000000000");
+    return rows.slice(0, limit).map((r) => ({ ...r, pct: Number((BigInt(r.balance) * 1_000_000n) / supply) / 10_000 }));
+  }
+
+  excluded(coin: any) {
+    const st = this.stackOf(coin.stack);
+    return [coin.curve, POOL_MANAGER, st?.migration, st?.anonLauncher, st?.hook, st?.trampWallManager].filter(Boolean).map((x) => String(x).toLowerCase());
+  }
+
+  altitude(token: string) {
+    const c = this.coin(token);
+    if (!c) return null;
+    const breaks = this.db.prepare("SELECT from_tier fromTier, to_tier toTier, CAST(mcap_usd AS REAL)/1e18 mcapUsd, source, block, ts, tx FROM tier_breaks WHERE token=? ORDER BY block, id").all(c.token);
+    return {
+      token: c.token, tier: c.tier, mcapUsd: c.altitude_mcap_usd ? wad(BigInt(c.altitude_mcap_usd)) : null, block: c.altitude_block,
+      context: c.start_mcap_usd ? { startMcapUsd: wad(BigInt(c.start_mcap_usd)), graduationMcapUsd: wad(BigInt(c.graduation_mcap_usd)), totalSupply: c.total_supply, decimals: c.decimals } : null,
+      breaks,
+    };
+  }
+
+  tierBreaks(q: URLSearchParams) {
+    const limit = Math.min(Number(q.get("limit") ?? 50), 500);
+    return this.db.prepare(`SELECT b.token, c.ticker, b.from_tier fromTier, b.to_tier toTier, CAST(b.mcap_usd AS REAL)/1e18 mcapUsd, b.source, b.block, b.ts, b.tx
+      FROM tier_breaks b JOIN coins c ON c.token=b.token ORDER BY b.block DESC, b.id DESC LIMIT ?`).all(limit);
+  }
+
+  /** Sum of FeeRouter.TradeFeeRouted shares per quote asset (raw wei strings + USD at launch quote price). */
+  feeRouting(token: string) {
+    const c = this.coin(token);
+    if (!c) return null;
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
+    const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
+    const tf = rows.filter((r) => r.kind === "TradeFeeRouted");
+    const sn = rows.filter((r) => r.kind === "SnipeFeeRouted");
+    const q = wad(BigInt(c.quote_price_usd ?? 0));
+    const out: any = {
+      token: c.token, quote: c.quote, trades: tf.length,
+      creator: sum(tf.map((r) => r.a)), lp: sum(tf.map((r) => r.b)), treasury: sum(tf.map((r) => r.c)), referral: sum(tf.map((r) => r.d)),
+      creatorTax: sum(tf.map((r) => r.e)),
+      snipeToRewards: sum(sn.map((r) => r.a)), snipeToTreasury: sum(sn.map((r) => r.b)),
+      snipeToLPLegacy: sum(rows.filter((r) => r.kind === "SnipeFeeRoutedToLP").map((r) => r.a)),
+      creatorClaimed: sum(rows.filter((r) => r.kind === "CreatorFeesClaimed").map((r) => r.a)),
+    };
+    const usd: any = {};
+    for (const [k, v] of Object.entries(out)) if (typeof v === "bigint") { usd[k] = wad(v) * q; out[k] = v.toString(); }
+    return { ...out, usd };
+  }
+
+  leaderboard(kind: string, q: URLSearchParams) {
+    const limit = Math.min(Number(q.get("limit") ?? 25), 200);
+    const since = Number(q.get("since") ?? 0);
+    switch (kind) {
+      case "traders": {
+        const by = q.get("by") === "trades" ? "trades" : "volumeUsd";
+        return this.db.prepare(`SELECT trader user, COUNT(*) trades, SUM(volume_usd) volumeUsd, SUM(is_buy) buys, COUNT(DISTINCT token) coins
+          FROM trades WHERE ts >= ? GROUP BY trader ORDER BY ${by} DESC LIMIT ?`).all(since, limit);
+      }
+      case "creators":
+        return this.db.prepare(`SELECT c.creator user, COUNT(DISTINCT c.token) coins, SUM(c.graduated) graduated, MAX(COALESCE(c.tier,-1)) bestTier,
+          COALESCE((SELECT SUM(volume_usd) FROM trades t WHERE t.token IN (SELECT token FROM coins x WHERE x.creator=c.creator) AND t.ts >= ?),0) volumeUsd
+          FROM coins c GROUP BY c.creator ORDER BY volumeUsd DESC LIMIT ?`).all(since, limit);
+      case "coins":
+        return this.listCoins(new URLSearchParams({ sort: q.get("by") ?? "volume", limit: String(limit) }));
+      case "tramps":
+        return this.db.prepare(`SELECT owner user, SUM(kind='tramp' AND status='filled') trampsFilled, SUM(kind='wall' AND status='filled') wallsFilled,
+          SUM(CASE WHEN status='filled' THEN amount_in_usd ELSE 0 END) filledUsd, COUNT(*) placed FROM orders WHERE COALESCE(placed_at,0) >= ?
+          GROUP BY owner ORDER BY trampsFilled + wallsFilled DESC, filledUsd DESC LIMIT ?`).all(since, limit);
+      case "keepers":
+        return this.db.prepare(`SELECT keeper user, COUNT(*) tips, SUM(CAST(quote_tip AS REAL))/1e18 quoteTips, SUM(CAST(token_tip AS REAL))/1e18 tokenTips
+          FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
+      case "referrers":
+        return this.db.prepare(`SELECT referrer user, SUM(status='attributed') attributed, SUM(status='pending') pending,
+          COALESCE((SELECT SUM(CAST(f.d AS REAL))/1e18 FROM fee_events f WHERE f.kind='TradeFeeRouted' AND f.account IN (SELECT wallet FROM referrals r2 WHERE r2.referrer=r.referrer AND r2.status='attributed')),0) referralShareQuote
+          FROM referrals r GROUP BY referrer ORDER BY attributed DESC, pending DESC LIMIT ?`).all(limit);
+      default:
+        throw new Error("unknown leaderboard (traders|creators|coins|tramps|keepers|referrers)");
+    }
+  }
+
+  holdings(user: string) {
+    return this.db.prepare(`SELECT b.token, c.ticker, c.name, c.stack, c.tier, b.bal balance,
+        (SELECT price_usd FROM trades t WHERE t.token=b.token ORDER BY ts DESC, block DESC LIMIT 1) lastPriceUsd
+      FROM balances b JOIN coins c ON c.token=b.token WHERE b.holder=? AND b.bal != '0' AND b.bal NOT LIKE '-%'`).all(user.toLowerCase())
+      .map((r: any) => ({ ...r, valueUsd: (Number(BigInt(r.balance)) / 1e18) * (r.lastPriceUsd ?? 0) }));
+  }
+
+  referrals(user: string) {
+    const u = user.toLowerCase();
+    const referredBy = this.db.prepare("SELECT stack, referrer, status, ts FROM referrals WHERE wallet=?").all(u);
+    const referred = this.db.prepare("SELECT stack, wallet, status, ts FROM referrals WHERE referrer=? ORDER BY ts DESC").all(u);
+    const claims = this.db.prepare("SELECT stack, quote, a amount, ts, tx FROM fee_events WHERE kind='ReferrerFeesClaimed' AND account=? ORDER BY ts DESC").all(u);
+    const deposits = this.db.prepare("SELECT stack, a amount, b total, ts FROM fee_events WHERE kind='UsdgDepositRecorded' AND account=? ORDER BY ts DESC").all(u);
+    return { user: u, referredBy, referred, claims, deposits };
+  }
+
+  profile(user: string) {
+    const u = user.toLowerCase();
+    return {
+      user: u, counters: this.counters(u), holdings: this.holdings(u), coins: this.listCoins(new URLSearchParams({ creator: u })),
+      anonCoins: this.db.prepare("SELECT token, ticker, stack FROM coins WHERE stealth_owner=?").all(u),
+      referrals: this.referrals(u),
+      keeperTips: this.db.prepare("SELECT COUNT(*) n, SUM(CAST(quote_tip AS REAL))/1e18 quote, SUM(CAST(token_tip AS REAL))/1e18 token FROM keeper_tips WHERE keeper=?").get(u),
+    };
+  }
+
+  allOrders(q: URLSearchParams) {
+    const where: string[] = [], args: any[] = [];
+    for (const k of ["status", "kind", "token", "owner", "stack"]) if (q.get(k)) { where.push(`${k}=?`); args.push(k === "token" || k === "owner" ? q.get(k)!.toLowerCase() : q.get(k)); }
+    const limit = Math.min(Number(q.get("limit") ?? 100), 1000);
+    return this.db.prepare(`SELECT * FROM orders ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY placed_at DESC LIMIT ?`).all(...args, limit);
+  }
+
   status() {
-    return { chainId: this.cfg.chainId, stacks: this.cfg.stacks, cursors: this.db.prepare("SELECT * FROM cursor").all(),
-      coins: (this.db.prepare("SELECT COUNT(*) n FROM coins").get() as any).n, trades: (this.db.prepare("SELECT COUNT(*) n FROM trades").get() as any).n };
+    return { chainId: this.cfg.chainId, stacks: this.cfg.stacks.map((x) => ({ ...x, rpc: undefined })), cursors: this.db.prepare("SELECT * FROM cursor").all(),
+      coins: (this.db.prepare("SELECT COUNT(*) n FROM coins").get() as any).n, trades: (this.db.prepare("SELECT COUNT(*) n FROM trades").get() as any).n,
+      counts: Object.fromEntries(["orders", "tier_breaks", "keeper_tips", "referrals", "fee_events", "balances"].map((t) => [t, (this.db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as any).n])) };
   }
 
   /** Minimal router; returns [status, body]. */
@@ -193,14 +314,24 @@ export class Api {
       if (p[2] === "candles") return [200, this.candles(t, q)];
       if (p[2] === "fees") { const f = await this.creatorFees(t); return f ? [200, f] : [404, { error: "unknown coin" }]; }
       if (p[2] === "orders") return [200, this.orders("token", t)];
+      const nf = (x: unknown): [number, unknown] => (x ? [200, x] : [404, { error: "unknown coin" }]);
+      if (p[2] === "holders") return nf(this.holders(t, q));
+      if (p[2] === "altitude") return nf(this.altitude(t));
+      if (p[2] === "fee-routing") return nf(this.feeRouting(t));
     }
     if (p[0] === "users" && addr(p[1])) {
+      if (p.length === 2) return [200, this.profile(p[1])];
+      if (p[2] === "holdings") return [200, this.holdings(p[1])];
+      if (p[2] === "referrals") return [200, this.referrals(p[1])];
       if (p[2] === "counters") return [200, this.counters(p[1])];
       if (p[2] === "orders") return [200, this.orders("owner", p[1])];
       if (p[2] === "trades") return [200, this.trades("trader", p[1], q)];
       if (p[2] === "coins") return [200, this.listCoins(new URLSearchParams({ creator: p[1] }))];
     }
     if (p[0] === "rewards") return [200, this.rewards()];
+    if (p[0] === "orders") return [200, this.allOrders(q)];
+    if (p[0] === "tier-breaks") return [200, this.tierBreaks(q)];
+    if (p[0] === "leaderboard" && p[1]) return [200, this.leaderboard(p[1], q)];
     return [404, { error: "not found" }];
   }
 

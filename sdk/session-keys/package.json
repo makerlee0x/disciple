@@ -1,0 +1,10 @@
+{
+  "name": "@disciple/session-keys",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": { "typecheck": "tsc --noEmit", "test": "tsx --test test/encode.test.ts" },
+  "peerDependencies": { "viem": "^2.21.0" },
+  "devDependencies": { "viem": "^2.57.7", "@account-kit/smart-contracts": "^4.88.5", "tsx": "^4.19.0", "typescript": "^5.6.0", "@types/node": "^22.0.0" }
+}

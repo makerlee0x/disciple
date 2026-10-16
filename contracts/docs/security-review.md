@@ -8,8 +8,8 @@
 | ID | Severity | Title | Status |
 |---|---|---|---|
 | SEC-01 | **High** | `LockedLP.addLockedLiquidity` unauthenticated: anyone can brick any coin (all trades revert) | **Fixed** in source; **live testnet v2 is vulnerable** (PoC) until the redeploy |
-| SEC-02 | Medium | JIT liquidity can capture hook LP donations (1/3 of LP share) | Open (design) |
-| SEC-03 | Medium | QuotePricer uses the v4 spot price at launch (flash-manipulable); bakes into curve USD targets | Open; recommend TWAP / deviation bound |
+| SEC-02 | Medium | JIT liquidity can capture hook LP donations (1/3 of LP share) | **Fixed in source** (PR #44): donation removed (no LP yield to capture) + hook LP-add allowlist; needs redeploy |
+| SEC-03 | Medium | QuotePricer uses the v4 spot price at launch (flash-manipulable); bakes into curve USD targets | **Fixed in source** (PR #44): QuotePricer lagged truncated TWAP + poke; needs redeploy |
 | SEC-04 | Medium | Admin centralization: FeeRouter/Launchpad/LockedLP/hook owner can repoint core wiring (`setLaunchpad`, `setLockedLP`, `setMigration`, `setTrustedRouter`, `setPricer`) | Open; Safe multisig + timelock (mainnet plan) |
 | SEC-05 | Low | Trusted UniversalRouter → `hookData` trader attribution is caller-chosen (spoofable Trade attribution / referral destination) | Open; document or attribute only via DiscipleRouter |
 | SEC-06 | Low | TrampWallManager `pull` is permissionless: a whale can force-fill a range by pushing price through it (owner still gets their range price) | By design; document |
@@ -50,6 +50,20 @@
 - The impact falls mostly on that coin's buyers, through mis-stated USD mcap and an earlier or later graduation.
 - **Recommendation:** set `minLiquidity` on mainnet; add a TWAP (an oracle hook or an observation ring) or a max-deviation bound against an owner-set reference.
 
+## SEC-02 / SEC-03 fix (PR #44, revised 2026-10-16)
+- **JIT:**
+  - `DiscipleHook.beforeAddLiquidity` only accepts `isLiquidityManager` senders (LockedLP, TrampWallManager), so nobody can add raw v4 positions around a swap.
+  - **Root cause removed (revision 3):** the hook no longer calls `PoolManager.donate`; the pool LP fee is 0, so in-range liquidity earns nothing and JIT has no payoff. The full 33% LP share goes to LockedLP (permanent).
+  - The TrampWallManager min hold and fee vesting are therefore unnecessary and removed: cancel any time, pull immediately. Test `test_jit_same_block_add_swap_cancel_earns_no_yield` checks a same-block place→swap→cancel returns 0 fees and emits no donation.
+- **Tramp/wall auto-close:** `pull` is permissionless once the range is fully crossed. It pays the owner proceeds minus `keeperTipBps` (default 0.1%, max 1%) to the caller. SEC-06 still applies: a whale can force-fill a range by pushing price through it, but the owner always gets their range price.
+- **TWAP (`libraries/TwapOracle.sol`):**
+  - Used **only by QuotePricer** (lagged mode). It records one observation per block via permissionless `poke` (also called by `Launchpad.launch`), and each write is truncated to ±`maxTickDelta`.
+  - A flash move + poke + launch in one tx has zero effect; a held move is rate-limited.
+  - This covers the launch-time quote price baked into curve USD targets, and the hook/curve live mcap.
+- **Spot by decision:** altitude/tier breaks (`AltitudeUpdate`/`TierBreak`), `Trade.mcapAfterUsd`, `mcapNow`, MarketLens. These are game/display signals, not fund-safety checks: a single-block pump can trigger a tier break.
+- **No oracle needed:** anti-snipe tax is time-based; graduation triggers on tokens sold (72%); QuoteProbe is an allowlist.
+- Tests: `test/security/JitTwap.t.sol`.
+
 ## SEC-04 (Medium): admin powers
 - **FeeRouter owner:** `setLaunchpad` (the creator lookup, which redirects creator fees), `setLockedLP`, `setTreasury`, `setRewardsVault`, `setAuthorized`.
 - **Launchpad owner:** pricer, probe, curve deployer, default quote, creator-buy cap.
@@ -75,7 +89,7 @@
 |---|---|
 | `LockedLPAuth` | SEC-01 fix: attacker add reverts; FeeRouter/Migration paths still work; setter onlyOwner |
 | `LockedLPForkPoC` | SEC-01 on the live v2 stack (fork) |
-| `testFuzz_hook_fee_split_33_33_33_1` | post-grad buys/sells: creator 33%, LP 33% (donated = 1/3 of it), treasury 33% + 1% residual, nothing lost |
+| `testFuzz_hook_fee_split_33_33_33_1` | post-grad buys/sells: creator 33%, LP 33% (all to LockedLP), treasury 33% + 1% residual, nothing lost |
 | `testFuzz_twm_round_trip_and_auth` | place→cancel returns ≤ deposit and ≥ deposit−4 wei; non-owner cancel and early pull revert; no double cancel |
 | `testFuzz_lockedLP_never_removable` / `_add_only_feeRouter_or_migration` | locked LP can never be removed; add is caller-restricted |
 | `AnonSigFuzz` | wrong key never claims; nonce bump and replay; the digest binds owner, token order, nonce and relayer fee |
