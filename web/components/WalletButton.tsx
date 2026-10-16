@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { usePathname } from "next/navigation";
 import { encodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
 import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
-import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
+import { decimalsOf, publicClient, readCurveState, tokenBalance } from "@/lib/protocol-viem";
+import { balanceLine, type BalancePart } from "@/lib/balanceLine";
 import {
   aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
   execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
@@ -17,6 +19,14 @@ import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 
 const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
+const symAbi = parseAbi(["function symbol() view returns (string)"]);
+const coinMeta = new Map<string, Promise<{ symbol: string; quote: Address } | null>>();
+/** Symbol + pair (quote) token of a DISCIPLE coin, cached per page load. */
+function metaOf(coin: Address) {
+  const k = coin.toLowerCase();
+  if (!coinMeta.has(k)) coinMeta.set(k, (async () => { const pc = publicClient(); const [symbol, st] = await Promise.all([pc.readContract({ address: coin, abi: symAbi, functionName: "symbol" }), readCurveState(pc, coin)]); return { symbol, quote: st.quote as Address }; })().catch(() => null));
+  return coinMeta.get(k)!;
+}
 
 /**
  * Sign in once (Privy email / Google) → Privy embedded EOA owns an Alchemy MAv2 smart account (self-pay gas,
@@ -29,6 +39,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const [busy, setBusy] = useState("");
   const [eth, setEth] = useState<bigint | null>(null);
   const [bal, setBal] = useState("");
+  const [balTitle, setBalTitle] = useState("");
+  const path = usePathname() || "";
+  const coin = (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(path)?.[1] ?? null) as Address | null;
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
   const [slipPct, setSlipPct] = useState(String(SLIPPAGE_DEFAULT_BPS / 100));
@@ -55,16 +68,21 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       const pc = publicClient();
       const e = await pc.getBalance({ address: a });
       setEth(e);
-      const parts = [`${Number(formatUnits(e, 18)).toFixed(4)} ETH`];
+      const meta = coin ? await metaOf(coin) : null;
+      const parts: BalancePart[] = [{ symbol: "ETH", amount: Number(formatUnits(e, 18)), role: "gas" }];
       const syms = MINTABLE_TEST_TOKENS.length ? MINTABLE_TEST_TOKENS : [{ symbol: "STRATEGY", address: deployment().defaultQuote }];
-      for (const t of syms) {
+      const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: meta && t.address.toLowerCase() === meta.quote.toLowerCase() ? "spend" : "other" }));
+      if (meta) list.unshift({ symbol: meta.symbol, address: coin!, role: "held" });
+      for (const t of list) {
         const [b, d] = await Promise.all([tokenBalance(pc, t.address, a), decimalsOf(pc, t.address)]);
-        parts.push(`${Number(formatUnits(b, d)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${t.symbol}`);
+        parts.push({ symbol: t.symbol, amount: Number(formatUnits(b, d)), role: t.role });
       }
-      setBal(parts.join(" · "));
+      const l = balanceLine(parts);
+      setBal(l.text); setBalTitle(l.title);
     } catch { /* ignore */ }
   }
-  useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); return () => clearInterval(i); }, [addr]);
+  useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
+    addEventListener("disciple:livetrade", t); return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const fail = (e: unknown) => {
     const m = (e as Error).message.split("\n")[0];
@@ -179,7 +197,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
             <span style={{ wordBreak: "break-all" }}>Smart account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner (Privy wallet): {sess?.owner}</span>
-            {bal && <span>{bal}</span>}
+            {bal && <span title={balTitle}>{bal}</span>}
             {sess?.oneTap ? (
               <>
                 <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
@@ -205,7 +223,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             <span style={{ color: "#ffe7a3" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
-            {bal && <span>{bal}</span>}
+            {bal && <span title={balTitle}>{bal}</span>}
             <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a>
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
@@ -220,7 +238,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           </div>
         )}
       </div>
-      {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? " · self-pay gas" : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
+      {addr && bal && !compact && <span title={balTitle} style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? " · self-pay gas" : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
       {needFund && <span role="status" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>

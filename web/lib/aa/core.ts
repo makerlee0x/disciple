@@ -146,7 +146,7 @@ export class LightSmartAccount {
       // Simulation failed BEFORE anything was signed or sent — not a mined revert. Keep the bundler's reason + revert data.
       const rpcError = (e as AAError).extra?.rpcError as { message?: string; data?: unknown } | undefined;
       const raw = (rpcError?.message || (e as Error).message || "").replace(/^eth_estimateUserOperationGas:\s*/, "");
-      throw new AAError("Estimate", `trade simulation failed: ${raw.slice(0, 200)}`, { rpcError, revertData: extractRevertData(rpcError?.data) });
+      throw new AAError("Estimate", `simulation failed: ${raw.slice(0, 200)}`, { rpcError, revertData: extractRevertData(rpcError?.data) });
     }
     op.callGasLimit = numberToHex(BigInt(est.callGasLimit) * BigInt(12) / BigInt(10));
     op.verificationGasLimit = est.verificationGasLimit;

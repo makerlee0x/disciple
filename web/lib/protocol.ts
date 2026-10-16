@@ -218,6 +218,8 @@ export interface TradeEvent {
   mcapUsd: number;
   txHash: string;
   block: bigint;
+  /** Log index within the block (ordering key with block). */
+  logIndex?: number;
 }
 export interface GraduateEvent {
   type: "Graduate";

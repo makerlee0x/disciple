@@ -51,7 +51,7 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     impactBps: bps, impactPct: bps / 100,
     // Post-grad Trade.mcapAfterUsd is frozen (FLOW bug): rescale the live pool price via the MarketLens ratio.
     mcapUsd: venue === "hook" && mcapPerPriceWad ? Number(a.priceAfterX18 as bigint) * mcapPerPriceWad : wad(a.mcapAfterUsd as bigint),
-    txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0),
+    txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0), logIndex: l.logIndex ?? 0,
   };
 }
 
@@ -61,32 +61,93 @@ export async function lensScale(token: Address, pc: PublicClient = publicClient(
   return m && m.priceWad > BigInt(0) ? m.mcapUsd / Number(m.priceWad) : undefined;
 }
 
+/** Chain-order key of a Trade (block, logIndex). */
+export const tradeKey = (e: { block: bigint | string | number; logIndex?: number }) => BigInt(e.block) * BigInt(100000) + BigInt(e.logIndex ?? 0);
+
+/**
+ * Keeps the engine's mcap in CHAIN order. Hook Trade batches are normalized asynchronously (lens scale RPC), so
+ * a slower, OLDER batch (e.g. the buys before a DUMP) could land after the newer sell and put the HUD/rocket
+ * back up while the chart had already drawn the dip. An out-of-order Trade still reaches the engine (feed,
+ * thrust, bombs) but carries the newest known mcap; State reconciles (reads at block B) only move it forward.
+ */
+export function mcapOrderer(emit: Cb) {
+  let lastK = BigInt(-1), lastMcap = 0;
+  return {
+    trade(e: ProtocolEvent) {
+      if (e.type === "Trade") {
+        const k = tradeKey(e);
+        if (k >= lastK) { lastK = k; lastMcap = e.mcapUsd; } else if (lastMcap > 0) e = { ...e, mcapUsd: lastMcap };
+      }
+      emit(e);
+    },
+    /** Live mcap read at block `atBlock` (or later): applied unless a newer Trade was already applied. */
+    state(mcapUsd: number, atBlock: bigint) {
+      const k = atBlock * BigInt(100000) + BigInt(99999);
+      if (!(mcapUsd > 0) || k < lastK) return false;
+      lastK = k;
+      if (Math.abs(mcapUsd - lastMcap) < 1e-9 * Math.max(1, mcapUsd)) return false;
+      lastMcap = mcapUsd;
+      emit({ type: "State", mcapUsd } as never);
+      return true;
+    },
+    get mcap() { return lastMcap; },
+  };
+}
+export type McapOrderer = ReturnType<typeof mcapOrderer>;
+
 /**
  * Per-coin trade stream: curve Trade + GraduatedToV4, and the hook's Trade for this token
- * (post-grad swaps from DiscipleRouter or any third-party router).
+ * (post-grad swaps from DiscipleRouter or any third-party router). Batches are processed strictly in arrival
+ * order (one promise chain) and the lens scale is cached, so a slow RPC can't reorder a DUMP behind older buys.
  */
-export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: PublicClient = publicClient()): Promise<() => void> {
+export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: PublicClient = publicClient(), order: McapOrderer = mcapOrderer(cb)): Promise<() => void> {
   const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
   const stops: (() => void)[] = [];
+  let chain: Promise<void> = Promise.resolve();
+  const inOrder = (f: () => Promise<void> | void) => { chain = chain.then(f).catch(() => undefined); };
+  let scale: { k: number | undefined; at: number } | null = null;
+  const scaleNow = async () => { if (!scale || Date.now() - scale.at > 15_000) scale = { k: await lensScale(token, pc).catch(() => scale?.k), at: Date.now() }; return scale.k; };
 
   stops.push(pc.watchContractEvent({
     address: curve, abi: bondingCurveAbi,
-    onLogs: (logs) => {
+    onLogs: (logs) => inOrder(() => {
       for (const l of logs as L[]) {
-        if (l.eventName === "GraduatedToV4") cb({ type: "Graduate", token, poolId: l.args.poolId as `0x${string}` });
-        else if (l.eventName === "Trade") cb(tradeFromLog(l, qp, "curve"));
+        if (l.eventName === "GraduatedToV4") order.trade({ type: "Graduate", token, poolId: l.args.poolId as `0x${string}` });
+        else if (l.eventName === "Trade") order.trade(tradeFromLog(l, qp, "curve"));
       }
-    },
+    }),
   }));
 
   const hook = deployment().hook;
   if (hook !== "0x0000000000000000000000000000000000000000")
     stops.push(pc.watchContractEvent({
       address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token },
-      onLogs: async (logs) => { const k = await lensScale(token, pc); for (const l of logs as L[]) cb(tradeFromLog(l, qp, "hook", k)); },
+      onLogs: (logs) => inOrder(async () => { const k = await scaleNow(); for (const l of logs as L[]) order.trade(tradeFromLog(l, qp, "hook", k)); }),
     }));
 
   return () => stops.forEach((s) => s());
+}
+
+/**
+ * Self-heal for the engine's mcap: re-read the live market (MarketLens post-grad, curve pre-grad) every `everyMs`
+ * and right after the player's own trade (window "disciple:livetrade"), through the same orderer. Covers a
+ * dropped event filter or a missed log — the HUD/rocket converge to chain state within one interval.
+ */
+export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClient = publicClient(), everyMs = 8000, read: (b: bigint) => Promise<number | null> = async () => {
+  const m = await readMarket(pc, token);
+  if (m && m.graduated) return m.mcapUsd;
+  const { readCurveState } = await import("./protocol-viem");
+  return (await readCurveState(pc, token)).mcapUsd;
+}): () => void {
+  let alive = true, busy = false;
+  const tick = async () => {
+    if (!alive || busy) return; busy = true;
+    try { const b = await pc.getBlockNumber(); const m = await read(b); if (alive && m) order.state(m, b); } catch { /* next tick */ } finally { busy = false; }
+  };
+  const iv = setInterval(tick, everyMs);
+  const after = () => { setTimeout(tick, 1200); setTimeout(tick, 4000); };
+  if (typeof window !== "undefined") window.addEventListener("disciple:livetrade", after);
+  return () => { alive = false; clearInterval(iv); if (typeof window !== "undefined") window.removeEventListener("disciple:livetrade", after); };
 }
 
 export interface LaunchedCoin {

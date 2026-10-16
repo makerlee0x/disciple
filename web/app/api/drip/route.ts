@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, http, isAddress, parseEther, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhoodTestnet } from "@/lib/chains";
+import { withRelayer } from "@/lib/server/relayer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
   seenAddr.set(a, now); hits.push(now); seenIp.set(ip, hits);
   try {
     const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: privateKeyToAccount(key) });
-    const hash = await wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal });
+    const hash = await withRelayer(() => wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal }));   // same EOA as the self-bundler relayer
     return NextResponse.json({ ok: true, txHash: hash });
   } catch (e) {
     seenAddr.delete(a);

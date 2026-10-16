@@ -9,6 +9,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { http, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
+import { serializeBy } from "./opQueue";
 import { AAError, type Call, type GasMode, type OwnerSigner, type UserOpReceipt } from "./core";
 
 const BUNDLER_METHODS = [
@@ -83,7 +84,12 @@ export class Mav2Account {
   async address(): Promise<Address> { return (await this.owned()).account.address; }
 
   /** Send calls as ONE userOp. `as: "session"` signs with the session key (no Privy prompt); default owner. */
+  /** One op at a time per account (lib/aa/opQueue): rapid shots would otherwise read the same EntryPoint nonce. */
   async sendCalls(calls: Call[], as: "owner" | "session" = "owner"): Promise<SendResult> {
+    return serializeBy(await this.address(), () => this.sendNow(calls, as));
+  }
+
+  private async sendNow(calls: Call[], as: "owner" | "session"): Promise<SendResult> {
     const client = as === "session" && this.sessionClient ? await this.sessionClient.c : await this.owned();
     const uo = calls.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
     const sender: Address = client.account.address;
@@ -99,7 +105,7 @@ export class Mav2Account {
       // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
       let revertData: string | undefined;
       (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const dd = (x as { data?: unknown }).data; if (typeof dd === "string" && /^0x[0-9a-fA-F]{8,}$/.test(dd)) { revertData = dd; return true; } return false; });
-      throw new AAError("Estimate", `trade simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
+      throw new AAError("Estimate", `simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
     }
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 25, intervalMs: 1200, multiplier: 1 } }); }

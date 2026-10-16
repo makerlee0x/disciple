@@ -7,6 +7,7 @@ import "server-only";
  */
 import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { withRelayer } from "./relayer";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
@@ -87,17 +88,20 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
       const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
-      const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
-      const blk = await pc.getBlock();
-      const base = blk.baseFeePerGas ?? BigInt(0);
-      let networkGas = BigInt(0);
-      try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
-      const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
-      const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
-      const hash = await wc.sendTransaction({
-        to: ENTRYPOINT_V07, data, gas,
-        maxFeePerGas: maxFee,
-        maxPriorityFeePerGas: priority,
+      // one relayer send at a time (+ nonce retry): concurrent ops otherwise reuse the relayer's pending nonce
+      const hash = await withRelayer(async () => {
+        const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
+        const blk = await pc.getBlock();
+        const base = blk.baseFeePerGas ?? BigInt(0);
+        let networkGas = BigInt(0);
+        try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
+        const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
+        const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
+        return wc.sendTransaction({
+          to: ENTRYPOINT_V07, data, gas,
+          maxFeePerGas: maxFee,
+          maxPriorityFeePerGas: priority,
+        });
       });
       const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
       if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
