@@ -1,3 +1,4 @@
+import { prestigeFromPoints } from "./prestige";
 /**
  * ~40 DISCIPLE achievements — angel/CT names, rarity frames, rewards.
  */
@@ -84,7 +85,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("wall_of_jericho", "Wall of Jericho", "Have a wall broken through (filled).", "tramps", "COMMON", 1, { points: 175 }, (s) => s.metrics.wallsFilled ?? 0),
   A("stonemason", "Stonemason", "Get 10 walls filled.", "tramps", "ANOINTED", 10, { points: 1400, skin: "Marble Hull" }, (s) => s.metrics.wallsFilled ?? 0),
   A("gatekeeper_of_range", "Range Warden", "Fill 25 tramps + walls combined.", "tramps", "GLORIFIED", 25, { points: 3500, frame: "Warden Crest" }, (s) => (s.metrics.trampsFilled ?? 0) + (s.metrics.wallsFilled ?? 0)),
-  A("pass_level_25", "Halfway to Heaven", "Reach season pass level 25.", "seasonal", "BLESSED", 25, { points: 400, frame: "Pass 25" }, (s) => Math.min(25, Math.floor(s.points / 1000))),
+  A("pass_level_25", "Halfway to Heaven", "Reach prestige level 25.", "seasonal", "BLESSED", 25, { points: 400, frame: "Level 25" }, (s) => Math.min(25, prestigeFromPoints(s.points).level)),
 ];
 
 export type AchievementState = "locked" | "in_progress" | "unlocked";
@@ -188,6 +189,11 @@ export function topAchievements(ids: string[], n = 6): AchievementDef[] {
     .filter((a): a is AchievementDef => !!a)
     .sort((a, b) => order.indexOf(a.rarity) - order.indexOf(b.rarity))
     .slice(0, n);
+}
+
+/** Themed SVG icon (web/public/achievements/<id>.svg) — one per achievement id. */
+export function achievementIconPath(id: string): string {
+  return `/achievements/${id}.svg`;
 }
 
 export function achievementDisplay(id: string): { icon: string; color: string } {

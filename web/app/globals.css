@@ -921,3 +921,8 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 .cash-panel a { color: #ffe7a3; }
 .persona-badge { display: inline-flex; align-items: center; gap: 8px; margin: 6px 0; padding: 4px 12px 4px 4px; border-radius: 999px; border: 1px solid rgba(255, 231, 163, 0.55); background: linear-gradient(180deg, rgba(255, 231, 163, 0.16), rgba(14, 16, 40, 0.6)); color: #fff7df; font-weight: 700; font-size: 13px; letter-spacing: .04em; }
 .prestige-name { font-size: 11px; letter-spacing: .1em; color: #ffe7a3; text-transform: uppercase; margin: 4px 0; }
+.ach-frame { position: relative; }
+.ach-svg { display: block; width: 100%; height: 100%; }
+.state-locked .ach-svg { filter: grayscale(0.85) brightness(0.6); }
+.state-in_progress .ach-svg { filter: saturate(0.8); }
+.ach-lock { position: absolute; right: -2px; bottom: -2px; font-size: 14px; }

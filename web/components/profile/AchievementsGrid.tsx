@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import {
-  ACHIEVEMENT_CATEGORIES, evaluateAchievements, seasonPassProgress,
+  ACHIEVEMENT_CATEGORIES, achievementIconPath, evaluateAchievements,
   type AchievementCategory, type AchievementView,
 } from "@/lib/achievements";
 import { ACHIEVEMENT_RARITY } from "@/lib/config";
-import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
+import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
+import { prestigeFromPoints } from "@/lib/prestige";
+import { withBase } from "@/lib/base-path";
 
 function rewardPreview(a: AchievementView) {
   const bits: string[] = [];
@@ -18,11 +20,10 @@ function rewardPreview(a: AchievementView) {
 }
 
 export default function AchievementsGrid() {
-  const [persona, setPersona] = useState<PersonaId>("believer");
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
-  const data = useMemo(() => buildPersonaStats(persona), [persona]);
+  const data = useMemo(() => buildPersonaStats("believer"), []);
   const views = useMemo(() => evaluateAchievements(data), [data]);
-  const pass = seasonPassProgress(data.points);
+  const pass = prestigeFromPoints(data.points);
   const filtered = views.filter((v) => (cat === "all" ? true : v.category === cat));
   const unlocked = views.filter((v) => v.state === "unlocked").length;
 
@@ -33,24 +34,16 @@ export default function AchievementsGrid() {
           <h1>Achievements</h1>
           <div className="sub">CHOIR OF DEEDS · {unlocked}/{views.length} UNLOCKED</div>
         </div>
-        <div className="persona-switch" role="tablist" aria-label="Sample persona">
-          {(Object.keys(PERSONAS) as PersonaId[]).map((id) => (
-            <button key={id} type="button" role="tab" aria-selected={persona === id}
-              className={persona === id ? "on" : ""} onClick={() => setPersona(id)}>
-              {PERSONAS[id].label}
-            </button>
-          ))}
-        </div>
       </header>
       <span className="tag mock">{SAMPLE_DATA_LABEL}</span>
 
       <section className="season-pass">
         <div className="pass-meta">
           <div>
-            <div className="pass-name">{pass.seasonName}</div>
-            <div className="muted">Season pass · Level {pass.level} / {pass.maxLevel}</div>
+            <div className="pass-name">Prestige {pass.prestige} · {pass.prestigeName}</div>
+            <div className="muted">Level {pass.level} / {pass.maxLevel} · max level → next prestige</div>
           </div>
-          <div className="pass-xp">{pass.into.toLocaleString()} / {pass.need.toLocaleString()} XP</div>
+          <div className="pass-xp">{pass.into.toLocaleString()} / {pass.need.toLocaleString()} pts → {pass.nextLabel}</div>
         </div>
         <div className="pass-track">
           <div className="pass-fill" style={{ width: `${(pass.level / pass.maxLevel) * 100}%` }} />
@@ -76,7 +69,9 @@ export default function AchievementsGrid() {
             <article key={a.id} className={`ach-card state-${a.state}`}
               style={{ borderColor: rarity.border, boxShadow: a.state === "unlocked" ? `0 0 24px ${rarity.glow}` : undefined }}>
               <div className="ach-frame" style={{ borderColor: rarity.border }}>
-                <div className="ach-icon">{a.state === "locked" ? "🔒" : a.state === "unlocked" ? "🏆" : "✨"}</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="ach-svg" src={withBase(achievementIconPath(a.id))} alt="" width={60} height={60} />
+                {a.state === "locked" && <span className="ach-lock" aria-label="locked">🔒</span>}
               </div>
               <div className="ach-body">
                 <div className="ach-rarity" style={{ color: rarity.border }}>{rarity.label}</div>
