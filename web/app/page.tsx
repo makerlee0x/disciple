@@ -404,8 +404,6 @@ export default function HomePage() {
             zIndex: 4,
             textAlign: "center",
             pointerEvents: "none",
-            paddingLeft: "var(--ap-rail-w)",
-            transition: "padding-left .22s",
           }}
           className="home-title"
         >
@@ -602,23 +600,7 @@ export default function HomePage() {
                   <BrandedRocket icon={c.icon} height={84} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      marginBottom: 4,
-                      fontSize: 9,
-                      letterSpacing: ".1em",
-                      padding: "2px 6px",
-                      borderRadius: 6,
-                      background: c.live
-                        ? "rgba(143,240,192,.18)"
-                        : "rgba(255,255,255,.08)",
-                      color: c.live ? "#8ff0c0" : "rgba(220,228,255,.7)",
-                    }}
-                  >
-                    {c.live ? "● LIVE" : "SAMPLE"}
-                  </span>
-                  <VerifiedBadge tier={tier} />
+                  <span className={c.live ? "rc-live" : "rc-sample"}>{c.live ? "LIVE" : "SAMPLE"}</span>
                   <div
                     style={{
                       fontWeight: "bold",
@@ -629,6 +611,7 @@ export default function HomePage() {
                     }}
                   >
                     {c.name}
+                    <VerifiedBadge tier={tier} />
                   </div>
                   <div style={{ color: "#ffe7a3", fontSize: 11 }}>Call sign {c.tk}</div>
                   <div style={{ marginTop: 6, fontSize: 12, color: "#cfd8ff" }}>
@@ -687,9 +670,6 @@ export default function HomePage() {
         }}
       />
       <style jsx global>{`
-        body.side-open .home-title {
-          padding-left: var(--ap-side-w) !important;
-        }
         body.home.launching #hero,
         #hero.launching {
         }

@@ -6,6 +6,7 @@ import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed 
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
 import { execCalls, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
+import DsSelect from "@/components/ui/DsSelect";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 type Row = { symbol: string; address: Address; bal: bigint; dec: number };
@@ -81,9 +82,8 @@ export default function CashPanel() {
           </div>
         ) : (
           <div className="cash-body cash-form">
-            <select className="ds-input" value={sym} onChange={(e) => setSym(e.target.value)} aria-label="Token">
-              {rows.map((r) => <option key={r.symbol} value={r.symbol}>{r.symbol} · {fmt(r.bal, r.dec)}</option>)}
-            </select>
+            <DsSelect ariaLabel="Token" value={sym} onChange={setSym}
+              options={rows.map((r) => ({ value: r.symbol, label: r.symbol, hint: fmt(r.bal, r.dec) }))} />
             <input className="ds-input" placeholder="Amount" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} />
             {sel && <button type="button" className="ds-btn" onClick={() => setAmt(formatUnits(sel.bal, sel.dec))}>Max</button>}
             <input className="ds-input wide" placeholder="Destination 0x…" value={to} onChange={(e) => setTo(e.target.value.trim())} />
