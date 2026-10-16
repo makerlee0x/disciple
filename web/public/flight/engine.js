@@ -90,7 +90,7 @@ const ORB={
 };
 // [PARAM] orb spawn: sparse by design (~1 orb / 8–15 s total, ≤2 on screen, penalties rarer)
 const ORB_SPAWN={rewardBase:0.07, rewardFlow:0.02, rewardMax:0.10, penaltyBase:0.015, penaltyFlow:0.01, penaltyMax:0.03, maxOnScreen:2, minGap:4};
-const fmtShot=v=>v<1?'$'+v.toFixed(2):'$'+v.toFixed(0);        // screen px per tier of altitude
+const fmtShot=v=>fmtMoney(v);   // = lib/pnl.ts fmtMoney: <$1K 2 decimals, then K/M/B/T with 2 decimals        // screen px per tier of altitude
 
 // ---------- utils ----------
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -587,7 +587,7 @@ addEventListener('disciple:ammo-query',()=>pushAmmo());
 addEventListener('disciple:ammo-override',e=>{ const u=e.detail&&e.detail.usd; S.ammoOverride=Array.isArray(u)&&u.length===MODES.length&&u.every(v=>v>0)?u.map(Number):null;
   if(AMMO_TIERS&&S.ammoTier!=null) setAmmoTier(S.ammoTier); else if(S.ammoOverride){ for(let i=0;i<MODES.length;i++) MODES[i].usd=S.ammoOverride[i]; pushAmmo(); } });
 /* SELL row in the ammo panel: labels/enabled pushed by TradeBridge (which owns the sell sizing from the PnL ledger); clicks go back to it */
-S.sellPresets=[{label:'25%',key:'Z',on:false},{label:'50%',key:'X',on:false},{label:'100%',key:'C',on:false},{label:'INITIALS',key:'V',on:false}];
+S.sellPresets=[{label:'10%',key:'Z',on:false},{label:'25%',key:'X',on:false,sel:true},{label:'50%',key:'C',on:false},{label:'100%',key:'V',on:false}];
 /* HOLDINGS guard (audit): paper/sim = the PnL ledger (disciple:position, same book as the HUD); live = the wallet's real
    token balance pushed by TradeBridge (disciple:holdings). No tokens ⇒ no sell, no bomb, a small 'no tokens' hint. */
 S.hold={tokens:0,valueUsd:0}; S.liveHas=null;
@@ -1163,7 +1163,7 @@ function drawHud(){
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
-  const am=autoMode(m), AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
+  const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select, then BOOST (or 1–6)',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<6){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
@@ -1172,7 +1172,7 @@ function drawHud(){
     ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
-    ctx.strokeStyle=hov?'#fff':i===am?'#9ff3c8':'rgba(255,255,255,.2)'; ctx.lineWidth=hov||i===am?2:1; ctx.strokeRect(bx,by,72,30);
+    ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,72,30);
     ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+36,by+20); ctx.textAlign='left';
     { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,72,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
     ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+69,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
@@ -1964,7 +1964,7 @@ function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.si
   ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
   ctx.restore(); }
 /* fallback mirror of lib/pnl.ts fmtMoney/fmtPnl (React normally sends preformatted txt) */
-function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e9?(a/1e9).toFixed(2)+'B':a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(2)+'K':a.toFixed(2)); }
+function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e12?(a/1e12).toFixed(2)+'T':a>=1e9?(a/1e9).toFixed(2)+'B':a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(2)+'K':a.toFixed(2)); }
 function fmtPnlUsd(v){ return (v<0&&Math.abs(v)>=0.005?'−':'+')+fmtMoney(Math.abs(v)); }
 function fmtTok(n){ return n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n.toFixed(0); }
 function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }

@@ -11,7 +11,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
 }) {
   const [buy, setBuy] = useState<string[]>((initial.buy || autoUsd).map(String));
   const [buyAuto, setBuyAuto] = useState(!initial.buy);
-  const [sells, setSells] = useState<string[]>(initial.sells.map((s) => (s === "init" ? "init" : String(s))));
+  const [sells, setSells] = useState<string[]>(initial.sells.map(String));
   const [slipMode, setSlipMode] = useState(initial.slippage.mode);
   const [slip, setSlip] = useState(String(initial.slippage.pct));
   const [tag, setTag] = useState(initial.tag);
@@ -20,7 +20,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
   useEffect(() => { if (buyAuto) setBuy(autoUsd.map(String)); }, [buyAuto, autoUsd]);
   const save = () => {
     const b = buy.map((v) => +v);
-    const s: SellSlot[] = sells.map((v, i) => (v.trim().toLowerCase().startsWith("init") ? "init" : +v > 0 && +v <= 100 ? +v : DEFAULT_SELLS[i]));
+    const s: SellSlot[] = sells.map((v, i) => (+v > 0 && +v <= 100 ? +v : DEFAULT_SELLS[i]));
     onSave({ buy: buyAuto || !b.every((v) => v > 0) ? null : b, sells: s, slippage: { mode: slipMode, pct: +slip > 0 ? Math.min(50, +slip) : AUTO_SLIPPAGE_PCT }, tag }, t);
   };
   const cell: React.CSSProperties = { width: "100%", boxSizing: "border-box", textAlign: "center", font: "bold 15px ui-monospace,monospace", color: "#fff", padding: "10px 4px",
@@ -47,13 +47,13 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
           <input type="checkbox" data-testid="swap-autoscale" checked={buyAuto} onChange={(e) => setBuyAuto(e.target.checked)} />
           <span>Auto-scale with mcap: {buyAuto ? "on" : "off"}</span></label>
-        {head("Sell presets (%)", () => setSells(DEFAULT_SELLS.map((s) => (s === "init" ? "init" : String(s)))))}
+        {head("Sell presets (%)", () => setSells(DEFAULT_SELLS.map(String)))}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {sells.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, fontFamily: "ui-monospace,monospace", color: "#ffb0c8" }}>
             <span>{["Z", "X", "C", "V"][i]}</span>
-            <input data-testid={`swap-sell-${i}`} value={v === "init" ? "Initials" : v} title="% of your position, or Initials = sell back your cost basis"
-              onChange={(e) => { const n = [...sells]; const x = e.target.value; n[i] = /^i/i.test(x) ? "init" : x.replace(/[^\d.]/g, ""); setSells(n); }}
-              style={{ ...cell, fontSize: v === "init" ? 11 : 15 }} />
+            <input data-testid={`swap-sell-${i}`} value={v} title="% of your position (1–100)"
+              onChange={(e) => { const n = [...sells]; const x = e.target.value; n[i] = x.replace(/[^\d.]/g, ""); setSells(n); }}
+              style={cell} />
             </label>)}
         </div>
         <div style={{ borderTop: "1px dashed rgba(255,255,255,.12)", margin: "16px 0 12px" }} />

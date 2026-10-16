@@ -4,16 +4,21 @@
 | Input | Action |
 |---|---|
 | Click a `$` tile in the BUY row | **Selects** it (gold tile). Never trades. Hover: "click to select $X". |
-| Click a SELL preset | **Selects** it (filled pink). Never trades. Default selection 25% (slot 1). |
+| Click a SELL preset | **Selects** it (filled pink). Never trades. Default selection 25% (`X`). |
 | ▲ BOOST / `Space` | Buys the **custom $ field if one is typed**, otherwise the selected BUY preset. The button shows the amount (`▲ BOOST $5`, or `▲ BOOST $12 custom`). |
-| ▼ DUMP / `Shift` | Sells the selected SELL preset (`▼ DUMP 50%`; INITIALS = recover the cost basis). Disabled with 0 tokens. |
+| ▼ DUMP / `Shift` | Sells the **custom sell field if one is typed**, otherwise the selected SELL preset. The button shows the exact amount (`▼ DUMP 10%`, `▼ DUMP 37% custom`, `▼ DUMP $129.12K custom`). Disabled with 0 tokens. |
+| Custom sell field + `%`/`$` toggle (next to DUMP) | `%` (default) = percent of holdings (max 100). `$` = USD value, capped at the position value. Enter fires it. The unit is remembered. |
 | `1`–`6` | Shortcut: **buy** that preset instantly and select it. |
-| `Z` `X` `C` `V` | Shortcut: **sell** 25% · 50% · 100% · INITIALS instantly and select it. |
+| `Z` `X` `C` `V` | Shortcut: **sell** 10% · 25% · 50% · 100% instantly and select it (presets, ignore the custom field). |
+
+Amounts on buttons and labels use the shared formatter (`fmtMoney`, lib/pnl.ts): under $1K two decimals (`$0.20`, `$129.12`), from $1K always two decimals with K/M/B/T (`$129.12K`, `$1.50M`).
 
 Both selections are remembered (localStorage `${scope}sel`, per paper / live / simulator scope).
 
-Sell presets are editable in ⚙ ADV → Swap settings. Saved presets from before the audit that still equal the old
-defaults (12 / 33 / 77) are migrated to 25 / 50 / 100; any slot you edited is kept (settings `v: 2`).
+Sell presets are editable in ⚙ ADV → Swap settings. Defaults are 10 / 25 / 50 / 100 %
+(INITIALS was removed). Saved presets that still equal an old default (v1 12 / 33 / 77, v2 25 / 50 / 100) or a slot set
+to INITIALS migrate to the new default for that slot; any custom numeric value is kept (settings `v: 3`). A remembered
+SELL selection from the old layout moves with its preset (25 → `X`, 50 → `C`, 100 → `V`, INITIALS → 25%).
 
 **No tokens ⇒ no sell.** DUMP, the SELL row and Z/X/C/V are greyed out with zero holdings; pressing them shows
 "NO TOKENS IN WALLET" and makes no trade and no bomb. Guards: the engine (`trade()`), the paper/sim ledgers

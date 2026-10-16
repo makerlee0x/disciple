@@ -75,10 +75,10 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
 }
 
 /** Shared PnL money/percent formatting (HUD, rocket tag, bottom bar, toasts).
- *  $ always 2 decimals; ≥ $1K compact with 2 decimals ($1.23K / $4.56M / $7.89B). Percent: 1 decimal. */
+ *  $ always 2 decimals; ≥ $1K compact with 2 decimals ($1.23K / $4.56M / $7.89B / $1.00T). Percent: 1 decimal. */
 export function fmtMoney(v: number): string {
   const a = Math.abs(v), s = v < 0 ? "−" : "";
-  const n = a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(2) + "M" : a >= 1e3 ? (a / 1e3).toFixed(2) + "K" : a.toFixed(2);
+  const n = a >= 1e12 ? (a / 1e12).toFixed(2) + "T" : a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(2) + "M" : a >= 1e3 ? (a / 1e3).toFixed(2) + "K" : a.toFixed(2);
   return s + "$" + n;
 }
 /** Signed: "+$0.11" / "−$0.11"; zero (and −0.00 after rounding) shows "+$0.00". */

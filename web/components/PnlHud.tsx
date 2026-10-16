@@ -111,7 +111,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
   useEffect(() => {
     (window as unknown as FlightWin).__entryMcap = v.size > 0 ? v.entryMcap : undefined;
   }, [v.size, v.entryMcap]);
-  // position for the ammo bar's % / "sell initials" buttons (same ledger, same real mark)
+  // position for the ammo bar's % sell buttons (same ledger, same real mark)
   useEffect(() => {
     dispatchEvent(new CustomEvent("disciple:position", { detail: { size: v.size, valueUsd: v.valueUsd, costBasis: pos.costBasis } }));
   }, [v.size, v.valueUsd, pos.costBasis]);
