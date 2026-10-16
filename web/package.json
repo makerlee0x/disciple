@@ -13,6 +13,7 @@
     "test:pnl": "node scripts/test-pnl.mjs",
     "test:trail": "node scripts/test-trail.mjs",
     "test:gamechat": "node scripts/test-gamechat.mjs",
+    "test:chat": "node scripts/test-chat.mjs",
     "test:sim": "node scripts/test-sim.mjs"
   },
   "dependencies": {

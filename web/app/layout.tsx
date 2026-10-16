@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import ChatBridge from "@/components/chat/ChatBridge";
 
 export const metadata: Metadata = {
   title: "DISCIPLE — Every coin is a rocket",
@@ -19,6 +20,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <AppShell>{children}</AppShell>
+        <ChatBridge />
       </body>
     </html>
   );
