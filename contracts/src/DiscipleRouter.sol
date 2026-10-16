@@ -227,7 +227,9 @@ contract DiscipleRouter is IUnlockCallback {
         }
         (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
         // token is c0 iff buying means zeroForOne == false
-        (address tokenAddr,,,, uint256 qpx) = DiscipleHook(hook).metaOf(d.key.toId());
+        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(d.key.toId());
+        // Audit #13: same live quote/USD as the hook's Trade event (falls back to launch price inside the hook).
+        uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
         uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
         uint256 pAfter = DiscipleHook(hook).priceX18FromSqrt(sa, tokenIsC0);

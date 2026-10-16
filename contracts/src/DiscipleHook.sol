@@ -21,14 +21,22 @@ import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {Altitude} from "./libraries/Altitude.sol";
 
+interface IMigrationLockedLP {
+    function lockedLP() external view returns (address);
+}
+
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
 /// @notice Pool LP fee is 0; this hook takes 1% of swap output and routes via FeeRouter (33/33/33/1).
 /// @dev Must be mined to an address with
-///      BEFORE_ADD_LIQUIDITY_FLAG | BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
+///      BEFORE_INITIALIZE_FLAG | BEFORE_ADD_LIQUIDITY_FLAG | BEFORE_SWAP_FLAG | AFTER_SWAP_FLAG |
+///      AFTER_SWAP_RETURNS_DELTA_FLAG.
+///      beforeInitialize (audit #2): only LockedLP (via Migration at graduation) may initialize a pool on this
+///      hook, so nobody can pre-initialize a DISCIPLE pool at a bad price.
 ///      beforeSwap snapshots sqrtPrice (transient) for the Trade event. afterSwap emits Trade, then
 ///      AltitudeUpdate (SPOT mcap after the trade) and TierBreak when the spot tier changes.
 ///      beforeAddLiquidity (SEC-02): only allowlisted liquidity managers (LockedLP, TrampWallManager) may add,
-///      so nobody can JIT raw v4 positions around a swap; TrampWallManager enforces a minimum hold.
+///      so nobody can JIT raw v4 positions around a swap. TrampWallManager positions are strictly single-sided
+///      one-tick-spacing bands placed out of range; there is no minimum hold period.
 contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
@@ -46,7 +54,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         uint256 quotePriceUsd; // launch-time USD WAD per 1e18 raw quote (for mcapAfterUsd)
     }
 
-    /// @notice Allowlisted routers (DiscipleRouter, Uniswap UniversalRouter, ...). When the swap `sender` is
+    /// @notice Allowlisted routers (only DiscipleRouter in production; UniversalRouter must NOT be trusted, SEC-05). When the swap `sender` is
     ///         trusted and hookData is exactly abi.encode(address trader), that trader is credited (Trade event +
     ///         referral). Otherwise the `sender` itself is the trader (no referral unless sender is referred).
     mapping(address => bool) public isTrustedRouter;
@@ -68,6 +76,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     error NotRegistered();
     error OnlyAdmin();
     error OnlyLiquidityManager();
+    error OnlyLockedLP();
 
     // ── SEC-02 LP gate / altitude ───────────────────────────────────────────
     /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
@@ -90,9 +99,11 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         Hooks.validateHookPermissions(this, getHookPermissions());
     }
 
+    /// @notice One-time wire when constructed with migration == address(0). Audit #12: admin-only (the deployer,
+    ///         set in the constructor) so it cannot be front-run between hook deploy and wiring.
     function setMigration(address m) external {
-        // one-time wire if constructed with address(0)
-        require(migration == address(0) || msg.sender == migration, "DiscipleHook: mig");
+        if (msg.sender != admin) revert OnlyAdmin();
+        require(migration == address(0) && m != address(0), "DiscipleHook: mig");
         migration = m;
     }
 
@@ -108,6 +119,11 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     function setPricer(address p) external {
         if (msg.sender != admin) revert OnlyAdmin();
         pricer = IQuotePricer(p);
+    }
+
+    /// @notice Live quote/USD price used for Trade-event mcap (audit #13: DiscipleRouter.quoteExactIn uses this too).
+    function quoteUsdOf(PoolId id) external view returns (uint256) {
+        return _quoteUsd(metaOf[id]);
     }
 
     function _quoteUsd(PoolMeta memory m) internal view returns (uint256) {
@@ -133,7 +149,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
 
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
-            beforeInitialize: false,
+            beforeInitialize: true,
             afterInitialize: false,
             beforeAddLiquidity: true,
             afterAddLiquidity: false,
@@ -295,8 +311,16 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     }
 
     // ── unused hooks revert ──────────────────────────────────────────────────
-    function beforeInitialize(address, PoolKey calldata, uint160) external pure returns (bytes4) {
-        revert HookNotImplemented();
+    /// @dev Audit #2: only LockedLP (seeding at graduation, called by Migration) may initialize.
+    function beforeInitialize(address sender, PoolKey calldata, uint160)
+        external
+        view
+        onlyPoolManager
+        returns (bytes4)
+    {
+        address m = migration;
+        if (m == address(0) || sender != IMigrationLockedLP(m).lockedLP()) revert OnlyLockedLP();
+        return IHooks.beforeInitialize.selector;
     }
 
     function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
