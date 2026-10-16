@@ -7,10 +7,11 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import { drawShareScene, composeRocket, tierAt, FONT, type SceneData, type MakeCanvas, type Loadout } from "./scene";
 import type { Fill } from "../trades";
+import type { LoadoutIds } from "./loadout";
 import type { PositionPnl } from "../sharePnl";
 
 export type ReplayTrade = { ts: number; tx: string; li: number; side: "buy" | "sell"; usd: number; mcapUsd: number; impactBps: number; trader: string; mine: boolean };
-type ReplayHandle = { canvas: HTMLCanvasElement; frames: number; fps: number; step(): { i: number; t: number; done: boolean } | null; hash(): string; dispose(): void; on(k: string, cb: (d: unknown) => void): () => void };
+type ReplayHandle = { loadout?: { skin: string; thruster: string; noseCoin: string }; canvas: HTMLCanvasElement; frames: number; fps: number; step(): { i: number; t: number; done: boolean } | null; hash(): string; dispose(): void; on(k: string, cb: (d: unknown) => void): () => void };
 type ReplayFn = (o: Record<string, unknown>) => Promise<ReplayHandle>;
 
 export const VIDEO = { width: 1080, height: 1920, fps: 30, replaySec: 12, endSec: 3 };
@@ -59,7 +60,7 @@ export function loadShareFonts() {
 }
 export async function endCardAssets(mcapEnd: number, lo: Loadout) {
   await loadShareFonts();
-  const [bg, base] = await Promise.all([img(`${BASE()}/assets/tier${tierAt(mcapEnd).bg}.png`), img(`${BASE()}/assets/rocket.png`)]);
+  const [bg, base] = await Promise.all([img(`${BASE()}${tierAt(mcapEnd).sky}`), img(`${BASE()}/assets/rocket.png`)]);
   return { bg, rocket: base ? composeRocket(mkDom, base, lo, 4) : null };
 }
 
@@ -119,15 +120,19 @@ async function encodeMediaRecorder(src: FrameSource, cv: HTMLCanvasElement, onP:
 /** Render replay + end card and encode. Returns null when no replay hook or no encoder (→ PNG fallback). */
 export async function renderShareVideo(opts: {
   coin: string; ticker: string; wallet: string; pnl: PositionPnl; coinFills: Fill[]; scene: SceneData; loadout: Loadout;
+  /** Rocket Factory ids (rocketSkin ids without prefixes) → replay({loadout:{skin, thruster, noseCoin}}) so the replayed rocket matches the end card */
+  loadoutIds: LoadoutIds;
   onProgress?: (p: number, stage: string) => void; forceEncoder?: "webcodecs" | "mediarecorder";
 }): Promise<VideoResult | null> {
   const onP = opts.onProgress ?? (() => {});
   onP(0, "loading replay engine");
   const replay = await getReplay(); if (!replay) return null;
   const { trades, t0, t1, startMcap } = buildReplayTrades(opts.coinFills.length ? opts.coinFills : opts.pnl.fills, opts.wallet, opts.pnl);
+  const replayLoadout = { skin: opts.loadoutIds.skin, thruster: opts.loadoutIds.thruster, noseCoin: opts.loadoutIds.coin };
   const seed = Number.parseInt(opts.coin.slice(2, 10) || "7", 16) ^ Number.parseInt(opts.wallet.slice(2, 10) || "1", 16);
   const r = await replay({ coin: opts.coin, supply: 7e9, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps,
-    width: VIDEO.width, height: VIDEO.height, seed, clean: true });
+    width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });
+  if (r.loadout && (r.loadout.skin !== replayLoadout.skin || r.loadout.noseCoin !== replayLoadout.noseCoin)) console.warn("[share] replay normalized loadout", r.loadout);
   onP(0, "preparing end card");
   const assets = await endCardAssets(opts.scene.mcapEnd, opts.loadout);
   const endFrames = VIDEO.endSec * VIDEO.fps, total = r.frames + endFrames;
@@ -148,7 +153,7 @@ export async function renderShareVideo(opts: {
     if (opts.forceEncoder !== "mediarecorder") out = await encodeWebCodecs(src, cv, prog).catch((e) => { console.warn("[share] webcodecs failed", e); return null; });
     if (!out && opts.forceEncoder !== "webcodecs") {
       // replay frames were consumed if WebCodecs failed midway → restart the replay for the recorder
-      const r2 = await replay({ coin: opts.coin, supply: 7e9, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps, width: VIDEO.width, height: VIDEO.height, seed, clean: true });
+      const r2 = await replay({ coin: opts.coin, supply: 7e9, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps, width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });
       Object.assign(r, { step: r2.step.bind(r2), canvas: r2.canvas, hash: r2.hash.bind(r2) });
       out = await encodeMediaRecorder(src, cv, prog);
     }

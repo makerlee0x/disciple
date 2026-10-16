@@ -1,12 +1,13 @@
 /**
  * Share card scene, one renderer for every surface:
  *   server PNG (/api/share/card via @napi-rs/canvas) · client video end card (lib/share/video.ts).
- * Look: the game's own tier sky plate (public/assets/tierN.png, same TIERS→bg map as engine.js) graded down into a
+ * Look: the game's own tier sky plate (FLIGHT_TIERS[i].sky from lib/flight/tiers.ts, the same list engine.js embeds) graded down into a
  * liminal haze, the pilot's skinned rocket (rocket.png + skin tint + nose coin + thruster colours from the Rocket
  * Factory loadout) climbing through it, film grain, vignette, and heavy Geist type with a glowing +$.
  * Pure canvas 2D: no DOM, no fetch. Callers pass loaded images and a canvas factory.
  */
 import { fmtCt, fmtMcap, fmtMoney, fmtPct } from "./format";
+import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ctx = any; // CanvasRenderingContext2D | @napi-rs/canvas SKRSContext2D
@@ -14,14 +15,8 @@ type Cv = { width: number; height: number; getContext(k: "2d"): Ctx };
 export type MakeCanvas = (w: number, h: number) => Cv;
 type Img = any; // drawable
 
-/** Tier ladder copy (engine.js TIERS: name, lo, bg plate). Keep in sync with the engine (read-only there). */
-export const SHARE_TIERS: { name: string; lo: number; bg: number }[] = [
-  ["LAUNCH PAD", 7e3, 0], ["LIMBO", 12e3, 1], ["ASCENSION", 18e3, 2], ["NARROW GATE", 25e3, 3], ["PEARLY GATES", 33e3, 4],
-  ["FIRMAMENT", 55e3, 5], ["ANGELS", 100e3, 6], ["ARCHANGELS", 333e3, 7], ["HEAVENLY HOST", 777e3, 8], ["MORNING STARS", 1.2e6, 9],
-  ["VIRTUES", 3.3e6, 0], ["DOMINIONS", 7.7e6, 1], ["THRONE ROOM", 33e6, 2], ["CHERUBIM", 77e6, 3], ["SERAPHIM", 120e6, 4],
-  ["AETHER", 777e6, 5], ["EMPYREAN", 1.2e9, 6], ["SEVENTH HEAVEN", 3.3e9, 7],
-].map(([name, lo, bg]) => ({ name: name as string, lo: lo as number, bg: bg as number }));
-export function tierAt(mcap: number) { let i = 0; while (i < SHARE_TIERS.length - 1 && mcap >= SHARE_TIERS[i + 1].lo) i++; return { index: i, ...SHARE_TIERS[i] }; }
+/** Tier ladder: single source lib/flight/tiers.ts (added by #50 — this PR depends on it). */
+export function tierAt(mcap: number) { const index = tierIndexAt(mcap); return { index, ...FLIGHT_TIERS[index] }; }
 
 export interface Loadout { skin: { tint: string | null; mode?: "color" | "multiply"; strength?: number; sheen?: string }; coin: { bg: [string, string]; ink: string; glyph: string; rim: string; id: string }; thruster: { core: string; flame: string } }
 export interface SceneData {

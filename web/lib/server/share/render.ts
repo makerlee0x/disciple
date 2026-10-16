@@ -21,7 +21,7 @@ const mk: MakeCanvas = (w, h) => createCanvas(w, h) as never;
 export async function renderSharePng(d: SceneData, ids: Partial<LoadoutIds>, format: "story" | "og"): Promise<Buffer> {
   fonts();
   const lo = loadoutFromIds(ids);
-  const [bg, base] = await Promise.all([asset(`tier${tierAt(d.mcapEnd).bg}`), asset("rocket")]);
+  const [bg, base] = await Promise.all([asset(tierAt(d.mcapEnd).bg), asset("rocket")]);
   const rocket = base ? composeRocket(mk, base, lo, 4) : null;
   const H = format === "story" ? 1920 : 1080;
   const c = createCanvas(1080, H);
