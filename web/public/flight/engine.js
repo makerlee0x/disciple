@@ -643,15 +643,17 @@ function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|i
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode));
   if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0?{usd:d.usd,frac:d.frac}:undefined); });
+const isTyping=e=>{ const t=e.target; return !!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')); };
 addEventListener('keydown',e=>{
+  if (isTyping(e)) return;   // typing in a field (chat, amount) never steers or trades
   S.keys[e.code]=true;
+  if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
   if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
   if (e.code==='ShiftLeft'||e.code==='ShiftRight'){ if(!e.repeat) trade('sell',{all:e.ctrlKey||e.metaKey}); }
   const dm=/^Digit([1-6])$/.exec(e.code); if(dm){ S.mode=+dm[1]-1;  pushAmmo(); }
   if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
-  if (!e.repeat&&(e.code==='KeyA'||e.code==='ArrowLeft')) S.lane=Math.max(0,S.lane-1);
-  if (!e.repeat&&(e.code==='KeyD'||e.code==='ArrowRight')) S.lane=Math.min(2,S.lane+1);
+  // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
   if (e.code==='KeyW'||e.code==='ArrowUp') e.preventDefault();   // W/↑ held = mini acceleration (S.keys → S.wBoost; off-chain, no trade)
   if (e.code==='KeyO'&&!e.repeat) setOrbs(!S.orbsOn);
   if (e.code==='KeyB'&&!e.repeat) setBombs(!S.bombsOn);
@@ -665,6 +667,7 @@ document.getElementById('orbBtn').addEventListener('click',e=>{ setOrbs(!S.orbsO
 setOrbs(S.orbsOn);
 addEventListener('keyup',e=>{ S.keys[e.code]=false; });
 addEventListener('blur',()=>{ S.keys={}; });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) S.keys={}; });
 
 /* =====================================================================
    RENDER
@@ -691,7 +694,7 @@ function resize(){ const dpr=Math.min(DPR_PIN||DPR_STEPS[dprIx],devicePixelRatio
   ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0); }
 function relayout(w,h){ if(w===W&&h===H&&typeof ROCKET_Y!=='undefined') return; const ow=W;
   W=w; H=h; LANES[0]=W/2-150; LANES[1]=W/2; LANES[2]=W/2+150; ROCKET_Y=H*0.60;
-  if(typeof S!=='undefined'&&S){ S.x=S.x*(W/ow); } }
+  if(typeof S!=='undefined'&&S){ S.x=S.x*(W/ow); if(S.steer) S.steer.x*=W/ow; } }
 // ammo tiles are mouse targets: whole tile = hit area, hover highlight, click selects (same as 1-6)
 function ammoAt(e){ const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height;
   for(let i=0;i<AMMO_HIT.length;i++){ const R=AMMO_HIT[i]; if(x>=R.x&&x<=R.x+R.w&&y>=R.y&&y<=R.y+R.h) return i; } return -1; }
@@ -1423,6 +1426,25 @@ function debugBomb(spec,opt){ opt=opt||{};
   const pct=typeof spec==='number'?spec:[0.8,3.2,8,18,35,55][Math.max(0,i)];
   noteSell({side:'sell',usd:opt.usd??[40,600,8900,31e3,120e3,480e3][Math.max(0,bombTierOf(pct))],impactPct:pct,trader:opt.trader||'0xabc1230000000000000000000000000000def456',fullStack:!!opt.fullStack}); }
 
+/*STEER-BEGIN*/
+/* Arcade hold-to-steer (pure; unit-tested by test-heading.mjs + test-camera.mjs).
+   dir ∈ [−1, 1] from held keys. Lateral velocity with acceleration, max speed and damping, scaled to the
+   screen width: crosses the full width in ≈1 s of holding. Release damps to a stop (tilt eases upright).
+   Edges: soft stop with a small bounce. Returns st.x; st.vx in px/s. */
+const STEER_VMAX=1.1, STEER_ACC=7, STEER_DAMP=7, STEER_REV=2.2, STEER_BOUNCE=0.18;   // ×W per s / s²
+function steerMargin(W){ return Math.min(60, W*0.045); }
+function stepSteer(st, dir, dt, W){
+  dir=Number.isFinite(dir)?Math.max(-1,Math.min(1,dir)):0; if(!(dt>0)) return st.x;
+  const vmax=STEER_VMAX*W, acc=STEER_ACC*W, m=steerMargin(W);
+  let vx=Number.isFinite(st.vx)?st.vx:0;
+  if (dir){ const rev=vx*dir<0?STEER_REV:1; vx+=dir*acc*rev*dt; if (Math.abs(vx)>vmax) vx=Math.sign(vx)*vmax; }
+  else vx*=Math.exp(-STEER_DAMP*dt);
+  let x=(Number.isFinite(st.x)?st.x:W/2)+vx*dt;
+  if (x>W-m){ x=W-m; vx=vx>0?-vx*STEER_BOUNCE*(dir>0?0:1):vx; }
+  if (x<m){ x=m; vx=vx<0?-vx*STEER_BOUNCE*(dir<0?0:1):vx; }
+  st.x=x; st.vx=vx; return x;
+}
+/*STEER-END*/
 /*HEADING-BEGIN*/
 function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI+(S.wob||0),AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }   // blast wobble ≤ ±6°, final angle still clamped
 /* Rocket heading physics (pure; unit-tested by web/scripts/test-heading.mjs).
@@ -1562,7 +1584,11 @@ function simStep(stepDt){
   // lateral = lane + small cosmetic drift (buy/sell imbalance + slow wind). Never a sideways cruise.
   const imb=MOM.vol>0?clamp((MOM.buy-MOM.sell)/MOM.vol,-1,1):0;
   S.drift=lerp(S.drift||0, imb*26 + 16*Math.sin(S.t*0.23) + 7*Math.sin(S.t*0.61+1.3), 1-Math.exp(-dt*0.8));
-  const nx=lerp(S.x,LANES[S.lane]+S.drift,1-Math.exp(-dt*steer)); S.vx=(nx-S.x)/Math.max(dt,1e-3); S.x=nx;
+  const K=S.keys||{}, dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
+  if (S.steer==null) S.steer={x:S.x,vx:0};
+  stepSteer(S.steer, dir*(steer/7), dt, W);         // hold-to-steer (VOID orb: weaker thrust)
+  { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35,m,W-m); S.vx=S.steer.vx; }
+  S.dive=lerp(S.dive||0,(K.KeyS||K.ArrowDown)?1:0,1-Math.exp(-dt*((K.KeyS||K.ArrowDown)?8:4)));   // S/↓ = dive (cosmetic, off-chain)
   const bankTarget=clamp(-S.vx/900,-0.38,0.38);
   S.bank=lerp(S.bank||0,bankTarget,1-Math.exp(-dt*6));
   // price velocity in px/s (unsmoothed, for clouds / speed lines) then a short visual smoother
@@ -1595,10 +1621,10 @@ function simStep(stepDt){
   S.cruise=0;                                       // legacy sideways-cruise mode retired (rocket stays upright)
   momentumStep(dt);
   if (sinceThrust>1.2) S.aimDeg=0;
-  S.lean=Math.tanh((S.vxS||0)/60);                 // lateral term: drift / lane change → which side, how far (follows velocity)
+  S.lean=clamp((S.steer?S.steer.vx:0)/(STEER_VMAX*W)+Math.tanh((S.drift||0)*0.35/60)*0.3,-1,1);                 // lateral term: drift / lane change → which side, how far (follows velocity)
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
-  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);
+  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0)-260*(S.dive||0);   // S/↓ dive noses down
   stepHeading(S, aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // CAMERA — critically damped spring in pixel space, then hard caps on speed and acceleration.
@@ -1611,7 +1637,7 @@ function simStep(stepDt){
   // screen anchor eases on resize (no jump when the window / sidebar changes)
   S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ROCKET_Y,1-Math.exp(-dt*5));
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) - 22*(S.wBoost||0) - 34*(S.buyBoost||0);   // W nudge / buy turbo hop, decays back
+  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) - 22*(S.wBoost||0) - 34*(S.buyBoost||0) + 40*(S.dive||0);   // W nudge / buy turbo hop, decays back
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);

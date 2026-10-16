@@ -27,4 +27,12 @@ for (const fps of [30, 60, 144]) {
   }
 }
 console.log(`max camera delta ${worst.toFixed(2)} px per 1/60 s frame (cap ${(CAM_VMAX / 60).toFixed(1)}), max Δv ${worstV.toFixed(1)} px/s per frame (cap ${(CAM_AMAX / 30).toFixed(0)} @30fps), rocket y ${ryLo.toFixed(3)}–${ryHi.toFixed(3)} H`);
+// hold-to-steer through the lateral camera follow (engine: camX critically damped ω 8 on S.x; the rocket is drawn at camX)
+{ const sc = src.slice(src.indexOf("/*STEER-BEGIN*/"), src.indexOf("/*STEER-END*/"));
+  const { stepSteer } = new Function(sc + "return {stepSteer};")();
+  for (const W of [800, 1440, 2560]) { const st = { x: W / 2, vx: 0 }; let camX = W / 2, camXV = 0, maxJ = 0; const dt = 1 / 60;
+    const run = (dir, secs) => { for (let k = 0; k < secs * 60; k++) { stepSteer(st, dir, dt, W); const e = st.x - camX, w = 8, pv = camXV; camXV += (w * w * e - 2 * w * camXV) * dt; camX += camXV * dt; maxJ = Math.max(maxJ, Math.abs(camXV - pv)); } };
+    run(1, 1.5); if (!(camX >= W * 0.95)) bad(`hold D 1.5 s: drawn x ${(camX / W * 100).toFixed(1)}% (W=${W})`); const r = camX;
+    st.x = camX = W / 2; st.vx = camXV = 0; run(-1, 1.5); if (!(camX <= W * 0.05)) bad(`hold A 1.5 s: drawn x ${(camX / W * 100).toFixed(1)}% (W=${W})`);
+    if (W === 1440) console.log(`steer: drawn rocket x after holding D 1.5 s ${(r / W * 100).toFixed(1)}% of width, after A ${(camX / W * 100).toFixed(1)}%`); } }
 if (fail) { console.error(`${fail} violations`); process.exit(1); } else console.log("PASS");
