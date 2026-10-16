@@ -18,7 +18,8 @@ export const EVENTS = parseAbi([
   "event Filled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, address keeper)",
   "event Cancelled(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint256 quoteOut, uint256 tokenOut, uint256 quoteFees, uint256 tokenFees)",
   "event FeesClaimed(uint256 indexed id, address indexed owner, address indexed token, uint256 quoteFees, uint256 tokenFees)",
-  "event TradeFeeRouted(address indexed token, address indexed quote, address indexed trader, uint256 creatorShare, uint256 lpShare, uint256 treasuryShare, uint256 referralShare, uint256 creatorTaxAmount)",
+  // audit #11: payees + fee token; amounts are in feeToken units (feeIsQuote=false → launch-token units post-grad)
+  "event TradeFeeRouted(address indexed token, address indexed feeToken, address indexed trader, bool feeIsQuote, address creator, uint256 creatorShare, uint256 creatorTaxAmount, uint256 lpShare, uint256 treasuryShare, address referralPayee, uint256 referralShare, address kolPayee, uint256 kolShare)",
   "event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount)",
   "event SnipeFeeRoutedToLP(address indexed token, address indexed quote, uint256 amount)",
   "event SnipeFeeRouted(address indexed token, address indexed quote, uint256 toRewards, uint256 toTreasury)",

@@ -90,10 +90,10 @@ contract JitTwapTest is IntegrationBase {
         if (!_tIs0()) {
             // quote is c0 → quote-only range sits ABOVE the pool tick
             lo = a + ts;
-            hi = lo + ts * w;
+            hi = lo + ts * w / w; // audit #6: bands are exactly one tick spacing
         } else {
             hi = a;
-            lo = hi - ts * w;
+            lo = hi - ts * w / w; // audit #6
         }
     }
 
@@ -169,14 +169,16 @@ contract JitTwapTest is IntegrationBase {
         vm.recordLogs();
         _sell(whale, 2_000_000 ether); // fee in quote
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,bool,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)");
         uint256 cs;
         uint256 lps;
         uint256 ts;
         uint256 rs;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == tfr) {
-                (cs, lps, ts, rs,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                (,, cs,, lps, ts,, rs,,) = abi.decode(
+                    logs[i].data, (bool, address, uint256, uint256, uint256, uint256, address, uint256, address, uint256)
+                );
             }
         }
         uint256 fee = cs + lps + ts + rs;
@@ -273,10 +275,10 @@ contract JitTwapTest is IntegrationBase {
         int24 a = _floor(tick, ts);
         if (c0Side) {
             lo = a + ts;
-            hi = lo + ts * w;
+            hi = lo + ts * w / w; // audit #6: bands are exactly one tick spacing
         } else {
             hi = a;
-            lo = hi - ts * w;
+            lo = hi - ts * w / w; // audit #6
         }
     }
 
