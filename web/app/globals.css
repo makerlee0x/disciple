@@ -1227,7 +1227,6 @@ select.ds-input option, select option { background: #0e1028; color: #eef0ff; }
 /* chrome coin webp carries 16% shadow padding each side of its diameter (D = .468u) */
 .pa-coin { position: absolute; left: calc(var(--o) + var(--u) * .532 - var(--u) * .468 * .16); top: calc(var(--o) + var(--u) * .532 - var(--u) * .468 * .16); width: calc(var(--u) * .468 * 1.32); height: calc(var(--u) * .468 * 1.32); }
 .pa-coin-sm { position: absolute; left: calc(var(--o) + var(--u) * .532); top: calc(var(--o) + var(--u) * .532); width: calc(var(--u) * .468); height: calc(var(--u) * .468); }
-.pa-grain { position: absolute; inset: 0; opacity: .32; background-size: 192px 192px; pointer-events: none; }
 .pa-list, .pa-icon { --u: 100%; --o: 0%; overflow: visible; contain: layout size style; border-radius: 0; }
 .pa-icon .pa-sq { box-shadow: none; }
 .pa-solo .pa-sq { left: 0; top: 0; width: 100%; height: 100%; }

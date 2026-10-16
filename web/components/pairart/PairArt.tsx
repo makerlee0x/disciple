@@ -13,7 +13,7 @@
  */
 import { memo } from "react";
 import { withBase } from "@/lib/base-path";
-import { basePair, pairCoin, pairCoinSm, PAIR_GRAIN, PAIR_SKY } from "@/lib/pairArt";
+import { basePair, pairCoin, pairCoinSm, PAIR_SKY } from "@/lib/pairArt";
 
 export type PairArtSize = "header" | "grid" | "list" | "icon";
 const PX: Record<PairArtSize, number> = { header: 220, grid: 150, list: 40, icon: 24 };
@@ -55,7 +55,6 @@ function PairArt({ src, pair, tk = "", tint = "#e3d6ff", size = "grid", px, clas
         // eslint-disable-next-line @next/next/no-img-element
         <img className={sm ? "pa-coin-sm" : "pa-coin"} src={sm ? pairCoinSm(bp.tk) : pairCoin(bp.tk)} alt="" loading={load} decoding="async" draggable={false} />
       )}
-      {bg && <span className="pa-grain" style={{ backgroundImage: `url(${withBase(PAIR_GRAIN)})` }} />}
     </span>
   );
 }

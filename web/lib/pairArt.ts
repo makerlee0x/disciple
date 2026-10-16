@@ -19,7 +19,7 @@ export const BASE_PAIRS: BasePair[] = [
   { tk: "delta", sym: "DELTA", name: "Delta", tint: "#9ff3c8", real: true, source: "DexScreener (Robinhood)" },
   { tk: "shroom", sym: "SHROOM", name: "MUSHROOM", tint: "#f0dcb4", real: true, source: "DexScreener (Robinhood)" },
   { tk: "bow", sym: "BOW", name: "Longbow", tint: "#c9a86a", real: true, source: "DexScreener (Robinhood)" },
-  { tk: "mstr", sym: "MSTR", name: "Strategy Inc.", tint: "#ff6b6b", real: true, source: "Simple Icons (MicroStrategy mark)" },
+  { tk: "mstr", sym: "MSTR", name: "Strategy Inc.", tint: "#e97232", real: true, source: "Maker-provided (Strategy₿ wordmark)" },
   { tk: "nvda", sym: "NVDA", name: "NVIDIA", tint: "#76b900", real: true, source: "Maker-provided (cropped to eye mark)" },
   { tk: "spcx", sym: "SPCX", name: "SpaceX", tint: "#d8dce8", real: true, source: "Simple Icons" },
   { tk: "tsla", sym: "TSLA", name: "Tesla", tint: "#ff5a64", real: true, source: "Maker-provided" },
@@ -37,7 +37,6 @@ export const pairLogo = (tk: string) => withBase(`/pairs/${tk}.png`);
 export const pairCoin = (tk: string) => withBase(`/pairs/coin/${tk}.webp`);
 export const pairCoinSm = (tk: string) => withBase(`/pairs/sm/${tk}.webp`);
 export const PAIR_SKY = "/pair-art/sky.webp";
-export const PAIR_GRAIN = "/pair-art/grain.png";
 /** Placeholder new-coin squares (gritty monograms). */
 export const SAMPLE_SQUARES = Array.from({ length: 24 }, (_, i) => `/pair-art/sq/m${String(i).padStart(2, "0")}.webp`);
 export const SAYLOR_SQUARE = "/pair-art/sq/saylor.webp";

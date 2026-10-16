@@ -1,6 +1,6 @@
 """
 Pair-art asset generator (offline; outputs are committed). Port of disciple-shots/h2h-mocks v6 make6.py
-+ v7/v8 tweaks (coin at 90%, silver chrome rim, group centered, haze behind/below only, light grain).
++ v7/v8 tweaks (coin at 90%, silver chrome rim, group centered, haze behind/below only; grain on the sky only — logos and coin squares stay clean).
 
   python3 scripts/pair-art/gen.py [SRC_DIR]
 
@@ -9,7 +9,6 @@ Writes (under web/public):
   pairs/coin/<tk>.webp  256px silver-chrome-rimmed coin, transparent, drop shadow baked in
   pairs/sm/<tk>.webp    64px coin with a simplified flat-silver rim (tiny icons)
   pair-art/sky.webp     dreamcore cloud sky w/ haze below + group shadow + grain (card background)
-  pair-art/grain.png    transparent grain tile laid over the pair at low opacity
   pair-art/sq/*.webp    gritty monogram placeholder squares for SAMPLE coins (+ saylor)
 """
 import os, sys, json
@@ -51,6 +50,14 @@ def full(path, bg=(255, 255, 255), inset=1.0):
 
 S_ = lambda f: os.path.join(SRC, f)
 
+def mstr_wordmark():
+    """Maker-provided Strategy₿ wordmark: crop to the ink, refit at ~76% width so it reads inside the circle."""
+    im = Image.open(S_("mstr.png")).convert("RGB"); bg = im.getpixel((3, 3))
+    a = np.abs(np.asarray(im).astype(int) - np.array(bg)).sum(-1) > 90
+    ys, xs = np.where(a); ink = im.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
+    W = int(512 * 0.76); ink = ink.resize((W, max(1, int(W * ink.height / ink.width))), Image.LANCZOS)
+    o = Image.new("RGB", (512, 512), bg); o.paste(ink, ((512 - ink.width) // 2, (512 - ink.height) // 2)); return o
+
 def nvda_eye():
     """Maker-provided NVIDIA tile, cropped to the eye mark (wordmark is illegible at coin size)."""
     im = Image.open(S_("nvda.jpg")).convert("RGB"); w = im.width / 225
@@ -69,7 +76,7 @@ LOGOS = {
     "tsla": lambda: full(S_("tsla.png"), (226, 30, 40)),
     "nvda": lambda: nvda_eye(),
     "spcx": lambda: on_disc(S_("spcx_mark.png"), (12, 12, 16), 0.7, 0.03, (245, 245, 250)),
-    "mstr": lambda: on_disc(S_("mstr_mark.png"), (255, 255, 255), 0.5),
+    "mstr": lambda: mstr_wordmark(),
 }
 
 # ---------- 2. silver chrome rim coin (make6.rimcoin, 'silver' env) ----------
@@ -145,11 +152,6 @@ def sky_bg(S=640):
     yy, xx = np.mgrid[0:S, 0:S]; c = S / 2; a *= (1 - 0.4 * (((xx - c) ** 2 + (yy - c) ** 2) / (2 * c * c)))[..., None]
     return Image.fromarray(np.clip(a, 0, 255).astype("uint8"))
 
-def grain(n=192):
-    v = rng.normal(0, 1, (n, n)); a = np.clip(np.abs(v) * 70, 0, 255).astype("uint8")
-    lum = np.where(v > 0, 255, 0).astype("uint8")
-    return Image.merge("RGBA", [Image.fromarray(lum)] * 3 + [Image.fromarray(a)])
-
 # ---------- 4. placeholder squares (gritty monogram) ----------
 FONT = "/usr/share/fonts/truetype/sand-box/google/Barlow Condensed/BarlowCondensed-Bold.ttf"
 SQ_COLORS = [((232, 92, 60), (40, 18, 12)), ((246, 206, 72), (40, 30, 8)), ((96, 170, 120), (10, 30, 18)), ((90, 120, 220), (10, 14, 40)),
@@ -164,9 +166,7 @@ def mono_square(txt, ci, n=256, seed=0):
     x, y = (n - w) / 2 - bb[0], (n - h) / 2 - bb[1]
     d.text((x + n * .02, y + n * .025), txt, font=f, fill=tuple(int(c * .55) for c in bg))
     d.text((x, y), txt, font=f, fill=fg)
-    a = np.asarray(im).astype(np.float32); a += r.normal(0, 16, (n, n, 1))
-    speck = r.random((n, n)) > 0.985; a[speck] = a[speck] * 0.5
-    return Image.fromarray(np.clip(a, 0, 255).astype("uint8"))
+    return im  # clean: grain lives only on the sky
 
 if __name__ == "__main__":
     lp, cp, sp = mk("pairs"), mk("pairs", "coin"), mk("pairs", "sm")
@@ -175,9 +175,9 @@ if __name__ == "__main__":
         with_shadow(rimcoin(logo), 256).save(os.path.join(cp, f"{tk}.webp"), quality=88, method=6)
         small(logo).save(os.path.join(sp, f"{tk}.webp"), quality=90, method=6)
         print("pair", tk)
-    ap = mk("pair-art"); sky_bg().save(os.path.join(ap, "sky.webp"), quality=80, method=6); grain().save(os.path.join(ap, "grain.png"), optimize=True)
+    ap = mk("pair-art"); sky_bg().save(os.path.join(ap, "sky.webp"), quality=80, method=6)
     qp = mk("pair-art", "sq")
     words = ["HA", "LI", "SE", "PE", "CH", "PS", "MA", "EX", "ZI", "GO", "EM", "VE", "RE", "AB", "OR", "NI", "CU", "LA", "CO", "GL", "SA", "HY", "AR", "LU"]
     for i, wd in enumerate(words): mono_square(wd, i, seed=i).save(os.path.join(qp, f"m{i:02d}.webp"), quality=82, method=6)
-    sq = Image.open(S_("saylor.jpg")).convert("RGB"); fit(ImageEnhance.Contrast(sq).enhance(1.12), 320).save(os.path.join(qp, "saylor.webp"), quality=86, method=6)
+    sq = Image.open(S_("saylor.jpg")).convert("RGB"); fit(sq, 320).save(os.path.join(qp, "saylor.webp"), quality=86, method=6)
     print(json.dumps(GEOM))
