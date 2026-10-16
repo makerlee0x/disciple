@@ -40,7 +40,7 @@ export type UserOpReceipt = { success: boolean; actualGasCost?: Hex; paymaster?:
 
 export type GasMode = "sponsored" | "self-pay";
 export class AAError extends Error {
-  constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted", msg: string, public extra?: Record<string, unknown>) { super(msg); }
+  constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted" | "Estimate", msg: string, public extra?: Record<string, unknown>) { super(msg); }
 }
 
 /** Bundler/paymaster transport. Default is JSON-RPC to Alchemy; tests can inject a local EntryPoint.handleOps bundler. */
@@ -62,6 +62,13 @@ export function alchemyBundler(url: string): Bundler {
       return j.result;
     },
   };
+}
+
+/** Pull a 0x revert payload out of a bundler error `data` (string, {revertData}, {data}, {reason}). */
+export function extractRevertData(d: unknown): Hex | undefined {
+  if (typeof d === "string") return /^0x[0-9a-fA-F]{8,}$/.test(d) ? (d as Hex) : undefined;
+  if (d && typeof d === "object") for (const k of ["revertData", "data", "reason"]) { const v = extractRevertData((d as Record<string, unknown>)[k]); if (v) return v; }
+  return undefined;
 }
 
 /** Alchemy errors that mean "no sponsorship available, self-pay instead". */
@@ -147,7 +154,14 @@ export class LightSmartAccount {
     try { prio = BigInt(await bundler.rpc("rundler_maxPriorityFeePerGas", [])); } catch { prio = BigInt(0); }
     op.maxPriorityFeePerGas = numberToHex(prio);
     op.maxFeePerGas = numberToHex((blk.baseFeePerGas ?? BigInt(0)) * BigInt(2) + prio);
-    const est = await bundler.rpc("eth_estimateUserOperationGas", [op, this.ep]);
+    let est;
+    try { est = await bundler.rpc("eth_estimateUserOperationGas", [op, this.ep]); }
+    catch (e) {
+      // Simulation failed BEFORE anything was signed or sent — not a mined revert. Keep the bundler's reason + revert data.
+      const rpcError = (e as AAError).extra?.rpcError as { message?: string; data?: unknown } | undefined;
+      const raw = (rpcError?.message || (e as Error).message || "").replace(/^eth_estimateUserOperationGas:\s*/, "");
+      throw new AAError("Estimate", `trade simulation failed: ${raw.slice(0, 200)}`, { rpcError, revertData: extractRevertData(rpcError?.data) });
+    }
     op.callGasLimit = numberToHex(BigInt(est.callGasLimit) * BigInt(12) / BigInt(10));
     op.verificationGasLimit = est.verificationGasLimit;
     op.preVerificationGas = numberToHex(BigInt(est.preVerificationGas) * BigInt(12) / BigInt(10));

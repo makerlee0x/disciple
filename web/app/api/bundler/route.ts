@@ -32,6 +32,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, result });
   } catch (e) {
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
-    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}` } });
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data: (e as { data?: string }).data } });
   }
 }
