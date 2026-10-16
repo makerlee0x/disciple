@@ -2,14 +2,18 @@ import "server-only";
 /**
  * Chat identity. Client signs `chatLoginMessage(addr, ts)` once per session:
  *  - EOA / Privy wallet: personal_sign by `addr` (ERC-1271/6492 also accepted via viem verifyMessage).
- *  - DISCIPLE smart account (LightAccount v2, maybe counterfactual): the account's OWNER key signs the raw
- *    keccak of the message; server checks factory.getAddress(owner, 0) === addr.
+ *  - DISCIPLE smart account (MAv2 SemiModular or legacy LightAccount v2, maybe counterfactual): the account's OWNER key signs the raw
+ *    keccak of the message; server checks MAv2 getAddressSemiModular(owner, 0) or LA factory.getAddress(owner, 0) === addr.
  * Server returns an HMAC-SHA256 token (CHAT_TOKEN_SECRET) valid 12h: base64url(payload).base64url(mac).
  */
 import { createHmac, timingSafeEqual } from "crypto";
-import { createPublicClient, http, keccak256, recoverMessageAddress, stringToBytes, type Address, type Hex } from "viem";
+import { createPublicClient, http, keccak256, parseAbi, recoverMessageAddress, stringToBytes, type Address, type Hex } from "viem";
 import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
 import { factoryAbi, LIGHT_ACCOUNT_V2_FACTORY } from "@/lib/aa/core";
+
+/** MAv2 factory (Privy-owned SemiModularAccountBytecode, salt 0). Kept inline so this server module doesn't pull aa-sdk. */
+const MAV2_FACTORY = "0x00000000000017c61b5bEe81050EC8eFc9c6fecd" as Address;
+const mav2FactoryAbi = parseAbi(["function getAddressSemiModular(address owner, uint256 salt) view returns (address)"]);
 import { launchpadAbi } from "@/lib/abi";
 import { CHAT_LIMITS, type ChatBadge, type ChatFrom } from "@/lib/chat/types";
 import { chatLoginMessage } from "@/lib/chat/login";
@@ -62,8 +66,12 @@ export async function verifyWalletSignature(addr: string, msg: string, sigIn: st
   if (owner && isAddr(owner)) {
     const rec = await recoverMessageAddress({ message: { raw: keccak256(stringToBytes(msg)) }, signature: sig }).catch(() => null);
     if (!rec || rec.toLowerCase() !== owner.toLowerCase()) return null;
-    const sa = await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: factoryAbi, functionName: "getAddress", args: [rec, BigInt(0)] }).catch(() => null);
-    return sa && sa.toLowerCase() === addr.toLowerCase() ? addr.toLowerCase() : null;
+    // MAv2 (Privy owner, current) first, then legacy LightAccount v2 (pre-Privy testnet accounts).
+    const [mav2, la] = await Promise.all([
+      pc.readContract({ address: MAV2_FACTORY, abi: mav2FactoryAbi, functionName: "getAddressSemiModular", args: [rec, BigInt(0)] }).catch(() => null),
+      pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: factoryAbi, functionName: "getAddress", args: [rec, BigInt(0)] }).catch(() => null),
+    ]);
+    return [mav2, la].some((sa) => sa && sa.toLowerCase() === addr.toLowerCase()) ? addr.toLowerCase() : null;
   }
   const ok = await pc.verifyMessage({ address: addr as Address, message: msg, signature: sig }).catch(() => false);
   return ok ? addr.toLowerCase() : null;

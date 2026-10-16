@@ -6,6 +6,13 @@ const basePath = isStatic
 
 const nextConfig = {
   reactStrictMode: false, // flight engine IIFE must not double-mount
+  // sdk/session-keys ships TypeScript source (workspace package)
+  transpilePackages: ["@disciple/session-keys"],
+  // Privy optional peer deps we don't use (Solana / Farcaster mini-apps are off)
+  webpack(config) {
+    config.resolve.alias = { ...(config.resolve.alias || {}), "@farcaster/mini-app-solana": false };
+    return config;
+  },
   ...(isStatic
     ? {
         output: "export",

@@ -17,6 +17,9 @@ const epAbi = parseAbi([
 ]);
 const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
 const implAbi = parseAbi(["function ACCOUNT_IMPLEMENTATION() view returns (address)"]);
+/** MAv2 factory (Privy-owned SemiModularAccountBytecode accounts). */
+const MAV2_FACTORY = "0x00000000000017c61b5bEe81050EC8eFc9c6fecd";
+const mav2ImplAbi = parseAbi(["function SEMI_MODULAR_ACCOUNT_IMPL() view returns (address)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
 const p16 = (x?: Hex) => pad(x || "0x0", { size: 16 });
 const pack = (op: UserOp) => ({
@@ -27,6 +30,7 @@ const pack = (op: UserOp) => ({
   signature: op.signature,
 });
 let implCode: Hex | undefined;
+let mav2ImplCode: Hex | undefined;
 
 /** Error carrying the inner call's revert data so /api/bundler can return it as JSON-RPC error.data (client decodes it). */
 export class BundlerRpcError extends Error { constructor(msg: string, public data?: Hex) { super(msg); } }
@@ -48,9 +52,14 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const code = await pc.getCode({ address: op.sender });
       let stateOverride;
       if (!code || code === "0x") {
-        // not deployed yet: estimate execution against the LightAccount implementation code at the sender address
-        if (!implCode) implCode = await pc.getCode({ address: await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: implAbi, functionName: "ACCOUNT_IMPLEMENTATION" }) });
-        stateOverride = [{ address: op.sender, code: implCode }];
+        // not deployed yet: estimate execution against the account implementation code at the sender address
+        if (op.factory?.toLowerCase() === MAV2_FACTORY.toLowerCase()) {
+          if (!mav2ImplCode) mav2ImplCode = await pc.getCode({ address: await pc.readContract({ address: MAV2_FACTORY, abi: mav2ImplAbi, functionName: "SEMI_MODULAR_ACCOUNT_IMPL" }) });
+          stateOverride = [{ address: op.sender, code: mav2ImplCode }];
+        } else {
+          if (!implCode) implCode = await pc.getCode({ address: await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: implAbi, functionName: "ACCOUNT_IMPLEMENTATION" }) });
+          stateOverride = [{ address: op.sender, code: implCode }];
+        }
       }
       let g: bigint;
       try { g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data: op.callData, stateOverride }); }

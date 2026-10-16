@@ -21,12 +21,16 @@
     "test:username-claim": "node scripts/test-username-claim.mjs",
     "test:replay": "node scripts/test-replay.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
-    "test:flightdata": "node scripts/gen-flight-data.mjs --check"
+    "test:flightdata": "node scripts/gen-flight-data.mjs --check",
+    "test:mav2": "tsx scripts/test-mav2-e2e.mts"
   },
   "dependencies": {
-    "@account-kit/signer": "^4.88.5",
+    "@aa-sdk/core": "^4.88.5",
+    "@account-kit/smart-contracts": "^4.88.5",
+    "@disciple/session-keys": "workspace:*",
     "@napi-rs/canvas": "^1.0.11",
     "@noble/curves": "^1.9.0",
+    "@privy-io/react-auth": "^3.50.0",
     "@tensorflow/tfjs": "^4.22.0",
     "mp4-muxer": "^5.2.2",
     "next": "14.2.35",
@@ -45,6 +49,7 @@
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

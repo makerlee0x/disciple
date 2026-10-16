@@ -5,17 +5,21 @@ import { encodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
 import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
 import {
-  aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectSmartEmail, connectSmartGoogle, connectSmartWithWallet, connectWallet, disconnect,
+  aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
   execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
-import { DEV_WALLETS, SIGNER_MODE, SPONSOR, aaSession, emailStart, localExport, onGasMode } from "@/lib/aa/session";
+import {
+  DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, SPONSOR, aaSession, enableOneTap, endOneTap,
+  localExport, onGasMode, onSessionChange, oneTapAvailable,
+} from "@/lib/aa/session";
 import type { Address } from "@/lib/protocol";
 
 const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
 
 /**
- * Sign in once → embedded smart account (LightAccount v2) → one-tap gasless trades.
- * Options: email (OTP) / Google via Account Kit signer, or an existing wallet as owner (one signature).
+ * Sign in once (Privy email / Google) → Privy embedded EOA owns an Alchemy MAv2 smart account (self-pay gas,
+ * drip-funded on testnet) → "Enable one-tap" installs an on-chain session key → trades are one tap.
+ * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).
  */
 export default function WalletButton({ compact = false }: { compact?: boolean } = {}) {
@@ -25,8 +29,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const [bal, setBal] = useState("");
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
-  const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState<null | string>(null);
+  const [slipPct, setSlipPct] = useState(String(SLIPPAGE_DEFAULT_BPS / 100));
+  const [, bump] = useState(0);
   const [selfPay, setSelfPay] = useState(!SPONSOR);
   const [copied, setCopied] = useState(false);
   const [acct, setAcct] = useState(false);
@@ -35,6 +39,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
   useEffect(() => onGasMode((m) => setSelfPay(m === "self-pay")), []);
+  useEffect(() => onSessionChange(() => bump((n) => n + 1)), []);
 
   async function refresh(a: Address) {
     try {
@@ -59,7 +64,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   };
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
-    try { await f(); setMenu(false); setOtp(null); } catch (e) { fail(e); } finally { setBusy(""); }
+    try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
   async function getFunds() {
@@ -91,7 +96,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       if (e.key === "Escape") {
         setMenu(false);
         setAcct(false);
-        setOtp(null);
       }
     };
     document.addEventListener("mousedown", onDown);
@@ -129,7 +133,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                   {busy || "Get test funds"}
                 </button>
               )}
-              <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart && SIGNER_MODE === "local") { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+              <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
                 {smart ? "⚡ " : ""}{copied ? "copied" : `${addr.slice(0, 6)}…${addr.slice(-4)}`}
               </button>
@@ -152,18 +156,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             {aaAvailable() ? (
               <>
                 <span style={{ fontSize: 10, opacity: 0.8 }}>Sign in once — then every trade is one tap, no popups.</span>
-                {otp === null ? (
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <input aria-label="email" placeholder="you@email.com" value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
-                    <button type="button" disabled={!!busy || !email} onClick={() => run("sending code", async () => { await emailStart(email); setOtp(""); })} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>Email</button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <input aria-label="code" placeholder="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value)} style={input} />
-                    <button type="button" disabled={!!busy || !otp} onClick={() => run("verifying", () => connectSmartEmail(otp))} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>Verify</button>
-                  </div>
-                )}
-                <button type="button" disabled={!!busy} onClick={() => run("google", connectSmartGoogle)} style={{ ...pill, background: "#fff", color: "#1a1630", textAlign: "center" }}>Continue with Google</button>
+                <button type="button" disabled={!!busy} onClick={() => run("opening login", async () => connectPrivy())} style={{ ...pill, background: "#ffe7a3", color: "#1a1630", textAlign: "center" }}>Email or Google</button>
                 {DEV_WALLETS && <>
                 <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("sign once in wallet", connectSmartWithWallet)} style={{ ...pill, background: "#2a3a7a", color: "#cfe0ff", textAlign: "center" }}>Use my wallet as owner</button>
                 <button type="button" disabled={!!busy || !hasWallet()} onClick={() => run("connecting", connectWallet)} style={{ ...pill, fontSize: 10, opacity: 0.7, textAlign: "center" }}>Plain wallet (sign every tx)</button>
@@ -174,7 +167,32 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             )}
           </div>
         )}
-        {addr && acct && smart && SIGNER_MODE === "local" && (
+        {addr && acct && smart && sess?.kind !== "local" && (
+          <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
+            <span style={{ wordBreak: "break-all" }}>Smart account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
+            <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner (Privy wallet): {sess?.owner}</span>
+            {bal && <span>{bal}</span>}
+            {sess?.oneTap ? (
+              <>
+                <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · until {new Date(sess.oneTap.validUntil * 1000).toLocaleTimeString()}</span>
+                <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
+              </>
+            ) : oneTapAvailable() ? (
+              <>
+                <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Max slippage
+                  <input aria-label="session max slippage %" type="number" min={SLIPPAGE_MIN_BPS / 100} max={SLIPPAGE_MAX_BPS / 100} step={0.1} value={slipPct} onChange={(e) => setSlipPct(e.target.value)} style={{ ...input, minWidth: 0, width: 60 }} />%
+                </label>
+                <button type="button" disabled={!!busy} onClick={() => run("approve session", () => enableOneTap({ maxSlippageBps: Math.round(Number(slipPct) * 100) }))} style={{ ...pill, background: "#ffe7a3", color: "#1a1630", textAlign: "center" }}>Enable one-tap trading</button>
+                <span style={{ opacity: 0.7 }}>One approval (pays a little gas), then trades need no prompts for 24h. Trades above this slippage are rejected on-chain.</span>
+              </>
+            ) : (
+              <span style={{ opacity: 0.7 }}>Trades are signed by your Privy wallet in the background.</span>
+            )}
+            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a>
+            <button type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
+          </div>
+        )}
+        {addr && acct && smart && sess?.kind === "local" && (
           <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
             <span style={{ color: "#ffe7a3" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>

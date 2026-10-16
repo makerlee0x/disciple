@@ -1,112 +1,108 @@
 /**
- * Browser session for the embedded smart account.
- *  - "email"/"google": Alchemy Account Kit signer (embedded, no popups) owns the LightAccount directly.
- *  - "eoa": the user's existing wallet signs ONE message; a session key is derived from it
- *    (deterministic, so the same smart account comes back every time) and owns the LightAccount.
- *    The key is cached for SESSION_TTL_MS (24h), then the wallet is asked to sign again.
- * Every userOp passes the session policy (aa/policy.ts) first.
+ * Browser session for the embedded smart account (Alchemy Modular Account v2, self-pay gas).
+ *  - "privy" (default when NEXT_PUBLIC_PRIVY_APP_ID is set): the Privy embedded EOA (toViemAccount) is the MAv2 owner.
+ *    Login/UI lives in components/PrivyProviders.tsx, which hands us the owner via setPrivyOwner().
+ *  - "eoa" (dev, NEXT_PUBLIC_DEV_WALLETS=1): an injected wallet signs ONE message; the derived key owns the MAv2.
+ *  - "local" (NEXT_PUBLIC_AA_SIGNER=local, or no Privy app id): random key in this browser owns the MAv2 (testnet dev).
+ * One-tap trading: the owner installs ONE on-chain session (SingleSigner session key + DiscipleSessionPolicy hooks,
+ * PR #53) with a user-chosen max slippage; trade userOps are then signed locally by the session key (no prompt).
+ * Without a deployed policy (NEXT_PUBLIC_SESSION_POLICY unset) trades fall back to owner-signed userOps
+ * (Privy signs silently: showWalletUIs=false). aa/policy.ts stays as a client-side UX pre-check.
  */
-import { createPublicClient, createWalletClient, custom, http, keccak256, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, createWalletClient, custom, http, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
-import { AAError, DEFAULT_GAS_POLICY_ID, LightSmartAccount, alchemyBundler, type Call, type GasMode, type OwnerSigner } from "./core";
+import { ANON_ADDONS } from "../anon";
+import { AAError, type Call, type GasMode } from "./core";
+import { Mav2Account } from "./mav2";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 
-export const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "";
-export const GAS_POLICY_ID = process.env.NEXT_PUBLIC_ALCHEMY_GAS_POLICY_ID || DEFAULT_GAS_POLICY_ID;
-/** Alchemy supports RH testnet as robinhood-testnet (bundler + gas manager). */
-/** Bundler goes through our server proxy (/api/bundler); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
+/** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
 export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
-/** Paymaster behind a flag; testnet default is self-paid gas (+ one-time /api/drip top-up). */
-export const SPONSOR = process.env.NEXT_PUBLIC_AA_SPONSOR === "1";
+/** Self-pay only (no paymaster). Kept exported for UI copy; always false after the Privy migration. */
+export const SPONSOR = false;
+export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
+/** Deployed DiscipleSessionPolicy (PR #53). Unset ⇒ no on-chain session keys yet; owner signs every op. */
+export const SESSION_POLICY = (/^0x[0-9a-fA-F]{40}$/.test(process.env.NEXT_PUBLIC_SESSION_POLICY || "") ? process.env.NEXT_PUBLIC_SESSION_POLICY : "") as Address | "";
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
 export const DEV_WALLETS = process.env.NEXT_PUBLIC_DEV_WALLETS === "1";
 export const aaAvailable = () => !!BUNDLER_URL && ACTIVE_CHAIN.id === 46630;
 const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
 const SESSION_LIMIT = BigInt(process.env.NEXT_PUBLIC_SESSION_SPEND_LIMIT_WEI || "1000000000000000000000000"); // 1M tokens (18 dec)
 
-export type OwnerKind = "email" | "google" | "eoa" | "local";
-/** "local" (default, testnet): random key in this browser. "alchemy": Account Kit email/Google signer (needs Smart Wallets config). */
-export const SIGNER_MODE = process.env.NEXT_PUBLIC_AA_SIGNER === "alchemy" ? "alchemy" : "local";
-const LOCAL_KEY = "disciple.local.ownerKey.v1";
-const LS = "disciple.aa.session.v1";
-type Stored = SessionState & { kind: OwnerKind; owner: Address; key?: Hex };
+/** Slippage the session allows (on-chain maxSlippageBps). Default 5%, user range 0.1%..50%. */
+export const SLIPPAGE_DEFAULT_BPS = 500;
+export const SLIPPAGE_MIN_BPS = 10;
+export const SLIPPAGE_MAX_BPS = 5000;
+export const clampSlippageBps = (b: number) => Math.min(SLIPPAGE_MAX_BPS, Math.max(SLIPPAGE_MIN_BPS, Math.round(b) || SLIPPAGE_DEFAULT_BPS));
 
-let sa: LightSmartAccount | null = null;
+export type OwnerKind = "privy" | "eoa" | "local";
+export const SIGNER_MODE: "privy" | "local" = PRIVY_APP_ID && process.env.NEXT_PUBLIC_AA_SIGNER !== "local" ? "privy" : "local";
+const LOCAL_KEY = "disciple.local.ownerKey.v1";
+const LS = "disciple.aa.session.v2";
+const SK = "disciple.aa.sessionKey.v2"; // per-account on-chain session key (testnet; never sent anywhere)
+type Stored = SessionState & { kind: OwnerKind; owner: Address; key?: Hex };
+type StoredSessionKey = { account: Address; entityId: number; key: Hex; validUntil: number; maxSlippageBps: number };
+
+let sa: Mav2Account | null = null;
 let state: Stored | null = null;
+let onchain: StoredSessionKey | null = null;
 const gasListeners = new Set<(m: GasMode, r?: string) => void>();
-export function onGasMode(f: (m: GasMode, r?: string) => void) { gasListeners.add(f); return () => { gasListeners.delete(f); }; }
+export function onGasMode(f: (m: GasMode, r?: string) => void) { gasListeners.add(f); f("self-pay"); return () => { gasListeners.delete(f); }; }
+const sessListeners = new Set<() => void>();
+export function onSessionChange(f: () => void) { sessListeners.add(f); return () => { sessListeners.delete(f); }; }
+const changed = () => sessListeners.forEach((f) => f());
 
 function save() { try { if (state) localStorage.setItem(LS, JSON.stringify(state)); else localStorage.removeItem(LS); } catch {} }
 function load(): Stored | null { try { const s = JSON.parse(localStorage.getItem(LS) || "null"); return s && s.expiresAt > Date.now() ? s : null; } catch { return null; } }
-
-function makeAccount(owner: OwnerSigner) {
-  return new LightSmartAccount({
-    pc: publicClient(), chainId: ACTIVE_CHAIN.id, bundler: alchemyBundler(BUNDLER_URL), owner, policyId: GAS_POLICY_ID, sponsor: SPONSOR,
-    onGasMode: (m, r) => gasListeners.forEach((f) => f(m, r)),
-  });
+function loadSessionKey(account: Address): StoredSessionKey | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(SK) || "null") as StoredSessionKey | null;
+    return s && s.account.toLowerCase() === account.toLowerCase() && s.validUntil * 1000 > Date.now() + 60_000 ? s : null;
+  } catch { return null; }
 }
 
-/* ---------- Alchemy embedded signer (email OTP / Google) ---------- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let alchemySigner: any = null;
-async function getAlchemySigner() {
-  if (alchemySigner) return alchemySigner;
-  if (!ALCHEMY_KEY) throw new Error("Email login needs NEXT_PUBLIC_ALCHEMY_API_KEY.");
-  const { AlchemyWebSigner } = await import("@account-kit/signer");
-  let el = document.getElementById("alchemy-signer-iframe");
-  if (!el) { el = document.createElement("div"); el.id = "alchemy-signer-iframe"; el.style.display = "none"; document.body.appendChild(el); }
-  alchemySigner = new AlchemyWebSigner({
-    client: { connection: { apiKey: ALCHEMY_KEY }, iframeConfig: { iframeContainerId: "alchemy-signer-iframe" }, enablePopupOauth: true },
-    sessionConfig: { storage: "localStorage", sessionKey: "disciple.alchemy.signer", expirationTimeMs: SESSION_TTL_MS },
-  });
-  return alchemySigner;
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function alchemyOwner(s: any, address: Address): OwnerSigner {
-  return { address, signMessage: ({ message }) => s.signMessage(message) };
+function makeAccount(owner: LocalAccount) {
+  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL }, owner);
 }
 
-async function startSession(kind: OwnerKind, owner: OwnerSigner, key?: Hex) {
+async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   sa = makeAccount(owner);
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
   save();
   const a = await sa.address();
+  onchain = loadSessionKey(a);
+  if (onchain) await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key));
   drip(a);
+  changed();
   return a;
 }
-/** One-time server top-up of test ETH for gas (self-pay). Fire-and-forget. */
+/** One-time server top-up of test ETH for gas (self-pay, existing drip faucet). Fire-and-forget. */
 export function drip(a: Address) {
-  if (SPONSOR || ACTIVE_CHAIN.id !== 46630) return;
+  if (ACTIVE_CHAIN.id !== 46630) return;
   fetch("/api/drip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) }).catch(() => {});
 }
 
-/** The signer API answers 401 without CORS headers when the Alchemy app has no Smart Wallets/Account Kit config, so the browser only sees "Failed to fetch". */
-function signerErr(e: unknown): Error {
-  const m = (e as Error)?.message || String(e);
-  if (/failed to fetch|networkerror|load failed|must be authenticated|enablePopupOauth/i.test(m))
-    return new Error("Login service unavailable: the Alchemy app's Smart Wallets (Account Kit) login isn't enabled for this site yet.");
-  return e as Error;
+/* ---------- Privy embedded wallet owner ---------- */
+/** Called by PrivyProviders once the embedded wallet is ready (owner = toViemAccount(wallet)). */
+export async function setPrivyOwner(owner: LocalAccount): Promise<Address> {
+  if (sa && state?.kind === "privy" && state.owner.toLowerCase() === owner.address.toLowerCase()) return sa.address();
+  return startSession("privy", owner);
 }
-export async function emailStart(email: string) {
-  const s = await getAlchemySigner();
-  try { await s.authenticate({ type: "email", emailMode: "otp", email }); } catch (e) { throw signerErr(e); }
-}
-export async function emailVerify(otpCode: string): Promise<Address> {
-  const s = await getAlchemySigner();
-  try { await s.authenticate({ type: "otp", otpCode }); } catch (e) { throw signerErr(e); }
-  return startSession("email", alchemyOwner(s, (await s.getAddress()) as Address));
-}
-export async function googleLogin(): Promise<Address> {
-  const s = await getAlchemySigner();
-  try { await s.authenticate({ type: "oauth", authProviderId: "google", mode: "popup" }); } catch (e) { throw signerErr(e); }
-  return startSession("google", alchemyOwner(s, (await s.getAddress()) as Address));
+type PrivyHooks = { login: () => void; logout: () => Promise<void> };
+let privyHooks: PrivyHooks | null = null;
+export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; }
+export function privyReady() { return !!privyHooks; }
+/** Opens the Privy login modal (email / Google). The address arrives via setPrivyOwner when the wallet is ready. */
+export function privyLogin() {
+  if (!privyHooks) throw new Error("Login is still loading — try again in a second.");
+  privyHooks.login();
 }
 
 export const SESSION_MESSAGE = (owner: Address) =>
   `DISCIPLE one-tap trading\n\nSign once to unlock your DISCIPLE smart account on ${ACTIVE_CHAIN.name}.\nThis creates a session key scoped to DISCIPLE contracts.\n\nOwner: ${owner}\nVersion: 1`;
 
-/** Existing wallet as owner: one signature ⇒ deterministic session key ⇒ same smart account every time. */
+/** Dev: existing wallet as owner — one signature ⇒ deterministic key ⇒ same smart account every time. */
 export async function eoaLogin(eth: Parameters<typeof custom>[0]): Promise<Address> {
   const w = createWalletClient({ chain: ACTIVE_CHAIN, transport: custom(eth) });
   const [owner] = await w.requestAddresses();
@@ -115,9 +111,8 @@ export async function eoaLogin(eth: Parameters<typeof custom>[0]): Promise<Addre
   return startSession("eoa", privateKeyToAccount(key), key);
 }
 
-/* ---------- local browser-key owner (testnet) ---------- */
+/* ---------- local browser-key owner (testnet dev) ---------- */
 export function localKey(): Hex | null { try { const k = localStorage.getItem(LOCAL_KEY); return k && /^0x[0-9a-fA-F]{64}$/.test(k) ? (k as Hex) : null; } catch { return null; } }
-/** Create (or reuse) the browser key and start a session. Zero popups. */
 export async function localStart(): Promise<Address> {
   let k = localKey();
   if (!k) { k = generatePrivateKey(); localStorage.setItem(LOCAL_KEY, k); }
@@ -133,27 +128,94 @@ export async function localImport(k: string): Promise<Address> {
 export function localExport(): Hex | null { return localKey(); }
 export async function localReset() { try { localStorage.removeItem(LOCAL_KEY); } catch {} await aaLogout(); }
 
-/** Restore a live session on reload (no prompts). */
+/** Restore a live session on reload (no prompts). Privy sessions are restored by PrivyProviders. */
 export async function restore(): Promise<Address | null> {
   if (SIGNER_MODE === "local") { const k = localKey(); if (!k) return null; return startSession("local", privateKeyToAccount(k)); }
   const s = load();
-  if (!s) return null;
-  try {
-    if (s.kind === "eoa" && s.key) { state = s; sa = makeAccount(privateKeyToAccount(s.key)); return sa.address(); }
-    const signer = await getAlchemySigner();
-    const u = await signer.getAuthDetails().catch(() => null);
-    if (!u) return null;
-    state = s; sa = makeAccount(alchemyOwner(signer, u.address)); const a = await sa.address(); drip(a); return a;
-  } catch { return null; }
+  if (s?.kind === "eoa" && s.key) { try { return await startSession("eoa", privateKeyToAccount(s.key), s.key); } catch { return null; } }
+  return null;
 }
 
-export function aaSession() { return state && sa ? { kind: state.kind, owner: state.owner, expiresAt: state.expiresAt, gasMode: sa.gasMode } : null; }
-export async function aaLogout() { state = null; sa = null; save(); try { await alchemySigner?.disconnect(); } catch {} }
-/** Owner signs a raw hash (chat login proof). Null when no smart session. */
+export function aaSession() {
+  return state && sa ? {
+    kind: state.kind, owner: state.owner, expiresAt: state.expiresAt, gasMode: sa.gasMode,
+    oneTap: onchain ? { entityId: onchain.entityId, validUntil: onchain.validUntil, maxSlippageBps: onchain.maxSlippageBps } : null,
+  } : null;
+}
+export async function aaLogout() {
+  const kind = state?.kind;
+  state = null; sa = null; onchain = null; save(); changed();
+  if (kind === "privy") { try { await privyHooks?.logout(); } catch {} }
+}
+/** Owner signs a raw hash (chat login / username proof). Null when no smart session. */
 export async function aaOwnerSign(raw: Hex): Promise<{ owner: Address; sig: Hex } | null> { return sa ? { owner: sa.ownerAddress, sig: await sa.signOwnerRaw(raw) } : null; }
 export async function aaAddress() { return sa ? sa.address() : null; }
 
-/** One userOp for the whole call list, checked against the session policy. */
+/* ---------- on-chain one-tap session (DiscipleSessionPolicy, PR #53) ---------- */
+export const oneTapAvailable = () => !!SESSION_POLICY && ACTIVE_CHAIN.id === 46630;
+
+/**
+ * Owner approves ONE userOp: installValidation(SingleSigner(sessionKey) + DiscipleSessionPolicy hooks).
+ * After this, aaSend signs trades with the session key (no Privy prompt) until validUntil.
+ */
+export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: number } = {}) {
+  if (!sa || !state) throw new AAError("Policy", "Sign in first.");
+  if (!SESSION_POLICY) throw new AAError("Policy", "One-tap sessions aren't live yet (session policy not deployed).");
+  const sk = await import("@disciple/session-keys");
+  const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
+  const d = deployment();
+  const key = generatePrivateKey();
+  const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
+  const account = await sa.address();
+  const s = sk.buildCreateSession({
+    modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
+    targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
+    sessionSigner: privateKeyToAccount(key).address,
+    caps: [{ token: d.defaultQuote, cap: SESSION_LIMIT }, { token: d.usdg, cap: SESSION_LIMIT }],
+    ttlSec: opts.ttlSec ?? SESSION_TTL_MS / 1000, maxSlippageBps,
+  });
+  const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
+  onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps };
+  try { localStorage.setItem(SK, JSON.stringify(onchain)); } catch {}
+  await sa.useSession(s.entityId, privateKeyToAccount(key));
+  changed();
+  return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
+}
+
+/** Owner removes the session (validation + hooks, storage cleared). */
+export async function endOneTap() {
+  if (!sa || !onchain || !SESSION_POLICY) return null;
+  const sk = await import("@disciple/session-keys");
+  const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
+  const data = sk.buildUninstallSession(onchain.entityId, { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) });
+  const r = await sa.sendCalls([{ to: await sa.address(), data }], "owner");
+  onchain = null; sa.clearSession();
+  try { localStorage.removeItem(SK); } catch {}
+  changed();
+  return r;
+}
+
+/** Selectors the session key may use (mirrors DiscipleSessionPolicy P_*); anything else goes to the owner signer. */
+const SESSION_SELECTORS = new Set([
+  "0x095ea7b3", // approve
+]);
+async function sessionSelectors() {
+  if (SESSION_SELECTORS.size > 1) return SESSION_SELECTORS;
+  const { toFunctionSelector } = await import("viem");
+  for (const sig of [
+    "buyExactIn(address,uint256,uint256,address,uint256)", "sellExactIn(address,uint256,uint256,address,uint256)",
+    "buy(uint256,uint256,uint256)", "sell(uint256,uint256,uint256)", "buy(uint256,uint256,uint256,address)", "sell(uint256,uint256,uint256,address)",
+    "placeTramp(address,int24,int24,uint256,uint128,uint256)", "placeWall(address,int24,int24,uint256,uint128,uint256)", "cancel(uint256)",
+  ]) SESSION_SELECTORS.add(toFunctionSelector(sig));
+  return SESSION_SELECTORS;
+}
+async function canUseSessionKey(calls: Call[]) {
+  if (!sa?.hasSession || !onchain || onchain.validUntil * 1000 < Date.now() + 30_000) return false;
+  const sel = await sessionSelectors();
+  return calls.every((c) => !c.value && sel.has(c.data.slice(0, 10).toLowerCase()));
+}
+
+/** One userOp for the whole call list, pre-checked against the client policy. Session key if eligible, else owner. */
 export async function aaSend(calls: Call[]) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
@@ -162,7 +224,8 @@ export async function aaSend(calls: Call[]) {
     launchpad: d.launchpad, router: d.router, trampWallManager: d.trampWallManager,
     mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT, spendTokens: [d.defaultQuote, d.usdg],
   }, state, calls, me);
-  const r = await sa.sendCalls(calls);
+  const r = await sa.sendCalls(calls, (await canUseSessionKey(calls)) ? "session" : "owner");
+  gasListeners.forEach((f) => f("self-pay"));
   state = { ...state, ...recordSpend(state, delta) }; save();
   return r;
 }
