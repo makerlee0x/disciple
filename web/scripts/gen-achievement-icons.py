@@ -138,4 +138,8 @@ missing = [a for a, _, _ in ach if a not in G]
 assert not missing, f"no glyph for {missing}"
 for aid, _cat, rarity in ach:
     open(os.path.join(out, f"{aid}.svg"), "w").write(svg(aid, rarity, G[aid]))
+keep = {f"{a}.svg" for a, _, _ in ach}
+for f in os.listdir(out):
+    if f.endswith(".svg") and f not in keep:
+        os.remove(os.path.join(out, f))  # drop icons for cut achievements
 print(f"wrote {len(ach)} icons")
