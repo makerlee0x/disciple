@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { localUsername } from "@/lib/profile";
 import BrandedRocket from "@/components/BrandedRocket";
 import {
-  BarChart, Donut, Gauge, Heatmap, Histogram, LineChart,
+  CrosshairChart, RangeToggle, sliceRange, type RangeKey, Donut, Gauge, Heatmap, Histogram, 
   PlaystyleMeter, RadarChart, Sparkline, StatRing,
 } from "./Charts";
 import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
@@ -12,9 +12,7 @@ import { fmtUsd } from "@/lib/config";
 import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
-import ProfileIdentity from "./ProfileIdentity";
-import CashPanel from "./CashPanel";
-import SettingsPanel from "./SettingsPanel";
+import SettingsModal from "./SettingsModal";
 
 function fmtKpi(v: number, format: string) {
   if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
@@ -50,6 +48,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const persona = samplePersonaFor(username);
   const [me, setMe] = useState("");
   useEffect(() => { if (isPrivate) setMe(localUsername()); }, [isPrivate]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pnlRange, setPnlRange] = useState<RangeKey>("30d");
+  const [volRange, setVolRange] = useState<RangeKey>("30d");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "pnl", dir: "desc" });
   const data = useMemo(() => buildPersonaStats(persona), [persona]);
   const { identity } = data;
@@ -75,6 +76,13 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
 
+  const volSeries = useMemo(
+    () => data.volumeByDay.map((d) => ({ t: Date.parse(d.day + "T12:00:00Z"), v: d.volume })),
+    [data.volumeByDay],
+  );
+  const pnlPts = useMemo(() => sliceRange(data.cumulativePnl, pnlRange, "level"), [data.cumulativePnl, pnlRange]);
+  const volPts = useMemo(() => sliceRange(volSeries, volRange, "flow"), [volSeries, volRange]);
+
   const border = data.rank.border;
   const badge = PERSONA_BADGES[personaBadge(identity)];
   const prestige = prestigeFromPoints(data.points);
@@ -84,11 +92,13 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       <header className="profile-head">
         <div>
           <h1>{isPrivate ? "Your Profile" : `@${username}`}</h1>
-          <div className="sub">{isPrivate ? "PRIVATE · ONLY YOU SEE CASH & SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
+          <div className="sub">{isPrivate ? "PILOT OVERVIEW · CASH & ACCOUNT LIVE IN SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
         </div>
+        {isPrivate && (
+          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}>⚙ Settings</button>
+        )}
       </header>
-      {isPrivate && <ProfileIdentity />}
-      {isPrivate && <CashPanel />}
+      {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
       <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
       <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(255,220,150,0.12)` }}>
@@ -131,6 +141,34 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </div>
       </section>
 
+      <section className="chart-card rockets-card">
+        <div className="table-head"><h3>Holdings · Rockets</h3><span className="muted">current positions · sortable</span></div>
+        <div className="rockets-table-wrap">
+          <table className="rockets-table">
+            <thead><tr>
+              {([["ticker","Rocket"],["tier","Tier"],["entries","Entries"],["pnl","PnL"],["winRate","Win"],["avgHold","Avg hold"],["bombs","Bombs"]] as [SortKey,string][]).map(([k,label]) => (
+                <th key={k}><button type="button" onClick={() => toggleSort(k)}>{label}{sort.key === k ? (sort.dir === "asc" ? " ^" : " v") : ""}</button></th>
+              ))}
+              <th>Badges</th>
+            </tr></thead>
+            <tbody>
+              {rockets.map((r) => (
+                <tr key={r.token}>
+                  <td><strong>{r.ticker}</strong><div className="muted tiny">{r.name}</div></td>
+                  <td><span className="tier-chip">{r.tierName}</span></td>
+                  <td>{r.entries}</td>
+                  <td className={r.pnl >= 0 ? "pos" : "neg"}>{fmtUsd(r.pnl)}</td>
+                  <td><Donut value={r.winRate} /></td>
+                  <td>{fmtKpi(r.avgHoldHours, "hours")}</td>
+                  <td>{r.bombs}</td>
+                  <td><div className="row-badges">{r.badges.map((b) => <span key={b} className="id-tag">{b}</span>)}</div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="kpi-grid">
         {data.kpis.map((k) => (
           <div key={k.key} className="kpi-card">
@@ -157,8 +195,14 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       </section>
 
       <section className="charts-grid">
-        <div className="chart-card"><h3>Cumulative PnL</h3><LineChart points={data.cumulativePnl} formatY={(v) => fmtUsd(v)} color="#c9b6f2" /></div>
-        <div className="chart-card"><h3>Volume by day</h3><BarChart items={data.volumeByDay.map((d) => ({ label: d.day, value: d.volume }))} /></div>
+        <div className="chart-card">
+          <div className="chart-head"><h3>Cumulative PnL</h3><RangeToggle value={pnlRange} onChange={setPnlRange} /></div>
+          <CrosshairChart points={pnlPts} hourly={pnlRange === "1d"} formatY={(v) => (v < 0 ? "-" : "") + fmtUsd(Math.abs(v))} color="#c9b6f2" />
+        </div>
+        <div className="chart-card">
+          <div className="chart-head"><h3>{volRange === "1d" ? "Volume by hour" : "Volume by day"}</h3><RangeToggle value={volRange} onChange={setVolRange} /></div>
+          <CrosshairChart kind="bar" points={volPts} hourly={volRange === "1d"} formatY={(v) => fmtUsd(v)} color="#ffe7a3" />
+        </div>
         <div className="chart-card"><h3>Hold-time distribution</h3><Histogram items={data.holdHist} /></div>
         <div className="chart-card"><h3>PnL calendar</h3><Heatmap days={data.pnlCalendar} /></div>
       </section>
@@ -204,33 +248,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <div className="ct-card"><span>Graduations witnessed</span><strong>{data.ct.graduationsWitnessed}</strong></div>
       </section>
 
-      <section className="chart-card rockets-card">
-        <div className="table-head"><h3>Rockets</h3><span className="muted">LoL-table style · sortable</span></div>
-        <div className="rockets-table-wrap">
-          <table className="rockets-table">
-            <thead><tr>
-              {([["ticker","Rocket"],["tier","Tier"],["entries","Entries"],["pnl","PnL"],["winRate","Win"],["avgHold","Avg hold"],["bombs","Bombs"]] as [SortKey,string][]).map(([k,label]) => (
-                <th key={k}><button type="button" onClick={() => toggleSort(k)}>{label}{sort.key === k ? (sort.dir === "asc" ? " ^" : " v") : ""}</button></th>
-              ))}
-              <th>Badges</th>
-            </tr></thead>
-            <tbody>
-              {rockets.map((r) => (
-                <tr key={r.token}>
-                  <td><strong>{r.ticker}</strong><div className="muted tiny">{r.name}</div></td>
-                  <td><span className="tier-chip">{r.tierName}</span></td>
-                  <td>{r.entries}</td>
-                  <td className={r.pnl >= 0 ? "pos" : "neg"}>{fmtUsd(r.pnl)}</td>
-                  <td><Donut value={r.winRate} /></td>
-                  <td>{fmtKpi(r.avgHoldHours, "hours")}</td>
-                  <td>{r.bombs}</td>
-                  <td><div className="row-badges">{r.badges.map((b) => <span key={b} className="id-tag">{b}</span>)}</div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
       <section className="chart-card">
         <h3>Recent activity</h3>
@@ -245,7 +262,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           ))}
         </ul>
       </section>
-      {isPrivate && <SettingsPanel />}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 export function Sparkline({
   a, b, width = 120, height = 36,
   colorA = "#7ec8ff", colorB = "rgba(180,190,220,0.45)",
@@ -193,5 +195,98 @@ export function PlaystyleMeter({ pve, pvp }: { pve: number; pvp: number }) {
       </div>
       <div className="playstyle-scores"><span>{pve}</span><span>{pvp}</span></div>
     </div>
+  );
+}
+
+export type RangeKey = "1d" | "7d" | "30d";
+export const RANGE_DAYS: Record<RangeKey, number> = { "1d": 1, "7d": 7, "30d": 30 };
+
+/** Slice a daily series to a range; for 1d (too few daily points) synthesize a deterministic hourly walk. */
+export function sliceRange(points: { t: number; v: number }[], range: RangeKey, mode: "level" | "flow" = "level") {
+  if (!points.length) return points;
+  const end = points[points.length - 1].t;
+  const start = end - RANGE_DAYS[range] * 86_400_000;
+  const inRange = points.filter((p) => p.t >= start);
+  if (inRange.length >= 6) return inRange;
+  const prev = [...points].reverse().find((p) => p.t < end) ?? points[0];
+  const last = points[points.length - 1];
+  const out: { t: number; v: number }[] = [];
+  let seed = Math.abs(Math.round(last.v)) % 9973 || 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let h = 0; h <= 24; h++) {
+    const f = h / 24;
+    const t = start + f * (end - start);
+    if (mode === "level") {
+      const base = prev.v + (last.v - prev.v) * f;
+      const jitter = h === 0 || h === 24 ? 0 : (rnd() - 0.5) * Math.max(10, Math.abs(last.v - prev.v)) * 0.8;
+      out.push({ t, v: base + jitter });
+    } else {
+      out.push({ t, v: (last.v / 24) * (0.3 + rnd() * 1.4) });
+    }
+  }
+  return out;
+}
+
+export function RangeToggle({ value, onChange }: { value: RangeKey; onChange: (r: RangeKey) => void }) {
+  return (
+    <div className="ds-seg range-seg" role="tablist" aria-label="Range">
+      {(Object.keys(RANGE_DAYS) as RangeKey[]).map((r) => (
+        <button key={r} type="button" role="tab" aria-selected={value === r} className={value === r ? "on" : ""} onClick={() => onChange(r)}>{r}</button>
+      ))}
+    </div>
+  );
+}
+
+/** Line or bar series with a hover crosshair + value readout. */
+export function CrosshairChart({ points, kind = "line", height = 170, color = "#c9b6f2", formatY, hourly }: {
+  points: { t: number; v: number }[]; kind?: "line" | "bar"; height?: number; color?: string;
+  formatY?: (v: number) => string; hourly?: boolean;
+}) {
+  const width = 560, padL = 48, padR = 12, padT = 14, padB = 22;
+  const [hover, setHover] = useState<number | null>(null);
+  if (!points.length) return <div className="chart-empty">No data</div>;
+  const fy = formatY ?? ((v: number) => v.toFixed(0));
+  const vs = points.map((p) => p.v), min = Math.min(...vs, 0), max = Math.max(...vs, 0), span = max - min || 1;
+  const n = points.length, innerW = width - padL - padR, innerH = height - padT - padB;
+  const step = kind === "bar" ? innerW / n : innerW / Math.max(1, n - 1);
+  const x = (i: number) => (kind === "bar" ? padL + step * (i + 0.5) : padL + step * i);
+  const y = (v: number) => padT + (1 - (v - min) / span) * innerH;
+  const zeroY = y(0);
+  const d = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  const fmtT = (t: number) => new Date(t).toLocaleString("en-US", hourly ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric" });
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * width;
+    const i = kind === "bar" ? Math.floor((px - padL) / step) : Math.round((px - padL) / step);
+    setHover(Math.max(0, Math.min(n - 1, i)));
+  };
+  const hp = hover != null ? points[hover] : null;
+  const hx = hover != null ? x(hover) : 0;
+  const tipW = 120, tipX = Math.min(width - padR - tipW, Math.max(padL, hx + 8));
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg crosshair-chart" onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
+      <line x1={padL} x2={width - padR} y1={zeroY} y2={zeroY} stroke="rgba(255,231,163,0.12)" />
+      {kind === "line" ? (<>
+        <path d={`${d} L${x(n - 1)},${zeroY} L${x(0)},${zeroY} Z`} fill={color} opacity={0.12} />
+        <path d={d} fill="none" stroke={color} strokeWidth={2} />
+      </>) : points.map((p, i) => (
+        <rect key={i} x={x(i) - Math.max(1, step / 2 - 2)} width={Math.max(2, step - 4)} y={Math.min(y(p.v), zeroY)}
+          height={Math.abs(zeroY - y(p.v))} rx={3} fill={color} opacity={hover === i ? 1 : hover == null ? 0.85 : 0.45} />
+      ))}
+      <text x={6} y={padT + 6} fill="rgba(220,228,255,0.45)" fontSize={10}>{fy(max)}</text>
+      <text x={6} y={height - padB} fill="rgba(220,228,255,0.45)" fontSize={10}>{fy(min)}</text>
+      <text x={padL} y={height - 6} fill="rgba(220,228,255,0.4)" fontSize={9}>{fmtT(points[0].t)}</text>
+      <text x={width - padR} y={height - 6} textAnchor="end" fill="rgba(220,228,255,0.4)" fontSize={9}>{fmtT(points[n - 1].t)}</text>
+      {hp && (
+        <g pointerEvents="none">
+          <line x1={hx} x2={hx} y1={padT} y2={height - padB} stroke="#ffe7a3" strokeDasharray="3 3" opacity={0.7} />
+          <line x1={padL} x2={width - padR} y1={y(hp.v)} y2={y(hp.v)} stroke="#ffe7a3" strokeDasharray="3 3" opacity={0.35} />
+          <circle cx={hx} cy={y(hp.v)} r={4} fill="#ffe7a3" stroke="#1a1630" strokeWidth={1.5} />
+          <rect x={tipX} y={padT} width={tipW} height={34} rx={7} fill="rgba(10,12,32,0.94)" stroke="rgba(255,231,163,0.5)" />
+          <text x={tipX + 9} y={padT + 14} fill="rgba(220,228,255,0.6)" fontSize={9}>{fmtT(hp.t)}</text>
+          <text x={tipX + 9} y={padT + 28} fill="#fff7df" fontSize={12} fontWeight={700}>{fy(hp.v)}</text>
+        </g>
+      )}
+    </svg>
   );
 }

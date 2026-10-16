@@ -11,7 +11,7 @@ import PairPicker from "@/components/create/PairPicker";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
-import { randomRocketName } from "@/lib/rocketNames";
+import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
 import { activeAddress, execCalls } from "@/lib/wallet";
 import { launchpadAbi } from "@/lib/abi";
 import { encodeFunctionData } from "viem";
@@ -47,7 +47,13 @@ export default function LaunchRocketPage() {
   const blocked = mod.state === "block";
   useEffect(() => { preloadModeration(); }, []);
   // Fresh random name every page open.
-  useEffect(() => { setName(randomRocketName()); }, []);
+  useEffect(() => { shuffleName(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Name shuffle re-rolls a matching call sign (first word, e.g. "Blessed Falcon" → BLESSED).
+  function shuffleName() {
+    const n = randomRocketName();
+    setName(n);
+    setCallSign(tickerVariants(n)[0] ?? "");
+  }
   // Square crop → decal preview (debounced while dragging).
   useEffect(() => {
     if (!iconSrc) { setCroppedUri(null); return; }
@@ -165,14 +171,17 @@ export default function LaunchRocketPage() {
               <span className={labelCls}>ROCKET NAME *</span>
               <div className="pid-edit" style={{ flexWrap: "nowrap" }}>
                 <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
-                <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={() => setName(randomRocketName())}>🎲 Shuffle</button>
+                <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={shuffleName}>🎲 Shuffle</button>
               </div>
             </label>
             <label className="block">
               <span className={labelCls}>CALL SIGN * <span className="normal-case opacity-70">— your $TICKER, e.g. $AI for Artificial Inu</span></span>
               <div className="ticker-input">
                 <span>$</span>
-                <input className={inputCls} value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="AI" maxLength={10} />
+                <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="AI" maxLength={10} />
+                <button type="button" className="ds-btn" disabled={!tickerVariants(name).length}
+                  title={`Shuffle a call sign from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
+                  aria-label="Shuffle call sign" onClick={() => setCallSign(nextTicker(name, callSign))}>🎲 Shuffle</button>
               </div>
             </label>
             <div className="block">

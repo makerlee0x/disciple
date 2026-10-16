@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AchievementBadge, { EmptyBadge } from "@/components/profile/AchievementBadge";
 import { identityLabel } from "@/components/profile/IdentitySigil";
@@ -80,15 +81,25 @@ function Row({ row }: { row: LeaderboardRow }) {
   const empties = Math.max(0, 6 - badges.length);
   const tierColor = ladderColor(row.ladderTier);
   const name = row.handle;
+  const router = useRouter();
+  const href = row.username ? profileUrl(row.username) : `/u/${row.address}`;
+  const go = (e: React.MouseEvent | React.KeyboardEvent) => {
+    // Let real links / buttons / badge popovers inside the row handle their own clicks.
+    if ((e.target as HTMLElement).closest("a,button,[data-no-row-nav]")) return;
+    if ("metaKey" in e && (e.metaKey || e.ctrlKey)) { window.open(href, "_blank"); return; }
+    router.push(href);
+  };
 
   return (
-    <div className={`lb-row ${row.isSelf ? "self" : ""}`} data-rank={row.rank}>
+    <div className={`lb-row lb-row-link ${row.isSelf ? "self" : ""}`} data-rank={row.rank} role="link" tabIndex={0}
+      aria-label={`Open ${name || row.address}'s profile`} onClick={go}
+      onKeyDown={(e) => { if (e.key === "Enter") go(e); }}>
       <div className="lb-cell lb-rank">
         {row.rank <= 3 ? <span className={`lb-medal m${row.rank}`}>#{row.rank}</span> : `#${row.rank}`}
       </div>
       <div className="lb-cell lb-player">
         <div className="lb-name">
-          <Link href={profileUrl(row.username)} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
+          <Link href={href} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
             {name || `${row.address.slice(0, 6)}…${row.address.slice(-4)}`}
           </Link>
           <span className="lb-flag" title={row.country}>
@@ -206,7 +217,7 @@ export default function LeaderboardView() {
       </div>
       <p className="lb-footnote">
         Prestige tier = your rank on the heaven ladder: earn points, climb tiers (Pilgrim → Angels → Seraphim…), like
-        CoD prestige. Hold = cumulative time held across positions. Click a pilot to open their public profile. Scores
+        CoD prestige. Hold = cumulative time held across positions. Click any row to open their public profile. Scores
         are SAMPLE until the indexer wires Trade events.
       </p>
     </div>
