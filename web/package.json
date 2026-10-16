@@ -10,7 +10,8 @@
     "build:static-preview": "node scripts/build-static-preview.mjs",
     "test:heading": "node scripts/test-heading.mjs",
     "test:camera": "node scripts/test-camera.mjs",
-    "test:pnl": "node scripts/test-pnl.mjs"
+    "test:pnl": "node scripts/test-pnl.mjs",
+    "test:trail": "node scripts/test-trail.mjs"
   },
   "dependencies": {
     "@account-kit/signer": "^4.88.5",

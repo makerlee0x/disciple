@@ -128,7 +128,7 @@ function randn(){return Math.sqrt(-2*Math.log(Math.random()+1e-9))*Math.cos(6.28
      {t:'status', source, ok, msg}
    ===================================================================== */
 class MockReplaySource {
-  constructor(){ this.name='MOCK REPLAY'; this.block=89_266_000; this.mcap=+(Q.get('start')||7200); this.supply=1e9;
+  constructor(){ this.name='MOCK REPLAY'; this.block=89_266_000; this.mcap=+(Q.get('mcap')||Q.get('start')||7200);   // ?mcap=N: debug start (mock only; tier thresholds unchanged) this.supply=1e9;
     this.levels=[]; this.turbo=false; this.idleUntil=0; this.nextTrade=0; }
   start(emit){
     this.emit=emit; this.seedDepth(); const tickMs=100;            // RH ≈100 ms blocks
@@ -702,13 +702,11 @@ function altToScreenY(a){ const base=(S.camAlt!=null?S.camAlt:S.displayAlt); ret
 function laneW(l){ return clamp(90+Math.log10(1+l.usd)*55, 110, 420); }
 function laneX(l){ return 140 + hash(Math.round(l.mcap*7)%9973 + (l.side==='ask'?3:0))*(W-280); }
 
-/* Background plates by altitude BAND, not by whole tier. Tiers are 1.5–3× wide in mcap and the 18 tiers shared 10
-   plates, so a coin living between $7K and $12K (the whole mock/sim range) sat on tier0 forever. Bands: half a tier
-   up to FIRMAMENT (alt 5 ≈ $100K) so all 10 plates appear across $7K→$100K, then one band per tier (cycling). */
-const PLATES=['tier0','tier1','tier2','tier3','tier4','tier5','tier6','tier7','tier8','tier9'];
-const BAND_SPLIT=5;
-function bandOf(alt){ alt=Math.max(0,alt||0); return alt<BAND_SPLIT ? alt*2 : BAND_SPLIT*2+(alt-BAND_SPLIT); }
-const plateOf=b=>PLATES[((Math.floor(b)%PLATES.length)+PLATES.length)%PLATES.length];
+/* Background = one plate per named altitude tier, exactly TIERS[i].bg (the original tier0..9 mapping from the
+   initial scaffold; tiers 10+ reuse plates). The fractional altitude is the tier index, so `u` below is in tiers. */
+const bandOf=alt=>Math.max(0,alt||0);
+const plateOf=i=>TIERS[clamp(Math.floor(i),0,TIERS.length-1)].bg;
+const BG_X=0.08;   // crossfade window: ±0.08 tier around each threshold (≈ ±4% mcap on a 1.5× tier)
 let bgT=0;
 /* Cached plates: each plate is pre-cropped, pre-scaled and mirror-tiled once into a (2w × h) canvas, so a frame is
    1–3 plain drawImage calls (no scaling, no save/scale/restore). During a crossfade the pair is blended into one
@@ -723,7 +721,7 @@ function bgTile(name){ const s=1.12, w=Math.round(W*s), h=Math.round(H*s), k=w+'
   g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.save(); g.translate(2*w,0); g.scale(-1,1); g.drawImage(im,sx,0,sw,ih,0,0,w,h); g.restore();
   BGC.tiles.set(name,t); while(BGC.tiles.size>3) BGC.tiles.delete(BGC.tiles.keys().next().value);
   return t; }
-function bgFrame(i,aq){ const A=bgTile(plateOf(i)); if(!aq||!A) return A; const B=bgTile(plateOf(i+1)); if(!B) return A;
+function bgFrame(i,aq){ const A=bgTile(plateOf(i)); if(!aq||!A) return A; if(plateOf(i+1)===plateOf(i)) return A; const B=bgTile(plateOf(i+1)); if(!B) return A;
   const k=i+'|'+aq; if(BGC.bkey===k&&BGC.blend) return BGC.blend;
   if(!BGC.blend||BGC.blend.width!==A.width||BGC.blend.height!==A.height){ BGC.blend=document.createElement('canvas'); BGC.blend.width=A.width; BGC.blend.height=A.height; }
   const g=BGC.blend.getContext('2d'); g.globalAlpha=1; g.drawImage(A,0,0); g.globalAlpha=aq/32; g.drawImage(B,0,0); g.globalAlpha=1; BGC.bkey=k; return BGC.blend; }
@@ -731,14 +729,15 @@ function drawBg(){
   // displayed band is rate-limited (≤1.5 bands/s) so a fast altitude swing crossfades plate by plate instead of strobing;
   // a jump of >4 bands (first frame, coin switch) snaps
   const a=S.displayAlt, tgt=bandOf(a), now=performance.now(), dt=Math.min(0.1,(now-(bgT||now))/1000); bgT=now;
-  if(S.bgU==null||Math.abs(tgt-S.bgU)>4) S.bgU=tgt; else S.bgU+=clamp(tgt-S.bgU,-1.5*dt,1.5*dt);
-  const u=S.bgU, i=Math.floor(u), f=u-i;
+  if(S.bgU==null||Math.abs(tgt-S.bgU)>3) S.bgU=tgt; else S.bgU+=clamp(tgt-S.bgU,-1.5*dt,1.5*dt);
+  // shift by the half-window so the fade is centred on the threshold: 50/50 exactly at tier lo
+  const u=S.bgU, v=u-BG_X, i=Math.floor(v), f=v-i;
   ctx.fillStyle='#0b0f22'; ctx.fillRect(0,0,W,H);
-  // crossfade over the last 45% of each band: next plate reaches alpha 1 exactly at the boundary → no pop
-  const edge=0.45, x=clamp((f-(1-edge))/edge,0,1), sm=x*x*(3-2*x), aq=Math.round(sm*32);
+  // crossfade across the threshold; next plate reaches alpha 1 at the end of the window → no pop
+  const edge=2*BG_X, x=clamp((f-(1-edge))/edge,0,1), sm=x*x*(3-2*x), aq=Math.round(sm*32);
   const T=aq>=32?bgFrame(i+1,0):bgFrame(i,aq);
   if(T){ const w=T.width/2, h=T.height, scrollX=((S.bgScrollX||0)*0.05)%(2*w);
-    const off=Math.sin(u*0.9)*H*0.045, y0=Math.round((H-h)/2+off);   // continuous vertical drift with altitude
+    const off=Math.sin(u*2.1)*H*0.045, y0=Math.round((H-h)/2+off);   // continuous vertical drift with altitude
     const x0=(W-w)/2+(S.x-W/2)*-0.03-scrollX;
     for(let k=-1;k<=1;k++){ const tx=Math.round(x0+k*2*w); if(tx>W||tx+2*w<0) continue; ctx.drawImage(T,tx,y0); } }
   ctx.fillStyle='rgba(8,10,34,.30)'; ctx.fillRect(0,0,W,H);
@@ -751,7 +750,7 @@ function skyRGB(idx){ const key=plateOf(idx); let c=SKY_RGB.get(key); if(c) retu
     // lift toward pastel so the rim reads as light, not as paint
     c=[Math.round(r/n*0.5+128),Math.round(gg/n*0.5+124),Math.round(b/n*0.5+128)]; SKY_RGB.set(key,c); }catch(_){ } }
   return c; }
-function skyNow(){ const a=S.bgU!=null?S.bgU:bandOf(S.displayAlt), i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
+function skyNow(){ const a=(S.bgU!=null?S.bgU:bandOf(S.displayAlt))-0.5, i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
   return [Math.round(lerp(c0[0],c1[0],f)),Math.round(lerp(c0[1],c1[1],f)),Math.round(lerp(c0[2],c1[2],f))]; }
 
 /* LIMINAL CLOUDS — crisp, stylised cumulus silhouettes pre-rendered once (2× res): union of circles with a
@@ -832,12 +831,13 @@ function drawSpeedLines(){
   ctx.restore(); ctx.globalAlpha=1;
 }
 const TRAIL_PTS=Array.from({length:96},()=>({x:0,y:0,tick:false,thrust:false}));
+function nozzleXY(){ return [(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, S.ry+(S.bob||0)*0.55]; }
 function drawTickTrail(){
   if (S.trail.length<2) return;
   // JET TRAIL → TICK LINE: thick/hot at the nozzle (pivot), thins into historical tick path (left=past).
   // Stair language: flat segments when sideways, angled segments on thrust (variable slope).
   // Tip = nozzle/aft pivot (rocket nose leads ahead of this point).
-  const tailX=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.35, tailY=S.ry+(S.bob||0)*0.5;
+  const [tailX,tailY]=nozzleXY();   // head = exactly drawRocket's nozzle pivot
   const pts=TRAIL_PTS; let n=0;   // reused scratch points (no per-frame map/filter arrays)
   for (const p of S.trail){ if(!(p.x<tailX-2)||n>=TRAIL_PTS.length-1) continue; const q=pts[n++]; q.x=p.x; q.y=clamp(altToScreenY(p.alt),20,H-20); q.tick=p.tick; q.thrust=p.thrust; }
   { const q=pts[n++]; q.x=tailX; q.y=tailY; q.tick=false; q.thrust=false; }
@@ -875,7 +875,7 @@ function drawLevels(){
 function drawRocket(dt){
   const im=IMG.rocket, h=150, w=im.naturalWidth? h*im.naturalWidth/im.naturalHeight : 55;
   // (x,y) = nozzle / aft pivot — trail tip + rotation origin. Nose leads ahead of this point.
-  const y=S.ry+(S.bob||0)*0.55, x=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45;
+  const [x,y]=nozzleXY();
   const NOZZLE_FROM_TOP = 0.96; // fraction of sprite height: engine sits just above the bottom edge
   const pivotY = h * NOZZLE_FROM_TOP; // draw offset so nozzle lands on (0,0) after rotate
   // ghost thrust for pending txs (projected, never applied to confirmed altitude)
@@ -1581,16 +1581,20 @@ function simStep(stepDt){
   keepIf(S.speedBits,ALIVE); if(S.speedBits.length>40){ S.speedBits.copyWithin(0,S.speedBits.length-40); S.speedBits.length=40; }
   // trailing tick polyline: tip at nozzle, scrolls left. Flat crawl + angled thrust segments.
   // Use stable S.x (no sway) so flat segments stay steady frame-to-frame.
-  const tipX=S.x;
+  // Trail = the rocket's own path. The rocket is drawn at S.ry (soft screen band around the anchor), NOT at
+  // altToScreenY(displayAlt) — the old trail stored displayAlt, so on fast moves it was plotted hundreds of px
+  // above/below the rocket ("pulling it up"). Emit the world altitude that projects exactly onto the nozzle.
+  const tipX=S.camX!=null?S.camX:S.x, nozY=S.ry+(S.bob||0)*0.55, nozAlt=(S.camAlt!=null?S.camAlt:S.displayAlt)+((S.anch??ROCKET_Y)-nozY)/PX_PER_ALT;
   const scroll=S.fwd*0.9*dt; // trail scrolls with forward speed (volume)
   for (const p of S.trail) p.x-=scroll;
   for (const b of S.bombs) b.x-=scroll*(b.tier>=4?0.3:1);   // big blasts hang on screen longer for (const p of S.bfx) p.x-=scroll; for (const l of S.bombLabels) l.x-=scroll;
   if (!S._trailAcc) S._trailAcc=0; S._trailAcc+=dt;
-  const moved=S.lastTrailAlt==null || Math.abs(S.displayAlt-S.lastTrailAlt)*PX_PER_ALT>1.5;
+  const moved=S.lastTrailAlt==null || Math.abs(nozAlt-S.lastTrailAlt)*PX_PER_ALT>1.5;
   if (S._trailAcc>0.07 || moved){ S._trailAcc=0;
     const tick=moved && Math.abs(vUpRaw)>10;
-    S.trail.push({x:tipX, alt:S.displayAlt, tick, thrust:tick && sinceThrust<0.25});
-    S.lastTrailAlt=S.displayAlt;
+    S.trail.push({x:tipX, alt:nozAlt, tick, thrust:tick && sinceThrust<0.25});
+    S._trailEmitErr=Math.max(S._trailEmitErr||0, Math.abs(altToScreenY(nozAlt)-nozY));   // test hook: ≈0 by construction
+    S.lastTrailAlt=nozAlt;
     if (S.trail.length>64) S.trail.shift();
   }
   keepIf(S.trail,TRAIL_ON);
@@ -1639,6 +1643,9 @@ const DEBUG_BOMB=Q.get('debugBomb'), DEBUG_BOMB_AT=+(Q.get('debugBombAt')||1.2);
 function runDebugBomb(){ if(DEBUG_BOMB==='cycle'){ ['puff','grenade','bunker','cruise','nuke','atom'].forEach((k,i)=>setTimeoutSim(()=>debugBomb(k),i*2.4)); } else debugBomb(isNaN(+DEBUG_BOMB)?DEBUG_BOMB:+DEBUG_BOMB,{fullStack:Q.get('fullStack')==='1'}); }
 const simTimers=[]; function setTimeoutSim(fn,d){ simTimers.push({at:S.t+d,fn}); }
 window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell:MOM.sell});
-window.__flight={bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
+  else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
+  S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
+window.__flight={setMcap,PX_PER_ALT,trailHead:()=>nozzleXY(),bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
