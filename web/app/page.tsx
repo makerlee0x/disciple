@@ -25,7 +25,7 @@ const SEED: Rocket[] = [
     live: true,
     mcap: null,
     chg: null,
-    c: "#ffe7a3",
+    c: "#C9CED6",
     pair: "OTHER",
     pairSym: "ETH",
     creator: "Robinhood pool",
@@ -39,7 +39,7 @@ const SEED: Rocket[] = [
     icon: withBase(SAYLOR_SQUARE),
     mcap: 2.4e6,
     chg: 21.0,
-    c: "#ffe7a3",
+    c: "#C9CED6",
     pair: "STRATEGY",
     pairSym: "STRATEGY",
     creator: "GildedQuietOwl",
@@ -100,7 +100,7 @@ const SEED: Rocket[] = [
     tk: "GATE",
     mcap: 41.0e3,
     chg: 3.2,
-    c: "#fff1c2",
+    c: "#E8EAEE",
     pair: "STRATEGY",
     pairSym: "STRATEGY",
     stats: { volume24hUsd: 25_000, ageHours: 80, holders: 220, liquidityUsd: 12_000 },
@@ -173,7 +173,7 @@ export default function HomePage() {
         const list = await listLaunches();
         if (!alive) return;
         const live: Rocket[] = list.map((x) => ({
-          id: x.token, name: x.name, tk: x.ticker, live: true, mcap: x.mcapUsd, chg: null, c: "#fff1c2",
+          id: x.token, name: x.name, tk: x.ticker, live: true, mcap: x.mcapUsd, chg: null, c: "#E8EAEE",
           icon: /^https?:|^data:|^\//.test(x.imageURI) ? x.imageURI : undefined,
           pair: pairOf(x.quote), pairSym: pairSymOf(x.quote), creator: short(x.creator), graduated: x.graduated, born: Number(x.block),
           stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
@@ -441,8 +441,8 @@ export default function HomePage() {
               margin: 0,
               font: "bold clamp(24px,3.6vw,40px) Georgia,serif",
               letterSpacing: ".12em",
-              color: "#fff7df",
-              textShadow: "0 0 26px rgba(255,220,150,.9)",
+              color: "#E8EAEE",
+              textShadow: "0 0 26px rgba(201,206,214,.9)",
             }}
           >
             DISCIPLE
@@ -450,7 +450,7 @@ export default function HomePage() {
           <p
             style={{
               margin: "6px 0 0",
-              color: "#ffe7a3",
+              color: "#C9CED6",
               fontSize: 12,
               letterSpacing: ".14em",
             }}
@@ -470,8 +470,8 @@ export default function HomePage() {
             zIndex: 2,
             borderRadius: "50%",
             background:
-              "radial-gradient(ellipse at center,rgba(255,236,190,.55),rgba(255,236,190,.08) 60%,transparent 72%)",
-            boxShadow: "0 0 30px rgba(255,220,150,.35)",
+              "radial-gradient(ellipse at center,rgba(232,234,238,.55),rgba(232,234,238,.08) 60%,transparent 72%)",
+            boxShadow: "0 0 30px rgba(201,206,214,.35)",
           }}
         />
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -530,7 +530,7 @@ export default function HomePage() {
             transform: "translateX(-50%)",
             zIndex: 4,
             fontSize: 12,
-            color: "#ffe7a3",
+            color: "#C9CED6",
             letterSpacing: ".1em",
             textShadow: "0 0 8px #000",
           }}
@@ -589,8 +589,8 @@ export default function HomePage() {
         .rocket-card:hover,
         .rocket-card:focus-visible {
           transform: translateY(-3px);
-          border-color: rgba(255, 231, 163, 0.7) !important;
-          box-shadow: 0 0 26px rgba(255, 220, 150, 0.22);
+          border-color: rgba(201, 206, 214, 0.7) !important;
+          box-shadow: 0 0 26px rgba(201, 206, 214, 0.22);
         }
       `}</style>
     </>

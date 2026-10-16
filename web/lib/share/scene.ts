@@ -28,7 +28,7 @@ export interface SceneData {
 export interface SceneAssets { bg: Img | null; rocket: Img | null }
 export const FONT = { black: "GeistBlack", mono: "GeistMonoBold", monoMed: "GeistMonoMed" };
 
-const GREEN = "#47ff7e", RED = "#ff4040", INK = "#f6f1e4";
+const GREEN = "#5FF0A0", RED = "#F0307F", INK = "#E8EAEE";
 
 /* ---------------- rocket (server-safe port of lib/rocketSkin tintBase + decal roundel) ---------------- */
 export function composeRocket(mk: MakeCanvas, base: Img, lo: Loadout, scale = 4): Cv {
@@ -120,10 +120,10 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   // 3) atmospheric haze bands (dreamcore bloom) + god-ray
   ctx.save(); ctx.globalCompositeOperation = "screen";
   const hz = (y: number, r: number, al: number, col: string, x = W * 0.6) => { const rg = ctx.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, `rgba(${col},${al})`); rg.addColorStop(1, `rgba(${col},0)`); ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H); };
-  hz(story ? H * 0.2 : H * 0.15, W * 0.9, 0.22, "255,236,200");
+  hz(story ? H * 0.2 : H * 0.15, W * 0.9, 0.22, "232,234,238");
   hz(story ? H * 0.5 : H * 0.6, W * 0.7, 0.12, "200,210,255", W * 0.25);
   ctx.globalAlpha = 0.16; ctx.translate(W * 0.75, -40); ctx.rotate(0.32);
-  const ray = ctx.createLinearGradient(-160, 0, 160, 0); ray.addColorStop(0, "rgba(255,245,220,0)"); ray.addColorStop(0.5, "rgba(255,245,220,1)"); ray.addColorStop(1, "rgba(255,245,220,0)");
+  const ray = ctx.createLinearGradient(-160, 0, 160, 0); ray.addColorStop(0, "rgba(232,234,238,0)"); ray.addColorStop(0.5, "rgba(232,234,238,1)"); ray.addColorStop(1, "rgba(232,234,238,0)");
   ctx.fillStyle = ray; ctx.fillRect(-160, 0, 320, H * 1.4); ctx.fillRect(-420, 0, 120, H * 1.4);
   ctx.restore();
 
@@ -134,7 +134,7 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
     ctx.save(); ctx.translate(rx, ry); ctx.rotate(tilt);
     ctx.globalCompositeOperation = "source-over";
     // rim light + body
-    ctx.shadowColor = "rgba(255,236,190,.55)"; ctx.shadowBlur = 60;
+    ctx.shadowColor = "rgba(232,234,238,.55)"; ctx.shadowBlur = 60;
     ctx.drawImage(rc, -rw / 2, -rh / 2, rw, rh);
     ctx.shadowBlur = 0;
     // atmospheric perspective: haze over the lower hull
@@ -170,18 +170,18 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   const L = 64, R = W - 64;
   ctx.textBaseline = "alphabetic"; ctx.fillStyle = INK;
   ctx.font = `30px ${FONT.mono}`; tracked(ctx, "DISCIPLE", L, story ? 120 : 92, 8);
-  ctx.font = `26px ${FONT.monoMed}`; ctx.fillStyle = "rgba(246,241,228,.75)"; tracked(ctx, fmtCt(d.endTs || Date.now()), R, story ? 120 : 92, 3, "right");
+  ctx.font = `26px ${FONT.monoMed}`; ctx.fillStyle = "rgba(232,234,238,.75)"; tracked(ctx, fmtCt(d.endTs || Date.now()), R, story ? 120 : 92, 3, "right");
   ctx.fillStyle = INK; ctx.fillRect(L, story ? 146 : 114, R - L, 5);
   // tier tag
-  ctx.font = `24px ${FONT.mono}`; ctx.fillStyle = "rgba(246,241,228,.85)";
+  ctx.font = `24px ${FONT.mono}`; ctx.fillStyle = "rgba(232,234,238,.85)";
   tracked(ctx, `TIER ${tier.index} · ${tier.name}`, L, story ? 200 : 160, 6);
-  if (d.sample) { ctx.save(); ctx.translate(R - 150, story ? 196 : 156); ctx.rotate(0.05); ctx.fillStyle = "#ffd166"; ctx.fillRect(-110, -32, 250, 46); ctx.fillStyle = "#0a0a0a"; ctx.font = `24px ${FONT.mono}`; tracked(ctx, "SAMPLE DATA", -96, 0, 4); ctx.restore(); }
+  if (d.sample) { ctx.save(); ctx.translate(R - 150, story ? 196 : 156); ctx.rotate(0.05); ctx.fillStyle = "#FFD84D"; ctx.fillRect(-110, -32, 250, 46); ctx.fillStyle = "#0a0a0a"; ctx.font = `24px ${FONT.mono}`; tracked(ctx, "SAMPLE DATA", -96, 0, 4); ctx.restore(); }
 
   // ticker block
   const tickY = story ? 960 : 330;
   ctx.fillStyle = INK; const tpx = fitText(ctx, `$${d.ticker}`, (p) => `${p}px ${FONT.black}`, story ? 760 : 560, story ? 132 : 104);
   ctx.font = `${tpx}px ${FONT.black}`; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 30; ctx.fillText(`$${d.ticker}`, L - 4, tickY); ctx.shadowBlur = 0;
-  ctx.font = `26px ${FONT.mono}`; ctx.fillStyle = "rgba(246,241,228,.7)";
+  ctx.font = `26px ${FONT.mono}`; ctx.fillStyle = "rgba(232,234,238,.7)";
   tracked(ctx, d.kind === "realized" ? "CLOSED · REALIZED" : "STILL HOLDING · UNREALIZED", L, tickY + 46, 5);
 
   // the number: glow + crisp pass, slams in on the video
@@ -201,20 +201,20 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   // stats + fills strip
   const sy = story ? bigY + 250 : bigY + 180, st = ease(t * 1.6 - 0.45);
   ctx.save(); ctx.globalAlpha = st;
-  const col = (label: string, val: string, x: number) => { ctx.font = `22px ${FONT.monoMed}`; ctx.fillStyle = "rgba(246,241,228,.6)"; tracked(ctx, label, x, sy, 4); ctx.font = `${story ? 50 : 40}px ${FONT.black}`; ctx.fillStyle = INK; ctx.fillText(val, x, sy + (story ? 56 : 46)); };
+  const col = (label: string, val: string, x: number) => { ctx.font = `22px ${FONT.monoMed}`; ctx.fillStyle = "rgba(232,234,238,.6)"; tracked(ctx, label, x, sy, 4); ctx.font = `${story ? 50 : 40}px ${FONT.black}`; ctx.fillStyle = INK; ctx.fillText(val, x, sy + (story ? 56 : 46)); };
   col("ENTRY MCAP", fmtMcap(d.mcapStart), L); col(d.kind === "realized" ? "EXIT MCAP" : "MCAP NOW", fmtMcap(d.mcapEnd), L + (story ? 330 : 260)); col("FILLS", String(d.fills.length), L + (story ? 660 : 520));
   if (story) fillsStrip(ctx, d, L, sy + 100, R - L, 120, accent);
   ctx.restore();
 
   // footer
   const fy = H - (story ? 90 : 62);
-  ctx.fillStyle = "rgba(246,241,228,.35)"; ctx.fillRect(L, fy - (story ? 70 : 58), R - L, 2);
+  ctx.fillStyle = "rgba(232,234,238,.35)"; ctx.fillRect(L, fy - (story ? 70 : 58), R - L, 2);
   ctx.fillStyle = INK; ctx.font = `${story ? 54 : 42}px ${FONT.black}`;
   ctx.fillText(d.username ? `@${d.username}` : d.refLabel.split("/r/")[1] || "", L, fy);
   ctx.font = `${story ? 28 : 24}px ${FONT.mono}`;
   const lw = ctx.measureText(d.refLabel).width + 36;
   ctx.fillStyle = "rgba(10,10,14,.6)"; ctx.fillRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);
-  ctx.strokeStyle = "rgba(246,241,228,.5)"; ctx.lineWidth = 2; ctx.strokeRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);
+  ctx.strokeStyle = "rgba(232,234,238,.5)"; ctx.lineWidth = 2; ctx.strokeRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);
   ctx.fillStyle = INK; ctx.fillText(d.refLabel, R - lw + 18, fy - 4);
 
   // 6) grain on top (seeded; animated per-frame on video via seed)
@@ -231,7 +231,7 @@ function fillsStrip(ctx: Ctx, d: SceneData, x: number, y: number, w: number, h: 
   const ls = pts.map((p) => Math.log10(Math.max(1, p.m))); let lo = Math.min(...ls), hi = Math.max(...ls);
   if (hi - lo < 0.08) { const c = (hi + lo) / 2; lo = c - 0.04; hi = c + 0.04; }
   const X = (i: number) => x + 14 + (pts.length > 1 ? i / (pts.length - 1) : 0.5) * (w - 28), Y = (m: number) => y + h - 14 - ((Math.log10(Math.max(1, m)) - lo) / (hi - lo)) * (h - 28);
-  ctx.fillStyle = "rgba(8,8,12,.45)"; ctx.fillRect(x, y, w, h); ctx.strokeStyle = "rgba(246,241,228,.18)"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = "rgba(8,8,12,.45)"; ctx.fillRect(x, y, w, h); ctx.strokeStyle = "rgba(232,234,238,.18)"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
   ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(X(i), Y(p.m)) : ctx.moveTo(X(i), Y(p.m))));
   ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.shadowColor = hexA(accent, 0.6); ctx.shadowBlur = 16; ctx.stroke(); ctx.shadowBlur = 0;
   pts.forEach((p, i) => {

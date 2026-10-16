@@ -45,7 +45,7 @@ export default function CoinPage({
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen items-center justify-center text-[#ffe7a3]">
+        <div className="flex h-screen items-center justify-center text-[#C9CED6]">
           Loading flight…
         </div>
       }

@@ -117,7 +117,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
       <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
-      <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(255,220,150,0.12)` }}>
+      <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(201,206,214,0.12)` }}>
         <div className="banner-frame" style={{ borderColor: border }}>
           <div className="banner-rocket"><BrandedRocket height={160} icon={data.showcaseIcon} /></div>
           <div className="banner-meta">
@@ -209,7 +209,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           {data.rings.map((r, i) => (
             <StatRing key={r.key} value={fmtRing(r.value, r.format)} label={r.label} sub={r.sub}
               progress={Math.min(0.95, Math.abs(r.value) / Math.max(1, r.max))}
-              color={i % 2 === 0 ? "#ffe7a3" : "#c9b6f2"} />
+              color={i % 2 === 0 ? "#C9CED6" : "#c9b6f2"} />
           ))}
         </div>
         <div className="gauges-row">
@@ -225,7 +225,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </div>
         <div className="chart-card">
           <div className="chart-head"><h3>{volRange === "1d" ? "Volume by hour" : "Volume by day"}</h3><RangeToggle value={volRange} onChange={setVolRange} /></div>
-          <CrosshairChart kind="bar" points={volPts} hourly={volRange === "1d"} formatY={(v) => fmtUsd(v)} color="#ffe7a3" />
+          <CrosshairChart kind="bar" points={volPts} hourly={volRange === "1d"} formatY={(v) => fmtUsd(v)} color="#C9CED6" />
         </div>
         <div className="chart-card"><h3>Hold-time distribution</h3><Histogram items={data.holdHist} /></div>
         <div className="chart-card"><h3>PnL calendar</h3><Heatmap days={data.pnlCalendar} /></div>

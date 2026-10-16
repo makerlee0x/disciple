@@ -121,7 +121,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       fontFamily: "ui-monospace,monospace", color: "#eef0ff" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-          <span title="Network" style={{ fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(255,231,163,.25)", color: "#ffe7a3", opacity: 0.85 }}>{ACTIVE_CHAIN.name}</span>
+          <span title="Network" style={{ fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(201,206,214,.25)", color: "#C9CED6", opacity: 0.85 }}>{ACTIVE_CHAIN.name}</span>
           {addr ? (
             <>
               {MINTABLE_TEST_TOKENS.length > 0 && (
@@ -137,11 +137,11 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>
+              <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>
                 {busy || "▶ Play"}
               </button>
             ) : (
-            <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>
+            <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>
               {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
             </button>
             )
@@ -155,12 +155,12 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 {otp === null ? (
                   <div style={{ display: "flex", gap: 4 }}>
                     <input aria-label="email" placeholder="you@email.com" value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
-                    <button type="button" disabled={!!busy || !email} onClick={() => run("sending code", async () => { await emailStart(email); setOtp(""); })} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>Email</button>
+                    <button type="button" disabled={!!busy || !email} onClick={() => run("sending code", async () => { await emailStart(email); setOtp(""); })} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>Email</button>
                   </div>
                 ) : (
                   <div style={{ display: "flex", gap: 4 }}>
                     <input aria-label="code" placeholder="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value)} style={input} />
-                    <button type="button" disabled={!!busy || !otp} onClick={() => run("verifying", () => connectSmartEmail(otp))} style={{ ...pill, background: "#ffe7a3", color: "#1a1630" }}>Verify</button>
+                    <button type="button" disabled={!!busy || !otp} onClick={() => run("verifying", () => connectSmartEmail(otp))} style={{ ...pill, background: "#C9CED6", color: "#1a1630" }}>Verify</button>
                   </div>
                 )}
                 <button type="button" disabled={!!busy} onClick={() => run("google", connectSmartGoogle)} style={{ ...pill, background: "#fff", color: "#1a1630", textAlign: "center" }}>Continue with Google</button>
@@ -170,17 +170,17 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 </>}
               </>
             ) : (
-              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#ffe7a3", color: "#1a1630", textAlign: "center" }}>Connect wallet</button>
+              <button type="button" disabled={!!busy} onClick={() => hasWallet() ? run("connecting", connectWallet) : setErr("No browser wallet found. Install MetaMask/Rabby.")} style={{ ...pill, background: "#C9CED6", color: "#1a1630", textAlign: "center" }}>Connect wallet</button>
             )}
           </div>
         )}
         {addr && acct && smart && SIGNER_MODE === "local" && (
           <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
-            <span style={{ color: "#ffe7a3" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
+            <span style={{ color: "#C9CED6" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
             {bal && <span>{bal}</span>}
-            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a>
+            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a>
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
             ) : (
@@ -194,8 +194,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           </div>
         )}
       </div>
-      {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#ffe7a3" }}>ETH faucet</a></span>}
-      {needFund && <span role="status" style={{ fontSize: 10, color: "#ffe7a3", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
+      {addr && bal && !compact && <span style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? ` · ${selfPay ? "self-pay gas" : "gasless"}` : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a></span>}
+      {needFund && <span role="status" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
       {err && <span role="alert" style={{ fontSize: 10, color: "#ffb0c0", maxWidth: 320, textAlign: "right" }}>{err}</span>}
     </div>
   );
