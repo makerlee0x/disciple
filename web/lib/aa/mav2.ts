@@ -6,7 +6,7 @@
  *  - gas: self-pay only (no paymaster / gas policy). Bundler goes through /api/bundler.
  */
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
-import { LocalAccountSigner, split, type SmartAccountSigner } from "@aa-sdk/core";
+import { LocalAccountSigner, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { http, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { AAError, type Call, type GasMode, type OwnerSigner, type UserOpReceipt } from "./core";
@@ -17,6 +17,22 @@ const BUNDLER_METHODS = [
 ];
 
 /** Any viem LocalAccount (Privy toViemAccount, privateKeyToAccount) as an aa-sdk signer. */
+
+/**
+ * Fee estimator for the Alchemy (rundler) bundler: the chain RPC's eth_maxPriorityFeePerGas is 0 on RH testnet, which
+ * Alchemy rejects ("precheck failed: maxPriorityFeePerGas is 0 but must be at least …"). Ask the bundler for its
+ * minimum via rundler_maxPriorityFeePerGas (+10% headroom, the precheck floor moves with the base fee).
+ */
+export const rundlerFeeEstimator: ClientMiddlewareFn = async (struct, { client }) => {
+  const c = client as unknown as { request: (a: { method: string; params?: unknown[] }) => Promise<Hex>; estimateFeesPerGas: () => Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint }> };
+  const fees = await c.estimateFeesPerGas();
+  const tip = (BigInt(await c.request({ method: "rundler_maxPriorityFeePerGas", params: [] })) * BigInt(110)) / BigInt(100);
+  const base = (fees.maxFeePerGas ?? BigInt(0)) - (fees.maxPriorityFeePerGas ?? BigInt(0));
+  struct.maxPriorityFeePerGas = tip;
+  struct.maxFeePerGas = base + tip;
+  return struct;
+};
+
 export const asSigner = (a: LocalAccount): SmartAccountSigner => new LocalAccountSigner(a);
 
 export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint };
@@ -39,6 +55,7 @@ export class Mav2Account {
   }
   private owned() {
     return (this.ownerClient ??= createModularAccountV2Client({
+      feeEstimator: rundlerFeeEstimator,
       chain: this.o.chain, transport: this.transport(), signer: asSigner(this.owner),
       salt: this.o.salt ?? BigInt(0), factoryAddress: MAV2_FACTORY,
     }));
@@ -49,6 +66,7 @@ export class Mav2Account {
     this.sessionClient = {
       entityId,
       c: createModularAccountV2Client({
+      feeEstimator: rundlerFeeEstimator,
         chain: this.o.chain, transport: this.transport(), signer: asSigner(key), accountAddress: account,
         signerEntity: { entityId, isGlobalValidation: false },
       }),
