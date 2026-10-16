@@ -8,7 +8,7 @@ import { createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountI
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
-import { FEE } from "@/lib/pnl";
+import { FEE, fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
 import { SELL_KEYS, SWAP_PREFIX, loadSettings, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 
@@ -75,7 +75,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     const pc = publicClient();
     window.__discipleTrade = async (side, usd, o) => {
       try {
-        setLast(`${side === "buy" ? "▲" : "▼"} $${usd} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
+        setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         let amountIn = await usdToAmountIn(pc, token as Address, side, usd);
         if (side === "sell") {
           const me = await activeAddress();
@@ -86,7 +86,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         }
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
         const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slippageBps(cfgRef.current) });
-        setLast(`${side === "buy" ? "▲" : "▼"} $${usd} ✓ ${r.txHash.slice(0, 10)}…`);
+        setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
         return { ok: r.ok, txHash: r.txHash, reason: r.reason };
       } catch (e) {
         const m = (e as Error).message.split("\n")[0].slice(0, 90);
@@ -156,12 +156,12 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
           <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
             background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
-          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `pos $${pos.valueUsd < 10 ? pos.valueUsd.toFixed(2) : pos.valueUsd.toFixed(0)}` : "no position"}</span>
+          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `pos ${fmtMoney(pos.valueUsd)}` : "no position"}</span>
         </div>
       </div>
       {(last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
-    {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} names={ammo.names} tier={ammo.tier} rocketTier={ammo.rocketTier ?? null} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
+    {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
       onSave={(n, t) => { setCfg(n); saveSettings(scope, n); if (t != null && t !== ammo.tier && !n.buy) dispatchEvent(new CustomEvent("disciple:ammo-tier", { detail: { tier: t } })); setShowCfg(false); }} />}
     </>

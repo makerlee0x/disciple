@@ -1028,7 +1028,7 @@ let _topT=-1, _top=[];
 addEventListener('disciple:chatdock',e=>{ const d=e.detail||{}; S.kothDocked=!!(d.open&&d.holders); S._holdersSig=''; });
 addEventListener('disciple:controlsdock',e=>{ S.controlsDocked=!!(e.detail&&e.detail.docked); S._ctlSig=''; });
 function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const md=MODES[S.mode];
-  const d={mode:md.name,key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
+  const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
   const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
 function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
   try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:S.fuelers&&S.fuelers.you||0}})); }catch(_){} }
@@ -1144,21 +1144,22 @@ function drawHud(){
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; ctx.fillText(r.txt.slice(0,38),36,H-116+i*17); }); ctx.globalAlpha=1;
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
   if (S.controlsDocked) pushControls(); else { panel(RX,H-104,310,84);
-  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`MODE ${md.name} · ${fmtShot(md.usd)}/shot  [1-6 / click]`,RX+16,H-82);
+  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · 1-6 / click`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const am=autoMode(m), AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(`AMMO · auto by depth: ${MODES[am].name} (${MODES[am].range})`,ax+12,ay+16);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16);
   MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
     ctx.strokeStyle=hov?'#fff':i===am?'#9ff3c8':'rgba(255,255,255,.2)'; ctx.lineWidth=hov||i===am?2:1; ctx.strokeRect(bx,by,72,30);
-    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillText(`${q.key} ${q.name}`,bx+5,by+13); ctx.font='10px ui-monospace,monospace'; ctx.fillText(fmtShot(q.usd)+(below?' ·min✗':''),bx+5,by+25); });
+    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+36,by+20); ctx.textAlign='left';
+    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+69,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
   ctx.font='11px ui-monospace,monospace';
   if (MODES[S.mode].usd<MIN_SHOT){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
-  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER $${S.balance.toFixed(2)} · min shot ${fmtShot(MIN_SHOT)} · gas ≈$${GAS_USD.toFixed(4)}`,ax+12,ay+72); }
+  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
   { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
     S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
@@ -1724,12 +1725,16 @@ function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.si
   ctx.save(); ctx.globalAlpha=0.92; ctx.fillStyle='rgba(8,10,24,.78)'; ctx.fillRect(x,y,TW,TH); ctx.fillStyle=col; ctx.fillRect(x,y,3,TH);
   ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.lineWidth=1; ctx.strokeRect(x+.5,y+.5,TW-1,TH-1);
   ctx.textBaseline='alphabetic'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle=col;
-  ctx.fillText(`${up?'+':'−'}${fmtUsd(Math.abs(v.uPnl))} ${up?'+':'−'}${Math.abs(v.pnlPct).toFixed(1)}%`,x+10,y+16);
+  const T=v.txt||{pnl:fmtPnlUsd(v.uPnl),pct:(v.pnlPct<0?'−':'+')+Math.abs(v.pnlPct).toFixed(1)+'%',pos:fmtMoney(v.valueUsd),realized:fmtPnlUsd(v.realized)};   // txt = lib/pnl.ts fmtPnl/fmtPct/fmtMoney
+  ctx.fillText(`${T.pnl} ${T.pct}`,x+10,y+16);
   ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
-  ctx.fillText(`POS ${fmtUsd(v.valueUsd)} · ${fmtTok(v.size)} tok`,x+10,y+31);
+  ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)} tok`,x+10,y+31);
   ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
-  ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${v.realized>=0?'+':'−'}${fmtUsd(Math.abs(v.realized))}`,x+10,y+55);
+  ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
   ctx.restore(); }
+/* fallback mirror of lib/pnl.ts fmtMoney/fmtPnl (React normally sends preformatted txt) */
+function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e9?(a/1e9).toFixed(2)+'B':a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(2)+'K':a.toFixed(2)); }
+function fmtPnlUsd(v){ return (v<0&&Math.abs(v)>=0.005?'−':'+')+fmtMoney(Math.abs(v)); }
 function fmtTok(n){ return n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n.toFixed(0); }
 function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }
 function render(dt){

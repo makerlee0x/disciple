@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { MODES } from "@/lib/config";
-import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
-import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, sellLabel, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 
 /** Swap settings modal (gear in the ammo panel's SELL row). Styled after the reference: dark card, 4-up preset grids, Reset, Auto/Custom, Save. */
-export default function SwapSettingsModal({ initial, autoUsd, names, tier, rocketTier, scope, onSave, onClose }: {
-  initial: SwapSettings; autoUsd: number[]; names: string[]; tier: number | null; rocketTier: number | null; scope: string;
+export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSave, onClose }: {
+  initial: SwapSettings; autoUsd: number[]; tier: number | null; scope: string;
   onSave: (s: SwapSettings, tier: number | null) => void; onClose: () => void;
 }) {
   const [buy, setBuy] = useState<string[]>((initial.buy || autoUsd).map(String));
@@ -16,7 +15,7 @@ export default function SwapSettingsModal({ initial, autoUsd, names, tier, rocke
   const [slipMode, setSlipMode] = useState(initial.slippage.mode);
   const [slip, setSlip] = useState(String(initial.slippage.pct));
   const [tag, setTag] = useState(initial.tag);
-  const [t, setT] = useState(tier);
+  const t = tier;
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [onClose]);
   useEffect(() => { if (buyAuto) setBuy(autoUsd.map(String)); }, [buyAuto, autoUsd]);
   const save = () => {
@@ -38,27 +37,24 @@ export default function SwapSettingsModal({ initial, autoUsd, names, tier, rocke
         <button type="button" aria-label="close" onClick={onClose} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 14, top: 12, fontSize: 18, opacity: 0.8 }}>✕</button>
         <div style={{ textAlign: "center", fontWeight: 700, fontSize: 18 }}>Swap settings</div>
         <div style={{ textAlign: "center", fontSize: 10, opacity: 0.5, marginTop: 2, fontFamily: "ui-monospace,monospace" }}>{scope}</div>
-        {head(`Buy presets (ammo)${buyAuto ? " · auto by mcap" : " · custom"}`, () => setBuyAuto(true))}
+        {head("Buy presets ($)", () => setBuyAuto(true))}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
           {buy.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, opacity: 0.95, fontFamily: "ui-monospace,monospace", color: "#ffe7a3" }}>
-            <span>{MODES[i].key} {names[i] || MODES[i].name}</span>
-            <input data-testid={`swap-buy-${i}`} inputMode="decimal" value={buyAuto ? `$${v}` : v} onFocus={() => { if (buyAuto) { setBuyAuto(false); } }}
+            <span>{MODES[i].key}</span>
+            <input data-testid={`swap-buy-${i}`} inputMode="decimal" value={buyAuto ? (+v < 1 ? `$${(+v).toFixed(2)}` : `$${+v}`) : v} onFocus={() => { if (buyAuto) { setBuyAuto(false); } }}
               onChange={(e) => { setBuyAuto(false); const n = [...buy]; n[i] = e.target.value.replace(/[^\d.]/g, ""); setBuy(n); }} style={{ ...cell, color: buyAuto ? "rgba(255,255,255,.6)" : "#fff" }} /></label>)}
         </div>
-        {AMMO_TIERS.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 11, opacity: buyAuto ? 1 : 0.45 }}>
-          <span>Auto tier</span>
-          <select aria-label="ammo tier" disabled={!buyAuto} value={t ?? ""} onChange={(e) => setT(+e.target.value)}
-            style={{ background: "rgba(255,255,255,.06)", color: "#9ff3c8", border: "1px solid rgba(255,255,255,.12)", borderRadius: 6, padding: "2px 6px" }}>
-            {AMMO_TIERS.map((x, i) => <option key={x.id} value={i} style={{ color: "#000" }}>{x.name}{i === rocketTier ? " ● rocket" : ""}</option>)}
-          </select><span style={{ opacity: 0.6 }}>scales with the rocket mcap</span></div>}
-        {head("Sell presets (Z X C V)", () => setSells(DEFAULT_SELLS.map((s) => (s === "init" ? "init" : String(s)))))}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
+          <input type="checkbox" data-testid="swap-autoscale" checked={buyAuto} onChange={(e) => setBuyAuto(e.target.checked)} />
+          <span>Auto-scale with mcap: {buyAuto ? "on" : "off"}</span></label>
+        {head("Sell presets (%)", () => setSells(DEFAULT_SELLS.map((s) => (s === "init" ? "init" : String(s)))))}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {sells.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, fontFamily: "ui-monospace,monospace", color: "#ffb0c8" }}>
             <span>{["Z", "X", "C", "V"][i]}</span>
-            <input data-testid={`swap-sell-${i}`} value={v === "init" ? "INITIALS" : v} title="% of your position, or INIT = sell back your cost basis"
+            <input data-testid={`swap-sell-${i}`} value={v === "init" ? "Initials" : v} title="% of your position, or Initials = sell back your cost basis"
               onChange={(e) => { const n = [...sells]; const x = e.target.value; n[i] = /^i/i.test(x) ? "init" : x.replace(/[^\d.]/g, ""); setSells(n); }}
               style={{ ...cell, fontSize: v === "init" ? 11 : 15 }} />
-            <span style={{ opacity: 0.55, textAlign: "center" }}>{v === "init" ? "cost basis" : v ? sellLabel(+v) : ""}</span></label>)}
+            </label>)}
         </div>
         <div style={{ borderTop: "1px dashed rgba(255,255,255,.12)", margin: "16px 0 12px" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
