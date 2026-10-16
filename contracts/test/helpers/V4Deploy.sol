@@ -43,6 +43,7 @@ library V4Deploy {
         s.router = new DiscipleRouter(s.manager, lockedLP, address(hook));
         hook.setTrustedRouter(address(s.router), true);
         hook.setLiquidityManager(address(lockedLP), true);
+        hook.setCompounder(address(lockedLP), 250_000);
         s.hook = hook;
         s.migration = migration;
     }

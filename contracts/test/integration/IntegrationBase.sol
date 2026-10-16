@@ -112,6 +112,7 @@ abstract contract IntegrationBase is Test {
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
+        lockedLP.setHook(address(hook));
         depositHook = new DepositHookMock(referrals);
         referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
