@@ -12,7 +12,7 @@ type FlightWin = {
   __pnl?: { fill(f: Fill): void; reset(): void };
 };
 
-const KEY = "disciple.pnl.";
+const DEFAULT_KEY = "disciple.pnl.";
 const usd = (v: number) => (v < 0 ? "−" : v > 0 ? "+" : "") + "$" + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
 const amt = (v: number) => (v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "K" : v.toFixed(0));
@@ -44,7 +44,7 @@ function Num({ value, fmt, style }: { value: number; fmt: (v: number) => string;
   return <span ref={ref} style={style}>{fmt(shown.current)}</span>;
 }
 
-function sessionRealized(coin: string) {
+function sessionRealized(coin: string, KEY: string) {
   let tot = 0;
   try {
     for (let i = 0; i < localStorage.length; i++) {
@@ -60,7 +60,9 @@ function sessionRealized(coin: string) {
  * Marks are pushed by the engine (`disciple:mark`, on change, ≤10/s); no polling. Other rockets' realized
  * total is read from localStorage once on mount and on cross-tab `storage` events only.
  */
-export default function PnlHud({ coin }: { coin: string }) {
+/** storagePrefix: the SIMULATOR passes its own namespace so sim positions never mix with real/paper profiles. */
+export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }: { coin: string; storagePrefix?: string; modeLabel?: string }) {
+  const KEY = storagePrefix;
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: 1e9 });
   const [open, setOpen] = useState(true);
@@ -71,11 +73,11 @@ export default function PnlHud({ coin }: { coin: string }) {
   useEffect(() => {
     try { const s = localStorage.getItem(KEY + coin); if (s) setPos(JSON.parse(s)); } catch { /* ignore */ }
     if (window.matchMedia?.("(max-width: 760px)").matches) setOpen(false);
-    setSession(sessionRealized(coin));
-    const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin)); };
+    setSession(sessionRealized(coin, KEY));
+    const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin, KEY)); };
     addEventListener("storage", onStorage);
     return () => removeEventListener("storage", onStorage);
-  }, [coin]);
+  }, [coin, KEY]);
 
   useEffect(() => {
     const w = window as unknown as FlightWin;
@@ -94,7 +96,7 @@ export default function PnlHud({ coin }: { coin: string }) {
     if (m0) setMark({ mcap: m0, supply: w.__flight?.source?.supply || 1e9 });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
     return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); };
-  }, [coin]);
+  }, [coin, KEY]);
 
   const price = mark.mcap / mark.supply;
   const v = view(pos, price, mark.supply);
@@ -120,7 +122,7 @@ export default function PnlHud({ coin }: { coin: string }) {
         border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
         transition: "border-color .4s" }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
-        <span>YOUR RUN <span style={{ color: "#ffb0c8", fontWeight: 400 }}>· PAPER</span></span>
+        <span>YOUR RUN <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || "PAPER"}</span></span>
         <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>
 

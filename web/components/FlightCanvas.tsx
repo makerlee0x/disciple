@@ -183,6 +183,8 @@ export default function FlightCanvas({ search }: Props) {
     window.addEventListener("disciple:simstate", on);
     return () => window.removeEventListener("disciple:simstate", on);
   }, []);
+  // SIMULATOR route (?source=sim): the local market is the market — no display-offset toggle
+  const isSimulator = new URLSearchParams(search).get("source") === "sim";
   const toggleSim = () =>
     window.dispatchEvent(new CustomEvent("disciple:sim", { detail: { mode: sim.on ? "off" : "on" } }));
 
@@ -231,7 +233,7 @@ export default function FlightCanvas({ search }: Props) {
         <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
           ORBS ON · O
         </button>
-        <button
+        {!isSimulator && <button
           type="button"
           data-testid="sim-toggle"
           title="Simulated market: random buys/sells keep the rocket moving when the pool is quiet. Visual only — never touches balances or PnL."
@@ -241,7 +243,7 @@ export default function FlightCanvas({ search }: Props) {
         >
           {sim.on ? "◆ SIMULATED MARKET · ON" : "◇ SIMULATED MARKET · OFF"}
           {sim.mode === "auto" ? " (auto)" : ""}
-        </button>
+        </button>}
       </div>
       <div
         id="launchFade"
