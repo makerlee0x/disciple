@@ -264,7 +264,7 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
           }
         },
       }));
-      // Hook donation to in-range LP (all positions on this coin share it pro-rata) → id "pool".
+      // Legacy only: LPDonation existed on pre-PR#44 hooks. Current hooks never donate (no yield), so this never fires.
       stops.push(pc.watchContractEvent({
         address: deployment().hook, abi: discipleHookAbi, eventName: "LPDonation", args: { token },
         onLogs: async (logs) => {

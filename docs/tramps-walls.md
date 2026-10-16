@@ -3,7 +3,7 @@
 **Tramp** = single-sided *quote-token* v4 LP placed fully **below** the current price (support — a trampoline the rocket bounces off).
 **Wall** = single-sided *coin* LP placed fully **above** the current price (resistance).
 
-Incentives: the DISCIPLE hook donates ~0.11% (11 bps) of every swap to in-range LPs; filled tramps/walls also earn off-chain points + badges (Papertrade-liquidation style). See achievements category `tramps` in `web/lib/achievements.ts`.
+Tramps and walls are **one-sided limit orders, nothing more**. They earn **no swap-fee share and no yield**: the pool LP fee is 0 and the hook donates nothing to in-range liquidity. No minimum hold, no vesting, cancel any time. Each one is exactly **one tick spacing** wide (enforced on-chain). When price fully crosses it, any keeper can `pull(id)` it and receives a **0.1% tip** (`keeperTipBps = 10`) out of the filled proceeds; the rest goes to the owner. The only extras are off-chain points + badges for filled orders (achievements category `tramps` in `web/lib/achievements.ts`).
 
 Only shown on graduated coins (`isGraduated(token) === true`).
 
@@ -25,7 +25,7 @@ interface TrampWall {
   sizeUsd: number;         // USD notional at placement (line thickness)
   status: TrampWallStatus;
   filledFrac: number;      // 0..1 of range converted
-  feesEarnedUsd: number;   // hook donations accrued
+  feesEarnedUsd: number;   // legacy field, always 0 (no yield; kept for adapter compatibility)
   pointsEarned: number;
   createdAt: number; filledAt?: number;   // ms epoch
 }
@@ -33,13 +33,14 @@ interface TrampWall {
 interface PlaceTrampWallParams {
   token: Address; kind: TrampWallKind;
   mcapUsd: number;         // target center (adapter converts to ticks, aligned to tickSpacing)
-  rangeWidthPct?: number;  // optional, default 2%
+  rangeWidthPct?: number;  // ignored on-chain: a band is always exactly one tick spacing
   amount: bigint; sizeUsd: number;
 }
 
 interface TrampWallPreview {
   distancePct: number; mcapLoUsd: number; mcapHiUsd: number;
-  estFeeShareUsdPerDay: number; estSharePct: number; pointsIfFilled: number;
+  estFeeShareUsdPerDay: number; estSharePct: number; // legacy, always 0 (no fee share)
+  pointsIfFilled: number;
   valid: boolean; reason?: string;
 }
 
@@ -47,7 +48,7 @@ type TrampWallEvent =
   | { type: "Placed"; tw: TrampWall }
   | { type: "Cancelled"; id: string; token: Address }
   | { type: "Filled"; id: string; token: Address; filledAt: number; pointsEarned: number }
-  | { type: "FeesDonated"; id: string; token: Address; amountUsd: number };
+  | { type: "FeesDonated"; id: string; token: Address; amountUsd: number }; // legacy, never emitted (no donations)
 
 interface TrampWallAdapter {
   isGraduated(token: Address): Promise<boolean>;
@@ -60,19 +61,12 @@ interface TrampWallAdapter {
 }
 ```
 
-## What FLOW must provide
+## Contract (TrampWallManager, shipped)
 
-Contract (TrampWallManager), suggested shape:
-- `place(token, kind, tickLower, tickUpper, amount) returns (uint256 id)` — reverts if a tramp's `tickUpper >= currentTick` or a wall's `tickLower <= currentTick`; only for graduated pools.
-- `cancel(id)` — owner only; withdraws remaining liquidity + accrued donations.
-- Auto-pull when filled: when price fully crosses the range (tramp: below `tickLower`; wall: above `tickUpper`), the manager/keeper removes the liquidity and credits the owner.
-- `positionsOf(owner)`, `positionsFor(token)` views (or indexer only).
-
-Events (indexer) → map to `TrampWallEvent`:
-- `TrampWallPlaced(id, token, owner, kind, tickLower, tickUpper, amount)`
-- `TrampWallCancelled(id, token, owner)`
-- `TrampWallFilled(id, token, owner, filledAt)` — off-chain points are awarded on this event
-- `HookDonation(poolId, id?, amount)` for fee accrual.
+- `placeTramp(token, tickLower, tickUpper, quoteAmt, minLiquidity, deadline)` / `placeWall(token, tickLower, tickUpper, tokenAmt, minLiquidity, deadline)`: graduated pools only, strictly single-sided (tramp below price, wall above), and `tickUpper - tickLower == tickSpacing`.
+- `cancel(id)`: owner only, any time (no hold, no vesting). Returns the remaining principal plus any filled proceeds. There are no fees to claim.
+- `pull(id)`: anyone (keeper), once `isFilled(id)`. The keeper gets the 0.1% tip and the owner gets the rest.
+- Events: `TrampPlaced` / `WallPlaced`, `Cancelled` (`quoteFees` / `tokenFees` are always 0), `Filled`, `KeeperTipPaid`. Off-chain points are awarded on `Filled`.
 
 Indexer also needs a per-user rollup for achievements: `trampsFilled`, `wallsFilled`, `bigTrampsFilled` (≥$1K) → `IdentityMetrics` in `web/lib/stats.ts`.
 

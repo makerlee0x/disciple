@@ -61,7 +61,7 @@ Gross buys to graduate are higher once the 1% trade fee (+ anti-snipe) is includ
 
 - 1% trade fee (33/33/33/1), optional creator tax ≤7%
 - Anti-snipe 77.7% → 0% over 7s
-- 7% wallet cap on curve
+- Per-wallet curve cap is configurable (`Launchpad.walletCapBps`), default 0 = no cap
 - Optional creator buy ≤0.77% at launch
 - Atomic graduate → locked v4 (stub)
 

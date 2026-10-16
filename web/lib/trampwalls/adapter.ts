@@ -47,7 +47,7 @@ export interface TrampWallPreview {
   distancePct: number;
   mcapLoUsd: number;
   mcapHiUsd: number;
-  /** Hook donation share estimate (~0.11% of in-range volume, pro-rata). */
+  /** Legacy field, always 0: tramps/walls are one-sided limit orders with no fee share or yield. */
   estFeeShareUsdPerDay: number;
   estSharePct: number;
   pointsIfFilled: number;
@@ -72,7 +72,7 @@ export interface TrampWallAdapter {
   onEvent(token: Address, cb: (e: TrampWallEvent) => void): () => void;
 }
 
-export const HOOK_DONATION_BPS = 11; // 0.11%
+export const HOOK_DONATION_BPS = 0; // no donation / yield (pool LP fee 0, hook donates nothing)
 export const POINTS = { tramp: 250, wall: 300, perKUsd: 40 };
 
 export function pointsFor(kind: TrampWallKind, sizeUsd: number): number {
