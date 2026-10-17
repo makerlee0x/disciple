@@ -61,9 +61,21 @@ export const curveModesAbi = parseAbi([
 /** DiscipleHook: block-start anchor + 60s time-weighted EMA reference (compound guard) + altitude tier. */
 export const hookAnchorAbi = parseAbi([
   "function blockAnchor(bytes32 id) view returns (uint64 blockNumber, uint160 sqrtPriceX96)",
-  "function priceReference(bytes32 id) view returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, bool ready)",
+  "function priceReference(bytes32 id) view returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, uint8 obs, bool ready)",
   "function compoundRefs(bytes32 id) view returns (uint160 refBlock, uint160 refEma)",
   "function altitudeTierOf(bytes32 id) view returns (uint8)",
+]);
+
+/** Trade events. BondingCurve (pre-grad) ends with `uint256 mcapAfterUsd`; DiscipleHook (post-grad, gas G-1) ends with
+ *  `uint160 sqrtPriceAfter` (different topic0). Decode both. Hook USD mcap off-chain:
+ *  DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, DiscipleHook.quoteUsdOf(poolId)). */
+export const tradeEventsAbi = parseAbi([
+  "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd)",
+  "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint160 sqrtPriceAfter)",
+  "event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier)",
+  "event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd)",
+  "function mcapUsdFromSqrt(uint160 sqrtP, bool tokenIsC0, uint256 qUsd) pure returns (uint256)",
+  "function quoteUsdOf(bytes32 id) view returns (uint256)",
 ]);
 
 /** UsdgDepositNotifier: referral-gate USDG escrow (min $10). Each deposit is its own entry locked 7 days from that
