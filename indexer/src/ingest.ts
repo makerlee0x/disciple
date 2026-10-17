@@ -1,6 +1,7 @@
 import { decodeEventLog, type Log, getAddress } from "viem";
 import { EVENTS } from "./abi.js";
-import type { DB } from "./db.js";
+import { bumpDataVersion, type DB } from "./db.js";
+import { tradeUsd } from "./usd.js";
 import type { Stack } from "./config.js";
 
 export type RawLog = Pick<Log, "address" | "data" | "topics" | "blockNumber" | "transactionHash" | "logIndex">;
@@ -11,6 +12,15 @@ const s = (x: unknown) => (typeof x === "bigint" ? x.toString() : String(x));
 /** Apply decoded logs (already ordered by block/logIndex) to the db. Pure w.r.t. RPC → unit-testable. */
 export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint) => number) {
   const coinBy = db.prepare("SELECT * FROM coins WHERE token = ?");
+  // per-coin aggregates read by listCoins; "last" moves forward only (logs arrive in (block, logIndex) order; a tie on
+  // (ts, block) is a later log in the same block, as rowid DESC in rebuildCoinStats)
+  const bumpCoinStats = db.prepare(`INSERT INTO coin_stats (token, volume_usd, trades, last_mcap, last_price_usd, last_ts, last_block)
+    VALUES (@token, @vol, 1, @mcap, @price, @ts, @block)
+    ON CONFLICT(token) DO UPDATE SET volume_usd = volume_usd + excluded.volume_usd, trades = trades + 1,
+      last_mcap = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_mcap ELSE last_mcap END,
+      last_price_usd = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_price_usd ELSE last_price_usd END,
+      last_block = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_block ELSE last_block END,
+      last_ts = MAX(last_ts, excluded.last_ts)`);
   const tx = db.transaction(() => {
     for (const l of logs) {
       let ev: { eventName: string; args: any };
@@ -54,13 +64,14 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           if (!coin) break;
           const fromCurve = src === coin.curve;
           if (!fromCurve && !isCore(stack.hook)) break;
-          const qUsd = Number(BigInt(coin.quote_price_usd ?? "0")) / 1e18;
-          const priceUsd = (Number(a.priceAfterX18) / 1e18) * qUsd;
-          const volUsd = (Number(a.quoteAmt) / 1e18) * qUsd;
-          db.prepare(
+          // all USD math in one swappable function (src/usd.ts; #75 replaces mcapAfterUsd with sqrtPriceAfter)
+          const usd = tradeUsd({ quotePriceUsdWad: coin.quote_price_usd, quoteAmt: a.quoteAmt, priceAfterX18: a.priceAfterX18, mcapAfterUsd: a.mcapAfterUsd });
+          const ins = db.prepare(
             `INSERT OR IGNORE INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, lc(a.token), stack.id, fromCurve ? "curve" : "hook", lc(a.trader), a.isBuy ? 1 : 0, s(a.quoteAmt), s(a.tokenAmt), s(a.fee),
-            s(a.snipeFee), s(a.priceBeforeX18), s(a.priceAfterX18), Number(a.impactBps), s(a.mcapAfterUsd), priceUsd, volUsd, block, ts, l.transactionHash);
+            s(a.snipeFee), s(a.priceBeforeX18), s(a.priceAfterX18), Number(a.impactBps), usd.mcapUsdWad, usd.priceUsd, usd.volumeUsd, block, ts, l.transactionHash);
+          // aggregates only for newly inserted trades (re-sync of an applied range is a no-op)
+          if (ins.changes === 1) bumpCoinStats.run({ token: lc(a.token), vol: usd.volumeUsd, mcap: Number(BigInt(usd.mcapUsdWad)) / 1e18, price: usd.priceUsd, ts, block });
           break;
         }
         case "GraduatedToV4": {
@@ -177,6 +188,7 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
     }
   });
   tx();
+  bumpDataVersion(db);
 }
 
 export const checksum = (a: string) => getAddress(a);
