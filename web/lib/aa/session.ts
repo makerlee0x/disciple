@@ -9,14 +9,13 @@
  * Without a deployed policy (NEXT_PUBLIC_SESSION_POLICY unset) trades fall back to owner-signed userOps
  * (Privy signs silently: showWalletUIs=false). aa/policy.ts stays as a client-side UX pre-check.
  */
-import { payUsdg, UNIVERSAL_ROUTER, PERMIT2 } from "../trade/usdgRoute";
 import { createPublicClient, createWalletClient, custom, http, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
+import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -272,7 +271,7 @@ export async function aaWarm() {
 
 async function canUseSessionKey(calls: Call[]) {
   if (!sa?.hasSession || !onchain || onchain.validUntil * 1000 < Date.now() + 30_000) return false;
-  return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry });
+  return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry, usdg: policyHasUsdg() ? deployment().usdg : undefined, router: deployment().router });
 }
 
 /** One userOp for the whole call list, pre-checked against the client policy. Session key if eligible, else owner. */
@@ -283,7 +282,7 @@ export async function aaSend(calls: Call[]) {
   const delta = await checkCalls(publicClient(), {
     launchpad: d.launchpad, router: d.router, trampWallManager: d.trampWallManager,
     mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT, spendTokens: [d.defaultQuote, d.usdg],
-    extra: payUsdg() ? [UNIVERSAL_ROUTER, PERMIT2] : [],
+    usdg: policyHasUsdg() ? d.usdg : undefined,
   }, state, calls, me);
   const r = await sa.sendCalls(calls, (await canUseSessionKey(calls)) ? "session" : "owner");
   gasListeners.forEach((f) => f("self-pay"));

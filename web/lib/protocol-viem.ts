@@ -5,7 +5,7 @@
  *  - Previews come from on-chain views (quoteBuy/quoteSell) or router.quoteExactIn (eth_call) post-grad.
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
-import { needsHop, usdgAddress, swapQuote, buyHopCalls, sellHopCall, hopBps, UNIVERSAL_ROUTER } from "./trade/usdgRoute";
+import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
 import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
@@ -225,24 +225,32 @@ export async function readAmountOut(pc: PublicClient, token: Address, side: "buy
 }
 /** Background refresh of a preset quote (TradeBridge calls this ~1 s). */
 /** After a trade lands, quotes on its route are stale: drop them (the 1 s warm loop re-fills them). */
-function dropRouteQuotes(token: Address, ...pair: Address[]) {
-  for (const sd of ["buy", "sell"]) LAST_QUOTE.delete(ckey(token, sd));
-  if (pair.length === 2) { LAST_QUOTE.delete(ckey("swap", pair[1], pair[0])); LAST_QUOTE.delete(ckey("swap", pair[0], pair[1])); }
-  QUOTES.dropWhere((k) => k.startsWith(ckey(token)) || (pair.length === 2 && k.startsWith("swap|")));
+function dropRouteQuotes(token: Address) {
+  for (const sd of ["buy", "sell"]) { LAST_QUOTE.delete(ckey(token, sd)); LAST_QUOTE.delete(ckey("usdg", token, sd)); }
+  QUOTES.dropWhere((k) => k.startsWith(ckey(token)) || k.startsWith(ckey("usdg", token)));
 }
 /** amountIn for a $ shot: USDG mode buys spend mUSDG 1:1 ($1 = 1 USDG, 18 dp); otherwise quote/coin via usdToAmountIn. */
+/**
+ * USDG router (#65) for this coin? Flag on — or the coin is USDG-quoted (then always, once the router supports it, so
+ * no USDG approve ever goes to a curve: policy 1.3.0 rejects those). null ⇒ native quote path (today's deployment).
+ */
+export async function usdgRouteFor(pc: PublicClient, token: Address): Promise<Address | null> {
+  if (!hasRouter()) return null;
+  const ru = await routerUsdg(pc, deployment().router); if (!ru) return null;
+  if (payUsdg()) return ru;
+  const { quote } = await coinFacts(pc, token);
+  return quote.toLowerCase() === ru.toLowerCase() ? ru : null;
+}
 export async function shotAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
-  if (side === "buy") { const { quote } = await coinFacts(pc, token); if (needsHop(quote)) return BigInt(Math.round(usd * 1e6)) * BigInt(1e12); }
+  if (side === "buy" && (await usdgRouteFor(pc, token))) return BigInt(Math.round(usd * 1e6)) * BigInt(1e12);
   return usdToAmountIn(pc, token, side, usd);
 }
-/** Warm every quote a tap will need (both hops in USDG mode). */
-export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, slippageBps = DEFAULT_SLIPPAGE_BPS) {
+/** Warm the quote a tap will need (USDG route: the router's end-to-end quoteUsdgRoute; else the native quote). */
+export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
-  const { quote } = await coinFacts(pc, token);
-  if (!needsHop(quote)) return warmQuote(pc, token, side, amountIn);
-  const half = hopBps(slippageBps), U = usdgAddress();
-  if (side === "buy") { const q1 = await swapQuote(pc, U, quote, amountIn, 0); await warmQuote(pc, token, "buy", applySlippage(q1, half)); }
-  else { await warmQuote(pc, token, "sell", amountIn); const q1 = await quoteOut(pc, token, "sell", amountIn); await swapQuote(pc, quote, U, applySlippage(q1, half), 0); }
+  const r = deployment().router;
+  if (await usdgRouteFor(pc, token)) { await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0); return; }
+  return warmQuote(pc, token, side, amountIn);
 }
 export async function warmQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
@@ -383,7 +391,10 @@ export function createViemProtocol(): ProtocolClient {
       const [{ curve, graduated, quote: quoteAsset }, me] = await Promise.all([coinFacts(pc, t.token), activeAddress()]);
       const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
-      if (needsHop(quoteAsset)) return await tradeViaUsdg(side, t, { curve, graduated, quoteAsset, me, recipient, deadline });
+      // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
+      // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
+      const usdg = await usdgRouteFor(pc, t.token);
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline });
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const smart = isSmartMode();
@@ -431,50 +442,33 @@ export function createViemProtocol(): ProtocolClient {
   }
 
   /**
-   * Pay-in-USDG (lib/trade/usdgRoute): buy = mUSDG→quote (v4 ref pool) + quote→coin; sell = coin→quote + quote→mUSDG.
-   * ONE userOp. t.amountIn is mUSDG for buys, coin for sells; amountOut is coin (buy) / mUSDG (sell).
-   * Quotes (both hops, parallel where possible) come from the warm cache ⇒ 0 RPCs on a warm tap.
+   * Pay-in-USDG through DiscipleRouter (lib/trade/usdgRouter, #65): ONE userOp = [exact approve, buyWithUsdg|sellToUsdg].
+   * t.amountIn is USDG on buys, coin on sells; minOut is end-to-end from quoteUsdgRoute − slippage (the caller clamps
+   * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
+   * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { curve: Address; graduated: boolean; quoteAsset: Address; me: Address; recipient: Address; deadline: bigint }): Promise<TradeResult> {
-    const U = usdgAddress(), Q = c.quoteAsset, half = hopBps(t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
-    const target = c.graduated ? deployment().router : c.curve;
-    if (c.graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
-    const coinCall = (s: "buy" | "sell", amtIn: bigint, min: bigint, to: Address): Call => c.graduated
-      ? { to: target, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: s === "buy" ? "buyExactIn" : "sellExactIn", args: [t.token, amtIn, min, to, c.deadline] }) }
-      : { to: target, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: s, args: [amtIn, min, c.deadline, to] }) };
-    const approve = (tok: Address, amt: bigint): Call => ({ to: tok, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, amt] }) });
-    const spend = side === "buy" ? U : t.token;
-    const have = await balanceHint(pc, spend, c.me);
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint }): Promise<TradeResult> {
+    const router = deployment().router, isBuy = side === "buy";
+    const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
+    const [q, have] = await Promise.all([
+      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("usdgroute", t.token, side), t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age)),
+      balanceHint(pc, spend, c.me),
+    ]);
     if (have < t.amountIn) {
       const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
-      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", `not enough ${side === "buy" ? "mUSDG" : "tokens"}: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
+      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", `not enough ${isBuy ? "USDG" : "tokens"}: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
     }
-    let calls: Call[], minOut: bigint, outAsset: Address;
-    const k1 = ckey("swap", side === "buy" ? U : Q, side === "buy" ? Q : U), k2 = ckey("coin", t.token, side);
-    const swapQ = (from: Address, to: Address) => (a: bigint, age?: number) => swapQuote(pc, from, to, a, age);
-    const coinQ = (a: bigint, age?: number) => quoteOut(pc, t.token, side, a, age);
-    let hop1In = B(0), hop2In = B(0);
-    if (side === "buy") {
-      // hop 1 exact-out: get q1min of the pair for ≤ amountIn mUSDG (leftover stays mUSDG, no pair-token dust)
-      const q1 = await marginalQuote(k1, t.amountIn, swapQ(U, Q)); const q1min = applySlippage(q1, half);
-      const q2 = await marginalQuote(k2, q1min, coinQ); minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q2, half);
-      hop1In = t.amountIn; hop2In = q1min;
-      calls = [...(await referralCallCached(c.me)), ...buyHopCalls(U, Q, t.amountIn, q1min, c.deadline), approve(Q, q1min), coinCall("buy", q1min, minOut, c.recipient)];
-      outAsset = t.token;
-    } else {
-      // sell proceeds → UniversalRouter, which swaps ALL of them to mUSDG for the account (no dust, no approvals)
-      const q1 = await marginalQuote(k2, t.amountIn, coinQ); const q1min = applySlippage(q1, half);
-      const q2 = await marginalQuote(k1, q1min, swapQ(Q, U)); minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q2, half);
-      hop1In = q1min; hop2In = t.amountIn;
-      calls = [approve(t.token, t.amountIn), coinCall("sell", t.amountIn, q1min, UNIVERSAL_ROUTER), sellHopCall(Q, U, minOut, c.deadline)];
-      outAsset = U;
-    }
+    const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+    if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
+    const calls: Call[] = isBuy
+      ? [...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
+      : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: minOut, deadline: c.deadline }));
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
-    const done = [addInflight(k1, hop1In), addInflight(k2, hop2In)];
+    const done = addInflight(ckey("usdgroute", t.token, side), t.amountIn);
     try {
       const r = await execCalls(calls);
-      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, side === "buy" ? c.recipient : c.me) || minOut };
-    } finally { done.forEach((f) => f()); dropRouteQuotes(t.token, Q, U); }
+      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut };
+    } finally { done(); dropRouteQuotes(t.token); }
   }
 
   return {

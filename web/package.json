@@ -29,7 +29,7 @@
     "test:session-e2e": "tsx scripts/test-session-e2e.mts",
     "test:trade-order": "tsx scripts/test-trade-order.mts",
     "test:op-race": "tsx scripts/test-op-race.mts",
-    "test:usdg-route": "tsx scripts/test-usdg-route.mts"
+    "test:usdg-router": "tsx scripts/test-usdg-router.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

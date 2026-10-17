@@ -1,6 +1,9 @@
 /** Unit tests: parallel nonce keys, gas/fee/quote caches, relayer lock/retry, chain-ordered mcap, balance line.  pnpm test:trade-order */
 import { scaledQuote } from "../lib/trade/hotCache";
-import { buyHopCalls, sellHopCall, hopBps, RH_TESTNET_USDG, UNIVERSAL_ROUTER } from "../lib/trade/usdgRoute";
+import { routerBuyWithUsdgCalls, routerSellToUsdgCalls, BUY_WITH_USDG, SELL_TO_USDG, toCalls } from "../lib/trade/usdgRouter";
+import { policyHasUsdg, tradeSelectors, sessionEligible, SESSION_POLICY_MODULE_ID } from "../lib/aa/oneTap";
+import { checkCalls, usdgBuyTotal } from "../lib/aa/policy";
+import { decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
 import assert from "node:assert/strict";
 import { NonceCursor, GasCache, FeeCache, callsKind } from "../lib/aa/fastPath";
 import { TtlCache } from "../lib/trade/hotCache";
@@ -71,12 +74,37 @@ await t("scaledQuote: only scales DOWN (safe lower bound), respects age", () => 
   assert.equal(scaledQuote(last, 1001n, 1500, 100), undefined, "bigger trade never scaled");
   assert.equal(scaledQuote(last, 400n, 1500, 2000), undefined, "stale");
 });
-await t("USDG route: hop slippage halves compound within the total budget; calldata shape", () => {
-  for (const bps of [10, 100, 500, 5000]) { const h = hopBps(bps); assert.ok((10000 - h) ** 2 >= (10000 - bps) * 10000, `bps ${bps}`); }
-  const Q = "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3" as const;
-  const b = buyHopCalls(RH_TESTNET_USDG, Q, 10n ** 19n, 4000n * 10n ** 18n, 9999999999n);
-  assert.deepEqual(b.map((c) => c.data.slice(0, 10)), ["0x095ea7b3", "0x87517c45", "0x3593564c"], "approve(Permit2), Permit2.approve(UR), UR.execute");
-  assert.equal(b[2].to, UNIVERSAL_ROUTER);
-  const sc = sellHopCall(Q, RH_TESTNET_USDG, 1n, 9999999999n); assert.equal(sc.data.slice(0, 10), "0x3593564c"); assert.equal(sc.to, UNIVERSAL_ROUTER);
+await t("USDG router (#65 SDK mirror): exact approve + buyWithUsdg / sellToUsdg in one batch; minOut > 0", () => {
+  const router = "0xCfb16275fCbcF124dDe54F3dbc36ddC684111564" as const, usdg = "0x25030Bff74764aD72b912276a603717DB1C00644" as const, token = "0xcac8A9654dE3aE01470fC9E93e58fb97d5B86bb3" as const;
+  const b = routerBuyWithUsdgCalls({ router, usdg, token, usdgIn: 10n ** 19n, minTokensOut: 1n, deadline: 1n });
+  assert.equal(b.length, 2); assert.equal(b[0].target, usdg); assert.equal(b[1].target, router);
+  assert.equal(b[0].data.slice(0, 10), "0x095ea7b3"); assert.equal(b[1].data.slice(0, 10), BUY_WITH_USDG);
+  const ap = decodeFunctionData({ abi: parseAbi(["function approve(address,uint256)"]), data: b[0].data });
+  assert.equal((ap.args[0] as string).toLowerCase(), router.toLowerCase()); assert.equal(ap.args[1], 10n ** 19n, "approve == usdgIn exactly");
+  const sl = routerSellToUsdgCalls({ router, token, tokensIn: 5n, minUsdgOut: 1n, deadline: 1n });
+  assert.equal(sl[0].target, token); assert.equal(sl[1].data.slice(0, 10), SELL_TO_USDG);
+  assert.throws(() => routerBuyWithUsdgCalls({ router, usdg, token, usdgIn: 1n, minTokensOut: 0n, deadline: 1n }));
+  assert.throws(() => routerSellToUsdgCalls({ router, token, tokensIn: 1n, minUsdgOut: 0n, deadline: 1n }));
+  assert.equal(usdgBuyTotal(toCalls(b), router), 10n ** 19n);
+  // no UniversalRouter / Permit2 anywhere
+  for (const c of [...b, ...sl]) assert.ok(![ "0x8876789976decbfcbbbe364623c63652db8c0904", "0x000000000022d473030f116ddee9f6b43ac78ba3"].includes(c.target.toLowerCase()));
+});
+await t("session policy version gating (config): 1.1.1 ⇒ USDG calls owner-signed; 1.3.0 ⇒ session-signable", () => {
+  assert.equal(policyHasUsdg("1.1.1"), false); assert.equal(policyHasUsdg("1.3.0"), true); assert.equal(policyHasUsdg("1.10.0"), true);
+  assert.ok(!tradeSelectors("1.1.1").has(BUY_WITH_USDG)); assert.ok(tradeSelectors("1.3.0").has(BUY_WITH_USDG) && tradeSelectors("1.3.0").has(SELL_TO_USDG));
+  assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.1.1"}`);
+});
+await t("1.3.0 rules mirrored: USDG approve to a curve/tramp ⇒ owner signer; to router must be exact", async () => {
+  const router = "0x00000000000000000000000000000000000000aa" as const, usdg = "0x00000000000000000000000000000000000000bb" as const, curve = "0x00000000000000000000000000000000000000cc" as const;
+  const appr = (sp: string, amt: bigint) => ({ to: usdg, data: encodeFunctionData({ abi: parseAbi(["function approve(address,uint256)"]), functionName: "approve", args: [sp as `0x${string}`, amt] }) });
+  const buy = toCalls(routerBuyWithUsdgCalls({ router, usdg, token: curve, usdgIn: 7n, minTokensOut: 1n, deadline: 1n }))[1];
+  // eligibility (uses the module's TRADE_SELECTORS; approve is always in it)
+  assert.equal(sessionEligible([appr(curve, 7n)], { referral: false, usdg, router }), false, "USDG → curve is owner-only");
+  assert.equal(sessionEligible([appr(router, 7n)], { referral: false, usdg, router }), true);
+  const cfg = { launchpad: "0x00000000000000000000000000000000000000d1", router, trampWallManager: "0x00000000000000000000000000000000000000d2", mintable: [], defaultLimit: 10n ** 30n, usdg } as never;
+  const st = { expiresAt: Date.now() + 1e6, spent: {} };
+  await assert.rejects(checkCalls({} as never, cfg, st, [appr(router, 8n), buy], "0x00000000000000000000000000000000000000ee"), /must equal/);
+  const d = await checkCalls({} as never, cfg, st, [appr(router, 7n), buy], "0x00000000000000000000000000000000000000ee");
+  assert.equal(d[usdg], 7n, "USDG approve counts to the USDG cap");
 });
 console.log(`\n${n} passed`);

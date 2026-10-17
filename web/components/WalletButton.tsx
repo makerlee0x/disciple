@@ -4,9 +4,9 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { encodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
 import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
-import { decimalsOf, publicClient, readCurveState, tokenBalance } from "@/lib/protocol-viem";
+import { decimalsOf, publicClient, readCurveState, tokenBalance, usdgRouteFor } from "@/lib/protocol-viem";
 import { balanceLine, type BalancePart } from "@/lib/balanceLine";
-import { payUsdg, usdgAddress } from "@/lib/trade/usdgRoute";
+import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
   aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
   execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
@@ -70,15 +70,17 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       const e = await pc.getBalance({ address: a });
       setEth(e);
       const meta = coin ? await metaOf(coin) : null;
+      // USDG pays only once the router supports it (#65); until then trades still spend the coin's quote
+      const usdgPays = coin ? !!(await usdgRouteFor(pc, coin).catch(() => null)) : payUsdg() && !!(await routerUsdg(pc, deployment().router));
       const parts: BalancePart[] = [{ symbol: "ETH", amount: Number(formatUnits(e, 18)), role: "gas" }];
       const syms = MINTABLE_TEST_TOKENS.length ? MINTABLE_TEST_TOKENS : [{ symbol: "STRATEGY", address: deployment().defaultQuote }];
-      const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: (payUsdg() ? t.address.toLowerCase() === usdgAddress().toLowerCase() : !!meta && t.address.toLowerCase() === meta.quote.toLowerCase()) ? "spend" : "other" }));
+      const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: (usdgPays ? t.address.toLowerCase() === deployment().usdg.toLowerCase() : !!meta && t.address.toLowerCase() === meta.quote.toLowerCase()) ? "spend" : "other" }));
       if (meta) list.unshift({ symbol: meta.symbol, address: coin!, role: "held" });
       for (const t of list) {
         const [b, d] = await Promise.all([tokenBalance(pc, t.address, a), decimalsOf(pc, t.address)]);
         parts.push({ symbol: t.symbol, amount: Number(formatUnits(b, d)), role: t.role });
       }
-      const l = balanceLine(parts, { payUsdg: payUsdg() });
+      const l = balanceLine(parts, { payUsdg: usdgPays });
       setBal(l.text); setBalTitle(l.title);
     } catch { /* ignore */ }
   }
