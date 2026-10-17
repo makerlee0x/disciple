@@ -1192,7 +1192,7 @@ function drawHud(){
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
-  const top=topFuelers(), kothTitle=IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top fuelers (sim)':'KING OF THE HILL · top fuelers (mock)';
+  const top=topFuelers(), kothTitle=IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   else { panel(RX,RT+100,310,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
@@ -1824,7 +1824,7 @@ function simStep(stepDt){
   keepIf(S.motes,NOT_DEAD_MOTE); keepIf(S.obstacles,NOT_DEAD_OBS);
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
-  if (!S.ach.koth){ let top=null, tv=-Infinity; for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top fueler on this coin'); }
+  if (!S.ach.koth){ let top=null, tv=-Infinity; for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }
   cloudStep(dt); shockStep(dt);
   twStep(); exhaustStep(dt);
 }
