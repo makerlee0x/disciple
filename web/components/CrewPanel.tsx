@@ -69,11 +69,11 @@ export default function CrewPanel() {
         style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", gap: 8, alignItems: "center", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>CREW <span style={{ color: "#ffb0c8" }}>· MOCK</span></span>
         <span style={{ color: "#E8EAEE", fontWeight: 400 }}><Icon name="crew" size={16} style={{ verticalAlign: -4 }} /> {MOCK_CREW.aboard} aboard</span>
-        <span style={{ marginLeft: "auto" }}>{open ? "−" : "+"}</span>
+        <span style={{ marginLeft: "auto", display: "inline-flex" }}><Icon name={open ? "minus" : "plus"} size={16} /></span>
       </button>
       {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}
       <div data-testid="crew-unlock" style={{ marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        🎁 Next unlock at <b style={{ color: "#ffe7a3" }}>{u.next}</b>: {reward.replace(/^Crew /, "").toLowerCase()} for everyone aboard
+        <Icon name="gift" size={16} /> Next unlock at <b style={{ color: "#ffe7a3" }}>{u.next}</b>: {reward.replace(/^Crew /, "").toLowerCase()} for everyone aboard
       </div>
       {open && (
         <>
@@ -81,7 +81,7 @@ export default function CrewPanel() {
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP FUELERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>{i === 0 ? "👑" : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
+              <span>{i === 0 ? <Icon name="crown" size={16} label="top fueler" /> : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
             </div>
           ))}
           <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>

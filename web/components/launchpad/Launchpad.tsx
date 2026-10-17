@@ -69,7 +69,7 @@ function Tag({ c }: { c: Rocket }) {
 function Star({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button type="button" className={"lp-star" + (on ? " on" : "")} aria-pressed={on} aria-label={on ? "Remove from watchlist" : "Add to watchlist"}
-      onClick={(e) => { e.stopPropagation(); onClick(); }} onKeyDown={(e) => e.stopPropagation()}>{on ? "★" : "☆"}</button>
+      onClick={(e) => { e.stopPropagation(); onClick(); }} onKeyDown={(e) => e.stopPropagation()}><Icon name={on ? "star-filled" : "star"} size={16} /></button>
   );
 }
 
@@ -82,8 +82,8 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
         <h2>Trending</h2>
         <span className="lp-dim">by 24h volume</span>
         <div className="lp-arrows">
-          <button type="button" className="ds-btn" aria-label="Previous" onClick={() => by(-1)}>‹</button>
-          <button type="button" className="ds-btn" aria-label="Next" onClick={() => by(1)}>›</button>
+          <button type="button" className="ds-btn" aria-label="Previous" onClick={() => by(-1)}><Icon name="chevron-left" size={16} /></button>
+          <button type="button" className="ds-btn" aria-label="Next" onClick={() => by(1)}><Icon name="chevron-right" size={16} /></button>
         </div>
       </div>
       <div className="lp-trend-row" ref={ref}>
@@ -159,11 +159,11 @@ function Rail({ coins, watch, onPick }: { coins: Rocket[]; watch: Set<string>; o
   return (
     <aside className="lp-rail" aria-label="Quick lists">
       <div className="ds-seg">
-        {([["trending", "Rising"], ["held", "Most crewed"], ["watch", "★ Watchlist"]] as const).map(([k, l]) => (
-          <button key={k} type="button" className={t === k ? "on" : ""} onClick={() => setT(k)}>{l}</button>
+        {([["trending", "Rising"], ["held", "Most crewed"], ["watch", "Watchlist"]] as const).map(([k, l]) => (
+          <button key={k} type="button" className={t === k ? "on" : ""} onClick={() => setT(k)}>{k === "watch" ? <span style={{ whiteSpace: "nowrap" }}><Icon name="star-filled" size={12} style={{ verticalAlign: -1 }} /> {l}</span> : l}</button>
         ))}
       </div>
-      {list.length === 0 && <p className="lp-dim" style={{ fontSize: 12, padding: "8px 4px" }}>Star a rocket (☆) to keep it here.</p>}
+      {list.length === 0 && <p className="lp-dim" style={{ fontSize: 12, padding: "8px 4px" }}>Star a rocket (<Icon name="star" size={12} style={{ verticalAlign: -1 }} label="star" />) to keep it here.</p>}
       {list.map((c) => (
         <button key={c.id} type="button" className="lp-rrow" onClick={() => onPick(c)}>
           <Avatar c={c} size={32} />
@@ -239,7 +239,7 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
               <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} onClick={() => setVerified(verified === "verified" ? "all" : "verified")}><Icon name="verified" size={16} /> Verified</button>
               <div className="ds-seg lp-view" role="group" aria-label="View">
                 <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")} title="List" aria-label="List"><Icon name="menu" size={16} /></button>
-                <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} onClick={() => pickView("grid")} title="Grid">▦</button>
+                <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} onClick={() => pickView("grid")} title="Grid" aria-label="Grid"><Icon name="grid" size={16} /></button>
               </div>
             </div>
           </div>

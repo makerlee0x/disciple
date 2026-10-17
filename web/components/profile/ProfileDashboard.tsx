@@ -111,7 +111,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <div className="sub">{isPrivate ? "PILOT OVERVIEW · CASH & ACCOUNT LIVE IN SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
         </div>
         {isPrivate && (
-          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}><Icon name="settings" size={16} /> Settings</button>
+          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}><Icon name="gear" size={16} /> Settings</button>
         )}
       </header>
       {share && <ShareModal target={share} onClose={() => setShare(null)} />}

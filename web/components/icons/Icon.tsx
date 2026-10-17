@@ -15,7 +15,7 @@ type Props = {
   style?: CSSProperties;
 };
 
-/** DISCIPLE icons v1 (currentColor, 24px grid, 1.5px stroke). Needs <IconSprite /> mounted once. */
+/** DISCIPLE icons v1 + v1.1 (currentColor, 24px grid, 1.5px stroke). Needs <IconSprite /> mounted once. */
 export default function Icon({ name, size = 20, label, className, style }: Props) {
   const meter = name.startsWith("meter-orbs-");
   const h = size;

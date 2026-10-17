@@ -14,31 +14,10 @@ const NAV = [
   { href: "/achievements", key: "ach", label: "Achievements", icon: "achievement" },
 ] as const;
 
-/** Nav icons: BRAND icons v1; "logout" has no v1 match and keeps its original inline SVG. */
+/** Nav icons: BRAND icons v1 + v1.1 ("create" → plus, "logout" → log-out). */
 function NavIcon({ name }: { name: string }) {
-  if (name !== "logout") return <Icon name={(name === "create" ? "plus" : name) as IconName} size={20} />;
-  const common = {
-    viewBox: "0 0 24 24",
-    width: 20,
-    height: 20,
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.7,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true as const,
-  };
-  switch (name) {
-    case "logout":
-      return (
-        <svg {...common}>
-          <path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3" />
-          <path d="M10 8l-4 4 4 4M6 12h10" />
-        </svg>
-      );
-    default:
-      return null;
-  }
+  const n = name === "create" ? "plus" : name === "logout" ? "log-out" : name;
+  return <Icon name={n as IconName} size={20} />;
 }
 
 function Wings() {

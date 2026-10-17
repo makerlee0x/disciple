@@ -1,6 +1,6 @@
 import { SPRITE_SYMBOLS } from "./sprite";
 
-/** BRAND icons v1 sprite. Rendered once (hidden) in the root layout; use via <Icon name="…" />. */
+/** BRAND icons v1 + v1.1 merged sprite. Rendered once (hidden) in the root layout; use via <Icon name="…" />. */
 export default function IconSprite() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"

@@ -110,7 +110,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
             ) : <p className="muted tiny">Loading position…</p>}
             {canEncodeVideo() && !video && (
               <button type="button" className="ds-btn share-video-btn" data-testid="share-make-video" onClick={makeVideo} disabled={!pnl || !!vp}>
-                {vp ? "Rendering video…" : "🎬 Make video (15s)"}
+                {vp ? "Rendering video…" : <><Icon name="video" size={16} /> Make video (15s)</>}
               </button>
             )}
             {vp && (
