@@ -40,7 +40,8 @@ function rng(seed: number) {
 
 const A = ["Halo", "Limbo", "Seraph", "Pearly", "Choir", "Psalm", "Manna", "Exodus", "Zion", "Gospel", "Ember", "Vesper", "Relic", "Abbey", "Orbit", "Nimbus", "Cherub", "Lantern", "Chalice", "Comet", "Glory", "Saint", "Hymn", "Covenant", "Ark", "Lumen", "Aether", "Rapture"];
 const B = ["Dog", "Cat", "Frog", "Inu", "Ape", "Owl", "Lamb", "Dove", "Coin", "Moon", "Rocket", "Bird", "Whale", "Bear", "Fox", "Goat", "Toad", "Crab", "Duck", "Pig"];
-const ICONS = ["/test-icons/wide.png", "/test-icons/transparent.png", "/assets/tier4.png", ...SAMPLE_SQUARES];
+// SAMPLE icons (tier4 as WebP: the same plate, 197 KB instead of the 852 KB PNG)
+const ICONS = ["/test-icons/wide.png", "/test-icons/transparent.png", "/assets/tier4.webp", ...SAMPLE_SQUARES];
 /** SAMPLE base-pair spread: STRATEGY + USDG heavier, the rest even. */
 const PAIR_W = BASE_PAIRS.map((p) => (p.tk === "strategy" ? 5 : p.tk === "usdg" ? 3 : p.tk === "eth" ? 2 : 1));
 const PAIR_SUM = PAIR_W.reduce((a, b) => a + b, 0);

@@ -3,6 +3,7 @@
 import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import WalletButton from "./WalletButton";
 import RefCapture from "./RefCapture";
+import HowItWorksHost from "./home/HowItWorksHost";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
@@ -13,9 +14,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Sidebar />
       <RefCapture />
+      <HowItWorksHost />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
       <WalletButton compact={!isGame} />
-      {isGame ? children : <div className="main-offset min-h-screen">{children}</div>}
+      {isGame ? children : <div className="main-offset main-offset-open min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (
         <div
           aria-label="Static preview"
