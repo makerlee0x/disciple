@@ -28,7 +28,7 @@ function TradeLegend() {
 export const HIW_STEPS: { icon: IconName; title: string; body: ReactNode[] }[] = [
   { icon: "base-pair", title: "Pick your coin.", body: [`Launch a rocket paired with any coin you believe in. Your rocket trades in${NB}that${NB}coin.`] },
   { icon: "boost", title: "BOOST to climb.", body: [`Every BOOST lifts the rocket. Every${NB}DUMP${NB}drops${NB}a${NB}bomb.`, <TradeLegend key="legend" />] },
-  { icon: "lock", title: `Send your coin to The${NB}Moon and beyond.`, body: [`If rockets graduate from a bonding curve, their liquidity is locked in a Uniswap v4${NB}LP,${NB}forever.`] },
+  { icon: "lock", title: `Send your coin to The${NB}Moon and beyond.`, body: [`If rockets graduate from the bonding curve, their liquidity is locked in a Uniswap v4${NB}LP,${NB}forever.`] },
 ];
 
 export default function HowItWorksSteps({ id, className }: { id?: string; className?: string }) {
