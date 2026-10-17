@@ -78,7 +78,10 @@ const loggedErrors = new Set<string>();
 export function relayerKey(env: NodeJS.ProcessEnv = process.env): Hex {
   const r = resolveRelayer(env);
   if ("error" in r) {
-    if (!loggedErrors.has(r.error)) loggedErrors.add(r.error), console.error(`[relayer] relayer not configured: ${r.error}${isProductionRelayer(env) ? " (production: refusing to fall back to DRIP_FAUCET_KEY)" : ""}`);
+    if (!loggedErrors.has(r.error)) {
+      loggedErrors.add(r.error);
+      console.error(`[relayer] relayer not configured: ${r.error}${isProductionRelayer(env) ? " (production: refusing to fall back to DRIP_FAUCET_KEY)" : ""}`);
+    }
     throw new RelayerNotConfiguredError();
   }
   if (r.fallback && !warnedFallback) {
