@@ -1,6 +1,7 @@
 import "server-only";
 /**
- * Chat identity. Client signs `chatLoginMessage(addr, ts)` once per session:
+ * Chat identity. Client gets a single-use nonce (issueLoginNonce, GET /api/chat/auth?addr=, Upstash, 5 min TTL) and signs
+ * `chatLoginMessage(addr, ts, nonce)` once per session; verifyLogin consumes the nonce (GETDEL) before checking the sig:
  *  - EOA: personal_sign by `addr`. DISCIPLE MAv2 smart account: ERC-1271 (deployed) / ERC-6492 (counterfactual) signature.
  *  - Legacy (undeployed accounts only): OWNER signs keccak(msg) raw + factory-predicted address check. See lib/aa/verify.ts.
  * Server returns an HMAC-SHA256 token (CHAT_TOKEN_SECRET) valid 12h: base64url(payload).base64url(mac).
@@ -13,6 +14,12 @@ import { launchpadAbi } from "@/lib/abi";
 import { CHAT_LIMITS, type ChatBadge, type ChatFrom } from "@/lib/chat/types";
 import { chatLoginMessage } from "@/lib/chat/login";
 import { usernameOf as registryUsernameOf } from "../usernames";
+import { kv } from "../kv";
+import { consumeNonce, issueNonce } from "../nonces";
+
+export const LOGIN_NONCE_TTL_SEC = 300;
+const LOGIN_NONCE_PREFIX = "chat:nonce";
+export const issueLoginNonce = (addr: string) => issueNonce(kv(), LOGIN_NONCE_PREFIX, addr, LOGIN_NONCE_TTL_SEC);
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 let pcInst: ReturnType<typeof createPublicClient> | null = null;
@@ -43,10 +50,12 @@ export function verifyToken(tok: string | null | undefined, now = Date.now()): T
 }
 export const chatSecretConfigured = () => !!secret();
 
-export async function verifyLogin(body: { addr?: string; ts?: number; sig?: string; owner?: string }): Promise<string | null> {
-  const addr = String(body.addr ?? ""), ts = Number(body.ts);
+export async function verifyLogin(body: { addr?: string; ts?: number; sig?: string; owner?: string; nonce?: string }): Promise<string | null> {
+  const addr = String(body.addr ?? ""), ts = Number(body.ts), nonce = String(body.nonce ?? "");
   if (!isAddr(addr) || !Number.isFinite(ts) || Math.abs(Date.now() - ts) > 10 * 60_000) return null;
-  return verifyWalletSignature(addr, chatLoginMessage(addr, ts), String(body.sig ?? ""), body.owner);
+  // single use: deleted here whether or not the signature checks out (a replayed signature finds no nonce)
+  if (!(await consumeNonce(kv(), LOGIN_NONCE_PREFIX, nonce, addr))) return null;
+  return verifyWalletSignature(addr, chatLoginMessage(addr, ts, nonce), String(body.sig ?? ""), body.owner);
 }
 
 /** Verify `msg` was signed for `addr` (verifyMessage first; owner shortcut only for undeployed accounts). Shared by chat login and username claims. */

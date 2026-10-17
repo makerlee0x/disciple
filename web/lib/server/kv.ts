@@ -10,6 +10,7 @@ import { promises as fs } from "fs";
 export interface Kv {
   kind: "upstash" | "local";
   get(k: string): Promise<string | null>;
+  mget(ks: string[]): Promise<(string | null)[]>;
   set(k: string, v: string): Promise<void>;
   /** SET NX (no ttl when ttlSec is 0). true if written. */
   setNX(k: string, v: string, ttlSec?: number): Promise<boolean>;
@@ -21,6 +22,12 @@ export interface Kv {
   zrange(k: string, limit?: number, rev?: boolean): Promise<string[]>;
   sadd(k: string, ...m: string[]): Promise<void>;
   smembers(k: string): Promise<string[]>;
+  /** Atomic GET + DEL (single-use tokens): the value, or null if absent/expired or already taken. */
+  getDel(k: string): Promise<string | null>;
+  /** Atomic INCR; the key expires ttlSec after the FIRST increment (fixed-window counter). Returns the new count. */
+  incrEx(k: string, ttlSec: number): Promise<number>;
+  /** Seconds until k expires (-1 no ttl, -2 missing). */
+  ttl(k: string): Promise<number>;
 }
 
 /* ---------------- local ---------------- */
@@ -38,6 +45,7 @@ function local(): Kv {
   return {
     kind: "local",
     async get(k) { await ready; return live(k)?.v ?? null; },
+    async mget(ks) { await ready; return ks.map((k) => live(k)?.v ?? null); },
     async set(k, v) { await ready; st.kv[k] = { v, exp: 0 }; save(); },
     async setNX(k, v, ttl = 0) { await ready; if (live(k)) return false; st.kv[k] = { v, exp: ttl ? Date.now() + ttl * 1000 : 0 }; save(); return true; },
     async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
@@ -45,10 +53,14 @@ function local(): Kv {
     async zrange(k, limit = 1000, rev = false) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => (rev ? b[1] - a[1] : a[1] - b[1])).slice(0, limit).map(([m]) => m); },
     async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
     async smembers(k) { await ready; return st.s[k] ?? []; },
+    async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
+    async incrEx(k, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
+    async ttl(k) { await ready; const e = live(k); return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1; },
   };
 }
 
 /* ---------------- Upstash REST ---------------- */
+const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
 function upstash(url: string, token: string): Kv {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const cmd = async <T = unknown>(...args: (string | number)[]): Promise<T> => {
@@ -60,6 +72,7 @@ function upstash(url: string, token: string): Kv {
   return {
     kind: "upstash",
     get: (k) => cmd<string | null>("GET", k),
+    async mget(ks) { return ks.length ? ((await cmd<(string | null)[]>("MGET", ...ks)) ?? []) : []; },
     async set(k, v) { await cmd("SET", k, v); },
     async setNX(k, v, ttl = 0) { return (await cmd<string | null>(...(ttl ? ["SET", k, v, "NX", "EX", ttl] : ["SET", k, v, "NX"]))) === "OK"; },
     async del(...ks) { if (ks.length) await cmd("DEL", ...ks); },
@@ -73,6 +86,9 @@ function upstash(url: string, token: string): Kv {
     async zrange(k, limit = 1000, rev = false) { return (await cmd<string[]>(...(rev ? ["ZRANGE", k, 0, limit - 1, "REV"] : ["ZRANGE", k, 0, limit - 1]))) ?? []; },
     async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
+    getDel: (k) => cmd<string | null>("GETDEL", k),
+    async incrEx(k, ttl) { return Number(await cmd<number>("EVAL", INCR_EX_LUA, 1, k, ttl)); },
+    async ttl(k) { return Number(await cmd<number>("TTL", k)); },
   };
 }
 

@@ -3,12 +3,16 @@
 import { DEMO_POOL } from "@/lib/config";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
+import { isStoreSrc } from "@/lib/coinImages";
 
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
 
 export default function CoinIdentity({ address, sp }: { address: string; sp: URLSearchParams }) {
   const demo = address.toLowerCase() === DEMO_POOL.address.toLowerCase();
-  const icon = sp.get("icon") || (demo && !sp.get("cs") ? AI_ICON : null);
+  // only moderated-store images (what the launchpad list hands out) or the demo icon: a crafted ?icon= link can't
+  // make the coin page render an arbitrary image (W-3e)
+  const q = sp.get("icon");
+  const icon = (isStoreSrc(q) ? q : null) || (demo && !sp.get("cs") ? AI_ICON : null);
   const pair = sp.get("pair") || (demo ? "ETH" : "STRATEGY");
   const tk = sp.get("cs") || (demo ? "AI" : "");
   const name = sp.get("nm") || (demo && tk === "AI" ? "Artificial Inu" : tk);

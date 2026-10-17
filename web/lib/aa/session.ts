@@ -196,7 +196,8 @@ export async function sweepLegacy() {
   const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
   const calls: Call[] = lb.tokens.map((t) => ({ to: t.address, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [to, t.amount] }) }));
   const blk = await pc.getBlock();
-  const reserve = ((blk.baseFeePerGas ?? BigInt(0)) * BigInt(2) + BigInt(1_000_000)) * BigInt(800_000); // worst-case gas for this op
+  const { clientFees } = await import("./gasPolicy");
+  const reserve = clientFees(blk.baseFeePerGas ?? BigInt(0)).maxFeePerGas * BigInt(800_000); // worst-case gas for this op (same fee formula as LightSmartAccount.selfPayGas)
   if (lb.eth > reserve * BigInt(2)) calls.push({ to, data: "0x", value: lb.eth - reserve });
   if (!calls.length) throw new AAError("FundAccount", "Old account only holds gas dust — nothing worth sweeping.");
   const old = new LightSmartAccount({ pc, chainId: ACTIVE_CHAIN.id, bundler: alchemyBundler(BUNDLER_URL), owner: ownerAcct });

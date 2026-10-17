@@ -31,7 +31,14 @@
     "test:session-e2e": "tsx scripts/test-session-e2e.mts",
     "test:trade-order": "tsx scripts/test-trade-order.mts",
     "test:op-race": "tsx scripts/test-op-race.mts",
-    "test:usdg-router": "tsx scripts/test-usdg-router.mts"
+    "test:usdg-router": "tsx scripts/test-usdg-router.mts",
+    "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:nonces": "tsx --test scripts/test-nonces.mts",
+    "test:ssrf": "tsx --test scripts/test-ssrf.mts",
+    "test:coin-images": "tsx --test scripts/test-coin-images.mts",
+    "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
+    "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
+    "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
@@ -48,6 +55,7 @@
     "react-dom": "^18",
     "server-only": "^0.0.1",
     "sharp": "^0.35.5",
+    "undici": "^6.29.1",
     "viem": "^2.57.7"
   },
   "devDependencies": {
