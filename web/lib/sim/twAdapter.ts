@@ -23,7 +23,6 @@ export function toTrampWall(o: RangeOrder, pool: Pool, S: number, token: Address
     mcapUsd: o.a * o.b * S, mcapLoUsd: o.a * o.a * S, mcapHiUsd: o.b * o.b * S,
     amount: BigInt(Math.max(0, Math.floor(o.deposit * 1e6))), sizeUsd: o.sizeUsd,
     status: o.status, filledFrac: o.deposit > 0 ? Math.max(0, Math.min(1, 1 - left / o.deposit)) : 0,
-    feesEarnedUsd: 0,   // no LP yield on a range order in the sim (the contract has none either)
     pointsEarned: o.owner === YOU && o.status === "filled" ? pointsFor(o.kind, o.sizeUsd) : 0,
     createdAt: o.placedT * 1000, filledAt: o.status === "filled" && o.closedT != null ? o.closedT * 1000 : undefined,
   };
@@ -44,7 +43,7 @@ export function createSimTrampWallAdapter(getRun: () => SimRun | null, storage?:
       return pool.orders.filter((o) => o.owner === YOU).slice(-20).reverse().map((o) => toTrampWall(o, pool, r.m.S, token ?? ("SIMULATOR" as Address)));
     },
     async preview(p, cur) {
-      const pv = { ...computePreview(p, cur), estFeeShareUsdPerDay: 0 }, r = getRun();
+      const pv = computePreview(p, cur), r = getRun();
       if (!r?.m.pool) return { ...pv, valid: false, reason: "Tramps & walls open after graduation" };
       if (pv.valid && p.kind === "tramp" && p.sizeUsd > r.player.cash + 1e-9) return { ...pv, valid: false, reason: `insufficient sim balance (${r.player.cash.toFixed(2)})` };
       if (pv.valid && p.kind === "wall" && p.mcapUsd > 0 && p.sizeUsd / (p.mcapUsd / r.m.S) > r.player.pos.size * (1 + 1e-9)) return { ...pv, valid: false, reason: "not enough tokens for this wall — buy some first" };

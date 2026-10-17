@@ -7,9 +7,11 @@
  *                                   = 1.0001^-tick     otherwise
  *   mcapUsd = price × totalSupplyRaw × quotePriceUsd / 1e36   (quotePriceUsd = USD WAD per 1e18 quote raw)
  * Tramp = quote-only range strictly below price; Wall = token-only range strictly above. Ticks are multiples of 60.
+ * No fee share: TrampWallManager rev2 has no claimFees/pendingFees and the hook no longer donates to in-range LPs
+ * (contracts/docs/redeploy-migration.md, revision 3), so nothing here reads or promises LP yield.
  */
 import { maxUint256, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, tokenAbi, trampWallManagerAbi } from "../abi";
+import { bondingCurveAbi, tokenAbi, trampWallManagerAbi } from "../abi";
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import type { Address } from "../protocol";
 import { curveOf, curveParams, friendlyError, publicClient, quoteRawToUsd } from "../protocol-viem";
@@ -94,10 +96,7 @@ async function readOne(pc: PublicClient, id: bigint, c: PoolCtx, placed?: { amou
   const [owner, token, tl, tu, , kindN, active] = await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "positions", args: [id] });
   const kind = Number(kindN) === 0 ? "tramp" : "wall";
   const lo = Number(tl), hi = Number(tu);
-  const [filled, fees] = await Promise.all([
-    active ? pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "isFilled", args: [id] }) : Promise.resolve(true),
-    active ? pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "pendingFees", args: [id] }) : Promise.resolve([B(0), B(0)] as const),
-  ]);
+  const filled = active ? await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "isFilled", args: [id] }) : true;
   const mA = mcapAtTick(c, lo), mB = mcapAtTick(c, hi);
   const mcapLoUsd = Math.min(mA, mB), mcapHiUsd = Math.max(mA, mB);
   const tokenUsd = (raw: bigint) => Number(raw) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw;
@@ -108,7 +107,6 @@ async function readOne(pc: PublicClient, id: bigint, c: PoolCtx, placed?: { amou
     id: id.toString(), token: token as Address, owner: owner as Address, kind,
     mcapUsd: Math.sqrt(mcapLoUsd * mcapHiUsd), mcapLoUsd, mcapHiUsd, tickLower: lo, tickUpper: hi,
     amount, sizeUsd, status, filledFrac: filled ? 1 : filledFrac(c, kind, lo, hi),
-    feesEarnedUsd: Number(fees[0]) * c.usdPerQuoteRaw + tokenUsd(fees[1]),
     pointsEarned: filled ? pointsFor(kind, sizeUsd) : 0,
     createdAt: placed?.at ?? Date.now(),
   };
@@ -133,12 +131,10 @@ async function placedLogs(pc: PublicClient, filter: { token?: Address; owner?: A
 /* ---------------- adapter ---------------- */
 
 export interface OnchainTrampWallAdapter extends TrampWallAdapter {
-  claimFees(id: string): Promise<{ ok: boolean; txHash?: string; reason?: string }>;
   /** Permissionless: settle a crossed position to its owner (anyone may call; no tip in v0). */
   pull(id: string): Promise<{ ok: boolean; txHash?: string; reason?: string }>;
   /** Opportunistic keeper: pull up to `max` filled-but-unsettled positions on this coin with the connected wallet. */
   pullFilled(token: Address, max?: number): Promise<string[]>;
-  pendingFees(id: string): Promise<{ quoteFees: bigint; tokenFees: bigint }>;
 }
 
 export function createOnchainAdapter(pc: PublicClient = publicClient()): OnchainTrampWallAdapter {
@@ -151,7 +147,7 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
     return c;
   }
 
-  async function send(fn: "cancel" | "claimFees" | "pull", id: string) {
+  async function send(fn: "cancel" | "pull", id: string) {
     try {
       const w = await getSigner();
       const { request } = await pc.simulateContract({ account: w.account.address, address: mgr(), abi: trampWallManagerAbi, functionName: fn, args: [B(id)] });
@@ -218,7 +214,6 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
     },
 
     cancel: (id) => send("cancel", id),
-    claimFees: (id) => send("claimFees", id),
     pull: (id) => send("pull", id),
 
     async pullFilled(token, max = 3) {
@@ -236,11 +231,6 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
       return done;
     },
 
-    async pendingFees(id) {
-      const [quoteFees, tokenFees] = await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "pendingFees", args: [B(id)] });
-      return { quoteFees, tokenFees };
-    },
-
     onEvent(token, cb: (e: TrampWallEvent) => void) {
       const stops: (() => void)[] = [];
       stops.push(pc.watchContractEvent({
@@ -256,25 +246,7 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
               let pts = 0;
               try { const tw = await readOne(pc, a.id as bigint, await ctx(token)); pts = pointsFor(tw.kind, tw.sizeUsd); } catch { /* ignore */ }
               cb({ type: "Filled", id, token, filledAt: Date.now(), pointsEarned: pts });
-            } else if (l.eventName === "FeesClaimed") {
-              const c = await ctx(token).catch(() => null);
-              const usd = c ? Number(a.quoteFees as bigint) * c.usdPerQuoteRaw + Number(a.tokenFees as bigint) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw : 0;
-              cb({ type: "FeesDonated", id, token, amountUsd: usd });
             }
-          }
-        },
-      }));
-      // Hook donation to in-range LP (all positions on this coin share it pro-rata) → id "pool".
-      stops.push(pc.watchContractEvent({
-        address: deployment().hook, abi: discipleHookAbi, eventName: "LPDonation", args: { token },
-        onLogs: async (logs) => {
-          const c = await ctx(token).catch(() => null);
-          for (const l of logs as unknown as L[]) {
-            const a = l.args as Record<string, bigint | string>;
-            const raw = a.amount as bigint;
-            const isQuote = c && String(a.currency).toLowerCase() === c.quote.toLowerCase();
-            const usd = !c ? 0 : isQuote ? Number(raw) * c.usdPerQuoteRaw : Number(raw) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw;
-            cb({ type: "FeesDonated", id: "pool", token, amountUsd: usd });
           }
         },
       }));

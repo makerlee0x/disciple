@@ -22,8 +22,9 @@ const fmt = (n: number) => n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `
 
 /**
  * adapter/owner/supply: the SIMULATOR passes its own adapter (lib/sim/twAdapter.ts) so placements are real
- * liquidity in the sim market; without one the panel runs on the local mock. simulator: sim copy (pure limit
- * order: no fee yield, a keeper closes it once filled for a 0.1% tip).
+ * liquidity in the sim market; without one the panel runs on the local mock. simulator: sim wording.
+ * Live and sim alike: a tramp/wall is a pure limit order. No fee share (the contract pays range orders no LP yield);
+ * once the price fully crosses it a keeper closes it for a 0.1% tip.
  */
 export default function TrampWallPanel({ token, adapter: ext, owner, supply, simulator }: { token: string; adapter?: TrampWallAdapter; owner?: Address; supply?: number; simulator?: boolean }) {
   const adapter = useMemo(() => ext ?? createMockAdapter(curMcap), [ext]);
@@ -136,7 +137,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
               <div>
                 <span className={t.kind === "tramp" ? "text-[#ffd76e]" : "text-[#ff8a7a]"}><Icon name={t.kind === "tramp" ? "tramp" : "wall"} size={13} /> {t.kind === "tramp" ? "TRAMP" : "WALL"}</span>{" "}
                 {fmt(t.sizeUsd)} @ {fmt(t.mcapUsd)}
-                <div className="text-white/50">{t.status.toUpperCase()}{t.status === "active" ? ` · ${Math.round(t.filledFrac * 100)}% filled` : ""}{simulator ? "" : ` · fees ${fmt(t.feesEarnedUsd)}`} · {t.pointsEarned} pts</div>
+                <div className="text-white/50">{t.status.toUpperCase()}{t.status === "active" ? ` · ${Math.round(t.filledFrac * 100)}% filled` : ""} · {t.pointsEarned} pts</div>
               </div>
               {t.status === "active" && <button onClick={() => cancel(t.id)} className="rounded-md border border-red-400/50 px-2 py-1 text-red-300 hover:bg-red-500/20">Cancel</button>}
             </div>
@@ -160,7 +161,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
             className="relative w-[440px] rounded-3xl border border-[#ffe7a3]/50 bg-gradient-to-b from-[#1b1630] via-[#0c0a18] to-[#05040a] p-6 text-white shadow-[0_0_60px_rgba(255,215,110,.35)]">
             <div className="pointer-events-none absolute -top-5 left-1/2 h-8 w-40 -translate-x-1/2 rounded-[50%] border-4 border-[#ffe7a3]/80 shadow-[0_0_30px_#ffe7a3]" />
             <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Trampoline" : "Wall"}</h2>
-            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: a pure limit order in the sim pool — no fee yield; once filled a keeper closes it (0.1% tip)" : "earn the ~0.11% hook donation while in range"}</p>
+            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(["tramp", "wall"] as const).map((k) => (
                 <button key={k} data-testid={`tw-kind-${k}`} onClick={() => { chooseKind(k); setStep("preset"); }}
@@ -178,7 +179,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
                     className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left font-mono text-[11px] transition hover:border-[#ffe7a3] hover:bg-[#ffe7a3]/10 disabled:opacity-40">
                     <div className="flex items-baseline justify-between"><span className="font-display text-base text-[#ffe7a3]">{p.label}</span><span className="text-sm font-bold">{fmt(q.sizeUsd)}</span></div>
                     <div className="text-white/70">{q.pct > 0 ? "+" : ""}{q.pct}% · ±{p.width / 2}% · @ {fmt(q.priceMcap)}</div>
-                    <div className="text-white/45">{p.blurb}{r && !simulator ? ` · ~${fmt(r.estFeeShareUsdPerDay)}/day` : ""}{r && !r.valid && r.reason ? ` · ${r.reason}` : ""}</div>
+                    <div className="text-white/45">{p.blurb}{r && !r.valid && r.reason ? ` · ${r.reason}` : ""}</div>
                   </button>); })}
                 <button data-testid="tw-preset-custom" onClick={() => setStep("custom")}
                   className="rounded-xl border border-dashed border-white/25 px-3 py-2 text-left font-mono text-[11px] text-white/70 hover:border-white/60">
@@ -201,9 +202,8 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
             <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} className="mb-4 w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 font-mono" />
             {pv && (
               <div className="mb-4 grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-3 text-center font-mono text-[11px]">
-                {simulator ? <div><div className="text-white/50">keeper tip</div><div className="text-base">0.1%</div></div>
-                  : <div><div className="text-white/50">est. fees/day</div><div className="text-base text-[#9ff3c8]">{fmt(pv.estFeeShareUsdPerDay)}</div></div>}
-                <div><div className="text-white/50">pool share</div><div className="text-base">{pv.estSharePct.toFixed(1)}%</div></div>
+                <div><div className="text-white/50">distance</div><div className="text-base">{pv.distancePct >= 0 ? "+" : ""}{pv.distancePct.toFixed(1)}%</div></div>
+                <div><div className="text-white/50">keeper tip</div><div className="text-base">0.1%</div></div>
                 <div><div className="text-white/50">points if filled</div><div className="text-base text-[#ffe7a3]">+{pv.pointsIfFilled}</div></div>
               </div>
             )}

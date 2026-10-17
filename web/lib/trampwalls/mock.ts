@@ -23,7 +23,7 @@ function seed(token: Address, cur: number): TrampWall[] {
     const m = cur * (1 + pct / 100), size = 200 + rnd(i) * 4000;
     return { id: `crowd-${i}`, token, owner: `0x${(i + 1).toString(16).padStart(40, "a")}` as Address, kind: pct < 0 ? "tramp" : "wall", mcapUsd: m,
       mcapLoUsd: m * 0.99, mcapHiUsd: m * 1.01, amount: BigInt(0), sizeUsd: size, status: "active", filledFrac: 0,
-      feesEarnedUsd: 0, pointsEarned: 0, createdAt: Date.now() } as TrampWall;
+      pointsEarned: 0, createdAt: Date.now() } as TrampWall;
   });
 }
 
@@ -49,7 +49,7 @@ export function createMockAdapter(getCurrentMcap: () => number): TrampWallAdapte
       if (!pv.valid) return { ok: false, reason: pv.reason };
       const tw: TrampWall = { id: `tw-${Date.now().toString(36)}`, token: p.token, owner: MOCK_ME, kind: p.kind, mcapUsd: p.mcapUsd,
         mcapLoUsd: pv.mcapLoUsd, mcapHiUsd: pv.mcapHiUsd, amount: p.amount, sizeUsd: p.sizeUsd, status: "active", filledFrac: 0,
-        feesEarnedUsd: 0, pointsEarned: 0, createdAt: Date.now() };
+        pointsEarned: 0, createdAt: Date.now() };
       save([...load(), tw]); emit({ type: "Placed", tw });
       return { ok: true, id: tw.id, txHash: "0xmock" };
     },
@@ -68,7 +68,7 @@ export function mockMarkFilled(id: string) {
   const all = load(); const t = all.find((x) => x.id === id);
   if (!t || t.status !== "active") return;
   t.status = "filled"; t.filledFrac = 1; t.filledAt = Date.now(); t.pointsEarned = pointsFor(t.kind, t.sizeUsd);
-  t.feesEarnedUsd = t.sizeUsd * 0.0011 * 3; save(all);
+  save(all);
   emit({ type: "Filled", id, token: t.token, filledAt: t.filledAt, pointsEarned: t.pointsEarned });
 }
 

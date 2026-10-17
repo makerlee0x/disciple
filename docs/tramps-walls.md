@@ -3,7 +3,7 @@
 **Tramp** = single-sided *quote-token* v4 LP placed fully **below** the current price (support — a trampoline the rocket bounces off).
 **Wall** = single-sided *coin* LP placed fully **above** the current price (resistance).
 
-Incentives: the DISCIPLE hook donates ~0.11% (11 bps) of every swap to in-range LPs; filled tramps/walls also earn off-chain points + badges (Papertrade-liquidation style). See achievements category `tramps` in `web/lib/achievements.ts`.
+Incentives: **no fee share**. A tramp/wall is a pure limit order. TrampWallManager rev2 pays range orders no LP yield: the pool LP fee is 0 and the hook no longer donates to in-range liquidity (`contracts/docs/redeploy-migration.md`, revision 3). Filled tramps/walls earn off-chain points and badges (see achievements category `tramps` in `web/lib/achievements.ts`).
 
 Only shown on graduated coins (`isGraduated(token) === true`).
 
@@ -25,7 +25,6 @@ interface TrampWall {
   sizeUsd: number;         // USD notional at placement (line thickness)
   status: TrampWallStatus;
   filledFrac: number;      // 0..1 of range converted
-  feesEarnedUsd: number;   // hook donations accrued
   pointsEarned: number;
   createdAt: number; filledAt?: number;   // ms epoch
 }
@@ -39,15 +38,14 @@ interface PlaceTrampWallParams {
 
 interface TrampWallPreview {
   distancePct: number; mcapLoUsd: number; mcapHiUsd: number;
-  estFeeShareUsdPerDay: number; estSharePct: number; pointsIfFilled: number;
+  pointsIfFilled: number;
   valid: boolean; reason?: string;
 }
 
 type TrampWallEvent =
   | { type: "Placed"; tw: TrampWall }
   | { type: "Cancelled"; id: string; token: Address }
-  | { type: "Filled"; id: string; token: Address; filledAt: number; pointsEarned: number }
-  | { type: "FeesDonated"; id: string; token: Address; amountUsd: number };
+  | { type: "Filled"; id: string; token: Address; filledAt: number; pointsEarned: number };
 
 interface TrampWallAdapter {
   isGraduated(token: Address): Promise<boolean>;
@@ -64,7 +62,7 @@ interface TrampWallAdapter {
 
 Contract (TrampWallManager), suggested shape:
 - `place(token, kind, tickLower, tickUpper, amount) returns (uint256 id)` — reverts if a tramp's `tickUpper >= currentTick` or a wall's `tickLower <= currentTick`; only for graduated pools.
-- `cancel(id)` — owner only; withdraws remaining liquidity + accrued donations.
+- `cancel(id)` — owner only; withdraws the remaining liquidity (no fees accrue).
 - Auto-pull when filled: when price fully crosses the range (tramp: below `tickLower`; wall: above `tickUpper`), the manager/keeper removes the liquidity and credits the owner.
 - `positionsOf(owner)`, `positionsFor(token)` views (or indexer only).
 
@@ -72,7 +70,6 @@ Events (indexer) → map to `TrampWallEvent`:
 - `TrampWallPlaced(id, token, owner, kind, tickLower, tickUpper, amount)`
 - `TrampWallCancelled(id, token, owner)`
 - `TrampWallFilled(id, token, owner, filledAt)` — off-chain points are awarded on this event
-- `HookDonation(poolId, id?, amount)` for fee accrual.
 
 Indexer also needs a per-user rollup for achievements: `trampsFilled`, `wallsFilled`, `bigTrampsFilled` (≥$1K) → `IdentityMetrics` in `web/lib/stats.ts`.
 
@@ -98,7 +95,7 @@ range orders in it, following `TrampWallManager.sol`:
 - **Filled** when the price fully crosses the range (tramp: ≤ lo, wall: ≥ hi). A keeper pulls it after a short
   delay and takes `keeperTipBps` (0.1%) of both assets. If the price comes back first the order is no longer filled
   and the pull would revert (`NotFilled`), so the keeper waits. The owner can cancel at any time and gets the current mix.
-- **No fee yield**: the contract pays none to range orders, so the sim doesn't either (the panel hides "fees/day").
+- **No fee share**, same as live: the contract pays range orders nothing.
   Filled orders still earn the off-chain points (`pointsFor`) and the LIMIT LEGEND sim achievement.
 - The panel (`TrampWallPanel` with `lib/sim/twAdapter.ts`) places straight into the running `SimRun`. State
   lives in the run, so every run starts empty. A read-only mirror goes to `disciple.sim.tw` (never the live
@@ -108,6 +105,3 @@ range orders in it, following `TrampWallManager.sol`:
   and dump into your tramp.
 - Every placement and cancel is in the player-input log (`SimRun.inputs`), so `SimRun.replay(seed, inputs)`
   reproduces a run exactly.
-
-Open: the ~0.11% hook-donation note above predates the TrampWallManager rev2 contract, which has no LP yield
-for range orders. Confirm which one is right for live.

@@ -6,6 +6,12 @@ import ts from "typescript";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
+// 0) tramps/walls: no fee share anywhere in GAME copy/code (TrampWallManager rev2 pays range orders no LP yield)
+{ const rd = (f) => fs.readFileSync(path.join(dir, "..", f), "utf8");
+  const files = ["components/trampwalls/TrampWallPanel.tsx", "lib/trampwalls/adapter.ts", "lib/trampwalls/mock.ts", "lib/trampwalls/onchain.ts", "lib/sim/twAdapter.ts", "public/flight/engine.js", "../docs/tramps-walls.md"];
+  const claim = /0\.11 ?%|11 bps|hook donation|fees\/day|estFeeShare|estSharePct|feesEarnedUsd|FeesDonated|HOOK_DONATION|pendingFees|claimFees|LPDonation/i;
+  const hits = files.filter((f) => claim.test(rd(f).replace(/^.*No fee share.*$/gm, "")));
+  ok(!hits.length, `no tramp/wall fee-share promise or fee read in ${files.length} GAME files${hits.length ? " (found in " + hits.join(", ") + ")" : ""}`); }
 // 1) mock market: bounded growth, supply defined
 { let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const cls = eng.slice(eng.indexOf("class MockReplaySource {"), eng.indexOf("\n  emitDepth()")) + "\n emitDepth(){} }";
