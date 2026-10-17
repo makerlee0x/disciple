@@ -840,7 +840,7 @@ function skyRGB(idx){ const key=plateOf(idx); let c=SKY_RGB.get(key); if(c) retu
 function skyNow(){ const a=(S.bgU!=null?S.bgU:bandOf(S.displayAlt))-0.5, i=Math.floor(a), f=clamp(a-i,0,1), c0=skyRGB(i), c1=skyRGB(i+1);
   return [Math.round(lerp(c0[0],c1[0],f)),Math.round(lerp(c0[1],c1[1],f)),Math.round(lerp(c0[2],c1[2],f))]; }
 
-/* LIMINAL CLOUDS — crisp, stylised cumulus silhouettes pre-rendered once (2× res): union of circles with a
+/* CLASSIC CLOUDS (?clouds=classic fallback; default is CEL below) — crisp, stylised cumulus silhouettes pre-rendered once (2× res): union of circles with a
    flat-ish base, pastel vertical gradient, a cel-shaded highlight and a soft lavender underside. Sparse and
    deliberate: 5 far, 4 mid, 2 near. Near clouds are drawn after the rocket, so the rocket flies between layers. */
 const CLOUD_SS=2;
@@ -867,115 +867,45 @@ const CLOUD_PAL=[
   ['#f4eefe','#e3d7f6','#bfc3ee','rgba(150,140,215,.55)'],     // far: cooler, bluer (atmospheric)
   ['#fff8fb','#f8deee','#c8c6f4','rgba(160,140,220,.5)'],     // mid: pastel pink → lavender
   ['#fffdf8','#fde6ef','#d3cdf7','rgba(170,150,225,.45)']];   // near: warm white
-/* CLOUD STYLE OPTIONS (exploration, explore/clouds) — ?clouds=cel|puff|ink|cirrus; missing/unknown = current.
-   Every option is a set of sprites pre-rendered once from hash() (deterministic: no Math.random, replay-safe) and
-   stamped per frame with drawImage; parallax, blast push, breakup and near-layer see-through are shared by all. */
-const CLOUD_STYLES=['current','cel','puff','ink','cirrus'];
-const CLOUD_STYLE=(()=>{ const v=String(Q.get('clouds')||'').toLowerCase(); return CLOUD_STYLES.includes(v)?v:'current'; })();
+/* CEL CLOUDS (default) — flat low-poly lobes (7-gons over the same circle layout), a hard 3-tone lavender palette and
+   no gradients; built at half res and stamped nearest-neighbour so edges read as chunky 2px pixels. A second "night"
+   sprite (brighter lit facets, deeper shadow, hard pale rim on the sky-facing edge, faint lavender halo) cross-fades
+   in from PEARLY GATES up so the shapes keep reading against the dark upper skies. Built once from hash(): no
+   Math.random, so share/replay videos (which evaluate this same file) stay deterministic. No gold.
+   ?clouds=classic → the previous pastel cumulus (makeCloudSprite above). */
+const CLOUD_STYLE=String(Q.get('clouds')||'').toLowerCase()==='classic'?'classic':'cel';
 function cloudCircles(seed,r,w,base){ const n=5+(seed%3), circ=[];
   for(let k=0;k<n;k++){ const t=k/(n-1)-0.5, hh=hash(seed*31+k*7), rr=r*(0.36+0.42*(1-Math.abs(t)*1.5))*(0.85+0.3*hh);
     circ.push([w/2+t*r*2.5+(hash(seed+k*13)-0.5)*r*0.25, base-rr*0.62-(1-Math.abs(t)*1.6)*r*0.22*hh, rr]); }
   return circ; }
-function cloudCanvas(w,h,ss){ const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w*ss)); c.height=Math.max(1,Math.round(h*ss));
-  const g=c.getContext('2d'); g.scale(ss,ss); return [c,g]; }
 function cloudRecolor(c,fill){ const l=document.createElement('canvas'); l.width=c.width; l.height=c.height; const lg=l.getContext('2d');
   lg.drawImage(c,0,0); lg.globalCompositeOperation='source-in'; lg.fillStyle=fill; lg.fillRect(0,0,l.width,l.height); return l; }
-const cloudHi=()=>clamp(((S.bgU!=null?S.bgU:bandOf(S.displayAlt))-4)/4,0,1);   // 0 below PEARLY GATES → 1 from HEAVENLY HOST up
-
-/* (a) CEL — flat low-poly lobes (7-gons), hard 3-tone lavender palette, no gradients; built at half res and stamped
-   nearest-neighbour so edges read as chunky 2px pixels. */
-const CEL_PAL=[['#D6D1EE','#A49DD2','#6C679A'],['#E4E0F6','#B4ACDF','#7A72AC'],['#F2EFFB','#C5BDEA','#887FBD']];   // lit / body / shadow per depth
-function makeCelSprite(seed,r,li){
-  const w=Math.ceil(r*3.8), h=Math.ceil(r*2.1), base=h*0.86, [c,g]=cloudCanvas(w,h,0.5), circ=cloudCircles(seed,r,w,base), pal=CEL_PAL[li];
-  const path=(dx,dy,sc)=>{ g.beginPath(); circ.forEach(([x,y,rr],k)=>{ const rot=hash(seed+k*3)*1.2;
+const celHi=()=>clamp(((S.bgU!=null?S.bgU:bandOf(S.displayAlt))-4)/4,0,1);   // 0 below PEARLY GATES → 1 from HEAVENLY HOST up
+const CEL_PAL=[['#D6D1EE','#A49DD2','#6C679A'],['#E4E0F6','#B4ACDF','#7A72AC'],['#F2EFFB','#C5BDEA','#887FBD']];        // lit / body / shadow per depth
+const CEL_NIGHT=[['#ECE9FF','#9890CC','#4C4878'],['#F3F1FF','#A79FDA','#555085'],['#FAF9FF','#B5ADE6','#5E5892']];      // high tiers: more contrast
+function celLayer(seed,r,li,pal,night){
+  const w=Math.ceil(r*3.8), h=Math.ceil(r*2.1), base=h*0.86, PX=0.5, circ=cloudCircles(seed,r,w,base);
+  const mk=()=>{ const c=document.createElement('canvas'); c.width=Math.round(w*PX); c.height=Math.round(h*PX); const g=c.getContext('2d'); g.scale(PX,PX);
+    g.beginPath(); g.rect(0,0,w,base); g.clip(); return [c,g]; };   // flat base
+  const path=(g,dx,dy,sc)=>{ g.beginPath(); circ.forEach(([x,y,rr],k)=>{ const rot=hash(seed+k*3)*1.2;
     for(let i=0;i<7;i++){ const a=rot+i/7*6.2832, px=x+dx+Math.cos(a)*rr*sc, py=y+dy+Math.sin(a)*rr*sc; i?g.lineTo(px,py):g.moveTo(px,py); } g.closePath(); }); };
-  g.save(); g.beginPath(); g.rect(0,0,w,base); g.clip();
-  path(0,0,1); g.fillStyle=pal[2]; g.fill();                                   // shadow tone = whole silhouette
-  g.globalCompositeOperation='source-atop';
-  path(-r*0.04,-r*0.15,0.93); g.fillStyle=pal[1]; g.fill();                    // body tone
-  path(-r*0.14,-r*0.30,0.62); g.fillStyle=pal[0]; g.fill();                    // lit facets
+  const [c,g]=mk();
+  if(night){ path(g,0,-r*0.02,1.06); g.fillStyle='rgba(220,214,255,.3)'; g.fill(); }        // faint lavender halo
+  g.save(); path(g,0,0,1); g.clip();
+  path(g,0,0,1); g.fillStyle=pal[2]; g.fill();                                               // shadow tone = whole silhouette
+  path(g,-r*0.04,-r*0.15,0.93); g.fillStyle=pal[1]; g.fill();                                // body tone
+  path(g,-r*0.14,-r*0.30,0.62); g.fillStyle=pal[0]; g.fill();                                // lit facets
   g.restore();
-  return {spr:c, lit:cloudRecolor(c,'rgb(255,190,120)'), w, h, px:true}; }
-
-/* (b) PUFF — soft volumetric body from stacked radial blobs, cool lavender-grey underside, plus a top-edge rim
-   crescent that is re-tinted from the current tier's sky colour (cached per cloud, only redone when the tint changes). */
-const PUFF_SPR=radialSprite('puff',[[0,'rgba(255,255,255,1)'],[0.4,'rgba(255,255,255,.8)'],[1,'rgba(255,255,255,0)']],128);
-function makePuffSprite(seed,r,li){
-  const w=Math.ceil(r*4.3), h=Math.ceil(r*2.7), base=h*0.76, [c,g]=cloudCanvas(w,h,1), circ=cloudCircles(seed,r,w,base);
-  circ.forEach(([x,y,rr],k)=>{ for(let j=0;j<4;j++){ const ox=(hash(seed*3+k*11+j)-0.5)*rr*0.9, oy=(hash(seed*5+k*7+j*3)-0.6)*rr*0.5, s=rr*(1.55-0.22*j);
-    g.globalAlpha=0.5; g.drawImage(PUFF_SPR,x+ox-s,y+oy-s,2*s,2*s); } });
-  g.globalAlpha=1; g.globalCompositeOperation='source-atop';
-  const sh=g.createLinearGradient(0,base-r*1.2,0,base+r*0.3); sh.addColorStop(0,'rgba(120,112,170,0)'); sh.addColorStop(0.6,'rgba(132,124,182,.35)'); sh.addColorStop(1,'rgba(92,86,140,.7)');
-  g.fillStyle=sh; g.fillRect(0,0,w,h);
-  // rim mask: silhouette minus itself shifted down → soft crescent on the sky-facing edge
-  const [m,mg]=cloudCanvas(w,h,1); mg.drawImage(c,0,0); mg.globalCompositeOperation='destination-out'; mg.drawImage(c,r*0.05,r*0.16);
-  mg.drawImage(c,-r*0.05,r*0.16); mg.globalCompositeOperation='source-in'; mg.fillStyle='#fff'; mg.fillRect(0,0,w,h);
-  return {spr:c, lit:cloudRecolor(c,'rgb(255,190,120)'), rim:m, w, h}; }
-function puffRimTint(){ const s=skyNow(), m=(s[0]+s[1]+s[2])/3;   // saturate the pastel sky average so the rim reads as coloured light
-  return s.map(v=>clamp(Math.round((m+(v-m)*2.6+46)/12)*12,0,255)); }
-function puffRim(c,col){ const key=col.join(',');
-  if(c.rimK!==key){ if(!c.rimC){ c.rimC=document.createElement('canvas'); c.rimC.width=c.sp.rim.width; c.rimC.height=c.sp.rim.height; }
-    const g=c.rimC.getContext('2d'); g.globalCompositeOperation='source-over'; g.clearRect(0,0,c.rimC.width,c.rimC.height); g.drawImage(c.sp.rim,0,0);
-    g.globalCompositeOperation='source-in'; g.fillStyle=`rgb(${key})`; g.fillRect(0,0,c.rimC.width,c.rimC.height); c.rimK=key; }
-  return c.rimC; }
-
-/* (c) INK — line art in the icon set's language: monoline outline of the lobe union (light #E8EAEE stroke on a thin
-   dark #16181C halo so it reads over bright plates), round caps/joins, a flat base line, a couple of inner curls and
-   sparse 45° lavender hatching in the shadow corner. Faint #1F2228 wash inside. */
-function makeInkSprite(seed,r,li){
-  const L=1.5*(li===2?1.4:li===1?1.15:1), pad=6, w=Math.ceil(r*3.8)+pad*2, h=Math.ceil(r*2.1)+pad, base=h*0.86-pad*0.3;
-  const [c,g]=cloudCanvas(w,h,CLOUD_SS), circ=cloudCircles(seed,r,w,base);
-  const path=sc=>{ g.beginPath(); for(const [x,y,rr] of circ){ g.moveTo(x+rr*sc,y); g.arc(x,y,rr*sc,0,6.2832); } };
-  g.lineCap='round'; g.lineJoin='round';
-  g.save(); g.beginPath(); g.rect(0,0,w,base); g.clip();
-  path(1); g.strokeStyle='rgba(22,24,28,.55)'; g.lineWidth=2*(L+1.6); g.stroke();   // halo
-  path(1); g.strokeStyle='#E8EAEE'; g.lineWidth=2*L; g.stroke();                     // outline (outer half survives)
-  g.globalCompositeOperation='destination-out'; path(1); g.fill();
-  g.globalCompositeOperation='source-over'; path(1); g.fillStyle='rgba(31,34,40,.22)'; g.fill();
-  g.save(); path(1); g.clip();
-  g.strokeStyle='#E8EAEE'; g.lineWidth=L;
-  circ.forEach(([x,y,rr],k)=>{ if(k===0||k===circ.length-1||hash(seed+k*5)<0.35) return;   // inner curls
-    g.beginPath(); g.arc(x+rr*0.08,y+rr*0.12,rr*0.62,Math.PI*1.12,Math.PI*1.55); g.stroke(); });
-  const x1=circ[circ.length-1][0], hs=5*L+3, nH=4+Math.floor(hash(seed*9)*3);           // hatching, lower-right
-  g.strokeStyle='rgba(155,140,230,.9)'; g.lineWidth=L*0.9;
-  for(let k=0;k<nH;k++){ const hx=x1-r*0.2-k*hs, hy=base-r*0.12; g.beginPath(); g.moveTo(hx,hy); g.lineTo(hx+r*0.22,hy-r*0.22); g.stroke(); }
-  g.restore(); g.restore();
-  let xa=1e9, xb=-1e9; const yb=base-L; for(const [x,y,rr] of circ){ const dy=yb-y; if(Math.abs(dy)<rr){ const dx=Math.sqrt(rr*rr-dy*dy); xa=Math.min(xa,x-dx); xb=Math.max(xb,x+dx); } }
-  if(xb>xa){ g.beginPath(); g.moveTo(xa+L,yb); g.lineTo(xb-L,yb); g.strokeStyle='rgba(22,24,28,.55)'; g.lineWidth=L+3.2; g.stroke(); g.strokeStyle='#E8EAEE'; g.lineWidth=L; g.stroke(); }
-  return {spr:c, lit:cloudRecolor(c,'rgb(255,190,120)'), w, h}; }
-
-/* (d) CIRRUS — thin streaky mares'-tails over a faint haze band, drifting on a slow wind with depth parallax. From
-   PEARLY GATES up the streaks cross-fade to cool moon-grey and a deterministic lunar-dust field (motes that smear
-   with vertical speed) fades in. */
-function makeCirrusSprite(seed,r,li){
-  const w=Math.ceil(r*7.5), h=Math.ceil(r*1.2), [c,g]=cloudCanvas(w,h,1), n=7+(seed%4);
-  g.globalAlpha=0.07+0.03*li; g.drawImage(PUFF_SPR,w*0.04,h*0.3,w*0.92,h*0.4); g.globalAlpha=1;   // haze band
-  g.lineCap='round';
-  for(let k=0;k<n;k++){ const y0=h*(0.22+0.56*hash(seed*17+k)), len=w*(0.4+0.55*hash(seed*5+k*11)), x0=(w-len)*hash(seed*3+k*7),
-      sag=(hash(seed+k*19)-0.5)*h*0.45, th=0.8+hash(seed*7+k)*(0.6+r*0.02), pk=0.2+0.35*hash(k*3+seed);
-    const gr=g.createLinearGradient(x0,0,x0+len,0); gr.addColorStop(0,'rgba(255,255,255,0)'); gr.addColorStop(pk,'rgba(250,248,255,.8)'); gr.addColorStop(1,'rgba(255,255,255,0)');
-    g.strokeStyle=gr; g.lineWidth=th; g.beginPath(); g.moveTo(x0,y0); g.quadraticCurveTo(x0+len*0.5,y0+sag,x0+len,y0-sag*0.35); g.stroke();
-    const hx=x0+len*pk, hy=y0+sag*pk*0.9;                                                      // feathered hook at the head
-    if(hash(seed*13+k)<0.4){ g.strokeStyle='rgba(250,248,255,.35)'; g.lineWidth=Math.max(0.8,th*0.6); g.beginPath(); g.moveTo(hx,hy); g.quadraticCurveTo(hx-r*0.2,hy-h*0.04,hx-r*0.3,hy-h*0.16); g.stroke(); } }
-  return {spr:c, lun:cloudRecolor(c,'#B2AECB'), lit:cloudRecolor(c,'rgb(255,190,120)'), w, h, drift:true}; }
-const DUST=[...Array(150)].map((_,i)=>({x:hash(i*3.17+1), y:hash(i*7.31+2), z:0.25+hash(i*1.93+3)*1.15, s:0.8+hash(i*5.11+4)*1.8, a:0.35+hash(i*9.7+5)*0.6}));
-function drawDust(front,hi){ if(hi<0.02) return;
-  const cx=(S.camX!=null?S.camX:S.x)-W/2, cy=S.cloudY||0, v=(S.vyS||0)+(S.air||0);
-  ctx.fillStyle='rgb(226,223,242)';
-  for(const p of DUST){ if((p.z>1)!==!!front) continue;
-    let x=p.x*W-cx*p.z*0.25-S.t*p.z*9; x=((x%W)+W)%W; let y=p.y*H+cy*p.z*0.65; y=((y%H)+H)%H;
-    const sm=Math.min(18,Math.abs(v)*0.02*p.z); ctx.globalAlpha=Math.min(1,hi*p.a*(front?0.6:1)); ctx.fillRect(x,y-(v>0?sm:0),p.s*p.z,p.s*p.z+sm); }
-  ctx.globalAlpha=1; }
-function makeStyleSprite(seed,r,li){ switch(CLOUD_STYLE){
-  case 'cel': return makeCelSprite(seed,r,li); case 'puff': return makePuffSprite(seed,r,li);
-  case 'ink': return makeInkSprite(seed,r,li); case 'cirrus': return makeCirrusSprite(seed,r,li);
-  default: return makeCloudSprite(seed,r,CLOUD_PAL[li]); } }
+  if(night){ const [m,mg]=mk();                                                              // hard pale rim = silhouette − itself shifted down
+    path(mg,0,0,1); mg.fillStyle='#F6F4FF'; mg.fill(); mg.globalCompositeOperation='destination-out'; path(mg,0,r*0.07,1); mg.fill();
+    g.save(); g.setTransform(1,0,0,1,0,0); g.drawImage(m,0,0); g.restore(); }
+  return {c,w,h}; }
+function makeCelSprite(seed,r,li){ const d=celLayer(seed,r,li,CEL_PAL[li],false), n=celLayer(seed,r,li,CEL_NIGHT[li],true);
+  return {spr:d.c, night:n.c, lit:cloudRecolor(d.c,'rgb(255,190,120)'), w:d.w, h:d.h, px:true}; }
 const CLOUD_SPEC={
-  current:[{n:5,r:46,a:0.55,spd:0.18},{n:4,r:82,a:0.85,spd:0.42},{n:2,r:140,a:0.92,spd:1.05}],
-  cel:    [{n:5,r:46,a:0.8, spd:0.18},{n:4,r:82,a:0.95,spd:0.42},{n:2,r:140,a:1,   spd:1.05}],
-  puff:   [{n:5,r:46,a:0.6, spd:0.18},{n:4,r:82,a:0.85,spd:0.42},{n:2,r:140,a:0.9, spd:1.05}],
-  ink:    [{n:5,r:46,a:0.8, spd:0.18},{n:4,r:82,a:0.95,spd:0.42},{n:2,r:140,a:1,   spd:1.05}],
-  cirrus: [{n:7,r:44,a:0.45,spd:0.18},{n:5,r:70,a:0.55,spd:0.42},{n:2,r:110,a:0.45,spd:1.05}]};
+  classic:[{n:5,r:46,a:0.55,spd:0.18},{n:4,r:82,a:0.85,spd:0.42},{n:2,r:140,a:0.92,spd:1.05}],
+  cel:    [{n:5,r:46,a:0.8, spd:0.18},{n:4,r:82,a:0.95,spd:0.42},{n:2,r:140,a:1,   spd:1.05}]};
+const makeStyleSprite=(seed,r,li)=>CLOUD_STYLE==='classic'?makeCloudSprite(seed,r,CLOUD_PAL[li]):makeCelSprite(seed,r,li);
 const CLOUDS=(()=>{
   const layers=[];
   const spec=CLOUD_SPEC[CLOUD_STYLE];
@@ -990,7 +920,7 @@ const CB={x:0,y:0};
 function cloudBase(c){   // parallax position (no blast offset) → CB. Wrap span includes the sprite size → no edge pop.
   const m=c.sp.w, sw=W+2*m, sh=H+2*c.sp.h;
   const xOff=((S.camX!=null?S.camX:S.x)-W/2)*c.spd*0.25, yOff=(S.cloudY||0)*c.spd*0.65;   // world scroll: climb → clouds fall past, drop → they rise   // climb → clouds fall past, drop → they rise
-  let x=c.x-xOff-(c.sp.drift?S.t*(6+18*c.spd):0); x=((x%sw)+sw)%sw-m;   // cirrus: slow wind drift
+  let x=c.x-xOff; x=((x%sw)+sw)%sw-m;
   let y=c.y+yOff; y=((y%sh)+sh)%sh-c.sp.h; CB.x=x; CB.y=y; return CB; }
 function cloudStep(dt){ const k=1-Math.exp(-dt/6);
   for (const c of CLOUDS){ c.vx+=(-1.1*c.ox-1.9*c.vx)*dt; c.vy+=(-1.1*c.oy-1.9*c.vy)*dt; c.ox+=c.vx*dt; c.oy+=c.vy*dt; c.dens+=(1-c.dens)*k; } }
@@ -1000,8 +930,7 @@ function cloudBlast(x,y,amp,R){
     c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); } }
 function drawClouds(front){
   const ex=(S.camX!=null?S.camX:S.x), ey=S.ry, fl=exhaustParams().flame;
-  const hi=CLOUD_STYLE==='cirrus'?cloudHi():0, rimCol=CLOUD_STYLE==='puff'?puffRimTint():null, sm0=ctx.imageSmoothingEnabled;
-  if (CLOUD_STYLE==='cirrus'&&!front) drawDust(false,hi);
+  const hi=CLOUD_STYLE==='cel'?celHi():0, sm0=ctx.imageSmoothingEnabled;
   for (const c of CLOUDS){ if((c.li===2)!==!!front) continue;
     cloudBase(c); const x=CB.x+c.ox, y=CB.y+c.oy, sp=c.sp, d=1-c.dens;
     if (x>W+sp.w||x+sp.w<-sp.w||y>H+sp.h||y+sp.h<-sp.h) continue;
@@ -1010,18 +939,18 @@ function drawClouds(front){
     const see=front&&Math.abs(cx-ex)<sp.w*0.5+40&&cy>ey-170&&cy<ey+sp.h*0.5+60 ? 0.35 : 1;   // near clouds thin out where they'd hide the rocket
     if (sp.px) ctx.imageSmoothingEnabled=false;
     if (d<0.03){ ctx.globalAlpha=c.a*see; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
-      if(sp.lun&&hi>0.01){ ctx.globalAlpha=c.a*see*hi; ctx.drawImage(sp.lun,x,y+bob,sp.w,sp.h); }
-      if(sp.rim){ ctx.globalAlpha=Math.min(1,c.a*see*1.15); ctx.drawImage(puffRim(c,rimCol),x,y+bob,sp.w,sp.h); }
+      if(sp.night&&hi>0.01){ ctx.globalAlpha=c.a*see*hi; ctx.drawImage(sp.night,x,y+bob,sp.w,sp.h); }   // high tiers: night palette + rim
       if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38; ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
     else {
       // clean shape breakup: the silhouette splits into 3 slabs that drift apart, shrink and fade — no fog
       const sw=sp.spr.width/3, k=1-d*0.3;
       for (let j=0;j<3;j++){ const dx=(j-1)*d*sp.w*0.45, dy=-d*sp.h*(j===1?0.35:0.12), pw=sp.w/3*k, ph=sp.h*k;
-        ctx.globalAlpha=c.a*see*(0.25+0.75*c.dens); ctx.drawImage(sp.spr,j*sw,0,sw,sp.spr.height,x+j*sp.w/3+dx+(sp.w/3-pw)/2,y+bob+dy+(sp.h-ph),pw,ph); }
+        const al=c.a*see*(0.25+0.75*c.dens), qx=x+j*sp.w/3+dx+(sp.w/3-pw)/2, qy=y+bob+dy+(sp.h-ph);
+        ctx.globalAlpha=al; ctx.drawImage(sp.spr,j*sw,0,sw,sp.spr.height,qx,qy,pw,ph);
+        if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,j*sw,0,sw,sp.night.height,qx,qy,pw,ph); } }
     }
     ctx.imageSmoothingEnabled=sm0;
   }
-  if (CLOUD_STYLE==='cirrus'&&front) drawDust(true,hi);
   ctx.globalAlpha=1;
 }
 function drawSpeedLines(){

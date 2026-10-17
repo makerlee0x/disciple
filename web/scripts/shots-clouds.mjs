@@ -1,17 +1,17 @@
-// Cloud-style exploration shots: STYLES × TIERS → /workspace/disciple-shots/clouds-<style>-<tier>.png (canvas only).
+// Cloud shots: STYLES × TIERS → $OUT/clouds-<style>-<tier>.png (raw game canvas). STYLES: cel (default renderer), classic (?clouds=classic).
 // Usage: BASE=http://127.0.0.1:3070 node scripts/shots-clouds.mjs
 import { chromium } from "playwright-core";
 import fs from "fs";
 const BASE = process.env.BASE || "http://127.0.0.1:3070";
 const OUT = process.env.OUT || "/workspace/disciple-shots";
 const COIN = "/coin/0xc4a21f9d6485fc5893dd4a491b320a83daf4da1d";
-const STYLES = (process.env.STYLES || "current,cel,puff,ink,cirrus").split(",");
+const STYLES = (process.env.STYLES || "classic,cel").split(",");
 const TIERS = [{ name: "low", mcap: 9500 }, { name: "high", mcap: 520000 }].filter((t) => !process.env.TIER || t.name === process.env.TIER);
 const browser = await chromium.launch({ headless: true, executablePath: "/usr/bin/google-chrome-stable", args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 for (const st of STYLES) for (const t of TIERS) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errs = []; page.on("pageerror", (e) => errs.push(e.message));
-  const q = st === "current" ? "" : `&clouds=${st}`;
+  const q = st === "cel" ? "" : `&clouds=${st}`;
   await page.goto(`${BASE}${COIN}?replay=1${q}`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForFunction(() => window.__flight && window.__flight.assetsReady(), null, { timeout: 120000 });
   const target = await page.evaluate((m) => window.__flight.mcapToAlt(m), t.mcap);
