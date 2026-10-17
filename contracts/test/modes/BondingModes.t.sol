@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IntegrationBase, MockUSDG} from "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
@@ -752,7 +753,7 @@ contract BondingModesTest is IntegrationBase {
         address[] memory cs = new address[](1);
         cs[0] = address(c);
         vm.prank(alice);
-        vm.expectRevert(Launchpad.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setCurveRouterKilled(cs, true);
         vm.expectRevert(BondingCurve.OnlyLaunchpad.selector);
         c.setRouterKilled(true);

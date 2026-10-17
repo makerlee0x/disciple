@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IntegrationBase, MockUSDG} from "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
@@ -252,7 +253,7 @@ contract JitTwapTest is IntegrationBase {
     }
 
     function test_pricer_params_owner_only() public {
-        vm.expectRevert(QuotePricer.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pricer.setTwapParams(60, 100);
         vm.startPrank(owner);
         vm.expectRevert(QuotePricer.BadParam.selector);

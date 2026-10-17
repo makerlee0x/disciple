@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "./integration/IntegrationBase.sol";
+import {Owned2Step} from "../src/utils/Owned2Step.sol";
 
 /// @notice LOCKED #9 rev. 2026-10-15: anti-snipe tax 70% community RewardsVault / 30% treasury.
 contract SnipeSplitTest is IntegrationBase {
@@ -39,7 +40,7 @@ contract SnipeSplitTest is IntegrationBase {
     }
 
     function test_setRewardsVault_onlyOwner() public {
-        vm.expectRevert(FeeRouter.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         feeRouter.setRewardsVault(address(1));
     }
 

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {TrampWallManager} from "../../src/TrampWallManager.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
@@ -60,7 +61,7 @@ contract AuditRegression is IntegrationBase {
     }
 
     function test_audit1_setLaunchpadOnceOwnerOnly() public {
-        vm.expectRevert(Migration.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         migration.setLaunchpad(attacker);
         vm.prank(owner);
         vm.expectRevert(Migration.LaunchpadAlreadySet.selector);

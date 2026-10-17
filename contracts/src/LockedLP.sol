@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ILockedLP} from "./interfaces/ILockedLP.sol";
@@ -33,7 +34,7 @@ interface ISwapInTx {
 ///      position it is added to the SAME locked full-range position (same ticks + salt), each currency settled
 ///      immediately (sync → transfer → settle), and the unmatched remainder carries forward. flush() does the
 ///      same outside swaps via unlock. No rebalancing swaps are ever made.
-contract LockedLP is ILockedLP, IUnlockCallback {
+contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
@@ -42,7 +43,6 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     using CurrencyLibrary for Currency;
 
     address public treasury;
-    address public owner;
     address public migration;
     /// @notice FeeRouter allowed to lock LP shares / snipe escrow (SEC-01: addLockedLiquidity is caller-restricted).
     address public feeRouter;
@@ -104,7 +104,6 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     uint8 internal constant CB_SEED = 0;
     uint8 internal constant CB_FLUSH = 1;
 
-    error OnlyOwner();
     error OnlyMigration();
     error Unauthorized();
     error OnlyPoolManager();
@@ -141,8 +140,7 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     event CompoundParamsSet(uint32 minPpm, uint32 maxPpm, uint16 maxDeviationBps);
     event HookSet(address indexed hook);
 
-    constructor(address owner_, address treasury_) {
-        owner = owner_;
+    constructor(address owner_, address treasury_) Owned2Step(owner_) {
         treasury = treasury_;
         SQRT_LOWER = TickMath.getSqrtPriceAtTick(TickMath.minUsableTick(TICK_SPACING));
         SQRT_UPPER = TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(TICK_SPACING));

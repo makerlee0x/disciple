@@ -2,22 +2,17 @@
 pragma solidity ^0.8.24;
 
 import {IQuoteProbe} from "./interfaces/IQuoteProbe.sol";
+import {Owned2Step} from "./utils/Owned2Step.sol";
 
 /// @title Minimal quote probe (§6 / LOCKED #31–#32)
 /// @dev Always-pass list (STRATEGY/default, WETH, USDG). Hard-reject address(0).
 ///      Full honeypot/FoT simulation is future hardening; other addresses Pass for now.
-contract QuoteProbe is IQuoteProbe {
+contract QuoteProbe is IQuoteProbe, Owned2Step {
     mapping(address => bool) public alwaysPass;
-    address public owner;
-
-    error OnlyOwner();
-
-    constructor(address owner_) {
-        owner = owner_;
-    }
+    constructor(address owner_) Owned2Step(owner_) {}
 
     function setAlwaysPass(address token, bool ok) external {
-        if (msg.sender != owner) revert OnlyOwner();
+        _checkOwner();
         alwaysPass[token] = ok;
     }
 

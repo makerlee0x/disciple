@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -24,14 +25,13 @@ import {TwapOracle} from "./libraries/TwapOracle.sol";
 ///        move must be held across blocks (and keepers' pokes) to shift the TWAP. Spot is available separately
 ///        via `spotPriceUsd` for display. `minLiquidity` still applies to the reference pool.
 ///      - Owner (multisig) chooses which pool is canonical for each quote. No pool → launch reverts.
-contract QuotePricer is IQuotePricer {
+contract QuotePricer is IQuotePricer, Owned2Step {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 
     IPoolManager public immutable poolManager;
     address public immutable usdg;
     uint8 public immutable usdgDecimals;
-    address public owner;
     /// @notice Minimum in-range liquidity of a reference pool at pricing time.
     uint128 public minLiquidity;
 
@@ -44,7 +44,6 @@ contract QuotePricer is IQuotePricer {
     int24 public maxTickDelta = 2000;
     mapping(address => TwapOracle.State) internal _oracle;
 
-    error OnlyOwner();
     error NoPricePool(address quote);
     error BadPool();
     error ThinPool(uint128 liquidity);
@@ -54,12 +53,10 @@ contract QuotePricer is IQuotePricer {
     event PricePoolSet(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, address hooks);
     event PricePoolCleared(address indexed quote);
     event MinLiquiditySet(uint128 minLiquidity);
-    event OwnerTransferred(address indexed owner);
     event TwapParamsSet(uint32 window, int24 maxTickDelta);
     event Poked(address indexed quote, int24 spotTick, int24 recordedTick);
 
-    constructor(address owner_, IPoolManager poolManager_, address usdg_) {
-        owner = owner_;
+    constructor(address owner_, IPoolManager poolManager_, address usdg_) Owned2Step(owner_) {
         poolManager = poolManager_;
         usdg = usdg_;
         usdgDecimals = IERC20Metadata(usdg_).decimals();
@@ -68,11 +65,6 @@ contract QuotePricer is IQuotePricer {
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
         _;
-    }
-
-    function transferOwnership(address o) external onlyOwner {
-        owner = o;
-        emit OwnerTransferred(o);
     }
 
     function setTwapParams(uint32 window, int24 maxDelta) external onlyOwner {

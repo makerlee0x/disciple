@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
@@ -22,13 +23,12 @@ interface IRewardsVault {
     function notifyReward(address token, address asset, uint256 amount) external;
 }
 
-contract FeeRouter is IFeeRouter {
+contract FeeRouter is IFeeRouter, Owned2Step {
     using SafeERC20 for IERC20;
 
     IReferralRegistry public immutable referrals;
     ILockedLP public lockedLP;
     address public treasury;
-    address public owner;
     address public launchpad;
 
     // token => creator => accrued quote
@@ -43,8 +43,6 @@ contract FeeRouter is IFeeRouter {
     mapping(address => uint256) public treasuryAccrued;
     /// @notice Post-grad creator share charged in the LAUNCH TOKEN (hook fee on buys) — token => creator => amount.
     mapping(address => mapping(address => uint256)) public creatorTokenAccrued;
-
-    error OnlyOwner();
     error OnlyAuthorized();
     error ZeroAddress();
     error NothingToClaim();
@@ -80,11 +78,10 @@ contract FeeRouter is IFeeRouter {
     /// @notice Community rewards vault (70% of anti-snipe tax).
     address public rewardsVault;
 
-    constructor(address owner_, address treasury_, address referrals_) {
+    constructor(address owner_, address treasury_, address referrals_) Owned2Step(owner_) {
         if (owner_ == address(0) || treasury_ == address(0) || referrals_ == address(0)) {
             revert ZeroAddress();
         }
-        owner = owner_;
         treasury = treasury_;
         referrals = IReferralRegistry(referrals_);
     }

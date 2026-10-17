@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IntegrationBase, MockUSDG} from "./IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Token} from "../../src/Token.sol";
@@ -257,7 +258,7 @@ contract FrontendApiTest is FrontendApiBase {
         vm.expectRevert(QuotePricer.BadPool.selector);
         pricer.setPricePool(address(strategy), key);
         vm.prank(trader1);
-        vm.expectRevert(QuotePricer.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
     }
 

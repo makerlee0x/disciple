@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
@@ -360,7 +361,7 @@ contract LPCompoundTest is IntegrationBase {
     }
 
     function test_params_guarded() public {
-        vm.expectRevert(LockedLP.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         lockedLP.setCompoundParams(1, 0, 100);
         vm.startPrank(owner);
         vm.expectRevert(LockedLP.BadParams.selector);

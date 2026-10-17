@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./libraries/Constants.sol";
@@ -26,13 +27,12 @@ interface IPricerPoke {
     function poke(address quote) external;
 }
 
-contract Launchpad is ILaunchpad {
+contract Launchpad is ILaunchpad, Owned2Step {
     using SafeERC20 for IERC20;
 
     address public immutable feeRouter;
     address public immutable antiSnipe;
     address public immutable migration;
-    address public owner;
 
     /// @notice Default quote (STRATEGY on RH chain). Used when launch/launchCoin passes quote=address(0).
     address public defaultQuote;
@@ -83,7 +83,6 @@ contract Launchpad is ILaunchpad {
     error TaxTooHigh();
     error CreatorBuyTooLarge();
     error OnlyCreator();
-    error OnlyOwner();
     error QuoteRejected(string detail);
     error DefaultQuoteUnset();
     error PricerUnset();
@@ -121,8 +120,7 @@ contract Launchpad is ILaunchpad {
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
     );
 
-    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) {
-        owner = owner_;
+    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) Owned2Step(owner_) {
         feeRouter = feeRouter_;
         antiSnipe = antiSnipe_;
         migration = migration_;
