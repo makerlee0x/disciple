@@ -241,7 +241,8 @@ contract UsdgRouterTest is IntegrationBase {
             quote1: address(0),
             cap0: cap,
             cap1: 0,
-            maxSlippageBps: 100
+            maxSlippageBps: 100,
+            stealthOwner: address(0)
         });
         acct.installSession(policy, E, sessKey, c);
     }
@@ -336,7 +337,8 @@ contract UsdgRouterTest is IntegrationBase {
             quote1: address(0),
             cap0: 100 ether,
             cap1: 0,
-            maxSlippageBps: 100
+            maxSlippageBps: 100,
+            stealthOwner: address(0)
         });
         acct.installSession(policy, E, sessKey, c);
         uint256 q = uCurve.quoteBuy(5 ether).tokensOut;
