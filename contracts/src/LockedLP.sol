@@ -21,6 +21,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// @dev Hook-side view used by flush() to refuse adds in a tx that already swapped this pool (atomic sandwich).
 interface ISwapInTx {
     function swappedInTx(PoolId id) external view returns (bool);
+    function blockAnchor(PoolId id) external view returns (uint64 blockNumber, uint160 sqrtPriceX96);
 }
 
 /// @title Permanently locked v4 LP owner (§3 / LOCKED #16–#17)
@@ -332,7 +333,13 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (!p.graduated) revert NotGraduated();
         address h = hook;
         if (h != address(0) && ISwapInTx(h).swappedInTx(p.poolKey.toId())) revert SwappedInTx();
-        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token)));
+        // Same-block guard: if the pool already traded this block, compound against its block-start price.
+        uint160 ref;
+        if (h != address(0)) {
+            (uint64 blk, uint160 a) = ISwapInTx(h).blockAnchor(p.poolId);
+            if (blk == uint64(block.number)) ref = a;
+        }
+        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token, ref)));
         liquidity = abi.decode(r, (uint128));
     }
 
@@ -415,7 +422,8 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         (uint8 kind, bytes memory inner) = abi.decode(rawData, (uint8, bytes));
         if (kind == CB_FLUSH) {
-            return abi.encode(_compound(abi.decode(inner, (address)), 0));
+            (address tk, uint160 ref) = abi.decode(inner, (address, uint160));
+            return abi.encode(_compound(tk, ref));
         }
         SeedParams memory sp = abi.decode(inner, (SeedParams));
         Position storage p = _positions[sp.token];

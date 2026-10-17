@@ -101,8 +101,27 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     // ── SEC-02 LP gate / altitude ───────────────────────────────────────────
     /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
     mapping(address => bool) public isLiquidityManager;
+    /// @dev One packed slot per pool: last altitude tier + the pool's BLOCK-START sqrtPrice (pre-swap price of the
+    ///      first swap in `anchorBlock`). The tier was already read every swap, so the anchor read is ~free; the
+    ///      anchor is (re)written once per pool per block (DISCIPLE audit follow-up: cross-tx same-block guard).
+    struct PoolTrack {
+        uint8 tier;
+        uint64 anchorBlock;
+        uint160 anchorSqrt;
+    }
+
+    mapping(PoolId => PoolTrack) internal _track;
+
     /// @notice Last spot altitude tier per pool (0..17).
-    mapping(PoolId => uint8) public altitudeTierOf;
+    function altitudeTierOf(PoolId id) external view returns (uint8) {
+        return _track[id].tier;
+    }
+
+    /// @notice Block-start price anchor: pre-swap sqrtPriceX96 of the first swap of `blockNumber` on this pool.
+    function blockAnchor(PoolId id) external view returns (uint64 blockNumber, uint160 sqrtPriceX96) {
+        PoolTrack memory t = _track[id];
+        return (t.anchorBlock, t.anchorSqrt);
+    }
 
     event LiquidityManagerSet(address indexed manager, bool allowed);
 
@@ -215,7 +234,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         (uint160 sp,,,) = poolManager.getSlot0(id);
         uint256 mcap = mcapUsdFromSqrt(sp, Currency.unwrap(key.currency0) == token, _quoteUsd(m));
         uint8 tier = Altitude.tierOf(mcap);
-        altitudeTierOf[id] = tier;
+        _track[id].tier = tier;
         emit AltitudeUpdate(token, mcap, tier);
     }
 
@@ -226,6 +245,10 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     {
         PoolId id = key.toId();
         (uint160 sqrtP,,,) = poolManager.getSlot0(id);
+        PoolTrack memory t = _track[id];
+        if (t.anchorBlock != uint64(block.number)) {
+            _track[id] = PoolTrack({tier: t.tier, anchorBlock: uint64(block.number), anchorSqrt: sqrtP});
+        }
         bytes32 slot = PRICE_SLOT;
         bytes32 swapped = keccak256(abi.encode(SWAPPED_SLOT, id));
         bytes32 repeat = REPEAT_SLOT;
@@ -269,7 +292,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             poolManager.take(feeCurrency, address(feeRouter), feeAmount);
             // Audit #3 (gas): FeeRouter reports whether the LP buckets now hold both sides; one-sided accumulation
             // (the common case) skips the compound call entirely.
-            if (feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount)) _tryCompound(m.token);
+            if (feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount)) _tryCompound(m.token, key.toId());
         }
 
         uint256 qUsd = _quoteUsd(m);
@@ -281,7 +304,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     /// @dev Never reverts the swap: gas-capped external call in try/catch, skipped when gas is short.
     ///      PoolManager is already unlocked by the swapper — no unlock here. LockedLP's modifyLiquidity re-enters
     ///      only beforeAddLiquidity (allowlist check), never the fee path.
-    function _tryCompound(address token) internal {
+    function _tryCompound(address token, PoolId id) internal {
         ILPCompounder c = compounder;
         if (address(c) == address(0)) return;
         uint256 rep;
@@ -297,6 +320,12 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         assembly ("memory-safe") {
             sqrtBefore := tload(slot)
         }
+        // Pass the reference that deviates MORE from the current price: this swap's pre-swap price or the pool's
+        // block-start anchor. LockedLP skips if it is > maxCompoundDeviationBps (3%) away, so a pump in an earlier
+        // tx of the same block can't be compounded into by a later dust swap.
+        uint160 anchor = _track[id].anchorSqrt; // set in this block by beforeSwap (warm slot)
+        (uint160 now_,,,) = poolManager.getSlot0(id);
+        if (_dev(anchor, now_) > _dev(sqrtBefore, now_)) sqrtBefore = anchor;
         try c.compoundFromHook{gas: g}(token, sqrtBefore) {}
         catch {
             emit CompoundFailed(token);
@@ -352,9 +381,9 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     function _emitAltitude(PoolId id, address token, uint256 mcap) internal {
         uint8 tier = Altitude.tierOf(mcap);
         emit AltitudeUpdate(token, mcap, tier);
-        uint8 prev = altitudeTierOf[id];
+        uint8 prev = _track[id].tier;
         if (tier != prev) {
-            altitudeTierOf[id] = tier;
+            _track[id].tier = tier;
             emit TierBreak(token, prev, tier, mcap);
         }
     }
@@ -379,6 +408,12 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         // token c0: p ∝ s² → |sa²-sb²|/sb² ; token c1: p ∝ 1/s² → |sa²-sb²|/sa²
         uint256 denomRoot = tokenIsC0 ? sb : sa;
         return Math.mulDiv(Math.mulDiv(d, sum, denomRoot), Constants.BPS_DENOM, denomRoot);
+    }
+
+    /// @dev Monotonic deviation proxy: max/min ratio of two sqrt prices, 1e18-scaled.
+    function _dev(uint160 a, uint160 b) private pure returns (uint256) {
+        if (a == 0 || b == 0) return type(uint256).max;
+        return a > b ? Math.mulDiv(a, 1e18, b) : Math.mulDiv(b, 1e18, a);
     }
 
     function _abs(int128 x) private pure returns (uint256) {

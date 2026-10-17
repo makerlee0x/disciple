@@ -11,6 +11,7 @@ import {IReferralRegistry} from "../../src/interfaces/IReferralRegistry.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
@@ -79,6 +80,7 @@ contract PrepaySwapper is IUnlockCallback {
 }
 
 contract DiscipleAuditTest is IntegrationBase {
+    using PoolIdLibrary for PoolKey;
     bytes32 constant COMPOUNDED = keccak256("LiquidityCompounded(address,uint128,uint256,uint256,uint256,uint256)");
 
     function _count(bytes32 topic) internal returns (uint256 n) {
@@ -97,6 +99,7 @@ contract DiscipleAuditTest is IntegrationBase {
         _swapExactInQuoteForToken(tok, trader1, 50 ether); // token-side fees + leftover quote → both buckets
         (uint256 bt, uint256 bq) = lockedLP.compoundBucket(address(tok));
         require(bt >= 2 && bq >= 2, "buckets");
+        vm.roll(vm.getBlockNumber() + 1); // later trades are in a fresh block (block-start anchor)
     }
 
     /// #1 HIGH: no compounding at a price manipulated earlier in the same tx.
@@ -115,6 +118,47 @@ contract DiscipleAuditTest is IntegrationBase {
         a.run(swapRouter, _poolKey(tok), IERC20(address(quote)), IERC20(address(tok)), zfoBuy, 10_000 ether);
         assertEq(_count(COMPOUNDED), 0, "no compound inside the sandwich");
         assertEq(_liq(tok), l0);
+    }
+
+    /// Follow-up: pump (tx1) → dust swap (tx2) → dump (tx3), all in the SAME block: the dust swap must not compound.
+    function test_sameBlockMultiTxPumpDustDump_skipped() public {
+        Token tok = _gradReady();
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInQuoteForToken(tok, trader1, 20 ether); // refill token side (own block)
+        vm.roll(vm.getBlockNumber() + 1);
+        uint128 l0 = _liq(tok);
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, trader2, 10_000 ether); // tx1 pump (>3% → its own swap skips)
+        // separate tx: the per-tx flags are clear, so only the block-start anchor can stop the dust compound
+        PoolId pid = _poolKey(tok).toId();
+        assertFalse(hook.swappedInTx(pid), "tx1 flags cleared");
+        (uint64 ab,) = hook.blockAnchor(pid);
+        assertEq(ab, uint64(vm.getBlockNumber()), "anchor = this block");
+        _swapExactInQuoteForToken(tok, trader1, 1e15); // tx2 dust: within 3% of its own pre-price
+        _swapExactInTokenForQuote(tok, trader2, tok.balanceOf(trader2)); // tx3 dump
+        assertEq(_count(COMPOUNDED), 0, "no compound against the block-start price");
+        assertEq(_liq(tok), l0);
+        // next block, honest swap compounds again
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, trader1, 20 ether);
+        assertEq(_count(COMPOUNDED), 1, "honest swap in a fresh block compounds");
+    }
+
+    /// Follow-up: a permissionless flush after a same-block pump (separate tx) compounds nothing.
+    function test_sameBlockPumpThenFlush_skipped() public {
+        Token tok = _gradReady();
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInQuoteForToken(tok, trader1, 20 ether);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1_000_000, 0, 300); // block in-swap compounding (min 100%), keep the buckets
+        _swapExactInQuoteForToken(tok, trader2, 10_000 ether); // tx1 pump
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1, 0, 300);
+        assertEq(lockedLP.flush(address(tok)), 0, "flush vs block-start price: skipped");
+        vm.roll(vm.getBlockNumber() + 1); // new block: spot is the block-start price
+        assertGt(lockedLP.flush(address(tok)), 0, "flush in a fresh block works");
     }
 
     function _liq(Token t) internal view returns (uint128 l) {
@@ -180,29 +224,71 @@ contract DiscipleAuditTest is IntegrationBase {
         assertTrue(seen);
     }
 
-    /// #7 MEDIUM: self-deposits can't fake the $10 referral gate.
-    function test_audit7_selfDepositRejected() public {
-        ReferralRegistry reg = new ReferralRegistry(owner);
-        UsdgDepositNotifier n = new UsdgDepositNotifier(owner, IReferralRegistry(address(reg)), IERC20(address(quote)));
+    // ── #7 MEDIUM (follow-up): referral gate needs USDG escrowed + locked 7 days in the notifier ──
+    function _notifier() internal returns (ReferralRegistry reg, UsdgDepositNotifier n) {
+        reg = new ReferralRegistry(owner);
+        n = new UsdgDepositNotifier(owner, IReferralRegistry(address(reg)), IERC20(address(quote)));
         vm.prank(owner);
         reg.setDepositHook(address(n));
+    }
+
+    function test_audit7_honestEscrowPathAndWithdrawAfterLock() public {
+        (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
         address w = makeAddr("w7");
-        quote.mint(w, 1 ether);
+        uint256 gate = Constants.REFERRAL_USDG_GATE;
+        quote.mint(w, gate);
         vm.startPrank(w);
         reg.tryAttribute(w, kol);
-        quote.approve(address(n), type(uint256).max);
-        vm.expectRevert(UsdgDepositNotifier.SelfDeposit.selector);
-        n.deposit(w, 1 ether);
+        quote.approve(address(n), gate); // exact approve to the notifier
+        n.deposit(w, gate); // self-funding is fine: the USDG is locked here
         vm.stopPrank();
-        assertEq(reg.usdgDeposited(w), 0);
-        // a real third-party transfer still counts
-        address payer = makeAddr("payer7");
-        quote.mint(payer, Constants.REFERRAL_USDG_GATE);
-        vm.startPrank(payer);
+        assertEq(reg.referrerOf(w), kol, "gate satisfied");
+        assertEq(quote.balanceOf(address(n)), gate, "escrowed in the notifier");
+        (uint192 amt, uint64 unlockAt) = n.escrowOf(w);
+        assertEq(amt, gate);
+        assertEq(unlockAt, block.timestamp + 7 days);
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(UsdgDepositNotifier.Locked.selector, uint256(unlockAt)));
+        n.withdraw();
+        vm.warp(unlockAt);
+        vm.prank(w);
+        n.withdraw();
+        assertEq(quote.balanceOf(w), gate, "withdrawn after lock");
+        assertEq(reg.referrerOf(w), kol, "referral stays");
+        vm.prank(w);
+        vm.expectRevert(UsdgDepositNotifier.NothingEscrowed.selector);
+        n.withdraw();
+    }
+
+    function test_audit7_cyclingSameUsdgFails() public {
+        (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
+        uint256 gate = Constants.REFERRAL_USDG_GATE;
+        address a = makeAddr("cycA");
+        address b = makeAddr("cycB");
+        address c = makeAddr("cycC");
+        quote.mint(a, gate); // only $10 in total
+        vm.prank(b);
+        reg.tryAttribute(b, kol);
+        vm.prank(c);
+        reg.tryAttribute(c, kol);
+        vm.startPrank(a);
         quote.approve(address(n), type(uint256).max);
-        n.deposit(w, Constants.REFERRAL_USDG_GATE);
+        n.deposit(b, gate);
+        vm.expectRevert(); // a has nothing left: the $10 is locked for b
+        n.deposit(c, gate);
         vm.stopPrank();
-        assertEq(reg.referrerOf(w), kol);
+        // b can't pull it back out to recycle it
+        vm.prank(b);
+        vm.expectRevert();
+        n.withdraw();
+        assertEq(reg.referrerOf(b), kol);
+        assertEq(reg.referrerOf(c), address(0), "same USDG can't satisfy the gate twice at once");
+        assertEq(reg.usdgDeposited(c), 0);
+        // below the $10 minimum (lock-extension griefing costs $10/week)
+        quote.mint(a, 1 ether);
+        vm.prank(a);
+        vm.expectRevert(abi.encodeWithSelector(UsdgDepositNotifier.BelowMinimum.selector, gate));
+        n.deposit(c, 1 ether);
     }
 
     /// #8 LOW: the graduating buy charges (to 1e-12) the minimum quote that buys the remaining supply.

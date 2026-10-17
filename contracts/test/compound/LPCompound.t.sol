@@ -143,6 +143,7 @@ contract LPCompoundTest is IntegrationBase {
         uint256 adds;
         // small buys (each moves price < the 3% deviation guard at graduation depth)
         for (uint256 i; i < 20; i++) {
+            vm.roll(vm.getBlockNumber() + 1); // "over time": one buy per block (block-start anchor guard)
             _buy(tok, 50 ether);
             adds += _count(COMPOUNDED);
             vm.recordLogs();
