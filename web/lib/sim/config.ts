@@ -10,7 +10,7 @@ export const LAUNCH = {
   totalSupply: 7_000_000_000,      // TOTAL_SUPPLY
   curveSoldBps: 7200,              // CURVE_SOLD_BPS — sold on the curve before graduation
   startMcapUsd: 7_000,             // START_MCAP_USD
-  graduationMcapUsd: 33_000,       // GRADUATION_MCAP_USD (Pearly Gates)
+  graduationMcapUsd: 33_000,       // GRADUATION_MCAP_USD (Outer Space)
   tradeFeeBps: 100,                // 1% protocol fee (FeeMath / curveMath.ts TRADE_FEE_BPS)
   creatorTaxBps: 0,
   walletCapBps: 700,               // WALLET_CAP_BPS — max 7% of supply per wallet while on the curve
@@ -22,10 +22,10 @@ export const LAUNCH = {
 
 // Tier ladder (Constants.sol TIER_*_LO_USD) — names match the flight engine.
 export const TIERS: { name: string; lo: number }[] = [
-  { name: "LAUNCH PAD", lo: 7_000 }, { name: "LIMBO", lo: 12_000 }, { name: "ASCENSION", lo: 18_000 },
-  { name: "NARROW GATE", lo: 25_000 }, { name: "PEARLY GATES", lo: 33_000 }, { name: "FIRMAMENT", lo: 55_000 },
-  { name: "ANGELS", lo: 100_000 }, { name: "ARCHANGELS", lo: 333_000 }, { name: "HEAVENLY HOST", lo: 777_000 },
-  { name: "MORNING STARS", lo: 1_200_000 }, { name: "VIRTUES", lo: 3_300_000 }, { name: "DOMINIONS", lo: 7_700_000 },
+  { name: "LAUNCH PAD", lo: 7_000 }, { name: "OZONE", lo: 12_000 }, { name: "STRATOSPHERE", lo: 18_000 },
+  { name: "KÁRMÁN LINE", lo: 25_000 }, { name: "OUTER SPACE", lo: 33_000 }, { name: "FIRMAMENT", lo: 55_000 },
+  { name: "MORNING STARS", lo: 100_000 }, { name: "HEAVENLY HOST", lo: 333_000 }, { name: "THE MOON", lo: 777_000 },
+  { name: "URANUS", lo: 1_200_000 }, { name: "LIMBO", lo: 3_300_000 }, { name: "GATES OF HEAVEN", lo: 7_700_000 },
   { name: "THRONE ROOM", lo: 33_000_000 }, { name: "CHERUBIM", lo: 77_000_000 }, { name: "SERAPHIM", lo: 120_000_000 },
   { name: "AETHER", lo: 777_000_000 }, { name: "EMPYREAN", lo: 1_200_000_000 }, { name: "SEVENTH HEAVEN", lo: 3_300_000_000 },
 ];
@@ -139,9 +139,9 @@ export const POINTS = {
 };
 export interface SimAchievement { id: string; title: string; sub: string }
 export const SIM_ACHIEVEMENTS: SimAchievement[] = [
-  { id: "graduate", title: "PEARLY GATES", sub: "the coin graduated to the pool" },
-  { id: "angels", title: "WINGS", sub: "peak mcap reached ANGELS ($100K)" },
-  { id: "million", title: "MORNING STAR", sub: "peak mcap reached $1.2M" },
+  { id: "graduate", title: "OUTER SPACE", sub: "the coin graduated to the pool" },
+  { id: "angels", title: "WINGS", sub: "peak mcap reached MORNING STARS ($100K)" },
+  { id: "million", title: "URANUS", sub: "peak mcap reached $1.2M" },
   { id: "green", title: "IN THE GREEN", sub: "finished with positive PnL" },
   { id: "top3", title: "PODIUM", sub: "top 3 by PnL vs the bots" },
   { id: "survivor", title: "RUG SURVIVOR", sub: "finished green in a run with a rug" },

@@ -15,7 +15,7 @@ const TABS: { k: Tab; label: string; hint: string }[] = [
   { k: "new", label: "New", hint: "Freshest launches" },
   { k: "active", label: "Active", hint: "Most 24h volume" },
   { k: "near", label: "Near orbit", hint: "≥60% of the way to graduation" },
-  { k: "graduated", label: "Graduated", hint: "Past the Pearly Gates" },
+  { k: "graduated", label: "Graduated", hint: "Past Outer Space" },
 ];
 const PAIRS = [
   { value: "any", label: "Any pair" },
@@ -141,7 +141,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
         <div className="lp-card-sub">${c.tk} · {c.pairSym ?? "STRATEGY"} · {c.stats.holders} crew</div>
         <div className="lp-card-mc">{c.mcap ? fmtUsd(c.mcap) : "…"} <Chg v={c.chg} /></div>
         <i className="lp-bar"><i style={{ width: `${grad ? 100 : p || 0}%` }} /></i>
-        <div className="lp-card-sub">{grad ? "GRADUATED · past the Pearly Gates" : p == null ? "…" : `${p.toFixed(0)}% to orbit`}</div>
+        <div className="lp-card-sub">{grad ? "GRADUATED · past Outer Space" : p == null ? "…" : `${p.toFixed(0)}% to orbit`}</div>
       </div>
     </div>
   );

@@ -68,7 +68,7 @@ Flight controls (coin page): SPACE = BOOST · SHIFT = DUMP, 1–6 modes, A/D lan
 
 ## Protocol (summary)
 
-- Curve: single CPAMM, start mcap **$7K**, graduation **$33K** (Pearly Gates), **72%** sold on curve
+- Curve: single CPAMM, start mcap **$7K**, graduation **$33K** (Outer Space), **72%** sold on curve
 - Trade fee **1%** → 33% creator / 33% LP lock / 33% treasury / 1% referral
 - Optional creator tax ≤ **7%**, immutable at launch
 - Deposit: one **USDG** approval; no per-trade signing; user pays gas

@@ -103,7 +103,7 @@ export function tierAt(mcap: number): { name: string; index: number } {
 }
 
 export function bombName(impactPct: number): string {
-  let name = "BRAKE";
+  let name = "PUFF";
   for (const b of BOMB_TIERS) if (impactPct >= b.min) name = b.name;
   return name;
 }
@@ -187,7 +187,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
         bombs++; p.bombs++;
         activity.push({ id: `${t.ts}-${t.token}-x`, ts: t.ts, kind: "bomb", text: `Dropped ${bombName(imp)} on ${t.ticker}`, usd: t.usd, ticker: t.ticker });
       } else {
-        activity.push({ id: `${t.ts}-${t.token}-s`, ts: t.ts, kind: "sell", text: `Braked ${t.ticker}`, usd: t.usd, ticker: t.ticker });
+        activity.push({ id: `${t.ts}-${t.token}-s`, ts: t.ts, kind: "sell", text: `Puffed ${t.ticker}`, usd: t.usd, ticker: t.ticker });
       }
       if (imp >= BOMB_TIERS[4].min) nukes++;
       if (p.size > 0) {
