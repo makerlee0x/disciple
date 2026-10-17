@@ -1288,4 +1288,5 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .first-boost-estimate { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: var(--dsc-font-size-sm, 13px); color: var(--dsc-muted); }
 .first-boost-estimate strong { color: var(--dsc-text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .first-boost-note { flex-basis: 100%; font-size: 11px; color: var(--dsc-muted); opacity: .8; }
+.first-boost-mode { margin: 8px 0 0; font-size: 12px; opacity: 1; line-height: 1.45; }
 .first-boost-error { margin: 0; font-size: var(--dsc-font-size-xs, 12px); color: var(--dsc-down); }

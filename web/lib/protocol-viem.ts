@@ -13,7 +13,7 @@ import {
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
-import { encodeLaunchCall } from "./launchAbi";
+import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi, readPveLoginVerified } from "./launchAbi";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address;
 const referralRegistryAbi = parseAbi([
@@ -22,7 +22,7 @@ const referralRegistryAbi = parseAbi([
   "function tryAttribute(address wallet, address referrer) returns (bool)",
 ]);
 import { CURVE, TIERS } from "./config";
-import { applySlippage, type CurveParams } from "./curveMath";
+import { applySlippage, creatorBuyMaxTokens, type CurveParams } from "./curveMath";
 import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
@@ -52,7 +52,7 @@ const ozErrors = parseAbi([
 ]);
 function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[] } | null {
   if (!data) return null;
-  for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors] as const) {
+  for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors, modesErrorsAbi] as const) {
     try { const r = decodeErrorResult({ abi: abi as never, data }); return { errorName: r.errorName, args: r.args as readonly unknown[] | undefined }; } catch { /* next */ }
   }
   return null;
@@ -79,6 +79,11 @@ export function friendlyError(e: unknown): ProtocolError {
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
       CreatorBuyTooLarge: "Creator buy is above Launchpad.creatorBuyMaxBps() (and/or the 7% wallet cap).",
+      NotVerified: "PVE rockets only sell to login-verified wallets. Verify your login first.",
+      BuyTooLarge: "That buy is above this mode's per-buy cap (PVE: 0.25% of supply in the first 7 minutes).",
+      BadMode: "Unknown launch mode.",
+      LoginGateUnset: "PVE launches are paused: the login gate isn't configured yet.",
+      LaunchBlock: "PVE: no buys in the launch block. Try again in a moment.",
       Slippage: "Price moved too much. Try again or raise slippage.",
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
@@ -477,6 +482,7 @@ export function createViemProtocol(): ProtocolClient {
       if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
       const launchpad = deployment().launchpad;
       const creatorBuy = lp.creatorBuyQuoteIn ?? B(0);
+      const mode = lp.mode ?? DEFAULT_LAUNCH_MODE;
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
@@ -490,19 +496,32 @@ export function createViemProtocol(): ProtocolClient {
         const me = await activeAddress();
         const calls: Call[] = [];
         if (creatorBuy > B(0)) {
-          const cq = await readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps));
+          const [cq, launchpadCapBps] = await Promise.all([
+            readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps)), readCreatorBuyMaxBps(pc),
+          ]);
           if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy exceeds Launchpad.creatorBuyMaxBps() / wallet cap. Lower it.");
-          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+          // Mode caps stack on top of creatorBuyMaxBps (PVE 0.25% per buy in its launch window); quoteCreatorBuy can't see them.
+          const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
+          if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
+            throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow at most ${eff.bps / 100}% of supply per buy. Lower the First BOOST.`);
+          }
+          if (modesActive() && mode === LaunchMode.PVE) {
+            const v = await readPveLoginVerified(pc, launchpad, me);
+            if (!v.verified) throw new ProtocolError("NotVerified", "PVE First BOOST needs a login-verified wallet. Verify your login first, or set First BOOST to 0.");
+          }
+          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS); // quote − 1%
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
           // First BOOST: Launchpad pulls exactly creatorBuyQuoteIn (fees come out of it); check balance up front.
           const have = await pc.readContract({ address: q, abi: tokenAbi, functionName: "balanceOf", args: [me] });
           if (have < creatorBuy) throw new ProtocolError("InsufficientBalance", `Not enough balance for the First BOOST: need ${fmtUnits(creatorBuy, await decimalsOf(pc, q))}, have ${fmtUnits(have, await decimalsOf(pc, q))}.`);
-          // approve with 5% slack (existing path; skipped if the allowance already covers it)
-          calls.push(...(await approveCall(me, q, launchpad, creatorBuy + creatorBuy / B(20))));
+          // Exact approve of creatorBuyQuoteIn (Launchpad pulls exactly that): no slack, never unlimited, and a leftover
+          // larger allowance is set back down to the exact amount. Skipped only when it already equals creatorBuyQuoteIn.
+          const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
+          if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
         }
-        // launchCoin today; launchWithMode(params, mode) on FLOW's modes redeploy (lib/launchAbi.ts switch).
-        calls.push({ to: launchpad, data: encodeLaunchCall(params, lp.mode) });
+        // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
+        calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
         const r = await execCalls(calls);
         for (const l of r.logs) {
           if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;

@@ -10,6 +10,7 @@ import { creatorBuyMaxTokens, maxLaunchBuyQuoteIn, paramsFromQuotePrice } from "
 import type { Address } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
 import { readCreatorBuyMaxBps, readCreatorBuyQuote } from "./protocol-viem";
+import { LAUNCH_ABI_SHAPE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, type LaunchAbiShape } from "./launchAbi";
 
 /** The approved draft says "0.77%"; `pct` is rendered from the live creatorBuyMaxBps so the copy can't drift. */
 export const FIRST_BOOST_COPY = {
@@ -17,6 +18,10 @@ export const FIRST_BOOST_COPY = {
   helper: (pct: string) => `BOOST your own rocket in the launch transaction, before anyone else. Up to ${pct} of supply.`,
   max: (amount: string, symbol: string, tokens: string, pct: string) => `Max ${amount} ${symbol} (${tokens} tokens, ${pct} of supply)`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
+  modeCap: (mode: string, pct: string, launchpadPct: string) => `${mode} launch: the first 7 minutes allow at most ${pct} of supply per buy, so your First BOOST is capped at ${pct} (not ${launchpadPct}).`,
+  pveLogin: "PVE rockets only sell to login-verified wallets. Your wallet must be verified before you can First BOOST.",
+  pveLoginUnverified: "Your wallet isn't login-verified for PVE yet, so the First BOOST would revert. Verify your login first, or set First BOOST to 0.",
+  pveLoginUnknown: "PVE rockets only sell to login-verified wallets. Connect your wallet to check yours before you First BOOST.",
   overCap: (pct: string, max: string, symbol: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${max} ${symbol} or less.`,
   balance: (have: string, symbol: string) => `Not enough ${symbol}: your balance is ${have} ${symbol}.`,
   invalid: "Enter an amount like 25 or 12.5.",
@@ -32,21 +37,26 @@ export interface FirstBoostLimits {
   quote: Address;         // resolved quote token (defaultQuote when the pair is address(0))
   symbol: string;
   decimals: number;
-  capBps: number;         // Launchpad.creatorBuyMaxBps() (live)
-  capTokens: bigint;      // FeeMath.creatorBuyMax(capBps)
+  launchpadCapBps: number; // Launchpad.creatorBuyMaxBps() (live)
+  capBps: number;         // effective cap: min(launchpad cap, mode per-buy cap); strictest wins
+  capBy: "launchpad" | "mode";
+  mode: number;
+  capTokens: bigint;      // TOTAL_SUPPLY * capBps / 1e4
   maxQuoteIn: bigint;     // largest spend that stays under the cap (curve math, confirmed by quoteCreatorBuy)
   quotePriceUsd: bigint;  // QuotePricer price the curve would launch at
 }
 
-export async function readFirstBoostLimits(pc: PublicClient, pair: Address, creatorTaxBps: number): Promise<FirstBoostLimits> {
+export async function readFirstBoostLimits(pc: PublicClient, pair: Address, creatorTaxBps: number, mode: number = LaunchMode.TRENCH_WARFARE, shape: LaunchAbiShape = LAUNCH_ABI_SHAPE): Promise<FirstBoostLimits> {
   const launchpad = deployment().launchpad;
   const quote = pair !== ZERO_ADDRESS ? pair : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
-  const [capBps, symbol, decimals, probe] = await Promise.all([
+  const [launchpadCapBps, symbol, decimals, probe] = await Promise.all([
     readCreatorBuyMaxBps(pc),
     pc.readContract({ address: quote, abi: erc20Abi, functionName: "symbol" }),
     pc.readContract({ address: quote, abi: erc20Abi, functionName: "decimals" }),
     readCreatorBuyQuote(pc, quote, BigInt(0), creatorTaxBps).catch(() => null),
   ]);
+  const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode, shape);
+  const capBps = eff.bps;
   const capTokens = creatorBuyMaxTokens(capBps);
   let quotePriceUsd = probe?.quotePriceUsd ?? BigInt(0);
   if (!probe) quotePriceUsd = (await readCreatorBuyQuote(pc, quote, BigInt(1), creatorTaxBps)).quotePriceUsd;
@@ -54,11 +64,13 @@ export async function readFirstBoostLimits(pc: PublicClient, pair: Address, crea
   // The contract is authoritative: confirm the max with the view and back off if rounding differs.
   for (let i = 0; i < 3 && maxQuoteIn > BigInt(0); i++) {
     const q = await readCreatorBuyQuote(pc, quote, maxQuoteIn, creatorTaxBps);
-    if (!q.exceedsCap) break;
+    if (!q.exceedsCap && q.tokensOut <= capTokens) break; // exceedsCap only knows the launchpad cap; mode clamp is client-side
     maxQuoteIn = (maxQuoteIn * BigInt(9999)) / BigInt(10000);
   }
-  return { quote, symbol: String(symbol), decimals: Number(decimals), capBps, capTokens, maxQuoteIn, quotePriceUsd };
+  return { quote, symbol: String(symbol), decimals: Number(decimals), launchpadCapBps, capBps, capBy: eff.by, mode, capTokens, maxQuoteIn, quotePriceUsd };
 }
+
+export const modeName = (m: number) => LAUNCH_MODE_NAME[m] ?? `mode ${m}`;
 
 export async function readQuoteBalance(pc: PublicClient, token: Address, owner: Address) {
   return pc.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [owner] });

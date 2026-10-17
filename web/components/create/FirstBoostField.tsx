@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { isDeployed } from "@/lib/chains";
+import { deployment, isDeployed } from "@/lib/chains";
 import { TOTAL_SUPPLY_WEI as SUPPLY_WEI, launchBuyTokensOut, paramsFromQuotePrice } from "@/lib/curveMath";
 import {
-  FIRST_BOOST_COPY as COPY, bpsToPct, fmtAmount, parseAmount, readFirstBoostLimits, readQuoteBalance, toInputString,
+  FIRST_BOOST_COPY as COPY, bpsToPct, fmtAmount, modeName, parseAmount, readFirstBoostLimits, readQuoteBalance, toInputString,
   type FirstBoostLimits,
 } from "@/lib/firstBoost";
+import { DEFAULT_LAUNCH_MODE, LaunchMode, modesActive, readPveLoginVerified } from "@/lib/launchAbi";
 import type { Address } from "@/lib/protocol";
 import { publicClient, readCreatorBuyQuote } from "@/lib/protocol-viem";
 import { onWallet } from "@/lib/wallet";
@@ -18,18 +19,22 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
 /**
  * First BOOST input for /create: the creator's optional buy in the launch tx (LaunchParams.creatorBuyQuoteIn),
  * denominated in the pair (quote) token. Cap = Launchpad.creatorBuyMaxBps() read live; estimate =
- * Launchpad.quoteCreatorBuy (local curve math shows instantly while the view loads).
+ * Launchpad.quoteCreatorBuy (local curve math shows instantly while the view loads). On the modes (v4) ABI the
+ * launch mode's per-buy cap stacks on top (PVE 0.25%, PVP/TRENCH 0.77% today): MAX and validation use the stricter one,
+ * and a PVE First BOOST needs a login-verified wallet (note + check).
  */
-export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState }: {
+export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE }: {
   pair: Address | null; pairLabel: string; creatorTaxBps: number; ticker: string;
-  value: string; onChange: (v: string) => void; onState: (s: FirstBoostState) => void;
+  value: string; onChange: (v: string) => void; onState: (s: FirstBoostState) => void; mode?: number;
 }) {
   const [limits, setLimits] = useState<FirstBoostLimits | null>(null);
   const [limitsErr, setLimitsErr] = useState(false);
   const [me, setMe] = useState<Address | null>(null);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [viewOut, setViewOut] = useState<{ raw: bigint; tokens: bigint; exceedsCap: boolean } | null>(null);
+  const [pveVerified, setPveVerified] = useState<boolean | null>(null);
   const deployed = isDeployed();
+  const pve = modesActive() && mode === LaunchMode.PVE;
 
   useEffect(() => onWallet((a) => setMe(a)), []);
 
@@ -37,11 +42,21 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
     if (!deployed || !pair) { setLimits(null); return; }
     let alive = true;
     setLimits(null); setLimitsErr(false);
-    readFirstBoostLimits(publicClient(), pair, creatorTaxBps)
+    readFirstBoostLimits(publicClient(), pair, creatorTaxBps, mode)
       .then((l) => { if (alive) setLimits(l); })
       .catch(() => { if (alive) setLimitsErr(true); });
     return () => { alive = false; };
-  }, [deployed, pair, creatorTaxBps]);
+  }, [deployed, pair, creatorTaxBps, mode]);
+
+  // PVE: the launch buy reverts NotVerified without a live (global) LoginGate attestation for this wallet.
+  useEffect(() => {
+    if (!deployed || !pve || !me) { setPveVerified(null); return; }
+    let alive = true;
+    readPveLoginVerified(publicClient(), deployment().launchpad, me)
+      .then((v) => { if (alive) setPveVerified(v.verified); })
+      .catch(() => { if (alive) setPveVerified(null); });
+    return () => { alive = false; };
+  }, [deployed, pve, me]);
 
   useEffect(() => {
     if (!limits || !me) { setBalance(null); return; }
@@ -72,7 +87,8 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const symbol = limits?.symbol || pairLabel || "pair token";
   const fresh = viewOut && raw != null && viewOut.raw === raw ? viewOut : null;
   const tokens = fresh ? fresh.tokens : localTokens;
-  const overCap = !!limits && raw != null && raw > BigInt(0) && (fresh ? fresh.exceedsCap : raw > limits.maxQuoteIn);
+  // exceedsCap only knows creatorBuyMaxBps; the mode clamp (capTokens) is checked here too.
+  const overCap = !!limits && raw != null && raw > BigInt(0) && (fresh ? fresh.exceedsCap || fresh.tokens > limits.capTokens : raw > limits.maxQuoteIn);
   const maxStr = limits ? fmtAmount(limits.maxQuoteIn, limits.decimals) : "";
 
   let error: string | null = null;
@@ -80,6 +96,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   else if (raw > BigInt(0) && limits) {
     if (overCap) error = COPY.overCap(pct!, maxStr, symbol);
     else if (balance != null && raw > balance) error = COPY.balance(fmtAmount(balance, limits.decimals), symbol);
+    else if (pve && pveVerified === false) error = COPY.pveLoginUnverified;
   } else if (raw > BigInt(0) && limitsErr) error = COPY.unavailable;
   const ready = raw === BigInt(0) || (!!limits && raw != null);
 
@@ -115,6 +132,8 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           <span className="first-boost-note">{fresh ? "Launchpad quote" : "estimate"} · anti-snipe exempt · 1% fee{creatorTaxBps ? ` + ${creatorTaxBps / 100}% creator tax` : ""}</span>
         </p>
       )}
+      {limits?.capBy === "mode" && <p className="first-boost-note first-boost-mode">{COPY.modeCap(modeName(limits.mode), pct!, bpsToPct(limits.launchpadCapBps))}</p>}
+      {pve && pveVerified !== false && <p className="first-boost-note first-boost-mode">{me ? COPY.pveLogin : COPY.pveLoginUnknown}</p>}
       {error && <p role="alert" className="first-boost-error">{error}</p>}
     </div>
   );
