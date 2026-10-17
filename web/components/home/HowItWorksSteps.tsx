@@ -1,6 +1,6 @@
 /**
- * The three "How DISCIPLE works" steps (copy approved by lee). Shared by the first-visit modal and the /how-it-works
- * placeholder page. Server-safe (no hooks). Step 2's second line is an icon legend (BOOST = BUY · DUMP = SELL) using the
+ * The three "How DISCIPLE works" steps (copy approved by lee). Used by the first-visit modal; its TradeLegend is also
+ * reused on the /how-it-works page. Server-safe (no hooks). Step 2's second line is an icon legend (BOOST = BUY · DUMP = SELL) using the
  * same boost/dump icons and colours as the trade buttons; each line is its own block so it never relies on wrapping.
  * Non-breaking spaces keep short tails ("Every DUMP drops a bomb.", "The Moon", "LP, forever.") from being stranded on their own line.
  */
@@ -11,15 +11,16 @@ import s from "./howItWorks.module.css";
 
 const NB = "\u00a0";
 
-function TradeLegend() {
+/** BOOST = BUY · DUMP = SELL icon legend. Also used by the /how-it-works page (size "lg" under the game section H2). */
+export function TradeLegend({ size = "md", className }: { size?: "md" | "lg"; className?: string }) {
   return (
-    <span className={s.legend}>
+    <span className={`${s.legend}${size === "lg" ? " " + s.legendLg : ""}${className ? " " + className : ""}`}>
       <span className={`${s.chip} ${s.chipBoost}`} role="note" aria-label="BOOST equals BUY">
-        <Icon name="boost" size={14} /><span aria-hidden>BOOST <i>=</i> BUY</span>
+        <Icon name="boost" size={size === "lg" ? 16 : 14} /><span aria-hidden>BOOST <i>=</i> BUY</span>
       </span>
       <span className={s.legendSep} aria-hidden />
       <span className={`${s.chip} ${s.chipDump}`} role="note" aria-label="DUMP equals SELL">
-        <Icon name="dump" size={14} /><span aria-hidden>DUMP <i>=</i> SELL</span>
+        <Icon name="dump" size={size === "lg" ? 16 : 14} /><span aria-hidden>DUMP <i>=</i> SELL</span>
       </span>
     </span>
   );
