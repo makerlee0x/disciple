@@ -1,6 +1,6 @@
 # Combined testnet redeploy — migration note (RH testnet 46630)
 
-**Status:** prepared, NOT broadcast. The live site still runs on the v2 stack in `deployments/rh-testnet-46630.json`.
+**Status (2026-10-17):** broadcast as stack **v4** from main @ fdd436b5 (start block 137540728); see `deployments/rh-testnet-46630.json` and `deployments/broadcast-v4/`. v3 is superseded. The web app still points at v3 until the site migration below is done.
 
 ## Contents
 - Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and DiscipleHook (`setPricer`; since G-1 the pricer is only read by the `quoteUsdOf` view, never on the swap path).
