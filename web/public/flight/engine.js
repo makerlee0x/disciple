@@ -191,7 +191,7 @@ class DexScreenerSource {
           emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(aggregated)',side:mcap>this.last?'buy':'sell',
                 usd:Math.abs(mcap-this.last)*0.01,mcap,price}); }
         else if (this.last===null) emit({t:'swap',block:0,ts:Date.now(),txHash:'(snapshot)',side:'buy',usd:0,mcap,price});
-        this.last=mcap; emit({t:'status',source:this.name,ok:true,msg:`${p.baseToken.symbol}/${p.quoteToken.symbol} ${p.dexId} ${(p.labels||[]).join(',')}`});
+        this.last=mcap; this.ticker=this.ticker||p.baseToken.symbol; this.quoteSymbol=p.quoteToken.symbol; emit({t:'status',source:this.name,ok:true,msg:`${p.baseToken.symbol}/${p.quoteToken.symbol} ${p.dexId} ${(p.labels||[]).join(',')}`});
       }catch(e){ emit({t:'status',source:this.name,ok:false,msg:String(e.message||e)}); }
     }; tick(); this.iv=setInterval(tick,this.ms); }
   stop(){clearInterval(this.iv);}
@@ -754,7 +754,7 @@ function ammoAt(e){ const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r
   for(let i=0;i<AMMO_HIT.length;i++){ const R=AMMO_HIT[i]; if(x>=R.x&&x<=R.x+R.w&&y>=R.y&&y<=R.y+R.h) return i; } return -1; }
 cv.addEventListener('pointermove',e=>{ const i=ammoAt(e); if(i!==S.ammoHover){ S.ammoHover=i; cv.style.cursor=i>=0?'pointer':''; } });
 cv.addEventListener('pointerleave',()=>{ S.ammoHover=-1; cv.style.cursor=''; });
-cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const i=ammoAt(e); if(i<0) return; e.preventDefault();
+cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const ctf=typeof chartBtnAt==='function'?chartBtnAt(e):null; if(ctf!=null){ e.preventDefault(); setChartTf(ctf); return; } const i=ammoAt(e); if(i<0) return; e.preventDefault();
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
   if(i>=6){ S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:i-6}})); return; }   // click = SELECT only (DUMP / Shift sells it)
   S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
@@ -1854,87 +1854,180 @@ function drawTierBar(m,ti){
   else { ctx.fillStyle='#ffe7a3'; ctx.fillText('★ TOP TIER',X,Y+BH+13); }
 }
 
-/* ---- 2) chart-map: mini candle chart of mcap in a game-map frame (M toggles) ---- */
+/* ---- 2) chart-map: tiny dexscreener-style mcap candle chart in a game-map frame (M toggles) ----
+   Real OHLC on fixed wall-clock buckets (1m / 5m / 1h / 4h / D; 5m default; toggles in the title bar).
+   Every tick (each swap + the per-frame mark) feeds ALL intervals from the same history, so switching is instant.
+   Continuous: a bucket opens at the previous close; empty buckets carry forward as flat dojis. Wicks = true high/low
+   of the mark inside the bucket. Volume = swap $ per bucket, coloured by candle direction. ?candleSec=N adds a custom
+   interval and makes it the default (replay/share videos with ?clean=1 default to 5 s so a short clip shows candles). */
+const CHART_TFS=[{s:60,l:'1m'},{s:300,l:'5m'},{s:3600,l:'1h'},{s:14400,l:'4h'},{s:86400,l:'D'}];
 const CHART_STYLE={
-  w:300, h:196, alpha:0.86, title:22, axis:46, gutter:14, top:12, candles:36, candleSec:+(Q.get('candleSec')||5), hz:6,
+  w:300, h:196, alpha:0.86, title:22, axis:46, gutter:14, top:12, xaxis:9, volFrac:.2, candles:36, keep:160, hz:8,
+  candleSec:+(Q.get('candleSec')||0)||(CLEAN?5:0),
   frameOuter:'#0b0a12', frameBevelHi:'rgba(255,255,255,.18)', frameBevelLo:'rgba(0,0,0,.6)', frameMid:'#2a2638',
   titleBg:'rgba(24,20,36,.92)', titleFg:'#f3e6c2', bg:'rgba(8,10,20,.62)', grid:'rgba(190,200,255,.10)', edgeFg:'rgba(220,228,255,.55)',
   up:'#3ddc97', down:'#ff5c7a', wick:.9, tier:'rgba(255,231,163,.55)', tierFg:'rgba(255,231,163,.85)', cross:'rgba(255,255,255,.55)',
   marker:'#9ff3c8', mineBuy:'#3ddc97', mineSell:'#ff5c7a', axisFg:'rgba(220,228,255,.75)', priceTag:'#ffe7a3',
+  volUp:'rgba(61,220,151,.35)', volDown:'rgba(255,92,122,.35)', btn:'rgba(243,230,194,.6)', btnOn:'#ffe7a3',   /* new elements reuse the frame palette */
 };
 var CH=null;   // lazily created (onEvent may fire before this block runs)
-function chartState(){ return CH||(CH={on:(()=>{ try{ return localStorage.getItem('disciple.chartmap')!=='off'; }catch(_){ return true; } })(), c:[], mine:[], cv:null, at:-1, x:0, y:0}); }
+function chartTfs(){ const st=CHART_STYLE; return st.candleSec&&!CHART_TFS.some(t=>t.s===st.candleSec)?[{s:st.candleSec,l:st.candleSec<60?st.candleSec+'s':Math.round(st.candleSec/60)+'m'},...CHART_TFS]:CHART_TFS; }
+function chartState(){ if(CH) return CH; const tfs=chartTfs(), st=CHART_STYLE; let tf=st.candleSec||300;
+  if(!st.candleSec) try{ const v=+localStorage.getItem('disciple.chartmap.tf'); if(tfs.some(t=>t.s===v)) tf=v; }catch(_){}
+  /* time base: wall clock live; sim time from 0 in clean/replay (deterministic frames) */
+  const live=!CLEAN&&!(source instanceof HookSource);
+  return CH={on:(()=>{ try{ return localStorage.getItem('disciple.chartmap')!=='off'; }catch(_){ return true; } })(),
+    tf, k:Object.fromEntries(tfs.map(t=>[t.s,[]])), mine:[], cv:null, at:-1, live, T0:live?Date.now()/1000-S.t:0, L0:null, L1:null, btn:[], seen:new Set(), hist:0},
+    live&&setTimeout(chartBackfill,0), CH; }
+/* @chart-seed:start — pure: merge historical fills [{t(sec),m,usd,side}] into per-interval candle arrays k {s:[{b,o,h,l,c,v}]}.
+   History buckets before the first live candle are prepended (continuous opens, gap dojis capped at keep); fills that land in
+   buckets live ticks already opened only widen h/l + add volume (live close wins). Each array is trimmed to the last keep. */
+function chartSeedK(k,fills,keep){ const fs=fills.filter(f=>f.m>0&&isFinite(f.t)).sort((a,b)=>a.t-b.t); if(!fs.length) return k;
+  for(const s in k){ const a=k[s], b0=a.length?a[0].b:Infinity, h=[]; let last=null;
+    for(const f of fs){ const b=Math.floor(f.t/s), v=f.usd>0?f.usd:0;
+      if(b>=b0){ const lk=a.find(x=>x.b===b); if(lk){ if(f.m>lk.h) lk.h=f.m; if(f.m<lk.l) lk.l=f.m; lk.v+=v; } continue; }
+      if(!last||last.b<b){ if(last) for(let g=Math.max(last.b+1,b-keep);g<b;g++) h.push({b:g,o:last.c,h:last.c,l:last.c,c:last.c,v:0});
+        const o=last?last.c:f.m; h.push(last={b,o,h:Math.max(o,f.m),l:Math.min(o,f.m),c:f.m,v:0}); }
+      else { if(f.m>last.h) last.h=f.m; if(f.m<last.l) last.l=f.m; last.c=f.m; }
+      last.v+=v; }
+    if(last&&a.length){ for(let g=Math.max(last.b+1,b0-keep);g<b0;g++) h.push({b:g,o:last.c,h:last.c,l:last.c,c:last.c,v:0});
+      const f0=a[0]; f0.o=last.c; f0.h=Math.max(f0.h,last.c); f0.l=Math.min(f0.l,last.c); }
+    const out=h.concat(a); k[s]=out.length>keep?out.slice(out.length-keep):out; }
+  return k; }
+/* @chart-seed:end */
+if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: create the chart (→ history fetch) at page open, not at the first swap */
+/* live only (never CLEAN/replay → share videos stay deterministic): fetch the coin's indexed fills once (/api/trades, the same
+   index the PnL uses) and seed every interval; dedupe against live swaps already ticked (tx[:logIndex]). Own fills → mine markers
+   when the page exposes the wallet (window.__flightWallet or ?wallet=). */
+function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
+  fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
+    const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
+    const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:+f.usd,side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
+    chartSeedK(C.k,fs,keep); C.hist=2;
+    /* no live swap yet → seed the confirmed mcap from the latest indexed fill so the game (and the chart) render right away */
+    if(S.confirmed.mcap===null){ const lf=fills.reduce((a,f)=>!a||f.block>a.block||(f.block===a.block&&f.logIndex>a.logIndex)?f:a,null), lm=lf&&+lf.mcapUsd;
+      if(lm>0){ if(source&&'mcap' in source&&source.mcap==null) source.mcap=lm; S.confirmed.mcap=lm; if(S.displayAlt===null) S.displayAlt=mcapToAlt(lm); } }
+    for(const f of fs) if(f.mine&&f.usd>0&&f.m>0) C.mine.push({t:f.t,side:f.side,m:f.m});
+    C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
+  }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
 function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
-function chartSample(){ const m=shownMcap(); if(!(m>0)) return; const C=chartState(), b=Math.floor(S.t/CHART_STYLE.candleSec), k=C.c[C.c.length-1];
-  if (k&&k.b===b){ k.h=Math.max(k.h,m); k.l=Math.min(k.l,m); k.c=m; } else { C.c.push({b,o:k?k.c:m,h:m,l:m,c:m}); if(C.c.length>CHART_STYLE.candles*3) C.c.splice(0,C.c.length-CHART_STYLE.candles*3); } }
-function hudNoteTrade(e){ if(!e.mine||!(e.usd>0)||!(e.mcap>0)) return; const C=chartState(); C.mine.push({t:S.t,side:e.side,m:e.mcap,usd:e.usd}); if(C.mine.length>60) C.mine.shift(); }
-const GRID_COLS='ABCDEFGH';
+function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
+const chartNow=()=>chartState().T0+S.t;
+/* one tick into every interval: price m (mcap), optional swap volume */
+function chartTick(m,usd,side){ if(!(m>0)) return; const C=chartState(), t=chartNow(), keep=CHART_STYLE.keep;
+  for(const s in C.k){ const a=C.k[s], b=Math.floor(t/s); let k=a[a.length-1];
+    if(!k||k.b<b){ if(k){ for(let g=Math.max(k.b+1,b-keep);g<b;g++) a.push({b:g,o:k.c,h:k.c,l:k.c,c:k.c,v:0}); }   /* gaps → flat dojis */
+      const o=k?k.c:m; a.push(k={b,o,h:Math.max(o,m),l:Math.min(o,m),c:m,v:0}); if(a.length>keep) a.splice(0,a.length-keep); }
+    else if(k.b===b){ if(m>k.h) k.h=m; if(m<k.l) k.l=m; k.c=m; }
+    if(usd>0) k.v+=usd; } }
+function chartSample(){ chartTick(shownMcap()); }
+function hudNoteTrade(e){ if(!(e.mcap>0)) return; if(e.txHash) chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); const m=e.mcap*(isLive()?1:(S.simF||1)); chartTick(m,e.usd>0?e.usd:0,e.side);
+  if(!e.mine||!(e.usd>0)) return; const C=chartState(); C.mine.push({t:chartNow(),side:e.side,m}); if(C.mine.length>60) C.mine.shift(); }
+/* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
+function chartPoolLabel(){
+  const base=(source.ticker||Q.get('ticker')||'COIN').toString().replace(/^\$/,'').split(/\s*\/\s*/)[0].slice(0,10).toUpperCase();
+  const quote=(source.quoteSymbol||Q.get('quote')||(IS_POOL?'WETH':'STRATEGY')).toString().slice(0,10).toUpperCase();
+  const bps=source.feeBps!=null?+source.feeBps:Q.get('feeBps')!=null?+Q.get('feeBps'):(+(Q.get('lpFeeBps')||0)+ +(Q.get('hookFeeBps')||100));
+  const fee=bps%100===0?(bps/100)+'%':(bps/100).toFixed(2).replace(/0$/,'')+'%';
+  return `${base}/${quote} ${fee}`; }
+const p2=n=>String(n).padStart(2,'0'), MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function chartTimeLabel(t,tf,live){ if(!live){ const s=Math.round(t); return Math.floor(s/60)+':'+p2(s%60); }
+  const d=new Date(t*1000); return tf>=86400?MON[d.getMonth()]+' '+d.getDate():tf>=14400&&d.getHours()===0?MON[d.getMonth()]+' '+d.getDate():tf<60?p2(d.getMinutes())+':'+p2(d.getSeconds()):p2(d.getHours())+':'+p2(d.getMinutes()); }   /* sub-minute: mm:ss */
+const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*86400};
 /* live: between the React PnL panel (top 212, ~240 tall when open) and the trades feed (H−160); shrinks to fit, min 132 */
+const GRID_COLS='ABCDEFGH';
 const CHART_PNL_BOTTOM=456;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
   if (source.isSim){ const y=Math.round((S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
-function redrawChart(){
+/* title-bar interval buttons → canvas hit-test (pointerdown) */
+function chartBtnAt(e){ const C=CH; if(!C||!C.on||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
+  for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }
+function redrawChart(dt){
   const st=CHART_STYLE, C=chartState(), h=chartRect().h, w=st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.height!==h) C.cv.height=h;
-  const g=C.cv.getContext('2d'); g.clearRect(0,0,w,h);
+  const g=C.cv.getContext('2d'); g.clearRect(0,0,w,h); g.textBaseline='alphabetic';
   // Guild Wars window: dark outer frame, bevel, title bar
   g.fillStyle=st.frameOuter; g.fillRect(0,0,w,h); g.fillStyle=st.frameMid; g.fillRect(3,3,w-6,h-6);
   g.strokeStyle=st.frameBevelHi; g.lineWidth=1; g.beginPath(); g.moveTo(1.5,h-1.5); g.lineTo(1.5,1.5); g.lineTo(w-1.5,1.5); g.stroke();
   g.strokeStyle=st.frameBevelLo; g.beginPath(); g.moveTo(w-1.5,1.5); g.lineTo(w-1.5,h-1.5); g.lineTo(1.5,h-1.5); g.stroke();
   g.fillStyle=st.titleBg; g.fillRect(5,5,w-10,st.title-4);
-  const m=shownMcap(), ti=clamp(Math.floor(mcapToAlt(m||FLOOR_MCAP)),0,TIERS.length-1);
-  g.font='bold 11px Georgia,serif'; g.fillStyle=st.titleFg; g.textBaseline='middle';
-  const tk=(source.ticker||Q.get('ticker')||'COIN').toString().slice(0,10);
-  g.fillText(`$${tk}  ·  ${TIERS[ti].name}`,11,5+(st.title-4)/2); g.textAlign='right'; g.font='9px ui-monospace,monospace'; g.fillStyle='rgba(243,230,194,.6)'; g.fillText(CLEAN?'':'[M]',w-10,5+(st.title-4)/2); g.textAlign='left';
-  // plot area (Warzone grid with lettered/numbered edges)
-  const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, ph=h-6-py; g.fillStyle=st.bg; g.fillRect(5,st.title+3,w-10,h-st.title-8);
-  const cs=C.c.slice(-st.candles);
+  const tyM=5+(st.title-4)/2+3.5;
+  g.font='bold 11px Georgia,serif'; g.fillStyle=st.titleFg; g.fillText(chartPoolLabel(),11,tyM);
+  // interval toggles (+ [M]) right-aligned in the title bar
+  C.btn.length=0;
+  if(!CLEAN){ g.font='9px ui-monospace,monospace'; g.textAlign='right'; g.fillStyle='rgba(243,230,194,.6)'; g.fillText('[M]',w-10,tyM);
+    let x=w-30; const tfs=chartTfs();
+    for(let i=tfs.length-1;i>=0;i--){ const t=tfs[i], on=t.s===C.tf, bw=Math.max(14,g.measureText(t.l).width+6); x-=bw;
+      if(on){ g.fillStyle=st.frameMid; g.fillRect(x,7,bw,st.title-8); g.strokeStyle=st.frameBevelLo; g.lineWidth=1; g.strokeRect(x+.5,7.5,bw-1,st.title-9); g.strokeStyle=st.frameBevelHi; g.beginPath(); g.moveTo(x+bw-.5,7.5); g.lineTo(x+bw-.5,st.title-1.5); g.lineTo(x+.5,st.title-1.5); g.stroke(); }   /* pressed bevel */
+      g.fillStyle=on?st.btnOn:st.btn; g.textAlign='center'; g.fillText(t.l,x+bw/2,tyM); C.btn.push({s:t.s,x,y:5,w:bw,h:st.title-4}); x-=2; }
+    g.textAlign='left'; }
+  // plot area (Warzone grid with lettered/numbered edges); bottom strip = time axis, bottom band of the plot = volume
+  const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, xh=st.xaxis, ph=h-6-xh-py, vh=Math.round(ph*st.volFrac), pph=ph-vh-2;
+  g.fillStyle=st.bg; g.fillRect(5,st.title+3,w-10,h-st.title-8);
   g.font='8px ui-monospace,monospace'; g.fillStyle=st.edgeFg; g.textAlign='center';
   const NC=GRID_COLS.length, NR=5;
-  for(let i=0;i<NC;i++) g.fillText(GRID_COLS[i],px+pw*(i+.5)/NC,st.title+3+st.top/2+1);
-  for(let j=0;j<NR;j++) g.fillText(String(j+1),5+st.gutter/2,py+ph*(j+.5)/NR);
+  for(let i=0;i<NC;i++) g.fillText(GRID_COLS[i],px+pw*(i+.5)/NC,st.title+3+st.top/2+3);
+  for(let j=0;j<NR;j++) g.fillText(String(j+1),5+st.gutter/2,py+ph*(j+.5)/NR+3);
   g.strokeStyle=st.grid; g.lineWidth=1; g.beginPath();
   for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }
   for(let j=0;j<=NR;j++){ const y=Math.round(py+ph*j/NR)+.5; g.moveTo(px,y); g.lineTo(px+pw,y); } g.stroke();
   g.textAlign='left';
-  if (!cs.length){ g.fillStyle=st.edgeFg; g.fillText('waiting for trades…',px+8,py+ph/2); return; }
-  let lo=Infinity, hi=-Infinity; for(const k of cs){ lo=Math.min(lo,k.l); hi=Math.max(hi,k.h); }
-  const lg=Math.log, span=Math.max(lg(hi/lo),0.02), pad=span*0.12, L0=lg(lo)-pad, L1=lg(hi)+pad;
-  const Y=v=>py+ph*(1-(lg(v)-L0)/(L1-L0)), cw=pw/st.candles, X=i=>px+pw-(cs.length-i-.5)*cw;
-  g.save(); g.beginPath(); g.rect(px,py,pw+st.axis,ph); g.clip();
-  // tier thresholds (labelled lines)
+  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), cw=pw/st.candles;
+  /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge */
+  const X=b=>px+pw-((now+tf*0.6)-(b+0.5)*tf)/tf*cw;
+  const cs=[]; for(const k of all){ const x=X(k.b); if(x>px-cw&&x<px+pw+cw) cs.push(k); }
   g.font='8px ui-monospace,monospace';
-  for(const t of TIERS){ const v=t.lo; if(v<Math.exp(L0)||v>Math.exp(L1)) continue; const y=Math.round(Y(v))+.5;
+  if (!cs.length){ g.fillStyle=st.edgeFg; g.fillText('waiting for trades…',px+8,py+pph/2); return; }
+  const last=cs[cs.length-1], first=cs[0];
+  // OHLC readout (current candle) + % change vs its open
+  { const ch=(last.c/last.o-1)*100, col=last.c>=last.o?st.up:st.down; let x=px+3; const parts=[['O',last.o],['H',last.h],['L',last.l],['C',last.c]];
+    const oy=py+9; g.fillStyle='rgba(8,10,20,.55)'; g.fillRect(px+1,py+1,pw-2,11);
+    for(const [lb,v] of parts){ g.fillStyle=st.edgeFg; g.fillText(lb,x,oy); x+=g.measureText(lb).width+2; g.fillStyle=col; const s=fmtUsd(v); g.fillText(s,x,oy); x+=g.measureText(s).width+6; }
+    g.fillStyle=col; g.fillText((ch>=0?'+':'')+ch.toFixed(2)+'%',x,oy); }
+  // y-scale (log mcap): target from visible highs/lows, eased so the axis never jumps; snaps open to keep the price inside
+  let lo=Infinity, hi=-Infinity, vmax=0; for(const k of cs){ if(k.l<lo) lo=k.l; if(k.h>hi) hi=k.h; if(k.v>vmax) vmax=k.v; }
+  const lg=Math.log, span=Math.max(lg(hi/lo),0.02), pad=span*0.12, T0=lg(lo)-pad, T1=lg(hi)+pad;
+  if(C.L0==null){ C.L0=T0; C.L1=T1; } else { const a=1-Math.exp(-(dt||0.125)*5); C.L0+=(T0-C.L0)*a; C.L1+=(T1-C.L1)*a; C.L0=Math.min(C.L0,lg(lo)); C.L1=Math.max(C.L1,lg(hi)); }
+  const L0=C.L0, L1=C.L1, pt=py+12, pa=pph-12, Y=v=>pt+pa*(1-(lg(v)-L0)/(L1-L0));   /* price area below the OHLC readout */
+  // time axis labels under the grid (wall clock live, elapsed m:ss in replay)
+  const NT=4, step=CHART_LABEL_STEP[tf]||tf*8; g.fillStyle=st.edgeFg; g.textAlign='center';
+  for(let t=Math.ceil((now-tf*st.candles)/step)*step;t<=now;t+=step){ const x=X(t/tf-0.5); if(x>px+12&&x<px+pw-12) g.fillText(chartTimeLabel(t,tf,C.live),x,py+ph+xh-1); }
+  g.textAlign='left';
+  g.save(); g.beginPath(); g.rect(px,py,pw,ph); g.clip();
+  // tier thresholds (dashed, labelled)
+  for(const t of TIERS){ const v=t.lo; if(lg(v)<L0||lg(v)>L1) continue; const y=Math.round(Y(v))+.5;
     g.strokeStyle=st.tier; g.setLineDash([4,3]); g.beginPath(); g.moveTo(px,y); g.lineTo(px+pw,y); g.stroke(); g.setLineDash([]);
     g.fillStyle=st.tierFg; g.fillText(t.name,px+3,y-3); }
-  // candles
-  const bw=Math.max(1,Math.floor(cw*0.62));
-  cs.forEach((k,i)=>{ const x=Math.round(X(i)), up=k.c>=k.o; g.fillStyle=g.strokeStyle=up?st.up:st.down;
+  // volume bars (bottom band), coloured by candle direction
+  const bw=Math.max(1,Math.floor(cw*0.62)), vb=py+ph;
+  if(vmax>0) for(const k of cs){ if(!(k.v>0)) continue; const x=Math.round(X(k.b)), hh=Math.max(1,Math.round(vh*k.v/vmax)); g.fillStyle=k.c>=k.o?st.volUp:st.volDown; g.fillRect(x-(bw>>1),vb-hh,bw,hh); }
+  // candles (doji = 1 px body)
+  for(const k of cs){ const x=Math.round(X(k.b)), up=k.c>=k.o; g.fillStyle=up?st.up:st.down;
     g.fillRect(x,Math.round(Y(k.h)),1,Math.max(1,Math.round(Y(k.l)-Y(k.h))));
-    const yo=Y(k.o), yc=Y(k.c); g.fillRect(x-(bw>>1),Math.round(Math.min(yo,yc)),bw,Math.max(1,Math.round(Math.abs(yc-yo)))); });
+    const yo=Y(k.o), yc=Y(k.c); g.fillRect(x-(bw>>1),Math.round(Math.min(yo,yc)),bw,Math.max(1,Math.round(Math.abs(yc-yo)))); }
   // own buys/sells on their candle
-  const b0=cs[0].b;
-  for(const t of C.mine){ const bi=Math.floor(t.t/st.candleSec)-b0; if(bi<0||bi>=cs.length) continue; const x=X(bi), y=Y(t.m), buy=t.side==='buy';
+  for(const t of C.mine){ const x=X(Math.floor(t.t/tf)); if(x<px||x>px+pw) continue; const y=Y(t.m), buy=t.side==='buy';
     g.fillStyle=buy?st.mineBuy:st.mineSell; g.strokeStyle='#0b0a12'; g.lineWidth=1; g.beginPath();
     if(buy){ g.moveTo(x,y+3); g.lineTo(x-4,y+10); g.lineTo(x+4,y+10); } else { g.moveTo(x,y-3); g.lineTo(x-4,y-10); g.lineTo(x+4,y-10); }
     g.closePath(); g.fill(); g.stroke(); }
-  // Warzone crosshair through the latest candle / current price + glowing ringed marker
-  const cx=Math.round(X(cs.length-1))+.5, cy=Math.round(Y(cs[cs.length-1].c))+.5;
-  g.strokeStyle=st.cross; g.lineWidth=1; g.beginPath(); g.moveTo(px,cy); g.lineTo(px+pw,cy); g.moveTo(cx,py); g.lineTo(cx,py+ph); g.stroke();
+  // Warzone crosshair through the live candle / current price + glowing ringed marker
+  const cur=last.c, cx=Math.round(X(last.b))+.5, cy=Math.round(Y(cur))+.5;
+  g.strokeStyle=st.cross; g.lineWidth=1; g.beginPath(); g.moveTo(cx,py); g.lineTo(cx,py+ph); g.stroke();
+  g.setLineDash([2,2]); g.beginPath(); g.moveTo(px,cy); g.lineTo(px+pw,cy); g.stroke(); g.setLineDash([]);   /* dotted current-value line */
   const pulse=0.5+0.5*Math.sin(S.t*4);
   g.fillStyle='rgba(159,243,200,.18)'; g.beginPath(); g.arc(cx,cy,9+pulse*2,0,Math.PI*2); g.fill();   /* glow without shadowBlur (cheap) */
   g.strokeStyle=st.marker; g.lineWidth=1.5; g.beginPath(); g.arc(cx,cy,6+pulse*1.5,0,Math.PI*2); g.stroke();
   g.globalAlpha=.45; g.beginPath(); g.arc(cx,cy,10+pulse*2,0,Math.PI*2); g.stroke(); g.globalAlpha=1;
   g.fillStyle='#fff'; g.beginPath(); g.arc(cx,cy,2.2,0,Math.PI*2); g.fill();
   g.restore();
-  // right price axis
-  const ax=px+pw+2; g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(ax,py,st.axis-7,ph); g.font='8px ui-monospace,monospace'; g.fillStyle=st.axisFg;
-  for(let j=0;j<=4;j++){ const v=Math.exp(L1-(L1-L0)*j/4), y=py+ph*j/4; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,py+ph-1)); }
-  g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cs[cs.length-1].c),ax+3,cy+3);
+  // right price axis + highlighted current-value tag
+  const ax=px+pw+2; g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(ax,py,st.axis-7,ph); g.fillStyle=st.axisFg; g.font='8px ui-monospace,monospace';
+  for(let j=0;j<=NT;j++){ const v=Math.exp(L1-(L1-L0)*j/NT), y=pt+pa*j/NT; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,pt+pa)); }
+  g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
 }
 function drawChartMap(){
   const C=chartState(); chartSample(); if(!C.on) return;
-  const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ C.at=S.t; redrawChart(); }   // cached: redrawn at st.hz (sim time), blitted every frame
+  const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
   const r=chartRect(); ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
 /* ---- rocket loadout (cosmetic only): skin tint, thruster flame colour/shape, nose coin. Ids = SITE's rocket upgrades
@@ -2036,6 +2129,6 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,usdToReach,assetsReady:()=>loaded>=names.length,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
