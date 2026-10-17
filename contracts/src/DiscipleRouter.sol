@@ -39,6 +39,17 @@ interface IUsdgCurve {
     function graduated() external view returns (bool);
     function buy(uint256 quoteIn, uint256 minTokensOut, uint256 deadline, address recipient) external returns (uint256);
     function sell(uint256 tokensIn, uint256 minQuoteOut, uint256 deadline, address recipient) external returns (uint256);
+    function routerBuy(address trader, uint256 quoteIn, uint256 minTokensOut, uint256 deadline, uint256 maxImpactBps)
+        external
+        returns (uint256);
+    function routerSell(
+        address trader,
+        uint256 tokensIn,
+        uint256 minQuoteOut,
+        uint256 deadline,
+        address recipient,
+        uint256 maxImpactBps
+    ) external returns (uint256);
 }
 
 /// @title Thin post-graduation router for DISCIPLE v4 pools (exact-in buy/sell)
@@ -298,22 +309,18 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = _buyHops(u, q, token, dkey);
             tokensOut = _route(msg.sender, msg.sender, hops, usdgIn);
         } else {
+            // Pre-grad: deliver quote STRAIGHT to the curve (v4 take → curve, or USDG transferFrom user → curve) and
+            // let the curve trade for the real trader (caps, login, cost basis, attribution). No router custody,
+            // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
                 Hop[] memory h = new Hop[](1);
                 h[0] = _usdgHop(u, q, true);
-                quoteAmt = _route(msg.sender, address(this), h, usdgIn);
+                quoteAmt = _route(msg.sender, curve, h, usdgIn);
             } else {
-                IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
+                IERC20(u).safeTransferFrom(msg.sender, curve, usdgIn);
             }
-            uint256 balBefore = IERC20(q).balanceOf(address(this)) - quoteAmt;
-            _checkCurveBuyImpact(curve, quoteAmt);
-            IERC20(q).forceApprove(curve, quoteAmt);
-            tokensOut = IUsdgCurve(curve).buy(quoteAmt, minTokensOut, deadline, msg.sender);
-            // Graduating buy: the curve refunds unused quote; hand it back in the quote asset (never retained).
-            uint256 left = IERC20(q).balanceOf(address(this)) - balBefore;
-            if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
-            IERC20(q).forceApprove(curve, 0);
+            tokensOut = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, maxImpactBps);
         }
         if (tokensOut < minTokensOut) revert Slippage();
         emit UsdgTrade(msg.sender, token, true, usdgIn, tokensOut, !grad);
@@ -334,13 +341,14 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = _sellHops(u, q, token, dkey);
             usdgOut = _route(msg.sender, msg.sender, hops, tokensIn);
         } else {
-            IERC20(token).safeTransferFrom(msg.sender, address(this), tokensIn);
-            IERC20(token).forceApprove(curve, tokensIn);
-            _checkCurveSellImpact(curve, tokensIn);
+            // Tokens go user → curve directly; the curve books the sell against the real trader (fixes the old
+            // side effect where router-mediated sells debited/credited the router address).
+            IERC20(token).safeTransferFrom(msg.sender, curve, tokensIn);
+            uint256 cap = maxImpactBps;
             if (q == u) {
-                usdgOut = IUsdgCurve(curve).sell(tokensIn, 1, deadline, msg.sender);
+                usdgOut = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, msg.sender, cap);
             } else {
-                uint256 quoteAmt = IUsdgCurve(curve).sell(tokensIn, 1, deadline, address(this));
+                uint256 quoteAmt = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, address(this), cap);
                 Hop[] memory h = new Hop[](1);
                 h[0] = _usdgHop(u, q, false);
                 usdgOut = _route(address(this), msg.sender, h, quoteAmt);
@@ -365,13 +373,14 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = isBuy ? _buyHops(u, q, token, dkey) : _sellHops(u, q, token, dkey);
             return _simulate(hops, amountIn, address(0));
         }
+        // Curve quotes are for the caller (eth_call `from`): mode caps, PVE login and the PVE profit tax apply.
         if (isBuy) {
-            if (q == u) return _curveBuyQuote(curve, amountIn);
+            if (q == u) return _curveBuyQuote(curve, msg.sender, amountIn);
             Hop[] memory h = new Hop[](1);
             h[0] = _usdgHop(u, q, true);
             return _simulate(h, amountIn, curve);
         }
-        (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, amountIn);
+        (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, msg.sender, amountIn);
         if (q == u) return (qOut, cImp);
         Hop[] memory h2 = new Hop[](1);
         h2[0] = _usdgHop(u, q, false);
@@ -491,7 +500,7 @@ contract DiscipleRouter is IUnlockCallback {
             uint8(1),
             abi.encode(
                 RouteData({
-                    payer: address(0),
+                    payer: msg.sender, // simulate: the quoted trader (curveAfter quote + hook attribution only)
                     recipient: address(0),
                     hops: hops,
                     amountIn: amountIn,
@@ -515,8 +524,13 @@ contract DiscipleRouter is IUnlockCallback {
         }
     }
 
-    function _curveBuyQuote(address curve, uint256 quoteIn) private view returns (uint256 out, uint256 impact) {
-        (bool ok, bytes memory r) = curve.staticcall(abi.encodeWithSignature("quoteBuy(uint256)", quoteIn));
+    function _curveBuyQuote(address curve, address trader, uint256 quoteIn)
+        private
+        view
+        returns (uint256 out, uint256 impact)
+    {
+        (bool ok, bytes memory r) =
+            curve.staticcall(abi.encodeWithSignature("quoteBuyFor(address,uint256)", trader, quoteIn));
         if (!ok) {
             assembly ("memory-safe") {
                 revert(add(r, 32), mload(r))
@@ -526,27 +540,20 @@ contract DiscipleRouter is IUnlockCallback {
         return (bq.tokensOut, bq.impactBps);
     }
 
-    /// @dev SellQuote layout: (quoteOut, fee, grossQuote, priceAfterX18, impactBps, mcapAfterUsd)
-    function _curveSellQuote(address curve, uint256 tokensIn) private view returns (uint256 out, uint256 impact) {
-        (bool ok, bytes memory r) = curve.staticcall(abi.encodeWithSignature("quoteSell(uint256)", tokensIn));
+    /// @dev SellQuote layout: (quoteOut, fee, grossQuote, priceAfterX18, impactBps, mcapAfterUsd, profitTax)
+    function _curveSellQuote(address curve, address trader, uint256 tokensIn)
+        private
+        view
+        returns (uint256 out, uint256 impact)
+    {
+        (bool ok, bytes memory r) =
+            curve.staticcall(abi.encodeWithSignature("quoteSellFor(address,uint256)", trader, tokensIn));
         if (!ok) {
             assembly ("memory-safe") {
                 revert(add(r, 32), mload(r))
             }
         }
         (out,,,, impact,) = abi.decode(r, (uint256, uint256, uint256, uint256, uint256, uint256));
-    }
-
-    function _checkCurveBuyImpact(address curve, uint256 quoteIn) private view {
-        (, uint256 imp) = _curveBuyQuote(curve, quoteIn);
-        uint256 cap = maxImpactBps;
-        if (imp > cap) revert PriceImpactTooHigh(imp, cap);
-    }
-
-    function _checkCurveSellImpact(address curve, uint256 tokensIn) private view {
-        (, uint256 imp) = _curveSellQuote(curve, tokensIn);
-        uint256 cap = maxImpactBps;
-        if (imp > cap) revert PriceImpactTooHigh(imp, cap);
     }
 
     /// @dev Same |Δp|/p metric as DiscipleHook.impactBpsFromSqrt, with the non-USDG side as the priced asset.
@@ -597,7 +604,7 @@ contract DiscipleRouter is IUnlockCallback {
         }
         if (d.simulate) {
             if (d.curveAfter != address(0)) {
-                (uint256 t, uint256 ci) = _curveBuyQuote(d.curveAfter, amt);
+                (uint256 t, uint256 ci) = _curveBuyQuote(d.curveAfter, d.payer, amt);
                 amt = t;
                 if (ci > maxImp) maxImp = ci;
             }

@@ -149,6 +149,7 @@ abstract contract IntegrationBase is Test {
         pricer.setPricePool(address(strategy), strategyUsdgKey);
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
+        launchpad.setTrustedRouter(address(router), true);
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);
@@ -327,7 +328,7 @@ abstract contract IntegrationBase is Test {
 
     /// @dev Quote held in protocol buckets (curve reserve / LP escrow / accrued / treasury).
     function _quoteDistributed(address token, address creator_) internal view returns (uint256) {
-        uint256 sum = quote.balanceOf(treasury);
+        uint256 sum = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         sum += feeRouter.creatorAccrued(token, creator_);
         sum += feeRouter.referrerAccrued(kol, address(quote));
         sum += feeRouter.referrerAccrued(referred, address(quote));

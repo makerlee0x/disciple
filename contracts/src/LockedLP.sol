@@ -183,25 +183,40 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         // SEC-01: only FeeRouter (fee LP share) and Migration (graduation) may add; otherwise anyone could
         // overflow escrowQuote with a worthless token and brick all fee routing for a coin.
         if (msg.sender != feeRouter && msg.sender != migration) revert Unauthorized();
-        Position storage p = _positions[token];
-        if (p.quote == address(0)) p.quote = quote;
-        p.token = token;
-
         if (quoteAmount > 0) {
             IERC20(quote).safeTransferFrom(msg.sender, address(this), quoteAmount);
         }
         if (tokenAmount > 0) {
             IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
         }
+        return _credit(token, quote, tokenAmount, quoteAmount);
+    }
 
+    /// @notice Gas path for the per-trade LP share: FeeRouter has ALREADY transferred the amounts here.
+    /// @dev FeeRouter-only (it transfers exactly these amounts immediately before this call, same tx).
+    function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        external
+        returns (uint256)
+    {
+        if (msg.sender != feeRouter) revert Unauthorized();
+        return _credit(token, quote, tokenAmount, quoteAmount);
+    }
+
+    function _credit(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        internal
+        returns (uint256 lpShares)
+    {
+        Position storage p = _positions[token];
         if (p.graduated) {
             // Post-graduation LP share → compound buckets (FeeRouter sends exactly one side per swap).
             Bucket storage b = _buckets[token];
-            b.token += SafeCast.toUint128(tokenAmount);
-            b.quote += SafeCast.toUint128(quoteAmount);
+            if (tokenAmount != 0) b.token += SafeCast.toUint128(tokenAmount);
+            if (quoteAmount != 0) b.quote += SafeCast.toUint128(quoteAmount);
             emit CompoundBucketed(token, tokenAmount, quoteAmount);
             return tokenAmount + quoteAmount;
         }
+        if (p.quote == address(0)) p.quote = quote;
+        if (p.token != token) p.token = token;
 
         if (tokenAmount == 0 && quoteAmount > 0) {
             p.escrowQuote += quoteAmount;

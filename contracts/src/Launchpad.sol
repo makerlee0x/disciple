@@ -64,6 +64,13 @@ contract Launchpad is ILaunchpad {
     /// @notice walletCapBps snapshotted per coin at launch (immutable in the curve).
     mapping(address => uint256) public walletCapBpsOf;
 
+    /// @notice Routers allowed to call curve.routerBuy / routerSell on behalf of a trader (owner-managed).
+    mapping(address => bool) public isTrustedRouter;
+    /// @notice PVE LoginGate (EIP-712 Privy-login attestations). Required to launch PVE coins; snapshotted per coin.
+    address public loginGate;
+    /// @notice Game mode per coin (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP), immutable.
+    mapping(address => uint8) public modeOf;
+
     error InvalidMetadata();
     error TaxTooHigh();
     error CreatorBuyTooLarge();
@@ -75,6 +82,8 @@ contract Launchpad is ILaunchpad {
     error CurveDeployerUnset();
     error CreatorBuyMaxTooHigh();
     error WalletCapTooHigh();
+    error BadMode();
+    error LoginGateUnset();
 
     event Launched(
         address indexed token,
@@ -92,6 +101,10 @@ contract Launchpad is ILaunchpad {
     event PricerUpdated(address indexed pricer);
     event CreatorBuyMaxSet(uint256 bps);
     event WalletCapSet(uint256 bps);
+    event TrustedRouterSet(address indexed router, bool trusted);
+    event LoginGateSet(address indexed gate);
+    /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
+    event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
     event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd);
     /// @notice Emitted at launch for off-chain/indexer tier tracking (no on-chain tier hooks).
@@ -135,6 +148,25 @@ contract Launchpad is ILaunchpad {
         emit WalletCapSet(bps);
     }
 
+    function setTrustedRouter(address r, bool ok) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        isTrustedRouter[r] = ok;
+        emit TrustedRouterSet(r, ok);
+    }
+
+    function setLoginGate(address g) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        loginGate = g;
+        emit LoginGateSet(g);
+    }
+
+    /// @notice Claim PVE holder rewards (profit-tax pool) of `token`'s curve. Works after graduation.
+    function claim(address token) external returns (uint256) {
+        address c = curveOf[token];
+        if (c == address(0)) revert InvalidMetadata();
+        return BondingCurve(c).claimFor(msg.sender);
+    }
+
     function setPricer(address pricer_) external {
         if (msg.sender != owner) revert OnlyOwner();
         pricer = IQuotePricer(pricer_);
@@ -149,15 +181,26 @@ contract Launchpad is ILaunchpad {
 
     /// @inheritdoc ILaunchpad
     function launchCoin(LaunchParams calldata params) external override returns (LaunchResult memory) {
-        return _launch(params);
+        return _launch(params, Constants.MODE_TRENCH);
     }
 
     /// @inheritdoc ILaunchpad
     function launch(LaunchParams calldata params) external override returns (LaunchResult memory result) {
-        return _launch(params);
+        return _launch(params, Constants.MODE_TRENCH);
     }
 
-    function _launch(LaunchParams calldata params) internal returns (LaunchResult memory result) {
+    /// @notice Launch with a bonding-curve game mode (0 TRENCH WARFARE, 1 PVE, 2 PVP). launch/launchCoin = TRENCH.
+    function launchWithMode(LaunchParams calldata params, uint8 mode) external returns (LaunchResult memory) {
+        return _launch(params, mode);
+    }
+
+    function _launch(LaunchParams calldata params, uint8 mode) internal returns (LaunchResult memory result) {
+        if (mode > Constants.MODE_PVP) revert BadMode();
+        address gate;
+        if (mode == Constants.MODE_PVE) {
+            gate = loginGate;
+            if (gate == address(0)) revert LoginGateUnset();
+        }
         if (bytes(params.name).length == 0 || bytes(params.ticker).length == 0 || bytes(params.imageURI).length == 0) {
             revert InvalidMetadata();
         }
@@ -194,7 +237,9 @@ contract Launchpad is ILaunchpad {
                 migration,
                 params.creatorTaxBps,
                 quotePriceUsd,
-                wcap
+                wcap,
+                mode,
+                gate
             )
         );
 
@@ -216,6 +261,8 @@ contract Launchpad is ILaunchpad {
             creatorTaxBps: params.creatorTaxBps,
             launchedAt: block.timestamp
         });
+        if (mode != Constants.MODE_TRENCH) modeOf[address(t)] = mode;
+        emit LaunchMode(address(t), address(curve), mode);
         uint256 capBps = creatorBuyMaxBps;
         creatorBuyMaxBpsOf[address(t)] = capBps;
         unchecked {

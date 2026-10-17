@@ -13,7 +13,7 @@ contract SnipeSplitTest is IntegrationBase {
         uint256 bps = antiSnipe.currentFeeBps(address(tok));
         uint256 snipe = (qIn * bps) / 10_000;
         uint256 v0 = quote.balanceOf(address(rewardsVault));
-        uint256 t0 = quote.balanceOf(treasury);
+        uint256 t0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         (,,,, uint256 e0,,) = lockedLP.positions(address(tok));
         _buy(curve, sniper, qIn, 0);
         (,,,, uint256 e1,,) = lockedLP.positions(address(tok));
@@ -21,7 +21,7 @@ contract SnipeSplitTest is IntegrationBase {
         (, uint256 lps, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(proto);
         uint256 toRewards = (snipe * Constants.SNIPE_REWARDS_BPS) / Constants.BPS_DENOM;
         assertEq(quote.balanceOf(address(rewardsVault)) - v0, toRewards, "70%");
-        assertEq(quote.balanceOf(treasury) - t0, (snipe - toRewards) + tsh + rsh, "30% + proto treasury");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - t0, (snipe - toRewards) + tsh + rsh, "30% + proto treasury");
         assertEq(e1 - e0, lps, "LP gets only proto LP share");
         assertEq(toRewards + (snipe - toRewards), snipe, "no dust lost");
     }
@@ -30,11 +30,11 @@ contract SnipeSplitTest is IntegrationBase {
         vm.prank(owner);
         feeRouter.setRewardsVault(address(0));
         (BondingCurve curve, Token tok) = _launch(0, 0);
-        uint256 t0 = quote.balanceOf(treasury);
+        uint256 t0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         _buy(curve, sniper, 50 ether, 0);
         uint256 snipe = (50 ether * antiSnipe.currentFeeBps(address(tok))) / 10_000;
         (,, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(FeeMath.protocolFee(50 ether - snipe));
-        assertEq(quote.balanceOf(treasury) - t0, snipe + tsh + rsh);
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - t0, snipe + tsh + rsh);
         assertEq(quote.balanceOf(address(rewardsVault)), 0);
     }
 

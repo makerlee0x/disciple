@@ -121,4 +121,20 @@ library Constants {
 
     // ── BPS helper ───────────────────────────────────────────────────────────
     uint256 internal constant BPS_DENOM = 10_000;
+
+    // ── Bonding-curve game modes (contracts/docs/bonding-modes.md) — curve only, never post-graduation ──
+    uint8 internal constant MODE_TRENCH = 0; // hard: no mode caps (pre-existing behaviour, incl. walletCapBps)
+    uint8 internal constant MODE_PVE = 1; // easy
+    uint8 internal constant MODE_PVP = 2; // medium
+    // PVE (proposals — Maker lee can tweak before redeploy)
+    uint256 internal constant PVE_NET_CAP_BPS = 100; // 1% of supply, NET curve position
+    uint256 internal constant PVE_WINDOW = 7 minutes; // launch window (Maker lee 2026-10-16: 7 min)
+    uint256 internal constant PVE_WINDOW_BUY_CAP_BPS = 25; // 0.25% of supply per buy inside the window
+    uint256 internal constant PVE_MAX_SELL_BPS = 50; // 0.5% of supply per curve sell
+    uint256 internal constant PVE_PROFIT_TRIGGER_BPS = 17_700; // exit price > avg cost * 1.77 (i.e. >77% profit)
+    uint256 internal constant PVE_PROFIT_TAX_PPM = 7770; // 0.777% of the sell proceeds (ppm)
+    // PVP
+    uint256 internal constant PVP_CAP_START_BPS = 400; // 4% NET cap at launch
+    uint256 internal constant PVP_CAP_END_BPS = 1200; // 12% NET cap at graduation (linear in curve progress)
+    uint256 internal constant PVP_MAX_BUY_BPS = 333; // 3.33% per buy
 }

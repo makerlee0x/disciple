@@ -11,6 +11,7 @@ import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
 import {AntiSnipe} from "../src/AntiSnipe.sol";
 import {Migration} from "../src/Migration.sol";
+import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
@@ -195,6 +196,14 @@ contract Deploy is Script {
         if (hasRef) pricer.setPricePool(o.defaultQuote, refKey);
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
+        // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
+        launchpad.setTrustedRouter(address(router), true);
+        // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
+        {
+            address attester = vm.envOr("PVE_ATTESTER", address(0));
+            LoginGate gate = new LoginGate(deployer, attester);
+            launchpad.setLoginGate(address(gate));
+        }
         if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");

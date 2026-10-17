@@ -182,7 +182,7 @@ contract MigrationTest is Test {
     function test_postGrad_swap_charges_1pct_via_hook() public {
         (, Token tok, PoolKey memory key) = _launchAndGraduate();
 
-        uint256 treBefore = quote.balanceOf(treasury);
+        uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creatorBefore = feeRouter.creatorAccrued(address(tok), alice);
 
         // Swap quote → token (or reverse depending on ordering)
@@ -207,8 +207,8 @@ contract MigrationTest is Test {
 
         // Hook took 1% of output and routed — treasury and/or creator accrued should rise
         assertTrue(
-            quote.balanceOf(treasury) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
-                || tok.balanceOf(treasury) > 0,
+            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
+                || (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > 0,
             "fees should route"
         );
     }

@@ -16,7 +16,9 @@ contract CurveDeployer {
         address migration,
         uint256 creatorTaxBps,
         uint256 quotePriceUsd,
-        uint256 walletCapBps
+        uint256 walletCapBps,
+        uint8 mode,
+        address loginGate
     ) external returns (address) {
         return address(
             new BondingCurve(
@@ -29,7 +31,9 @@ contract CurveDeployer {
                 migration,
                 creatorTaxBps,
                 quotePriceUsd,
-                walletCapBps
+                walletCapBps,
+                mode,
+                loginGate
             )
         );
     }

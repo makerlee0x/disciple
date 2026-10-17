@@ -258,8 +258,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         address feeToken = Currency.unwrap(feeCurrency);
         if (feeAmount > 0) {
             // Full 1% fee → FeeRouter (33/33/33/1); no in-range LP donation (tramps/walls earn no yield).
-            poolManager.take(feeCurrency, address(this), feeAmount);
-            IERC20(feeToken).safeTransfer(address(feeRouter), feeAmount);
+            // Gas: PoolManager pays the FeeRouter directly (no hook hop / second ERC-20 transfer).
+            poolManager.take(feeCurrency, address(feeRouter), feeAmount);
             feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount);
         }
         _tryCompound(m.token);
