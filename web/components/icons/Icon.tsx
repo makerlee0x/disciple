@@ -29,7 +29,19 @@ export default function Icon({ name, size = 20, label, className, style }: Props
   );
 }
 
-/** Bomb-tier orb meter (tier 1–6 = PUFF…ATOM), 40×16 at 16px height. */
-export function OrbMeter({ tier, size = 16, label }: { tier: BombTier; size?: number; label?: string }) {
-  return <Icon name={`meter-orbs-${tier}` as IconName} size={size} label={label ?? `bomb tier ${tier} of 6`} />;
+/**
+ * Bomb-tier orb meter (tier 1–6 = PUFF…ATOM), 40×16 at 16px height. Same geometry as the sprite's meter-orbs-N,
+ * drawn inline so the brand v2 tokens apply: reached orbs = --dsc-bomb-meter-fill, unreached = --dsc-bomb-meter-track
+ * (see .orb-meter in globals.css). Pair it with the bomb icon + name; never color alone.
+ */
+export function OrbMeter({ tier, size = 16, label, className }: { tier: BombTier; size?: number; label?: string; className?: string }) {
+  const a11y = label === "" ? { "aria-hidden": true, focusable: false } : { role: "img", "aria-label": label ?? `bomb tier ${tier} of 6` };
+  return (
+    <svg width={(size * 40) / 16} height={size} viewBox="0 0 40 16" className={className ? `d-icon orb-meter ${className}` : "d-icon orb-meter"}
+      style={{ display: "inline-block", verticalAlign: "middle", flexShrink: 0 }} {...a11y}>
+      {[0, 1, 2, 3, 4, 5].map((i) => i < tier
+        ? <circle key={i} className="orb-on" cx={3.25 + i * 6.7} cy={8} r={2.6} />
+        : <circle key={i} className="orb-off" cx={3.25 + i * 6.7} cy={8} r={2.1} />)}
+    </svg>
+  );
 }

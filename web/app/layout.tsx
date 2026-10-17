@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./brand-tokens.css";
+import "./brand-tokens-v2.css";
 import "./globals.css";
 import { geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
