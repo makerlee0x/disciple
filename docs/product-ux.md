@@ -14,18 +14,18 @@ Backend types stay honest. `lib/protocol.ts` deals in `token`, `quoteToken` and 
 
 > **Decision note:** the brief asked that the STRATEGY pairing be hidden "so it isn't obvious what you're buying." I kept the rocket wording and the $-only display, but I did **not** remove disclosure. Steering users into an undisclosed asset (here, the owner's own coin) is a consumer-protection and legal risk. Talk to counsel before reducing disclosure any further.
 
-## 2. Verified tiers
+## 2. Verification (manual yes/no)
 
-Source of the fomo baseline: [fomotrendings.com FOMO verification checker](https://fomotrendings.com/tools/fomo-token-verification-checker), which describes fomo.family/verify-token as **≥ $1M 24h DEX volume, ≥ $5M market cap, ≥ 1,000 holders, unique name + symbol, then manual review**. fomo's own blog ([spotting scams](https://fomo.family/blog/learn/spotting-scams-and-low-quality-tokens)) says verification is team due diligence and not metrics alone. Its [navigation guide](https://fomo.family/blog/learn/navigating-your-fomo-app) shows "verified" as one filter among several (not the default), and unverified tokens get a warning popup. The fomo.family/verify-token page renders client-side, so we couldn't read the numbers directly. Treat them as **third-party-reported**. We found **no** published fomo minimum for **age** or **liquidity**.
+Verification is a **manual yes/no flag set by hand by the team**. There are no automatic tiers and no metric thresholds (volume, mcap, holders, age and liquidity do not verify a rocket). This matches fomo's own description ([spotting scams](https://fomo.family/blog/learn/spotting-scams-and-low-quality-tokens)): verification is team due diligence, not metrics alone.
 
-| Tier | 24h vol | Age | Holders | Liquidity | Mcap | Provenance |
-|---|---|---|---|---|---|---|
-| Unverified | – | – | – | – | – | default |
-| ✦ Blessed | $10K | 24h* | 100 | $5K* | $33K (graduation) | DISCIPLE proposal, scaled for a $7K→$33K curve |
-| ✶ Anointed | $100K | 72h* | 500 | $50K* | $1M | DISCIPLE proposal |
-| ☀ Glorified | $1M | 168h* | 1,000 | $250K* | $5M | = fomo blue check on vol / mcap / holders |
+A rocket is verified when **either**:
 
-`*` = unverified against fomo (our own guess). Tiers are computed off-chain (`verifiedLevel()` in `web/lib/config.ts`). The launchpad filter defaults to **All**, matching fomo. Badges currently use **mock stats**.
+1. its coin address is in `VERIFIED_COINS` in `web/lib/verified.ts` (a hand-maintained, lowercase address set, empty by default), or
+2. its metadata carries `verified: true` (`Rocket.verified` / `CoinMetadata.verified`), which a future admin API can set.
+
+`isVerified(coinAddress, flag?)` in `web/lib/verified.ts` is the single check. **To verify a rocket:** add its lowercase coin address to `VERIFIED_COINS` and ship, or set `verified: true` via the admin route once it exists. To un-verify, remove it.
+
+UI: verified rockets show one "Verified" badge (the `d-verified` icon). Unverified rockets show nothing. The launchpad has an All / Verified-only filter that defaults to **All**, matching fomo, where "verified" is one filter among several.
 
 ## 3. Crew / PvE framing
 

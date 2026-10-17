@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { CURVE, fmtUsd, gradProgress, verifiedLevel } from "@/lib/config";
+import { CURVE, fmtUsd, gradProgress } from "@/lib/config";
+import { isRocketVerified } from "@/lib/verified";
 import VerifiedBadge from "@/components/VerifiedBadge";
 import PairArt from "@/components/pairart/PairArt";
 import { BASE_PAIRS, basePair } from "@/lib/pairArt";
@@ -28,7 +29,7 @@ const VIEW_KEY = "disciple.launchpad.view";
 const WATCH_KEY = "disciple.watchlist";
 
 const isGrad = (c: Rocket) => c.graduated || (c.mcap != null && c.mcap >= CURVE.graduationMcap);
-const tierOf = (c: Rocket) => verifiedLevel({ ...c.stats, mcapUsd: c.mcap ?? 0 });
+const verOf = (c: Rocket) => isRocketVerified(c);
 
 function useWatchlist() {
   const [w, setW] = useState<Set<string>>(new Set());
@@ -45,7 +46,7 @@ function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
   return (
     <span className="lp-av2">
       <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size={size <= 32 ? "icon" : "list"} px={size} />
-      <span className="lp-av-check"><VerifiedBadge tier={tierOf(c)} size={13} /></span>
+      {verOf(c) && <span className="lp-av-check"><VerifiedBadge verified size={13} /></span>}
     </span>
   );
 }
@@ -94,7 +95,7 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
             </span>
-            <span className="lp-tname">{c.name} <VerifiedBadge tier={tierOf(c)} size={13} /></span>
+            <span className="lp-tname">{c.name} <VerifiedBadge verified={verOf(c)} size={13} /></span>
             <span className="lp-tmeta"><b>${c.tk}</b></span>
             <span className="lp-tmeta"><b className="lp-mc">{c.mcap ? fmtUsd(c.mcap) : "…"}</b> <Chg v={c.chg} /></span>
           </button>
@@ -137,7 +138,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
       <div className="lp-card-art"><PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
-        <div className="lp-card-name">{c.name} <VerifiedBadge tier={tierOf(c)} size={14} /></div>
+        <div className="lp-card-name">{c.name} <VerifiedBadge verified={verOf(c)} size={14} /></div>
         <div className="lp-card-sub">${c.tk} · {c.pairSym ?? "STRATEGY"} · {c.stats.holders} crew</div>
         <div className="lp-card-mc">{c.mcap ? fmtUsd(c.mcap) : "…"} <Chg v={c.chg} /></div>
         <i className="lp-bar"><i style={{ width: `${grad ? 100 : p || 0}%` }} /></i>
@@ -204,7 +205,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
     let r = visible.filter((c) => {
       if (pair !== "any" && baseOf(c) !== pair) return false;
       if (needle && !(c.name.toLowerCase().includes(needle) || c.tk.toLowerCase().includes(needle) || c.id.toLowerCase().includes(needle))) return false;
-      if (verified === "verified" && tierOf(c).level === "UNVERIFIED") return false;
+      if (verified === "verified" && !verOf(c)) return false;
       if (tab === "graduated") return isGrad(c);
       if (tab === "near") { const p = gradProgress(c.mcap); return !isGrad(c) && p != null && p >= 60; }
       return true;
@@ -244,7 +245,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
             <div className="lp-tools">
               <input className="ds-input lp-search" type="search" placeholder="Search name, $TICKER or 0x…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search rockets" />
               <DsSelect value={pair} options={PAIRS} onChange={setPair} ariaLabel="Pair filter" className="lp-pair" />
-              <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} onClick={() => setVerified(verified === "verified" ? "all" : "verified")}><Icon name="verified" size={16} /> Verified</button>
+              <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} title="Show hand-verified rockets only" onClick={() => setVerified(verified === "verified" ? "all" : "verified")}><Icon name="verified" size={16} /> Verified</button>
               <div className="ds-seg lp-view" role="group" aria-label="View">
                 <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")} title="List" aria-label="List"><Icon name="menu" size={16} /></button>
                 <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} onClick={() => pickView("grid")} title="Grid" aria-label="Grid"><Icon name="grid" size={16} /></button>

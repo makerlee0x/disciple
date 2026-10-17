@@ -151,55 +151,11 @@ export const QUOTE_PRESETS = [
 ] as const;
 
 /* ------------------------------------------------------------------ */
-/* Verified tiers (modelled on fomo's blue-check minimums)             */
+/* Verification: manual yes/no flag (see lib/verified.ts)              */
 /* ------------------------------------------------------------------ */
-/*
- * fomo blue check (per fomotrendings.com/tools/fomo-token-verification-checker,
- * describing fomo.family/verify-token): ≥$1M 24h DEX volume, ≥$5M mcap,
- * ≥1,000 holders, unique name+symbol, then manual review.
- * fomo publishes NO token-age or liquidity minimum that we could find → our
- * age/liquidity numbers below are DISCIPLE proposals, marked UNVERIFIED.
- */
-export type VerifiedLevel = "UNVERIFIED" | "BLESSED" | "ANOINTED" | "GLORIFIED";
+/* No automatic tiers or metric thresholds: the team verifies rockets by hand. */
 
-export interface VerifiedTierRule {
-  level: VerifiedLevel;
-  label: string;
-  icon: string;
-  minVolume24hUsd: number;
-  minAgeHours: number;
-  minHolders: number;
-  minLiquidityUsd: number;
-  minMcapUsd: number;
-  /** Which numbers trace to a fomo source vs. our own guess. */
-  provenance: string;
-}
-
-export const VERIFIED_TIERS: readonly VerifiedTierRule[] = [
-  {
-    level: "UNVERIFIED", label: "Unverified", icon: "○",
-    minVolume24hUsd: 0, minAgeHours: 0, minHolders: 0, minLiquidityUsd: 0, minMcapUsd: 0,
-    provenance: "default",
-  },
-  {
-    // Scaled for a $7K→$33K curve: fomo's bar would exclude every pre-grad rocket.
-    level: "BLESSED", label: "Blessed", icon: "✦",
-    minVolume24hUsd: 10_000, minAgeHours: 24, minHolders: 100, minLiquidityUsd: 5_000, minMcapUsd: 33_000,
-    provenance: "DISCIPLE proposal (UNVERIFIED vs fomo; ~1/100 of fomo volume, 1/10 holders; mcap = graduation)",
-  },
-  {
-    level: "ANOINTED", label: "Anointed", icon: "✶",
-    minVolume24hUsd: 100_000, minAgeHours: 72, minHolders: 500, minLiquidityUsd: 50_000, minMcapUsd: 1_000_000,
-    provenance: "DISCIPLE proposal (age/liquidity UNVERIFIED)",
-  },
-  {
-    // Matches fomo's blue check on volume / mcap / holders.
-    level: "GLORIFIED", label: "Glorified", icon: "☀",
-    minVolume24hUsd: 1_000_000, minAgeHours: 168, minHolders: 1_000, minLiquidityUsd: 250_000, minMcapUsd: 5_000_000,
-    provenance: "volume/mcap/holders = fomo blue check; age/liquidity UNVERIFIED",
-  },
-] as const;
-
+/** Per-rocket market stats (display / sorting only; they do NOT drive verification). */
 export interface RocketStats {
   volume24hUsd: number;
   ageHours: number;
@@ -208,21 +164,7 @@ export interface RocketStats {
   mcapUsd: number;
 }
 
-export function verifiedLevel(s: RocketStats): VerifiedTierRule {
-  let best = VERIFIED_TIERS[0];
-  for (const t of VERIFIED_TIERS)
-    if (
-      s.volume24hUsd >= t.minVolume24hUsd &&
-      s.ageHours >= t.minAgeHours &&
-      s.holders >= t.minHolders &&
-      s.liquidityUsd >= t.minLiquidityUsd &&
-      s.mcapUsd >= t.minMcapUsd
-    )
-      best = t;
-  return best;
-}
-
-/** fomo shows all tokens by default with a "verified" filter → default "all". */
+/** Launchpad shows all rockets by default, with a "Verified" (hand-verified only) filter → default "all". */
 export const LAUNCHPAD_DEFAULT_FILTER: "all" | "verified" = "all";
 
 /** Next unlock reward per altitude tier index (PvE crew rewards; mock copy). */
