@@ -20,7 +20,7 @@ BOOST is buy. DUMP is sell.
 DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn't live yet, and there's no date.
 
 **What do I need to start?**
-Sign in, get test funds and a little test ETH for gas. See [Quick start](/docs/quick-start).
+Sign in with X, email or a wallet. Then get test funds and a little test ETH for gas. See [Quick start](/docs/quick-start).
 
 ## Pairing
 
