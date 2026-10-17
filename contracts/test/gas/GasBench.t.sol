@@ -107,11 +107,38 @@ contract GasBench is IntegrationBase {
         _log("curve.usdg2.sell.warm", _g());
     }
 
+    /// @dev audit round 3: the EMA reference needs >= 3 observations (seed + 2 distinct blocks, last >= 60 s later).
+    function _benchRefReady() internal {
+        address o = _wallet("obs");
+        for (uint256 i; i < 2; ++i) {
+            vm.warp(vm.getBlockTimestamp() + 31);
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.prank(o);
+            router.buyExactIn(address(uTok), 1e12, 1, o, _dl());
+            vm.prank(o);
+            router.buyWithUsdg(address(sTok), 1e12, 1, _dl());
+        }
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.roll(vm.getBlockNumber() + 1);
+    }
+
+    function _benchRefReadyU() internal {
+        address o = _wallet("obs");
+        for (uint256 i; i < 2; ++i) {
+            vm.warp(vm.getBlockTimestamp() + 31);
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.prank(o);
+            router.buyExactIn(address(uTok), 1e12, 1, o, _dl());
+        }
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.roll(vm.getBlockNumber() + 1);
+    }
+
     // ── graduated v4 pool ──
     function test_bench_v4() public {
         _graduateWith(uCurve, quote);
         _graduateWith(sCurve, strategy);
-        _warpRefReady(); // compound reference ready (60 s), so the bench swaps stay compound-ready as before
+        _benchRefReady(); // compound reference ready (>= 3 obs over 60 s), so the bench swaps stay compound-ready
         address a = _wallet("benchD");
         vm.prank(a);
         router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
@@ -160,7 +187,7 @@ contract GasBench is IntegrationBase {
     /// Non-compounding v4 swaps (compound path off): isolates the hook's per-swap overhead (block-start anchor).
     function test_bench_v4_noCompound() public {
         _graduateWith(uCurve, quote);
-        _warpRefReady();
+        _benchRefReadyU();
         vm.prank(hook.admin());
         hook.setCompounder(address(0), 50_000);
         address a = _wallet("benchN");

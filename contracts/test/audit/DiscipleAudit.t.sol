@@ -95,7 +95,7 @@ contract DiscipleAuditTest is IntegrationBase {
         BondingCurve c;
         (c, tok) = _launch(0, 0);
         _graduate(c);
-        _warpRefReady(); // compound reference needs 60 s of history
+        _refReady(tok); // compound reference needs >= 3 observations over >= 60 s
         vm.prank(owner);
         lockedLP.setCompoundParams(1, 0, 300); // tiny min, uncapped, 3% guard
         _swapExactInQuoteForToken(tok, trader1, 50 ether); // token-side fees + leftover quote → both buckets
@@ -175,13 +175,27 @@ contract DiscipleAuditTest is IntegrationBase {
             _swapExactInQuoteForToken(tok, v, 5_000 ether);
             _swapExactInTokenForQuote(tok, v, tok.balanceOf(v));
         }
+        // the EMA is speed-limited (audit round 3): let it walk to the post-volume price with honest dust
+        // observations (compounding still off), then restore the defaults: 0.5% cap, 3% guard
+        for (uint256 i; i < 40; i++) {
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 30);
+            _swapExactInQuoteForToken(tok, v, 1e15);
+        }
         vm.prank(owner);
-        lockedLP.setCompoundParams(1, 5_000, 300); // defaults: 0.5% cap, 3% guard
-        vm.roll(vm.getBlockNumber() + 1);
-        vm.warp(vm.getBlockTimestamp() + 61); // EMA settles back at the post-volume price
-        _swapExactInQuoteForToken(tok, v, 1e15);
+        lockedLP.setCompoundParams(1, 5_000, 300);
         vm.roll(vm.getBlockNumber() + 1);
         vm.warp(vm.getBlockTimestamp() + 1);
+        // sanity: from this state an honest swap DOES compound (so "0 adds" in an attack test means the defence
+        // worked, not a stale setup)
+        uint256 snap = vm.snapshotState();
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, v, 1 ether);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        _swapExactInTokenForQuote(tok, v, tok.balanceOf(v));
+        require(_count(COMPOUNDED) >= 1, "setup: honest swap must compound");
+        vm.revertToState(snap);
     }
 
     function _xblock(Token tok, uint256 pump, uint256 holdSecs, bool viaFlush)
@@ -256,6 +270,148 @@ contract DiscipleAuditTest is IntegrationBase {
         }
     }
 
+    // ── High-1 residual (audit round 3): held pump on a quiet pool, then a burst / periodic dust ──
+
+    /// @dev pump (last swap of block N) → hold `hold` s (dust every `every` s if nonzero, each its own block) →
+    ///      `burst` dust swaps in consecutive blocks 1 s apart → dump. Production defaults 50 / 5000 / 300.
+    function _held(Token tok, uint256 pump, uint256 hold, uint256 every, uint256 burst)
+        internal
+        returns (uint256 endQuote, uint256 nComp, uint256 dL)
+    {
+        address att = makeAddr("hatk");
+        uint256 b0 = quote.balanceOf(att);
+        uint128 l0 = _liq(tok);
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, att, pump);
+        if (every == 0) {
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + hold);
+        } else {
+            for (uint256 t = every; t <= hold; t += every) {
+                vm.roll(vm.getBlockNumber() + 1);
+                vm.warp(vm.getBlockTimestamp() + every);
+                _swapExactInQuoteForToken(tok, att, 1e15);
+            }
+        }
+        for (uint256 i; i < burst; ++i) {
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 1);
+            _swapExactInQuoteForToken(tok, att, 1e15);
+        }
+        _swapExactInTokenForQuote(tok, att, tok.balanceOf(att));
+        nComp = _count(COMPOUNDED);
+        endQuote = quote.balanceOf(att) - b0;
+        dL = _liq(tok) - l0;
+    }
+
+    function _heldVsControl(uint256 pump, uint256 hold, uint256 every, uint256 burst) internal {
+        Token tok = _gradReady();
+        _bigBuckets(tok);
+        vm.prank(owner);
+        lockedLP.setCompoundParams(50, 5_000, 300); // production defaults
+        uint256 snap = vm.snapshotState();
+        (uint256 atk, uint256 n, uint256 dL) = _held(tok, pump, hold, every, burst);
+        uint128 L = _liq(tok);
+        vm.revertToState(snap);
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1_000_000, 0, 300); // control: compounding off
+        (uint256 ctl,,) = _held(tok, pump, hold, every, burst);
+        console2.log("pump / hold s / dust every s", pump / 1e18, hold, every);
+        console2.log("  adds / dL ppm of L", n, dL * 1e6 / L);
+        console2.log("  attacker end / control end (quote wei)", atk, ctl);
+        assertLe(atk, ctl, "attacker <= control");
+    }
+
+    function test_high1r3_hold61Burst20_40k() public {
+        _heldVsControl(40_000 ether, 61, 0, 20);
+    }
+
+    function test_high1r3_hold61Burst20_60k() public {
+        _heldVsControl(60_000 ether, 61, 0, 20);
+    }
+
+    function test_high1r3_hold61Burst20_80k() public {
+        _heldVsControl(80_000 ether, 61, 0, 20);
+    }
+
+    function test_high1r3_walk120s_dust10s() public {
+        _heldVsControl(40_000 ether, 120, 10, 20);
+        _heldVsControl(60_000 ether, 120, 10, 20);
+        _heldVsControl(80_000 ether, 120, 10, 20);
+    }
+
+    function test_high1r3_walk300s_dust10s() public {
+        _heldVsControl(40_000 ether, 300, 10, 20);
+        _heldVsControl(60_000 ether, 300, 10, 20);
+        _heldVsControl(80_000 ether, 300, 10, 20);
+    }
+
+    function test_high1r3_walk600s_dust10s() public {
+        _heldVsControl(40_000 ether, 600, 10, 20);
+        _heldVsControl(60_000 ether, 600, 10, 20);
+        _heldVsControl(80_000 ether, 600, 10, 20);
+    }
+
+    function test_high1r3_walk600s_dust2s() public {
+        _heldVsControl(40_000 ether, 600, 2, 20);
+        _heldVsControl(60_000 ether, 600, 2, 20);
+        _heldVsControl(80_000 ether, 600, 2, 20);
+    }
+
+    /// Budget: a burst of compound-ready swaps in ONE block adds at most once; per 60 s window at most 0.5% of L.
+    function test_high1r3_compoundBudget() public {
+        Token tok = _gradReady();
+        _bigBuckets(tok);
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1, 5_000, 300);
+        uint128 l0 = _liq(tok);
+        vm.recordLogs();
+        for (uint256 i; i < 5; ++i) _swapExactInQuoteForToken(tok, trader1, 1 ether); // same block, separate txs
+        assertLe(_count(COMPOUNDED), 1, "<= one add per block");
+        for (uint256 i; i < 30; ++i) {
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 1);
+            _swapExactInQuoteForToken(tok, trader1, 1 ether);
+            _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1));
+        }
+        uint256 n1 = _count(COMPOUNDED);
+        (uint32 ws, uint24 used,) = lockedLP.compoundBudget(address(tok));
+        (uint256 bt, uint256 bq) = lockedLP.compoundBucket(address(tok));
+        console2.log("adds after first block / used ppm / window start", n1, used, ws);
+        console2.log("  buckets", bt, bq);
+        assertLe(uint256(_liq(tok) - l0) * 1e6, uint256(l0) * 5_000 + l0, "<= 0.5% of L per 60 s window");
+        assertLe(used, 5_000 + 1);
+        if (used >= 5_000) {
+            vm.roll(vm.getBlockNumber() + 1);
+            assertEq(lockedLP.flush(address(tok)), 0, "flush obeys the same window budget");
+        }
+        // next window: budget refills (a compound-ready swap adds again)
+        vm.warp(vm.getBlockTimestamp() + 60);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1));
+        assertGe(_count(COMPOUNDED), 1, "next window: budget refilled");
+        (uint32 ws2,,) = lockedLP.compoundBudget(address(tok));
+        assertGt(ws2, ws, "new window");
+    }
+
+    /// EMA never snaps: after a long quiet period one observation moves it by <= 50 ticks.
+    function test_high1r3_emaNoSnap() public {
+        Token tok = _gradReady();
+        PoolId pid = _poolKey(tok).toId();
+        (int32 e0,,,,) = hook.priceReference(pid);
+        _swapExactInQuoteForToken(tok, makeAddr("p"), 40_000 ether); // pump
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 3_600);
+        _swapExactInQuoteForToken(tok, trader1, 1e15); // rolls the block → one observation of the pumped tick
+        (int32 e1,,,,) = hook.priceReference(pid);
+        int256 d = int256(e1) - int256(e0);
+        assertEq(d < 0 ? -d : d, 50 * 256, "exactly the 50-tick per-observation cap, not a snap");
+    }
+
     /// No reference history yet (just graduated): no compounding at all, flush skips.
     function test_high1_noCompoundBeforeRefAge() public {
         BondingCurve c;
@@ -270,10 +426,13 @@ contract DiscipleAuditTest is IntegrationBase {
         assertEq(_count(COMPOUNDED), 0, "reference younger than REF_MIN_AGE");
         vm.roll(vm.getBlockNumber() + 1);
         assertEq(lockedLP.flush(address(tok)), 0);
-        (,,, bool ready) = hook.priceReference(_poolKey(tok).toId());
+        (,,,, bool ready) = hook.priceReference(_poolKey(tok).toId());
         assertFalse(ready);
-        _warpRefReady();
-        (,,, ready) = hook.priceReference(_poolKey(tok).toId());
+        _warpRefReady(); // time alone is not enough (audit round 3): needs >= 3 distinct-block observations
+        (,,,, ready) = hook.priceReference(_poolKey(tok).toId());
+        assertFalse(ready, "age without observations");
+        _refReady(tok);
+        (,,,, ready) = hook.priceReference(_poolKey(tok).toId());
         assertTrue(ready);
     }
 

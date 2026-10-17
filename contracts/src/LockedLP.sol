@@ -63,6 +63,11 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         int24 tickUpper;
         uint128 liquidity;
         bool tokenIsC0; // packed with ticks + liquidity (compound hot path reads one slot)
+        // Audit round 3 (HIGH-1 residual) compound budget, same slot: at most one add per block and at most
+        // maxCompoundPpm of liquidity per COMPOUND_WINDOW (window starts at its first add).
+        uint32 cWindowStart; // timestamp (mod 2^32) of the current window's first add
+        uint24 cWindowPpm; // ppm of position liquidity added in the current window
+        uint16 cBlock; // low 16 bits of the last add's block number
         bytes32 salt;
         PoolId poolId; // cached for the compound hot path (avoids re-hashing / reading the 3-slot key)
     }
@@ -91,6 +96,9 @@ contract LockedLP is ILockedLP, IUnlockCallback {
 
     uint160 internal immutable SQRT_LOWER;
     uint160 internal immutable SQRT_UPPER;
+
+    /// @notice Compound budget window (seconds): <= maxCompoundPpm of liquidity per window, <= 1 add per block.
+    uint256 public constant COMPOUND_WINDOW = 60;
 
     uint8 internal constant CB_SEED = 0;
     uint8 internal constant CB_FLUSH = 1;
@@ -350,6 +358,13 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         liquidity = abi.decode(r, (uint128));
     }
 
+    /// @notice Compound budget state: current window start (timestamp mod 2^32), ppm of liquidity added in it, and
+    ///         the low 16 bits of the last add's block.
+    function compoundBudget(address token) external view returns (uint32 windowStart, uint24 usedPpm, uint16 lastBlock) {
+        Position storage p = _positions[token];
+        return (p.cWindowStart, p.cWindowPpm, p.cBlock);
+    }
+
     /// @notice Pending LP-share buckets for a graduated coin (token side, quote side).
     function compoundBucket(address token) external view returns (uint256 tokenAmount, uint256 quoteAmount) {
         Bucket memory b = _buckets[token];
@@ -364,6 +379,15 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (b.token < 2 || b.quote < 2) return 0;
         // Non-empty buckets imply graduated (addLockedLiquidity only buckets post-graduation).
         Position storage p = _positions[token];
+        // Budget (one slot, read before any external call): one add per block, maxCompoundPpm per window. The
+        // 16-bit block tag can only collide if 65,536 blocks fit inside one 60 s window.
+        uint32 nowT = uint32(block.timestamp);
+        uint256 used = p.cWindowPpm;
+        bool fresh = nowT - p.cWindowStart >= uint32(COMPOUND_WINDOW);
+        if (fresh) used = 0;
+        else if (p.cBlock == uint16(block.number)) return 0;
+        uint256 maxPpm = maxCompoundPpm;
+        if (maxPpm != 0 && used >= maxPpm) return 0;
         (uint160 sqrtP,,,) = poolManager.getSlot0(p.poolId);
         uint256 maxDev = maxCompoundDeviationBps;
         if (r0 != 0 && _deviationBps(r0, sqrtP) > maxDev) return 0;
@@ -377,9 +401,8 @@ contract LockedLP is ILockedLP, IUnlockCallback {
 
         uint256 posL = p.liquidity;
         if (liq == 0 || uint256(liq) * 1e6 < posL * minCompoundPpm) return 0;
-        uint256 maxPpm = maxCompoundPpm;
         if (maxPpm != 0) {
-            uint256 capL = posL * maxPpm / 1e6;
+            uint256 capL = posL * (maxPpm - used) / 1e6; // remaining window budget
             if (liq > capL) liq = uint128(capL);
             if (liq == 0) return 0;
         }
@@ -414,6 +437,10 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         uint128 qCarry = b.quote - uint128(quoteUsed);
         _buckets[token] = Bucket({token: tCarry, quote: qCarry});
         p.liquidity += liq;
+        used += Math.ceilDiv(uint256(liq) * 1e6, posL);
+        if (fresh) p.cWindowStart = nowT;
+        p.cWindowPpm = uint24(used < type(uint24).max ? used : type(uint24).max);
+        p.cBlock = uint16(block.number);
         p.tokenAmount += tokenUsed;
         p.quoteAmount += quoteUsed;
         emit LiquidityCompounded(token, liq, tokenUsed, quoteUsed, tCarry, qCarry);

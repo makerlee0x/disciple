@@ -113,7 +113,7 @@ contract LPCompoundTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         tok = _grad();
-        _warpRefReady();
+        _refReady(tok);
     }
 
     function test_defaults_and_wiring() public view {
@@ -128,7 +128,7 @@ contract LPCompoundTest is IntegrationBase {
     /// @dev Decision 2026-10-16: unpaired graduation quote seeds the coin's compound quote bucket.
     function test_graduation_leftover_goes_to_quote_bucket() public view {
         (uint256 bt, uint256 bq) = _bucket(tok);
-        assertEq(bt, 0);
+        assertLt(bt, 1e16, "token side: only the reference observers' dust fees");
         assertGt(bq, 0, "leftover quote in bucket");
         assertEq(quote.balanceOf(address(lockedLP)), bq);
         // ~15.6% of the ~$11K raise on the 18-dec mock quote at $1
@@ -185,6 +185,7 @@ contract LPCompoundTest is IntegrationBase {
         assertEq(_count(COMPOUNDED), 0);
         (, uint256 bq) = _bucket(tok);
         uint128 l0 = _liq(tok);
+        vm.roll(vm.getBlockNumber() + 1); // audit round 3: at most one add per block
         vm.recordLogs();
         _buy(tok, 50 ether);
         assertEq(_count(COMPOUNDED), 1);
@@ -329,7 +330,7 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_multi_coin_isolation() public {
         tokB = _grad();
-        _warpRefReady();
+        _refReady(tokB);
         _params(1_000_000, 0, 5000); // accumulate only
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);

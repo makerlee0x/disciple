@@ -234,6 +234,20 @@ abstract contract IntegrationBase is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
+    /// @dev Make the hook's compound reference ready (audit round 3: >= 3 observations, last >= 60 s after the
+    ///      seed): two dust buys in distinct blocks by a throwaway wallet, then a fresh block.
+    function _refReady(Token tok) internal {
+        address w = makeAddr("refObserver");
+        vm.warp(vm.getBlockTimestamp() + 31);
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInQuoteForToken(tok, w, 1e12);
+        vm.warp(vm.getBlockTimestamp() + 31);
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInQuoteForToken(tok, w, 1e12);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.roll(vm.getBlockNumber() + 1);
+    }
+
     function _warpPastSnipe() internal {
         vm.warp(block.timestamp + Constants.ANTI_SNIPE_DURATION + 1);
     }

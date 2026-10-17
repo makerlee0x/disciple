@@ -112,6 +112,10 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     ///        weighted by the elapsed seconds, so a price pushed at the end of block N carries ~(blockTime / 60 s)
     ///        weight in block N+1 — a one-block-boundary pump cannot move the reference.
     ///      - refSince: when the EMA started (registerPool); compounding needs >= REF_MIN_AGE of history.
+    ///      - obs: number of EMA observations (the registration seed + one per distinct block), saturating at 255.
+    ///      Audit round 3 (HIGH-1 residual): the EMA never snaps. Each observation's weight is at most 50%
+    ///      (dt is capped at REF_WINDOW / 2) and its move at most MAX_EMA_STEP_TICKS, so a pump held through a
+    ///      quiet period needs many distinct-block observations to drag the reference.
     struct PoolTrack {
         uint8 tier;
         uint40 anchorBlock;
@@ -119,6 +123,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         int32 emaTickX256;
         uint40 emaTime;
         uint40 refSince;
+        uint8 obs;
     }
 
     mapping(PoolId => PoolTrack) internal _track;
@@ -127,6 +132,11 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     uint256 public constant REF_WINDOW = 60;
     /// @notice Minimum reference history (seconds since the pool was registered) before any compounding.
     uint256 public constant REF_MIN_AGE = 60;
+    /// @notice Minimum EMA observations (seed + distinct blocks), the last one >= REF_MIN_AGE after the seed.
+    uint256 public constant REF_MIN_OBS = 3;
+    /// @notice EMA speed limit: at most 100 ticks (≈ 1.005% price, 1/3 of the 3% compound guard) per REF_WINDOW of
+    ///         elapsed time, and at most 50 ticks per observation.
+    int256 public constant MAX_EMA_STEP_TICKS = 100;
 
     /// @notice Last spot altitude tier per pool (0..17).
     function altitudeTierOf(PoolId id) external view returns (uint8) {
@@ -144,10 +154,10 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     function priceReference(PoolId id)
         external
         view
-        returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, bool ready)
+        returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, uint8 obs, bool ready)
     {
         PoolTrack memory t = _track[id];
-        return (t.emaTickX256, t.emaTime, t.refSince, _refReady(t));
+        return (t.emaTickX256, t.emaTime, t.refSince, t.obs, _refReady(t));
     }
 
     /// @notice References for LockedLP.flush: this block's block-start price (0 if the pool has not traded in
@@ -158,8 +168,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         if (_refReady(t)) refEma = TickMath.getSqrtPriceAtTick(_emaTick(t));
     }
 
-    function _refReady(PoolTrack memory t) private view returns (bool) {
-        return t.refSince != 0 && block.timestamp >= uint256(t.refSince) + REF_MIN_AGE;
+    function _refReady(PoolTrack memory t) private pure returns (bool) {
+        return t.refSince != 0 && t.obs >= REF_MIN_OBS && uint256(t.emaTime) >= uint256(t.refSince) + REF_MIN_AGE;
     }
 
     function _emaTick(PoolTrack memory t) private pure returns (int24) {
@@ -284,7 +294,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             anchorTick: 0,
             emaTickX256: int32(tk) * 256,
             emaTime: uint40(block.timestamp),
-            refSince: uint40(block.timestamp)
+            refSince: uint40(block.timestamp),
+            obs: 1
         });
         emit AltitudeUpdate(token, mcap, tier);
     }
@@ -326,11 +337,19 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
                 // unregistered pools never reach here in practice (afterSwap reverts); start the reference anyway
                 t.refSince = uint40(block.timestamp);
                 t.emaTickX256 = int32(target);
-            } else if (dt >= REF_WINDOW) {
-                t.emaTickX256 = int32(target);
+                t.obs = 1;
             } else {
+                // never snap: weight <= 50% (dt capped at REF_WINDOW / 2), and the move is speed-limited to
+                // MAX_EMA_STEP_TICKS per REF_WINDOW of elapsed time (so <= MAX/2 per observation, and dense dust
+                // swaps can't walk it faster than ~1% price per minute)
+                uint256 w = dt < REF_WINDOW / 2 ? dt : REF_WINDOW / 2;
                 int256 e = t.emaTickX256;
-                t.emaTickX256 = int32(e + (target - e) * int256(dt) / int256(REF_WINDOW));
+                int256 step = (target - e) * int256(w) / int256(REF_WINDOW);
+                int256 maxStep = MAX_EMA_STEP_TICKS * 256 * int256(w) / int256(REF_WINDOW);
+                if (step > maxStep) step = maxStep;
+                else if (step < -maxStep) step = -maxStep;
+                t.emaTickX256 = int32(e + step);
+                if (t.obs != type(uint8).max) ++t.obs;
             }
             t.emaTime = uint40(block.timestamp);
         }
