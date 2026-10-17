@@ -8,7 +8,7 @@ Sample-data profile (`/profile`) and achievements (`/achievements`) for DISCIPLE
 
 | Field | Meaning |
 |-------|---------|
-| `side` | `buy` (fuel) or `sell` (brake / bomb) |
+| `side` | `buy` (BOOST) / `sell` (DUMP, drops a bomb) |
 | `usd` | Gross $ notional |
 | `priceBefore` / `priceAfter` | Spot $ around the fill |
 | `impactBps` | Price impact in basis points (drives bomb tier) |
@@ -76,10 +76,10 @@ Thresholds in `IDENTITY_THRESHOLDS` (`web/lib/config.ts`). Primary = highest-wei
 | Bomber | ≥8 bombs (impact ≥ grenade / 2%) |
 | Nuker | ≥2 nukes/atoms (impact ≥25%) |
 | Crew Captain | Top fueler on ≥2 graduated rockets |
-| Gate Keeper | ≥3 Pearly Gates assists |
+| Gate Keeper | ≥3 Outer Space assists |
 | Launcher | ≥1 rocket launched |
 | Dev Supporter | ≥1 graduated launch |
-| Kingmaker | Early fuel on ≥2 rockets that hit Angels+ |
+| Kingmaker | Early fuel on ≥2 rockets that hit Morning Stars+ |
 | Farmer | ≥5,000 points with realized PnL ≤ $50 |
 | Smart Money | Top-decile ROI with ≥10 closes |
 
@@ -89,7 +89,7 @@ Unmatched pilots fall back to **Pilgrim**.
 
 44 framed trophies in Flight, Crew, Bombs, Conviction, Launcher, Trencher, Seasonal. Rarity frames: Common → Blessed → Anointed → Glorified → Divine. States: locked / in-progress / unlocked. Season pass XP track at top of `/achievements`.
 
-Bomb impact tiers: Brake <2%, Grenade ≥2%, Bunker ≥5%, Cruise ≥12%, Nuke ≥25%, Atom ≥50%.
+Bomb impact tiers: Puff <2%, Grenade ≥2%, Bunker ≥5%, Cruise ≥12%, Nuke ≥25%, Atom ≥50%.
 
 ## Demo personas
 

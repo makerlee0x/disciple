@@ -2,11 +2,14 @@
 
 import TouchGrass, { TouchGrassPill } from "./flight/TouchGrass";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
+import Icon from "@/components/ui/Icon";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
+import { gateFlightIcon } from "@/lib/flight/iconGate";
 import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
+import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
@@ -117,6 +120,8 @@ export default function FlightCanvas({ search }: Props) {
           __DISCIPLE_BASE_PATH__: BASE_PATH,
           // Ammo preset tiers (single source: lib/flight/ammoTiers.ts) — engine scales its presets from this.
           __AMMO_TIERS: AMMO_TIERS,
+          // Paper fills (no wallet): bonding curve pre-grad / full-range pool post-grad, same math + params as the sim.
+          __PAPER_CURVE: paperCurve(),
           // Simulated market defaults ON for testnet chains (no address hardcoding — chain flag only).
           __DISCIPLE_TESTNET: !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet,
           REPLAY: window.REPLAY,
@@ -131,9 +136,15 @@ export default function FlightCanvas({ search }: Props) {
         if (!cancelled) setStatus("Live");
         // equipped Rocket Factory parts (cosmetic) → engine loadout; the token decal still owns the nose roundel
         if (!cancelled) try {
-          const e = (JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string> }).equipped || {};
+          const j = JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string>; stats?: Record<string, number> };
+          const e = j.equipped || {};
           const f = window.__flight as { setLoadout?: (l: unknown) => unknown } | undefined;
-          if (e.body || e.thrusters || e.coin) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, "") });
+          // forward-compatible: accessory (acc-<id>) + stats {thrust,glow,aura,launch,style} 0–10 are passed only when stored
+          // (lib/rocketSkin.ts has no stats / accessories yet); the engine clamps, defaults to 5 and uses them for visuals only
+          const accessory = typeof e.accessory === "string" && e.accessory ? e.accessory.replace(/^acc-/, "") : undefined;
+          const stats = j.stats && typeof j.stats === "object" ? j.stats : undefined;
+          if (e.body || e.thrusters || e.coin || accessory || stats) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, ""),
+            ...(accessory ? { accessory } : {}), ...(stats ? { stats } : {}) });
         } catch { /* no loadout */ }
       } catch (e) {
         if (!cancelled) {
@@ -145,7 +156,8 @@ export default function FlightCanvas({ search }: Props) {
 
     boot();
     // Token decal loads in parallel with the engine; never blocks flight.
-    const icon = new URLSearchParams(search).get("icon");
+    // AUDIT: ?icon only from the moderated store (/api/image/<sha>); anything else → plain-rocket fallback
+    const icon = gateFlightIcon(new URLSearchParams(search).get("icon"));
     brandedRocket(icon).then(({ canvas, fallback }) => {
       if (!cancelled) window.__rocketDecal = { canvas, t0: performance.now(), fallback };
     });
@@ -243,7 +255,7 @@ export default function FlightCanvas({ search }: Props) {
           boxShadow: "0 0 16px rgba(255,220,150,.35)",
         }}
       >
-        ✕
+        <Icon name="close" size={16} />
       </Link>
       <TouchGrass />
       {chatCoin && <GameChat coin={chatCoin} />}

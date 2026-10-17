@@ -1,6 +1,8 @@
 /**
  * Browser driver for a SimRun: ticks it on a timer at 1×/2×/4×, and exposes window.__discipleSim, the
  * bridge the flight engine's SimBridgeSource (?source=sim) talks to. Paper only: no wallet, no RPC.
+ * The sim ledger is authoritative for the player's position (tramp/wall fills and wall escrow move tokens
+ * without a swap), so every change is pushed to the PnL HUD on SIM_POS_EVENT.
  */
 import { SimRun, type SimEvent, type SimTrade } from "./run";
 import type { DifficultyId, SimConfig } from "./config";
@@ -13,14 +15,17 @@ export interface SimBridge {
   trade(side: "buy" | "sell", usd: number, o?: { frac?: number }): Record<string, unknown>;
 }
 declare global { interface Window { __discipleSim?: SimBridge } }
+export const SIM_POS_EVENT = "disciple:simpos";
 
 export class SimDriver {
   run: SimRun; speed = 1; paused = false; ended = false; iv = 0; block = 1; emit: Emit | null = null;
   listeners = new Set<() => void>(); eventSubs = new Set<(e: SimEvent) => void>();
   constructor(cfg: SimConfig, public difficulty: DifficultyId, public seed: number, public minutes: number) {
     this.run = new SimRun(cfg, difficulty, seed);
-    this.run.on(({ trade, event }) => { if (trade) this.toEngine(trade); if (event) this.eventSubs.forEach((f) => f(event)); });
+    this.run.on(({ trade, event, player }) => { if (trade) this.toEngine(trade); if (event) this.eventSubs.forEach((f) => f(event)); if (player) this.syncPos(); });
   }
+  /** push the authoritative sim position to the HUD */
+  syncPos() { if (typeof window !== "undefined") dispatchEvent(new CustomEvent(SIM_POS_EVENT, { detail: { pos: this.run.player.pos, supply: this.run.m.S } })); }
   private toEngine(tr: SimTrade) {
     if (!this.emit) return;
     const S = this.run.m.S;
@@ -40,7 +45,9 @@ export class SimDriver {
     window.__discipleSim = {
       supply: this.run.m.S,
       balance: () => self.run.player.cash,
-      attach(emit) { self.emit = emit; emit({ t: "swap", block: self.block, ts: Date.now(), txHash: "(launch)", side: "buy", usd: 0, mcap: self.run.m.mcap(), price: self.run.m.price() }); return () => { self.emit = null; }; },
+      // the engine calls attach() while its script is still initialising (source.start at top level); a synchronous swap
+      // reaches chartTick before `const CHART_STYLE` exists (TDZ) and aborts the whole engine, so the launch print is deferred
+      attach(emit) { self.emit = emit; window.setTimeout(() => { if (self.emit === emit) emit({ t: "swap", block: self.block, ts: Date.now(), txHash: "(launch)", side: "buy", usd: 0, mcap: self.run.m.mcap(), price: self.run.m.price() }); }, 0); return () => { self.emit = null; }; },
       impact: (usd, side) => self.run.m.impact(usd, side),
       trade(side, usd, o) {
         if (self.ended) return { ok: false, reason: "run ended" };

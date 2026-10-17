@@ -7,7 +7,7 @@ import { withBase } from "./base-path";
 export type BasePair = { tk: string; sym: string; name: string; tint: string; real: boolean; source: string };
 
 export const BASE_PAIRS: BasePair[] = [
-  { tk: "strategy", sym: "STRATEGY", name: "Strategy Coin", tint: "#ffe7a3", real: true, source: "Maker-provided" },
+  { tk: "strategy", sym: "STRATEGY", name: "Strategy Coin", tint: "#C9CED6", real: true, source: "Maker-provided" },
   { tk: "usdg", sym: "USDG", name: "Global Dollar", tint: "#c8e86a", real: true, source: "Maker-provided (AVIF)" },
   { tk: "eth", sym: "ETH", name: "Ether", tint: "#cfd3dc", real: true, source: "Maker-provided" },
   { tk: "ai", sym: "AI", name: "Artificial Inu", tint: "#c7f56b", real: true, source: "Maker-provided" },

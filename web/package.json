@@ -20,13 +20,36 @@
     "test:share-pnl": "node scripts/test-share-pnl.mjs",
     "test:username-claim": "node scripts/test-username-claim.mjs",
     "test:replay": "node scripts/test-replay.mjs",
+    "test:chartseed": "node scripts/test-chartseed.mjs",
+    "test:trades-order": "node scripts/test-trades-order.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
-    "test:flightdata": "node scripts/gen-flight-data.mjs --check"
+    "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",
+    "test:sim-parity": "node scripts/test-sim-parity.mjs",
+    "test:icon-gate": "node scripts/test-icon-gate.mjs",
+    "test:loadout-fx": "node scripts/test-loadout-fx.mjs",
+    "test:mav2": "tsx scripts/test-mav2-e2e.mts",
+    "test:slippage": "tsx --test scripts/test-slippage.mts",
+    "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
+    "test:onetap": "tsx --test scripts/test-onetap.mts",
+    "test:session-e2e": "tsx scripts/test-session-e2e.mts",
+    "test:trade-order": "tsx scripts/test-trade-order.mts",
+    "test:op-race": "tsx scripts/test-op-race.mts",
+    "test:usdg-router": "tsx scripts/test-usdg-router.mts",
+    "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:nonces": "tsx --test scripts/test-nonces.mts",
+    "test:ssrf": "tsx --test scripts/test-ssrf.mts",
+    "test:coin-images": "tsx --test scripts/test-coin-images.mts",
+    "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
+    "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
+    "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts"
   },
   "dependencies": {
-    "@account-kit/signer": "^4.88.5",
+    "@aa-sdk/core": "^4.88.5",
+    "@account-kit/smart-contracts": "^4.88.5",
+    "@disciple/session-keys": "workspace:*",
     "@napi-rs/canvas": "^1.0.11",
     "@noble/curves": "^1.9.0",
+    "@privy-io/react-auth": "^3.50.0",
     "@tensorflow/tfjs": "^4.22.0",
     "mp4-muxer": "^5.2.2",
     "next": "14.2.35",
@@ -35,6 +58,7 @@
     "react-dom": "^18",
     "server-only": "^0.0.1",
     "sharp": "^0.35.5",
+    "undici": "^6.29.1",
     "viem": "^2.57.7"
   },
   "devDependencies": {
@@ -45,6 +69,7 @@
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
