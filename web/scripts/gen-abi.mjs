@@ -3,6 +3,7 @@
 // Usage:
 //   node scripts/gen-abi.mjs
 //   CONTRACTS_OUT=../contracts/out node scripts/gen-abi.mjs
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -38,8 +39,12 @@ function loadAbi(name) {
 }
 
 const idx = [];
+// label the header with the last commit that touched the bundle ABIs (they track contracts/src, which can be ahead of
+// what is deployed: see contracts/docs/redeploy-migration.md)
+let bundleRev = "";
+try { bundleRev = execSync("git log -1 --format=%h -- abi", { cwd: path.dirname(BUNDLE_ABI), encoding: "utf8" }).trim(); } catch { /* no git */ }
 const source = fs.existsSync(BUNDLE_ABI)
-  ? "contracts/deployments/web-bundle @ 27e92d8 (RH testnet 46630 v3)"
+  ? `contracts/deployments/web-bundle${bundleRev ? ` @ ${bundleRev}` : ""}`
   : "DISCIPLE FLOW forge out";
 for (const n of NAMES) {
   const abi = loadAbi(n);

@@ -1,6 +1,7 @@
 import { decodeEventLog, type Log, getAddress } from "viem";
 import { EVENTS } from "./abi.js";
 import { bumpDataVersion, type DB } from "./db.js";
+import { tokenIsCurrency0, wallUsd } from "./math.js";
 import { tradeUsd } from "./usd.js";
 import type { Stack } from "./config.js";
 
@@ -89,10 +90,8 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           const qUsd = coin ? Number(BigInt(coin.quote_price_usd ?? "0")) / 1e18 : 0;
           let usd = 0;
           if (ev.eventName === "TrampPlaced") usd = (Number(a.quoteAmt) / 1e18) * qUsd;
-          else {
-            const last: any = db.prepare("SELECT price_usd FROM trades WHERE token=? ORDER BY ts DESC, id DESC LIMIT 1").get(lc(a.token));
-            usd = (Number(a.tokenAmt) / 1e18) * (last?.price_usd ?? 0);
-          }
+          // wall: tokens × the price at the MIDDLE of its range (what it sells for when filled), as GAME (#86)
+          else if (coin) usd = wallUsd(a.tokenAmt, Number(a.tickLower), Number(a.tickUpper), tokenIsCurrency0(coin.token, coin.quote), qUsd);
           db.prepare(
             `INSERT OR IGNORE INTO orders (stack,id,kind,owner,token,tick_lower,tick_upper,liquidity,amount_in,amount_in_usd,placed_tx,placed_at,placed_block)
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,

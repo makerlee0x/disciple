@@ -30,16 +30,16 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/coins/:token/trades?limit=&before=` | trades (curve + hook), newest first |
 | `/coins/:token/candles?interval=1m\|5m\|15m\|1h\|4h\|1d&unit=price\|mcap&from=&to=` | OHLC in USD + volume over `[from, to]` (unix s). Default: 300 bars ending at the coin's last trade; span capped at 2000 bars |
 | `/coins/:token/fees` | live creator fees pending (FeeRouter; AnonLauncher stealth owner + pending for pseudonymous coins) |
-| `/coins/:token/orders` | tramps/walls for a coin |
+| `/coins/:token/orders` | tramps/walls for a coin (`amount_in_usd`: tramp = quote deposited; wall = tokens × the price at the middle of its tick range) |
 | `/users/:addr/orders` · `/users/:addr/trades` · `/users/:addr/coins` | per-user data |
-| `/users/:addr/counters` | `trampsPlaced/wallsPlaced/trampsFilled/wallsFilled/bigTrampsFilled` (tramp ≥ **$1K** at placement), trades, volumeUsd, coinsLaunched |
+| `/users/:addr/counters` | `trampsPlaced/wallsPlaced/trampsFilled/wallsFilled/bigTrampsFilled` (tramp ≥ **$1K** at placement), `trampWallPoints` (Σ floor(order $ × `TRAMP_WALL_POINTS_PER_USD`) over **filled** orders; cancelled/partly filled earn 0, no fee share), trades, volumeUsd, coinsLaunched |
 | `/rewards` | anti-snipe routing + RewardsVault totals |
 | `/coins/:token/holders?limit=` (1–1000, default 100) | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
 | `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
 | `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax shares, snipe 70/30, claims (wei + USD) |
 | `/tier-breaks?limit=` | global tier-break feed (GAME) |
 | `/orders?status=&kind=&token=&owner=&stack=` | tramp/wall orders incl. keeper + keeper tip |
-| `/leaderboard/:board?by=&since=&limit=` | `traders` (by volumeUsd\|trades), `creators`, `coins` (by volume\|mcap\|tier\|new), `tramps`, `keepers`, `referrers` |
+| `/leaderboard/:board?by=&since=&limit=` | `traders` (by volumeUsd\|trades), `creators`, `coins` (by volume\|mcap\|tier\|new), `tramps` (incl. `points`), `keepers`, `referrers` |
 | `/users/:addr` | profile: counters, holdings, launched coins, anon (stealth-owned) coins, referrals, keeper tips |
 | `/users/:addr/holdings` · `/users/:addr/referrals` | per-user holdings (with last price) / referred-by, referred wallets, referrer claims, USDG deposits |
 

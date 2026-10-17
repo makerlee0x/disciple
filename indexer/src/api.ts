@@ -1,13 +1,19 @@
 import http from "node:http";
 import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
-import type { Config, Stack } from "./config.js";
+import { TRAMP_WALL_POINTS_PER_USD, type Config, type Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
 import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
 
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
 export const BIG_TRAMP_USD = 1000;
+/**
+ * SQL: tramp/wall points of one orders row = floor(amount_in_usd × TRAMP_WALL_POINTS_PER_USD) if status='filled', else 0
+ * (same as web/lib/trampwalls/adapter.ts pointsFor/pointsEarned, incl. its +1e-9 float guard; CAST truncates = floor
+ * for usd ≥ 0). Bind TRAMP_WALL_POINTS_PER_USD to the `?`.
+ */
+const TW_POINTS_SQL = "CASE WHEN status='filled' AND amount_in_usd > 0 THEN CAST(amount_in_usd * ? + 1e-9 AS INTEGER) ELSE 0 END";
 /** Candle range: default window and max span, in candles of the requested interval (5m → ~25h default, ~7d max). */
 export const CANDLE_DEFAULT_BARS = 300;
 export const CANDLE_MAX_BARS = 2000;
@@ -180,15 +186,17 @@ export class Api {
         SUM(kind='tramp') trampsPlaced, SUM(kind='wall') wallsPlaced,
         SUM(kind='tramp' AND status='filled') trampsFilled,
         SUM(kind='wall' AND status='filled') wallsFilled,
-        SUM(kind='tramp' AND status='filled' AND amount_in_usd >= ?) bigTrampsFilled
+        SUM(kind='tramp' AND status='filled' AND amount_in_usd >= ?) bigTrampsFilled,
+        SUM(${TW_POINTS_SQL}) trampWallPoints
        FROM orders WHERE owner=?`,
-    ).get(BIG_TRAMP_USD, user.toLowerCase()) as any;
+    ).get(BIG_TRAMP_USD, TRAMP_WALL_POINTS_PER_USD, user.toLowerCase()) as any;
     const t = this.db.prepare("SELECT COUNT(*) trades, COALESCE(SUM(volume_usd),0) volumeUsd FROM trades WHERE trader=?").get(user.toLowerCase()) as any;
     const launched = this.db.prepare("SELECT COUNT(*) n FROM coins WHERE creator=?").get(user.toLowerCase()) as any;
     const z = (x: any) => Number(x ?? 0);
     return {
       user: user.toLowerCase(), trampsPlaced: z(r.trampsPlaced), wallsPlaced: z(r.wallsPlaced), trampsFilled: z(r.trampsFilled),
-      wallsFilled: z(r.wallsFilled), bigTrampsFilled: z(r.bigTrampsFilled), bigTrampUsd: BIG_TRAMP_USD, trades: t.trades, volumeUsd: t.volumeUsd, coinsLaunched: launched.n,
+      wallsFilled: z(r.wallsFilled), bigTrampsFilled: z(r.bigTrampsFilled), bigTrampUsd: BIG_TRAMP_USD,
+      trampWallPoints: z(r.trampWallPoints), trampWallPointsPerUsd: TRAMP_WALL_POINTS_PER_USD, trades: t.trades, volumeUsd: t.volumeUsd, coinsLaunched: launched.n,
     };
   }
 
@@ -272,8 +280,9 @@ export class Api {
         return this.listCoins(new URLSearchParams({ sort: q.get("by") ?? "volume", limit: String(limit) }));
       case "tramps":
         return this.db.prepare(`SELECT owner user, SUM(kind='tramp' AND status='filled') trampsFilled, SUM(kind='wall' AND status='filled') wallsFilled,
-          SUM(CASE WHEN status='filled' THEN amount_in_usd ELSE 0 END) filledUsd, COUNT(*) placed FROM orders WHERE COALESCE(placed_at,0) >= ?
-          GROUP BY owner ORDER BY trampsFilled + wallsFilled DESC, filledUsd DESC LIMIT ?`).all(since, limit);
+          SUM(CASE WHEN status='filled' THEN amount_in_usd ELSE 0 END) filledUsd, SUM(${TW_POINTS_SQL}) points, COUNT(*) placed
+          FROM orders WHERE COALESCE(placed_at,0) >= ?
+          GROUP BY owner ORDER BY trampsFilled + wallsFilled DESC, filledUsd DESC LIMIT ?`).all(TRAMP_WALL_POINTS_PER_USD, since, limit);
       case "keepers":
         return this.db.prepare(`SELECT keeper user, COUNT(*) tips, SUM(CAST(quote_tip AS REAL))/1e18 quoteTips, SUM(CAST(token_tip AS REAL))/1e18 tokenTips
           FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);

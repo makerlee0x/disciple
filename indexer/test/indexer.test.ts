@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, encodeEventTopics, type Hex } from "viem";
 import { EVENTS } from "../src/abi";
-import { openDb } from "../src/db";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { openDb, recomputeWallUsd } from "../src/db";
 import { applyLogs, type RawLog } from "../src/ingest";
 import { Api } from "../src/api";
-import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../src/math";
-import type { Config, Stack } from "../src/config";
+import { candles, mcapUsdWad, midRangePrice, priceWadFromSqrt, tokenIsCurrency0, virtualQuoteReserve, wallUsd } from "../src/math";
+import { TRAMP_WALL_POINTS_PER_USD, type Config, type Stack } from "../src/config";
 
 const A = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Hex;
 const stack: Stack = { id: "t", fromBlock: 0n, launchpad: A(1), feeRouter: A(2), hook: A(3), migration: A(4), trampWallManager: A(5), anonLauncher: A(6), rewardsVault: A(7) };
@@ -95,7 +98,8 @@ describe("ingest + api", () => {
     const [, o]: any = await api.route("GET", new URL(`http://x/coins/${TOKEN}/orders`));
     const t1 = o.find((x: any) => x.id === 1);
     expect([t1.fees_quote, t1.fees_token]).toEqual(["7", "9"]);
-    expect(o.find((x: any) => x.id === 3).amount_in_usd).toBe(20); // 5 tokens × last price $4
+    // wall: 5 tokens × the price at the middle of ticks [0, 60] (token is currency0: 1.0001^30) × quote $1
+    expect(o.find((x: any) => x.id === 3).amount_in_usd).toBeCloseTo(5 * 1.0001 ** 30, 9);
   });
   it("holders exclude curve; candles and list endpoints", async () => {
     const api = new Api(seeded(), null, cfg);
@@ -109,5 +113,73 @@ describe("ingest + api", () => {
     expect(rw[0].kind).toBe("SnipeFeeRouted");
     const [st]: any = await api.route("GET", new URL("http://x/nope"));
     expect(st).toBe(404);
+  });
+});
+
+describe("tramp/wall points (filled USD) and mid-range wall USD", () => {
+  const E18 = 10n ** 18n;
+  // a filled wall with a fractional $ size: 1000.5 tokens over ticks [600, 1200] (mid 900)
+  const WALL4_USD = 1000.5 * 1.0001 ** 900;
+  function withFilledWall() {
+    const db = seeded();
+    applyLogs(db, stack, [
+      mk("WallPlaced", { id: 4n, owner: ALICE, token: TOKEN, tickLower: 600, tickUpper: 1200, liquidity: 1n, tokenAmt: 10005n * E18 / 10n }, stack.trampWallManager!, 80n),
+      mk("Filled", { id: 4n, owner: ALICE, token: TOKEN, tickLower: 600, tickUpper: 1200, quoteOut: 1n, tokenOut: 0n, keeper: BOB }, stack.trampWallManager!, 81n),
+      // BOB: an active tramp (price inside its range, not pulled) and a partly filled tramp he cancelled → both earn 0
+      mk("TrampPlaced", { id: 5n, owner: BOB, token: TOKEN, tickLower: -600, tickUpper: -60, liquidity: 1n, quoteAmt: 900n * E18 }, stack.trampWallManager!, 82n),
+      mk("TrampPlaced", { id: 6n, owner: BOB, token: TOKEN, tickLower: -600, tickUpper: -60, liquidity: 1n, quoteAmt: 400n * E18 }, stack.trampWallManager!, 82n),
+      mk("Cancelled", { id: 6n, owner: BOB, token: TOKEN, tickLower: -600, tickUpper: -60, quoteOut: 200n * E18, tokenOut: 150n * E18, quoteFees: 0n, tokenFees: 0n }, stack.trampWallManager!, 83n),
+    ], (b) => 1_000_000 + Number(b) * 60);
+    return db;
+  }
+  it("constant mirrors web/lib/config TRAMP_WALL_POINTS_PER_USD = 1", () => {
+    expect(TRAMP_WALL_POINTS_PER_USD).toBe(1);
+  });
+  it("mid-range price: both token orientations", () => {
+    expect(midRangePrice(0, 60, true)).toBeCloseTo(1.0001 ** 30, 12);
+    expect(midRangePrice(0, 60, false)).toBeCloseTo(1.0001 ** -30, 12);
+    expect(midRangePrice(-120, 0, true)).toBeCloseTo(1.0001 ** -60, 12);
+    expect(tokenIsCurrency0(TOKEN, QUOTE)).toBe(true);
+    expect(tokenIsCurrency0(TOKEN, "0x0000000000000000000000000000000000000000")).toBe(false); // native quote is currency0
+    expect(wallUsd(2n * E18, 0, 0, true, 3)).toBe(6);
+  });
+  it("counters: points = Σ floor(usd × K) over filled rows only (no flat bonus, no fee share)", async () => {
+    const api = new Api(withFilledWall(), null, cfg);
+    const [, a]: any = await api.route("GET", new URL(`http://x/users/${ALICE}/counters`));
+    // filled tramps $1500 + $10, filled wall floor($1094.7…); cancelled wall #3 earns 0
+    expect(a).toMatchObject({ trampsFilled: 2, wallsFilled: 1, trampWallPointsPerUsd: 1 });
+    expect(a.trampWallPoints).toBe(1500 + 10 + Math.floor(WALL4_USD));
+    expect(Math.floor(WALL4_USD)).toBe(1094);
+    const [, b]: any = await api.route("GET", new URL(`http://x/users/${BOB}/counters`));
+    expect(b).toMatchObject({ trampsPlaced: 2, trampsFilled: 0, trampWallPoints: 0 });
+    const board = await api.route("GET", new URL("http://x/leaderboard/tramps"));
+    const rows = board[1] as any[];
+    expect(rows.find((r) => r.user === ALICE.toLowerCase()).points).toBe(1500 + 10 + 1094);
+    expect(rows.find((r) => r.user === BOB.toLowerCase()).points).toBe(0);
+  });
+  it("recompute: old placement-price wall USD is rewritten to mid-range USD; tramps untouched", () => {
+    const db = withFilledWall();
+    db.prepare("UPDATE orders SET amount_in_usd = 20 WHERE kind='wall'").run(); // old: tokens × last trade price
+    expect(recomputeWallUsd(db)).toBe(2);
+    const usd = (id: number) => (db.prepare("SELECT amount_in_usd u FROM orders WHERE id=?").get(id) as any).u;
+    expect(usd(3)).toBeCloseTo(5 * 1.0001 ** 30, 9);
+    expect(usd(4)).toBeCloseTo(WALL4_USD, 6);
+    expect(usd(1)).toBe(1500);
+  });
+  it("openDb runs the wall-USD recompute once on an existing db file", () => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "idx-")), "x.sqlite");
+    const db = openDb(f);
+    applyLogs(db, stack, [
+      mk("Launched", { token: TOKEN, curve: CURVE, creator: ALICE, quote: QUOTE, name: "Coin", ticker: "C", creatorTaxBps: 0n }, stack.launchpad),
+      mk("QuotePriced", { token: TOKEN, quote: QUOTE, quotePriceUsd: 2n * E18 }, stack.launchpad),
+      mk("WallPlaced", { id: 9n, owner: ALICE, token: TOKEN, tickLower: 0, tickUpper: 60, liquidity: 1n, tokenAmt: 10n * E18 }, stack.trampWallManager!, 2n),
+    ], (b) => Number(b));
+    db.prepare("UPDATE orders SET amount_in_usd = 99 WHERE id = 9").run();
+    db.prepare("DELETE FROM meta WHERE k = 'wall_usd_v'").run(); // a db from before this migration
+    db.close();
+    const db2 = openDb(f);
+    expect((db2.prepare("SELECT amount_in_usd u FROM orders WHERE id = 9").get() as any).u).toBeCloseTo(10 * 1.0001 ** 30 * 2, 9);
+    expect((db2.prepare("SELECT v FROM meta WHERE k = 'wall_usd_v'").get() as any).v).toBe("1");
+    db2.close();
   });
 });
