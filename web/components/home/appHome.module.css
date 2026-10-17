@@ -29,29 +29,20 @@
 }
 .scrim::after { content: ""; position: absolute; inset: 0; background: var(--dsc-gradient-scrim-top); opacity: .7; }
 
-/* rocket + launch pad + plume: HeroPad / heroPad.module.css */
+/* dynamic sky: the galaxy plate drifts and turns slowly (75s each way, visible within a few seconds) while two sparse star layers twinkle
+ * and creep the other way (parallax). Under the grain + scrims; transform/opacity only; still under reduced motion. */
+.go .sky { transform-origin: 62% 40%; animation: skyDrift 75s ease-in-out infinite alternate; }
+.stars { position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 78%); mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 78%); }
+.stars i { position: absolute; inset: -8% -12%; background-size: 640px 400px; opacity: .5; animation: twinkleA 6.5s ease-in-out infinite, starDrift 90s ease-in-out infinite alternate; }
+.stars i + i { background-position: 213px 131px; opacity: .3; animation: twinkleB 9.2s ease-in-out infinite, starDrift 90s ease-in-out infinite alternate-reverse; }
+/* starts at identity so the drift picks up from the painted LCP frame without a jump */
+@keyframes skyDrift { from { transform: scale(1) rotate(0deg) translate3d(0, 0, 0); } to { transform: scale(1.07) rotate(.8deg) translate3d(-2%, -.8%, 0); } }
+@keyframes starDrift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(2.2%, .6%, 0); } }
+@keyframes twinkleA { 0%, 100% { opacity: .55; } 50% { opacity: .18; } }
+@keyframes twinkleB { 0%, 100% { opacity: .12; } 50% { opacity: .5; } }
 
-/* live trade chips: hidden until paint, then float in one by one */
-.chips { position: absolute; left: calc(max(60%, 660px) + 62px); top: calc(var(--ap-topbar-h, 56px) + 96px); z-index: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 22px; pointer-events: none; }
-.chip {
-  font: 500 12px var(--dsc-font-mono); font-variant-numeric: tabular-nums; white-space: nowrap;
-  padding: 4px 9px; border-radius: var(--dsc-radius-full); background: rgba(11, 12, 14, .6);
-  border: 1px solid rgba(95, 240, 160, .35); color: var(--dsc-up); backdrop-filter: blur(6px);
-  opacity: 0; transform: translateY(calc(10px * var(--dsc-motion-scale, 1)));
-}
-.chip:nth-child(2) { margin-left: 22px; }
-.chip:nth-child(3) { margin-left: -2px; margin-top: 30px; }
-.chipWho { color: inherit; opacity: .85; }
-.launching .chips { opacity: 0; transition: opacity .35s var(--dsc-easing-standard); }
-.chipBomb { border-color: color-mix(in srgb, var(--bomb) 40%, transparent); color: var(--bomb); display: inline-flex; align-items: center; gap: 5px; }
-.go .chip {
-  animation: chipIn var(--dsc-duration-slow) var(--dsc-easing-decelerate) both, chipDrift 6s ease-in-out infinite alternate;
-  animation-delay: calc(var(--i) * 260ms), calc(var(--i) * 260ms + 400ms);
-}
-@keyframes chipIn { from { opacity: 0; transform: translateY(calc(10px * var(--dsc-motion-scale, 1))); } to { opacity: var(--chip-o, 1); transform: none; } }
-@keyframes chipDrift { from { opacity: var(--chip-o, 1); transform: none; } to { opacity: var(--chip-o, 1); transform: translateY(calc(-5px * var(--dsc-motion-scale, 1))); } }
-.chip:nth-child(2) { --chip-o: .72; }
-.chip:nth-child(3) { --chip-o: .78; }
+/* rocket + launch pad + smog + moon: HeroPad / heroPad.module.css */
 
 /* info panel */
 .panel {
@@ -135,10 +126,6 @@
 .feedSkelGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; margin-top: 18px; }
 .feedSkelGrid i { display: block; height: 260px; border-radius: var(--dsc-radius-xl); background: var(--dsc-surface); border: 1px solid rgba(201, 206, 214, .06); }
 
-/* narrower desktops: rocket moves right, chips hide, strip keeps the bottom-right */
-@media (max-width: 1180px) and (min-width: 761px) {
-  .chips { display: none; }
-}
 
 /* mobile (mock A mobile): sky + rocket on top, info at the bottom of the scene, Next trending below it */
 @media (max-width: 760px) {
@@ -147,10 +134,6 @@
   .sky { width: 100%; object-position: 68% 50%; }
   .scrim { background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0%, rgba(11, 12, 14, .86) 30%, rgba(11, 12, 14, .5) 46%, rgba(11, 12, 14, 0) 64%); }
   .grain { display: none; }
-  .chips { left: calc(47% + 33px); top: 140px; }
-  .chip { font-size: 11px; backdrop-filter: none; background: rgba(11, 12, 14, .72); }
-  .chip:nth-child(n + 2) { display: none; }
-  .chipWho { display: none; }
   .panel {
     left: 18px; right: 18px; top: auto; bottom: 18px; width: auto;
     grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "eyebrow eyebrow" "ident mcap" "tier tier" "stats stats" "actions actions";
@@ -188,7 +171,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chip, .go .chip { animation: none; opacity: var(--chip-o, 1); transform: none; }
+  .go .sky, .stars i, .go .stars i { animation: none; }
   .btn, .mini { transition: none; }
   .boost:hover { transform: none; }
 }

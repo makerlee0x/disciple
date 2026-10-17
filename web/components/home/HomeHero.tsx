@@ -2,9 +2,9 @@
 /**
  * App home hero (BRAND app-home r1, mock A): the #1 trending rocket (highest 24h volume) on the launch pad over its
  * current tier sky. It stays on the rocket the visitor landed on for the whole visit (no auto-rotate); only its
- * numbers, the trade chips and the Next trending strip refresh. The rocket stands on the #79 pad (HeroPad) with its idle
- * plume; BOOST / DUMP play the lift-off first and then open the flight page (Open flight goes straight there).
- * Server-rendered with the data (app/page.tsx), so the sky plate is the LCP and needs no client fetch; chips, pad idle
+ * numbers and the Next trending strip refresh. The rocket stands on the #79 pad (HeroPad) with its idle exhaust smog
+ * under a slowly drifting, twinkling sky and a far-off moon; BOOST / DUMP play the lift-off first and then open the flight page (Open flight goes straight there).
+ * Server-rendered with the data (app/page.tsx), so the sky plate is the LCP and needs no client fetch; sky/pad idle
  * motion and polling start only after paint.
  */
 import Link from "next/link";
@@ -15,14 +15,16 @@ import { withBase } from "@/lib/base-path";
 import PairArt from "@/components/pairart/PairArt";
 import Icon from "@/components/icons/Icon";
 import {
-  DAY_MS, ROCKET_SRC, fmtAgeShort, rankTrending, shortAddr, skySrc, thumbSrc, tierProgress,
-  type HomeCoin, type HomeData, type TradeChip,
+  ROCKET_SRC, fmtAgeShort, rankTrending, skySrc, thumbSrc, tierProgress,
+  type HomeCoin, type HomeData,
 } from "@/lib/home/trending";
 import { afterPaint, prefersReducedMotion } from "./idle";
 import HeroPad, { LIFTOFF_MS } from "./HeroPad";
 import s from "./appHome.module.css";
 
 const POLL_MS = 30_000;
+/** Twinkle layers over the sky plate (two sparse star tiles pulsed out of phase); loaded after paint. */
+const STARS = ["/home/pad/stars-a.webp", "/home/pad/stars-b.webp"];
 
 function usd(v: number) {
   if (v > 0 && v < 10) return "$" + v.toFixed(2);
@@ -45,22 +47,6 @@ export function heroHref(c: HomeCoin) {
   q.set("nm", c.name);
   q.set("cs", c.ticker);
   return `/coin/${c.token}?${q.toString()}`;
-}
-
-function Chip({ c, withTrader, i }: { c: TradeChip; withTrader: boolean; i: number }) {
-  const style = { ["--i" as string]: i } as React.CSSProperties;
-  if (c.side === "buy")
-    return (
-      <span className={s.chip} style={style}>
-        ▲ BOOST +{usd(c.usd)}{withTrader && c.trader ? <span className={s.chipWho}> · {shortAddr(c.trader)}</span> : null}
-      </span>
-    );
-  const k = c.bomb?.k ?? "puff";
-  return (
-    <span className={`${s.chip} ${s.chipBomb}`} style={{ ...style, ["--bomb" as string]: `var(--dsc-bomb-${k}-color)` }}>
-      <Icon name={k === "puff" ? "bomb-puff" : (`bomb-${k}` as "bomb-grenade")} size={12} /> {c.bomb?.name ?? "PUFF"} −{usd(c.usd)}
-    </span>
-  );
 }
 
 function Stat({ label, value }: { label: string; value: string | null }) {
@@ -86,7 +72,6 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
   const mode = initial.heroMode;
   const next = useMemo(() => rankTrending(data.coins).filter((c) => c.token !== heroToken).slice(0, 8), [data.coins, heroToken]);
   const tier = tierProgress(hero?.mcapUsd ?? 0);
-  const chips = useMemo(() => (now ? data.chips.filter((c) => now - c.ts < DAY_MS).slice(0, 3) : []), [data.chips, now]);
 
   // Chrome strip floats transparent over the hero (same contract as the previous home).
   useEffect(() => {
@@ -105,7 +90,7 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
     };
   }, []);
 
-  // After paint: start chip + rocket motion, then keep the numbers fresh (paused while the tab is hidden).
+  // After paint: start sky + pad motion, then keep the numbers fresh (paused while the tab is hidden).
   useEffect(() => afterPaint(() => { setNow(Date.now()); setGo(true); }), []);
   useEffect(() => {
     if (!go || !heroToken) return;
@@ -159,14 +144,10 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
         <div className={s.stage}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className={s.sky} src={withBase(skySrc(tier.index))} alt="" width={1280} height={720} fetchPriority="high" decoding="async" />
+          {go && <div className={s.stars} aria-hidden><i style={{ backgroundImage: `url(${withBase(STARS[0])})` }} /><i style={{ backgroundImage: `url(${withBase(STARS[1])})` }} /></div>}
           <div className={s.grain} aria-hidden />
           <div className={s.scrim} aria-hidden />
           <HeroPad go={go} launching={launching} />
-          {chips.length > 0 && (
-            <div className={s.chips} aria-label="Latest trades">
-              {chips.map((c, i) => <Chip key={c.id} c={c} i={i} withTrader={i === 0} />)}
-            </div>
-          )}
           <div className={s.panel}>
             {hero && <div className={s.eyebrow}><span className={s.dot} aria-hidden />{mode === "newest" ? "Newest launch" : "#1 Trending · 24h"}</div>}
             {hero ? (
