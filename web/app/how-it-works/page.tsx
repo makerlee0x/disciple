@@ -2,7 +2,10 @@
  * /how-it-works: BRAND's r1 mockup (PLACEHOLDER; copy will change). Every string comes from content/how-it-works.ts.
  * Sections: hero · 01 pair · 02 game · 03 curve vs Uniswap · 04 difficulties (Simulator) · 05 fees · 06 FAQ · CTA.
  * Server component; the only client JS is the in-page nav, the FAQ accordion and the lazy chart mounts.
- * Sky plates reuse the tier WebPs from PR #85 (public/home/sky, grain lives in the plates); below the fold they lazy-load.
+ * Hero (perf pass): static HTML with its critical CSS inlined (./hero.ts), a blur-up sky (inline LQIP background, then a
+ * <picture> of the BRAND perf-hiw AVIF/WebP plates, preloaded per breakpoint), plain <a> CTAs and no entrance fade.
+ * Below-the-fold sky plates reuse the tier WebPs from PR #85 (public/home/sky) and lazy-load; sections skip rendering
+ * until near the viewport (content-visibility) and the charts mount on approach (LazyMount).
  */
 import type { Metadata } from "next";
 import Image from "next/image";
@@ -20,13 +23,15 @@ import {
   HIW_FAQ, HIW_FEES, HIW_FINAL, HIW_GAME, HIW_HERO, HIW_META, HIW_MODES, HIW_PAIR, HIW_PHASES, HIW_ROUTES, type HiwItem,
 } from "@/content/how-it-works";
 import { geistMono } from "./fonts";
+import { HERO_CSS, MQ_DESKTOP, MQ_MOBILE, ROCKET, SIZES_DESKTOP, SIZES_MOBILE, SKY as HERO_SKY } from "./hero";
 import s from "./page.module.css";
 
 export const metadata: Metadata = { title: HIW_META.title, description: HIW_META.description };
+/** Fully static: prerendered at build time and served from the CDN/edge cache. */
+export const dynamic = "force-static";
 
-/** Sky plates (tier index into public/home/sky): The Moon (hero), Heavenly Host (flight card), Morning Stars (CTA). */
-const SKY = { hero: skySrc(8), flight: skySrc(7), final: skySrc(6) };
-const ROCKET = withBase("/how-it-works/rocket.webp");
+/** Below-the-fold sky plates (tier index into public/home/sky): Heavenly Host (flight card), Morning Stars (CTA). */
+const SKY = { flight: skySrc(7), final: skySrc(6) };
 
 function Head({ n, eyebrow, h2, id }: { n: string; eyebrow: string; h2: string; id: string }) {
   return (
@@ -51,14 +56,44 @@ function Items({ items }: { items: HiwItem[] }) {
   );
 }
 
-/** Sky-plate rocket with a CSS plume (decorative). */
-function Rocket({ h, className, lean = 0, priority = false }: { h: number; className?: string; lean?: number; priority?: boolean }) {
-  const w = Math.round((h * 221) / 609);
+/** Sky-plate rocket with a CSS plume (decorative). AVIF with WebP fallback, 108w/163w (1x/2x+ at the 190px height).
+ * The hero copy is eager but fetchPriority=low so it never competes with the LCP sky plate. */
+function Rocket({ h, className, lean = 0, eager = false }: { h: number; className?: string; lean?: number; eager?: boolean }) {
+  const w = Math.round((h * 163) / 450);
   return (
     <div className={`${s.rk} ${className ?? ""}`} style={{ width: w, "--h": `${h}px`, "--lean": `${lean}deg` } as CSSProperties} aria-hidden>
       <div className={s.plume}><i /><i /><i /></div>
-      <Image src={ROCKET} alt="" width={w} height={h} unoptimized priority={priority} loading={priority ? undefined : "lazy"} />
+      <picture>
+        <source type="image/avif" srcSet={ROCKET.avif} sizes={`${w}px`} />
+        {/* eslint-disable-next-line @next/next/no-img-element -- pre-sized AVIF/WebP plates, <picture> needs a plain <img> */}
+        <img src={ROCKET.fallback} srcSet={ROCKET.webp} sizes={`${w}px`} alt="" width={w} height={h} loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "low" : undefined} decoding="async" />
+      </picture>
     </div>
+  );
+}
+
+/** Hero sky: blur-up LQIP (CSS background on .hiw-sky) under a per-breakpoint <picture>; the LCP element on every viewport. */
+function HeroSky() {
+  return (
+    <picture>
+      <source media={MQ_MOBILE} type="image/avif" srcSet={HERO_SKY.mobileAvif} sizes={SIZES_MOBILE} />
+      <source media={MQ_MOBILE} type="image/webp" srcSet={HERO_SKY.mobileWebp} sizes={SIZES_MOBILE} />
+      <source type="image/avif" srcSet={HERO_SKY.desktopAvif} sizes={SIZES_DESKTOP} />
+      {/* eslint-disable-next-line @next/next/no-img-element -- art-directed <picture> with its own preloads (see page head) */}
+      <img src={HERO_SKY.fallback} srcSet={HERO_SKY.desktopWebp} sizes={SIZES_DESKTOP} alt="" width={1280} height={720} className="hiw-skyimg" fetchPriority="high" />
+    </picture>
+  );
+}
+
+/** Preload only the LCP plate, once per breakpoint (media) and only as AVIF (type): browsers without AVIF skip it and
+ * fall back to the <picture> WebP source. Next 14 / React 18 can't hoist a media-scoped preload into <head> (ReactDOM.preload
+ * has no `media`), so these sit at the top of <main> (preload is body-ok) where the preload scanner sees them first. */
+function HeroPreload() {
+  return (
+    <>
+      <link rel="preload" as="image" type="image/avif" media={MQ_MOBILE} imageSrcSet={HERO_SKY.mobileAvif} imageSizes={SIZES_MOBILE} fetchPriority="high" />
+      <link rel="preload" as="image" type="image/avif" media={MQ_DESKTOP} imageSrcSet={HERO_SKY.desktopAvif} imageSizes={SIZES_DESKTOP} fetchPriority="high" />
+    </>
   );
 }
 
@@ -71,12 +106,16 @@ function Coin({ letter, tone, size = 56, children }: { letter: string; tone: "si
   );
 }
 
-const CTAs = ({ primary, secondary }: { primary: string; secondary: string }) => (
-  <div className={s.ctas}>
-    <Link href={HIW_ROUTES.launch} className={`${s.btn} ${s.pri}`}><Icon name="plus" size={18} />{primary}</Link>
-    <Link href={HIW_ROUTES.explore} className={s.btn}>{secondary}<Icon name="chevron-right" size={16} /></Link>
-  </div>
-);
+/** `plain` renders bare <a>s (the hero: no client component above the fold); elsewhere next/link keeps soft navigation. */
+const CTAs = ({ primary, secondary, plain = false }: { primary: string; secondary: string; plain?: boolean }) => {
+  const A = plain ? "a" : Link;
+  return (
+    <div className={s.ctas}>
+      <A href={HIW_ROUTES.launch} className={`${s.btn} ${s.pri}`}><Icon name="plus" size={18} />{primary}</A>
+      <A href={HIW_ROUTES.explore} className={s.btn}>{secondary}<Icon name="chevron-right" size={16} /></A>
+    </div>
+  );
+};
 
 export default function HowItWorksPage() {
   const [h1a, h1b] = HIW_HERO.h1.split(/(?<=\.) /);
@@ -85,17 +124,19 @@ export default function HowItWorksPage() {
   return (
     <main className={`${s.page} ${geistMono.variable}`}>
       {/* Hero (no step strip) */}
-      <header className={s.hero}>
-        <div className={s.heroSky} aria-hidden>
-          <Image src={withBase(SKY.hero)} alt="" fill priority sizes="(max-width: 760px) 100vw, calc(100vw - 270px)" quality={70} className={s.skyImg} style={{ objectPosition: "50% 35%" }} />
-          <div className={s.heroShade} />
-          <Rocket h={190} className={s.heroRocket} priority />
+      <HeroPreload />
+      <style dangerouslySetInnerHTML={{ __html: HERO_CSS }} />
+      <header className="hiw-hero">
+        <div className="hiw-sky" aria-hidden>
+          <HeroSky />
+          <div className="hiw-shade" />
+          <Rocket h={190} className="hiw-rocket" eager />
         </div>
-        <div className={s.heroCopy}>
-          <p className={`${s.eyebrow} ${s.center}`}>{HIW_HERO.eyebrow}</p>
-          <h1 className={s.h1}><span className={s.hl}>{h1a}</span> <span className={s.hl}>{h1b}</span></h1>
-          <p className={s.sub}>{HIW_HERO.sub}</p>
-          <CTAs {...HIW_HERO.ctas} />
+        <div className="hiw-copy">
+          <p className={`${s.eyebrow} ${s.center} hiw-eyebrow`}>{HIW_HERO.eyebrow}</p>
+          <h1 className="hiw-h1"><span className="hiw-hl">{h1a}</span> <span className="hiw-hl">{h1b}</span></h1>
+          <p className="hiw-sub">{HIW_HERO.sub}</p>
+          <CTAs {...HIW_HERO.ctas} plain />
         </div>
       </header>
 

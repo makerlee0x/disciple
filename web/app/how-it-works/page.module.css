@@ -45,14 +45,7 @@
 .pri:hover { background: var(--dsc-text); border-color: var(--dsc-text); }
 .btnSm { height: 40px; font-size: 13.5px; padding: 0 18px; }
 
-/* hero */
-.hero { position: relative; height: 600px; overflow: hidden; }
-.heroSky { position: absolute; inset: 0; background: var(--dsc-sky-indigo); }
-.heroShade { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0%, rgba(11, 12, 14, .82) 26%, rgba(11, 12, 14, .35) 52%, rgba(11, 12, 14, 0) 70%), var(--dsc-gradient-scrim-top); }
-.heroRocket { left: 50%; top: 86px; }
-.heroCopy { position: absolute; left: 0; right: 0; top: 318px; text-align: center; padding: 0 24px; }
-.h1 { margin-top: 18px; font: 400 66px/1 var(--dsc-font-display); letter-spacing: -.01em; }
-.sub { max-width: 60ch; margin: 16px auto 0; font-size: 19px; color: var(--dsc-muted-on-sky); text-wrap: balance; }
+/* hero: critical CSS is inlined from ./hero.ts (HERO_CSS) */
 
 /* rocket + plume (decorative) */
 .rk { position: absolute; transform: translateX(-50%) rotate(var(--lean, 0deg)); }
@@ -64,10 +57,8 @@
 .plume i:nth-child(3) { width: 17%; height: 22%; background: radial-gradient(50% 50% at 50% 0%, #fff, rgba(255, 122, 61, .35) 60%, transparent 85%); }
 @media (prefers-reduced-motion: no-preference) {
   .plume { animation: flicker 1.6s var(--dsc-easing-standard) infinite alternate; }
-  .heroRocket { animation: bob 6s ease-in-out infinite alternate; }
 }
 @keyframes flicker { from { opacity: .85; } to { opacity: 1; } }
-@keyframes bob { from { transform: translateX(-50%) translateY(0); } to { transform: translateX(-50%) translateY(-6px); } }
 
 /* 01 pair */
 .diag { margin-top: 36px; padding: 34px 36px; position: relative; overflow: hidden; }
@@ -195,11 +186,6 @@
   .h2 { font-size: 38px; }
   .lead { font-size: 15.5px; }
   .two { grid-template-columns: 1fr; gap: 20px; }
-  .hero { height: 646px; }
-  .heroCopy { top: 292px; padding: 0 20px; }
-  .h1 { font-size: 37px; line-height: 1.04; }
-  .hl { display: block; white-space: nowrap; }
-  .sub { font-size: 16px; }
   .ctas { flex-direction: column; padding: 0 10px; }
   .items { grid-template-columns: 1fr 1fr; gap: 10px; }
   .item { padding: 16px; }

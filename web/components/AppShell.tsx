@@ -1,11 +1,15 @@
 "use client";
 
 import Sidebar, { isCollapsibleRoute } from "./Sidebar";
-import WalletButton from "./WalletButton";
 import RefCapture from "./RefCapture";
 import HowItWorksHost from "./home/HowItWorksHost";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+
+// The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
+// after hydration instead of sitting in every page's first-load JS ahead of the LCP. Fixed positioning = no layout shift.
+const WalletButton = dynamic(() => import("./WalletButton"), { ssr: false });
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
