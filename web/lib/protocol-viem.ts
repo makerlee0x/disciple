@@ -77,10 +77,10 @@ export function friendlyError(e: unknown): ProtocolError {
       NoPricePool: "That pair has no USD price pool registered, so it can't be used yet.",
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
-      CreatorBuyTooLarge: "Creator buy is above Launchpad.creatorBuyMaxBps() (and/or the 7% wallet cap).",
+      CreatorBuyTooLarge: "Creator buy is above Launchpad.creatorBuyMaxBps().",
       Slippage: "Price moved too much. Try again or raise slippage.",
       Expired: "The trade took too long and expired. Try again.",
-      WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
+      WalletCap: "Wallet cap reached: this coin's curve limits how much one wallet can hold before orbit.",
       Graduated: "This rocket reached orbit; trading moved to the v4 pool.",
       NotGraduated: "This rocket is still on the curve.",
       InsufficientLiquidity: "Not enough left on the curve for that size.",
@@ -490,7 +490,7 @@ export function createViemProtocol(): ProtocolClient {
         const calls: Call[] = [];
         if (creatorBuy > B(0)) {
           const cq = await readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps));
-          if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy exceeds Launchpad.creatorBuyMaxBps() / wallet cap. Lower it.");
+          if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy exceeds Launchpad.creatorBuyMaxBps(). Lower it.");
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });

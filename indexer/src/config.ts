@@ -2,6 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Address } from "viem";
 
+/**
+ * Tramps & walls: off-chain points per $1 of FILLED order size, rounded down per order. Only status='filled' orders
+ * (keeper `pull` after a full cross, the `Filled` event) earn; cancelled orders earn 0, including partly filled ones.
+ * No fee share and no flat per-order bonus. MIRROR of TRAMP_WALL_POINTS_PER_USD in web/lib/config.ts (the indexer
+ * can't import web/); keep the two in sync.
+ */
+export const TRAMP_WALL_POINTS_PER_USD = 1;
+
 export interface Stack {
   id: string; // "v1" | "v2" | "v3" ...
   fromBlock: bigint;

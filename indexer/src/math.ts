@@ -11,6 +11,24 @@ export function priceWadFromSqrt(sqrtP: bigint, tokenIsC0: boolean): bigint {
   return tokenIsC0 ? (sqrtP * sqrtP * WAD) >> 192n : (WAD * Q96 * Q96) / (sqrtP * sqrtP);
 }
 
+/**
+ * Raw price (quote raw per token raw) at the MIDDLE of a tramp/wall's tick range: 1.0001^((tickLower+tickUpper)/2),
+ * flipped when the token is currency1. Same as web/lib/trampwalls/onchain.ts `priceAtTick(c, (lo + hi) / 2)` (the
+ * range's geometric centre price), which GAME uses for a wall's order size $ (#86).
+ */
+export function midRangePrice(tickLower: number, tickUpper: number, tokenIsC0: boolean): number {
+  const mid = (Number(tickLower) + Number(tickUpper)) / 2;
+  return Math.exp((tokenIsC0 ? mid : -mid) * Math.log(1.0001));
+}
+
+/** currency0 is the lower address; native quote (address(0)) is always currency0. */
+export const tokenIsCurrency0 = (token: string, quote: string | null | undefined) => BigInt(token) < BigInt(quote ?? 0);
+
+/** USD size of a wall: tokens × the mid-range price × quote USD (tokens and quote both 18 decimals). */
+export function wallUsd(tokenAmtRaw: bigint | string, tickLower: number, tickUpper: number, tokenIsC0: boolean, quoteUsd: number): number {
+  return (Number(BigInt(tokenAmtRaw)) / 1e18) * midRangePrice(tickLower, tickUpper, tokenIsC0) * quoteUsd;
+}
+
 export function mcapUsdWad(priceWad: bigint, quoteUsdWad: bigint): bigint {
   return (((priceWad * TOTAL_SUPPLY) / WAD) * quoteUsdWad) / WAD;
 }

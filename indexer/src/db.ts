@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { tokenIsCurrency0, wallUsd } from "./math.js";
 
 export type DB = Database.Database;
 
@@ -71,7 +72,30 @@ export function openDb(path: string): DB {
   // one-time backfill of coin_stats for DBs indexed before the aggregates existed
   const v = db.prepare("SELECT v FROM meta WHERE k='coin_stats_v'").get() as { v: string } | undefined;
   if (v?.v !== COIN_STATS_VERSION) db.transaction(() => { rebuildCoinStats(db); db.prepare("INSERT OR REPLACE INTO meta VALUES ('coin_stats_v', ?)").run(COIN_STATS_VERSION); })();
+  // one-time recompute of wall order USD (placement-time last trade price → mid-range price; see recomputeWallUsd)
+  const w = db.prepare("SELECT v FROM meta WHERE k='wall_usd_v'").get() as { v: string } | undefined;
+  if (w?.v !== WALL_USD_VERSION) db.transaction(() => { recomputeWallUsd(db); db.prepare("INSERT OR REPLACE INTO meta VALUES ('wall_usd_v', ?)").run(WALL_USD_VERSION); })();
   return db;
+}
+
+const WALL_USD_VERSION = "1";
+/**
+ * Recompute orders.amount_in_usd for walls as tokens × the price at the middle of the wall's tick range × the coin's
+ * launch quote USD (what ingest now records; it used to be tokens × the last trade price at placement). Everything it
+ * needs is already stored (amount_in, tick_lower/upper, coins.quote/quote_price_usd), so no re-index is needed.
+ * Tramps (quote deposited × quote USD) are unchanged. Idempotent; safe to call any time.
+ */
+export function recomputeWallUsd(db: DB) {
+  const rows = db.prepare(`SELECT o.stack, o.id, o.amount_in, o.tick_lower, o.tick_upper, c.token, c.quote, c.quote_price_usd
+    FROM orders o LEFT JOIN coins c ON c.token = o.token WHERE o.kind = 'wall'`).all() as any[];
+  const upd = db.prepare("UPDATE orders SET amount_in_usd = ? WHERE stack = ? AND id = ?");
+  for (const r of rows) {
+    const usd = r.token && r.amount_in != null
+      ? wallUsd(r.amount_in, r.tick_lower, r.tick_upper, tokenIsCurrency0(r.token, r.quote), Number(BigInt(r.quote_price_usd ?? "0")) / 1e18)
+      : 0;
+    upd.run(usd, r.stack, r.id);
+  }
+  return rows.length;
 }
 
 const COIN_STATS_VERSION = "1";
