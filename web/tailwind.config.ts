@@ -25,10 +25,11 @@ const config: Config = {
         warning: "var(--dsc-warning)",
       },
       fontFamily: {
+        // Synced from disciple-brand/release/v1/tokens/tailwind.config.snippet.js
         display: ["var(--dsc-font-display)"],
         sans: ["var(--dsc-font-ui)"],
         ui: ["var(--dsc-font-ui)"],
-        mono: ["ui-monospace", "Menlo", "Consolas", "monospace"],
+        mono: ["var(--dsc-font-mono)"],
       },
     },
   },
