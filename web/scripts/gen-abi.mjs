@@ -39,7 +39,7 @@ function loadAbi(name) {
 
 const idx = [];
 const source = fs.existsSync(BUNDLE_ABI)
-  ? "contracts/deployments/web-bundle @ 27e92d8 (RH testnet 46630 v3)"
+  ? "contracts/deployments/web-bundle @ fdd436b5 (RH testnet 46630 v4)"
   : "DISCIPLE FLOW forge out";
 for (const n of NAMES) {
   const abi = loadAbi(n);

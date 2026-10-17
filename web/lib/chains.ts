@@ -93,22 +93,22 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
   // Testnet — source of truth: contracts/deployments/web-bundle @ 27e92d8 (FLOW combined redeploy v3, startBlock 136187963).
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
-    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0xf5c09182091e527f0445ce065f7fc59d4b55cede"),
-    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0xbc13b0bb1b18f479872f52dcddc840b8041300c4"),
-    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xCfb16275fCbcF124dDe54F3dbc36ddC684111564"),
-    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xf04f7d3b54f86cc5333e7e2302850b023c796e69"),
-    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x633be77ee01aafb35297950d88168ca052e1f9ac"),
-    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x09cdfa29e3a25c91c7807ef779b0e376d5f1fd11"),
-    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0x37427357b6d0db92137872d6b7d17c9cede72c40"),
-    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0xeec226531767a8da505af01f11399ebb3dc9ca36"),
-    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0x67830dba366f2ae12cb7285d50cb22a721549285"),
-    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0x44afe78fc0ef4578d1d1d461b2eb23585615209a"),
-    trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0xCCD9c94D7d4877fb487b01960C77917f6Df2F3fE"),
-    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x4683F586aD2F70443f74f40751D202494EC9d0Ed"),
+    launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x4f540bc1585ca36c8a49662dc642f6e28ae534da"),
+    hook: addr(process.env.NEXT_PUBLIC_RHT_HOOK, "0x16b6a7912324b67e562769bf7ed7e048ef6128c4"),
+    router: addr(process.env.NEXT_PUBLIC_RHT_ROUTER, "0xb53c37baa373c22b85fd3bb27fa71b8091abd316"),
+    feeRouter: addr(process.env.NEXT_PUBLIC_RHT_FEE_ROUTER, "0xe7ab694edcf1c91c34be23baf493d45e83f752d9"),
+    referralRegistry: addr(process.env.NEXT_PUBLIC_RHT_REFERRAL_REGISTRY, "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c"),
+    lockedLP: addr(process.env.NEXT_PUBLIC_RHT_LOCKED_LP, "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a"),
+    quotePricer: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PRICER, "0xe173a0f0b8d44a7686fbd32958d65375ff77314f"),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_RHT_QUOTE_PROBE, "0x4d6e5131d197318da7aeb502659486eb00bf4c1f"),
+    migration: addr(process.env.NEXT_PUBLIC_RHT_MIGRATION, "0x37f20243c2cb78613fcfbd58607ce9905cf423b0"),
+    antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0xe21904fc33220a81e23a5f0cd3fdeba6a644f45e"),
+    trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0x9c9693c44b5c09d318c95ba351ca4f70965c6cde"),
+    marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x3afe8b96fba7c47790d6d195f0070edd560165ae"),
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec; reused from v1)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
-    fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "136187963"),
+    fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "137540728"),
   },
   [anvil.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_ANVIL_LAUNCHPAD),
