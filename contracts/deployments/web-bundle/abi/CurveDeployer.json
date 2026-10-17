@@ -39,14 +39,56 @@
         "internalType": "uint256"
       },
       {
-        "name": "quotePriceUsd",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "params",
+        "type": "tuple",
+        "internalType": "struct CurveMath.Params",
+        "components": [
+          {
+            "name": "totalSupply",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "sCurve",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "x0",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "y0",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "quotePriceUsd",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       },
       {
         "name": "walletCapBps",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "loginGate",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "trustedRouter",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [

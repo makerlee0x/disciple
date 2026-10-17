@@ -27,6 +27,58 @@
   },
   {
     "type": "function",
+    "name": "MAX_EMA_STEP_TICKS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int256",
+        "internalType": "int256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "REF_MIN_AGE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "REF_MIN_OBS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "REF_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "admin",
     "inputs": [],
     "outputs": [
@@ -454,7 +506,7 @@
     "name": "altitudeTierOf",
     "inputs": [
       {
-        "name": "",
+        "name": "id",
         "type": "bytes32",
         "internalType": "PoolId"
       }
@@ -622,7 +674,7 @@
     "name": "beforeInitialize",
     "inputs": [
       {
-        "name": "",
+        "name": "sender",
         "type": "address",
         "internalType": "address"
       },
@@ -671,7 +723,7 @@
         "internalType": "bytes4"
       }
     ],
-    "stateMutability": "pure"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -846,6 +898,80 @@
   },
   {
     "type": "function",
+    "name": "blockAnchor",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "blockNumber",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "sqrtPriceX96",
+        "type": "uint160",
+        "internalType": "uint160"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "compoundGasLimit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "compoundRefs",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "refBlock",
+        "type": "uint160",
+        "internalType": "uint160"
+      },
+      {
+        "name": "refEma",
+        "type": "uint160",
+        "internalType": "uint160"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "compounder",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ILPCompounder"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "feeRouter",
     "inputs": [],
     "outputs": [
@@ -1011,6 +1137,35 @@
   },
   {
     "type": "function",
+    "name": "mcapUsdFromSqrt",
+    "inputs": [
+      {
+        "name": "sqrtP",
+        "type": "uint160",
+        "internalType": "uint160"
+      },
+      {
+        "name": "tokenIsC0",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "qUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "metaOf",
     "inputs": [
       {
@@ -1076,6 +1231,45 @@
   },
   {
     "type": "function",
+    "name": "priceReference",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "emaTickX256",
+        "type": "int32",
+        "internalType": "int32"
+      },
+      {
+        "name": "emaTime",
+        "type": "uint40",
+        "internalType": "uint40"
+      },
+      {
+        "name": "refSince",
+        "type": "uint40",
+        "internalType": "uint40"
+      },
+      {
+        "name": "obs",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "ready",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "priceX18FromSqrt",
     "inputs": [
       {
@@ -1107,6 +1301,25 @@
         "name": "",
         "type": "address",
         "internalType": "contract IQuotePricer"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteUsdOf",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -1166,6 +1379,24 @@
         "name": "quotePriceUsd",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setCompounder",
+    "inputs": [
+      {
+        "name": "c",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "gasLimit",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "outputs": [],
@@ -1235,6 +1466,25 @@
   },
   {
     "type": "function",
+    "name": "swappedInTx",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "s",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "transferAdmin",
     "inputs": [
       {
@@ -1280,6 +1530,38 @@
         "type": "uint8",
         "indexed": false,
         "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CompoundFailed",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CompounderSet",
+    "inputs": [
+      {
+        "name": "compounder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "gasLimit",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
       }
     ],
     "anonymous": false
@@ -1399,10 +1681,10 @@
         "internalType": "uint256"
       },
       {
-        "name": "mcapAfterUsd",
-        "type": "uint256",
+        "name": "sqrtPriceAfter",
+        "type": "uint160",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "uint160"
       }
     ],
     "anonymous": false
@@ -1448,6 +1730,11 @@
   },
   {
     "type": "error",
+    "name": "OnlyLockedLP",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OnlyMigration",
     "inputs": []
   },
@@ -1455,16 +1742,5 @@
     "type": "error",
     "name": "OnlyPoolManager",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "SafeERC20FailedOperation",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
   }
 ]
