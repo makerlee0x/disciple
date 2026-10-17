@@ -319,6 +319,9 @@ body.side-open .main-offset {
 @media (max-width: 760px) {
   .ap-topbar { left: 0; }
 }
+/* Home: the chrome strip floats transparent over the hero scene, solid again once scrolled past it */
+.ap-topbar { transition: background-color .25s, border-color .25s; }
+body.home.home-top .ap-topbar { background: transparent; border-bottom-color: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 /* Sidebar toggle only exists on mobile for non-game routes */
 #apSide .ap-tog.ap-tog-mobile { display: none; }
 @media (max-width: 760px) {
@@ -1234,3 +1237,6 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .coin-id-txt b { font: 700 13px var(--dsc-font-ui); color: #E8EAEE; overflow: hidden; text-overflow: ellipsis; }
 .coin-id-txt span { color: #C9CED6; font-weight: 600; }
 @media (max-width: 760px) { .coin-id { left: 66px; top: 10px; bottom: auto; padding: 3px; } }
+
+/* —— Rocket factory v2: full-bleed hangar scene above the part pickers —— */
+.factory-below { padding-top: 18px; }

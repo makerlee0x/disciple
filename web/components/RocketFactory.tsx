@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { COINS, LOADOUT_KEY, SKINS, THRUSTERS, coinById, coinEmblem, thrusterById } from "@/lib/rocketSkin";
 import SkinnedRocket from "@/components/SkinnedRocket";
+import HangarRocket from "@/components/factory/HangarRocket";
+import hs from "@/components/factory/hangar.module.css";
+import { withBase } from "@/lib/base-path";
 
 /**
  * Rocket factory (Forza "My Cars" layout): header with rocket + points, centre stage,
@@ -115,67 +118,111 @@ export default function RocketFactory() {
   };
 
   return (
-    <div className="factory">
-      <div className="factory-rail" aria-hidden="true">ROCKET FACTORY</div>
-      <header className="factory-head">
-        <div className="factory-crest">✦</div>
-        <div>
-          <div className="factory-kicker">DISCIPLE HANGAR · BAY 01</div>
-          <h1>Halo Pilot&apos;s Rocket</h1>
-        </div>
-        <div className="factory-price">
-          <span>POINTS</span>
-          <strong>{points.toLocaleString()} pts</strong>
-        </div>
-      </header>
-
-      <div className="factory-main">
-        <section className={`factory-stage frame-${build.frame}`} style={{ ["--hull" as string]: tint, ["--trail" as string]: trail, ["--frame" as string]: frame, ["--flame" as string]: thr.flame, ["--flame-core" as string]: thr.core }}>
-          <div className="stage-grid" />
-          <div className="stage-door" />
-          <div className="stage-floor" />
-          <div className="stage-trail" />
-          <div className="stage-rocket">
-            <SkinnedRocket skin={skinId} coin={coinId} height={260} />
-            <div className="stage-flame" aria-hidden><span /><span /></div>
+    <div className={`factory-hangar ${hs.wrapOuter}`}>
+      <div className={hs.wrap}>
+        <section
+          className={hs.scene}
+          data-frame={build.frame}
+          style={{ ["--hull" as string]: tint, ["--trail" as string]: trail, ["--frame" as string]: frame, ["--flame" as string]: thr.flame, ["--flame-core" as string]: thr.core }}
+        >
+          <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden>
+            <filter id="hangarHeat" x="-50%" y="-20%" width="200%" height="140%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.02 0.09" numOctaves="2" seed="3" result="n">
+                <animate attributeName="seed" values="1;2;3;4;5;6;7;8" dur="0.8s" repeatCount="indefinite" calcMode="discrete" />
+              </feTurbulence>
+              <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
+            </filter>
+          </svg>
+          <div className={hs.stage}>
+            <picture>
+              <source type="image/avif" srcSet={`${withBase("/hangar/plate-1280.avif")} 1280w, ${withBase("/hangar/plate.avif")} 2560w`} sizes="max(100vw, 1280px)" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className={hs.plate}
+                src={withBase("/hangar/plate.webp")}
+                srcSet={`${withBase("/hangar/plate-1280.webp")} 1280w, ${withBase("/hangar/plate.webp")} 2560w`}
+                sizes="max(100vw, 1280px)"
+                width={2560}
+                height={1440}
+                alt=""
+                fetchPriority="high"
+                decoding="async"
+              />
+            </picture>
+            <div className={hs.floorGlow} aria-hidden />
+            {build.trail !== "trail-none" && <div className={hs.trail} aria-hidden />}
+            <div className={hs.flameRefl} aria-hidden />
+            <HangarRocket skin={skinId} coin={coinId} flame={thr.flame} className={hs.rocket} reflClassName={hs.refl} />
+            <div className={hs.flame} aria-hidden><i /><i /></div>
+            <div className={hs.flameGlow} aria-hidden />
+            <div className={hs.shimmer} aria-hidden />
+            <div className={hs.smoke} aria-hidden><span /><span /><span /><span /><span /></div>
+            <div className={hs.cone} aria-hidden />
           </div>
-          <div className="stage-caption">{previewPart.name} <span className="muted">· {SLOTS.find((s) => s.id === previewPart.slot)?.label}</span></div>
+          <div className={hs.scrim} aria-hidden />
+          <div className={hs.side} aria-hidden="true">ROCKET FACTORY</div>
+          <header className={hs.hdr}>
+            <div className={hs.id}>
+              <div className={hs.badge} aria-hidden>
+                <svg viewBox="0 0 16 16"><path d="M8 0 9.6 6.4 16 8 9.6 9.6 8 16 6.4 9.6 0 8 6.4 6.4Z" fill="#E8EAEE" /></svg>
+              </div>
+              <div>
+                <div className={hs.eyebrow}>DISCIPLE HANGAR · BAY 01</div>
+                <h1 className={hs.name}>Halo Pilot&apos;s Rocket</h1>
+              </div>
+            </div>
+            <div className={hs.pts}>
+              <div className={hs.ptsLab}>POINTS</div>
+              <div className={hs.ptsVal}>{points.toLocaleString()} <span>pts</span></div>
+            </div>
+          </header>
+          <div className={hs.cap}>
+            <span className={hs.dot} aria-hidden />
+            <span className={hs.capName}>{previewPart.name}</span>
+            <span className={hs.capSlot}>{SLOTS.find((s) => s.id === previewPart.slot)?.label}</span>
+          </div>
         </section>
 
-        <aside className="factory-stats">
-          <div className="factory-rating">
-            <span className={`rate-class c-${ratingClass(r)}`}>{ratingClass(r)}</span>
-            <span className="rate-num">{r}</span>
+        <aside className={hs.panel}>
+          <div className={hs.rank}>
+            <span className={hs.tier}>{ratingClass(r)}</span>
+            <span className={hs.score}>{r}</span>
           </div>
           {(Object.keys(STAT_LABEL) as (keyof Stats)[]).map((k) => {
             const delta = next[k] - current[k];
+            const n = Math.round(next[k] * 4), c = Math.round(Math.min(current[k], next[k]) * 4);
             return (
-              <div key={k} className="factory-stat">
-                <div className="fs-label">{STAT_LABEL[k]}</div>
-                <div className="fs-row">
-                  <span className="fs-num">{next[k].toFixed(1)}</span>
-                  <div className="fs-bar">
-                    <div className="fs-fill" style={{ width: `${Math.min(current[k], next[k]) * 10}%` }} />
-                    {delta > 0 && <div className="fs-gain" style={{ left: `${current[k] * 10}%`, width: `${delta * 10}%` }} />}
-                  </div>
-                  {delta > 0 && <span className="fs-delta">+{delta.toFixed(1)}</span>}
+              <div key={k} className={hs.stat}>
+                <div className={hs.row}>
+                  <span className={hs.k}>{STAT_LABEL[k]}</span>
+                  <span className={hs.v}>{next[k].toFixed(1)}{delta > 0 && <em>+{delta.toFixed(1)}</em>}</span>
+                </div>
+                <div className={hs.gauge} role="meter" aria-label={STAT_LABEL[k]} aria-valuemin={0} aria-valuemax={10} aria-valuenow={next[k]}>
+                  {Array.from({ length: 40 }, (_, i) => (
+                    <i key={i} className={i === n - 1 ? hs.hot : i < c ? hs.on : i < n - 1 ? hs.gain : undefined} />
+                  ))}
                 </div>
               </div>
             );
           })}
+          <div className={hs.sp} />
           <button
             type="button"
-            className="ds-btn gold factory-cta"
+            className={`${hs.equip}${!isEquipped && !isOwned(previewPart) ? " " + hs.unlock : ""}`}
             disabled={isEquipped}
             onClick={buy}
           >
+            {isEquipped && (
+              <svg viewBox="0 0 14 14" aria-hidden><path d="M2.5 7.5 5.5 10.5 11.5 3.5" stroke="currentColor" strokeWidth="1.6" fill="none" /></svg>
+            )}
             {isEquipped ? "Equipped" : isOwned(previewPart) ? "Equip" : `Unlock · ${previewPart.cost.toLocaleString()} pts`}
           </button>
-          {note && <p className="muted tiny" role="status">{note}</p>}
-          <p className="muted tiny">Cosmetic only — upgrades never change price, fills or odds.</p>
+          {note && <p className={hs.status} role="status">{note}</p>}
+          <p className={hs.note}>Cosmetic only — upgrades never change price, fills or odds.</p>
         </aside>
       </div>
 
+      <div className="factory factory-below">
       <nav className="factory-slots" aria-label="Part slot">
         {SLOTS.map((s) => (
           <button key={s.id} type="button" className={slot === s.id ? "on" : ""}
@@ -197,6 +244,7 @@ export default function RocketFactory() {
         <span><span className="tag mock">SAMPLE PARTS</span> · Prestige unlocks rarer parts</span>
         <span className="muted tiny">Click a part to preview it live · Unlock with points · saved in this browser</span>
       </footer>
+      </div>
     </div>
   );
 }
