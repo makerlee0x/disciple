@@ -12,7 +12,7 @@ Read this alongside `web/docs/wire-protocol.md`. Events are final for v0: **`Lau
 | Launchpad | `MetadataUpdated`, `CreatorTransferred`, `DefaultQuoteUpdated`, `QuoteProbeUpdated`, `PricerUpdated` | admin / metadata |
 | BondingCurve | `Trade(...)` (below) | every pre-grad buy/sell |
 | BondingCurve | `GraduatedToV4(address indexed token, bytes32 poolId, uint256 tokenLiq, uint256 quoteLiq)` | same tx as the graduating buy |
-| DiscipleHook | `Trade(...)` (same signature) | every post-grad v4 swap, whatever router is used |
+| DiscipleHook | `Trade(...)` (hook variant: last field `uint160 sqrtPriceAfter`, different topic0) | every post-grad v4 swap, whatever router is used |
 
 ```solidity
 event Trade(
@@ -20,13 +20,25 @@ event Trade(
     uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee,
     uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd
 );
+// DiscipleHook (post-grad), gas G-1. topic0 = keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)")
+event Trade(
+    address indexed token, address indexed trader, bool isBuy,
+    uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee,
+    uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint160 sqrtPriceAfter
+);
 ```
 
 - `trader`: on the curve, a buy's token recipient or a sell's `msg.sender`. On the hook: if the swap `sender` is on the hook's owner-managed allowlist (`isTrustedRouter`; only DiscipleRouter is trusted, UniversalRouter is deliberately not, see SEC-05) **and** hookData is exactly `abi.encode(address trader)`, that trader is used. Otherwise it is the swap `sender`. Referral credit follows the same rule, so it only applies to trusted-router hookData or a direct (sender = trader) swap. Any caller of a trusted router can put any address in hookData; they still pay the fee themselves, so spoofing can only redirect the referral share of their own fee.
 - `quoteAmt` on a buy is the gross quote paid, including fees. On a sell it is the net quote received. `tokenAmt` is net tokens received (buy) or tokens sold (sell).
 - `fee` is the protocol 1% plus creator tax, in quote raw units. On the hook, an exact-in buy charges its fee in the launch token; that fee is converted to quote at `priceAfterX18`. `snipeFee` is the anti-snipe part, always 0 after graduation.
 - Prices are `quote raw * 1e18 / token raw`. `impactBps` is an **unsigned absolute** value. Its direction comes from `isBuy`: buys push the price up and sells push it down, so negate it client-side for sells if you want a signed value. It is computed on-chain at full precision from reserves or sqrtPrice, so use it rather than recomputing from the X18 prices. For 6-decimal quotes the X18 prices are coarse.
-- `mcapAfterUsd` is in USD WAD and uses the quote/USD price fixed at launch.
+- `mcapAfterUsd` (curve only) is in USD WAD and uses the quote/USD price fixed at launch.
+- `sqrtPriceAfter` (hook only) is the v4 pool's `sqrtPriceX96` after the swap. The hook no longer computes a USD mcap
+  on-chain (it used to call the QuotePricer TWAP on every swap). USD mcap off-chain:
+  `DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd)` (pure), or
+  `totalSupply × price × quoteUsd`, with `quoteUsd` = `DiscipleHook.quoteUsdOf(poolId)` (live, what
+  `DiscipleRouter.quoteExactIn` uses) or the coin's launch-time `QuotePriced` value (what the hook's
+  `AltitudeUpdate.mcapUsd` uses).
 
 ## Trading paths (no custody: the Privy embedded wallet signs its own txs)
 

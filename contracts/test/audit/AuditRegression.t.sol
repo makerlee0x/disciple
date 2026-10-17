@@ -246,28 +246,36 @@ contract AuditRegression is IntegrationBase {
         hook.setMigration(attacker); // admin, but already wired
     }
 
-    // ── #13 quoteExactIn mcap == Trade mcap (live price) ──
+    // ── #13 quoteExactIn mcap == mcap derived from Trade.sqrtPriceAfter at the live price (G-1) ──
     function test_audit13_quoteMcapMatchesTradeEvent() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _graduate(curve);
-        hook.setPricer(address(new FixedPricer(3e18))); // live price differs from launch-time 1e18
+        FixedPricer fp = new FixedPricer(3e18); // live price differs from launch-time 1e18
+        hook.setPricer(address(fp));
+        PoolId pid = PoolIdLibrary.toId(_poolKey(tok));
+        bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
         (uint256 out,, uint256 qMcap) = router.quoteExactIn(address(tok), true, 100 ether);
+        uint256 liveQ = hook.quoteUsdOf(pid);
+        assertEq(liveQ, 3e18);
         vm.startPrank(trader1);
         quote.approve(address(router), 100 ether);
         vm.recordLogs();
+        // G-1 (expectCall counts every later call in this test, so no pricer reads after this line): the swap path never calls the pricer
+        vm.expectCall(address(fp), abi.encodeWithSelector(FixedPricer.quotePriceUsd.selector), 0);
         router.buyExactIn(address(tok), 100 ether, out, trader1, block.timestamp + 1);
         vm.stopPrank();
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256(
-            "Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
-        );
+        bytes32 sig =
+            keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)");
         bool seen;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == sig && logs[i].emitter == address(hook)) {
-                (,,,,,,,, uint256 mcap) = abi.decode(
-                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
+                (,,,,,,,, uint160 sqrtAfter) = abi.decode(
+                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160)
                 );
-                assertEq(qMcap, mcap);
+                (uint160 sp,,,) = StateLibrary.getSlot0(manager, pid);
+                assertEq(sqrtAfter, sp, "Trade.sqrtPriceAfter == slot0");
+                assertEq(qMcap, hook.mcapUsdFromSqrt(sqrtAfter, tokenIsC0, liveQ));
                 seen = true;
             }
         }

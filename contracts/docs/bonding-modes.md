@@ -260,3 +260,27 @@ UIs should not count it as "in the pool" until compounded.
   are still revocable). L3 bounds what a misbehaving router could claim.
 - Size: `CurveMath.makeParams` moved to Launchpad (curve constructor takes `Params`), constructor requires →
   `BadParams()`. CurveDeployer runtime 24,378 B (EIP-170 margin 198 B).
+
+## Gas G-1: hook Trade event carries sqrtPriceAfter (ABI change)
+
+- `DiscipleHook` no longer computes a USD mcap per swap (that was a `QuotePricer.quotePriceUsd` TWAP call, ~29k gas on a
+  STRATEGY-quoted coin). Its `Trade` event keeps every field except the last one:
+  ```solidity
+  // IHookTradeEvents (src/interfaces/ITradeEvents.sol), emitted by DiscipleHook only
+  event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt,
+      uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps,
+      uint160 sqrtPriceAfter);
+  // topic0 = keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)")
+  ```
+  `BondingCurve` (pre-grad) still emits `ITradeEvents.Trade(..., uint256 mcapAfterUsd)`. The two have **different
+  topic0s**, so indexers must decode both (viem `parseAbi` accepts both overloads).
+- `sqrtPriceAfter` is the pool's `sqrtPriceX96` after the swap. USD mcap off-chain:
+  `DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd)` (pure). Use `quoteUsdOf(poolId)` for the live price;
+  `DiscipleRouter.quoteExactIn` returns exactly that, test `test_audit13_quoteMcapMatchesTradeEvent`. Or use the
+  launch-time `QuotePriced` value, which matches `AltitudeUpdate.mcapUsd`.
+- Altitude/tier: `AltitudeUpdate.mcapUsd`, `TierBreak` and `altitudeTierOf` post-grad now use the pool's launch-time
+  quote/USD (`metaOf(id).quotePriceUsd`, already in memory), not the live pricer. `registerPool`'s initial tier uses the
+  same basis, so there is no spurious break on the first swap. USDG-quoted coins are unchanged (1e18).
+- `pricer` / `setPricer` / `quoteUsdOf` keep their ABI. The pricer is read only by the `quoteUsdOf` view.
+- SDK (`sdk/session-keys`): no change. It does not include the Trade event.
+- Gas: see gas-report.md "G-1".

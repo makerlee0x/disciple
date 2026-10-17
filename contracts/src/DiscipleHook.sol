@@ -14,7 +14,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IFeeRouter} from "./interfaces/IFeeRouter.sol";
 import {Constants} from "./libraries/Constants.sol";
-import {ITradeEvents} from "./interfaces/ITradeEvents.sol";
+import {IHookTradeEvents} from "./interfaces/ITradeEvents.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
@@ -46,7 +46,7 @@ interface ILPCompounder {
 ///      beforeAddLiquidity (SEC-02): only allowlisted liquidity managers (LockedLP, TrampWallManager) may add,
 ///      so nobody can JIT raw v4 positions around a swap. TrampWallManager positions are strictly single-sided
 ///      one-tick-spacing bands placed out of range; there is no minimum hold period.
-contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
+contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
@@ -60,7 +60,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         address quote;
         address creator;
         bool registered;
-        uint256 quotePriceUsd; // launch-time USD WAD per 1e18 raw quote (for mcapAfterUsd)
+        uint256 quotePriceUsd; // launch-time USD WAD per 1e18 raw quote (altitude/tier mcap; quoteUsdOf fallback)
     }
 
     /// @notice Allowlisted routers (only DiscipleRouter in production; UniversalRouter must NOT be trusted, SEC-05). When the swap `sender` is
@@ -205,7 +205,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         emit TrustedRouterSet(r, trusted);
     }
 
-    /// @notice Live quote/USD oracle for Trade-event mcap (falls back to launch-time price if unset/reverts).
+    /// @notice Live quote/USD oracle, read only by the view `quoteUsdOf` (off-chain / DiscipleRouter quotes). Never called
+    ///         during a swap (gas G-1): the Trade event carries sqrtPriceAfter and altitude uses the launch-time price.
     IQuotePricer public pricer;
 
     function setPricer(address p) external {
@@ -213,7 +214,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         pricer = IQuotePricer(p);
     }
 
-    /// @notice Live quote/USD price used for Trade-event mcap (audit #13: DiscipleRouter.quoteExactIn uses this too).
+    /// @notice Live quote/USD price (falls back to launch-time). View only: DiscipleRouter.quoteExactIn's mcapAfterUsd and
+    ///         off-chain USD mcap from Trade.sqrtPriceAfter use it. Not used on the swap path.
     function quoteUsdOf(PoolId id) external view returns (uint256) {
         return _quoteUsd(metaOf[id]);
     }
@@ -285,7 +287,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         metaOf[id] = m;
         // Altitude stream starts at the seeded (curve-end) spot price.
         (uint160 sp, int24 tk,,) = poolManager.getSlot0(id);
-        uint256 mcap = mcapUsdFromSqrt(sp, Currency.unwrap(key.currency0) == token, _quoteUsd(m));
+        // launch-time quote/USD, same basis as the per-swap altitude in afterSwap (no oracle call)
+        uint256 mcap = mcapUsdFromSqrt(sp, Currency.unwrap(key.currency0) == token, quotePriceUsd);
         uint8 tier = Altitude.tierOf(mcap);
         // The compound reference starts at the seeded (curve-end) price.
         _track[id] = PoolTrack({
@@ -390,9 +393,10 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             }
         }
 
-        uint256 qUsd = _quoteUsd(m);
-        uint256 spotMcap = _emitTrade(key, m, trader, delta, feeToken, feeAmount, qUsd);
-        _emitAltitude(key.toId(), m.token, spotMcap);
+        // Gas G-1: no live QuotePricer call per swap. Trade carries sqrtPriceAfter; altitude/tier needs a USD mcap and
+        // uses the cheapest existing path: the launch-time quote/USD already loaded in `m` (no extra SLOAD / CALL).
+        (uint160 sqrtAfter, bool tokenIsC0) = _emitTrade(key, m, trader, delta, feeToken, feeAmount);
+        _emitAltitude(key.toId(), m.token, mcapUsdFromSqrt(sqrtAfter, tokenIsC0, m.quotePriceUsd));
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
     }
 
@@ -434,10 +438,9 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         address trader,
         BalanceDelta delta,
         address feeToken,
-        uint256 feeAmount,
-        uint256 qUsd
-    ) internal returns (uint256 mcap) {
-        bool tokenIsC0 = Currency.unwrap(key.currency0) == m.token;
+        uint256 feeAmount
+    ) internal returns (uint160 sqrtAfter, bool tokenIsC0) {
+        tokenIsC0 = Currency.unwrap(key.currency0) == m.token;
         int128 dToken = tokenIsC0 ? delta.amount0() : delta.amount1();
         int128 dQuote = tokenIsC0 ? delta.amount1() : delta.amount0();
         bool isBuy = dToken > 0; // swapper receives token
@@ -453,10 +456,9 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         assembly ("memory-safe") {
             sqrtBefore := tload(slot)
         }
-        (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
+        (sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
         uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
-        mcap = mcapUsdFromSqrt(sqrtAfter, tokenIsC0, qUsd);
 
         emit Trade(
             m.token,
@@ -469,11 +471,11 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             priceX18FromSqrt(sqrtBefore, tokenIsC0),
             pAfter,
             impactBpsFromSqrt(sqrtBefore, sqrtAfter, tokenIsC0),
-            mcap
+            sqrtAfter
         );
     }
 
-    /// @dev Altitude = SPOT mcap after the trade (same value as Trade.mcapAfterUsd).
+    /// @dev Altitude = SPOT mcap after the trade: Trade.sqrtPriceAfter at the launch-time quote/USD price.
     function _emitAltitude(PoolId id, address token, uint256 mcap) internal {
         uint8 tier = Altitude.tierOf(mcap);
         emit AltitudeUpdate(token, mcap, tier);

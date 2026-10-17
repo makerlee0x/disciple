@@ -112,3 +112,36 @@ Where the deltas come from:
 - **PVE +0.7k–2.7k (M1):** the PVE token's `_update` reads its `{pveCurve, pveLive}` slot (cold) on the curve's
   token transfer. TRENCH/PVP tokens skip it with one immutable check, so they match the plain curve rows.
 - Contract sizes: CurveDeployer runtime 24,378 B (EIP-170 margin 198 B), BondingCurve runtime 22,548 B.
+
+## G-1: hook Trade emits sqrtPriceAfter instead of mcapAfterUsd (exact, `--isolate`)
+
+`forge test --mc '^GasBench$' --mt test_bench_v4 --isolate -vv`. BEFORE = 60a0525e, AFTER = this commit. The bench now
+wires `hook.setPricer(pricer)` in `setUp` like `Deploy.s.sol` does. Before this change it did not, so the old v4 rows
+never paid the per-swap QuotePricer call. "BEFORE (wired)" is the production-shaped baseline. "BEFORE (old bench)" is
+60a0525e with the bench file unchanged (no hook pricer).
+
+| trade | BEFORE (wired) | AFTER | Δ | BEFORE (old bench) | Δ |
+|---|---:|---:|---:|---:|---:|
+| v4.direct.buy.cold | 283,081 | 277,352 | -5,729 | 279,466 | -2,114 |
+| v4.direct.buy.warm | 261,011 | 255,282 | -5,729 | 257,396 | -2,114 |
+| v4.direct.sell.warm | 260,730 | 254,995 | -5,735 | 257,115 | -2,120 |
+| v4.direct.buy.firstInBlock | 265,178 | 259,449 | -5,729 | 261,563 | -2,114 |
+| v4.direct.buy.sameBlock | 261,107 | 255,378 | -5,729 | 257,492 | -2,114 |
+| v4.usdg1.buy.cold | 299,260 | 293,531 | -5,729 | 295,645 | -2,114 |
+| v4.usdg1.buy.warm | 282,128 | 276,399 | -5,729 | 278,513 | -2,114 |
+| v4.usdg1.sell.warm | 281,524 | 275,789 | -5,735 | 277,909 | -2,120 |
+| v4.usdg2.buy.cold | 373,631 | 342,519 | -31,112 | 344,633 | -2,114 |
+| v4.usdg2.buy.warm | 351,565 | 320,453 | -31,112 | 322,567 | -2,114 |
+| v4.usdg2.sell.warm | 374,958 | 343,840 | -31,118 | 345,960 | -2,120 |
+| v4nc.direct.buy.firstInBlock | 246,845 | 241,116 | -5,729 | 243,230 | -2,114 |
+| v4nc.direct.buy.sameBlock | 242,906 | 237,177 | -5,729 | 239,291 | -2,114 |
+| v4nc.direct.sell.sameBlock | 242,572 | 236,837 | -5,735 | 238,957 | -2,120 |
+
+- Every post-grad swap used to call `QuotePricer.quotePriceUsd(quote)` only to fill `Trade.mcapAfterUsd`. For a
+  STRATEGY-quoted coin (`usdg2`, TWAP binary search) that cost **-31,112**. For a USDG-quoted coin (the pricer's
+  reference quote, short-circuits) it cost **-5,729**. Without a pricer wired, the hook still paid the cold
+  `pricer()` SLOAD plus the zero-address branch, which is **-2,114**.
+- AFTER no longer depends on pricer wiring: the swap path never reads `pricer`.
+- Altitude/tier still needs a USD mcap. It now uses the launch-time `quotePriceUsd` that `afterSwap` already loads with
+  `metaOf` (no extra SLOAD or CALL), so the tier ladder is priced at the coin's launch-time quote/USD instead of the
+  live TWAP. For USDG-quoted coins the two are identical (1e18).

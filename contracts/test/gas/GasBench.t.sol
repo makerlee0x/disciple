@@ -22,6 +22,7 @@ contract GasBench is IntegrationBase {
         super.setUp();
         router.setUsdgRouting(address(quote), address(launchpad));
         router.setUsdgPool(address(strategy), strategyUsdgKey);
+        hook.setPricer(address(pricer)); // production wiring (Deploy.s.sol): hook has the live QuotePricer
         (sCurve, sTok) = _launchWithQuote(address(strategy), 100, 0); // 1% creator tax (typical)
         (uCurve, uTok) = _launchWithQuote(address(quote), 100, 0);
         _warpPastSnipe();

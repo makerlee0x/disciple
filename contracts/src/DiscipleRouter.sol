@@ -259,7 +259,8 @@ contract DiscipleRouter is IUnlockCallback {
     /// @dev Not `view` (v4 has no view swaps) — call it with eth_call / viem `simulateContract`.
     /// @return amountOut   net output to the trader
     /// @return impactBps   unsigned |Δprice|/price in bps (direction = isBuy), same semantics as Trade.impactBps
-    /// @return mcapAfterUsd USD WAD at launch-time quote/USD price, same as Trade.mcapAfterUsd
+    /// @return mcapAfterUsd USD WAD. Curve: same as Trade.mcapAfterUsd. v4: hook.mcapUsdFromSqrt(sqrtPriceAfter) at the
+    ///         live hook.quoteUsdOf price (the hook's Trade event carries sqrtPriceAfter, no USD mcap; G-1)
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd)
@@ -694,7 +695,8 @@ contract DiscipleRouter is IUnlockCallback {
         (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
         // token is c0 iff buying means zeroForOne == false
         (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(d.key.toId());
-        // Audit #13: same live quote/USD as the hook's Trade event (falls back to launch price inside the hook).
+        // Audit #13 / G-1: live quote/USD via the hook view (falls back to launch price). The hook Trade event emits
+        // sqrtPriceAfter; off-chain USD mcap from it with this same price equals this quote.
         uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
         uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);

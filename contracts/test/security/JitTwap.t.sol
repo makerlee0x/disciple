@@ -10,7 +10,7 @@ import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
-import {ITradeEvents} from "../../src/interfaces/ITradeEvents.sol";
+import {IHookTradeEvents} from "../../src/interfaces/ITradeEvents.sol";
 import {IAltitudeEvents} from "../../src/interfaces/IAltitudeEvents.sol";
 import {Altitude} from "../../src/libraries/Altitude.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -372,22 +372,25 @@ contract JitTwapTest is IntegrationBase {
         assertEq(hook.altitudeTierOf(pid), down);
     }
 
+    /// @dev G-1: hook Trade carries sqrtPriceAfter; AltitudeUpdate.mcapUsd = that spot at the launch-time quote price.
     function test_altitude_update_equals_trade_mcap() public {
         vm.recordLogs();
         _buy(alice, 100 ether);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 tradeMcap;
         uint256 altMcap;
+        (,,,, uint256 launchQUsd) = hook.metaOf(pid);
+        bool tIs0 = _tIs0();
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter != address(hook)) continue;
             if (logs[i].topics[0] == IAltitudeEvents.AltitudeUpdate.selector) {
                 (altMcap,) = abi.decode(logs[i].data, (uint256, uint8));
             }
-            if (logs[i].topics[0] == ITradeEvents.Trade.selector) {
-                (,,,,,,,, uint256 m) = abi.decode(
-                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
+            if (logs[i].topics[0] == IHookTradeEvents.Trade.selector) {
+                (,,,,,,,, uint160 sqrtAfter) = abi.decode(
+                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160)
                 );
-                tradeMcap = m;
+                tradeMcap = hook.mcapUsdFromSqrt(sqrtAfter, tIs0, launchQUsd);
             }
         }
         assertGt(altMcap, 0);
