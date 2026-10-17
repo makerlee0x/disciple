@@ -193,6 +193,9 @@ contract Deploy is Script {
             hasRef = true;
         }
         if (hasRef) pricer.setPricePool(o.defaultQuote, refKey);
+        // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
+        router.setUsdgRouting(o.usdg, address(launchpad));
+        if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");
 

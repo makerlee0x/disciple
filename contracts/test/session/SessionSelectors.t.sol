@@ -11,6 +11,10 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 contract SelectorHarness is DiscipleSessionPolicy {
     constructor() DiscipleSessionPolicy(address(0)) {}
 
+    function usdgSels() external pure returns (bytes4, bytes4) {
+        return (ROUTER_BUY_USDG, ROUTER_SELL_USDG);
+    }
+
     function sels() external pure returns (bytes4[9] memory s) {
         s = [ROUTER_BUY, ROUTER_SELL, TRAMP, WALL, CANCEL, LAUNCH, LAUNCH_COIN, ANON_LAUNCH, CURVE_BUY4];
     }
@@ -29,6 +33,9 @@ contract SessionSelectorsTest is Test {
         assertEq(s[6], ILaunchpad.launchCoin.selector);
         assertEq(s[7], AnonLauncher.launchAnon.selector);
         assertEq(s[8], bytes4(keccak256("buy(uint256,uint256,uint256,address)")));
+        (bytes4 b, bytes4 sl) = new SelectorHarness().usdgSels();
+        assertEq(b, DiscipleRouter.buyWithUsdg.selector);
+        assertEq(sl, DiscipleRouter.sellToUsdg.selector);
     }
 }
 
