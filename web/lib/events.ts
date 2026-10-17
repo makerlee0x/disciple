@@ -152,6 +152,7 @@ export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClie
 
 export interface LaunchedCoin {
   token: Address; curve: Address; creator: Address; quote: Address; name: string; ticker: string;
+  /** moderated-store URL of the coin image (/api/image/<id>), "" if the on-chain imageURI isn't moderated */
   imageURI: string; mcapUsd: number; graduated: boolean; progressBps: number; block: bigint;
 }
 
@@ -175,6 +176,11 @@ export async function listLaunches(pc: PublicClient = publicClient()): Promise<L
       mcapUsd: wad(mcap as bigint), graduated: grad as boolean, progressBps: Number(prog), block: l.blockNumber ?? BigInt(0),
     };
   }));
+  // W-3e: render only moderated images. imageURI is replaced by its moderated-store URL (/api/image/<id>), or "" when
+  // that exact URI never passed /api/moderate-image (e.g. set by calling the contract directly) ⇒ PairArt fallback.
+  const { moderatedSrcs } = await import("./coinImages");
+  const srcs = await moderatedSrcs(coins.map((c) => c.imageURI));
+  for (const c of coins) c.imageURI = srcs.get(c.imageURI) ?? "";
   return coins.sort((x, y) => (x.block > y.block ? -1 : 1));
 }
 

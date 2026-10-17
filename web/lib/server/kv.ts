@@ -10,6 +10,7 @@ import { promises as fs } from "fs";
 export interface Kv {
   kind: "upstash" | "local";
   get(k: string): Promise<string | null>;
+  mget(ks: string[]): Promise<(string | null)[]>;
   set(k: string, v: string): Promise<void>;
   /** SET NX (no ttl when ttlSec is 0). true if written. */
   setNX(k: string, v: string, ttlSec?: number): Promise<boolean>;
@@ -44,6 +45,7 @@ function local(): Kv {
   return {
     kind: "local",
     async get(k) { await ready; return live(k)?.v ?? null; },
+    async mget(ks) { await ready; return ks.map((k) => live(k)?.v ?? null); },
     async set(k, v) { await ready; st.kv[k] = { v, exp: 0 }; save(); },
     async setNX(k, v, ttl = 0) { await ready; if (live(k)) return false; st.kv[k] = { v, exp: ttl ? Date.now() + ttl * 1000 : 0 }; save(); return true; },
     async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
@@ -70,6 +72,7 @@ function upstash(url: string, token: string): Kv {
   return {
     kind: "upstash",
     get: (k) => cmd<string | null>("GET", k),
+    async mget(ks) { return ks.length ? ((await cmd<(string | null)[]>("MGET", ...ks)) ?? []) : []; },
     async set(k, v) { await cmd("SET", k, v); },
     async setNX(k, v, ttl = 0) { return (await cmd<string | null>(...(ttl ? ["SET", k, v, "NX", "EX", ttl] : ["SET", k, v, "NX"]))) === "OK"; },
     async del(...ks) { if (ks.length) await cmd("DEL", ...ks); },

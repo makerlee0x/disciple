@@ -34,7 +34,8 @@
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
-    "test:ssrf": "tsx --test scripts/test-ssrf.mts"
+    "test:ssrf": "tsx --test scripts/test-ssrf.mts",
+    "test:coin-images": "tsx --test scripts/test-coin-images.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

@@ -134,6 +134,16 @@ export default function LaunchRocketPage() {
     }
     // Moderated at center; launch with the user's chosen square crop of the same approved image.
     const imageUri = iconSrc ? cropSquare(iconSrc, crop) : mod.uri;
+    // Moderate the EXACT imageURI that goes on-chain: on allow the server stores it and adds it to the render
+    // allowlist (coin images only render from the moderated store). Explicit block stops the launch; an outage
+    // (review/network) keeps the testnet fail-open launch, the image just shows the placeholder until re-checked.
+    let imageNote = "";
+    if (!IS_STATIC_PREVIEW && imageUri.startsWith("data:")) {
+      const fd = new FormData(); fd.append("uri", imageUri);
+      const v = await fetch("/api/moderate-image", { method: "POST", body: fd }).then((r) => r.json()).catch(() => null) as { verdict?: string } | null;
+      if (v?.verdict === "block") { setMsg("This image can't be used. Please pick a different one."); return; }
+      if (v?.verdict !== "allow") imageNote = " (icon pending review; it shows once approved)";
+    }
     try {
       const client = isDeployed() ? createViemProtocol() : protocolStub;
       const res = await client.launchCoin({
@@ -156,7 +166,7 @@ export default function LaunchRocketPage() {
           }
         }
       }
-      setLaunched(`Launched! Rocket ${res.token} — taking you to it…`);
+      setLaunched(`Launched! Rocket ${res.token}${imageNote} — taking you to it…`);
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
       setMsg(isDeployed() ? String((err as Error).message) : "Contracts not deployed yet (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));

@@ -2,7 +2,7 @@
 # Moderation route smoke test. Uses only safe images + SYNTHETIC mocked classifier scores.
 set -u
 cd "$(dirname "$0")/.."
-export DENYLIST_PATH=/tmp/disciple-denylist-test.json IMAGE_STORE_DIR=/tmp/disciple-img-test
+export DENYLIST_PATH=/tmp/disciple-denylist-test.json
 rm -f $DENYLIST_PATH
 P=3041
 srv(){ fuser -k $P/tcp >/dev/null 2>&1; sleep 1; env "$@" ./node_modules/.bin/next start -p $P >/tmp/modtest.log 2>&1 & sleep 5; }
