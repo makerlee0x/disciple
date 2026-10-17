@@ -117,6 +117,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         uint128 cap0; // max total quote0 actually SPENT during the session (raw units; buys/tramps/launches)
         uint128 cap1;
         uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT, else 10..5000
+        address stealthOwner; // launchAnon: the only stealth owner allowed besides the account (0 = account only)
     }
 
     struct Session {
@@ -145,6 +146,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error NotAllowed(address target, bytes4 selector);
     error EthValueNotAllowed();
     error RecipientNotAccount();
+    error StealthOwnerNotAllowed(address stealthOwner);
     error SpenderNotAllowed(address spender);
     error SpendCapExceeded(address quote, uint256 spent, uint256 cap);
     error NotCurve(address target);
@@ -373,7 +375,11 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             _checkMinOut(c, minOut, _curveQuote(k.target, account, p == P_CURVE_BUY, amountIn), k.target);
             if (p == P_CURVE_BUY) (add0, add1) = _spend(c, IQuoteOf(k.target).quote(), amountIn);
         } else if (p == P_ANON_LAUNCH) {
-            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
+            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 1 =
+            // stealthOwner, word 2 = buyRecipient. Audit R-2: a leaked key must not launch with ITS stealth owner
+            // (the creator role + fees): only the account or the stealth address registered at install.
+            address so = _word(args, 1);
+            if (so != account && (so != c.stealthOwner || so == address(0))) revert StealthOwnerNotAllowed(so);
             address buyRecipient = _word(args, 2);
             if (buyRecipient != account) revert RecipientNotAccount();
             (address q, uint256 buyIn) = _launchSpend(c, args);

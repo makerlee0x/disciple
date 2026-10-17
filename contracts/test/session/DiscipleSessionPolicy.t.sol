@@ -6,6 +6,22 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {DiscipleSessionPolicy as P} from "../../src/session/DiscipleSessionPolicy.sol";
 import {PackedUserOperation} from "../../src/session/IERC6900.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
+import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
+import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
+
+contract MockAnon {
+    address public feeToken;
+
+    constructor(address f) {
+        feeToken = f;
+    }
+
+    function launchFee() external pure returns (uint256) {
+        return 0;
+    }
+
+    fallback() external {}
+}
 
 contract TKN is ERC20 {
     constructor(string memory n) ERC20(n, n) {}
@@ -676,5 +692,50 @@ contract DiscipleSessionPolicyTest is Test {
         vm.expectRevert(P.OnlyExecuteCalls.selector);
         policy.preExecutionHook(hE, ep, 0, abi.encodePacked(bytes4(0x8dd7712f), uint256(0x40)));
         vm.stopPrank();
+    }
+
+    // ── audit R-2: launchAnon stealthOwner pinned to the account (or the install-time stealth address) ──
+    function _anonCall(address anon, address stealthOwner, address buyRecipient)
+        internal
+        view
+        returns (bytes memory)
+    {
+        ILaunchpad.LaunchParams memory lpp;
+        lpp.name = "A";
+        lpp.ticker = "A";
+        lpp.quote = address(usdg);
+        lpp.deadline = block.timestamp + 1 hours;
+        return abi.encodeWithSelector(
+            AnonLauncher.launchAnon.selector, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0)
+        );
+    }
+
+    function test_anonLaunch_stealthOwnerPinned() public {
+        MockAnon anon = new MockAnon(address(usdg));
+        address stealth = makeAddr("myStealth");
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 24 hours));
+        c.anonLauncher = address(anon);
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        // leaked key → attacker as stealth owner: rejected
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, attacker));
+        acct.execute(address(anon), 0, _anonCall(address(anon), attacker, address(acct)));
+        // an unregistered stealth address: rejected too
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, stealth));
+        acct.execute(address(anon), 0, _anonCall(address(anon), stealth, address(acct)));
+        // the account itself: ok
+        vm.prank(key);
+        acct.execute(address(anon), 0, _anonCall(address(anon), address(acct), address(acct)));
+        // stealth address registered at install: ok
+        c.stealthOwner = stealth;
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        vm.prank(key);
+        acct.execute(address(anon), 0, _anonCall(address(anon), stealth, address(acct)));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, attacker));
+        acct.execute(address(anon), 0, _anonCall(address(anon), attacker, address(acct)));
     }
 }

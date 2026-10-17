@@ -54,13 +54,14 @@ export type CreateSessionParams = {
   entityId?: number;             // default: random in [1, 2^31)
   ttlSec?: number;               // default 24h, max 24h (on-chain limit)
   permissions?: bigint;          // default TRADE_PERMS
+  stealthOwner?: Address;        // launchAnon: stealth owner allowed besides the account (default: account only)
   maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, range [10, 5000]
   now?: number;                  // unix seconds (tests)
 };
 
 export const policyAbi = parseAbi([
   "function revoke(uint32 entityId)",
-  "function sessionOf(address account, uint32 entityId) view returns (((uint48 validUntil,uint48 validAfter,uint256 permissions,address router,address launchpad,address anonLauncher,address trampWallManager,address quote0,address quote1,uint128 cap0,uint128 cap1,uint16 maxSlippageBps) cfg,uint128 spent0,uint128 spent1,bool active))",
+  "function sessionOf(address account, uint32 entityId) view returns (((uint48 validUntil,uint48 validAfter,uint256 permissions,address router,address launchpad,address anonLauncher,address trampWallManager,address quote0,address quote1,uint128 cap0,uint128 cap1,uint16 maxSlippageBps,address stealthOwner) cfg,uint128 spent0,uint128 spent1,bool active))",
   "event SessionSpend(address indexed account, uint32 indexed entityId, address quote, uint256 amount, uint256 spent)",
 ]);
 
@@ -70,6 +71,7 @@ const sessionCfgAbi = [{
     { name: "router", type: "address" }, { name: "launchpad", type: "address" }, { name: "anonLauncher", type: "address" },
     { name: "trampWallManager", type: "address" }, { name: "quote0", type: "address" }, { name: "quote1", type: "address" },
     { name: "cap0", type: "uint128" }, { name: "cap1", type: "uint128" }, { name: "maxSlippageBps", type: "uint16" },
+    { name: "stealthOwner", type: "address" },
   ],
 }] as const;
 
@@ -81,7 +83,7 @@ export function randomEntityId(): number {
   return (b[0] % (EXEC_HOOK_FLAG - 2)) + 1;
 }
 
-export function encodePolicyInstallData(entityId: number, p: Required<Pick<CreateSessionParams, "targets" | "caps">> & { validUntil: number; validAfter?: number; permissions: bigint; maxSlippageBps?: number }): Hex {
+export function encodePolicyInstallData(entityId: number, p: Required<Pick<CreateSessionParams, "targets" | "caps">> & { validUntil: number; validAfter?: number; permissions: bigint; maxSlippageBps?: number; stealthOwner?: Address }): Hex {
   const [q0, q1] = p.caps;
   return encodeAbiParameters([{ type: "uint32" }, ...sessionCfgAbi], [entityId, {
     validUntil: p.validUntil, validAfter: p.validAfter ?? 0, permissions: p.permissions,
@@ -89,6 +91,7 @@ export function encodePolicyInstallData(entityId: number, p: Required<Pick<Creat
     trampWallManager: p.targets.trampWallManager,
     quote0: q0.token, quote1: q1?.token ?? ZERO, cap0: q0.cap, cap1: q1?.cap ?? 0n,
     maxSlippageBps: p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS,
+    stealthOwner: p.stealthOwner ?? ZERO, // launchAnon stealth owner allowed besides the account (audit R-2)
   }]);
 }
 
@@ -104,7 +107,7 @@ export function buildCreateSession(p: CreateSessionParams) {
   const permissions = p.permissions ?? TRADE_PERMS;
   const maxSlippageBps = p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS;
   if (!Number.isInteger(maxSlippageBps) || maxSlippageBps < MIN_SLIPPAGE_BPS || maxSlippageBps > MAX_SLIPPAGE_BPS) throw new Error(`maxSlippageBps must be in [${MIN_SLIPPAGE_BPS}, ${MAX_SLIPPAGE_BPS}]`);
-  const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions, maxSlippageBps });
+  const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions, maxSlippageBps, stealthOwner: p.stealthOwner });
 
   const hooks: Hex[] = [
     concat([serializeHookConfig({ address: p.modules.policy, entityId, hookType: HookType.VALIDATION, hasPreHooks: true, hasPostHooks: false }), policyData]),
