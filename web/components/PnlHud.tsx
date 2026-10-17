@@ -163,17 +163,18 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
           {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>EXIT FEES</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
           <div style={row}><span style={label}>OTHER ROCKETS</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
 
-          {/* reward-share hook: hold bonus grows with unrealized PnL (lib/config holdBonus) */}
-          <div title={`Reward share multiplier grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}`} style={{ marginTop: 6 }}>
+          {/* points hook: off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with
+              unrealized PnL + hold time. Never money: it scales season points, not payouts or fees. */}
+          <div title={`Off-chain points multiplier: grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}. Points only, never money.`} style={{ marginTop: 6 }}>
             <div style={{ ...row, color: v.bonus > 1 ? "#ffd98a" : "rgba(220,228,255,.6)", fontWeight: 700 }}>
-              <span>REWARD SHARE</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
+              <span>POINTS</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
             </div>
             <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,.08)", overflow: "hidden", marginTop: 3 }}>
               <div style={{ width: `${Math.max(3, share * 100)}%`, height: "100%", borderRadius: 3, transition: "width .5s ease-out",
                 background: "linear-gradient(90deg,#ffd98a,#9ff3c8)", boxShadow: v.uPnl > 0 ? "0 0 8px rgba(255,217,138,.6)" : "none" }} />
             </div>
             <div style={{ fontSize: 10, marginTop: 3, color: v.uPnl > 0 ? "#ffe7a3" : "rgba(220,228,255,.5)" }}>
-              {v.uPnl > 0 ? "▲ more uPnL → bigger reward share · hold to ramp" : "stay green to earn a bigger reward share"}
+              {v.uPnl > 0 ? "▲ more uPnL → bigger points multiplier · hold to ramp" : "stay green to earn a bigger points multiplier"}
             </div>
           </div>
         </div>
