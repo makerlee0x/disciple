@@ -215,9 +215,9 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
 function HoldersView({ h }: { h: Holders | null }) {
   return <div data-testid="holders-list" style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "thin" }}>
     <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top boosters"}</div>
-    {!h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no fuelers yet</div> : h.rows.map(([w, v], i) =>
+    {!h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no boosters yet</div> : h.rows.map(([w, v], i) =>
       <div key={w} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", color: w === "you" ? "#9ff3c8" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : 400 }}>
         <span>{i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
-    {h && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your fuel: {fmtUsd(h.you)}</div>}
+    {h && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your BOOST: {fmtUsd(h.you)}</div>}
   </div>;
 }
