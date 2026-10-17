@@ -23,8 +23,8 @@ const nextConfig = {
       }
     : {}),
   experimental: {
-    // server-side moderation fallback (pure-JS tfjs + nsfwjs) and image normalisation
-    serverComponentsExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas"],
+    // server-side moderation fallback (pure-JS tfjs + nsfwjs) and image normalisation; undici = /api/img pinned-IP fetch
+    serverComponentsExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
     // share card reads the static Geist fonts + tier plates at runtime
     outputFileTracingIncludes: { "/api/share/card": ["./public/fonts/share/**", "./public/assets/**"] },
   },
