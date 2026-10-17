@@ -7,7 +7,8 @@ import {
   DEMO_POOL,
   LAUNCHPAD_DEFAULT_FILTER,
 } from "@/lib/config";
-import { brandedRocket } from "@/lib/decal";
+import { brandedRocketOn } from "@/lib/decal";
+import hs from "@/components/home/hero.module.css";
 import { isDeployed } from "@/lib/chains";
 import { listLaunches, watchLaunchpad } from "@/lib/events";
 import { withBase } from "@/lib/base-path";
@@ -111,6 +112,13 @@ const SEED: Rocket[] = [
 const SAMPLE: Rocket[] = [...SEED, ...sampleRockets(600, withBase)];
 
 const LAUNCH_MS = 2300;
+/** Lit chrome rocket layer exported from the approved hero mock (hero.py, rocket-wet-full.png master). */
+const HERO_ROCKET = "/hero/rocket.webp";
+/** Pad-light glow points (% of plate), from hero.py's lamp layout; mobile plate shows only the inner two. */
+const LAMPS: [number, number, string][] = [
+  [53.806, 84.782, "d"], [63.806, 87.103, "d"], [83.493, 87.103, "d"], [93.181, 84.782, "d"],
+  [14.103, 88.536, "m"], [94.872, 88.536, "m"],
+];
 const RPC = CHAIN.rpcUrl;
 const AI_POOL = DEMO_POOL.address;
 
@@ -136,7 +144,7 @@ export default function HomePage() {
   const [flash, setFlash] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
   const rocketRef = useRef<HTMLImageElement>(null);
-  const decalRef = useRef<HTMLImageElement>(null);
+  const liftRef = useRef<HTMLDivElement>(null);
   const [padDecal, setPadDecal] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const launchT = useRef(-1);
@@ -154,14 +162,23 @@ export default function HomePage() {
   >([]);
   const lastRef = useRef(0);
 
-  // Pad rocket carries the default halo emblem until a card is picked.
-  useEffect(() => {
-    brandedRocket(null).then(({ canvas }) => { try { const url = canvas.toDataURL(); setPadDecal((d) => d ?? url); } catch { /* tainted */ } });
-  }, []);
+  // Idle pad rocket is the clean lit chrome (approved hero mock); picking a card paints that coin onto it.
 
   useEffect(() => {
     document.body.classList.add("home");
-    return () => document.body.classList.remove("home");
+    // Chrome strip stays transparent while it sits over the hero scene.
+    const onScroll = () => {
+      const h = heroRef.current?.offsetHeight ?? 0;
+      document.body.classList.toggle("home-top", window.scrollY < h - 64);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.body.classList.remove("home", "home-top");
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
   }, []);
 
   // DISCIPLE launches (Launched events since the deployment start block) → live rocket cards, refreshed.
@@ -297,19 +314,7 @@ export default function HomePage() {
       const b = base();
       const L =
         launchT.current < 0 ? -1 : (now - launchT.current) / 1000;
-      if (L < 0) {
-        if (Math.random() < dt * 14)
-          for (const sd of [-1, 1] as const)
-            puff(
-              b.x + sd * b.w * 0.35,
-              b.y - 6,
-              sd * (30 + Math.random() * 40),
-              -(10 + Math.random() * 20),
-              10 + Math.random() * 10,
-              1.8 + Math.random(),
-              false,
-            );
-      } else {
+      if (L >= 0) {
         const n = L < 0.6 ? 8 : 16;
         for (let i = 0; i < n; i++)
           puff(
@@ -322,8 +327,7 @@ export default function HomePage() {
             Math.random() < 0.35,
           );
         const lift = L < 0.6 ? 0 : Math.pow(L - 0.6, 2) * 900;
-        rk!.style.transform = `translateX(-50%) translateY(${-lift}px)`;
-        if (decalRef.current) decalRef.current.style.transform = rk!.style.transform;
+        if (liftRef.current) liftRef.current.style.transform = `translateY(${-lift}px)`;
       }
       ctx!.clearRect(0, 0, cv!.width, cv!.height);
       for (const p of particles.current) {
@@ -374,7 +378,7 @@ export default function HomePage() {
       if (launchT.current >= 0) return;
       launchT.current = performance.now();
       // Fetch + composite decal in parallel with ignition; never blocks the launch.
-      brandedRocket(c.icon, 1800).then(({ canvas }) => { try { setPadDecal(canvas.toDataURL()); } catch { /* tainted → keep prior */ } });
+      brandedRocketOn(withBase(HERO_ROCKET), c.icon, 1800).then(({ canvas }) => { try { setPadDecal(canvas.toDataURL()); } catch { /* tainted → keep prior */ } });
       setLaunching(true);
       setLpStatus(
         c.live
@@ -401,141 +405,76 @@ export default function HomePage() {
 
   return (
     <>
-      <section
-        ref={heroRef}
-        id="hero"
-        className={launching ? "launching" : ""}
-        style={{
-          position: "relative",
-          height: "min(34vh, 300px)",
-          minHeight: 220,
-          overflow: "hidden",
-          background:
-            `#16181C url(${withBase("/assets/tier0.png")}) center 70% / cover no-repeat`,
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "linear-gradient(180deg,rgba(22,24,28,.15),rgba(22,24,28,.25) 60%,#05060c 100%)",
-            pointerEvents: "none",
-          }}
-        />
-        <div
-          id="title"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: 14,
-            zIndex: 4,
-            textAlign: "center",
-            pointerEvents: "none",
-          }}
-          className="home-title"
-        >
-          <h1 style={{ margin: 0, lineHeight: 0 }}>
-            {/* W1 outlined wordmark (brand kit v1) — never re-typed in a live font */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brand/disciple-wordmark-light.svg"
-              alt="DISCIPLE"
-              width={4862}
-              height={739}
-              style={{ display: "inline-block", height: "clamp(22px,3.2vw,36px)", width: "auto" }}
-            />
-          </h1>
-          <p
-            style={{
-              margin: "6px 0 0",
-              color: "#C9CED6",
-              fontSize: 12,
-              letterSpacing: ".14em",
-            }}
-          >
-            LAUNCH A ROCKET · EVERYONE ABOARD FLIES TOGETHER
-          </p>
+      {/* LCP: preload the plate for the active breakpoint (React hoists these into <head>) */}
+      <link rel="preload" as="image" type="image/avif" media="(min-width: 761px)" fetchPriority="high"
+        imageSrcSet={`${withBase("/hero/plate-desktop-1440.avif")} 1440w, ${withBase("/hero/plate-desktop.avif")} 2880w`} imageSizes="max(100vw, 1440px)" />
+      <link rel="preload" as="image" type="image/avif" media="(max-width: 760px)" fetchPriority="high" href={withBase("/hero/plate-mobile.avif")} />
+      <section ref={heroRef} id="hero" className={`${hs.hero}${launching ? " launching " + hs.launching : ""}`}>
+        <div className={hs.stage}>
+          <div className={hs.inner}>
+            <picture>
+              <source media="(max-width: 760px)" type="image/avif" srcSet={withBase("/hero/plate-mobile.avif")} />
+              <source media="(max-width: 760px)" type="image/webp" srcSet={withBase("/hero/plate-mobile.webp")} />
+              <source type="image/avif" srcSet={`${withBase("/hero/plate-desktop-1440.avif")} 1440w, ${withBase("/hero/plate-desktop.avif")} 2880w`} sizes="max(100vw, 1440px)" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className={hs.plate}
+                src={withBase("/hero/plate-desktop.webp")}
+                srcSet={`${withBase("/hero/plate-desktop-1440.webp")} 1440w, ${withBase("/hero/plate-desktop.webp")} 2880w`}
+                sizes="max(100vw, 1440px)"
+                width={2880}
+                height={1120}
+                alt=""
+                fetchPriority="high"
+                decoding="async"
+              />
+            </picture>
+            <div className={`${hs.fog} ${hs.fogA}`} style={{ backgroundImage: `url(${withBase("/hero/fog.webp")})` }} aria-hidden />
+            <div className={`${hs.fog} ${hs.fogB}`} style={{ backgroundImage: `url(${withBase("/hero/fog.webp")})` }} aria-hidden />
+            {LAMPS.map(([x, y, mobile], i) => (
+              <span key={i} className={`${hs.lamp} ${mobile === "m" ? hs.lampM : hs.lampD}`} style={{ left: `${x}%`, top: `${y}%` }} aria-hidden />
+            ))}
+            <div id="pad" className={hs.rocket}>
+              <div className={hs.pool} aria-hidden />
+              <div className={hs.refl} aria-hidden>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={withBase(HERO_ROCKET)} alt="" width={195} height={540} />
+              </div>
+              <div ref={liftRef} className={hs.lift}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  ref={rocketRef}
+                  id="rocket"
+                  className={hs.rocketImg}
+                  src={withBase(HERO_ROCKET)}
+                  alt="rocket on the launch pad"
+                  width={195}
+                  height={540}
+                />
+                {padDecal && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={padDecal.length + padDecal.slice(-24)} src={padDecal} alt="" className={`${hs.decal} pad-decal`} />
+                )}
+              </div>
+              <div className={hs.vapor} aria-hidden><span /><span /><span /><span /></div>
+            </div>
+          </div>
+          <div id="lpStatus" className={hs.padline}>{lpStatus}</div>
         </div>
-        <div
-          id="pad"
-          style={{
-            position: "absolute",
-            left: "50%",
-            bottom: "calc(18% - 12px)",
-            width: "min(24vw, 200px)",
-            height: 22,
-            transform: "translateX(-50%)",
-            zIndex: 2,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(ellipse at center,rgba(232,234,238,.55),rgba(232,234,238,.08) 60%,transparent 72%)",
-            boxShadow: "0 0 30px rgba(201,206,214,.35)",
-          }}
-        />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          ref={rocketRef}
-          id="rocket"
-          src={withBase("/assets/rocket.png")}
-          alt="rocket on the launch pad"
-          style={{
-            position: "absolute",
-            left: "50%",
-            bottom: "18%",
-            height: "min(19vh, 150px)",
-            transform: "translateX(-50%)",
-            zIndex: 3,
-            filter: "drop-shadow(0 0 14px rgba(200,220,255,.55))",
-          }}
-        />
-        {padDecal && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={padDecal.length + padDecal.slice(-24)}
-            ref={decalRef}
-            src={padDecal}
-            alt=""
-            className="pad-decal"
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: "18%",
-              height: "min(19vh, 150px)",
-              transform: "translateX(-50%)",
-              zIndex: 3,
-              pointerEvents: "none",
-            }}
-          />
-        )}
-        <canvas
-          ref={canvasRef}
-          id="fx"
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            zIndex: 2,
-            pointerEvents: "none",
-          }}
-        />
-        <div
-          id="lpStatus"
-          style={{
-            position: "absolute",
-            left: "50%",
-            bottom: "6%",
-            transform: "translateX(-50%)",
-            zIndex: 4,
-            fontSize: 12,
-            color: "#C9CED6",
-            letterSpacing: ".1em",
-            textShadow: "0 0 8px #000",
-          }}
-        >
-          {lpStatus}
+        <canvas ref={canvasRef} id="fx" className={hs.fx} />
+        <div className={hs.scrim} aria-hidden />
+        <div id="title" className={`${hs.copy} home-title`}>
+          <div className={hs.rule} aria-hidden />
+          <h1 className={hs.title}>
+            <span>Launch a rocket.</span>
+            <br />
+            <span>
+              Send your coin<span className={hs.mbr}><br /></span> to the moon.
+            </span>
+          </h1>
+          <p className={hs.sub}>
+            Every rocket is paired with<span className={hs.mbr}><br /></span> a coin you believe in.
+          </p>
         </div>
       </section>
 
