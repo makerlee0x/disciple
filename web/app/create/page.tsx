@@ -8,6 +8,7 @@ import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
 import BrandedRocket from "@/components/BrandedRocket";
 import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
 import PairPicker from "@/components/create/PairPicker";
+import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
@@ -43,6 +44,9 @@ export default function LaunchRocketPage() {
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
   const [pseudonymous, setPseudonymous] = useState(false);
+  // First BOOST (creator launch buy): human amount in the pair token; validated by FirstBoostField.
+  const [boost, setBoost] = useState("");
+  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), error: null, ready: true });
   // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
@@ -144,6 +148,8 @@ export default function LaunchRocketPage() {
       if (v?.verdict === "block") { setMsg("This image can't be used. Please pick a different one."); return; }
       if (v?.verdict !== "allow") imageNote = " (icon pending review; it shows once approved)";
     }
+    if (boostState.error) { setMsg(boostState.error); return; }
+    if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
     try {
       const client = isDeployed() ? createViemProtocol() : protocolStub;
       const res = await client.launchCoin({
@@ -152,6 +158,7 @@ export default function LaunchRocketPage() {
         imageUri, // square crop of the moderated upload
         quoteToken: quoteAddr,
         creatorTaxPct: effTax,
+        creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
         socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
       });
       if (fr && isDeployed()) {
@@ -236,6 +243,11 @@ export default function LaunchRocketPage() {
           <PairPicker value={quote.address} onChange={(address, label) => setQuote({ address, label })} />
           {quote.address && <p className="muted tiny">Paired with <strong className="text-[#E8EAEE]">{quote.label}</strong> · {quote.address}</p>}
         </div>
+
+        <FirstBoostField
+          pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
+          ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
+        />
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
