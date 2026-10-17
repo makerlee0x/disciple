@@ -85,9 +85,9 @@
 .dv-body strong { color: var(--dsc-text); font-weight: 600; }
 .dv-body a { color: var(--dsc-text); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--dsc-primary) 40%, transparent); text-underline-offset: 3px; }
 .dv-body a:hover { text-decoration-color: var(--dv-accent); }
-.dv-body code { font: 13px var(--dsc-font-mono); background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: 5px; padding: 1px 5px; color: var(--dsc-text); word-break: break-all; }
+.dv-body code { font: 13px var(--dsc-font-mono); background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: 5px; padding: 1px 5px; color: var(--dsc-text); word-break: normal; overflow-wrap: anywhere; }
 .dv-body pre { overflow-x: auto; padding: 12px 14px; background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-lg); }
-.dv-body pre code { border: 0; padding: 0; background: none; word-break: normal; }
+.dv-body pre code { border: 0; padding: 0; background: none; word-break: normal; overflow-wrap: normal; white-space: pre; }
 .dv-body hr { border: 0; border-top: 1px solid var(--dsc-border); margin: 32px 0; }
 .dv-body blockquote { margin: 18px 0; padding: 12px 16px; border-radius: var(--dsc-radius-lg); border: 1px solid var(--dsc-border); background: linear-gradient(180deg, #1A1C21, #141619); color: var(--dv-body); }
 .dv-body blockquote p:last-child { margin-bottom: 0; }
