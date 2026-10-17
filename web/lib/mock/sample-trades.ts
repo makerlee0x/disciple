@@ -31,7 +31,7 @@ export const PERSONAS: Record<PersonaId, PersonaMeta> = {
   },
   bomber: {
     id: "bomber", handle: "@atom_choir", label: "Bomber",
-    blurb: "Fuels just enough, then drops bunker → nuke payloads.",
+    blurb: "BOOSTs just enough, then drops bunker → nuke payloads.",
     points: 9_200, leaderboardRank: 88, leaderboardSize: 2400, firstPlacePoints: 28_900,
     sizePercentile: 0.88, roiPercentile: 0.62, showcaseIcon: null,
   },
