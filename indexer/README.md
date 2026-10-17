@@ -50,7 +50,7 @@ A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy i
 - Before graduation, it uses `curve.mcapNow()`.
 - `liquidityUsd` is 2 × virtual in-range quote reserve (post-grad) or 2 × curve quote reserve (pre-grad).
 
-**Verified-tier inputs (`tier`):** `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
+**Coin metric inputs (`tier`):** (display only; they no longer drive verification, which is a manual flag in `web/lib/verified.ts`) `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
 
 **USD note:** trade USD values use the coin's launch-time quote price from `QuotePriced`. Live mcap uses the live pricer.
 
