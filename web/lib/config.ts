@@ -299,11 +299,11 @@ export const SEASON_RANKS: readonly {
 }[] = [
   { tier: "UNRANKED", label: "Unranked", minPoints: 0, border: "rgba(180,190,220,0.35)" },
   { tier: "NOVICE", label: "Novice", minPoints: 100, border: "rgba(200,210,230,0.55)" },
-  { tier: "ASCENDANT", label: "Ascendant", minPoints: 500, border: "rgba(140,200,255,0.7)" },
-  { tier: "BLESSED", label: "Blessed", minPoints: 2_000, border: "#ffe7a3" },
-  { tier: "ANOINTED", label: "Anointed", minPoints: 8_000, border: "#c9b6f2" },
-  { tier: "GLORIFIED", label: "Glorified", minPoints: 25_000, border: "#ffd060" },
-  { tier: "DIVINE", label: "Divine", minPoints: 80_000, border: "#fff7df" },
+  { tier: "ASCENDANT", label: "Ascendant", minPoints: 500, border: "rgba(133,176,214,0.8)" },
+  { tier: "BLESSED", label: "Blessed", minPoints: 2_000, border: "#67C1BB" },
+  { tier: "ANOINTED", label: "Anointed", minPoints: 8_000, border: "#C9A8DC" },
+  { tier: "GLORIFIED", label: "Glorified", minPoints: 25_000, border: "#E5875A" },
+  { tier: "DIVINE", label: "Divine", minPoints: 80_000, border: "#DA8B9F" },
 ] as const;
 
 export function seasonRank(points: number) {
@@ -381,10 +381,10 @@ export const ACHIEVEMENT_RARITY: Record<
   { label: string; border: string; glow: string }
 > = {
   COMMON: { label: "Common", border: "rgba(180,190,220,0.45)", glow: "rgba(180,190,220,0.15)" },
-  BLESSED: { label: "Blessed", border: "#ffe7a3", glow: "rgba(255,231,163,0.35)" },
-  ANOINTED: { label: "Anointed", border: "#c9b6f2", glow: "rgba(201,182,242,0.4)" },
-  GLORIFIED: { label: "Glorified", border: "#ffd060", glow: "rgba(255,208,96,0.45)" },
-  DIVINE: { label: "Divine", border: "#fff7df", glow: "rgba(255,247,223,0.55)" },
+  BLESSED: { label: "Blessed", border: "#67C1BB", glow: "rgba(103,193,187,0.30)" },
+  ANOINTED: { label: "Anointed", border: "#C9A8DC", glow: "rgba(201,168,220,0.32)" },
+  GLORIFIED: { label: "Glorified", border: "#E5875A", glow: "rgba(229,135,90,0.35)" },
+  DIVINE: { label: "Divine", border: "#DA8B9F", glow: "rgba(218,139,159,0.40)" },
 };
 
 export const SEASON_PASS = {

@@ -59,15 +59,15 @@ export default function CrewPanel() {
       ref={ref} aria-label="Crew" data-testid="crew-panel"
       style={{
         position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px)", maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 360px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
-        padding: "8px 12px", borderRadius: 12, background: "rgba(10,12,28,.82)",
-        border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
+        padding: "8px 12px", borderRadius: 12, background: "rgba(22,24,28,.82)",
+        border: "1px solid rgba(255,231,163,.45)", color: "#E8EAEE",
         font: "11px ui-monospace,monospace",
       }}
     >
       <button type="button" data-testid="crew-toggle" onClick={() => setOpen((o) => !o)} title={open ? "Collapse crew" : "Expand crew"}
         style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", gap: 8, alignItems: "center", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>CREW <span style={{ color: "#ffb0c8" }}>· MOCK</span></span>
-        <span style={{ color: "#e8ecff", fontWeight: 400 }}>👥 {MOCK_CREW.aboard} aboard</span>
+        <span style={{ color: "#E8EAEE", fontWeight: 400 }}>👥 {MOCK_CREW.aboard} aboard</span>
         <span style={{ marginLeft: "auto" }}>{open ? "−" : "+"}</span>
       </button>
       {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}

@@ -40,7 +40,7 @@ export default function PrivyMount() {
       appId={PRIVY_APP_ID}
       config={{
         loginMethods: ["email", "google"],
-        appearance: { theme: "dark", accentColor: "#ffe7a3", showWalletLoginFirst: false },
+        appearance: { theme: "dark", accentColor: "#C9CED6", showWalletLoginFirst: false },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
         defaultChain: ACTIVE_CHAIN,
         supportedChains: [ACTIVE_CHAIN],

@@ -1,9 +1,9 @@
 import type { VerifiedTierRule } from "@/lib/config";
 
 const COLORS: Record<string, string> = {
-  BLESSED: "#7ec8ff",
-  ANOINTED: "#c9a8ff",
-  GLORIFIED: "#ffd98a",
+  BLESSED: "#85B0D6",
+  ANOINTED: "#C9A8DC",
+  GLORIFIED: "#E5875A",
 };
 
 /**
@@ -16,12 +16,12 @@ export default function VerifiedBadge({ tier, size = 16 }: { tier: VerifiedTierR
     return (
       <span className="vmark vmark-none" title={label} aria-label={label} role="img">
         <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden>
-          <circle cx="8" cy="8" r="6" fill="none" stroke="rgba(220,228,255,.28)" strokeWidth="1.4" strokeDasharray="2.2 2" />
+          <circle cx="8" cy="8" r="6" fill="none" stroke="rgba(201,206,214,.32)" strokeWidth="1.4" strokeDasharray="2.2 2" />
         </svg>
       </span>
     );
   }
-  const c = COLORS[tier.level] ?? "#7ec8ff";
+  const c = COLORS[tier.level] ?? "#85B0D6";
   const halo = tier.level !== "BLESSED";
   return (
     <span className={`vmark vmark-${tier.level.toLowerCase()}`} title={label} aria-label={label} role="img">
@@ -29,7 +29,7 @@ export default function VerifiedBadge({ tier, size = 16 }: { tier: VerifiedTierR
         style={{ filter: `drop-shadow(0 0 4px ${c})` }}>
         {halo && <ellipse cx="8" cy="-1.5" rx="5" ry="1.6" fill="none" stroke={c} strokeWidth="1.2" />}
         <path d="M8 .8l1.9 1.4 2.3-.2.7 2.2 1.9 1.4-.7 2.2.7 2.2-1.9 1.4-.7 2.2-2.3-.2L8 15.2l-1.9-1.4-2.3.2-.7-2.2L1.2 10.4l.7-2.2-.7-2.2 1.9-1.4.7-2.2 2.3.2z" fill={c} />
-        <path d="M5 8.2l2 2 4-4.2" fill="none" stroke="#0a0c1a" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5 8.2l2 2 4-4.2" fill="none" stroke="#0B0C0E" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </span>
   );

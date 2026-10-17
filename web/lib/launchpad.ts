@@ -49,7 +49,7 @@ function pickPair(x: number) {
   for (let i = 0; i < BASE_PAIRS.length; i++) { t -= PAIR_W[i]; if (t < 0) return BASE_PAIRS[i]; }
   return BASE_PAIRS[0];
 }
-const TINTS = ["#ffd0e0", "#e3d6ff", "#c9f5df", "#cfe0ff", "#fff1c2", "#ffe7a3"];
+const TINTS = ["#ffd0e0", "#e3d6ff", "#c9f5df", "#cfe0ff", "#E8EAEE", "#C9CED6"];
 const CREW = ["SlowNeonThrush", "MerryPearlShark", "SecretMintLemur", "CandidSilverMoose", "GildedQuietOwl", "BraveIvoryFinch", "HushedAmberYak"];
 
 /** N deterministic SAMPLE rockets (same output on server and client → no hydration drift). */

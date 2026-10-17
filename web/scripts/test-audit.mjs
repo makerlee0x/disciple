@@ -49,7 +49,10 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/ShiftLeft[\s\S]{0,200}disciple:dump/.test(kd), "engine: Shift = DUMP the selected preset");
   ok(/NO TOKENS IN WALLET/.test(eng) && !/no tokens to sell/i.test(eng), "engine hint says NO TOKENS IN WALLET");
   const tb = fs.readFileSync(path.join(dir, "../components/TradeBridge.tsx"), "utf8");
-  ok(/disciple:sellselect/.test(tb) && /disciple:dump/.test(tb) && /selSell\.current\(i\); sellRef/.test(tb), "TradeBridge: select / dump / Z-X-C-V sell + select wired");
+  ok(/disciple:sellselect/.test(tb) && /disciple:dump/.test(tb) && /selSell\.current\(i\); \}/.test(tb) && !/sellRef/.test(tb), "TradeBridge: Z/X/C/V only SELECT (never trade); DUMP / Shift sell");
+  ok(/ShiftLeft'\|\|e\.code==='ShiftRight'\)&&!e\.ctrlKey&&!e\.metaKey&&!e\.altKey/.test(kd) && kd.indexOf("isTyping(e)") < kd.indexOf("ShiftLeft"), "Shift: no modifier combos, never while typing");
+  ok((kd.match(/Shift(Left|Right)/g) || []).length === 2 && !/Shift/.test(eng.slice(eng.indexOf("addEventListener('keyup'"), eng.indexOf("addEventListener('keyup'") + 200)), "Shift does nothing else in the engine");
+  ok(/SELL · Z\/X\/C\/V select, SHIFT dump/.test(eng), "SELL row hint: Z/X/C/V select, SHIFT dump");
   ok(/▲ BOOST \{fmtShot\(shotUsd\)\}/.test(tb) && /▼ DUMP \{/.test(tb) && /disabled=\{!has\}/.test(tb), "BOOST/DUMP show the selected amount; DUMP disabled with 0 tokens");
   ok(!/no tokens to sell/i.test(tb), "TradeBridge hint says NO TOKENS IN WALLET");
   ok(!/INITIALS|"init"/.test(tb.replace(/INITIALS → 25%/, "")) && !/INITIALS/.test(eng), "INITIALS removed (engine + bridge)");
@@ -57,4 +60,48 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /▼ DUMP \{dumpLabel\}/.test(tb), "custom sell field + %/$ toggle; DUMP shows the exact amount");
   ok(/Math\.min\(sellCustomN, pos\.valueUsd\)/.test(tb) && /Math\.min\(100, sellCustomN\)/.test(tb), "custom sell: $ capped at position value, % capped at 100");
   ok(!/i===am/.test(eng), "no auto-ammo suggestion outline on buy tiles"); }
+// 5) PnL regression: a $60K paper buy at $7K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards
+{ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pnl2-")); fs.mkdirSync(path.join(tmp, "sim"));
+  const tx = (rel) => { const src = fs.readFileSync(path.join(dir, "../lib", rel + ".ts"), "utf8").replace(/from "(\.{1,2}\/[^"]+)"/g, 'from "$1.mjs"');
+    fs.writeFileSync(path.join(tmp, rel + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText); };
+  for (const f of ["config", "pnl", "sim/config", "sim/market", "sim/run"]) tx(f);
+  const P = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+  const { cloneConfig } = await import(pathToFileURL(path.join(tmp, "sim/config.mjs")).href);
+  const { SimRun } = await import(pathToFileURL(path.join(tmp, "sim/run.mjs")).href);
+  const SUP = 7e9, USD = 60_000, GAS = 0.01;
+  let seed = 11; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }; const randn = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(6.2831853 * rnd());
+  const Mth = Object.assign(Object.create(Math), { random: rnd });
+  const cls = (name, end) => eng.slice(eng.indexOf("class " + name + " {"), eng.indexOf(end, eng.indexOf("class " + name + " {")));
+  const Mock = new Function("Q", "randn", "performance", "Math", cls("MockReplaySource", "\n/* DexScreener") + ";return MockReplaySource;")(new URLSearchParams(""), randn, { now: () => 0 }, Mth);
+  const Disc = new Function("Q", "setInterval", "clearInterval", "window", cls("DiscipleSource", "\n/* SIMULATOR bridge") + ";return DiscipleSource;")(new URLSearchParams(""), () => 0, () => {}, {});
+  const capSrc = eng.slice(eng.indexOf("const WALLET_CAP_FRAC"), eng.indexOf("function trade(side,opt){"));
+  const mkCap = (source, mcap) => new Function("isLive", "source", "S", "MockReplaySource", "DiscipleSource", "GRADUATION_MCAP", capSrc + ";return Object.assign(paperCap,{capFilledUsd});")(() => false, source, { confirmed: { mcap }, hold: { tokens: 0 } }, Mock, Disc, 33e3);
+  ok(/Math\.sqrt\(r\.pre\*r\.post\)/.test(eng) && /pre:m\.pre,post:m\.post/.test(eng) && /pre:b,post:m/.test(eng) && /return \{ok:true,paper:true,pre,post\}/.test(eng), "engine books paper fills at √(pre·post) of the move the market actually made");
+  const check = (tag, pos, mark, usd) => { const v = P.view(pos, mark / SUP, SUP); const floor = -(usd * P.FEE + GAS) - 1e-6;
+    ok(v.uPnl >= floor, `${tag}: uPnL right after ${v.uPnl >= 0 ? "+" : ""}$${v.uPnl.toFixed(2)} ≥ −fee $${(-floor).toFixed(2)} (filled $${usd.toFixed(2)})`); return v; };
+  const tracks = (tag, pos, marks) => { const errs = marks.map((m) => { const v = P.view(pos, m / SUP, SUP); return Math.abs(v.uPnl - (pos.size * m / SUP - pos.costBasis)); });
+    ok(Math.max(...errs) < 1e-6 && new Set(marks.map((m) => Math.round(m))).size > 1, `${tag}: uPnL tracks the mark afterwards (= holdings × mark − cost over ${marks.length} marks)`); };
+  for (const M of [7_000, 15_000, 30_000, 50_000]) {
+    // MOCK (coin page ?source=mock, paper)
+    { const m = new Mock(); m.mcap = M; m.emit = () => {}; m.seedDepth(); const cap = mkCap(m, M), c = cap(USD);
+      const r = m.applyTrade("buy", c.usd, true), fm = Math.sqrt(r.pre * r.post), usd = cap.capFilledUsd(c.usd, fm, r.pre);
+      const pos = P.applyFill(P.emptyPosition(), "buy", usd, fm / SUP, GAS);
+      if (M < 33e3) ok(pos.size <= 0.07 * SUP * (1 + 1e-6), `mock $${M / 1e3}K: booked ${(pos.size / SUP * 100).toFixed(2)}% of supply ≤ 7% wallet cap (walls can't sneak past it)`);
+      check(`mock $${M / 1e3}K`, pos, m.mcap, usd); const marks = []; for (let i = 0; i < 600; i++) { m.onBlock(); marks.push(m.mcap); } tracks(`mock $${M / 1e3}K`, pos, marks);
+      ok(marks[50] > r.pre, `mock $${M / 1e3}K: no instant snap-back (5 s later $${Math.round(marks[50]).toLocaleString()} vs pre $${Math.round(r.pre).toLocaleString()})`); }
+    // DISCIPLE coin, paper (no wallet): the shot moves the paper offset; old code booked mark×√impact while the price never moved
+    { const d = new Disc(); d.mcap = M; d.emit = () => {}; const c = mkCap(d, M)(USD); const r = await d.submitTrade("buy", c.usd);
+      const pos = P.applyFill(P.emptyPosition(), "buy", c.usd, Math.sqrt(r.pre * r.post) / SUP, GAS); check(`disciple paper $${M / 1e3}K`, pos, d.shown(), c.usd);
+      const old = P.view(P.applyFill(P.emptyPosition(), "buy", USD, M * Math.sqrt(1 + USD / (M * 0.25)) / SUP, GAS), M / SUP, SUP).uPnl;
+      if (M === 7_000) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
+      const marks = []; for (let i = 0; i < 40; i++) { d.paper = 1 + (d.paper - 1) * Math.exp(-0.25 / 20); marks.push(d.shown()); } tracks(`disciple paper $${M / 1e3}K`, pos, marks); }
+  }
+  // SIMULATOR: exact curve fills incl. the 7% wallet cap (unfilled $ refunded). After the 7 s anti-snipe window (that tax is a real cost).
+  for (const T of [10, 40, 90]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
+    const pre = r.m.mcap(); const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
+    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply, cap 7%)`);
+    const pos = P.applyFill(P.emptyPosition(), "buy", f.usd, f.mcap / r.m.S, 0); const v = P.view(pos, r.m.mcap() / r.m.S, r.m.S);
+    ok(v.uPnl >= -f.usd * P.FEE - 1e-6, `sim t=${T}s: uPnL right after +$${v.uPnl.toFixed(2)} ≥ −fee`);
+    const marks = []; for (let i = 0; i < 100; i++) { r.step(0.1); marks.push(r.m.mcap()); } tracks(`sim t=${T}s`, pos, marks); }
+}
 if (bad) { console.error(bad + " FAILED"); process.exit(1); } console.log("PASS");

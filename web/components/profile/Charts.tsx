@@ -30,7 +30,7 @@ export function Sparkline({
 }
 
 export function StatRing({
-  value, label, sub, size = 118, color = "#ffe7a3", progress = 0.72,
+  value, label, sub, size = 118, color = "#C9CED6", progress = 0.72,
 }: {
   value: string; label: string; sub?: string; size?: number; color?: string; progress?: number;
 }) {
@@ -38,12 +38,12 @@ export function StatRing({
   return (
     <div className="stat-ring" style={{ width: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,231,163,0.12)" strokeWidth={6} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(201,206,214,0.12)" strokeWidth={6} />
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={6} strokeLinecap="round"
           strokeDasharray={`${c * p} ${c * (1 - p)}`} transform={`rotate(-90 ${size / 2} ${size / 2})`}
           style={{ filter: `drop-shadow(0 0 6px ${color})` }} />
-        <text x="50%" y="48%" textAnchor="middle" fill="#fff7df" fontSize={15} fontWeight={700} fontFamily="Georgia, serif">{value}</text>
-        {sub ? <text x="50%" y="62%" textAnchor="middle" fill="rgba(220,228,255,0.55)" fontSize={9}>{sub}</text> : null}
+        <text x="50%" y="48%" textAnchor="middle" fill="#E8EAEE" fontSize={15} fontWeight={400} fontFamily="var(--dsc-font-display)">{value}</text>
+        {sub ? <text x="50%" y="62%" textAnchor="middle" fill="rgba(232,234,238,0.55)" fontSize={9}>{sub}</text> : null}
       </svg>
       <div className="stat-ring-label">{label}</div>
     </div>
@@ -56,10 +56,10 @@ export function Gauge({ value, label, max = 100, color = "#ff7eb9" }: { value: n
   return (
     <div className="gauge">
       <svg width={140} height={90} viewBox="0 0 140 90">
-        <path d="M16 78 A54 54 0 0 1 124 78" fill="none" stroke="rgba(255,231,163,0.12)" strokeWidth={10} strokeLinecap="round" />
+        <path d="M16 78 A54 54 0 0 1 124 78" fill="none" stroke="rgba(201,206,214,0.12)" strokeWidth={10} strokeLinecap="round" />
         <path d="M16 78 A54 54 0 0 1 124 78" fill="none" stroke={color} strokeWidth={10} strokeLinecap="round"
           strokeDasharray={`${circ * pct} ${circ}`} style={{ filter: `drop-shadow(0 0 8px ${color})` }} />
-        <text x="70" y="68" textAnchor="middle" fill="#fff7df" fontSize={22} fontWeight={700} fontFamily="Georgia, serif">
+        <text x="70" y="68" textAnchor="middle" fill="#E8EAEE" fontSize={22} fontWeight={400} fontFamily="var(--dsc-font-display)">
           {Math.round(value).toLocaleString()}
         </text>
       </svg>
@@ -76,12 +76,12 @@ export function Donut({ value, size = 44 }: { value: number; size?: number }) {
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={4} />
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={col} strokeWidth={4}
         strokeDasharray={`${c * p} ${c * (1 - p)}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
-      <text x="50%" y="54%" textAnchor="middle" fill="#eef0ff" fontSize={10} fontWeight={600}>{Math.round(p * 100)}%</text>
+      <text x="50%" y="54%" textAnchor="middle" fill="#E8EAEE" fontSize={10} fontWeight={600}>{Math.round(p * 100)}%</text>
     </svg>
   );
 }
 
-export function LineChart({ points, height = 160, color = "#c9b6f2", formatY }: {
+export function LineChart({ points, height = 160, color = "#C9CED6", formatY }: {
   points: { t: number; v: number }[]; height?: number; color?: string; formatY?: (v: number) => string;
 }) {
   const width = 560;
@@ -95,13 +95,13 @@ export function LineChart({ points, height = 160, color = "#c9b6f2", formatY }: 
     <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" preserveAspectRatio="none">
       <path d={area} fill={color} opacity={0.12} />
       <path d={d} fill="none" stroke={color} strokeWidth={2} />
-      <text x={8} y={20} fill="rgba(220,228,255,0.45)" fontSize={10}>{formatY ? formatY(max) : max.toFixed(0)}</text>
-      <text x={8} y={height - 24} fill="rgba(220,228,255,0.45)" fontSize={10}>{formatY ? formatY(min) : min.toFixed(0)}</text>
+      <text x={8} y={20} fill="rgba(232,234,238,0.45)" fontSize={10}>{formatY ? formatY(max) : max.toFixed(0)}</text>
+      <text x={8} y={height - 24} fill="rgba(232,234,238,0.45)" fontSize={10}>{formatY ? formatY(min) : min.toFixed(0)}</text>
     </svg>
   );
 }
 
-export function BarChart({ items, height = 140, color = "#ffe7a3" }: { items: { label: string; value: number }[]; height?: number; color?: string }) {
+export function BarChart({ items, height = 140, color = "#C9CED6" }: { items: { label: string; value: number }[]; height?: number; color?: string }) {
   const width = 560;
   if (!items.length) return <div className="chart-empty">No data</div>;
   const max = Math.max(...items.map((i) => i.value), 1), bw = (width - 40) / items.length;
@@ -113,7 +113,7 @@ export function BarChart({ items, height = 140, color = "#ffe7a3" }: { items: { 
           <g key={it.label + i}>
             <rect x={x + 2} y={y} width={Math.max(2, bw - 4)} height={h} rx={3} fill={color} opacity={0.85} />
             {items.length <= 14 || i % Math.ceil(items.length / 10) === 0 ? (
-              <text x={x + bw / 2} y={height - 8} textAnchor="middle" fill="rgba(220,228,255,0.4)" fontSize={8}>{it.label.slice(-5)}</text>
+              <text x={x + bw / 2} y={height - 8} textAnchor="middle" fill="rgba(232,234,238,0.4)" fontSize={8}>{it.label.slice(-5)}</text>
             ) : null}
           </g>
         );
@@ -166,19 +166,19 @@ export function RadarChart({ axes, size = 220 }: { axes: { label: string; value:
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="radar-svg">
       {[0.25, 0.5, 0.75, 1].map((rv) => (
-        <polygon key={rv} fill="none" stroke="rgba(255,231,163,0.15)" strokeWidth={1}
+        <polygon key={rv} fill="none" stroke="rgba(201,206,214,0.15)" strokeWidth={1}
           points={axes.map((_, i) => pt(i, rv).join(",")).join(" ")} />
       ))}
       {axes.map((ax, i) => {
         const [x, y] = pt(i, 1), [lx, ly] = pt(i, 1.22);
         return (
           <g key={ax.label}>
-            <line x1={cx} y1={cy} x2={x} y2={y} stroke="rgba(255,231,163,0.2)" />
-            <text x={lx} y={ly} textAnchor="middle" fill="rgba(220,228,255,0.7)" fontSize={9}>{ax.label}</text>
+            <line x1={cx} y1={cy} x2={x} y2={y} stroke="rgba(201,206,214,0.2)" />
+            <text x={lx} y={ly} textAnchor="middle" fill="rgba(232,234,238,0.7)" fontSize={9}>{ax.label}</text>
           </g>
         );
       })}
-      <path d={poly} fill="rgba(255,231,163,0.25)" stroke="#ffe7a3" strokeWidth={1.5} />
+      <path d={poly} fill="rgba(201,206,214,0.25)" stroke="#C9CED6" strokeWidth={1.5} />
     </svg>
   );
 }
@@ -238,7 +238,7 @@ export function RangeToggle({ value, onChange }: { value: RangeKey; onChange: (r
 }
 
 /** Line or bar series with a hover crosshair + value readout. */
-export function CrosshairChart({ points, kind = "line", height = 170, color = "#c9b6f2", formatY, hourly }: {
+export function CrosshairChart({ points, kind = "line", height = 170, color = "#C9CED6", formatY, hourly }: {
   points: { t: number; v: number }[]; kind?: "line" | "bar"; height?: number; color?: string;
   formatY?: (v: number) => string; hourly?: boolean;
 }) {
@@ -265,7 +265,7 @@ export function CrosshairChart({ points, kind = "line", height = 170, color = "#
   const tipW = 120, tipX = Math.min(width - padR - tipW, Math.max(padL, hx + 8));
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg crosshair-chart" onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
-      <line x1={padL} x2={width - padR} y1={zeroY} y2={zeroY} stroke="rgba(255,231,163,0.12)" />
+      <line x1={padL} x2={width - padR} y1={zeroY} y2={zeroY} stroke="rgba(201,206,214,0.12)" />
       {kind === "line" ? (<>
         <path d={`${d} L${x(n - 1)},${zeroY} L${x(0)},${zeroY} Z`} fill={color} opacity={0.12} />
         <path d={d} fill="none" stroke={color} strokeWidth={2} />
@@ -273,18 +273,18 @@ export function CrosshairChart({ points, kind = "line", height = 170, color = "#
         <rect key={i} x={x(i) - Math.max(1, step / 2 - 2)} width={Math.max(2, step - 4)} y={Math.min(y(p.v), zeroY)}
           height={Math.abs(zeroY - y(p.v))} rx={3} fill={color} opacity={hover === i ? 1 : hover == null ? 0.85 : 0.45} />
       ))}
-      <text x={6} y={padT + 6} fill="rgba(220,228,255,0.45)" fontSize={10}>{fy(max)}</text>
-      <text x={6} y={height - padB} fill="rgba(220,228,255,0.45)" fontSize={10}>{fy(min)}</text>
-      <text x={padL} y={height - 6} fill="rgba(220,228,255,0.4)" fontSize={9}>{fmtT(points[0].t)}</text>
-      <text x={width - padR} y={height - 6} textAnchor="end" fill="rgba(220,228,255,0.4)" fontSize={9}>{fmtT(points[n - 1].t)}</text>
+      <text x={6} y={padT + 6} fill="rgba(232,234,238,0.45)" fontSize={10}>{fy(max)}</text>
+      <text x={6} y={height - padB} fill="rgba(232,234,238,0.45)" fontSize={10}>{fy(min)}</text>
+      <text x={padL} y={height - 6} fill="rgba(232,234,238,0.4)" fontSize={9}>{fmtT(points[0].t)}</text>
+      <text x={width - padR} y={height - 6} textAnchor="end" fill="rgba(232,234,238,0.4)" fontSize={9}>{fmtT(points[n - 1].t)}</text>
       {hp && (
         <g pointerEvents="none">
-          <line x1={hx} x2={hx} y1={padT} y2={height - padB} stroke="#ffe7a3" strokeDasharray="3 3" opacity={0.7} />
-          <line x1={padL} x2={width - padR} y1={y(hp.v)} y2={y(hp.v)} stroke="#ffe7a3" strokeDasharray="3 3" opacity={0.35} />
-          <circle cx={hx} cy={y(hp.v)} r={4} fill="#ffe7a3" stroke="#1a1630" strokeWidth={1.5} />
-          <rect x={tipX} y={padT} width={tipW} height={34} rx={7} fill="rgba(10,12,32,0.94)" stroke="rgba(255,231,163,0.5)" />
-          <text x={tipX + 9} y={padT + 14} fill="rgba(220,228,255,0.6)" fontSize={9}>{fmtT(hp.t)}</text>
-          <text x={tipX + 9} y={padT + 28} fill="#fff7df" fontSize={12} fontWeight={700}>{fy(hp.v)}</text>
+          <line x1={hx} x2={hx} y1={padT} y2={height - padB} stroke="#C9CED6" strokeDasharray="3 3" opacity={0.7} />
+          <line x1={padL} x2={width - padR} y1={y(hp.v)} y2={y(hp.v)} stroke="#C9CED6" strokeDasharray="3 3" opacity={0.35} />
+          <circle cx={hx} cy={y(hp.v)} r={4} fill="#C9CED6" stroke="#0B0C0E" strokeWidth={1.5} />
+          <rect x={tipX} y={padT} width={tipW} height={34} rx={7} fill="rgba(22,24,28,0.94)" stroke="rgba(201,206,214,0.5)" />
+          <text x={tipX + 9} y={padT + 14} fill="rgba(232,234,238,0.6)" fontSize={9}>{fmtT(hp.t)}</text>
+          <text x={tipX + 9} y={padT + 28} fill="#E8EAEE" fontSize={12} fontWeight={700}>{fy(hp.v)}</text>
         </g>
       )}
     </svg>

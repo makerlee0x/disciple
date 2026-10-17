@@ -6,8 +6,8 @@ import { BASE_PAIRS, SAMPLE_SQUARES, SAYLOR_SQUARE } from "@/lib/pairArt";
 
 export default function PairArtGallery() {
   return (
-    <main style={{ padding: 24, color: "#fff7df", background: "#070914", minHeight: "100vh" }}>
-      <h1 style={{ font: "bold 22px Georgia, serif", margin: "0 0 4px" }}>Pair art</h1>
+    <main style={{ padding: 24, color: "#E8EAEE", background: "#070914", minHeight: "100vh" }}>
+      <h1 style={{ font: "400 22px var(--dsc-font-display)", margin: "0 0 4px" }}>Pair art</h1>
       <p style={{ opacity: 0.6, fontSize: 12, margin: "0 0 18px" }}>header 220 · grid 150 · list 40 · icon 24 / 16</p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
         {BASE_PAIRS.map((p, i) => {

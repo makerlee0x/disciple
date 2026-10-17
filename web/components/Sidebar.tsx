@@ -97,32 +97,13 @@ function Icon({ name }: { name: string }) {
   }
 }
 
-function HaloLogo() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#2a1f08"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-    >
-      <ellipse cx="12" cy="6" rx="6" ry="2" />
-      <path
-        d="M12 10c-2 1-5 1-8-1 1 4 4 6 8 5 4 1 7-1 8-5-3 2-6 2-8 1z"
-        fill="rgba(255,255,255,.55)"
-      />
-      <path d="M12 10v10" />
-    </svg>
-  );
-}
-
 function Wings() {
   return (
     <svg viewBox="0 0 80 64" aria-hidden="true" width={80} height={64}>
       <defs>
         <radialGradient id="apHalo" cx="50%" cy="50%">
-          <stop offset="0" stopColor="#fff7df" />
-          <stop offset="1" stopColor="#ffd98a" stopOpacity="0" />
+          <stop offset="0" stopColor="#E8EAEE" />
+          <stop offset="1" stopColor="#FF7A3D" stopOpacity="0" />
         </radialGradient>
       </defs>
       <circle cx="40" cy="34" r="26" fill="url(#apHalo)" opacity=".45" />
@@ -132,19 +113,19 @@ function Wings() {
         rx="12"
         ry="3.4"
         fill="none"
-        stroke="#ffe7a3"
+        stroke="#C9CED6"
         strokeWidth="2.2"
       />
       <path
         d="M36 34C26 24 12 22 4 28c8 1 12 5 14 9-6-1-10 1-12 4 8 0 14 2 20 0z"
-        fill="#fff7df"
-        stroke="#d9c4ff"
+        fill="#E8EAEE"
+        stroke="#C9CED6"
         strokeWidth="1"
       />
       <path
         d="M44 34c10-10 24-12 32-6-8 1-12 5-14 9 6-1 10 1 12 4-8 0-14 2-20 0z"
-        fill="#fff7df"
-        stroke="#d9c4ff"
+        fill="#E8EAEE"
+        stroke="#C9CED6"
         strokeWidth="1"
       />
       <path
@@ -233,10 +214,12 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         aria-label="Main menu"
       >
         <div className="ap-brand">
-          <div className="ap-logo">
-            <HaloLogo />
-          </div>
-          <span className="ap-name">DISCIPLE</span>
+          <Link href="/" className="ap-logo" aria-label="DISCIPLE home">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={176} height={45} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="ap-mark" src="/brand/disciple-mark-light.svg" alt="DISCIPLE" width={32} height={32} />
+          </Link>
           <button
             type="button"
             className={`ap-tog${canCollapse ? "" : " ap-tog-mobile"}`}
@@ -319,11 +302,11 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           role="presentation"
         >
           <div
-            className="w-[min(420px,90vw)] rounded-2xl border border-[rgba(255,231,163,.55)] bg-[radial-gradient(120%_80%_at_50%_0%,rgba(255,244,214,.22),rgba(14,16,40,.94)_60%)] p-6 text-[#eef0ff] shadow-[0_0_60px_rgba(255,220,150,.25)]"
+            className="w-[min(420px,90vw)] rounded-2xl border border-[rgba(201,206,214,.55)] bg-[radial-gradient(120%_80%_at_50%_0%,rgba(232,234,238,.22),rgba(22,24,28,.94)_60%)] p-6 text-[#E8EAEE] shadow-[0_0_60px_rgba(201,206,214,.25)]"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
           >
-            <h2 className="m-0 mb-2 font-[Georgia,serif] text-2xl font-bold text-[#fff7df]">
+            <h2 className="m-0 mb-2 font-display text-2xl font-normal text-[#E8EAEE]">
               Log out
             </h2>
             <p className="text-sm opacity-75">
@@ -331,7 +314,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             </p>
             <button
               type="button"
-              className="mt-4 rounded-xl border border-[rgba(255,231,163,.5)] px-4 py-2 text-[#ffe7a3]"
+              className="mt-4 rounded-xl border border-[rgba(201,206,214,.5)] px-4 py-2 text-[#C9CED6]"
               onClick={() => {
                 setLogoutNote(false);
                 router.push("/");
