@@ -47,7 +47,7 @@
       "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
       "defaultQuote": true
     }
   },
@@ -67,7 +67,7 @@
     "status": "superseded",
     "supersededBy": "v4",
     "supersededAt": "2026-10-17",
-    "note": "previous stack — superseded by combined redeploy",
+    "note": "previous stack \u2014 superseded by combined redeploy",
     "startBlock": 136187963,
     "contracts": {
       "ReferralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac",
@@ -123,7 +123,7 @@
       }
     },
     "previous": {
-      "note": "v2 stack (PR #10) — superseded by combined redeploy",
+      "note": "v2 stack (PR #10) \u2014 superseded by combined redeploy",
       "contracts": {
         "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
         "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
@@ -289,5 +289,99 @@
   },
   "estimatedGas": "42747460",
   "id": "v4",
-  "deployCommit": "fdd436b5a2f505b8116156744a3fab3924fe132c"
+  "deployCommit": "fdd436b5a2f505b8116156744a3fab3924fe132c",
+  "status": "active",
+  "deployTxFirst": "0x8d9e64dd082066a40fa019db43426bcd1793eaf65a7fc697f802820f9f59de9b",
+  "endBlock": 137541494,
+  "ethSpentDeploy": "0.00033403711",
+  "note": "v4: PRs #60/#61/#64/#65/#75 merged (session-policy referral, Oct-16 audit fixes, LP auto-compound, USDG router, bonding modes PVE/PVP/TRENCH + gas G-1). Broadcast record: deployments/broadcast-v4/.",
+  "loginGate": {
+    "address": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
+    "attester": "0x0000000000000000000000000000000000000000",
+    "note": "PVE_ATTESTER was not set in env at deploy time; owner (deployer) must call LoginGate.setAttester(<backend attester>) before PVE buys can work."
+  },
+  "wiring": {
+    "note": "All wiring is done inside Deploy.s.sol (see broadcast-v4/Deploy.run-latest.json).",
+    "Hook.setTrustedRouter(DiscipleRouter)": "0xad4820cbda9054a93443df6059f25c6d6e19d8508d48458ae71bdf7483259939",
+    "Launchpad.setTrustedRouter(DiscipleRouter)": "0x4c4c434aecd41cfa36b4b0815f74a277b5955e552a012bac284667267bc292a4",
+    "QuotePricer.setPricePool(STRATEGY, STRATEGY/mUSDG 3000/60)": "0x69d54eea03b3be0532539d98f77ff8f22164c0b1d2d54880ce0b33ca55b7f2cd",
+    "DiscipleRouter.setUsdgRouting(USDG, Launchpad)": "0x9c217cfac80dba9b11db3abe0a0e577c27c4d74814ec2016bf0bb2837d1903e1",
+    "DiscipleRouter.setUsdgPool(STRATEGY, STRATEGY/mUSDG)": "0x31edd619fd2cb0d0ccae768db1cefdf151c45e74eaaf68834a484cfd8ed240a5",
+    "Launchpad.setLoginGate(LoginGate)": "0x9ef8923d9bf28c14af928157746941e35c690d3cb6344465e8da833a71c3efcf",
+    "ReferralRegistry.setDepositHook(UsdgDepositNotifier)": "0x1afb58a8ec30ec0d2ed39e0d0604fb6f4e102b3001ee088055a9adef14717779",
+    "Hook.setLiquidityManager(LockedLP)": "0x4aba66937e5759552e3b0f9d74ea8dcb372606d38d43ecf0b776e4c662dbcb7a",
+    "Hook.setLiquidityManager(TrampWallManager)": "0xd0760867d41e141d39ffddbe5f28bb662ce753f6281611cde3b7d3ce054cc1e3",
+    "Hook.setCompounder(LockedLP, 250000)": "0x527d720963c166815fbfd354c49303dbc5d6046f60a47b4ded34908a3f155a64",
+    "Hook.setPricer(QuotePricer)": "0xe4f9d00e0894a28e727a3a99fbb6e4b8482179d908c8dbf4f3486082e8135329",
+    "FeeRouter.setRewardsVault(RewardsVault)": "0xb464d22c3748e02c8ab366c1321c1f2925e55718bde08e1721b4770914cb2486",
+    "readback": {
+      "launchpad.isTrustedRouter(router)": true,
+      "launchpad.curveRouter": "0xb53C37bAA373c22B85fD3BB27Fa71B8091ABD316",
+      "hook.isTrustedRouter(router)": true,
+      "hook.isTrustedRouter(UniversalRouter)": false,
+      "hook.isLiquidityManager(LockedLP,TWM)": [
+        true,
+        true
+      ],
+      "pricer.hasPricePool(STRATEGY)": true,
+      "pricer.quotePriceUsd(STRATEGY)": "2530745316733980",
+      "pricer.quotePriceUsd(USDG)": "1e18",
+      "referrals.depositHook": "0xAF5D4a15ee996140E83179952f0a0CF46c93f6d9 (== UsdgDepositNotifier)",
+      "router.maxImpactBps": 5000
+    }
+  },
+  "addons": {
+    "DiscipleSessionPolicy": {
+      "address": "0x3d3667e8880c6b633b424d645b8004788b1d6e27",
+      "deployTx": "0xb8005ca03784329befe06340eedd84f629bb7a2fe875c8b28b7562477d04ef01",
+      "deployedAt": "2026-10-17",
+      "constructor": {
+        "referralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c"
+      },
+      "supersedes": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2 (v3 stack)"
+    }
+  },
+  "smoke": {
+    "approveLaunchpadTx": "0x9a529410ac6219bc2c38817d4ba6508fe79c3cad1445165eacd4a6b0556481fa",
+    "launches": {
+      "TRENCH": {
+        "mode": 0,
+        "tx": "0x4642ca21a9ea4b31c9e3c79c951cdaec3231a5fa6f08c5406c10b6a86fe186b2",
+        "token": "0xf3499d126dd959080f6acd7ada17d39d256de996",
+        "curve": "0x738cbab79f99f8fb037606241cfd4d046e916efe"
+      },
+      "PVE": {
+        "mode": 1,
+        "tx": "0x379d965b1015c5c0f020ada18741ad9c005d895e3f0e3413187d7e7016b17efc",
+        "token": "0x5c37d290f4c05de9b5081a5f25ba434eba1c6375",
+        "curve": "0x88e54a8503091cbe759866be343145bdbb0515f8"
+      },
+      "PVP": {
+        "mode": 2,
+        "tx": "0xf867ea62af68be987ee775a3ea1d5b118f33885122bee062a7d448c7e412c2f0",
+        "token": "0x49eef46b243dee5a6345299cbfc7a223d6c0b781",
+        "curve": "0xf08ffbc830cb5e08656fc17d4675e78a2f34fdd2"
+      }
+    },
+    "modeViews": {
+      "PVE": {
+        "netCapNow": "70000000e18 (1%)",
+        "maxBuyNow": "17500000e18 (0.25% window)",
+        "maxSellNow": "35000000e18 (0.5%)"
+      },
+      "PVP": {
+        "netCapNow": "280000000e18 (4%)",
+        "maxBuyNow": "233100000e18 (3.33%)"
+      },
+      "TRENCH": "uncapped"
+    },
+    "trenchBuyTx": "0xfd8fb17ec853dbfba7839bcd9e3e915368f961bac231cedaf467c846b475aa94",
+    "trenchBuy": "100 STRATEGY -> 250537.067996895420375688 tokens; mcapNow $7000.375 == MarketLens",
+    "trenchSellTx": "0xad9cb6befe950ce71d7c7e84291f36526cafa2812aaac9ff1ca990f82dba9611",
+    "trenchSell": "125268.53 tokens -> 49.0057 STRATEGY",
+    "routerBuyWithUsdgTx": "0x470eac1c1379cb651beb4e7b9c4883821ce31aef40ed853df08910d865e09c12",
+    "routerBuyWithUsdg": "1 mUSDG -> TRENCH tokens via STRATEGY/mUSDG hop",
+    "pveBuy": "not executed: LoginGate attester unset; quoteBuyFor(deployer) reverts NotVerified as expected",
+    "pvpBuyTx": "0x955f7ecbfa5c66895e0df44f260e3dede5ace1f5a15d84612574cef3684a39e1"
+  }
 }
