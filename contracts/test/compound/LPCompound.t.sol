@@ -119,7 +119,7 @@ contract LPCompoundTest is IntegrationBase {
     function test_defaults_and_wiring() public view {
         assertEq(lockedLP.hook(), address(hook));
         assertEq(address(hook.compounder()), address(lockedLP));
-        assertEq(lockedLP.minCompoundPpm(), 50);
+        assertEq(lockedLP.minCompoundPpm(), 1_000);
         assertEq(lockedLP.maxCompoundPpm(), 5_000);
         assertEq(lockedLP.maxCompoundDeviationBps(), 300);
         _assertInvariant(_one(tok));
@@ -142,10 +142,16 @@ contract LPCompoundTest is IntegrationBase {
         uint128 l0 = _liq(tok);
         vm.recordLogs();
         uint256 adds;
-        // small buys (each moves price < the 3% deviation guard at graduation depth)
-        for (uint256 i; i < 20; i++) {
-            vm.roll(vm.getBlockNumber() + 1); // "over time": one buy per block, a minute apart (EMA reference)
-            vm.warp(vm.getBlockTimestamp() + 61);
+        // small buys (each moves price < the 3% deviation guard at graduation depth). Audit G-5: the 0.1% minimum
+        // add batches fees, so it takes more buys than the old 0.005% before the first add.
+        for (uint256 i; i < 60; i++) {
+            // "over time": a minute apart, with a dust trade in between (two EMA observations per minute, so the
+            // speed-limited reference keeps up with the steady rise)
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 31);
+            _swapExactInQuoteForToken(tok, makeAddr("obs"), 1e12);
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 30);
             _buy(tok, 50 ether);
             adds += _count(COMPOUNDED);
             vm.recordLogs();

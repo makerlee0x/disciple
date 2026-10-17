@@ -308,7 +308,7 @@ contract DiscipleAuditTest is IntegrationBase {
         Token tok = _gradReady();
         _bigBuckets(tok);
         vm.prank(owner);
-        lockedLP.setCompoundParams(50, 5_000, 300); // production defaults
+        lockedLP.setCompoundParams(1_000, 5_000, 300); // production defaults
         uint256 snap = vm.snapshotState();
         (uint256 atk, uint256 n, uint256 dL) = _held(tok, pump, hold, every, burst);
         uint128 L = _liq(tok);

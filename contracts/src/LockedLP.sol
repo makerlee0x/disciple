@@ -85,8 +85,9 @@ contract LockedLP is ILockedLP, IUnlockCallback {
 
     /// @notice DiscipleHook (only caller of compoundFromHook; also the swappedInTx oracle for flush).
     address public hook;
-    /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.005%.
-    uint32 public minCompoundPpm = 50;
+    /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.1%
+    ///         (audit G-5: was 0.005%, which compounded ~every other buy at ~44k gas; fees still bucket every trade).
+    uint32 public minCompoundPpm = 1_000;
     /// @notice Per-add cap, in ppm of the position's current liquidity (0 = uncapped). Default 0.5% (audit High-1:
     ///         bounds the value any residual reference manipulation could extract per add).
     uint32 public maxCompoundPpm = 5_000;
