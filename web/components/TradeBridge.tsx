@@ -17,7 +17,14 @@ import { SELL_KEYS, SWAP_PREFIX, loadSettings, saveSettings, sellLabel, slippage
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
 type Bridge = (side: "buy" | "sell", usd: number, o?: { frac?: number }) => Promise<{ ok: boolean; reason?: string; txHash?: string }>;
-declare global { interface Window { __discipleTrade?: Bridge } }
+declare global {
+  interface Window {
+    __discipleTrade?: Bridge;
+    /** Connected trading account, lowercase (the smart account credited as `trader` in Trade events = the trades:w:* key);
+     *  read by the flight minimap (public/flight/engine.js) to mark the user's own fills. Unset when disconnected. */
+    __flightWallet?: string;
+  }
+}
 
 /**
  * Ammo bar + bridge: the flight engine's shots (keys / these buttons) become real trades once a wallet is
@@ -57,6 +64,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const [last, setLast] = useState("");
   const valid = isDeployed() && /^0x[0-9a-fA-F]{40}$/.test(token);
   useEffect(() => onWallet(setAddr), []);
+  // Minimap own-fill markers: expose the trading account (onWallet emits the smart account in smart mode, the EOA on the
+  // legacy path; either way the address Trade events credit as trader). Follows account changes; cleared on disconnect/unmount.
+  useEffect(() => {
+    if (addr) window.__flightWallet = addr.toLowerCase();
+    else delete window.__flightWallet;
+    return () => { delete window.__flightWallet; };
+  }, [addr]);
   const live = valid && !!addr;
   // Swap settings, per scope (sim / paper / live)
   const scope = storagePrefix + (live ? "live" : "paper");
