@@ -4,97 +4,20 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
+import Icon, { type IconName } from "@/components/icons/Icon";
 
 const NAV = [
   { href: "/", key: "home", label: "Launchpad", icon: "home" },
   { href: "/profile", key: "profile", label: "Profile", icon: "profile" },
-  { href: "/rocket", key: "upgrade", label: "Upgrade Rocket", icon: "upgrade" },
-  { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leader" },
-  { href: "/achievements", key: "ach", label: "Achievements", icon: "ach" },
+  { href: "/rocket", key: "upgrade", label: "Upgrade Rocket", icon: "rocket" },
+  { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
+  { href: "/achievements", key: "ach", label: "Achievements", icon: "achievement" },
 ] as const;
 
-function Icon({ name }: { name: string }) {
-  const common = {
-    viewBox: "0 0 24 24",
-    width: 20,
-    height: 20,
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.7,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true as const,
-  };
-  switch (name) {
-    case "home":
-      return (
-        <svg {...common}>
-          <path d="M3 11l9-7 9 7" />
-          <path d="M5 10v10h14V10" />
-          <path d="M10 20v-6h4v6" />
-        </svg>
-      );
-    case "profile":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="8" r="4" />
-          <ellipse cx="12" cy="3.2" rx="4.5" ry="1.2" />
-          <path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
-        </svg>
-      );
-    case "upgrade":
-      return (
-        <svg {...common}>
-          <path d="M12 2c3 2 5 6 5 10l-2 4H9l-2-4c0-4 2-8 5-10z" />
-          <circle cx="12" cy="10" r="2" />
-          <path d="M9 16l-3 4M15 16l3 4" />
-        </svg>
-      );
-    case "leader":
-      return (
-        <svg {...common}>
-          <path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0z" />
-          <path d="M7 6H4a3 3 0 003 4M17 6h3a3 3 0 01-3 4" />
-        </svg>
-      );
-    case "ach":
-      return (
-        <svg {...common}>
-          <path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.5 6.7 19.4l1.2-6L3.4 9.3l6-.7z" />
-        </svg>
-      );
-    case "wallet":
-      return (
-        <svg {...common}>
-          <rect x="3" y="6" width="18" height="14" rx="3" />
-          <path d="M3 10h18" />
-          <circle cx="16.5" cy="15" r="1.3" />
-          <path d="M6 6l9-3 1.5 3" />
-        </svg>
-      );
-    case "settings":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-        </svg>
-      );
-    case "logout":
-      return (
-        <svg {...common}>
-          <path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3" />
-          <path d="M10 8l-4 4 4 4M6 12h10" />
-        </svg>
-      );
-    case "create":
-      return (
-        <svg {...common}>
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      );
-    default:
-      return null;
-  }
+/** Nav icons: BRAND icons v1 + v1.1 ("create" → plus, "logout" → log-out). */
+function NavIcon({ name }: { name: string }) {
+  const n = name === "create" ? "plus" : name === "logout" ? "log-out" : name;
+  return <Icon name={n as IconName} size={20} />;
 }
 
 function Wings() {
@@ -227,7 +150,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             aria-label="Toggle menu"
             onClick={() => toggle()}
           >
-            ☰
+            <Icon name="menu" size={20} />
           </button>
         </div>
         <nav className="ap-nav">
@@ -244,7 +167,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
                 title={item.label}
               >
                 <span className="ic">
-                  <Icon name={item.icon} />
+                  <NavIcon name={item.icon} />
                 </span>
                 <span className="lb">{item.label}</span>
               </Link>
@@ -256,7 +179,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             title="Launch a Rocket"
           >
             <span className="ic">
-              <Icon name="create" />
+              <NavIcon name="create" />
             </span>
             <span className="lb">Launch a Rocket</span>
           </Link>
@@ -281,7 +204,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             onClick={() => setLogoutNote(true)}
           >
             <span className="ic">
-              <Icon name="logout" />
+              <NavIcon name="logout" />
             </span>
             <span className="lb">Log out</span>
           </button>
@@ -293,7 +216,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         title="Open menu"
         onClick={() => toggle(true)}
       >
-        ☰
+        <Icon name="menu" size={20} />
       </button>
       {logoutNote && (
         <div

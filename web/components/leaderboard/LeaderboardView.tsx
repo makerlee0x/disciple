@@ -20,6 +20,7 @@ import {
 } from "@/lib/leaderboard";
 import { fmtUsd } from "@/lib/config";
 import { leaderboardAdapter } from "@/lib/mock/leaderboard";
+import Icon from "@/components/icons/Icon";
 
 const SORTS: { key: LeaderboardSort; label: string }[] = [
   { key: "pnl", label: "PnL" },
@@ -35,29 +36,11 @@ const WINDOWS: { key: LeaderboardWindow; label: string }[] = [
 ];
 
 function PnlIcon({ pos }: { pos: boolean }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-      {pos ? (
-        <path d="M4 16l6-6 4 4 6-8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      ) : (
-        <path d="M4 8l6 6 4-4 6 8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      )}
-    </svg>
-  );
+  return <Icon name={pos ? "boost" : "dump"} size={12} />;
 }
 
 function HourglassIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M6 4h12M6 20h12M7 4c0 5 4 6 5 8-1 2-5 3-5 8M17 4c0 5-4 6-5 8 1 2 5 3 5 8"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  return <Icon name="clock" size={12} />;
 }
 
 function BadgeWithStats({ a }: { a: LeaderboardRow["badges"][number] }) {

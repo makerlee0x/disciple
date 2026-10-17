@@ -1,27 +1,20 @@
 import type { CSSProperties } from "react";
-import { withBase } from "@/lib/base-path";
+import BaseIcon from "@/components/icons/Icon";
+import type { IconName as SpriteIconName } from "@/components/icons/sprite";
 
 /**
- * DISCIPLE icon set v1 (public/icons/v1, from disciple-brand/icons/v1). Uses the external sprite
- * (`sprite.svg#d-<name>`); stroke/fill = currentColor, so colour comes from CSS `color`.
- * Sizes 16 / 20 / 24 (24 native). `meter-orbs-N` is 40×16: pass width 40, size 16.
+ * GAME-facing alias of the single DISCIPLE <Icon> (components/icons/Icon, inline v1 + v1.1 sprite
+ * mounted once via <IconSprite /> in the root layout). Keeps GAME's API: `title`, `width`, default size 16,
+ * BOMB_ICON and <BombTierIcons>. stroke/fill = currentColor.
  */
-export type IconName =
-  | "boost" | "dump" | "rocket" | "tramp" | "wall" | "crew" | "pilot" | "base-pair" | "graduation" | "altitude"
-  | "bomb" | "nuke" | "bomb-puff" | "bomb-grenade" | "bomb-bunker" | "bomb-cruise" | "bomb-nuke" | "bomb-atom"
-  | `meter-orbs-${1 | 2 | 3 | 4 | 5 | 6}` | (string & {});
+export type IconName = SpriteIconName | (string & {});
 
 export const BOMB_ICON = ["bomb-puff", "bomb-grenade", "bomb-bunker", "bomb-cruise", "bomb-nuke", "bomb-atom"] as const;
 
 export default function Icon({ name, size = 16, width, title, style, className }: { name: IconName; size?: number; width?: number; title?: string; style?: CSSProperties; className?: string }) {
   const w = width ?? (name.startsWith("meter-orbs-") ? (size * 40) / 16 : size);
-  return (
-    <svg width={w} height={size} className={className} role={title ? "img" : undefined} aria-hidden={title ? undefined : true} aria-label={title}
-      style={{ display: "inline-block", verticalAlign: "-0.15em", flex: "none", ...style }}>
-      {title ? <title>{title}</title> : null}
-      <use href={withBase(`/icons/v1/sprite.svg#d-${name}`)} />
-    </svg>
-  );
+  return <BaseIcon name={name as SpriteIconName} size={size} label={title} className={className}
+    style={{ verticalAlign: "-0.15em", flex: "none", ...(w !== size && !name.startsWith("meter-orbs-") ? { width: w } : {}), ...style }} />;
 }
 
 /** bomb tier (0 puff … 5 atom): tier icon + 6-orb meter */

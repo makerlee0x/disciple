@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import ProfileIdentity from "./ProfileIdentity";
 import CashPanel from "./CashPanel";
 import SettingsPanel from "./SettingsPanel";
+import Icon from "@/components/icons/Icon";
 
 /** Private account settings: username / wallet / X / referral, Cash (deposit + withdraw), preferences. */
 export default function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -24,7 +25,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             <h2>Settings</h2>
             <div className="sub">PRIVATE · ONLY YOU SEE THIS</div>
           </div>
-          <button type="button" className="ds-btn" aria-label="Close settings" onClick={onClose}>✕</button>
+          <button type="button" className="ds-btn" aria-label="Close settings" onClick={onClose}><Icon name="close" size={16} /></button>
         </header>
         <div className="ds-modal-body">
           <ProfileIdentity />

@@ -18,6 +18,7 @@ import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+import Icon from "@/components/icons/Icon";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -42,7 +43,10 @@ export default function LaunchRocketPage() {
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
   const [pseudonymous, setPseudonymous] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
+  const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
+  const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
+  const setLaunched = (text: string) => setStatus({ text, ok: true });
 
   const blocked = mod.state === "block";
   useEffect(() => { preloadModeration(); }, []);
@@ -143,16 +147,16 @@ export default function LaunchRocketPage() {
       if (fr && isDeployed()) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
-          setMsg(`🚀 Launched ${res.token}. Assigning fee receiver ${fr.slice(0, 8)}… (one more confirmation)`);
+          setLaunched(`Launched ${res.token}. Assigning fee receiver ${fr.slice(0, 8)}… (one more confirmation)`);
           try {
             await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
           } catch (err) {
-            setMsg(`🚀 Launched ${res.token}, but setting the fee receiver failed: ${String((err as Error).message).split("\n")[0]}. You can retry from the rocket page later.`);
+            setLaunched(`Launched ${res.token}, but setting the fee receiver failed: ${String((err as Error).message).split("\n")[0]}. You can retry from the rocket page later.`);
             return;
           }
         }
       }
-      setMsg(`🚀 Launched! Rocket ${res.token} — taking you to it…`);
+      setLaunched(`Launched! Rocket ${res.token} — taking you to it…`);
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
       setMsg(isDeployed() ? String((err as Error).message) : "Contracts not deployed yet (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));
@@ -171,7 +175,7 @@ export default function LaunchRocketPage() {
               <span className={labelCls}>ROCKET NAME *</span>
               <div className="pid-edit" style={{ flexWrap: "nowrap" }}>
                 <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Artificial Inu" maxLength={32} />
-                <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={shuffleName}>🎲 Shuffle</button>
+                <button type="button" className="ds-btn" title="Shuffle a random name" aria-label="Shuffle name" onClick={shuffleName}><Icon name="shuffle" size={16} /> Shuffle</button>
               </div>
             </label>
             <label className="block">
@@ -181,7 +185,7 @@ export default function LaunchRocketPage() {
                 <input className={inputCls} style={{ flex: 1, minWidth: 0 }} value={callSign} onChange={(e) => setCallSign(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} placeholder="AI" maxLength={10} />
                 <button type="button" className="ds-btn" disabled={!tickerVariants(name).length}
                   title={`Shuffle a call sign from the name (${tickerVariants(name).map((t) => "$" + t).join(" · ") || "type a name first"})`}
-                  aria-label="Shuffle call sign" onClick={() => setCallSign(nextTicker(name, callSign))}>🎲 Shuffle</button>
+                  aria-label="Shuffle call sign" onClick={() => setCallSign(nextTicker(name, callSign))}><Icon name="shuffle" size={16} /> Shuffle</button>
               </div>
             </label>
             <div className="block">
@@ -197,14 +201,14 @@ export default function LaunchRocketPage() {
                 </div>
               )}
               {mod.state === "checking" && <p className="text-xs text-[#C9CED6]">Checking image…</p>}
-              {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]">✓ Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
+              {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]"><Icon name="check" size={12} /> Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
               {blocked && (
                 <p role="alert" className="ds-msg bad">
                   This image can&apos;t be used. Please pick a different one.{mod.note ? ` (${mod.note})` : ""}
                 </p>
               )}
               {mod.state === "review" && <p className="text-xs text-[#FF7A3D]">Held for review — you can launch once it&apos;s cleared.{mod.note ? ` ${mod.note}` : ""}</p>}
-              {contrast && <p className="text-xs text-[#FF7A3D]">⚠ {contrast}</p>}
+              {contrast && <p className="text-xs text-[#FF7A3D]"><Icon name="warning" size={12} /> {contrast}</p>}
             </div>
           </div>
 
@@ -247,7 +251,7 @@ export default function LaunchRocketPage() {
           className="flex w-full items-center justify-between rounded-xl border border-[rgba(201,206,214,.25)] px-3 py-2 text-xs tracking-wider text-[#C9CED6]"
         >
           <span>ADVANCED · creator tax &amp; pseudonymous</span>
-          <span>{advanced ? "▲ ON" : "▼ OFF"}</span>
+          <span><Icon name={advanced ? "chevron-up" : "chevron-down"} size={16} /> {advanced ? "ON" : "OFF"}</span>
         </button>
 
         {advanced && (
@@ -279,10 +283,10 @@ export default function LaunchRocketPage() {
           type="submit"
           className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
         >
-          {isDeployed() ? "🚀 Launch Rocket on-chain (testnet)" : "🚀 Launch Rocket (UI only)"}
+          <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> {isDeployed() ? "Launch Rocket on-chain (testnet)" : "Launch Rocket (UI only)"}
         </button>
-        {msg && (
-          <p role="status" className={`ds-msg ${msg.startsWith("🚀") ? "ok" : "bad"}`}>{msg}</p>
+        {status && (
+          <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
         )}
       </form>
     </div>
