@@ -245,9 +245,16 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     {
         PoolId id = key.toId();
         (uint160 sqrtP,,,) = poolManager.getSlot0(id);
-        PoolTrack memory t = _track[id];
-        if (t.anchorBlock != uint64(block.number)) {
-            _track[id] = PoolTrack({tier: t.tier, anchorBlock: uint64(block.number), anchorSqrt: sqrtP});
+        // Block-start anchor (packed with the altitude tier: [tier:8 | anchorBlock:64 | anchorSqrt:160]). Only the
+        // pool's first swap of a block writes; later swaps just read (and warm the slot for afterSwap's tier read).
+        assembly ("memory-safe") {
+            mstore(0x00, id)
+            mstore(0x20, _track.slot)
+            let ts := keccak256(0x00, 0x40)
+            let v := sload(ts)
+            if iszero(eq(and(shr(8, v), 0xffffffffffffffff), number())) {
+                sstore(ts, or(and(v, 0xff), or(shl(8, number()), shl(72, sqrtP))))
+            }
         }
         bytes32 slot = PRICE_SLOT;
         bytes32 swapped = keccak256(abi.encode(SWAPPED_SLOT, id));
@@ -292,7 +299,9 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             poolManager.take(feeCurrency, address(feeRouter), feeAmount);
             // Audit #3 (gas): FeeRouter reports whether the LP buckets now hold both sides; one-sided accumulation
             // (the common case) skips the compound call entirely.
-            if (feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount)) _tryCompound(m.token, key.toId());
+            if (feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount)) {
+                _tryCompound(m.token, key.toId());
+            }
         }
 
         uint256 qUsd = _quoteUsd(m);
@@ -323,9 +332,10 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         // Pass the reference that deviates MORE from the current price: this swap's pre-swap price or the pool's
         // block-start anchor. LockedLP skips if it is > maxCompoundDeviationBps (3%) away, so a pump in an earlier
         // tx of the same block can't be compounded into by a later dust swap.
+        // (|Δ sqrtP| comparison: at the 3% scale it ranks deviations like the ratio does, without mulDiv.)
         uint160 anchor = _track[id].anchorSqrt; // set in this block by beforeSwap (warm slot)
         (uint160 now_,,,) = poolManager.getSlot0(id);
-        if (_dev(anchor, now_) > _dev(sqrtBefore, now_)) sqrtBefore = anchor;
+        if (_absDiff(anchor, now_) > _absDiff(sqrtBefore, now_)) sqrtBefore = anchor;
         try c.compoundFromHook{gas: g}(token, sqrtBefore) {}
         catch {
             emit CompoundFailed(token);
@@ -411,9 +421,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     }
 
     /// @dev Monotonic deviation proxy: max/min ratio of two sqrt prices, 1e18-scaled.
-    function _dev(uint160 a, uint160 b) private pure returns (uint256) {
-        if (a == 0 || b == 0) return type(uint256).max;
-        return a > b ? Math.mulDiv(a, 1e18, b) : Math.mulDiv(b, 1e18, a);
+    function _absDiff(uint160 a, uint160 b) private pure returns (uint256) {
+        return a > b ? a - b : b - a;
     }
 
     function _abs(int128 x) private pure returns (uint256) {

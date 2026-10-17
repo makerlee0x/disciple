@@ -155,6 +155,27 @@ contract GasBench is IntegrationBase {
         router.sellToUsdg(address(sTok), ct, 1, _dl());
         _log("v4.usdg2.sell.warm", _g());
     }
+
+    /// Non-compounding v4 swaps (compound path off): isolates the hook's per-swap overhead (block-start anchor).
+    function test_bench_v4_noCompound() public {
+        _graduateWith(uCurve, quote);
+        vm.prank(hook.admin());
+        hook.setCompounder(address(0), 50_000);
+        address a = _wallet("benchN");
+        vm.prank(a);
+        router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.prank(a);
+        router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
+        _log("v4nc.direct.buy.firstInBlock", _g());
+        vm.prank(a);
+        router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
+        _log("v4nc.direct.buy.sameBlock", _g());
+        uint256 at = uTok.balanceOf(a) / 4;
+        vm.prank(a);
+        router.sellExactIn(address(uTok), at, 1, a, _dl());
+        _log("v4nc.direct.sell.sameBlock", _g());
+    }
 }
 
 import {LoginGate} from "../../src/LoginGate.sol";
