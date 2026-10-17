@@ -81,7 +81,7 @@ export default function CrewPanel() {
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP FUELERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>{i === 0 ? <Icon name="crown" size={16} label="top fueler" /> : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
+              <span>{i === 0 ? <Icon name="crown" size={16} label="top booster" /> : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
             </div>
           ))}
           <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
