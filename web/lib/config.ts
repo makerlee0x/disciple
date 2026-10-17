@@ -43,14 +43,14 @@ export const TIERS = [
   { name: "HEAVENLY HOST", lo: 333e3, hi: 777e3, bg: "tier7" },
   { name: "THE MOON", lo: 777e3, hi: 1.2e6, bg: "tier8" },
   { name: "URANUS", lo: 1.2e6, hi: 3.3e6, bg: "tier9" },
-  { name: "LIMBO", lo: 3.3e6, hi: 7.7e6, bg: "tier0" },
-  { name: "GATES OF HEAVEN", lo: 7.7e6, hi: 33e6, bg: "tier1" },
-  { name: "THRONE ROOM", lo: 33e6, hi: 77e6, bg: "tier2" },
-  { name: "CHERUBIM", lo: 77e6, hi: 120e6, bg: "tier3" },
-  { name: "SERAPHIM", lo: 120e6, hi: 777e6, bg: "tier4" },
-  { name: "AETHER", lo: 777e6, hi: 1.2e9, bg: "tier5" },
-  { name: "EMPYREAN", lo: 1.2e9, hi: 3.3e9, bg: "tier6" },
-  { name: "SEVENTH HEAVEN", lo: 3.3e9, hi: 7.77e9, bg: "tier7" },
+  { name: "LIMBO", lo: 3.3e6, hi: 7.7e6, bg: "tier10" },
+  { name: "GATES OF HEAVEN", lo: 7.7e6, hi: 33e6, bg: "tier11" },
+  { name: "THRONE ROOM", lo: 33e6, hi: 77e6, bg: "tier12" },
+  { name: "CHERUBIM", lo: 77e6, hi: 120e6, bg: "tier13" },
+  { name: "SERAPHIM", lo: 120e6, hi: 777e6, bg: "tier14" },
+  { name: "AETHER", lo: 777e6, hi: 1.2e9, bg: "tier15" },
+  { name: "EMPYREAN", lo: 1.2e9, hi: 3.3e9, bg: "tier16" },
+  { name: "SEVENTH HEAVEN", lo: 3.3e9, hi: 7.77e9, bg: "tier17" },
 ] as const;
 
 export const MODES = [
