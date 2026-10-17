@@ -15,6 +15,8 @@ const { Market } = mods["sim/market"];
 const { SimRun, fmt, YOU } = mods["sim/run"];
 const { Pool, KEEPER_TIP_BPS } = mods["sim/pool"];
 const { createSimTrampWallAdapter, SIM_ME } = mods["sim/twAdapter"];
+const { pointsFor, pointsEarned, computePreview } = mods["trampwalls/adapter"];
+const { TRAMP_WALL_POINTS_PER_USD } = mods["config"];
 const MIN = +(process.argv[2] || 10), N = +(process.argv[3] || 12);
 let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e * Math.max(1, Math.abs(a), Math.abs(b));
@@ -92,7 +94,7 @@ const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), 
   for (let i = 0; i < 80 && B.tw.filled.you === 0; i++) B.step(0.1);
   if (!(B.tw.filled.you === 1 && B.keeper.pulls >= 1 && B.keeper.tips > 0)) bad(`keeper did not close the filled tramp (filled ${B.tw.filled.you}, pulls ${B.keeper.pulls})`);
   const o = B.m.pool.orders.find((x) => x.owner === YOU); if (!(o && o.status === "filled" && o.outTokens > 0 && o.closedBy === "KEEPER")) bad("filled tramp did not deliver tokens to the owner");
-  if (!(B.summary().achievements.includes("LIMIT LEGEND") && B.tw.youPoints > 0)) bad("filled tramp: no achievement/points");
+  if (!(B.summary().achievements.includes("LIMIT LEGEND") && B.tw.youPoints === Math.floor(1500 * TRAMP_WALL_POINTS_PER_USD))) bad(`filled $1.5K tramp: expected ${Math.floor(1500 * TRAMP_WALL_POINTS_PER_USD)} pts, got ${B.tw.youPoints}`);
   console.log(`keeper pull after ${(o.closedT - o.crossedT).toFixed(1)} s: +${(o.outTokens / 1e6).toFixed(2)}M tokens to you, tip $${B.keeper.tips.toFixed(2)}`);
   // wall absorbs the player's buy at the same block
   const C = graduated("pve", 78), D2 = graduated("pve", 78), mc = D2.m.mcap(); const wl = D2.playerPlace("wall", mc * 1.05, 4, 1500); if (!wl.ok) bad(`player wall rejected: ${wl.reason}`);
@@ -113,6 +115,33 @@ const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), 
   const mine = await ad.listMine(SIM_ME, "SIMULATOR"), all = await ad.list("SIMULATOR"); off();
   if (!(pr.ok && mine.length === 1 && mine[0].owner === SIM_ME && all.some((t) => t.id === pr.id) && evs === 1 && st.has(SIM_STORAGE.tw) && !(JSON.parse(st.get("disciple.tw.v1")).length))) bad("sim adapter place/list/mirror");
   console.log(`per-run reset + sim adapter OK (mirror key ${SIM_STORAGE.tw}, ${all.length} live orders incl. bots)`); }
+
+// ---- tramp/wall points: floor(filled order $ × TRAMP_WALL_POINTS_PER_USD), only on a keeper close after a full cross ----
+{ const P = TRAMP_WALL_POINTS_PER_USD;
+  if (P !== 1) bad(`TRAMP_WALL_POINTS_PER_USD should default to 1 (is ${P})`);
+  const cases = [[0, 0], [-5, 0], [NaN, 0], [Infinity, 0], [0.99, 0], [1, 1], [2.5, 2], [600, 600], [1234.99, 1234], [0.1 + 0.2 + 0.7, 1]];
+  const off = cases.filter(([u, want]) => pointsFor(u) !== Math.floor(want * P) && !(want === 0 && pointsFor(u) === 0));
+  if (off.length) bad(`pointsFor rounding: ${JSON.stringify(off.map(([u]) => [u, pointsFor(u)]))}`);
+  if (!(pointsEarned({ status: "filled", sizeUsd: 250.7 }) === 250 && pointsEarned({ status: "active", sizeUsd: 250 }) === 0 && pointsEarned({ status: "cancelled", sizeUsd: 250 }) === 0)) bad("pointsEarned: only filled orders earn");
+  if (computePreview({ kind: "tramp", mcapUsd: 90, rangeWidthPct: 2, sizeUsd: 333.9, amount: 0n }, 100).pointsIfFilled !== 333) bad("preview pointsIfFilled should be floor($)");
+  // sim: crossed but not yet pulled → 0; partly filled then cancelled → 0; fully crossed + keeper pull → floor($)
+  const R = graduated("pve", 91), m = R.m.mcap(); const t = R.playerPlace("tramp", m * 0.94, 4, 777.7); if (!t.ok) bad(`points tramp rejected: ${t.reason}`);
+  const o = R.m.pool.orders.find((x) => x.id === t.id), ad = createSimTrampWallAdapter(() => R);
+  R.playerTrade("sell", 0, { frac: 0.7 }); const crossed = R.m.pool.isFilled(o);
+  const before = (await ad.listMine(SIM_ME, "SIMULATOR"))[0];
+  if (!(crossed && o.status === "active" && R.tw.youPoints === 0 && before.pointsEarned === 0)) bad(`crossed-but-not-pulled tramp must earn 0 (crossed ${crossed}, pts ${R.tw.youPoints})`);
+  for (let i = 0; i < 80 && o.status === "active"; i++) R.step(0.1);
+  const after = (await ad.listMine(SIM_ME, "SIMULATOR")).find((x) => x.id === String(t.id));
+  if (!(o.status === "filled" && R.tw.youPoints === 777 && after.pointsEarned === 777)) bad(`filled $777.70 tramp: expected 777 pts, got ${R.tw.youPoints} / ${after && after.pointsEarned}`);
+  // partial: a sell that only walks into the range, then the owner cancels
+  const Q = graduated("pve", 92), mq = Q.m.mcap(); const t2 = Q.playerPlace("tramp", mq * 0.9, 10, 2000); if (!t2.ok) bad(`partial tramp rejected: ${t2.reason}`);
+  const o2 = Q.m.pool.orders.find((x) => x.id === t2.id); let k = 0;
+  while (!(Q.m.pool.amounts(o2).tokens > 0) && k++ < 200) Q.playerTrade("sell", 0, { frac: 0.03 });
+  const part = Q.m.pool.amounts(o2), frac = 1 - part.quote / o2.deposit;
+  if (!(frac > 0 && frac < 1 && !Q.m.pool.isFilled(o2))) bad(`could not set up a partly filled tramp (frac ${frac})`);
+  Q.playerCancel(t2.id);
+  if (!(o2.status === "cancelled" && Q.tw.youPoints === 0 && o2.outTokens > 0)) bad(`partly filled (${(frac * 100).toFixed(0)}%) then cancelled tramp must earn 0 (pts ${Q.tw.youPoints})`);
+  console.log(`points: 1 pt per $1 filled (floor) · crossed-not-pulled 0 · filled $777.70 → ${R.tw.youPoints} · ${(frac * 100).toFixed(0)}% filled then cancelled → ${Q.tw.youPoints}`); }
 
 // ---- bots use tramps/walls and react to yours (more competitively at higher difficulty) ----
 { const R = { pve: {}, pvp: {}, trench: {} };

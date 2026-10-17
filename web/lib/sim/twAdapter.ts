@@ -6,7 +6,7 @@
  * mirror goes to the sim-only key SIM_STORAGE.tw ("disciple.sim.tw", never the live "disciple.tw.v1").
  */
 import type { Address } from "../protocol";
-import { computePreview, pointsFor, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent } from "../trampwalls/adapter";
+import { computePreview, pointsEarned, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent } from "../trampwalls/adapter";
 import { SIM_STORAGE } from "./config";
 import { YOU, type SimRun } from "./run";
 import type { Pool, RangeOrder } from "./pool";
@@ -23,7 +23,7 @@ export function toTrampWall(o: RangeOrder, pool: Pool, S: number, token: Address
     mcapUsd: o.a * o.b * S, mcapLoUsd: o.a * o.a * S, mcapHiUsd: o.b * o.b * S,
     amount: BigInt(Math.max(0, Math.floor(o.deposit * 1e6))), sizeUsd: o.sizeUsd,
     status: o.status, filledFrac: o.deposit > 0 ? Math.max(0, Math.min(1, 1 - left / o.deposit)) : 0,
-    pointsEarned: o.owner === YOU && o.status === "filled" ? pointsFor(o.kind, o.sizeUsd) : 0,
+    pointsEarned: o.owner === YOU ? pointsEarned({ status: o.status, sizeUsd: o.sizeUsd }) : 0,
     createdAt: o.placedT * 1000, filledAt: o.status === "filled" && o.closedT != null ? o.closedT * 1000 : undefined,
   };
 }

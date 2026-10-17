@@ -12,6 +12,11 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   const claim = /0\.11 ?%|11 bps|hook donation|fees\/day|estFeeShare|estSharePct|feesEarnedUsd|FeesDonated|HOOK_DONATION|pendingFees|claimFees|LPDonation/i;
   const hits = files.filter((f) => claim.test(rd(f).replace(/^.*No fee share.*$/gm, "")));
   ok(!hits.length, `no tramp/wall fee-share promise or fee read in ${files.length} GAME files${hits.length ? " (found in " + hits.join(", ") + ")" : ""}`); }
+// 0b) tramp/wall points: 1 pt per $1 of FILLED size (config TRAMP_WALL_POINTS_PER_USD), only after a keeper close
+{ const rd = (f) => fs.readFileSync(path.join(dir, "..", f), "utf8"), ad = rd("lib/trampwalls/adapter.ts"), oc = rd("lib/trampwalls/onchain.ts"), mk = rd("lib/trampwalls/mock.ts");
+  ok(/export const TRAMP_WALL_POINTS_PER_USD = \d/.test(rd("lib/config.ts")) && /Math\.floor\(filledSizeUsd \* TRAMP_WALL_POINTS_PER_USD/.test(ad) && !/tramp: 250|perKUsd/.test(ad), "adapter: points = floor($ × TRAMP_WALL_POINTS_PER_USD), flat 250/300 gone");
+  ok(/const status = active \? "active" : cancelled \? "cancelled" : "filled";/.test(oc) && /pointsEarned: pointsEarned\(\{ status, sizeUsd \}\)/.test(oc), "onchain: crossed-but-not-pulled stays active, cancelled ≠ filled, points only when filled");
+  ok((mk.match(/pointsFor\(/g) || []).length === 1 && /function mockMarkFilled[\s\S]*pointsFor\(t\.sizeUsd\)/.test(mk), "mock: points only in mockMarkFilled (the keeper stand-in)"); }
 // 1) mock market: bounded growth, supply defined
 { let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const cls = eng.slice(eng.indexOf("class MockReplaySource {"), eng.indexOf("\n  emitDepth()")) + "\n emitDepth(){} }";

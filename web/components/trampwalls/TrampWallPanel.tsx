@@ -3,7 +3,8 @@
 import Icon from "@/components/ui/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "@/lib/protocol";
-import type { TrampWall, TrampWallAdapter, TrampWallKind, TrampWallPreview } from "@/lib/trampwalls/adapter";
+import { pointsFor, type TrampWall, type TrampWallAdapter, type TrampWallKind, type TrampWallPreview } from "@/lib/trampwalls/adapter";
+import { TRAMP_WALL_POINTS_PER_USD } from "@/lib/config";
 import { createMockAdapter, MOCK_ME, mockMarkFilled } from "@/lib/trampwalls/mock";
 
 type FlightApi = { S?: { confirmed?: { mcap?: number } }; screenYToMcap?: (y: number) => number };
@@ -137,7 +138,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
               <div>
                 <span className={t.kind === "tramp" ? "text-[#ffd76e]" : "text-[#ff8a7a]"}><Icon name={t.kind === "tramp" ? "tramp" : "wall"} size={13} /> {t.kind === "tramp" ? "TRAMP" : "WALL"}</span>{" "}
                 {fmt(t.sizeUsd)} @ {fmt(t.mcapUsd)}
-                <div className="text-white/50">{t.status.toUpperCase()}{t.status === "active" ? ` · ${Math.round(t.filledFrac * 100)}% filled` : ""} · {t.pointsEarned} pts</div>
+                <div className="text-white/50">{t.status.toUpperCase()}{t.status === "active" ? ` · ${Math.round(t.filledFrac * 100)}% filled · +${pointsFor(t.sizeUsd)} pts once filled` : ` · ${t.pointsEarned} pts`}</div>
               </div>
               {t.status === "active" && <button onClick={() => cancel(t.id)} className="rounded-md border border-red-400/50 px-2 py-1 text-red-300 hover:bg-red-500/20">Cancel</button>}
             </div>
@@ -161,7 +162,8 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
             className="relative w-[440px] rounded-3xl border border-[#ffe7a3]/50 bg-gradient-to-b from-[#1b1630] via-[#0c0a18] to-[#05040a] p-6 text-white shadow-[0_0_60px_rgba(255,215,110,.35)]">
             <div className="pointer-events-none absolute -top-5 left-1/2 h-8 w-40 -translate-x-1/2 rounded-[50%] border-4 border-[#ffe7a3]/80 shadow-[0_0_30px_#ffe7a3]" />
             <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Trampoline" : "Wall"}</h2>
-            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)</p>
+            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)
+              <br />points: {TRAMP_WALL_POINTS_PER_USD} per $1 of order size, only when filled · cancelled or partly filled = 0</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(["tramp", "wall"] as const).map((k) => (
                 <button key={k} data-testid={`tw-kind-${k}`} onClick={() => { chooseKind(k); setStep("preset"); }}
@@ -179,7 +181,7 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
                     className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left font-mono text-[11px] transition hover:border-[#ffe7a3] hover:bg-[#ffe7a3]/10 disabled:opacity-40">
                     <div className="flex items-baseline justify-between"><span className="font-display text-base text-[#ffe7a3]">{p.label}</span><span className="text-sm font-bold">{fmt(q.sizeUsd)}</span></div>
                     <div className="text-white/70">{q.pct > 0 ? "+" : ""}{q.pct}% · ±{p.width / 2}% · @ {fmt(q.priceMcap)}</div>
-                    <div className="text-white/45">{p.blurb}{r && !r.valid && r.reason ? ` · ${r.reason}` : ""}</div>
+                    <div className="text-white/45">{p.blurb} · +{pointsFor(q.sizeUsd)} pts if filled{r && !r.valid && r.reason ? ` · ${r.reason}` : ""}</div>
                   </button>); })}
                 <button data-testid="tw-preset-custom" onClick={() => setStep("custom")}
                   className="rounded-xl border border-dashed border-white/25 px-3 py-2 text-left font-mono text-[11px] text-white/70 hover:border-white/60">

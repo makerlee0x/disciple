@@ -5,6 +5,8 @@
 
 Incentives: **no fee share**. A tramp/wall is a pure limit order. TrampWallManager rev2 pays range orders no LP yield: the pool LP fee is 0 and the hook no longer donates to in-range liquidity (`contracts/docs/redeploy-migration.md`, revision 3). Filled tramps/walls earn off-chain points and badges (see achievements category `tramps` in `web/lib/achievements.ts`).
 
+Points: **1 point per $1 of filled order size, rounded down** (`TRAMP_WALL_POINTS_PER_USD` in `web/lib/config.ts`, `pointsFor` and `pointsEarned` in `web/lib/trampwalls/adapter.ts`). They're awarded only when the order is **filled**, i.e. a keeper closed it with `pull` after the price fully crossed the range (the contract's `Filled` event). An order the price is inside, or has crossed but nobody has pulled yet, stays `active` and earns 0. Cancelled orders earn 0, including partly filled ones. Order size $: tramp = quote deposited; wall = tokens × the range's centre price.
+
 Only shown on graduated coins (`isGraduated(token) === true`).
 
 ## Frontend seam
@@ -69,7 +71,7 @@ Contract (TrampWallManager), suggested shape:
 Events (indexer) → map to `TrampWallEvent`:
 - `TrampWallPlaced(id, token, owner, kind, tickLower, tickUpper, amount)`
 - `TrampWallCancelled(id, token, owner)`
-- `TrampWallFilled(id, token, owner, filledAt)` — off-chain points are awarded on this event
+- `TrampWallFilled(id, token, owner, filledAt)` (rev2: `Filled`, emitted by the keeper `pull`). Off-chain points (floor($ × `TRAMP_WALL_POINTS_PER_USD`)) are awarded on this event only.
 
 Indexer also needs a per-user rollup for achievements: `trampsFilled`, `wallsFilled`, `bigTrampsFilled` (≥$1K) → `IdentityMetrics` in `web/lib/stats.ts`.
 
@@ -96,7 +98,7 @@ range orders in it, following `TrampWallManager.sol`:
   delay and takes `keeperTipBps` (0.1%) of both assets. If the price comes back first the order is no longer filled
   and the pull would revert (`NotFilled`), so the keeper waits. The owner can cancel at any time and gets the current mix.
 - **No fee share**, same as live: the contract pays range orders nothing.
-  Filled orders still earn the off-chain points (`pointsFor`) and the LIMIT LEGEND sim achievement.
+  Only keeper-closed (filled) orders earn points (1 per $1 of order size, rounded down) and the LIMIT LEGEND sim achievement; cancelled or partly filled orders earn 0.
 - The panel (`TrampWallPanel` with `lib/sim/twAdapter.ts`) places straight into the running `SimRun`. State
   lives in the run, so every run starts empty. A read-only mirror goes to `disciple.sim.tw` (never the live
   `disciple.tw.v1`), and `resetSimStorage` clears it.

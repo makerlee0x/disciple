@@ -220,7 +220,7 @@ export class SimRun {
     }
     who.pos = p;
     if (how === "pull") { this.keeper.pulls++; this.keeper.tips += r.tipQuote + r.tipTokens * price;
-      if (o.owner === YOU) { this.tw.filled.you++; const pts = pointsFor(o.kind, o.sizeUsd); this.tw.youPoints += pts;
+      if (o.owner === YOU) { this.tw.filled.you++; const pts = pointsFor(o.sizeUsd); /* filled (keeper close after a full cross) → floor($ × TRAMP_WALL_POINTS_PER_USD) */ this.tw.youPoints += pts;
         this.emitEvent("tw", `KEEPER closed your filled ${o.kind === "tramp" ? `TRAMP: +${fmtTok(r.tokens)} tokens` : `WALL: +${fmt(r.quote)}`} · +${pts} pts`, true); }
       else this.tw.filled.bots++; }
     else { this.tw.cancelled++; if (o.owner === YOU) this.emitEvent("tw", `you cancelled a ${o.kind === "tramp" ? "TRAMP" : "WALL"}`, true); }

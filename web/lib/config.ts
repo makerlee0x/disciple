@@ -63,6 +63,10 @@ export const MODES = [
   { key: "6", name: "GLORY", usd: 1000, range: "≥$33M (Gates of Heaven+)" },
 ] as const;
 
+/** Tramps & walls: off-chain points per $1 of FILLED order size, rounded down. Awarded only when the order is filled
+ *  (keeper close after a full cross); cancelled or partly filled orders earn 0. Live, paper/mock and SIMULATOR. */
+export const TRAMP_WALL_POINTS_PER_USD = 1;
+
 /** Sell bomb tiers by price impact % (constitution LOCKED) */
 export const BOMB_PCT = {
   GRENADE: 2,

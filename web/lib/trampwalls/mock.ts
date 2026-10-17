@@ -67,7 +67,7 @@ export function createMockAdapter(getCurrentMcap: () => number): TrampWallAdapte
 export function mockMarkFilled(id: string) {
   const all = load(); const t = all.find((x) => x.id === id);
   if (!t || t.status !== "active") return;
-  t.status = "filled"; t.filledFrac = 1; t.filledAt = Date.now(); t.pointsEarned = pointsFor(t.kind, t.sizeUsd);
+  t.status = "filled"; t.filledFrac = 1; t.filledAt = Date.now(); t.pointsEarned = pointsFor(t.sizeUsd);
   save(all);
   emit({ type: "Filled", id, token: t.token, filledAt: t.filledAt, pointsEarned: t.pointsEarned });
 }

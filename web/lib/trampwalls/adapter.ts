@@ -5,6 +5,7 @@
  * No fee share: range orders earn no LP yield (TrampWallManager rev2; the hook LP fee/donation was removed).
  */
 import type { Address } from "../protocol";
+import { TRAMP_WALL_POINTS_PER_USD } from "../config";
 
 export type TrampWallKind = "tramp" | "wall";
 export type TrampWallStatus = "active" | "filled" | "cancelled";
@@ -68,10 +69,14 @@ export interface TrampWallAdapter {
   onEvent(token: Address, cb: (e: TrampWallEvent) => void): () => void;
 }
 
-export const POINTS = { tramp: 250, wall: 300, perKUsd: 40 };
-
-export function pointsFor(kind: TrampWallKind, sizeUsd: number): number {
-  return Math.round(POINTS[kind] + (sizeUsd / 1000) * POINTS.perKUsd);
+/** Points for a FILLED tramp/wall: floor(filled order size $ × TRAMP_WALL_POINTS_PER_USD). */
+export function pointsFor(filledSizeUsd: number): number {
+  return filledSizeUsd > 0 && Number.isFinite(filledSizeUsd) ? Math.floor(filledSizeUsd * TRAMP_WALL_POINTS_PER_USD + 1e-9) : 0;
+}
+/** Points an order has earned: only once filled (keeper close after a full cross). Active — even if the price is
+ *  inside or across the range but not yet closed — partly filled and cancelled orders earn 0. */
+export function pointsEarned(o: { status: TrampWallStatus; sizeUsd: number }): number {
+  return o.status === "filled" ? pointsFor(o.sizeUsd) : 0;
 }
 
 export function computePreview(p: PlaceTrampWallParams, cur: number): TrampWallPreview {
@@ -82,5 +87,5 @@ export function computePreview(p: PlaceTrampWallParams, cur: number): TrampWallP
   if (p.kind === "tramp" && mcapHiUsd >= cur) { valid = false; reason = "Tramp must sit fully BELOW current price"; }
   if (p.kind === "wall" && mcapLoUsd <= cur) { valid = false; reason = "Wall must sit fully ABOVE current price"; }
   if (!(p.sizeUsd > 0)) reason = reason ?? "Enter an amount";
-  return { distancePct, mcapLoUsd, mcapHiUsd, pointsIfFilled: pointsFor(p.kind, p.sizeUsd), valid, reason };
+  return { distancePct, mcapLoUsd, mcapHiUsd, pointsIfFilled: pointsFor(p.sizeUsd), valid, reason };
 }
