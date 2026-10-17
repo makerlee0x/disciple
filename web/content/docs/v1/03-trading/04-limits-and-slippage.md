@@ -19,7 +19,11 @@ The app shows the cap only when a rocket has one. [Launch modes](/docs/launch/mo
 
 ## Slippage
 
-Every trade sets a minimum amount out. If the price moves against you past your slippage setting before the trade lands, it reverts and you keep your funds. Set slippage in **⚙ ADV → Swap settings**. [CONFIRM: SITE — default slippage value.]
+Every trade sets a minimum amount out. If the price moves against you past your slippage setting before the trade lands, it reverts and you keep your funds. Set slippage in **⚙ ADV → Swap settings**.
+
+- **Default: Auto (1%).**
+- **Custom:** any value up to 50%.
+- **One-tap trading:** trades also stay within the max slippage you chose for the session. The default session max is 5%.
 
 ## Deadline
 

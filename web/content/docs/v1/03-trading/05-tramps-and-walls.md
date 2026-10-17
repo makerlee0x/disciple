@@ -5,7 +5,7 @@ section: Trading
 ---
 # Tramps and walls
 
-> **Graduated rockets only.** [CONFIRM: SITE + FLOW — the app's tramp/wall panel runs on a mock adapter today; confirm when it goes live on-chain.]
+> **Graduated rockets only. Practice mode for now.** On testnet, the tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
 
 Tramps and walls are limit orders on a graduated rocket's Uniswap v4 pool.
 

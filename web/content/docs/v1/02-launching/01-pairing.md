@@ -13,7 +13,7 @@ Your rocket is a new coin, priced and traded in its base.
 
 - **BOOST** a rocket and you pay in the base.
 - **DUMP** it and you're paid in the base.
-- **At graduation**, the base is seeded and locked permanently in the rocket's Uniswap v4 liquidity, alongside the rocket.
+- **At graduation**, the base is locked permanently in the rocket's Uniswap v4 LP, alongside the rocket.
 
 That's the whole relationship. A rocket follows its base on the chart because it's priced in it. DISCIPLE makes no other claim about what a rocket does for its base.
 

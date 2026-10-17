@@ -24,7 +24,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Start market cap | $7,000 |
 | Graduation market cap | $33,000 (Outer Space) |
 | Sold on the curve | 72% (5.04B) |
-| Seeded into the pool | 28% (1.96B) + base raised |
+| Locked forever in the Uniswap v4 LP | 28% (1.96B) + base raised |
 | Base raised at graduation (USDG base) | ≈ $10,943, net of fees |
 
 ## Fees

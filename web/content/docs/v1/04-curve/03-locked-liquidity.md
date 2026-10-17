@@ -13,7 +13,7 @@ At graduation, the liquidity is locked forever in a full-range Uniswap v4 positi
 - The base the curve raised.
 - Every later LP share of the trade fee (33% of each fee), added to the position as it builds up.
 
-The base is seeded and locked permanently at graduation.
+The base is locked permanently in the Uniswap v4 LP at graduation.
 
 ## How it's locked
 

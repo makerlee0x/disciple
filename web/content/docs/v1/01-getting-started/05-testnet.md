@@ -21,7 +21,22 @@ DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn't 
 - **Test tokens have no value.** Balances, PnL and fees are real on-chain numbers, in test tokens.
 - **Contracts can be redeployed.** A redeploy with launch modes is pending. When it happens, the contract addresses change and older test rockets may stay on the old contracts. [CONFIRM: FLOW — what happens to existing test rockets and balances at the redeploy.]
 - **Admin controls are held by the team during testnet.** See [Admin controls](/docs/safety/admin).
-- **Some screens use sample data.** Stats, crews and some game panels show sample data until the indexer is wired. They are labelled **SAMPLE DATA**. [CONFIRM: SITE — which screens are still sample data at docs launch.]
+- **Some screens use sample data.** See Sample data below.
+
+## Sample data
+
+Until the indexer is wired, these screens show sample data:
+
+- The **Launchpad** mixes live rockets with sample ones. Each row is marked LIVE or SAMPLE.
+- The **leaderboard**.
+- **Profile stats**, on your profile and on public profiles (`/u/…`).
+- **Achievements**.
+- The **crew panel** on rocket pages.
+- **Tramps and walls** place practice orders for now. See [Tramps and walls](/docs/trading/tramps-and-walls).
+- **Rocket Factory** parts.
+- **Share cards**, when your wallet has no indexed trades yet.
+
+Sample data is always labelled on screen. Trading, balances, the Cash panel, launching and usernames are live.
 
 ## Before mainnet
 

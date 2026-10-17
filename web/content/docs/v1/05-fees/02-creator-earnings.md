@@ -16,7 +16,9 @@ On a $100 trade that's $0.33 from the fee, plus your creator tax on the curve.
 
 ## Claiming
 
-Earnings build up on-chain and you claim them anytime, from your rocket or profile. There's no deadline and no minimum. [CONFIRM: SITE — where the claim button lives in the app.]
+Earnings build up on-chain in the fee router. There's no deadline and no minimum.
+
+There's no claim button in the app. To claim, call `claimCreatorFees(token)` on the FeeRouter contract from your creator wallet, with the base you earned in. See [Contract addresses](/docs/reference/contracts). Until you claim, your earnings stay accrued to your wallet.
 
 ## If you were referred
 

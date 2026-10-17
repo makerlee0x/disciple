@@ -14,7 +14,7 @@ Press **Launch a Rocket** and fill in:
 | Field | Required | Notes |
 |---|---|---|
 | **Rocket name** | Yes | Set for good at launch. |
-| **Call sign** | Yes | Your $TICKER. Set for good at launch. |
+| **Call sign** | Yes | Your $TICKER. 1–10 letters or numbers. Set for good at launch. |
 | **Rocket icon** | Yes | Your image. It's painted onto the rocket as a decal. You can change it later. |
 | **Pair with** | Yes | The base. STRATEGY by default. See [Pairing](/docs/launch/pairing). |
 | X / social link | No | Can be changed later. |
@@ -29,14 +29,15 @@ One transaction:
 
 1. A new ERC-20 is created: **7,000,000,000** supply, 18 decimals, no further mint. Its address is a standard address (no vanity).
 2. A bonding curve is created for it, starting at a **$7K** market cap.
-3. Optionally, your own first BOOST is filled. See [Creator launch buy](/docs/launch/creator-buy).
-4. The anti-snipe clock starts: the first 7 seconds carry an extra fee on buys. See [Anti-snipe](/docs/trading/anti-snipe).
+3. The anti-snipe clock starts: the first 7 seconds carry an extra fee on buys. See [Anti-snipe](/docs/trading/anti-snipe).
 
 You pay the gas.
 
 ## Call signs
 
-A call sign is your rocket's ticker. Keep it short and in capitals. It can't be changed after launch. [CONFIRM: FLOW + SITE — length and character rules, and whether duplicate call signs are allowed.]
+A call sign is your rocket's ticker: 1–10 letters (A–Z) or numbers (0–9). The form uppercases it for you. It can't be changed after launch.
+
+Call signs aren't unique. Two rockets can share one. Check the rocket's address before you trade. [CONFIRM: lee + GAME — duplicate call signs are allowed today (no check in the form, server or contract). Keep that, or make call signs unique?]
 
 ## Launch modes
 

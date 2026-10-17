@@ -7,7 +7,9 @@ section: Getting started
 
 ## Signing in
 
-Press **Sign in**. Login is handled by Privy. Today the sign-in options are **email** and **Google**. [CONFIRM: SITE — the constitution says "X + wallet"; the app's Privy config uses email and Google. Which options ship?]
+Press **Sign in** and choose **Email or Google**. Those are the only two ways to sign in. Login is handled by Privy, which creates your signer key. You don't need an existing crypto wallet.
+
+You can add your X handle to your profile. X isn't a sign-in option.
 
 ## What you get
 
@@ -27,8 +29,12 @@ After you sign in once, BOOST and DUMP are one tap each. There are no wallet pop
 Your profile holds:
 
 - **Cash:** balances, deposit address and withdraw.
-- **Settings:** username, wallet, X link, referral link, preferences.
+- **Settings:** username, wallet, X handle, referral link, preferences.
 - **Stats:** PnL, volume, bombs dropped, crews joined, achievements and identities.
+
+Your **username** is 3–20 characters: lowercase letters, numbers and underscores. Usernames are unique, so each one belongs to a single account. You can have one at a time; claiming a new one releases the old one.
+
+Your **X handle** is a name you type in. It's saved in this browser only and isn't verified.
 
 ## Gas
 

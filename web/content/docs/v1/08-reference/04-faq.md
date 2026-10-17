@@ -28,7 +28,7 @@ Sign in, get test funds and a little test ETH for gas. See [Quick start](/docs/q
 Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool.
 
 **What does pairing do for my coin?**
-Your rocket is priced and traded in its base. At graduation, the base is seeded and locked permanently in the rocket's liquidity.
+Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket's Uniswap v4 LP.
 
 ## Curve and graduation
 

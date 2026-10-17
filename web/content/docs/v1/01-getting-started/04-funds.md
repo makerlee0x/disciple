@@ -15,8 +15,10 @@ On testnet you use **mUSDG**, a test version with no value.
 
 Open your profile, then **Cash → Deposit**. Copy your account address and send tokens to it on Robinhood Chain.
 
-- On testnet the app accepts ERC-20s or ETH sent to your account address. Use **Get test funds** for test STRATEGY and mUSDG.
-- At launch the protocol plan is **USDG deposits only**. Other assets come later. [CONFIRM: SITE + FLOW — testnet UI accepts any ERC-20 or ETH; constitution says USDG only for v0.]
+- A deposit is a plain transfer to your account address. Any ERC-20 or ETH you send arrives there.
+- The Cash panel shows ETH (for gas), test STRATEGY and mUSDG. Use **Get test funds** to top up the test tokens.
+- You trade each rocket with its base: test STRATEGY by default, or USDG for USDG-paired rockets.
+- At mainnet launch the plan is **USDG deposits only**. [CONFIRM: FLOW + lee — the code accepts any ERC-20 or ETH and trades spend the rocket's base; nothing enforces USDG-only. Decide whether launch is USDG-only before this line ships.]
 
 Send only on Robinhood Chain. Tokens sent on another network will not arrive.
 
