@@ -15,8 +15,7 @@ import Icon, { OrbMeter, type BombTier } from "@/components/icons/Icon";
 import { TradeLegend } from "@/components/home/HowItWorksSteps";
 import SubNav from "@/components/how-it-works/SubNav";
 import Faq from "@/components/how-it-works/Faq";
-import LazyMount from "@/components/how-it-works/LazyMount";
-import { CurveChart, SnipeChart, Spark } from "@/components/how-it-works/charts";
+import { LazyCurveChart, LazySnipeChart, LazySpark } from "@/components/how-it-works/LazyCharts";
 import { withBase } from "@/lib/base-path";
 import { skySrc } from "@/lib/home/trending";
 import {
@@ -238,8 +237,8 @@ export default function HowItWorksPage() {
             </div>
           </div>
           <div className={`${s.card} ${s.chart}`}>
-            <LazyMount minHeight="var(--chart-h)" className={s.chartDesk}><CurveChart /></LazyMount>
-            <LazyMount minHeight="var(--chart-h)" className={s.chartMob}><CurveChart compact /></LazyMount>
+            <LazyCurveChart minHeight="var(--chart-h)" className={s.chartDesk} />
+            <LazyCurveChart minHeight="var(--chart-h)" className={s.chartMob} compact />
           </div>
           <div className={s.tableWrap}>
             <table className={s.cmp}>
@@ -268,7 +267,7 @@ export default function HowItWorksPage() {
               <li key={c.id} className={`${s.card} ${s.mode}`} style={{ "--c": c.tone === "up" ? "var(--dsc-up)" : c.tone === "secondary" ? "var(--dsc-secondary)" : "#FF7AAE" } as CSSProperties}>
                 <h3 className={s.lab}><Link href={HIW_ROUTES.simDifficulty(c.id)} className={s.modeLink}>{c.title}</Link></h3>
                 <div className={s.tag}>{c.tag}</div>
-                <LazyMount minHeight={80}><Spark id={c.id} /></LazyMount>
+                <LazySpark minHeight={80} id={c.id} />
                 <p>{c.body}</p>
                 <div className={s.bots}>{HIW_MODES.botsLabel} · {c.bots}</div>
               </li>
@@ -307,7 +306,7 @@ export default function HowItWorksPage() {
               <div key={c.title} className={`${s.card} ${s.fcard}`}>
                 <h3>{c.title}</h3>
                 <p>{c.body}</p>
-                {c.title === "Anti-snipe" && <LazyMount minHeight={90}><SnipeChart /></LazyMount>}
+                {c.title === "Anti-snipe" && <LazySnipeChart minHeight={90} />}
                 <p>{c.more}</p>
               </div>
             ))}
