@@ -50,7 +50,7 @@ export default function CoinPage({
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen items-center justify-center text-[#C9CED6]">
+        <div className="tier-sky-placeholder flex h-screen items-center justify-center text-[#C9CED6]">
           Loading flight…
         </div>
       }

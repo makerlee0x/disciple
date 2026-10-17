@@ -17,7 +17,8 @@ import { withBase } from "@/lib/base-path";
 import SettingsModal from "./SettingsModal";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import { onWallet } from "@/lib/wallet";
-import Icon from "@/components/icons/Icon";
+import Icon, { OrbMeter, type BombTier } from "@/components/icons/Icon";
+import { BOMB_ICON } from "@/components/ui/Icon";
 
 function fmtKpi(v: number, format: string) {
   if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
@@ -279,8 +280,16 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <ul className="activity-feed">
           {data.activity.slice(0, 18).map((a) => (
             <li key={a.id}>
-              <span className={`act-kind ${a.kind}`}>{a.kind}</span>
-              <span className="act-text">{a.text}</span>
+              <span className={`act-kind ${a.kind}${a.bomb ? " dsc-bomb" : ""}`} data-bomb={a.bomb?.k}>{a.kind}</span>
+              <span className="act-text">
+                {a.bomb ? (
+                  <span className="act-bomb dsc-bomb" data-bomb={a.bomb.k} aria-hidden>
+                    <Icon name={BOMB_ICON[a.bomb.tier]} size={14} />
+                    <OrbMeter tier={(a.bomb.tier + 1) as BombTier} size={14} label="" />
+                  </span>
+                ) : null}
+                {a.text}
+              </span>
               {a.usd != null ? <span className="act-usd">{fmtUsd(a.usd)}</span> : null}
               <span className="act-time muted">{new Date(a.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
             </li>

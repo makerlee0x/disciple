@@ -11,7 +11,8 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
-        // DISCIPLE v1 brand tokens (Lunar Refined) — see app/brand-tokens.css. Gold is retired.
+        // DISCIPLE brand tokens (Lunar Refined) — see app/brand-tokens.css (v1) + app/brand-tokens-v2.css (v2, additive).
+        // Gold allowed (--dsc-gold #F2C14E, --dsc-champagne #F3DFA8); never #D9B86A.
         bg: "var(--dsc-bg)",
         surface: "var(--dsc-surface)",
         "surface-2": "var(--dsc-surface-2)",
@@ -23,6 +24,9 @@ const config: Config = {
         up: "var(--dsc-up)",
         down: "var(--dsc-down)",
         warning: "var(--dsc-warning)",
+        gold: "var(--dsc-gold)",
+        champagne: "var(--dsc-champagne)",
+        "muted-on-sky": "var(--dsc-muted-on-sky)",
       },
       fontFamily: {
         // Synced from disciple-brand/release/v1/tokens/tailwind.config.snippet.js

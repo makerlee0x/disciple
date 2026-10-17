@@ -47,6 +47,8 @@ export interface RocketRow {
 export interface ActivityItem {
   id: string; ts: number; kind: "buy" | "sell" | "bomb";
   text: string; usd?: number; ticker?: string;
+  /** bomb rows only: BOMB_TIERS key + index (0 puff … 5 atom), drives the v2 --dsc-bomb-* color, icon and orb meter */
+  bomb?: { k: (typeof BOMB_TIERS)[number]["k"]; tier: number };
 }
 
 export interface PlaystyleAxes {
@@ -106,6 +108,12 @@ export function bombName(impactPct: number): string {
   let name = "PUFF";
   for (const b of BOMB_TIERS) if (impactPct >= b.min) name = b.name;
   return name;
+}
+
+export function bombTierOf(impactPct: number): { k: (typeof BOMB_TIERS)[number]["k"]; tier: number } {
+  let tier = 0;
+  BOMB_TIERS.forEach((b, i) => { if (impactPct >= b.min) tier = i; });
+  return { k: BOMB_TIERS[tier].k, tier };
 }
 
 function dayKey(ts: number): string {
@@ -185,7 +193,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
       impactSum += imp;
       if (imp >= BOMB_TIERS[1].min) {
         bombs++; p.bombs++;
-        activity.push({ id: `${t.ts}-${t.token}-x`, ts: t.ts, kind: "bomb", text: `Dropped ${bombName(imp)} on ${t.ticker}`, usd: t.usd, ticker: t.ticker });
+        activity.push({ id: `${t.ts}-${t.token}-x`, ts: t.ts, kind: "bomb", text: `Dropped ${bombName(imp)} on ${t.ticker}`, usd: t.usd, ticker: t.ticker, bomb: bombTierOf(imp) });
       } else {
         activity.push({ id: `${t.ts}-${t.token}-s`, ts: t.ts, kind: "sell", text: `Puffed ${t.ticker}`, usd: t.usd, ticker: t.ticker });
       }
