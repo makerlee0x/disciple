@@ -136,9 +136,15 @@ export default function FlightCanvas({ search }: Props) {
         if (!cancelled) setStatus("Live");
         // equipped Rocket Factory parts (cosmetic) → engine loadout; the token decal still owns the nose roundel
         if (!cancelled) try {
-          const e = (JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string> }).equipped || {};
+          const j = JSON.parse(localStorage.getItem(LOADOUT_KEY) || "{}") as { equipped?: Record<string, string>; stats?: Record<string, number> };
+          const e = j.equipped || {};
           const f = window.__flight as { setLoadout?: (l: unknown) => unknown } | undefined;
-          if (e.body || e.thrusters || e.coin) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, "") });
+          // forward-compatible: accessory (acc-<id>) + stats {thrust,glow,aura,launch,style} 0–10 are passed only when stored
+          // (lib/rocketSkin.ts has no stats / accessories yet); the engine clamps, defaults to 5 and uses them for visuals only
+          const accessory = typeof e.accessory === "string" && e.accessory ? e.accessory.replace(/^acc-/, "") : undefined;
+          const stats = j.stats && typeof j.stats === "object" ? j.stats : undefined;
+          if (e.body || e.thrusters || e.coin || accessory || stats) f?.setLoadout?.({ skin: (e.body || "").replace(/^body-/, ""), thruster: (e.thrusters || "").replace(/^thr-/, ""), noseCoin: (e.coin || "").replace(/^coin-/, ""),
+            ...(accessory ? { accessory } : {}), ...(stats ? { stats } : {}) });
         } catch { /* no loadout */ }
       } catch (e) {
         if (!cancelled) {
