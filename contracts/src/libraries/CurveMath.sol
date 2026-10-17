@@ -67,14 +67,16 @@ library CurveMath {
     }
 
     /// @notice Market cap in USD WAD (18-dec dollars).
+    /// @dev Full precision: x * S / y (not via the floored WAD spot price, which loses up to ~15% for 6-dec quotes).
     function marketCapUsd(Params memory p, uint256 tokensSold) internal pure returns (uint256) {
-        uint256 mcapQuote = Math.mulDiv(spotPriceWad(p, tokensSold), p.totalSupply, WAD);
-        return Math.mulDiv(mcapQuote, p.quotePriceUsd, WAD);
+        return Math.mulDiv(marketCapQuote(p, tokensSold), p.quotePriceUsd, WAD);
     }
 
     /// @notice Market cap in raw quote wei.
     function marketCapQuote(Params memory p, uint256 tokensSold) internal pure returns (uint256) {
-        return Math.mulDiv(spotPriceWad(p, tokensSold), p.totalSupply, WAD);
+        uint256 y = p.y0 - tokensSold;
+        uint256 x = Math.mulDiv(p.x0, p.y0, y);
+        return Math.mulDiv(x, p.totalSupply, y);
     }
 
     /// @notice Quote wei to buy `tokensOut` from `tokensSold` (floor).

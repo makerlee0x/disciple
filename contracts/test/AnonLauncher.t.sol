@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "./integration/IntegrationBase.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {McapMath} from "../src/libraries/McapMath.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -286,8 +287,15 @@ contract McapNowGraduatedTest is IntegrationBase {
             ? Math.mulDiv(Math.mulDiv(sp, sp, 1 << 64), 1e18, 1 << 128)
             : Math.mulDiv(Math.mulDiv(1e18, 1 << 96, sp), 1 << 96, sp);
         assertEq(curve.priceNow(), px);
+        // full-precision mcap from sqrtPrice (not via the floored priceWad)
         assertEq(
-            curve.mcapNow(), Math.mulDiv(Math.mulDiv(px, Constants.TOTAL_SUPPLY, 1e18), curve.quotePriceUsd(), 1e18)
+            curve.mcapNow(),
+            McapMath.mcapUsdFromSqrt(
+                sp, uint160(address(tok)) < uint160(address(quote)), Constants.TOTAL_SUPPLY, curve.quotePriceUsd()
+            )
+        );
+        assertApproxEqRel(
+            curve.mcapNow(), Math.mulDiv(Math.mulDiv(px, Constants.TOTAL_SUPPLY, 1e18), curve.quotePriceUsd(), 1e18), 1e6
         );
         assertGt(curve.mcapNow(), launchVal);
         uint256 hi = curve.mcapNow();
@@ -302,7 +310,7 @@ library CurveMathView {
         sC;
         uint256 y = y0 - c.tokensSold();
         uint256 x = Math.mulDiv(x0, y0, y);
-        return Math.mulDiv(Math.mulDiv(Math.mulDiv(x, 1e18, y), ts, 1e18), c.quotePriceUsd(), 1e18);
+        return Math.mulDiv(Math.mulDiv(x, ts, y), c.quotePriceUsd(), 1e18);
     }
 }
 

@@ -161,5 +161,12 @@ Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys cu
 ## Anti-snipe tax routing (LOCKED #9 rev. 2026-10-15)
 - `snipeFee` in `Trade` / `quoteBuy` is split by `FeeRouter.routeSnipeFee`: `toRewards = snipeFee * 7000 / 10000` → `FeeRouter.rewardsVault()` (community `RewardsVault`), `snipeFee - toRewards` → treasury.
 - Event: `FeeRouter.SnipeFeeRouted(token indexed, quote indexed, toRewards, toTreasury)` (replaces `SnipeFeeRoutedToLP`). `RewardsVault.RewardAccrued(token indexed, asset indexed, amount)`; `RewardsVault.totalAccrued(asset)` = lifetime total; payouts emit `Distributed(asset, to, amount)`.
-- Anti-snipe tax is no longer added to LockedLP, so `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee.
+- Anti-snipe tax is no longer added to LockedLP, so `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee (curve phase only).
+
+## LP auto-compound (post-graduation)
+- The 33% LP share of the 1% hook fee is compounded per trade into the coin's locked full-range position. Pending amounts: `LockedLP.compoundBucket(token) → (tokenAmount, quoteAmount)` (buys add token, sells add quote).
+- On each swap the hook calls `LockedLP.compoundFromHook`; the matched amount is added when it is at least `minCompoundPpm` (default 50 = 0.005%) of the position's liquidity, capped at `maxCompoundPpm` (default 20000 = 2%), and skipped if the swap moved price more than `maxCompoundDeviationBps` (default 300). A failed add never reverts the swap (`DiscipleHook.CompoundFailed(token)`).
+- Event: `LockedLP.LiquidityCompounded(token indexed, uint128 liquidity, tokenUsed, quoteUsed, tokenCarry, quoteCarry)`; `positions(token).liquidity` is the live locked liquidity. Indexer: `GET /coins/:token/lp-compounds`.
+- At graduation the quote the full-range seed cannot pair (≈15.6% of the raise) starts the quote bucket (`GraduationLeftover(token, quoteToCompoundBucket, tokenBurned)`), so buy-side token fees compound against it from the first trades.
+- `LockedLP.flush(token)` (permissionless) applies the same min/cap; it reverts `SwappedInTx` if the pool was already swapped in the same transaction.
 - Post-graduation there is no anti-snipe (`snipeFee` is always 0 on hook `Trade` events).

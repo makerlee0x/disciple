@@ -28,8 +28,8 @@ This document is the source of truth for locked product and protocol decisions. 
 | 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee | LOCKED |
 | 13 | Creator fees | Accrue on-chain; **pull/claim anytime** | LOCKED |
 | 14 | Treasury fees | **Auto-push** each trade | LOCKED |
-| 15 | LP-lock quote | Curve phase: escrowed in LockedLP each trade, seeded into the locked v4 position at graduation (any quote the full-range add cannot pair goes to treasury, event `GraduationLeftover`). Post-grad: held in LockedLP pending the compound feature | LOCKED |
-| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral; the **full 33% LP share goes to LockedLP**, where it is held pending the compound feature (it is not yet added to the pool). **No in-range donation** (`PoolManager.donate` removed 2026-10-16): tramps/walls earn no yield. Total fee stays 1%. | LOCKED 2026-10-16 |
+| 15 | LP-lock quote | Curve phase: escrowed in LockedLP each trade, seeded into the locked v4 position at graduation (any quote the full-range add cannot pair goes into the coin's compound quote bucket, event `GraduationLeftover`, and pairs with incoming token fees over time). Post-grad: auto-compounded per trade (#16) | LOCKED |
+| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral; the **full 33% LP share goes to LockedLP and is auto-compounded per trade** into the coin's permanently locked full-range v4 position: buys fill the token bucket, sells the quote bucket, and on every swap the matched amount is added to the same locked position once it passes the minimum (default **0.005% of the position's liquidity**, owner-settable); the unmatched remainder carries forward. Guards: per-add cap (default 2% of position liquidity), skip if the swap moved price > 3% (owner-settable), the add can never revert a trade, no rebalancing swaps. Anyone can call `LockedLP.flush(token)` to top up outside a swap. **No in-range donation** (`PoolManager.donate` removed 2026-10-16): tramps/walls earn no yield. Total fee stays 1%. | LOCKED 2026-10-16 |
 | 17 | LP lock | Permanently locked at graduation in **LockedLP** (v4 position owner); fee collection allowed; **no remove-liquidity** | LOCKED 2026-10-15 |
 | 18 | Referral attribution | First-touch wallet forever after: referral link → account → **USDG deposit ≥ $10** | LOCKED |
 | 19 | Self-referral | Same-wallet self-referral **blocked only** | LOCKED |
@@ -149,11 +149,11 @@ Split of the 1% trade fee:
 | Creator fees | Accrue on-chain; **claim anytime** |
 | Treasury fees | **Auto-push** on each trade |
 | LP-lock quote | Curve phase: **escrowed** in LockedLP on each trade, added to the locked position at graduation |
-| Post-graduation LP fees | Pool LP fee is **0**; the hook's 33% LP share is **held in LockedLP pending the compound feature** |
+| Post-graduation LP fees | Pool LP fee is **0**; the hook's 33% LP share is **auto-compounded per trade into the locked full-range position** (once the matched amount passes the threshold, default 0.005% of position liquidity) |
 
 ### LP at graduation
 - LP is **permanently locked**.
-- Seeded with the max matched amounts at the curve-end price; unpaired quote → treasury (`GraduationLeftover`).
+- Seeded with the max matched amounts at the curve-end price; unpaired quote (≈15.6% of the raise) → the coin's **compound quote bucket** (`GraduationLeftover`), compounded into the locked position as buy-side token fees arrive.
 - The position earns no pool fees (pool LP fee 0); `collectFees` is a no-op.
 - **Remove-liquidity is not allowed.**
 
@@ -341,6 +341,7 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - **Revisions 2026-10-15 (tramps & walls):** LOCKED #9/#27 creator launch buy anti-snipe exempt; #16 LP share split 1/3 donate to in-range LPs + 2/3 LockedLP (superseded 2026-10-16: no donation); new #42 tramps & walls.  
 - **Revisions 2026-10-16 (no LP yield):** #16 donation removed, full 33% LP share → LockedLP; #42 tramps/walls are pure limit orders (no fees, no claim, no min hold), keeper-tipped `pull`, hook LP-add gate (LockedLP + TWM only).  
 - **Revisions 2026-10-16 (audit fixes):** #11 leftover priority spelled out; #15/#16 LP share described as held pending compound; #29 router impact cap; graduation leftover quote → treasury.  
+- **Revisions 2026-10-16 (LP auto-compound):** #16 LP share is auto-compounded per trade into the locked full-range position (threshold 0.005% of position liquidity, cap 2%, 3% price-deviation skip, permissionless `flush`). Graduation leftover quote → compound quote bucket (was treasury).  
 - **Change policy:** Treat the LOCKED table as authoritative. New decisions require an explicit unlock / revision of this constitution; do not silently override LOCKED rows.
 
 *End of DISCIPLE Protocol Constitution.*

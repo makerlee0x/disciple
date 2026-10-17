@@ -32,6 +32,7 @@ export const EVENTS = parseAbi([
   "event LaunchTierContext(address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_)",
   "event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier)",
   "event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd)",
+  "event LiquidityCompounded(address indexed token, uint128 liquidity, uint256 tokenUsed, uint256 quoteUsed, uint256 tokenCarry, uint256 quoteCarry)",
   "event KeeperTipPaid(uint256 indexed id, address indexed keeper, uint256 quoteTip, uint256 tokenTip)",
   "event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount)",
   "event ReferrerAttributed(address indexed wallet, address indexed referrer)",

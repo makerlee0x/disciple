@@ -124,14 +124,17 @@ contract AuditRegression is IntegrationBase {
     // ── #4 stranded quote at graduation ──
     function test_audit4_noIdleQuoteAfterGraduation() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
-        uint256 t0 = quote.balanceOf(treasury);
         vm.recordLogs();
         _graduate(curve);
         (,, uint256 tAmt, uint256 qAmt, uint256 escrow, bool grad, uint128 liq) = lockedLP.positions(address(tok));
         assertTrue(grad);
         assertGt(liq, 0);
         assertEq(escrow, 0, "escrow reset");
-        assertEq(quote.balanceOf(address(lockedLP)), 0, "no idle quote in LockedLP");
+        // rev. 2026-10-16: unpaired quote is held as the coin's compound quote bucket (not idle, not treasury)
+        (uint256 bTok, uint256 bQuote) = lockedLP.compoundBucket(address(tok));
+        assertEq(quote.balanceOf(address(lockedLP)), bQuote, "LockedLP quote == compound bucket");
+        assertEq(bTok, 0);
+        assertGt(bQuote, 0, "leftover kept for compounding");
         assertEq(tok.balanceOf(address(lockedLP)), 0, "no idle token in LockedLP");
         assertGt(qAmt, 0);
         assertGt(tAmt, 0);
@@ -141,7 +144,7 @@ contract AuditRegression is IntegrationBase {
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == sig && logs[i].emitter == address(lockedLP)) {
                 (uint256 qLeft,) = abi.decode(logs[i].data, (uint256, uint256));
-                assertGe(quote.balanceOf(treasury) - t0, qLeft, "leftover quote reached treasury");
+                assertEq(qLeft, bQuote, "leftover quote -> compound bucket");
                 seen = true;
             }
         }

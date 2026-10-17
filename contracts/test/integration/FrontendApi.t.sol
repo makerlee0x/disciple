@@ -426,6 +426,30 @@ contract FrontendApiFollowupTest is FrontendApiBase {
         vm.stopPrank();
     }
 
+    /// @dev mcap precision fix: with a 6-dec USDG quote the WAD spot price is a single-digit integer, so the old
+    ///      floored mcap read ~$6K at launch (vs $7K). marketCapUsd/marketCapQuote are now full precision.
+    function test_6dec_quote_marketCap_full_precision() public {
+        Mock6 u6 = new Mock6();
+        QuotePricer p6 = new QuotePricer(owner, manager, address(u6));
+        vm.startPrank(owner);
+        launchpad.setPricer(address(p6));
+        quoteProbe.setAlwaysPass(address(u6), true);
+        vm.stopPrank();
+        (BondingCurve curve,) = _launchWithQuote(address(u6), 0, 0);
+        assertEq(curve.quotePriceUsd(), 1e30);
+        assertLt(curve.spotPriceWad(), 10); // the precision trap: price WAD is single digits
+        assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.0001e18);
+        assertApproxEqRel(curve.marketCapQuote(), 7_000e6, 0.0001e18);
+    }
+
+    function test_18dec_quote_marketCap_unchanged() public {
+        (BondingCurve curve,) = _launch(0, 0);
+        assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.0001e18);
+        assertApproxEqRel(curve.marketCapQuote(), 7_000e18, 0.0001e18);
+        uint256 legacy = Math.mulDiv(curve.spotPriceWad(), Constants.TOTAL_SUPPLY, 1e18);
+        assertApproxEqRel(curve.marketCapQuote(), legacy, 1e6); // identical to ~1e-12 for 18-dec
+    }
+
     function test_pricer_scales_by_usdg_decimals_18_and_6() public {
         QuotePricer p18 = new QuotePricer(owner, manager, address(quote)); // 18-dec (testnet mUSDG)
         assertEq(p18.quotePriceUsd(address(quote)), 1e18);

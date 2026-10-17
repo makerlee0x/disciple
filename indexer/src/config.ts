@@ -15,6 +15,8 @@ export interface Stack {
   referralRegistry?: Address;
   marketLens?: Address;
   quotePricer?: Address;
+  /** LockedLP (LiquidityCompounded events). */
+  lockedLP?: Address;
 }
 
 export interface Config {
@@ -46,7 +48,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
   return {
     id, fromBlock,
     launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.DiscipleHook, migration: c.Migration,
-    trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer,
+    trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer, lockedLP: c.LockedLP,
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     rewardsVault: c.RewardsVault,
     referralRegistry: c.ReferralRegistry,

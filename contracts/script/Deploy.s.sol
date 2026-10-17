@@ -138,6 +138,9 @@ contract Deploy is Script {
         // SEC-02: only LockedLP + TrampWallManager may add liquidity to DISCIPLE pools.
         hook.setLiquidityManager(address(lockedLP), true);
         hook.setLiquidityManager(o.trampWall, true);
+        // LP auto-compound: hook calls LockedLP after fee routing; LockedLP trusts only this hook.
+        hook.setCompounder(address(lockedLP), 250_000);
+        lockedLP.setHook(address(hook));
         hook.setTrustedRouter(address(router), true);
         // Audit #10 (SEC-05): only our DiscipleRouter is trusted for hookData trader attribution.
 

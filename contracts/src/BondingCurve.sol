@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
+import {McapMath} from "./libraries/McapMath.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
 import {IBondingCurve} from "./interfaces/IBondingCurve.sol";
 import {IFeeRouter} from "./interfaces/IFeeRouter.sol";
@@ -135,7 +136,15 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @inheritdoc IBondingCurve
     /// @dev After graduation reads the live v4 pool price (was: frozen curve-end value).
     function marketCapUsd() public view override returns (uint256) {
-        return Math.mulDiv(Math.mulDiv(spotPriceWad(), _params.totalSupply, 1e18), _quoteUsdNow(), 1e18);
+        return Math.mulDiv(marketCapQuote(), _quoteUsdNow(), 1e18);
+    }
+
+    /// @notice Market cap in raw quote units, full precision (curve reserves pre-grad, v4 sqrtPrice post-grad).
+    function marketCapQuote() public view returns (uint256) {
+        if (!graduated) return CurveMath.marketCapQuote(_params, tokensSold);
+        IPoolManager pm = IMigrationPM(address(migration)).poolManager();
+        (uint160 sp,,,) = StateLibrary.getSlot0(pm, PoolId.wrap(migration.poolIdOf(token)));
+        return McapMath.mcapQuoteFromSqrt(sp, uint160(token) < uint160(quote), _params.totalSupply);
     }
 
     /// @dev Pre-grad: launch-time quote price (curve USD targets). Post-grad: live QuotePricer via Launchpad.

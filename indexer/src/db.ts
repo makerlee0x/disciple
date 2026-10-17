@@ -60,6 +60,12 @@ export function openDb(path: string): DB {
     PRIMARY KEY (id, role)
   );
   CREATE INDEX IF NOT EXISTS fee_credits_payee ON fee_credits(payee, role);
+  -- LockedLP.LiquidityCompounded: per-trade LP-share compounds into the locked full-range position
+  CREATE TABLE IF NOT EXISTS lp_compounds (
+    id TEXT PRIMARY KEY, stack TEXT, token TEXT NOT NULL, liquidity TEXT, token_used TEXT, quote_used TEXT, token_carry TEXT, quote_carry TEXT,
+    block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS lp_compounds_token ON lp_compounds(token, block);
   -- last indexed block hash per stack, for reorg detection
   CREATE TABLE IF NOT EXISTS block_hashes (stack TEXT, block INTEGER, hash TEXT, PRIMARY KEY (stack, block));
   `);
@@ -107,7 +113,7 @@ export function wipeStack(db: DB, stack: string) {
   db.transaction(() => {
     db.prepare("DELETE FROM balances WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
     db.prepare("DELETE FROM coin_stats WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
-    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes", "fee_credits"])
+    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes", "fee_credits", "lp_compounds"])
       db.prepare(`DELETE FROM ${t} WHERE stack=?`).run(stack);
   })();
   bumpDataVersion(db);

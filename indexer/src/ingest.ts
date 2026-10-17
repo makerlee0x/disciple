@@ -133,6 +133,11 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
               id, stack.id, coin.token, fromCurve ? "curve" : "hook", Number(a.fromTier), Number(a.toTier), s(a.mcapUsd), block, ts, l.transactionHash);
           break;
         }
+        case "LiquidityCompounded":
+          if (!isCore(stack.lockedLP)) break;
+          db.prepare("INSERT OR IGNORE INTO lp_compounds VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, lc(a.token), s(a.liquidity), s(a.tokenUsed), s(a.quoteUsed), s(a.tokenCarry), s(a.quoteCarry), block, ts, l.transactionHash);
+          break;
         case "KeeperTipPaid": {
           if (!isCore(stack.trampWallManager)) break;
           db.prepare("INSERT OR IGNORE INTO keeper_tips VALUES (?,?,?,?,?,?,?,?,?)").run(

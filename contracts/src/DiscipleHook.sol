@@ -20,9 +20,15 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {Altitude} from "./libraries/Altitude.sol";
+import {McapMath} from "./libraries/McapMath.sol";
 
 interface IMigrationLockedLP {
     function lockedLP() external view returns (address);
+}
+
+/// @dev LockedLP's in-swap compound entry (adds the LP-share buckets to the locked position).
+interface ILPCompounder {
+    function compoundFromHook(address token, uint160 sqrtBefore) external returns (uint128);
 }
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
@@ -65,6 +71,18 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
 
     /// @dev transient slot for pre-swap sqrtPriceX96
     bytes32 private constant PRICE_SLOT = keccak256("disciple.hook.sqrtPriceBefore");
+    /// @dev transient per-pool "swapped in this tx" flag namespace (LockedLP.flush sandwich guard)
+    bytes32 private constant SWAPPED_SLOT = keccak256("disciple.hook.swappedInTx");
+
+    /// @notice LockedLP compounder called after fee routing (address(0) = compounding off).
+    ILPCompounder public compounder;
+    /// @notice Gas forwarded to the compound call; the call is skipped unless gasleft() covers this + reserve.
+    uint32 public compoundGasLimit = 250_000;
+    uint32 internal constant COMPOUND_GAS_RESERVE = 80_000;
+
+    event CompounderSet(address indexed compounder, uint32 gasLimit);
+    /// @notice The compound attempt reverted (swap unaffected; buckets carry forward).
+    event CompoundFailed(address indexed token);
 
     mapping(PoolId => PoolMeta) public metaOf;
 
@@ -141,6 +159,22 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         emit LiquidityManagerSet(mgr, allowed);
     }
 
+    function setCompounder(address c, uint32 gasLimit) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        require(gasLimit >= 50_000 && gasLimit <= 1_000_000, "DiscipleHook: gas");
+        compounder = ILPCompounder(c);
+        compoundGasLimit = gasLimit;
+        emit CompounderSet(c, gasLimit);
+    }
+
+    /// @notice True if `id` was swapped earlier in the current transaction.
+    function swappedInTx(PoolId id) external view returns (bool s) {
+        bytes32 slot = keccak256(abi.encode(SWAPPED_SLOT, id));
+        assembly ("memory-safe") {
+            s := tload(slot)
+        }
+    }
+
     function transferAdmin(address a) external {
         if (msg.sender != admin) revert OnlyAdmin();
         admin = a;
@@ -177,8 +211,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         metaOf[id] = m;
         // Altitude stream starts at the seeded (curve-end) spot price.
         (uint160 sp,,,) = poolManager.getSlot0(id);
-        uint256 p = priceX18FromSqrt(sp, Currency.unwrap(key.currency0) == token);
-        uint256 mcap = Math.mulDiv(Math.mulDiv(p, Constants.TOTAL_SUPPLY, 1e18), _quoteUsd(m), 1e18);
+        uint256 mcap = mcapUsdFromSqrt(sp, Currency.unwrap(key.currency0) == token, _quoteUsd(m));
         uint8 tier = Altitude.tierOf(mcap);
         altitudeTierOf[id] = tier;
         emit AltitudeUpdate(token, mcap, tier);
@@ -189,10 +222,13 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
+        PoolId id = key.toId();
+        (uint160 sqrtP,,,) = poolManager.getSlot0(id);
         bytes32 slot = PRICE_SLOT;
+        bytes32 swapped = keccak256(abi.encode(SWAPPED_SLOT, id));
         assembly ("memory-safe") {
             tstore(slot, sqrtP)
+            tstore(swapped, 1)
         }
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -226,11 +262,31 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             IERC20(feeToken).safeTransfer(address(feeRouter), feeAmount);
             feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount);
         }
+        _tryCompound(m.token);
 
         uint256 qUsd = _quoteUsd(m);
         uint256 spotMcap = _emitTrade(key, m, trader, delta, feeToken, feeAmount, qUsd);
         _emitAltitude(key.toId(), m.token, spotMcap);
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
+    }
+
+    /// @dev Never reverts the swap: gas-capped external call in try/catch, skipped when gas is short.
+    ///      PoolManager is already unlocked by the swapper — no unlock here. LockedLP's modifyLiquidity re-enters
+    ///      only beforeAddLiquidity (allowlist check), never the fee path.
+    function _tryCompound(address token) internal {
+        ILPCompounder c = compounder;
+        if (address(c) == address(0)) return;
+        uint256 g = compoundGasLimit;
+        if (gasleft() < g + COMPOUND_GAS_RESERVE) return;
+        uint160 sqrtBefore;
+        bytes32 slot = PRICE_SLOT;
+        assembly ("memory-safe") {
+            sqrtBefore := tload(slot)
+        }
+        try c.compoundFromHook{gas: g}(token, sqrtBefore) {}
+        catch {
+            emit CompoundFailed(token);
+        }
     }
 
     function _emitTrade(
@@ -261,7 +317,7 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         (uint160 sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
         uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
-        mcap = Math.mulDiv(Math.mulDiv(pAfter, Constants.TOTAL_SUPPLY, 1e18), qUsd, 1e18);
+        mcap = mcapUsdFromSqrt(sqrtAfter, tokenIsC0, qUsd);
 
         emit Trade(
             m.token,
@@ -287,6 +343,11 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             altitudeTierOf[id] = tier;
             emit TierBreak(token, prev, tier, mcap);
         }
+    }
+
+    /// @notice Full-precision spot mcap (USD WAD) from sqrtPriceX96; qUsd = USD WAD per 1e18 raw quote.
+    function mcapUsdFromSqrt(uint160 sqrtP, bool tokenIsC0, uint256 qUsd) public pure returns (uint256) {
+        return McapMath.mcapUsdFromSqrt(sqrtP, tokenIsC0, Constants.TOTAL_SUPPLY, qUsd);
     }
 
     /// @notice quote raw * 1e18 / token raw from a v4 sqrtPriceX96.
