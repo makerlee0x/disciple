@@ -186,7 +186,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
       if (!p.firstBuyTs) p.firstBuyTs = t.ts;
       p.size += t.usd / px; p.cost += t.usd; p.entries++;
       if (t.ts - t.launchTs <= T.sniperEntrySec * 1000) snipes++;
-      activity.push({ id: `${t.ts}-${t.token}-b`, ts: t.ts, kind: "buy", text: `Fueled ${t.ticker}`, usd: t.usd, ticker: t.ticker });
+      activity.push({ id: `${t.ts}-${t.token}-b`, ts: t.ts, kind: "buy", text: `BOOSTED ${t.ticker}`, usd: t.usd, ticker: t.ticker });
     } else {
       sells++;
       const imp = t.impactBps / 100;
@@ -302,7 +302,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
 
   const rings: PlayerStats["rings"] = [
     { key: "lpnl", label: "Lifetime PnL", value: cum + upnl, max: Math.max(1000, Math.abs(cum + upnl) * 1.4), format: "usd", sub: `${(roi * 100).toFixed(0)}% ROI` },
-    { key: "fueled", label: "Rockets Fueled", value: pos.size, max: 20, format: "number", sub: `${buys} fuel shots` },
+    { key: "fueled", label: "Rockets Boosted", value: pos.size, max: 20, format: "number", sub: `${buys} BOOSTs` },
     { key: "bombs", label: "Bombs Dropped", value: bombs, max: 25, format: "number", sub: `${nukes} nuke+` },
     { key: "crews", label: "Crews Joined", value: all.filter((p) => p.entries > 0 && p.firstBuyTs - p.launchTs > 0).length, max: 20, format: "number", sub: `${grads} graduated` },
     { key: "bestx", label: "Best ×", value: bestX, max: 20, format: "multiple", sub: "biggest multiple" },

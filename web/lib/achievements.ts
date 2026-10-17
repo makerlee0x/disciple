@@ -37,7 +37,7 @@ const A = (
 ): AchievementDef => ({ id, name, description, category, rarity, target, reward, progress });
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
-  A("first_blessing", "First Blessing", "Fuel your first rocket.", "flight", "COMMON", 1, { points: 50 }, (s) => s.metrics.distinctRockets),
+  A("first_blessing", "First Blessing", "BOOST your first rocket.", "flight", "COMMON", 1, { points: 50 }, (s) => s.metrics.distinctRockets),
   A("through_pearly_gates", "Outer Space", "Witness a rocket graduate ($33K).", "flight", "BLESSED", 1, { points: 250, frame: "Pearly Frame" }, (s) => s.ct.graduationsWitnessed),
   A("seventh_heaven", "Seventh Heaven", "Ride a rocket into Seventh Heaven tier.", "flight", "DIVINE", 1, { points: 5000, skin: "Empyrean Hull", trail: "Halo Gold" }, (s) => s.rockets.filter((r) => r.tierIndex >= 17).length),
   A("firmament_walker", "Firmament Walker", "Cross into Firmament ($55K+).", "flight", "BLESSED", 1, { points: 300, trail: "Star Wake" }, (s) => s.rockets.filter((r) => r.tierIndex >= 5).length),
@@ -45,7 +45,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("seraphim_sight", "Seraphim Sight", "Reach Seraphim altitude.", "flight", "GLORIFIED", 1, { points: 2000, skin: "Seraph Chrome" }, (s) => s.rockets.filter((r) => r.tierIndex >= 14).length),
   A("best_x_10", "Tenfold Halo", "Book a 10× multiple on any rocket.", "flight", "ANOINTED", 10, { points: 1000, trail: "Golden Multipath" }, (s) => Math.floor(s.rings.find((r) => r.key === "bestx")?.value ?? 1)),
   A("best_x_50", "Fiftyfold Glory", "Book a 50× multiple.", "flight", "GLORIFIED", 50, { points: 4000, skin: "Glory Nosecone" }, (s) => Math.floor(s.rings.find((r) => r.key === "bestx")?.value ?? 1)),
-  A("crew_captain_ach", "Crew Captain", "Be top fueler on a graduated rocket.", "crew", "ANOINTED", 1, { points: 800, frame: "Captain Crest" }, (s) => s.metrics.crewCaptainGrads),
+  A("crew_captain_ach", "Crew Captain", "Be the top booster on a graduated rocket.", "crew", "ANOINTED", 1, { points: 800, frame: "Captain Crest" }, (s) => s.metrics.crewCaptainGrads),
   A("gate_keeper_ach", "Gate Keeper", "Help push 3 rockets into Outer Space.", "crew", "BLESSED", 3, { points: 600, trail: "Gate Spark" }, (s) => s.metrics.gateKeeperAssists),
   A("choir_of_three", "Choir of Three", "Join 3 different crews.", "crew", "COMMON", 3, { points: 100 }, (s) => s.rings.find((r) => r.key === "crews")?.value ?? 0),
   A("full_congregation", "Full Congregation", "Join 12 crews.", "crew", "ANOINTED", 12, { points: 900, frame: "Congregation" }, (s) => s.rings.find((r) => r.key === "crews")?.value ?? 0),
@@ -63,7 +63,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("pad_ignition", "Pad Ignition", "Launch your first rocket.", "launcher", "COMMON", 1, { points: 200, frame: "Ignition Ring" }, (s) => s.metrics.launches),
   A("graduated_dev", "Blessed Dev", "Graduate a rocket you launched.", "launcher", "ANOINTED", 1, { points: 1200, trail: "Creator Wake" }, (s) => s.metrics.graduatedLaunches),
   A("serial_launcher", "Serial Launcher", "Launch 5 rockets.", "launcher", "BLESSED", 5, { points: 600 }, (s) => s.metrics.launches),
-  A("kingmaker_ach", "Kingmaker", "Early-fuel 2 rockets into Morning Stars+.", "launcher", "GLORIFIED", 2, { points: 2000, frame: "Kingmaker Crown" }, (s) => s.metrics.kingmakerCount),
+  A("kingmaker_ach", "Kingmaker", "BOOST 2 rockets early, then ride them into Morning Stars+.", "launcher", "GLORIFIED", 2, { points: 2000, frame: "Kingmaker Crown" }, (s) => s.metrics.kingmakerCount),
   A("trench_warfare", "Trench Warfare", "Log 40 trades with avg hold under 8 minutes.", "trencher", "BLESSED", 40, { points: 400, trail: "Dirt Wake" }, (s) => s.metrics.avgHoldHours * 60 <= 8 ? s.metrics.tradeCount : Math.min(s.metrics.tradeCount, 20)),
   A("flip_artist", "Flip Artist", "Complete 25 quick flips (<15 min holds).", "trencher", "COMMON", 25, { points: 180 }, (s) => s.playstyle.quickFlips),
   A("sniper_nest", "Sniper Nest", "Land 10 snipes in the first 2 minutes.", "trencher", "ANOINTED", 10, { points: 700, frame: "Scope Rim" }, (s) => Math.round(s.metrics.sniperBuyFraction * s.metrics.buyCount)),
