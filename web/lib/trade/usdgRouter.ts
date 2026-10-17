@@ -20,6 +20,8 @@ export const usdgRouterAbi = parseAbi([
   "function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline) returns (uint256 tokensOut)",
   "function sellToUsdg(address token, uint256 tokensIn, uint256 minUsdgOut, uint256 deadline) returns (uint256 usdgOut)",
   "function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
+  // v4: curve mode rules / PVE login / PVE profit tax evaluated for `trader` (quoteUsdgRoute uses msg.sender = 0x0 in an eth_call)
+  "function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
   "function usdg() view returns (address)",
 ]);
 const erc20 = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
@@ -63,12 +65,14 @@ export async function useUsdgRouter(pc: PublicClient, router: Address): Promise<
 }
 
 /** End-to-end quote (coin out on buy, USDG out on sell) + max per-hop impact; one eth_call, cached ≤ maxAge. */
-export async function usdgRouteQuote(pc: PublicClient, router: Address, token: Address, isBuy: boolean, amountIn: bigint, maxAge = 1500): Promise<bigint> {
+export async function usdgRouteQuote(pc: PublicClient, router: Address, token: Address, isBuy: boolean, amountIn: bigint, maxAge = 1500, trader?: Address | null): Promise<bigint> {
   const side = isBuy ? "buy" : "sell", k = ckey("usdg", token, side, amountIn), lk = ckey("usdg", token, side);
   const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
   const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc;
   return (await QUOTES.get(k, async () => {
-    const { result } = await pc.simulateContract({ address: router, abi: usdgRouterAbi, functionName: "quoteUsdgRoute", args: [token, isBuy, amountIn] });
+    const { result } = trader
+      ? await pc.simulateContract({ address: router, abi: usdgRouterAbi, functionName: "quoteUsdgRouteFor", args: [trader, token, isBuy, amountIn] })
+      : await pc.simulateContract({ address: router, abi: usdgRouterAbi, functionName: "quoteUsdgRoute", args: [token, isBuy, amountIn] });
     LAST_QUOTE.set(lk, { amountIn, amountOut: result[0], at: Date.now() });
     return { amountOut: result[0] };
   }, maxAge)).amountOut;

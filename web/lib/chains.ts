@@ -57,6 +57,10 @@ export interface Deployment {
   trampWallManager: Address;
   /** Read-only MarketLens add-on: live v4 mcap/price for graduated coins (curve mcapNow freezes post-grad). */
   marketLens: Address;
+  /** v4: PVE login gate (EIP-712 'DisciplePVE' v1 attestations, lib/pve.ts). Zero ⇒ PVE buys unavailable. */
+  loginGate: Address;
+  /** v4: USDG referral-gate escrow (ReferralRegistry.depositHook). */
+  usdgDepositNotifier: Address;
   poolManager: Address;
   v4Quoter: Address;
   stateView: Address;
@@ -85,12 +89,14 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     antiSnipe: addr(process.env.NEXT_PUBLIC_RH_ANTI_SNIPE),
     trampWallManager: addr(process.env.NEXT_PUBLIC_RH_TRAMP_WALL_MANAGER),
     marketLens: addr(process.env.NEXT_PUBLIC_RH_MARKET_LENS),
+    loginGate: addr(process.env.NEXT_PUBLIC_RH_LOGIN_GATE),
+    usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RH_USDG_DEPOSIT_NOTIFIER),
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
-  // Testnet — source of truth: contracts/deployments/web-bundle @ 27e92d8 (FLOW combined redeploy v3, startBlock 136187963).
+  // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (PR #97, v4 from main@fdd436b5, startBlock 137540728).
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
   [robinhoodTestnet.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_RHT_LAUNCHPAD, "0x4f540bc1585ca36c8a49662dc642f6e28ae534da"),
@@ -105,6 +111,8 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     antiSnipe: addr(process.env.NEXT_PUBLIC_RHT_ANTI_SNIPE, "0xe21904fc33220a81e23a5f0cd3fdeba6a644f45e"),
     trampWallManager: addr(process.env.NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER, "0x9c9693c44b5c09d318c95ba351ca4f70965c6cde"),
     marketLens: addr(process.env.NEXT_PUBLIC_RHT_MARKET_LENS, "0x3afe8b96fba7c47790d6d195f0070edd560165ae"),
+    loginGate: addr(process.env.NEXT_PUBLIC_RHT_LOGIN_GATE, "0xe900b7060895f130e866eeddec2b3efd3ff0b69f"),
+    usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RHT_USDG_DEPOSIT_NOTIFIER, "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9"),
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec; reused from v1)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
@@ -123,6 +131,8 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     antiSnipe: addr(process.env.NEXT_PUBLIC_ANVIL_ANTI_SNIPE),
     trampWallManager: addr(process.env.NEXT_PUBLIC_ANVIL_TRAMP_WALL_MANAGER),
     marketLens: addr(process.env.NEXT_PUBLIC_ANVIL_MARKET_LENS),
+    loginGate: addr(process.env.NEXT_PUBLIC_ANVIL_LOGIN_GATE),
+    usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_ANVIL_USDG_DEPOSIT_NOTIFIER),
     poolManager: addr(process.env.NEXT_PUBLIC_ANVIL_POOL_MANAGER),
     v4Quoter: Z, stateView: Z, universalRouter: Z, permit2: RH_V4.permit2,
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
@@ -131,13 +141,17 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
   },
 };
 
-/** Smoke-test coins on the current testnet deploy (web-bundle @ 27e92d8 → smoke). */
+/** Smoke-test coins on the current testnet deploy (rh-testnet-46630.json → smoke, v4). */
 export const TESTNET_COINS = {
   /**
-   * v3 smoke coin (graduated to v4). Old v2 graduated coin 0xfa86…6628 is stale —
-   * do not send new launches to the v2 stack (SEC-01).
+   * v3 smoke coin (graduated, but on the SUPERSEDED v3 hook/router — v4 has no graduated coin yet; the v4 router can't
+   * trade it). Kept only for the v3-era e2e scripts. Do not send new launches to old stacks (SEC-01).
    */
   graduated: "0xcac8A9654dE3aE01470fC9E93e58fb97d5B86bb3" as Address,
+  /** v4 smoke launches (Constants.MODE_*: 0 TRENCH, 1 PVE, 2 PVP). */
+  trench: "0xf3499d126dd959080f6acd7ada17d39d256de996" as Address,
+  pve: "0x5c37d290f4c05de9b5081a5f25ba434eba1c6375" as Address,
+  pvp: "0x49eef46b243dee5a6345299cbfc7a223d6c0b781" as Address,
 };
 
 const CHAINS = { [robinhood.id]: robinhood, [robinhoodTestnet.id]: robinhoodTestnet, [anvil.id]: anvil } as const;

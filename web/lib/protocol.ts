@@ -21,6 +21,8 @@ export interface LaunchCoinParams {
   description?: string;
   socials?: { twitter?: string; telegram?: string; website?: string };
   creatorBuyPct?: number; // UI hint; on-chain limit is Launchpad.creatorBuyMaxBps() (v3 default 77 = 0.77% of supply)
+  /** Bonding mode (0 TRENCH WARFARE, 1 PVE, 2 PVP); only honoured once NEXT_PUBLIC_LAUNCH_ABI=modes (lib/launchAbi.ts). */
+  mode?: number;
   /** Optional same-tx creator buy, in quote raw units (decimals per quote token). */
   creatorBuyQuoteIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */
@@ -61,6 +63,10 @@ export interface TradeQuote {
   graduates: boolean;
   venue: "curve" | "router";
   quoteDecimals: number;
+  /** v4 bonding mode of the coin's curve (0 TRENCH, 1 PVE, 2 PVP). */
+  mode?: number;
+  /** PVE sells: profit tax already deducted from amountOut (quote raw). */
+  profitTax?: bigint;
 }
 
 export interface TradeResult {
