@@ -1904,6 +1904,9 @@ function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN|
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
     const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:+f.usd,side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
     chartSeedK(C.k,fs,keep); C.hist=2;
+    /* no live swap yet → seed the confirmed mcap from the latest indexed fill so the game (and the chart) render right away */
+    if(S.confirmed.mcap===null){ const lf=fills.reduce((a,f)=>!a||f.block>a.block||(f.block===a.block&&f.logIndex>a.logIndex)?f:a,null), lm=lf&&+lf.mcapUsd;
+      if(lm>0){ if(source&&'mcap' in source&&source.mcap==null) source.mcap=lm; S.confirmed.mcap=lm; if(S.displayAlt===null) S.displayAlt=mcapToAlt(lm); } }
     for(const f of fs) if(f.mine&&f.usd>0&&f.m>0) C.mine.push({t:f.t,side:f.side,m:f.m});
     C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
   }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
