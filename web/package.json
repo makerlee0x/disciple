@@ -32,7 +32,8 @@
     "test:trade-order": "tsx scripts/test-trade-order.mts",
     "test:op-race": "tsx scripts/test-op-race.mts",
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
-    "test:relay-policy": "tsx --test scripts/test-relay-policy.mts"
+    "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:nonces": "tsx --test scripts/test-nonces.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
