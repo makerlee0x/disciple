@@ -14,7 +14,7 @@ import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type R
  * (newest at the bottom with no scroll math on append).
  */
 const BADGE: Record<string, { i: React.ReactNode; t: string; c: string }> = {
-  believer: { i: "✝", t: "Believer", c: "#ffe7a3" }, trencher: { i: "⛏", t: "Trencher", c: "#c9b6f2" }, bomber: { i: <Icon name="bomb" size={12} />, t: "Bomber", c: "#ff9fb8" },
+  believer: { i: <Icon name="believer" size={12} />, t: "Believer", c: "#ffe7a3" }, trencher: { i: <Icon name="trencher" size={12} />, t: "Trencher", c: "#c9b6f2" }, bomber: { i: <Icon name="bomb" size={12} />, t: "Bomber", c: "#ff9fb8" },
   creator: { i: <Icon name="star" size={12} />, t: "Creator", c: "#8fd8ff" }, whale: { i: <Icon name="whale" size={12} />, t: "Whale", c: "#8ff0c0" }, mod: { i: <Icon name="shield" size={12} />, t: "Moderator", c: "#9ff3c8" },
 };
 /** gamechat tier name → DISCIPLE bomb tier index (0 puff … 5 atom) for the icon + orb meter */

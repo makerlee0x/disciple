@@ -25,6 +25,12 @@ Extends v1 (same system: 24px grid, 1.5px stroke, round caps/joins, `currentColo
 | bolt | fast/boost (SITE) | ⚡ |
 | play | play (SITE) | ▶ |
 | gift | rewards (SITE) | 🎁 |
+| video-off | camera-off state (TouchGrass) | camera-off state |
+| believer | chat badge; alias of believer-b (recommended) | ✝ |
+| believer-a | alt: slim Latin cross | ✝ |
+| believer-b | cross in circle | ✝ |
+| trencher | trencher badge (pickaxe) | ⛏ |
+| grass | GRASS currency/meter | 🌿 |
 
 ## Already in v1 (use these, not re-drawn)
 `close` (✕), `settings` (sliders; kept; use `gear` for ⚙️), `warning` (⚠️), `plus`, `chevron-down`, `chevron-right`. Note: v1 `achievement` is a medal; use `star` where a star is wanted.
