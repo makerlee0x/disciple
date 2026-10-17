@@ -1,0 +1,68 @@
+/* How DISCIPLE works (mock C). Lunar card over a blurred scrim; Launch Pad sky header (grain lives in the plate). */
+.ov {
+  position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px;
+  background: rgba(11, 12, 14, .62); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: fade var(--dsc-duration-base) var(--dsc-easing-standard) both;
+  font-family: var(--dsc-font-ui); color: var(--dsc-text);
+}
+.card {
+  width: min(520px, 100%); max-height: calc(100dvh - 32px); overflow: auto; position: relative;
+  border-radius: var(--dsc-radius-3xl); border: 1px solid rgba(201, 206, 214, .22);
+  background: linear-gradient(180deg, rgba(31, 34, 40, .96), rgba(22, 24, 28, .98)); box-shadow: var(--dsc-shadow-xl);
+  animation: rise var(--dsc-duration-slow) var(--dsc-easing-emphasized) both; overscroll-behavior: contain;
+  outline: none;
+}
+.hd { position: relative; height: 150px; background-size: cover; background-position: 50% 60%; background-color: var(--dsc-sky-indigo); }
+.hd::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(22, 24, 28, 1) 0%, rgba(22, 24, 28, .4) 55%, rgba(22, 24, 28, .15) 100%); }
+.close {
+  all: unset; box-sizing: border-box; position: absolute; right: 16px; top: 16px; z-index: 2; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; background: rgba(11, 12, 14, .6); border: 1px solid rgba(201, 206, 214, .25); color: var(--dsc-text); cursor: pointer;
+}
+.close:hover { border-color: rgba(201, 206, 214, .5); }
+.close:focus-visible, .btn:focus-visible { outline: 2px solid var(--dsc-primary); outline-offset: 2px; }
+.hdTxt { position: absolute; left: 32px; right: 64px; bottom: 14px; z-index: 2; }
+.eyebrow { font: 500 11px var(--dsc-font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dsc-muted-on-sky); }
+.title { margin: 10px 0 0; font: 400 40px/1.05 var(--dsc-font-display); color: var(--dsc-text); }
+.body { padding: 6px 32px 28px; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.step { display: grid; grid-template-columns: 44px 1fr; gap: 16px; padding: 16px 0; border-top: 1px solid rgba(201, 206, 214, .10); }
+.n { width: 44px; height: 44px; border-radius: var(--dsc-radius-lg); display: grid; place-items: center; background: rgba(201, 206, 214, .06); border: 1px solid rgba(201, 206, 214, .18); color: var(--dsc-text); position: relative; }
+.n em { position: absolute; left: -6px; top: -6px; width: 18px; height: 18px; border-radius: 50%; background: var(--dsc-bg); border: 1px solid rgba(201, 206, 214, .3); font: 600 10px/16px var(--dsc-font-mono); font-style: normal; text-align: center; color: var(--dsc-muted-on-sky); }
+.step h3 { margin: 0; max-width: 30ch; text-wrap: balance; font-size: 16px; font-weight: 600; letter-spacing: -.005em; }
+.step p { margin: 4px 0 0; max-width: 38ch; text-wrap: pretty; font-size: 13.5px; line-height: 1.5; color: var(--dsc-muted-on-sky); }
+.line { display: block; }
+.line + .line { margin-top: 8px; }
+/* Step 2 legend: compact chips styled like the hero BOOST / DUMP buttons; one line on desktop, wraps to two chips. */
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px; border-radius: 6px;
+  font: 600 11px/1 var(--dsc-font-mono); letter-spacing: .06em; white-space: nowrap; border: 1px solid;
+}
+.chip i { font-style: normal; opacity: .65; margin: 0 1px; }
+.chipBoost { color: var(--dsc-up); background: rgba(95, 240, 160, .10); border-color: rgba(95, 240, 160, .40); }
+.chipDump { color: #FF7AAE; background: rgba(240, 48, 127, .08); border-color: rgba(240, 48, 127, .50); }
+.legendSep { width: 1px; height: 14px; background: rgba(201, 206, 214, .22); }
+.foot { display: flex; gap: 10px; padding-top: 20px; border-top: 1px solid rgba(201, 206, 214, .10); align-items: center; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 22px; border-radius: var(--dsc-radius-lg);
+  font: 500 15px var(--dsc-font-ui); border: 1px solid rgba(201, 206, 214, .3); color: var(--dsc-text); background: rgba(201, 206, 214, .06);
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+}
+.pri { background: var(--dsc-primary); color: var(--dsc-bg); border-color: var(--dsc-primary); }
+.pri:hover { background: var(--dsc-text); }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise { from { opacity: 0; transform: translateY(calc(12px * var(--dsc-motion-scale, 1))) scale(calc(1 - .02 * var(--dsc-motion-scale, 1))); } to { opacity: 1; transform: none; } }
+@media (max-width: 760px) {
+  .ov { padding: 12px; align-items: end; }
+  .hd { height: 120px; }
+  .hdTxt { left: 20px; }
+  .title { font-size: 32px; }
+  .body { padding: 2px 20px 20px; }
+  .step { gap: 14px; padding: 13px 0; }
+  .step p { font-size: 13px; }
+  .foot { flex-direction: column; align-items: stretch; padding-top: 16px; }
+  }
+@media (max-width: 360px) { .legendSep { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .ov, .card { animation: none; }
+}

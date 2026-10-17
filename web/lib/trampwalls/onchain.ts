@@ -17,7 +17,7 @@ import type { Address } from "../protocol";
 import { curveOf, curveParams, friendlyError, publicClient, quoteRawToUsd } from "../protocol-viem";
 import { getSigner } from "../wallet";
 import {
-  computePreview, pointsFor, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent,
+  computePreview, pointsEarned, pointsFor, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent,
 } from "./adapter";
 
 const B = BigInt;
@@ -92,23 +92,24 @@ function filledFrac(c: PoolCtx, kind: "tramp" | "wall", lo: number, hi: number) 
 
 type L = Log & { eventName: string; args: Record<string, unknown> };
 
-async function readOne(pc: PublicClient, id: bigint, c: PoolCtx, placed?: { amount: bigint; at: number }): Promise<TrampWall> {
+/** cancelled: the position was closed by its owner (Cancelled log); an inactive position without one was pulled by a
+ *  keeper after a full cross (Filled) — the only state that earns points. Crossed-but-not-pulled stays "active". */
+async function readOne(pc: PublicClient, id: bigint, c: PoolCtx, placed?: { amount: bigint; at: number }, cancelled = false): Promise<TrampWall> {
   const [owner, token, tl, tu, , kindN, active] = await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "positions", args: [id] });
   const kind = Number(kindN) === 0 ? "tramp" : "wall";
   const lo = Number(tl), hi = Number(tu);
   const filled = active ? await pc.readContract({ address: mgr(), abi: trampWallManagerAbi, functionName: "isFilled", args: [id] }) : true;
   const mA = mcapAtTick(c, lo), mB = mcapAtTick(c, hi);
   const mcapLoUsd = Math.min(mA, mB), mcapHiUsd = Math.max(mA, mB);
-  const tokenUsd = (raw: bigint) => Number(raw) * priceAtTick(c, c.tick) * c.usdPerQuoteRaw;
   const amount = placed?.amount ?? B(0);
-  const sizeUsd = kind === "tramp" ? Number(amount) * c.usdPerQuoteRaw : tokenUsd(amount);
-  const status = !active ? (filled ? "filled" : "cancelled") : filled ? "filled" : "active";
+  // order size $: tramp = quote deposited; wall = tokens at the range's centre price (≈ quote received when filled)
+  const sizeUsd = kind === "tramp" ? Number(amount) * c.usdPerQuoteRaw : Number(amount) * priceAtTick(c, (lo + hi) / 2) * c.usdPerQuoteRaw;
+  const status = active ? "active" : cancelled ? "cancelled" : "filled";
   return {
     id: id.toString(), token: token as Address, owner: owner as Address, kind,
     mcapUsd: Math.sqrt(mcapLoUsd * mcapHiUsd), mcapLoUsd, mcapHiUsd, tickLower: lo, tickUpper: hi,
-    amount, sizeUsd, status, filledFrac: filled ? 1 : filledFrac(c, kind, lo, hi),
-    feesEarnedUsd: 0, // no fee share (rev2/rev3); the field goes away with #86
-    pointsEarned: filled ? pointsFor(kind, sizeUsd) : 0,
+    amount, sizeUsd, status, filledFrac: active ? (filled ? 1 : filledFrac(c, kind, lo, hi)) : status === "filled" ? 1 : 0,
+    pointsEarned: pointsEarned({ status, sizeUsd }),
     createdAt: placed?.at ?? Date.now(),
   };
 }
@@ -161,9 +162,7 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
   async function listBy(filter: { token?: Address; owner?: Address }) {
     const { placed, cancelled } = await placedLogs(pc, filter);
     const out = await Promise.all(placed.map(async (p) => {
-      const tw = await readOne(pc, p.id, await ctx(p.token), { amount: p.amount, at: Date.now() });
-      if (cancelled.has(tw.id)) tw.status = "cancelled";
-      return tw;
+      return readOne(pc, p.id, await ctx(p.token), { amount: p.amount, at: Date.now() }, cancelled.has(p.id.toString()));
     }));
     return out.sort((a, b) => b.mcapUsd - a.mcapUsd);
   }
@@ -245,7 +244,8 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
             } else if (l.eventName === "Cancelled") cb({ type: "Cancelled", id, token });
             else if (l.eventName === "Filled") {
               let pts = 0;
-              try { const tw = await readOne(pc, a.id as bigint, await ctx(token)); pts = pointsFor(tw.kind, tw.sizeUsd); } catch { /* ignore */ }
+              try { const { placed } = await placedLogs(pc, { token }); const pl = placed.find((x) => x.id === (a.id as bigint));
+                const tw = await readOne(pc, a.id as bigint, await ctx(token), pl ? { amount: pl.amount, at: Date.now() } : undefined); pts = pointsFor(tw.sizeUsd); } catch { /* ignore */ }
               cb({ type: "Filled", id, token, filledAt: Date.now(), pointsEarned: pts });
             }
           }

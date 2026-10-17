@@ -175,12 +175,20 @@ function Rail({ coins, watch, onPick }: { coins: Rocket[]; watch: Set<string>; o
   );
 }
 
-export default function Launchpad({ coins, onPick, defaultVerified }: { coins: Rocket[]; onPick: (c: Rocket) => void; defaultVerified: "all" | "verified" }) {
-  const [tab, setTab] = useState<Tab>("altitude");
+export default function Launchpad({ coins, onPick, defaultVerified, defaultTab = "altitude", defaultView = "list", showTrending = true }: {
+  coins: Rocket[]; onPick: (c: Rocket) => void; defaultVerified: "all" | "verified";
+  /** initial sort tab (app home: "new") */
+  defaultTab?: Tab;
+  /** initial view when the visitor has no saved choice */
+  defaultView?: "list" | "grid";
+  /** the in-feed Trending carousel (app home: off, the trending hero + Next trending strip replace it) */
+  showTrending?: boolean;
+}) {
+  const [tab, setTab] = useState<Tab>(defaultTab);
   const [pair, setPair] = useState("any");
   const [q, setQ] = useState("");
   const [verified, setVerified] = useState(defaultVerified);
-  const [view, setView] = useState<"list" | "grid">("list");
+  const [view, setView] = useState<"list" | "grid">(defaultView);
   const [shown, setShown] = useState(CHUNK);
   const [watch, toggleWatch] = useWatchlist();
   const sentinel = useRef<HTMLDivElement>(null);
@@ -224,7 +232,7 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
 
   return (
     <div className="lp">
-      <Carousel items={trending} onPick={onPick} />
+      {showTrending && <Carousel items={trending} onPick={onPick} />}
       <div className="lp-body">
         <div className="lp-main">
           <div className="lp-bar-top">

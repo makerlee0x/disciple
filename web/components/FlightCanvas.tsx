@@ -9,6 +9,7 @@ import { brandedRocket } from "@/lib/decal";
 import { gateFlightIcon } from "@/lib/flight/iconGate";
 import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
+import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
@@ -119,6 +120,8 @@ export default function FlightCanvas({ search }: Props) {
           __DISCIPLE_BASE_PATH__: BASE_PATH,
           // Ammo preset tiers (single source: lib/flight/ammoTiers.ts) — engine scales its presets from this.
           __AMMO_TIERS: AMMO_TIERS,
+          // Paper fills (no wallet): bonding curve pre-grad / full-range pool post-grad, same math + params as the sim.
+          __PAPER_CURVE: paperCurve(),
           // Simulated market defaults ON for testnet chains (no address hardcoding — chain flag only).
           __DISCIPLE_TESTNET: !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet,
           REPLAY: window.REPLAY,

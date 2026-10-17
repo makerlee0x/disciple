@@ -6,8 +6,9 @@ import PnlHud from "@/components/PnlHud";
 import TradeBridge from "@/components/TradeBridge";
 import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
-import { ARCHETYPES, cloneConfig, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
-import { SimDriver } from "@/lib/sim/driver";
+import { ARCHETYPES, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
+import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
+import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
 import { fmt, seedOf } from "@/lib/sim/run";
 import type { SimEvent } from "@/lib/sim/run";
 
@@ -21,7 +22,8 @@ const btn = (on = false, c = "#8fd8ff"): React.CSSProperties => ({ ...mono, curs
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const usd = (v: number) => (v < 0 ? "−$" : "+$") + Math.abs(v).toFixed(2);
 
-function loadTune(): SimConfig { try { const s = localStorage.getItem(SIM_STORAGE.tune); if (s) return { ...cloneConfig(), ...JSON.parse(s) }; } catch { /* ignore */ } return cloneConfig(); }
+/** saved tuning merged per key onto the current defaults; launch params always come from lib/config (never a stale save) */
+function loadTune(): SimConfig { try { const s = localStorage.getItem(SIM_STORAGE.tune); if (s) return mergeTune(JSON.parse(s)); } catch { /* ignore */ } return cloneConfig(); }
 
 /** SIMULATOR — free paper-trading mode on a fully local market (lib/sim). Never touches wallets or real profiles. */
 export default function SimMode({ initial }: { initial: { difficulty?: string; seed?: string; tune?: boolean; autostart?: boolean; speed?: number; minutes?: number; balance?: number } }) {
@@ -39,6 +41,9 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const [banner, setBanner] = useState<SimEvent | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [paused, setPaused] = useState(false);
+  const [chatter, setChatter] = useState<SimEvent[]>([]);
+  // tramps/walls: the panel talks to the live SimRun (re-created every run), never to the live/mock store
+  const twAdapter = useMemo(() => (runN > 0 ? createSimTrampWallAdapter(() => drv.current?.run ?? null, typeof window !== "undefined" ? localStorage : undefined) : undefined), [runN]);
 
   const start = useCallback((seedOverride?: number) => {
     drv.current?.stop();
@@ -46,10 +51,12 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
     setSeedText(String(seed));
     const c: SimConfig = JSON.parse(JSON.stringify(cfg));
     if (initial.balance && initial.balance > 0) c.player.startBalanceUsd = initial.balance;
-    // fresh SIMULATOR ledger (own namespace) for every run
-    try { for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i); if (k?.startsWith(SIM_STORAGE.pnlPrefix)) localStorage.removeItem(k); } } catch { /* ignore */ }
+    // fresh SIMULATOR ledger + tramps/walls (own namespace) for every run
+    try { resetSimStorage(localStorage); } catch { /* ignore */ }
     const d = new SimDriver(c, difficulty, seed, minutes); d.speed = speed; d.start(); drv.current = d;
-    d.onEvent((e) => { if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } });
+    setChatter([]);
+    d.onEvent((e) => { if (e.kind === "react" || e.kind === "tw") setChatter((l) => [e, ...l].slice(0, 5));
+      if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { if (e.kind === "rug" || e.kind === "cto" || e.kind === "graduate" || e.kind === "whale") { setBanner(e); window.setTimeout(() => setBanner((b) => (b === e ? null : b)), e.kind === "whale" ? 2500 : 5000); } } });
     setSummary(null); setPaused(false); setRunN((n) => n + 1); setPhase("run");
   }, [cfg, difficulty, minutes, seedText, speed, initial.balance]);
 
@@ -90,9 +97,9 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       {phase !== "select" && (
         <>
           <FlightCanvas key={runN} search={search} />
-          <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" />
-          <TrampWallPanel token="SIMULATOR" />
-          <TradeBridge token="SIMULATOR" storagePrefix="disciple.sim.swap." />
+          <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" syncEvent={SIM_POS_EVENT} />
+          <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
+          <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
         </>
       )}
       {phase === "run" && run && (
@@ -111,6 +118,10 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <div style={{ opacity: 0.7, marginBottom: 2 }}>PnL LEADERBOARD · peak {fmt(run.peak)}</div>
           {lb.slice(0, 3).map((r, i) => <Row key={r.name} i={i} name={r.name} arch={r.arch} total={r.total} me={r.arch === "you"} />)}
           {me >= 3 && <Row i={me} name="you" arch="you" total={lb[me].total} me />}
+          {run.m.phase === "pool" && <div data-testid="sim-tw-stats" style={{ opacity: 0.7, marginTop: 4 }}>tramps/walls live {run.m.pool?.active.length ?? 0} · yours {run.m.pool?.active.filter((o) => o.owner === "you").length ?? 0} · keeper pulls {run.keeper.pulls}</div>}
+          {chatter.length > 0 && <div data-testid="sim-chatter" style={{ marginTop: 6, borderTop: "1px solid rgba(255,255,255,.12)", paddingTop: 4 }}>
+            {chatter.map((e, i) => <div key={i} style={{ opacity: 1 - i * 0.16, color: e.mine ? "#ffe7a3" : e.kind === "react" ? "#ffb0c8" : "#c8d2ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{clock(e.t)} {e.text}</div>)}
+          </div>}
         </div>
       )}
       {banner && phase === "run" && (
@@ -124,7 +135,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <div style={{ ...mono, width: "min(980px, 94vw)", color: "#e8ecff", padding: 20 }}>
             <div style={{ fontSize: 13, color: "#8fd8ff", letterSpacing: 3 }}>DISCIPLE</div>
             <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: 2, margin: "2px 0 4px" }}>SIMULATOR</div>
-            <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free paper trading on a fully local market. A fresh coin launches on the real Launchpad curve ($7K → graduates at $33K) and bots trade it. Same ammo, sells, bombs and tramps as the real game. No wallet, no transactions.</div>
+            <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free paper trading on a fully local market. A fresh coin launches on the real Launchpad curve ($7K → graduates at $33K) and bots trade it. Same ammo, BOOST/DUMP, bombs and orbs as the real game. After graduation, tramps (buy-support below the price) and walls (sell-resistance above it) are real limit liquidity in the sim pool: they absorb trades, fill, and a keeper closes them. Bots place their own and react to yours. No wallet cap, no gas, no wallet, no transactions.</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
               {DIFFS.map((id) => { const x = cfg.difficulties[id]; const on = id === difficulty; return (
                 <button key={id} data-testid={`sim-diff-${id}`} onClick={() => setDifficulty(id)} style={{ ...panel, textAlign: "left", padding: 16, cursor: "pointer", borderColor: on ? x.color : "rgba(255,255,255,.15)", boxShadow: on ? `0 0 0 2px ${x.color}55, 0 10px 40px rgba(0,0,0,.45)` : panel.boxShadow }}>
@@ -141,7 +152,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <span style={{ opacity: 0.75 }}>balance ${(initial.balance || cfg.player.startBalanceUsd).toLocaleString()} paper</span>
               <button data-testid="sim-start" onClick={() => start()} style={{ ...btn(true, D.color), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }}>START ▸</button>
             </div>
-            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 14 }}>Keys in flight: Space buy · 1–6 buy now · Z/X/C/V select sell % · Shift dump · W boost · A/D steer (hold) · S dive · ` tuning panel. Same seed = same bots and market.</div>
+            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 14 }}>Keys in flight: SPACE = BOOST · SHIFT = DUMP · 1–6 BOOST that preset now · Z/X/C/V select DUMP % · W/↑ boost (hold) · A/D steer · S dive · ` tuning panel. Same seed + same inputs = same bots and market.</div>
           </div>
         </div>
       )}
@@ -166,6 +177,8 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
                 <div style={{ opacity: 0.7, marginBottom: 4 }}>TOP TRADERS (PnL)</div>
                 {summary.top.slice(0, 8).map((r, i) => <Row key={r.name} i={i} name={r.name} arch={r.arch} total={r.total} me={r.arch === "you"} />)}
                 <div style={{ opacity: 0.6, marginTop: 8 }}>final {fmt(summary.finalMcap)} · {summary.bots} bots · {summary.trades} trades{summary.graduatedAtS != null ? ` · graduated at ${clock(summary.graduatedAtS)}` : ""}</div>
+                <div data-testid="sim-summary-tw" style={{ opacity: 0.6, marginTop: 4 }}>tramps/walls: you placed {summary.tw.placed.you} ({summary.tw.filled.you} filled) · bots placed {summary.tw.placed.bots} ({summary.tw.filled.bots} filled) · keeper pulls {summary.tw.keeperPulls}</div>
+                {summary.reactPnl !== 0 && <div style={{ opacity: 0.6, marginTop: 2 }}>bots made {usd(summary.reactPnl)} reacting to you</div>}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 18 }}>

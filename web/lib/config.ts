@@ -24,7 +24,8 @@ export const CURVE = {
   soldPctAtGrad: 72,
   totalSupply: 7_000_000_000,
   decimals: 18,
-  walletCapPct: 7,
+  /** wallet cap = Launchpad default Constants.WALLET_CAP_BPS_DEFAULT = 0 (no cap): live, paper and SIMULATOR alike */
+  walletCapDefaultBps: 0,
   tradeFeeBps: 100, // 1%
   creatorTaxMaxPct: 7,
   antiSnipeStartPct: 77.7,
@@ -61,6 +62,10 @@ export const MODES = [
   { key: "5", name: "ARCHANGEL", usd: 100, range: "Morning Stars–Limbo" },
   { key: "6", name: "GLORY", usd: 1000, range: "≥$33M (Gates of Heaven+)" },
 ] as const;
+
+/** Tramps & walls: off-chain points per $1 of FILLED order size, rounded down. Awarded only when the order is filled
+ *  (keeper close after a full cross); cancelled or partly filled orders earn 0. Live, paper/mock and SIMULATOR. */
+export const TRAMP_WALL_POINTS_PER_USD = 1;
 
 /** Sell bomb tiers by price impact % (constitution LOCKED) */
 export const BOMB_PCT = {

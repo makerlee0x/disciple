@@ -298,6 +298,11 @@ body.side-hidden #apReopen {
 body.side-open .main-offset {
   padding-left: var(--ap-side-w);
 }
+/* Non-game routes always show the expanded sidebar on desktop: reserve it from the first paint, so content doesn't
+ * shift right when the sidebar mounts and sets body.side-open (was the home page's main CLS source). */
+@media (min-width: 761px) {
+  .main-offset.main-offset-open { padding-left: var(--ap-side-w); }
+}
 @media (max-width: 760px) {
   .main-offset,
   body.side-open .main-offset {

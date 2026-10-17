@@ -200,6 +200,20 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
         <div className="ap-foot">
           <button
             type="button"
+            title="Help"
+            aria-haspopup="dialog"
+            onClick={() => {
+              if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
+              window.dispatchEvent(new Event("dsc:hiw"));
+            }}
+          >
+            <span className="ic">
+              <NavIcon name="info" />
+            </span>
+            <span className="lb">Help</span>
+          </button>
+          <button
+            type="button"
             title="Log out"
             onClick={() => setLogoutNote(true)}
           >

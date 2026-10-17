@@ -156,8 +156,10 @@ export interface LaunchedCoin {
   imageURI: string; mcapUsd: number; graduated: boolean; progressBps: number; block: bigint;
 }
 
-/** All launches since the deployment start block, newest first, with live mcap/progress (launchpad home list). */
-export async function listLaunches(pc: PublicClient = publicClient()): Promise<LaunchedCoin[]> {
+/** All launches since the deployment start block, newest first, with live mcap/progress (launchpad home list).
+ * `resolveImages` maps on-chain imageURIs to moderated-store srcs (default: lib/coinImages, browser fetch; the server
+ * passes its own KV-backed resolver). */
+export async function listLaunches(pc: PublicClient = publicClient(), resolveImages?: (uris: string[]) => Promise<Map<string, string>>): Promise<LaunchedCoin[]> {
   const lp = deployment().launchpad;
   const logs = await pc.getContractEvents({ address: lp, abi: launchpadAbi, eventName: "Launched", fromBlock: deployment().fromBlock, toBlock: "latest" });
   const coins = await Promise.all((logs as unknown as L[]).map(async (l) => {
@@ -178,8 +180,8 @@ export async function listLaunches(pc: PublicClient = publicClient()): Promise<L
   }));
   // W-3e: render only moderated images. imageURI is replaced by its moderated-store URL (/api/image/<id>), or "" when
   // that exact URI never passed /api/moderate-image (e.g. set by calling the contract directly) ⇒ PairArt fallback.
-  const { moderatedSrcs } = await import("./coinImages");
-  const srcs = await moderatedSrcs(coins.map((c) => c.imageURI));
+  const resolve = resolveImages ?? (await import("./coinImages")).moderatedSrcs;
+  const srcs = await resolve(coins.map((c) => c.imageURI));
   for (const c of coins) c.imageURI = srcs.get(c.imageURI) ?? "";
   return coins.sort((x, y) => (x.block > y.block ? -1 : 1));
 }

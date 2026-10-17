@@ -113,6 +113,46 @@ const fmtUsd=v=>v>=1e9?'$'+(v/1e9).toFixed(2)+'B':v>=1e6?'$'+(v/1e6).toFixed(2)+
 function hash(n){n=Math.sin(n*127.1+311.7)*43758.5453;return n-Math.floor(n);}
 function randn(){return Math.sqrt(-2*Math.log(Math.random()+1e-9))*Math.cos(6.2831853*Math.random());}
 
+/* PAPER MARKET (no wallet: mock + DISCIPLE coin paper shots). Exact fills, no mark-price booking:
+   before graduation the Launchpad bonding curve, after it the v4-style full-range pool seeded at the curve-end price,
+   i.e. the SIMULATOR's float math (lib/sim/market.ts + pool.ts) on the CURVE/curveMath params that
+   lib/flight/paperCurve.ts hands over as window.__PAPER_CURVE. State = the source's current (shown) mcap:
+   curve sold = y0 − √(x0·y0/p) below the graduation mcap; above it (or after a real Graduate event) pool √p with
+   constant liquidity L. A buy never gets more tokens than the curve has
+   left (sCurve − sold): it completes the curve and the unspent $ is refunded (= Market.buy).
+   paperFill(side, mcap, usd, o, graduated) → {ok, usd (spent | gross), net (sell proceeds after fee), tokens, pre, post,
+   fillMcap (= PnL applyFill price × supply), graduated, refund}.  o: {tokens} sells exactly that many (a % sell),
+   {maxTokens} caps a $ sell at the holdings. */
+const PC=window.__PAPER_CURVE||null;
+function paperFill(side,mcap,usd,o,graduated){
+  if(!PC) return {ok:false,reason:'paper market not loaded'};
+  if(!(mcap>0)) return {ok:false,reason:'no price yet'};
+  const q=PC.quoteUsd||1, p=mcap/(PC.S*q), toM=pp=>pp*PC.S*q;
+  const wantT=o&&o.tokens>0?o.tokens:0, maxT=o&&o.maxTokens>0?o.maxTokens:Infinity;
+  if(!(usd>0)&&!wantT) return {ok:false,reason:'zero'};
+  // the curve spans start…graduation mcap: a buy AT the curve end goes into the pool, a sell there goes back down the curve
+  if(!graduated&&(side==='buy'?mcap<PC.gradMcap*(1-1e-9):mcap<=PC.gradMcap*(1+1e-9))){   // ---- bonding curve (CurveMath.sol / Market curve phase)
+    const k=PC.x0*PC.y0; let y=Math.min(PC.y0,Math.sqrt(k/p)); const sold=PC.y0-y, x=k/y, pre=toM(x/y);
+    if(side==='buy'){ let net=usd*(1-PC.fee), tokens=y*net/(x+net), spent=usd, grad=false; const rem=PC.sC-sold;
+      if(tokens>=rem){ const need=x*rem/(y-rem); spent=need/(1-PC.fee); tokens=rem; grad=true; }
+      if(!(tokens>0)) return {ok:false,reason:'curve complete'};
+      const y1=y-tokens, post=toM(k/y1/y1);
+      return {ok:true,usd:spent,net:spent*(1-PC.fee),tokens,pre,post,fillMcap:toM(spent*(1-PC.fee)/tokens),graduated:grad,refund:usd-spent}; }
+    let t=wantT||(usd<x?usd*y/(x-usd):Infinity); t=Math.min(t,maxT,sold);
+    if(!(t>0)) return {ok:false,reason:'nothing to sell on the curve'};
+    const gross=x*t/(y+t), y1=y+t;
+    return {ok:true,usd:gross,net:gross*(1-PC.fee),tokens:t,pre,post:toM(k/y1/y1),fillMcap:toM(gross/t),graduated:false,refund:0}; }
+  // ---- after graduation: full-range constant-liquidity pool (sim Pool without range orders)
+  const L=PC.L, s=Math.sqrt(p), pre=toM(p);
+  if(side==='buy'){ const net=usd*(1-PC.poolFee), s1=s+net/L, tokens=L*(1/s-1/s1);
+    return {ok:true,usd,net:usd*(1-PC.poolFee),tokens,pre,post:toM(s1*s1),fillMcap:toM(usd*(1-PC.fee)/tokens),graduated:true,refund:0}; }
+  let t=wantT||(usd<L*s?L*(1/(s-usd/L)-1/s):Infinity); t=Math.min(t,maxT);
+  if(!(t>0)||!Number.isFinite(t)) return {ok:false,reason:'sell larger than the pool'};
+  const s1=1/(1/s+t/L), gross=L*(s-s1);
+  return {ok:true,usd:gross,net:gross*(1-PC.poolFee),tokens:t,pre,post:toM(s1*s1),fillMcap:toM(gross/t),graduated:true,refund:0};
+}
+const paperImpact=(m,usd,side,grad)=>{ const f=paperFill(side,m,usd,null,grad); return f.ok&&f.pre>0?f.post/f.pre:1; };
+
 /* =====================================================================
    DATA-SOURCE INTERFACE
    start(emit) → emit(event)   stop()   submitTrade?(side, usd) → Promise
@@ -178,13 +218,24 @@ class MockReplaySource {
     this.emitDepth(); return {pre:before,post:after};
   }
   emitDepth(){ this.emit({t:'depth',block:this.block,mcap:this.mcap,levels:this.levels.map(l=>({...l}))}); }
+  // Player paper shot: an EXACT fill on the bonding curve / post-grad pool (paperFill), not the bots' pseudo-liquidity.
+  // The fake levels it crosses are consumed (levelFilled) but don't damp the fill.
+  paperTrade(side,usd,o,hash){
+    const f=paperFill(side,this.mcap,usd,o,this.graduated); if(!f.ok) return f;
+    const before=f.pre, after=f.post;   // phase follows the mcap (curve below the graduation mcap), like DISCIPLE paper
+    for (const l of this.levels){ if(side==='buy'?(l.side==='ask'&&l.mcap>before&&l.mcap<=after):(l.side==='bid'&&l.mcap<before&&l.mcap>=after)){ l.dead=true; this.emit({t:'levelFilled',level:l}); } }
+    this.levels=this.levels.filter(l=>!l.dead); this.mcap=after;
+    this.emit({t:'swap',block:this.block,ts:Date.now(),txHash:hash,side,usd:f.usd,mcap:after,price:after/this.supply,prePrice:before/this.supply,postPrice:after/this.supply,mine:true,trader:'you'});
+    this.emitDepth(); return f; }
+  paperImpact(usd,side){ return paperImpact(this.mcap,usd,side,this.graduated); }
   // Mock "session-key" trade: sequencer soft-confirm after a simulated block delay
-  submitTrade(side,usd){
+  submitTrade(side,usd,o){
     const hash='0x'+Math.random().toString(16).slice(2,14);
     const delay=180+Math.random()*700;          // bundler + 1-3 RH blocks
     return new Promise(res=>setTimeout(()=>{
       if (Math.random()<0.06) return res({ok:false,hash,reason:'slippage guard (amountOutMin)'});
-      const m=this.applyTrade(side,usd,true,hash); res({ok:true,hash,block:this.block,pre:m.pre,post:m.post});
+      const f=this.paperTrade(side,usd,o,hash); if(!f.ok) return res({ok:false,hash,reason:f.reason});
+      res({ok:true,hash,block:this.block,exact:true,pre:f.pre,post:f.post,usd:f.usd,net:f.net,tokens:f.tokens,fillMcap:f.fillMcap,refund:f.refund});
     },delay)).then(r=>r).catch(e=>({ok:false,hash,reason:String(e)}));
   }
 }
@@ -357,19 +408,22 @@ class DiscipleSource {
         emit({t:'block',block:this.block,ts:Date.now()});
         emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
               prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader}); }
-      else if(e.type==='Graduate') emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'});
+      else if(e.type==='Graduate'){ this.graduated=true; emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'}); }
       else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
     addEventListener('disciple:event',this.h); }
   stop(){ removeEventListener('disciple:event',this.h); clearInterval(this.dv); }
   realMcap(){ return this.mcap; }
-  impact(usd,side){ const m=(this.mcap||1)*this.paper; const f=usd/(m*0.25); return side==='buy'?1+f:Math.max(0.01,1-f); }
+  // price ratio of a trade on the curve / post-grad pool at the shown price (ghost, thrust; was a linear usd/(mcap·0.25) guess)
+  impact(usd,side){ return paperImpact(this.shown(),usd,side,this.graduated); }
   // Real on-chain shot when the page registered a wallet bridge (components/TradeBridge.tsx: the user's wallet signs,
-  // curve pre-grad / DiscipleRouter post-grad). No wallet → paper fill, as before.
+  // curve pre-grad / DiscipleRouter post-grad). No wallet → an EXACT paper fill on the curve/pool (paperFill); the
+  // move becomes the decaying paper offset.
   async submitTrade(side,usd,o){ const b=window.__discipleTrade;
     if(!b){ if(!(this.mcap>0)) return {ok:false,reason:'no price yet'}; await new Promise(r=>setTimeout(r,150+Math.random()*250));
-      const pre=this.shown(); this.paper*=this.impact(usd,side); const post=this.shown();
-      this.emit({t:'swap',block:this.block,ts:Date.now(),txHash:'paper-'+Math.random().toString(16).slice(2,10),side,usd,mcap:post,price:post/this.supply,prePrice:pre/this.supply,postPrice:post/this.supply,mine:true,trader:'you'});
-      return {ok:true,paper:true,pre,post}; }
+      const f=paperFill(side,this.shown(),usd,o,this.graduated); if(!f.ok) return f;
+      this.paper=f.post/this.mcap; const pre=f.pre, post=this.shown();
+      this.emit({t:'swap',block:this.block,ts:Date.now(),txHash:'paper-'+Math.random().toString(16).slice(2,10),side,usd:f.usd,mcap:post,price:post/this.supply,prePrice:pre/this.supply,postPrice:post/this.supply,mine:true,trader:'you'});
+      return {ok:true,paper:true,exact:true,pre,post,usd:f.usd,net:f.net,tokens:f.tokens,fillMcap:f.fillMcap,refund:f.refund}; }
     try{ const r=await (o?b(side,usd,o):b(side,usd)); return r||{ok:false,reason:'no result'}; }catch(err){ return {ok:false,reason:String((err&&err.message)||err).slice(0,80)}; } }
 }
 /* SIMULATOR bridge (?source=sim, /sim route): the local market + bots live in lib/sim (React page registers
@@ -381,6 +435,7 @@ class SimBridgeSource {
     emit({t:'status',source:this.name,ok:true,msg:'local paper market · no wallet'}); this.off=b.attach(emit); }
   stop(){ if(this.off) this.off(); this.off=null; }
   impact(usd,side){ const b=window.__discipleSim; return b?b.impact(usd,side):1; }
+  balance(){ const b=window.__discipleSim; return b?b.balance():S.balance; }
   submitTrade(side,usd,o){ const b=window.__discipleSim; if(!b) return Promise.resolve({ok:false,reason:'simulator not running'});
     return new Promise(res=>setTimeout(()=>res(b.trade(side,usd,o)),120+Math.random()*180)); }   // 1–2 RH blocks
 }
@@ -449,7 +504,7 @@ const source = makeSource();
 if (IS_POOL||source.isSim) S.fuelers={'you':0};
 if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
 function onEvent(e){
-  if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); }
+  if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
     if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
     S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
@@ -639,22 +694,9 @@ function markMcap(){ if(isLive()){ const r=source&&source.realMcap?source.realMc
 function pushMark(){ const m=markMcap(); if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:mark',{detail:{mcap:m,supply:source.supply||7e9,session:SESSION}})); }catch(_){} }
 function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({title,sub,life:4}); }
-/* PAPER wallet cap (curve rule WALLET_CAP_BPS = 7% of supply while pre-graduation): a paper buy on the mock / a DISCIPLE
-   coin fills only up to the cap; the unfilled $ is never debited or booked. Tokens for $u at the AMM average:
-   u·(1−fee) / (p0·√impact(u)); solved for u by bisection (monotone). Sim + live enforce the cap in their own markets. */
-const WALLET_CAP_FRAC=0.07, PAPER_FEE=0.01;
-const capApplies=m=>!isLive()&&!source.isSim&&(source instanceof MockReplaySource||source instanceof DiscipleSource)&&!!source.impact&&m>0&&m<GRADUATION_MCAP;
-/* after the fill: the mock's walls can make the actual fill cheaper than the estimate → clamp the booked $ to the cap too
-   (the unfilled $ is refunded to the paper balance) */
-function capFilledUsd(usd,fillMcap,preMcap){ if(!capApplies(preMcap)||!(fillMcap>0)) return usd; const sup=source.supply||7e9;
-  const room=Math.max(0,WALLET_CAP_FRAC*sup-(S.hold.tokens||0)), tok=usd*(1-PAPER_FEE)/(fillMcap/sup);
-  return tok<=room?usd:Math.floor(room*(fillMcap/sup)/(1-PAPER_FEE)*100)/100; }
-function paperCap(usd){
-  const m=S.confirmed.mcap, sup=source.supply||7e9; if(!capApplies(m)) return {usd};
-  const room=WALLET_CAP_FRAC*sup-(S.hold.tokens||0), tok=u=>u*(1-PAPER_FEE)/((m/sup)*Math.sqrt(source.impact(u,'buy')));
-  if(room<=sup*1e-6) return {usd:0,blocked:true}; if(tok(usd)<=room) return {usd};
-  let lo=0, hi=usd; for(let i=0;i<50;i++){ const mid=(lo+hi)/2; if(tok(mid)<=room) lo=mid; else hi=mid; }
-  return {usd:+lo.toFixed(2)}; }
+/* No wallet cap anywhere (paper, sim, live): the Launchpad default is Constants.WALLET_CAP_BPS_DEFAULT = 0. */
+/* paper sources price the player's shot on the curve/pool (paperImpact); bots and live use source.impact */
+function srcImpact(usd,side){ return source.paperImpact&&!isLive()?source.paperImpact(usd,side):source.impact?source.impact(usd,side):1; }
 function trade(side,opt){
   if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
@@ -663,14 +705,12 @@ function trade(side,opt){
   if (side==='sell' && !isLive() && S.hold.valueUsd>0 && md.usd>S.hold.valueUsd) md={...md,usd:S.hold.valueUsd};   // a sell never exceeds holdings
   if (side==='sell'&&opt&&opt.all){ if(stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } md={...md,usd:stack}; }
   if (side==='sell') S.fullStackNext = stack>=MIN_SHOT && md.usd>=stack*0.98;
-  if (md.usd<MIN_SHOT){                                   // below net-buy minimum: blocked (no gas sponsorship)
+  if (md.usd<MIN_SHOT && !source.isSim){                 // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
-  if (side==='buy'){ const c=paperCap(md.usd); if(c.blocked){ S.flashes.push({txt:'WALLET CAP 7% REACHED · no buy',life:1.6}); return; }
-    if(c.usd<md.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(c.usd)} of ${fmtShot(md.usd)}`,life:1.8}); md={...md,usd:c.usd}; } }
-  if (side==='buy' && !window.__discipleTrade && S.balance<md.usd){ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
+  if (side==='buy' && !window.__discipleTrade && !source.isSim && S.balance<md.usd){   /* SIMULATOR: the sim checks its own balance (tramps spend it too) */ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
   // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
-  applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(source.impact(md.usd,side)-1)*100:undefined);
+  applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(srcImpact(md.usd,side)-1)*100:undefined);
   submit(side, md.usd, false, opt);
 }
 function submit(side,usd,force,opt){
@@ -680,21 +720,28 @@ function submit(side,usd,force,opt){
   S.cooldownUntil=now+COOLDOWN_MS;
   if (!source.submitTrade){ S.flashes.push({txt:'READ-ONLY SOURCE — trading disabled',life:1.5}); return; }
   // optimistic ghost: projected (NOT applied) price after our trade, from local impact estimate
-  const proj = source.impact? S.confirmed.mcap*source.impact(S.tradeUsd,side) : S.confirmed.mcap;
+  const proj = source.impact? S.confirmed.mcap*srcImpact(S.tradeUsd,side) : S.confirmed.mcap;
   const p={id:Math.random(),side,usd:S.tradeUsd,proj,t0:now,state:'pending'}; S.pending.push(p);
   // no-signing model (fomo-style): ONE token approval at deposit, then shots run without per-trade signatures.
   // Gas is a real per-swap cost (it sets MIN_SHOT); nothing is sponsored. In this prototype shots are PAPER only.
   // PnL ledger: fill at the marked price (paper: shown price; live: real) × average AMM execution √(impact)
-  const fillMark=markMcap()*(source.impact&&!isLive()?Math.sqrt(source.impact(S.tradeUsd,side)):1);
-  source.submitTrade(side,S.tradeUsd,opt&&opt.frac?{frac:opt.frac}:undefined).then(r=>{
+  const fillMark=markMcap()*(source.impact&&!isLive()?Math.sqrt(srcImpact(S.tradeUsd,side)):1);
+  // paper sells (no wallet, not the sim): a % sell sells exactly that share of the ledger's tokens; a $ sell never more than held
+  const paperSell=side==='sell'&&!isLive()&&!source.isSim&&S.hold.tokens>0;
+  const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
+  source.submitTrade(side,S.tradeUsd,o).then(r=>{
     p.state=r.ok?'confirmed':'failed';
-    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:r.gas||0,at:r.at,session:SESSION}})); }   // SIMULATOR: exact sim fill
+    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:r.gas||0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
+    else if(r.ok&&r.exact){   // PAPER (mock / DISCIPLE, no wallet): exact curve/pool fill — spent $ (a curve-completing buy is refunded the rest), sell proceeds net of the fee
+      S.balance+=(side==='buy'?-r.usd:r.net)-GAS_USD;
+      if(r.refund>0.005) S.flashes.push({txt:`CURVE COMPLETE · ${fmtShot(r.refund)} REFUNDED`,life:1.8,c:'#9ff3c8'});
+      dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap*(S.simF||1),supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }
     else if(r.ok){
-    // fill = AMM average of the move the market ACTUALLY made (√(pre·post) on a constant-product curve), on the shown scale.
+    // v3 pool sources (replay / live AI pool, paper on the real liquidity): fill = AMM average of the move the market
+    // ACTUALLY made (√(pre·post) on a constant-product curve), on the shown scale. (Mock + DISCIPLE paper: exact branch above.)
     // (Was: mark × √(estimated impact) — DISCIPLE paper never moved the price and mock walls could absorb the move,
     //  so a $60K buy was booked far above the mark → uPnL deeply negative right after the buy.)
     const fm=r.pre>0&&r.post>0&&!isLive()?Math.sqrt(r.pre*r.post)*(S.simF||1):fillMark;
-    if(side==='buy'&&r.pre>0){ const u=capFilledUsd(p.usd,fm,r.pre); if(u<p.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(u)}, ${fmtShot(p.usd-u)} refunded`,life:1.8}); p.usd=u; } }
     S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
@@ -937,12 +984,17 @@ function cloudBase(c){   // parallax position (no blast offset) → CB. Wrap spa
   const xOff=((S.camX!=null?S.camX:S.x)-W/2)*c.spd*0.25, yOff=(S.cloudY||0)*c.spd*0.65;   // world scroll: climb → clouds fall past, drop → they rise   // climb → clouds fall past, drop → they rise
   let x=c.x-xOff; x=((x%sw)+sw)%sw-m;
   let y=c.y+yOff; y=((y%sh)+sh)%sh-c.sp.h; CB.x=x; CB.y=y; return CB; }
-function cloudStep(dt){ const k=1-Math.exp(-dt/6);
+/* Thinning (→ shape breakup) is local: only clouds inside the blast radius (+ their own size) lose density, with a
+   hard (1−d/R')² falloff. The old 1/(1+(d/R)²) tail never reached zero, so every blast anywhere (incl. off-screen
+   bombs at a busy low tier) nibbled every cloud, and with the slow 6 s heal they sat half-split at rest. */
+const CLOUD_HEAL_TAU=2.2;   // s; from a full blast (dens 0.08) back to whole in ~4–5 s
+function cloudThin(c,d,R,amp){ const f=fall(d,R*1.6+c.r); if(f>0) c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); }
+function cloudStep(dt){ const k=1-Math.exp(-dt/CLOUD_HEAL_TAU);
   for (const c of CLOUDS){ c.vx+=(-1.1*c.ox-1.9*c.vx)*dt; c.vy+=(-1.1*c.oy-1.9*c.vy)*dt; c.ox+=c.vx*dt; c.oy+=c.vy*dt; c.dens+=(1-c.dens)*k; } }
 function cloudBlast(x,y,amp,R){
   for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-x, dy=CB.y+c.oy-y, d=Math.hypot(dx,dy)+1, f=1/(1+(d/R)*(d/R));
     c.vx+=dx/d*amp*f*(0.6+c.spd); c.vy+=dy/d*amp*f*(0.6+c.spd)-amp*0.15*f;   // pushed out and slightly lofted
-    c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); } }
+    cloudThin(c,d,R,amp); } }
 function drawClouds(front){
   const ex=(S.camX!=null?S.camX:S.x), ey=S.ry, fl=exhaustParams().flame;
   const hi=CLOUD_STYLE==='cel'?celHi():0, sm0=ctx.imageSmoothingEnabled;
@@ -953,16 +1005,19 @@ function drawClouds(front){
     const dd=Math.hypot(cx-ex,cy-ey), lit=clamp(fl*0.9/(1+(dd/(220+sp.w*0.4))**2),0,0.9);
     const see=front&&Math.abs(cx-ex)<sp.w*0.5+40&&cy>ey-170&&cy<ey+sp.h*0.5+60 ? 0.35 : 1;   // near clouds thin out where they'd hide the rocket
     if (sp.px) ctx.imageSmoothingEnabled=false;
-    if (d<0.03){ ctx.globalAlpha=c.a*see; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
-      if(sp.night&&hi>0.01){ ctx.globalAlpha=c.a*see*hi; ctx.drawImage(sp.night,x,y+bob,sp.w,sp.h); }   // high tiers: night palette + rim
-      if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38; ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
+    /* Breakup amount e: light thinning (d < 0.15) only fades the WHOLE sprite (no slabs → no seams at rest); a real
+       blast splits it into 3 slabs that drift apart, shrink and fade, then rejoin exactly as e → 0 while it heals. */
+    const e=clamp((d-0.15)/0.75,0,1), al=c.a*see*(0.25+0.75*c.dens);
+    if (e<=0){ ctx.globalAlpha=al; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
+      if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,x,y+bob,sp.w,sp.h); }   // high tiers: night palette + rim
+      if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38*(al/(c.a*see||1)); ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
     else {
-      // clean shape breakup: the silhouette splits into 3 slabs that drift apart, shrink and fade — no fog
-      const sw=sp.spr.width/3, k=1-d*0.3;
-      for (let j=0;j<3;j++){ const dx=(j-1)*d*sp.w*0.45, dy=-d*sp.h*(j===1?0.35:0.12), pw=sp.w/3*k, ph=sp.h*k;
-        const al=c.a*see*(0.25+0.75*c.dens), qx=x+j*sp.w/3+dx+(sp.w/3-pw)/2, qy=y+bob+dy+(sp.h-ph);
-        ctx.globalAlpha=al; ctx.drawImage(sp.spr,j*sw,0,sw,sp.spr.height,qx,qy,pw,ph);
-        if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,j*sw,0,sw,sp.night.height,qx,qy,pw,ph); } }
+      const SW=sp.spr.width, k=1-e*0.3;
+      for (let j=0;j<3;j++){ const s0=Math.round(SW*j/3), s1=Math.round(SW*(j+1)/3), u0=s0/SW, uw=(s1-s0)/SW;   // whole source pixels per slab
+        const dx=(j-1)*e*sp.w*0.45, dy=-e*sp.h*(j===1?0.35:0.12), pw=sp.w*uw*k, ph=sp.h*k;
+        const qx=x+sp.w*u0+dx+(sp.w*uw-pw)/2, qy=y+bob+dy+(sp.h-ph);
+        ctx.globalAlpha=al; ctx.drawImage(sp.spr,s0,0,s1-s0,sp.spr.height,qx,qy,pw,ph);
+        if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,s0,0,s1-s0,sp.night.height,qx,qy,pw,ph); } }
     }
     ctx.imageSmoothingEnabled=sm0;
   }
@@ -1263,15 +1318,15 @@ function drawHud(){
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
     else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText('SELL · Z/X/C/V select, SHIFT dump',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
-  MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
+  MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
     ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,72,30);
     ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+36,by+20); ctx.textAlign='left';
     { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,72,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
     ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+69,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
   ctx.font='11px ui-monospace,monospace';
-  if (MODES[S.mode].usd<MIN_SHOT){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
-  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
+  if (MODES[S.mode].usd<MIN_SHOT&&!source.isSim){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
+  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(source.isSim?`SIM ${fmtMoney(S.balance)} · no gas · no min shot`:`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
   { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
     S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
@@ -1407,7 +1462,7 @@ function shockStep(dt){
   for (const sh of S.shocks){ const r0=sh.r; sh.r+=sh.v*dt; const r1=sh.r;
     kickPool(S.bfx,sh.x,sh.y,r0,r1,sh.R,sh.amp,1.4); kickPool(S.particles,sh.x,sh.y,r0,r1,sh.R,sh.amp,0.6);
     for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-sh.x, dy=CB.y+c.oy-sh.y, d=Math.hypot(dx,dy)+1; if(d<=r0-c.r*0.5||d>r1+c.r*0.5||c._sh===sh) continue;
-      const f=1/(1+(d/sh.R)*(d/sh.R)); c._sh=sh; c.vx+=dx/d*sh.amp*f*(0.6+c.spd); c.vy+=dy/d*sh.amp*f*(0.6+c.spd)-sh.amp*0.15*f; c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,sh.amp/500)); }
+      const f=1/(1+(d/sh.R)*(d/sh.R)); c._sh=sh; c.vx+=dx/d*sh.amp*f*(0.6+c.spd); c.vy+=dy/d*sh.amp*f*(0.6+c.spd)-sh.amp*0.15*f; cloudThin(c,d,sh.R,sh.amp); }
     // rocket silhouette
     const rc=rocketCapsule(), dr=Math.max(0,segDist(sh.x,sh.y,rc)-rc.r);
     if ((dr>r0||r0===0) && dr<=r1){ const f=fall(dr,sh.R); if(f>0){
