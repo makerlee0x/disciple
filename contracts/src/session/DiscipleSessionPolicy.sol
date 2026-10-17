@@ -41,6 +41,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     uint256 public constant P_LAUNCH = 1 << 7; // Launchpad.launch / launchCoin
     uint256 public constant P_ANON_LAUNCH = 1 << 8; // AnonLauncher.launchAnon
     uint256 public constant P_APPROVE = 1 << 9; // ERC20.approve(spender ∈ DISCIPLE contracts | registered curve)
+    uint256 public constant P_REFERRAL = 1 << 10; // ReferralRegistry.tryAttribute(wallet == account, referrer)
 
     uint32 public constant EXEC_HOOK_FLAG = 1 << 31;
     uint16 public constant DEFAULT_MAX_SLIPPAGE_BPS = 500; // 5%
@@ -70,6 +71,12 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         )
     );
     bytes4 internal constant APPROVE = bytes4(keccak256("approve(address,uint256)"));
+    bytes4 internal constant TRY_ATTRIBUTE = bytes4(keccak256("tryAttribute(address,address)"));
+
+    /// @notice DISCIPLE ReferralRegistry (first-touch attribution read by FeeRouter on referral-attributed buys).
+    ///         Fixed per deployment (immutable) so the SessionConfig ABI used by the SDK is unchanged.
+    ///         address(0) disables P_REFERRAL entirely.
+    address public immutable referralRegistry;
 
     /// @notice Install-time session configuration (abi-encoded after the uint32 entityId in onInstall data).
     struct SessionConfig {
@@ -121,6 +128,11 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error ZeroMinOut();
     error MinOutTooLow(uint256 minOut, uint256 required);
     error QuoteFailed(address target);
+    error WalletNotAccount();
+
+    constructor(address referralRegistry_) {
+        referralRegistry = referralRegistry_;
+    }
 
     // ───────────────────────── install / uninstall / revoke ─────────────────────────
 
@@ -163,7 +175,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.0.0";
+        return "disciple.session-policy.1.1.1";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -212,7 +224,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (value != 0) revert EthValueNotAllowed();
         Session storage s = _active(entityId & ~EXEC_HOOK_FLAG, msg.sender);
         _checkTime(s.cfg); // runtime path / defense in depth (userOp path is enforced by EntryPoint)
-        Call[] memory calls = _decode(data);
+        Call[] memory calls = _decode(_unwrapExecuteUserOp(data));
         uint256 add0;
         uint256 add1;
         for (uint256 i; i < calls.length; ++i) {
@@ -246,6 +258,25 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
 
     function _checkTime(SessionConfig storage c) internal view {
         if (block.timestamp > c.validUntil || block.timestamp < c.validAfter) revert SessionExpired();
+    }
+
+    /// @dev MAv2 `executeUserOp` passes its full `msg.data` (`executeUserOp(PackedUserOperation,bytes32)`) to
+    ///      validation-associated pre-exec hooks (ExecutionLib.allocatePreExecHookCallBuffer(msg.data)).
+    ///      Unwrap to `userOp.callData[4:]` (the inner execute/executeBatch); otherwise pass `data` through.
+    function _unwrapExecuteUserOp(bytes calldata data) internal pure returns (bytes calldata) {
+        if (data.length < 4 || bytes4(data[:4]) != EXECUTE_USER_OP) return data;
+        bytes calldata args = data[4:];
+        if (args.length < 64) revert OnlyExecuteCalls();
+        uint256 rel = uint256(bytes32(args[:32]));
+        if (rel > args.length - 32) revert OnlyExecuteCalls();
+        PackedUserOperation calldata op;
+        assembly ("memory-safe") {
+            op := add(args.offset, rel)
+        }
+        bytes calldata inner = op.callData; // Solidity bounds-checks the dynamic field against calldatasize
+        if (inner.length < 4) revert OnlyExecuteCalls();
+        if (bytes4(inner[:4]) != EXECUTE_USER_OP) revert OnlyExecuteCalls();
+        return inner[4:];
     }
 
     /// @dev Decodes `execute` / `executeBatch` account calldata. Anything else is rejected.
@@ -304,6 +335,10 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
             address buyRecipient = _word(args, 2);
             if (buyRecipient != account) revert RecipientNotAccount();
+        } else if (p == P_REFERRAL) {
+            // tryAttribute(wallet, referrer): the session key may only attribute ITS OWN account (no third parties).
+            (address wallet,) = abi.decode(args, (address, address));
+            if (wallet != account) revert WalletNotAccount();
         } else if (p == P_APPROVE) {
             (address spender, uint256 amount) = abi.decode(args, (address, uint256));
             if (!_isFixedTarget(c, spender) && !_isCurve(c, spender)) revert SpenderNotAllowed(spender);
@@ -334,9 +369,8 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
 
     /// @dev BondingCurve.quoteBuy / quoteSell return all-static structs whose first word is the net output.
     function _curveQuote(address curve, bool isBuy, uint256 amountIn) internal view returns (uint256) {
-        (bool ok, bytes memory r) = curve.staticcall(
-            abi.encodeWithSignature(isBuy ? "quoteBuy(uint256)" : "quoteSell(uint256)", amountIn)
-        );
+        (bool ok, bytes memory r) =
+            curve.staticcall(abi.encodeWithSignature(isBuy ? "quoteBuy(uint256)" : "quoteSell(uint256)", amountIn));
         if (!ok || r.length < 32) revert QuoteFailed(curve);
         return abi.decode(r, (uint256));
     }
@@ -346,6 +380,10 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (target == c.router && target != address(0)) {
             if (sel == ROUTER_BUY) return P_ROUTER_BUY;
             if (sel == ROUTER_SELL) return P_ROUTER_SELL;
+            return 0;
+        }
+        if (target == referralRegistry && target != address(0)) {
+            if (sel == TRY_ATTRIBUTE) return P_REFERRAL;
             return 0;
         }
         if (target == c.trampWallManager && target != address(0)) {
@@ -369,8 +407,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function _isFixedTarget(SessionConfig storage c, address a) internal view returns (bool) {
-        return a != address(0)
-            && (a == c.router || a == c.launchpad || a == c.anonLauncher || a == c.trampWallManager);
+        return a != address(0) && (a == c.router || a == c.launchpad || a == c.anonLauncher || a == c.trampWallManager);
     }
 
     function _isCurve(SessionConfig storage c, address a) internal view returns (bool) {
