@@ -180,7 +180,8 @@ contract Deploy is Script {
         referrals.setDepositHook(o.depositNotifier);
 
         QuotePricer pricer = new QuotePricer(deployer, manager, o.usdg);
-        pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(0))));
+        // Default floor is set by the constructor (1e4 * 10^((18 + usdgDecimals) / 2)); MIN_LIQUIDITY overrides it.
+        pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(pricer.minLiquidity()))));
         if (!hasRef && o.defaultQuote != o.usdg) {
             (address c0, address c1) =
                 uint160(o.defaultQuote) < uint160(o.usdg) ? (o.defaultQuote, o.usdg) : (o.usdg, o.defaultQuote);
