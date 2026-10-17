@@ -1514,7 +1514,7 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
   for (const l of S.bombLabels){ const pop=l.age<0.18?0.6+0.55*(l.age/0.18):1.15-0.15*Math.min(1,(l.age-0.18)/0.15), a=clamp((l.life-l.age)/0.5,0,1);
     const fs=[13,15,18,21,25,30][l.tier]; ctx.save(); ctx.globalAlpha=a; ctx.font=`bold ${fs}px Georgia,serif`; ctx.textAlign='center';
     // tier icon (DISCIPLE bomb family) + 6-orb tier meter (reached = solid) lead the label; text unchanged
-    const tw=ctx.measureText(l.txt).width, ih=Math.round(fs*0.95), mh=Math.round(fs*0.62), iw=ih, mw=iconW('meter-orbs-1',mh), gap=Math.round(fs*0.3), lead=iw+gap+mw+gap*1.4;
+    const tw=ctx.measureText(l.txt).width, ih=Math.round(fs*1.15), mh=Math.round(Math.max(12,fs*0.8)), iw=ih, mw=iconW('meter-orbs-1',mh), gap=Math.round(fs*0.3), lead=iw+gap+mw+gap*1.4;
     const w=tw+lead, lx=clamp(l.x,w/2+20,W-w/2-20), ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),BANNER_Y+50,H-30);
     ctx.translate(lx,ly); ctx.scale(pop,pop);
     ctx.fillStyle='rgba(10,8,20,.62)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(-w/2-12,-fs*0.95,w+24,fs*1.45,8):ctx.rect(-w/2-12,-fs*0.95,w+24,fs*1.45); ctx.fill();
