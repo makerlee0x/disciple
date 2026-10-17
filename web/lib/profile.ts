@@ -76,8 +76,7 @@ async function signClaim(username: string, address: string, nonce: string): Prom
     const s = await import("./aa/session");
     const smart = await s.aaAddress().catch(() => null);
     if (smart && smart.toLowerCase() === address) {
-      const { keccak256, stringToBytes } = await import("viem");
-      const o = await s.aaOwnerSign(keccak256(stringToBytes(msg)));
+      const o = await s.aaSignMessage(msg);
       return o ? { signature: o.sig, owner: o.owner } : null;
     }
     const w = await import("./wallet");

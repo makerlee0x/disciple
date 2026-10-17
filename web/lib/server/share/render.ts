@@ -16,15 +16,17 @@ function fonts() {
 }
 const imgs = new Map<string, Promise<Image | null>>();
 const asset = (n: string) => { let p = imgs.get(n); if (!p) { p = loadImage(path.join(ROOT, "public/assets", n + ".png")).catch(() => null); imgs.set(n, p); } return p; };
+let wordmarkP: Promise<Image | null> | null = null;
+const wordmark = () => (wordmarkP ??= loadImage(path.join(ROOT, "public/brand/disciple-wordmark-light-1200.png")).catch(() => null));
 const mk: MakeCanvas = (w, h) => createCanvas(w, h) as never;
 
 export async function renderSharePng(d: SceneData, ids: Partial<LoadoutIds>, format: "story" | "og"): Promise<Buffer> {
   fonts();
   const lo = loadoutFromIds(ids);
-  const [bg, base] = await Promise.all([asset(tierAt(d.mcapEnd).bg), asset("rocket")]);
+  const [bg, base, wm] = await Promise.all([asset(tierAt(d.mcapEnd).bg), asset("rocket"), wordmark()]);
   const rocket = base ? composeRocket(mk, base, lo, 4) : null;
   const H = format === "story" ? 1920 : 1080;
   const c = createCanvas(1080, H);
-  drawShareScene(c.getContext("2d"), mk, d, { bg, rocket }, lo, { format });
+  drawShareScene(c.getContext("2d"), mk, d, { bg, rocket, wordmark: wm }, lo, { format });
   return c.encode("png");
 }

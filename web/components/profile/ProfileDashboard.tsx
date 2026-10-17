@@ -10,13 +10,15 @@ import {
   PlaystyleMeter, RadarChart, Sparkline, StatRing,
 } from "./Charts";
 import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
-import { fmtUsd } from "@/lib/config";
+import { fmtUsd, normalizeRarity } from "@/lib/config";
 import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import SettingsModal from "./SettingsModal";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import { onWallet } from "@/lib/wallet";
+import Icon, { OrbMeter, type BombTier } from "@/components/icons/Icon";
+import { BOMB_ICON } from "@/components/ui/Icon";
 
 function fmtKpi(v: number, format: string) {
   if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
@@ -110,14 +112,14 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <div className="sub">{isPrivate ? "PILOT OVERVIEW · CASH & ACCOUNT LIVE IN SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
         </div>
         {isPrivate && (
-          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}>⚙ Settings</button>
+          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}><Icon name="gear" size={16} /> Settings</button>
         )}
       </header>
       {share && <ShareModal target={share} onClose={() => setShare(null)} />}
       {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
       <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
-      <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(255,220,150,0.12)` }}>
+      <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(201,206,214,0.12)` }}>
         <div className="banner-frame" style={{ borderColor: border }}>
           <div className="banner-rocket"><BrandedRocket height={160} icon={data.showcaseIcon} /></div>
           <div className="banner-meta">
@@ -150,7 +152,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             </div>
             <div className="top-badges">
               {data.topBadges.length === 0 ? <span className="muted">No badges unlocked yet</span> : data.topBadges.map((b) => (
-                <div key={b.id} className={`mini-badge r-${b.rarity.toLowerCase()}`} title={b.name}>✦<span>{b.name}</span></div>
+                <div key={b.id} className={`mini-badge r-${normalizeRarity(b.rarity).toLowerCase()}`} title={b.name}><Icon name="achievement" size={16} /><span>{b.name}</span></div>
               ))}
             </div>
           </div>
@@ -209,7 +211,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           {data.rings.map((r, i) => (
             <StatRing key={r.key} value={fmtRing(r.value, r.format)} label={r.label} sub={r.sub}
               progress={Math.min(0.95, Math.abs(r.value) / Math.max(1, r.max))}
-              color={i % 2 === 0 ? "#ffe7a3" : "#c9b6f2"} />
+              color={i % 2 === 0 ? "#C9CED6" : "#c9b6f2"} />
           ))}
         </div>
         <div className="gauges-row">
@@ -225,7 +227,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </div>
         <div className="chart-card">
           <div className="chart-head"><h3>{volRange === "1d" ? "Volume by hour" : "Volume by day"}</h3><RangeToggle value={volRange} onChange={setVolRange} /></div>
-          <CrosshairChart kind="bar" points={volPts} hourly={volRange === "1d"} formatY={(v) => fmtUsd(v)} color="#ffe7a3" />
+          <CrosshairChart kind="bar" points={volPts} hourly={volRange === "1d"} formatY={(v) => fmtUsd(v)} color="#C9CED6" />
         </div>
         <div className="chart-card"><h3>Hold-time distribution</h3><Histogram items={data.holdHist} /></div>
         <div className="chart-card"><h3>PnL calendar</h3><Heatmap days={data.pnlCalendar} /></div>
@@ -237,7 +239,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <PlaystyleMeter pve={data.pveScore} pvp={data.pvpScore} />
           <div className="playstyle-detail">
             <div><strong>Crew climb</strong><ul>
-              <li>Fueling {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
+              <li>Boosting {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
               <li>Crews {data.playstyle.crewJoins}</li><li>Grads {data.playstyle.graduations}</li>
             </ul></div>
             <div><strong>Bomb bay</strong><ul>
@@ -278,8 +280,16 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <ul className="activity-feed">
           {data.activity.slice(0, 18).map((a) => (
             <li key={a.id}>
-              <span className={`act-kind ${a.kind}`}>{a.kind}</span>
-              <span className="act-text">{a.text}</span>
+              <span className={`act-kind ${a.kind}${a.bomb ? " dsc-bomb" : ""}`} data-bomb={a.bomb?.k}>{a.kind}</span>
+              <span className="act-text">
+                {a.bomb ? (
+                  <span className="act-bomb dsc-bomb" data-bomb={a.bomb.k} aria-hidden>
+                    <Icon name={BOMB_ICON[a.bomb.tier]} size={14} />
+                    <OrbMeter tier={(a.bomb.tier + 1) as BombTier} size={14} label="" />
+                  </span>
+                ) : null}
+                {a.text}
+              </span>
               {a.usd != null ? <span className="act-usd">{fmtUsd(a.usd)}</span> : null}
               <span className="act-time muted">{new Date(a.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
             </li>

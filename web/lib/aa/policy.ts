@@ -22,6 +22,11 @@ export type PolicyCfg = {
   defaultLimit: bigint;
   /** Tokens whose approvals count toward the spend limit (quote assets). Rocket-token approvals (sells) are uncapped. */
   spendTokens?: Address[];
+  /**
+   * USDG (policy 1.3.0 rule, mirrored): a USDG approve is allowed ONLY to the router and ONLY for exactly the batch's
+   * buyWithUsdg total (0 = revoke ok). No standalone USDG approves to curves / tramps.
+   */
+  usdg?: Address;
 };
 export type SessionState = { expiresAt: number; spent: Record<string, string> };
 
@@ -29,10 +34,12 @@ export class PolicyError extends Error { code = "SessionPolicy"; }
 
 const lc = (a: string) => a.toLowerCase();
 
+/** Curve-address verdicts survive across trades (a curve stays a curve): no 2 reads per pre-grad trade. */
+const curveOk = new Map<string, boolean>();
 export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionState, calls: Call[], account: Address): Promise<Record<string, bigint>> {
   if (Date.now() > s.expiresAt) throw new PolicyError("Session expired — sign in again to keep one-tap trading.");
   const fixed = new Set([cfg.launchpad, cfg.router, cfg.trampWallManager].map(lc));
-  const curveOk = new Map<string, boolean>();
+  const usdgNeed = cfg.usdg ? usdgBuyTotal(calls, cfg.router) : BigInt(0);
   async function isCurve(a: Address) {
     if (curveOk.has(lc(a))) return curveOk.get(lc(a))!;
     let ok = false;
@@ -53,6 +60,9 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     try { fn = decodeFunctionData({ abi: erc20, data: c.data }); } catch { fn = null; }
     if (fn?.functionName === "approve") {
       const [spender, amt] = fn.args as [Address, bigint];
+      // USDG → router must be exact (policy 1.3.0); USDG → anything else is owner-only (sessionEligible routes it)
+      if (cfg.usdg && to === lc(cfg.usdg) && lc(spender) === lc(cfg.router) && usdgNeed > BigInt(0) && amt !== BigInt(0) && amt !== usdgNeed)
+        throw new PolicyError("USDG approve must equal this trade's USDG amount.");
       if (!fixed.has(lc(spender)) && !(await isCurve(spender))) throw new PolicyError(`Session can't approve ${spender}.`);
       delta[to] = (delta[to] ?? BigInt(0)) + amt;
       continue;
@@ -69,6 +79,17 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     if (used > lim) throw new PolicyError("Session spend limit reached — sign in again to raise it.");
   }
   return delta;
+}
+
+const buyWithUsdgAbi = parseAbi(["function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline)"]);
+/** Σ usdgIn of the batch's router.buyWithUsdg calls (= the only USDG approve amount policy 1.3.0 accepts). */
+export function usdgBuyTotal(calls: Call[], router: Address): bigint {
+  let n = BigInt(0);
+  for (const c of calls) {
+    if (lc(c.to) !== lc(router)) continue;
+    try { const d = decodeFunctionData({ abi: buyWithUsdgAbi, data: c.data }); n += d.args[1]; } catch { /* other router call */ }
+  }
+  return n;
 }
 
 export function recordSpend(s: SessionState, delta: Record<string, bigint>): SessionState {

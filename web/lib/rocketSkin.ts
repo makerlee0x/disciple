@@ -2,7 +2,7 @@
  * Rocket cosmetics: body skins (tinted chrome sprite) + nose-coin emblems, composited on canvas.
  * Presentational only — never affects price, fills or odds.
  */
-import { composeRocket, loadBaseRocket } from "./decal";
+import { BASE_ROCKET_HI_SRC, composeRocket, loadBaseRocket, loadRocketSprite } from "./decal";
 
 export type Skin = { id: string; name: string; tint: string | null; mode?: "color" | "multiply"; strength?: number; sheen?: string };
 export type Coin = { id: string; name: string; bg: [string, string]; ink: string; glyph: string; rim: string };
@@ -80,10 +80,19 @@ export function tintBase(base: HTMLImageElement, skin: Skin, scale = 1): HTMLCan
   return c;
 }
 
-export async function skinnedRocket(skinId: string, coinId: string): Promise<HTMLCanvasElement> {
-  const base = await loadBaseRocket();
-  const tinted = tintBase(base, skinById(skinId), 4);
-  return composeRocket(tinted, coinEmblem(coinById(coinId)), 1, {}, base);
+export type SkinnedOpts = {
+  /** Use the hi-res master sprite (221×609) instead of the 73×200 sprite; `scale` multiplies its size. */
+  hi?: boolean;
+  scale?: number;
+  /** Optional scene lighting applied to the tinted hull before the nose coin is painted on. */
+  light?: (hull: HTMLCanvasElement) => void;
+};
+
+export async function skinnedRocket(skinId: string, coinId: string, opts: SkinnedOpts = {}): Promise<HTMLCanvasElement> {
+  const base = opts.hi ? await loadRocketSprite(BASE_ROCKET_HI_SRC).catch(() => loadBaseRocket()) : await loadBaseRocket();
+  const tinted = tintBase(base, skinById(skinId), opts.scale ?? (opts.hi ? 2 : 4));
+  opts.light?.(tinted);
+  return composeRocket(tinted, coinEmblem(coinById(coinId), opts.hi ? 384 : 256), 1, {}, base);
 }
 
 export const LOADOUT_KEY = "disciple.rocket.loadout.v1";

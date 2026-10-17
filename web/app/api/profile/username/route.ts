@@ -4,21 +4,22 @@ export const runtime = "nodejs";
  * GET  ?u=name            → { available, reason? }
  * GET  ?address=0x…       → { username | null }
  * GET  ?resolve=name      → { address | null }        (reverse lookup username → wallet)
- * GET  ?nonce=1&address=0x… → { nonce, ttlSec }   (single-use, 10 min; sign claimMessage(username, address, nonce))
+ * GET  ?nonce=1&address=0x… → { nonce, ttlSec }   (fresh random nonce per request, bound to address, 10 min;
+ *                              never deletes/overwrites another nonce; consumed only by a successful claim)
  * POST { username, address, nonce, signature, owner? } → { ok, reason? }
  *   signature = wallet signMessage(claimMessage(...)) — EOA/1271/6492, or a DISCIPLE smart account's owner signing
  *   keccak(message) raw (pass `owner`). Verified with lib/server/chat/identity.verifyWalletSignature.
  */
 import { NextResponse } from "next/server";
 import { RESERVED, USERNAME_RE } from "@/lib/profile";
-import { randomBytes } from "crypto";
 import { claim, usernameOf, walletOf } from "@/lib/server/usernames";
 import { kv } from "@/lib/server/kv";
+import { consumeNonce, issueNonce, nonceValid } from "@/lib/server/nonces";
 import { verifyWalletSignature } from "@/lib/server/chat/identity";
 import { claimMessage } from "@/lib/usernameClaim";
 
 const NONCE_TTL = 600;
-const nonceKey = (a: string) => `user:nonce:${a.toLowerCase()}`;
+const NONCE_PREFIX = "user:nonce";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +31,7 @@ export async function GET(req: Request) {
   const address = url.searchParams.get("address");
   if (url.searchParams.get("nonce") !== null) {
     if (!address || !isAddr(address)) return NextResponse.json({ error: "address required" }, { status: 400 });
-    const nonce = randomBytes(16).toString("hex");
-    await kv().del(nonceKey(address));
-    await kv().setNX(nonceKey(address), nonce, NONCE_TTL);
+    const nonce = await issueNonce(kv(), NONCE_PREFIX, address, NONCE_TTL);
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
   if (address) return NextResponse.json({ username: isAddr(address) ? await usernameOf(address) : null });
@@ -57,12 +56,13 @@ export async function POST(req: Request) {
   if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "Invalid address." }, { status: 400 });
   // Wallet-signed claim: single-use server nonce + signature over claimMessage.
   const nonce = String(body.nonce ?? "");
-  const stored = await kv().get(nonceKey(addr));
-  if (!stored || !nonce || stored !== nonce) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
-  await kv().del(nonceKey(addr)); // single use, even if the signature is bad
+  if (!(await nonceValid(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
   const who = await verifyWalletSignature(addr, claimMessage(u, addr, nonce), String(body.signature ?? ""), body.owner ?? null);
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
   const r = await claim(u, addr);
   if (!r.ok) return NextResponse.json(r, { status: 409 });
+  // single use, consumed only by a successful claim (a concurrent replay of the same signed claim is the same
+  // name for the same wallet, i.e. idempotent; any later replay finds no nonce)
+  await consumeNonce(kv(), NONCE_PREFIX, nonce, addr);
   return NextResponse.json({ ok: true });
 }

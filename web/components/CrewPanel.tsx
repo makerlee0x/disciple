@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MODES, fmtUsd, nextUnlock, verifiedLevel } from "@/lib/config";
+import { MODES, fmtUsd, nextUnlock } from "@/lib/config";
+import { isVerified } from "@/lib/verified";
 import VerifiedBadge from "./VerifiedBadge";
+import Icon from "@/components/icons/Icon";
 
 /** MOCK crew data — replace with indexer reads (DISCIPLE FLOW). */
 const MOCK_CREW = {
@@ -13,14 +15,13 @@ const MOCK_CREW = {
     { who: "0x7Fe…01b", usd: 760 },
   ],
   you: 35,
-  stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
 };
 
 const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir soundtrack", "Golden wings"];
 
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
-export default function CrewPanel() {
+export default function CrewPanel({ coin, verified }: { coin?: string; verified?: boolean } = {}) {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
   // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
@@ -50,7 +51,7 @@ export default function CrewPanel() {
   }, []);
 
   const u = nextUnlock(mcap);
-  const tier = verifiedLevel({ ...MOCK_CREW.stats, mcapUsd: mcap });
+  const isVer = isVerified(coin, verified);
   const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
   const ammoTxt = (i: number, d: number) => { const v = ammoUsd[i] ?? d; return "$" + (v < 1 ? v.toFixed(2) : v.toLocaleString()); };
@@ -59,28 +60,28 @@ export default function CrewPanel() {
       ref={ref} aria-label="Crew" data-testid="crew-panel"
       style={{
         position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px)", maxHeight: "calc(100vh - var(--ap-hud-rt, 58px) - 360px)", overflowY: "auto", zIndex: 30, width: 310, boxSizing: "border-box",
-        padding: "8px 12px", borderRadius: 12, background: "rgba(10,12,28,.82)",
-        border: "1px solid rgba(255,231,163,.45)", color: "#e8ecff",
+        padding: "8px 12px", borderRadius: 12, background: "rgba(22,24,28,.82)",
+        border: "1px solid rgba(255,231,163,.45)", color: "#E8EAEE",
         font: "11px ui-monospace,monospace",
       }}
     >
       <button type="button" data-testid="crew-toggle" onClick={() => setOpen((o) => !o)} title={open ? "Collapse crew" : "Expand crew"}
         style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", gap: 8, alignItems: "center", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>CREW <span style={{ color: "#ffb0c8" }}>· MOCK</span></span>
-        <span style={{ color: "#e8ecff", fontWeight: 400 }}>👥 {MOCK_CREW.aboard} aboard</span>
-        <span style={{ marginLeft: "auto" }}>{open ? "−" : "+"}</span>
+        <span style={{ color: "#E8EAEE", fontWeight: 400 }}><Icon name="crew" size={16} style={{ verticalAlign: -4 }} /> {MOCK_CREW.aboard} aboard</span>
+        <span style={{ marginLeft: "auto", display: "inline-flex" }}><Icon name={open ? "minus" : "plus"} size={16} /></span>
       </button>
       {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}
       <div data-testid="crew-unlock" style={{ marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        🎁 Next unlock at <b style={{ color: "#ffe7a3" }}>{u.next}</b>: {reward.replace(/^Crew /, "").toLowerCase()} for everyone aboard
+        <Icon name="gift" size={16} /> Next unlock at <b style={{ color: "#ffe7a3" }}>{u.next}</b>: {reward.replace(/^Crew /, "").toLowerCase()} for everyone aboard
       </div>
       {open && (
         <>
-          <div style={{ marginTop: 6 }}><VerifiedBadge tier={tier} /></div>
-          <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP FUELERS</div>
+          {isVer && <div style={{ marginTop: 6 }}><VerifiedBadge verified showLabel /></div>}
+          <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>{i === 0 ? "👑" : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
+              <span>{i === 0 ? <Icon name="crown" size={16} label="top booster" /> : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
             </div>
           ))}
           <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>

@@ -60,8 +60,10 @@ function sessionRealized(coin: string, KEY: string) {
  * Marks are pushed by the engine (`disciple:mark`, on change, ≤10/s); no polling. Other rockets' realized
  * total is read from localStorage once on mount and on cross-tab `storage` events only.
  */
-/** storagePrefix: the SIMULATOR passes its own namespace so sim positions never mix with real/paper profiles. */
-export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }: { coin: string; storagePrefix?: string; modeLabel?: string }) {
+/** storagePrefix: the SIMULATOR passes its own namespace so sim positions never mix with real/paper profiles.
+ *  syncEvent: the SIMULATOR's ledger is authoritative (tramp/wall fills and wall escrow move tokens without a swap),
+ *  so it pushes the whole position on this event ({ pos, supply }) and paper fills are not re-booked here. */
+export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, syncEvent }: { coin: string; storagePrefix?: string; modeLabel?: string; syncEvent?: string }) {
   const KEY = storagePrefix;
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
@@ -90,7 +92,11 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
       setPos(next);
       try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ }
     };
-    const h = (e: Event) => onFill((e as CustomEvent<Fill>).detail);
+    const h = (e: Event) => { if (!syncEvent) onFill((e as CustomEvent<Fill>).detail); };
+    const onSync = (e: Event) => { const d = (e as CustomEvent<{ pos: Position; supply: number }>).detail; if (!d?.pos) return;
+      const next = { ...d.pos, supply: d.supply || DEFAULT_SUPPLY, session: null }; posRef.current = next; setPos(next);
+      try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ } };
+    if (syncEvent) addEventListener(syncEvent, onSync);
     const onMark = (e: Event) => { const d = (e as CustomEvent<Mark>).detail; if (!(d && d.mcap > 0)) return;
       const supply = d.supply || DEFAULT_SUPPLY; setMark({ mcap: d.mcap, supply, session: d.session });
       const p = posRef.current;
@@ -103,8 +109,8 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
     const m0s = w.__flight?.markMcap?.() || m0;   // same shown price the HUD/rocket use (paper: × sim offset)
     if (m0s) setMark({ mcap: m0s, supply: w.__flight?.source?.supply || DEFAULT_SUPPLY });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
-    return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); };
-  }, [coin, KEY]);
+    return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
+  }, [coin, KEY, syncEvent]);
 
   const price = mark.mcap / mark.supply;
   const v = view(pos, price, mark.supply);
@@ -157,17 +163,18 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
           {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>EXIT FEES</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
           <div style={row}><span style={label}>OTHER ROCKETS</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
 
-          {/* reward-share hook: hold bonus grows with unrealized PnL (lib/config holdBonus) */}
-          <div title={`Reward share multiplier grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}`} style={{ marginTop: 6 }}>
+          {/* points hook: off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with
+              unrealized PnL + hold time. Never money: it scales season points, not payouts or fees. */}
+          <div title={`Off-chain points multiplier: grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}. Points only, never money.`} style={{ marginTop: 6 }}>
             <div style={{ ...row, color: v.bonus > 1 ? "#ffd98a" : "rgba(220,228,255,.6)", fontWeight: 700 }}>
-              <span>REWARD SHARE</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
+              <span>POINTS</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
             </div>
             <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,.08)", overflow: "hidden", marginTop: 3 }}>
               <div style={{ width: `${Math.max(3, share * 100)}%`, height: "100%", borderRadius: 3, transition: "width .5s ease-out",
                 background: "linear-gradient(90deg,#ffd98a,#9ff3c8)", boxShadow: v.uPnl > 0 ? "0 0 8px rgba(255,217,138,.6)" : "none" }} />
             </div>
             <div style={{ fontSize: 10, marginTop: 3, color: v.uPnl > 0 ? "#ffe7a3" : "rgba(220,228,255,.5)" }}>
-              {v.uPnl > 0 ? "▲ more uPnL → bigger reward share · hold to ramp" : "stay green to earn a bigger reward share"}
+              {v.uPnl > 0 ? "▲ more uPnL → bigger points multiplier · hold to ramp" : "stay green to earn a bigger points multiplier"}
             </div>
           </div>
         </div>

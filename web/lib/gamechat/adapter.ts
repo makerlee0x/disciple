@@ -13,7 +13,7 @@ export type ChatBadge = "believer" | "trencher" | "bomber" | "creator" | "whale"
 export type ChatFrom = { addr: string; name?: string; badge?: ChatBadge; prestige?: number };
 export type ChatMsg = {
   id: string; coin: string; kind: "user" | "event" | "system"; from: ChatFrom | null; text: string; ts: number;
-  meta?: { event?: string; usd?: number; tx?: string; impactBps?: number };
+  meta?: { event?: string; usd?: number; tx?: string; impactBps?: number; impactPct?: number; prePrice?: number; postPrice?: number };
 };
 export type ChatState = "connecting" | "live" | "reconnecting" | "closed";
 export type SendError = "rate_limited" | "filtered" | "too_long" | "no_identity";

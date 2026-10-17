@@ -28,13 +28,13 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/coins?sort=new\|volume\|mcap&stack=&graduated=&creator=&limit=` | coin list + volume/trades/last mcap |
 | `/coins/:token` | detail + `live` market + `tier` inputs (see below) |
 | `/coins/:token/trades?limit=&before=` | trades (curve + hook), newest first |
-| `/coins/:token/candles?interval=1m\|5m\|15m\|1h\|4h\|1d&unit=price\|mcap` | OHLC in USD + volume |
+| `/coins/:token/candles?interval=1m\|5m\|15m\|1h\|4h\|1d&unit=price\|mcap&from=&to=` | OHLC in USD + volume over `[from, to]` (unix s). Default: 300 bars ending at the coin's last trade; span capped at 2000 bars |
 | `/coins/:token/fees` | live creator fees pending (FeeRouter; AnonLauncher stealth owner + pending for pseudonymous coins) |
 | `/coins/:token/orders` | tramps/walls for a coin |
 | `/users/:addr/orders` · `/users/:addr/trades` · `/users/:addr/coins` | per-user data |
 | `/users/:addr/counters` | `trampsPlaced/wallsPlaced/trampsFilled/wallsFilled/bigTrampsFilled` (tramp ≥ **$1K** at placement), trades, volumeUsd, coinsLaunched |
 | `/rewards` | anti-snipe routing + RewardsVault totals |
-| `/coins/:token/holders?limit=` | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
+| `/coins/:token/holders?limit=` (1–1000, default 100) | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
 | `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
 | `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax / kol shares in quote units, plus `tokenUnits` for post-grad fees charged in the launch token (never mixed), snipe 70/30, claims (wei + USD) |
 | `/tier-breaks?limit=` | global tier-break feed (GAME) |
@@ -50,7 +50,7 @@ A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy i
 - Before graduation, it uses `curve.mcapNow()`.
 - `liquidityUsd` is 2 × virtual in-range quote reserve (post-grad) or 2 × curve quote reserve (pre-grad).
 
-**Verified-tier inputs (`tier`):** `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
+**Coin metric inputs (`tier`):** (display only; they no longer drive verification, which is a manual flag in `web/lib/verified.ts`) `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
 
 **USD note:** trade USD values use the coin's launch-time quote price from `QuotePriced`. Live mcap uses the live pricer.
 
@@ -77,6 +77,7 @@ curl localhost:4200/coins/0xfa86b94d37cba24910bd68426c5c0ace683d6628   # TRMP
 | `DB_PATH` | `./disciple-indexer.sqlite` |
 | `PORT` | `4200` |
 | `POLL_MS` | `4000` |
+| `LIST_CACHE_MS` | `5000` — TTL of the list-endpoint cache (0 = off) |
 | `LOG_CHUNK` | `20000` |
 | `DEPLOYMENT_JSON` | `../contracts/deployments/rh-testnet-46630.json` |
 | `EXTRA_DEPLOYMENT` | (new stack json) |
@@ -93,13 +94,25 @@ EXTRA_DEPLOYMENT=../contracts/deployments/<new>.json EXTRA_STACK_ID=v4 npm start
 ```
 Old stacks never emit the new events, so a single union ABI decodes every stack. Each event is only accepted from the expected emitter of its stack (or a curve/token discovered through that stack's Launchpad).
 
+## Performance
+- **Per-coin aggregates.** `coin_stats` (volume, trade count, last mcap, last price, last trade ts/block) is updated in the
+  same transaction as each newly inserted trade, so `/coins` (and `/leaderboard/coins`, profiles) never scan `trades`.
+  Existing DBs are backfilled once on startup (`rebuildCoinStats`, versioned in `meta`). Reorg rebuilds clear them with the stack.
+- **USD in one place.** `src/usd.ts tradeUsd()` is the only Trade → USD conversion (price, volume, mcap). The #75 redeploy
+  replaces `mcapAfterUsd` with `sqrtPriceAfter`; swap the mcap computation there.
+- **Candles** read only the requested range (`trades_token_ts`).
+- **Leaderboard** uses `trades(trader, ts)`.
+- **List cache.** `/coins`, `/leaderboard/*`, `/tier-breaks`, `/orders` are cached in-process for `LIST_CACHE_MS`
+  (default 5000; 0 disables), invalidated by any newly applied chunk, and sent with `Cache-Control: public, max-age=5, s-maxage=5`
+  for a CDN/proxy in front of the container.
+
 ## Reliability
 - **Atomic chunks.** Each `LOG_CHUNK` range does core-contract logs → decode any `Launched` in that batch → curve/token logs for known and new coins → one merged, (block, logIndex)-ordered SQLite transaction that also advances the cursor. A crash never half-applies a chunk, so balances are never double-counted.
 - **Reorgs.** The indexer stays `CONFIRMATIONS` behind head and stores the hash of each cursor block. On every pass it re-reads the cursor block. If the hash changed, that stack's derived rows are wiped and replayed from its start block. That takes ~15 s for v3 today; the RH testnet is an Arbitrum Orbit chain, so reorgs past the confirmation lag are very rare. Upgrade path for mainnet scale: per-block undo logs or Ponder.
 - **RPC limits.** A token-bucket limiter (`RPC_RPS`) covers all calls. Retries use exponential backoff with jitter, and 429s back off 4× longer. When a provider rejects a range ("block range"/"too many results"), getLogs splits it in half recursively down to `MIN_LOG_CHUNK`. Block timestamps are fetched 10 at a time and cached.
 
 ## Tests
-`npm test` runs 19 vitest cases on synthetic logs:
+`npm test` runs 29 vitest cases on synthetic logs:
 - spoofed emitters
 - trades and candles
 - counters
@@ -107,6 +120,7 @@ Old stacks never emit the new events, so a single union ABI decodes every stack.
 - adaptive getLogs splitting, 429 retry, the rate limiter
 - coins launched mid-chunk, idempotent re-sync, and reorg detection and rebuild against a fake chain
 - loading the web-bundle config
+- coin_stats aggregates vs the old join, idempotent re-sync, backfill migration, candle ranges, limit clamping, list cache
 
 ## Docker
 ```bash

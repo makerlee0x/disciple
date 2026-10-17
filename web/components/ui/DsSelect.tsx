@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import Icon from "@/components/icons/Icon";
 
 export type DsOption = { value: string; label: string; hint?: string };
 
@@ -42,7 +43,7 @@ export default function DsSelect({ value, options, onChange, ariaLabel, classNam
         aria-controls={id} aria-label={ariaLabel} onClick={() => setOpen((o) => !o)} onKeyDown={onKey}>
         <span className="ds-select-label">{cur ? cur.label : "—"}</span>
         {cur?.hint && <span className="ds-select-hint">{cur.hint}</span>}
-        <span className="ds-select-caret" aria-hidden>▾</span>
+        <span className="ds-select-caret" aria-hidden><Icon name="chevron-down" size={16} /></span>
       </button>
       {open && (
         <ul id={id} role="listbox" className="ds-select-menu">
@@ -50,7 +51,7 @@ export default function DsSelect({ value, options, onChange, ariaLabel, classNam
             <li key={o.value} role="option" aria-selected={o.value === value}
               className={`${o.value === value ? "sel" : ""} ${i === hi ? "hi" : ""}`}
               onMouseEnter={() => setHi(i)} onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}>
-              <span className="ds-select-check" aria-hidden>{o.value === value ? "✓" : ""}</span>
+              <span className="ds-select-check" aria-hidden>{o.value === value ? <Icon name="check" size={12} /> : ""}</span>
               <span className="ds-select-label">{o.label}</span>
               {o.hint && <span className="ds-select-hint">{o.hint}</span>}
             </li>

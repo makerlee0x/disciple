@@ -9,8 +9,9 @@ ROOT = os.path.dirname(HERE)
 src = open(os.path.join(ROOT, "lib/achievements.ts")).read()
 ach = re.findall(r'A\("([a-z0-9_]+)",\s*"[^"]*",\s*"[^"]*",\s*"([a-z]+)",\s*"([A-Z]+)"', src)
 
-RING = {"COMMON": ("#c9d2e6", "#7d879f"), "BLESSED": ("#bfe3ff", "#5f9fd6"),
-        "ANOINTED": ("#e3d4ff", "#9877d6"), "GLORIFIED": ("#fff1c4", "#d9a640"), "DIVINE": ("#ffffff", "#ffd060")}
+# Rarity scale (lib/config RARITY_SCALE) — shared with rocket parts, not the season-rank names.
+RING = {"COMMON": ("#c9d2e6", "#7d879f"), "RARE": ("#bfe3ff", "#5f9fd6"),
+        "EPIC": ("#e3d4ff", "#9877d6"), "LEGENDARY": ("#fff1c4", "#d9a640"), "MYTHIC": ("#ffffff", "#ffd060")}
 
 # Glyph primitives (64x64 canvas, centre 32,32). stroke = gold, fill = chrome/gold.
 ROCKET = '<path d="M32 12c7 6 9 15 8 25l-4 6h-8l-4-6c-1-10 1-19 8-25z" class="f"/><circle cx="32" cy="27" r="3.4" class="w"/><path d="M24 37l-6 7 7-1M40 37l6 7-7-1" class="s"/><path d="M29 45l3 7 3-7" class="flame"/>'
