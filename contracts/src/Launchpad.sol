@@ -229,7 +229,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (quote == address(0)) {
             if (defaultQuote == address(0)) revert DefaultQuoteUnset();
             quote = defaultQuote;
-        } else if (address(quoteProbe) != address(0)) {
+        }
+        // (f) every non-USDG base, the default included, gets the buy/transfer round-trip probe.
+        if (address(quoteProbe) != address(0)) {
             (IQuoteProbe.ProbeResult pr, string memory detail) = quoteProbe.probe(quote);
             if (pr == IQuoteProbe.ProbeResult.RejectHoneypot || pr == IQuoteProbe.ProbeResult.RejectFeeOnTransfer) {
                 revert QuoteRejected(detail);

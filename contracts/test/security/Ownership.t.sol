@@ -29,7 +29,7 @@ contract OwnershipTest is Test {
         c[1] = new FeeRouter(owner, makeAddr("treasury"), makeAddr("referrals"));
         c[2] = new Launchpad(owner, makeAddr("fr"), makeAddr("as"), makeAddr("mig"));
         c[3] = new Migration(owner, makeAddr("llp"), makeAddr("pm"), makeAddr("hook"));
-        c[4] = new QuoteProbe(owner);
+        c[4] = new QuoteProbe(owner, IPoolManager(address(0xBEEF)), address(usdg), address(pricer), 1e18);
         c[5] = pricer;
     }
 

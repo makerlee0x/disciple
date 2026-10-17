@@ -125,7 +125,6 @@ abstract contract IntegrationBase is Test {
 
         strategy = new MockUSDG(); // treat as STRATEGY
         // Rename via nothing — MockUSDG is fine as STRATEGY stand-in
-        quoteProbe = new QuoteProbe(owner);
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
@@ -136,9 +135,6 @@ abstract contract IntegrationBase is Test {
         rewardsVault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(rewardsVault));
         launchpad.setDefaultQuote(address(strategy));
-        launchpad.setQuoteProbe(address(quoteProbe));
-        quoteProbe.setAlwaysPass(address(strategy), true);
-        quoteProbe.setAlwaysPass(address(quote), true);
         vm.stopPrank();
 
         // Launch-time oracle: USDG ($1) + STRATEGY priced from a STRATEGY/USDG v4 pool at 1:1
@@ -147,6 +143,9 @@ abstract contract IntegrationBase is Test {
         refPoolQuoteSeed = quote.balanceOf(address(manager));
         vm.startPrank(owner);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
+        // Real round-trip probe ($1 of USDG); the default (strategy) is probed too, no allowlist.
+        quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), 1e18);
+        launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
         launchpad.setTrustedRouter(address(router), true);

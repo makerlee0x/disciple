@@ -209,9 +209,10 @@ contract Deploy is Script {
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");
 
-        QuoteProbe probe = new QuoteProbe(deployer);
-        probe.setAlwaysPass(o.defaultQuote, true);
-        probe.setAlwaysPass(o.usdg, true);
+        // Real round-trip probe through the pricer's base/USDG pool; probes the default base too (no allowlist).
+        QuoteProbe probe = new QuoteProbe(
+            deployer, manager, o.usdg, address(pricer), uint256(vm.envOr("PROBE_USDG", 10 ** uint256(pricer.usdgDecimals())))
+        );
 
         launchpad.setPricer(address(pricer));
         o.curveDeployer = address(new CurveDeployer());
