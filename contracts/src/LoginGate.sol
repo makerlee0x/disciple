@@ -20,6 +20,9 @@ contract LoginGate is EIP712 {
     /// @dev wallet => coin (address(0) = all coins) => unix expiry
     mapping(address => mapping(address => uint64)) internal _until;
 
+    /// @notice Max attestation lifetime (audit L2): a careless/compromised attester can't mint long sessions.
+    uint256 public constant MAX_TTL = 24 hours;
+    error TtlTooLong();
     error OnlyOwner();
     error BadSignature();
     error Expired();
@@ -68,6 +71,7 @@ contract LoginGate is EIP712 {
     /// @notice Record an attester-signed login. Permissionless submit; the signature binds the wallet.
     function attest(address wallet, uint64 expiry, address coin, bytes calldata sig) external {
         if (expiry <= block.timestamp) revert Expired();
+        if (expiry > block.timestamp + MAX_TTL) revert TtlTooLong(); // audit L2
         address a = attester;
         if (a == address(0) || ECDSA.recover(digest(wallet, expiry, coin), sig) != a) revert BadSignature();
         if (expiry > _until[wallet][coin]) _until[wallet][coin] = expiry;

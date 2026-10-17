@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {BondingCurve} from "./BondingCurve.sol";
+import {CurveMath} from "./libraries/CurveMath.sol";
 
 /// @title Deploys BondingCurve instances for the Launchpad (keeps Launchpad under EIP-170).
 /// @dev Permissionless: the deployed curve's `launchpad` is always msg.sender, so a curve deployed by anyone
@@ -15,10 +16,11 @@ contract CurveDeployer {
         address antiSnipe,
         address migration,
         uint256 creatorTaxBps,
-        uint256 quotePriceUsd,
+        CurveMath.Params calldata params,
         uint256 walletCapBps,
         uint8 mode,
-        address loginGate
+        address loginGate,
+        address trustedRouter
     ) external returns (address) {
         return address(
             new BondingCurve(
@@ -30,10 +32,11 @@ contract CurveDeployer {
                 antiSnipe,
                 migration,
                 creatorTaxBps,
-                quotePriceUsd,
+                params,
                 walletCapBps,
                 mode,
-                loginGate
+                loginGate,
+                trustedRouter
             )
         );
     }

@@ -10,9 +10,11 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
 
 /// @notice Bonding-curve game modes (contracts/docs/bonding-modes.md): PVE / PVP / TRENCH WARFARE.
 contract BondingModesTest is IntegrationBase {
+    using stdStorage for StdStorage;
     LoginGate gate;
     uint256 attesterPk = 0xA77E57;
     address alice = makeAddr("alice");
@@ -61,7 +63,7 @@ contract BondingModesTest is IntegrationBase {
     }
 
     function _verify(address w) internal {
-        uint64 exp = uint64(block.timestamp + 30 days);
+        uint64 exp = uint64(block.timestamp + 12 hours);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp, address(0)));
         gate.attest(w, exp, address(0), abi.encodePacked(r, s, v));
     }
@@ -454,5 +456,150 @@ contract BondingModesTest is IntegrationBase {
         vm.stopPrank();
         assertEq(c.balanceOnCurve(alice), 0);
         assertEq(c.balanceOnCurve(address(router)), 0);
+    }
+
+    // ── DISCIPLE audit Medium-1: PVE NET positions follow transfers ──
+
+    function _pveSetup() internal returns (BondingCurve c, Token t) {
+        (c, t) = _launchMode(Constants.MODE_PVE);
+        _open(8 minutes);
+        _verify(alice);
+        _verify(bob);
+        _verify(carol);
+        _verify(dave);
+    }
+
+    function test_pve_netFollowsTransfer_noPhantomRewards() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, carol, _quoteFor(c, ONE_PCT * 3 / 10));
+        _pump(c, 20_000);
+        uint256 aNet = c.balanceOnCurve(alice);
+        uint256 aCost = c.costBasisOf(alice);
+        uint256 tn = c.totalNet();
+        uint256 bal = t.balanceOf(alice);
+        vm.prank(alice);
+        t.transfer(bob, bal);
+        assertEq(c.balanceOnCurve(alice), 0, "sender NET moved");
+        assertEq(c.costBasisOf(alice), 0);
+        assertEq(c.balanceOnCurve(bob), aNet, "receiver NET");
+        assertEq(c.costBasisOf(bob), aCost, "cost basis follows");
+        assertEq(c.totalNet(), tn, "totalNet unchanged");
+        // bob sells at a profit (inherited basis) → tax goes to real holders, not to alice (0 tokens)
+        BondingCurve.SellQuote memory sq = c.quoteSellFor(bob, ONE_PCT * 4 / 10);
+        assertGt(sq.profitTax, 0);
+        _sellT(c, t, bob, ONE_PCT * 4 / 10);
+        assertEq(c.pendingRewards(alice), 0, "no phantom rewards for a 0-balance wallet");
+        assertGt(c.pendingRewards(carol), 0);
+        assertEq(c.pendingRewards(bob), 0, "seller excluded");
+    }
+
+    function test_pve_transferSettlesRewardsBothSides() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, carol, _quoteFor(c, ONE_PCT * 6 / 10));
+        _buyQ(c, dave, _quoteFor(c, ONE_PCT * 2 / 10));
+        _pump(c, 20_000);
+        _sellT(c, t, alice, ONE_PCT * 4 / 10); // taxed → carol + dave (+ pumpers) earn
+        uint256 cp = c.pendingRewards(carol);
+        uint256 dp = c.pendingRewards(dave);
+        assertGt(cp, 0);
+        uint256 half = t.balanceOf(carol) / 2;
+        vm.prank(carol);
+        t.transfer(dave, half);
+        assertEq(c.pendingRewards(carol), cp, "sender's earned rewards kept");
+        assertEq(c.pendingRewards(dave), dp, "receiver gets none of the past");
+        assertEq(c.rewardsHeld(), quote.balanceOf(address(c)) - c.quoteReserve(), "reward pool fully backed");
+    }
+
+    function test_pve_transferReceiverNetCap() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 5 / 10));
+        _buyQ(c, bob, _quoteFor(c, ONE_PCT * 9 / 10));
+        uint256 bal = t.balanceOf(alice);
+        vm.prank(alice);
+        vm.expectRevert(BondingCurve.WalletCap.selector);
+        t.transfer(bob, bal);
+        vm.prank(alice);
+        t.transfer(bob, ONE_PCT / 20); // stays under 1%
+    }
+
+    function test_pve_hooksOffAfterGraduation_trenchNoHooks() public {
+        (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
+        assertTrue(t.pveHooks());
+        assertEq(t.pveCurve(), address(c));
+        assertTrue(t.pveLive());
+        (, Token tt) = _launchMode(Constants.MODE_TRENCH);
+        assertFalse(tt.pveHooks());
+        assertEq(tt.pveCurve(), address(0));
+        vm.expectRevert(Token.OnlyCurve.selector);
+        t.endPveHooks();
+        vm.expectRevert(BondingCurve.OnlyToken.selector);
+        c.onTokenTransfer(alice, bob, 1);
+    }
+
+    // ── audit L1 / L2: login cache TTL + max attestation TTL ──
+
+    function test_pve_revokeBitesAfterCacheTtl() public {
+        (BondingCurve c,) = _pveSetup();
+        _buyQ(c, alice, 1 ether);
+        assertEq(c.verifiedUntilOf(alice), vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL, "capped cache");
+        vm.prank(owner);
+        gate.revoke(alice, address(0));
+        _buyQ(c, alice, 1 ether); // still cached
+        vm.warp(vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL);
+        vm.startPrank(alice);
+        quote.approve(address(c), 1 ether);
+        vm.expectRevert(BondingCurve.NotVerified.selector);
+        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
+        vm.stopPrank();
+    }
+
+    function test_loginGate_maxTtl() public {
+        uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours + 1);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(alice, exp, address(0)));
+        vm.expectRevert(LoginGate.TtlTooLong.selector);
+        gate.attest(alice, exp, address(0), abi.encodePacked(r, s, v));
+        exp = uint64(vm.getBlockTimestamp() + 24 hours);
+        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, exp, address(0)));
+        gate.attest(alice, exp, address(0), abi.encodePacked(r, s, v));
+    }
+
+    // ── audit L3: router prepaid amounts are balance-checked ──
+
+    function test_router_prepaidMustBeHere() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT / 2));
+        assertEq(c.trustedRouter(), address(router), "router snapshotted");
+        vm.startPrank(address(router));
+        vm.expectRevert(BondingCurve.NotPrepaid.selector);
+        c.routerBuy(bob, 10 ether, 0, vm.getBlockTimestamp() + 1, type(uint256).max);
+        vm.expectRevert(BondingCurve.NotPrepaid.selector);
+        c.routerSell(alice, 1e18, 0, vm.getBlockTimestamp() + 1, alice, type(uint256).max);
+        vm.stopPrank();
+        // honest prepay passes
+        vm.prank(bob);
+        quote.transfer(address(c), 10 ether);
+        vm.prank(address(router));
+        c.routerBuy(bob, 10 ether, 0, vm.getBlockTimestamp() + 1, type(uint256).max);
+        assertGt(t.balanceOf(bob), 0);
+    }
+
+    // ── audit L6: profit tax with no other NET holder → treasury immediately ──
+
+    function test_pve_soleHolderTaxToTreasury() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _pump(c, 20_000);
+        // white-box: make alice the only NET holder (pumpers' NET excluded) to reach the branch
+        stdstore.target(address(c)).sig("totalNet()").checked_write(c.balanceOnCurve(alice));
+        BondingCurve.SellQuote memory sq = c.quoteSellFor(alice, ONE_PCT * 4 / 10);
+        assertGt(sq.profitTax, 0);
+        uint256 tr0 = feeRouter.treasuryAccrued(address(quote));
+        uint256 acc0 = c.accRewardPerToken();
+        _sellT(c, t, alice, ONE_PCT * 4 / 10);
+        assertEq(c.accRewardPerToken(), acc0, "not folded into later holders");
+        assertEq(c.rewardsHeld(), 0);
+        assertGe(feeRouter.treasuryAccrued(address(quote)) - tr0, sq.profitTax, "tax accrued to treasury");
     }
 }

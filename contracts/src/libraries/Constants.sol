@@ -133,6 +133,8 @@ library Constants {
     uint256 internal constant PVE_MAX_SELL_BPS = 50; // 0.5% of supply per curve sell
     uint256 internal constant PVE_PROFIT_TRIGGER_BPS = 17_700; // exit price > avg cost * 1.77 (i.e. >77% profit)
     uint256 internal constant PVE_PROFIT_TAX_PPM = 7770; // 0.777% of the sell proceeds (ppm)
+    /// @dev Max age of a curve's cached LoginGate expiry (audit L1): a revoke takes effect within this window.
+    uint256 internal constant PVE_LOGIN_CACHE_TTL = 10 minutes;
     // PVP
     uint256 internal constant PVP_CAP_START_BPS = 400; // 4% NET cap at launch
     uint256 internal constant PVP_CAP_END_BPS = 1200; // 12% NET cap at graduation (linear in curve progress)

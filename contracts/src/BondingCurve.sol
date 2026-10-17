@@ -41,6 +41,10 @@ interface ILoginGate {
     function verifiedUntil(address wallet, address coin) external view returns (uint64);
 }
 
+interface IPveToken {
+    function endPveHooks() external;
+}
+
 interface IFeeRouterCurve {
     function routeCurveFees(
         address token,
@@ -81,6 +85,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     address public immutable loginGate;
     uint256 public immutable launchTime;
     uint256 public immutable launchBlock;
+    /// @notice Primary trusted router snapshotted at launch (gas: no Launchpad call on its trades). Other routers
+    ///         still go through Launchpad.isTrustedRouter.
+    address public immutable trustedRouter;
 
     CurveMath.Params private _params;
 
@@ -109,8 +116,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     uint256 public accRewardPerToken;
     /// @notice Sum of all NET curve positions (PVE only) — the accumulator denominator.
     uint256 public totalNet;
-    /// @notice Profit tax charged when no other holder existed; folded into the next distribution (→ treasury at grad).
-    uint256 public unallocatedTax;
+    /// @notice Quote held for PVE holder rewards (distributed, unclaimed). Curve quote balance >= quoteReserve +
+    ///         rewardsHeld; router prepaid amounts are checked on top of it (audit L3).
+    uint256 public rewardsHeld;
 
     error Graduated();
     error NotGraduated();
@@ -126,6 +134,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     error BuyTooLarge();
     error SellTooLarge();
     error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps);
+    error NotPrepaid();
+    error BadParams();
+    error OnlyToken();
 
     event ProfitTaxCharged(
         address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis
@@ -165,15 +176,16 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         address antiSnipe_,
         address migration_,
         uint256 creatorTaxBps_,
-        uint256 quotePriceUsd_,
+        CurveMath.Params memory params_, // CurveMath.makeParams(quotePriceUsd), computed by the Launchpad (size)
         uint256 walletCapBps_,
         uint8 mode_,
-        address loginGate_
+        address loginGate_,
+        address trustedRouter_
     ) {
-        require(mode_ <= Constants.MODE_PVP, "mode");
-        require(mode_ != Constants.MODE_PVE || loginGate_ != address(0), "gate");
-        require(walletCapBps_ <= Constants.BPS_DENOM, "cap");
-        require(creatorTaxBps_ <= Constants.CREATOR_TAX_MAX_BPS, "tax");
+        if (
+            mode_ > Constants.MODE_PVP || (mode_ == Constants.MODE_PVE && loginGate_ == address(0))
+                || walletCapBps_ > Constants.BPS_DENOM || creatorTaxBps_ > Constants.CREATOR_TAX_MAX_BPS
+        ) revert BadParams();
         token = token_;
         quote = quote_;
         creator = creator_;
@@ -182,14 +194,15 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         antiSnipe = IAntiSnipe(antiSnipe_);
         migration = IMigration(migration_);
         creatorTaxBps = creatorTaxBps_;
-        quotePriceUsd = quotePriceUsd_;
+        quotePriceUsd = params_.quotePriceUsd;
         walletCapBps = walletCapBps_;
         mode = mode_;
         loginGate = loginGate_;
         launchTime = block.timestamp;
         launchBlock = block.number;
+        trustedRouter = trustedRouter_;
 
-        _params = CurveMath.makeParams(quotePriceUsd_);
+        _params = params_;
     }
 
     // ───────────────────────────── views ─────────────────────────────
@@ -468,9 +481,24 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         external
         returns (uint256 tokensOut, uint256 refund)
     {
-        if (!ILaunchpadRouters(launchpad).isTrustedRouter(msg.sender)) revert NotRouter();
+        _onlyRouter();
         if (trader == address(0)) revert ZeroRecipient();
+        // audit L3: the prepaid quote must really be here, on top of the reserve and the PVE reward pool
+        _prepaid(quote, quoteIn);
         return _buy(address(0), trader, quoteIn, minTokensOut, deadline, false, maxImpactBps);
+    }
+
+    /// @dev audit L3: a router's prepaid `amount` must be on top of what the curve already owes (quote: reserve +
+    ///      PVE reward pool; token: unsold inventory).
+    function _prepaid(address asset, uint256 amount) internal view {
+        uint256 owed = asset == quote ? quoteReserve + rewardsHeld : Constants.TOTAL_SUPPLY - tokensSold;
+        if (IERC20(asset).balanceOf(address(this)) < owed + amount) revert NotPrepaid();
+    }
+
+    function _onlyRouter() internal view {
+        if (msg.sender != trustedRouter && !ILaunchpadRouters(launchpad).isTrustedRouter(msg.sender)) {
+            revert NotRouter();
+        }
     }
 
     /// @dev payer == address(0): quote was prepaid by a trusted router; refunds go to `trader`.
@@ -578,7 +606,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (a.verifiedUntil <= block.timestamp) {
             uint64 u = _gateUntil(trader);
             if (u <= block.timestamp) revert NotVerified();
-            a.verifiedUntil = u;
+            // audit L1: cache at most PVE_LOGIN_CACHE_TTL so a LoginGate revoke bites within 10 minutes
+            uint256 capT = block.timestamp + Constants.PVE_LOGIN_CACHE_TTL;
+            a.verifiedUntil = u > capT ? uint64(capT) : u;
         }
         uint256 acc = accRewardPerToken;
         if (acc != 0) {
@@ -650,8 +680,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         address recipient,
         uint256 maxImpactBps
     ) external returns (uint256 quoteOut) {
-        if (!ILaunchpadRouters(launchpad).isTrustedRouter(msg.sender)) revert NotRouter();
+        _onlyRouter();
         if (recipient == address(0) || trader == address(0)) revert ZeroRecipient();
+        // audit L3: the prepaid tokens must really be here, on top of the unsold curve inventory
+        _prepaid(token, tokensIn);
         return _sell(trader, recipient, tokensIn, minQuoteOut, deadline, false, maxImpactBps);
     }
 
@@ -727,18 +759,59 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 tn = totalNet - (bal - newBal);
         totalNet = tn;
         if (tax != 0) {
-            uint256 others = tn - newBal;
-            uint256 pool = tax + unallocatedTax;
-            if (others == 0) {
-                unallocatedTax = pool;
-            } else {
-                if (unallocatedTax != 0) unallocatedTax = 0;
-                acc += Math.mulDiv(pool, ACC_SCALE, others);
-                accRewardPerToken = acc;
-            }
+            acc = _distributeTax(tax, tn - newBal, acc);
             emit ProfitTaxCharged(token, seller, tax, gross, costPortion);
         }
         if (acc != 0) rewardDebt[seller] = Math.mulDiv(newBal, acc, ACC_SCALE);
+    }
+
+    /// @dev Tax over everyone else's NET (`others`); audit L6: nobody else holds → treasury now (not to whoever
+    ///      buys in later). Returns the new accumulator.
+    function _distributeTax(uint256 tax, uint256 others, uint256 acc) internal returns (uint256) {
+        if (others == 0) {
+            IERC20(quote).safeTransfer(address(feeRouter), tax);
+            IFeeRouterCurve(address(feeRouter)).accrueTreasury(quote, tax);
+            return acc;
+        }
+        acc += Math.mulDiv(tax, ACC_SCALE, others);
+        accRewardPerToken = acc;
+        rewardsHeld += tax;
+        return acc;
+    }
+
+    // ── PVE: NET positions follow transfers (DISCIPLE audit Medium-1) ──
+
+    /// @notice Called by the PVE token on pre-graduation wallet→wallet transfers (never for transfers to/from this
+    ///         curve). Moves min(amount, sender NET) of NET position, the cost basis pro rata, and settles both
+    ///         sides' rewards at the current accumulator first. The receiver's 1% NET cap applies. Transfers
+    ///         involving the snapshotted router are not booked (it never holds tokens between calls).
+    function onTokenTransfer(address from, address to, uint256 amount) external {
+        if (msg.sender != token) revert OnlyToken();
+        if (graduated) return;
+        address r = trustedRouter;
+        if (from == r || to == r) return;
+        uint256 fb = balanceOnCurve[from];
+        uint256 moved = amount < fb ? amount : fb;
+        if (moved == 0) return; // tokens beyond the NET position carry no NET / basis
+        uint256 tb = balanceOnCurve[to];
+        uint256 newFrom = fb - moved;
+        uint256 newTo = tb + moved;
+        if (newTo > netCapNow()) revert WalletCap();
+        uint256 acc = accRewardPerToken;
+        if (acc != 0) {
+            rewardsAccrued[from] += Math.mulDiv(fb, acc, ACC_SCALE) - rewardDebt[from];
+            if (tb != 0) rewardsAccrued[to] += Math.mulDiv(tb, acc, ACC_SCALE) - rewardDebt[to];
+            rewardDebt[from] = Math.mulDiv(newFrom, acc, ACC_SCALE);
+            rewardDebt[to] = Math.mulDiv(newTo, acc, ACC_SCALE);
+        }
+        uint128 cf = _acct[from].cost;
+        uint128 cm = moved == fb ? cf : uint128(Math.mulDiv(cf, moved, fb));
+        if (cm != 0) {
+            _acct[from].cost = cf - cm;
+            _acct[to].cost += cm;
+        }
+        balanceOnCurve[from] = newFrom;
+        balanceOnCurve[to] = newTo;
     }
 
     // ── PVE holder rewards ──
@@ -760,6 +833,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (amount == 0) revert ZeroAmount();
         rewardsAccrued[holder] = 0;
         rewardDebt[holder] = Math.mulDiv(balanceOnCurve[holder], accRewardPerToken, ACC_SCALE);
+        uint256 held = rewardsHeld;
+        rewardsHeld = held > amount ? held - amount : 0;
         IERC20(quote).safeTransfer(holder, amount);
         emit HolderRewardsClaimed(token, holder, amount);
     }
@@ -793,13 +868,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         bytes32 poolId = migration.migrate(token, quote, tokenLiq, quoteLiq, sqrtPriceX96);
         quoteReserve = 0;
 
-        // PVE: holder rewards stay here, claimable forever. Tax that never found another holder → treasury.
-        uint256 un = unallocatedTax;
-        if (un != 0) {
-            unallocatedTax = 0;
-            IERC20(quote).safeTransfer(address(feeRouter), un);
-            IFeeRouterCurve(address(feeRouter)).accrueTreasury(quote, un);
-        }
+        // PVE: holder rewards stay here, claimable forever; NET positions freeze (token stops notifying).
+        if (mode == Constants.MODE_PVE) IPveToken(token).endPveHooks();
 
         emit GraduatedToV4(token, poolId, tokenLiq, quoteLiq);
     }

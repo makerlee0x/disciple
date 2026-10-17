@@ -220,7 +220,7 @@ contract GasBenchModes is IntegrationBase {
     function _w(string memory n, BondingCurve c, Token t) internal returns (address w) {
         w = makeAddr(n);
         quote.mint(w, 100_000 ether);
-        uint64 exp = uint64(block.timestamp + 30 days);
+        uint64 exp = uint64(block.timestamp + 12 hours);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(w, exp, address(0)));
         gate.attest(w, exp, address(0), abi.encodePacked(r, s, v));
         vm.startPrank(w);

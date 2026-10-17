@@ -66,6 +66,10 @@ contract Launchpad is ILaunchpad {
 
     /// @notice Routers allowed to call curve.routerBuy / routerSell on behalf of a trader (owner-managed).
     mapping(address => bool) public isTrustedRouter;
+    /// @notice Primary router, snapshotted into each NEW curve as an immutable (gas: no external call per router
+    ///         trade). Set by setTrustedRouter(r, true); cleared when that router is untrusted. Existing curves keep
+    ///         trusting their snapshot (documented; prepaid amounts are balance-checked by the curve).
+    address public curveRouter;
     /// @notice PVE LoginGate (EIP-712 Privy-login attestations). Required to launch PVE coins; snapshotted per coin.
     address public loginGate;
     /// @notice Game mode per coin (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP), immutable.
@@ -151,6 +155,8 @@ contract Launchpad is ILaunchpad {
     function setTrustedRouter(address r, bool ok) external {
         if (msg.sender != owner) revert OnlyOwner();
         isTrustedRouter[r] = ok;
+        if (ok) curveRouter = r;
+        else if (curveRouter == r) curveRouter = address(0);
         emit TrustedRouterSet(r, ok);
     }
 
@@ -217,7 +223,9 @@ contract Launchpad is ILaunchpad {
             }
         }
 
-        Token t = new Token(params.name, params.ticker, msg.sender, address(this), address(this));
+        Token t = new Token(
+            params.name, params.ticker, msg.sender, address(this), address(this), mode == Constants.MODE_PVE
+        );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
         if (address(pricer) == address(0)) revert PricerUnset();
@@ -236,13 +244,15 @@ contract Launchpad is ILaunchpad {
                 antiSnipe,
                 migration,
                 params.creatorTaxBps,
-                quotePriceUsd,
+                CurveMath.makeParams(quotePriceUsd),
                 wcap,
                 mode,
-                gate
+                gate,
+                curveRouter
             )
         );
 
+        if (mode == Constants.MODE_PVE) t.setPveCurve(address(curve));
         IERC20(address(t)).safeTransfer(address(curve), Constants.TOTAL_SUPPLY);
 
         AntiSnipe(antiSnipe).registerLaunch(address(t));
