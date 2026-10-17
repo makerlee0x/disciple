@@ -1,12 +1,14 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { CURVE, fmtUsd, gradProgress, verifiedLevel } from "@/lib/config";
+import { CURVE, fmtUsd, gradProgress } from "@/lib/config";
+import { isRocketVerified } from "@/lib/verified";
 import VerifiedBadge from "@/components/VerifiedBadge";
 import PairArt from "@/components/pairart/PairArt";
 import { BASE_PAIRS, basePair } from "@/lib/pairArt";
 import DsSelect from "@/components/ui/DsSelect";
 import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
+import Icon from "@/components/icons/Icon";
 
 type Tab = "altitude" | "new" | "active" | "near" | "graduated";
 const TABS: { k: Tab; label: string; hint: string }[] = [
@@ -14,7 +16,7 @@ const TABS: { k: Tab; label: string; hint: string }[] = [
   { k: "new", label: "New", hint: "Freshest launches" },
   { k: "active", label: "Active", hint: "Most 24h volume" },
   { k: "near", label: "Near orbit", hint: "≥60% of the way to graduation" },
-  { k: "graduated", label: "Graduated", hint: "Past the Pearly Gates" },
+  { k: "graduated", label: "Graduated", hint: "Past Outer Space" },
 ];
 const PAIRS = [
   { value: "any", label: "Any pair" },
@@ -27,7 +29,7 @@ const VIEW_KEY = "disciple.launchpad.view";
 const WATCH_KEY = "disciple.watchlist";
 
 const isGrad = (c: Rocket) => c.graduated || (c.mcap != null && c.mcap >= CURVE.graduationMcap);
-const tierOf = (c: Rocket) => verifiedLevel({ ...c.stats, mcapUsd: c.mcap ?? 0 });
+const verOf = (c: Rocket) => isRocketVerified(c);
 
 function useWatchlist() {
   const [w, setW] = useState<Set<string>>(new Set());
@@ -44,7 +46,7 @@ function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
   return (
     <span className="lp-av2">
       <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size={size <= 32 ? "icon" : "list"} px={size} />
-      <span className="lp-av-check"><VerifiedBadge tier={tierOf(c)} size={13} /></span>
+      {verOf(c) && <span className="lp-av-check"><VerifiedBadge verified size={13} /></span>}
     </span>
   );
 }
@@ -52,13 +54,13 @@ function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
 const Spark = memo(function Spark({ seed, chg, w = 96, h = 26 }: { seed?: number; chg: number | null; w?: number; h?: number }) {
   const pts = sparkPoints(seed, chg);
   const d = pts.map((p, i) => `${((i / (pts.length - 1)) * w).toFixed(1)},${(h - 2 - p * (h - 4)).toFixed(1)}`).join(" ");
-  const col = seed == null ? "rgba(220,228,255,.35)" : (chg ?? 0) >= 0 ? "#8ff0c0" : "#ff9fb8";
+  const col = seed == null ? "rgba(232,234,238,.35)" : (chg ?? 0) >= 0 ? "#8ff0c0" : "#ff9fb8";
   return <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="lp-spark"><polyline points={d} fill="none" stroke={col} strokeWidth="1.6" strokeLinejoin="round" /></svg>;
 });
 
 function Chg({ v }: { v: number | null }) {
   if (v == null) return <span className="lp-dim">—</span>;
-  return <span className={v >= 0 ? "lp-up" : "lp-down"}>{v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}%</span>;
+  return <span className={v >= 0 ? "lp-up" : "lp-down"}><Icon name={v >= 0 ? "arrow-up" : "arrow-down"} size={12} style={{ verticalAlign: -1 }} /> {Math.abs(v).toFixed(1)}%</span>;
 }
 
 function Tag({ c }: { c: Rocket }) {
@@ -68,7 +70,7 @@ function Tag({ c }: { c: Rocket }) {
 function Star({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button type="button" className={"lp-star" + (on ? " on" : "")} aria-pressed={on} aria-label={on ? "Remove from watchlist" : "Add to watchlist"}
-      onClick={(e) => { e.stopPropagation(); onClick(); }} onKeyDown={(e) => e.stopPropagation()}>{on ? "★" : "☆"}</button>
+      onClick={(e) => { e.stopPropagation(); onClick(); }} onKeyDown={(e) => e.stopPropagation()}><Icon name={on ? "star-filled" : "star"} size={16} /></button>
   );
 }
 
@@ -81,8 +83,8 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
         <h2>Trending</h2>
         <span className="lp-dim">by 24h volume</span>
         <div className="lp-arrows">
-          <button type="button" className="ds-btn" aria-label="Previous" onClick={() => by(-1)}>‹</button>
-          <button type="button" className="ds-btn" aria-label="Next" onClick={() => by(1)}>›</button>
+          <button type="button" className="ds-btn" aria-label="Previous" onClick={() => by(-1)}><Icon name="chevron-left" size={16} /></button>
+          <button type="button" className="ds-btn" aria-label="Next" onClick={() => by(1)}><Icon name="chevron-right" size={16} /></button>
         </div>
       </div>
       <div className="lp-trend-row" ref={ref}>
@@ -93,7 +95,7 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
             </span>
-            <span className="lp-tname">{c.name} <VerifiedBadge tier={tierOf(c)} size={13} /></span>
+            <span className="lp-tname">{c.name} <VerifiedBadge verified={verOf(c)} size={13} /></span>
             <span className="lp-tmeta"><b>${c.tk}</b></span>
             <span className="lp-tmeta"><b className="lp-mc">{c.mcap ? fmtUsd(c.mcap) : "…"}</b> <Chg v={c.chg} /></span>
           </button>
@@ -136,11 +138,11 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
       <div className="lp-card-art"><PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
-        <div className="lp-card-name">{c.name} <VerifiedBadge tier={tierOf(c)} size={14} /></div>
+        <div className="lp-card-name">{c.name} <VerifiedBadge verified={verOf(c)} size={14} /></div>
         <div className="lp-card-sub">${c.tk} · {c.pairSym ?? "STRATEGY"} · {c.stats.holders} crew</div>
         <div className="lp-card-mc">{c.mcap ? fmtUsd(c.mcap) : "…"} <Chg v={c.chg} /></div>
         <i className="lp-bar"><i style={{ width: `${grad ? 100 : p || 0}%` }} /></i>
-        <div className="lp-card-sub">{grad ? "GRADUATED · past the Pearly Gates" : p == null ? "…" : `${p.toFixed(0)}% to orbit`}</div>
+        <div className="lp-card-sub">{grad ? "GRADUATED · past Outer Space" : p == null ? "…" : `${p.toFixed(0)}% to orbit`}</div>
       </div>
     </div>
   );
@@ -158,11 +160,11 @@ function Rail({ coins, watch, onPick }: { coins: Rocket[]; watch: Set<string>; o
   return (
     <aside className="lp-rail" aria-label="Quick lists">
       <div className="ds-seg">
-        {([["trending", "Rising"], ["held", "Most crewed"], ["watch", "★ Watchlist"]] as const).map(([k, l]) => (
-          <button key={k} type="button" className={t === k ? "on" : ""} onClick={() => setT(k)}>{l}</button>
+        {([["trending", "Rising"], ["held", "Most crewed"], ["watch", "Watchlist"]] as const).map(([k, l]) => (
+          <button key={k} type="button" className={t === k ? "on" : ""} onClick={() => setT(k)}>{k === "watch" ? <span style={{ whiteSpace: "nowrap" }}><Icon name="star-filled" size={12} style={{ verticalAlign: -1 }} /> {l}</span> : l}</button>
         ))}
       </div>
-      {list.length === 0 && <p className="lp-dim" style={{ fontSize: 12, padding: "8px 4px" }}>Star a rocket (☆) to keep it here.</p>}
+      {list.length === 0 && <p className="lp-dim" style={{ fontSize: 12, padding: "8px 4px" }}>Star a rocket (<Icon name="star" size={12} style={{ verticalAlign: -1 }} label="star" />) to keep it here.</p>}
       {list.map((c) => (
         <button key={c.id} type="button" className="lp-rrow" onClick={() => onPick(c)}>
           <Avatar c={c} size={32} />
@@ -174,12 +176,20 @@ function Rail({ coins, watch, onPick }: { coins: Rocket[]; watch: Set<string>; o
   );
 }
 
-export default function Launchpad({ coins, onPick, defaultVerified }: { coins: Rocket[]; onPick: (c: Rocket) => void; defaultVerified: "all" | "verified" }) {
-  const [tab, setTab] = useState<Tab>("altitude");
+export default function Launchpad({ coins, onPick, defaultVerified, defaultTab = "altitude", defaultView = "list", showTrending = true }: {
+  coins: Rocket[]; onPick: (c: Rocket) => void; defaultVerified: "all" | "verified";
+  /** initial sort tab (app home: "new") */
+  defaultTab?: Tab;
+  /** initial view when the visitor has no saved choice */
+  defaultView?: "list" | "grid";
+  /** the in-feed Trending carousel (app home: off, the trending hero + Next trending strip replace it) */
+  showTrending?: boolean;
+}) {
+  const [tab, setTab] = useState<Tab>(defaultTab);
   const [pair, setPair] = useState("any");
   const [q, setQ] = useState("");
   const [verified, setVerified] = useState(defaultVerified);
-  const [view, setView] = useState<"list" | "grid">("list");
+  const [view, setView] = useState<"list" | "grid">(defaultView);
   const [shown, setShown] = useState(CHUNK);
   const [watch, toggleWatch] = useWatchlist();
   const sentinel = useRef<HTMLDivElement>(null);
@@ -195,7 +205,7 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
     let r = visible.filter((c) => {
       if (pair !== "any" && baseOf(c) !== pair) return false;
       if (needle && !(c.name.toLowerCase().includes(needle) || c.tk.toLowerCase().includes(needle) || c.id.toLowerCase().includes(needle))) return false;
-      if (verified === "verified" && tierOf(c).level === "UNVERIFIED") return false;
+      if (verified === "verified" && !verOf(c)) return false;
       if (tab === "graduated") return isGrad(c);
       if (tab === "near") { const p = gradProgress(c.mcap); return !isGrad(c) && p != null && p >= 60; }
       return true;
@@ -223,7 +233,7 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
 
   return (
     <div className="lp">
-      <Carousel items={trending} onPick={onPick} />
+      {showTrending && <Carousel items={trending} onPick={onPick} />}
       <div className="lp-body">
         <div className="lp-main">
           <div className="lp-bar-top">
@@ -235,10 +245,10 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
             <div className="lp-tools">
               <input className="ds-input lp-search" type="search" placeholder="Search name, $TICKER or 0x…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search rockets" />
               <DsSelect value={pair} options={PAIRS} onChange={setPair} ariaLabel="Pair filter" className="lp-pair" />
-              <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} onClick={() => setVerified(verified === "verified" ? "all" : "verified")}>✓ Verified</button>
+              <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} title="Show hand-verified rockets only" onClick={() => setVerified(verified === "verified" ? "all" : "verified")}><Icon name="verified" size={16} /> Verified</button>
               <div className="ds-seg lp-view" role="group" aria-label="View">
-                <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")} title="List">☰</button>
-                <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} onClick={() => pickView("grid")} title="Grid">▦</button>
+                <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")} title="List" aria-label="List"><Icon name="menu" size={16} /></button>
+                <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} onClick={() => pickView("grid")} title="Grid" aria-label="Grid"><Icon name="grid" size={16} /></button>
               </div>
             </div>
           </div>

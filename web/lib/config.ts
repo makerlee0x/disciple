@@ -24,7 +24,8 @@ export const CURVE = {
   soldPctAtGrad: 72,
   totalSupply: 7_000_000_000,
   decimals: 18,
-  walletCapPct: 7,
+  /** wallet cap = Launchpad default Constants.WALLET_CAP_BPS_DEFAULT = 0 (no cap): live, paper and SIMULATOR alike */
+  walletCapDefaultBps: 0,
   tradeFeeBps: 100, // 1%
   creatorTaxMaxPct: 7,
   antiSnipeStartPct: 77.7,
@@ -34,33 +35,37 @@ export const CURVE = {
 /** 18-tier biblically ascending ladder (constitution LOCKED 2026-10-15) */
 export const TIERS = [
   { name: "LAUNCH PAD", lo: 7e3, hi: 12e3, bg: "tier0" },
-  { name: "LIMBO", lo: 12e3, hi: 18e3, bg: "tier1" },
-  { name: "ASCENSION", lo: 18e3, hi: 25e3, bg: "tier2" },
-  { name: "NARROW GATE", lo: 25e3, hi: 33e3, bg: "tier3" },
-  { name: "PEARLY GATES", lo: 33e3, hi: 55e3, bg: "tier4" },
+  { name: "OZONE", lo: 12e3, hi: 18e3, bg: "tier1" },
+  { name: "STRATOSPHERE", lo: 18e3, hi: 25e3, bg: "tier2" },
+  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33e3, bg: "tier3" },
+  { name: "OUTER SPACE", lo: 33e3, hi: 55e3, bg: "tier4" },
   { name: "FIRMAMENT", lo: 55e3, hi: 100e3, bg: "tier5" },
-  { name: "ANGELS", lo: 100e3, hi: 333e3, bg: "tier6" },
-  { name: "ARCHANGELS", lo: 333e3, hi: 777e3, bg: "tier7" },
-  { name: "HEAVENLY HOST", lo: 777e3, hi: 1.2e6, bg: "tier8" },
-  { name: "MORNING STARS", lo: 1.2e6, hi: 3.3e6, bg: "tier9" },
-  { name: "VIRTUES", lo: 3.3e6, hi: 7.7e6, bg: "tier0" },
-  { name: "DOMINIONS", lo: 7.7e6, hi: 33e6, bg: "tier1" },
-  { name: "THRONE ROOM", lo: 33e6, hi: 77e6, bg: "tier2" },
-  { name: "CHERUBIM", lo: 77e6, hi: 120e6, bg: "tier3" },
-  { name: "SERAPHIM", lo: 120e6, hi: 777e6, bg: "tier4" },
-  { name: "AETHER", lo: 777e6, hi: 1.2e9, bg: "tier5" },
-  { name: "EMPYREAN", lo: 1.2e9, hi: 3.3e9, bg: "tier6" },
-  { name: "SEVENTH HEAVEN", lo: 3.3e9, hi: 7.77e9, bg: "tier7" },
+  { name: "MORNING STARS", lo: 100e3, hi: 333e3, bg: "tier6" },
+  { name: "HEAVENLY HOST", lo: 333e3, hi: 777e3, bg: "tier7" },
+  { name: "THE MOON", lo: 777e3, hi: 1.2e6, bg: "tier8" },
+  { name: "URANUS", lo: 1.2e6, hi: 3.3e6, bg: "tier9" },
+  { name: "LIMBO", lo: 3.3e6, hi: 7.7e6, bg: "tier10" },
+  { name: "GATES OF HEAVEN", lo: 7.7e6, hi: 33e6, bg: "tier11" },
+  { name: "THRONE ROOM", lo: 33e6, hi: 77e6, bg: "tier12" },
+  { name: "CHERUBIM", lo: 77e6, hi: 120e6, bg: "tier13" },
+  { name: "SERAPHIM", lo: 120e6, hi: 777e6, bg: "tier14" },
+  { name: "AETHER", lo: 777e6, hi: 1.2e9, bg: "tier15" },
+  { name: "EMPYREAN", lo: 1.2e9, hi: 3.3e9, bg: "tier16" },
+  { name: "SEVENTH HEAVEN", lo: 3.3e9, hi: 7.77e9, bg: "tier17" },
 ] as const;
 
 export const MODES = [
   { key: "1", name: "FEATHER", usd: 0.01, range: "swarm label" },
   { key: "2", name: "EMBER", usd: 0.5, range: "swarm label" },
-  { key: "3", name: "FLARE", usd: 5, range: "Launch Pad–Narrow Gate" },
-  { key: "4", name: "COMET", usd: 10, range: "Pearly Gates–Angels" },
-  { key: "5", name: "ARCHANGEL", usd: 100, range: "Angels–Virtues" },
-  { key: "6", name: "GLORY", usd: 1000, range: "≥$33M (Dominions+)" },
+  { key: "3", name: "FLARE", usd: 5, range: "Launch Pad–Kármán Line" },
+  { key: "4", name: "COMET", usd: 10, range: "Outer Space–Morning Stars" },
+  { key: "5", name: "ARCHANGEL", usd: 100, range: "Morning Stars–Limbo" },
+  { key: "6", name: "GLORY", usd: 1000, range: "≥$33M (Gates of Heaven+)" },
 ] as const;
+
+/** Tramps & walls: off-chain points per $1 of FILLED order size, rounded down. Awarded only when the order is filled
+ *  (keeper close after a full cross); cancelled or partly filled orders earn 0. Live, paper/mock and SIMULATOR. */
+export const TRAMP_WALL_POINTS_PER_USD = 1;
 
 /** Sell bomb tiers by price impact % (constitution LOCKED) */
 export const BOMB_PCT = {
@@ -72,7 +77,7 @@ export const BOMB_PCT = {
 } as const;
 
 export const BOMB_TIERS = [
-  { k: "puff", name: "BRAKE", min: 0 },
+  { k: "puff", name: "PUFF", min: 0 },
   { k: "grenade", name: "GRENADE", min: BOMB_PCT.GRENADE },
   { k: "bunker", name: "BUNKER BUSTER", min: BOMB_PCT.BUNKER },
   { k: "cruise", name: "CRUISE MISSILE", min: BOMB_PCT.CRUISE },
@@ -146,55 +151,11 @@ export const QUOTE_PRESETS = [
 ] as const;
 
 /* ------------------------------------------------------------------ */
-/* Verified tiers (modelled on fomo's blue-check minimums)             */
+/* Verification: manual yes/no flag (see lib/verified.ts)              */
 /* ------------------------------------------------------------------ */
-/*
- * fomo blue check (per fomotrendings.com/tools/fomo-token-verification-checker,
- * describing fomo.family/verify-token): ≥$1M 24h DEX volume, ≥$5M mcap,
- * ≥1,000 holders, unique name+symbol, then manual review.
- * fomo publishes NO token-age or liquidity minimum that we could find → our
- * age/liquidity numbers below are DISCIPLE proposals, marked UNVERIFIED.
- */
-export type VerifiedLevel = "UNVERIFIED" | "BLESSED" | "ANOINTED" | "GLORIFIED";
+/* No automatic tiers or metric thresholds: the team verifies rockets by hand. */
 
-export interface VerifiedTierRule {
-  level: VerifiedLevel;
-  label: string;
-  icon: string;
-  minVolume24hUsd: number;
-  minAgeHours: number;
-  minHolders: number;
-  minLiquidityUsd: number;
-  minMcapUsd: number;
-  /** Which numbers trace to a fomo source vs. our own guess. */
-  provenance: string;
-}
-
-export const VERIFIED_TIERS: readonly VerifiedTierRule[] = [
-  {
-    level: "UNVERIFIED", label: "Unverified", icon: "○",
-    minVolume24hUsd: 0, minAgeHours: 0, minHolders: 0, minLiquidityUsd: 0, minMcapUsd: 0,
-    provenance: "default",
-  },
-  {
-    // Scaled for a $7K→$33K curve: fomo's bar would exclude every pre-grad rocket.
-    level: "BLESSED", label: "Blessed", icon: "✦",
-    minVolume24hUsd: 10_000, minAgeHours: 24, minHolders: 100, minLiquidityUsd: 5_000, minMcapUsd: 33_000,
-    provenance: "DISCIPLE proposal (UNVERIFIED vs fomo; ~1/100 of fomo volume, 1/10 holders; mcap = graduation)",
-  },
-  {
-    level: "ANOINTED", label: "Anointed", icon: "✶",
-    minVolume24hUsd: 100_000, minAgeHours: 72, minHolders: 500, minLiquidityUsd: 50_000, minMcapUsd: 1_000_000,
-    provenance: "DISCIPLE proposal (age/liquidity UNVERIFIED)",
-  },
-  {
-    // Matches fomo's blue check on volume / mcap / holders.
-    level: "GLORIFIED", label: "Glorified", icon: "☀",
-    minVolume24hUsd: 1_000_000, minAgeHours: 168, minHolders: 1_000, minLiquidityUsd: 250_000, minMcapUsd: 5_000_000,
-    provenance: "volume/mcap/holders = fomo blue check; age/liquidity UNVERIFIED",
-  },
-] as const;
-
+/** Per-rocket market stats (display / sorting only; they do NOT drive verification). */
 export interface RocketStats {
   volume24hUsd: number;
   ageHours: number;
@@ -203,21 +164,7 @@ export interface RocketStats {
   mcapUsd: number;
 }
 
-export function verifiedLevel(s: RocketStats): VerifiedTierRule {
-  let best = VERIFIED_TIERS[0];
-  for (const t of VERIFIED_TIERS)
-    if (
-      s.volume24hUsd >= t.minVolume24hUsd &&
-      s.ageHours >= t.minAgeHours &&
-      s.holders >= t.minHolders &&
-      s.liquidityUsd >= t.minLiquidityUsd &&
-      s.mcapUsd >= t.minMcapUsd
-    )
-      best = t;
-  return best;
-}
-
-/** fomo shows all tokens by default with a "verified" filter → default "all". */
+/** Launchpad shows all rockets by default, with a "Verified" (hand-verified only) filter → default "all". */
 export const LAUNCHPAD_DEFAULT_FILTER: "all" | "verified" = "all";
 
 /** Next unlock reward per altitude tier index (PvE crew rewards; mock copy). */
@@ -299,11 +246,11 @@ export const SEASON_RANKS: readonly {
 }[] = [
   { tier: "UNRANKED", label: "Unranked", minPoints: 0, border: "rgba(180,190,220,0.35)" },
   { tier: "NOVICE", label: "Novice", minPoints: 100, border: "rgba(200,210,230,0.55)" },
-  { tier: "ASCENDANT", label: "Ascendant", minPoints: 500, border: "rgba(140,200,255,0.7)" },
-  { tier: "BLESSED", label: "Blessed", minPoints: 2_000, border: "#ffe7a3" },
-  { tier: "ANOINTED", label: "Anointed", minPoints: 8_000, border: "#c9b6f2" },
-  { tier: "GLORIFIED", label: "Glorified", minPoints: 25_000, border: "#ffd060" },
-  { tier: "DIVINE", label: "Divine", minPoints: 80_000, border: "#fff7df" },
+  { tier: "ASCENDANT", label: "Ascendant", minPoints: 500, border: "rgba(133,176,214,0.8)" },
+  { tier: "BLESSED", label: "Blessed", minPoints: 2_000, border: "#67C1BB" },
+  { tier: "ANOINTED", label: "Anointed", minPoints: 8_000, border: "#C9A8DC" },
+  { tier: "GLORIFIED", label: "Glorified", minPoints: 25_000, border: "#E5875A" },
+  { tier: "DIVINE", label: "Divine", minPoints: 80_000, border: "#DA8B9F" },
 ] as const;
 
 export function seasonRank(points: number) {
@@ -374,17 +321,47 @@ export const IDENTITY_THRESHOLDS = {
 /* ------------------------------------------------------------------ */
 /* Achievement rarity frames                                           */
 /* ------------------------------------------------------------------ */
-export type AchievementRarity = "COMMON" | "BLESSED" | "ANOINTED" | "GLORIFIED" | "DIVINE";
+/**
+ * One rarity scale shared by achievements and rocket parts (cosmetics) — deliberately NOT the
+ * season-rank names (Blessed/Anointed/Glorified/Divine stay on SEASON_RANKS only).
+ * Lowest → highest.
+ */
+export const RARITY_SCALE = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"] as const;
+export type Rarity = (typeof RARITY_SCALE)[number];
+export type AchievementRarity = Rarity;
+
+/**
+ * Legacy rarity keys (pre-rename, borrowed from season ranks) → current keys. Kept so any stored /
+ * cached / API payload that still carries the old key (e.g. topBadges[].rarity) resolves cleanly.
+ */
+export const LEGACY_RARITY_ALIASES: Readonly<Record<string, Rarity>> = {
+  BLESSED: "RARE",
+  ANOINTED: "EPIC",
+  GLORIFIED: "LEGENDARY",
+  DIVINE: "MYTHIC",
+};
+
+/** Accepts a current or legacy rarity key (any case); unknown values fall back to COMMON. */
+export function normalizeRarity(r: string | null | undefined): Rarity {
+  const k = String(r ?? "").toUpperCase();
+  if ((RARITY_SCALE as readonly string[]).includes(k)) return k as Rarity;
+  return LEGACY_RARITY_ALIASES[k] ?? "COMMON";
+}
+
+/** 0 (COMMON) … 4 (MYTHIC); legacy keys are normalized first. */
+export function rarityRank(r: string): number {
+  return RARITY_SCALE.indexOf(normalizeRarity(r));
+}
 
 export const ACHIEVEMENT_RARITY: Record<
-  AchievementRarity,
+  Rarity,
   { label: string; border: string; glow: string }
 > = {
   COMMON: { label: "Common", border: "rgba(180,190,220,0.45)", glow: "rgba(180,190,220,0.15)" },
-  BLESSED: { label: "Blessed", border: "#ffe7a3", glow: "rgba(255,231,163,0.35)" },
-  ANOINTED: { label: "Anointed", border: "#c9b6f2", glow: "rgba(201,182,242,0.4)" },
-  GLORIFIED: { label: "Glorified", border: "#ffd060", glow: "rgba(255,208,96,0.45)" },
-  DIVINE: { label: "Divine", border: "#fff7df", glow: "rgba(255,247,223,0.55)" },
+  RARE: { label: "Rare", border: "#67C1BB", glow: "rgba(103,193,187,0.30)" },
+  EPIC: { label: "Epic", border: "#C9A8DC", glow: "rgba(201,168,220,0.32)" },
+  LEGENDARY: { label: "Legendary", border: "#E5875A", glow: "rgba(229,135,90,0.35)" },
+  MYTHIC: { label: "Mythic", border: "#DA8B9F", glow: "rgba(218,139,159,0.40)" },
 };
 
 export const SEASON_PASS = {

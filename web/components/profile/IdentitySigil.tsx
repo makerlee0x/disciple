@@ -3,7 +3,7 @@ import { IDENTITIES } from "@/lib/identity";
 
 /** Color + glyph per CT identity (angel/heaven palette). */
 export const SIGIL: Record<IdentityId, { color: string; glyph: string }> = {
-  believer: { color: "#ffe7a3", glyph: "halo" },
+  believer: { color: "#C9CED6", glyph: "halo" },
   trencher: { color: "#9ff3c8", glyph: "bolt" },
   sniper: { color: "#7dffa0", glyph: "target" },
   diamond_hands: { color: "#9fd0ff", glyph: "gem" },
@@ -15,13 +15,13 @@ export const SIGIL: Record<IdentityId, { color: string; glyph: string }> = {
   jeet: { color: "#ffb37e", glyph: "down" },
   bomber: { color: "#ff6b6b", glyph: "flame" },
   nuker: { color: "#ff4d6d", glyph: "flame" },
-  crew_captain: { color: "#ffd060", glyph: "crown" },
-  gate_keeper: { color: "#fff7df", glyph: "gate" },
+  crew_captain: { color: "#FF7A3D", glyph: "crown" },
+  gate_keeper: { color: "#E8EAEE", glyph: "gate" },
   dev_supporter: { color: "#c9b6f2", glyph: "star" },
-  launcher: { color: "#ffd98a", glyph: "rocket" },
-  kingmaker: { color: "#ffd060", glyph: "crown" },
+  launcher: { color: "#FF7A3D", glyph: "rocket" },
+  kingmaker: { color: "#FF7A3D", glyph: "crown" },
   farmer: { color: "#b5e48c", glyph: "wheat" },
-  smart_money: { color: "#fff7df", glyph: "wings" },
+  smart_money: { color: "#E8EAEE", glyph: "wings" },
 };
 
 export function identityLabel(id: IdentityId): string {

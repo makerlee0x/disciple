@@ -17,7 +17,7 @@ export function recommendedPairs(): PairOption[] {
   const strat = (d.defaultQuote && d.defaultQuote !== ZERO ? d.defaultQuote : STRATEGY_TOKEN.address) as Address;
   out.push({
     symbol: "STRATEGY", name: testnet ? "Strategy Coin (test)" : "Strategy Coin", address: strat,
-    note: "Default pair · launchpad default quote", recommended: true, tint: "#ffe7a3",
+    note: "Default pair · launchpad default quote", recommended: true, tint: "#C9CED6",
   });
   if (d.usdg && d.usdg !== ZERO) {
     out.push({

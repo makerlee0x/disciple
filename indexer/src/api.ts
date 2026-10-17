@@ -2,12 +2,25 @@ import http from "node:http";
 import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
-import type { DB } from "./db.js";
+import { dataVersion, type DB } from "./db.js";
 import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
 
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
 export const BIG_TRAMP_USD = 1000;
+/** Candle range: default window and max span, in candles of the requested interval (5m → ~25h default, ~7d max). */
+export const CANDLE_DEFAULT_BARS = 300;
+export const CANDLE_MAX_BARS = 2000;
+/** List endpoints are cached in-process for LIST_CACHE_MS (and sent with Cache-Control s-maxage for a CDN in front). */
+export const LIST_CACHE_MS = Number(process.env.LIST_CACHE_MS ?? 5000);
+const LIST_PATHS = new Set(["coins", "leaderboard", "tier-breaks", "orders"]);
+const isListPath = (p: string[]) => LIST_PATHS.has(p[0]) && (p[0] !== "coins" || p.length === 1);
+
+/** Integer query param: parseInt with a default, clamped to [min, max], never NaN. */
+export function intParam(q: URLSearchParams, name: string, def: number, min: number, max: number): number {
+  const n = Number.parseInt(q.get(name) ?? "", 10);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+}
 
 type Live = {
   priceWad: string; mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
@@ -114,7 +127,7 @@ export class Api {
   }
 
   listCoins(q: URLSearchParams) {
-    const limit = Math.min(Number(q.get("limit") ?? 50), 500);
+    const limit = intParam(q, "limit", 50, 1, 500);
     const sort = q.get("sort") ?? "new";
     const where: string[] = [];
     const args: any[] = [];
@@ -122,26 +135,39 @@ export class Api {
     if (q.get("graduated")) { where.push("c.graduated=?"); args.push(q.get("graduated") === "true" ? 1 : 0); }
     if (q.get("creator")) { where.push("c.creator=?"); args.push(q.get("creator")!.toLowerCase()); }
     const order = sort === "volume" ? "volume_usd DESC" : sort === "mcap" ? "last_mcap DESC" : sort === "tier" ? "COALESCE(c.tier,-1) DESC, last_mcap DESC" : "c.launched_block DESC";
+    // per-coin aggregates maintained on ingest (coin_stats): no scan over trades per call. Same columns as before.
     return this.db.prepare(
-      `SELECT c.*, COALESCE(SUM(t.volume_usd),0) volume_usd, COUNT(t.id) trades,
-        (SELECT CAST(mcap_usd AS REAL)/1e18 FROM trades x WHERE x.token=c.token ORDER BY x.ts DESC, x.block DESC LIMIT 1) last_mcap
-       FROM coins c LEFT JOIN trades t ON t.token=c.token ${where.length ? "WHERE " + where.join(" AND ") : ""}
-       GROUP BY c.token ORDER BY ${order} LIMIT ?`,
+      `SELECT c.*, COALESCE(s.volume_usd,0) volume_usd, COALESCE(s.trades,0) trades, s.last_mcap last_mcap
+       FROM coins c LEFT JOIN coin_stats s ON s.token=c.token ${where.length ? "WHERE " + where.join(" AND ") : ""}
+       ORDER BY ${order} LIMIT ?`,
     ).all(...args, limit);
   }
 
   trades(where: string, arg: string, q: URLSearchParams) {
-    const limit = Math.min(Number(q.get("limit") ?? 100), 1000);
-    const before = Number(q.get("before") ?? 2 ** 31);
+    const limit = intParam(q, "limit", 100, 1, 1000);
+    const before = intParam(q, "before", 2 ** 31, 0, 2 ** 31);
     return this.db.prepare(`SELECT * FROM trades WHERE ${where}=? AND ts < ? ORDER BY ts DESC, block DESC LIMIT ?`).all(arg.toLowerCase(), before, limit);
   }
 
+  /**
+   * OHLC over [from, to] (unix seconds). Defaults: to = the coin's last trade (no trades exist after it, so this equals
+   * "now" while never returning an empty chart for a quiet coin), from = to − CANDLE_DEFAULT_BARS × interval. The span
+   * is capped at CANDLE_MAX_BARS × interval (from is raised). Only that range is read (trades_token_ts index); the
+   * first candle opens at the last close before `from`, as the unbounded version did.
+   */
   candles(token: string, q: URLSearchParams) {
     const iv = INTERVALS[q.get("interval") ?? "5m"];
     if (!iv) throw new Error("bad interval");
+    const t = token.toLowerCase();
     const field = q.get("unit") === "mcap" ? "CAST(mcap_usd AS REAL)/1e18" : "price_usd";
-    const rows = this.db.prepare(`SELECT ts, ${field} price, volume_usd vol FROM trades WHERE token=? ORDER BY ts, block, id`).all(token.toLowerCase()) as any[];
-    return candles(rows, iv);
+    const last = (this.db.prepare("SELECT last_ts FROM coin_stats WHERE token=?").get(t) as { last_ts: number | null } | undefined)?.last_ts;
+    const to = intParam(q, "to", (last ?? Math.floor(Date.now() / 1000)) + 1, 0, 2 ** 31);
+    let from = intParam(q, "from", to - CANDLE_DEFAULT_BARS * iv, 0, 2 ** 31);
+    if (to - from > CANDLE_MAX_BARS * iv) from = to - CANDLE_MAX_BARS * iv;
+    if (from > to) throw new Error("from must be <= to");
+    const rows = this.db.prepare(`SELECT ts, ${field} price, volume_usd vol FROM trades WHERE token=? AND ts >= ? AND ts <= ? ORDER BY ts, block, id`).all(t, from, to) as any[];
+    const prev = this.db.prepare(`SELECT ${field} price FROM trades WHERE token=? AND ts < ? ORDER BY ts DESC, block DESC, id DESC LIMIT 1`).get(t, from) as { price: number } | undefined;
+    return candles(rows, iv, prev?.price);
   }
 
   orders(by: "token" | "owner", v: string) {
@@ -176,7 +202,7 @@ export class Api {
   holders(token: string, q: URLSearchParams) {
     const c = this.coin(token);
     if (!c) return null;
-    const limit = Math.min(Number(q.get("limit") ?? 100), 1000);
+    const limit = intParam(q, "limit", 100, 1, 1000);
     const ex = this.excluded(c);
     const rows = (this.db.prepare(`SELECT holder, bal FROM balances WHERE token=? AND bal != '0' AND bal NOT LIKE '-%'`).all(c.token) as any[])
       .map((r) => ({ holder: r.holder, balance: r.bal, protocol: ex.includes(r.holder) }))
@@ -202,7 +228,7 @@ export class Api {
   }
 
   tierBreaks(q: URLSearchParams) {
-    const limit = Math.min(Number(q.get("limit") ?? 50), 500);
+    const limit = intParam(q, "limit", 50, 1, 500);
     return this.db.prepare(`SELECT b.token, c.ticker, b.from_tier fromTier, b.to_tier toTier, CAST(b.mcap_usd AS REAL)/1e18 mcapUsd, b.source, b.block, b.ts, b.tx
       FROM tier_breaks b JOIN coins c ON c.token=b.token ORDER BY b.block DESC, b.id DESC LIMIT ?`).all(limit);
   }
@@ -240,8 +266,8 @@ export class Api {
   }
 
   leaderboard(kind: string, q: URLSearchParams) {
-    const limit = Math.min(Number(q.get("limit") ?? 25), 200);
-    const since = Number(q.get("since") ?? 0);
+    const limit = intParam(q, "limit", 25, 1, 200);
+    const since = intParam(q, "since", 0, 0, 2 ** 31);
     switch (kind) {
       case "traders": {
         const by = q.get("by") === "trades" ? "trades" : "volumeUsd";
@@ -300,7 +326,7 @@ export class Api {
   allOrders(q: URLSearchParams) {
     const where: string[] = [], args: any[] = [];
     for (const k of ["status", "kind", "token", "owner", "stack"]) if (q.get(k)) { where.push(`${k}=?`); args.push(k === "token" || k === "owner" ? q.get(k)!.toLowerCase() : q.get(k)); }
-    const limit = Math.min(Number(q.get("limit") ?? 100), 1000);
+    const limit = intParam(q, "limit", 100, 1, 1000);
     return this.db.prepare(`SELECT * FROM orders ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY placed_at DESC LIMIT ?`).all(...args, limit);
   }
 
@@ -314,6 +340,16 @@ export class Api {
   async route(method: string, url: URL): Promise<[number, unknown]> {
     if (method !== "GET") return [405, { error: "GET only" }];
     const p = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+    // list endpoints: short in-process TTL keyed by URL + data version (new ingest invalidates immediately)
+    if (LIST_CACHE_MS > 0 && isListPath(p)) {
+      const k = `list:${dataVersion(this.db)}:${url.pathname}?${url.searchParams.toString()}`;
+      if (this.cache.size > 2000) for (const [ck, cv] of Array.from(this.cache)) if (Date.now() - cv.at > 60_000) this.cache.delete(ck);
+      return this.cached(k, LIST_CACHE_MS, () => this.routeUncached(p, url));
+    }
+    return this.routeUncached(p, url);
+  }
+
+  private async routeUncached(p: string[], url: URL): Promise<[number, unknown]> {
     const q = url.searchParams;
     const addr = (x?: string) => (x && /^0x[0-9a-fA-F]{40}$/.test(x) ? x : null);
     if (p.length === 0 || p[0] === "health") return [200, this.status()];
@@ -351,7 +387,10 @@ export class Api {
       const url = new URL(req.url ?? "/", "http://x");
       let status = 500, body: unknown = { error: "internal" };
       try { [status, body] = await this.route(req.method ?? "GET", url); } catch (e: any) { status = 400; body = { error: e.message }; }
-      res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      const p = url.pathname.split("/").filter(Boolean);
+      const cacheHdr: Record<string, string> = status === 200 && LIST_CACHE_MS > 0 && isListPath(p)
+        ? { "cache-control": `public, max-age=${Math.round(LIST_CACHE_MS / 1000)}, s-maxage=${Math.round(LIST_CACHE_MS / 1000)}` } : {};
+      res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", ...cacheHdr });
       res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
     });
   }

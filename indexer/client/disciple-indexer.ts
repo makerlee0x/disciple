@@ -33,7 +33,7 @@ export function indexer(base: string, f: typeof fetch = fetch) {
     coins: (q: { sort?: "new" | "volume" | "mcap" | "tier"; stack?: string; graduated?: boolean; creator?: Addr; limit?: number } = {}) => get<Coin[]>("/coins", q),
     coin: (t: Addr) => get<Coin & { live: any; tier: any }>(`/coins/${t}`),
     trades: (t: Addr, q: { limit?: number; before?: number } = {}) => get<Trade[]>(`/coins/${t}/trades`, q),
-    candles: (t: Addr, interval: Interval = "5m", unit: "price" | "mcap" = "price") => get<Candle[]>(`/coins/${t}/candles`, { interval, unit }),
+    candles: (t: Addr, interval: Interval = "5m", unit: "price" | "mcap" = "price", range: { from?: number; to?: number } = {}) => get<Candle[]>(`/coins/${t}/candles`, { interval, unit, ...range }),
     holders: (t: Addr, limit = 100) => get<{ holder: Addr; balance: string; pct: number; protocol: boolean }[]>(`/coins/${t}/holders`, { limit }),
     altitude: (t: Addr) => get<{ tier: number | null; mcapUsd: number | null; breaks: TierBreak[]; context: any }>(`/coins/${t}/altitude`),
     feeRouting: (t: Addr) => get<any>(`/coins/${t}/fee-routing`),

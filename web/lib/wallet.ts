@@ -1,9 +1,7 @@
 /**
- * Signer seam. No custody: the user's Privy embedded wallet signs its own txs.
- * When Privy lands (@privy-io/react-auth), register its EIP-1193 provider once:
- *   const w = wallets.find((w) => w.walletClientType === "privy");
- *   setWalletProvider(await w.getEthereumProvider());
- * Until then (or for dev) we fall back to an injected wallet (window.ethereum).
+ * Signer seam. No custody: the user's Privy embedded wallet owns their MAv2 smart account
+ * (components/PrivyProviders.tsx → connectPrivyOwner). The plain-EOA path below (injected wallet,
+ * window.ethereum) is the legacy / dev fallback.
  */
 import { createWalletClient, custom, type Address, type WalletClient } from "viem";
 import { ACTIVE_CHAIN } from "./chains";
@@ -57,8 +55,8 @@ export async function getSigner(): Promise<Signer> {
 
 /* ---------------- smart account (one-tap) seam ---------------- */
 import type { Call } from "./aa/core";
-import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, emailVerify, googleLogin, localImport, localReset, localStart, restore } from "./aa/session";
-import type { Hex } from "viem";
+import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import type { Hex, LocalAccount } from "viem";
 
 export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string };
 
@@ -72,8 +70,10 @@ export async function connectSmartWithWallet(): Promise<Address> {
   if (!eth) throw Object.assign(new Error("No browser wallet found."), { code: "NoWallet" });
   const a = await eoaLogin(eth); emit(a); return a;
 }
-export async function connectSmartEmail(code: string) { const a = await emailVerify(code); emit(a); return a; }
-export async function connectSmartGoogle() { const a = await googleLogin(); emit(a); return a; }
+/** Open the Privy login modal (email / Google). The address is emitted once the embedded wallet is ready. */
+export function connectPrivy() { privyLogin(); }
+/** Called by PrivyProviders with toViemAccount(embeddedWallet). */
+export async function connectPrivyOwner(owner: LocalAccount) { const a = await setPrivyOwner(owner); emit(a); return a; }
 export async function restoreSmart() { if (!aaAvailable()) return null; const a = await restore(); if (a) emit(a); return a; }
 export async function connectLocal() { const a = await localStart(); emit(a); return a; }
 export async function importLocal(k: string) { const a = await localImport(k); emit(a); return a; }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { MODES } from "@/lib/config";
 import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import Icon from "@/components/icons/Icon";
 
 /** Swap settings modal (gear in the ammo panel's SELL row). Styled after the reference: dark card, 4-up preset grids, Reset, Auto/Custom, Save. */
 export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSave, onClose }: {
@@ -27,14 +28,14 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
     background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, outline: "none" };
   const head = (label: string, reset?: () => void) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "14px 0 8px", fontSize: 13, color: "#cfd3e6" }}>
-      <span>{label}</span>{reset && <button type="button" onClick={reset} style={{ all: "unset", cursor: "pointer", fontSize: 11, opacity: 0.7 }}>↻ Reset</button>}</div>);
+      <span>{label}</span>{reset && <button type="button" onClick={reset} style={{ all: "unset", cursor: "pointer", fontSize: 11, opacity: 0.7 }}><Icon name="refresh" size={12} style={{ verticalAlign: -1 }} /> Reset</button>}</div>);
   return (
     <div data-testid="swap-settings" role="dialog" aria-label="Swap settings" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => e.stopPropagation()} onKeyUp={(e) => e.stopPropagation()}
       style={{ position: "fixed", inset: 0, zIndex: 60, display: "grid", placeItems: "center", background: "rgba(0,0,0,.45)" }}>
       <div style={{ position: "relative", width: 440, maxWidth: "92vw", padding: "20px 18px 18px", borderRadius: 18, background: "#14151b", border: "1px solid rgba(255,255,255,.08)",
         boxShadow: "0 20px 60px rgba(0,0,0,.6)", color: "#eef0ff", font: "13px system-ui,sans-serif" }}>
-        <button type="button" aria-label="close" onClick={onClose} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 14, top: 12, fontSize: 18, opacity: 0.8 }}>✕</button>
+        <button type="button" aria-label="close" onClick={onClose} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 14, top: 12, fontSize: 18, opacity: 0.8, lineHeight: 0 }}><Icon name="close" size={20} /></button>
         <div style={{ textAlign: "center", fontWeight: 700, fontSize: 18 }}>Swap settings</div>
         <div style={{ textAlign: "center", fontSize: 10, opacity: 0.5, marginTop: 2, fontFamily: "ui-monospace,monospace" }}>{scope}</div>
         {head("Buy presets ($)", () => setBuyAuto(true))}
@@ -58,7 +59,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
         </div>
         <div style={{ borderTop: "1px dashed rgba(255,255,255,.12)", margin: "16px 0 12px" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span title="Max price move allowed between quote and fill (live trades only). Auto = 1%.">Slippage ⓘ</span>
+          <span title="Max price move allowed between quote and fill (live trades only). Auto = 1%.">Slippage <Icon name="info" size={12} /></span>
           {slipMode === "custom" && <input data-testid="swap-slip" inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value.replace(/[^\d.]/g, ""))}
             style={{ ...cell, width: 64, padding: "5px 4px", fontSize: 13, marginLeft: "auto" }} />}
           {slipMode === "custom" && <span>%</span>}

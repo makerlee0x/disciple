@@ -1,0 +1,116 @@
+/* Home hero (approved mock A1 / Am): night launch-pad plate + separate lit rocket layer.
+ * Plate + rocket geometry come from hero.py (desktop plate 2880×1120, mobile 780×1400); every
+ * position below is a % of that plate so the rocket stays planted on the deck at any crop.
+ * Grain lives only in the plate (background); rocket, text and FX carry none. */
+.hero {
+  --ar: 2.5714; /* 2880 / 1120 */
+  --anchor: 0.58; /* horizontal crop anchor (0 = left, 1 = right) */
+  --rk-l: 69.167%; --rk-t: 41.696%; --rk-w: 6.771%; --rk-h: 48.214%;
+  --pad-x: 72.57%; --pad-y: 94.64%; /* padline top edge (mock: 530 / 560) */
+  position: relative;
+  height: clamp(520px, 38.9vw, 720px);
+  margin-top: calc(-1 * var(--ap-topbar-h, 56px)); /* scene runs under the (transparent-at-top) chrome strip */
+  overflow: hidden;
+  background: #2a2c36;
+  container-type: size;
+  isolation: isolate;
+}
+.stage {
+  position: absolute;
+  bottom: 0;
+  width: max(100cqw, calc(100cqh * var(--ar)));
+  height: max(100cqh, calc(100cqw / var(--ar)));
+  left: calc((100cqw - max(100cqw, calc(100cqh * var(--ar)))) * var(--anchor));
+}
+.inner { position: absolute; inset: 0; transform-origin: var(--pad-x) 88%; animation: pushIn 26s cubic-bezier(.22, .61, .36, 1) both; }
+.plate { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; }
+
+/* haze: two soft fog sheets drifting slowly across the city/deck band (transform-only) */
+.fog { position: absolute; left: 0; width: 200%; pointer-events: none; background-repeat: repeat-x; background-size: 50% 100%; will-change: transform; }
+.fogA { top: 36%; height: 36%; opacity: .30; animation: drift 150s linear infinite; }
+.fogB { top: 60%; height: 30%; opacity: .26; animation: drift 230s linear infinite reverse; }
+
+/* warm pad lights: soft pulsing pools over the baked lamp points */
+.lamp { position: absolute; width: 6.5%; aspect-ratio: 2.4; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 168, 108, .55), rgba(255, 122, 61, .22) 45%, rgba(255, 122, 61, 0) 100%);
+  mix-blend-mode: screen; animation: lampPulse 5.2s ease-in-out infinite; }
+.lampM { display: none; }
+.lamp:nth-of-type(2) { animation-delay: -1.3s; } .lamp:nth-of-type(3) { animation-delay: -2.6s; } .lamp:nth-of-type(4) { animation-delay: -3.9s; }
+
+/* rocket group, in plate coordinates */
+.rocket { position: absolute; left: var(--rk-l); top: var(--rk-t); width: var(--rk-w); height: var(--rk-h); }
+.lift { position: absolute; inset: 0; z-index: 2; will-change: transform; }
+.rocketImg, .decal { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; }
+.decal { animation: decalIn .3s ease both; }
+/* deck reflection: flipped, masked + blurred copy just below the base */
+.refl { position: absolute; left: 0; top: 100%; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: .5;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, .75) 0%, rgba(0, 0, 0, .25) 18%, transparent 42%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, .75) 0%, rgba(0, 0, 0, .25) 18%, transparent 42%); transition: opacity .4s; }
+.refl img { width: 100%; height: 100%; display: block; transform: scaleY(-1); filter: blur(1.4px) brightness(.8); }
+/* warm pad glow pooling around the base */
+.pool { position: absolute; left: 50%; top: 100%; width: 330%; height: 13%; transform: translate(-50%, -55%); z-index: 1; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 150, 90, .30), rgba(255, 122, 61, .10) 55%, transparent 100%); mix-blend-mode: screen; animation: lampPulse 6.5s ease-in-out infinite; }
+/* faint cold vapor venting at the base (partly in front of the rocket) */
+.vapor { position: absolute; left: 44%; top: 100%; width: 380%; height: 28%; transform: translate(-50%, -74%); z-index: 3; pointer-events: none; }
+.vapor span { position: absolute; bottom: 0; border-radius: 50%; filter: blur(6px); opacity: 0;
+  background: radial-gradient(closest-side, rgba(220, 226, 240, .82), rgba(198, 206, 224, .34) 55%, transparent 100%); animation: vent 8s ease-out infinite; }
+.vapor span:nth-child(4) { left: 14%; width: 60%; height: 50%; opacity: .8; filter: blur(8px); animation: mist 11s ease-in-out infinite;
+  background: radial-gradient(closest-side, rgba(204, 211, 226, .66), rgba(180, 188, 206, .24) 60%, transparent 100%); }
+.vapor span:nth-child(1) { left: 22%; width: 36%; height: 72%; --dx: -34%; }
+.vapor span:nth-child(2) { left: 40%; width: 30%; height: 60%; --dx: 42%; animation-delay: -2.7s; }
+.vapor span:nth-child(3) { left: 30%; width: 44%; height: 46%; --dx: -6%; animation-delay: -5.3s; animation-duration: 10s; }
+
+.fx { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+.scrim { position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  background: linear-gradient(90deg, rgba(11, 12, 14, .80) 0%, rgba(11, 12, 14, .62) 26%, rgba(11, 12, 14, .22) 50%, rgba(11, 12, 14, 0) 62%),
+    linear-gradient(180deg, rgba(11, 12, 14, .55) 0, rgba(11, 12, 14, 0) 96px),
+    linear-gradient(0deg, rgba(11, 12, 14, .62) 0, rgba(11, 12, 14, 0) 46px); }
+.copy { position: absolute; z-index: 5; left: clamp(28px, 6.67cqw, 96px); top: clamp(120px, 31.4cqh, 240px); max-width: min(900px, 62cqw); pointer-events: none; }
+.rule { width: 34px; height: 1px; background: var(--dsc-secondary, #FF7A3D); margin-bottom: 26px; opacity: .95; }
+.title { margin: 0; font-family: var(--dsc-font-display); font-weight: 400; color: var(--dsc-text, #E8EAEE); font-size: clamp(40px, 5cqw, 72px); line-height: 1; letter-spacing: -.012em; text-wrap: balance; }
+.title span { white-space: nowrap; }
+.sub { margin: 26px 0 0; font-family: var(--dsc-font-ui); font-weight: 400; font-size: 15.5px; line-height: 1.45; letter-spacing: .05em; color: rgba(201, 206, 214, .88); }
+.mbr { display: none; }
+.padline { position: absolute; z-index: 5; left: var(--pad-x); top: var(--pad-y); transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font: 500 10.5px/1 var(--dsc-font-ui); letter-spacing: .26em; color: rgba(201, 206, 214, .78); text-shadow: 0 1px 8px rgba(0, 0, 0, .6); }
+
+.launching .refl, .launching .pool { opacity: 0; }
+
+@media (max-width: 760px) {
+  .hero {
+    --ar: 0.5571; /* 780 / 1400 */
+    --anchor: 0.5;
+    --rk-l: 38.333%; --rk-t: 55.286%; --rk-w: 23.205%; --rk-h: 35.714%;
+    --pad-x: 50%; --pad-y: 96%; /* 672 / 700 */
+    height: clamp(620px, 179.5vw, 860px);
+  }
+  .inner { transform-origin: 50% 85%; }
+  .fogA { top: 44%; height: 22%; }
+  .fogB { top: 66%; height: 20%; }
+  .lamp { width: 22%; }
+  .lampD { display: none; }
+  .lampM { display: block; }
+  .scrim { background: linear-gradient(180deg, rgba(11, 12, 14, .72) 0, rgba(11, 12, 14, .50) 120px, rgba(11, 12, 14, .28) 260px, rgba(11, 12, 14, 0) 330px),
+      linear-gradient(0deg, rgba(11, 12, 14, .85) 0, rgba(11, 12, 14, 0) 60px); }
+  .copy { left: 24px; right: 24px; top: 92px; max-width: none; text-align: center; }
+  .rule { display: none; }
+  .title { font-size: clamp(34px, 10.5cqw, 48px); line-height: 1.02; }
+  .title span { white-space: normal; }
+  .sub { font-size: 13px; margin-top: 14px; }
+  .mbr { display: inline; }
+  .padline { font-size: 9.5px; letter-spacing: .22em; }
+}
+
+@keyframes pushIn { from { transform: scale(1); } to { transform: scale(1.025); } }
+@keyframes drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
+@keyframes lampPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes vent { 0% { opacity: 0; transform: translate(0, 10%) scale(.6); } 25% { opacity: .9; } 100% { opacity: 0; transform: translate(var(--dx), -6%) scale(1.5); } }
+@keyframes mist { 0%, 100% { opacity: .55; transform: translateX(-3%) scaleX(1); } 50% { opacity: .85; transform: translateX(3%) scaleX(1.12); } }
+@keyframes decalIn { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .inner, .fog, .lamp, .pool { animation: none; }
+  .vapor span { animation: none; opacity: .55; transform: none; }
+  .vapor span:nth-child(2) { opacity: .35; }
+  .vapor span:nth-child(4) { opacity: .7; }
+}

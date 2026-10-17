@@ -31,7 +31,7 @@ export interface LeaderboardRow {
   achievementIds: string[];
   /** Top earned badges resolved for display */
   badges: AchievementDef[];
-  /** Heaven ladder tier label (e.g. ANGELS, SERAPHIM) */
+  /** Heaven ladder tier label (e.g. MORNING STARS, SERAPHIM) */
   ladderTier: HeavenTierName;
   /** Current rocket the play button opens */
   rocketAddress: string;
@@ -95,25 +95,26 @@ export function fmtSignedUsd(v: number): string {
 
 /** Soft color for heaven ladder chips */
 export function ladderColor(name: HeavenTierName): string {
+  // Brand v1: distinct-hue ladder retuned for Lunar (desaturated, all ≥7:1 on #0B0C0E). No gold.
   const map: Partial<Record<HeavenTierName, string>> = {
-    "LAUNCH PAD": "#9aa6c0",
-    LIMBO: "#8a9bb8",
-    ASCENSION: "#7ec8ff",
-    "NARROW GATE": "#a8e0ff",
-    "PEARLY GATES": "#fff7df",
-    FIRMAMENT: "#c9b6f2",
-    ANGELS: "#ffe7a3",
-    ARCHANGELS: "#ffd060",
-    "HEAVENLY HOST": "#e8d4ff",
-    "MORNING STARS": "#fff7df",
-    VIRTUES: "#9fd0ff",
-    DOMINIONS: "#c9b6f2",
-    "THRONE ROOM": "#ffd060",
-    CHERUBIM: "#ffe7a3",
-    SERAPHIM: "#fff7df",
-    AETHER: "#d9c4ff",
-    EMPYREAN: "#fff7df",
-    "SEVENTH HEAVEN": "#ffffff",
+    "LAUNCH PAD": "#949CA8",
+    OZONE: "#8E9EC2",
+    STRATOSPHERE: "#85B0D6",
+    "KÁRMÁN LINE": "#70BACD",
+    "OUTER SPACE": "#67C1BB",
+    FIRMAMENT: "#6EC4A4",
+    "MORNING STARS": "#77C591",
+    "HEAVENLY HOST": "#86BF7D",
+    "THE MOON": "#9CC072",
+    "URANUS": "#DE9A73",
+    LIMBO: "#DD8B7E",
+    "GATES OF HEAVEN": "#DA8B9F",
+    "THRONE ROOM": "#D392B8",
+    CHERUBIM: "#CEA1CE",
+    SERAPHIM: "#C9A8DC",
+    AETHER: "#BCABE3",
+    EMPYREAN: "#B3B6E6",
+    "SEVENTH HEAVEN": "#E8EAEE",
   };
-  return map[name] ?? "#ffe7a3";
+  return map[name] ?? "#949CA8";
 }

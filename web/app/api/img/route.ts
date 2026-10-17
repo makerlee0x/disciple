@@ -1,30 +1,25 @@
 import { NextRequest } from "next/server";
+import { allowHostsFromEnv, safeFetchImage, SafeFetchError } from "@/lib/server/safeFetch";
+
+export const runtime = "nodejs"; // required: lib/server/safeFetch pins sockets to the validated IP via an undici Agent
 
 /**
- * Image proxy for token icons whose CDN lacks CORS headers (e.g. DexScreener),
- * so the canvas compositor can read pixels without tainting.
- * Guards: https only, no private/loopback hosts, image/* only, ≤2 MB, 5 s timeout.
+ * Image proxy for token icons whose CDN lacks CORS headers (e.g. DexScreener), so the canvas compositor can read
+ * pixels without tainting. All SSRF guards live in lib/server/safeFetch (W-2): http/https, per-hop re-validation
+ * (≤3 redirects), resolved-IP range checks with the connection pinned to the validated IP (no DNS rebinding), optional IMG_PROXY_ALLOW_HOSTS, image/* only (no SVG), 5 MB streamed cap.
  */
-const MAX = 2 * 1024 * 1024;
-const PRIVATE = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[?::1\]?|\[?f[cd])/i;
-
 export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get("url") || "";
-  let u: URL;
   try {
-    u = new URL(raw);
-  } catch {
-    return new Response("bad url", { status: 400 });
-  }
-  if (u.protocol !== "https:" || PRIVATE.test(u.hostname)) return new Response("forbidden", { status: 403 });
-  try {
-    const r = await fetch(u, { signal: AbortSignal.timeout(5000), headers: { "user-agent": "Mozilla/5.0 DISCIPLE-icon-proxy" } });
-    const ct = r.headers.get("content-type") || "";
-    if (!r.ok || !ct.startsWith("image/")) return new Response("not an image", { status: 415 });
-    const buf = await r.arrayBuffer();
-    if (buf.byteLength > MAX) return new Response("too large", { status: 413 });
-    return new Response(buf, { headers: { "content-type": ct, "cache-control": "public, max-age=86400" } });
-  } catch {
-    return new Response("upstream failed", { status: 502 });
+    const { buf, contentType } = await safeFetchImage(raw, { allowHosts: allowHostsFromEnv() });
+    return new Response(new Uint8Array(buf), {
+      headers: {
+        "content-type": contentType, "cache-control": "public, max-age=86400",
+        "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox",
+      },
+    });
+  } catch (e) {
+    const status = e instanceof SafeFetchError ? e.status : 502;
+    return new Response(e instanceof SafeFetchError ? e.message : "upstream failed", { status });
   }
 }

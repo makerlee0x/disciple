@@ -12,7 +12,6 @@
  * meta.impactBps signed: + buy, − sell). There is no client postEvent.
  * Identity: first send() asks the connected smart account / wallet to sign one message; token cached per tab.
  */
-import { keccak256, stringToBytes } from "viem";
 import { withBase } from "@/lib/base-path";
 import { chatLoginMessage } from "./login";
 import { EMOTES } from "./emotes";
@@ -70,17 +69,21 @@ export async function login(): Promise<Tok | null> {
   const addr = lc(smart || w.connectedAddress() || "");
   if (!/^0x[0-9a-f]{40}$/.test(addr)) return null;
   const hit = cachedToken(addr); if (hit) return hit;
+  // single-use server nonce first (replay protection), then the same one signature as before
+  const nr = await fetch(`${api("auth")}?addr=${addr}`, { cache: "no-store" }).catch(() => null);
+  const nonce = nr?.ok ? ((await nr.json().catch(() => ({}))) as { nonce?: string }).nonce : undefined;
+  if (!nonce) return null;
   const ts = Date.now();
-  const msg = chatLoginMessage(addr, ts);
+  const msg = chatLoginMessage(addr, ts, nonce);
   let body: Record<string, unknown>;
   try {
     if (smart) {
-      const o = await s.aaOwnerSign(keccak256(stringToBytes(msg)));
+      const o = await s.aaSignMessage(msg);
       if (!o) return null;
-      body = { addr, ts, sig: o.sig, owner: o.owner };
+      body = { addr, ts, nonce, sig: o.sig, owner: o.owner };
     } else {
       const signer = await w.getSigner();
-      body = { addr, ts, sig: await signer.signMessage({ account: signer.account.address, message: msg }) };
+      body = { addr, ts, nonce, sig: await signer.signMessage({ account: signer.account.address, message: msg }) };
     }
   } catch { return null; }
   const r = await fetch(api("auth"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
