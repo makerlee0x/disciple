@@ -26,6 +26,7 @@
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",
     "test:sim-parity": "node scripts/test-sim-parity.mjs",
     "test:icon-gate": "node scripts/test-icon-gate.mjs",
+    "test:loadout-fx": "node scripts/test-loadout-fx.mjs",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
