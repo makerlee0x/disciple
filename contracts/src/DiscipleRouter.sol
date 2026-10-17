@@ -39,6 +39,17 @@ interface IUsdgCurve {
     function graduated() external view returns (bool);
     function buy(uint256 quoteIn, uint256 minTokensOut, uint256 deadline, address recipient) external returns (uint256);
     function sell(uint256 tokensIn, uint256 minQuoteOut, uint256 deadline, address recipient) external returns (uint256);
+    function routerBuy(address trader, uint256 quoteIn, uint256 minTokensOut, uint256 deadline, uint256 maxImpactBps)
+        external
+        returns (uint256 tokensOut, uint256 refund);
+    function routerSell(
+        address trader,
+        uint256 tokensIn,
+        uint256 minQuoteOut,
+        uint256 deadline,
+        address recipient,
+        uint256 maxImpactBps
+    ) external returns (uint256);
 }
 
 /// @title Thin post-graduation router for DISCIPLE v4 pools (exact-in buy/sell)
@@ -93,6 +104,8 @@ contract DiscipleRouter is IUnlockCallback {
     event UsdgRoutingSet(address indexed usdg, address indexed launchpad);
     event UsdgPoolSet(address indexed quote, PoolKey key);
     event UsdgPoolRemoved(address indexed quote);
+    /// @notice Graduating curve buy refund: `quoteRefund` of the coin's quote returned as `usdgRefund` USDG.
+    event UsdgRefund(address indexed trader, address indexed token, uint256 quoteRefund, uint256 usdgRefund);
     event UsdgTrade(
         address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve
     );
@@ -246,7 +259,8 @@ contract DiscipleRouter is IUnlockCallback {
     /// @dev Not `view` (v4 has no view swaps) — call it with eth_call / viem `simulateContract`.
     /// @return amountOut   net output to the trader
     /// @return impactBps   unsigned |Δprice|/price in bps (direction = isBuy), same semantics as Trade.impactBps
-    /// @return mcapAfterUsd USD WAD at launch-time quote/USD price, same as Trade.mcapAfterUsd
+    /// @return mcapAfterUsd USD WAD. Curve: same as Trade.mcapAfterUsd. v4: hook.mcapUsdFromSqrt(sqrtPriceAfter) at the
+    ///         live hook.quoteUsdOf price (the hook's Trade event carries sqrtPriceAfter, no USD mcap; G-1)
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd)
@@ -298,22 +312,32 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = _buyHops(u, q, token, dkey);
             tokensOut = _route(msg.sender, msg.sender, hops, usdgIn);
         } else {
+            // Pre-grad: deliver quote STRAIGHT to the curve (v4 take → curve, or USDG transferFrom user → curve) and
+            // let the curve trade for the real trader (caps, login, cost basis, attribution). No router custody,
+            // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
                 Hop[] memory h = new Hop[](1);
                 h[0] = _usdgHop(u, q, true);
-                quoteAmt = _route(msg.sender, address(this), h, usdgIn);
+                quoteAmt = _route(msg.sender, curve, h, usdgIn);
             } else {
-                IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
+                IERC20(u).safeTransferFrom(msg.sender, curve, usdgIn);
             }
-            uint256 balBefore = IERC20(q).balanceOf(address(this)) - quoteAmt;
-            _checkCurveBuyImpact(curve, quoteAmt);
-            IERC20(q).forceApprove(curve, quoteAmt);
-            tokensOut = IUsdgCurve(curve).buy(quoteAmt, minTokensOut, deadline, msg.sender);
-            // Graduating buy: the curve refunds unused quote; hand it back in the quote asset (never retained).
-            uint256 left = IERC20(q).balanceOf(address(this)) - balBefore;
-            if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
-            IERC20(q).forceApprove(curve, 0);
+            uint256 refund;
+            (tokensOut, refund) = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, maxImpactBps);
+            if (refund != 0) {
+                // Graduating buy: unused quote comes back here. DISCIPLE audit #6: return it in USDG (swap the
+                // intermediate quote back through the same registered pool); USDG-quoted coins: plain transfer.
+                uint256 usdgRefund = refund;
+                if (q != u) {
+                    Hop[] memory hb = new Hop[](1);
+                    hb[0] = _usdgHop(u, q, false);
+                    usdgRefund = _route(address(this), msg.sender, hb, refund);
+                } else {
+                    IERC20(u).safeTransfer(msg.sender, refund);
+                }
+                emit UsdgRefund(msg.sender, token, refund, usdgRefund);
+            }
         }
         if (tokensOut < minTokensOut) revert Slippage();
         emit UsdgTrade(msg.sender, token, true, usdgIn, tokensOut, !grad);
@@ -334,13 +358,14 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = _sellHops(u, q, token, dkey);
             usdgOut = _route(msg.sender, msg.sender, hops, tokensIn);
         } else {
-            IERC20(token).safeTransferFrom(msg.sender, address(this), tokensIn);
-            IERC20(token).forceApprove(curve, tokensIn);
-            _checkCurveSellImpact(curve, tokensIn);
+            // Tokens go user → curve directly; the curve books the sell against the real trader (fixes the old
+            // side effect where router-mediated sells debited/credited the router address).
+            IERC20(token).safeTransferFrom(msg.sender, curve, tokensIn);
+            uint256 cap = maxImpactBps;
             if (q == u) {
-                usdgOut = IUsdgCurve(curve).sell(tokensIn, 1, deadline, msg.sender);
+                usdgOut = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, msg.sender, cap);
             } else {
-                uint256 quoteAmt = IUsdgCurve(curve).sell(tokensIn, 1, deadline, address(this));
+                uint256 quoteAmt = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, address(this), cap);
                 Hop[] memory h = new Hop[](1);
                 h[0] = _usdgHop(u, q, false);
                 usdgOut = _route(address(this), msg.sender, h, quoteAmt);
@@ -358,24 +383,34 @@ contract DiscipleRouter is IUnlockCallback {
         public
         returns (uint256 amountOut, uint256 maxHopImpactBps)
     {
+        return quoteUsdgRouteFor(msg.sender, token, isBuy, amountIn);
+    }
+
+    /// @notice quoteUsdgRoute for an explicit `trader` (DISCIPLE audit Medium-2): curve mode rules, PVE login and
+    ///         the PVE profit tax are evaluated for `trader` (e.g. the smart account, when a session policy asks).
+    function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
+        public
+        returns (uint256 amountOut, uint256 maxHopImpactBps)
+    {
         address u = usdg;
         if (u == address(0)) revert UsdgNotConfigured();
         (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
         if (grad) {
             Hop[] memory hops = isBuy ? _buyHops(u, q, token, dkey) : _sellHops(u, q, token, dkey);
-            return _simulate(hops, amountIn, address(0));
+            return _simulate(trader, hops, amountIn, address(0));
         }
+        // Curve quotes are for `trader`: mode caps, PVE login and the PVE profit tax apply.
         if (isBuy) {
-            if (q == u) return _curveBuyQuote(curve, amountIn);
+            if (q == u) return _curveBuyQuote(curve, trader, amountIn);
             Hop[] memory h = new Hop[](1);
             h[0] = _usdgHop(u, q, true);
-            return _simulate(h, amountIn, curve);
+            return _simulate(trader, h, amountIn, curve);
         }
-        (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, amountIn);
+        (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, trader, amountIn);
         if (q == u) return (qOut, cImp);
         Hop[] memory h2 = new Hop[](1);
         h2[0] = _usdgHop(u, q, false);
-        (amountOut, maxHopImpactBps) = _simulate(h2, qOut, address(0));
+        (amountOut, maxHopImpactBps) = _simulate(trader, h2, qOut, address(0));
         if (cImp > maxHopImpactBps) maxHopImpactBps = cImp;
     }
 
@@ -483,7 +518,7 @@ contract DiscipleRouter is IUnlockCallback {
         out = abi.decode(res, (uint256));
     }
 
-    function _simulate(Hop[] memory hops, uint256 amountIn, address curveAfter)
+    function _simulate(address trader, Hop[] memory hops, uint256 amountIn, address curveAfter)
         private
         returns (uint256 out, uint256 maxImpact)
     {
@@ -491,7 +526,7 @@ contract DiscipleRouter is IUnlockCallback {
             uint8(1),
             abi.encode(
                 RouteData({
-                    payer: address(0),
+                    payer: trader, // simulate: the quoted trader (curveAfter quote + hook attribution only)
                     recipient: address(0),
                     hops: hops,
                     amountIn: amountIn,
@@ -515,8 +550,13 @@ contract DiscipleRouter is IUnlockCallback {
         }
     }
 
-    function _curveBuyQuote(address curve, uint256 quoteIn) private view returns (uint256 out, uint256 impact) {
-        (bool ok, bytes memory r) = curve.staticcall(abi.encodeWithSignature("quoteBuy(uint256)", quoteIn));
+    function _curveBuyQuote(address curve, address trader, uint256 quoteIn)
+        private
+        view
+        returns (uint256 out, uint256 impact)
+    {
+        (bool ok, bytes memory r) =
+            curve.staticcall(abi.encodeWithSignature("quoteBuyFor(address,uint256)", trader, quoteIn));
         if (!ok) {
             assembly ("memory-safe") {
                 revert(add(r, 32), mload(r))
@@ -526,27 +566,20 @@ contract DiscipleRouter is IUnlockCallback {
         return (bq.tokensOut, bq.impactBps);
     }
 
-    /// @dev SellQuote layout: (quoteOut, fee, grossQuote, priceAfterX18, impactBps, mcapAfterUsd)
-    function _curveSellQuote(address curve, uint256 tokensIn) private view returns (uint256 out, uint256 impact) {
-        (bool ok, bytes memory r) = curve.staticcall(abi.encodeWithSignature("quoteSell(uint256)", tokensIn));
+    /// @dev SellQuote layout: (quoteOut, fee, grossQuote, priceAfterX18, impactBps, mcapAfterUsd, profitTax)
+    function _curveSellQuote(address curve, address trader, uint256 tokensIn)
+        private
+        view
+        returns (uint256 out, uint256 impact)
+    {
+        (bool ok, bytes memory r) =
+            curve.staticcall(abi.encodeWithSignature("quoteSellFor(address,uint256)", trader, tokensIn));
         if (!ok) {
             assembly ("memory-safe") {
                 revert(add(r, 32), mload(r))
             }
         }
         (out,,,, impact,) = abi.decode(r, (uint256, uint256, uint256, uint256, uint256, uint256));
-    }
-
-    function _checkCurveBuyImpact(address curve, uint256 quoteIn) private view {
-        (, uint256 imp) = _curveBuyQuote(curve, quoteIn);
-        uint256 cap = maxImpactBps;
-        if (imp > cap) revert PriceImpactTooHigh(imp, cap);
-    }
-
-    function _checkCurveSellImpact(address curve, uint256 tokensIn) private view {
-        (, uint256 imp) = _curveSellQuote(curve, tokensIn);
-        uint256 cap = maxImpactBps;
-        if (imp > cap) revert PriceImpactTooHigh(imp, cap);
     }
 
     /// @dev Same |Δp|/p metric as DiscipleHook.impactBpsFromSqrt, with the non-USDG side as the priced asset.
@@ -597,7 +630,7 @@ contract DiscipleRouter is IUnlockCallback {
         }
         if (d.simulate) {
             if (d.curveAfter != address(0)) {
-                (uint256 t, uint256 ci) = _curveBuyQuote(d.curveAfter, amt);
+                (uint256 t, uint256 ci) = _curveBuyQuote(d.curveAfter, d.payer, amt);
                 amt = t;
                 if (ci > maxImp) maxImp = ci;
             }
@@ -662,7 +695,8 @@ contract DiscipleRouter is IUnlockCallback {
         (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
         // token is c0 iff buying means zeroForOne == false
         (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(d.key.toId());
-        // Audit #13: same live quote/USD as the hook's Trade event (falls back to launch price inside the hook).
+        // Audit #13 / G-1: live quote/USD via the hook view (falls back to launch price). The hook Trade event emits
+        // sqrtPriceAfter; off-chain USD mcap from it with this same price equals this quote.
         uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
         uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);

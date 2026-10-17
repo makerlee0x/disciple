@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IMigration} from "./interfaces/IMigration.sol";
@@ -27,7 +28,7 @@ interface ICurveRecord {
 /// @dev Fee design: pool LP fee = 0; DiscipleHook takes 1% on swaps → FeeRouter 33/33/33/1.
 ///      Justification: one fee path matching curve-era routing; avoids stacking pool+hook fees;
 ///      LockedLP holds depth forever; LOCKED #16 LP-fee→treasury is N/A with 0 pool fee.
-contract Migration is IMigration {
+contract Migration is IMigration, Owned2Step {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
 
@@ -38,15 +39,12 @@ contract Migration is IMigration {
     LockedLP public immutable lockedLP;
     IPoolManager public immutable poolManager;
     DiscipleHook public immutable hook;
-    address public owner;
     /// @notice Launchpad registry: the only legitimate migrate caller is `launchpad.curveOf(token)` (audit #1).
     address public launchpad;
 
     mapping(address => bool) public override isGraduated;
     mapping(address => bytes32) public override poolIdOf;
     mapping(address => address) public creatorOf; // token => creator (set by launchpad/curve via migrate caller context)
-
-    error OnlyOwner();
     error AlreadyGraduated();
     error ZeroLiquidity();
     error OnlyCurve();
@@ -64,8 +62,7 @@ contract Migration is IMigration {
         uint160 sqrtPriceX96
     );
 
-    constructor(address owner_, address lockedLP_, address poolManager_, address hook_) {
-        owner = owner_;
+    constructor(address owner_, address lockedLP_, address poolManager_, address hook_) Owned2Step(owner_) {
         lockedLP = LockedLP(lockedLP_);
         poolManager = IPoolManager(poolManager_);
         hook = DiscipleHook(hook_);

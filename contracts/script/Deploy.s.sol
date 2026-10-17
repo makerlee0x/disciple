@@ -11,6 +11,7 @@ import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
 import {AntiSnipe} from "../src/AntiSnipe.sol";
 import {Migration} from "../src/Migration.sol";
+import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
@@ -112,7 +113,10 @@ contract Deploy is Script {
         }
         IPoolManager manager = IPoolManager(o.manager);
 
-        ReferralRegistry referrals = new ReferralRegistry(deployer);
+        // USDG first: the referral gate is scaled by its decimals at construction.
+        bool devUsdg = o.usdg == address(0);
+        if (devUsdg) o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
         LockedLP lockedLP = new LockedLP(deployer, treasury);
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
 
@@ -158,9 +162,8 @@ contract Deploy is Script {
         // ── quote assets + oracle ──
         PoolKey memory refKey;
         bool hasRef;
-        if (o.usdg == address(0)) {
-            // local: mock USDG + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
-            o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        if (devUsdg) {
+            // local: mock USDG (created above) + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
             if (o.defaultQuote == address(0)) {
                 o.defaultQuote = address(new DevToken("Strategy Coin (dev)", "STRATEGY", 18, deployer, 1e30));
                 refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, 245e13); // $0.00245
@@ -179,7 +182,8 @@ contract Deploy is Script {
         referrals.setDepositHook(o.depositNotifier);
 
         QuotePricer pricer = new QuotePricer(deployer, manager, o.usdg);
-        pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(0))));
+        // Default floor is set by the constructor (1e4 * 10^((18 + usdgDecimals) / 2)); MIN_LIQUIDITY overrides it.
+        pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(pricer.minLiquidity()))));
         if (!hasRef && o.defaultQuote != o.usdg) {
             (address c0, address c1) =
                 uint160(o.defaultQuote) < uint160(o.usdg) ? (o.defaultQuote, o.usdg) : (o.usdg, o.defaultQuote);
@@ -195,13 +199,22 @@ contract Deploy is Script {
         if (hasRef) pricer.setPricePool(o.defaultQuote, refKey);
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
+        // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
+        launchpad.setTrustedRouter(address(router), true);
+        // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
+        {
+            address attester = vm.envOr("PVE_ATTESTER", address(0));
+            LoginGate gate = new LoginGate(deployer, attester);
+            launchpad.setLoginGate(address(gate));
+        }
         if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");
 
-        QuoteProbe probe = new QuoteProbe(deployer);
-        probe.setAlwaysPass(o.defaultQuote, true);
-        probe.setAlwaysPass(o.usdg, true);
+        // Real round-trip probe through the pricer's base/USDG pool; probes the default base too (no allowlist).
+        QuoteProbe probe = new QuoteProbe(
+            deployer, manager, o.usdg, address(pricer), uint256(vm.envOr("PROBE_USDG", 10 ** uint256(pricer.usdgDecimals())))
+        );
 
         launchpad.setPricer(address(pricer));
         o.curveDeployer = address(new CurveDeployer());

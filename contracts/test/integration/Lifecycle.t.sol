@@ -77,7 +77,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(antiSnipe.currentFeeBps(address(tok)), 7770);
 
         (,,,, uint256 escrow0,,) = lockedLP.positions(address(tok));
-        uint256 tre0 = quote.balanceOf(treasury);
+        uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creator0 = feeRouter.creatorAccrued(address(tok), creator);
 
         uint256 qIn = 50 ether;
@@ -91,7 +91,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(escrow1 - escrow0, lpFromProto, "snipe no longer to LP");
         assertEq(quote.balanceOf(address(rewardsVault)), (expectedSnipe * 7000) / 10_000, "70% rewards");
         (,, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(proto);
-        assertEq(quote.balanceOf(treasury) - tre0, expectedSnipe - (expectedSnipe * 7000) / 10_000 + tsh + rsh, "30%");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - tre0, expectedSnipe - (expectedSnipe * 7000) / 10_000 + tsh + rsh, "30%");
 
         // Creator only gets protocol-fee slice, not snipe
         assertEq(feeRouter.creatorAccrued(address(tok), creator) - creator0, (proto * 33) / 100);
@@ -128,12 +128,12 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertLe(qBack, 80 ether);
 
         uint256 mcapBeforeGrad = curve.marketCapUsd();
-        assertLt(mcapBeforeGrad, Constants.PEARLY_GATES_MCAP_USD);
+        assertLt(mcapBeforeGrad, Constants.OUTER_SPACE_MCAP_USD);
 
         _graduate(curve);
         assertTrue(curve.graduated());
         assertGe(curve.tokensSold(), FeeMath.curveSoldSupply() * 99 / 100);
-        // Mcap at/near Pearly Gates (last buy may slightly overshoot sold, mcap check at trigger)
+        // Mcap at/near graduation (Outer Space) (last buy may slightly overshoot sold, mcap check at trigger)
         assertTrue(migration.isGraduated(address(tok)));
 
         // ── Locked LP must NOT be burned ─────────────────────────────────────
@@ -187,15 +187,15 @@ contract LifecycleIntegrationTest is IntegrationBase {
             feeRouter.claimCreatorFees(address(tok));
         }
 
-        uint256 treTok0 = tok.balanceOf(treasury);
+        uint256 treTok0 = (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok)));
         uint256 creatorTok0 = tok.balanceOf(creator);
-        uint256 treQ0 = quote.balanceOf(treasury);
+        uint256 treQ0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creatorQ0 = feeRouter.creatorAccrued(address(tok), creator);
 
         // quote → token: hook fee in launch token → physical split (creator/treasury get tokens)
         _swapExactInQuoteForToken(tok, trader1, 20 ether);
         assertTrue(
-            tok.balanceOf(treasury) > treTok0 || tok.balanceOf(creator) > creatorTok0,
+            (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > treTok0 || tok.balanceOf(creator) > creatorTok0,
             "post-grad buy: 1% hook fee routed in token"
         );
         // Must not pollute quote-denominated creatorAccrued
@@ -206,7 +206,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         require(tBal > 1e18, "trader needs tokens");
         _swapExactInTokenForQuote(tok, trader1, tBal / 10);
         assertTrue(
-            quote.balanceOf(treasury) > treQ0 || feeRouter.creatorAccrued(address(tok), creator) > creatorQ0,
+            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treQ0 || feeRouter.creatorAccrued(address(tok), creator) > creatorQ0,
             "post-grad sell: 1% hook fee routed in quote"
         );
 

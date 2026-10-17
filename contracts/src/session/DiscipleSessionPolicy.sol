@@ -12,8 +12,8 @@ interface IQuoteSources {
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
-    // DiscipleRouter USDG route quote (simulate-and-revert)
-    function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn)
+    // DiscipleRouter USDG route quote for an explicit trader (simulate-and-revert)
+    function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 maxHopImpactBps);
     function usdg() external view returns (address);
@@ -87,6 +87,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         bytes4(keccak256("launch((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
     bytes4 internal constant LAUNCH_COIN =
         bytes4(keccak256("launchCoin((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
+    bytes4 internal constant LAUNCH_MODE = bytes4(
+        keccak256("launchWithMode((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8)")
+    );
     bytes4 internal constant ANON_LAUNCH = bytes4(
         keccak256(
             "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1)"
@@ -114,6 +117,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         uint128 cap0; // max total quote0 actually SPENT during the session (raw units; buys/tramps/launches)
         uint128 cap1;
         uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT, else 10..5000
+        address stealthOwner; // launchAnon: the only stealth owner allowed besides the account (0 = account only)
     }
 
     struct Session {
@@ -142,6 +146,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error NotAllowed(address target, bytes4 selector);
     error EthValueNotAllowed();
     error RecipientNotAccount();
+    error StealthOwnerNotAllowed(address stealthOwner);
     error SpenderNotAllowed(address spender);
     error SpendCapExceeded(address quote, uint256 spent, uint256 cap);
     error NotCurve(address target);
@@ -254,9 +259,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         Call[] memory calls = _decode(_unwrapExecuteUserOp(data));
         uint256 add0;
         uint256 add1;
-        (address usdg, uint256 usdgNeed) = _usdgRouterNeed(s.cfg, calls);
+        address usdg = _usdgOf(s.cfg);
         for (uint256 i; i < calls.length; ++i) {
-            (uint256 a0, uint256 a1) = _fullCheck(s.cfg, msg.sender, calls[i], usdg, usdgNeed);
+            (uint256 a0, uint256 a1) = _fullCheck(s.cfg, msg.sender, calls[i], usdg, calls);
             add0 += a0;
             add1 += a1;
         }
@@ -335,7 +340,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     /// @return add0 / add1 quote spend to count against cap0 / cap1.
-    function _fullCheck(SessionConfig storage c, address account, Call memory k, address usdg, uint256 usdgNeed)
+    function _fullCheck(SessionConfig storage c, address account, Call memory k, address usdg, Call[] memory calls)
         internal
         returns (uint256 add0, uint256 add1)
     {
@@ -352,7 +357,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             // against the router's own multi-hop quote at this state. The cap counts USDG spent.
             (address token, uint256 amountIn, uint256 minOut) = abi.decode(args, (address, uint256, uint256));
             bool isBuy = sel == ROUTER_BUY_USDG;
-            _checkMinOut(c, minOut, _usdgRouteQuote(k.target, token, isBuy, amountIn), k.target);
+            _checkMinOut(c, minOut, _usdgRouteQuote(k.target, account, token, isBuy, amountIn), k.target);
             if (isBuy) (add0, add1) = _spend(c, usdg, amountIn);
         } else if (p == P_ROUTER_BUY || p == P_ROUTER_SELL) {
             (address token, uint256 amountIn, uint256 minOut, address recipient,) =
@@ -367,10 +372,14 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
                 if (recipient != account) revert RecipientNotAccount();
             }
             (uint256 amountIn, uint256 minOut) = abi.decode(args, (uint256, uint256));
-            _checkMinOut(c, minOut, _curveQuote(k.target, p == P_CURVE_BUY, amountIn), k.target);
+            _checkMinOut(c, minOut, _curveQuote(k.target, account, p == P_CURVE_BUY, amountIn), k.target);
             if (p == P_CURVE_BUY) (add0, add1) = _spend(c, IQuoteOf(k.target).quote(), amountIn);
         } else if (p == P_ANON_LAUNCH) {
-            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
+            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 1 =
+            // stealthOwner, word 2 = buyRecipient. Audit R-2: a leaked key must not launch with ITS stealth owner
+            // (the creator role + fees): only the account or the stealth address registered at install.
+            address so = _word(args, 1);
+            if (so != account && (so != c.stealthOwner || so == address(0))) revert StealthOwnerNotAllowed(so);
             address buyRecipient = _word(args, 2);
             if (buyRecipient != account) revert RecipientNotAccount();
             (address q, uint256 buyIn) = _launchSpend(c, args);
@@ -384,12 +393,13 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             if (wallet != account) revert WalletNotAccount();
         } else if (p == P_APPROVE) {
             (address spender, uint256 amt) = abi.decode(args, (address, uint256));
-            if (usdg != address(0) && k.target == usdg) {
-                // USDG: only to DiscipleRouter, and only for exactly what this batch's buyWithUsdg calls spend
-                // (0 = revoke is always fine). No Permit2 / UniversalRouter / curve allowances for USDG.
-                if (spender != c.router) revert SpenderNotAllowed(spender);
-                if (amt != 0 && amt != usdgNeed) revert UsdgApproveNotExact(amt, usdgNeed);
-            } else if (!_isFixedTarget(c, spender) && !_isCurve(c, spender)) revert SpenderNotAllowed(spender);
+            if (!_isFixedTarget(c, spender) && !_isCurve(c, spender)) revert SpenderNotAllowed(spender);
+            if (usdg != address(0) && k.target == usdg && amt != 0) {
+                // USDG (DISCIPLE audit #5): an allowance to the router, a curve, TrampWallManager, Launchpad or
+                // AnonLauncher must equal EXACTLY what this batch's calls to that spender pull in USDG (0 = revoke).
+                uint256 need = _usdgNeedFor(c, calls, spender, usdg);
+                if (amt != need) revert UsdgApproveNotExact(amt, need);
+            }
             // Audit #8: approvals are NOT what the cap counts (a leftover or pre-existing allowance would bypass
             // it). The cap counts the quote each spending call actually moves (buys, tramps, launch buys/fees).
         } else if (p == P_TRAMP) {
@@ -403,38 +413,62 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         // P_WALL / P_CANCEL / sells: no quote leaves the account (walls pull launch tokens; proceeds pinned)
     }
 
-    /// @dev USDG of the configured router (address(0) for a router without USDG routing) and the total USDG the
-    ///      batch's buyWithUsdg calls spend (the exact USDG approve amount allowed).
-    function _usdgRouterNeed(SessionConfig storage c, Call[] memory calls)
-        internal
-        view
-        returns (address usdg, uint256 need)
-    {
+    /// @dev USDG of the configured router (address(0) for a router without USDG routing).
+    function _usdgOf(SessionConfig storage c) internal view returns (address usdg) {
         address r = c.router;
-        if (r == address(0) || r.code.length == 0) return (address(0), 0);
+        if (r == address(0) || r.code.length == 0) return address(0);
         try IQuoteSources(r).usdg() returns (address u) {
             usdg = u;
-        } catch {
-            return (address(0), 0);
-        }
+        } catch {}
+    }
+
+    /// @dev Total USDG the batch's spending calls targeting `spender` pull from the account.
+    function _usdgNeedFor(SessionConfig storage c, Call[] memory calls, address spender, address usdg)
+        internal
+        view
+        returns (uint256 need)
+    {
         for (uint256 i; i < calls.length; ++i) {
             Call memory k = calls[i];
-            if (k.target == r && _sel(k.data) == ROUTER_BUY_USDG && k.data.length >= 68) {
-                uint256 a;
-                bytes memory d = k.data;
-                assembly {
-                    a := mload(add(d, 68)) // 32 (len) + 4 (selector) + 32 (token)
+            if (k.target != spender || k.data.length < 4) continue;
+            bytes4 sel = _sel(k.data);
+            bytes memory args = _args(k.data);
+            if (spender == c.router) {
+                if (sel == ROUTER_BUY_USDG) {
+                    (, uint256 a) = abi.decode(args, (address, uint256));
+                    need += a;
+                } else if (sel == ROUTER_BUY) {
+                    (address t, uint256 a) = abi.decode(args, (address, uint256));
+                    if (_quoteOfToken(c, t) == usdg) need += a;
                 }
-                need += a;
+            } else if (spender == c.trampWallManager) {
+                if (sel == TRAMP) {
+                    (address t,,, uint256 a) = abi.decode(args, (address, int24, int24, uint256));
+                    if (_quoteOfToken(c, t) == usdg) need += a;
+                }
+            } else if (spender == c.launchpad || spender == c.anonLauncher) {
+                if (sel == LAUNCH || sel == LAUNCH_COIN || sel == LAUNCH_MODE || sel == ANON_LAUNCH) {
+                    (address q, uint256 a) = _launchSpend(c, args);
+                    if (q == usdg) need += a;
+                    if (sel == ANON_LAUNCH && IAnonFee(spender).feeToken() == usdg) need += IAnonFee(spender).launchFee();
+                }
+            } else if (sel == CURVE_BUY3 || sel == CURVE_BUY4) {
+                // spender is a registry-verified curve (checked by the caller)
+                if (IQuoteOf(spender).quote() == usdg) {
+                    (uint256 a) = abi.decode(args, (uint256));
+                    need += a;
+                }
             }
         }
     }
 
-    function _usdgRouteQuote(address router, address token, bool isBuy, uint256 amountIn)
+    /// @dev DISCIPLE audit Medium-2: quoted for the ACCOUNT (not this policy contract), so PVE login, NET caps and
+    ///      the PVE profit tax match the real trade.
+    function _usdgRouteQuote(address router, address account, address token, bool isBuy, uint256 amountIn)
         internal
         returns (uint256 out)
     {
-        try IQuoteSources(router).quoteUsdgRoute(token, isBuy, amountIn) returns (uint256 o, uint256) {
+        try IQuoteSources(router).quoteUsdgRouteFor(account, token, isBuy, amountIn) returns (uint256 o, uint256) {
             out = o;
         } catch {
             revert QuoteFailed(router);
@@ -503,10 +537,18 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         }
     }
 
-    /// @dev BondingCurve.quoteBuy / quoteSell return all-static structs whose first word is the net output.
-    function _curveQuote(address curve, bool isBuy, uint256 amountIn) internal view returns (uint256) {
-        (bool ok, bytes memory r) =
-            curve.staticcall(abi.encodeWithSignature(isBuy ? "quoteBuy(uint256)" : "quoteSell(uint256)", amountIn));
+    /// @dev BondingCurve.quoteBuyFor / quoteSellFor(account, …) return all-static structs whose first word is the net
+    ///      output, with the account's mode caps / PVE login / PVE profit tax applied (audit Medium-2).
+    function _curveQuote(address curve, address account, bool isBuy, uint256 amountIn)
+        internal
+        view
+        returns (uint256)
+    {
+        (bool ok, bytes memory r) = curve.staticcall(
+            abi.encodeWithSignature(
+                isBuy ? "quoteBuyFor(address,uint256)" : "quoteSellFor(address,uint256)", account, amountIn
+            )
+        );
         if (!ok || r.length < 32) revert QuoteFailed(curve);
         return abi.decode(r, (uint256));
     }
@@ -531,7 +573,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             return 0;
         }
         if (target == c.launchpad && target != address(0)) {
-            if (sel == LAUNCH || sel == LAUNCH_COIN) return P_LAUNCH;
+            if (sel == LAUNCH || sel == LAUNCH_COIN || sel == LAUNCH_MODE) return P_LAUNCH;
             return 0;
         }
         if (target == c.anonLauncher && target != address(0)) {

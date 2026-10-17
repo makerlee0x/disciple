@@ -67,7 +67,7 @@ contract CurveTest is Test {
 
     function setUp() public {
         quote = new MockQuote();
-        referrals = new ReferralRegistry(owner);
+        referrals = new ReferralRegistry(owner, address(quote));
         lockedLP = new LockedLP(owner, treasury);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
@@ -307,14 +307,14 @@ contract CurveTest is Test {
 
     function test_fee_taken_on_buy() public {
         (BondingCurve curve,) = _launch();
-        uint256 tre0 = quote.balanceOf(treasury);
+        uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
 
         vm.startPrank(alice);
         quote.approve(address(curve), type(uint256).max);
         curve.buy(50 ether, 0, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
 
-        assertGt(quote.balanceOf(treasury), tre0);
+        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), tre0);
     }
 
     function testFuzz_integration_buySell_noProfit(uint256 qSeed) public {
@@ -376,7 +376,7 @@ contract CurveTest is Test {
 
         // Snapshot LockedLP escrow + treasury + creator accrued + rewards vault
         (,,,, uint256 escrowBefore,,) = lockedLP.positions(tok);
-        uint256 treBefore = quote.balanceOf(treasury);
+        uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creatorBefore = feeRouter.creatorAccrued(tok, alice);
 
         vm.startPrank(alice);
@@ -395,7 +395,7 @@ contract CurveTest is Test {
         assertEq(quote.balanceOf(address(rewardsVault)), toRewards, "70% rewards");
         assertEq(rewardsVault.totalAccrued(address(quote)), toRewards);
         assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP");
-        assertEq(quote.balanceOf(treasury) - treBefore, expectedSnipe - toRewards + ts_ + rs, "30% + proto treasury");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore, expectedSnipe - toRewards + ts_ + rs, "30% + proto treasury");
         assertEq(feeRouter.creatorAccrued(tok, alice) - creatorBefore, cs);
     }
 
@@ -404,7 +404,7 @@ contract CurveTest is Test {
         assertEq(antiSnipe.currentFeeBps(address(tok)), 0);
 
         (,,,, uint256 escrowBefore,,) = lockedLP.positions(address(tok));
-        uint256 treBefore = quote.balanceOf(treasury);
+        uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
 
         vm.startPrank(alice);
         quote.approve(address(curve), type(uint256).max);
@@ -416,6 +416,6 @@ contract CurveTest is Test {
         uint256 protoFee = (50 ether * 100) / 10_000;
         uint256 lpShare = (protoFee * 33) / 100;
         assertEq(escrowAfter - escrowBefore, lpShare);
-        assertGt(quote.balanceOf(treasury), treBefore);
+        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), treBefore);
     }
 }

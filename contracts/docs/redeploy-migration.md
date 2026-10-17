@@ -3,7 +3,7 @@
 **Status:** prepared, NOT broadcast. The live site still runs on the v2 stack in `deployments/rh-testnet-46630.json`.
 
 ## Contents
-- Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and DiscipleHook (`setPricer`, so Trade-event mcap uses the live pricer).
+- Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and DiscipleHook (`setPricer`; since G-1 the pricer is only read by the `quoteUsdOf` view, never on the swap path).
 - New contracts: RewardsVault, AnonLauncher, MarketLens.
 - Everything else is redeployed because FeeRouter and Launchpad addresses are immutable in hook, curves, Launchpad, AntiSnipe and Migration.
 - Reused: v4 PoolManager / Quoter / StateView / UniversalRouter / Permit2, mUSDG, test STRATEGY, and the STRATEGY/mUSDG reference pool (3000/60/no hook).
@@ -122,9 +122,9 @@ New `IAltitudeEvents`, emitted by **BondingCurve (pre-grad)** and **DiscipleHook
 event AltitudeUpdate(address indexed token, uint256 mcapUsd, uint8 tier);
 event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mcapUsd);
 ```
-- Altitude is **spot**: `mcapUsd` == the `Trade.mcapAfterUsd` just emitted. `tier` is the 0..17 index of `web/lib/config.ts` `TIERS`, using the same breakpoints as `Altitude.tierOf`.
-- `TierBreak` fires on any spot tier change, up or down, on the trade that caused it. GAME can use it directly or keep deriving tiers from `Trade.mcapAfterUsd`; both give the same result.
-- At graduation the hook emits one `AltitudeUpdate` at the seeded curve-end mcap (normally tier 4, PEARLY GATES), with no `TierBreak`. From then on the hook's stream replaces the curve's.
+- Altitude is **spot**: on the curve `mcapUsd` == the `Trade.mcapAfterUsd` just emitted; on the hook (G-1) it is the spot mcap from the hook `Trade.sqrtPriceAfter` at the pool's launch-time quote/USD price. `tier` is the 0..17 index of `web/lib/config.ts` `TIERS`, using the same breakpoints as `Altitude.tierOf`.
+- `TierBreak` fires on any spot tier change, up or down, on the trade that caused it. GAME can use it directly or derive tiers from the Trade (curve: `mcapAfterUsd`; hook: `sqrtPriceAfter` × launch-time quote/USD); both give the same result.
+- At graduation the hook emits one `AltitudeUpdate` at the seeded curve-end mcap (normally tier 4, OUTER SPACE), with no `TierBreak`. From then on the hook's stream replaces the curve's.
 - Getters: `BondingCurve.altitudeTier()` and `DiscipleHook.altitudeTierOf(PoolId)`.
 - Old (v3) coins don't emit these events.
 

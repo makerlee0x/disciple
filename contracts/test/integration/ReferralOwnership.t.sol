@@ -54,9 +54,9 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
     function test_treasury_autoPush_on_trade() public {
         (BondingCurve curve,) = _launch(0, 0);
         _warpPastSnipe();
-        uint256 tre0 = quote.balanceOf(treasury);
+        uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         _buy(curve, trader1, 100 ether, 0);
-        assertGt(quote.balanceOf(treasury), tre0, "treasury auto-push");
+        assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), tre0, "treasury auto-push");
     }
 
     function test_creator_claim_anytime() public {

@@ -64,7 +64,7 @@ contract MigrationTest is Test {
 
     function setUp() public {
         quote = new MockQuote();
-        referrals = new ReferralRegistry(owner);
+        referrals = new ReferralRegistry(owner, address(quote));
         lockedLP = new LockedLP(owner, treasury);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
@@ -160,7 +160,7 @@ contract MigrationTest is Test {
     function test_price_continuity_within_rounding() public {
         (BondingCurve curve, Token tok, PoolKey memory key) = _launchAndGraduate();
 
-        // Spot at exact sCurve (Pearly Gates); pool init uses same priceWad from graduating buy
+        // Spot at exact sCurve (graduation, Outer Space); pool init uses same priceWad from graduating buy
         CurveMath.Params memory p = CurveMath.makeParams(1e18);
         uint256 priceWad = CurveMath.spotPriceWad(p, FeeMath.curveSoldSupply());
 
@@ -182,7 +182,7 @@ contract MigrationTest is Test {
     function test_postGrad_swap_charges_1pct_via_hook() public {
         (, Token tok, PoolKey memory key) = _launchAndGraduate();
 
-        uint256 treBefore = quote.balanceOf(treasury);
+        uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creatorBefore = feeRouter.creatorAccrued(address(tok), alice);
 
         // Swap quote → token (or reverse depending on ordering)
@@ -207,8 +207,8 @@ contract MigrationTest is Test {
 
         // Hook took 1% of output and routed — treasury and/or creator accrued should rise
         assertTrue(
-            quote.balanceOf(treasury) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
-                || tok.balanceOf(treasury) > 0,
+            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
+                || (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > 0,
             "fees should route"
         );
     }

@@ -60,7 +60,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `src/interfaces/*.sol` | Protocol interfaces | matching sections |
 | `src/interfaces/v4/*` | Minimal PoolManager / Hooks stubs | §2 (deps deferred) |
 | `src/interfaces/IQuoteProbe.sol` | Quote probe interface (honeypot/FoT) | §6; LOCKED #31–#32 |
-| `test/FeeMath.t.sol` | Smoke: fee shares, supply, Pearly Gates, anti-snipe consts | §2–§3 |
+| `test/FeeMath.t.sol` | Smoke: fee shares, supply, Outer Space graduation, anti-snipe consts | §2–§3 |
 | `test/Launchpad.t.sol` | Smoke: permissionless launch + metadata/tax guards | §5 |
 | `test/Curve.t.sol` | Curve: worked table, fuzz round-trip/monotonic, graduate | §2 |
 | `test/Migration.t.sol` | v4: pool created, price continuity, LP locked, post-grad 1% fee | §2 |
@@ -72,7 +72,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 |----------|-------|
 | `TOTAL_SUPPLY` | 7_000_000_000e18 |
 | `START_MCAP_USD` | $7,000 (Launch Pad) |
-| `PEARLY_GATES_MCAP_USD` | $33,000 (graduation) |
+| `OUTER_SPACE_MCAP_USD` | $33,000 (graduation, opens Outer Space) |
 | `CURVE_SOLD_BPS` | 7200 (72% exactly at grad) |
 | `WALLET_CAP_BPS_DEFAULT` | 0 (no cap; owner-settable via `Launchpad.setWalletCapBps`, snapshotted per coin) |
 | `TRADE_FEE_BPS` | 100 (1%) |
@@ -87,7 +87,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 See [`docs/curve.md`](docs/curve.md).
 
 - **Single** constant-product virtual-reserve curve (steep / Pump-like).
-- Start **$7K** → Pearly Gates **$33K** exactly at **72%** supply sold.
+- Start **$7K** → graduation (Outer Space) **$33K** exactly at **72%** supply sold.
 - **Quote:** any ERC-20 with a registered quote/USDG pool; USD targets scaled by the on-chain `QuotePricer` price at launch (see docs/frontend-api.md).
 - **Rounding:** floor against user on buy and sell (fuzzed no round-trip profit).
 - Raise to grad (net of fees on curve) ≈ **$10,943**.
@@ -96,9 +96,9 @@ Worked mcaps at 0 / 10 / 25 / 50 / 72% sold: **$7K / ~$8.2K / ~$10.6K / ~$17.9K 
 
 ## Explicit stubs / TODOs
 
-1. **KOL 3% of creator fees** on coins created by referred wallets — not yet wired (§4 #21).
-3. **Quote probe** — interface only (§6).
-4. **Upgradeable / multisig** — constitution LOCKED #35; scaffold is non-upgradeable for clarity.
+1. **Quote probe** — interface only (§6).
+2. **Non-upgradeable** — constitution #35: contracts are non-upgradeable and changed only by redeploy; owner/admin
+   wiring goes to a Safe multisig + timelock before mainnet (security-review.md SEC-04).
 
 ## Layout
 

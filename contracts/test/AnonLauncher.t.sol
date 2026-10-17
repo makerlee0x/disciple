@@ -88,7 +88,7 @@ contract AnonLauncherTest is IntegrationBase {
 
     function test_launch_creator_is_stealth_not_payer_fee_and_buy_routed() public {
         address fresh = makeAddr("fresh");
-        uint256 tBefore = quote.balanceOf(treasury);
+        uint256 tBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         (uint256 expOut,,,,) = launchpad.quoteCreatorBuy(address(quote), 10 ether, 0);
         (BondingCurve c, Token t, uint256 bought) = _anonLaunch(stealthA, fresh, 10 ether);
         assertEq(anon.stealthOwnerOf(address(t)), stealthA);
@@ -100,7 +100,7 @@ contract AnonLauncherTest is IntegrationBase {
         assertEq(t.balanceOf(address(anon)), 0);
         assertEq(c.tokensSold(), bought);
         // launch fee + treasury share of 1% protocol fee
-        assertGe(quote.balanceOf(treasury) - tBefore, FEE);
+        assertGe((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - tBefore, FEE);
     }
 
     function testFuzz_buyRecipient_routing(address recipient, uint96 buy) public {

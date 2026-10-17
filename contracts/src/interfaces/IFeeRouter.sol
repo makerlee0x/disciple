@@ -20,7 +20,10 @@ interface IFeeRouter {
     ) external;
 
     /// @notice Post-grad hook fee (full 1% fee transferred; split 33/33/33/1, LP share → LockedLP).
-    function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount) external;
+    /// @return compoundReady true if LockedLP's compound buckets for `token` now hold both sides (hook may compound).
+    function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
+        external
+        returns (bool compoundReady);
 
     /// @notice Anti-snipe fee (above protocol 1%) → 70% RewardsVault / 30% treasury (§2 / LOCKED #9 rev.).
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external;

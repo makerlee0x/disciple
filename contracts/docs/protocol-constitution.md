@@ -19,17 +19,17 @@ This document is the source of truth for locked product and protocol decisions. 
 | 3 | Product surface | Spot launchpad + gamified chart; rocket game on **disciple.vip** (GAME) | LOCKED |
 | 4 | Deferrals | Papertrade / leverage deferred; **no native protocol coin** at launch; external ERC-20 quotes only | LOCKED |
 | 5 | Architecture | **Option B:** external bonding curve (**single steep Pump-style CPAMM**) + **same-tx** Uniswap v4 migrate (init at curve-end sqrtPriceX96 — **no price jump**; full-range LP owned forever by LockedLP); **no migration pause/gap** | LOCKED 2026-10-15 |
-| 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Pearly Gates); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
+| 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Outer Space); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
 | 7 | Supply on curve | **~72%** sold on curve; **7B** total supply; fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
 | 8 | Wallet cap | Per-wallet holding cap on the bonding curve only (not post-grad) = **`Launchpad.walletCapBps`** of supply — default **0 (no cap)**, protocol-owner-settable 0–10000 bps (event `WalletCapSet`), **snapshotted per coin at launch** (`walletCapBpsOf(token)`, immutable in the curve; changes affect future coins only); when set, **no wallet exemptions** (rev. 2026-10-15, was fixed 7%) | LOCKED 2026-10-15 |
 | 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **70% to the community RewardsVault / 30% to treasury** (not 33/33/33/1; rev. 2026-10-15, was 100% LP lock). **Creator launch buy (≤ creatorBuyMaxBps, default 0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
-| 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** LP share / **33%** treasury / **1%** leftover. **Leftover priority:** (1) the coin's launch KOL (referrer of the creating wallet, #21) if set, else (2) the trader's referrer, else (3) treasury. Curve phase: the LP share is escrowed in LockedLP and folded into the graduation seed. Post-grad: the LP share is **held in LockedLP pending the compound feature** (not yet re-added to the pool) | LOCKED |
-| 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee | LOCKED |
+| 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** LP share / **33%** treasury / **1%** leftover. **Leftover priority:** (1) the coin's launch KOL (referrer of the creating wallet, #21) if set, else (2) the trader's referrer, else (3) treasury. Curve phase: the LP share is escrowed in LockedLP and folded into the graduation seed. Post-grad: the LP share goes to LockedLP and is **auto-compounded in batches** into the locked full-range position (#16: added once the matched amount reaches **0.1%** of the position's liquidity, capped at **0.5%** per 60 s window and one add per block) | LOCKED |
+| 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee. **Curve-only:** charged on bonding-curve trades; after graduation the hook charges the flat 1% only (no creator tax) | LOCKED |
 | 13 | Creator fees | Accrue on-chain; **pull/claim anytime** | LOCKED |
 | 14 | Treasury fees | **Auto-push** each trade | LOCKED |
 | 15 | LP-lock quote | Curve phase: escrowed in LockedLP each trade, seeded into the locked v4 position at graduation (any quote the full-range add cannot pair goes into the coin's compound quote bucket, event `GraduationLeftover`, and pairs with incoming token fees over time). Post-grad: auto-compounded per trade (#16) | LOCKED |
-| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral; the **full 33% LP share goes to LockedLP and is auto-compounded per trade** into the coin's permanently locked full-range v4 position: buys fill the token bucket, sells the quote bucket, and on every swap the matched amount is added to the same locked position once it passes the minimum (default **0.005% of the position's liquidity**, owner-settable); the unmatched remainder carries forward. Guards: per-add cap (default 2% of position liquidity), skip if the swap moved price > 3% (owner-settable), the add can never revert a trade, no rebalancing swaps. Anyone can call `LockedLP.flush(token)` to top up outside a swap. **No in-range donation** (`PoolManager.donate` removed 2026-10-16): tramps/walls earn no yield. Total fee stays 1%. | LOCKED 2026-10-16 |
+| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral; the **full 33% LP share goes to LockedLP and is auto-compounded in batches** into the coin's permanently locked full-range v4 position: every trade fills a bucket (buys the token bucket, sells the quote bucket), and the matched amount is added to the same locked position only once it reaches the minimum (default **0.1% of the position's liquidity**, `minCompoundPpm` 1,000, owner-settable), so adds batch across many trades; the unmatched remainder carries forward. Guards: at most **0.5%** of position liquidity per 60 s window and one add per block (`maxCompoundPpm` 5,000), skip unless spot is within 3% of the swap's pre-price, the block-start price and the 60 s EMA (owner-settable), the add can never revert a trade, no rebalancing swaps. Anyone can call `LockedLP.flush(token)` to top up outside a swap. **No in-range donation** (`PoolManager.donate` removed 2026-10-16): tramps/walls earn no yield. Total fee stays 1%. | LOCKED 2026-10-16 |
 | 17 | LP lock | Permanently locked at graduation in **LockedLP** (v4 position owner); fee collection allowed; **no remove-liquidity** | LOCKED 2026-10-15 |
 | 18 | Referral attribution | First-touch wallet forever after: referral link → account → **USDG deposit ≥ $10** | LOCKED |
 | 19 | Self-referral | Same-wallet self-referral **blocked only** | LOCKED |
@@ -48,13 +48,13 @@ This document is the source of truth for locked product and protocol decisions. 
 | 32 | Probe | Hard reject honeypot / FoT only; thin depth soft warn; **WETH / USDG always pass** | LOCKED |
 | 33 | LP seeding | Curve seeds LP (not maker/creator quote deposit); thin-depth pairs get curve mods for efficient seeding | LOCKED |
 | 34 | Treasury | Multisig; team/foundation can change address | LOCKED |
-| 35 | Contracts | Upgradeable behind team/foundation multisig; **no timelock** | LOCKED |
+| 35 | Contracts | **Non-upgradeable** (no proxies); changes ship only by **redeploy** (new contracts + migration plan). Owner/admin wiring setters go to a Safe multisig with a timelock before mainnet (security-review.md SEC-04) | LOCKED (rev. 2026-10-17) |
 | 36 | Account | Full Privy — X + wallet (embedded + external); USDG cash balance | LOCKED |
 | 37 | Deposit | **USDG only** in v0; other EVM assets deferred | LOCKED |
 | 38 | Withdraw | USDG on **Robinhood Chain only** | LOCKED |
 | 39 | Data / chart | Own RH indexer for trades, mcap, impact; DexScreener optional share link | LOCKED |
-| 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% brake; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
-| 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K) through Seventh Heaven ($3.3B–$7.77B); Pearly Gates = $33K graduation — see detailed section | LOCKED 2026-10-15 |
+| 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% puff; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
+| 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K) through Seventh Heaven ($3.3B–$7.77B); Outer Space = $33K graduation — see detailed section. Names per disciple-brand/LEXICON.md §4 (renamed 2026-10-17, ranges unchanged) | LOCKED 2026-10-15 |
 | 42 | Tramps & walls | Graduated coins only. Users place **single-sided concentrated v4 LP ranges** via the `TrampWallManager` periphery: **tramp** = quote-only range strictly below price (support), **wall** = token-only range strictly above (resistance). **Pure limit orders, no yield** (pool LP fee 0, no donation). Owner can cancel anytime (no hold); anyone can `pull` a fully crossed range immediately (proceeds to owner minus a keeper tip, default 0.1%, owner-settable max 1%). Only LockedLP and TrampWallManager may add liquidity (hook gate). | LOCKED 2026-10-16 |
 
 ---
@@ -84,7 +84,7 @@ This document is the source of truth for locked product and protocol decisions. 
 
 ### Chosen: Option B
 - **External bonding curve**: single **steep Pump-style CPAMM** (constant-product virtual reserves).
-- At graduation (**Pearly Gates $33K / 72% sold**): **same-transaction** Uniswap v4 migrate:
+- At graduation (**Outer Space $33K / 72% sold**): **same-transaction** Uniswap v4 migrate:
   - Initialize pool at curve-end **sqrtPriceX96** (**no price jump**).
   - Seed **full-range** liquidity with remaining **~28%** tokens + curve quote reserves (plus fee-escrowed quote).
   - Position owned forever by **LockedLP** (removeLiquidity disabled).
@@ -100,7 +100,7 @@ This document is the source of truth for locked product and protocol decisions. 
 |-----------|--------|
 | Curve shape | **Single CPAMM** (Pump-style virtual reserves) |
 | Start market cap | **$7,000** |
-| Graduation market cap | **$33,000** (Pearly Gates) |
+| Graduation market cap | **$33,000** (Outer Space) |
 | Sold on curve | **72%** of supply (exact at graduation) |
 | Total supply | **7,000,000,000** |
 | Mint policy | Fixed supply at launch; **no further mint** |
@@ -149,7 +149,7 @@ Split of the 1% trade fee:
 | Creator fees | Accrue on-chain; **claim anytime** |
 | Treasury fees | **Auto-push** on each trade |
 | LP-lock quote | Curve phase: **escrowed** in LockedLP on each trade, added to the locked position at graduation |
-| Post-graduation LP fees | Pool LP fee is **0**; the hook's 33% LP share is **auto-compounded per trade into the locked full-range position** (once the matched amount passes the threshold, default 0.005% of position liquidity) |
+| Post-graduation LP fees | Pool LP fee is **0**; the hook's 33% LP share is **auto-compounded in batches into the locked full-range position** (added once the matched amount reaches 0.1% of position liquidity; ≤ 0.5% per 60 s window, one add per block) |
 
 ### LP at graduation
 - LP is **permanently locked**.
@@ -267,7 +267,7 @@ Owned visually by **DISCIPLE GAME**. Tiers by sell price impact:
 
 | Impact | Nuke tier |
 |--------|-----------|
-| &lt; 2% | Brake |
+| &lt; 2% | PUFF |
 | 2–5% | Grenade |
 | 5–12% | Bunker buster |
 | 12–25% | Cruise missile |
@@ -279,22 +279,22 @@ Owned visually by **DISCIPLE GAME**. Tiers by sell price impact:
 ## 9. Tier Ladder (biblically ascending)
 
 Market-cap **ranges** for the gamified chart / rocket progression.  
-Re-priced 2026-10-15 so **Pearly Gates = $33K graduation**. **Verified tier badges are off-chain/indexer-only** (no on-chain tier hooks); Launchpad emits `LaunchTierContext` + `Launched` for indexers. LOCKED 2026-10-15. Pre-grad tiers span $7K→$33K evenly; post-grad grows roughly geometrically to Seventh Heaven. Ranges are contiguous and non-overlapping (half-open: tier owns `[lo, hi)` except Seventh Heaven which is closed at the top).
+Re-priced 2026-10-15 so **graduation = $33K** (the open of **Outer Space**; tiers renamed 2026-10-17 to the official ladder in disciple-brand/LEXICON.md §4 and web/lib/flight/tiers.ts, ranges unchanged). **Verified tier badges are off-chain/indexer-only** (no on-chain tier hooks); Launchpad emits `LaunchTierContext` + `Launched` for indexers. LOCKED 2026-10-15. Pre-grad tiers span $7K→$33K evenly; post-grad grows roughly geometrically to Seventh Heaven. Ranges are contiguous and non-overlapping (half-open: tier owns `[lo, hi)` except Seventh Heaven which is closed at the top).
 
 | Tier name | Market cap range |
 |-----------|------------------|
 | **Launch Pad** | **$7K–$12K** |
-| **Limbo** | **$12K–$18K** |
-| **Ascension** | **$18K–$25K** |
-| **Narrow Gate** | **$25K–$33K** |
-| **Pearly Gates** *(graduation at $33K)* | **$33K–$55K** |
+| **Ozone** | **$12K–$18K** |
+| **Stratosphere** | **$18K–$25K** |
+| **Kármán Line** | **$25K–$33K** |
+| **Outer Space** *(graduation at $33K)* | **$33K–$55K** |
 | **Firmament** | **$55K–$100K** |
-| **Angels** | **$100K–$333K** |
-| **Archangels** | **$333K–$777K** |
-| **Heavenly Host** | **$777K–$1.2M** |
-| **Morning Stars** | **$1.2M–$3.3M** |
-| **Virtues** | **$3.3M–$7.7M** |
-| **Dominions** | **$7.7M–$33M** |
+| **Morning Stars** | **$100K–$333K** |
+| **Heavenly Host** | **$333K–$777K** |
+| **The Moon** | **$777K–$1.2M** |
+| **Uranus** | **$1.2M–$3.3M** |
+| **Limbo** | **$3.3M–$7.7M** |
+| **Gates of Heaven** | **$7.7M–$33M** |
 | **Throne Room** | **$33M–$77M** |
 | **Cherubim** | **$77M–$120M** |
 | **Seraphim** | **$120M–$777M** |
@@ -302,7 +302,7 @@ Re-priced 2026-10-15 so **Pearly Gates = $33K graduation**. **Verified tier badg
 | **Empyrean** | **$1.2B–$3.3B** |
 | **Seventh Heaven** | **$3.3B–$7.77B** |
 
-Graduation occurs at the open of **Pearly Gates ($33K)**.
+Graduation occurs at the open of **Outer Space ($33K)**.
 
 ---
 
@@ -341,7 +341,8 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - **Revisions 2026-10-15 (tramps & walls):** LOCKED #9/#27 creator launch buy anti-snipe exempt; #16 LP share split 1/3 donate to in-range LPs + 2/3 LockedLP (superseded 2026-10-16: no donation); new #42 tramps & walls.  
 - **Revisions 2026-10-16 (no LP yield):** #16 donation removed, full 33% LP share → LockedLP; #42 tramps/walls are pure limit orders (no fees, no claim, no min hold), keeper-tipped `pull`, hook LP-add gate (LockedLP + TWM only).  
 - **Revisions 2026-10-16 (audit fixes):** #11 leftover priority spelled out; #15/#16 LP share described as held pending compound; #29 router impact cap; graduation leftover quote → treasury.  
-- **Revisions 2026-10-16 (LP auto-compound):** #16 LP share is auto-compounded per trade into the locked full-range position (threshold 0.005% of position liquidity, cap 2%, 3% price-deviation skip, permissionless `flush`). Graduation leftover quote → compound quote bucket (was treasury).  
+- **Revisions 2026-10-16 (LP auto-compound):** #16 LP share is auto-compounded per trade into the locked full-range position (threshold 0.005% of position liquidity, cap 2%, 3% price-deviation skip, permissionless `flush`; **superseded on PR #75:** threshold 0.1%, cap 0.5% per 60 s window + one add per block, batched). Graduation leftover quote → compound quote bucket (was treasury).  
+- **Revisions 2026-10-17 (PR #75):** #41/§9 tier names → official ladder (Ozone, Stratosphere, Kármán Line, Outer Space = graduation, Morning Stars, Heavenly Host, The Moon, Uranus, Limbo, Gates of Heaven; ranges unchanged; `Constants.PEARLY_GATES_MCAP_USD` → `OUTER_SPACE_MCAP_USD`, `TIER_*` renamed). #35 non-upgradeable, redeploy-only. #12 creator tax curve-only. #11/#16 compound numbers: 0.1% minimum, 0.5% per 60 s cap, one add per block, batched.  
 - **Change policy:** Treat the LOCKED table as authoritative. New decisions require an explicit unlock / revision of this constitution; do not silently override LOCKED rows.
 
 *End of DISCIPLE Protocol Constitution.*

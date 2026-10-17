@@ -7,7 +7,7 @@ import {FeeMath} from "./FeeMath.sol";
 
 /// @title Pump-style CPAMM bonding curve math (§2 / LOCKED #5–#7)
 /// @notice Single constant-product virtual-reserve curve.
-///         Start mcap $7K → Pearly Gates $33K exactly when tokensSold == 72% of supply.
+///         Start mcap $7K → graduation (Outer Space) $33K exactly when tokensSold == 72% of supply.
 /// @dev Quote amounts are raw quote wei. USD targets convert via `quotePriceUsd`
 ///      (USD WAD per 1 full quote token) at launch. Every trade rounds against the user.
 library CurveMath {
@@ -16,7 +16,7 @@ library CurveMath {
     /// @dev Immutable curve geometry.
     struct Params {
         uint256 totalSupply;
-        uint256 sCurve; // tokens sold at Pearly Gates (72% of supply)
+        uint256 sCurve; // tokens sold at graduation (Outer Space, 72% of supply)
         uint256 x0; // virtual quote reserve at s=0
         uint256 y0; // virtual token reserve at s=0
         uint256 quotePriceUsd; // USD WAD per 1 full quote token
@@ -107,7 +107,7 @@ library CurveMath {
     }
 
     /// @notice Quote wei for selling `tokensIn` down from `tokensSold` (floor — against seller).
-    /// @dev Floors CPAMM output, then steps down if needed so buy-back cannot exceed tokensIn
+    /// @dev Floors CPAMM output, then clamps (closed form, ceil rounding) so buy-back cannot exceed tokensIn
     ///      (eliminates rare floor-asymmetry rounding profit on sell→buy).
     function quoteOutForTokens(Params memory p, uint256 tokensSold, uint256 tokensIn)
         internal
@@ -120,11 +120,13 @@ library CurveMath {
         uint256 y = p.y0 - tokensSold;
         uint256 x = Math.mulDiv(p.x0, p.y0, y);
         q = Math.mulDiv(x, tokensIn, y + tokensIn);
-        uint256 sAfter = tokensSold - tokensIn;
-        while (q > 0 && tokensOutForQuote(p, sAfter, q) > tokensIn) {
-            unchecked {
-                --q;
-            }
+        // Audit G-7: closed form of the old one-wei step-down = the largest q with
+        // tokensOutForQuote(sAfter, q) <= tokensIn. At sAfter: y' = y + T, x' = floor(x0*y0 / y').
+        // floor(y'q / (x'+q)) <= T  <=>  q(y' - T - 1) < (T+1)x'  <=>  q <= ceil((T+1)x' / (y-1)) - 1.
+        if (y > 1) {
+            uint256 xa = Math.mulDiv(p.x0, p.y0, y + tokensIn);
+            uint256 qMax = Math.mulDiv(tokensIn + 1, xa, y - 1, Math.Rounding.Ceil) - 1;
+            if (q > qMax) q = qMax;
         }
     }
 }

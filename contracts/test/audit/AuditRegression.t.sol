@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {TrampWallManager} from "../../src/TrampWallManager.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
@@ -60,7 +61,7 @@ contract AuditRegression is IntegrationBase {
     }
 
     function test_audit1_setLaunchpadOnceOwnerOnly() public {
-        vm.expectRevert(Migration.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         migration.setLaunchpad(attacker);
         vm.prank(owner);
         vm.expectRevert(Migration.LaunchpadAlreadySet.selector);
@@ -158,7 +159,7 @@ contract AuditRegression is IntegrationBase {
         referrals.setDepositHook(address(n));
         vm.prank(trader1);
         referrals.tryAttribute(trader1, kol);
-        vm.startPrank(trader1);
+        vm.startPrank(trader2); // third-party payer (self-deposits are rejected: DISCIPLE audit #7)
         quote.approve(address(n), 10 ether);
         n.deposit(trader1, 10 ether);
         vm.stopPrank();
@@ -246,28 +247,36 @@ contract AuditRegression is IntegrationBase {
         hook.setMigration(attacker); // admin, but already wired
     }
 
-    // ── #13 quoteExactIn mcap == Trade mcap (live price) ──
+    // ── #13 quoteExactIn mcap == mcap derived from Trade.sqrtPriceAfter at the live price (G-1) ──
     function test_audit13_quoteMcapMatchesTradeEvent() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _graduate(curve);
-        hook.setPricer(address(new FixedPricer(3e18))); // live price differs from launch-time 1e18
+        FixedPricer fp = new FixedPricer(3e18); // live price differs from launch-time 1e18
+        hook.setPricer(address(fp));
+        PoolId pid = PoolIdLibrary.toId(_poolKey(tok));
+        bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
         (uint256 out,, uint256 qMcap) = router.quoteExactIn(address(tok), true, 100 ether);
+        uint256 liveQ = hook.quoteUsdOf(pid);
+        assertEq(liveQ, 3e18);
         vm.startPrank(trader1);
         quote.approve(address(router), 100 ether);
         vm.recordLogs();
+        // G-1 (expectCall counts every later call in this test, so no pricer reads after this line): the swap path never calls the pricer
+        vm.expectCall(address(fp), abi.encodeWithSelector(FixedPricer.quotePriceUsd.selector), 0);
         router.buyExactIn(address(tok), 100 ether, out, trader1, block.timestamp + 1);
         vm.stopPrank();
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256(
-            "Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)"
-        );
+        bytes32 sig =
+            keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)");
         bool seen;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == sig && logs[i].emitter == address(hook)) {
-                (,,,,,,,, uint256 mcap) = abi.decode(
-                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
+                (,,,,,,,, uint160 sqrtAfter) = abi.decode(
+                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160)
                 );
-                assertEq(qMcap, mcap);
+                (uint160 sp,,,) = StateLibrary.getSlot0(manager, pid);
+                assertEq(sqrtAfter, sp, "Trade.sqrtPriceAfter == slot0");
+                assertEq(qMcap, hook.mcapUsdFromSqrt(sqrtAfter, tokenIsC0, liveQ));
                 seen = true;
             }
         }

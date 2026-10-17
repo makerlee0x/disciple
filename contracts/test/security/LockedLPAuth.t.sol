@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 
 /// @notice SEC-01: LockedLP.addLockedLiquidity was unauthenticated → anyone could overflow a coin's escrowQuote
 ///         with a worthless token so every later fee routing (all curve trades) reverted (coin bricked).
@@ -30,7 +31,7 @@ contract LockedLPAuthTest is IntegrationBase {
     }
 
     function test_setFeeRouter_onlyOwner() public {
-        vm.expectRevert(LockedLP.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         lockedLP.setFeeRouter(address(1));
     }
 }

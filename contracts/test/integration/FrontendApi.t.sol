@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IntegrationBase, MockUSDG} from "./IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Token} from "../../src/Token.sol";
@@ -36,6 +37,9 @@ abstract contract FrontendApiBase is IntegrationBase {
 
     bytes32 constant TRADE_TOPIC =
         keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)");
+    /// @dev DiscipleHook (post-grad) variant: last field is uint160 sqrtPriceAfter instead of uint256 mcapAfterUsd (G-1).
+    bytes32 constant HOOK_TRADE_TOPIC =
+        keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)");
 
     struct T {
         address token;
@@ -48,20 +52,27 @@ abstract contract FrontendApiBase is IntegrationBase {
         uint256 pBefore;
         uint256 pAfter;
         uint256 impact;
-        uint256 mcap;
+        uint256 mcap; // curve Trade only (0 for the hook)
+        uint160 sqrtAfter; // hook Trade only (0 for the curve)
     }
 
     function _lastTrade(address emitter) internal returns (T memory t, bool found) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i = logs.length; i > 0; i--) {
             Vm.Log memory l = logs[i - 1];
-            if (l.emitter == emitter && l.topics.length == 3 && l.topics[0] == TRADE_TOPIC) {
-                t.token = address(uint160(uint256(l.topics[1])));
-                t.trader = address(uint160(uint256(l.topics[2])));
+            if (l.emitter != emitter || l.topics.length != 3) continue;
+            if (l.topics[0] == TRADE_TOPIC) {
                 (t.isBuy, t.quoteAmt, t.tokenAmt, t.fee, t.snipeFee, t.pBefore, t.pAfter, t.impact, t.mcap) =
                     abi.decode(l.data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
-                return (t, true);
+            } else if (l.topics[0] == HOOK_TRADE_TOPIC) {
+                (t.isBuy, t.quoteAmt, t.tokenAmt, t.fee, t.snipeFee, t.pBefore, t.pAfter, t.impact, t.sqrtAfter) =
+                    abi.decode(l.data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160));
+            } else {
+                continue;
             }
+            t.token = address(uint160(uint256(l.topics[1])));
+            t.trader = address(uint160(uint256(l.topics[2])));
+            return (t, true);
         }
     }
 }
@@ -247,7 +258,7 @@ contract FrontendApiTest is FrontendApiBase {
         vm.expectRevert(QuotePricer.BadPool.selector);
         pricer.setPricePool(address(strategy), key);
         vm.prank(trader1);
-        vm.expectRevert(QuotePricer.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
     }
 
@@ -299,9 +310,14 @@ contract FrontendApiTest is FrontendApiBase {
         assertEq(t.snipeFee, 0);
         assertGt(t.pAfter, t.pBefore);
         assertGt(t.impact, 0);
-        assertGt(t.mcap, Constants.GRADUATION_MCAP_USD * 99 / 100);
+        assertEq(t.mcap, 0, "hook Trade has no USD mcap (G-1)");
+        (uint160 spAfter,,,) = manager.getSlot0(_poolKey(tok).toId());
+        assertEq(t.sqrtAfter, spAfter, "Trade.sqrtPriceAfter == slot0");
+        bool tIs0 = uint160(address(tok)) < uint160(address(quote));
+        uint256 evMcap = hook.mcapUsdFromSqrt(t.sqrtAfter, tIs0, hook.quoteUsdOf(_poolKey(tok).toId()));
+        assertGt(evMcap, Constants.GRADUATION_MCAP_USD * 99 / 100);
         assertEq(t.impact, qImpact, "quoter impact == Trade impact");
-        assertEq(t.mcap, qMcap, "quoter mcap == Trade mcap");
+        assertEq(evMcap, qMcap, "quoter mcap == mcap derived from Trade.sqrtPriceAfter");
 
         // sell back via router
         (uint256 sq,,) = router.quoteExactIn(address(tok), false, out);

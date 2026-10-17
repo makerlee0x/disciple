@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
@@ -113,13 +114,14 @@ contract LPCompoundTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         tok = _grad();
+        _refReady(tok);
     }
 
     function test_defaults_and_wiring() public view {
         assertEq(lockedLP.hook(), address(hook));
         assertEq(address(hook.compounder()), address(lockedLP));
-        assertEq(lockedLP.minCompoundPpm(), 50);
-        assertEq(lockedLP.maxCompoundPpm(), 20_000);
+        assertEq(lockedLP.minCompoundPpm(), 1_000);
+        assertEq(lockedLP.maxCompoundPpm(), 5_000);
         assertEq(lockedLP.maxCompoundDeviationBps(), 300);
         _assertInvariant(_one(tok));
     }
@@ -127,7 +129,7 @@ contract LPCompoundTest is IntegrationBase {
     /// @dev Decision 2026-10-16: unpaired graduation quote seeds the coin's compound quote bucket.
     function test_graduation_leftover_goes_to_quote_bucket() public view {
         (uint256 bt, uint256 bq) = _bucket(tok);
-        assertEq(bt, 0);
+        assertLt(bt, 1e16, "token side: only the reference observers' dust fees");
         assertGt(bq, 0, "leftover quote in bucket");
         assertEq(quote.balanceOf(address(lockedLP)), bq);
         // ~15.6% of the ~$11K raise on the 18-dec mock quote at $1
@@ -141,8 +143,16 @@ contract LPCompoundTest is IntegrationBase {
         uint128 l0 = _liq(tok);
         vm.recordLogs();
         uint256 adds;
-        // small buys (each moves price < the 3% deviation guard at graduation depth)
-        for (uint256 i; i < 20; i++) {
+        // small buys (each moves price < the 3% deviation guard at graduation depth). Audit G-5: the 0.1% minimum
+        // add batches fees, so it takes more buys than the old 0.005% before the first add.
+        for (uint256 i; i < 60; i++) {
+            // "over time": a minute apart, with a dust trade in between (two EMA observations per minute, so the
+            // speed-limited reference keeps up with the steady rise)
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 31);
+            _swapExactInQuoteForToken(tok, makeAddr("obs"), 1e12);
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 30);
             _buy(tok, 50 ether);
             adds += _count(COMPOUNDED);
             vm.recordLogs();
@@ -182,6 +192,7 @@ contract LPCompoundTest is IntegrationBase {
         assertEq(_count(COMPOUNDED), 0);
         (, uint256 bq) = _bucket(tok);
         uint128 l0 = _liq(tok);
+        vm.roll(vm.getBlockNumber() + 1); // audit round 3: at most one add per block
         vm.recordLogs();
         _buy(tok, 50 ether);
         assertEq(_count(COMPOUNDED), 1);
@@ -296,7 +307,7 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_only_hook_can_compound_in_swap() public {
         vm.expectRevert(LockedLP.OnlyHook.selector);
-        lockedLP.compoundFromHook(address(tok), 1);
+        lockedLP.compoundFromHook(address(tok), 1, 1, 1);
     }
 
     function test_flush_permissionless() public {
@@ -326,6 +337,7 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_multi_coin_isolation() public {
         tokB = _grad();
+        _refReady(tokB);
         _params(1_000_000, 0, 5000); // accumulate only
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
@@ -349,7 +361,7 @@ contract LPCompoundTest is IntegrationBase {
     }
 
     function test_params_guarded() public {
-        vm.expectRevert(LockedLP.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         lockedLP.setCompoundParams(1, 0, 100);
         vm.startPrank(owner);
         vm.expectRevert(LockedLP.BadParams.selector);
@@ -371,13 +383,13 @@ contract LPCompoundTest is IntegrationBase {
 }
 
 contract RevertingCompounder {
-    function compoundFromHook(address, uint160) external pure returns (uint128) {
+    function compoundFromHook(address, uint160, uint160, uint160) external pure returns (uint128) {
         revert("nope");
     }
 }
 
 contract GasBurner {
-    function compoundFromHook(address, uint160) external pure returns (uint128) {
+    function compoundFromHook(address, uint160, uint160, uint160) external pure returns (uint128) {
         while (true) {}
         return 0;
     }
