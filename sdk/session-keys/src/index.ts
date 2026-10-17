@@ -199,6 +199,12 @@ export const usdgRouterAbi = parseAbi([
   "function usdg() view returns (address)",
 ]);
 
+/** eth_call data for the end-to-end USDG route quote for `trader` (audit M2): the quote applies that trader's
+ *  PVE gate / caps / profit tax, the same account the session policy quotes for when checking minOut. */
+export function encodeQuoteUsdgRouteFor(a: { trader: Address; token: Address; isBuy: boolean; amountIn: bigint }): Hex {
+  return encodeFunctionData({ abi: usdgRouterAbi, functionName: "quoteUsdgRouteFor", args: [a.trader, a.token, a.isBuy, a.amountIn] });
+}
+
 export function routerBuyWithUsdgCalls(a: { router: Address; usdg: Address; token: Address; usdgIn: bigint; minTokensOut: bigint; deadline: bigint }): Call[] {
   if (a.minTokensOut <= 0n) throw new Error("minTokensOut must be > 0");
   return [

@@ -42,6 +42,8 @@ export const curveModesAbi = parseAbi([
   "function quoteBuyFor(address trader, uint256 quoteIn) view returns (BuyQuote)",
   "function quoteSellFor(address trader, uint256 tokensIn) view returns (SellQuote)",
   "function claim() returns (uint256)",
+  "function trustedRouter() view returns (address)",
+  "function rewardsHeld() view returns (uint256)",
   "event ProfitTaxCharged(address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis)",
   "event HolderRewardsClaimed(address indexed token, address indexed holder, uint256 amount)",
   "error LaunchBlock()",
@@ -50,33 +52,50 @@ export const curveModesAbi = parseAbi([
   "error SellTooLarge()",
   "error WalletCap()",
   "error NotRouter()",
+  "error NotPrepaid()",
+  "error OnlyToken()",
+  "error BadParams()",
   "error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps)",
 ]);
 
-/** DiscipleHook: block-start anchor (compound guard) + altitude tier. */
+/** DiscipleHook: block-start anchor + 60s time-weighted EMA reference (compound guard) + altitude tier. */
 export const hookAnchorAbi = parseAbi([
   "function blockAnchor(bytes32 id) view returns (uint64 blockNumber, uint160 sqrtPriceX96)",
+  "function priceReference(bytes32 id) view returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, bool ready)",
+  "function compoundRefs(bytes32 id) view returns (uint160 refBlock, uint160 refEma)",
   "function altitudeTierOf(bytes32 id) view returns (uint8)",
 ]);
 
-/** UsdgDepositNotifier: referral-gate USDG escrow (min $10, locked 7 days). Approve the notifier for exactly `amount`. */
+/** UsdgDepositNotifier: referral-gate USDG escrow (min $10). Each deposit is its own entry locked 7 days from that
+ *  deposit (gifts never re-lock existing entries). Approve the notifier for exactly `amount`. */
 export const depositEscrowAbi = parseAbi([
-  "function deposit(address wallet, uint256 amount)",
-  "function withdraw() returns (uint256 amount)",
-  "function escrowOf(address wallet) view returns (uint192 amount, uint64 unlockAt)",
+  "function deposit(address wallet, uint256 amount) returns (uint256 id)",
+  "function withdraw(uint256[] ids) returns (uint256 amount)",
+  "function escrowCount(address wallet) view returns (uint256)",
+  "function escrowOf(address wallet, uint256 id) view returns (uint256 amount, uint256 unlockAt)",
+  "function escrowedOf(address wallet) view returns (uint256)",
   "function LOCK_PERIOD() view returns (uint256)",
   "event Deposited(address indexed payer, address indexed wallet, uint256 amount)",
-  "event Escrowed(address indexed wallet, uint256 total, uint256 unlockAt)",
+  "event Escrowed(address indexed wallet, uint256 indexed id, uint256 amount, uint256 unlockAt)",
   "event Withdrawn(address indexed wallet, uint256 amount)",
   "error BelowMinimum(uint256 min)",
-  "error Locked(uint256 unlockAt)",
+  "error Locked(uint256 id, uint256 unlockAt)",
   "error NothingEscrowed()",
+]);
+
+/** Token (PVE coins only): pre-graduation transfer hook into the curve so NET/cost basis follow transfers. */
+export const tokenPveAbi = parseAbi([
+  "function pveHooks() view returns (bool)",
+  "function pveCurve() view returns (address)",
+  "function pveLive() view returns (bool)",
 ]);
 
 export const loginGateAbi = parseAbi([
   "function attest(address wallet, uint64 expiry, address coin, bytes sig)",
   "function verifiedUntil(address wallet, address coin) view returns (uint64)",
   "function attester() view returns (address)",
+  "function MAX_TTL() view returns (uint256)",
+  "error TtlTooLong()",
   "event LoginAttested(address indexed wallet, address indexed coin, uint64 expiry)",
 ]);
 
