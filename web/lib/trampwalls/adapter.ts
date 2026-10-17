@@ -2,8 +2,10 @@
  * Tramps & Walls — adapter seam for DISCIPLE FLOW's TrampWallManager + indexer.
  * Graduated (v4) coins only. Tramp = single-sided QUOTE LP below price (support).
  * Wall = single-sided TOKEN LP above price (resistance). See docs/tramps-walls.md.
+ * No fee share: range orders earn no LP yield (TrampWallManager rev2; the hook LP fee/donation was removed).
  */
 import type { Address } from "../protocol";
+import { TRAMP_WALL_POINTS_PER_USD } from "../config";
 
 export type TrampWallKind = "tramp" | "wall";
 export type TrampWallStatus = "active" | "filled" | "cancelled";
@@ -27,7 +29,6 @@ export interface TrampWall {
   status: TrampWallStatus;
   /** 0..1 portion of the range converted. */
   filledFrac: number;
-  feesEarnedUsd: number;
   pointsEarned: number;
   createdAt: number;
   filledAt?: number;
@@ -47,9 +48,6 @@ export interface TrampWallPreview {
   distancePct: number;
   mcapLoUsd: number;
   mcapHiUsd: number;
-  /** Hook donation share estimate (~0.11% of in-range volume, pro-rata). */
-  estFeeShareUsdPerDay: number;
-  estSharePct: number;
   pointsIfFilled: number;
   valid: boolean;
   reason?: string;
@@ -58,8 +56,7 @@ export interface TrampWallPreview {
 export type TrampWallEvent =
   | { type: "Placed"; tw: TrampWall }
   | { type: "Cancelled"; id: string; token: Address }
-  | { type: "Filled"; id: string; token: Address; filledAt: number; pointsEarned: number }
-  | { type: "FeesDonated"; id: string; token: Address; amountUsd: number };
+  | { type: "Filled"; id: string; token: Address; filledAt: number; pointsEarned: number };
 
 export interface TrampWallAdapter {
   isGraduated(token: Address): Promise<boolean>;
@@ -72,14 +69,17 @@ export interface TrampWallAdapter {
   onEvent(token: Address, cb: (e: TrampWallEvent) => void): () => void;
 }
 
-export const HOOK_DONATION_BPS = 11; // 0.11%
-export const POINTS = { tramp: 250, wall: 300, perKUsd: 40 };
-
-export function pointsFor(kind: TrampWallKind, sizeUsd: number): number {
-  return Math.round(POINTS[kind] + (sizeUsd / 1000) * POINTS.perKUsd);
+/** Points for a FILLED tramp/wall: floor(filled order size $ × TRAMP_WALL_POINTS_PER_USD). */
+export function pointsFor(filledSizeUsd: number): number {
+  return filledSizeUsd > 0 && Number.isFinite(filledSizeUsd) ? Math.floor(filledSizeUsd * TRAMP_WALL_POINTS_PER_USD + 1e-9) : 0;
+}
+/** Points an order has earned: only once filled (keeper close after a full cross). Active — even if the price is
+ *  inside or across the range but not yet closed — partly filled and cancelled orders earn 0. */
+export function pointsEarned(o: { status: TrampWallStatus; sizeUsd: number }): number {
+  return o.status === "filled" ? pointsFor(o.sizeUsd) : 0;
 }
 
-export function computePreview(p: PlaceTrampWallParams, cur: number, inRangeLiqUsd = 25_000, dailyVolUsd = 60_000): TrampWallPreview {
+export function computePreview(p: PlaceTrampWallParams, cur: number): TrampWallPreview {
   const w = Math.max(0.5, p.rangeWidthPct ?? 2) / 100;
   const mcapLoUsd = p.mcapUsd * (1 - w / 2), mcapHiUsd = p.mcapUsd * (1 + w / 2);
   const distancePct = cur > 0 ? ((p.mcapUsd - cur) / cur) * 100 : 0;
@@ -87,8 +87,5 @@ export function computePreview(p: PlaceTrampWallParams, cur: number, inRangeLiqU
   if (p.kind === "tramp" && mcapHiUsd >= cur) { valid = false; reason = "Tramp must sit fully BELOW current price"; }
   if (p.kind === "wall" && mcapLoUsd <= cur) { valid = false; reason = "Wall must sit fully ABOVE current price"; }
   if (!(p.sizeUsd > 0)) reason = reason ?? "Enter an amount";
-  const estSharePct = (p.sizeUsd / (p.sizeUsd + inRangeLiqUsd)) * 100;
-  const reach = Math.exp(-Math.abs(distancePct) / 25) * Math.min(3, 2 / (w * 100));
-  const estFeeShareUsdPerDay = dailyVolUsd * (HOOK_DONATION_BPS / 10_000) * (estSharePct / 100) * reach;
-  return { distancePct, mcapLoUsd, mcapHiUsd, estFeeShareUsdPerDay, estSharePct, pointsIfFilled: pointsFor(p.kind, p.sizeUsd), valid, reason };
+  return { distancePct, mcapLoUsd, mcapHiUsd, pointsIfFilled: pointsFor(p.sizeUsd), valid, reason };
 }

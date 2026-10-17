@@ -3,7 +3,8 @@
 import Icon from "@/components/ui/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "@/lib/protocol";
-import type { TrampWall, TrampWallKind, TrampWallPreview } from "@/lib/trampwalls/adapter";
+import { pointsFor, type TrampWall, type TrampWallAdapter, type TrampWallKind, type TrampWallPreview } from "@/lib/trampwalls/adapter";
+import { TRAMP_WALL_POINTS_PER_USD } from "@/lib/config";
 import { createMockAdapter, MOCK_ME, mockMarkFilled } from "@/lib/trampwalls/mock";
 
 type FlightApi = { S?: { confirmed?: { mcap?: number } }; screenYToMcap?: (y: number) => number };
@@ -20,8 +21,15 @@ const PRESETS = [
 type Preset = (typeof PRESETS)[number];
 const fmt = (n: number) => n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n / 1e3).toFixed(1)}K` : `$${n.toFixed(2)}`;
 
-export default function TrampWallPanel({ token }: { token: string }) {
-  const adapter = useMemo(() => createMockAdapter(curMcap), []);
+/**
+ * adapter/owner/supply: the SIMULATOR passes its own adapter (lib/sim/twAdapter.ts) so placements are real
+ * liquidity in the sim market; without one the panel runs on the local mock. simulator: sim wording.
+ * Live and sim alike: a tramp/wall is a pure limit order. No fee share (the contract pays range orders no LP yield);
+ * once the price fully crosses it a keeper closes it for a 0.1% tip.
+ */
+export default function TrampWallPanel({ token, adapter: ext, owner, supply, simulator }: { token: string; adapter?: TrampWallAdapter; owner?: Address; supply?: number; simulator?: boolean }) {
+  const adapter = useMemo(() => ext ?? createMockAdapter(curMcap), [ext]);
+  const ME = owner ?? MOCK_ME, SUP = supply ?? 1e9;
   const coin = token as Address;
   const [graduated, setGraduated] = useState(false);
   const [cur, setCur] = useState(0);
@@ -46,9 +54,9 @@ export default function TrampWallPanel({ token }: { token: string }) {
   }, []);
   const presetParams = useCallback((k: TrampWallKind, p: Preset) => {
     const pc = k === "tramp" ? -p.dist : p.dist, pm = cur * (1 + pc / 100), su = flare * p.mult;
-    const amt = k === "tramp" ? su : (pm > 0 ? su / (pm / 1e9) : 0);   // mock pricing (see below): wall amount is tokens
+    const amt = k === "tramp" ? su : (pm > 0 ? su / (pm / SUP) : 0);   // wall amount is tokens (price = mcap / supply)
     return { pct: pc, priceMcap: pm, width: p.width, sizeUsd: su, amount: amt };
-  }, [cur, flare]);
+  }, [cur, flare, SUP]);
   useEffect(() => {
     if (!open || step !== "preset" || !(cur > 0)) return;
     let alive = true;
@@ -71,26 +79,26 @@ export default function TrampWallPanel({ token }: { token: string }) {
     const m = curMcap(); setCur(m);
     setGraduated(await adapter.isGraduated(coin));
     setAll(await adapter.list(coin));
-    setMine(await adapter.listMine(MOCK_ME, coin));
-  }, [adapter, coin]);
+    setMine(await adapter.listMine(ME, coin));
+  }, [adapter, coin, ME]);
 
   useEffect(() => {
     refresh(); const iv = setInterval(refresh, 2000);
     const off = adapter.onEvent(coin, () => refresh());
-    const onFill = (e: Event) => { mockMarkFilled((e as CustomEvent).detail.id); refresh(); };
+    const onFill = (e: Event) => { if (!ext) mockMarkFilled((e as CustomEvent).detail.id); refresh(); };   // the sim market fills its own orders
     addEventListener("twfilled", onFill);
     if (new URLSearchParams(location.search).get("tw") === "open") { setStep("kind"); setOpen(true); }
     return () => { clearInterval(iv); off(); removeEventListener("twfilled", onFill); };
-  }, [adapter, coin, refresh]);
+  }, [adapter, coin, refresh, ext]);
 
   useEffect(() => {
     w().__trampWalls = graduated ? all.map((t) => ({ id: t.id, kind: t.kind, mcap: t.mcapUsd, lo: t.mcapLoUsd, hi: t.mcapHiUsd,
-      sizeUsd: t.sizeUsd, mine: t.owner === MOCK_ME, status: t.status })) : [];
-  }, [all, graduated]);
+      sizeUsd: t.sizeUsd, mine: t.owner === ME, status: t.status })) : [];
+  }, [all, graduated, ME]);
 
-  // Mock pricing: tramp amount is quote USD; wall amount is tokens × (mcap / 1e9 supply).
+  // Pricing: tramp amount is quote USD; wall amount is tokens × (mcap / supply).
   const priceMcap = cur * (1 + pct / 100);
-  const sizeUsd = kind === "tramp" ? +amount || 0 : (+amount || 0) * (cur > 0 ? priceMcap / 1e9 : 0);
+  const sizeUsd = kind === "tramp" ? +amount || 0 : (+amount || 0) * (cur > 0 ? priceMcap / SUP : 0);
   useEffect(() => {
     if (!open || step !== "custom" || !(cur > 0)) { w().__twPreview = null; return; }
     adapter.preview({ token: coin, kind, mcapUsd: priceMcap, rangeWidthPct: width, amount: BigInt(0), sizeUsd }, cur).then((p) => {
@@ -99,7 +107,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
   }, [open, step, kind, priceMcap, width, sizeUsd, cur, adapter, coin]);
   useEffect(() => () => { w().__twPreview = null; }, []);
 
-  const chooseKind = (k: TrampWallKind) => { setKind(k); setPct(k === "tramp" ? -Math.abs(pct || 8) : Math.abs(pct || 8)); setAmount(k === "tramp" ? "250" : "1000000"); };
+  const chooseKind = (k: TrampWallKind) => { setKind(k); setPct(k === "tramp" ? -Math.abs(pct || 8) : Math.abs(pct || 8)); setAmount(k === "tramp" ? "250" : simulator && cur > 0 ? String(Math.round(250 / (cur * 1.08 / SUP))) : "1000000"); };
   const confirm = async () => {
     const r = await adapter.place({ token: coin, kind, mcapUsd: priceMcap, rangeWidthPct: width, amount: BigInt(Math.floor((+amount || 0) * 1e6)), sizeUsd });
     setMsg(r.ok ? `${kind === "tramp" ? "Tramp" : "Wall"} placed ✦` : r.reason || "failed");
@@ -130,7 +138,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
               <div>
                 <span className={t.kind === "tramp" ? "text-[#ffd76e]" : "text-[#ff8a7a]"}><Icon name={t.kind === "tramp" ? "tramp" : "wall"} size={13} /> {t.kind === "tramp" ? "TRAMP" : "WALL"}</span>{" "}
                 {fmt(t.sizeUsd)} @ {fmt(t.mcapUsd)}
-                <div className="text-white/50">{t.status.toUpperCase()} · fees {fmt(t.feesEarnedUsd)} · {t.pointsEarned} pts</div>
+                <div className="text-white/50">{t.status.toUpperCase()}{t.status === "active" ? ` · ${Math.round(t.filledFrac * 100)}% filled · +${pointsFor(t.sizeUsd)} pts once filled` : ` · ${t.pointsEarned} pts`}</div>
               </div>
               {t.status === "active" && <button onClick={() => cancel(t.id)} className="rounded-md border border-red-400/50 px-2 py-1 text-red-300 hover:bg-red-500/20">Cancel</button>}
             </div>
@@ -154,7 +162,8 @@ export default function TrampWallPanel({ token }: { token: string }) {
             className="relative w-[440px] rounded-3xl border border-[#ffe7a3]/50 bg-gradient-to-b from-[#1b1630] via-[#0c0a18] to-[#05040a] p-6 text-white shadow-[0_0_60px_rgba(255,215,110,.35)]">
             <div className="pointer-events-none absolute -top-5 left-1/2 h-8 w-40 -translate-x-1/2 rounded-[50%] border-4 border-[#ffe7a3]/80 shadow-[0_0_30px_#ffe7a3]" />
             <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Trampoline" : "Wall"}</h2>
-            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · earn the ~0.11% hook donation while in range</p>
+            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)
+              <br />points: {TRAMP_WALL_POINTS_PER_USD} per $1 of order size, only when filled · cancelled or partly filled = 0</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(["tramp", "wall"] as const).map((k) => (
                 <button key={k} data-testid={`tw-kind-${k}`} onClick={() => { chooseKind(k); setStep("preset"); }}
@@ -172,7 +181,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
                     className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left font-mono text-[11px] transition hover:border-[#ffe7a3] hover:bg-[#ffe7a3]/10 disabled:opacity-40">
                     <div className="flex items-baseline justify-between"><span className="font-display text-base text-[#ffe7a3]">{p.label}</span><span className="text-sm font-bold">{fmt(q.sizeUsd)}</span></div>
                     <div className="text-white/70">{q.pct > 0 ? "+" : ""}{q.pct}% · ±{p.width / 2}% · @ {fmt(q.priceMcap)}</div>
-                    <div className="text-white/45">{p.blurb}{r ? ` · ~${fmt(r.estFeeShareUsdPerDay)}/day` : ""}</div>
+                    <div className="text-white/45">{p.blurb} · +{pointsFor(q.sizeUsd)} pts if filled{r && !r.valid && r.reason ? ` · ${r.reason}` : ""}</div>
                   </button>); })}
                 <button data-testid="tw-preset-custom" onClick={() => setStep("custom")}
                   className="rounded-xl border border-dashed border-white/25 px-3 py-2 text-left font-mono text-[11px] text-white/70 hover:border-white/60">
@@ -195,8 +204,8 @@ export default function TrampWallPanel({ token }: { token: string }) {
             <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} className="mb-4 w-full rounded-lg border border-white/15 bg-black/50 px-3 py-2 font-mono" />
             {pv && (
               <div className="mb-4 grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-3 text-center font-mono text-[11px]">
-                <div><div className="text-white/50">est. fees/day</div><div className="text-base text-[#9ff3c8]">{fmt(pv.estFeeShareUsdPerDay)}</div></div>
-                <div><div className="text-white/50">pool share</div><div className="text-base">{pv.estSharePct.toFixed(1)}%</div></div>
+                <div><div className="text-white/50">distance</div><div className="text-base">{pv.distancePct >= 0 ? "+" : ""}{pv.distancePct.toFixed(1)}%</div></div>
+                <div><div className="text-white/50">keeper tip</div><div className="text-base">0.1%</div></div>
                 <div><div className="text-white/50">points if filled</div><div className="text-base text-[#ffe7a3]">+{pv.pointsIfFilled}</div></div>
               </div>
             )}

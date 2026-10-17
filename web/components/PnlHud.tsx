@@ -60,8 +60,10 @@ function sessionRealized(coin: string, KEY: string) {
  * Marks are pushed by the engine (`disciple:mark`, on change, ≤10/s); no polling. Other rockets' realized
  * total is read from localStorage once on mount and on cross-tab `storage` events only.
  */
-/** storagePrefix: the SIMULATOR passes its own namespace so sim positions never mix with real/paper profiles. */
-export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }: { coin: string; storagePrefix?: string; modeLabel?: string }) {
+/** storagePrefix: the SIMULATOR passes its own namespace so sim positions never mix with real/paper profiles.
+ *  syncEvent: the SIMULATOR's ledger is authoritative (tramp/wall fills and wall escrow move tokens without a swap),
+ *  so it pushes the whole position on this event ({ pos, supply }) and paper fills are not re-booked here. */
+export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, syncEvent }: { coin: string; storagePrefix?: string; modeLabel?: string; syncEvent?: string }) {
   const KEY = storagePrefix;
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
@@ -90,7 +92,11 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
       setPos(next);
       try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ }
     };
-    const h = (e: Event) => onFill((e as CustomEvent<Fill>).detail);
+    const h = (e: Event) => { if (!syncEvent) onFill((e as CustomEvent<Fill>).detail); };
+    const onSync = (e: Event) => { const d = (e as CustomEvent<{ pos: Position; supply: number }>).detail; if (!d?.pos) return;
+      const next = { ...d.pos, supply: d.supply || DEFAULT_SUPPLY, session: null }; posRef.current = next; setPos(next);
+      try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ } };
+    if (syncEvent) addEventListener(syncEvent, onSync);
     const onMark = (e: Event) => { const d = (e as CustomEvent<Mark>).detail; if (!(d && d.mcap > 0)) return;
       const supply = d.supply || DEFAULT_SUPPLY; setMark({ mcap: d.mcap, supply, session: d.session });
       const p = posRef.current;
@@ -103,8 +109,8 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel }:
     const m0s = w.__flight?.markMcap?.() || m0;   // same shown price the HUD/rocket use (paper: × sim offset)
     if (m0s) setMark({ mcap: m0s, supply: w.__flight?.source?.supply || DEFAULT_SUPPLY });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
-    return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); };
-  }, [coin, KEY]);
+    return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
+  }, [coin, KEY, syncEvent]);
 
   const price = mark.mcap / mark.supply;
   const v = view(pos, price, mark.supply);

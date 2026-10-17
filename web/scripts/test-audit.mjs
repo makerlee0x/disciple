@@ -6,6 +6,17 @@ import ts from "typescript";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
+// 0) tramps/walls: no fee share anywhere in GAME copy/code (TrampWallManager rev2 pays range orders no LP yield)
+{ const rd = (f) => fs.readFileSync(path.join(dir, "..", f), "utf8");
+  const files = ["components/trampwalls/TrampWallPanel.tsx", "lib/trampwalls/adapter.ts", "lib/trampwalls/mock.ts", "lib/trampwalls/onchain.ts", "lib/sim/twAdapter.ts", "public/flight/engine.js", "../docs/tramps-walls.md"];
+  const claim = /0\.11 ?%|11 bps|hook donation|fees\/day|estFeeShare|estSharePct|feesEarnedUsd|FeesDonated|HOOK_DONATION|pendingFees|claimFees|LPDonation/i;
+  const hits = files.filter((f) => claim.test(rd(f).replace(/^.*No fee share.*$/gm, "")));
+  ok(!hits.length, `no tramp/wall fee-share promise or fee read in ${files.length} GAME files${hits.length ? " (found in " + hits.join(", ") + ")" : ""}`); }
+// 0b) tramp/wall points: 1 pt per $1 of FILLED size (config TRAMP_WALL_POINTS_PER_USD), only after a keeper close
+{ const rd = (f) => fs.readFileSync(path.join(dir, "..", f), "utf8"), ad = rd("lib/trampwalls/adapter.ts"), oc = rd("lib/trampwalls/onchain.ts"), mk = rd("lib/trampwalls/mock.ts");
+  ok(/export const TRAMP_WALL_POINTS_PER_USD = \d/.test(rd("lib/config.ts")) && /Math\.floor\(filledSizeUsd \* TRAMP_WALL_POINTS_PER_USD/.test(ad) && !/tramp: 250|perKUsd/.test(ad), "adapter: points = floor($ × TRAMP_WALL_POINTS_PER_USD), flat 250/300 gone");
+  ok(/const status = active \? "active" : cancelled \? "cancelled" : "filled";/.test(oc) && /pointsEarned: pointsEarned\(\{ status, sizeUsd \}\)/.test(oc), "onchain: crossed-but-not-pulled stays active, cancelled ≠ filled, points only when filled");
+  ok((mk.match(/pointsFor\(/g) || []).length === 1 && /function mockMarkFilled[\s\S]*pointsFor\(t\.sizeUsd\)/.test(mk), "mock: points only in mockMarkFilled (the keeper stand-in)"); }
 // 1) mock market: bounded growth, supply defined
 { let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const cls = eng.slice(eng.indexOf("class MockReplaySource {"), eng.indexOf("\n  emitDepth()")) + "\n emitDepth(){} }";
@@ -60,48 +71,88 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /▼ DUMP \{dumpLabel\}/.test(tb), "custom sell field + %/$ toggle; DUMP shows the exact amount");
   ok(/Math\.min\(sellCustomN, pos\.valueUsd\)/.test(tb) && /Math\.min\(100, sellCustomN\)/.test(tb), "custom sell: $ capped at position value, % capped at 100");
   ok(!/i===am/.test(eng), "no auto-ammo suggestion outline on buy tiles"); }
-// 5) PnL regression: a $60K paper buy at $7K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards
-{ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pnl2-")); fs.mkdirSync(path.join(tmp, "sim"));
-  const tx = (rel) => { const src = fs.readFileSync(path.join(dir, "../lib", rel + ".ts"), "utf8").replace(/from "(\.{1,2}\/[^"]+)"/g, 'from "$1.mjs"');
-    fs.writeFileSync(path.join(tmp, rel + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText); };
-  for (const f of ["config", "pnl", "sim/config", "sim/market", "sim/run"]) tx(f);
-  const P = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
-  const { cloneConfig } = await import(pathToFileURL(path.join(tmp, "sim/config.mjs")).href);
-  const { SimRun } = await import(pathToFileURL(path.join(tmp, "sim/run.mjs")).href);
-  const SUP = 7e9, USD = 60_000, GAS = 0.01;
+// 5) PnL regression: a $60K paper buy at $7K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards.
+//    Paper (mock + DISCIPLE, no wallet) fills EXACTLY on the bonding curve (pre-grad) / full-range pool (post-grad):
+//    engine paperFill on lib/flight/paperCurve params (= sim Market + CURVE/curveMath), never a linear mark booking.
+{ const { loadLib, SIM_MODULES } = await import("./lib/load-ts.mjs"); const { mods, cleanup } = await loadLib([...SIM_MODULES, "flight/paperCurve"], "pnl2-");
+  const P = mods["pnl"], { cloneConfig, SIM_CONFIG } = mods["sim/config"], { SimRun } = mods["sim/run"], { Market } = mods["sim/market"], { Pool } = mods["sim/pool"], CM = mods["curveMath"];
+  const PCv = mods["flight/paperCurve"].paperCurve();
+  const SUP = 7e9, USD = 60_000, GAS = 0.01, FEE = PCv.fee;
   let seed = 11; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }; const randn = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(6.2831853 * rnd());
   const Mth = Object.assign(Object.create(Math), { random: rnd });
   const cls = (name, end) => eng.slice(eng.indexOf("class " + name + " {"), eng.indexOf(end, eng.indexOf("class " + name + " {")));
-  const Mock = new Function("Q", "randn", "performance", "Math", cls("MockReplaySource", "\n/* DexScreener") + ";return MockReplaySource;")(new URLSearchParams(""), randn, { now: () => 0 }, Mth);
-  const Disc = new Function("Q", "setInterval", "clearInterval", "window", cls("DiscipleSource", "\n/* SIMULATOR bridge") + ";return DiscipleSource;")(new URLSearchParams(""), () => 0, () => {}, {});
-  const capSrc = eng.slice(eng.indexOf("const WALLET_CAP_FRAC"), eng.indexOf("function trade(side,opt){"));
-  const mkCap = (source, mcap) => new Function("isLive", "source", "S", "MockReplaySource", "DiscipleSource", "GRADUATION_MCAP", capSrc + ";return Object.assign(paperCap,{capFilledUsd});")(() => false, source, { confirmed: { mcap }, hold: { tokens: 0 } }, Mock, Disc, 33e3);
-  ok(/Math\.sqrt\(r\.pre\*r\.post\)/.test(eng) && /pre:m\.pre,post:m\.post/.test(eng) && /pre:b,post:m/.test(eng) && /return \{ok:true,paper:true,pre,post\}/.test(eng), "engine books paper fills at √(pre·post) of the move the market actually made");
+  const pm = eng.slice(eng.indexOf("const PC=window.__PAPER_CURVE"), eng.indexOf("/* =====================================================================\n   DATA-SOURCE INTERFACE"));
+  const W = { __PAPER_CURVE: PCv };
+  const paperFill = new Function("window", pm + ";return paperFill;")(W);
+  const Mock = new Function("Q", "randn", "performance", "Math", "window", pm + cls("MockReplaySource", "\n/* DexScreener") + ";return MockReplaySource;")(new URLSearchParams(""), randn, { now: () => 0 }, Mth, W);
+  const Disc = new Function("Q", "setInterval", "clearInterval", "window", pm + cls("DiscipleSource", "\n/* SIMULATOR bridge") + ";return DiscipleSource;")(new URLSearchParams(""), () => 0, () => {}, W);
+  // NO wallet cap in paper mode (Launchpad default WALLET_CAP_BPS_DEFAULT = 0): the engine has no cap code left
+  ok(!/WALLET_CAP_FRAC|paperCap|capFilledUsd|capApplies|WALLET CAP 7%/.test(eng), "engine: no paper wallet cap (paperCap/capFilledUsd/7% flashes removed)");
+  ok(pm.length > 0 && /__PAPER_CURVE: paperCurve\(\)/.test(fs.readFileSync(path.join(dir, "../components/FlightCanvas.tsx"), "utf8")), "FlightCanvas hands the engine window.__PAPER_CURVE (lib/flight/paperCurve)");
+  ok(/else if\(r\.ok&&r\.exact\)/.test(eng) && /mcap:r\.fillMcap\*/.test(eng) && !/usd\/\(m\*0\.25\)/.test(cls("DiscipleSource", "\n/* SIMULATOR bridge")) && !/this\.applyTrade\(side,usd,true/.test(eng),
+    "engine: mock + DISCIPLE paper book the exact curve/pool fill (no linear usd/(mcap·0.25) impact, no mock pseudo-liquidity for your shots)");
+  // curve state at a mcap (for the "curve left" bound)
+  const soldAt = (M) => PCv.y0 - Math.min(PCv.y0, Math.sqrt(PCv.x0 * PCv.y0 / (M / SUP)));
+  const W18 = (x) => BigInt(Math.round(x * 1e18)), N18 = (b) => Number(b) / 1e18;
+  const CP = { totalSupply: W18(PCv.S), sCurve: W18(PCv.sC), x0: W18(PCv.x0), y0: W18(PCv.y0) };
+  const rel = (a, b) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
+  // 5a) $60K at $7K: completes the curve (72% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
+  { const f = paperFill("buy", 7_000, USD, null, false);
+    ok(f.ok && f.tokens < SUP && f.tokens <= PCv.sC + 1e-3 && rel(f.tokens, PCv.sC) < 1e-9, `paper $60K @ $7K: ${(f.tokens / SUP * 100).toFixed(2)}% of supply = the whole curve (< 100%; was 142.9% with the linear paper model)`);
+    ok(rel(f.usd + f.refund, USD) < 1e-12 && f.usd < USD && rel(f.post, PCv.gradMcap) < 1e-9 && f.graduated, `paper $60K @ $7K: spends $${f.usd.toFixed(2)} to finish the curve at $${Math.round(f.post).toLocaleString()}, $${f.refund.toFixed(2)} refunded`);
+    const cm = N18(CM.quoteBuy(CP, 0n, W18(f.usd), 0n)); ok(rel(cm, f.tokens) < 1e-9, `paper $60K @ $7K = curveMath.quoteBuy(spent) within 1e-9 (${cm.toExponential(9)} vs ${f.tokens.toExponential(9)})`);
+    ok(N18(CM.quoteBuy(CP, 0n, W18(f.usd * (1 - 1e-6)), 0n)) < PCv.sC * (1 - 1e-7), "…and the spent $ is the minimum that finishes the curve (1 ppm less does not)");
+    const mk = new Market(SIM_CONFIG), mf = mk.buy(USD, 1e9, 0); ok(rel(mf.tokens, f.tokens) < 1e-9 && rel(mf.usd, f.usd) < 1e-9, "paper $60K @ $7K = sim Market.buy (tokens + spent)");
+    for (const [M, u] of [[7_000, 5_000], [12_000, 2_500], [20_000, 800], [30_000, 1_000]]) { const g = paperFill("buy", M, u, null, false), sold = soldAt(M);
+      const q = N18(CM.quoteBuy(CP, W18(sold), W18(u), 0n)), qs = N18(CM.quoteSell(CP, W18(sold + g.tokens), W18(g.tokens), 0n)), back = paperFill("sell", g.post, 0, { tokens: g.tokens }, false);
+      ok(rel(g.tokens, q) < 1e-6 && rel(back.net, qs) < 1e-6, `paper $${u} @ $${M / 1e3}K = curveMath quoteBuy/quoteSell within 1e-6 (${(g.tokens / SUP * 100).toFixed(3)}% of supply, sell back $${back.net.toFixed(2)})`); } }
+  // 5b) a buy never gets more tokens than the curve has left
+  { let worst = -Infinity, n = 0; for (const M of [7_000, 7_500, 12_000, 20_000, 30_000, 32_900, 32_999]) for (const u of [10, 1_000, 5_000, 20_000, 60_000, 1e6, 1e9]) {
+      const f = paperFill("buy", M, u, null, false); n++; worst = Math.max(worst, f.tokens - (PCv.sC - soldAt(M))); if (!(f.tokens < SUP)) worst = Infinity; }
+    ok(worst <= 1e-3, `curve cap: ${n} buys ($10…$1B at $7K…$32,999) never exceed sCurve − sold (worst ${worst.toExponential(2)} tokens) or 100% of supply`); }
+  // 5c) post-grad pool = sim Pool (full range, curve-end liquidity), and graduation is continuous
+  { const pg = PCv.gradMcap / SUP, L = PCv.L; ok(rel(Math.sqrt(new Pool(pg * (PCv.S - PCv.sC), PCv.S - PCv.sC).L0 ** 2), L) < 1e-9, "paper pool liquidity = the sim's Pool seeded at the curve-end price (Migration.sol)");
+    for (const M of [33_000, 50_000, 250_000]) { const s0 = Math.sqrt(M / SUP), pool = new Pool(L * s0, L / s0), f = paperFill("buy", M, USD, null, true), t = pool.buy(USD * (1 - PCv.poolFee));
+      ok(rel(f.tokens, t) < 1e-9 && rel(f.post, pool.price() * SUP) < 1e-9, `paper pool $60K @ $${M / 1e3}K = sim Pool.buy (${(f.tokens / SUP * 100).toFixed(2)}% of supply, → $${Math.round(f.post).toLocaleString()})`); } }
+  // 5d) buy-then-sell round trips lose only the fees (curve and pool are path-reversible: gross back = net in)
+  for (const [M, u, g] of [[7_000, 5_000, false], [15_000, 20_000, false], [7_000, USD, false], [30_000, 1_000, false], [50_000, USD, true], [250_000, 5_000, true]]) {
+    const b = paperFill("buy", M, u, null, g), s2 = paperFill("sell", b.post, 0, { tokens: b.tokens }, g), fee = g ? PCv.poolFee : FEE;   // a curve-completing buy sells back down the curve
+    const lost = b.usd - s2.net, feesPaid = b.usd * fee + s2.usd * fee;
+    ok(Math.abs(lost - feesPaid) < 1e-6 * b.usd && rel(s2.post, b.pre) < 1e-9, `round trip $${b.usd.toFixed(2)} @ $${M / 1e3}K${g ? " (pool)" : ""}: lost $${lost.toFixed(4)} = fees $${feesPaid.toFixed(4)}, price back to $${Math.round(s2.post).toLocaleString()}`); }
   const check = (tag, pos, mark, usd) => { const v = P.view(pos, mark / SUP, SUP); const floor = -(usd * P.FEE + GAS) - 1e-6;
     ok(v.uPnl >= floor, `${tag}: uPnL right after ${v.uPnl >= 0 ? "+" : ""}$${v.uPnl.toFixed(2)} ≥ −fee $${(-floor).toFixed(2)} (filled $${usd.toFixed(2)})`); return v; };
   const tracks = (tag, pos, marks) => { const errs = marks.map((m) => { const v = P.view(pos, m / SUP, SUP); return Math.abs(v.uPnl - (pos.size * m / SUP - pos.costBasis)); });
     ok(Math.max(...errs) < 1e-6 && new Set(marks.map((m) => Math.round(m))).size > 1, `${tag}: uPnL tracks the mark afterwards (= holdings × mark − cost over ${marks.length} marks)`); };
   for (const M of [7_000, 15_000, 30_000, 50_000]) {
-    // MOCK (coin page ?source=mock, paper)
-    { const m = new Mock(); m.mcap = M; m.emit = () => {}; m.seedDepth(); const cap = mkCap(m, M), c = cap(USD);
-      const r = m.applyTrade("buy", c.usd, true), fm = Math.sqrt(r.pre * r.post), usd = cap.capFilledUsd(c.usd, fm, r.pre);
-      const pos = P.applyFill(P.emptyPosition(), "buy", usd, fm / SUP, GAS);
-      if (M < 33e3) ok(pos.size <= 0.07 * SUP * (1 + 1e-6), `mock $${M / 1e3}K: booked ${(pos.size / SUP * 100).toFixed(2)}% of supply ≤ 7% wallet cap (walls can't sneak past it)`);
-      check(`mock $${M / 1e3}K`, pos, m.mcap, usd); const marks = []; for (let i = 0; i < 600; i++) { m.onBlock(); marks.push(m.mcap); } tracks(`mock $${M / 1e3}K`, pos, marks);
-      ok(marks[50] > r.pre, `mock $${M / 1e3}K: no instant snap-back (5 s later $${Math.round(marks[50]).toLocaleString()} vs pre $${Math.round(r.pre).toLocaleString()})`); }
-    // DISCIPLE coin, paper (no wallet): the shot moves the paper offset; old code booked mark×√impact while the price never moved
-    { const d = new Disc(); d.mcap = M; d.emit = () => {}; const c = mkCap(d, M)(USD); const r = await d.submitTrade("buy", c.usd);
-      const pos = P.applyFill(P.emptyPosition(), "buy", c.usd, Math.sqrt(r.pre * r.post) / SUP, GAS); check(`disciple paper $${M / 1e3}K`, pos, d.shown(), c.usd);
+    // MOCK (coin page ?source=mock, paper): your shot is an exact curve/pool fill
+    { const m = new Mock(); m.mcap = M; m.graduated = M >= PCv.gradMcap; m.emit = () => {}; m.seedDepth();
+      const f = m.paperTrade("buy", USD, null, "h"), left = M < PCv.gradMcap ? PCv.sC - soldAt(M) : Infinity;
+      const pos = P.applyFill(P.emptyPosition(), "buy", f.usd, f.fillMcap / SUP, GAS);
+      ok(f.ok && rel(pos.size, f.tokens) < 1e-9 && pos.size < SUP && pos.size <= left + 1e-3, `mock $${M / 1e3}K: ledger holds exactly the ${(f.tokens / SUP * 100).toFixed(2)}% filled (≤ curve left, < 100%) for $${f.usd.toFixed(2)}`);
+      check(`mock $${M / 1e3}K`, pos, m.mcap, f.usd); const marks = []; for (let i = 0; i < 600; i++) { m.onBlock(); marks.push(m.mcap); } tracks(`mock $${M / 1e3}K`, pos, marks);
+      ok(marks[50] > f.pre, `mock $${M / 1e3}K: no instant snap-back (5 s later $${Math.round(marks[50]).toLocaleString()} vs pre $${Math.round(f.pre).toLocaleString()})`); }
+    // DISCIPLE coin, paper (no wallet): exact fill; the move becomes the decaying paper offset
+    { const d = new Disc(); d.mcap = M; d.graduated = M >= PCv.gradMcap; d.emit = () => {}; const r = await d.submitTrade("buy", USD);
+      const pos = P.applyFill(P.emptyPosition(), "buy", r.usd, r.fillMcap / SUP, GAS); check(`disciple paper $${M / 1e3}K`, pos, d.shown(), r.usd);
+      ok(r.exact && pos.size < SUP && (M >= PCv.gradMcap || pos.size <= PCv.sC - soldAt(M) + 1e-3), `disciple paper $${M / 1e3}K: ${(pos.size / SUP * 100).toFixed(2)}% of supply for $${r.usd.toFixed(2)}${r.refund > 0 ? ` ($${r.refund.toFixed(2)} refunded at the curve end)` : ""}`);
       const old = P.view(P.applyFill(P.emptyPosition(), "buy", USD, M * Math.sqrt(1 + USD / (M * 0.25)) / SUP, GAS), M / SUP, SUP).uPnl;
       if (M === 7_000) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
-      const marks = []; for (let i = 0; i < 40; i++) { d.paper = 1 + (d.paper - 1) * Math.exp(-0.25 / 20); marks.push(d.shown()); } tracks(`disciple paper $${M / 1e3}K`, pos, marks); }
+      // ...and a 100% sell right after returns the cash minus the two fees (+ gas)
+      const before = d.shown(), sr = await d.submitTrade("sell", 0, { tokens: pos.size }), after = P.applyFill(pos, "sell", sr.usd, sr.fillMcap / SUP, GAS, Date.now(), 1);
+      ok(after.size === 0 && Math.abs((r.usd - sr.net) - (r.usd * FEE + sr.usd * FEE)) < 1e-6 * r.usd && rel(d.shown(), M) < 1e-9 && before > M, `disciple paper $${M / 1e3}K: buy → sell 100% loses only fees ($${(r.usd - sr.net).toFixed(2)}), price back to $${Math.round(d.shown()).toLocaleString()}`);
+      const d2 = new Disc(); d2.mcap = M; d2.graduated = d.graduated; d2.emit = () => {}; const r2 = await d2.submitTrade("buy", USD), pos2 = P.applyFill(P.emptyPosition(), "buy", r2.usd, r2.fillMcap / SUP, GAS);
+      const marks = []; for (let i = 0; i < 40; i++) { d2.paper = 1 + (d2.paper - 1) * Math.exp(-0.25 / 20); marks.push(d2.shown()); } tracks(`disciple paper $${M / 1e3}K`, pos2, marks); }
   }
-  // SIMULATOR: exact curve fills incl. the 7% wallet cap (unfilled $ refunded). After the 7 s anti-snipe window (that tax is a real cost).
+  // SIMULATOR: exact fills, NO wallet cap (live Launchpad default walletCapBps = 0). A buy that completes the curve is
+  // filled up to the curve end and the unspent quote refunded. After the 7 s anti-snipe window (that tax is a real cost).
   for (const T of [10, 40, 90]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
-    const pre = r.m.mcap(); const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
-    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply, cap 7%)`);
+    const pre = r.m.mcap(), wasCurve = r.m.phase === "curve"; const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
+    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);
+    const curveEnd = wasCurve && r.m.phase === "pool" && f.tokens <= 0.07 * r.m.S;
+    ok(f.tokens > 0.07 * r.m.S || curveEnd, curveEnd ? `sim t=${T}s: the buy was limited only by the curve end (${(f.tokens / r.m.S * 100).toFixed(1)}% left), not by a cap` : `sim t=${T}s: no wallet cap — one wallet holds ${(f.tokens / r.m.S * 100).toFixed(1)}% of supply (> 7%)`);
     const pos = P.applyFill(P.emptyPosition(), "buy", f.usd, f.mcap / r.m.S, 0); const v = P.view(pos, r.m.mcap() / r.m.S, r.m.S);
     ok(v.uPnl >= -f.usd * P.FEE - 1e-6, `sim t=${T}s: uPnL right after +$${v.uPnl.toFixed(2)} ≥ −fee`);
     const marks = []; for (let i = 0; i < 100; i++) { r.step(0.1); marks.push(r.m.mcap()); } tracks(`sim t=${T}s`, pos, marks); }
+  cleanup();
 }
 if (bad) { console.error(bad + " FAILED"); process.exit(1); } console.log("PASS");
