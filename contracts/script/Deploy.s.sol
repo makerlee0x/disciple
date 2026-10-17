@@ -113,7 +113,10 @@ contract Deploy is Script {
         }
         IPoolManager manager = IPoolManager(o.manager);
 
-        ReferralRegistry referrals = new ReferralRegistry(deployer);
+        // USDG first: the referral gate is scaled by its decimals at construction.
+        bool devUsdg = o.usdg == address(0);
+        if (devUsdg) o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
         LockedLP lockedLP = new LockedLP(deployer, treasury);
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
 
@@ -159,9 +162,8 @@ contract Deploy is Script {
         // ── quote assets + oracle ──
         PoolKey memory refKey;
         bool hasRef;
-        if (o.usdg == address(0)) {
-            // local: mock USDG + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
-            o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        if (devUsdg) {
+            // local: mock USDG (created above) + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
             if (o.defaultQuote == address(0)) {
                 o.defaultQuote = address(new DevToken("Strategy Coin (dev)", "STRATEGY", 18, deployer, 1e30));
                 refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, 245e13); // $0.00245

@@ -199,3 +199,16 @@ because the swap path never reads it.
   50 → 1000, so the LP buckets batch instead of compounding nearly every swap. This was not measured in isolation.
 - G-3 (curve params → immutables) was **not applied**: CurveDeployer would be 24,610 B runtime (34 B over EIP-170)
   even with `totalSupply` as a constant, and 24,627 B (51 B over) with all four as immutables. Baseline 24,107 B.
+
+## Launch path after (d)–(g) (PR #75, 2026-10-17)
+
+- Swaps unchanged: (d)–(g) touch only ownership, the launch-time pricer/probe and the referral deposit gate.
+- `launchCoin` on the default (STRATEGY-like) base, measured in `BaseProbe.t.sol` (in-test, warm): **6,059,505** gas with the
+  real QuoteProbe vs **5,940,672** without (**+118,833**). A standalone probe of an honest base costs **152,863** (it always reverts
+  inside `PoolManager.unlock`, so nothing settles). USDG-quoted launches skip the round trip (5,885,204 without probe).
+- QuotePricer discovery (`poke` on a base with no pool) scans 4 standard hookless tiers (100/1, 500/10, 3000/60, 10000/200):
+  ~4 `getSlot0` + `getLiquidity` extsloads once per new base. Default `minLiquidity` = 1e4·10^((18+usdgDecimals)/2)
+  (1e22 for 18-dec USDG, 1e16 for 6-dec USDG ≈ a full-range pool with ~$10k per side at ~$1); auto pools price only after
+  a 1 h TWAP warm-up; owner registration still overrides.
+- Referral gate / deposit minimum = $10 scaled by USDG decimals at construction (`ReferralRegistry.usdgGate`,
+  `UsdgDepositNotifier.minDeposit`).

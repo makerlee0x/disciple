@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IReferralRegistry} from "./interfaces/IReferralRegistry.sol";
@@ -26,6 +27,8 @@ contract UsdgDepositNotifier {
 
     IReferralRegistry public immutable registry;
     IERC20 public immutable usdg;
+    /// @notice Minimum deposit ($10) in USDG raw units: REFERRAL_GATE_USD * 10**usdg.decimals() (set at construction).
+    uint256 public immutable minDeposit;
     address public owner;
     mapping(address => bool) public isAttestor;
 
@@ -61,12 +64,13 @@ contract UsdgDepositNotifier {
         owner = owner_;
         registry = registry_;
         usdg = usdg_;
+        minDeposit = Constants.REFERRAL_GATE_USD * 10 ** uint256(IERC20Metadata(address(usdg_)).decimals());
     }
 
     /// @notice Escrow `amount` USDG (from msg.sender) for `wallet` as a new entry locked LOCK_PERIOD, and count it
     ///         for the gate. Approve THIS contract for exactly `amount` first. Returns the entry id.
     function deposit(address wallet, uint256 amount) external returns (uint256 id) {
-        if (amount < Constants.REFERRAL_USDG_GATE) revert BelowMinimum(Constants.REFERRAL_USDG_GATE);
+        if (amount < minDeposit) revert BelowMinimum(minDeposit);
         if (wallet == address(0)) revert ZeroAddress();
         uint256 b0 = usdg.balanceOf(address(this));
         usdg.safeTransferFrom(msg.sender, address(this), amount);

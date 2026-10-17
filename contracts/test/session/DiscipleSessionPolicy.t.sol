@@ -240,9 +240,9 @@ contract DiscipleSessionPolicyTest is Test {
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        registry = new ReferralRegistry(address(this));
-        policy = new P(address(registry));
         usdg = new TKN("USDG");
+        registry = new ReferralRegistry(address(this), address(usdg));
+        policy = new P(address(registry));
         rocket = new TKN("RKT");
         rocket2 = new TKN("RKT2");
         router = new MockRouter(usdg);

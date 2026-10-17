@@ -64,7 +64,7 @@ contract MigrationTest is Test {
 
     function setUp() public {
         quote = new MockQuote();
-        referrals = new ReferralRegistry(owner);
+        referrals = new ReferralRegistry(owner, address(quote));
         lockedLP = new LockedLP(owner, treasury);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 

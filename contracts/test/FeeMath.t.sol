@@ -83,6 +83,6 @@ contract FeeMathTest is Test {
     }
 
     function test_referralGate_10USDG() public pure {
-        assertEq(Constants.REFERRAL_USDG_GATE, 10 * 1e18);
+        assertEq(Constants.REFERRAL_GATE_USD, 10);
     }
 }

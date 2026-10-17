@@ -501,7 +501,7 @@ contract DiscipleAuditTest is IntegrationBase {
 
     // ── #7 MEDIUM (follow-up): referral gate needs USDG escrowed + locked 7 days in the notifier ──
     function _notifier() internal returns (ReferralRegistry reg, UsdgDepositNotifier n) {
-        reg = new ReferralRegistry(owner);
+        reg = new ReferralRegistry(owner, address(quote));
         n = new UsdgDepositNotifier(owner, IReferralRegistry(address(reg)), IERC20(address(quote)));
         vm.prank(owner);
         reg.setDepositHook(address(n));
@@ -515,7 +515,7 @@ contract DiscipleAuditTest is IntegrationBase {
     function test_audit7_honestEscrowPathAndWithdrawAfterLock() public {
         (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
         address w = makeAddr("w7");
-        uint256 gate = Constants.REFERRAL_USDG_GATE;
+        uint256 gate = n.minDeposit();
         quote.mint(w, gate);
         vm.startPrank(w);
         reg.tryAttribute(w, kol);
@@ -547,7 +547,7 @@ contract DiscipleAuditTest is IntegrationBase {
         (, UsdgDepositNotifier n) = _notifier();
         address w = makeAddr("w7b");
         address g = makeAddr("gifter");
-        uint256 gate = Constants.REFERRAL_USDG_GATE;
+        uint256 gate = n.minDeposit();
         quote.mint(w, gate);
         quote.mint(g, gate);
         vm.startPrank(w);
@@ -571,7 +571,7 @@ contract DiscipleAuditTest is IntegrationBase {
 
     function test_audit7_cyclingSameUsdgFails() public {
         (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
-        uint256 gate = Constants.REFERRAL_USDG_GATE;
+        uint256 gate = n.minDeposit();
         address a = makeAddr("cycA");
         address b = makeAddr("cycB");
         address c = makeAddr("cycC");

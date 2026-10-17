@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Constants} from "./libraries/Constants.sol";
 import {IReferralRegistry} from "./interfaces/IReferralRegistry.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /// @title First-touch referral registry (§4 / LOCKED #18–#22)
 /// @dev Attribution locks after: link → account → USDG deposit ≥ $10.
@@ -13,6 +14,8 @@ contract ReferralRegistry is IReferralRegistry {
     mapping(address => address) public pendingReferrer; // set before deposit gate clears
 
     address public depositHook; // authorized USDG deposit notifier
+    /// @notice $10 gate in USDG raw units: REFERRAL_GATE_USD * 10**usdg.decimals() (set at construction).
+    uint256 public immutable usdgGate;
     address public owner;
     /// @notice Owner-set contracts allowed to attribute on behalf of a wallet (e.g. a router that verified the
     ///         wallet's intent). Audit #3: everyone else may only attribute msg.sender itself.
@@ -30,8 +33,9 @@ contract ReferralRegistry is IReferralRegistry {
     event DepositHookSet(address indexed hook);
     event UsdgDepositRecorded(address indexed wallet, uint256 amount, uint256 total);
 
-    constructor(address owner_) {
+    constructor(address owner_, address usdg_) {
         owner = owner_;
+        usdgGate = Constants.REFERRAL_GATE_USD * 10 ** uint256(IERC20Metadata(usdg_).decimals());
     }
 
     function setDepositHook(address hook) external {
@@ -76,7 +80,7 @@ contract ReferralRegistry is IReferralRegistry {
         }
 
         // If gate already satisfied (deposit happened first), attribute now.
-        if (usdgDeposited[wallet] >= Constants.REFERRAL_USDG_GATE) {
+        if (usdgDeposited[wallet] >= usdgGate) {
             _finalize(wallet, referrer);
             return true;
         }
@@ -92,7 +96,7 @@ contract ReferralRegistry is IReferralRegistry {
         address pending = pendingReferrer[wallet];
         if (
             _referrerOf[wallet] == address(0) && pending != address(0) && pending != wallet
-                && usdgDeposited[wallet] >= Constants.REFERRAL_USDG_GATE
+                && usdgDeposited[wallet] >= usdgGate
         ) {
             _finalize(wallet, pending);
         }
