@@ -10,12 +10,13 @@
 | SEC-01 | **High** | `LockedLP.addLockedLiquidity` unauthenticated: anyone can brick any coin (all trades revert) | **Fixed** in source; **live testnet v2 is vulnerable** (PoC) until the redeploy |
 | SEC-02 | Medium | JIT liquidity can capture hook LP donations (1/3 of LP share) | **Fixed in source** (PR #44): donation removed (no LP yield to capture) + hook LP-add allowlist; needs redeploy |
 | SEC-03 | Medium | QuotePricer uses the v4 spot price at launch (flash-manipulable); bakes into curve USD targets | **Fixed in source** (PR #44): QuotePricer lagged truncated TWAP + poke; needs redeploy |
-| SEC-04 | Medium | Admin centralization: FeeRouter/Launchpad/LockedLP/hook owner can repoint core wiring (`setLaunchpad`, `setLockedLP`, `setMigration`, `setTrustedRouter`, `setPricer`) | Open; Safe multisig + timelock (mainnet plan) |
+| SEC-04 | Medium | Admin centralization: FeeRouter/Launchpad/LockedLP/hook owner can repoint core wiring (`setLaunchpad`, `setLockedLP`, `setMigration`, `setTrustedRouter`, `setPricer`) | Open. **Pre-mainnet blocker:** Safe multisig owner + timelock on wiring setters (see below) |
 | SEC-05 | Low | Trusted UniversalRouter → `hookData` trader attribution is caller-chosen (spoofable Trade attribution / referral destination) | **Fixed** (audit #10): Deploy no longer trusts UniversalRouter; only DiscipleRouter |
 | SEC-06 | Low | TrampWallManager `pull` is permissionless: a whale can force-fill a range by pushing price through it (owner still gets their range price) | By design; document |
 | SEC-07 | Low | Reentrancy via custom quote tokens (BondingCurve `_buy`/`_graduate`, Migration) | Mitigated by QuoteProbe; only affects the launcher's own coin |
 | SEC-08 | Low | AnonLauncher: signed relayer fee is paid to *any* submitter (mempool copy) | By design (signer consented to that fee) |
-| SEC-09 | Info | Hook pricer is try/catch, but a gas-griefing pricer could make swaps OOG | Admin-only; pin pricer address |
+| SEC-09 | Info | Hook pricer is try/catch, but a gas-griefing pricer could make swaps OOG | **Resolved by G-1** (PR #75): the hook no longer calls the pricer on the swap path; only the `quoteUsdOf` view reads it |
+| R-5 | Info | Quote sent directly to a BondingCurve (not via buy) is stuck: graduation migrates only `quoteReserve` | Accepted; documented below (no sweep) |
 | SEC-10 | Info | Slither noise triaged (below) | — |
 
 ## SEC-01 (High): LockedLP escrow poisoning DoS
@@ -60,7 +61,7 @@
   - Used **only by QuotePricer** (lagged mode). It records one observation per block via permissionless `poke` (also called by `Launchpad.launch`), and each write is truncated to ±`maxTickDelta`.
   - A flash move + poke + launch in one tx has zero effect; a held move is rate-limited.
   - This covers the launch-time quote price baked into curve USD targets, and the hook/curve live mcap.
-- **Spot by decision:** altitude/tier breaks (`AltitudeUpdate`/`TierBreak`), `Trade.mcapAfterUsd`, `mcapNow`, MarketLens. These are game/display signals, not fund-safety checks: a single-block pump can trigger a tier break.
+- **Spot by decision:** altitude/tier breaks (`AltitudeUpdate`/`TierBreak`), curve `Trade.mcapAfterUsd`, `mcapNow`, MarketLens. Post-grad (G-1) the hook's altitude prices spot at the launch-time quote/USD and its Trade carries `sqrtPriceAfter` (no oracle read). These are game/display signals, not fund-safety checks: a single-block pump can trigger a tier break.
 - **No oracle needed:** anti-snipe tax is time-based; graduation triggers on tokens sold (72%); QuoteProbe is an allowlist.
 - Tests: `test/security/JitTwap.t.sol`.
 
@@ -70,6 +71,38 @@
 - **Hook admin:** trusted routers and pricer.
 - **LockedLP owner:** migration, poolManager, feeRouter.
 - Each can redirect funds or break trading. **Mainnet:** a Safe multisig owner, and a timelock on the wiring setters. `DiscipleHook.setMigration` is one-shot and admin-only (audit #12); `Migration.setLaunchpad` is one-shot owner-only.
+
+### SEC-04 pre-mainnet requirement (blocking)
+Still open on PR #75: nothing in the contracts enforces a multisig or a delay. **Do not deploy to mainnet until:**
+1. **Every owner/admin is a Safe multisig** (not the deployer EOA): FeeRouter, Launchpad, LockedLP, Migration,
+   DiscipleHook (`transferAdmin`), DiscipleRouter, QuotePricer, QuoteProbe, TrampWallManager, RewardsVault,
+   ReferralRegistry, UsdgDepositNotifier, LoginGate, AnonLauncher. Treasury pointers go to a treasury Safe.
+2. **A timelock (e.g. OZ `TimelockController`, proposer = Safe, suggested ≥ 48 h) owns the fund-redirecting wiring
+   setters:** FeeRouter `setLaunchpad/setLockedLP/setTreasury/setAuthorized/setRewardsVault`; LockedLP
+   `setFeeRouter/setMigration/setPoolManager/setHook/setTreasury`; Launchpad `setPricer/setQuoteProbe/setCurveDeployer/
+   setDefaultQuote/setTrustedRouter/setLoginGate`; DiscipleHook `setTrustedRouter/setLiquidityManager/setCompounder/
+   setPricer`; QuotePricer `setPricePool/setTwapParams`; ReferralRegistry/UsdgDepositNotifier `setAttestor`,
+   `setDepositHook`; LoginGate `setAttester`. Since these contracts use single-owner setters, the timelock must be the
+   owner (or a Safe module routes them through it); a Safe alone gives no delay.
+3. **Emergency levers stay fast (Safe, no timelock), and are documented:** `Launchpad.setCurveRouterKilled`
+   (kills a compromised cached `trustedRouter` on existing curves), `DiscipleRouter.setMaxImpactBps`,
+   `TrampWallManager.setKeeperTipBps` (bounded), `LockedLP.setCompoundParams` (bounded).
+4. One-shot setters consumed at deploy (`DiscipleHook.setMigration`, `Migration.setLaunchpad`) and verified on-chain.
+5. `mainnet-plan.md` checklist ticked and the Safe/timelock addresses recorded in `deployments/<chain>.json`.
+
+## R-5 (Info): quote donated to a curve is stuck
+- **What:** the curve's quote accounting is `quoteReserve` (+ `rewardsHeld` for PVE). Quote that reaches the curve any
+  other way (a plain `transfer` to the curve address, an over-sent prepaid router amount, airdrops) is counted nowhere.
+  `_graduate` migrates exactly `quoteReserve`; `rewardsHeld` stays for PVE claims. The excess stays in the curve after
+  graduation and **there is no sweep/rescue function**, so it is permanently stuck.
+- **Token side:** launch tokens sent to the curve are not stuck: `_graduate` migrates `token.balanceOf(curve)`, so they
+  join the locked LP (at the curve-end price).
+- **Impact:** only the sender loses funds (no effect on trading, pricing, graduation or other users). The L3 prepaid
+  check (`NotPrepaid`) uses `balance ≥ owed + amount`, so a donation can make a later under-paid router call pass, but
+  only by spending the donation itself (still bounded by the curve's real balance).
+- **Decision:** accepted, no code change (a sweep would add an admin power over curve balances, SEC-04, and
+  CurveDeployer has < 0.5 KB of EIP-170 headroom). Frontend/SDK must never transfer quote directly to a curve: use
+  `buy`/`routerBuy`. Support answer for "I sent USDG to the curve address": it is unrecoverable.
 
 ## SEC-05 (Low): UniversalRouter hookData attribution
 - The hook credits `abi.decode(hookData, (address))` as the trader when the sender is a trusted router.

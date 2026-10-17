@@ -145,3 +145,57 @@ never paid the per-swap QuotePricer call. "BEFORE (wired)" is the production-sha
 - Altitude/tier still needs a USD mcap. It now uses the launch-time `quotePriceUsd` that `afterSwap` already loads with
   `metaOf` (no extra SLOAD or CALL), so the tier ladder is priced at the coin's launch-time quote/USD instead of the
   live TWAP. For USDG-quoted coins the two are identical (1e18).
+
+## Current numbers (PR #75 head, after G-7, R-2, G-5, G-1)
+
+`forge test --mc GasBench --isolate -vv`, all 6 bench tests. PREV = the "NOW" column of the round-2 table above.
+$ = (gas + 21k) × 0.0207 gwei × ETH $2,412. The bench now wires the hook pricer (G-1 section), which no longer matters
+because the swap path never reads it.
+
+| trade | PREV | CURRENT | Δ | CURRENT $ |
+|---|---:|---:|---:|---:|
+| pve.direct.buy.cold | 253,445 | 253,532 | +87 | 1.37¢ |
+| pve.direct.buy.warm | 193,944 | 194,031 | +87 | 1.07¢ |
+| pve.direct.sell.warm | 195,131 | 195,144 | +13 | 1.08¢ |
+| pve.usdg1.buy.warm | 217,734 | 217,973 | +239 | 1.19¢ |
+| pve.usdg1.sell.warm | 215,846 | 215,989 | +143 | 1.18¢ |
+| pvp.direct.buy.cold | 213,128 | 213,189 | +61 | 1.17¢ |
+| pvp.direct.buy.warm | 178,928 | 178,989 | +61 | 1.00¢ |
+| pvp.direct.sell.warm | 179,206 | 179,193 | -13 | 1.00¢ |
+| pvp.usdg1.buy.warm | 202,710 | 202,923 | +213 | 1.12¢ |
+| pvp.usdg1.sell.warm | 199,910 | 200,027 | +117 | 1.10¢ |
+| trench.direct.buy.cold | 212,572 | 212,633 | +61 | 1.17¢ |
+| trench.direct.buy.warm | 178,372 | 178,433 | +61 | 1.00¢ |
+| trench.direct.sell.warm | 179,218 | 179,205 | -13 | 1.00¢ |
+| trench.usdg1.buy.warm | 202,142 | 202,355 | +213 | 1.12¢ |
+| trench.usdg1.sell.warm | 199,910 | 200,027 | +117 | 1.10¢ |
+| curve.direct.buy.cold | 212,584 | 212,645 | +61 | 1.17¢ |
+| curve.direct.buy.warm | 178,384 | 178,445 | +61 | 1.00¢ |
+| curve.direct.sell.warm | 179,218 | 179,205 | -13 | 1.00¢ |
+| curve.usdg1.buy.cold | 236,354 | 236,567 | +213 | 1.29¢ |
+| curve.usdg1.buy.warm | 202,154 | 202,367 | +213 | 1.12¢ |
+| curve.usdg1.sell.warm | 199,910 | 200,027 | +117 | 1.10¢ |
+| curve.usdg2.buy.cold | 336,784 | 336,997 | +213 | 1.79¢ |
+| curve.usdg2.buy.warm | 280,078 | 280,291 | +213 | 1.50¢ |
+| curve.usdg2.sell.warm | 319,715 | 319,832 | +117 | 1.70¢ |
+| v4.direct.buy.cold | 348,812 | 277,352 | -71,460 | 1.49¢ |
+| v4.direct.buy.warm | 256,862 | 255,282 | -1,580 | 1.38¢ |
+| v4.direct.sell.warm | 256,615 | 254,995 | -1,620 | 1.38¢ |
+| v4.direct.buy.firstInBlock | 260,948 | 259,449 | -1,499 | 1.40¢ |
+| v4.direct.buy.sameBlock | 256,958 | 255,378 | -1,580 | 1.38¢ |
+| v4.usdg1.buy.cold | 295,067 | 293,531 | -1,536 | 1.57¢ |
+| v4.usdg1.buy.warm | 277,935 | 276,399 | -1,536 | 1.48¢ |
+| v4.usdg1.sell.warm | 277,365 | 275,789 | -1,576 | 1.48¢ |
+| v4.usdg2.buy.cold | 436,441 | 342,519 | -93,922 | 1.81¢ |
+| v4.usdg2.buy.warm | 321,989 | 320,453 | -1,536 | 1.70¢ |
+| v4.usdg2.sell.warm | 345,416 | 343,840 | -1,576 | 1.82¢ |
+| v4nc.direct.buy.firstInBlock | 242,944 | 241,116 | -1,828 | 1.31¢ |
+| v4nc.direct.buy.sameBlock | 239,086 | 237,177 | -1,909 | 1.29¢ |
+| v4nc.direct.sell.sameBlock | 238,786 | 236,837 | -1,949 | 1.29¢ |
+
+- Curve rows +61 to +239 / −13: G-7 (closed-form `quoteOutForTokens`) and R-2 code layout. Not separately attributed.
+- v4 warm rows −1.5k to −1.9k: G-1 (no `pricer()` read, no pricer call) net of the G-5 change.
+- v4 `.cold` rows −71k / −94k: the trader's first swap no longer pays a compound add. G-5 raised `minCompoundPpm`
+  50 → 1000, so the LP buckets batch instead of compounding nearly every swap. This was not measured in isolation.
+- G-3 (curve params → immutables) was **not applied**: CurveDeployer would be 24,610 B runtime (34 B over EIP-170)
+  even with `totalSupply` as a constant, and 24,627 B (51 B over) with all four as immutables. Baseline 24,107 B.

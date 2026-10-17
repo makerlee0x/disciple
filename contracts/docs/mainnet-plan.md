@@ -68,7 +68,7 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 - SEC-05 to SEC-09 are documented and accepted or tracked.
 
 
-## TODO: ownership / multisig checklist (out of scope for the Oct-16 audit PR)
+## TODO: ownership / multisig checklist (**blocking for mainnet**, SEC-04; full list in security-review.md "SEC-04 pre-mainnet requirement")
 
 - [ ] Transfer `owner` / `admin` of FeeRouter, Launchpad, LockedLP, Migration, ReferralRegistry, UsdgDepositNotifier, QuotePricer, QuoteProbe, DiscipleRouter, TrampWallManager, RewardsVault, AnonLauncher, and DiscipleHook (`transferAdmin`) to the Safe multisig.
 - [ ] Put a timelock on the wiring setters (`setLockedLP`, `setTreasury`, `setTrustedRouter`, `setPricer`, `setDepositHook`, `setAttestor`, `setLiquidityManager`).
