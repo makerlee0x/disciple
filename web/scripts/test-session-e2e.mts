@@ -66,7 +66,9 @@ const s = buildCreateSession({
 });
 const inst = await sa.sendCalls([{ to: me, data: s.data }], "owner");
 ok("owner installs session", true, inst.txHash); out.installSession = inst.txHash;
-const info = await readSession(pc as never, POLICY, me, s.entityId);
+// RPC is load-balanced: right after the sync receipt a read can hit a node one block behind
+let info = await readSession(pc as never, POLICY, me, s.entityId);
+for (let i = 0; i < 30 && !(info.validUntil > 0); i++) { await new Promise((r) => setTimeout(r, 100)); info = await readSession(pc as never, POLICY, me, s.entityId); }
 const now = Number((await pc.getBlock()).timestamp);
 ok("session active, ~24h validUntil (seconds)", info.active && Math.abs(info.validUntil - now - 86400) < 600, `${info.validUntil} (${fmtSessionExpiry(info.validUntil, now * 1000, "en-US", "America/Chicago")})`);
 ok("session maxSlippageBps = 500", info.maxSlippageBps === 500);
@@ -97,7 +99,7 @@ const reject = async (label: string, calls: Call[]) => {
 // 3a. buy with client clamp: user asked 20%, session max 5% ⇒ 5%
 const buyAmt = parseEther("10");
 const clamp = clampSlippage(2000, info.maxSlippageBps);
-ok("client clamp 20% → 5%", clamp.capped && clamp.bps === 500, JSON.stringify(clamp));
+ok("client clamp 20% → 5% max (4.5% used: quote headroom)", clamp.capped && clamp.bps === 450, JSON.stringify(clamp));
 const q1 = await quote(true, buyAmt);
 await send("session buy (clamped 5%)", [
   { to: d.defaultQuote, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [d.router, buyAmt] }) },
@@ -113,6 +115,7 @@ await reject("minOut at 20% slippage (> session 5%)", [
 
 // 3b. sell half
 let bal = await pc.readContract({ address: coin, abi: erc20, functionName: "balanceOf", args: [me] });
+for (let i = 0; i < 30 && bal === BigInt(0); i++) { await new Promise((r) => setTimeout(r, 100)); bal = await pc.readContract({ address: coin, abi: erc20, functionName: "balanceOf", args: [me] }); } // lagging node
 if (bal === BigInt(0)) { // session buy failed: owner buys a little so the sell leg can still be exercised
   const qo = await quote(true, buyAmt);
   await sa.sendCalls([
@@ -125,7 +128,7 @@ const sellAmt = bal / BigInt(2);
 const q3 = await quote(false, sellAmt);
 await send("session sell", [
   { to: coin, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [d.router, sellAmt] }) },
-  { to: d.router, data: encodeFunctionData({ abi: router, functionName: "sellExactIn", args: [coin, sellAmt, applySlippage(q3, 500), me, dl()] }) },
+  { to: d.router, data: encodeFunctionData({ abi: router, functionName: "sellExactIn", args: [coin, sellAmt, applySlippage(q3, clamp.bps!), me, dl()] }) },
 ]);
 
 // 3c. referral-attributed buy (NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1 path: tryAttribute(me, ref) + approve + buy)
@@ -134,12 +137,14 @@ const q4 = await quote(true, buyAmt);
 await send("session referral buy", [
   { to: d.referralRegistry, data: encodeFunctionData({ abi: registryAbi, functionName: "tryAttribute", args: [me, referrer] }) },
   { to: d.defaultQuote, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [d.router, buyAmt] }) },
-  { to: d.router, data: encodeFunctionData({ abi: router, functionName: "buyExactIn", args: [coin, buyAmt, applySlippage(q4, 500), me, dl()] }) },
+  { to: d.router, data: encodeFunctionData({ abi: router, functionName: "buyExactIn", args: [coin, buyAmt, applySlippage(q4, clamp.bps!), me, dl()] }) },
 ], true);
-const [refOf, pend] = await Promise.all([
+const readRef = () => Promise.all([
   pc.readContract({ address: d.referralRegistry, abi: registryAbi, functionName: "referrerOf", args: [me] }),
   pc.readContract({ address: d.referralRegistry, abi: registryAbi, functionName: "pendingReferrer", args: [me] }),
 ]);
+let [refOf, pend] = await readRef();
+for (let i = 0; i < 30 && ![refOf, pend].some((x) => x.toLowerCase() === referrer.toLowerCase()); i++) { await new Promise((r) => setTimeout(r, 100)); [refOf, pend] = await readRef(); } // lagging node
 ok("referral recorded (referrerOf or pending)", [refOf, pend].some((x) => x.toLowerCase() === referrer.toLowerCase()), `referrerOf=${refOf} pending=${pend}`);
 
 // 4a/4b. outside the policy

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { balanceHint, createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn, warmQuote } from "@/lib/protocol-viem";
+import { balanceHint, createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
@@ -84,7 +84,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       try {
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         // % sells size from the (polled, ≤5 s) balance hint; $ shots from the cached launch quote price ⇒ no reads when warm
-        let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await usdToAmountIn(pc, token as Address, side, usd);
+        let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await shotAmountIn(pc, token as Address, side, usd);
         if (side === "sell") {
           const me = await activeAddress();
           const bal = await balanceHint(pc, token as Address, me);
@@ -98,7 +98,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (slip.capped) dispatchEvent(new CustomEvent("disciple:slippagecap", { detail: { maxBps: slip.sessionMaxBps, requestedBps: slip.requestedBps, suggestBps: suggestedSessionMax(slip) } }));
         const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps });
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
-        void tokenBalance(pc, token as Address, await activeAddress()).catch(() => undefined);   // refresh the hint for the next shot
+        // exact new coin balance from the receipt (buy: + received; sell: already decremented optimistically) — no
+        // immediate balanceOf: a lagging RPC node would clobber it; the 5 s hint TTL re-reads once nodes caught up
+        if (side === "buy" && r.amountOut) bumpBalance(token as Address, await activeAddress(), r.amountOut);
+        else void new Promise((res) => setTimeout(res, 1200)).then(async () => tokenBalance(pc, token as Address, await activeAddress())).catch(() => undefined);
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
         return { ok: r.ok, txHash: r.txHash, reason: r.reason };
       } catch (e) {
@@ -123,16 +126,23 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const bal = me ? await balanceHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
         const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
         await Promise.all([
-          usdToAmountIn(pc, token as Address, "buy", usd).then((a) => warmQuote(pc, token as Address, "buy", a)),
-          bal > BigInt(0) ? warmQuote(pc, token as Address, "sell", sellAmount(bal, sellFrac)) : null,
+          shotAmountIn(pc, token as Address, "buy", usd).then((a) => warmRoute(pc, token as Address, "buy", a)),
+          bal > BigInt(0) ? warmRoute(pc, token as Address, "sell", sellAmount(bal, sellFrac)) : null,
         ]);
       } catch { /* next tick */ }
     };
     void aaWarm().catch(() => undefined); void tick();
     const iv = setInterval(tick, 1000);
-    const sub = (e: Event) => { const d = (e as CustomEvent<{ phase: string; txHash?: string }>).detail; if (d?.phase === "submitted") setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· sent ⚡")); };
+    // keep the relayer's trust entry for this sender fresh (server TTL 60 s) + fees/deploy state warm
+    const iw = setInterval(() => { if (!document.hidden) void aaWarm().catch(() => undefined); }, 20_000);
+    const sub = (e: Event) => {
+      const d = (e as CustomEvent<{ phase: string; txHash?: string }>).detail;
+      if (d?.phase === "submitted") setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· sent ⚡"));
+      // the trade moved the price: its route quotes were dropped — re-warm right away (after the drop runs)
+      if (d?.phase === "confirmed") setTimeout(() => void tick(), 0);
+    };
     addEventListener("disciple:op", sub);
-    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:op", sub); };
+    return () => { alive = false; clearInterval(iv); clearInterval(iw); removeEventListener("disciple:op", sub); };
   }, [live, token, mode, ammo.usd]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Preview for the selected ammo from on-chain views (curve quoteBuy/quoteSell, router quoteExactIn).

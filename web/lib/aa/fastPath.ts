@@ -28,6 +28,13 @@ function randomBits(): bigint {
 export type GasLimits = { callGasLimit: bigint; verificationGasLimit: bigint; preVerificationGas: bigint };
 /** Same preset ⇒ same shape of calls: targets + selectors (amounts don't change the gas class). */
 export const callsKind = (calls: Call[]) => calls.map((c) => `${c.to.toLowerCase()}:${c.data.slice(0, 10)}`).join(",");
+/**
+ * Static conservative limits for a DEPLOYED account on the self-bundler (gas is charged on actualGasUsed + v0.7's 10%
+ * penalty on unused execution gas — fractions of a cent on testnet), so even the first trade of a preset skips
+ * eth_estimateUserOperationGas. Measured: v4 buy/sell incl. approve + hook ≈ 0.45–0.65M total; session validation
+ * (signer + time-range + policy hook) ≈ 0.15M. PVG = self-bundler's fixed 60k.
+ */
+export const STATIC_GAS: GasLimits = { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
 export class GasCache {
   private m = new Map<string, GasLimits>();
   /** Headroom: call gas varies with v4 ticks crossed / curve state; verification and PVG are ~constant. */

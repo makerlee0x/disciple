@@ -11,14 +11,15 @@ test("no session: passes the request through untouched", () => {
 });
 test("under the session max: unchanged", () => {
   assert.deepEqual(clampSlippage(200, 500), { bps: 200, capped: false, requestedBps: 200, sessionMaxBps: 500 });
-  assert.equal(clampSlippage(500, 500).capped, false); // equal is allowed
+  assert.equal(clampSlippage(500, 500).capped, false); // equal is allowed (not flagged)…
+  assert.equal(clampSlippage(500, 500).bps, 450); // …but kept 50 bps under the policy floor
   assert.equal(clampSlippage(undefined, 500).bps, undefined); // auto 1% < 5%
 });
-test("above the session max: capped to the max", () => {
+test("above the session max: capped to the max minus quote headroom (50 bps)", () => {
   const c = clampSlippage(2000, 500);
-  assert.equal(c.bps, 500); assert.equal(c.capped, true); assert.equal(c.requestedBps, 2000);
+  assert.equal(c.bps, 450); assert.equal(c.capped, true); assert.equal(c.requestedBps, 2000);
   assert.equal(suggestedSessionMax(c), 2000);
-  assert.equal(pct(c.bps!), "5%");
+  assert.equal(pct(c.bps!), "4.5%"); assert.equal(pct(c.sessionMaxBps!), "5%"); // UI shows the session max (disciple:slippagecap maxBps)
 });
 test("auto slippage above a tiny session max is capped too", () => {
   const c = clampSlippage(undefined, 10);

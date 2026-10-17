@@ -1,4 +1,6 @@
 /** Unit tests: parallel nonce keys, gas/fee/quote caches, relayer lock/retry, chain-ordered mcap, balance line.  pnpm test:trade-order */
+import { scaledQuote } from "../lib/trade/hotCache";
+import { buyHopCalls, sellHopCall, hopBps, RH_TESTNET_USDG, UNIVERSAL_ROUTER } from "../lib/trade/usdgRoute";
 import assert from "node:assert/strict";
 import { NonceCursor, GasCache, FeeCache, callsKind } from "../lib/aa/fastPath";
 import { TtlCache } from "../lib/trade/hotCache";
@@ -62,5 +64,19 @@ await t("balanceLine: held coin first, quote marked as what trades spend, ETH = 
   const l = balanceLine([{ symbol: "ETH", amount: 0.0009, role: "gas" }, { symbol: "STRATEGY", amount: 999007, role: "spend" }, { symbol: "mUSDG", amount: 1000 }, { symbol: "SMK", amount: 25483509, role: "held" }]);
   assert.equal(l.text, "25.48M $SMK · 999,007 STRATEGY (pays trades) · 1,000 mUSDG · 0.0009 ETH (gas)");
   assert.match(l.title, /mUSDG: test dollars; not spent/);
+});
+await t("scaledQuote: only scales DOWN (safe lower bound), respects age", () => {
+  const last = { amountIn: 1000n, amountOut: 500n, at: 0 };
+  assert.equal(scaledQuote(last, 400n, 1500, 100), 200n);
+  assert.equal(scaledQuote(last, 1001n, 1500, 100), undefined, "bigger trade never scaled");
+  assert.equal(scaledQuote(last, 400n, 1500, 2000), undefined, "stale");
+});
+await t("USDG route: hop slippage halves compound within the total budget; calldata shape", () => {
+  for (const bps of [10, 100, 500, 5000]) { const h = hopBps(bps); assert.ok((10000 - h) ** 2 >= (10000 - bps) * 10000, `bps ${bps}`); }
+  const Q = "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3" as const;
+  const b = buyHopCalls(RH_TESTNET_USDG, Q, 10n ** 19n, 4000n * 10n ** 18n, 9999999999n);
+  assert.deepEqual(b.map((c) => c.data.slice(0, 10)), ["0x095ea7b3", "0x87517c45", "0x3593564c"], "approve(Permit2), Permit2.approve(UR), UR.execute");
+  assert.equal(b[2].to, UNIVERSAL_ROUTER);
+  const sc = sellHopCall(Q, RH_TESTNET_USDG, 1n, 9999999999n); assert.equal(sc.data.slice(0, 10), "0x3593564c"); assert.equal(sc.to, UNIVERSAL_ROUTER);
 });
 console.log(`\n${n} passed`);

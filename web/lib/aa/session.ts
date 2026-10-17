@@ -9,6 +9,7 @@
  * Without a deployed policy (NEXT_PUBLIC_SESSION_POLICY unset) trades fall back to owner-signed userOps
  * (Privy signs silently: showWalletUIs=false). aa/policy.ts stays as a client-side UX pre-check.
  */
+import { payUsdg, UNIVERSAL_ROUTER, PERMIT2 } from "../trade/usdgRoute";
 import { createPublicClient, createWalletClient, custom, http, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
@@ -265,7 +266,7 @@ export async function aaWarm() {
   if (!sa) return;
   await Promise.all([
     sa.warm(),
-    fetch("/api/bundler", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_warm", params: [] }) }).catch(() => undefined),
+    fetch("/api/bundler", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_warm", params: [await sa.address().catch(() => undefined)] }) }).catch(() => undefined),
   ]);
 }
 
@@ -282,6 +283,7 @@ export async function aaSend(calls: Call[]) {
   const delta = await checkCalls(publicClient(), {
     launchpad: d.launchpad, router: d.router, trampWallManager: d.trampWallManager,
     mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT, spendTokens: [d.defaultQuote, d.usdg],
+    extra: payUsdg() ? [UNIVERSAL_ROUTER, PERMIT2] : [],
   }, state, calls, me);
   const r = await sa.sendCalls(calls, (await canUseSessionKey(calls)) ? "session" : "owner");
   gasListeners.forEach((f) => f("self-pay"));

@@ -23,7 +23,7 @@ const SIGS = [
   "buy(uint256,uint256,uint256)", "sell(uint256,uint256,uint256)", "buy(uint256,uint256,uint256,address)", "sell(uint256,uint256,uint256,address)",
   "placeTramp(address,int24,int24,uint256,uint128,uint256)", "placeWall(address,int24,int24,uint256,uint128,uint256)", "cancel(uint256)",
 ];
-const TRADE_SELECTORS = new Set(SIGS.map((s) => toFunctionSelector(s).toLowerCase()));
+export const TRADE_SELECTORS = new Set(SIGS.map((s) => toFunctionSelector(s).toLowerCase()));
 export const TRY_ATTRIBUTE = toFunctionSelector("tryAttribute(address,address)").toLowerCase() as Hex;
 
 /**

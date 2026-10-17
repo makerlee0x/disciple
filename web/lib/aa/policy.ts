@@ -22,6 +22,8 @@ export type PolicyCfg = {
   defaultLimit: bigint;
   /** Tokens whose approvals count toward the spend limit (quote assets). Rocket-token approvals (sells) are uncapped. */
   spendTokens?: Address[];
+  /** extra allowed targets/spenders (pay-in-USDG: UniversalRouter + Permit2); approvals to them still count to caps */
+  extra?: Address[];
 };
 export type SessionState = { expiresAt: number; spent: Record<string, string> };
 
@@ -33,7 +35,7 @@ const lc = (a: string) => a.toLowerCase();
 const curveOk = new Map<string, boolean>();
 export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionState, calls: Call[], account: Address): Promise<Record<string, bigint>> {
   if (Date.now() > s.expiresAt) throw new PolicyError("Session expired — sign in again to keep one-tap trading.");
-  const fixed = new Set([cfg.launchpad, cfg.router, cfg.trampWallManager].map(lc));
+  const fixed = new Set([cfg.launchpad, cfg.router, cfg.trampWallManager, ...(cfg.extra ?? [])].map(lc));
   async function isCurve(a: Address) {
     if (curveOk.has(lc(a))) return curveOk.get(lc(a))!;
     let ok = false;

@@ -9,7 +9,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
 import { AAError, type Call, type GasMode, type OwnerSigner, type UserOpReceipt } from "./core";
 
 const BUNDLER_METHODS = [
@@ -64,10 +64,12 @@ type Tx = { target: Address; data: Hex; value?: bigint };
  * per (account, entity): learn it from the first SDK encode, then encode locally (−1 RPC round trip per tap).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function memoizeExecPrefix(client: any) {
+function memoizeExecPrefix(client: any, known?: boolean) {
   const acc = client.account; if (!acc || acc.__memo) return client;
   const origE = acc.encodeExecute.bind(acc), origB = acc.encodeBatchExecute.bind(acc);
-  let prefix: boolean | undefined;
+  // known: a DiscipleSessionPolicy session ALWAYS has execution hooks ⇒ prefix. Never learn that from a read: right
+  // after the install op the load-balanced RPC can serve a node one block behind (no validation yet) ⇒ AA23.
+  let prefix: boolean | undefined = known;
   const self = (acc.address as string).toLowerCase();
   const raw = (fn: "execute" | "executeBatch", x: Tx | Tx[]) => fn === "execute"
     ? (x as Tx).target.toLowerCase() === self ? (x as Tx).data // SDK: self-calls are sent as raw account calldata
@@ -83,7 +85,7 @@ function memoizeExecPrefix(client: any) {
 
 export const asSigner = (a: LocalAccount): SmartAccountSigner => new LocalAccountSigner(a);
 
-export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint };
+export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; salt?: bigint; /** tests: always estimate on a cold preset */ noStaticGas?: boolean };
 /** Per-stage latency (ms) of one op. build = calldata+nonce+fees+gas, sign = signature, rpc = client→server→client,
  * server = self-bundler stages (sign tx, send, mined/receipt) when the sync method is used. */
 export type OpTimings = { build: number; sign: number; rpc: number; total: number; fast: boolean; server?: Record<string, number> };
@@ -125,7 +127,7 @@ export class Mav2Account {
         feeEstimator: rundlerFeeEstimator, gasEstimator: cachedGasEstimator,
         chain: this.o.chain, transport: this.transport(), signer: asSigner(key), accountAddress: account,
         signerEntity: { entityId, isGlobalValidation: false },
-      }).then(memoizeExecPrefix),
+      }).then((cl) => memoizeExecPrefix(cl, true)),
     };
   }
   clearSession() { this.sessionClient = undefined; }
@@ -139,9 +141,16 @@ export class Mav2Account {
   async address(): Promise<Address> { return (await this.owned()).account.address; }
 
   /** Warm everything a trade needs (clients, address, fees) so the first tap doesn't pay for it. */
+  /** deployed-state cache (true is final; false re-checked on warm) */
+  deployed?: boolean;
   async warm() {
     const c = await (this.sessionClient ? this.sessionClient.c : this.owned());
-    await Promise.all([c.account.isAccountDeployed?.(), FEES.get(() => fetchFees(c as unknown as FeeClient))]).catch(() => undefined);
+    await Promise.all([
+      this.deployed ? 0 : c.account.isAccountDeployed?.().then((d: boolean) => { this.deployed = d; }),
+      FEES.get(() => fetchFees(c as unknown as FeeClient)),
+      // learn the executeUserOp-prefix answer now (memoizeExecPrefix) so the first tap encodes locally
+      c.account.encodeExecute({ target: "0x0000000000000000000000000000000000000001", data: "0x", value: BigInt(0) }),
+    ]).catch(() => undefined);
   }
 
   /**
@@ -158,7 +167,8 @@ export class Mav2Account {
     const sender: Address = client.account.address;
     const nonce = this.nonces.next(session ? this.sessionClient!.entityId : 0, !session);
     const kind = `${as}|${callsKind(calls)}`;
-    const gas = this.gas.get(kind);
+    // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
+    const gas = this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
     const fees = FEES.peek(() => fetchFees(client as unknown as FeeClient));
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
@@ -196,6 +206,7 @@ export class Mav2Account {
         const timings: OpTimings = { build: Math.round(t1 - t0), sign: Math.round(t2 - t1), rpc: Math.round(t3 - t2), total: Math.round(t3 - t0), fast: true, server: j.result.t };
         if (!success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { txHash }); }
         opPhase({ phase: "confirmed", userOpHash, txHash, timings });
+        this.deployed = true;
         return { userOpHash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
       }
     }
@@ -219,6 +230,7 @@ export class Mav2Account {
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings });
+    this.deployed = true;
     return { userOpHash: req.hash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
   }
 }

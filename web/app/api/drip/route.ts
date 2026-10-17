@@ -40,7 +40,8 @@ export async function POST(req: Request) {
   seenAddr.set(a, now); hits.push(now); seenIp.set(ip, hits);
   try {
     const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: privateKeyToAccount(key) });
-    const hash = await withRelayer(() => wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal }));   // same EOA as the self-bundler relayer
+    const { sendWithRelayerNonce } = await import("@/lib/server/fastRelay");
+    const hash = await withRelayer(() => sendWithRelayerNonce((nonce) => wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal, nonce })));   // same EOA as the self-bundler relayer
     return NextResponse.json({ ok: true, txHash: hash });
   } catch (e) {
     seenAddr.delete(a);

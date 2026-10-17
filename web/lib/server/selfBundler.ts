@@ -54,7 +54,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
   switch (method) {
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
     case "disciple_sendUserOperationSync": { const { sendUserOperationSync } = await import("./fastRelay"); return sendUserOperationSync(params[0] as UserOp); }
-    case "disciple_warm": { const { warmRelay } = await import("./fastRelay"); await warmRelay(); return true; }
+    case "disciple_warm": { const { warmRelay } = await import("./fastRelay"); await warmRelay(typeof params[0] === "string" ? params[0] : undefined); return true; }
     case "eth_supportedEntryPoints": return [ENTRYPOINT_V07];
     case "rundler_maxPriorityFeePerGas": return "0xf4240"; // 0.001 gwei
     case "eth_estimateUserOperationGas": {
@@ -103,13 +103,17 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
         try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
         const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
         const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
-        return wc.sendTransaction({
-          to: ENTRYPOINT_V07, data, gas,
+        const { sendWithRelayerNonce } = await import("./fastRelay");
+        return sendWithRelayerNonce((nonce) => wc.sendTransaction({
+          to: ENTRYPOINT_V07, data, gas, nonce,
           maxFeePerGas: maxFee,
           maxPriorityFeePerGas: priority,
-        });
+        }));
       });
       const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
+      // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
+      // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
+      if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender).catch(() => undefined); }
       if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
       if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);
