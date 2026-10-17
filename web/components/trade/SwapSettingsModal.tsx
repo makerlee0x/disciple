@@ -1,5 +1,6 @@
 "use client";
 
+import Icon from "@/components/ui/Icon";
 import { useEffect, useState } from "react";
 import { MODES } from "@/lib/config";
 import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
@@ -34,7 +35,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
       style={{ position: "fixed", inset: 0, zIndex: 60, display: "grid", placeItems: "center", background: "rgba(0,0,0,.45)" }}>
       <div style={{ position: "relative", width: 440, maxWidth: "92vw", padding: "20px 18px 18px", borderRadius: 18, background: "#14151b", border: "1px solid rgba(255,255,255,.08)",
         boxShadow: "0 20px 60px rgba(0,0,0,.6)", color: "#eef0ff", font: "13px system-ui,sans-serif" }}>
-        <button type="button" aria-label="close" onClick={onClose} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 14, top: 12, fontSize: 18, opacity: 0.8 }}>✕</button>
+        <button type="button" aria-label="close" onClick={onClose} style={{ all: "unset", cursor: "pointer", position: "absolute", right: 14, top: 12, fontSize: 18, opacity: 0.8 }}><Icon name="close" size={18} /></button>
         <div style={{ textAlign: "center", fontWeight: 700, fontSize: 18 }}>Swap settings</div>
         <div style={{ textAlign: "center", fontSize: 10, opacity: 0.5, marginTop: 2, fontFamily: "ui-monospace,monospace" }}>{scope}</div>
         {head("Buy presets ($)", () => setBuyAuto(true))}

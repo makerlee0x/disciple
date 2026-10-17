@@ -1,5 +1,6 @@
 "use client";
 
+import Icon from "@/components/ui/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Address } from "@/lib/protocol";
 import type { TrampWall, TrampWallKind, TrampWallPreview } from "@/lib/trampwalls/adapter";
@@ -112,7 +113,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
       <div className="ap-bc z-30 flex gap-2" style={{ bottom: 96 }}>
         <button data-testid="tw-open" onClick={openFlow}
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
-          🛟 TRAMP / 🧱 WALL
+          <Icon name="tramp" size={16} /> TRAMP / <Icon name="wall" size={16} /> WALL
         </button>
         <button data-testid="tw-mine" onClick={() => setListOpen((v) => !v)}
           className="rounded-full border border-white/20 bg-black/60 px-4 py-2 font-mono text-xs text-white/80 hover:text-white">
@@ -127,7 +128,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
           {mine.map((t) => (
             <div key={t.id} className="flex items-center justify-between border-t border-white/10 py-2">
               <div>
-                <span className={t.kind === "tramp" ? "text-[#ffd76e]" : "text-[#ff8a7a]"}>{t.kind === "tramp" ? "🛟 TRAMP" : "🧱 WALL"}</span>{" "}
+                <span className={t.kind === "tramp" ? "text-[#ffd76e]" : "text-[#ff8a7a]"}><Icon name={t.kind === "tramp" ? "tramp" : "wall"} size={13} /> {t.kind === "tramp" ? "TRAMP" : "WALL"}</span>{" "}
                 {fmt(t.sizeUsd)} @ {fmt(t.mcapUsd)}
                 <div className="text-white/50">{t.status.toUpperCase()} · fees {fmt(t.feesEarnedUsd)} · {t.pointsEarned} pts</div>
               </div>
@@ -158,7 +159,7 @@ export default function TrampWallPanel({ token }: { token: string }) {
               {(["tramp", "wall"] as const).map((k) => (
                 <button key={k} data-testid={`tw-kind-${k}`} onClick={() => { chooseKind(k); setStep("preset"); }}
                   className={`rounded-xl border-2 px-3 py-3 text-left transition ${step !== "kind" && kind === k ? (k === "tramp" ? "border-[#ffd76e] bg-[#ffd76e]/15 shadow-[0_0_20px_rgba(255,215,110,.4)]" : "border-[#ff8a7a] bg-[#ff8a7a]/15 shadow-[0_0_20px_rgba(255,120,100,.4)]") : "border-white/15 bg-white/5 hover:border-white/40"}`}>
-                  <div className="font-display text-lg">{k === "tramp" ? "🛟 Tramp" : "🧱 Wall"}</div>
+                  <div className="font-display text-lg"><Icon name={k === "tramp" ? "tramp" : "wall"} size={18} /> {k === "tramp" ? "Tramp" : "Wall"}</div>
                   <div className="font-mono text-[10px] text-white/60">{k === "tramp" ? "Quote LP below · support" : "Token LP above · resistance"}</div>
                 </button>
               ))}
