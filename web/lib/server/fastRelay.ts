@@ -4,8 +4,8 @@ import "server-only";
  * Client sends a fully built + signed v0.7 UserOp; we relay handleOps IMMEDIATELY and answer with the receipt:
  *  - warm module state: relayer account, keep-alive RPC client, cached base fee (background refresh)
  *  - pre-tracked relayer nonce (local cursor, resynced on nonce errors) ⇒ no getTransactionCount per op
- *  - gas = the op's own limits + overhead ⇒ no estimateGas; NO per-op simulation (the client estimated this preset
- *    once; a failed validation only costs the relayer one reverted tx on testnet). FAST_RELAY_SIM=1 adds an eth_call.
+ *  - gas = the op's own limits + overhead ⇒ no estimateGas; no per-op simulation for verified senders (relayTrust:
+ *    re-simulated every RESIM_EVERY ops / RESIM_MS, escalating strikes on reverts). FAST_RELAY_SIM=1 always simulates.
  *  - eth_sendRawTransactionSync (EIP-7966, supported by the RH RPC) returns the receipt with the send; fallback:
  *    sendRawTransaction + 50 ms receipt polling.
  * Ops from different users/keys run concurrently: only nonce assignment is serialized (synchronous).
@@ -19,6 +19,7 @@ import { isNonceError, relayerKey } from "./relayer";
 import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
+import { SenderTrust } from "./relayTrust";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -58,21 +59,19 @@ function refreshBase() {
 async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); else if (Date.now() - base.at > 2000) void refreshBase().catch(() => undefined); return base.fee; }
 
 /**
- * Anti-grief (who pays, EntryPoint v0.7): if an op's EXECUTION reverts, handleOps still succeeds and the ACCOUNT pays
- * actualGasCost to the beneficiary (= relayer) — the relayer is reimbursed. If VALIDATION fails (bad sig, no prefund,
- * bad nonce, …) handleOps reverts with FailedOp and the RELAYER eats the whole tx. Fast path (no eth_call) is only for
- * senders whose cached balance (primed by disciple_warm at login/coin load, ≤60 s old) covers the op's max prefund and
- * that have no recent strike; anyone else gets ONE eth_call simulation first. A FailedOp revert = 10 min strike.
+ * Anti-grief: see lib/server/relayTrust (fast path only for verified senders with a fresh balance covering the max
+ * prefund; periodic re-simulation every RESIM_EVERY ops / RESIM_MS; reverted handleOps ⇒ escalating strike, then a
+ * passing simulation is required before the fast path returns).
  */
-type Trust = { bal: bigint; at: number; strikeUntil: number };
-const TRUST = new Map<string, Trust>();
-const TRUST_TTL = 60_000, STRIKE_MS = 10 * 60_000;
+const TRUST = new SenderTrust();
 async function primeSender(sender: string) {
-  const k = sender.toLowerCase(), prev = TRUST.get(k);
-  const bal = await pc.getBalance({ address: sender as Hex });
-  TRUST.set(k, { bal, at: Date.now(), strikeUntil: prev?.strikeUntil ?? 0 });
+  TRUST.prime(sender, await pc.getBalance({ address: sender as Hex }));
 }
-export const primeSenderNow = (sender: string) => primeSender(sender);
+/** After a simulated + successful send (eth_sendUserOperation path): mark verified, refresh the balance. */
+export const primeSenderNow = async (sender: string, opts: { simulated?: boolean } = {}) => {
+  if (opts.simulated) TRUST.simulated(sender);
+  await primeSender(sender);
+};
 const execAbi = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
 /**
  * Local (no-RPC) pre-check for SESSION-key ops (non-global validation in the MAv2 nonce key): the policy rejects
@@ -94,8 +93,7 @@ export function sessionOpLooksAllowed(op: UserOp): boolean {
 export function trusted(op: UserOp): boolean {
   if (op.factory) return false; // first op (deploy) always simulated
   if (!sessionOpLooksAllowed(op)) return false;
-  const t = TRUST.get(op.sender.toLowerCase());
-  return !!t && Date.now() < t.at + TRUST_TTL && Date.now() >= t.strikeUntil && t.bal >= maxPrefund(op, relayerPrice(base.fee));   // priced at >= the relayer floor: a fee-0 op never looks covered
+  return TRUST.check(op.sender, maxPrefund(op, relayerPrice(base.fee))) === null;   // priced at >= the relayer floor: a fee-0 op never looks covered
 }
 
 /** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
@@ -133,10 +131,11 @@ export async function sendUserOperationSync(op: UserOp) {
   const fee = await baseFee();
   checkOpGas(op, fee);
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
-  if (process.env.FAST_RELAY_SIM === "1" || !trusted(op)) {
+  const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
+  if (!fast) {
     const s = Date.now();
     await pc.call({ account: me.address, to: ENTRYPOINT_V07, data }).catch((e) => { throw new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`); });
-    t.simulate = Date.now() - s; void primeSender(op.sender).catch(() => undefined);
+    t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
   const gas = totalGas(op) + BigInt(120_000);
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
@@ -154,9 +153,8 @@ export async function sendUserOperationSync(op: UserOp) {
         if (l.address.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) continue;
         try { const ev = decodeEventLog({ abi: [uoEvent], data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if ((ev.args as { userOpHash: Hex }).userOpHash === hash) success = (ev.args as { success: boolean }).success; } catch { /* other event */ }
       }
-      const tr = TRUST.get(op.sender.toLowerCase());
-      if (r.rc.status !== "0x1") { if (tr) tr.strikeUntil = Date.now() + STRIKE_MS; else TRUST.set(op.sender.toLowerCase(), { bal: BigInt(0), at: 0, strikeUntil: Date.now() + STRIKE_MS }); }
-      else if (tr) { tr.bal -= maxPrefund(op, relayerPrice(base.fee)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
+      if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
+      else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, maxPrefund(op, relayerPrice(base.fee))); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
       if (r.rc.status !== "0x1") throw new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`);
       return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
     } catch (e) {
