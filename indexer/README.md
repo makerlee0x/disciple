@@ -13,7 +13,7 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 | DiscipleHook | `Trade` (post-grad), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
 | Migration | `Migrated` |
 | TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `KeeperTipPaid` (PR #44), `FeesClaimed` (≤v3 only) |
-| FeeRouter | `TradeFeeRouted`, `CreatorFeesClaimed`, `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
+| FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
 | AnonLauncher | `AnonLaunched`, `Claimed`, `StealthOwnerTransferred`, `LaunchFeePaid` |
 | ReferralRegistry | `ReferrerPending`, `ReferrerAttributed` (sticky), `UsdgDepositRecorded` |
 | RewardsVault | `RewardAccrued`, `Distributed` |
@@ -36,7 +36,7 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/rewards` | anti-snipe routing + RewardsVault totals |
 | `/coins/:token/holders?limit=` (1–1000, default 100) | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
 | `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
-| `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax shares, snipe 70/30, claims (wei + USD) |
+| `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax / kol shares in quote units, plus `tokenUnits` for post-grad fees charged in the launch token (never mixed), snipe 70/30, claims (wei + USD) |
 | `/tier-breaks?limit=` | global tier-break feed (GAME) |
 | `/orders?status=&kind=&token=&owner=&stack=` | tramp/wall orders incl. keeper + keeper tip |
 | `/leaderboard/:board?by=&since=&limit=` | `traders` (by volumeUsd\|trades), `creators`, `coins` (by volume\|mcap\|tier\|new), `tramps`, `keepers`, `referrers` |

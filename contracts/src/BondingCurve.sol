@@ -84,6 +84,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 impactBps;
         uint256 mcapAfterUsd;
         bool graduates;
+        uint256 refund; // audit #9: unused quote returned on the capped graduation buy (0 otherwise)
     }
 
     struct SellQuote {
@@ -189,6 +190,30 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @dev `snipeExempt` = Launchpad creator buy (LOCKED #27: creator launch buy pays only the 1% protocol fee).
     function _quoteBuy(uint256 quoteIn, bool snipeExempt) internal view returns (BuyQuote memory q) {
         if (graduated) revert Graduated();
+        q = _quoteBuyRaw(quoteIn, snipeExempt);
+        // Audit #9: the final (graduating) buy is capped at the remaining curve supply. Charge only the quote
+        // actually needed for those tokens (incl. its fees) and refund the rest instead of overpaying.
+        uint256 remaining = _params.sCurve - tokensSold;
+        if (q.tokensOut == remaining && remaining > 0) {
+            uint256 needCurve = CurveMath.quoteInForTokens(_params, tokensSold, remaining) + 1;
+            if (needCurve < q.quoteToCurve) {
+                // gross-up estimate (fees are linear in quoteIn), then bump until it still buys `remaining`
+                uint256 used = Math.mulDiv(needCurve, quoteIn, q.quoteToCurve, Math.Rounding.Ceil);
+                BuyQuote memory u;
+                for (uint256 i; i < 8 && used < quoteIn; ++i) {
+                    u = _quoteBuyRaw(used, snipeExempt);
+                    if (u.tokensOut >= remaining) break;
+                    used += 1 + used / 1e12;
+                }
+                if (used < quoteIn && u.tokensOut >= remaining) {
+                    u.refund = quoteIn - used;
+                    q = u;
+                }
+            }
+        }
+    }
+
+    function _quoteBuyRaw(uint256 quoteIn, bool snipeExempt) internal view returns (BuyQuote memory q) {
         if (!snipeExempt) (q.snipeFee,) = antiSnipe.applyBuyFee(token, quoteIn);
         uint256 afterSnipe = quoteIn - q.snipeFee;
         uint256 protoFee = FeeMath.protocolFee(afterSnipe);
@@ -289,6 +314,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
         uint256 priceBefore = CurveMath.spotPriceWad(_params, tokensSold);
         BuyQuote memory q = _quoteBuy(quoteIn, snipeExempt);
+        if (q.refund > 0) {
+            quoteIn -= q.refund; // effective spend for fees + Trade event
+            IERC20(quote).safeTransfer(payer, q.refund);
+        }
         tokensOut = q.tokensOut;
         if (tokensOut < minTokensOut) revert Slippage();
         if (tokensOut == 0) revert ZeroAmount();

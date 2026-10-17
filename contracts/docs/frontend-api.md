@@ -22,7 +22,7 @@ event Trade(
 );
 ```
 
-- `trader`: on the curve, a buy's token recipient or a sell's `msg.sender`. On the hook: if the swap `sender` is on the hook's owner-managed allowlist (`isTrustedRouter`, which includes DiscipleRouter and, optionally, UniversalRouter) **and** hookData is exactly `abi.encode(address trader)`, that trader is used. Otherwise it is the swap `sender`. Referral credit follows the same rule, so it only applies to trusted-router hookData or a direct (sender = trader) swap. Any caller of a trusted router can put any address in hookData; they still pay the fee themselves, so spoofing can only redirect the referral share of their own fee.
+- `trader`: on the curve, a buy's token recipient or a sell's `msg.sender`. On the hook: if the swap `sender` is on the hook's owner-managed allowlist (`isTrustedRouter`; only DiscipleRouter is trusted, UniversalRouter is deliberately not, see SEC-05) **and** hookData is exactly `abi.encode(address trader)`, that trader is used. Otherwise it is the swap `sender`. Referral credit follows the same rule, so it only applies to trusted-router hookData or a direct (sender = trader) swap. Any caller of a trusted router can put any address in hookData; they still pay the fee themselves, so spoofing can only redirect the referral share of their own fee.
 - `quoteAmt` on a buy is the gross quote paid, including fees. On a sell it is the net quote received. `tokenAmt` is net tokens received (buy) or tokens sold (sell).
 - `fee` is the protocol 1% plus creator tax, in quote raw units. On the hook, an exact-in buy charges its fee in the launch token; that fee is converted to quote at `priceAfterX18`. `snipeFee` is the anti-snipe part, always 0 after graduation.
 - Prices are `quote raw * 1e18 / token raw`. `impactBps` is an **unsigned absolute** value. Its direction comes from `isBuy`: buys push the price up and sells push it down, so negate it client-side for sells if you want a signed value. It is computed on-chain at full precision from reserves or sqrtPrice, so use it rather than recomputing from the X18 prices. For 6-decimal quotes the X18 prices are coarse.
@@ -90,7 +90,7 @@ Trust assumptions:
 1. USDG is assumed to hold its peg.
 2. The price is a single-block spot price, not a TWAP. Someone who moves the pool in the launch tx only mis-scales the USD targets of that one curve. No user funds can be taken, and the curve stays internally consistent in quote terms. `minLiquidity` makes manipulation more expensive.
 3. The owner (multisig) picks the canonical pool.
-4. Post-grad `mcapAfterUsd` uses the launch-time price, so it drifts as quote/USD moves.
+4. Post-grad `mcapAfterUsd` (hook `Trade` and `DiscipleRouter.quoteExactIn`) uses the live `QuotePricer` price set on the hook, falling back to the launch-time price only if the pricer is unset or reverts.
 
 ## Deploy
 

@@ -153,9 +153,24 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "LaunchFeePaid":
           if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
           break;
+        case "TradeFeeRouted": {
+          // audit #11: explicit columns (a=creator b=lp c=treasury d=referral e=creatorTax) + unit flag, plus payee credits.
+          if (!isCore(stack.feeRouter)) break;
+          const fq = a.feeIsQuote ? 1 : 0;
+          db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx, fee_is_quote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, "TradeFeeRouted", lc(a.token), lc(a.trader), lc(a.feeToken), s(a.creatorShare), s(a.lpShare), s(a.treasuryShare),
+            s(a.referralShare), s(a.creatorTaxAmount), block, ts, l.transactionHash, fq);
+          const credit = db.prepare("INSERT OR IGNORE INTO fee_credits VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+          const put = (payee: string, role: string, amt: bigint) => {
+            if (amt > 0n && lc(payee) !== ZERO) credit.run(id, stack.id, lc(a.token), lc(a.feeToken), fq, lc(payee), role, amt.toString(), block, ts, l.transactionHash);
+          };
+          put(a.creator, "creator", BigInt(a.creatorShare) + BigInt(a.creatorTaxAmount));
+          put(a.referralPayee, "referral", BigInt(a.referralShare));
+          put(a.kolPayee, "kol", BigInt(a.kolShare));
+          break;
+        }
         case "ReferrerFeesClaimed":
         case "UsdgDepositRecorded":
-        case "TradeFeeRouted":
         case "CreatorFeesClaimed":
         case "SnipeFeeRoutedToLP":
         case "SnipeFeeRouted":
@@ -165,7 +180,7 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           const ok = { UsdgDepositRecorded: stack.referralRegistry, Claimed: stack.anonLauncher, RewardAccrued: stack.rewardsVault, Distributed: stack.rewardsVault }[ev.eventName as string] ?? stack.feeRouter;
           if (!isCore(ok)) break;
           const vals = Object.values(a).filter((v) => typeof v === "bigint").map(s); // numeric args only, in ABI order
-          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+          db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
             id, stack.id, ev.eventName, a.token ? lc(a.token) : null,
             lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : null,
             vals[0] ?? null, vals[1] ?? null, vals[2] ?? null, vals[3] ?? null, vals.slice(4).join(",") || null, block, ts, l.transactionHash);

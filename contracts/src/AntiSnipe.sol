@@ -5,7 +5,7 @@ import {Constants} from "./libraries/Constants.sol";
 import {IAntiSnipe} from "./interfaces/IAntiSnipe.sol";
 
 /// @title Buy-side anti-snipe fee: 77.7% → 0% over 7 seconds (§2 / LOCKED #9)
-/// @dev Snipe fee destination: 100% locks quote into LP (handled by caller / FeeRouter).
+/// @dev Snipe fee destination: 70% community RewardsVault / 30% treasury (FeeRouter.routeSnipeFee, LOCKED #9 rev.).
 contract AntiSnipe is IAntiSnipe {
     mapping(address => uint256) public override launchTimestamp;
 

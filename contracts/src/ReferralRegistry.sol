@@ -14,14 +14,20 @@ contract ReferralRegistry is IReferralRegistry {
 
     address public depositHook; // authorized USDG deposit notifier
     address public owner;
+    /// @notice Owner-set contracts allowed to attribute on behalf of a wallet (e.g. a router that verified the
+    ///         wallet's intent). Audit #3: everyone else may only attribute msg.sender itself.
+    mapping(address => bool) public isAttestor;
 
     error OnlyOwner();
     error OnlyDepositHook();
     error SelfReferral();
     error AlreadyAttributed();
+    error NotWalletOrAttestor();
 
     event ReferrerPending(address indexed wallet, address indexed referrer);
     event ReferrerAttributed(address indexed wallet, address indexed referrer);
+    event AttestorSet(address indexed attestor, bool allowed);
+    event DepositHookSet(address indexed hook);
     event UsdgDepositRecorded(address indexed wallet, uint256 amount, uint256 total);
 
     constructor(address owner_) {
@@ -31,6 +37,13 @@ contract ReferralRegistry is IReferralRegistry {
     function setDepositHook(address hook) external {
         if (msg.sender != owner) revert OnlyOwner();
         depositHook = hook;
+        emit DepositHookSet(hook);
+    }
+
+    function setAttestor(address attestor, bool allowed) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        isAttestor[attestor] = allowed;
+        emit AttestorSet(attestor, allowed);
     }
 
     function transferOwnership(address newOwner) external {
@@ -45,13 +58,22 @@ contract ReferralRegistry is IReferralRegistry {
 
     /// @inheritdoc IReferralRegistry
     /// @dev Stores pending referrer; attribution finalizes on USDG gate.
+    ///      Audit #3: caller must be `wallet` itself (EOA, or a smart account such as the session-key path
+    ///      `account.execute(registry.tryAttribute(account, ref))`) or an owner-trusted attestor.
+    ///      First-touch: the first pending referrer is kept; later different referrers are ignored (no overwrite).
     function tryAttribute(address wallet, address referrer) external override returns (bool attributed) {
+        if (msg.sender != wallet && !isAttestor[msg.sender]) revert NotWalletOrAttestor();
         if (referrer == wallet) revert SelfReferral();
         if (_referrerOf[wallet] != address(0)) revert AlreadyAttributed();
         if (referrer == address(0)) return false;
 
-        pendingReferrer[wallet] = referrer;
-        emit ReferrerPending(wallet, referrer);
+        address pending = pendingReferrer[wallet];
+        if (pending == address(0)) {
+            pendingReferrer[wallet] = referrer;
+            emit ReferrerPending(wallet, referrer);
+        } else if (pending != referrer) {
+            return false; // first touch wins
+        }
 
         // If gate already satisfied (deposit happened first), attribute now.
         if (usdgDeposited[wallet] >= Constants.REFERRAL_USDG_GATE) {

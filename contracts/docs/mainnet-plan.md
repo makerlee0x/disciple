@@ -66,3 +66,14 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 - SEC-01 (High) is fixed in #27, and the redeploy must include it. The live testnet v2 stays vulnerable until then.
 - SEC-02 and SEC-03 (Medium) are fixed in source on PR #44 (hook donation removed + LP-add gate, QuotePricer truncated TWAP); they ship with that redeploy. Ops: run a `QuotePricer.poke` keeper (~60 s), add TrampWallManager to the Safe ownership list, and verify `hook.isLiquidityManager(lockedLP/twm)`, and run a tramp/wall `pull` bot (earns `keeperTipBps`). SEC-04 is addressed by the Safe plus timelock.
 - SEC-05 to SEC-09 are documented and accepted or tracked.
+
+
+## TODO: ownership / multisig checklist (out of scope for the Oct-16 audit PR)
+
+- [ ] Transfer `owner` / `admin` of FeeRouter, Launchpad, LockedLP, Migration, ReferralRegistry, UsdgDepositNotifier, QuotePricer, QuoteProbe, DiscipleRouter, TrampWallManager, RewardsVault, AnonLauncher, and DiscipleHook (`transferAdmin`) to the Safe multisig.
+- [ ] Put a timelock on the wiring setters (`setLockedLP`, `setTreasury`, `setTrustedRouter`, `setPricer`, `setDepositHook`, `setAttestor`, `setLiquidityManager`).
+- [ ] Check that one-shot setters are consumed at deploy: `DiscipleHook.setMigration`, `Migration.setLaunchpad`.
+- [ ] Check that `isTrustedRouter` is true only for DiscipleRouter (never UniversalRouter).
+- [ ] Set the `UsdgDepositNotifier` attestors (on-ramp watcher) and any `ReferralRegistry` attestors, or leave them empty on purpose.
+- [ ] Redeploy (hook flags changed: BEFORE_INITIALIZE added; the salt is re-mined by Deploy.s.sol).
+- [ ] Post-graduation LP-share compound feature (the LP share is currently held in LockedLP).

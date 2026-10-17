@@ -37,15 +37,25 @@ contract FeeRouter is IFeeRouter {
     error ZeroAddress();
     error NothingToClaim();
 
+    /// @notice Audit #11: full fee breakdown with payees. Amounts are in `feeToken` units: the curve quote
+    ///         pre-graduation, and post-graduation whichever pool side the hook charged (quote OR launch token —
+    ///         `feeIsQuote` tells which; never mix the two units off-chain).
+    ///         referralPayee gets referralShare (the 1% leftover); kolPayee (launch KOL) gets kolShare, which is
+    ///         carved out of the creator's 33% (creatorShare is already net of it).
     event TradeFeeRouted(
         address indexed token,
-        address indexed quote,
+        address indexed feeToken,
         address indexed trader,
+        bool feeIsQuote,
+        address creator,
         uint256 creatorShare,
+        uint256 creatorTaxAmount,
         uint256 lpShare,
         uint256 treasuryShare,
+        address referralPayee,
         uint256 referralShare,
-        uint256 creatorTaxAmount
+        address kolPayee,
+        uint256 kolShare
     );
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount);
     event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount);
@@ -105,7 +115,7 @@ contract FeeRouter is IFeeRouter {
     }
 
     /// @notice Post-grad hook fee: the hook transfers the full `feeAmount` here. Split 33/33/33/1; the whole 33%
-    ///         LP share is auto-added to LockedLP (no in-range donation).
+    ///         LP share goes to LockedLP, held there pending the compound feature (no in-range donation).
     function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
         external
         override
@@ -202,7 +212,21 @@ contract FeeRouter is IFeeRouter {
             }
         }
 
-        emit TradeFeeRouted(token, quote, trader, creatorShare, lpShare, treasuryShare, referralShare, creatorTaxAmount);
+        emit TradeFeeRouted(
+            token,
+            quote,
+            trader,
+            feeIsQuote,
+            creator,
+            creatorShare,
+            creatorTaxAmount,
+            lpShare,
+            treasuryShare,
+            leftoverTo,
+            referralShare,
+            kolFromCreator > 0 ? launchKol : address(0),
+            kolFromCreator
+        );
     }
 
     /// @inheritdoc IFeeRouter

@@ -237,9 +237,11 @@ export class Api {
   feeRouting(token: string) {
     const c = this.coin(token);
     if (!c) return null;
-    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
     const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
-    const tf = rows.filter((r) => r.kind === "TradeFeeRouted");
+    // audit #11: quote-unit rows only (legacy rows have fee_is_quote NULL = quote); token-unit post-grad fees reported apart
+    const tf = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote !== 0);
+    const tt = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote === 0);
     const sn = rows.filter((r) => r.kind === "SnipeFeeRouted");
     const q = wad(BigInt(c.quote_price_usd ?? 0));
     const out: any = {
@@ -252,7 +254,15 @@ export class Api {
     };
     const usd: any = {};
     for (const [k, v] of Object.entries(out)) if (typeof v === "bigint") { usd[k] = wad(v) * q; out[k] = v.toString(); }
-    return { ...out, usd };
+    const tokenUnits = {
+      trades: tt.length, creator: sum(tt.map((r) => r.a)).toString(), lp: sum(tt.map((r) => r.b)).toString(),
+      treasury: sum(tt.map((r) => r.c)).toString(), referral: sum(tt.map((r) => r.d)).toString(),
+    };
+    const kol = (this.db.prepare("SELECT fee_is_quote fq, amount FROM fee_credits WHERE token=? AND role='kol'").all(c.token) as any[]);
+    out.kol = sum(kol.filter((r) => r.fq === 1).map((r) => r.amount)).toString();
+    (tokenUnits as any).kol = sum(kol.filter((r) => r.fq === 0).map((r) => r.amount)).toString();
+    usd.kol = wad(BigInt(out.kol)) * q;
+    return { ...out, usd, tokenUnits };
   }
 
   leaderboard(kind: string, q: URLSearchParams) {
@@ -279,7 +289,8 @@ export class Api {
           FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
       case "referrers":
         return this.db.prepare(`SELECT referrer user, SUM(status='attributed') attributed, SUM(status='pending') pending,
-          COALESCE((SELECT SUM(CAST(f.d AS REAL))/1e18 FROM fee_events f WHERE f.kind='TradeFeeRouted' AND f.account IN (SELECT wallet FROM referrals r2 WHERE r2.referrer=r.referrer AND r2.status='attributed')),0) referralShareQuote
+          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
+          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=0),0) referralShareToken
           FROM referrals r GROUP BY referrer ORDER BY attributed DESC, pending DESC LIMIT ?`).all(limit);
       default:
         throw new Error("unknown leaderboard (traders|creators|coins|tramps|keepers|referrers)");

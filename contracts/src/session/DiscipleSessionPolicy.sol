@@ -18,6 +18,19 @@ interface ITokenOf {
     function token() external view returns (address);
 }
 
+interface IQuoteOf {
+    function quote() external view returns (address);
+}
+
+interface IDefaultQuote {
+    function defaultQuote() external view returns (address);
+}
+
+interface IAnonFee {
+    function feeToken() external view returns (address);
+    function launchFee() external view returns (uint256);
+}
+
 /// @title DiscipleSessionPolicy
 /// @notice ERC-6900 hook module for Alchemy Modular Account v2 that locks a session key down to DISCIPLE trading.
 ///         Installed next to Alchemy's SingleSignerValidation (non-global, only `execute`/`executeBatch`) as
@@ -45,7 +58,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
 
     uint32 public constant EXEC_HOOK_FLAG = 1 << 31;
     uint16 public constant DEFAULT_MAX_SLIPPAGE_BPS = 500; // 5%
+    uint16 public constant MIN_SLIPPAGE_BPS_LIMIT = 10; // 0.1% (audit #7)
     uint16 public constant MAX_SLIPPAGE_BPS_LIMIT = 5000; // 50%
+    uint256 public constant MAX_SESSION_DURATION = 24 hours; // audit #7: on-chain expiry bound
     uint256 internal constant BPS = 10_000;
 
     // selectors
@@ -89,9 +104,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         address trampWallManager;
         address quote0; // capped quote assets (e.g. USDG, STRATEGY); address(0) = unused
         address quote1;
-        uint128 cap0; // max total approve() of quote0 during the session (raw units)
+        uint128 cap0; // max total quote0 actually SPENT during the session (raw units; buys/tramps/launches)
         uint128 cap1;
-        uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT_MAX_SLIPPAGE_BPS
+        uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT, else 10..5000
     }
 
     struct Session {
@@ -145,7 +160,11 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (cfg.validUntil == 0 || cfg.validUntil <= cfg.validAfter || cfg.validUntil <= block.timestamp) {
             revert InvalidConfig();
         }
+        // Audit #7: session lifetime ≤ 24h from when it becomes usable.
+        uint256 start = cfg.validAfter > block.timestamp ? cfg.validAfter : block.timestamp;
+        if (cfg.validUntil - start > MAX_SESSION_DURATION) revert InvalidConfig();
         if (cfg.permissions == 0 || cfg.maxSlippageBps > MAX_SLIPPAGE_BPS_LIMIT) revert InvalidConfig();
+        if (cfg.maxSlippageBps != 0 && cfg.maxSlippageBps < MIN_SLIPPAGE_BPS_LIMIT) revert InvalidConfig();
         if (cfg.maxSlippageBps == 0) cfg.maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS;
         Session storage s = _sessions[entityId][msg.sender];
         s.cfg = cfg;
@@ -175,7 +194,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.1.1";
+        return "disciple.session-policy.1.2.0";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -323,6 +342,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
                 abi.decode(args, (address, uint256, uint256, address, uint256));
             if (recipient != account) revert RecipientNotAccount();
             _checkMinOut(c, minOut, _routerQuote(k.target, token, p == P_ROUTER_BUY, amountIn), k.target);
+            if (p == P_ROUTER_BUY) (add0, add1) = _spend(c, _quoteOfToken(c, token), amountIn);
         } else if (p == P_CURVE_BUY || p == P_CURVE_SELL) {
             if (!_isCurve(c, k.target)) revert NotCurve(k.target);
             if (sel == CURVE_BUY4 || sel == CURVE_SELL4) {
@@ -331,22 +351,78 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             }
             (uint256 amountIn, uint256 minOut) = abi.decode(args, (uint256, uint256));
             _checkMinOut(c, minOut, _curveQuote(k.target, p == P_CURVE_BUY, amountIn), k.target);
+            if (p == P_CURVE_BUY) (add0, add1) = _spend(c, IQuoteOf(k.target).quote(), amountIn);
         } else if (p == P_ANON_LAUNCH) {
             // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
             address buyRecipient = _word(args, 2);
             if (buyRecipient != account) revert RecipientNotAccount();
+            (address q, uint256 buyIn) = _launchSpend(c, args);
+            (add0, add1) = _spend(c, q, buyIn);
+            (uint256 f0, uint256 f1) = _spend(c, IAnonFee(k.target).feeToken(), IAnonFee(k.target).launchFee());
+            add0 += f0;
+            add1 += f1;
         } else if (p == P_REFERRAL) {
             // tryAttribute(wallet, referrer): the session key may only attribute ITS OWN account (no third parties).
             (address wallet,) = abi.decode(args, (address, address));
             if (wallet != account) revert WalletNotAccount();
         } else if (p == P_APPROVE) {
-            (address spender, uint256 amount) = abi.decode(args, (address, uint256));
+            (address spender,) = abi.decode(args, (address, uint256));
             if (!_isFixedTarget(c, spender) && !_isCurve(c, spender)) revert SpenderNotAllowed(spender);
-            if (k.target == c.quote0 && c.quote0 != address(0)) add0 = amount;
-            else if (k.target == c.quote1 && c.quote1 != address(0)) add1 = amount;
-            // non-quote tokens (rocket tokens for sells / walls): uncapped, spender-pinned, proceeds pinned to account
+            // Audit #8: approvals are NOT what the cap counts (a leftover or pre-existing allowance would bypass
+            // it). The cap counts the quote each spending call actually moves (buys, tramps, launch buys/fees).
+        } else if (p == P_TRAMP) {
+            // placeTramp(token, tl, tu, quoteAmt, minLiq, deadline): quote-side liquidity pulled from the account
+            (address token,,, uint256 amt) = abi.decode(args, (address, int24, int24, uint256));
+            (add0, add1) = _spend(c, _quoteOfToken(c, token), amt);
+        } else if (p == P_LAUNCH) {
+            (address q, uint256 buyIn) = _launchSpend(c, args);
+            (add0, add1) = _spend(c, q, buyIn);
         }
-        // P_TRAMP / P_WALL / P_CANCEL / P_LAUNCH: positions & launches are owned by msg.sender (= account)
+        // P_WALL / P_CANCEL / sells: no quote leaves the account (walls pull launch tokens; proceeds pinned)
+    }
+
+    struct LaunchParamsLite {
+        string name;
+        string ticker;
+        string imageURI;
+        string description;
+        string socialsURI;
+        address quote;
+        uint256 creatorTaxBps;
+        uint256 creatorBuyQuoteIn;
+        uint256 creatorBuyMinTokensOut;
+        uint256 deadline;
+    }
+
+    /// @dev Decodes the leading LaunchParams tuple of launch/launchCoin/launchAnon args.
+    function _launchSpend(SessionConfig storage c, bytes memory args) internal view returns (address q, uint256 amt) {
+        uint256 off;
+        assembly {
+            off := mload(add(args, 32))
+        }
+        bytes memory tup = new bytes(args.length - off + 32);
+        assembly {
+            mstore(add(tup, 32), 32)
+        }
+        for (uint256 i; i < args.length - off; ++i) {
+            tup[i + 32] = args[off + i];
+        }
+        LaunchParamsLite memory lp = abi.decode(tup, (LaunchParamsLite));
+        amt = lp.creatorBuyQuoteIn;
+        q = lp.quote;
+        if (q == address(0) && amt != 0) q = IDefaultQuote(c.launchpad).defaultQuote();
+    }
+
+    function _quoteOfToken(SessionConfig storage c, address token) internal view returns (address) {
+        return IQuoteOf(ICurveOf(c.launchpad).curveOf(token)).quote();
+    }
+
+    /// @dev Audit #8: every quote outflow must be a configured capped quote; anything else is refused.
+    function _spend(SessionConfig storage c, address q, uint256 amt) internal view returns (uint256, uint256) {
+        if (amt == 0) return (0, 0);
+        if (q == c.quote0 && q != address(0)) return (amt, 0);
+        if (q == c.quote1 && q != address(0)) return (0, amt);
+        revert SpendCapExceeded(q, amt, 0);
     }
 
     /// @dev Quotes are read at execution-hook time, i.e. against the state the trade will execute on (same tx).

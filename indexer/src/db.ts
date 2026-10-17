@@ -54,6 +54,12 @@ export function openDb(path: string): DB {
     stack TEXT, wallet TEXT, referrer TEXT, status TEXT, block INTEGER, ts INTEGER, tx TEXT, PRIMARY KEY (stack, wallet)
   );
   CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer);
+  -- audit #11: per-payee fee credits from FeeRouter.TradeFeeRouted, kept in fee-token units (never mixed)
+  CREATE TABLE IF NOT EXISTS fee_credits (
+    id TEXT, stack TEXT, token TEXT, fee_token TEXT, fee_is_quote INTEGER, payee TEXT, role TEXT, amount TEXT, block INTEGER, ts INTEGER, tx TEXT,
+    PRIMARY KEY (id, role)
+  );
+  CREATE INDEX IF NOT EXISTS fee_credits_payee ON fee_credits(payee, role);
   -- last indexed block hash per stack, for reorg detection
   CREATE TABLE IF NOT EXISTS block_hashes (stack TEXT, block INTEGER, hash TEXT, PRIMARY KEY (stack, block));
   `);
@@ -67,6 +73,7 @@ export function openDb(path: string): DB {
     tier: "INTEGER", altitude_mcap_usd: "TEXT", altitude_block: "INTEGER", start_mcap_usd: "TEXT", graduation_mcap_usd: "TEXT",
     total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT",
   });
+  add("fee_events", { fee_is_quote: "INTEGER" });
   add("orders", { placed_block: "INTEGER", keeper_quote_tip: "TEXT DEFAULT '0'", keeper_token_tip: "TEXT DEFAULT '0'" });
   // one-time backfill of coin_stats for DBs indexed before the aggregates existed
   const v = db.prepare("SELECT v FROM meta WHERE k='coin_stats_v'").get() as { v: string } | undefined;
@@ -100,7 +107,7 @@ export function wipeStack(db: DB, stack: string) {
   db.transaction(() => {
     db.prepare("DELETE FROM balances WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
     db.prepare("DELETE FROM coin_stats WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
-    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes"])
+    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes", "fee_credits"])
       db.prepare(`DELETE FROM ${t} WHERE stack=?`).run(stack);
   })();
   bumpDataVersion(db);

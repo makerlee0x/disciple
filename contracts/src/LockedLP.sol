@@ -33,6 +33,7 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     IPoolManager public poolManager;
 
     int24 public constant TICK_SPACING = 60;
+    address public constant BURN = 0x000000000000000000000000000000000000dEaD;
 
     struct Position {
         address quote;
@@ -61,6 +62,9 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     event LiquidityLocked(address indexed token, address indexed quote, uint256 tokenAmount, uint256 quoteAmount);
     event QuoteEscrowed(address indexed token, address indexed quote, uint256 amount);
     event FeesCollected(address indexed token, uint256 amount0, uint256 amount1);
+    /// @notice Audit #4: quote not absorbed by the full-range add at curve-end price → treasury (explicit);
+    ///         token dust (rounding only) → burn address. Emitted once per graduation.
+    event GraduationLeftover(address indexed token, uint256 quoteToTreasury, uint256 tokenBurned);
     event V4PositionSeeded(
         address indexed token, PoolId poolId, uint128 liquidity, int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96
     );
@@ -157,8 +161,9 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         // Include any escrowed quote into the quote side of the seed
         // (caller already transferred primary amounts via addLockedLiquidity)
 
-        // Initialize pool at curve-end price (no jump)
-        try poolManager.initialize(key, sqrtPriceX96) {} catch {}
+        // Initialize pool at curve-end price (no jump). Audit #2: no try/catch — DiscipleHook.beforeInitialize
+        // only lets this contract initialize, so a pre-initialized (mispriced) pool cannot exist.
+        poolManager.initialize(key, sqrtPriceX96);
 
         SeedParams memory sp = SeedParams({
             token: token,
@@ -171,8 +176,25 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         });
 
         bytes memory result = poolManager.unlock(abi.encode(sp));
-        liquidity = abi.decode(result, (uint128));
+        uint256 used0;
+        uint256 used1;
+        (liquidity, used0, used1) = abi.decode(result, (uint128, uint256, uint256));
         p.liquidity = liquidity;
+
+        // Audit #4: liquidity is the max matched amount at the curve-end price; whatever one side could not
+        // be paired with is swept explicitly so LockedLP's per-token accounting equals real balances.
+        bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
+        (uint256 tokenUsed, uint256 quoteUsed) = tokenIsC0 ? (used0, used1) : (used1, used0);
+        (uint256 tokenDesired, uint256 quoteDesired) =
+            tokenIsC0 ? (amount0Desired, amount1Desired) : (amount1Desired, amount0Desired);
+        uint256 quoteLeft = quoteDesired - quoteUsed;
+        uint256 tokenLeft = tokenDesired - tokenUsed;
+        if (quoteLeft > 0) IERC20(quote).safeTransfer(treasury, quoteLeft);
+        if (tokenLeft > 0) IERC20(token).safeTransfer(BURN, tokenLeft);
+        p.tokenAmount = tokenUsed;
+        p.quoteAmount = quoteUsed;
+        p.escrowQuote = 0;
+        emit GraduationLeftover(token, quoteLeft, tokenLeft);
 
         emit V4PositionSeeded(token, key.toId(), liquidity, p.tickLower, p.tickUpper, sqrtPriceX96);
     }
@@ -209,15 +231,10 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (delta.amount1() < 0) {
             sp.key.currency1.settle(poolManager, address(this), uint256(int256(-delta.amount1())), false);
         }
-        // Take any credits
-        if (delta.amount0() > 0) {
-            sp.key.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), false);
-        }
-        if (delta.amount1() > 0) {
-            sp.key.currency1.take(poolManager, address(this), uint256(int256(delta.amount1())), false);
-        }
-
-        return abi.encode(liq);
+        // Adding liquidity never yields credits (pool fee 0, fresh position)
+        uint256 used0 = delta.amount0() < 0 ? uint256(int256(-delta.amount0())) : 0;
+        uint256 used1 = delta.amount1() < 0 ? uint256(int256(-delta.amount1())) : 0;
+        return abi.encode(liq, used0, used1);
     }
 
     /// @inheritdoc ILockedLP

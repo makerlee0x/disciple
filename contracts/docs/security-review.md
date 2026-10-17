@@ -11,7 +11,7 @@
 | SEC-02 | Medium | JIT liquidity can capture hook LP donations (1/3 of LP share) | **Fixed in source** (PR #44): donation removed (no LP yield to capture) + hook LP-add allowlist; needs redeploy |
 | SEC-03 | Medium | QuotePricer uses the v4 spot price at launch (flash-manipulable); bakes into curve USD targets | **Fixed in source** (PR #44): QuotePricer lagged truncated TWAP + poke; needs redeploy |
 | SEC-04 | Medium | Admin centralization: FeeRouter/Launchpad/LockedLP/hook owner can repoint core wiring (`setLaunchpad`, `setLockedLP`, `setMigration`, `setTrustedRouter`, `setPricer`) | Open; Safe multisig + timelock (mainnet plan) |
-| SEC-05 | Low | Trusted UniversalRouter → `hookData` trader attribution is caller-chosen (spoofable Trade attribution / referral destination) | Open; document or attribute only via DiscipleRouter |
+| SEC-05 | Low | Trusted UniversalRouter → `hookData` trader attribution is caller-chosen (spoofable Trade attribution / referral destination) | **Fixed** (audit #10): Deploy no longer trusts UniversalRouter; only DiscipleRouter |
 | SEC-06 | Low | TrampWallManager `pull` is permissionless: a whale can force-fill a range by pushing price through it (owner still gets their range price) | By design; document |
 | SEC-07 | Low | Reentrancy via custom quote tokens (BondingCurve `_buy`/`_graduate`, Migration) | Mitigated by QuoteProbe; only affects the launcher's own coin |
 | SEC-08 | Low | AnonLauncher: signed relayer fee is paid to *any* submitter (mempool copy) | By design (signer consented to that fee) |
@@ -69,13 +69,14 @@
 - **Launchpad owner:** pricer, probe, curve deployer, default quote, creator-buy cap.
 - **Hook admin:** trusted routers and pricer.
 - **LockedLP owner:** migration, poolManager, feeRouter.
-- Each can redirect funds or break trading. **Mainnet:** a Safe multisig owner, and a timelock on the wiring setters. Consider making the wiring one-shot, as `DiscipleHook.setMigration` already is.
+- Each can redirect funds or break trading. **Mainnet:** a Safe multisig owner, and a timelock on the wiring setters. `DiscipleHook.setMigration` is one-shot and admin-only (audit #12); `Migration.setLaunchpad` is one-shot owner-only.
 
 ## SEC-05 (Low): UniversalRouter hookData attribution
 - The hook credits `abi.decode(hookData, (address))` as the trader when the sender is a trusted router.
 - With UniversalRouter trusted, any UR user supplies their own hookData. They can attribute swaps to any address, which skews Trade events, indexer counters and leaderboards, and pick whose referrer gets the 1% leftover.
 - Funds aren't at risk; the referral share is 1% either way.
 - **Recommendation:** trust only DiscipleRouter for attribution; treat UR swaps as `trader = sender`.
+- **Status:** fixed in Deploy.s.sol (audit #10). `UNIVERSAL_ROUTER` is no longer read; `test/audit/DeployConfig.t.sol` asserts UR is untrusted.
 
 ## SEC-10: Slither triage (src only)
 - High `arbitrary-send-erc20` / `unchecked-transfer` in `CurrencySettler.settle`: false positive. The payer is always `msg.sender` of the outer call (DiscipleRouter / TrampWallManager) or `address(this)`. PoolManager's settle accounting reverts the unlock if a transfer silently fails, because `CurrencyNotSettled`.

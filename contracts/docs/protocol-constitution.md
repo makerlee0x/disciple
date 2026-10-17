@@ -24,12 +24,12 @@ This document is the source of truth for locked product and protocol decisions. 
 | 8 | Wallet cap | Per-wallet holding cap on the bonding curve only (not post-grad) = **`Launchpad.walletCapBps`** of supply — default **0 (no cap)**, protocol-owner-settable 0–10000 bps (event `WalletCapSet`), **snapshotted per coin at launch** (`walletCapBpsOf(token)`, immutable in the curve; changes affect future coins only); when set, **no wallet exemptions** (rev. 2026-10-15, was fixed 7%) | LOCKED 2026-10-15 |
 | 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **70% to the community RewardsVault / 30% to treasury** (not 33/33/33/1; rev. 2026-10-15, was 100% LP lock). **Creator launch buy (≤ creatorBuyMaxBps, default 0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
-| 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** lock quote into LP / **33%** treasury / **1%** referral leftover (to treasury if no referrer) | LOCKED |
+| 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** LP share / **33%** treasury / **1%** leftover. **Leftover priority:** (1) the coin's launch KOL (referrer of the creating wallet, #21) if set, else (2) the trader's referrer, else (3) treasury. Curve phase: the LP share is escrowed in LockedLP and folded into the graduation seed. Post-grad: the LP share is **held in LockedLP pending the compound feature** (not yet re-added to the pool) | LOCKED |
 | 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee | LOCKED |
 | 13 | Creator fees | Accrue on-chain; **pull/claim anytime** | LOCKED |
 | 14 | Treasury fees | **Auto-push** each trade | LOCKED |
-| 15 | LP-lock quote | **Auto-add** into LP each trade | LOCKED |
-| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral; the **full 33% LP share is auto-added to LockedLP** (permanent full-range). **No in-range donation** (`PoolManager.donate` removed 2026-10-16): tramps/walls earn no yield. Total fee stays 1%. | LOCKED 2026-10-16 |
+| 15 | LP-lock quote | Curve phase: escrowed in LockedLP each trade, seeded into the locked v4 position at graduation (any quote the full-range add cannot pair goes to treasury, event `GraduationLeftover`). Post-grad: held in LockedLP pending the compound feature | LOCKED |
+| 16 | Post-grad LP fees | v4 **pool LP fee = 0**; **1% DiscipleHook only**. Split 33 creator / 33 LP / 33 treasury / 1 referral; the **full 33% LP share goes to LockedLP**, where it is held pending the compound feature (it is not yet added to the pool). **No in-range donation** (`PoolManager.donate` removed 2026-10-16): tramps/walls earn no yield. Total fee stays 1%. | LOCKED 2026-10-16 |
 | 17 | LP lock | Permanently locked at graduation in **LockedLP** (v4 position owner); fee collection allowed; **no remove-liquidity** | LOCKED 2026-10-15 |
 | 18 | Referral attribution | First-touch wallet forever after: referral link → account → **USDG deposit ≥ $10** | LOCKED |
 | 19 | Self-referral | Same-wallet self-referral **blocked only** | LOCKED |
@@ -42,7 +42,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 26 | Ownership | Transferable anytime, multi-hop OK; full pack: metadata + fee claim + creator tax rights | LOCKED |
 | 27 | Creator buy | Optional creator buy in launch tx; max **`Launchpad.creatorBuyMaxBps`** of supply — default **0.77%** (77 bps), protocol-owner-settable (never the coin creator), hard ceiling **7%** (700 bps), snapshotted per coin at launch (changes affect future coins only); **anti-snipe exempt** (1% protocol fee only) | LOCKED 2026-10-15 |
 | 28 | Deposits / gas | One deposit approval; user pays gas; **no gas sponsorship** | LOCKED |
-| 29 | MEV protection | **Deadline + minAmountOut** only | LOCKED |
+| 29 | MEV protection | **Deadline + non-zero minAmountOut**, plus a per-swap **price-impact cap on DiscipleRouter** (`maxImpactBps`, default 50%, owner-settable 1%–1000%; router only, direct PoolManager swaps unaffected) | LOCKED |
 | 30 | Pause | **No pause** — curves and graduated pools always live | LOCKED |
 | 31 | Quotes | **defaultQuote = STRATEGY** (RH chain; owner/multisig settable). `launchCoin`/`launch` with `quote=address(0)` uses defaultQuote; **custom ERC-20 quote** still allowed if it passes probe; no curated allowlist beyond always-pass (STRATEGY/WETH/USDG) | LOCKED 2026-10-15 |
 | 32 | Probe | Hard reject honeypot / FoT only; thin depth soft warn; **WETH / USDG always pass** | LOCKED |
@@ -148,12 +148,13 @@ Split of the 1% trade fee:
 |--------|----------|
 | Creator fees | Accrue on-chain; **claim anytime** |
 | Treasury fees | **Auto-push** on each trade |
-| LP-lock quote | **Auto-add** into LP on each trade |
-| Post-graduation LP fees | **100% to treasury** |
+| LP-lock quote | Curve phase: **escrowed** in LockedLP on each trade, added to the locked position at graduation |
+| Post-graduation LP fees | Pool LP fee is **0**; the hook's 33% LP share is **held in LockedLP pending the compound feature** |
 
 ### LP at graduation
 - LP is **permanently locked**.
-- Fee collection is allowed.
+- Seeded with the max matched amounts at the curve-end price; unpaired quote → treasury (`GraduationLeftover`).
+- The position earns no pool fees (pool LP fee 0); `collectFees` is a no-op.
 - **Remove-liquidity is not allowed.**
 
 ---
@@ -335,10 +336,11 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 ## Document control
 
 - **Locked as of:** 2026-10-15  
-- **Revisions this date:** LOCKED #5–#6, #9, #17, #41 — curve $7K→$33K CPAMM; anti-snipe 77.7%→0% (snipe→100% LP); real v4 same-tx migrate (no-jump, LockedLP owns LP); re-priced tier ladder.  
+- **Revisions this date:** LOCKED #5–#6, #9, #17, #41 — curve $7K→$33K CPAMM; anti-snipe 77.7%→0% (snipe destination later revised to 70% RewardsVault / 30% treasury, see #9); real v4 same-tx migrate (no-jump, LockedLP owns LP); re-priced tier ladder.  
 - **Scope label:** v0 / Robinhood Chain  
-- **Revisions 2026-10-15 (tramps & walls):** LOCKED #9/#27 creator launch buy anti-snipe exempt; #16 LP share split 1/3 donate to in-range LPs + 2/3 LockedLP; new #42 tramps & walls.  
+- **Revisions 2026-10-15 (tramps & walls):** LOCKED #9/#27 creator launch buy anti-snipe exempt; #16 LP share split 1/3 donate to in-range LPs + 2/3 LockedLP (superseded 2026-10-16: no donation); new #42 tramps & walls.  
 - **Revisions 2026-10-16 (no LP yield):** #16 donation removed, full 33% LP share → LockedLP; #42 tramps/walls are pure limit orders (no fees, no claim, no min hold), keeper-tipped `pull`, hook LP-add gate (LockedLP + TWM only).  
+- **Revisions 2026-10-16 (audit fixes):** #11 leftover priority spelled out; #15/#16 LP share described as held pending compound; #29 router impact cap; graduation leftover quote → treasury.  
 - **Change policy:** Treat the LOCKED table as authoritative. New decisions require an explicit unlock / revision of this constitution; do not silently override LOCKED rows.
 
 *End of DISCIPLE Protocol Constitution.*

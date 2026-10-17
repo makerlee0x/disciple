@@ -128,6 +128,7 @@ abstract contract IntegrationBase is Test {
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
+        migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(hook), true);
         rewardsVault = new RewardsVault(owner);
@@ -164,6 +165,7 @@ abstract contract IntegrationBase is Test {
     }
 
     function _bindReferral(address wallet, address referrer, uint256 usdgDeposit) internal {
+        vm.prank(wallet); // audit #3: only the wallet (or an attestor) may attribute itself
         referrals.tryAttribute(wallet, referrer);
         if (usdgDeposit > 0) {
             depositHook.notifyDeposit(wallet, usdgDeposit);

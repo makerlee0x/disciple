@@ -14,7 +14,7 @@ contract SecurityFuzzTest is IntegrationBase {
     address alice = makeAddr("alice");
     address whale = makeAddr("whale");
 
-    bytes32 constant TFR = keccak256("TradeFeeRouted(address,address,address,uint256,uint256,uint256,uint256,uint256)");
+    bytes32 constant TFR = keccak256("TradeFeeRouted(address,address,address,bool,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)");
 
     function setUp() public override {
         super.setUp();
@@ -61,7 +61,9 @@ contract SecurityFuzzTest is IntegrationBase {
         bool seen;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == TFR) {
-                (cs, lps, ts, rs,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                (,, cs,, lps, ts,, rs,,) = abi.decode(
+                    logs[i].data, (bool, address, uint256, uint256, uint256, uint256, address, uint256, address, uint256)
+                );
                 seen = true;
             }
         }
@@ -81,10 +83,10 @@ contract SecurityFuzzTest is IntegrationBase {
         // tramp = quote side: if token is c0, quote is c1 → range below price; else above.
         if (tIs0) {
             hi = a - sp;
-            lo = hi - 4 * sp;
+            lo = hi - sp; // audit #6: one tick spacing
         } else {
             lo = a + 2 * sp;
-            hi = lo + 4 * sp;
+            hi = lo + sp; // audit #6
         }
     }
 

@@ -40,7 +40,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `src/libraries/Constants.sol` | Named protocol constants (7B, $12K→$77K, fees, anti-snipe, caps) | LOCKED #6–#12, #18, #27; §2, §3, §4, §9 |
 | `src/libraries/FeeMath.sol` | 33/33/33/1 split, tax, wallet/curve caps | §3 Fees; LOCKED #11–#12 |
 | `src/Token.sol` | ERC-20, 18 dec, 7B fixed, no further mint, CREATE | §2; LOCKED #7, #10 |
-| `src/BondingCurve.sol` | Pump-style CPAMM curve; 7% wallet cap; graduate trigger | §2 Option B; LOCKED #5–#8 |
+| `src/BondingCurve.sol` | Pump-style CPAMM curve; optional per-wallet cap (`Launchpad.walletCapBps`, default 0 = off); graduate trigger | §2 Option B; LOCKED #5–#8 |
 | `src/libraries/CurveMath.sol` | Single CPAMM buy/sell math; quotePriceUsd scaling | §2; LOCKED #5–#7 |
 | `src/QuotePricer.sol` | Launch-time quote/USD oracle (USDG=$1, else quote/USDG v4 spot) | §2 |
 | `src/TrampWallManager.sol` | Tramps & walls: single-sided concentrated v4 ranges (support/resistance) | #42 |
@@ -74,7 +74,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `START_MCAP_USD` | $7,000 (Launch Pad) |
 | `PEARLY_GATES_MCAP_USD` | $33,000 (graduation) |
 | `CURVE_SOLD_BPS` | 7200 (72% exactly at grad) |
-| `WALLET_CAP_BPS` | 700 (7%, curve-only) |
+| `WALLET_CAP_BPS_DEFAULT` | 0 (no cap; owner-settable via `Launchpad.setWalletCapBps`, snapshotted per coin) |
 | `TRADE_FEE_BPS` | 100 (1%) |
 | Fee shares | 33 / 33 / 33 / 1 |
 | `CREATOR_TAX_MAX_BPS` | 700 (≤7%, immutable) |

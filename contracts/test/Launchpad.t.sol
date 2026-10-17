@@ -72,6 +72,7 @@ contract LaunchpadTest is Test {
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
+        migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(stack.hook), true);
         vm.stopPrank();
