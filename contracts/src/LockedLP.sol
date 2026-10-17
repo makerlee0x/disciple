@@ -21,7 +21,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// @dev Hook-side view used by flush() to refuse adds in a tx that already swapped this pool (atomic sandwich).
 interface ISwapInTx {
     function swappedInTx(PoolId id) external view returns (bool);
-    function blockAnchor(PoolId id) external view returns (uint64 blockNumber, uint160 sqrtPriceX96);
+    function compoundRefs(PoolId id) external view returns (uint160 refBlock, uint160 refEma);
 }
 
 /// @title Permanently locked v4 LP owner (§3 / LOCKED #16–#17)
@@ -82,9 +82,11 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     address public hook;
     /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.005%.
     uint32 public minCompoundPpm = 50;
-    /// @notice Per-add cap, in ppm of the position's current liquidity (0 = uncapped). Default 2%.
-    uint32 public maxCompoundPpm = 20_000;
-    /// @notice Skip if the post-swap price moved more than this vs the pre-swap price. Default 3%.
+    /// @notice Per-add cap, in ppm of the position's current liquidity (0 = uncapped). Default 0.5% (audit High-1:
+    ///         bounds the value any residual reference manipulation could extract per add).
+    uint32 public maxCompoundPpm = 5_000;
+    /// @notice Skip if spot is more than this away from ANY reference (swap pre-price, block-start price,
+    ///         multi-block EMA). Default 3%.
     uint16 public maxCompoundDeviationBps = 300;
 
     uint160 internal immutable SQRT_LOWER;
@@ -320,10 +322,16 @@ contract LockedLP is ILockedLP, IUnlockCallback {
 
     /// @notice Called by DiscipleHook.afterSwap (PoolManager already unlocked by the swapper). The hook wraps this
     ///         in try/catch with a gas cap, so any revert here only skips the add — never the user's swap.
-    /// @param sqrtBefore pre-swap sqrtPriceX96 (hook's transient PRICE_SLOT) for the deviation guard.
-    function compoundFromHook(address token, uint160 sqrtBefore) external returns (uint128) {
+    /// @param refSwap  this swap's pre-swap sqrtPriceX96
+    /// @param refBlock the pool's block-start sqrtPriceX96
+    /// @param refEma   the hook's multi-block EMA reference (sqrtPriceX96)
+    function compoundFromHook(address token, uint160 refSwap, uint160 refBlock, uint160 refEma)
+        external
+        returns (uint128)
+    {
         if (msg.sender != hook) revert OnlyHook();
-        return _compound(token, sqrtBefore);
+        if (refEma == 0) return 0;
+        return _compound(token, refSwap, refBlock, refEma);
     }
 
     /// @notice Permissionless top-up outside swaps (uses unlock). Same min / cap guards; refuses if the pool was
@@ -333,13 +341,12 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (!p.graduated) revert NotGraduated();
         address h = hook;
         if (h != address(0) && ISwapInTx(h).swappedInTx(p.poolKey.toId())) revert SwappedInTx();
-        // Same-block guard: if the pool already traded this block, compound against its block-start price.
-        uint160 ref;
-        if (h != address(0)) {
-            (uint64 blk, uint160 a) = ISwapInTx(h).blockAnchor(p.poolId);
-            if (blk == uint64(block.number)) ref = a;
-        }
-        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token, ref)));
+        // DISCIPLE audit High-1: always check against the hook's multi-block EMA reference (and the block-start
+        // price when the pool traded this block). No hook / reference not ready → skip.
+        if (h == address(0)) return 0;
+        (uint160 refBlock, uint160 refEma) = ISwapInTx(h).compoundRefs(p.poolId);
+        if (refEma == 0) return 0;
+        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token, refBlock, refEma)));
         liquidity = abi.decode(r, (uint128));
     }
 
@@ -350,15 +357,18 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     }
 
     /// @dev Must run while the PoolManager is unlocked. Returns 0 (no state change) when skipped.
-    ///      sqrtRef == 0 → use spot (flush path: no intra-swap reference, swappedInTx already checked).
-    function _compound(address token, uint160 sqrtRef) internal returns (uint128 liq) {
+    ///      Each nonzero reference must be within maxCompoundDeviationBps of spot (callers always pass the EMA).
+    function _compound(address token, uint160 r0, uint160 r1, uint160 r2) internal returns (uint128 liq) {
         Bucket memory b = _buckets[token];
         // Cheapest exit first: one-sided accumulation (the common case) costs one SLOAD.
         if (b.token < 2 || b.quote < 2) return 0;
         // Non-empty buckets imply graduated (addLockedLiquidity only buckets post-graduation).
         Position storage p = _positions[token];
         (uint160 sqrtP,,,) = poolManager.getSlot0(p.poolId);
-        if (sqrtRef != 0 && _deviationBps(sqrtRef, sqrtP) > maxCompoundDeviationBps) return 0;
+        uint256 maxDev = maxCompoundDeviationBps;
+        if (r0 != 0 && _deviationBps(r0, sqrtP) > maxDev) return 0;
+        if (r1 != 0 && _deviationBps(r1, sqrtP) > maxDev) return 0;
+        if (r2 != 0 && _deviationBps(r2, sqrtP) > maxDev) return 0;
 
         bool tokenIsC0 = p.tokenIsC0;
         // 1 wei margin per side: amounts owed for L round up by at most 1, so owed <= bucket always.
@@ -422,8 +432,8 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         (uint8 kind, bytes memory inner) = abi.decode(rawData, (uint8, bytes));
         if (kind == CB_FLUSH) {
-            (address tk, uint160 ref) = abi.decode(inner, (address, uint160));
-            return abi.encode(_compound(tk, ref));
+            (address tk, uint160 rb, uint160 re) = abi.decode(inner, (address, uint160, uint160));
+            return abi.encode(_compound(tk, rb, re, 0));
         }
         SeedParams memory sp = abi.decode(inner, (SeedParams));
         Position storage p = _positions[sp.token];

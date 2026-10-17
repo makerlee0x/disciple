@@ -19,6 +19,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {console2} from "forge-std/console2.sol";
 
 /// @dev Audit #1 PoC: pump → dust swap (would compound at the pumped price) → dump, all in ONE tx.
 contract PumpDustDump {
@@ -94,6 +95,7 @@ contract DiscipleAuditTest is IntegrationBase {
         BondingCurve c;
         (c, tok) = _launch(0, 0);
         _graduate(c);
+        _warpRefReady(); // compound reference needs 60 s of history
         vm.prank(owner);
         lockedLP.setCompoundParams(1, 0, 300); // tiny min, uncapped, 3% guard
         _swapExactInQuoteForToken(tok, trader1, 50 ether); // token-side fees + leftover quote → both buckets
@@ -157,8 +159,122 @@ contract DiscipleAuditTest is IntegrationBase {
         vm.prank(owner);
         lockedLP.setCompoundParams(1, 0, 300);
         assertEq(lockedLP.flush(address(tok)), 0, "flush vs block-start price: skipped");
-        vm.roll(vm.getBlockNumber() + 1); // new block: spot is the block-start price
-        assertGt(lockedLP.flush(address(tok)), 0, "flush in a fresh block works");
+        vm.roll(vm.getBlockNumber() + 1); // new block, no swap yet: flush still checks the EMA reference
+        vm.warp(vm.getBlockTimestamp() + 1);
+        assertEq(lockedLP.flush(address(tok)), 0, "cross-block flush vs EMA: skipped (High-1)");
+    }
+
+    // ── High-1: cross-block pump (last swap of block N) → dust swap / flush in N+1 → dump ──
+
+    /// @dev Fills both LP buckets with real fee volume (no adds), then restores the default params (0.5% cap).
+    function _bigBuckets(Token tok) internal {
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1_000_000, 0, 300); // accumulate only
+        address v = makeAddr("volume");
+        for (uint256 i; i < 6; i++) {
+            _swapExactInQuoteForToken(tok, v, 5_000 ether);
+            _swapExactInTokenForQuote(tok, v, tok.balanceOf(v));
+        }
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1, 5_000, 300); // defaults: 0.5% cap, 3% guard
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 61); // EMA settles back at the post-volume price
+        _swapExactInQuoteForToken(tok, v, 1e15);
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
+    }
+
+    function _xblock(Token tok, uint256 pump, uint256 holdSecs, bool viaFlush)
+        internal
+        returns (uint256 endQuote, uint256 nComp)
+    {
+        address att = makeAddr("xatk");
+        uint256 b0 = quote.balanceOf(att);
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, att, pump); // block N, last swap
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.warp(vm.getBlockTimestamp() + holdSecs);
+        if (viaFlush) lockedLP.flush(address(tok));
+        else _swapExactInQuoteForToken(tok, att, 1e15); // dust in N+1
+        _swapExactInTokenForQuote(tok, att, tok.balanceOf(att)); // dump
+        nComp = _count(COMPOUNDED);
+        endQuote = quote.balanceOf(att) - b0;
+    }
+
+    function _xblockVsControl(uint256 pump, bool viaFlush) internal {
+        Token tok = _gradReady();
+        _bigBuckets(tok);
+        uint256 snap = vm.snapshotState();
+        (uint256 atk, uint256 n) = _xblock(tok, pump, 1, viaFlush);
+        vm.revertToState(snap);
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1_000_000, 0, 300); // control: compounding off
+        (uint256 ctl,) = _xblock(tok, pump, 1, viaFlush);
+        console2.log("pump", pump / 1e18, viaFlush ? 1 : 0);
+        console2.log("  attacker end / control end (quote wei)", atk, ctl);
+        assertEq(n, 0, "no compound across one block boundary");
+        assertLe(atk, ctl, "attacker <= control");
+    }
+
+    function test_high1_crossBlockDust_60k() public {
+        _xblockVsControl(60_000 ether, false);
+    }
+
+    function test_high1_crossBlockDust_80k() public {
+        _xblockVsControl(80_000 ether, false);
+    }
+
+    function test_high1_crossBlockDust_150k() public {
+        _xblockVsControl(150_000 ether, false);
+    }
+
+    function test_high1_crossBlockFlush_60k() public {
+        _xblockVsControl(60_000 ether, true);
+    }
+
+    function test_high1_crossBlockFlush_80k() public {
+        _xblockVsControl(80_000 ether, true);
+    }
+
+    function test_high1_crossBlockFlush_150k() public {
+        _xblockVsControl(150_000 ether, true);
+    }
+
+    /// Bounded worst case: the attacker HOLDS the pump for a full EMA window (nobody arbs it back), so the
+    /// reference catches up and one capped (0.5%) add happens at the pumped price. Still a net loss.
+    function test_high1_heldPumpBoundedUnprofitable() public {
+        uint256[3] memory pumps = [uint256(60_000 ether), 80_000 ether, 150_000 ether];
+        for (uint256 i; i < 3; i++) {
+            Token tok = _gradReady();
+            _bigBuckets(tok);
+            uint256 spent = pumps[i] + 1e15;
+            (uint256 end, uint256 n) = _xblock(tok, pumps[i], 61, false);
+            console2.log("held pump", pumps[i] / 1e18, n);
+            console2.log("  spent / end (quote wei)", spent, end);
+            assertLe(n, 1, "at most one capped add");
+            assertLt(end, spent, "held-pump attack is unprofitable");
+        }
+    }
+
+    /// No reference history yet (just graduated): no compounding at all, flush skips.
+    function test_high1_noCompoundBeforeRefAge() public {
+        BondingCurve c;
+        Token tok;
+        (c, tok) = _launch(0, 0);
+        _graduate(c);
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1, 0, 300);
+        vm.recordLogs();
+        _swapExactInQuoteForToken(tok, trader1, 50 ether);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1) / 2);
+        assertEq(_count(COMPOUNDED), 0, "reference younger than REF_MIN_AGE");
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(lockedLP.flush(address(tok)), 0);
+        (,,, bool ready) = hook.priceReference(_poolKey(tok).toId());
+        assertFalse(ready);
+        _warpRefReady();
+        (,,, ready) = hook.priceReference(_poolKey(tok).toId());
+        assertTrue(ready);
     }
 
     function _liq(Token t) internal view returns (uint128 l) {

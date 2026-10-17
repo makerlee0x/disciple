@@ -21,6 +21,7 @@ import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {IAltitudeEvents} from "./interfaces/IAltitudeEvents.sol";
 import {Altitude} from "./libraries/Altitude.sol";
 import {McapMath} from "./libraries/McapMath.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 interface IMigrationLockedLP {
     function lockedLP() external view returns (address);
@@ -28,7 +29,9 @@ interface IMigrationLockedLP {
 
 /// @dev LockedLP's in-swap compound entry (adds the LP-share buckets to the locked position).
 interface ILPCompounder {
-    function compoundFromHook(address token, uint160 sqrtBefore) external returns (uint128);
+    function compoundFromHook(address token, uint160 refSwap, uint160 refBlock, uint160 refEma)
+        external
+        returns (uint128);
 }
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
@@ -101,26 +104,66 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     // ── SEC-02 LP gate / altitude ───────────────────────────────────────────
     /// @notice Contracts allowed to add liquidity to DISCIPLE pools (LockedLP, TrampWallManager).
     mapping(address => bool) public isLiquidityManager;
-    /// @dev One packed slot per pool: last altitude tier + the pool's BLOCK-START sqrtPrice (pre-swap price of the
-    ///      first swap in `anchorBlock`). The tier was already read every swap, so the anchor read is ~free; the
-    ///      anchor is (re)written once per pool per block (DISCIPLE audit follow-up: cross-tx same-block guard).
+    /// @dev One packed slot per pool (DISCIPLE audit High-1 follow-up), written once per pool per block:
+    ///      - tier: last altitude tier
+    ///      - anchorBlock / anchorTick: BLOCK-START tick (pre-swap tick of the first swap in `anchorBlock`)
+    ///      - emaTickX256 / emaTime: time-weighted EMA of block-start ticks (x256 fixed point), window REF_WINDOW.
+    ///        Each first-swap-of-a-block folds the price that has held since the last update into the EMA,
+    ///        weighted by the elapsed seconds, so a price pushed at the end of block N carries ~(blockTime / 60 s)
+    ///        weight in block N+1 — a one-block-boundary pump cannot move the reference.
+    ///      - refSince: when the EMA started (registerPool); compounding needs >= REF_MIN_AGE of history.
     struct PoolTrack {
         uint8 tier;
-        uint64 anchorBlock;
-        uint160 anchorSqrt;
+        uint40 anchorBlock;
+        int24 anchorTick;
+        int32 emaTickX256;
+        uint40 emaTime;
+        uint40 refSince;
     }
 
     mapping(PoolId => PoolTrack) internal _track;
+
+    /// @notice EMA window (seconds) of the multi-block compound reference.
+    uint256 public constant REF_WINDOW = 60;
+    /// @notice Minimum reference history (seconds since the pool was registered) before any compounding.
+    uint256 public constant REF_MIN_AGE = 60;
 
     /// @notice Last spot altitude tier per pool (0..17).
     function altitudeTierOf(PoolId id) external view returns (uint8) {
         return _track[id].tier;
     }
 
-    /// @notice Block-start price anchor: pre-swap sqrtPriceX96 of the first swap of `blockNumber` on this pool.
+    /// @notice Block-start price anchor: pre-swap price (tick-rounded) of the first swap of `blockNumber`.
     function blockAnchor(PoolId id) external view returns (uint64 blockNumber, uint160 sqrtPriceX96) {
         PoolTrack memory t = _track[id];
-        return (t.anchorBlock, t.anchorSqrt);
+        return (t.anchorBlock, t.anchorBlock == 0 ? 0 : TickMath.getSqrtPriceAtTick(t.anchorTick));
+    }
+
+    /// @notice Multi-block compound reference: EMA tick (x256), last update time, start time, and whether it is
+    ///         old enough (REF_MIN_AGE) to be used.
+    function priceReference(PoolId id)
+        external
+        view
+        returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, bool ready)
+    {
+        PoolTrack memory t = _track[id];
+        return (t.emaTickX256, t.emaTime, t.refSince, _refReady(t));
+    }
+
+    /// @notice References for LockedLP.flush: this block's block-start price (0 if the pool has not traded in
+    ///         this block) and the EMA reference (0 if not ready → flush must skip).
+    function compoundRefs(PoolId id) external view returns (uint160 refBlock, uint160 refEma) {
+        PoolTrack memory t = _track[id];
+        if (t.anchorBlock == uint40(block.number)) refBlock = TickMath.getSqrtPriceAtTick(t.anchorTick);
+        if (_refReady(t)) refEma = TickMath.getSqrtPriceAtTick(_emaTick(t));
+    }
+
+    function _refReady(PoolTrack memory t) private view returns (bool) {
+        return t.refSince != 0 && block.timestamp >= uint256(t.refSince) + REF_MIN_AGE;
+    }
+
+    function _emaTick(PoolTrack memory t) private pure returns (int24) {
+        return int24(t.emaTickX256 >> 8); // floor
     }
 
     event LiquidityManagerSet(address indexed manager, bool allowed);
@@ -231,10 +274,18 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             PoolMeta({token: token, quote: quote, creator: creator, registered: true, quotePriceUsd: quotePriceUsd});
         metaOf[id] = m;
         // Altitude stream starts at the seeded (curve-end) spot price.
-        (uint160 sp,,,) = poolManager.getSlot0(id);
+        (uint160 sp, int24 tk,,) = poolManager.getSlot0(id);
         uint256 mcap = mcapUsdFromSqrt(sp, Currency.unwrap(key.currency0) == token, _quoteUsd(m));
         uint8 tier = Altitude.tierOf(mcap);
-        _track[id].tier = tier;
+        // The compound reference starts at the seeded (curve-end) price.
+        _track[id] = PoolTrack({
+            tier: tier,
+            anchorBlock: 0,
+            anchorTick: 0,
+            emaTickX256: int32(tk) * 256,
+            emaTime: uint40(block.timestamp),
+            refSince: uint40(block.timestamp)
+        });
         emit AltitudeUpdate(token, mcap, tier);
     }
 
@@ -244,18 +295,12 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         PoolId id = key.toId();
-        (uint160 sqrtP,,,) = poolManager.getSlot0(id);
-        // Block-start anchor (packed with the altitude tier: [tier:8 | anchorBlock:64 | anchorSqrt:160]). Only the
-        // pool's first swap of a block writes; later swaps just read (and warm the slot for afterSwap's tier read).
-        assembly ("memory-safe") {
-            mstore(0x00, id)
-            mstore(0x20, _track.slot)
-            let ts := keccak256(0x00, 0x40)
-            let v := sload(ts)
-            if iszero(eq(and(shr(8, v), 0xffffffffffffffff), number())) {
-                sstore(ts, or(and(v, 0xff), or(shl(8, number()), shl(72, sqrtP))))
-            }
-        }
+        (uint160 sqrtP, int24 tick,,) = poolManager.getSlot0(id);
+        // First swap of the block on this pool: record the block-start tick and fold the price that held since
+        // the last update into the EMA reference (one SSTORE). Later swaps in the block: one SLOAD (the slot is
+        // then warm for afterSwap's tier read).
+        PoolTrack storage tr = _track[id];
+        if (tr.anchorBlock != uint40(block.number)) _rollBlock(id, tick);
         bytes32 slot = PRICE_SLOT;
         bytes32 swapped = keccak256(abi.encode(SWAPPED_SLOT, id));
         bytes32 repeat = REPEAT_SLOT;
@@ -268,6 +313,28 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             tstore(swapped, 1)
         }
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
+
+    function _rollBlock(PoolId id, int24 tick) private {
+        PoolTrack memory t = _track[id];
+        t.anchorBlock = uint40(block.number);
+        t.anchorTick = tick;
+        uint256 dt = block.timestamp - t.emaTime;
+        if (dt != 0 || t.refSince == 0) {
+            int256 target = int256(tick) * 256;
+            if (t.refSince == 0) {
+                // unregistered pools never reach here in practice (afterSwap reverts); start the reference anyway
+                t.refSince = uint40(block.timestamp);
+                t.emaTickX256 = int32(target);
+            } else if (dt >= REF_WINDOW) {
+                t.emaTickX256 = int32(target);
+            } else {
+                int256 e = t.emaTickX256;
+                t.emaTickX256 = int32(e + (target - e) * int256(dt) / int256(REF_WINDOW));
+            }
+            t.emaTime = uint40(block.timestamp);
+        }
+        _track[id] = t; // one SSTORE (packed, tier preserved)
     }
 
     function afterSwap(
@@ -329,14 +396,14 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         assembly ("memory-safe") {
             sqrtBefore := tload(slot)
         }
-        // Pass the reference that deviates MORE from the current price: this swap's pre-swap price or the pool's
-        // block-start anchor. LockedLP skips if it is > maxCompoundDeviationBps (3%) away, so a pump in an earlier
-        // tx of the same block can't be compounded into by a later dust swap.
-        // (|Δ sqrtP| comparison: at the 3% scale it ranks deviations like the ratio does, without mulDiv.)
-        uint160 anchor = _track[id].anchorSqrt; // set in this block by beforeSwap (warm slot)
-        (uint160 now_,,,) = poolManager.getSlot0(id);
-        if (_absDiff(anchor, now_) > _absDiff(sqrtBefore, now_)) sqrtBefore = anchor;
-        try c.compoundFromHook{gas: g}(token, sqrtBefore) {}
+        // DISCIPLE audit High-1 / L7: LockedLP checks spot against ALL THREE references (this swap's pre-price,
+        // the block-start price and the multi-block EMA) and skips if any is > maxCompoundDeviationBps away. No
+        // compounding at all until the EMA has REF_MIN_AGE of history.
+        PoolTrack memory t = _track[id]; // warm (read in beforeSwap)
+        if (!_refReady(t)) return;
+        uint160 refBlock = TickMath.getSqrtPriceAtTick(t.anchorTick);
+        uint160 refEma = TickMath.getSqrtPriceAtTick(_emaTick(t));
+        try c.compoundFromHook{gas: g}(token, sqrtBefore, refBlock, refEma) {}
         catch {
             emit CompoundFailed(token);
         }
@@ -421,10 +488,6 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     }
 
     /// @dev Monotonic deviation proxy: max/min ratio of two sqrt prices, 1e18-scaled.
-    function _absDiff(uint160 a, uint160 b) private pure returns (uint256) {
-        return a > b ? a - b : b - a;
-    }
-
     function _abs(int128 x) private pure returns (uint256) {
         return uint256(uint128(x < 0 ? -x : x));
     }

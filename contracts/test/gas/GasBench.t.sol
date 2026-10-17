@@ -111,6 +111,7 @@ contract GasBench is IntegrationBase {
     function test_bench_v4() public {
         _graduateWith(uCurve, quote);
         _graduateWith(sCurve, strategy);
+        _warpRefReady(); // compound reference ready (60 s), so the bench swaps stay compound-ready as before
         address a = _wallet("benchD");
         vm.prank(a);
         router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
@@ -159,6 +160,7 @@ contract GasBench is IntegrationBase {
     /// Non-compounding v4 swaps (compound path off): isolates the hook's per-swap overhead (block-start anchor).
     function test_bench_v4_noCompound() public {
         _graduateWith(uCurve, quote);
+        _warpRefReady();
         vm.prank(hook.admin());
         hook.setCompounder(address(0), 50_000);
         address a = _wallet("benchN");

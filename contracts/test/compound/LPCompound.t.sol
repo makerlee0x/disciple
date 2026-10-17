@@ -113,13 +113,14 @@ contract LPCompoundTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         tok = _grad();
+        _warpRefReady();
     }
 
     function test_defaults_and_wiring() public view {
         assertEq(lockedLP.hook(), address(hook));
         assertEq(address(hook.compounder()), address(lockedLP));
         assertEq(lockedLP.minCompoundPpm(), 50);
-        assertEq(lockedLP.maxCompoundPpm(), 20_000);
+        assertEq(lockedLP.maxCompoundPpm(), 5_000);
         assertEq(lockedLP.maxCompoundDeviationBps(), 300);
         _assertInvariant(_one(tok));
     }
@@ -143,7 +144,8 @@ contract LPCompoundTest is IntegrationBase {
         uint256 adds;
         // small buys (each moves price < the 3% deviation guard at graduation depth)
         for (uint256 i; i < 20; i++) {
-            vm.roll(vm.getBlockNumber() + 1); // "over time": one buy per block (block-start anchor guard)
+            vm.roll(vm.getBlockNumber() + 1); // "over time": one buy per block, a minute apart (EMA reference)
+            vm.warp(vm.getBlockTimestamp() + 61);
             _buy(tok, 50 ether);
             adds += _count(COMPOUNDED);
             vm.recordLogs();
@@ -297,7 +299,7 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_only_hook_can_compound_in_swap() public {
         vm.expectRevert(LockedLP.OnlyHook.selector);
-        lockedLP.compoundFromHook(address(tok), 1);
+        lockedLP.compoundFromHook(address(tok), 1, 1, 1);
     }
 
     function test_flush_permissionless() public {
@@ -327,6 +329,7 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_multi_coin_isolation() public {
         tokB = _grad();
+        _warpRefReady();
         _params(1_000_000, 0, 5000); // accumulate only
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
@@ -372,13 +375,13 @@ contract LPCompoundTest is IntegrationBase {
 }
 
 contract RevertingCompounder {
-    function compoundFromHook(address, uint160) external pure returns (uint128) {
+    function compoundFromHook(address, uint160, uint160, uint160) external pure returns (uint128) {
         revert("nope");
     }
 }
 
 contract GasBurner {
-    function compoundFromHook(address, uint160) external pure returns (uint128) {
+    function compoundFromHook(address, uint160, uint160, uint160) external pure returns (uint128) {
         while (true) {}
         return 0;
     }

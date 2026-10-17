@@ -228,6 +228,12 @@ abstract contract IntegrationBase is Test {
         return out;
     }
 
+    /// @dev DiscipleHook compound reference needs REF_MIN_AGE (60 s) of history after graduation.
+    function _warpRefReady() internal {
+        vm.warp(vm.getBlockTimestamp() + 61);
+        vm.roll(vm.getBlockNumber() + 1);
+    }
+
     function _warpPastSnipe() internal {
         vm.warp(block.timestamp + Constants.ANTI_SNIPE_DURATION + 1);
     }
