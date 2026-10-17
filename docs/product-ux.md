@@ -29,11 +29,11 @@ Source of the fomo baseline: [fomotrendings.com FOMO verification checker](https
 
 ## 3. Crew / PvE framing
 
-- You're buying ammunition. Every buy fires fuel into the **shared** rocket, so altitude = mcap and everyone aboard rises together.
+- You're buying with **BOOST**. Every BOOST fuels the **shared** rocket, so altitude = mcap and everyone aboard rises together.
 - Tier crossings (18-tier ladder) unlock crew-wide rewards. The **Next unlock** bar shows progress to the next tier's reward.
-- Light PvP: anyone can **drop a bomb** (sell). Its impact % picks the bomb tier (grenade → atom).
-- The Crew panel shows players aboard, the top fuelers, your contribution and ammo cost per mode in $. **All of it is mock until the indexer lands.**
-- HUD: SPACE = FIRE AMMO / FUEL, SHIFT = BRAKE / DROP BOMB.
+- Light PvP: anyone can **DUMP** (sell) and drop a bomb. Its impact % picks the bomb tier (grenade → atom).
+- The Crew panel shows players aboard, the top boosters, your contribution and ammo cost per mode in $. **All of it is mock until the indexer lands.**
+- HUD: SPACE = BOOST · SHIFT = DUMP.
 
 ## 4. Rocket branding (decals)
 

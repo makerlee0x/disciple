@@ -6,7 +6,7 @@ DISCIPLE is a launchpad that pairs any coin with any ERC-20 using a CPAMM bondin
 
 ## Product
 
-**Launch a rocket. Everyone aboard flies together.** In the default UI a launch is a *rocket*, the ticker is its *call sign*, buying is *fuel / fire ammo* and selling is *brake / drop bomb*. Prices are shown in $ only.
+**Launch a rocket. Everyone aboard flies together.** In the default UI a launch is a *rocket*, the ticker is its *call sign*, buying is *BOOST* and selling is *DUMP*. Prices are shown in $ only.
 
 - **Default pairing:** every launch passes `quote = address(0)`, so the factory uses its owner-settable `defaultQuote`, which is **STRATEGY** today (`0x168661C52E5922288dFb2b3f323b6Cf90eb21e18`, Robinhood Chain). `/create → Advanced` shows a custom pair picker (STRATEGY / USDG / WETH / MSTR / any ERC-20) and the creator tax (0–7%, immutable). There's always a "What am I launching?" disclosure that names the token and the pair.
 - **Verified tiers** (off-chain, indexer + UI): Unverified → ✦ Blessed → ✶ Anointed → ☀ Glorified. They're modelled on fomo's blue-check minimums, the thresholds live in `web/lib/config.ts`, and the launchpad has an All / Verified-only filter.
@@ -64,7 +64,7 @@ pnpm dev
 | `/create` | Launch a Rocket: live branded preview, Advanced pair + tax, moderated upload |
 | `/profile` `/leaderboard` `/rocket` `/achievements` `/wallet` `/settings` | Themed placeholders + settings toggles |
 
-Flight controls (coin page): SPACE = FIRE AMMO / FUEL, SHIFT = BRAKE / DROP BOMB, 1–6 modes, A/D lanes, O orbs, B bombs, F replay speed, ✕ exit.
+Flight controls (coin page): SPACE = BOOST · SHIFT = DUMP, 1–6 modes, A/D lanes, O orbs, B bombs, F replay speed, ✕ exit.
 
 ## Protocol (summary)
 

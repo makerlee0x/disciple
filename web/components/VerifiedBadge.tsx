@@ -28,8 +28,8 @@ export default function VerifiedBadge({ tier, size = 16 }: { tier: VerifiedTierR
       <svg width={size} height={size + (halo ? 4 : 0)} viewBox={`0 ${halo ? -4 : 0} 16 ${16 + (halo ? 4 : 0)}`} aria-hidden
         style={{ filter: `drop-shadow(0 0 4px ${c})` }}>
         {halo && <ellipse cx="8" cy="-1.5" rx="5" ry="1.6" fill="none" stroke={c} strokeWidth="1.2" />}
-        <path d="M8 .8l1.9 1.4 2.3-.2.7 2.2 1.9 1.4-.7 2.2.7 2.2-1.9 1.4-.7 2.2-2.3-.2L8 15.2l-1.9-1.4-2.3.2-.7-2.2L1.2 10.4l.7-2.2-.7-2.2 1.9-1.4.7-2.2 2.3.2z" fill={c} />
-        <path d="M5 8.2l2 2 4-4.2" fill="none" stroke="#0B0C0E" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        {/* BRAND icons v1: d-verified, tinted by tier */}
+        <use href="#d-verified" x="0" y="0" width="16" height="16" color={c} />
       </svg>
     </span>
   );

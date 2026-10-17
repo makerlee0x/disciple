@@ -1,4 +1,5 @@
-/* DISCIPLE brand release v1 tokens (Lunar Refined). Source: disciple-brand/release/v1/tokens/tokens.css */
+/* DISCIPLE brand release v1 tokens (Lunar Refined). Synced from disciple-brand/release/v1/tokens/{tokens.css,tokens.json}.
+   UI sans: Geist only. next/font CSS vars (--font-geist, --font-instrument-serif) prepended for self-hosted loading. */
 :root {
   --dsc-bg: #0B0C0E;
   --dsc-surface: #16181C;
@@ -11,7 +12,7 @@
   --dsc-up: #5FF0A0;
   --dsc-down: #F0307F;
   --dsc-warning: #FFD84D;
-  --dsc-font-display: var(--font-instrument-serif), 'Instrument Serif', Georgia, serif;
+  --dsc-font-display: var(--font-instrument-serif), 'Instrument Serif', serif;
   --dsc-font-ui: var(--font-geist), 'Geist', system-ui, sans-serif;
   --dsc-font-mono: 'Geist Mono', ui-monospace, monospace;
 }

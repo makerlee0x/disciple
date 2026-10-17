@@ -17,6 +17,7 @@ import { withBase } from "@/lib/base-path";
 import SettingsModal from "./SettingsModal";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import { onWallet } from "@/lib/wallet";
+import Icon from "@/components/icons/Icon";
 
 function fmtKpi(v: number, format: string) {
   if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
@@ -110,7 +111,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <div className="sub">{isPrivate ? "PILOT OVERVIEW · CASH & ACCOUNT LIVE IN SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
         </div>
         {isPrivate && (
-          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}>⚙ Settings</button>
+          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}><Icon name="gear" size={16} /> Settings</button>
         )}
       </header>
       {share && <ShareModal target={share} onClose={() => setShare(null)} />}
@@ -150,7 +151,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             </div>
             <div className="top-badges">
               {data.topBadges.length === 0 ? <span className="muted">No badges unlocked yet</span> : data.topBadges.map((b) => (
-                <div key={b.id} className={`mini-badge r-${b.rarity.toLowerCase()}`} title={b.name}>✦<span>{b.name}</span></div>
+                <div key={b.id} className={`mini-badge r-${b.rarity.toLowerCase()}`} title={b.name}><Icon name="achievement" size={16} /><span>{b.name}</span></div>
               ))}
             </div>
           </div>
@@ -237,7 +238,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <PlaystyleMeter pve={data.pveScore} pvp={data.pvpScore} />
           <div className="playstyle-detail">
             <div><strong>Crew climb</strong><ul>
-              <li>Fueling {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
+              <li>Boosting {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
               <li>Crews {data.playstyle.crewJoins}</li><li>Grads {data.playstyle.graduations}</li>
             </ul></div>
             <div><strong>Bomb bay</strong><ul>

@@ -8,7 +8,7 @@ Sample-data profile (`/profile`) and achievements (`/achievements`) for DISCIPLE
 
 | Field | Meaning |
 |-------|---------|
-| `side` | `buy` (fuel) or `sell` (brake / bomb) |
+| `side` | `buy` (BOOST) / `sell` (DUMP, drops a bomb) |
 | `usd` | Gross $ notional |
 | `priceBefore` / `priceAfter` | Spot $ around the fill |
 | `impactBps` | Price impact in basis points (drives bomb tier) |

@@ -1,15 +1,14 @@
 import "server-only";
 /**
  * Chat identity. Client signs `chatLoginMessage(addr, ts)` once per session:
- *  - EOA / Privy wallet: personal_sign by `addr` (ERC-1271/6492 also accepted via viem verifyMessage).
- *  - DISCIPLE smart account (LightAccount v2, maybe counterfactual): the account's OWNER key signs the raw
- *    keccak of the message; server checks factory.getAddress(owner, 0) === addr.
+ *  - EOA: personal_sign by `addr`. DISCIPLE MAv2 smart account: ERC-1271 (deployed) / ERC-6492 (counterfactual) signature.
+ *  - Legacy (undeployed accounts only): OWNER signs keccak(msg) raw + factory-predicted address check. See lib/aa/verify.ts.
  * Server returns an HMAC-SHA256 token (CHAT_TOKEN_SECRET) valid 12h: base64url(payload).base64url(mac).
  */
 import { createHmac, timingSafeEqual } from "crypto";
-import { createPublicClient, http, keccak256, recoverMessageAddress, stringToBytes, type Address, type Hex } from "viem";
+import { createPublicClient, http, type Address } from "viem";
 import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
-import { factoryAbi, LIGHT_ACCOUNT_V2_FACTORY } from "@/lib/aa/core";
+import { verifyAccountSignature, type VerifyClient } from "@/lib/aa/verify";
 import { launchpadAbi } from "@/lib/abi";
 import { CHAT_LIMITS, type ChatBadge, type ChatFrom } from "@/lib/chat/types";
 import { chatLoginMessage } from "@/lib/chat/login";
@@ -50,23 +49,9 @@ export async function verifyLogin(body: { addr?: string; ts?: number; sig?: stri
   return verifyWalletSignature(addr, chatLoginMessage(addr, ts), String(body.sig ?? ""), body.owner);
 }
 
-/**
- * Verify `msg` was signed for `addr`: EOA / ERC-1271 / ERC-6492 via viem verifyMessage, or a DISCIPLE LightAccount
- * (counterfactual ok) whose OWNER signed keccak(msg) raw, checked via factory.getAddress(owner, 0) === addr.
- * Returns the lowercase address or null. Shared by chat login and username claims.
- */
+/** Verify `msg` was signed for `addr` (verifyMessage first; owner shortcut only for undeployed accounts). Shared by chat login and username claims. */
 export async function verifyWalletSignature(addr: string, msg: string, sigIn: string, owner?: string | null): Promise<string | null> {
-  const sig = sigIn as Hex;
-  if (!isAddr(addr) || !/^0x[0-9a-fA-F]+$/.test(sig)) return null;
-  const pc = serverPc();
-  if (owner && isAddr(owner)) {
-    const rec = await recoverMessageAddress({ message: { raw: keccak256(stringToBytes(msg)) }, signature: sig }).catch(() => null);
-    if (!rec || rec.toLowerCase() !== owner.toLowerCase()) return null;
-    const sa = await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: factoryAbi, functionName: "getAddress", args: [rec, BigInt(0)] }).catch(() => null);
-    return sa && sa.toLowerCase() === addr.toLowerCase() ? addr.toLowerCase() : null;
-  }
-  const ok = await pc.verifyMessage({ address: addr as Address, message: msg, signature: sig }).catch(() => false);
-  return ok ? addr.toLowerCase() : null;
+  return verifyAccountSignature(serverPc() as unknown as VerifyClient, addr, msg, sigIn, owner);
 }
 
 /* ---------- display identity: username store + badge ---------- */
