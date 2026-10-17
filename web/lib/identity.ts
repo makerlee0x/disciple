@@ -43,11 +43,11 @@ export const IDENTITIES: readonly IdentityDef[] = [
     test: (m) => m.bombCount >= T.bomberMinBombs },
   { id: "smart_money", label: "Smart Money", blurb: "Top-decile ROI with enough closes to prove it.", weight: 88,
     test: (m) => m.roiPercentile >= T.smartMoneyRoiDecile && m.closedTrades >= T.smartMoneyMinTrades },
-  { id: "kingmaker", label: "Kingmaker", blurb: "Early fuel on rockets that punched into Angels+.", weight: 85,
+  { id: "kingmaker", label: "Kingmaker", blurb: "Early fuel on rockets that punched into Morning Stars+.", weight: 85,
     test: (m) => m.kingmakerCount >= T.kingmakerCount },
   { id: "crew_captain", label: "Crew Captain", blurb: "Top fueler on rockets that graduated.", weight: 84,
     test: (m) => m.crewCaptainGrads >= T.crewCaptainGradTop },
-  { id: "gate_keeper", label: "Gate Keeper", blurb: "Helped shove rockets through the Pearly Gates.", weight: 83,
+  { id: "gate_keeper", label: "Gate Keeper", blurb: "Helped shove rockets into Outer Space.", weight: 83,
     test: (m) => m.gateKeeperAssists >= T.gateKeeperAssists },
   { id: "diamond_hands", label: "Diamond Hands", blurb: "Held through a −50% drawdown and still aboard.", weight: 80,
     test: (m) => m.diamondHandsCount >= 1 },
@@ -109,10 +109,10 @@ export function identityRuleText(id: IdentityId): string {
     case "bomber": return `≥ ${T.bomberMinBombs} bombs (impact ≥ grenade)`;
     case "nuker": return `≥ ${T.nukerMinNukes} nukes/atoms (impact ≥ 25%)`;
     case "crew_captain": return `Top fueler on ≥ ${T.crewCaptainGradTop} graduated rockets`;
-    case "gate_keeper": return `≥ ${T.gateKeeperAssists} Pearly Gates assists`;
+    case "gate_keeper": return `≥ ${T.gateKeeperAssists} Outer Space assists`;
     case "launcher": return `≥ ${T.launcherMinLaunches} rocket launched`;
     case "dev_supporter": return `≥ ${T.launcherGraduated} graduated launch`;
-    case "kingmaker": return `Early fuel on ≥ ${T.kingmakerCount} rockets that hit Angels+`;
+    case "kingmaker": return `Early fuel on ≥ ${T.kingmakerCount} rockets that hit Morning Stars+`;
     case "farmer": return `≥ ${T.farmerMinPoints} points with realized PnL ≤ $${T.farmerMaxPnl}`;
     case "smart_money": return `Top ${(1 - T.smartMoneyRoiDecile) * 100}% ROI with ≥ ${T.smartMoneyMinTrades} closes`;
     default: return "";

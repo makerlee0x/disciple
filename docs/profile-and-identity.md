@@ -76,10 +76,10 @@ Thresholds in `IDENTITY_THRESHOLDS` (`web/lib/config.ts`). Primary = highest-wei
 | Bomber | ≥8 bombs (impact ≥ grenade / 2%) |
 | Nuker | ≥2 nukes/atoms (impact ≥25%) |
 | Crew Captain | Top fueler on ≥2 graduated rockets |
-| Gate Keeper | ≥3 Pearly Gates assists |
+| Gate Keeper | ≥3 Outer Space assists |
 | Launcher | ≥1 rocket launched |
 | Dev Supporter | ≥1 graduated launch |
-| Kingmaker | Early fuel on ≥2 rockets that hit Angels+ |
+| Kingmaker | Early fuel on ≥2 rockets that hit Morning Stars+ |
 | Farmer | ≥5,000 points with realized PnL ≤ $50 |
 | Smart Money | Top-decile ROI with ≥10 closes |
 
