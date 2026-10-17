@@ -53,6 +53,26 @@ export const curveModesAbi = parseAbi([
   "error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps)",
 ]);
 
+/** DiscipleHook: block-start anchor (compound guard) + altitude tier. */
+export const hookAnchorAbi = parseAbi([
+  "function blockAnchor(bytes32 id) view returns (uint64 blockNumber, uint160 sqrtPriceX96)",
+  "function altitudeTierOf(bytes32 id) view returns (uint8)",
+]);
+
+/** UsdgDepositNotifier: referral-gate USDG escrow (min $10, locked 7 days). Approve the notifier for exactly `amount`. */
+export const depositEscrowAbi = parseAbi([
+  "function deposit(address wallet, uint256 amount)",
+  "function withdraw() returns (uint256 amount)",
+  "function escrowOf(address wallet) view returns (uint192 amount, uint64 unlockAt)",
+  "function LOCK_PERIOD() view returns (uint256)",
+  "event Deposited(address indexed payer, address indexed wallet, uint256 amount)",
+  "event Escrowed(address indexed wallet, uint256 total, uint256 unlockAt)",
+  "event Withdrawn(address indexed wallet, uint256 amount)",
+  "error BelowMinimum(uint256 min)",
+  "error Locked(uint256 unlockAt)",
+  "error NothingEscrowed()",
+]);
+
 export const loginGateAbi = parseAbi([
   "function attest(address wallet, uint64 expiry, address coin, bytes sig)",
   "function verifiedUntil(address wallet, address coin) view returns (uint64)",

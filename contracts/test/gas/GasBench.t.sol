@@ -122,6 +122,14 @@ contract GasBench is IntegrationBase {
         vm.prank(a);
         router.sellExactIn(address(uTok), at, 1, a, _dl());
         _log("v4.direct.sell.warm", _g());
+        // block-start anchor: first swap of a block (writes the anchor) vs a later swap in the same block
+        vm.roll(vm.getBlockNumber() + 1);
+        vm.prank(a);
+        router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
+        _log("v4.direct.buy.firstInBlock", _g());
+        vm.prank(a);
+        router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());
+        _log("v4.direct.buy.sameBlock", _g());
 
         address b = _wallet("benchE");
         vm.prank(b);

@@ -148,8 +148,8 @@ UIs should not count it as "in the pool" until compounded.
 ## DISCIPLE audit fixes in this PR
 
 1. HIGH: compounding is skipped when the pool was already swapped earlier in the same tx (transient flag set in
-   `beforeSwap`); the per-swap 3% guard still applies. Cross-tx/same-block manipulation is bounded by that 3% guard
-   only (a TWAP anchor is a possible follow-up).
+   `beforeSwap`); the per-swap 3% guard still applies. Follow-up (approved): a **block-start anchor** closes the
+   multi-tx same-block variant, see below.
 2. LOW: `LockedLP._compound` returns early if any currency is synced in the PoolManager, so it never overwrites a
    swapper's pending `sync`.
 3. GAS: `FeeRouter.routeHookFee` returns `compoundReady` (both buckets ≥ 2 wei); the hook only calls the compounder then.
@@ -157,6 +157,44 @@ UIs should not count it as "in the pool" until compounded.
 5. LOW: session policy allows USDG approvals to the router, curves, TrampWallManager, Launchpad and AnonLauncher only
    for exactly the USDG the same batch's calls to that spender pull; `launchWithMode` is a P_LAUNCH selector.
 6. LOW: a graduating `buyWithUsdg` refund is swapped back to USDG through the registered pool (`UsdgRefund` event).
-7. MEDIUM: `UsdgDepositNotifier.deposit` rejects payer == wallet and checks the wallet's balance really increased.
+7. MEDIUM: `UsdgDepositNotifier.deposit` now **escrows** the USDG (see below); the earlier balance check is gone.
 8. LOW: graduating-buy refund uses a bounded binary search (≤ 1e-12 relative overpay), reverting rather than
    overcharging if it ever fails.
+
+## Follow-up fixes (open risks from PR #75)
+
+### Block-start anchored compound guard (DiscipleHook / LockedLP)
+
+- The hook packs `{uint8 tier, uint64 anchorBlock, uint160 anchorSqrt}` into ONE slot per pool (the old
+  `altitudeTierOf` slot). The pool's first swap of each block stores the pre-swap `sqrtPriceX96` (block-start price);
+  later swaps in that block only read it.
+- In-swap compounding passes LockedLP the reference price that deviates most from spot, comparing the swap's own
+  pre-price and the block-start price. LockedLP's existing `maxCompoundDeviationBps` (3%) guard then skips the add. So
+  "tx1 pump → tx2 dust swap → tx3 dump" in one block can't compound at the pumped price. The same-tx flag
+  (audit #1) stays in place.
+- `LockedLP.flush` (permissionless) uses the block-start anchor as its reference when the pool already traded in the
+  current block. Otherwise it behaves as before.
+- New views: `DiscipleHook.blockAnchor(PoolId) → (uint64 block, uint160 sqrtPriceX96)`.
+  `altitudeTierOf(PoolId)` keeps its ABI (it is now a function instead of a public mapping).
+- Out of scope: manipulation that spans blocks (pump in block N, compound in N+1). A short multi-block oracle could
+  be added later from the same anchor slot. Builders who control consecutive blocks are the residual risk, bounded
+  by the 3% guard per block.
+- Gas: see gas-report.md ("block-start anchor").
+
+### Referral USDG escrow (UsdgDepositNotifier)
+
+- `deposit(wallet, amount)` pulls `amount` USDG from the caller **into the notifier** and counts it for `wallet`.
+  The caller needs an exact approve to the notifier. The minimum is `REFERRAL_USDG_GATE` ($10). The deposit is locked
+  for `LOCK_PERIOD = 7 days`, and each new deposit re-locks the wallet's escrow. Anyone may fund any wallet,
+  including itself. The USDG stays locked, so the same $10 can't satisfy the gate for two wallets at once; cycling it
+  costs 7 days per hop.
+- `withdraw()` lets the wallet take its whole escrow (to itself) once `block.timestamp ≥ unlockAt`. An already
+  finalized referral stays.
+- `escrowOf(wallet) → (uint192 amount, uint64 unlockAt)`. Events: `Deposited(payer, wallet, amount)`,
+  `Escrowed(wallet, total, unlockAt)`, `Withdrawn(wallet, amount)`. Errors: `BelowMinimum(min)`, `Locked(unlockAt)`,
+  `NothingEscrowed`, `NotTransferred`.
+- Griefing: a third party can extend a wallet's lock, but each extension costs them $10 locked for 7 days (credited to
+  the victim's escrow, so the victim gains the USDG).
+- Session policy: unchanged. Funding the escrow is an owner (EOA/passkey) flow, not a session-key flow, so the policy
+  does not whitelist approvals to the notifier. Session keys still can't approve it.
+- The attestor path (`attest`) is unchanged and trusted, for off-chain on-ramp deposits.
