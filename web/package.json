@@ -50,6 +50,7 @@
     "@noble/curves": "^1.9.0",
     "@privy-io/react-auth": "^3.50.0",
     "@tensorflow/tfjs": "^4.22.0",
+    "marked": "^18.1.1",
     "mp4-muxer": "^5.2.2",
     "next": "14.2.35",
     "nsfwjs": "^4.4.0",
