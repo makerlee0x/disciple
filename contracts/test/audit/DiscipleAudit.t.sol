@@ -459,7 +459,8 @@ contract DiscipleAuditTest is IntegrationBase {
         }
         (, uint256 sc,,) = c.curveParams();
         uint256 remaining = sc - c.tokensSold();
-        uint256 quoteIn = bound(inSeed, 10_000 ether, 1e33);
+        // lower bound must over-pay even at max creator tax + max anti-snipe fee
+        uint256 quoteIn = bound(inSeed, 1e25, 1e33);
         BondingCurve.BuyQuote memory q = c.quoteBuy(quoteIn);
         assertEq(q.tokensOut, remaining);
         uint256 used = quoteIn - q.refund;

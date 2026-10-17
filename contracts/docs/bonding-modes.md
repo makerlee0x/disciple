@@ -250,7 +250,7 @@ UIs should not count it as "in the pool" until compounded.
 - **L3** `routerBuy/routerSell` check prepaid amounts by balance delta (`NotPrepaid`): the curve's balance must be ≥
   what it already owes (quote reserve + held rewards, or unsold tokens) + the claimed amount.
 - **L4** graduating-buy refund minimality fuzz (`testFuzz_audit8_refundMinimal`: creator tax 0..max, quote in
-  10k..1e33, inside/outside the anti-snipe window). We could not construct an input where the old 8-step loop fails to
+  1e25..1e33 wei, inside/outside the anti-snipe window). We could not construct an input where the old 8-step loop fails to
   converge: with the linear fee math its estimate lands within a few wei. The bounded binary search stays as the
   safer construction; the fuzz test pins minimality rather than demonstrating an old-loop failure.
 - **L5** per-deposit escrow lock (section above). **L6** sole-holder profit tax → treasury. **L7** see HIGH-1.
