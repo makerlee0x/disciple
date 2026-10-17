@@ -1877,7 +1877,36 @@ function chartState(){ if(CH) return CH; const tfs=chartTfs(), st=CHART_STYLE; l
   /* time base: wall clock live; sim time from 0 in clean/replay (deterministic frames) */
   const live=!CLEAN&&!(source instanceof HookSource);
   return CH={on:(()=>{ try{ return localStorage.getItem('disciple.chartmap')!=='off'; }catch(_){ return true; } })(),
-    tf, k:Object.fromEntries(tfs.map(t=>[t.s,[]])), mine:[], cv:null, at:-1, live, T0:live?Date.now()/1000-S.t:0, L0:null, L1:null, btn:[]}; }
+    tf, k:Object.fromEntries(tfs.map(t=>[t.s,[]])), mine:[], cv:null, at:-1, live, T0:live?Date.now()/1000-S.t:0, L0:null, L1:null, btn:[], seen:new Set(), hist:0},
+    live&&setTimeout(chartBackfill,0), CH; }
+/* @chart-seed:start — pure: merge historical fills [{t(sec),m,usd,side}] into per-interval candle arrays k {s:[{b,o,h,l,c,v}]}.
+   History buckets before the first live candle are prepended (continuous opens, gap dojis capped at keep); fills that land in
+   buckets live ticks already opened only widen h/l + add volume (live close wins). Each array is trimmed to the last keep. */
+function chartSeedK(k,fills,keep){ const fs=fills.filter(f=>f.m>0&&isFinite(f.t)).sort((a,b)=>a.t-b.t); if(!fs.length) return k;
+  for(const s in k){ const a=k[s], b0=a.length?a[0].b:Infinity, h=[]; let last=null;
+    for(const f of fs){ const b=Math.floor(f.t/s), v=f.usd>0?f.usd:0;
+      if(b>=b0){ const lk=a.find(x=>x.b===b); if(lk){ if(f.m>lk.h) lk.h=f.m; if(f.m<lk.l) lk.l=f.m; lk.v+=v; } continue; }
+      if(!last||last.b<b){ if(last) for(let g=Math.max(last.b+1,b-keep);g<b;g++) h.push({b:g,o:last.c,h:last.c,l:last.c,c:last.c,v:0});
+        const o=last?last.c:f.m; h.push(last={b,o,h:Math.max(o,f.m),l:Math.min(o,f.m),c:f.m,v:0}); }
+      else { if(f.m>last.h) last.h=f.m; if(f.m<last.l) last.l=f.m; last.c=f.m; }
+      last.v+=v; }
+    if(last&&a.length){ for(let g=Math.max(last.b+1,b0-keep);g<b0;g++) h.push({b:g,o:last.c,h:last.c,l:last.c,c:last.c,v:0});
+      const f0=a[0]; f0.o=last.c; f0.h=Math.max(f0.h,last.c); f0.l=Math.min(f0.l,last.c); }
+    const out=h.concat(a); k[s]=out.length>keep?out.slice(out.length-keep):out; }
+  return k; }
+/* @chart-seed:end */
+if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: create the chart (→ history fetch) at page open, not at the first swap */
+/* live only (never CLEAN/replay → share videos stay deterministic): fetch the coin's indexed fills once (/api/trades, the same
+   index the PnL uses) and seed every interval; dedupe against live swaps already ticked (tx[:logIndex]). Own fills → mine markers
+   when the page exposes the wallet (window.__flightWallet or ?wallet=). */
+function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
+  fetch('/api/trades?coin='+coin+'&limit=5000').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
+    const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
+    const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:+f.usd,side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
+    chartSeedK(C.k,fs,keep); C.hist=2;
+    for(const f of fs) if(f.mine&&f.usd>0&&f.m>0) C.mine.push({t:f.t,side:f.side,m:f.m});
+    C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
+  }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
 function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
 function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
 const chartNow=()=>chartState().T0+S.t;
@@ -1889,7 +1918,7 @@ function chartTick(m,usd,side){ if(!(m>0)) return; const C=chartState(), t=chart
     else if(k.b===b){ if(m>k.h) k.h=m; if(m<k.l) k.l=m; k.c=m; }
     if(usd>0) k.v+=usd; } }
 function chartSample(){ chartTick(shownMcap()); }
-function hudNoteTrade(e){ if(!(e.mcap>0)) return; const m=e.mcap*(isLive()?1:(S.simF||1)); chartTick(m,e.usd>0?e.usd:0,e.side);
+function hudNoteTrade(e){ if(!(e.mcap>0)) return; if(e.txHash) chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); const m=e.mcap*(isLive()?1:(S.simF||1)); chartTick(m,e.usd>0?e.usd:0,e.side);
   if(!e.mine||!(e.usd>0)) return; const C=chartState(); C.mine.push({t:chartNow(),side:e.side,m}); if(C.mine.length>60) C.mine.shift(); }
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
 function chartPoolLabel(){

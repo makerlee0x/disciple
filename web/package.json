@@ -20,6 +20,7 @@
     "test:share-pnl": "node scripts/test-share-pnl.mjs",
     "test:username-claim": "node scripts/test-username-claim.mjs",
     "test:replay": "node scripts/test-replay.mjs",
+    "test:chartseed": "node scripts/test-chartseed.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check"
   },
