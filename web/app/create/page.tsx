@@ -273,7 +273,7 @@ export default function LaunchRocketPage() {
         <details className="text-xs text-[rgba(232,234,238,.7)]">
           <summary className="cursor-pointer">What am I launching?</summary>
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
-          {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. Fuel/ammo buys it; brake/bomb sells it.
+          {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
         </details>
         <button
           type="submit"
