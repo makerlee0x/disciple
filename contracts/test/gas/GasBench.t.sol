@@ -148,3 +148,94 @@ contract GasBench is IntegrationBase {
         _log("v4.usdg2.sell.warm", _g());
     }
 }
+
+import {LoginGate} from "../../src/LoginGate.sol";
+import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
+
+/// @notice Mode overhead (AFTER only): same trades on TRENCH / PVP / PVE USDG-quoted coins. `--isolate`.
+contract GasBenchModes is IntegrationBase {
+    uint256 constant PK = 0xA77E57;
+    LoginGate gate;
+
+    function setUp() public override {
+        super.setUp();
+        router.setUsdgRouting(address(quote), address(launchpad));
+        gate = new LoginGate(owner, vm.addr(PK));
+        vm.prank(owner);
+        launchpad.setLoginGate(address(gate));
+    }
+
+    function _coin(uint8 m) internal returns (BondingCurve c, Token t) {
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(
+            ILaunchpad.LaunchParams({
+                name: "M",
+                ticker: "M",
+                imageURI: "i",
+                description: "",
+                socialsURI: "",
+                quote: address(quote),
+                creatorTaxBps: 100,
+                creatorBuyQuoteIn: 0,
+                creatorBuyMinTokensOut: 0,
+                deadline: block.timestamp + 1 days
+            }),
+            m
+        );
+        c = BondingCurve(r.curve);
+        t = Token(r.token);
+    }
+
+    function _w(string memory n, BondingCurve c, Token t) internal returns (address w) {
+        w = makeAddr(n);
+        quote.mint(w, 100_000 ether);
+        uint64 exp = uint64(block.timestamp + 30 days);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(w, exp, address(0)));
+        gate.attest(w, exp, address(0), abi.encodePacked(r, s, v));
+        vm.startPrank(w);
+        quote.approve(address(c), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
+        t.approve(address(c), type(uint256).max);
+        t.approve(address(router), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function _run(uint8 m, string memory tag) internal {
+        (BondingCurve c, Token t) = _coin(m);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 8 minutes);
+        address s = _w(string(abi.encodePacked("seed", tag)), c, t);
+        vm.prank(s);
+        c.buy(20 ether, 1, block.timestamp + 1 hours, s);
+        address a = _w(string(abi.encodePacked("a", tag)), c, t);
+        vm.prank(a);
+        c.buy(5 ether, 1, block.timestamp + 1 hours, a);
+        console2.log(string(abi.encodePacked("BENCH ", tag, ".direct.buy.cold")), vm.lastCallGas().gasTotalUsed);
+        vm.prank(a);
+        c.buy(5 ether, 1, block.timestamp + 1 hours, a);
+        console2.log(string(abi.encodePacked("BENCH ", tag, ".direct.buy.warm")), vm.lastCallGas().gasTotalUsed);
+        uint256 y = t.balanceOf(a) / 4;
+        vm.prank(a);
+        c.sell(y, 1, block.timestamp + 1 hours, a);
+        console2.log(string(abi.encodePacked("BENCH ", tag, ".direct.sell.warm")), vm.lastCallGas().gasTotalUsed);
+        vm.prank(a);
+        router.buyWithUsdg(address(t), 5 ether, 1, block.timestamp + 1 hours);
+        console2.log(string(abi.encodePacked("BENCH ", tag, ".usdg1.buy.warm")), vm.lastCallGas().gasTotalUsed);
+        uint256 x = t.balanceOf(a) / 4;
+        vm.prank(a);
+        router.sellToUsdg(address(t), x, 1, block.timestamp + 1 hours);
+        console2.log(string(abi.encodePacked("BENCH ", tag, ".usdg1.sell.warm")), vm.lastCallGas().gasTotalUsed);
+    }
+
+    function test_bench_modes_trench() public {
+        _run(0, "trench");
+    }
+
+    function test_bench_modes_pve() public {
+        _run(1, "pve");
+    }
+
+    function test_bench_modes_pvp() public {
+        _run(2, "pvp");
+    }
+}
