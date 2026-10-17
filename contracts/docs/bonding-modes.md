@@ -52,8 +52,9 @@ builds cost basis like any buy). The creator must also be login-verified (attest
 * Cheap check: on a PVE buy the curve reads its own cache `verifiedUntilOf(wallet)` (1 warm SLOAD). Only when that is
   stale does it call `gate.verifiedUntil(wallet, token)` once and cache the result in the same slot as the cost basis.
 * Sells never require a login (holders can always exit).
-* Owner `revoke(wallet, coin)` clears the gate entry; a curve that already cached it honours the cached expiry until it
-  lapses. **Proposal: 24 h expiries** so revocation/rotation takes effect within a day.
+* Owner `revoke(wallet, coin)` clears the gate entry. A curve caches at most `min(expiry, now + 10 min)`
+  (`PVE_LOGIN_CACHE_TTL`, audit round-2 L1), so a revocation bites within 10 minutes on every curve.
+* `attest` rejects `expiry > now + 24 h` (`LoginGate.MAX_TTL`, error `TtlTooLong`, audit round-2 L2).
 
 ### Profit tax and holder-claim pool
 
@@ -75,11 +76,12 @@ builds cost basis like any buy). The creator must also be login-verified (attest
   4. reset the seller's `rewardDebt` at the **new** accumulator → the seller gets 0 of their own tax.
 * Every buy settles the buyer at the current accumulator before changing NET, so a buyer who joins after a taxed sell
   starts with `rewardDebt = NET × acc` and gets 0 of it.
-* If nobody else holds (denominator 0) the tax goes to `unallocatedTax` and is folded into the next distribution.
+* If nobody else holds (denominator 0) the tax goes straight to the treasury (`FeeRouter.accrueTreasury`, audit
+  round-2 L6). `rewardsHeld` tracks the quote owed to holders (claimed amounts are subtracted).
 * Claim: `BondingCurve.claim()` or `Launchpad.claim(token)`. Event `HolderRewardsClaimed(token, holder, amount)`.
 * **Graduation:** the reward quote is held by the curve outside `quoteReserve`, so migration never touches it. NET
   positions and the accumulator freeze at graduation (no more curve trades), so `pendingRewards` stays exactly
-  claimable forever. Any `unallocatedTax` left at graduation goes to the treasury (`FeeRouter.treasuryAccrued`).
+  claimable forever.
 
 ## 2) PVP (medium)
 
@@ -94,11 +96,26 @@ builds cost basis like any buy). The creator must also be login-verified (attest
 No mode caps — the pre-existing behaviour, bit for bit (the legacy owner `walletCapBps`, default 0, still applies to
 TRENCH coins only; PVE/PVP use their own caps instead). Gas overhead: one immutable comparison per trade.
 
-## Known caveat: transfers dodge NET caps
+## PVE: NET follows transfers (audit round-2 M1)
 
-A wallet can buy up to the cap and transfer tokens to a fresh wallet, which then buys more. **Accepted.** In PVE the
-login requirement is the mitigation (each buying wallet must be a verified Privy login). Transferred-in tokens have
-no cost basis, so selling them on a PVE curve is always "in profit" and pays the 0.777% tax.
+PVE tokens are constructed with `pveHooks = true` and told their curve once (`Token.setPveCurve`, Launchpad-only).
+Until graduation, every PVE token transfer where neither side is the curve calls
+`BondingCurve.onTokenTransfer(from, to, amount)` (token-only):
+
+* `moved = min(amount, NET[from])` moves from the sender's NET to the receiver's NET. Cost basis moves pro rata
+  (`cost[from] × moved / NET[from]`). Tokens beyond the sender's NET (e.g. received pre-hook) carry nothing.
+* Both sides are settled at the current accumulator first and their `rewardDebt` is reset, so neither side gains or
+  loses already-accrued rewards (no phantom rewards from receiving NET).
+* The receiver's 1% NET cap is enforced (`WalletCap`): a transfer that would push the receiver over 1% reverts.
+  So the old "buy to cap, transfer to a fresh wallet, buy again" dodge is gone in PVE.
+* Excluded: the curve itself (buys/sells already account), and the curve's cached `trustedRouter` (the router
+  forwards tokens in `routerSell`). Graduation calls `Token.endPveHooks()`, after which transfers are plain ERC20
+  (pool, LockedLP, routers unaffected). Mint/burn and zero-value transfers skip the hook.
+* TRENCH/PVP tokens and graduated PVE tokens pay one immutable check per transfer (≈0 overhead).
+* Residual: tokens a user sends straight to the router keep their NET at the sender (they are stuck in the router
+  anyway, so this can't be turned into profit).
+
+PVP/TRENCH: transfers still dodge NET caps (accepted, unchanged).
 
 ## Router-mediated curve trades
 
@@ -119,7 +136,9 @@ no cost basis, so selling them on a PVE curve is always "in profit" and pays the
   `LaunchBlock`, `NotVerified`, `BuyTooLarge`, `WalletCap`).
 * `BondingCurve.quoteSellFor(trader, tokensIn)` — `quoteSell` + PVE max sell + profit tax (`SellQuote.profitTax`,
   already deducted from `quoteOut`). `SellQuote` gained a trailing `profitTax` field.
-* `DiscipleRouter.quoteUsdgRoute / quoteBuyWithUsdg / quoteSellToUsdg` quote for the **caller** (`eth_call from`)
+* `DiscipleRouter.quoteUsdgRouteFor(trader, token, isBuy, amountIn)` quotes for an explicit trader (audit round-2
+  M2). The session policy now quotes for the **account** it validates, so PVE gates/caps/tax are those of the account.
+  `quoteUsdgRoute / quoteBuyWithUsdg / quoteSellToUsdg` still quote for the **caller** (`eth_call from`)
   through `quoteBuyFor / quoteSellFor`, so they reflect caps and the PVE tax. `quoteExactIn` is v4-only (post-grad)
   and therefore unaffected by modes.
 * Views for UIs: `mode`, `netCapNow()`, `maxBuyNow()`, `maxSellNow()`, `costBasisOf`, `verifiedUntilOf`,
@@ -132,10 +151,10 @@ no cost basis, so selling them on a PVE curve is always "in profit" and pays the
 3. Cost basis includes fees (protocol 1% + creator tax + anti-snipe); exit price uses the gross curve quote.
 4. Tax base = proceeds after fee & creator tax; tax stays in quote, paid out in quote.
 5. Transferred-in tokens have zero basis (always taxed in PVE when sold on the curve).
-6. Unallocated tax (no other holder) rolls into the next distribution; leftover at graduation → treasury.
+6. Profit tax with no other holder goes to the treasury immediately.
 7. PVP cap uses progress **before** the trade.
 8. Legacy `walletCapBps` (default 0) applies to TRENCH only.
-9. Sells never need a login; login attestations suggested at 24 h expiry.
+9. Sells never need a login; login attestations capped at 24 h expiry, curve cache at 10 min.
 
 ## Graduation leftover (DISCIPLE audit #9)
 
@@ -176,25 +195,68 @@ UIs should not count it as "in the pool" until compounded.
   current block. Otherwise it behaves as before.
 - New views: `DiscipleHook.blockAnchor(PoolId) → (uint64 block, uint160 sqrtPriceX96)`.
   `altitudeTierOf(PoolId)` keeps its ABI (it is now a function instead of a public mapping).
-- Out of scope: manipulation that spans blocks (pump in block N, compound in N+1). A short multi-block oracle could
-  be added later from the same anchor slot. Builders who control consecutive blocks are the residual risk, bounded
-  by the 3% guard per block.
+- Cross-block manipulation is handled by the multi-block reference below (audit round-2 HIGH-1).
 - Gas (exact, `--isolate`): non-compounding swaps pay +949 when they are not the first swap of the block, and +3,902 when they are the pool's first swap of the block. Compound-ready swaps pay +2,752 / +5,685. See gas-report.md. The reference is chosen by |Δ sqrtP|, which at the 3% scale ranks deviations the same way the ratio does.
 
 ### Referral USDG escrow (UsdgDepositNotifier)
 
-- `deposit(wallet, amount)` pulls `amount` USDG from the caller **into the notifier** and counts it for `wallet`.
-  The caller needs an exact approve to the notifier. The minimum is `REFERRAL_USDG_GATE` ($10). The deposit is locked
-  for `LOCK_PERIOD = 7 days`, and each new deposit re-locks the wallet's escrow. Anyone may fund any wallet,
-  including itself. The USDG stays locked, so the same $10 can't satisfy the gate for two wallets at once; cycling it
-  costs 7 days per hop.
-- `withdraw()` lets the wallet take its whole escrow (to itself) once `block.timestamp ≥ unlockAt`. An already
-  finalized referral stays.
-- `escrowOf(wallet) → (uint192 amount, uint64 unlockAt)`. Events: `Deposited(payer, wallet, amount)`,
-  `Escrowed(wallet, total, unlockAt)`, `Withdrawn(wallet, amount)`. Errors: `BelowMinimum(min)`, `Locked(unlockAt)`,
-  `NothingEscrowed`, `NotTransferred`.
-- Griefing: a third party can extend a wallet's lock, but each extension costs them $10 locked for 7 days (credited to
-  the victim's escrow, so the victim gains the USDG).
+- `deposit(wallet, amount) → id` pulls `amount` USDG from the caller **into the notifier** (balance-delta checked) and
+  creates a separate escrow entry for `wallet`, locked for `LOCK_PERIOD = 7 days` from that deposit. Minimum
+  `REFERRAL_USDG_GATE` ($10). Anyone may fund any wallet, including itself.
+- **Each deposit has its own lock** (audit round-2 L5): a third-party gift never extends the wallet's existing
+  entries, so lock-extension griefing is gone.
+- `withdraw(uint256[] ids)` withdraws the listed unlocked entries to the wallet (`Locked(id, unlockAt)` if any is
+  still locked, `NothingEscrowed` if the total is 0). An already finalized referral stays.
+- Views: `escrowCount(wallet)`, `escrowOf(wallet, id) → (amount, unlockAt)`, `escrowedOf(wallet)` (total).
+  Events: `Deposited(payer, wallet, amount)`, `Escrowed(wallet, id, amount, unlockAt)`, `Withdrawn(wallet, amount)`.
+- **Gate rate:** the same $10 can satisfy the gate for at most one new wallet per 7 days, i.e. ~52 gated wallets per
+  year per $10 of capital (e.g. $1,000 → ~5,200 referred wallets/year). That is the cost model of the gate: it
+  prices Sybil referrals in locked capital, it does not make them impossible.
 - Session policy: unchanged. Funding the escrow is an owner (EOA/passkey) flow, not a session-key flow, so the policy
   does not whitelist approvals to the notifier. Session keys still can't approve it.
 - The attestor path (`attest`) is unchanged and trusted, for off-chain on-ramp deposits.
+
+## DISCIPLE audit round 2 (re-review of #75 @ c003aaa)
+
+### HIGH-1: cross-block compound manipulation — multi-block reference
+
+- Hook slot per pool (still ONE slot): `{uint8 tier, uint40 anchorBlock, int24 anchorTick, int32 emaTickX256,
+  uint40 emaTime, uint40 refSince}`. The block-start anchor is now stored as a tick (sqrt recomputed on read).
+- On the first swap of each block the hook also updates a time-weighted EMA of block-start ticks:
+  `ema += (tick·256 − ema)·dt/60` (`dt ≥ 60 s` → `ema = tick`). `REF_WINDOW = 60 s`. Initialised at graduation price.
+- The reference is "ready" only after `REF_MIN_AGE = 60 s` since registration.
+- Compounding (in-swap and `flush`) requires spot within `maxCompoundDeviationBps` (3%) of **both** the block anchor
+  (if the pool traded this block) **and** the EMA (L7). In-swap compounding also still checks the swap's own pre-price
+  and the same-tx flag.
+- `flush()` always uses the EMA; it returns 0 when the reference isn't ready.
+- `maxCompoundPpm` lowered 2% → **0.5%** of pool liquidity per add.
+- Why it holds: a pump moves the EMA only through block-start ticks weighted by time, so a 1-block pump leaves the
+  EMA ≈ the pre-pump price and the add is skipped. Holding the pump long enough to drag the EMA costs the attacker the
+  pump's exposure for ≥ 60 s and still adds at most 0.5% liquidity per add (see tests below).
+- PoC tests (`test/audit/DiscipleAudit.t.sol`, `test_high1_*`): pump 60k/80k/150k USDG in block N, dust swap or
+  `flush` in N+1, dump: attacker end balance == control (no compound happens), e.g. 60k: 59,317.85 both.
+  Holding the pump 61 s then compounding: −426.8 (60k), −532 (80k), −892 (150k) USDG vs spent. Also
+  `test_high1_noCompoundBeforeRefAge`.
+- New views: `priceReference(PoolId) → (emaTickX256, emaTime, refSince, ready)`,
+  `compoundRefs(PoolId) → (refBlock, refEma)` (0 = unavailable). `blockAnchor` keeps its ABI.
+- `ILPCompounder.compoundFromHook(token, refSwap, refBlock, refEma)` (4 args).
+
+### Other fixes
+
+- **M1** PVE NET follows transfers (section above).
+- **M2** `quoteUsdgRouteFor(trader, …)`; the session policy passes the account; curve quotes via
+  `quoteBuyFor/quoteSellFor(account, …)`. SDK: `encodeQuoteUsdgRouteFor`.
+- **L1** curve login cache capped at 10 min. **L2** attestation expiry ≤ now + 24 h.
+- **L3** `routerBuy/routerSell` check prepaid amounts by balance delta (`NotPrepaid`): the curve's balance must be ≥
+  what it already owes (quote reserve + held rewards, or unsold tokens) + the claimed amount.
+- **L4** graduating-buy refund minimality fuzz (`testFuzz_audit8_refundMinimal`: creator tax 0..max, quote in
+  10k..1e33, inside/outside the anti-snipe window). We could not construct an input where the old 8-step loop fails to
+  converge: with the linear fee math its estimate lands within a few wei. The bounded binary search stays as the
+  safer construction; the fuzz test pins minimality rather than demonstrating an old-loop failure.
+- **L5** per-deposit escrow lock (section above). **L6** sole-holder profit tax → treasury. **L7** see HIGH-1.
+- **GAS** the curve caches its trusted router as an immutable `trustedRouter` (set from `Launchpad.curveRouter` at
+  launch). `_onlyRouter` checks the immutable and only falls back to `Launchpad.isTrustedRouter` for other routers.
+  Consequence: revoking that router on the Launchpad does not revoke it for curves launched before (fallback routers
+  are still revocable). L3 bounds what a misbehaving router could claim.
+- Size: `CurveMath.makeParams` moved to Launchpad (curve constructor takes `Params`), constructor requires →
+  `BadParams()`. CurveDeployer runtime 24,378 B (EIP-170 margin 198 B).

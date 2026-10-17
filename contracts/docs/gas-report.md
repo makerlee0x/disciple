@@ -54,3 +54,61 @@ same bench file:
 - Compound-ready swaps also pay one extra `getSlot0` plus a warm anchor read (~1.8k) to choose the reference price.
 - The rows in the main table above (v4.*) are the current numbers and include the anchor. The bench swaps are
   compound-ready, and `.cold` / first-call rows are first-in-block.
+
+## DISCIPLE audit round 2 (exact, `--isolate`)
+
+PREV = #75 @ c003aaa (the numbers above), NOW = this branch after HIGH-1, M1, M2, L1–L7, GAS. Same bench file
+(round-2 only adds a 61 s warp after graduation so the EMA reference is ready).
+
+| trade | PREV | NOW | Δ |
+|---|---:|---:|---:|
+| curve.direct.buy.cold | 212,434 | 212,584 | +150 |
+| curve.direct.buy.warm | 178,234 | 178,384 | +150 |
+| curve.direct.sell.warm | 179,051 | 179,218 | +167 |
+| curve.usdg1.buy.cold | 235,774 | 236,354 | +580 |
+| curve.usdg1.buy.warm | 201,574 | 202,154 | +580 |
+| curve.usdg1.sell.warm | 201,506 | 199,910 | -1,596 |
+| curve.usdg2.buy.cold | 336,182 | 336,784 | +602 |
+| curve.usdg2.buy.warm | 279,476 | 280,078 | +602 |
+| curve.usdg2.sell.warm | 321,289 | 319,715 | -1,574 |
+| v4.direct.buy.cold | 344,840 | 348,812 | +3,972 |
+| v4.direct.buy.warm | 254,082 | 256,862 | +2,780 |
+| v4.direct.sell.warm | 254,074 | 256,615 | +2,541 |
+| v4.direct.buy.firstInBlock | 257,051 | 260,948 | +3,897 |
+| v4.direct.buy.sameBlock | 254,050 | 256,958 | +2,908 |
+| v4.usdg1.buy.cold | 292,143 | 295,067 | +2,924 |
+| v4.usdg1.buy.warm | 275,011 | 277,935 | +2,924 |
+| v4.usdg1.sell.warm | 274,702 | 277,365 | +2,663 |
+| v4.usdg2.buy.cold | 432,453 | 436,441 | +3,988 |
+| v4.usdg2.buy.warm | 319,193 | 321,989 | +2,796 |
+| v4.usdg2.sell.warm | 342,881 | 345,416 | +2,535 |
+| v4nc.direct.buy.firstInBlock | 241,520 | 242,944 | +1,424 |
+| v4nc.direct.buy.sameBlock | 238,631 | 239,086 | +455 |
+| v4nc.direct.sell.sameBlock | 238,565 | 238,786 | +221 |
+| trench.direct.buy.cold | 212,422 | 212,572 | +150 |
+| trench.direct.buy.warm | 178,222 | 178,372 | +150 |
+| trench.direct.sell.warm | 179,051 | 179,218 | +167 |
+| trench.usdg1.buy.warm | 201,562 | 202,142 | +580 |
+| trench.usdg1.sell.warm | 201,506 | 199,910 | -1,596 |
+| pvp.direct.buy.cold | 212,978 | 213,128 | +150 |
+| pvp.direct.buy.warm | 178,778 | 178,928 | +150 |
+| pvp.direct.sell.warm | 179,039 | 179,206 | +167 |
+| pvp.usdg1.buy.warm | 202,130 | 202,710 | +580 |
+| pvp.usdg1.sell.warm | 201,506 | 199,910 | -1,596 |
+| pve.direct.buy.cold | 251,029 | 253,445 | +2,416 |
+| pve.direct.buy.warm | 191,710 | 193,944 | +2,234 |
+| pve.direct.sell.warm | 192,663 | 195,131 | +2,468 |
+| pve.usdg1.buy.warm | 215,050 | 217,734 | +2,684 |
+| pve.usdg1.sell.warm | 215,113 | 215,846 | +733 |
+
+Where the deltas come from:
+- **v4 compounding swaps +2.5k–4.0k (HIGH-1/L7):** the EMA update on the first swap of a block (same single SSTORE,
+  more arithmetic), `TickMath.getSqrtPriceAtTick` for the anchor and the EMA reference, and the extra deviation check
+  in LockedLP. Non-compounding v4 swaps (`v4nc`) pay only **+221 to +455** in later swaps of a block and **+1,424**
+  on the pool's first swap of a block.
+- **Curve USDG routes (L3 + GAS):** the prepaid balance-delta check adds one `balanceOf`. The cached `trustedRouter`
+  immutable removes the external `Launchpad.isTrustedRouter` call. Net: buys **+580/+602**, sells **−1,596/−1,574**.
+- **Curve direct +150/+167:** `rewardsHeld` bookkeeping/branch layout from the L6 and size refactor.
+- **PVE +0.7k–2.7k (M1):** the PVE token's `_update` reads its `{pveCurve, pveLive}` slot (cold) on the curve's
+  token transfer. TRENCH/PVP tokens skip it with one immutable check, so they match the plain curve rows.
+- Contract sizes: CurveDeployer runtime 24,378 B (EIP-170 margin 198 B), BondingCurve runtime 22,548 B.
