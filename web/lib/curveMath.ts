@@ -53,3 +53,51 @@ export function impactPctBetween(p: CurveParams, soldBefore: bigint, soldAfter: 
   const a = Number(spotPriceWad(p, soldBefore)), b = Number(spotPriceWad(p, soldAfter));
   return a > 0 ? ((b - a) / a) * 100 : 0;
 }
+
+/* ---- Launch-time curve (sold = 0), mirrors CurveMath.makeParams / quoteInForTokens ---- */
+// Constants.sol: TOTAL_SUPPLY 7B, CURVE_SOLD_BPS 72%, START $7K, GRADUATION $33K (USD WAD).
+export const TOTAL_SUPPLY_WEI = B("7000000000") * WAD;
+const CURVE_SOLD_BPS = B(7200);
+const START_MCAP_USD = B(7000) * WAD;
+const GRADUATION_MCAP_USD = B(33000) * WAD;
+
+function isqrt(n: bigint): bigint {
+  if (n < B(2)) return n;
+  let x = n, y = (x + B(1)) / B(2);
+  while (y < x) { x = y; y = (x + n / x) / B(2); }
+  return x;
+}
+
+/** CurveMath.makeParams(quotePriceUsd): the params a curve launched right now would get. */
+export function paramsFromQuotePrice(quotePriceUsd: bigint): CurveParams {
+  if (quotePriceUsd <= B(0)) throw new Error("quotePriceUsd = 0");
+  const sCurve = mulDiv(TOTAL_SUPPLY_WEI, CURVE_SOLD_BPS, BPS);
+  const m0Q = mulDiv(START_MCAP_USD, WAD, quotePriceUsd);
+  const m1Q = mulDiv(GRADUATION_MCAP_USD, WAD, quotePriceUsd);
+  const sqrtRWad = isqrt(mulDiv(m1Q, WAD, m0Q) * WAD);
+  const y0 = mulDiv(sCurve, sqrtRWad, sqrtRWad - WAD);
+  const x0 = mulDiv(m0Q, y0, TOTAL_SUPPLY_WEI);
+  return { totalSupply: TOTAL_SUPPLY_WEI, sCurve, x0, y0 };
+}
+
+/** FeeMath.creatorBuyMax(bps): token cap for the launch buy. */
+export const creatorBuyMaxTokens = (capBps: number) => mulDiv(TOTAL_SUPPLY_WEI, B(Math.round(capBps)), BPS);
+
+/** Net quote (after fees) the launch buy on a fresh curve gets for `quoteIn` gross: 1% protocol + creator tax, no anti-snipe. */
+const launchNet = (quoteIn: bigint, creatorTaxBps: bigint) => quoteIn - mulDiv(quoteIn, TRADE_FEE_BPS, BPS) - mulDiv(quoteIn, creatorTaxBps, BPS);
+
+/** Tokens out for the launch buy on a fresh curve (Launchpad.quoteCreatorBuy mirror). */
+export function launchBuyTokensOut(p: CurveParams, quoteIn: bigint, creatorTaxBps: bigint) {
+  const net = launchNet(quoteIn, creatorTaxBps);
+  return net <= B(0) ? B(0) : mulDiv(p.y0, net, p.x0 + net);
+}
+
+/** Largest gross quoteIn whose launch buy stays ≤ capTokens (so Launchpad won't revert CreatorBuyTooLarge). */
+export function maxLaunchBuyQuoteIn(p: CurveParams, capTokens: bigint, creatorTaxBps: bigint) {
+  if (capTokens <= B(0) || capTokens >= p.y0) return B(0);
+  // tokensOut = floor(y0·net / (x0+net)) ≤ cap  ⇔  net ≤ floor(x0·cap / (y0−cap)) (+ rounding slack, checked below)
+  const netMax = mulDiv(p.x0, capTokens, p.y0 - capTokens);
+  let gross = mulDiv(netMax, BPS, BPS - TRADE_FEE_BPS - creatorTaxBps) + B(2);
+  while (gross > B(0) && launchBuyTokensOut(p, gross, creatorTaxBps) > capTokens) gross -= B(1);
+  return gross;
+}

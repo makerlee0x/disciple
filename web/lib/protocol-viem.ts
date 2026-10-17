@@ -13,6 +13,7 @@ import {
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
+import { encodeLaunchCall } from "./launchAbi";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address;
 const referralRegistryAbi = parseAbi([
@@ -494,10 +495,14 @@ export function createViemProtocol(): ProtocolClient {
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
-          // creator buy pulls amount + launch fee headroom; approve with 5% slack
+          // First BOOST: Launchpad pulls exactly creatorBuyQuoteIn (fees come out of it); check balance up front.
+          const have = await pc.readContract({ address: q, abi: tokenAbi, functionName: "balanceOf", args: [me] });
+          if (have < creatorBuy) throw new ProtocolError("InsufficientBalance", `Not enough balance for the First BOOST: need ${fmtUnits(creatorBuy, await decimalsOf(pc, q))}, have ${fmtUnits(have, await decimalsOf(pc, q))}.`);
+          // approve with 5% slack (existing path; skipped if the allowance already covers it)
           calls.push(...(await approveCall(me, q, launchpad, creatorBuy + creatorBuy / B(20))));
         }
-        calls.push({ to: launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "launchCoin", args: [params] }) });
+        // launchCoin today; launchWithMode(params, mode) on FLOW's modes redeploy (lib/launchAbi.ts switch).
+        calls.push({ to: launchpad, data: encodeLaunchCall(params, lp.mode) });
         const r = await execCalls(calls);
         for (const l of r.logs) {
           if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;
