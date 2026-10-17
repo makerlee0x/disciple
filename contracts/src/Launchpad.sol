@@ -18,6 +18,10 @@ import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 
 /// @title Permissionless DISCIPLE launchpad / factory (§5 / LOCKED #23–#27)
 /// @notice Anyone can launch. Metadata: image+name+ticker required; description/socials optional.
+interface IRouterKill {
+    function setRouterKilled(bool killed) external;
+}
+
 interface IPricerPoke {
     function poke(address quote) external;
 }
@@ -106,6 +110,7 @@ contract Launchpad is ILaunchpad {
     event CreatorBuyMaxSet(uint256 bps);
     event WalletCapSet(uint256 bps);
     event TrustedRouterSet(address indexed router, bool trusted);
+    event CurveRouterKilled(address indexed curve, bool killed);
     event LoginGateSet(address indexed gate);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
@@ -158,6 +163,16 @@ contract Launchpad is ILaunchpad {
         if (ok) curveRouter = r;
         else if (curveRouter == r) curveRouter = address(0);
         emit TrustedRouterSet(r, ok);
+    }
+
+    /// @notice Audit round 3 (ops) kill switch: existing curves snapshot their primary router as an immutable;
+    ///         the owner (protocol multisig) can stop them accepting it (and resume). Curves via `curveOf[token]`.
+    function setCurveRouterKilled(address[] calldata curves, bool killed) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        for (uint256 i; i < curves.length; ++i) {
+            IRouterKill(curves[i]).setRouterKilled(killed);
+            emit CurveRouterKilled(curves[i], killed);
+        }
     }
 
     function setLoginGate(address g) external {

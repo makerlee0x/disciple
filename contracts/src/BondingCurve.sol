@@ -94,6 +94,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     uint256 public override quoteReserve;
     uint256 public override tokensSold;
     bool public override graduated;
+    /// @notice Audit round 3 (ops): protocol kill switch for this curve's cached `trustedRouter` (packed with
+    ///         `graduated`, so the router path pays one warm read). Set via Launchpad.setCurveRouterKilled.
+    bool public routerKilled;
 
     mapping(address => uint256) public balanceOnCurve; // for wallet cap tracking
 
@@ -496,9 +499,17 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     function _onlyRouter() internal view {
-        if (msg.sender != trustedRouter && !ILaunchpadRouters(launchpad).isTrustedRouter(msg.sender)) {
+        if (msg.sender == trustedRouter) {
+            if (routerKilled) revert NotRouter();
+        } else if (!ILaunchpadRouters(launchpad).isTrustedRouter(msg.sender)) {
             revert NotRouter();
         }
+    }
+
+    /// @notice Launchpad-only (owner = protocol multisig): stop / resume accepting the cached trusted router.
+    function setRouterKilled(bool killed) external {
+        if (msg.sender != launchpad) revert OnlyLaunchpad();
+        routerKilled = killed;
     }
 
     /// @dev payer == address(0): quote was prepaid by a trusted router; refunds go to `trader`.

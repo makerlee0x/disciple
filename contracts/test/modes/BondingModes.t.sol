@@ -740,4 +740,33 @@ contract BondingModesTest is IntegrationBase {
             _checkPveInvariants(c, hs);
         }
     }
+
+    // ── audit round 3 (ops): kill switch for a curve's cached trusted router ──
+    function test_router_killSwitch() public {
+        (BondingCurve c, Token t) = _launchMode(Constants.MODE_TRENCH);
+        _open(8 minutes);
+        assertEq(c.trustedRouter(), address(router));
+        quote.mint(alice, 100 ether);
+        vm.prank(alice);
+        quote.approve(address(router), type(uint256).max);
+        address[] memory cs = new address[](1);
+        cs[0] = address(c);
+        vm.prank(alice);
+        vm.expectRevert(Launchpad.OnlyOwner.selector);
+        launchpad.setCurveRouterKilled(cs, true);
+        vm.expectRevert(BondingCurve.OnlyLaunchpad.selector);
+        c.setRouterKilled(true);
+        vm.prank(owner);
+        launchpad.setCurveRouterKilled(cs, true);
+        assertTrue(c.routerKilled());
+        vm.prank(alice);
+        vm.expectRevert(); // NotRouter (bubbled through the router)
+        router.buyWithUsdg(address(t), 10 ether, 1, vm.getBlockTimestamp() + 1 hours);
+        // direct curve trades unaffected
+        _buyQ(c, alice, 1 ether);
+        vm.prank(owner);
+        launchpad.setCurveRouterKilled(cs, false);
+        vm.prank(alice);
+        router.buyWithUsdg(address(t), 10 ether, 1, vm.getBlockTimestamp() + 1 hours);
+    }
 }
