@@ -379,17 +379,47 @@ export const IDENTITY_THRESHOLDS = {
 /* ------------------------------------------------------------------ */
 /* Achievement rarity frames                                           */
 /* ------------------------------------------------------------------ */
-export type AchievementRarity = "COMMON" | "BLESSED" | "ANOINTED" | "GLORIFIED" | "DIVINE";
+/**
+ * One rarity scale shared by achievements and rocket parts (cosmetics) — deliberately NOT the
+ * season-rank names (Blessed/Anointed/Glorified/Divine stay on SEASON_RANKS only).
+ * Lowest → highest.
+ */
+export const RARITY_SCALE = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"] as const;
+export type Rarity = (typeof RARITY_SCALE)[number];
+export type AchievementRarity = Rarity;
+
+/**
+ * Legacy rarity keys (pre-rename, borrowed from season ranks) → current keys. Kept so any stored /
+ * cached / API payload that still carries the old key (e.g. topBadges[].rarity) resolves cleanly.
+ */
+export const LEGACY_RARITY_ALIASES: Readonly<Record<string, Rarity>> = {
+  BLESSED: "RARE",
+  ANOINTED: "EPIC",
+  GLORIFIED: "LEGENDARY",
+  DIVINE: "MYTHIC",
+};
+
+/** Accepts a current or legacy rarity key (any case); unknown values fall back to COMMON. */
+export function normalizeRarity(r: string | null | undefined): Rarity {
+  const k = String(r ?? "").toUpperCase();
+  if ((RARITY_SCALE as readonly string[]).includes(k)) return k as Rarity;
+  return LEGACY_RARITY_ALIASES[k] ?? "COMMON";
+}
+
+/** 0 (COMMON) … 4 (MYTHIC); legacy keys are normalized first. */
+export function rarityRank(r: string): number {
+  return RARITY_SCALE.indexOf(normalizeRarity(r));
+}
 
 export const ACHIEVEMENT_RARITY: Record<
-  AchievementRarity,
+  Rarity,
   { label: string; border: string; glow: string }
 > = {
   COMMON: { label: "Common", border: "rgba(180,190,220,0.45)", glow: "rgba(180,190,220,0.15)" },
-  BLESSED: { label: "Blessed", border: "#67C1BB", glow: "rgba(103,193,187,0.30)" },
-  ANOINTED: { label: "Anointed", border: "#C9A8DC", glow: "rgba(201,168,220,0.32)" },
-  GLORIFIED: { label: "Glorified", border: "#E5875A", glow: "rgba(229,135,90,0.35)" },
-  DIVINE: { label: "Divine", border: "#DA8B9F", glow: "rgba(218,139,159,0.40)" },
+  RARE: { label: "Rare", border: "#67C1BB", glow: "rgba(103,193,187,0.30)" },
+  EPIC: { label: "Epic", border: "#C9A8DC", glow: "rgba(201,168,220,0.32)" },
+  LEGENDARY: { label: "Legendary", border: "#E5875A", glow: "rgba(229,135,90,0.35)" },
+  MYTHIC: { label: "Mythic", border: "#DA8B9F", glow: "rgba(218,139,159,0.40)" },
 };
 
 export const SEASON_PASS = {

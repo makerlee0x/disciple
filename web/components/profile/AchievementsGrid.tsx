@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import {
-  ACHIEVEMENT_CATEGORIES, achievementIconPath, evaluateAchievements,
+  ACHIEVEMENT_CATEGORIES, achievementIconPath, evaluateAchievements, rarityStyle,
   type AchievementCategory, type AchievementView,
 } from "@/lib/achievements";
-import { ACHIEVEMENT_RARITY } from "@/lib/config";
+import { rarityRank } from "@/lib/config";
 import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
@@ -21,7 +21,6 @@ function rewardPreview(a: AchievementView) {
 }
 
 const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
-const RARITY_ORDER = ["DIVINE", "GLORIFIED", "ANOINTED", "BLESSED", "COMMON"];
 
 export default function AchievementsGrid() {
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
@@ -32,7 +31,7 @@ export default function AchievementsGrid() {
   const unlocked = views.filter((v) => v.state === "unlocked").length;
 
   const card = (a: AchievementView) => {
-    const rarity = ACHIEVEMENT_RARITY[a.rarity];
+    const rarity = rarityStyle(a.rarity);
     return (
       <article key={a.id} className={`ach-card state-${a.state}`}
         style={{ borderColor: rarity.border, boxShadow: a.state === "unlocked" ? `0 0 24px ${rarity.glow}` : undefined }}>
@@ -57,7 +56,7 @@ export default function AchievementsGrid() {
   const groups = ACHIEVEMENT_CATEGORIES
     .filter((c) => cat === "all" || c.id === cat)
     .map((c) => {
-      const items = views.filter((v) => v.category === c.id).sort((x, y) => STATE_ORDER[x.state] - STATE_ORDER[y.state] || RARITY_ORDER.indexOf(x.rarity) - RARITY_ORDER.indexOf(y.rarity));
+      const items = views.filter((v) => v.category === c.id).sort((x, y) => STATE_ORDER[x.state] - STATE_ORDER[y.state] || rarityRank(y.rarity) - rarityRank(x.rarity));
       return { ...c, items, active: items.filter((v) => v.state !== "locked"), locked: items.filter((v) => v.state === "locked") };
     })
     .filter((g) => g.items.length);

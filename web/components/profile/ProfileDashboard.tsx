@@ -10,7 +10,7 @@ import {
   PlaystyleMeter, RadarChart, Sparkline, StatRing,
 } from "./Charts";
 import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
-import { fmtUsd } from "@/lib/config";
+import { fmtUsd, normalizeRarity } from "@/lib/config";
 import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
@@ -152,7 +152,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             </div>
             <div className="top-badges">
               {data.topBadges.length === 0 ? <span className="muted">No badges unlocked yet</span> : data.topBadges.map((b) => (
-                <div key={b.id} className={`mini-badge r-${b.rarity.toLowerCase()}`} title={b.name}><Icon name="achievement" size={16} /><span>{b.name}</span></div>
+                <div key={b.id} className={`mini-badge r-${normalizeRarity(b.rarity).toLowerCase()}`} title={b.name}><Icon name="achievement" size={16} /><span>{b.name}</span></div>
               ))}
             </div>
           </div>
