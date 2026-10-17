@@ -5,7 +5,7 @@ section: Fees and rewards
 ---
 # Referrals
 
-Share your link. When a wallet opens your link and deposits $10+ in USDG, it's yours for life (first link wins). You earn 1% of the protocol fee on its trades, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator's fee share. You can't refer your own wallet.
+Share your link. When a wallet opens your link and deposits $10+ in USDG, it's yours for life (first link wins). You earn 1% of the protocol fee on its trades (unless the rocket's launcher has a referrer, who comes first), and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator's fee share. You can't refer your own wallet.
 
 ## How a wallet becomes yours
 
@@ -19,7 +19,7 @@ After step 3 the referral locks for life. The first link wins: later links don't
 
 | From | You earn |
 |---|---|
-| Its trades | 1% of the protocol fee on each of its trades |
+| Its trades | 1% of the protocol fee on each of its trades, unless the rocket's launcher has a referrer. That referrer comes first. |
 | Rockets it launches (after the lock) | 1% of the protocol fee on every trade, by anyone, plus 2% of the creator's fee share |
 
 "1% of the protocol fee" means 1% of the 1% fee, so 0.01% of the trade. On a $100 trade, that's $0.01.
@@ -33,7 +33,13 @@ A wallet you referred launches a rocket. Someone BOOSTs it for $1,000. The fee i
 
 ## Claiming
 
-Referral earnings build up on-chain. Claim them anytime, in each base you've earned in.
+Referral earnings build up on-chain in the FeeRouter, per base. Claiming from the app is coming soon. Until then, call `claimReferrerFees(quote)` on the FeeRouter, one base at a time. See [Contract addresses](/docs/reference/contracts).
+
+After graduation, a reward taken in the rocket coin is sent straight to your wallet. There's nothing to claim.
+
+## On testnet
+
+Referrals don't lock yet. The $10 USDG deposit check isn't connected on the current deploy, so no referral can lock. Until it is, referrer shares go to the treasury.
 
 ## Rules
 

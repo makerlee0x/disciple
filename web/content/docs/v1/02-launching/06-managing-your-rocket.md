@@ -19,7 +19,7 @@ section: Launching
 
 ## Claim your earnings
 
-Creator fees build up on-chain. Claim them anytime by calling `claimCreatorFees` on the FeeRouter contract. There's no claim button in the app. See [Creator earnings](/docs/fees/creators).
+Creator fees build up on-chain. Claiming from the app is coming soon. Until then, call `claimCreatorFees(token)` on the FeeRouter. See [Creator earnings](/docs/fees/creators).
 
 ## Hand off a rocket
 

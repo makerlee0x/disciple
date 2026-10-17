@@ -52,5 +52,5 @@ section: Reference
 | **Trench Warfare** | The hardest mode: no guardrails. |
 | **Trencher** | A fast in-and-out trader. |
 | **USDG** | A dollar stablecoin on Robinhood Chain. mUSDG on testnet. |
-| **Verified** | A checkmark a rocket earns automatically by clearing volume, age, holder, liquidity and market cap thresholds. No team review. |
+| **Verified** | A checkmark the team grants after reviewing a rocket. |
 | **Wall** | A limit sell above the price on a graduated rocket. |

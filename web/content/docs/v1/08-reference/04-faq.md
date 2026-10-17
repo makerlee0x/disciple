@@ -50,7 +50,7 @@ There's no further mint, the name and call sign are locked at launch, and gradua
 The anti-snipe fee. It starts at 77.7% at launch and reaches 0% after 7 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
 
 **How do referrals work?**
-When a wallet opens your link and deposits $10+ in USDG, it's yours for life. You earn 1% of the protocol fee on its trades. See [Referrals](/docs/fees/referrals).
+When a wallet opens your link and deposits $10+ in USDG, it's yours for life. You earn 1% of the protocol fee on its trades, plus 2% of the creator's share on rockets it launches. On testnet, referrals don't lock yet. See [Referrals](/docs/fees/referrals).
 
 ## Game
 

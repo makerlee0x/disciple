@@ -54,7 +54,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Parameter | Value |
 |---|---|
 | Lock-in | Link → sign in → $10+ USDG deposit, first link wins, for life |
-| Referrer earns on a referred wallet's trades | 1% of the trade fee (0.01% of the trade) |
+| Referrer earns on a referred wallet's trades | 1% of the trade fee (0.01% of the trade), unless the launcher's referrer comes first |
 | On rockets the referred wallet launches | 1% of the trade fee on every trade + 2% of the creator's share |
 | Self-referral | Same wallet blocked |
 

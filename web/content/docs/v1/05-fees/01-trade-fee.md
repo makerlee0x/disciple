@@ -11,12 +11,14 @@ Every BOOST and DUMP pays a 1% fee: 33% creator, 33% locked liquidity (added to 
 
 | Share of the 1% fee | Goes to | How |
 |---|---|---|
-| **33%** | Creator | Builds up on-chain. Claim anytime. |
+| **33%** | Creator | Builds up on-chain. Claim anytime from the FeeRouter. Claiming from the app is coming soon. |
 | **33%** | Locked liquidity | Set aside on every trade. Added to the locked position as it builds up. |
 | **33%** | Treasury | Credited to the DISCIPLE treasury on every trade, then claimed. |
 | **1%** | Referrer | Goes to the launcher's referrer first, if the launcher has one. Otherwise the trader's referrer. With no referrer, the treasury. |
 
-Percentages are shares of the 1% fee, not of your trade. [CONFIRM: FLOW — the full referrer fallback order (launcher's referrer → trader's referrer → treasury).]
+Percentages are shares of the 1% fee, not of your trade.
+
+On testnet, referrals don't lock yet, so the referrer share goes to the treasury for now. See [Referrals](/docs/fees/referrals).
 
 ## Example
 

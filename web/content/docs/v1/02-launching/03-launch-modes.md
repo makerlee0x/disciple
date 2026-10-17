@@ -28,7 +28,7 @@ PvE is built for a crew to climb together.
 - **Slow start.** For the first 7 minutes, each BOOST is capped at 0.25% of supply.
 - **No launch-block snipes.** Nobody but the creator can buy in the launch block.
 - **Signed-in buyers only.** To BOOST, a wallet needs a verified login. Selling never needs one, so holders can always exit.
-- **Profit tax to the crew.** If you DUMP above 1.77× your average cost, 0.777% of your proceeds goes to the other holders on the curve. You don't share in your own tax. Holders claim their share anytime, also after graduation.
+- **Profit tax to the crew.** If you DUMP above 1.77× your average cost, 0.777% of your proceeds goes to the other holders on the curve. You don't share in your own tax. Holders can claim their share, also after graduation. Claiming from the app is coming soon.
 
 ## PvP: dog eat dog
 

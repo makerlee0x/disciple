@@ -34,7 +34,7 @@ Open any rocket to fly it. The chart becomes the sky.
 
 The Launchpad is the home page. It lists rockets, with filters such as trending, new, near orbit (close to graduation), graduated and verified.
 
-**Verified** rockets show a checkmark. The mark is automatic. It appears when a rocket clears set thresholds for 24h volume, age, holders, liquidity and market cap. There's no team review. On testnet it runs on sample stats, and the thresholds are a preview. Final criteria will be published before mainnet. [CONFIRM: lee — the code names the Verified tiers Blessed, Anointed and Glorified, which clash with the season ranks (Blessed, Anointed, Glorified, Divine). Pick new tier names or drop tiers, and sign off the thresholds.]
+**Verified** rockets show a checkmark. The team reviews a rocket before granting the mark. On testnet, the checkmark is a preview and uses sample stats. [CONFIRM: lee — the code names the Verified tiers Blessed, Anointed and Glorified, which clash with the season ranks (Blessed, Anointed, Glorified, Divine). Pick new tier names or drop tiers.]
 
 ## The game never touches the market
 

@@ -37,7 +37,7 @@ You pay the gas.
 
 A call sign is your rocket's ticker: 1–10 letters (A–Z) or numbers (0–9). The form uppercases it for you. It can't be changed after launch.
 
-Call signs aren't unique. Two rockets can share one. Check the rocket's address before you trade. [CONFIRM: lee + GAME — duplicate call signs are allowed today (no check in the form, server or contract). Keep that, or make call signs unique?]
+Call signs aren't unique. Two rockets can share one. Check the rocket's address before you trade.
 
 ## Launch modes
 
