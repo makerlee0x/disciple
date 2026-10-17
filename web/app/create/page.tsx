@@ -18,6 +18,7 @@ import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+import Icon from "@/components/icons/Icon";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -197,14 +198,14 @@ export default function LaunchRocketPage() {
                 </div>
               )}
               {mod.state === "checking" && <p className="text-xs text-[#C9CED6]">Checking image…</p>}
-              {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]">✓ Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
+              {mod.state === "allow" && file && <p className="text-xs text-[#9ff3c8]"><Icon name="check" size={12} /> Icon approved{mod.note ? ` · ${mod.note}` : ""}</p>}
               {blocked && (
                 <p role="alert" className="ds-msg bad">
                   This image can&apos;t be used. Please pick a different one.{mod.note ? ` (${mod.note})` : ""}
                 </p>
               )}
               {mod.state === "review" && <p className="text-xs text-[#FF7A3D]">Held for review — you can launch once it&apos;s cleared.{mod.note ? ` ${mod.note}` : ""}</p>}
-              {contrast && <p className="text-xs text-[#FF7A3D]">⚠ {contrast}</p>}
+              {contrast && <p className="text-xs text-[#FF7A3D]"><Icon name="warning" size={12} /> {contrast}</p>}
             </div>
           </div>
 
@@ -279,7 +280,7 @@ export default function LaunchRocketPage() {
           type="submit"
           className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
         >
-          {isDeployed() ? "🚀 Launch Rocket on-chain (testnet)" : "🚀 Launch Rocket (UI only)"}
+          <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> {isDeployed() ? "Launch Rocket on-chain (testnet)" : "Launch Rocket (UI only)"}
         </button>
         {msg && (
           <p role="status" className={`ds-msg ${msg.startsWith("🚀") ? "ok" : "bad"}`}>{msg}</p>

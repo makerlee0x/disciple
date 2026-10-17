@@ -9,6 +9,7 @@ import { ACHIEVEMENT_RARITY } from "@/lib/config";
 import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
+import Icon from "@/components/icons/Icon";
 
 function rewardPreview(a: AchievementView) {
   const bits: string[] = [];
@@ -38,7 +39,7 @@ export default function AchievementsGrid() {
         <div className="ach-frame" style={{ borderColor: rarity.border }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="ach-svg" src={withBase(achievementIconPath(a.id))} alt="" width={60} height={60} />
-          {a.state === "locked" && <span className="ach-lock" aria-label="locked">🔒</span>}
+          {a.state === "locked" && <span className="ach-lock" aria-label="locked"><Icon name="lock" size={16} /></span>}
         </div>
         <div className="ach-body">
           <div className="ach-rarity" style={{ color: rarity.border }}>{rarity.label}</div>

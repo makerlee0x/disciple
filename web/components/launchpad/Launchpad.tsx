@@ -7,6 +7,7 @@ import PairArt from "@/components/pairart/PairArt";
 import { BASE_PAIRS, basePair } from "@/lib/pairArt";
 import DsSelect from "@/components/ui/DsSelect";
 import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
+import Icon from "@/components/icons/Icon";
 
 type Tab = "altitude" | "new" | "active" | "near" | "graduated";
 const TABS: { k: Tab; label: string; hint: string }[] = [
@@ -58,7 +59,7 @@ const Spark = memo(function Spark({ seed, chg, w = 96, h = 26 }: { seed?: number
 
 function Chg({ v }: { v: number | null }) {
   if (v == null) return <span className="lp-dim">—</span>;
-  return <span className={v >= 0 ? "lp-up" : "lp-down"}>{v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}%</span>;
+  return <span className={v >= 0 ? "lp-up" : "lp-down"}><Icon name={v >= 0 ? "arrow-up" : "arrow-down"} size={12} style={{ verticalAlign: -1 }} /> {Math.abs(v).toFixed(1)}%</span>;
 }
 
 function Tag({ c }: { c: Rocket }) {
@@ -235,9 +236,9 @@ export default function Launchpad({ coins, onPick, defaultVerified }: { coins: R
             <div className="lp-tools">
               <input className="ds-input lp-search" type="search" placeholder="Search name, $TICKER or 0x…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search rockets" />
               <DsSelect value={pair} options={PAIRS} onChange={setPair} ariaLabel="Pair filter" className="lp-pair" />
-              <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} onClick={() => setVerified(verified === "verified" ? "all" : "verified")}>✓ Verified</button>
+              <button type="button" className={"ds-btn lp-vchip" + (verified === "verified" ? " on" : "")} aria-pressed={verified === "verified"} onClick={() => setVerified(verified === "verified" ? "all" : "verified")}><Icon name="verified" size={16} /> Verified</button>
               <div className="ds-seg lp-view" role="group" aria-label="View">
-                <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")} title="List">☰</button>
+                <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")} title="List" aria-label="List"><Icon name="menu" size={16} /></button>
                 <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} onClick={() => pickView("grid")} title="Grid">▦</button>
               </div>
             </div>

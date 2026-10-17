@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { fmtUsd, nextUnlock } from "@/lib/config";
 import { brandedRocket } from "@/lib/decal";
+import Icon from "@/components/icons/Icon";
 
 type FlightWin = {
   __flight?: { S?: { confirmed?: { mcap?: number | null } } };
@@ -45,7 +46,7 @@ export default function ShareButton({ callSign, icon }: { callSign: string; icon
       <button type="button" onClick={onShare} aria-label="Share rocket card"
         style={{ position: "fixed", top: "var(--ap-tr-top, 12px)", right: 60, zIndex: 35, height: 38, padding: "0 14px", borderRadius: 19,
           color: "#E8EAEE", background: "rgba(22,24,28,.82)", border: "1px solid rgba(201,206,214,.7)", font: "bold 12px ui-monospace,monospace", cursor: "pointer" }}>
-        ⤴ SHARE
+        <Icon name="share" size={16} style={{ verticalAlign: -3 }} /> SHARE
       </button>
       {url && (
         <div role="dialog" aria-label="Share card preview" onClick={() => setUrl(null)}

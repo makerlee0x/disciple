@@ -5,6 +5,7 @@ import { geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 import PrivyProviders from "@/components/PrivyProviders";
+import IconSprite from "@/components/icons/IconSprite";
 
 export const metadata: Metadata = {
   title: "DISCIPLE — Every coin is a rocket",
@@ -49,6 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} ${instrumentSerif.variable}`}>
       <body className="antialiased">
+        <IconSprite />
         <PrivyProviders>
           <AppShell>{children}</AppShell>
           <ChatBridge />

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MODES, fmtUsd, nextUnlock, verifiedLevel } from "@/lib/config";
 import VerifiedBadge from "./VerifiedBadge";
+import Icon from "@/components/icons/Icon";
 
 /** MOCK crew data — replace with indexer reads (DISCIPLE FLOW). */
 const MOCK_CREW = {
@@ -67,7 +68,7 @@ export default function CrewPanel() {
       <button type="button" data-testid="crew-toggle" onClick={() => setOpen((o) => !o)} title={open ? "Collapse crew" : "Expand crew"}
         style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", gap: 8, alignItems: "center", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>CREW <span style={{ color: "#ffb0c8" }}>· MOCK</span></span>
-        <span style={{ color: "#E8EAEE", fontWeight: 400 }}>👥 {MOCK_CREW.aboard} aboard</span>
+        <span style={{ color: "#E8EAEE", fontWeight: 400 }}><Icon name="crew" size={16} style={{ verticalAlign: -4 }} /> {MOCK_CREW.aboard} aboard</span>
         <span style={{ marginLeft: "auto" }}>{open ? "−" : "+"}</span>
       </button>
       {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}
