@@ -158,7 +158,7 @@ contract AuditRegression is IntegrationBase {
         referrals.setDepositHook(address(n));
         vm.prank(trader1);
         referrals.tryAttribute(trader1, kol);
-        vm.startPrank(trader1);
+        vm.startPrank(trader2); // third-party payer (self-deposits are rejected: DISCIPLE audit #7)
         quote.approve(address(n), 10 ether);
         n.deposit(trader1, 10 ether);
         vm.stopPrank();

@@ -104,7 +104,7 @@ contract DiscipleAuditTest is IntegrationBase {
         Token tok = _gradReady();
         // sanity: an honest dust swap in its own tx compounds
         vm.recordLogs();
-        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        _swapExactInQuoteForToken(tok, trader1, 20 ether);
         assertEq(_count(COMPOUNDED), 1, "honest swap compounds");
         _swapExactInQuoteForToken(tok, trader1, 20 ether); // refill token side
         PumpDustDump a = new PumpDustDump();
@@ -139,7 +139,10 @@ contract DiscipleAuditTest is IntegrationBase {
         );
         vm.expectCall(address(lockedLP), abi.encodeWithSelector(LockedLP.compoundFromHook.selector), 0);
         _swapExactInQuoteForToken(tok, trader1, 1 ether);
-        vm.clearMockedCalls();
+    }
+
+    function test_audit3_hookCallsCompoundWhenReady() public {
+        Token tok = _gradReady();
         vm.expectCall(address(lockedLP), abi.encodeWithSelector(LockedLP.compoundFromHook.selector), 1);
         _swapExactInQuoteForToken(tok, trader1, 1 ether);
     }
