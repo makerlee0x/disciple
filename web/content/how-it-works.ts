@@ -64,7 +64,7 @@ export const HIW_PAIR = {
     foot: [
       { icon: "boost", strong: "BOOST", text: " pays in the base" },
       { icon: "dump", strong: "DUMP", text: " pays out in the base" },
-      { icon: "graduation", strong: "Graduation", text: " seeds the base into the locked LP" },
+      { icon: "graduation", strong: "Graduation", text: " locks the base permanently in the Uniswap v4 LP" },
     ] as { icon: IconName; strong: string; text: string }[],
     sample: "SAMPLE · $HALO paired with USDG",
   },
