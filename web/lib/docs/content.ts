@@ -22,8 +22,7 @@ const ADDR_RE = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/;
  *  - StateView: poolManager() = PoolManager; getSlot0 on the smoke coin's v4 pool returns live state (used by the indexer).
  *  - UniversalRouter: poolManager() = PoolManager (canonical RH router; the app no longer routes through it).
  *  - Permit2: canonical address; DOMAIN_SEPARATOR() matches EIP-712 for chain 46630.
- * Not allowlisted (stays hidden): V4Quoter (the app quotes through DiscipleRouter.quoteExactIn, not V4Quoter),
- * test tokens, and every DISCIPLE contract (they change at the redeploy).
+ * Not allowlisted (stays hidden): test tokens and every DISCIPLE contract (they change at the redeploy).
  */
 const ADDR_ALLOW = new Set([
   "0x8366a39cc670b4001a1121b8f6a443a643e40951", // Uniswap v4 PoolManager

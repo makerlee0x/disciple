@@ -27,10 +27,11 @@ Each rocket also has its own BondingCurve. Find it from the Launchpad (`curveOf(
 | Contract | Address |
 |---|---|
 | PoolManager | `0x8366a39cc670b4001a1121b8f6a443a643e40951` |
-| V4Quoter | `0x8dc178efb8111bb0973dd9d722ebeff267c98f94` |
 | StateView | `0xf3334192d15450cdd385c8b70e03f9a6bd9e673b` |
 | UniversalRouter | `0x8876789976decbfcbbbe364623c63652db8c0904` |
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+
+**UniversalRouter and Permit2:** Genuine Uniswap contracts. The DISCIPLE app doesn't route trades through them.
 
 ## Network
 
