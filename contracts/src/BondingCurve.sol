@@ -787,7 +787,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     ///         involving the snapshotted router are not booked (it never holds tokens between calls).
     function onTokenTransfer(address from, address to, uint256 amount) external {
         if (msg.sender != token) revert OnlyToken();
-        if (graduated) return;
+        // audit round-3 HIGH: a self-transfer must be a no-op (it would settle the same slot twice and add `moved`
+        // back onto the same NET key)
+        if (graduated || from == to || amount == 0) return;
         address r = trustedRouter;
         if (from == r || to == r) return;
         uint256 fb = balanceOnCurve[from];

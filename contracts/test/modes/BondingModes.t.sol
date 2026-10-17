@@ -602,4 +602,142 @@ contract BondingModesTest is IntegrationBase {
         assertEq(c.rewardsHeld(), 0);
         assertGe(feeRouter.treasuryAccrued(address(quote)) - tr0, sq.profitTax, "tax accrued to treasury");
     }
+
+    // ── DISCIPLE audit round 3 HIGH: self-transfers must not touch NET / rewards ──
+
+    function test_m1_selfTransferInflatesNet() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 5 / 10));
+        uint256 net0 = c.balanceOnCurve(alice);
+        uint256 tn0 = c.totalNet();
+        uint256 cost0 = c.costBasisOf(alice);
+        uint256 bal = t.balanceOf(alice);
+        for (uint256 i; i < 4; ++i) {
+            vm.prank(alice);
+            t.transfer(alice, bal);
+        }
+        assertEq(c.balanceOnCurve(alice), net0, "NET unchanged");
+        assertEq(c.totalNet(), tn0, "totalNet unchanged");
+        assertEq(c.costBasisOf(alice), cost0, "basis unchanged");
+        // and the curve rejects a forged self-notification even if a token ever sent one
+        vm.prank(address(t));
+        c.onTokenTransfer(alice, alice, bal);
+        assertEq(c.balanceOnCurve(alice), net0);
+    }
+
+    function test_m1_selfTransferDoublesPending() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, carol, _quoteFor(c, ONE_PCT * 6 / 10));
+        _pump(c, 20_000);
+        _sellT(c, t, alice, ONE_PCT * 4 / 10); // taxed
+        uint256 cp = c.pendingRewards(carol);
+        uint256 held = c.rewardsHeld();
+        assertGt(cp, 0);
+        uint256 bal = t.balanceOf(carol);
+        vm.prank(carol);
+        t.transfer(carol, bal);
+        vm.prank(carol);
+        t.transferFrom(carol, carol, 0); // zero-value / self path
+        assertEq(c.pendingRewards(carol), cp, "pending not doubled");
+        assertEq(c.rewardsHeld(), held);
+    }
+
+    function test_m1_selfTransferUnbackedAccrual() public {
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, carol, _quoteFor(c, ONE_PCT * 6 / 10));
+        _buyQ(c, dave, _quoteFor(c, ONE_PCT * 3 / 10));
+        _pump(c, 20_000);
+        _sellT(c, t, alice, ONE_PCT * 4 / 10);
+        address[2] memory hs = [carol, dave];
+        for (uint256 k; k < 3; ++k) {
+            for (uint256 j; j < 2; ++j) {
+                uint256 b = t.balanceOf(hs[j]);
+                vm.prank(hs[j]);
+                t.transfer(hs[j], b);
+            }
+        }
+        address[] memory all = _pveHolders(c);
+        uint256 sum;
+        for (uint256 j; j < all.length; ++j) sum += c.pendingRewards(all[j]);
+        assertLe(sum, c.rewardsHeld() + all.length, "pending backed by rewardsHeld");
+        for (uint256 j; j < all.length; ++j) {
+            if (c.pendingRewards(all[j]) == 0) continue;
+            vm.prank(all[j]);
+            c.claim();
+        }
+        assertGe(quote.balanceOf(address(c)), c.quoteReserve(), "claims never dip into the reserve");
+    }
+
+    /// @dev every wallet that can hold NET in these tests: the 4 actors + the `_pump` wallets.
+    function _pveHolders(BondingCurve c) internal returns (address[] memory hs) {
+        hs = new address[](64);
+        hs[0] = alice;
+        hs[1] = bob;
+        hs[2] = carol;
+        hs[3] = dave;
+        uint256 n = 4;
+        for (uint256 i; i < 60; ++i) {
+            address w = makeAddr(string(abi.encodePacked("pump", vm.toString(i))));
+            if (c.balanceOnCurve(w) == 0 && c.pendingRewards(w) == 0 && IERC20(c.token()).balanceOf(w) == 0) break;
+            hs[n++] = w;
+        }
+        assembly {
+            mstore(hs, n)
+        }
+    }
+
+    function _checkPveInvariants(BondingCurve c, address[] memory hs) internal view {
+        uint256 sumNet;
+        uint256 sumPending;
+        for (uint256 j; j < hs.length; ++j) {
+            sumNet += c.balanceOnCurve(hs[j]);
+            sumPending += c.pendingRewards(hs[j]);
+        }
+        assertEq(sumNet, c.totalNet(), "NET conservation");
+        // each pendingRewards floors separately → allow ≤ 1 wei per holder of rounding in the protocol's favour
+        assertLe(sumPending, c.rewardsHeld() + hs.length, "sum(pending) <= rewardsHeld");
+        assertGe(quote.balanceOf(address(c)), c.quoteReserve() + c.rewardsHeld(), "curve solvent");
+    }
+
+    /// Random buys / sells / transfers (incl. self) / claims: NET conserved, rewards always backed.
+    /// forge-config: default.fuzz.runs = 24
+    function testFuzz_pveRewardsInvariant(uint256[] calldata ops) public {
+        vm.assume(ops.length > 0);
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, carol, _quoteFor(c, ONE_PCT * 5 / 10));
+        _pump(c, 20_000);
+        address[] memory hs = _pveHolders(c);
+        _sellT(c, t, alice, ONE_PCT * 3 / 10); // seed the reward pool
+        _checkPveInvariants(c, hs);
+        uint256 n = ops.length > 24 ? 24 : ops.length;
+        for (uint256 i; i < n; ++i) {
+            uint256 op = ops[i];
+            address a = hs[op % hs.length];
+            address b = hs[(op >> 8) % hs.length];
+            uint256 kind = (op >> 16) % 5;
+            uint256 bal = t.balanceOf(a);
+            uint256 amt = bal * ((op >> 24) % 10_001) / 10_000;
+            vm.startPrank(a);
+            if (kind == 0) {
+                uint256 q = ((op >> 40) % 2_000 + 1) * 1 ether;
+                quote.mint(a, q);
+                quote.approve(address(c), q);
+                try c.buy(q, 0, vm.getBlockTimestamp() + 1) {} catch {}
+            } else if (kind == 1) {
+                t.approve(address(c), amt);
+                try c.sell(amt, 0, vm.getBlockTimestamp() + 1) {} catch {}
+            } else if (kind == 2) {
+                try t.transfer(b, amt) {} catch {}
+            } else if (kind == 3) {
+                t.transfer(a, amt);
+            } else if (c.pendingRewards(a) != 0) {
+                c.claim();
+            }
+            vm.stopPrank();
+            _checkPveInvariants(c, hs);
+        }
+    }
 }

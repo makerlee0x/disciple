@@ -69,7 +69,7 @@ contract Token is ERC20, ERC20Permit, IToken {
 
     function _update(address from, address to, uint256 value) internal override {
         super._update(from, to, value);
-        if (pveHooks && from != address(0) && to != address(0) && value != 0) {
+        if (pveHooks && from != to && from != address(0) && to != address(0) && value != 0) {
             address c = pveCurve;
             // curve buys/sells/graduation move tokens to/from the curve: the curve books those itself
             if (pveLive && from != c && to != c) IPveCurveHook(c).onTokenTransfer(from, to, value);
