@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
 import PnlHud from "@/components/PnlHud";
 import TradeBridge from "@/components/TradeBridge";
+import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import { ARCHETYPES, cloneConfig, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
 import { SimDriver } from "@/lib/sim/driver";
@@ -115,7 +116,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       {banner && phase === "run" && (
         <div data-testid={`sim-banner-${banner.kind}`} style={{ ...panel, position: "fixed", left: "50%", top: 150, transform: "translateX(-50%)", padding: "10px 18px", zIndex: 32, fontSize: banner.kind === "whale" ? 13 : 18, fontWeight: 800, letterSpacing: 1,
           borderColor: banner.kind === "rug" ? "#ff6b7d" : banner.kind === "cto" ? "#8ff0c0" : "#ffd24a", color: banner.kind === "rug" ? "#ff8f9f" : banner.kind === "cto" ? "#8ff0c0" : "#ffe7a3" }}>
-          {banner.kind === "rug" ? "☠ " : banner.kind === "cto" ? "✊ " : banner.kind === "graduate" ? "✦ " : "🐋 "}{banner.text}
+          {banner.kind === "rug" ? "☠ " : banner.kind === "cto" ? "✊ " : banner.kind === "graduate" ? <><Icon name="graduation" size={18} />{" "}</> : "🐋 "}{banner.text}
         </div>
       )}
       {phase === "select" && (
