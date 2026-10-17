@@ -7,8 +7,10 @@ import "server-only";
  */
 import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { withRelayer } from "./relayer";
 import { robinhoodTestnet } from "../chains";
-import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, userOpHash, type UserOp } from "../aa/core";
+import { userOpHash, type UserOp } from "../aa/core";
+import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -16,17 +18,28 @@ const epAbi = parseAbi([
   "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
 ]);
 const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
+const execUserOpAbi = parseAbi([
+  "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
+  "function executeUserOp(P userOp, bytes32 userOpHash)",
+]);
+const EXECUTE_USER_OP = "0x8dd7712f";
 const implAbi = parseAbi(["function ACCOUNT_IMPLEMENTATION() view returns (address)"]);
+const mav2ImplAbi = parseAbi(["function SEMI_MODULAR_ACCOUNT_IMPL() view returns (address)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
 const p16 = (x?: Hex) => pad(x || "0x0", { size: 16 });
-const pack = (op: UserOp) => ({
+export const packUserOp = (op: UserOp) => ({
+  ...packFields(op),
+});
+const packFields = (op: UserOp) => ({
   sender: op.sender, nonce: BigInt(op.nonce), initCode: op.factory ? concat([op.factory, op.factoryData!]) : ("0x" as Hex), callData: op.callData,
   accountGasLimits: concat([p16(op.verificationGasLimit), p16(op.callGasLimit)]), preVerificationGas: BigInt(op.preVerificationGas || "0x0"),
   gasFees: concat([p16(op.maxPriorityFeePerGas), p16(op.maxFeePerGas)]),
   paymasterAndData: op.paymaster ? concat([op.paymaster, p16(op.paymasterVerificationGasLimit), p16(op.paymasterPostOpGasLimit), op.paymasterData || "0x"]) : ("0x" as Hex),
   signature: op.signature,
 });
+const pack = packUserOp;
 let implCode: Hex | undefined;
+let mav2ImplCode: Hex | undefined;
 
 /** Error carrying the inner call's revert data so /api/bundler can return it as JSON-RPC error.data (client decodes it). */
 export class BundlerRpcError extends Error { constructor(msg: string, public data?: Hex) { super(msg); } }
@@ -40,20 +53,35 @@ function estimateError(e: unknown): BundlerRpcError {
 export async function selfBundle(method: string, params: unknown[]): Promise<unknown> {
   switch (method) {
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
+    case "disciple_sendUserOperationSync": { const { sendUserOperationSync } = await import("./fastRelay"); return sendUserOperationSync(params[0] as UserOp); }
+    case "disciple_warm": { const { warmRelay } = await import("./fastRelay"); await warmRelay(typeof params[0] === "string" ? params[0] : undefined); return true; }
     case "eth_supportedEntryPoints": return [ENTRYPOINT_V07];
     case "rundler_maxPriorityFeePerGas": return "0xf4240"; // 0.001 gwei
-    case "alchemy_requestGasAndPaymasterAndData": throw new Error("Gas sponsorship is not enabled for this app (self-bundler)");
     case "eth_estimateUserOperationGas": {
       const op = params[0] as UserOp;
       const code = await pc.getCode({ address: op.sender });
       let stateOverride;
       if (!code || code === "0x") {
-        // not deployed yet: estimate execution against the LightAccount implementation code at the sender address
-        if (!implCode) implCode = await pc.getCode({ address: await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: implAbi, functionName: "ACCOUNT_IMPLEMENTATION" }) });
-        stateOverride = [{ address: op.sender, code: implCode }];
+        // not deployed yet: estimate execution against the account implementation code at the sender address
+        const f = op.factory?.toLowerCase();
+        if (!f) throw new BundlerRpcError(`account ${op.sender} is not deployed and the userOp has no factory/initCode`);
+        if (f === MAV2_FACTORY.toLowerCase()) {
+          if (!mav2ImplCode) mav2ImplCode = await pc.getCode({ address: await pc.readContract({ address: MAV2_FACTORY, abi: mav2ImplAbi, functionName: "SEMI_MODULAR_ACCOUNT_IMPL" }) });
+          stateOverride = [{ address: op.sender, code: mav2ImplCode }];
+        } else if (f === LIGHT_ACCOUNT_V2_FACTORY.toLowerCase()) {
+          if (!implCode) implCode = await pc.getCode({ address: await pc.readContract({ address: LIGHT_ACCOUNT_V2_FACTORY, abi: implAbi, functionName: "ACCOUNT_IMPLEMENTATION" }) });
+          stateOverride = [{ address: op.sender, code: implCode }];
+        } else {
+          throw new BundlerRpcError(`unsupported account factory ${op.factory} (self-bundler supports MAv2 and LightAccount v2)`);
+        }
       }
       let g: bigint;
-      try { g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data: op.callData, stateOverride }); }
+      // ERC-4337 v0.7: callData prefixed with executeUserOp ⇒ the EntryPoint calls account.executeUserOp(op, hash)
+      // (MAv2 uses it when the validation has execution hooks, e.g. DiscipleSessionPolicy session keys).
+      const data = op.callData.slice(0, 10).toLowerCase() === EXECUTE_USER_OP
+        ? encodeFunctionData({ abi: execUserOpAbi, functionName: "executeUserOp", args: [pack({ ...op, signature: "0x" }), userOpHash({ ...op, callGasLimit: op.callGasLimit || "0x0", verificationGasLimit: op.verificationGasLimit || "0x0", preVerificationGas: op.preVerificationGas || "0x0", maxFeePerGas: op.maxFeePerGas || "0x0", maxPriorityFeePerGas: op.maxPriorityFeePerGas || "0x0" }, robinhoodTestnet.id)] })
+        : op.callData;
+      try { g = await pc.estimateGas({ account: ENTRYPOINT_V07, to: op.sender, data, stateOverride }); }
       catch (e) { throw estimateError(e); }
       return { callGasLimit: numberToHex(g * BigInt(13) / BigInt(10) + BigInt(20000)), verificationGasLimit: numberToHex(op.factory ? 450000 : 150000), preVerificationGas: numberToHex(60000) };
     }
@@ -66,19 +94,26 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
       const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
-      const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
-      const blk = await pc.getBlock();
-      const base = blk.baseFeePerGas ?? BigInt(0);
-      let networkGas = BigInt(0);
-      try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
-      const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
-      const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
-      const hash = await wc.sendTransaction({
-        to: ENTRYPOINT_V07, data, gas,
-        maxFeePerGas: maxFee,
-        maxPriorityFeePerGas: priority,
+      // one relayer send at a time (+ nonce retry): concurrent ops otherwise reuse the relayer's pending nonce
+      const hash = await withRelayer(async () => {
+        const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
+        const blk = await pc.getBlock();
+        const base = blk.baseFeePerGas ?? BigInt(0);
+        let networkGas = BigInt(0);
+        try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
+        const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
+        const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
+        const { sendWithRelayerNonce } = await import("./fastRelay");
+        return sendWithRelayerNonce((nonce) => wc.sendTransaction({
+          to: ENTRYPOINT_V07, data, gas, nonce,
+          maxFeePerGas: maxFee,
+          maxPriorityFeePerGas: priority,
+        }));
       });
       const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
+      // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
+      // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
+      if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender).catch(() => undefined); }
       if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
       if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);

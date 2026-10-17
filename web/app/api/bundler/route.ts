@@ -12,16 +12,24 @@ export const dynamic = "force-dynamic";
 const ALLOWED = new Set([
   "eth_chainId", "eth_supportedEntryPoints", "eth_sendUserOperation", "eth_estimateUserOperationGas",
   "eth_getUserOperationReceipt", "eth_getUserOperationByHash", "rundler_maxPriorityFeePerGas",
-  "alchemy_requestGasAndPaymasterAndData",
 ]);
+/** One-round-trip trade path (lib/server/fastRelay): self-bundler only. With Alchemy these answer -32601 → standard flow. */
+const SELF_ONLY = new Set(["disciple_sendUserOperationSync", "disciple_warm"]);
+/** Self-pay only: no gas policy / paymaster. Rejected explicitly so clients see why, not "method not allowed". */
+const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
 export async function POST(req: Request) {
   const key = process.env.ALCHEMY_API_KEY || process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
   let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
-  if (Array.isArray(body) || !body.method || !ALLOWED.has(body.method))
+  if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: gas sponsorship is disabled (self-pay only, no paymaster)` } }, { status: 400 });
+  const selfOnly = !!body?.method && SELF_ONLY.has(body.method);
+  if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1")
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: self-bundler only` } });
+  if (Array.isArray(body) || !body.method || (!ALLOWED.has(body.method) && !selfOnly))
     return NextResponse.json({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32601, message: "method not allowed" } }, { status: 400 });
-  if (key && process.env.AA_SELF_BUNDLER !== "1") {
+  if (key && process.env.AA_SELF_BUNDLER !== "1" && !selfOnly) {
     const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const text = await r.text();
     // Alchemy key rejected (401 "Must be authenticated!") ⇒ fall back to the built-in self-bundler.
