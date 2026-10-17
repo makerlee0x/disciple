@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   try {
     const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: privateKeyToAccount(key) });
     const send = (nonce?: number) => wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal, ...(nonce === undefined ? {} : { nonce }) });
-    // same EOA as the self-bundler relayer (RELAYER_PRIVATE_KEY unset) ⇒ share its nonce cursor; else plain serialized send
+    // same EOA as the self-bundler relayer (RELAYER_PRIVATE_KEY unset, non-production only) ⇒ share its nonce cursor; else plain serialized send
     const hash = relayerIsFaucet()
       ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send))
       : await withRelayer(() => send());

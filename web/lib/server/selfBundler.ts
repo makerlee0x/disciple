@@ -1,7 +1,7 @@
 import "server-only";
 /**
  * Minimal ERC-4337 v0.7 bundler for RH testnet, used by /api/bundler when Alchemy rejects the key
- * (or AA_SELF_BUNDLER=1). The relayer (RELAYER_PRIVATE_KEY, fallback DRIP_FAUCET_KEY) submits EntryPoint.handleOps and
+ * (or AA_SELF_BUNDLER=1). The relayer (RELAYER_PRIVATE_KEY; DRIP_FAUCET_KEY fallback outside production only) submits EntryPoint.handleOps and
  * is refunded by the EntryPoint from the account's prefund at the op's gas price. lib/aa/gasPolicy enforces that the
  * op's fees cover the relayer's price and caps its gas, so it is cost-neutral apart from failed sims (we eth_call first).
  * Stateless (serverless-safe): receipts come from EntryPoint UserOperationEvent logs.
@@ -88,8 +88,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       return { callGasLimit: numberToHex(g * BigInt(13) / BigInt(10) + BigInt(20000)), verificationGasLimit: numberToHex(op.factory ? 450000 : 150000), preVerificationGas: numberToHex(60000) };
     }
     case "eth_sendUserOperation": {
-      const key = relayerKey();
-      if (!key) throw new Error("self-bundler not configured");
+      const key = relayerKey(); // production: throws RelayerNotConfiguredError (→ 503) unless a dedicated relayer key is set
       const op = params[0] as UserOp;
       const relayer = privateKeyToAccount(key);
       // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)

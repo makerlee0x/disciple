@@ -5,6 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import { selfBundle } from "@/lib/server/selfBundler";
+import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, type LimitResult } from "@/lib/server/limits";
 
@@ -57,6 +58,9 @@ export async function POST(req: Request) {
     const result = await selfBundle(body.method, body.params || []);
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, result });
   } catch (e) {
+    // production without a dedicated RELAYER_PRIVATE_KEY (or set to the faucet key): fail closed, never sign with the faucet
+    if (isRelayerNotConfigured(e))
+      return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data: (e as { data?: string }).data } });
   }

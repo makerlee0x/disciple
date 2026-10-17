@@ -33,9 +33,7 @@ let base = { fee: BigInt(0), at: 0 }, baseInflight: Promise<void> | undefined;
 let syncSupported: boolean | undefined;
 
 function account() {
-  const key = relayerKey();
-  if (!key) throw new Error("self-bundler not configured");
-  return (relayer ??= privateKeyToAccount(key));
+  return (relayer ??= privateKeyToAccount(relayerKey())); // production: RelayerNotConfiguredError (→ 503), never the faucet key
 }
 async function syncNonce(): Promise<number> {
   return (nonceSync ??= pc.getTransactionCount({ address: account().address, blockTag: "pending" }).then((n) => { nextNonce = n; return n; }).finally(() => { nonceSync = undefined; }));
@@ -102,6 +100,7 @@ export function trusted(op: UserOp): boolean {
 
 /** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
 export async function warmRelay(sender?: string) {
+  account(); // fail closed (production, no dedicated relayer key) before any RPC
   await Promise.all([nextNonce === undefined ? syncNonce() : 0, baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
 }
 
