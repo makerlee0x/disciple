@@ -186,13 +186,16 @@ export function routerSellCalls(a: { account: Address; router: Address; token: A
 /* ---------- USDG-in / USDG-out (DiscipleRouter.buyWithUsdg / sellToUsdg) ----------
  * The frontend always pays in USDG; the router hops USDG <-> the coin's quote through an owner-registered pool, then
  * the curve (pre-grad) or the coin's v4 pool (post-grad). Recipient is pinned on-chain to msg.sender (the account).
- * minOut is END-TO-END: tokens on buys, USDG on sells. Quote it with `quoteUsdgRoute` (eth_call / simulateContract).
+ * minOut is END-TO-END: tokens on buys, USDG on sells. Quote it with `quoteUsdgRouteFor(account, …)` (eth_call /
+ * simulateContract) so PVE login / NET caps / profit tax are evaluated for the smart account (the session policy
+ * checks minOut against exactly that quote). `quoteUsdgRoute` quotes for the eth_call `from`.
  * The session policy only accepts a USDG approve to the router for EXACTLY the batch's buyWithUsdg total, so always
  * send the approve and the buy in the same batch (these builders do). No Permit2 / UniversalRouter. */
 export const usdgRouterAbi = parseAbi([
   "function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline) returns (uint256 tokensOut)",
   "function sellToUsdg(address token, uint256 tokensIn, uint256 minUsdgOut, uint256 deadline) returns (uint256 usdgOut)",
   "function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
+  "function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
   "function usdg() view returns (address)",
 ]);
 

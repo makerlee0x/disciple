@@ -11,6 +11,9 @@ import {PackedUserOperation} from "../../src/session/IERC6900.sol";
 import {MockMAv2} from "../session/DiscipleSessionPolicy.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {LoginGate} from "../../src/LoginGate.sol";
+import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
+import {Constants} from "../../src/libraries/Constants.sol";
 
 /// @notice DiscipleRouter.buyWithUsdg / sellToUsdg: the frontend pays in USDG, the router hops USDG<->quote through
 ///         the owner-registered USDG/quote pool, then the curve (pre-grad) or the coin's v4 pool (post-grad).
@@ -359,4 +362,54 @@ contract UsdgRouterTest is IntegrationBase {
         _uo(cs);
     }
 
+
+    /// DISCIPLE audit Medium-2: session USDG quotes are for the ACCOUNT, so a PVE session buy works (the policy
+    /// contract itself is not logged in) and the sell floor includes the account's profit tax.
+    function test_sessionPveBuyQuotedForAccount() public {
+        uint256 pk = 0xA77E57;
+        LoginGate gate = new LoginGate(owner, vm.addr(pk));
+        vm.prank(owner);
+        launchpad.setLoginGate(address(gate));
+        vm.prank(creator);
+        ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(
+            ILaunchpad.LaunchParams({
+                name: "P",
+                ticker: "P",
+                imageURI: "i",
+                description: "",
+                socialsURI: "",
+                quote: address(quote),
+                creatorTaxBps: 0,
+                creatorBuyQuoteIn: 0,
+                creatorBuyMinTokensOut: 0,
+                deadline: block.timestamp + 1 days
+            }),
+            Constants.MODE_PVE
+        );
+        Token pTok = Token(r.token);
+        vm.roll(block.number + 1);
+        _installSession(150 ether);
+        uint64 exp = uint64(vm.getBlockTimestamp() + 12 hours);
+        (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp, address(0)));
+        gate.attest(address(acct), exp, address(0), abi.encodePacked(rr, ss, v));
+
+        // the policy (msg.sender of the old quote path) is not verified → old behaviour reverted NotVerified
+        vm.prank(address(policy));
+        vm.expectRevert(BondingCurve.NotVerified.selector);
+        router.quoteUsdgRoute(address(pTok), true, 10 ether);
+
+        (uint256 q,) = router.quoteUsdgRouteFor(address(acct), address(pTok), true, 10 ether);
+        MockMAv2.Call[] memory cs = new MockMAv2.Call[](2);
+        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(router), 10 ether)));
+        cs[1] = MockMAv2.Call(
+            address(router), 0, abi.encodeCall(DiscipleRouter.buyWithUsdg, (address(pTok), 10 ether, q, _dl()))
+        );
+        _uo(cs);
+        assertEq(pTok.balanceOf(address(acct)), q, "PVE session buy executed at the account's quote");
+
+        // sell floor: the account's quote nets out its PVE profit tax (zero-basis callers would be looser)
+        uint256 bal = pTok.balanceOf(address(acct));
+        (uint256 qs,) = router.quoteUsdgRouteFor(address(acct), address(pTok), false, bal);
+        assertEq(qs, BondingCurve(r.curve).quoteSellFor(address(acct), bal).quoteOut);
+    }
 }

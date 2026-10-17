@@ -382,25 +382,34 @@ contract DiscipleRouter is IUnlockCallback {
         public
         returns (uint256 amountOut, uint256 maxHopImpactBps)
     {
+        return quoteUsdgRouteFor(msg.sender, token, isBuy, amountIn);
+    }
+
+    /// @notice quoteUsdgRoute for an explicit `trader` (DISCIPLE audit Medium-2): curve mode rules, PVE login and
+    ///         the PVE profit tax are evaluated for `trader` (e.g. the smart account, when a session policy asks).
+    function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
+        public
+        returns (uint256 amountOut, uint256 maxHopImpactBps)
+    {
         address u = usdg;
         if (u == address(0)) revert UsdgNotConfigured();
         (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
         if (grad) {
             Hop[] memory hops = isBuy ? _buyHops(u, q, token, dkey) : _sellHops(u, q, token, dkey);
-            return _simulate(hops, amountIn, address(0));
+            return _simulate(trader, hops, amountIn, address(0));
         }
-        // Curve quotes are for the caller (eth_call `from`): mode caps, PVE login and the PVE profit tax apply.
+        // Curve quotes are for `trader`: mode caps, PVE login and the PVE profit tax apply.
         if (isBuy) {
-            if (q == u) return _curveBuyQuote(curve, msg.sender, amountIn);
+            if (q == u) return _curveBuyQuote(curve, trader, amountIn);
             Hop[] memory h = new Hop[](1);
             h[0] = _usdgHop(u, q, true);
-            return _simulate(h, amountIn, curve);
+            return _simulate(trader, h, amountIn, curve);
         }
-        (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, msg.sender, amountIn);
+        (uint256 qOut, uint256 cImp) = _curveSellQuote(curve, trader, amountIn);
         if (q == u) return (qOut, cImp);
         Hop[] memory h2 = new Hop[](1);
         h2[0] = _usdgHop(u, q, false);
-        (amountOut, maxHopImpactBps) = _simulate(h2, qOut, address(0));
+        (amountOut, maxHopImpactBps) = _simulate(trader, h2, qOut, address(0));
         if (cImp > maxHopImpactBps) maxHopImpactBps = cImp;
     }
 
@@ -508,7 +517,7 @@ contract DiscipleRouter is IUnlockCallback {
         out = abi.decode(res, (uint256));
     }
 
-    function _simulate(Hop[] memory hops, uint256 amountIn, address curveAfter)
+    function _simulate(address trader, Hop[] memory hops, uint256 amountIn, address curveAfter)
         private
         returns (uint256 out, uint256 maxImpact)
     {
@@ -516,7 +525,7 @@ contract DiscipleRouter is IUnlockCallback {
             uint8(1),
             abi.encode(
                 RouteData({
-                    payer: msg.sender, // simulate: the quoted trader (curveAfter quote + hook attribution only)
+                    payer: trader, // simulate: the quoted trader (curveAfter quote + hook attribution only)
                     recipient: address(0),
                     hops: hops,
                     amountIn: amountIn,

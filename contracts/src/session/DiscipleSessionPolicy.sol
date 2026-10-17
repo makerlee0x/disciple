@@ -12,8 +12,8 @@ interface IQuoteSources {
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
-    // DiscipleRouter USDG route quote (simulate-and-revert)
-    function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn)
+    // DiscipleRouter USDG route quote for an explicit trader (simulate-and-revert)
+    function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 maxHopImpactBps);
     function usdg() external view returns (address);
@@ -355,7 +355,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             // against the router's own multi-hop quote at this state. The cap counts USDG spent.
             (address token, uint256 amountIn, uint256 minOut) = abi.decode(args, (address, uint256, uint256));
             bool isBuy = sel == ROUTER_BUY_USDG;
-            _checkMinOut(c, minOut, _usdgRouteQuote(k.target, token, isBuy, amountIn), k.target);
+            _checkMinOut(c, minOut, _usdgRouteQuote(k.target, account, token, isBuy, amountIn), k.target);
             if (isBuy) (add0, add1) = _spend(c, usdg, amountIn);
         } else if (p == P_ROUTER_BUY || p == P_ROUTER_SELL) {
             (address token, uint256 amountIn, uint256 minOut, address recipient,) =
@@ -370,7 +370,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
                 if (recipient != account) revert RecipientNotAccount();
             }
             (uint256 amountIn, uint256 minOut) = abi.decode(args, (uint256, uint256));
-            _checkMinOut(c, minOut, _curveQuote(k.target, p == P_CURVE_BUY, amountIn), k.target);
+            _checkMinOut(c, minOut, _curveQuote(k.target, account, p == P_CURVE_BUY, amountIn), k.target);
             if (p == P_CURVE_BUY) (add0, add1) = _spend(c, IQuoteOf(k.target).quote(), amountIn);
         } else if (p == P_ANON_LAUNCH) {
             // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
@@ -456,11 +456,13 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         }
     }
 
-    function _usdgRouteQuote(address router, address token, bool isBuy, uint256 amountIn)
+    /// @dev DISCIPLE audit Medium-2: quoted for the ACCOUNT (not this policy contract), so PVE login, NET caps and
+    ///      the PVE profit tax match the real trade.
+    function _usdgRouteQuote(address router, address account, address token, bool isBuy, uint256 amountIn)
         internal
         returns (uint256 out)
     {
-        try IQuoteSources(router).quoteUsdgRoute(token, isBuy, amountIn) returns (uint256 o, uint256) {
+        try IQuoteSources(router).quoteUsdgRouteFor(account, token, isBuy, amountIn) returns (uint256 o, uint256) {
             out = o;
         } catch {
             revert QuoteFailed(router);
@@ -529,10 +531,18 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         }
     }
 
-    /// @dev BondingCurve.quoteBuy / quoteSell return all-static structs whose first word is the net output.
-    function _curveQuote(address curve, bool isBuy, uint256 amountIn) internal view returns (uint256) {
-        (bool ok, bytes memory r) =
-            curve.staticcall(abi.encodeWithSignature(isBuy ? "quoteBuy(uint256)" : "quoteSell(uint256)", amountIn));
+    /// @dev BondingCurve.quoteBuyFor / quoteSellFor(account, …) return all-static structs whose first word is the net
+    ///      output, with the account's mode caps / PVE login / PVE profit tax applied (audit Medium-2).
+    function _curveQuote(address curve, address account, bool isBuy, uint256 amountIn)
+        internal
+        view
+        returns (uint256)
+    {
+        (bool ok, bytes memory r) = curve.staticcall(
+            abi.encodeWithSignature(
+                isBuy ? "quoteBuyFor(address,uint256)" : "quoteSellFor(address,uint256)", account, amountIn
+            )
+        );
         if (!ok || r.length < 32) revert QuoteFailed(curve);
         return abi.decode(r, (uint256));
     }

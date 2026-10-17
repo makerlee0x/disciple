@@ -69,6 +69,14 @@ contract MockCurve {
         return BuyQuote(t, 0);
     }
 
+    function quoteBuyFor(address, uint256 q) external pure returns (BuyQuote memory) {
+        return BuyQuote(q, 0);
+    }
+
+    function quoteSellFor(address, uint256 t) external pure returns (BuyQuote memory) {
+        return BuyQuote(t, 0);
+    }
+
     function buy(uint256 q, uint256, uint256, address recipient) external returns (uint256) {
         quote.transferFrom(msg.sender, address(this), q);
         TKN(token).mint(recipient, q);
