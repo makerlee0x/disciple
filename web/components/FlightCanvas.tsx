@@ -6,6 +6,7 @@ import Icon from "@/components/ui/Icon";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
+import { gateFlightIcon } from "@/lib/flight/iconGate";
 import { BASE_PATH, withBase } from "@/lib/base-path";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { ACTIVE_CHAIN } from "@/lib/chains";
@@ -146,7 +147,8 @@ export default function FlightCanvas({ search }: Props) {
 
     boot();
     // Token decal loads in parallel with the engine; never blocks flight.
-    const icon = new URLSearchParams(search).get("icon");
+    // AUDIT: ?icon only from the moderated store (/api/image/<sha>); anything else → plain-rocket fallback
+    const icon = gateFlightIcon(new URLSearchParams(search).get("icon"));
     brandedRocket(icon).then(({ canvas, fallback }) => {
       if (!cancelled) window.__rocketDecal = { canvas, t0: performance.now(), fallback };
     });

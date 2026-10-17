@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { fmtUsd, nextUnlock } from "@/lib/config";
 import { brandedRocket } from "@/lib/decal";
+import { gateFlightIcon } from "@/lib/flight/iconGate";
 import Icon from "@/components/icons/Icon";
 
 type FlightWin = {
@@ -13,7 +14,7 @@ type FlightWin = {
 /** Exports a 1200×630 PNG share card: branded rocket, call sign, tier, $ market cap. */
 export async function renderShareCard(callSign: string, icon?: string | null): Promise<Blob> {
   const w = window as unknown as FlightWin;
-  const rocket = w.__rocketDecal?.canvas || (await brandedRocket(icon)).canvas;
+  const rocket = w.__rocketDecal?.canvas || (await brandedRocket(gateFlightIcon(icon))).canvas;   // AUDIT: moderated store only
   const mcap = w.__flight?.S?.confirmed?.mcap ?? 0;
   const tier = nextUnlock(mcap).current;
   const c = document.createElement("canvas"); c.width = 1200; c.height = 630;
