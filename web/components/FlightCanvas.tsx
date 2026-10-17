@@ -2,6 +2,7 @@
 
 import TouchGrass, { TouchGrassPill } from "./flight/TouchGrass";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
+import Icon from "@/components/ui/Icon";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
@@ -243,7 +244,7 @@ export default function FlightCanvas({ search }: Props) {
           boxShadow: "0 0 16px rgba(255,220,150,.35)",
         }}
       >
-        ✕
+        <Icon name="close" size={16} />
       </Link>
       <TouchGrass />
       {chatCoin && <GameChat coin={chatCoin} />}

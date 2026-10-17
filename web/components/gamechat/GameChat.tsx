@@ -1,7 +1,9 @@
 "use client";
 
+import type React from "react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { EMOTE_CODES, EMOTE_EMOJI, MAX_LEN, resolveChat, stressRate, synthMsg, type ChatApi, type ChatMsg, type ChatState } from "@/lib/gamechat/adapter";
+import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
 
 /**
@@ -11,10 +13,12 @@ import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type R
  * so it never covers the HUD or the ammo bar at any width. ≤200 rows, batched flushes, column-reverse scroller
  * (newest at the bottom with no scroll math on append).
  */
-const BADGE: Record<string, { i: string; t: string; c: string }> = {
-  believer: { i: "✝", t: "Believer", c: "#ffe7a3" }, trencher: { i: "⛏", t: "Trencher", c: "#c9b6f2" }, bomber: { i: "💣", t: "Bomber", c: "#ff9fb8" },
-  creator: { i: "★", t: "Creator", c: "#8fd8ff" }, whale: { i: "🐋", t: "Whale", c: "#8ff0c0" }, mod: { i: "🛡", t: "Moderator", c: "#9ff3c8" },
+const BADGE: Record<string, { i: React.ReactNode; t: string; c: string }> = {
+  believer: { i: <Icon name="believer" size={12} />, t: "Believer", c: "#ffe7a3" }, trencher: { i: <Icon name="trencher" size={12} />, t: "Trencher", c: "#c9b6f2" }, bomber: { i: <Icon name="bomb" size={12} />, t: "Bomber", c: "#ff9fb8" },
+  creator: { i: <Icon name="star" size={12} />, t: "Creator", c: "#8fd8ff" }, whale: { i: <Icon name="whale" size={12} />, t: "Whale", c: "#8ff0c0" }, mod: { i: <Icon name="shield" size={12} />, t: "Moderator", c: "#9ff3c8" },
 };
+/** gamechat tier name → DISCIPLE bomb tier index (0 puff … 5 atom) for the icon + orb meter */
+const TIER_IDX: Record<string, number> = { GRENADE: 1, BUNKER: 2, CRUISE: 3, NUKE: 4, ATOM: 5 };
 const STATE: Record<ChatState | "init", { c: string; t: string }> = {
   init: { c: "#888", t: "…" }, connecting: { c: "#ffd24a", t: "connecting" }, live: { c: "#5df29a", t: "live" }, reconnecting: { c: "#ffa04a", t: "reconnecting" }, closed: { c: "#ff6b7d", t: "offline" },
 };
@@ -157,7 +161,7 @@ export default function GameChat({ coin }: { coin: string }) {
       {unread > 0 && <button data-testid="chat-new" onClick={jump} style={{ position: "absolute", left: "50%", bottom: 78, transform: "translateX(-50%)", cursor: "pointer", font: `bold 11px ${mono}`,
         padding: "4px 12px", borderRadius: 12, border: "none", background: "#ffe7a3", color: "#151830", boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>↓ {unread > 99 ? "99+" : unread} new messages</button>}
       {err && <div data-testid="chat-error" style={{ margin: "0 8px 4px", padding: "5px 8px", borderRadius: 8, fontSize: 11, background: "rgba(255,107,125,.15)", border: "1px solid rgba(255,107,125,.45)", color: "#ffc0cb", display: "flex", gap: 8, alignItems: "center" }}>
-        <span>{err.kind === "rate" ? `⏳ ${err.msg} · retry in ${rl}s` : err.kind === "filtered" ? `⛔ ${err.msg}` : err.kind === "identity" ? `🔑 ${err.msg}` : `⚠ ${err.msg}`}</span>
+        <span><Icon name={err.kind === "rate" ? "pending" : err.kind === "filtered" ? "blocked" : err.kind === "identity" ? "key" : "warning"} size={12} /> {err.kind === "rate" ? `${err.msg} · retry in ${rl}s` : err.msg}</span>
         {err.kind === "identity" && <button data-testid="chat-login" onClick={doLogin} style={{ marginLeft: "auto", cursor: "pointer", font: `bold 11px ${mono}`, borderRadius: 6, border: "1px solid #ffe7a3", background: "transparent", color: "#ffe7a3", padding: "2px 8px" }}>Sign in</button>}
         {err.kind !== "rate" && err.kind !== "identity" && <button onClick={() => setErr(null)} style={{ marginLeft: "auto", all: "unset", cursor: "pointer", marginInlineStart: "auto" }}>×</button>}
       </div>}
@@ -192,13 +196,13 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
   if (m.kind === "event") {
     const ev = m.meta?.event, g = row.group, bps = m.meta?.impactBps || 0, tier = ev === "sell" ? bombTier(bps) : null;
     const who = m.from ? (m.from.name || shortAddr(m.from.addr)) : "";
-    if (ev === "graduate") return <div data-kind="graduate" style={{ ...rowStyle, margin: "3px 0", padding: "4px 6px", borderRadius: 6, background: "rgba(255,231,163,.14)", color: "#ffe7a3", fontWeight: 800 }}>🎓 GRADUATED · Pearly Gates {m.meta?.usd ? fmtUsd(m.meta.usd) : ""}</div>;
+    if (ev === "graduate") return <div data-kind="graduate" style={{ ...rowStyle, margin: "3px 0", padding: "4px 6px", borderRadius: 6, background: "rgba(255,231,163,.14)", color: "#ffe7a3", fontWeight: 800 }}><Icon name="graduation" size={14} /> GRADUATED · Pearly Gates {m.meta?.usd ? fmtUsd(m.meta.usd) : ""}</div>;
     const buy = ev === "buy", col = buy ? "#8ff0c0" : "#ffb0c8";
-    if (g) return <div data-kind="group" style={{ ...rowStyle, fontSize: 11, color: col, opacity: 0.85, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}>{buy ? "🚀" : "🔻"} {g.n} {buy ? "buys" : "sells"} · {fmtUsd(g.usd)}</div>;
+    if (g) return <div data-kind="group" style={{ ...rowStyle, fontSize: 11, color: col, opacity: 0.85, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}><Icon name={buy ? "rocket" : "dump"} size={12} /> {g.n} {buy ? "buys" : "sells"} · {fmtUsd(g.usd)}</div>;
     if (tier) return <div data-kind="bomb" style={{ ...rowStyle, margin: "2px 0", padding: "3px 6px", borderRadius: 6, background: `${tier.color}22`, borderLeft: `3px solid ${tier.color}`, fontSize: 11.5 }}>
-      <b style={{ color: tier.color, letterSpacing: 1 }}>{tier.name === "ATOM" ? "☢ ATOM" : tier.name === "NUKE" ? "☢ NUKE" : "💥 " + tier.name}</b>{" "}
+      <b style={{ color: tier.color, letterSpacing: 1 }}><BombTierIcons tier={TIER_IDX[tier.name] ?? 1} size={13} /> {tier.name}</b>{" "}
       <span style={{ color: "#ffd0dc" }}>−{(Math.abs(bps) / 100).toFixed(1)}% · {fmtUsd(m.meta?.usd || 0)}</span> <span style={{ opacity: 0.7 }}>{who}</span></div>;
-    return <div data-kind={ev} style={{ ...rowStyle, fontSize: 11, color: col, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}>{buy ? "🚀" : "🔻"} {who} {buy ? "bought" : "sold"} {fmtUsd(m.meta?.usd || 0)}{bps ? <span style={{ opacity: 0.7 }}> ({buy ? "+" : "−"}{(Math.abs(bps) / 100).toFixed(1)}%)</span> : null}</div>;
+    return <div data-kind={ev} style={{ ...rowStyle, fontSize: 11, color: col, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}><Icon name={buy ? "rocket" : "dump"} size={12} /> {who} {buy ? "bought" : "sold"} {fmtUsd(m.meta?.usd || 0)}{bps ? <span style={{ opacity: 0.7 }}> ({buy ? "+" : "−"}{(Math.abs(bps) / 100).toFixed(1)}%)</span> : null}</div>;
   }
   const f = m.from, b = f?.badge ? BADGE[f.badge] : null;
   return <div style={rowStyle}>
@@ -210,10 +214,10 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
 
 function HoldersView({ h }: { h: Holders | null }) {
   return <div data-testid="holders-list" style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "thin" }}>
-    <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top fuelers"}</div>
+    <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top boosters"}</div>
     {!h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no fuelers yet</div> : h.rows.map(([w, v], i) =>
       <div key={w} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", color: w === "you" ? "#9ff3c8" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : 400 }}>
-        <span>{i === 0 ? "👑" : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
+        <span>{i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
     {h && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your fuel: {fmtUsd(h.you)}</div>}
   </div>;
 }
