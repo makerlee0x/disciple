@@ -141,7 +141,7 @@ export interface SimAchievement { id: string; title: string; sub: string }
 export const SIM_ACHIEVEMENTS: SimAchievement[] = [
   { id: "graduate", title: "OUTER SPACE", sub: "the coin graduated to the pool" },
   { id: "angels", title: "WINGS", sub: "peak mcap reached MORNING STARS ($100K)" },
-  { id: "million", title: "MORNING STAR", sub: "peak mcap reached $1.2M" },
+  { id: "million", title: "URANUS", sub: "peak mcap reached $1.2M" },
   { id: "green", title: "IN THE GREEN", sub: "finished with positive PnL" },
   { id: "top3", title: "PODIUM", sub: "top 3 by PnL vs the bots" },
   { id: "survivor", title: "RUG SURVIVOR", sub: "finished green in a run with a rug" },
