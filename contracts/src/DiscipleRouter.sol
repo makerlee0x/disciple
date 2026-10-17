@@ -41,7 +41,7 @@ interface IUsdgCurve {
     function sell(uint256 tokensIn, uint256 minQuoteOut, uint256 deadline, address recipient) external returns (uint256);
     function routerBuy(address trader, uint256 quoteIn, uint256 minTokensOut, uint256 deadline, uint256 maxImpactBps)
         external
-        returns (uint256);
+        returns (uint256 tokensOut, uint256 refund);
     function routerSell(
         address trader,
         uint256 tokensIn,
@@ -104,6 +104,8 @@ contract DiscipleRouter is IUnlockCallback {
     event UsdgRoutingSet(address indexed usdg, address indexed launchpad);
     event UsdgPoolSet(address indexed quote, PoolKey key);
     event UsdgPoolRemoved(address indexed quote);
+    /// @notice Graduating curve buy refund: `quoteRefund` of the coin's quote returned as `usdgRefund` USDG.
+    event UsdgRefund(address indexed trader, address indexed token, uint256 quoteRefund, uint256 usdgRefund);
     event UsdgTrade(
         address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve
     );
@@ -320,7 +322,21 @@ contract DiscipleRouter is IUnlockCallback {
             } else {
                 IERC20(u).safeTransferFrom(msg.sender, curve, usdgIn);
             }
-            tokensOut = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, maxImpactBps);
+            uint256 refund;
+            (tokensOut, refund) = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, maxImpactBps);
+            if (refund != 0) {
+                // Graduating buy: unused quote comes back here. DISCIPLE audit #6: return it in USDG (swap the
+                // intermediate quote back through the same registered pool); USDG-quoted coins: plain transfer.
+                uint256 usdgRefund = refund;
+                if (q != u) {
+                    Hop[] memory hb = new Hop[](1);
+                    hb[0] = _usdgHop(u, q, false);
+                    usdgRefund = _route(address(this), msg.sender, hb, refund);
+                } else {
+                    IERC20(u).safeTransfer(msg.sender, refund);
+                }
+                emit UsdgRefund(msg.sender, token, refund, usdgRefund);
+            }
         }
         if (tokensOut < minTokensOut) revert Slippage();
         emit UsdgTrade(msg.sender, token, true, usdgIn, tokensOut, !grad);

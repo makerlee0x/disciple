@@ -100,11 +100,12 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     mapping(address => Acct) internal _acct;
-    /// @notice MasterChef reward debt (quote, 1e18-scaled accumulator) per holder.
+    /// @notice MasterChef reward debt (quote, 1e36-scaled accumulator) per holder.
     mapping(address => uint256) public rewardDebt;
     /// @notice Settled but unclaimed holder rewards (quote raw).
     mapping(address => uint256) public rewardsAccrued;
-    /// @notice Profit-tax reward per NET curve token, scaled 1e18.
+    uint256 internal constant ACC_SCALE = 1e36;
+    /// @notice Profit-tax reward per NET curve token, scaled 1e36 (ACC_SCALE).
     uint256 public accRewardPerToken;
     /// @notice Sum of all NET curve positions (PVE only) — the accumulator denominator.
     uint256 public totalNet;
@@ -272,16 +273,34 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (q.tokensOut == remaining && remaining > 0) {
             uint256 needCurve = CurveMath.quoteInForTokens(_params, tokensSold, remaining) + 1;
             if (needCurve < q.quoteToCurve) {
-                // gross-up estimate (fees are linear in quoteIn), then bump until it still buys `remaining`
+                // DISCIPLE audit #8: binary search for the smallest spend that still buys `remaining` (the old 8-step
+                // bump could stop early and overcharge). Start from the linear gross-up estimate; `hi` always buys
+                // `remaining` (quoteIn does by construction), so the result is never worse than no refund.
                 uint256 used = Math.mulDiv(needCurve, quoteIn, q.quoteToCurve, Math.Rounding.Ceil);
-                BuyQuote memory u;
-                for (uint256 i; i < 8 && used < quoteIn; ++i) {
-                    u = _quoteBuyRaw(used, snipeExempt);
-                    if (u.tokensOut >= remaining) break;
-                    used += 1 + used / 1e12;
+                uint256 lo;
+                uint256 hi = quoteIn;
+                if (used < quoteIn) {
+                    uint256 probe = used + used / 1e9 + 1; // tight upper guess first (usually enough)
+                    if (probe < quoteIn && _quoteBuyRaw(probe, snipeExempt).tokensOut >= remaining) hi = probe;
+                    lo = used > 0 ? used - 1 : 0;
+                    if (lo < hi && _quoteBuyRaw(lo, snipeExempt).tokensOut >= remaining) {
+                        hi = lo;
+                        lo = hi - hi / 1e6 - 1;
+                        if (_quoteBuyRaw(lo, snipeExempt).tokensOut >= remaining) lo = 0;
+                    }
                 }
-                if (used < quoteIn && u.tokensOut >= remaining) {
-                    u.refund = quoteIn - used;
+                // invariant: buys(hi) && (lo == 0 || !buys(lo)). Stop at 1e-12 relative precision (≤ 1e-12 overpay)
+                // or 64 steps, whichever first.
+                for (uint256 i; i < 64 && hi - lo > hi / 1e12 + 1; ++i) {
+                    uint256 mid = lo + (hi - lo) / 2;
+                    if (_quoteBuyRaw(mid, snipeExempt).tokensOut >= remaining) hi = mid;
+                    else lo = mid;
+                }
+                if (hi < quoteIn) {
+                    BuyQuote memory u = _quoteBuyRaw(hi, snipeExempt);
+                    if (u.tokensOut < remaining) revert Slippage(); // fallback: never silently overcharge
+                    u.tokensOut = remaining;
+                    u.refund = quoteIn - hi;
                     q = u;
                 }
             }
@@ -372,7 +391,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     /// @notice Claimable holder rewards (PVE profit-tax pool), quote raw. Works after graduation.
     function pendingRewards(address holder) public view returns (uint256) {
-        return rewardsAccrued[holder] + Math.mulDiv(balanceOnCurve[holder], accRewardPerToken, 1e18)
+        return rewardsAccrued[holder] + Math.mulDiv(balanceOnCurve[holder], accRewardPerToken, ACC_SCALE)
             - rewardDebt[holder];
     }
 
@@ -402,7 +421,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         override
         returns (uint256 tokensOut)
     {
-        return _buy(msg.sender, msg.sender, quoteIn, minTokensOut, deadline, false, type(uint256).max);
+        (tokensOut,) = _buy(msg.sender, msg.sender, quoteIn, minTokensOut, deadline, false, type(uint256).max);
     }
 
     /// @notice Buy paying from msg.sender, tokens to `recipient` (all caps / cost basis apply to recipient).
@@ -411,7 +430,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         returns (uint256 tokensOut)
     {
         if (recipient == address(0)) revert ZeroRecipient();
-        return _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline, false, type(uint256).max);
+        (tokensOut,) = _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline, false, type(uint256).max);
     }
 
     /// @notice Single-tx buy with an EIP-2612 permit on the quote token (STRATEGY and USDG support it).
@@ -428,7 +447,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     ) external returns (uint256 tokensOut) {
         if (recipient == address(0)) revert ZeroRecipient();
         try IERC20Permit(quote).permit(msg.sender, address(this), quoteIn, permitDeadline, v, r, s) {} catch {}
-        return _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline, false, type(uint256).max);
+        (tokensOut,) = _buy(msg.sender, recipient, quoteIn, minTokensOut, deadline, false, type(uint256).max);
     }
 
     /// @notice Same-tx creator buy from Launchpad: payer pulls quote, tokens go to `buyer`.
@@ -439,15 +458,15 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         returns (uint256 tokensOut)
     {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
-        return _buy(msg.sender, buyer, quoteIn, minTokensOut, deadline, true, type(uint256).max);
+        (tokensOut,) = _buy(msg.sender, buyer, quoteIn, minTokensOut, deadline, true, type(uint256).max);
     }
 
     /// @notice Trusted-router buy for `trader`. The router has ALREADY transferred `quoteIn` to this curve (prepaid:
     ///         no approve / transferFrom). Caps, login, cost basis and Trade attribution use `trader`; a graduation
-    ///         refund goes to `trader`. `maxImpactBps` is the router's impact cap (checked on the exact quote).
+    ///         refund goes back to the router (returned as `refund`). `maxImpactBps` is the router's impact cap (checked on the exact quote).
     function routerBuy(address trader, uint256 quoteIn, uint256 minTokensOut, uint256 deadline, uint256 maxImpactBps)
         external
-        returns (uint256 tokensOut)
+        returns (uint256 tokensOut, uint256 refund)
     {
         if (!ILaunchpadRouters(launchpad).isTrustedRouter(msg.sender)) revert NotRouter();
         if (trader == address(0)) revert ZeroRecipient();
@@ -463,7 +482,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 deadline,
         bool snipeExempt,
         uint256 maxImpactBps
-    ) internal returns (uint256 tokensOut) {
+    ) internal returns (uint256 tokensOut, uint256 refund) {
         if (graduated) revert Graduated();
         if (block.timestamp > deadline) revert Expired();
         if (quoteIn == 0) revert ZeroAmount();
@@ -474,9 +493,11 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 priceBefore = CurveMath.spotPriceWad(_params, sold);
         BuyQuote memory q = _quoteBuy(quoteIn, snipeExempt);
         if (q.impactBps > maxImpactBps) revert PriceImpactTooHigh(q.impactBps, maxImpactBps);
-        if (q.refund > 0) {
-            quoteIn -= q.refund; // effective spend for fees + Trade event
-            IERC20(quote).safeTransfer(payer == address(0) ? trader : payer, q.refund);
+        refund = q.refund;
+        if (refund > 0) {
+            quoteIn -= refund; // effective spend for fees + Trade event
+            // prepaid (router) → back to the router, which returns it to the trader in USDG (audit #6)
+            IERC20(quote).safeTransfer(payer == address(0) ? msg.sender : payer, refund);
         }
         tokensOut = q.tokensOut;
         if (tokensOut < minTokensOut) revert Slippage();
@@ -561,8 +582,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         }
         uint256 acc = accRewardPerToken;
         if (acc != 0) {
-            if (oldBal != 0) rewardsAccrued[trader] += Math.mulDiv(oldBal, acc, 1e18) - rewardDebt[trader];
-            rewardDebt[trader] = Math.mulDiv(newBal, acc, 1e18);
+            if (oldBal != 0) rewardsAccrued[trader] += Math.mulDiv(oldBal, acc, ACC_SCALE) - rewardDebt[trader];
+            rewardDebt[trader] = Math.mulDiv(newBal, acc, ACC_SCALE);
         }
         a.cost += uint128(quoteSpent);
         _acct[trader] = a;
@@ -701,7 +722,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 costPortion;
         (tax, costPortion) = _profitTax(seller, tokensIn, gross, netOut);
         uint256 acc = accRewardPerToken;
-        if (acc != 0 && bal != 0) rewardsAccrued[seller] += Math.mulDiv(bal, acc, 1e18) - rewardDebt[seller];
+        if (acc != 0 && bal != 0) rewardsAccrued[seller] += Math.mulDiv(bal, acc, ACC_SCALE) - rewardDebt[seller];
         if (costPortion != 0) _acct[seller].cost -= uint128(costPortion);
         uint256 tn = totalNet - (bal - newBal);
         totalNet = tn;
@@ -712,12 +733,12 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
                 unallocatedTax = pool;
             } else {
                 if (unallocatedTax != 0) unallocatedTax = 0;
-                acc += Math.mulDiv(pool, 1e18, others);
+                acc += Math.mulDiv(pool, ACC_SCALE, others);
                 accRewardPerToken = acc;
             }
             emit ProfitTaxCharged(token, seller, tax, gross, costPortion);
         }
-        if (acc != 0) rewardDebt[seller] = Math.mulDiv(newBal, acc, 1e18);
+        if (acc != 0) rewardDebt[seller] = Math.mulDiv(newBal, acc, ACC_SCALE);
     }
 
     // ── PVE holder rewards ──
@@ -738,7 +759,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         amount = pendingRewards(holder);
         if (amount == 0) revert ZeroAmount();
         rewardsAccrued[holder] = 0;
-        rewardDebt[holder] = Math.mulDiv(balanceOnCurve[holder], accRewardPerToken, 1e18);
+        rewardDebt[holder] = Math.mulDiv(balanceOnCurve[holder], accRewardPerToken, ACC_SCALE);
         IERC20(quote).safeTransfer(holder, amount);
         emit HolderRewardsClaimed(token, holder, amount);
     }

@@ -136,3 +136,27 @@ no cost basis, so selling them on a PVE curve is always "in profit" and pays the
 7. PVP cap uses progress **before** the trade.
 8. Legacy `walletCapBps` (default 0) applies to TRENCH only.
 9. Sells never need a login; login attestations suggested at 24 h expiry.
+
+## Graduation leftover (DISCIPLE audit #9)
+
+At graduation the full-range v4 add at the curve-end price cannot absorb all of the curve's quote: the leftover is
+**material, roughly 15% of the raise** (per the DISCIPLE audit). By design (Maker lee decision 2026-10-16) it is not
+burned or sent to treasury: it goes into the coin's **compound quote bucket** in LockedLP and pairs over time with
+incoming token-side fees, so it ends up as locked liquidity (`GraduationLeftover(token, quoteToCompoundBucket, …)`).
+UIs should not count it as "in the pool" until compounded.
+
+## DISCIPLE audit fixes in this PR
+
+1. HIGH: compounding is skipped when the pool was already swapped earlier in the same tx (transient flag set in
+   `beforeSwap`); the per-swap 3% guard still applies. Cross-tx/same-block manipulation is bounded by that 3% guard
+   only (a TWAP anchor is a possible follow-up).
+2. LOW: `LockedLP._compound` returns early if any currency is synced in the PoolManager, so it never overwrites a
+   swapper's pending `sync`.
+3. GAS: `FeeRouter.routeHookFee` returns `compoundReady` (both buckets ≥ 2 wei); the hook only calls the compounder then.
+4. MEDIUM: router-mediated curve trades use `routerBuy/routerSell(trader, …)` (see above).
+5. LOW: session policy allows USDG approvals to the router, curves, TrampWallManager, Launchpad and AnonLauncher only
+   for exactly the USDG the same batch's calls to that spender pull; `launchWithMode` is a P_LAUNCH selector.
+6. LOW: a graduating `buyWithUsdg` refund is swapped back to USDG through the registered pool (`UsdgRefund` event).
+7. MEDIUM: `UsdgDepositNotifier.deposit` rejects payer == wallet and checks the wallet's balance really increased.
+8. LOW: graduating-buy refund uses a bounded binary search (≤ 1e-12 relative overpay), reverting rather than
+   overcharging if it ever fails.

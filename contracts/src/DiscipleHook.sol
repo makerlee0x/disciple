@@ -73,6 +73,8 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     bytes32 private constant PRICE_SLOT = keccak256("disciple.hook.sqrtPriceBefore");
     /// @dev transient per-pool "swapped in this tx" flag namespace (LockedLP.flush sandwich guard)
     bytes32 private constant SWAPPED_SLOT = keccak256("disciple.hook.swappedInTx");
+    /// @dev Transient: 1 if the pool of the CURRENT swap had already been swapped earlier in this tx.
+    bytes32 private constant REPEAT_SLOT = keccak256("disciple.hook.repeatSwapInTx");
 
     /// @notice LockedLP compounder called after fee routing (address(0) = compounding off).
     ILPCompounder public compounder;
@@ -226,8 +228,13 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
         (uint160 sqrtP,,,) = poolManager.getSlot0(id);
         bytes32 slot = PRICE_SLOT;
         bytes32 swapped = keccak256(abi.encode(SWAPPED_SLOT, id));
+        bytes32 repeat = REPEAT_SLOT;
         assembly ("memory-safe") {
             tstore(slot, sqrtP)
+            // DISCIPLE audit #1: remember whether this pool was ALREADY swapped earlier in this tx. Compounding is
+            // only allowed on the pool's first swap of the tx, so "pump → dust swap compounds at the manipulated
+            // price → dump" in one tx can't add liquidity at a moved price (the 3% guard covers the swap itself).
+            tstore(repeat, tload(swapped))
             tstore(swapped, 1)
         }
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
@@ -260,9 +267,10 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
             // Full 1% fee → FeeRouter (33/33/33/1); no in-range LP donation (tramps/walls earn no yield).
             // Gas: PoolManager pays the FeeRouter directly (no hook hop / second ERC-20 transfer).
             poolManager.take(feeCurrency, address(feeRouter), feeAmount);
-            feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount);
+            // Audit #3 (gas): FeeRouter reports whether the LP buckets now hold both sides; one-sided accumulation
+            // (the common case) skips the compound call entirely.
+            if (feeRouter.routeHookFee(m.token, feeToken, trader, m.creator, feeAmount)) _tryCompound(m.token);
         }
-        _tryCompound(m.token);
 
         uint256 qUsd = _quoteUsd(m);
         uint256 spotMcap = _emitTrade(key, m, trader, delta, feeToken, feeAmount, qUsd);
@@ -276,6 +284,12 @@ contract DiscipleHook is IHooks, ITradeEvents, IAltitudeEvents {
     function _tryCompound(address token) internal {
         ILPCompounder c = compounder;
         if (address(c) == address(0)) return;
+        uint256 rep;
+        bytes32 rslot = REPEAT_SLOT;
+        assembly ("memory-safe") {
+            rep := tload(rslot)
+        }
+        if (rep != 0) return;
         uint256 g = compoundGasLimit;
         if (gasleft() < g + COMPOUND_GAS_RESERVE) return;
         uint160 sqrtBefore;

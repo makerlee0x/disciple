@@ -74,7 +74,7 @@ contract BondingModesTest is IntegrationBase {
     function _buyQ(BondingCurve c, address w, uint256 q) internal returns (uint256 out) {
         vm.startPrank(w);
         quote.approve(address(c), q);
-        out = c.buy(q, 0, block.timestamp + 1 hours);
+        out = c.buy(q, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
     }
 
@@ -99,7 +99,7 @@ contract BondingModesTest is IntegrationBase {
     function _sellT(BondingCurve c, Token t, address w, uint256 n) internal returns (uint256 out) {
         vm.startPrank(w);
         t.approve(address(c), n);
-        out = c.sell(n, 0, block.timestamp + 1 hours);
+        out = c.sell(n, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
     }
 
@@ -142,7 +142,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(c), 1 ether);
         vm.expectRevert(BondingCurve.NotVerified.selector);
-        c.buy(1 ether, 0, block.timestamp + 1);
+        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         // bad signer
         uint64 exp = uint64(block.timestamp + 1 days);
@@ -170,7 +170,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(c2), 1 ether);
         vm.expectRevert(BondingCurve.NotVerified.selector);
-        c2.buy(1 ether, 0, block.timestamp + 1);
+        c2.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
     }
 
@@ -187,7 +187,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(c), 1 ether);
         vm.expectRevert(BondingCurve.LaunchBlock.selector);
-        c.buy(1 ether, 0, block.timestamp + 1);
+        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         vm.roll(block.number + 1);
         _buyQ(c, alice, 1 ether);
@@ -211,7 +211,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(c), q);
         vm.expectRevert(BondingCurve.BuyTooLarge.selector);
-        c.buy(q, 0, block.timestamp + 1);
+        c.buy(q, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         _buyQ(c, alice, _quoteFor(c, ONE_PCT / 5)); // 0.2% ok
         // window ends at exactly 7 minutes
@@ -222,7 +222,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(c), q2);
         vm.expectRevert(BondingCurve.WalletCap.selector);
-        c.buy(q2, 0, block.timestamp + 1);
+        c.buy(q2, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         // sells free up room (NET)
         _sellT(c, t, alice, c.balanceOnCurve(alice) / 2);
@@ -239,7 +239,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         t.approve(address(c), tooMuch);
         vm.expectRevert(BondingCurve.SellTooLarge.selector);
-        c.sell(tooMuch, 0, block.timestamp + 1);
+        c.sell(tooMuch, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         _sellT(c, t, alice, ONE_PCT / 2);
     }
@@ -279,14 +279,17 @@ contract BondingModesTest is IntegrationBase {
         uint256 bobNet = c.balanceOnCurve(bob);
         uint256 carolNet = c.balanceOnCurve(carol);
 
+        vm.prank(alice);
+        t.approve(address(c), sellAmt);
         vm.expectEmit(true, true, false, false);
         emit ProfitTaxCharged(address(t), alice, 0, 0, 0);
-        uint256 out = _sellT(c, t, alice, sellAmt);
+        vm.prank(alice);
+        uint256 out = c.sell(sellAmt, 0, vm.getBlockTimestamp() + 1 hours);
         assertEq(out, sq.quoteOut, "quote == executed (net of tax)");
 
         assertEq(c.pendingRewards(alice), 0, "seller excluded");
-        assertApproxEqAbs(c.pendingRewards(bob), sq.profitTax * bobNet / others, 2, "bob pro-rata");
-        assertApproxEqAbs(c.pendingRewards(carol), sq.profitTax * carolNet / others, 2, "carol pro-rata");
+        assertApproxEqRel(c.pendingRewards(bob), sq.profitTax * bobNet / others, 1e6, "bob pro-rata");
+        assertApproxEqRel(c.pendingRewards(carol), sq.profitTax * carolNet / others, 1e6, "carol pro-rata");
 
         // dave joins AFTER the taxed sell → 0 of it
         _buyQ(c, dave, _quoteFor(c, ONE_PCT / 2));
@@ -299,7 +302,7 @@ contract BondingModesTest is IntegrationBase {
         uint256 others2 = c.totalNet() - c.balanceOnCurve(bob);
         _sellT(c, t, bob, ONE_PCT / 10);
         if (sq2.profitTax > 0) {
-            assertApproxEqAbs(c.pendingRewards(dave), sq2.profitTax * daveNet / others2, 2, "dave shares 2nd");
+            assertApproxEqRel(c.pendingRewards(dave), sq2.profitTax * daveNet / others2, 1e6, "dave shares 2nd");
             assertEq(c.pendingRewards(bob), bobPend, "bob excluded from own tax");
         }
 
@@ -370,14 +373,14 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(c), q);
         vm.expectRevert(BondingCurve.BuyTooLarge.selector);
-        c.buy(q, 0, block.timestamp + 1);
+        c.buy(q, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         _buyQ(c, alice, _quoteFor(c, ONE_PCT * 3)); // 3%, no login needed
         uint256 q2 = _quoteFor(c, ONE_PCT * 15 / 10);
         vm.startPrank(alice);
         quote.approve(address(c), q2);
         vm.expectRevert(BondingCurve.WalletCap.selector); // 4.5% > ~4.x%
-        c.buy(q2, 0, block.timestamp + 1);
+        c.buy(q2, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         // progress → cap grows linearly
         for (uint256 i; i < 12; ++i) {
@@ -401,7 +404,7 @@ contract BondingModesTest is IntegrationBase {
         quote.approve(address(router), type(uint256).max);
         t.approve(address(router), type(uint256).max);
         (uint256 qb,) = router.quoteBuyWithUsdg(address(t), 20 ether);
-        uint256 out = router.buyWithUsdg(address(t), 20 ether, qb, block.timestamp + 1);
+        uint256 out = router.buyWithUsdg(address(t), 20 ether, qb, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         assertEq(out, qb, "quote == executed");
         assertEq(c.balanceOnCurve(alice), out, "NET booked to trader");
@@ -409,7 +412,7 @@ contract BondingModesTest is IntegrationBase {
         assertGt(c.costBasisOf(alice), 0, "cost basis to trader");
         vm.startPrank(alice);
         (uint256 qs,) = router.quoteSellToUsdg(address(t), out / 2);
-        uint256 us = router.sellToUsdg(address(t), out / 2, qs, block.timestamp + 1);
+        uint256 us = router.sellToUsdg(address(t), out / 2, qs, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         assertEq(us, qs);
         assertEq(c.balanceOnCurve(alice), out - out / 2, "router sell debits trader");
@@ -417,7 +420,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(bob);
         quote.approve(address(router), type(uint256).max);
         vm.expectRevert(BondingCurve.NotVerified.selector);
-        router.buyWithUsdg(address(t), 1 ether, 1, block.timestamp + 1);
+        router.buyWithUsdg(address(t), 1 ether, 1, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
     }
 
@@ -428,7 +431,7 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(router), type(uint256).max);
         vm.expectRevert(BondingCurve.BuyTooLarge.selector);
-        router.buyWithUsdg(address(t), q, 1, block.timestamp + 1);
+        router.buyWithUsdg(address(t), q, 1, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
     }
 
@@ -446,8 +449,8 @@ contract BondingModesTest is IntegrationBase {
         vm.startPrank(alice);
         quote.approve(address(router), type(uint256).max);
         t.approve(address(router), type(uint256).max);
-        uint256 out = router.buyWithUsdg(address(t), 50 ether, 1, block.timestamp + 1);
-        router.sellToUsdg(address(t), out, 1, block.timestamp + 1);
+        uint256 out = router.buyWithUsdg(address(t), 50 ether, 1, vm.getBlockTimestamp() + 1 hours);
+        router.sellToUsdg(address(t), out, 1, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         assertEq(c.balanceOnCurve(alice), 0);
         assertEq(c.balanceOnCurve(address(router)), 0);

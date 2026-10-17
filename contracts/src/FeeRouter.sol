@@ -13,7 +13,9 @@ import {Constants} from "./libraries/Constants.sol";
 /// @title Fee router — 33/33/33/1 split + creator tax + snipe→LP (§3 / LOCKED #11–#15, #20–#22; §2 #9)
 /// @dev Creator, referrer, KOL and treasury accrue (claim anytime). Only the LP share moves per trade (compounds).
 interface ILockedLPCredit {
-    function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount) external;
+    function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        external
+        returns (bool compoundReady);
 }
 
 interface IRewardsVault {
@@ -131,9 +133,10 @@ contract FeeRouter is IFeeRouter {
     function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
         external
         override
+        returns (bool compoundReady)
     {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
-        _route(token, feeToken, trader, creator, feeAmount, 0);
+        return _route(token, feeToken, trader, creator, feeAmount, 0);
     }
 
     function _route(
@@ -143,8 +146,8 @@ contract FeeRouter is IFeeRouter {
         address creator,
         uint256 feeAmount,
         uint256 creatorTaxAmount
-    ) internal {
-        if (feeAmount == 0 && creatorTaxAmount == 0) return;
+    ) internal returns (bool ready) {
+        if (feeAmount == 0 && creatorTaxAmount == 0) return false;
 
         // Ownership pack: fee claim + tax rights follow Launchpad registry (multi-hop).
         if (launchpad != address(0)) {
@@ -199,8 +202,9 @@ contract FeeRouter is IFeeRouter {
             if (address(lp) != address(0)) {
                 // Push straight to LockedLP and credit (no approve + transferFrom round trip).
                 IERC20(quote).safeTransfer(address(lp), lpShare);
-                if (feeIsQuote) ILockedLPCredit(address(lp)).creditLockedLiquidity(token, quote, 0, lpShare);
-                else ILockedLPCredit(address(lp)).creditLockedLiquidity(token, registeredQuote, lpShare, 0);
+                ready = feeIsQuote
+                    ? ILockedLPCredit(address(lp)).creditLockedLiquidity(token, quote, 0, lpShare)
+                    : ILockedLPCredit(address(lp)).creditLockedLiquidity(token, registeredQuote, lpShare, 0);
             } // unwired LockedLP: share stays in FeeRouter (unchanged behaviour)
         }
 

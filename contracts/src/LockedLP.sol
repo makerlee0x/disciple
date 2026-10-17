@@ -12,6 +12,7 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -36,6 +37,7 @@ contract LockedLP is ILockedLP, IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
     using StateLibrary for IPoolManager;
+    using TransientStateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
 
     address public treasury;
@@ -189,14 +191,16 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (tokenAmount > 0) {
             IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
         }
-        return _credit(token, quote, tokenAmount, quoteAmount);
+        _credit(token, quote, tokenAmount, quoteAmount);
+        return tokenAmount + quoteAmount;
     }
 
     /// @notice Gas path for the per-trade LP share: FeeRouter has ALREADY transferred the amounts here.
     /// @dev FeeRouter-only (it transfers exactly these amounts immediately before this call, same tx).
+    /// @return compoundReady post-graduation and both buckets hold >= 2 wei (the hook may try to compound).
     function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
         external
-        returns (uint256)
+        returns (bool compoundReady)
     {
         if (msg.sender != feeRouter) revert Unauthorized();
         return _credit(token, quote, tokenAmount, quoteAmount);
@@ -204,16 +208,17 @@ contract LockedLP is ILockedLP, IUnlockCallback {
 
     function _credit(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
         internal
-        returns (uint256 lpShares)
+        returns (bool compoundReady)
     {
         Position storage p = _positions[token];
         if (p.graduated) {
             // Post-graduation LP share → compound buckets (FeeRouter sends exactly one side per swap).
-            Bucket storage b = _buckets[token];
-            if (tokenAmount != 0) b.token += SafeCast.toUint128(tokenAmount);
-            if (quoteAmount != 0) b.quote += SafeCast.toUint128(quoteAmount);
+            Bucket memory b = _buckets[token];
+            b.token += SafeCast.toUint128(tokenAmount);
+            b.quote += SafeCast.toUint128(quoteAmount);
+            _buckets[token] = b;
             emit CompoundBucketed(token, tokenAmount, quoteAmount);
-            return tokenAmount + quoteAmount;
+            return b.token >= 2 && b.quote >= 2;
         }
         if (p.quote == address(0)) p.quote = quote;
         if (p.token != token) p.token = token;
@@ -221,12 +226,11 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (tokenAmount == 0 && quoteAmount > 0) {
             p.escrowQuote += quoteAmount;
             emit QuoteEscrowed(token, quote, quoteAmount);
-            return quoteAmount;
+            return false;
         }
 
         p.tokenAmount += tokenAmount;
         p.quoteAmount += quoteAmount;
-        lpShares = tokenAmount + quoteAmount;
         emit LiquidityLocked(token, quote, tokenAmount, quoteAmount);
     }
 
@@ -362,6 +366,10 @@ contract LockedLP is ILockedLP, IUnlockCallback {
             if (liq > capL) liq = uint128(capL);
             if (liq == 0) return 0;
         }
+
+        // DISCIPLE audit #2: never touch sync/settle state the swapper may be using. If any currency is synced
+        // (a swapper pre-paid via sync→transfer and has not settled yet), our sync() would overwrite it — skip.
+        if (!poolManager.getSyncedCurrency().isAddressZero()) return 0;
 
         PoolKey memory key = p.poolKey;
         // Adds to the SAME locked position (owner = this, same ticks + salt). beforeAddLiquidity on our hook only

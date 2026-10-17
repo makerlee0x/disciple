@@ -25,6 +25,8 @@ contract UsdgDepositNotifier {
     error OnlyAttestor();
     error ZeroAmount();
     error ZeroAddress();
+    error SelfDeposit();
+    error NotTransferred();
 
     event Deposited(address indexed payer, address indexed wallet, uint256 amount);
     event Attested(address indexed attestor, address indexed wallet, uint256 amount);
@@ -43,7 +45,12 @@ contract UsdgDepositNotifier {
     function deposit(address wallet, uint256 amount) external {
         if (amount == 0) revert ZeroAmount();
         if (wallet == address(0)) revert ZeroAddress();
+        // DISCIPLE audit #7: a self-deposit moves nothing (wallet → wallet) and could be repeated with the same
+        // 1 USDG to fake the $10 gate. Require a third-party payer and a real balance increase at `wallet`.
+        if (msg.sender == wallet) revert SelfDeposit();
+        uint256 b0 = usdg.balanceOf(wallet);
         usdg.safeTransferFrom(msg.sender, wallet, amount);
+        if (usdg.balanceOf(wallet) - b0 != amount) revert NotTransferred();
         registry.onUsdgDeposit(wallet, amount);
         emit Deposited(msg.sender, wallet, amount);
     }
