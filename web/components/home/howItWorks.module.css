@@ -30,10 +30,8 @@
 .n em { position: absolute; left: -6px; top: -6px; width: 18px; height: 18px; border-radius: 50%; background: var(--dsc-bg); border: 1px solid rgba(201, 206, 214, .3); font: 600 10px/16px var(--dsc-font-mono); font-style: normal; text-align: center; color: var(--dsc-muted-on-sky); }
 .step h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.005em; }
 .step p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--dsc-muted-on-sky); }
-.tiers { display: flex; gap: 3px; margin-top: 10px; }
-.tiers i { flex: 1; height: 6px; border-radius: 2px; background-size: 1800% 100%; background-repeat: no-repeat; background-color: var(--dsc-surface-2); }
-.tierLbl { display: flex; justify-content: space-between; font: 10px var(--dsc-font-mono); letter-spacing: .1em; color: var(--dsc-muted); margin-top: 5px; }
-.foot { display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+.line { display: block; }
+.foot { display: flex; gap: 10px; padding-top: 20px; border-top: 1px solid rgba(201, 206, 214, .10); align-items: center; flex-wrap: wrap; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 22px; border-radius: var(--dsc-radius-lg);
   font: 500 15px var(--dsc-font-ui); border: 1px solid rgba(201, 206, 214, .3); color: var(--dsc-text); background: rgba(201, 206, 214, .06);
@@ -41,7 +39,6 @@
 }
 .pri { background: var(--dsc-primary); color: var(--dsc-bg); border-color: var(--dsc-primary); }
 .pri:hover { background: var(--dsc-text); }
-.note { margin-left: auto; font: 11px var(--dsc-font-mono); color: var(--dsc-muted); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes rise { from { opacity: 0; transform: translateY(calc(12px * var(--dsc-motion-scale, 1))) scale(calc(1 - .02 * var(--dsc-motion-scale, 1))); } to { opacity: 1; transform: none; } }
 @media (max-width: 760px) {
@@ -52,9 +49,8 @@
   .body { padding: 2px 20px 20px; }
   .step { gap: 14px; padding: 13px 0; }
   .step p { font-size: 13px; }
-  .foot { flex-direction: column; align-items: stretch; }
-  .note { margin: 2px 0 0; text-align: center; }
-}
+  .foot { flex-direction: column; align-items: stretch; padding-top: 16px; }
+  }
 @media (prefers-reduced-motion: reduce) {
   .ov, .card { animation: none; }
 }

@@ -1,0 +1,16 @@
+/* /how-it-works placeholder: lunar page over the Launch Pad sky plate (grain lives in the plate). */
+.page { position: relative; min-height: 100vh; overflow: hidden; background: var(--dsc-bg); color: var(--dsc-text); font-family: var(--dsc-font-ui); }
+.sky { position: absolute; inset: 0 0 auto; height: min(560px, 70vh); background-size: cover; background-position: 50% 60%; }
+.sky::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, var(--dsc-bg) 0%, rgba(11, 12, 14, .55) 50%, rgba(11, 12, 14, .2) 100%); }
+.wrap { position: relative; max-width: 680px; margin: 0 auto; padding: 72px 32px 96px; }
+.back { display: inline-flex; align-items: center; gap: 6px; font: 500 13px var(--dsc-font-ui); color: var(--dsc-muted-on-sky); text-decoration: none; }
+.back:hover { color: var(--dsc-text); }
+.back:focus-visible { outline: 2px solid var(--dsc-primary); outline-offset: 3px; border-radius: 4px; }
+.title { margin: 120px 0 28px; font: 400 64px/1.02 var(--dsc-font-display); letter-spacing: -.01em; }
+.steps { padding: 8px 28px; border-radius: var(--dsc-radius-3xl); border: 1px solid rgba(201, 206, 214, .18); background: linear-gradient(180deg, rgba(31, 34, 40, .92), rgba(22, 24, 28, .96)); }
+.steps > li:first-child { border-top: 0; }
+@media (max-width: 760px) {
+  .wrap { padding: 32px 20px 72px; }
+  .title { margin: 96px 0 22px; font-size: 44px; }
+  .steps { padding: 4px 18px; }
+}
