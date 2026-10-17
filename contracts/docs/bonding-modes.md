@@ -179,7 +179,7 @@ UIs should not count it as "in the pool" until compounded.
 - Out of scope: manipulation that spans blocks (pump in block N, compound in N+1). A short multi-block oracle could
   be added later from the same anchor slot. Builders who control consecutive blocks are the residual risk, bounded
   by the 3% guard per block.
-- Gas: see gas-report.md ("block-start anchor").
+- Gas (exact, `--isolate`): non-compounding swaps pay +949 when they are not the first swap of the block, and +3,902 when they are the pool's first swap of the block. Compound-ready swaps pay +2,752 / +5,685. See gas-report.md. The reference is chosen by |Δ sqrtP|, which at the 3% scale ranks deviations the same way the ratio does.
 
 ### Referral USDG escrow (UsdgDepositNotifier)
 
