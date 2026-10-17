@@ -24,7 +24,10 @@ export const CURVE = {
   soldPctAtGrad: 72,
   totalSupply: 7_000_000_000,
   decimals: 18,
+  /** legacy v1–v3 curve cap (Constants.WALLET_CAP_BPS = 700); paper mode still applies it */
   walletCapPct: 7,
+  /** live Launchpad default (Constants.WALLET_CAP_BPS_DEFAULT = 0 = no cap); the SIMULATOR uses this */
+  walletCapDefaultBps: 0,
   tradeFeeBps: 100, // 1%
   creatorTaxMaxPct: 7,
   antiSnipeStartPct: 77.7,

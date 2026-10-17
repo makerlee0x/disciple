@@ -86,3 +86,28 @@ Indexer also needs a per-user rollup for achievements: `trampsFilled`, `wallsFil
 - Nothing is drawn over the rocket (keep-out mask, and elements slide aside). No camera shake; heading rules unchanged (−15..88°, no spin). `__flight.screenYToMcap(y)` powers drag-to-place.
 
 Mock: add `?graduated=1` to force the panel on any coin and `?tw=open` to open the modal.
+
+## In the SIMULATOR (`/simulator`, `lib/sim`)
+
+After graduation the sim market is a v4-style pool (`lib/sim/pool.ts`) and tramps/walls are real concentrated
+range orders in it, following `TrampWallManager.sol`:
+
+- **Tramp** = quote-only range `[lo, hi]` fully below the price (`L = quote / (√hi − √lo)`); it **absorbs sells**
+  (sellers get the tramp's quote, the price falls more slowly) and converts to tokens as the price walks down through it.
+  **Wall** = token-only range fully above the price (`L = tokens / (1/√lo − 1/√hi)`); it **absorbs buys**.
+- **Filled** when the price fully crosses the range (tramp: ≤ lo, wall: ≥ hi). A keeper pulls it after a short
+  delay and takes `keeperTipBps` (0.1%) of both assets. If the price comes back first the order is no longer filled
+  and the pull would revert (`NotFilled`), so the keeper waits. The owner can cancel at any time and gets the current mix.
+- **No fee yield**: the contract pays none to range orders, so the sim doesn't either (the panel hides "fees/day").
+  Filled orders still earn the off-chain points (`pointsFor`) and the LIMIT LEGEND sim achievement.
+- The panel (`TrampWallPanel` with `lib/sim/twAdapter.ts`) places straight into the running `SimRun`. State
+  lives in the run, so every run starts empty. A read-only mirror goes to `disciple.sim.tw` (never the live
+  `disciple.tw.v1`), and `resetSimStorage` clears it.
+- Bots place their own: support bots put tramps under the price, holders and insiders put walls above it. They also
+  react to yours: in PvE they stack tramps with yours; in PvP and TRENCH they front-run your tramp, undercut your wall
+  and dump into your tramp.
+- Every placement and cancel is in the player-input log (`SimRun.inputs`), so `SimRun.replay(seed, inputs)`
+  reproduces a run exactly.
+
+Open: the ~0.11% hook-donation note above predates the TrampWallManager rev2 contract, which has no LP yield
+for range orders. Confirm which one is right for live.

@@ -61,13 +61,8 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/Math\.min\(sellCustomN, pos\.valueUsd\)/.test(tb) && /Math\.min\(100, sellCustomN\)/.test(tb), "custom sell: $ capped at position value, % capped at 100");
   ok(!/i===am/.test(eng), "no auto-ammo suggestion outline on buy tiles"); }
 // 5) PnL regression: a $60K paper buy at $7K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards
-{ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pnl2-")); fs.mkdirSync(path.join(tmp, "sim"));
-  const tx = (rel) => { const src = fs.readFileSync(path.join(dir, "../lib", rel + ".ts"), "utf8").replace(/from "(\.{1,2}\/[^"]+)"/g, 'from "$1.mjs"');
-    fs.writeFileSync(path.join(tmp, rel + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText); };
-  for (const f of ["config", "pnl", "sim/config", "sim/market", "sim/run"]) tx(f);
-  const P = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
-  const { cloneConfig } = await import(pathToFileURL(path.join(tmp, "sim/config.mjs")).href);
-  const { SimRun } = await import(pathToFileURL(path.join(tmp, "sim/run.mjs")).href);
+{ const { loadLib } = await import("./lib/load-ts.mjs"); const { mods, cleanup } = await loadLib(undefined, "pnl2-");
+  const P = mods["pnl"], { cloneConfig } = mods["sim/config"], { SimRun } = mods["sim/run"];
   const SUP = 7e9, USD = 60_000, GAS = 0.01;
   let seed = 11; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }; const randn = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(6.2831853 * rnd());
   const Mth = Object.assign(Object.create(Math), { random: rnd });
@@ -96,12 +91,17 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
       if (M === 7_000) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
       const marks = []; for (let i = 0; i < 40; i++) { d.paper = 1 + (d.paper - 1) * Math.exp(-0.25 / 20); marks.push(d.shown()); } tracks(`disciple paper $${M / 1e3}K`, pos, marks); }
   }
-  // SIMULATOR: exact curve fills incl. the 7% wallet cap (unfilled $ refunded). After the 7 s anti-snipe window (that tax is a real cost).
+  // SIMULATOR: exact fills, NO wallet cap (live Launchpad default walletCapBps = 0). A buy that completes the curve is
+  // filled up to the curve end and the unspent quote refunded. After the 7 s anti-snipe window (that tax is a real cost).
+  ok(/const capApplies=m=>!isLive\(\)&&!source\.isSim&&/.test(eng), "engine: the paper 7% cap never applies to the SIMULATOR (paper mode keeps it)");
   for (const T of [10, 40, 90]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
-    const pre = r.m.mcap(); const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
-    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply, cap 7%)`);
+    const pre = r.m.mcap(), wasCurve = r.m.phase === "curve"; const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
+    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);
+    const curveEnd = wasCurve && r.m.phase === "pool" && f.tokens <= 0.07 * r.m.S;
+    ok(f.tokens > 0.07 * r.m.S || curveEnd, curveEnd ? `sim t=${T}s: the buy was limited only by the curve end (${(f.tokens / r.m.S * 100).toFixed(1)}% left), not by a cap` : `sim t=${T}s: no wallet cap — one wallet holds ${(f.tokens / r.m.S * 100).toFixed(1)}% of supply (> 7%)`);
     const pos = P.applyFill(P.emptyPosition(), "buy", f.usd, f.mcap / r.m.S, 0); const v = P.view(pos, r.m.mcap() / r.m.S, r.m.S);
     ok(v.uPnl >= -f.usd * P.FEE - 1e-6, `sim t=${T}s: uPnL right after +$${v.uPnl.toFixed(2)} ≥ −fee`);
     const marks = []; for (let i = 0; i < 100; i++) { r.step(0.1); marks.push(r.m.mcap()); } tracks(`sim t=${T}s`, pos, marks); }
+  cleanup();
 }
 if (bad) { console.error(bad + " FAILED"); process.exit(1); } console.log("PASS");

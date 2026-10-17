@@ -381,6 +381,7 @@ class SimBridgeSource {
     emit({t:'status',source:this.name,ok:true,msg:'local paper market · no wallet'}); this.off=b.attach(emit); }
   stop(){ if(this.off) this.off(); this.off=null; }
   impact(usd,side){ const b=window.__discipleSim; return b?b.impact(usd,side):1; }
+  balance(){ const b=window.__discipleSim; return b?b.balance():S.balance; }
   submitTrade(side,usd,o){ const b=window.__discipleSim; if(!b) return Promise.resolve({ok:false,reason:'simulator not running'});
     return new Promise(res=>setTimeout(()=>res(b.trade(side,usd,o)),120+Math.random()*180)); }   // 1–2 RH blocks
 }
@@ -449,7 +450,7 @@ const source = makeSource();
 if (IS_POOL||source.isSim) S.fuelers={'you':0};
 if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
 function onEvent(e){
-  if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); }
+  if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
     if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
     S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
@@ -663,12 +664,12 @@ function trade(side,opt){
   if (side==='sell' && !isLive() && S.hold.valueUsd>0 && md.usd>S.hold.valueUsd) md={...md,usd:S.hold.valueUsd};   // a sell never exceeds holdings
   if (side==='sell'&&opt&&opt.all){ if(stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } md={...md,usd:stack}; }
   if (side==='sell') S.fullStackNext = stack>=MIN_SHOT && md.usd>=stack*0.98;
-  if (md.usd<MIN_SHOT){                                   // below net-buy minimum: blocked (no gas sponsorship)
+  if (md.usd<MIN_SHOT && !source.isSim){                 // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
   if (side==='buy'){ const c=paperCap(md.usd); if(c.blocked){ S.flashes.push({txt:'WALLET CAP 7% REACHED · no buy',life:1.6}); return; }
     if(c.usd<md.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(c.usd)} of ${fmtShot(md.usd)}`,life:1.8}); md={...md,usd:c.usd}; } }
-  if (side==='buy' && !window.__discipleTrade && S.balance<md.usd){ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
+  if (side==='buy' && !window.__discipleTrade && !source.isSim && S.balance<md.usd){   /* SIMULATOR: the sim checks its own balance (tramps spend it too) */ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
   // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
   applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(source.impact(md.usd,side)-1)*100:undefined);
   submit(side, md.usd, false, opt);
@@ -688,7 +689,7 @@ function submit(side,usd,force,opt){
   const fillMark=markMcap()*(source.impact&&!isLive()?Math.sqrt(source.impact(S.tradeUsd,side)):1);
   source.submitTrade(side,S.tradeUsd,opt&&opt.frac?{frac:opt.frac}:undefined).then(r=>{
     p.state=r.ok?'confirmed':'failed';
-    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:r.gas||0,at:r.at,session:SESSION}})); }   // SIMULATOR: exact sim fill
+    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:r.gas||0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
     else if(r.ok){
     // fill = AMM average of the move the market ACTUALLY made (√(pre·post) on a constant-product curve), on the shown scale.
     // (Was: mark × √(estimated impact) — DISCIPLE paper never moved the price and mock walls could absorb the move,
@@ -1263,15 +1264,15 @@ function drawHud(){
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
     else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText('SELL · Z/X/C/V select, SHIFT dump',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
-  MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
+  MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
     ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,72,30);
     ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+36,by+20); ctx.textAlign='left';
     { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,72,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
     ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+69,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
   ctx.font='11px ui-monospace,monospace';
-  if (MODES[S.mode].usd<MIN_SHOT){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
-  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
+  if (MODES[S.mode].usd<MIN_SHOT&&!source.isSim){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
+  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(source.isSim?`SIM ${fmtMoney(S.balance)} · no gas · no min shot`:`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
   { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
     S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
