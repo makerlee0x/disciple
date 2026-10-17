@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.
 const rec = path.join(root, "broadcast/Deploy.s.sol/46630", mode === "broadcast" ? "" : "dry-run", "run-latest.json");
 const run = JSON.parse(fs.readFileSync(rec, "utf8"));
 const NAMES = ["ReferralRegistry", "LockedLP", "FeeRouter", "DiscipleHook", "Migration", "DiscipleRouter", "TrampWallManager",
-  "AntiSnipe", "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens", "UsdgDepositNotifier"];
+  "AntiSnipe", "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens", "UsdgDepositNotifier", "LoginGate"];
 const contracts = {};
 let gas = 0n;
 for (const t of run.transactions) {
@@ -24,9 +24,10 @@ const next = {
   startBlock: mode === "broadcast" ? Number(run.receipts?.[0]?.blockNumber ?? 0) : null,
   id: "v" + (Number(String(cur.id ?? "v2").slice(1)) + 1),
   gitBranch: "main",
+  deployCommit: process.env.DEPLOY_COMMIT ?? null,
   contracts: Object.fromEntries(NAMES.filter((n) => contracts[n]).map((n) => [n, contracts[n]])),
-  hookTrustedRouters: [contracts.DiscipleRouter, cur.uniswapV4.UniversalRouter],
-  previous: { id: cur.id ?? "v2", note: "previous stack — superseded by combined redeploy", startBlock: cur.startBlock, contracts: cur.contracts, addons: cur.addons, smoke: cur.smoke, previous: cur.previous },
+  hookTrustedRouters: [contracts.DiscipleRouter], // UR not trusted (audit #10 / SEC-05)
+  previous: { id: cur.id ?? "v2", status: "superseded", supersededBy: "v" + (Number(String(cur.id ?? "v2").slice(1)) + 1), supersededAt: new Date().toISOString().slice(0, 10), note: "previous stack — superseded by combined redeploy", startBlock: cur.startBlock, contracts: cur.contracts, addons: cur.addons, smoke: cur.smoke, previous: cur.previous },
   estimatedGas: gas.toString(),
 };
 delete next.addons; delete next.smoke;
