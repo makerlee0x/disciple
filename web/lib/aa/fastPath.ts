@@ -56,6 +56,8 @@ export class FeeCache {
     if (this.v) { void this.refresh(fetcher).catch(() => undefined); return this.v; }   // stale-while-revalidate
     return this.refresh(fetcher);
   }
+  /** Drop the cached value (the relayer rejected it as below its fee floor): the next get() fetches fresh fees. */
+  invalidate() { this.v = undefined; this.at = 0; }
   private refresh(fetcher: () => Promise<Fees>) {
     return (this.inflight ??= fetcher().then((f) => {
       // base fee is ~flat on RH testnet; 2× maxFee headroom keeps a cached value valid across small base-fee moves

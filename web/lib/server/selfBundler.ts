@@ -1,13 +1,15 @@
 import "server-only";
 /**
  * Minimal ERC-4337 v0.7 bundler for RH testnet, used by /api/bundler when Alchemy rejects the key
- * (or AA_SELF_BUNDLER=1). The relayer (DRIP_FAUCET_KEY) submits EntryPoint.handleOps and is refunded
- * by the EntryPoint from the account's prefund, so it is cost-neutral apart from failed sims (we eth_call first).
+ * (or AA_SELF_BUNDLER=1). The relayer (RELAYER_PRIVATE_KEY, fallback DRIP_FAUCET_KEY) submits EntryPoint.handleOps and
+ * is refunded by the EntryPoint from the account's prefund at the op's gas price. lib/aa/gasPolicy enforces that the
+ * op's fees cover the relayer's price and caps its gas, so it is cost-neutral apart from failed sims (we eth_call first).
  * Stateless (serverless-safe): receipts come from EntryPoint UserOperationEvent logs.
  */
 import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { withRelayer } from "./relayer";
+import { relayerKey, withRelayer } from "./relayer";
+import { checkOpGas, relayerTxFees, RelayPolicyError } from "../aa/gasPolicy";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
@@ -86,10 +88,13 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       return { callGasLimit: numberToHex(g * BigInt(13) / BigInt(10) + BigInt(20000)), verificationGasLimit: numberToHex(op.factory ? 450000 : 150000), preVerificationGas: numberToHex(60000) };
     }
     case "eth_sendUserOperation": {
-      const key = process.env.DRIP_FAUCET_KEY as Hex | undefined;
+      const key = relayerKey();
       if (!key) throw new Error("self-bundler not configured");
       const op = params[0] as UserOp;
       const relayer = privateKeyToAccount(key);
+      // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)
+      const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
+      try { checkOpGas(op, base); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
       const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], relayer.address] });
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
@@ -97,18 +102,10 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       // one relayer send at a time (+ nonce retry): concurrent ops otherwise reuse the relayer's pending nonce
       const hash = await withRelayer(async () => {
         const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
-        const blk = await pc.getBlock();
-        const base = blk.baseFeePerGas ?? BigInt(0);
-        let networkGas = BigInt(0);
-        try { networkGas = await pc.getGasPrice(); } catch { /* optional */ }
-        const priority = BigInt(1_000_000); // 0.001 gwei floor so inclusion isn't starved on RH testnet
-        const maxFee = (base * BigInt(2) + priority > networkGas * BigInt(2) ? base * BigInt(2) + priority : networkGas * BigInt(2) + priority);
+        // never above the op's own fees ⇒ the EntryPoint refund (at the op's price) covers the relayer's cost per gas
+        const fees = relayerTxFees(op, base);
         const { sendWithRelayerNonce } = await import("./fastRelay");
-        return sendWithRelayerNonce((nonce) => wc.sendTransaction({
-          to: ENTRYPOINT_V07, data, gas, nonce,
-          maxFeePerGas: maxFee,
-          maxPriorityFeePerGas: priority,
-        }));
+        return sendWithRelayerNonce((nonce) => wc.sendTransaction({ to: ENTRYPOINT_V07, data, gas, nonce, ...fees }));
       });
       const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE

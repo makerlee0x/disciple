@@ -1,13 +1,14 @@
 /**
  * POST /api/drip {address} — one-time test-ETH top-up for a new embedded smart account (self-paid gas on testnet).
  * Only chain 46630. Skips if balance >= DRIP_AMOUNT. Rate-limited per address (once) and per IP (5/day), in-memory
- * per serverless instance plus the on-chain balance check. Signer: server-only env DRIP_FAUCET_KEY (dedicated faucet EOA).
+ * per serverless instance plus the on-chain balance check. Signer: server-only env DRIP_FAUCET_KEY (dedicated faucet EOA;
+ * the self-bundler relays from RELAYER_PRIVATE_KEY).
  */
 import { NextResponse } from "next/server";
 import { createPublicClient, createWalletClient, http, isAddress, parseEther, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { robinhoodTestnet } from "@/lib/chains";
-import { withRelayer } from "@/lib/server/relayer";
+import { relayerIsFaucet, withRelayer } from "@/lib/server/relayer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,8 +41,11 @@ export async function POST(req: Request) {
   seenAddr.set(a, now); hits.push(now); seenIp.set(ip, hits);
   try {
     const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: privateKeyToAccount(key) });
-    const { sendWithRelayerNonce } = await import("@/lib/server/fastRelay");
-    const hash = await withRelayer(() => sendWithRelayerNonce((nonce) => wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal, nonce })));   // same EOA as the self-bundler relayer
+    const send = (nonce?: number) => wc.sendTransaction({ to: address as Hex, value: AMOUNT - bal, ...(nonce === undefined ? {} : { nonce }) });
+    // same EOA as the self-bundler relayer (RELAYER_PRIVATE_KEY unset) ⇒ share its nonce cursor; else plain serialized send
+    const hash = relayerIsFaucet()
+      ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send))
+      : await withRelayer(() => send());
     return NextResponse.json({ ok: true, txHash: hash });
   } catch (e) {
     seenAddr.delete(a);

@@ -10,6 +10,7 @@ import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type Clien
 import { concatHex, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
+import { clientFees } from "./gasPolicy";
 import { AAError, type Call, type GasMode, type OwnerSigner, type UserOpReceipt } from "./core";
 
 const BUNDLER_METHODS = [
@@ -31,9 +32,11 @@ function opPhase(d: OpPhase) { if (typeof window !== "undefined") window.dispatc
 type FeeClient = { request: (a: { method: string; params?: unknown[] }) => Promise<Hex>; estimateFeesPerGas: () => Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint }> };
 export async function fetchFees(c: FeeClient): Promise<Fees> {
   const [fees, tipHex] = await Promise.all([c.estimateFeesPerGas(), c.request({ method: "rundler_maxPriorityFeePerGas", params: [] })]);
-  const tip = (BigInt(tipHex) * BigInt(110)) / BigInt(100);
+  // viem's estimate = 1.2x base + prio ⇒ this "base" is already >= the chain's base fee
   const base = (fees.maxFeePerGas ?? BigInt(0)) - (fees.maxPriorityFeePerGas ?? BigInt(0));
-  return { maxPriorityFeePerGas: tip, maxFeePerGas: base + tip };
+  // Same formula as the self-bundler's floor (lib/aa/gasPolicy: maxFee >= 2x base + tip, tip >= RELAYER_TIP);
+  // FeeCache doubles maxFee on top ⇒ ~2x headroom over the relayer floor.
+  return clientFees(base, BigInt(tipHex), BigInt(100));
 }
 /** Shared fee cache (fees move slowly on RH testnet): a trade never waits for fee RPCs once warm. */
 export const FEES = new FeeCache();
@@ -159,7 +162,7 @@ export class Mav2Account {
    * nonce/fees/gas are local, the op is signed in memory and sent with ONE round trip to /api/bundler
    * (disciple_sendUserOperationSync: the self-bundler relays handleOps immediately and answers with the receipt).
    */
-  async sendCalls(calls: Call[], as: "owner" | "session" = "owner"): Promise<SendResult> {
+  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true): Promise<SendResult> {
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
@@ -196,7 +199,12 @@ export class Mav2Account {
       const j = await r.json().catch(() => ({})) as { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
       const t3 = now();
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
-      else if (j.error) {
+      else if (j.error && feeRetry && /fee below relayer floor/i.test(j.error.message)) {
+        // cached fees went stale (base fee rose): nothing was sent; refresh fees and re-sign once
+        FEES.invalidate();
+        await FEES.get(() => fetchFees(client as unknown as FeeClient)).catch(() => undefined);
+        return this.sendCalls(calls, as, false);
+      } else if (j.error) {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(kind);   // stale limits → re-estimate next time
         return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
       } else if (j.result) {

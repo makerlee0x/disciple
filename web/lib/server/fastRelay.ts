@@ -15,7 +15,8 @@ import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
-import { isNonceError } from "./relayer";
+import { isNonceError, relayerKey } from "./relayer";
+import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
 
@@ -30,10 +31,9 @@ let relayer: PrivateKeyAccount | undefined;
 let nextNonce: number | undefined, nonceSync: Promise<number> | undefined;
 let base = { fee: BigInt(0), at: 0 }, baseInflight: Promise<void> | undefined;
 let syncSupported: boolean | undefined;
-const PRIORITY = BigInt(1_000_000); // 0.001 gwei floor (RH testnet)
 
 function account() {
-  const key = process.env.DRIP_FAUCET_KEY as Hex | undefined;
+  const key = relayerKey();
   if (!key) throw new Error("self-bundler not configured");
   return (relayer ??= privateKeyToAccount(key));
 }
@@ -43,8 +43,8 @@ async function syncNonce(): Promise<number> {
 /** Synchronous after warm-up: concurrent ops get consecutive nonces with no RPC. */
 async function takeNonce(): Promise<number> { if (nextNonce === undefined) await syncNonce(); return nextNonce!++; }
 /**
- * The SAME cursor for every send from the relayer EOA in this process (/api/drip, the standard eth_sendUserOperation
- * path, the fast path) — otherwise a drip leaves the cursor stale and the next fast op pays a nonce error + resync
+ * The SAME cursor for every send from the relayer EOA in this process (the standard eth_sendUserOperation path, the
+ * fast path, and /api/drip while the faucet and relayer are one key — see relayerIsFaucet) — otherwise a drip leaves the cursor stale and the next fast op pays a nonce error + resync
  * (~180 ms, seen on the first trade after "Get test funds").
  */
 export async function sendWithRelayerNonce<T>(send: (nonce: number) => Promise<T>): Promise<T> {
@@ -75,9 +75,6 @@ async function primeSender(sender: string) {
   TRUST.set(k, { bal, at: Date.now(), strikeUntil: prev?.strikeUntil ?? 0 });
 }
 export const primeSenderNow = (sender: string) => primeSender(sender);
-function maxPrefund(op: UserOp) {
-  return (BigInt(op.verificationGasLimit || "0x0") + BigInt(op.callGasLimit || "0x0") + BigInt(op.preVerificationGas || "0x0")) * BigInt(op.maxFeePerGas || "0x0");
-}
 const execAbi = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
 /**
  * Local (no-RPC) pre-check for SESSION-key ops (non-global validation in the MAv2 nonce key): the policy rejects
@@ -100,7 +97,7 @@ export function trusted(op: UserOp): boolean {
   if (op.factory) return false; // first op (deploy) always simulated
   if (!sessionOpLooksAllowed(op)) return false;
   const t = TRUST.get(op.sender.toLowerCase());
-  return !!t && Date.now() < t.at + TRUST_TTL && Date.now() >= t.strikeUntil && t.bal >= maxPrefund(op);
+  return !!t && Date.now() < t.at + TRUST_TTL && Date.now() >= t.strikeUntil && t.bal >= maxPrefund(op, relayerPrice(base.fee));   // priced at >= the relayer floor: a fee-0 op never looks covered
 }
 
 /** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
@@ -133,18 +130,21 @@ async function sendSync(raw: Hex): Promise<{ rc: RpcReceipt; mode: "sync" | "pol
 export async function sendUserOperationSync(op: UserOp) {
   const T0 = Date.now(), t: Record<string, number> = {};
   const me = account();
+  // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
+  const fee = await baseFee();
+  checkOpGas(op, fee);
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   if (process.env.FAST_RELAY_SIM === "1" || !trusted(op)) {
     const s = Date.now();
     await pc.call({ account: me.address, to: ENTRYPOINT_V07, data }).catch((e) => { throw new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`); });
     t.simulate = Date.now() - s; void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
-  const gas = BigInt(op.verificationGasLimit || "0x0") + BigInt(op.callGasLimit || "0x0") + BigInt(op.preVerificationGas || "0x0") + BigInt(120_000);
-  const fee = await baseFee();
+  const gas = totalGas(op) + BigInt(120_000);
+  const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   for (let attempt = 0; ; attempt++) {
     const s = Date.now();
     const nonce = await takeNonce();
-    const raw = await me.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", nonce, to: ENTRYPOINT_V07, data, gas, maxFeePerGas: fee * BigInt(2) + PRIORITY, maxPriorityFeePerGas: PRIORITY });
+    const raw = await me.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", nonce, to: ENTRYPOINT_V07, data, gas, ...txFees });
     t.signTx = Date.now() - s;
     try {
       const r = await sendSync(raw);
@@ -157,7 +157,7 @@ export async function sendUserOperationSync(op: UserOp) {
       }
       const tr = TRUST.get(op.sender.toLowerCase());
       if (r.rc.status !== "0x1") { if (tr) tr.strikeUntil = Date.now() + STRIKE_MS; else TRUST.set(op.sender.toLowerCase(), { bal: BigInt(0), at: 0, strikeUntil: Date.now() + STRIKE_MS }); }
-      else if (tr) { tr.bal -= maxPrefund(op); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
+      else if (tr) { tr.bal -= maxPrefund(op, relayerPrice(base.fee)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
       if (r.rc.status !== "0x1") throw new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`);
       return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
     } catch (e) {

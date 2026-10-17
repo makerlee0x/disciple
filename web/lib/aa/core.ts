@@ -12,6 +12,7 @@ import {
 } from "viem";
 
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY } from "./constants";
+import { clientFees } from "./gasPolicy";
 export { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY };
 
 export const factoryAbi = parseAbi([
@@ -138,8 +139,10 @@ export class LightSmartAccount {
     const blk = await pc.getBlock();
     let prio: bigint;
     try { prio = BigInt(await bundler.rpc("rundler_maxPriorityFeePerGas", [])); } catch { prio = BigInt(0); }
-    op.maxPriorityFeePerGas = numberToHex(prio);
-    op.maxFeePerGas = numberToHex((blk.baseFeePerGas ?? BigInt(0)) * BigInt(2) + prio);
+    // relayer floor formula (lib/aa/gasPolicy) + 1.5x headroom: the self-bundler rejects maxFee < 2x base + tip
+    const fees = clientFees(blk.baseFeePerGas ?? BigInt(0), prio);
+    op.maxPriorityFeePerGas = numberToHex(fees.maxPriorityFeePerGas);
+    op.maxFeePerGas = numberToHex(fees.maxFeePerGas);
     let est;
     try { est = await bundler.rpc("eth_estimateUserOperationGas", [op, this.ep]); }
     catch (e) {
