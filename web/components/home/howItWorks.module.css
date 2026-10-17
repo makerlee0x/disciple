@@ -41,6 +41,7 @@
 .chip i { font-style: normal; opacity: .65; margin: 0 1px; }
 .chipBoost { color: var(--dsc-up); background: rgba(95, 240, 160, .10); border-color: rgba(95, 240, 160, .40); }
 .chipDump { color: #FF7AAE; background: rgba(240, 48, 127, .08); border-color: rgba(240, 48, 127, .50); }
+.legendLg .chip { height: 30px; font-size: 12.5px; padding: 0 11px 0 9px; }
 .legendSep { width: 1px; height: 14px; background: rgba(201, 206, 214, .22); }
 .foot { display: flex; gap: 10px; padding-top: 20px; border-top: 1px solid rgba(201, 206, 214, .10); align-items: center; flex-wrap: wrap; }
 .btn {
