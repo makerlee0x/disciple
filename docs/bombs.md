@@ -5,7 +5,7 @@ player's own shots, `source.impact`). Dollar size and share of the bag are ignor
 
 | Tier    | Price impact | bps        |
 |---------|--------------|------------|
-| BRAKE (puff) | < 2%    | < 200      |
+| PUFF    | < 2%         | < 200      |
 | GRENADE | 2 – 5%       | 200 – 500  |
 | BUNKER  | 5 – 12%      | 500 – 1200 |
 | CRUISE  | 12 – 25%     | 1200 – 2500|

@@ -89,7 +89,7 @@ Unmatched pilots fall back to **Pilgrim**.
 
 44 framed trophies in Flight, Crew, Bombs, Conviction, Launcher, Trencher, Seasonal. Rarity frames: Common → Blessed → Anointed → Glorified → Divine. States: locked / in-progress / unlocked. Season pass XP track at top of `/achievements`.
 
-Bomb impact tiers: Brake <2%, Grenade ≥2%, Bunker ≥5%, Cruise ≥12%, Nuke ≥25%, Atom ≥50%.
+Bomb impact tiers: Puff <2%, Grenade ≥2%, Bunker ≥5%, Cruise ≥12%, Nuke ≥25%, Atom ≥50%.
 
 ## Demo personas
 

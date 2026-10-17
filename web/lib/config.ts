@@ -72,7 +72,7 @@ export const BOMB_PCT = {
 } as const;
 
 export const BOMB_TIERS = [
-  { k: "puff", name: "BRAKE", min: 0 },
+  { k: "puff", name: "PUFF", min: 0 },
   { k: "grenade", name: "GRENADE", min: BOMB_PCT.GRENADE },
   { k: "bunker", name: "BUNKER BUSTER", min: BOMB_PCT.BUNKER },
   { k: "cruise", name: "CRUISE MISSILE", min: BOMB_PCT.CRUISE },

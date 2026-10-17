@@ -1241,7 +1241,7 @@ function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fill
    ===================================================================== */
 const BOMB_PCT={GRENADE:2, BUNKER:5, CRUISE:12, NUKE:25, ATOM:50};
 const BOMB_TIERS=[
-  {k:'puff',    name:'BRAKE',         min:0,                life:0.6, sf:0,   tau:0},
+  {k:'puff',    name:'PUFF',          min:0,                life:0.6, sf:0,   tau:0},
   {k:'grenade', name:'GRENADE',       min:BOMB_PCT.GRENADE, life:0.9, sf:11,  tau:0.12},
   {k:'bunker',  name:'BUNKER BUSTER', min:BOMB_PCT.BUNKER,  life:2.0, sf:9,   tau:0.22, fall:0.45},
   {k:'cruise',  name:'CRUISE MISSILE',min:BOMB_PCT.CRUISE,  life:2.2, sf:7,   tau:0.40, fall:0.55},
