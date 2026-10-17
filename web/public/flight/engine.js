@@ -1900,7 +1900,7 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
    index the PnL uses) and seed every interval; dedupe against live swaps already ticked (tx[:logIndex]). Own fills → mine markers
    when the page exposes the wallet (window.__flightWallet or ?wallet=). */
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
-  fetch('/api/trades?coin='+coin+'&limit=5000').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
+  fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
     const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:+f.usd,side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
     chartSeedK(C.k,fs,keep); C.hist=2;

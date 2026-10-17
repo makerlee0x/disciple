@@ -17,7 +17,8 @@ export interface Kv {
   /** ZADD NX for each member (dedupe by member). */
   zadd(k: string, items: { score: number; member: string }[]): Promise<void>;
   /** ascending by score */
-  zrange(k: string, limit?: number): Promise<string[]>;
+  /** lowest scores first; rev → highest (newest) first */
+  zrange(k: string, limit?: number, rev?: boolean): Promise<string[]>;
   sadd(k: string, ...m: string[]): Promise<void>;
   smembers(k: string): Promise<string[]>;
 }
@@ -41,7 +42,7 @@ function local(): Kv {
     async setNX(k, v, ttl = 0) { await ready; if (live(k)) return false; st.kv[k] = { v, exp: ttl ? Date.now() + ttl * 1000 : 0 }; save(); return true; },
     async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
     async zadd(k, items) { await ready; const z = (st.z[k] ??= {}); for (const i of items) if (!(i.member in z)) z[i.member] = i.score; save(); },
-    async zrange(k, limit = 1000) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => a[1] - b[1]).slice(0, limit).map(([m]) => m); },
+    async zrange(k, limit = 1000, rev = false) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => (rev ? b[1] - a[1] : a[1] - b[1])).slice(0, limit).map(([m]) => m); },
     async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
     async smembers(k) { await ready; return st.s[k] ?? []; },
   };
@@ -69,7 +70,7 @@ function upstash(url: string, token: string): Kv {
         await cmd(...args);
       }
     },
-    async zrange(k, limit = 1000) { return (await cmd<string[]>("ZRANGE", k, 0, limit - 1)) ?? []; },
+    async zrange(k, limit = 1000, rev = false) { return (await cmd<string[]>(...(rev ? ["ZRANGE", k, 0, limit - 1, "REV"] : ["ZRANGE", k, 0, limit - 1]))) ?? []; },
     async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
   };
