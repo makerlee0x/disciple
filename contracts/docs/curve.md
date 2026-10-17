@@ -25,7 +25,7 @@ x_0=\frac{M_0}{S}\,y_0
 | \(S\) | 7B (18 decimals) |
 | \(s_{\mathrm{curve}}\) | 72% of \(S\) |
 | \(M_0\) | $7,000 (Launch Pad) |
-| \(M_1\) | $33,000 (Pearly Gates) |
+| \(M_1\) | $33,000 (graduation, Outer Space) |
 | \(r\) | \(33/7 \approx 4.714\) |
 
 ### Trades (round against user)
@@ -72,7 +72,7 @@ The prior Pump-early / raise-late piecewise curve ($12K→$77K) was replaced 202
 
 ## Graduation (Uniswap v4)
 
-At Pearly Gates the graduating buy atomically:
+At graduation (Outer Space, $33K) the graduating buy atomically:
 
 1. Initializes a v4 pool at the curve-end `sqrtPriceX96` (no price jump).
 2. Seeds a **full-range** position with remaining tokens + curve quote (+ fee escrow), owned by **LockedLP**.

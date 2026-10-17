@@ -7,7 +7,7 @@ import {FeeMath} from "./FeeMath.sol";
 
 /// @title Pump-style CPAMM bonding curve math (§2 / LOCKED #5–#7)
 /// @notice Single constant-product virtual-reserve curve.
-///         Start mcap $7K → Pearly Gates $33K exactly when tokensSold == 72% of supply.
+///         Start mcap $7K → graduation (Outer Space) $33K exactly when tokensSold == 72% of supply.
 /// @dev Quote amounts are raw quote wei. USD targets convert via `quotePriceUsd`
 ///      (USD WAD per 1 full quote token) at launch. Every trade rounds against the user.
 library CurveMath {
@@ -16,7 +16,7 @@ library CurveMath {
     /// @dev Immutable curve geometry.
     struct Params {
         uint256 totalSupply;
-        uint256 sCurve; // tokens sold at Pearly Gates (72% of supply)
+        uint256 sCurve; // tokens sold at graduation (Outer Space, 72% of supply)
         uint256 x0; // virtual quote reserve at s=0
         uint256 y0; // virtual token reserve at s=0
         uint256 quotePriceUsd; // USD WAD per 1 full quote token

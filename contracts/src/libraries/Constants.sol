@@ -8,43 +8,44 @@ library Constants {
     // ── Supply (§2 Curve parameters / LOCKED #7) ─────────────────────────────
     uint8 internal constant TOKEN_DECIMALS = 18;
     uint256 internal constant TOTAL_SUPPLY = 7_000_000_000 * 1e18; // 7B fixed
-    /// @dev ~72% of supply sold on the bonding curve before Pearly Gates graduation.
+    /// @dev ~72% of supply sold on the bonding curve before graduation (Outer Space, $33K).
     uint256 internal constant CURVE_SOLD_BPS = 7200; // 72.00%
 
     // ── Curve market caps (§2 / LOCKED #6, §9 Tier Ladder) — LOCKED 2026-10-15 ─
     /// @dev Launch Pad start market cap (USD, 18-dec fixed-point for quote pricing).
     uint256 internal constant START_MCAP_USD = 7_000 * 1e18; // $7K
-    /// @dev Pearly Gates graduation market cap.
+    /// @dev Graduation market cap (opens the Outer Space tier).
     uint256 internal constant GRADUATION_MCAP_USD = 33_000 * 1e18; // $33K
     /// @dev Alias for GRADUATION_MCAP_USD.
-    uint256 internal constant PEARLY_GATES_MCAP_USD = GRADUATION_MCAP_USD;
+    uint256 internal constant OUTER_SPACE_MCAP_USD = GRADUATION_MCAP_USD;
 
-    // Tier ladder ranges (USD, whole dollars) — LOCKED 2026-10-15
-    // Pre-grad evenly spaced $7K→$33K; post-grad roughly geometric to Seventh Heaven.
+    // Tier ladder ranges (USD, whole dollars). Official ladder (disciple-brand/LEXICON.md §4, web/lib/flight/tiers.ts),
+    // renamed 2026-10-17; ranges unchanged since LOCKED 2026-10-15. Pre-grad evenly spaced $7K→$33K (OUTER SPACE =
+    // graduation); post-grad roughly geometric to Seventh Heaven. Altitude.tierOf uses the same lows (index 0..17).
     uint256 internal constant TIER_LAUNCH_PAD_LO_USD = 7_000;
     uint256 internal constant TIER_LAUNCH_PAD_HI_USD = 12_000;
-    uint256 internal constant TIER_LIMBO_LO_USD = 12_000;
-    uint256 internal constant TIER_LIMBO_HI_USD = 18_000;
-    uint256 internal constant TIER_ASCENSION_LO_USD = 18_000;
-    uint256 internal constant TIER_ASCENSION_HI_USD = 25_000;
-    uint256 internal constant TIER_NARROW_GATE_LO_USD = 25_000;
-    uint256 internal constant TIER_NARROW_GATE_HI_USD = 33_000;
-    uint256 internal constant TIER_PEARLY_GATES_LO_USD = 33_000;
-    uint256 internal constant TIER_PEARLY_GATES_HI_USD = 55_000;
+    uint256 internal constant TIER_OZONE_LO_USD = 12_000;
+    uint256 internal constant TIER_OZONE_HI_USD = 18_000;
+    uint256 internal constant TIER_STRATOSPHERE_LO_USD = 18_000;
+    uint256 internal constant TIER_STRATOSPHERE_HI_USD = 25_000;
+    uint256 internal constant TIER_KARMAN_LINE_LO_USD = 25_000;
+    uint256 internal constant TIER_KARMAN_LINE_HI_USD = 33_000;
+    uint256 internal constant TIER_OUTER_SPACE_LO_USD = 33_000;
+    uint256 internal constant TIER_OUTER_SPACE_HI_USD = 55_000;
     uint256 internal constant TIER_FIRMAMENT_LO_USD = 55_000;
     uint256 internal constant TIER_FIRMAMENT_HI_USD = 100_000;
-    uint256 internal constant TIER_ANGELS_LO_USD = 100_000;
-    uint256 internal constant TIER_ANGELS_HI_USD = 333_000;
-    uint256 internal constant TIER_ARCHANGELS_LO_USD = 333_000;
-    uint256 internal constant TIER_ARCHANGELS_HI_USD = 777_000;
-    uint256 internal constant TIER_HEAVENLY_HOST_LO_USD = 777_000;
-    uint256 internal constant TIER_HEAVENLY_HOST_HI_USD = 1_200_000;
-    uint256 internal constant TIER_MORNING_STARS_LO_USD = 1_200_000;
-    uint256 internal constant TIER_MORNING_STARS_HI_USD = 3_300_000;
-    uint256 internal constant TIER_VIRTUES_LO_USD = 3_300_000;
-    uint256 internal constant TIER_VIRTUES_HI_USD = 7_700_000;
-    uint256 internal constant TIER_DOMINIONS_LO_USD = 7_700_000;
-    uint256 internal constant TIER_DOMINIONS_HI_USD = 33_000_000;
+    uint256 internal constant TIER_MORNING_STARS_LO_USD = 100_000;
+    uint256 internal constant TIER_MORNING_STARS_HI_USD = 333_000;
+    uint256 internal constant TIER_HEAVENLY_HOST_LO_USD = 333_000;
+    uint256 internal constant TIER_HEAVENLY_HOST_HI_USD = 777_000;
+    uint256 internal constant TIER_THE_MOON_LO_USD = 777_000;
+    uint256 internal constant TIER_THE_MOON_HI_USD = 1_200_000;
+    uint256 internal constant TIER_URANUS_LO_USD = 1_200_000;
+    uint256 internal constant TIER_URANUS_HI_USD = 3_300_000;
+    uint256 internal constant TIER_LIMBO_LO_USD = 3_300_000;
+    uint256 internal constant TIER_LIMBO_HI_USD = 7_700_000;
+    uint256 internal constant TIER_GATES_OF_HEAVEN_LO_USD = 7_700_000;
+    uint256 internal constant TIER_GATES_OF_HEAVEN_HI_USD = 33_000_000;
     uint256 internal constant TIER_THRONE_ROOM_LO_USD = 33_000_000;
     uint256 internal constant TIER_THRONE_ROOM_HI_USD = 77_000_000;
     uint256 internal constant TIER_CHERUBIM_LO_USD = 77_000_000;
@@ -58,18 +59,19 @@ library Constants {
     uint256 internal constant TIER_SEVENTH_HEAVEN_LO_USD = 3_300_000_000;
     uint256 internal constant TIER_SEVENTH_HEAVEN_HI_USD = 7_770_000_000;
 
-    // Legacy single-point aliases (tier lower bound / milestone)
+    // Single-point aliases (tier lower bound / milestone)
     uint256 internal constant TIER_LAUNCH_PAD_USD = TIER_LAUNCH_PAD_LO_USD;
-    uint256 internal constant TIER_LIMBO_USD = TIER_LIMBO_LO_USD;
-    uint256 internal constant TIER_ASCENSION_USD = TIER_ASCENSION_LO_USD;
-    uint256 internal constant TIER_NARROW_GATE_USD = TIER_NARROW_GATE_LO_USD;
+    uint256 internal constant TIER_OZONE_USD = TIER_OZONE_LO_USD;
+    uint256 internal constant TIER_STRATOSPHERE_USD = TIER_STRATOSPHERE_LO_USD;
+    uint256 internal constant TIER_KARMAN_LINE_USD = TIER_KARMAN_LINE_LO_USD;
+    uint256 internal constant TIER_OUTER_SPACE_USD = TIER_OUTER_SPACE_LO_USD;
     uint256 internal constant TIER_FIRMAMENT_USD = TIER_FIRMAMENT_LO_USD;
-    uint256 internal constant TIER_ANGELS_USD = TIER_ANGELS_LO_USD;
-    uint256 internal constant TIER_ARCHANGELS_USD = TIER_ARCHANGELS_LO_USD;
-    uint256 internal constant TIER_HEAVENLY_HOST_USD = TIER_HEAVENLY_HOST_LO_USD;
     uint256 internal constant TIER_MORNING_STARS_USD = TIER_MORNING_STARS_LO_USD;
-    uint256 internal constant TIER_VIRTUES_USD = TIER_VIRTUES_LO_USD;
-    uint256 internal constant TIER_DOMINIONS_USD = TIER_DOMINIONS_LO_USD;
+    uint256 internal constant TIER_HEAVENLY_HOST_USD = TIER_HEAVENLY_HOST_LO_USD;
+    uint256 internal constant TIER_THE_MOON_USD = TIER_THE_MOON_LO_USD;
+    uint256 internal constant TIER_URANUS_USD = TIER_URANUS_LO_USD;
+    uint256 internal constant TIER_LIMBO_USD = TIER_LIMBO_LO_USD;
+    uint256 internal constant TIER_GATES_OF_HEAVEN_USD = TIER_GATES_OF_HEAVEN_LO_USD;
     uint256 internal constant TIER_THRONE_ROOM_USD = TIER_THRONE_ROOM_LO_USD;
     uint256 internal constant TIER_CHERUBIM_USD = TIER_CHERUBIM_LO_USD;
     uint256 internal constant TIER_SERAPHIM_USD = TIER_SERAPHIM_LO_USD;

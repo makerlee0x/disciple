@@ -124,7 +124,7 @@ event TierBreak(address indexed token, uint8 fromTier, uint8 toTier, uint256 mca
 ```
 - Altitude is **spot**: on the curve `mcapUsd` == the `Trade.mcapAfterUsd` just emitted; on the hook (G-1) it is the spot mcap from the hook `Trade.sqrtPriceAfter` at the pool's launch-time quote/USD price. `tier` is the 0..17 index of `web/lib/config.ts` `TIERS`, using the same breakpoints as `Altitude.tierOf`.
 - `TierBreak` fires on any spot tier change, up or down, on the trade that caused it. GAME can use it directly or derive tiers from the Trade (curve: `mcapAfterUsd`; hook: `sqrtPriceAfter` × launch-time quote/USD); both give the same result.
-- At graduation the hook emits one `AltitudeUpdate` at the seeded curve-end mcap (normally tier 4, PEARLY GATES), with no `TierBreak`. From then on the hook's stream replaces the curve's.
+- At graduation the hook emits one `AltitudeUpdate` at the seeded curve-end mcap (normally tier 4, OUTER SPACE), with no `TierBreak`. From then on the hook's stream replaces the curve's.
 - Getters: `BondingCurve.altitudeTier()` and `DiscipleHook.altitudeTierOf(PoolId)`.
 - Old (v3) coins don't emit these events.
 

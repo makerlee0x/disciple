@@ -160,7 +160,7 @@ contract MigrationTest is Test {
     function test_price_continuity_within_rounding() public {
         (BondingCurve curve, Token tok, PoolKey memory key) = _launchAndGraduate();
 
-        // Spot at exact sCurve (Pearly Gates); pool init uses same priceWad from graduating buy
+        // Spot at exact sCurve (graduation, Outer Space); pool init uses same priceWad from graduating buy
         CurveMath.Params memory p = CurveMath.makeParams(1e18);
         uint256 priceWad = CurveMath.spotPriceWad(p, FeeMath.curveSoldSupply());
 

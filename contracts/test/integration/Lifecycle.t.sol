@@ -128,12 +128,12 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertLe(qBack, 80 ether);
 
         uint256 mcapBeforeGrad = curve.marketCapUsd();
-        assertLt(mcapBeforeGrad, Constants.PEARLY_GATES_MCAP_USD);
+        assertLt(mcapBeforeGrad, Constants.OUTER_SPACE_MCAP_USD);
 
         _graduate(curve);
         assertTrue(curve.graduated());
         assertGe(curve.tokensSold(), FeeMath.curveSoldSupply() * 99 / 100);
-        // Mcap at/near Pearly Gates (last buy may slightly overshoot sold, mcap check at trigger)
+        // Mcap at/near graduation (Outer Space) (last buy may slightly overshoot sold, mcap check at trigger)
         assertTrue(migration.isGraduated(address(tok)));
 
         // ── Locked LP must NOT be burned ─────────────────────────────────────

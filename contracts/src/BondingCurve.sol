@@ -59,7 +59,7 @@ interface IFeeRouterCurve {
 }
 
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
-/// @notice Start mcap $7K → Pearly Gates $33K at exactly 72% supply sold; 7% wallet cap.
+/// @notice Start mcap $7K → graduation (Outer Space) $33K at exactly 72% supply sold; 7% wallet cap.
 /// @dev Single constant-product virtual reserves; quotePriceUsd scales USD targets into quote units.
 /// @dev Altitude: after each Trade the SPOT mcap (Trade.mcapAfterUsd) is streamed as AltitudeUpdate, plus
 ///      TierBreak when the spot tier changes.
@@ -338,7 +338,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         q.priceAfterX18 = CurveMath.spotPriceWad(_params, sAfter);
         q.impactBps = _impactBps(tokensSold, sAfter);
         q.mcapAfterUsd = CurveMath.marketCapUsd(_params, sAfter);
-        q.graduates = sAfter >= _params.sCurve || q.mcapAfterUsd >= Constants.PEARLY_GATES_MCAP_USD;
+        q.graduates = sAfter >= _params.sCurve || q.mcapAfterUsd >= Constants.OUTER_SPACE_MCAP_USD;
     }
 
     /// @notice Exact preview of `sell(tokensIn, ...)` (incl. 1% fee + creator tax).
