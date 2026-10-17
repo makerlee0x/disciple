@@ -53,7 +53,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 37 | Deposit | **USDG only** in v0; other EVM assets deferred | LOCKED |
 | 38 | Withdraw | USDG on **Robinhood Chain only** | LOCKED |
 | 39 | Data / chart | Own RH indexer for trades, mcap, impact; DexScreener optional share link | LOCKED |
-| 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% brake; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
+| 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% puff; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
 | 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K) through Seventh Heaven ($3.3B–$7.77B); Pearly Gates = $33K graduation — see detailed section | LOCKED 2026-10-15 |
 | 42 | Tramps & walls | Graduated coins only. Users place **single-sided concentrated v4 LP ranges** via the `TrampWallManager` periphery: **tramp** = quote-only range strictly below price (support), **wall** = token-only range strictly above (resistance). **Pure limit orders, no yield** (pool LP fee 0, no donation). Owner can cancel anytime (no hold); anyone can `pull` a fully crossed range immediately (proceeds to owner minus a keeper tip, default 0.1%, owner-settable max 1%). Only LockedLP and TrampWallManager may add liquidity (hook gate). | LOCKED 2026-10-16 |
 
@@ -267,7 +267,7 @@ Owned visually by **DISCIPLE GAME**. Tiers by sell price impact:
 
 | Impact | Nuke tier |
 |--------|-----------|
-| &lt; 2% | Brake |
+| &lt; 2% | PUFF |
 | 2–5% | Grenade |
 | 5–12% | Bunker buster |
 | 12–25% | Cruise missile |
