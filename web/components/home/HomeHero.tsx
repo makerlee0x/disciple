@@ -1,9 +1,11 @@
 "use client";
 /**
- * App home hero (BRAND app-home r1, mock A): the #1 trending rocket (highest 24h volume) in flight over its current
- * tier sky. It stays on the rocket the visitor landed on for the whole visit (no auto-rotate); only its numbers, the
- * trade chips and the Next trending strip refresh. Server-rendered with the data (app/page.tsx), so the sky plate is
- * the LCP and needs no client fetch; chips, rocket idle motion and polling start only after paint.
+ * App home hero (BRAND app-home r1, mock A): the #1 trending rocket (highest 24h volume) on the launch pad over its
+ * current tier sky. It stays on the rocket the visitor landed on for the whole visit (no auto-rotate); only its
+ * numbers, the trade chips and the Next trending strip refresh. The rocket stands on the #79 pad (HeroPad) with its idle
+ * plume; BOOST / DUMP play the lift-off first and then open the flight page (Open flight goes straight there).
+ * Server-rendered with the data (app/page.tsx), so the sky plate is the LCP and needs no client fetch; chips, pad idle
+ * motion and polling start only after paint.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,7 +18,8 @@ import {
   DAY_MS, ROCKET_SRC, fmtAgeShort, rankTrending, shortAddr, skySrc, thumbSrc, tierProgress,
   type HomeCoin, type HomeData, type TradeChip,
 } from "@/lib/home/trending";
-import { afterPaint } from "./idle";
+import { afterPaint, prefersReducedMotion } from "./idle";
+import HeroPad, { LIFTOFF_MS } from "./HeroPad";
 import s from "./appHome.module.css";
 
 const POLL_MS = 30_000;
@@ -60,16 +63,6 @@ function Chip({ c, withTrader, i }: { c: TradeChip; withTrader: boolean; i: numb
   );
 }
 
-function Rocket() {
-  return (
-    <div className={s.rocket} aria-hidden>
-      <div className={s.plume}><i /><i /><i /></div>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={withBase(ROCKET_SRC)} alt="" width={221} height={609} fetchPriority="high" decoding="async" draggable={false} />
-    </div>
-  );
-}
-
 function Stat({ label, value }: { label: string; value: string | null }) {
   if (value == null) return null;
   return <div className={s.stat}><span>{label}</span><b>{value}</b></div>;
@@ -83,6 +76,8 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
   const heroToken = useRef(initial.hero).current; // fixed for the visit
   const ref = useRef<HTMLElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
+  const [launching, setLaunching] = useState(false);
+  const launchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hero = useMemo(
     () => data.coins.find((c) => c.token === heroToken) ?? initial.coins.find((c) => c.token === heroToken) ?? null,
@@ -133,6 +128,25 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
 
   const href = hero ? heroHref(hero) : "/create";
   const warm = () => { if (hero) router.prefetch(href); };
+
+  // The flight route is prefetched on hover / focus / touch (warm) and again at the click, so it is ready by the time
+  // the 1.3s lift-off clears the frame. (Not on mount: that pulls the flight-page JS into every home visit.)
+  // Back/forward cache restores the page mid-launch: put the rocket back on the pad.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) setLaunching(false); };
+    window.addEventListener("pageshow", onShow);
+    return () => { window.removeEventListener("pageshow", onShow); if (launchTimer.current) clearTimeout(launchTimer.current); };
+  }, []);
+  /** BOOST / DUMP: lift-off (LIFTOFF_MS), then the same flight-page navigation the link does. Plain link behaviour for
+   *  modified clicks (new tab etc.) and under prefers-reduced-motion. */
+  const liftOff = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || prefersReducedMotion()) return;
+    e.preventDefault();
+    if (launchTimer.current) return;
+    router.prefetch(href);
+    setLaunching(true);
+    launchTimer.current = setTimeout(() => router.push(href), LIFTOFF_MS);
+  };
   const scrollStrip = (d: number) => stripRef.current?.scrollBy({ left: d * 206, behavior: "smooth" });
   const st = hero?.stats ?? null;
 
@@ -141,13 +155,13 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
       {/* LCP: the one sky plate in use + the rocket sprite (React hoists these into <head>) */}
       <link rel="preload" as="image" type="image/webp" href={withBase(skySrc(tier.index))} fetchPriority="high" />
       <link rel="preload" as="image" type="image/webp" href={withBase(ROCKET_SRC)} />
-      <section ref={ref} className={`${s.hero}${go ? " " + s.go : ""}`} aria-label={hero ? `#1 trending rocket: ${hero.name}` : "Trending rocket"}>
+      <section ref={ref} className={`${s.hero}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} aria-label={hero ? `#1 trending rocket: ${hero.name}` : "Trending rocket"}>
         <div className={s.stage}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className={s.sky} src={withBase(skySrc(tier.index))} alt="" width={1280} height={720} fetchPriority="high" decoding="async" />
           <div className={s.grain} aria-hidden />
           <div className={s.scrim} aria-hidden />
-          <Rocket />
+          <HeroPad go={go} launching={launching} />
           {chips.length > 0 && (
             <div className={s.chips} aria-label="Latest trades">
               {chips.map((c, i) => <Chip key={c.id} c={c} i={i} withTrader={i === 0} />)}
@@ -189,10 +203,10 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
                   <Stat label="Age" value={hero.launchedAt && now ? fmtAgeShort(now - hero.launchedAt) : null} />
                 </div>
                 <div className={s.actions}>
-                  <Link href={href} prefetch={false} className={`${s.btn} ${s.boost}`} onMouseEnter={warm} onFocus={warm} aria-label={`BOOST $${hero.ticker} on its flight page`}>
+                  <Link href={href} prefetch={false} className={`${s.btn} ${s.boost}`} onMouseEnter={warm} onFocus={warm} onPointerDown={warm} onClick={liftOff} aria-label={`BOOST $${hero.ticker} on its flight page`}>
                     <Icon name="boost" size={18} />BOOST ${hero.ticker}
                   </Link>
-                  <Link href={href} prefetch={false} className={`${s.btn} ${s.dump}`} onMouseEnter={warm} onFocus={warm} aria-label={`DUMP $${hero.ticker} on its flight page`}>
+                  <Link href={href} prefetch={false} className={`${s.btn} ${s.dump}`} onMouseEnter={warm} onFocus={warm} onPointerDown={warm} onClick={liftOff} aria-label={`DUMP $${hero.ticker} on its flight page`}>
                     <Icon name="dump" size={18} />DUMP
                   </Link>
                   <Link href={href} prefetch={false} className={`${s.btn} ${s.ghost}`} onMouseEnter={warm} onFocus={warm}>
