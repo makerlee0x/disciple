@@ -5,6 +5,8 @@
  *  - Previews come from on-chain views (quoteBuy/quoteSell) or router.quoteExactIn (eth_call) post-grad.
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
+import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
+import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
@@ -138,6 +140,9 @@ export async function decimalsOf(pc: PublicClient, erc20: Address): Promise<numb
 
 const curveCache = new Map<string, Address>();
 export async function curveOf(pc: PublicClient, token: Address): Promise<Address> {
+  return COIN.get(ckey("curve", token), () => curveOfLive(pc, token)) as Promise<Address>;
+}
+async function curveOfLive(pc: PublicClient, token: Address): Promise<Address> {
   const hit = curveCache.get(token.toLowerCase());
   if (hit) return hit;
   const c = await pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "curveOf", args: [token] });
@@ -188,15 +193,76 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
   };
 }
 
+/** Curve, graduated, quote token + decimals — cached (graduated=false re-read after 5 s; graduation is one-way). */
+export async function coinFacts(pc: PublicClient, token: Address): Promise<{ curve: Address; graduated: boolean; quote: Address; quoteDecimals: number }> {
+  const kk = ckey("facts", token);
+  const cached = COIN.fresh(kk) as { curve: Address; graduated: boolean; quote: Address; quoteDecimals: number; at: number } | undefined;
+  if (cached && (cached.graduated || Date.now() - cached.at < 5000)) return cached;
+  const curve = await curveOf(pc, token);
+  const c = { address: curve, abi: bondingCurveAbi } as const;
+  const [graduated, quote] = await Promise.all([pc.readContract({ ...c, functionName: "graduated" }), pc.readContract({ ...c, functionName: "quote" })]);
+  const v = { curve, graduated, quote, quoteDecimals: await decimalsOf(pc, quote), at: Date.now() };
+  COIN.set(kk, v); return v;
+}
+
+/** amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote. */
+export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500): Promise<bigint> {
+  const k = ckey(token, side, amountIn), lk = ckey(token, side);
+  const exact = QUOTES.fresh(k, maxAge); if (exact) return exact.amountOut;
+  const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; // e.g. sell % after balance shrank
+  return (await QUOTES.get(k, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) }), maxAge)).amountOut;
+}
+/** amountOut only — ONE eth_call (router quoteExactIn post-grad, curve quoteBuy/quoteSell pre-grad); readQuote also
+ * reads the lens for the mcap preview, which a trade doesn't need. */
+export async function readAmountOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint): Promise<bigint> {
+  const { curve, graduated } = await coinFacts(pc, token);
+  if (graduated) {
+    const { result } = await pc.simulateContract({ address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn] });
+    return result[0];
+  }
+  const c = { address: curve, abi: bondingCurveAbi } as const;
+  return side === "buy" ? (await pc.readContract({ ...c, functionName: "quoteBuy", args: [amountIn] })).tokensOut : (await pc.readContract({ ...c, functionName: "quoteSell", args: [amountIn] })).quoteOut;
+}
+/** Background refresh of a preset quote (TradeBridge calls this ~1 s). */
+/** After a trade lands, quotes on its route are stale: drop them (the 1 s warm loop re-fills them). */
+function dropRouteQuotes(token: Address) {
+  for (const sd of ["buy", "sell"]) { LAST_QUOTE.delete(ckey(token, sd)); LAST_QUOTE.delete(ckey("usdg", token, sd)); }
+  QUOTES.dropWhere((k) => k.startsWith(ckey(token)) || k.startsWith(ckey("usdg", token)));
+}
+/** amountIn for a $ shot: USDG mode buys spend mUSDG 1:1 ($1 = 1 USDG, 18 dp); otherwise quote/coin via usdToAmountIn. */
+/**
+ * USDG router (#65) for this coin? Flag on — or the coin is USDG-quoted (then always, once the router supports it, so
+ * no USDG approve ever goes to a curve: policy 1.3.0 rejects those). null ⇒ native quote path (today's deployment).
+ */
+export async function usdgRouteFor(pc: PublicClient, token: Address): Promise<Address | null> {
+  if (!hasRouter()) return null;
+  const ru = await routerUsdg(pc, deployment().router); if (!ru) return null;
+  if (payUsdg()) return ru;
+  const { quote } = await coinFacts(pc, token);
+  return quote.toLowerCase() === ru.toLowerCase() ? ru : null;
+}
+export async function shotAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
+  if (side === "buy" && (await usdgRouteFor(pc, token))) return BigInt(Math.round(usd * 1e6)) * BigInt(1e12);
+  return usdToAmountIn(pc, token, side, usd);
+}
+/** Warm the quote a tap will need (USDG route: the router's end-to-end quoteUsdgRoute; else the native quote). */
+export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
+  if (amountIn <= B(0)) return;
+  const r = deployment().router;
+  if (await usdgRouteFor(pc, token)) { await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0); return; }
+  return warmQuote(pc, token, side, amountIn);
+}
+export async function warmQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
+  if (amountIn <= B(0)) return;
+  const amountOut = await readAmountOut(pc, token, side, amountIn);
+  QUOTES.set(ckey(token, side, amountIn), { amountOut }); LAST_QUOTE.set(ckey(token, side), { amountIn, amountOut, at: Date.now() });
+}
+
 /** Exact preview for the current block. Curve views pre-grad, router eth_call post-grad. */
 export async function readQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint): Promise<TradeQuote> {
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const [graduated, quote] = await Promise.all([
-    pc.readContract({ ...c, functionName: "graduated" }),
-    pc.readContract({ ...c, functionName: "quote" }),
-  ]);
-  const quoteDecimals = await decimalsOf(pc, quote);
+  const { graduated, quoteDecimals } = await coinFacts(pc, token);
   const base = { side, amountIn, quoteDecimals, snipeFee: B(0), graduates: false } as const;
 
   if (graduated) {
@@ -244,20 +310,30 @@ export async function readCreatorBuyMaxBps(pc: PublicClient) {
 export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const [qp, mcapWad, p] = await Promise.all([
-    pc.readContract({ ...c, functionName: "quotePriceUsd" }),
-    pc.readContract({ ...c, functionName: "mcapNow" }),
-    curveParams(pc, curve),
-  ]);
+  const qp = await COIN.get(ckey("qp", curve), () => pc.readContract({ ...c, functionName: "quotePriceUsd" })) as bigint;   // launch-fixed
   const usdMicro = B(Math.max(1, Math.round(usd * 1e6)));
   if (side === "buy") return (usdMicro * B(1e18) * B(1e18)) / (qp * B(1e6));
+  const [mcapWad, p] = await Promise.all([pc.readContract({ ...c, functionName: "mcapNow" }), curveParams(pc, curve)]);
   const live = await readMarket(pc, token);
   if (live?.graduated && live.mcapUsd > 0) return (usdMicro * p.totalSupply) / B(Math.round(live.mcapUsd * 1e6)); // tokens = usd / mcap × supply
   return mcapWad > B(0) ? (usdMicro * B(1e12) * p.totalSupply) / mcapWad : B(0);
 }
 
 export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Address) {
-  return pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] });
+  const b = await pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] });
+  BALANCES.set(ckey(erc20, owner), b); return b;
+}
+/**
+ * Apply a known delta (e.g. coin received, from the receipt logs) to the cached balance. Reading balanceOf right after
+ * a sync receipt can hit an RPC node one block behind (0 after a first buy ⇒ "NO TOKENS IN WALLET" on the next sell).
+ */
+export function bumpBalance(erc20: Address, owner: Address, delta: bigint) {
+  const k = ckey(erc20, owner), cur = BALANCES.fresh(k, 60_000);
+  if (cur !== undefined) BALANCES.set(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.set(k, delta);
+}
+/** Balance hint ≤ maxAge ms old (polled / refreshed after trades), else a live read. */
+export async function balanceHint(pc: PublicClient, erc20: Address, owner: Address, maxAge = 5000) {
+  return BALANCES.get(ckey(erc20, owner), () => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] }), maxAge);
 }
 
 /* ---------------- client ---------------- */
@@ -301,22 +377,34 @@ export function createViemProtocol(): ProtocolClient {
     } catch { return []; }
   }
 
+  const refDone = new Set<string>();
+  /** referralCall, but once it resolved to "nothing to attribute" for this wallet it stays [] (no 2 reads per buy). */
+  async function referralCallCached(me: Address) {
+    if (refDone.has(me.toLowerCase())) return [];
+    const r = await referralCall(me); if (!r.length) refDone.add(me.toLowerCase()); return r;
+  }
+
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
-      const curve = await curveOf(pc, t.token);
-      const graduated = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "graduated" });
-      const quoteAsset = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" });
-      const me = await activeAddress();
+      // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
+      const [{ curve, graduated, quote: quoteAsset }, me] = await Promise.all([coinFacts(pc, t.token), activeAddress()]);
       const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
-      let minOut = t.minAmountOut;
-      if (minOut <= B(0)) {
-        const q = await readQuote(pc, t.token, side, t.amountIn);
-        minOut = applySlippage(q.amountOut, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
-      }
+      // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
+      // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
+      const usdg = await usdgRouteFor(pc, t.token);
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline });
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
+      const smart = isSmartMode();
+      const [qOut, have, refCalls, approve] = await Promise.all([
+        t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age)),
+        balanceHint(pc, spendAsset, me),
+        side === "buy" ? referralCallCached(me) : Promise.resolve([]),
+        smart ? Promise.resolve(null) : approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn),
+      ]);
+      const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(qOut, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
       let target: Address, data: Hex;
       if (graduated) {
         if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
@@ -326,22 +414,61 @@ export function createViemProtocol(): ProtocolClient {
         target = curve;
         data = encodeFunctionData({ abi: bondingCurveAbi, functionName: side, args: [t.amountIn, minOut, deadline, recipient] });
       }
-      // Preflight: an underfunded spend otherwise surfaces only as an opaque eth_estimateUserOperationGas failure.
-      const have = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });
+      // Preflight: an underfunded spend otherwise surfaces only as an opaque estimate failure / on-chain revert.
       if (have < t.amountIn) {
-        const [sym, dec] = await Promise.all([
-          pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "symbol" }).catch(() => "token"),
-          pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "decimals" }).catch(() => 18),
-        ]);
-        throw new ProtocolError("InsufficientBalance", `not enough ${sym}: need ${fmtUnits(t.amountIn, Number(dec))} have ${fmtUnits(have, Number(dec))}`);
+        const live = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });   // hint may be stale-low
+        BALANCES.set(ckey(spendAsset, me), live);
+        if (live < t.amountIn) {
+          const [sym, dec] = await Promise.all([
+            pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "symbol" }).catch(() => "token"),
+            pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "decimals" }).catch(() => 18),
+          ]);
+          throw new ProtocolError("InsufficientBalance", `not enough ${sym}: need ${fmtUnits(t.amountIn, Number(dec))} have ${fmtUnits(live, Number(dec))}`);
+        }
       }
-      const calls = [...(side === "buy" ? await referralCall(me) : []), ...(await approveCall(me, spendAsset, target, t.amountIn)), { to: target, data }];
-      const r = await execCalls(calls);
-      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut };
+      // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
+      const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
+      const calls = [...refCalls, ...approveCalls, { to: target, data }];
+      BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
+      const done = addInflight(ckey("coin", t.token, side), t.amountIn);
+      try {
+        const r = await execCalls(calls);
+        return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut };
+      } finally { done(); dropRouteQuotes(t.token); }
     } catch (e) {
       if (e instanceof ProtocolError) throw e;
       throw friendlyError(e);
     }
+  }
+
+  /**
+   * Pay-in-USDG through DiscipleRouter (lib/trade/usdgRouter, #65): ONE userOp = [exact approve, buyWithUsdg|sellToUsdg].
+   * t.amountIn is USDG on buys, coin on sells; minOut is end-to-end from quoteUsdgRoute − slippage (the caller clamps
+   * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
+   * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
+   */
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint }): Promise<TradeResult> {
+    const router = deployment().router, isBuy = side === "buy";
+    const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
+    const [q, have] = await Promise.all([
+      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("usdgroute", t.token, side), t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age)),
+      balanceHint(pc, spend, c.me),
+    ]);
+    if (have < t.amountIn) {
+      const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
+      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", `not enough ${isBuy ? "USDG" : "tokens"}: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
+    }
+    const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+    if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
+    const calls: Call[] = isBuy
+      ? [...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
+      : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: minOut, deadline: c.deadline }));
+    BALANCES.set(ckey(spend, c.me), have - t.amountIn);
+    const done = addInflight(ckey("usdgroute", t.token, side), t.amountIn);
+    try {
+      const r = await execCalls(calls);
+      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut };
+    } finally { done(); dropRouteQuotes(t.token); }
   }
 
   return {

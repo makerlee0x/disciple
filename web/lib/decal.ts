@@ -30,6 +30,16 @@ export function loadBaseRocket() {
   return (baseP ||= loadImg(BASE_ROCKET_SRC, true, 10000));
 }
 
+/** Hi-res master of the same chrome sprite (221×609, tone-matched; same framing/roundel geometry). */
+export const BASE_ROCKET_HI_SRC = withBase("/assets/rocket-hi.webp");
+const spriteP = new Map<string, Promise<HTMLImageElement>>();
+/** Load (and cache) any rocket sprite that shares the base sprite's framing, e.g. the hi-res master or the lit hero rocket. */
+export function loadRocketSprite(src: string) {
+  let p = spriteP.get(src);
+  if (!p) { p = loadImg(src, true, 10000); spriteP.set(src, p); p.catch(() => spriteP.delete(src)); }
+  return p;
+}
+
 const isLocal = (u: string) =>
   u.startsWith("blob:") || u.startsWith("data:") || u.startsWith("/") ||
   (typeof location !== "undefined" && u.startsWith(location.origin));
@@ -98,6 +108,8 @@ export interface DecalOpts {
   /** Offset as fraction of roundel radius (−1…1). */
   ox?: number;
   oy?: number;
+  /** Final full-hull chrome sheen stripe (default true). Off for pre-lit sprites (hero rocket). */
+  sheen?: boolean;
 }
 
 function roundel(o: CanvasRenderingContext2D, icon: CanvasImageSource, cx: number, cy: number, r: number, skew: number, opt: DecalOpts = {}) {
@@ -143,10 +155,13 @@ export function composeRocket(base: HTMLImageElement | HTMLCanvasElement, icon: 
   o.globalCompositeOperation = "multiply"; o.globalAlpha = 0.45; o.drawImage(sh, 0, 0);
   // chrome highlights on top
   o.globalCompositeOperation = "screen"; o.globalAlpha = 0.35; o.drawImage(sh, 0, 0);
-  o.globalAlpha = 1; o.globalCompositeOperation = "source-atop";
-  const g = o.createLinearGradient(0, 0, w, 0);
-  g.addColorStop(0.3, "rgba(255,255,255,0)"); g.addColorStop(0.42, "rgba(255,255,255,.22)"); g.addColorStop(0.5, "rgba(255,255,255,0)");
-  o.fillStyle = g; o.fillRect(0, 0, w, h);
+  o.globalAlpha = 1;
+  if (opt.sheen !== false) {
+    o.globalCompositeOperation = "source-atop";
+    const g = o.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0.3, "rgba(255,255,255,0)"); g.addColorStop(0.42, "rgba(255,255,255,.22)"); g.addColorStop(0.5, "rgba(255,255,255,0)");
+    o.fillStyle = g; o.fillRect(0, 0, w, h);
+  }
   o.globalCompositeOperation = "source-over";
   return c;
 }
@@ -155,6 +170,12 @@ export function composeRocket(base: HTMLImageElement | HTMLCanvasElement, icon: 
 export async function brandedRocket(iconUrl?: string | null, timeoutMs = 4000, opt: DecalOpts = {}) {
   const [base, icon] = await Promise.all([loadBaseRocket(), loadIcon(iconUrl, timeoutMs)]);
   return { canvas: composeRocket(base, icon, DECAL_SCALE, opt), fallback: !icon, icon };
+}
+
+/** Same as brandedRocket, but composited onto another sprite with the base framing (e.g. the lit hero rocket). */
+export async function brandedRocketOn(baseSrc: string, iconUrl?: string | null, timeoutMs = 4000, scale = 2) {
+  const [base, icon] = await Promise.all([loadRocketSprite(baseSrc), loadIcon(iconUrl, timeoutMs)]);
+  return { canvas: composeRocket(base, icon, scale, { sheen: false }), fallback: !icon, icon };
 }
 
 /**

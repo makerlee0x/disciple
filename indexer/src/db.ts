@@ -19,7 +19,17 @@ export function openDb(path: string): DB {
     mcap_usd TEXT, price_usd REAL, volume_usd REAL, block INTEGER, ts INTEGER, tx TEXT
   );
   CREATE INDEX IF NOT EXISTS trades_token_ts ON trades(token, ts);
-  CREATE INDEX IF NOT EXISTS trades_trader ON trades(trader);
+  -- leaderboard (GROUP BY trader WHERE ts >= ?) and per-user trades; supersedes the old trades(trader) index
+  CREATE INDEX IF NOT EXISTS trades_trader_ts ON trades(trader, ts);
+  DROP INDEX IF EXISTS trades_trader;
+  -- per-coin trade aggregates for listCoins, maintained on ingest (src/ingest.ts bumpCoinStats); backfilled once below
+  CREATE TABLE IF NOT EXISTS coin_stats (
+    token TEXT PRIMARY KEY, volume_usd REAL NOT NULL DEFAULT 0, trades INTEGER NOT NULL DEFAULT 0,
+    last_mcap REAL, last_price_usd REAL, last_ts INTEGER, last_block INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS coin_stats_volume ON coin_stats(volume_usd);
+  CREATE INDEX IF NOT EXISTS coin_stats_mcap ON coin_stats(last_mcap);
+  CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
   CREATE TABLE IF NOT EXISTS orders (
     stack TEXT NOT NULL, id INTEGER NOT NULL, kind TEXT NOT NULL, owner TEXT NOT NULL, token TEXT NOT NULL,
     tick_lower INTEGER, tick_upper INTEGER, liquidity TEXT, amount_in TEXT, amount_in_usd REAL,
@@ -71,14 +81,40 @@ export function openDb(path: string): DB {
   });
   add("fee_events", { fee_is_quote: "INTEGER" });
   add("orders", { placed_block: "INTEGER", keeper_quote_tip: "TEXT DEFAULT '0'", keeper_token_tip: "TEXT DEFAULT '0'" });
+  // one-time backfill of coin_stats for DBs indexed before the aggregates existed
+  const v = db.prepare("SELECT v FROM meta WHERE k='coin_stats_v'").get() as { v: string } | undefined;
+  if (v?.v !== COIN_STATS_VERSION) db.transaction(() => { rebuildCoinStats(db); db.prepare("INSERT OR REPLACE INTO meta VALUES ('coin_stats_v', ?)").run(COIN_STATS_VERSION); })();
   return db;
 }
+
+const COIN_STATS_VERSION = "1";
+/**
+ * Recompute coin_stats from trades (migration/backfill; also safe to call any time). last_* = the latest trade by
+ * (ts, block, rowid), same "latest" the old listCoins subquery used (ts DESC, block DESC).
+ */
+export function rebuildCoinStats(db: DB, tokens?: string[]) {
+  const where = tokens ? `WHERE token IN (${tokens.map(() => "?").join(",")})` : "";
+  db.prepare(`DELETE FROM coin_stats ${where}`).run(...(tokens ?? []));
+  db.prepare(`INSERT INTO coin_stats (token, volume_usd, trades, last_mcap, last_price_usd, last_ts, last_block)
+    SELECT t.token, COALESCE(SUM(t.volume_usd),0), COUNT(*),
+      (SELECT CAST(x.mcap_usd AS REAL)/1e18 FROM trades x WHERE x.token=t.token ORDER BY x.ts DESC, x.block DESC, x.rowid DESC LIMIT 1),
+      (SELECT x.price_usd FROM trades x WHERE x.token=t.token ORDER BY x.ts DESC, x.block DESC, x.rowid DESC LIMIT 1),
+      MAX(t.ts), MAX(t.block)
+    FROM trades t ${where.replace("token", "t.token")} GROUP BY t.token`).run(...(tokens ?? []));
+}
+
+/** In-process data version: bumped on every applied chunk / wipe, so API caches never outlive new data. */
+const versions = new WeakMap<DB, number>();
+export const dataVersion = (db: DB) => versions.get(db) ?? 0;
+export const bumpDataVersion = (db: DB) => { versions.set(db, dataVersion(db) + 1); };
 
 /** Tables holding event-derived rows keyed by stack (used for reorg rewind / rebuild). */
 export function wipeStack(db: DB, stack: string) {
   db.transaction(() => {
     db.prepare("DELETE FROM balances WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
+    db.prepare("DELETE FROM coin_stats WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
     for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes", "fee_credits", "lp_compounds"])
       db.prepare(`DELETE FROM ${t} WHERE stack=?`).run(stack);
   })();
+  bumpDataVersion(db);
 }

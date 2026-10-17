@@ -48,7 +48,7 @@ const bundler: Bundler = {
 const ownerKey = generatePrivateKey(); // throwaway session/owner key
 const base = privateKeyToAccount(ownerKey);
 const owner = { address: base.address, signMessage: async (a: { message: { raw: Hex } }) => { sigCount++; return base.signMessage(a); } };
-const sa = new LightSmartAccount({ pc, chainId: 46630, bundler, owner, sponsor: true, onGasMode: (m, r) => console.log("gas mode:", m, r ? `(${r.slice(0, 80)})` : "") });
+const sa = new LightSmartAccount({ pc, chainId: 46630, bundler, owner });
 const me = await sa.address();
 await pc.request({ method: "anvil_setBalance" as never, params: [me, "0x38d7ea4c68000"] as never }); // 0.001 ETH = /api/drip default
 console.log("smart account", me, "owner", owner.address);

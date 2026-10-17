@@ -32,12 +32,13 @@ export function virtualQuoteReserve(liquidity: bigint, sqrtP: bigint, tokenIsC0:
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number; n: number };
 
 /** Bucketed OHLC from (ts, price, volume) rows sorted by ts asc. Gaps are not filled. */
-export function candles(rows: { ts: number; price: number; vol: number }[], intervalSec: number): Candle[] {
+/** `prevClose`: last price before the first row (range-bounded queries), so the first candle still opens at it. */
+export function candles(rows: { ts: number; price: number; vol: number }[], intervalSec: number, prevClose?: number | null): Candle[] {
   const out: Candle[] = [];
   for (const r of rows) {
     const t = Math.floor(r.ts / intervalSec) * intervalSec;
     const last = out[out.length - 1];
-    if (!last || last.t !== t) out.push({ t, o: last ? last.c : r.price, h: r.price, l: r.price, c: r.price, v: r.vol, n: 1 });
+    if (!last || last.t !== t) out.push({ t, o: last ? last.c : prevClose ?? r.price, h: r.price, l: r.price, c: r.price, v: r.vol, n: 1 });
     else {
       last.h = Math.max(last.h, r.price);
       last.l = Math.min(last.l, r.price);

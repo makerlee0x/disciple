@@ -10,6 +10,7 @@ import { fmtMcap, fmtMoney, fmtPct, shareText } from "@/lib/share/format";
 import { localLoadoutIds, loadoutFromIds } from "@/lib/share/loadout";
 import type { PositionPnl } from "@/lib/sharePnl";
 import type { Fill } from "@/lib/trades";
+import Icon from "@/components/icons/Icon";
 
 export interface ShareTarget { coin: string; ticker: string; wallet: string | null; username: string | null; sample?: boolean }
 type Pnl = PositionPnl & { sample?: boolean };
@@ -89,7 +90,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
       <div className="share-modal" onClick={(e) => e.stopPropagation()}>
         <div className="share-modal-head">
           <h3>Share this trade · ${target.ticker}</h3>
-          <button type="button" className="ds-btn" onClick={onClose} aria-label="Close">✕</button>
+          <button type="button" className="ds-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={16} /></button>
         </div>
         <div className="share-modal-body">
           <div className="share-card-frame">
@@ -109,7 +110,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
             ) : <p className="muted tiny">Loading position…</p>}
             {canEncodeVideo() && !video && (
               <button type="button" className="ds-btn share-video-btn" data-testid="share-make-video" onClick={makeVideo} disabled={!pnl || !!vp}>
-                {vp ? "Rendering video…" : "🎬 Make video (15s)"}
+                {vp ? "Rendering video…" : <><Icon name="video" size={16} /> Make video (15s)</>}
               </button>
             )}
             {vp && (
