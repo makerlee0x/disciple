@@ -237,7 +237,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <PlaystyleMeter pve={data.pveScore} pvp={data.pvpScore} />
           <div className="playstyle-detail">
             <div><strong>Crew climb</strong><ul>
-              <li>Fueling {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
+              <li>Boosting {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
               <li>Crews {data.playstyle.crewJoins}</li><li>Grads {data.playstyle.graduations}</li>
             </ul></div>
             <div><strong>Bomb bay</strong><ul>

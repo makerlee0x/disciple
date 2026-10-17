@@ -77,7 +77,7 @@ export default function CrewPanel() {
       {open && (
         <>
           <div style={{ marginTop: 6 }}><VerifiedBadge tier={tier} /></div>
-          <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP FUELERS</div>
+          <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
               <span>{i === 0 ? "👑" : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>

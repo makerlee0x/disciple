@@ -43,9 +43,9 @@ export const IDENTITIES: readonly IdentityDef[] = [
     test: (m) => m.bombCount >= T.bomberMinBombs },
   { id: "smart_money", label: "Smart Money", blurb: "Top-decile ROI with enough closes to prove it.", weight: 88,
     test: (m) => m.roiPercentile >= T.smartMoneyRoiDecile && m.closedTrades >= T.smartMoneyMinTrades },
-  { id: "kingmaker", label: "Kingmaker", blurb: "Early fuel on rockets that punched into Angels+.", weight: 85,
+  { id: "kingmaker", label: "Kingmaker", blurb: "Early boosts on rockets that punched into Angels+.", weight: 85,
     test: (m) => m.kingmakerCount >= T.kingmakerCount },
-  { id: "crew_captain", label: "Crew Captain", blurb: "Top fueler on rockets that graduated.", weight: 84,
+  { id: "crew_captain", label: "Crew Captain", blurb: "Top booster on rockets that graduated.", weight: 84,
     test: (m) => m.crewCaptainGrads >= T.crewCaptainGradTop },
   { id: "gate_keeper", label: "Gate Keeper", blurb: "Helped shove rockets through the Pearly Gates.", weight: 83,
     test: (m) => m.gateKeeperAssists >= T.gateKeeperAssists },
@@ -108,11 +108,11 @@ export function identityRuleText(id: IdentityId): string {
     case "jeet": return `≥3 dumps within ${T.jeetDumpMinutes}m after ≥${T.jeetPumpMultiple}× pump`;
     case "bomber": return `≥ ${T.bomberMinBombs} bombs (impact ≥ grenade)`;
     case "nuker": return `≥ ${T.nukerMinNukes} nukes/atoms (impact ≥ 25%)`;
-    case "crew_captain": return `Top fueler on ≥ ${T.crewCaptainGradTop} graduated rockets`;
+    case "crew_captain": return `Top booster on ≥ ${T.crewCaptainGradTop} graduated rockets`;
     case "gate_keeper": return `≥ ${T.gateKeeperAssists} Pearly Gates assists`;
     case "launcher": return `≥ ${T.launcherMinLaunches} rocket launched`;
     case "dev_supporter": return `≥ ${T.launcherGraduated} graduated launch`;
-    case "kingmaker": return `Early fuel on ≥ ${T.kingmakerCount} rockets that hit Angels+`;
+    case "kingmaker": return `Early boosts on ≥ ${T.kingmakerCount} rockets that hit Angels+`;
     case "farmer": return `≥ ${T.farmerMinPoints} points with realized PnL ≤ $${T.farmerMaxPnl}`;
     case "smart_money": return `Top ${(1 - T.smartMoneyRoiDecile) * 100}% ROI with ≥ ${T.smartMoneyMinTrades} closes`;
     default: return "";
