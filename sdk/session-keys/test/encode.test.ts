@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import { decodeFunctionData } from "viem";
 import { semiModularAccountBytecodeAbi } from "@account-kit/smart-contracts/experimental";
-import { buildCreateSession, buildUninstallSession, EXEC_HOOK_FLAG, encodePolicyInstallData, TRADE_PERMS } from "../src/index.ts";
+import { routerBuyWithUsdgCalls, routerSellToUsdgCalls, usdgRouterAbi, buildCreateSession, buildUninstallSession, EXEC_HOOK_FLAG, encodePolicyInstallData, TRADE_PERMS } from "../src/index.ts";
 
 const A = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as const;
 const targets = { router: A(1), launchpad: A(2), anonLauncher: A(3), trampWallManager: A(4) };
@@ -40,3 +40,16 @@ test("uninstall + fixture for forge", () => {
   assert.equal(encodePolicyInstallData(8, { targets, caps: [{ token: A(6), cap: 100n }], validUntil: 1_800_086_400, permissions: TRADE_PERMS }), FIXTURE);
 });
 const FIXTURE = "0x0000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000006b4b23800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000027f0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000064000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001f4";
+
+test("USDG router encoders: exact approve + buyWithUsdg / sellToUsdg, selectors pinned", () => {
+  const b = routerBuyWithUsdgCalls({ router: A(1), usdg: A(6), token: A(7), usdgIn: 50n, minTokensOut: 10n, deadline: 99n });
+  assert.equal(b.length, 2);
+  assert.equal(b[0].target, A(6));
+  assert.equal(b[0].data.slice(0, 10), "0x095ea7b3");
+  const d = decodeFunctionData({ abi: usdgRouterAbi, data: b[1].data });
+  assert.equal(d.functionName, "buyWithUsdg");
+  assert.deepEqual(d.args, [A(7), 50n, 10n, 99n]);
+  const s = routerSellToUsdgCalls({ router: A(1), token: A(7), tokensIn: 5n, minUsdgOut: 1n, deadline: 99n });
+  assert.equal(decodeFunctionData({ abi: usdgRouterAbi, data: s[1].data }).functionName, "sellToUsdg");
+  assert.throws(() => routerBuyWithUsdgCalls({ router: A(1), usdg: A(6), token: A(7), usdgIn: 1n, minTokensOut: 0n, deadline: 1n }));
+});

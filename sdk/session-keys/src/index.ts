@@ -183,6 +183,34 @@ export function routerSellCalls(a: { account: Address; router: Address; token: A
     { target: a.router, value: 0n, data: encodeFunctionData({ abi: routerAbi, functionName: "sellExactIn", args: [a.token, a.tokensIn, a.minOut, a.account, a.deadline] }) },
   ];
 }
+/* ---------- USDG-in / USDG-out (DiscipleRouter.buyWithUsdg / sellToUsdg) ----------
+ * The frontend always pays in USDG; the router hops USDG <-> the coin's quote through an owner-registered pool, then
+ * the curve (pre-grad) or the coin's v4 pool (post-grad). Recipient is pinned on-chain to msg.sender (the account).
+ * minOut is END-TO-END: tokens on buys, USDG on sells. Quote it with `quoteUsdgRoute` (eth_call / simulateContract).
+ * The session policy only accepts a USDG approve to the router for EXACTLY the batch's buyWithUsdg total, so always
+ * send the approve and the buy in the same batch (these builders do). No Permit2 / UniversalRouter. */
+export const usdgRouterAbi = parseAbi([
+  "function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline) returns (uint256 tokensOut)",
+  "function sellToUsdg(address token, uint256 tokensIn, uint256 minUsdgOut, uint256 deadline) returns (uint256 usdgOut)",
+  "function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
+  "function usdg() view returns (address)",
+]);
+
+export function routerBuyWithUsdgCalls(a: { router: Address; usdg: Address; token: Address; usdgIn: bigint; minTokensOut: bigint; deadline: bigint }): Call[] {
+  if (a.minTokensOut <= 0n) throw new Error("minTokensOut must be > 0");
+  return [
+    { target: a.usdg, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [a.router, a.usdgIn] }) },
+    { target: a.router, value: 0n, data: encodeFunctionData({ abi: usdgRouterAbi, functionName: "buyWithUsdg", args: [a.token, a.usdgIn, a.minTokensOut, a.deadline] }) },
+  ];
+}
+export function routerSellToUsdgCalls(a: { router: Address; token: Address; tokensIn: bigint; minUsdgOut: bigint; deadline: bigint }): Call[] {
+  if (a.minUsdgOut <= 0n) throw new Error("minUsdgOut must be > 0");
+  return [
+    { target: a.token, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [a.router, a.tokensIn] }) },
+    { target: a.router, value: 0n, data: encodeFunctionData({ abi: usdgRouterAbi, functionName: "sellToUsdg", args: [a.token, a.tokensIn, a.minUsdgOut, a.deadline] }) },
+  ];
+}
+
 /** Account calldata for a session-signed batch (use as userOp.callData, signed by the session key with entityId). */
 export function encodeSessionBatch(calls: Call[]): Hex {
   return encodeFunctionData({ abi: semiModularAccountBytecodeAbi, functionName: "executeBatch", args: [calls] });
