@@ -54,13 +54,13 @@ export const HIW_PAIR = {
   body: [
     "Pick a coin you believe in. That coin is the rocket’s base: the coin it’s paired with.",
     "Your rocket is a new coin, priced and traded in its base. BOOST it and you pay in the base. DUMP it and you’re paid in the base.",
-    "At graduation, the base is seeded and locked permanently in the rocket’s Uniswap v4 liquidity.",
+    "At graduation, the base is locked permanently in the rocket’s Uniswap v4 LP.",
   ],
   diagram: {
     base: { title: "Base coin", desc: "A supported coin you believe in", value: "$USDG", coin: "G" },
     rocket: { title: "Rocket", desc: "A new coin, 7B supply, fixed", value: "$HALO", coin: "H", baseCoin: "G" },
     lp: { title: "Locked LP", desc: "Rocket + base, Uniswap v4, forever", value: "$HALO + $USDG" },
-    arrows: ["priced & traded in", "at graduation, seeded into"],
+    arrows: ["priced & traded in", "at graduation, locked forever in"],
     foot: [
       { icon: "boost", strong: "BOOST", text: " pays in the base" },
       { icon: "dump", strong: "DUMP", text: " pays out in the base" },
@@ -70,7 +70,7 @@ export const HIW_PAIR = {
   },
   items: [
     { icon: "base-pair", title: "A supported base", body: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
-    { icon: "rocket", title: "A call sign", body: "Your $TICKER. A name, call sign and image are required. The name and call sign are set for good at launch." },
+    { icon: "rocket", title: "A call sign", body: "Your $TICKER: 1–10 letters or numbers, in capitals. A name, call sign and image are required. Call signs aren’t unique, so check the rocket’s address. The name and call sign are set for good at launch." },
     { icon: "plus", title: "Four steps to the pad", body: "Name and call sign → image → pair with → launch. Anyone can launch. No permission needed." },
     { icon: "boost", title: "First BOOST is yours", body: "You can BOOST your own rocket in the launch transaction, up to 0.77% of supply.", openItem: "C5" },
   ] as HiwItem[],
@@ -132,7 +132,7 @@ export const HIW_PHASES = {
     ["Price", "Set by the curve’s formula", "Set by the pool’s reserves"],
     ["You trade with", "The bonding curve", "The Uniswap v4 pool"],
     ["Market cap", "$7K → $33K", "$33K and up"],
-    ["Supply", "72% sells on the curve", "The remaining 28% is seeded into the pool"],
+    ["Supply", "72% sells on the curve", "The remaining 28% is locked forever in the Uniswap v4 LP"],
     ["Liquidity", "Base builds up in the curve", "Full-range, owned by LockedLP, locked forever"],
     ["Fee", "1% (+ optional creator tax)", "1%, via the DISCIPLE hook"],
   ] as [string, string, string][],
@@ -180,7 +180,7 @@ export const HIW_FEES = {
   ],
   headline: { value: "1%", label: "of every BOOST and DUMP" },
   split: [
-    { name: "Creator", pct: "33%", desc: "Builds up on-chain. Claim it anytime.", color: "#C9CED6" },
+    { name: "Creator", pct: "33%", desc: "Builds up on-chain. Claiming from the app is coming soon.", color: "#C9CED6" },
     { name: "Locked liquidity", pct: "33%", desc: "Set aside on every trade. Added to the locked position as it builds up.", color: "#8585AA" },
     { name: "Treasury", pct: "33%", desc: "Credited to the DISCIPLE treasury on every trade, then claimed.", color: "#44426A" },
     { name: "Referrer", pct: "1%", desc: "Goes to the launcher’s referrer first, if the launcher has one. 1% of the fee, not of the trade.", color: "#F2C14E" },
@@ -189,7 +189,7 @@ export const HIW_FEES = {
   cards: [
     { title: "Creator tax", body: "Optional, 0–7%, set at launch and fixed. Charged on top of the 1% fee on bonding-curve trades only. After graduation, trades pay just the 1% fee.", more: "Creators can hand off a rocket anytime. The fee claim and tax rights go with it." },
     { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee starts at 77.7% and drops to 0%. After that, only the 1% remains.", more: "70% of the snipe fee goes to a community rewards vault, to be shared out later (how is still being decided). 30% goes to the treasury. The creator’s launch buy is exempt.", openItem: "C5" },
-    { title: "Referrals", body: "Share your link. When a wallet opens your link and deposits $10+ in USDG, it’s yours for life (first link wins).", more: "You earn 1% of the protocol fee on its trades, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator’s fee share. You can’t refer your own wallet." },
+    { title: "Referrals", body: "Share your link. When a wallet opens your link and deposits $10+ in USDG, it’s yours for life (first link wins).", more: "You earn 1% of the protocol fee on its trades, unless the rocket’s launcher has a referrer, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator’s fee share. You can’t refer your own wallet. On testnet, referrals don’t lock yet. Claiming from the app is coming soon." },
   ] as { title: string; body: string; more: string; openItem?: string }[],
   snipeChart: { title: "Anti-snipe BOOST fee over the first 7 seconds, stepping down from 77.7% to 0%", top: "77.7%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "7s" },
 };
@@ -202,14 +202,14 @@ export const HIW_FAQ = {
   items: [
     { q: "Is the liquidity really locked?", a: "Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet." },
     { q: "What coins can I pair with?", a: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
-    { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base. At graduation, the base is seeded and locked permanently in the rocket’s liquidity." },
+    { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket’s Uniswap v4 LP." },
     { q: "When does a rocket graduate?", a: "At a $33K market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
     { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 7 seconds." },
     { q: "Can a creator rug?", a: "There’s no further mint, the name and ticker are set at launch, and graduated liquidity has no withdraw function. Creators can still sell their own coins, like anyone else.", openItem: "C11" },
     { q: "What is the Simulator?", a: "Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare.", openItem: "C12" },
     { q: "Is DISCIPLE audited?", a: "Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet." },
     { q: "Is this live?", a: "DISCIPLE runs on Robinhood Chain Testnet today, with test tokens. Mainnet isn’t live yet, and there’s no date." },
-    { q: "What do I need to start?", a: "Sign in with X or a wallet. Deposits are USDG on Robinhood Chain, and you pay your own gas." },
+    { q: "What do I need to start?", a: "Sign in with X, email or a wallet. Deposit any token on Robinhood Chain. Minimums are in USDG, and you pay your own gas." },
   ] as { q: string; a: string; openItem?: string }[],
 };
 
