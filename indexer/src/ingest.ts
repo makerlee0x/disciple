@@ -21,6 +21,8 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
       last_price_usd = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_price_usd ELSE last_price_usd END,
       last_block = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_block ELSE last_block END,
       last_ts = MAX(last_ts, excluded.last_ts)`);
+  // LaunchMode is emitted just before Launched (same tx ⇒ same chunk): hold it until the coin row exists.
+  const pendingMode = new Map<string, number>();
   const tx = db.transaction(() => {
     for (const l of logs) {
       let ev: { eventName: string; args: any };
@@ -42,6 +44,12 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
             `INSERT OR IGNORE INTO coins (token, stack, curve, creator, quote, name, ticker, creator_tax_bps, launched_block, launched_at, launch_tx)
              VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(lc(a.token), stack.id, lc(a.curve), lc(a.creator), lc(a.quote), a.name, a.ticker, Number(a.creatorTaxBps), block, ts, l.transactionHash);
+          if (pendingMode.has(lc(a.token))) db.prepare("UPDATE coins SET mode=? WHERE token=?").run(pendingMode.get(lc(a.token)), lc(a.token));
+          break;
+        case "LaunchMode":
+          if (!isCore(stack.launchpad)) break;
+          pendingMode.set(lc(a.token), Number(a.mode));
+          db.prepare("UPDATE coins SET mode=? WHERE token=?").run(Number(a.mode), lc(a.token)); // no-op unless out of order
           break;
         case "QuotePriced":
           if (isCore(stack.launchpad)) db.prepare("UPDATE coins SET quote_price_usd = ? WHERE token = ?").run(s(a.quotePriceUsd), lc(a.token));
@@ -63,9 +71,14 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           const coin: any = coinBy.get(lc(a.token));
           if (!coin) break;
           const fromCurve = src === coin.curve;
-          if (!fromCurve && !isCore(stack.hook)) break;
-          // all USD math in one swappable function (src/usd.ts; #75 replaces mcapAfterUsd with sqrtPriceAfter)
-          const usd = tradeUsd({ quotePriceUsdWad: coin.quote_price_usd, quoteAmt: a.quoteAmt, priceAfterX18: a.priceAfterX18, mcapAfterUsd: a.mcapAfterUsd });
+          const hookVariant = a.sqrtPriceAfter !== undefined; // v4 IHookTradeEvents (only the hook may emit it)
+          if (hookVariant ? !isCore(stack.hook) : !fromCurve && !isCore(stack.hook)) break;
+          // all USD math in one function (src/usd.ts): curve → mcapAfterUsd; v4 hook → from sqrtPriceAfter
+          const usd = tradeUsd({
+            quotePriceUsdWad: coin.quote_price_usd, quoteAmt: a.quoteAmt, priceAfterX18: a.priceAfterX18,
+            mcapAfterUsd: hookVariant ? undefined : a.mcapAfterUsd, sqrtPriceAfter: hookVariant ? a.sqrtPriceAfter : undefined,
+            token: coin.token, quote: coin.quote, totalSupply: coin.total_supply,
+          });
           const ins = db.prepare(
             `INSERT OR IGNORE INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, lc(a.token), stack.id, fromCurve ? "curve" : "hook", lc(a.trader), a.isBuy ? 1 : 0, s(a.quoteAmt), s(a.tokenAmt), s(a.fee),
@@ -174,9 +187,31 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           put(a.kolPayee, "kol", BigInt(a.kolShare));
           break;
         }
+        case "ProfitTaxCharged":
+        case "HolderRewardsClaimed": {
+          // only from the coin's own curve (a spoofed emitter can't fake tax / rewards)
+          const coin: any = coinBy.get(lc(a.token));
+          if (!coin || coin.curve !== src) break;
+          if (ev.eventName === "ProfitTaxCharged")
+            db.prepare("INSERT OR IGNORE INTO profit_tax VALUES (?,?,?,?,?,?,?,?,?,?)").run(
+              id, stack.id, coin.token, lc(a.seller), s(a.tax), s(a.grossQuote), s(a.costBasis), block, ts, l.transactionHash);
+          else
+            db.prepare("INSERT OR IGNORE INTO holder_rewards VALUES (?,?,?,?,?,?,?,?)").run(id, stack.id, coin.token, lc(a.holder), s(a.amount), block, ts, l.transactionHash);
+          break;
+        }
+        case "Deposited":
+        case "Escrowed":
+        case "Withdrawn":
+        case "Attested":
+          if (!isCore(stack.usdgDepositNotifier)) break;
+          db.prepare("INSERT OR IGNORE INTO usdg_escrow_events VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, ev.eventName, lc(a.wallet), a.payer ? lc(a.payer) : a.attestor ? lc(a.attestor) : null, s(a.amount),
+            a.id !== undefined ? Number(a.id) : null, a.unlockAt !== undefined ? Number(a.unlockAt) : null, block, ts, l.transactionHash);
+          break;
         case "ReferrerFeesClaimed":
         case "UsdgDepositRecorded":
         case "CreatorFeesClaimed":
+        case "CreatorTokenFeesClaimed":
         case "SnipeFeeRoutedToLP":
         case "SnipeFeeRouted":
         case "Claimed":
