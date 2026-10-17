@@ -6,13 +6,14 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IReferralRegistry} from "./interfaces/IReferralRegistry.sol";
 import {Constants} from "./libraries/Constants.sol";
 
-/// @title USDG deposit notifier + escrow for the referral gate (§4 / LOCKED #18, audit #5, DISCIPLE audit #7)
+/// @title USDG deposit notifier + escrow for the referral gate (§4 / LOCKED #18, audit #5, DISCIPLE audit #7 / L5)
 /// @notice ReferralRegistry.depositHook. Two ways to record a USDG deposit for `wallet`:
-///         1. `deposit(wallet, amount)`: pulls real USDG from msg.sender INTO THIS CONTRACT and locks it for
-///            `LOCK_PERIOD` (7 days, proposal) as `wallet`'s escrow, then notifies the registry. Anyone may fund any
-///            wallet (incl. itself). After the lock, only `wallet` can `withdraw()` its escrow (to itself).
-///            Because counted USDG sits locked here, the same USDG can't satisfy the $10 gate for two wallets at
-///            once (cycling it needs a 7-day wait per hop).
+///         1. `deposit(wallet, amount)`: pulls real USDG (>= $10) from msg.sender INTO THIS CONTRACT as a separate
+///            escrow entry for `wallet`, locked for `LOCK_PERIOD` (7 days), then notifies the registry. Anyone may fund
+///            any wallet (incl. itself). Each deposit has its OWN unlock time, so a third-party gift never re-locks the
+///            wallet's existing escrow. After its lock, only `wallet` can `withdraw` an entry (to itself).
+///            Locked USDG can't satisfy the gate for a second wallet at the same time. Gate rate: the gate credit
+///            survives withdraw, so one $10 can qualify at most one new wallet per 7 days (~52 per year).
 ///         2. `attest(wallet, amount)`: owner-set attestors (e.g. an on-ramp / bridge watcher) record deposits
 ///            that happened off this contract.
 ///         Funding a wallet cannot hijack its referrer: only the wallet itself (or a registry attestor) sets the
@@ -20,7 +21,7 @@ import {Constants} from "./libraries/Constants.sol";
 contract UsdgDepositNotifier {
     using SafeERC20 for IERC20;
 
-    /// @notice Escrow lock per deposit (each new deposit re-locks the wallet's whole escrow). Proposal: 7 days.
+    /// @notice Lock per deposit entry. Proposal: 7 days.
     uint256 public constant LOCK_PERIOD = 7 days;
 
     IReferralRegistry public immutable registry;
@@ -33,19 +34,21 @@ contract UsdgDepositNotifier {
         uint64 unlockAt;
     }
 
-    mapping(address => Escrow) public escrowOf;
+    mapping(address => Escrow[]) internal _escrows;
+    /// @notice Total USDG currently escrowed for `wallet` (all entries, locked or not).
+    mapping(address => uint256) public escrowedOf;
 
     error OnlyOwner();
     error OnlyAttestor();
     error ZeroAmount();
     error ZeroAddress();
     error NotTransferred();
-    error Locked(uint256 unlockAt);
+    error Locked(uint256 id, uint256 unlockAt);
     error NothingEscrowed();
     error BelowMinimum(uint256 min);
 
     event Deposited(address indexed payer, address indexed wallet, uint256 amount);
-    event Escrowed(address indexed wallet, uint256 total, uint256 unlockAt);
+    event Escrowed(address indexed wallet, uint256 indexed id, uint256 amount, uint256 unlockAt);
     event Withdrawn(address indexed wallet, uint256 amount);
     event Attested(address indexed attestor, address indexed wallet, uint256 amount);
     event AttestorSet(address indexed attestor, bool allowed);
@@ -60,31 +63,45 @@ contract UsdgDepositNotifier {
         usdg = usdg_;
     }
 
-    /// @notice Escrow `amount` USDG (from msg.sender) for `wallet`, locked LOCK_PERIOD, and count it for the gate.
-    /// @dev Approve THIS contract for exactly `amount` first. Only the escrowed amount (balance delta) is counted.
-    function deposit(address wallet, uint256 amount) external {
-        // Each deposit re-locks the escrow; a $10 minimum makes lock-extension griefing cost $10 locked per week.
+    /// @notice Escrow `amount` USDG (from msg.sender) for `wallet` as a new entry locked LOCK_PERIOD, and count it
+    ///         for the gate. Approve THIS contract for exactly `amount` first. Returns the entry id.
+    function deposit(address wallet, uint256 amount) external returns (uint256 id) {
         if (amount < Constants.REFERRAL_USDG_GATE) revert BelowMinimum(Constants.REFERRAL_USDG_GATE);
         if (wallet == address(0)) revert ZeroAddress();
         uint256 b0 = usdg.balanceOf(address(this));
         usdg.safeTransferFrom(msg.sender, address(this), amount);
         if (usdg.balanceOf(address(this)) - b0 != amount) revert NotTransferred();
-        Escrow memory e = escrowOf[wallet];
-        e.amount += uint192(amount);
-        e.unlockAt = uint64(block.timestamp + LOCK_PERIOD);
-        escrowOf[wallet] = e;
+        uint256 unlockAt = block.timestamp + LOCK_PERIOD;
+        id = _escrows[wallet].length;
+        _escrows[wallet].push(Escrow({amount: uint192(amount), unlockAt: uint64(unlockAt)}));
+        escrowedOf[wallet] += amount;
         registry.onUsdgDeposit(wallet, amount);
         emit Deposited(msg.sender, wallet, amount);
-        emit Escrowed(wallet, e.amount, e.unlockAt);
+        emit Escrowed(wallet, id, amount, unlockAt);
     }
 
-    /// @notice Withdraw your whole escrow after the lock. The referral (if finalized) stays.
-    function withdraw() external returns (uint256 amount) {
-        Escrow memory e = escrowOf[msg.sender];
-        amount = e.amount;
+    /// @notice Number of escrow entries ever created for `wallet` (withdrawn entries stay with amount 0).
+    function escrowCount(address wallet) external view returns (uint256) {
+        return _escrows[wallet].length;
+    }
+
+    function escrowOf(address wallet, uint256 id) external view returns (uint256 amount, uint256 unlockAt) {
+        Escrow memory e = _escrows[wallet][id];
+        return (e.amount, e.unlockAt);
+    }
+
+    /// @notice Withdraw your unlocked escrow entries `ids` (to yourself). Reverts if any is still locked.
+    function withdraw(uint256[] calldata ids) external returns (uint256 amount) {
+        Escrow[] storage es = _escrows[msg.sender];
+        for (uint256 i; i < ids.length; ++i) {
+            Escrow memory e = es[ids[i]];
+            if (e.amount == 0) continue;
+            if (block.timestamp < e.unlockAt) revert Locked(ids[i], e.unlockAt);
+            es[ids[i]].amount = 0;
+            amount += e.amount;
+        }
         if (amount == 0) revert NothingEscrowed();
-        if (block.timestamp < e.unlockAt) revert Locked(e.unlockAt);
-        delete escrowOf[msg.sender];
+        escrowedOf[msg.sender] -= amount;
         usdg.safeTransfer(msg.sender, amount);
         emit Withdrawn(msg.sender, amount);
     }

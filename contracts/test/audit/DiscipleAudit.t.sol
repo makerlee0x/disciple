@@ -348,6 +348,11 @@ contract DiscipleAuditTest is IntegrationBase {
         reg.setDepositHook(address(n));
     }
 
+    function _ids1(uint256 id) internal pure returns (uint256[] memory ids) {
+        ids = new uint256[](1);
+        ids[0] = id;
+    }
+
     function test_audit7_honestEscrowPathAndWithdrawAfterLock() public {
         (ReferralRegistry reg, UsdgDepositNotifier n) = _notifier();
         address w = makeAddr("w7");
@@ -356,24 +361,53 @@ contract DiscipleAuditTest is IntegrationBase {
         vm.startPrank(w);
         reg.tryAttribute(w, kol);
         quote.approve(address(n), gate); // exact approve to the notifier
-        n.deposit(w, gate); // self-funding is fine: the USDG is locked here
+        uint256 id = n.deposit(w, gate); // self-funding is fine: the USDG is locked here
         vm.stopPrank();
         assertEq(reg.referrerOf(w), kol, "gate satisfied");
         assertEq(quote.balanceOf(address(n)), gate, "escrowed in the notifier");
-        (uint192 amt, uint64 unlockAt) = n.escrowOf(w);
+        (uint256 amt, uint256 unlockAt) = n.escrowOf(w, id);
         assertEq(amt, gate);
-        assertEq(unlockAt, block.timestamp + 7 days);
+        assertEq(unlockAt, vm.getBlockTimestamp() + 7 days);
+        assertEq(n.escrowedOf(w), gate);
         vm.prank(w);
-        vm.expectRevert(abi.encodeWithSelector(UsdgDepositNotifier.Locked.selector, uint256(unlockAt)));
-        n.withdraw();
+        vm.expectRevert(abi.encodeWithSelector(UsdgDepositNotifier.Locked.selector, id, unlockAt));
+        n.withdraw(_ids1(id));
         vm.warp(unlockAt);
         vm.prank(w);
-        n.withdraw();
+        n.withdraw(_ids1(id));
         assertEq(quote.balanceOf(w), gate, "withdrawn after lock");
+        assertEq(n.escrowedOf(w), 0);
         assertEq(reg.referrerOf(w), kol, "referral stays");
         vm.prank(w);
         vm.expectRevert(UsdgDepositNotifier.NothingEscrowed.selector);
-        n.withdraw();
+        n.withdraw(_ids1(id));
+    }
+
+    /// L5: a third-party gift is its own entry — it never re-locks the beneficiary's existing escrow.
+    function test_audit7_giftDoesNotRelockExisting() public {
+        (, UsdgDepositNotifier n) = _notifier();
+        address w = makeAddr("w7b");
+        address g = makeAddr("gifter");
+        uint256 gate = Constants.REFERRAL_USDG_GATE;
+        quote.mint(w, gate);
+        quote.mint(g, gate);
+        vm.startPrank(w);
+        quote.approve(address(n), gate);
+        uint256 id0 = n.deposit(w, gate);
+        vm.stopPrank();
+        vm.warp(vm.getBlockTimestamp() + 6 days);
+        vm.startPrank(g);
+        quote.approve(address(n), gate);
+        uint256 id1 = n.deposit(w, gate); // gift on day 6
+        vm.stopPrank();
+        vm.warp(vm.getBlockTimestamp() + 1 days); // day 7: own deposit unlocked, gift still locked
+        vm.prank(w);
+        n.withdraw(_ids1(id0));
+        assertEq(quote.balanceOf(w), gate, "own escrow withdrawable on schedule");
+        vm.prank(w);
+        vm.expectRevert();
+        n.withdraw(_ids1(id1));
+        assertEq(n.escrowedOf(w), gate);
     }
 
     function test_audit7_cyclingSameUsdgFails() public {
@@ -396,7 +430,7 @@ contract DiscipleAuditTest is IntegrationBase {
         // b can't pull it back out to recycle it
         vm.prank(b);
         vm.expectRevert();
-        n.withdraw();
+        n.withdraw(_ids1(0));
         assertEq(reg.referrerOf(b), kol);
         assertEq(reg.referrerOf(c), address(0), "same USDG can't satisfy the gate twice at once");
         assertEq(reg.usdgDeposited(c), 0);
@@ -408,6 +442,32 @@ contract DiscipleAuditTest is IntegrationBase {
     }
 
     /// #8 LOW: the graduating buy charges (to 1e-12) the minimum quote that buys the remaining supply.
+    /// L4: graduating refund is minimal across creator taxes, quote sizes up to 1e33 and the anti-snipe window
+    ///     (fees on a different base), checked against the exact property rather than the old 8-step loop's luck.
+    /// forge-config: default.fuzz.runs = 24
+    function testFuzz_audit8_refundMinimal(uint256 taxSeed, uint256 inSeed, bool inSnipe) public {
+        uint256 tax = bound(taxSeed, 0, Constants.CREATOR_TAX_MAX_BPS);
+        (BondingCurve c,) = _launch(tax, 0);
+        if (!inSnipe) _warpPastSnipe();
+        for (uint256 i; i < 40 && c.progressBps() < 9000; ++i) {
+            address w = makeAddr(string(abi.encodePacked("f8", vm.toString(i))));
+            quote.mint(w, 1_000 ether);
+            vm.startPrank(w);
+            quote.approve(address(c), 1_000 ether);
+            c.buy(400 ether, 0, vm.getBlockTimestamp() + 1);
+            vm.stopPrank();
+        }
+        (, uint256 sc,,) = c.curveParams();
+        uint256 remaining = sc - c.tokensSold();
+        uint256 quoteIn = bound(inSeed, 10_000 ether, 1e33);
+        BondingCurve.BuyQuote memory q = c.quoteBuy(quoteIn);
+        assertEq(q.tokensOut, remaining);
+        uint256 used = quoteIn - q.refund;
+        assertGt(q.refund, 0, "refund on every overpaying graduating buy");
+        assertEq(c.quoteBuy(used).tokensOut, remaining, "used buys all");
+        assertLt(c.quoteBuy(used - used / 1e11 - 1).tokensOut, remaining, "no material overcharge");
+    }
+
     function test_audit8_graduatingRefundMinimal() public {
         (BondingCurve c,) = _launch(100, 0);
         _warpPastSnipe();
