@@ -984,12 +984,17 @@ function cloudBase(c){   // parallax position (no blast offset) → CB. Wrap spa
   const xOff=((S.camX!=null?S.camX:S.x)-W/2)*c.spd*0.25, yOff=(S.cloudY||0)*c.spd*0.65;   // world scroll: climb → clouds fall past, drop → they rise   // climb → clouds fall past, drop → they rise
   let x=c.x-xOff; x=((x%sw)+sw)%sw-m;
   let y=c.y+yOff; y=((y%sh)+sh)%sh-c.sp.h; CB.x=x; CB.y=y; return CB; }
-function cloudStep(dt){ const k=1-Math.exp(-dt/6);
+/* Thinning (→ shape breakup) is local: only clouds inside the blast radius (+ their own size) lose density, with a
+   hard (1−d/R')² falloff. The old 1/(1+(d/R)²) tail never reached zero, so every blast anywhere (incl. off-screen
+   bombs at a busy low tier) nibbled every cloud, and with the slow 6 s heal they sat half-split at rest. */
+const CLOUD_HEAL_TAU=2.2;   // s; from a full blast (dens 0.08) back to whole in ~4–5 s
+function cloudThin(c,d,R,amp){ const f=fall(d,R*1.6+c.r); if(f>0) c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); }
+function cloudStep(dt){ const k=1-Math.exp(-dt/CLOUD_HEAL_TAU);
   for (const c of CLOUDS){ c.vx+=(-1.1*c.ox-1.9*c.vx)*dt; c.vy+=(-1.1*c.oy-1.9*c.vy)*dt; c.ox+=c.vx*dt; c.oy+=c.vy*dt; c.dens+=(1-c.dens)*k; } }
 function cloudBlast(x,y,amp,R){
   for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-x, dy=CB.y+c.oy-y, d=Math.hypot(dx,dy)+1, f=1/(1+(d/R)*(d/R));
     c.vx+=dx/d*amp*f*(0.6+c.spd); c.vy+=dy/d*amp*f*(0.6+c.spd)-amp*0.15*f;   // pushed out and slightly lofted
-    c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,amp/500)); } }
+    cloudThin(c,d,R,amp); } }
 function drawClouds(front){
   const ex=(S.camX!=null?S.camX:S.x), ey=S.ry, fl=exhaustParams().flame;
   const hi=CLOUD_STYLE==='cel'?celHi():0, sm0=ctx.imageSmoothingEnabled;
@@ -1000,16 +1005,19 @@ function drawClouds(front){
     const dd=Math.hypot(cx-ex,cy-ey), lit=clamp(fl*0.9/(1+(dd/(220+sp.w*0.4))**2),0,0.9);
     const see=front&&Math.abs(cx-ex)<sp.w*0.5+40&&cy>ey-170&&cy<ey+sp.h*0.5+60 ? 0.35 : 1;   // near clouds thin out where they'd hide the rocket
     if (sp.px) ctx.imageSmoothingEnabled=false;
-    if (d<0.03){ ctx.globalAlpha=c.a*see; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
-      if(sp.night&&hi>0.01){ ctx.globalAlpha=c.a*see*hi; ctx.drawImage(sp.night,x,y+bob,sp.w,sp.h); }   // high tiers: night palette + rim
-      if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38; ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
+    /* Breakup amount e: light thinning (d < 0.15) only fades the WHOLE sprite (no slabs → no seams at rest); a real
+       blast splits it into 3 slabs that drift apart, shrink and fade, then rejoin exactly as e → 0 while it heals. */
+    const e=clamp((d-0.15)/0.75,0,1), al=c.a*see*(0.25+0.75*c.dens);
+    if (e<=0){ ctx.globalAlpha=al; ctx.drawImage(sp.spr,x,y+bob,sp.w,sp.h);
+      if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,x,y+bob,sp.w,sp.h); }   // high tiers: night palette + rim
+      if(lit>0.03){ ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=lit*0.38*(al/(c.a*see||1)); ctx.drawImage(sp.lit,x,y+bob,sp.w,sp.h); ctx.globalCompositeOperation='source-over'; } }
     else {
-      // clean shape breakup: the silhouette splits into 3 slabs that drift apart, shrink and fade — no fog
-      const sw=sp.spr.width/3, k=1-d*0.3;
-      for (let j=0;j<3;j++){ const dx=(j-1)*d*sp.w*0.45, dy=-d*sp.h*(j===1?0.35:0.12), pw=sp.w/3*k, ph=sp.h*k;
-        const al=c.a*see*(0.25+0.75*c.dens), qx=x+j*sp.w/3+dx+(sp.w/3-pw)/2, qy=y+bob+dy+(sp.h-ph);
-        ctx.globalAlpha=al; ctx.drawImage(sp.spr,j*sw,0,sw,sp.spr.height,qx,qy,pw,ph);
-        if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,j*sw,0,sw,sp.night.height,qx,qy,pw,ph); } }
+      const SW=sp.spr.width, k=1-e*0.3;
+      for (let j=0;j<3;j++){ const s0=Math.round(SW*j/3), s1=Math.round(SW*(j+1)/3), u0=s0/SW, uw=(s1-s0)/SW;   // whole source pixels per slab
+        const dx=(j-1)*e*sp.w*0.45, dy=-e*sp.h*(j===1?0.35:0.12), pw=sp.w*uw*k, ph=sp.h*k;
+        const qx=x+sp.w*u0+dx+(sp.w*uw-pw)/2, qy=y+bob+dy+(sp.h-ph);
+        ctx.globalAlpha=al; ctx.drawImage(sp.spr,s0,0,s1-s0,sp.spr.height,qx,qy,pw,ph);
+        if(sp.night&&hi>0.01){ ctx.globalAlpha=al*hi; ctx.drawImage(sp.night,s0,0,s1-s0,sp.night.height,qx,qy,pw,ph); } }
     }
     ctx.imageSmoothingEnabled=sm0;
   }
@@ -1454,7 +1462,7 @@ function shockStep(dt){
   for (const sh of S.shocks){ const r0=sh.r; sh.r+=sh.v*dt; const r1=sh.r;
     kickPool(S.bfx,sh.x,sh.y,r0,r1,sh.R,sh.amp,1.4); kickPool(S.particles,sh.x,sh.y,r0,r1,sh.R,sh.amp,0.6);
     for (const c of CLOUDS){ cloudBase(c); const dx=CB.x+c.ox-sh.x, dy=CB.y+c.oy-sh.y, d=Math.hypot(dx,dy)+1; if(d<=r0-c.r*0.5||d>r1+c.r*0.5||c._sh===sh) continue;
-      const f=1/(1+(d/sh.R)*(d/sh.R)); c._sh=sh; c.vx+=dx/d*sh.amp*f*(0.6+c.spd); c.vy+=dy/d*sh.amp*f*(0.6+c.spd)-sh.amp*0.15*f; c.dens=Math.max(0.08,c.dens-f*Math.min(0.9,sh.amp/500)); }
+      const f=1/(1+(d/sh.R)*(d/sh.R)); c._sh=sh; c.vx+=dx/d*sh.amp*f*(0.6+c.spd); c.vy+=dy/d*sh.amp*f*(0.6+c.spd)-sh.amp*0.15*f; cloudThin(c,d,sh.R,sh.amp); }
     // rocket silhouette
     const rc=rocketCapsule(), dr=Math.max(0,segDist(sh.x,sh.y,rc)-rc.r);
     if ((dr>r0||r0===0) && dr<=r1){ const f=fall(dr,sh.R); if(f>0){
