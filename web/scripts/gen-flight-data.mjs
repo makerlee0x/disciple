@@ -27,7 +27,8 @@ for(const f of ['public/flight/engine.js','public/flight/replay.js']){
 // thread and in the OffscreenCanvas worker; no image decode). Each icon = [[pathD, mode, strokeWidth, opacity], …],
 // mode 's' stroke / 'f' fill, in the SVG's own viewBox units ([w,h] first).
 const CANVAS_ICONS=['tramp','wall','rocket','crew','graduation','bomb-puff','bomb-grenade','bomb-bunker','bomb-cruise','bomb-nuke','bomb-atom',
-  'meter-orbs-1','meter-orbs-2','meter-orbs-3','meter-orbs-4','meter-orbs-5','meter-orbs-6'];
+  'meter-orbs-1','meter-orbs-2','meter-orbs-3','meter-orbs-4','meter-orbs-5','meter-orbs-6',
+  'crown','star','gear'];
 const n4=v=>+(+v).toFixed(3);
 function svgSpec(name){ const src=rd(`public/icons/v1/svg/${name}.svg`), vb=src.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), out=[[n4(vb[1]),n4(vb[2])]];
   const root=src.match(/<svg[^>]*>/)[0], rootSw=+(root.match(/stroke-width="([\d.]+)"/)||[0,1.5])[1];

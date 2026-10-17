@@ -116,7 +116,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       {banner && phase === "run" && (
         <div data-testid={`sim-banner-${banner.kind}`} style={{ ...panel, position: "fixed", left: "50%", top: 150, transform: "translateX(-50%)", padding: "10px 18px", zIndex: 32, fontSize: banner.kind === "whale" ? 13 : 18, fontWeight: 800, letterSpacing: 1,
           borderColor: banner.kind === "rug" ? "#ff6b7d" : banner.kind === "cto" ? "#8ff0c0" : "#ffd24a", color: banner.kind === "rug" ? "#ff8f9f" : banner.kind === "cto" ? "#8ff0c0" : "#ffe7a3" }}>
-          {banner.kind === "rug" ? "☠ " : banner.kind === "cto" ? "✊ " : banner.kind === "graduate" ? <><Icon name="graduation" size={18} />{" "}</> : "🐋 "}{banner.text}
+          <Icon name={banner.kind === "rug" ? "rug" : banner.kind === "cto" ? "cto" : banner.kind === "graduate" ? "graduation" : "whale"} size={banner.kind === "whale" ? 14 : 18} />{" "}{banner.text}
         </div>
       )}
       {phase === "select" && (
@@ -158,7 +158,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, fontSize: 12 }}>
               <div>
                 <div style={{ opacity: 0.7, marginBottom: 4 }}>ACHIEVEMENTS</div>
-                {summary.achievements.length ? summary.achievements.map((a) => <div key={a}>★ {a}</div>) : <div style={{ opacity: 0.6 }}>none this run</div>}
+                {summary.achievements.length ? summary.achievements.map((a) => <div key={a}><Icon name="star" size={12} /> {a}</div>) : <div style={{ opacity: 0.6 }}>none this run</div>}
                 <div style={{ opacity: 0.7, margin: "10px 0 4px" }}>EVENTS</div>
                 {summary.events.filter((e) => e.kind !== "whale").slice(0, 8).map((e, i) => <div key={i} style={{ color: e.kind === "rug" ? "#ff8f9f" : e.kind === "cto" ? "#8ff0c0" : undefined }}>{clock(e.t)} {e.text}</div>)}
               </div>

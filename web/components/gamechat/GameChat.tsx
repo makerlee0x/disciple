@@ -15,7 +15,7 @@ import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type R
  */
 const BADGE: Record<string, { i: React.ReactNode; t: string; c: string }> = {
   believer: { i: "✝", t: "Believer", c: "#ffe7a3" }, trencher: { i: "⛏", t: "Trencher", c: "#c9b6f2" }, bomber: { i: <Icon name="bomb" size={12} />, t: "Bomber", c: "#ff9fb8" },
-  creator: { i: "★", t: "Creator", c: "#8fd8ff" }, whale: { i: "🐋", t: "Whale", c: "#8ff0c0" }, mod: { i: "🛡", t: "Moderator", c: "#9ff3c8" },
+  creator: { i: <Icon name="star" size={12} />, t: "Creator", c: "#8fd8ff" }, whale: { i: <Icon name="whale" size={12} />, t: "Whale", c: "#8ff0c0" }, mod: { i: <Icon name="shield" size={12} />, t: "Moderator", c: "#9ff3c8" },
 };
 /** gamechat tier name → DISCIPLE bomb tier index (0 puff … 5 atom) for the icon + orb meter */
 const TIER_IDX: Record<string, number> = { GRENADE: 1, BUNKER: 2, CRUISE: 3, NUKE: 4, ATOM: 5 };
@@ -161,7 +161,7 @@ export default function GameChat({ coin }: { coin: string }) {
       {unread > 0 && <button data-testid="chat-new" onClick={jump} style={{ position: "absolute", left: "50%", bottom: 78, transform: "translateX(-50%)", cursor: "pointer", font: `bold 11px ${mono}`,
         padding: "4px 12px", borderRadius: 12, border: "none", background: "#ffe7a3", color: "#151830", boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>↓ {unread > 99 ? "99+" : unread} new messages</button>}
       {err && <div data-testid="chat-error" style={{ margin: "0 8px 4px", padding: "5px 8px", borderRadius: 8, fontSize: 11, background: "rgba(255,107,125,.15)", border: "1px solid rgba(255,107,125,.45)", color: "#ffc0cb", display: "flex", gap: 8, alignItems: "center" }}>
-        <span>{err.kind === "rate" ? `⏳ ${err.msg} · retry in ${rl}s` : err.kind === "filtered" ? `⛔ ${err.msg}` : err.kind === "identity" ? `🔑 ${err.msg}` : `⚠ ${err.msg}`}</span>
+        <span><Icon name={err.kind === "rate" ? "pending" : err.kind === "filtered" ? "blocked" : err.kind === "identity" ? "key" : "warning"} size={12} /> {err.kind === "rate" ? `${err.msg} · retry in ${rl}s` : err.msg}</span>
         {err.kind === "identity" && <button data-testid="chat-login" onClick={doLogin} style={{ marginLeft: "auto", cursor: "pointer", font: `bold 11px ${mono}`, borderRadius: 6, border: "1px solid #ffe7a3", background: "transparent", color: "#ffe7a3", padding: "2px 8px" }}>Sign in</button>}
         {err.kind !== "rate" && err.kind !== "identity" && <button onClick={() => setErr(null)} style={{ marginLeft: "auto", all: "unset", cursor: "pointer", marginInlineStart: "auto" }}>×</button>}
       </div>}
@@ -217,7 +217,7 @@ function HoldersView({ h }: { h: Holders | null }) {
     <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top boosters"}</div>
     {!h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no fuelers yet</div> : h.rows.map(([w, v], i) =>
       <div key={w} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", color: w === "you" ? "#9ff3c8" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : 400 }}>
-        <span>{i === 0 ? "👑" : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
+        <span>{i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
     {h && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your fuel: {fmtUsd(h.you)}</div>}
   </div>;
 }

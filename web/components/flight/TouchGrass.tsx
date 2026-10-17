@@ -1,4 +1,5 @@
 "use client";
+import Icon from "@/components/ui/Icon";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -56,9 +57,9 @@ export default function TouchGrass() {
   return (
     <>
       {on && <div className="ap-grass-ui ap-grass-tl" data-hint={hint ? "1" : "0"} style={{ position: "fixed", left: 16, top: 16, zIndex: 80, display: "flex", gap: 8 }}>
-        <button type="button" data-testid="grass-exit" aria-label="Exit Touch Grass" title="Exit Touch Grass (G / Esc)" onClick={() => setOn(false)}>✕</button>
+        <button type="button" data-testid="grass-exit" aria-label="Exit Touch Grass" title="Exit Touch Grass (G / Esc)" onClick={() => setOn(false)}><Icon name="close" size={14} /></button>
         <button type="button" data-testid="grass-cine" aria-pressed={cine} aria-label="Cinematic camera" title={`Cinematic camera: ${cine ? "on" : "off"}`}
-          onClick={() => setCine((v) => !v)} style={{ fontSize: 12 }}>{cine ? "🎥" : "📷"}</button>
+          onClick={() => setCine((v) => !v)} style={{ fontSize: 12 }}><Icon name="video" size={14} style={{ opacity: cine ? 1 : 0.45 }} /></button>
       </div>}
       <style>{`
         html.ap-grass body { visibility: hidden; }
