@@ -75,8 +75,8 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   const cls = (name, end) => eng.slice(eng.indexOf("class " + name + " {"), eng.indexOf(end, eng.indexOf("class " + name + " {")));
   const Mock = new Function("Q", "randn", "performance", "Math", cls("MockReplaySource", "\n/* DexScreener") + ";return MockReplaySource;")(new URLSearchParams(""), randn, { now: () => 0 }, Mth);
   const Disc = new Function("Q", "setInterval", "clearInterval", "window", cls("DiscipleSource", "\n/* SIMULATOR bridge") + ";return DiscipleSource;")(new URLSearchParams(""), () => 0, () => {}, {});
-  const capSrc = eng.slice(eng.indexOf("const WALLET_CAP_FRAC"), eng.indexOf("function trade(side,opt){"));
-  const mkCap = (source, mcap) => new Function("isLive", "source", "S", "MockReplaySource", "DiscipleSource", "GRADUATION_MCAP", capSrc + ";return Object.assign(paperCap,{capFilledUsd});")(() => false, source, { confirmed: { mcap }, hold: { tokens: 0 } }, Mock, Disc, 33e3);
+  // NO wallet cap in paper mode (Launchpad default WALLET_CAP_BPS_DEFAULT = 0): the engine has no cap code left
+  ok(!/WALLET_CAP_FRAC|paperCap|capFilledUsd|capApplies|WALLET CAP 7%/.test(eng), "engine: no paper wallet cap (paperCap/capFilledUsd/7% flashes removed)");
   ok(/Math\.sqrt\(r\.pre\*r\.post\)/.test(eng) && /pre:m\.pre,post:m\.post/.test(eng) && /pre:b,post:m/.test(eng) && /return \{ok:true,paper:true,pre,post\}/.test(eng), "engine books paper fills at √(pre·post) of the move the market actually made");
   const check = (tag, pos, mark, usd) => { const v = P.view(pos, mark / SUP, SUP); const floor = -(usd * P.FEE + GAS) - 1e-6;
     ok(v.uPnl >= floor, `${tag}: uPnL right after ${v.uPnl >= 0 ? "+" : ""}$${v.uPnl.toFixed(2)} ≥ −fee $${(-floor).toFixed(2)} (filled $${usd.toFixed(2)})`); return v; };
@@ -84,22 +84,22 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
     ok(Math.max(...errs) < 1e-6 && new Set(marks.map((m) => Math.round(m))).size > 1, `${tag}: uPnL tracks the mark afterwards (= holdings × mark − cost over ${marks.length} marks)`); };
   for (const M of [7_000, 15_000, 30_000, 50_000]) {
     // MOCK (coin page ?source=mock, paper)
-    { const m = new Mock(); m.mcap = M; m.emit = () => {}; m.seedDepth(); const cap = mkCap(m, M), c = cap(USD);
-      const r = m.applyTrade("buy", c.usd, true), fm = Math.sqrt(r.pre * r.post), usd = cap.capFilledUsd(c.usd, fm, r.pre);
+    { const m = new Mock(); m.mcap = M; m.emit = () => {}; m.seedDepth(); 
+      const r = m.applyTrade("buy", USD, true), fm = Math.sqrt(r.pre * r.post), usd = USD;
       const pos = P.applyFill(P.emptyPosition(), "buy", usd, fm / SUP, GAS);
-      if (M < 33e3) ok(pos.size <= 0.07 * SUP * (1 + 1e-6), `mock $${M / 1e3}K: booked ${(pos.size / SUP * 100).toFixed(2)}% of supply ≤ 7% wallet cap (walls can't sneak past it)`);
+      if (M < 33e3) ok(pos.size > 0.07 * SUP, `mock $${M / 1e3}K: the full $60K is booked (${(pos.size / SUP * 100).toFixed(1)}% of supply, no 7% cap)`);
       check(`mock $${M / 1e3}K`, pos, m.mcap, usd); const marks = []; for (let i = 0; i < 600; i++) { m.onBlock(); marks.push(m.mcap); } tracks(`mock $${M / 1e3}K`, pos, marks);
       ok(marks[50] > r.pre, `mock $${M / 1e3}K: no instant snap-back (5 s later $${Math.round(marks[50]).toLocaleString()} vs pre $${Math.round(r.pre).toLocaleString()})`); }
     // DISCIPLE coin, paper (no wallet): the shot moves the paper offset; old code booked mark×√impact while the price never moved
-    { const d = new Disc(); d.mcap = M; d.emit = () => {}; const c = mkCap(d, M)(USD); const r = await d.submitTrade("buy", c.usd);
+    { const d = new Disc(); d.mcap = M; d.emit = () => {}; const c = { usd: USD }; const r = await d.submitTrade("buy", c.usd);
       const pos = P.applyFill(P.emptyPosition(), "buy", c.usd, Math.sqrt(r.pre * r.post) / SUP, GAS); check(`disciple paper $${M / 1e3}K`, pos, d.shown(), c.usd);
+      if (M < 33e3) ok(pos.size > 0.07 * SUP, `disciple paper $${M / 1e3}K: the full $60K is booked (${(pos.size / SUP * 100).toFixed(1)}% of supply, no 7% cap)`);
       const old = P.view(P.applyFill(P.emptyPosition(), "buy", USD, M * Math.sqrt(1 + USD / (M * 0.25)) / SUP, GAS), M / SUP, SUP).uPnl;
       if (M === 7_000) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
       const marks = []; for (let i = 0; i < 40; i++) { d.paper = 1 + (d.paper - 1) * Math.exp(-0.25 / 20); marks.push(d.shown()); } tracks(`disciple paper $${M / 1e3}K`, pos, marks); }
   }
   // SIMULATOR: exact fills, NO wallet cap (live Launchpad default walletCapBps = 0). A buy that completes the curve is
   // filled up to the curve end and the unspent quote refunded. After the 7 s anti-snipe window (that tax is a real cost).
-  ok(/const capApplies=m=>!isLive\(\)&&!source\.isSim&&/.test(eng), "engine: the paper 7% cap never applies to the SIMULATOR (paper mode keeps it)");
   for (const T of [10, 40, 90]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
     const pre = r.m.mcap(), wasCurve = r.m.phase === "curve"; const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
     ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);

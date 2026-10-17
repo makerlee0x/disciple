@@ -640,22 +640,7 @@ function markMcap(){ if(isLive()){ const r=source&&source.realMcap?source.realMc
 function pushMark(){ const m=markMcap(); if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:mark',{detail:{mcap:m,supply:source.supply||7e9,session:SESSION}})); }catch(_){} }
 function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({title,sub,life:4}); }
-/* PAPER wallet cap (curve rule WALLET_CAP_BPS = 7% of supply while pre-graduation): a paper buy on the mock / a DISCIPLE
-   coin fills only up to the cap; the unfilled $ is never debited or booked. Tokens for $u at the AMM average:
-   u·(1−fee) / (p0·√impact(u)); solved for u by bisection (monotone). Sim + live enforce the cap in their own markets. */
-const WALLET_CAP_FRAC=0.07, PAPER_FEE=0.01;
-const capApplies=m=>!isLive()&&!source.isSim&&(source instanceof MockReplaySource||source instanceof DiscipleSource)&&!!source.impact&&m>0&&m<GRADUATION_MCAP;
-/* after the fill: the mock's walls can make the actual fill cheaper than the estimate → clamp the booked $ to the cap too
-   (the unfilled $ is refunded to the paper balance) */
-function capFilledUsd(usd,fillMcap,preMcap){ if(!capApplies(preMcap)||!(fillMcap>0)) return usd; const sup=source.supply||7e9;
-  const room=Math.max(0,WALLET_CAP_FRAC*sup-(S.hold.tokens||0)), tok=usd*(1-PAPER_FEE)/(fillMcap/sup);
-  return tok<=room?usd:Math.floor(room*(fillMcap/sup)/(1-PAPER_FEE)*100)/100; }
-function paperCap(usd){
-  const m=S.confirmed.mcap, sup=source.supply||7e9; if(!capApplies(m)) return {usd};
-  const room=WALLET_CAP_FRAC*sup-(S.hold.tokens||0), tok=u=>u*(1-PAPER_FEE)/((m/sup)*Math.sqrt(source.impact(u,'buy')));
-  if(room<=sup*1e-6) return {usd:0,blocked:true}; if(tok(usd)<=room) return {usd};
-  let lo=0, hi=usd; for(let i=0;i<50;i++){ const mid=(lo+hi)/2; if(tok(mid)<=room) lo=mid; else hi=mid; }
-  return {usd:+lo.toFixed(2)}; }
+/* No wallet cap anywhere (paper, sim, live): the Launchpad default is Constants.WALLET_CAP_BPS_DEFAULT = 0. */
 function trade(side,opt){
   if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
@@ -667,8 +652,6 @@ function trade(side,opt){
   if (md.usd<MIN_SHOT && !source.isSim){                 // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
-  if (side==='buy'){ const c=paperCap(md.usd); if(c.blocked){ S.flashes.push({txt:'WALLET CAP 7% REACHED · no buy',life:1.6}); return; }
-    if(c.usd<md.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(c.usd)} of ${fmtShot(md.usd)}`,life:1.8}); md={...md,usd:c.usd}; } }
   if (side==='buy' && !window.__discipleTrade && !source.isSim && S.balance<md.usd){   /* SIMULATOR: the sim checks its own balance (tramps spend it too) */ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
   // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
   applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(source.impact(md.usd,side)-1)*100:undefined);
@@ -695,7 +678,6 @@ function submit(side,usd,force,opt){
     // (Was: mark × √(estimated impact) — DISCIPLE paper never moved the price and mock walls could absorb the move,
     //  so a $60K buy was booked far above the mark → uPnL deeply negative right after the buy.)
     const fm=r.pre>0&&r.post>0&&!isLive()?Math.sqrt(r.pre*r.post)*(S.simF||1):fillMark;
-    if(side==='buy'&&r.pre>0){ const u=capFilledUsd(p.usd,fm,r.pre); if(u<p.usd){ S.flashes.push({txt:`WALLET CAP 7% · filled ${fmtShot(u)}, ${fmtShot(p.usd-u)} refunded`,life:1.8}); p.usd=u; } }
     S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"

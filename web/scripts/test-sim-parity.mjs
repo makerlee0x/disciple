@@ -31,7 +31,6 @@ eq(Math.round(CURVE.soldPctAtGrad * 100), C.CURVE_SOLD_BPS, "curve sold bps  con
 eq(CURVE.startMcap, C.START_MCAP_USD, "start mcap  config ⇄ Constants");          eq(LAUNCH.startMcapUsd, C.START_MCAP_USD, "start mcap  sim ⇄ Constants");
 eq(CURVE.graduationMcap, C.GRADUATION_MCAP_USD, "graduation mcap  config ⇄ Constants"); eq(LAUNCH.graduationMcapUsd, C.GRADUATION_MCAP_USD, "graduation mcap  sim ⇄ Constants");
 eq(CURVE.walletCapDefaultBps, C.WALLET_CAP_BPS_DEFAULT, "wallet cap default bps  config ⇄ Constants"); eq(LAUNCH.walletCapBps, C.WALLET_CAP_BPS_DEFAULT, "wallet cap  sim ⇄ Constants default (no cap)");
-eq(Math.round(CURVE.walletCapPct * 100), C.WALLET_CAP_BPS, "paper wallet cap (config walletCapPct) ⇄ Constants.WALLET_CAP_BPS (max)");
 eq(Math.round(CURVE.antiSnipeStartPct * 100), C.ANTI_SNIPE_START_BPS, "anti-snipe start  config ⇄ Constants"); eq(LAUNCH.antiSnipeStartBps, C.ANTI_SNIPE_START_BPS, "anti-snipe start  sim ⇄ Constants");
 eq(CURVE.antiSnipeWindowSec, C.ANTI_SNIPE_DURATION, "anti-snipe window  config ⇄ Constants"); eq(LAUNCH.antiSnipeDurationS, C.ANTI_SNIPE_DURATION, "anti-snipe window  sim ⇄ Constants");
 eq(C.ANTI_SNIPE_END_BPS, 0, "anti-snipe ends at 0 (sim decays to 0)");
@@ -51,10 +50,9 @@ ok(JSON.stringify(SIM_TIERS.map((t) => [t.name, t.lo])) === JSON.stringify(FLIGH
   const off = probes.filter((m) => tierOf(m) !== tierIndexAt(m)); ok(!off.length, `sim tierOf ≡ flight tierIndexAt on ${probes.length} probes${off.length ? " (differs at " + off.join(", ") + ")" : ""}`); }
 ok(FLIGHT_TIERS[FLIGHT_TIERS.findIndex((t) => t.lo === CURVE.graduationMcap)] != null, "graduation mcap is a tier boundary (OUTER SPACE)");
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
-{ const g = eng.match(/const GRADUATION_MCAP\s*=\s*([\d.e]+)/), w = eng.match(/const WALLET_CAP_FRAC\s*=\s*([\d.]+)/), ft = eng.match(/const FLIGHT_TIERS=(\[.*?\]);/);
+{ const g = eng.match(/const GRADUATION_MCAP\s*=\s*([\d.e]+)/), ft = eng.match(/const FLIGHT_TIERS=(\[.*?\]);/);
   ok(g && +g[1] === C.GRADUATION_MCAP_USD, `engine.js GRADUATION_MCAP ${g && g[1]} ⇄ Constants`);
-  ok(w && Math.round(+w[1] * 1e4) === C.WALLET_CAP_BPS, `engine.js paper WALLET_CAP_FRAC ${w && w[1]} ⇄ Constants.WALLET_CAP_BPS (paper only)`);
-  ok(/const capApplies=m=>!isLive\(\)&&!source\.isSim&&/.test(eng), "engine.js: the paper cap is skipped for the SIMULATOR");
+  ok(C.WALLET_CAP_BPS_DEFAULT === 0 && !/WALLET_CAP_FRAC|paperCap|capFilledUsd/.test(eng), "engine.js: no paper wallet cap (Constants default 0)");
   ok(ft && nums(JSON.parse(ft[1])) === nums(FLIGHT_TIERS), "engine.js generated FLIGHT_TIERS ⇄ lib/flight/tiers"); }
 
 // ---- the sim curve ≡ curveMath (bigint mirror of CurveMath.sol) ----
