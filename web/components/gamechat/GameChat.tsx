@@ -17,8 +17,6 @@ const BADGE: Record<string, { i: React.ReactNode; t: string; c: string }> = {
   believer: { i: <Icon name="believer" size={12} />, t: "Believer", c: "#ffe7a3" }, trencher: { i: <Icon name="trencher" size={12} />, t: "Trencher", c: "#c9b6f2" }, bomber: { i: <Icon name="bomb" size={12} />, t: "Bomber", c: "#ff9fb8" },
   creator: { i: <Icon name="star" size={12} />, t: "Creator", c: "#8fd8ff" }, whale: { i: <Icon name="whale" size={12} />, t: "Whale", c: "#8ff0c0" }, mod: { i: <Icon name="shield" size={12} />, t: "Moderator", c: "#9ff3c8" },
 };
-/** gamechat tier name → DISCIPLE bomb tier index (0 puff … 5 atom) for the icon + orb meter */
-const TIER_IDX: Record<string, number> = { GRENADE: 1, BUNKER: 2, CRUISE: 3, NUKE: 4, ATOM: 5 };
 const STATE: Record<ChatState | "init", { c: string; t: string }> = {
   init: { c: "#888", t: "…" }, connecting: { c: "#ffd24a", t: "connecting" }, live: { c: "#5df29a", t: "live" }, reconnecting: { c: "#ffa04a", t: "reconnecting" }, closed: { c: "#ff6b7d", t: "offline" },
 };
@@ -194,13 +192,13 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
   const body = (t: string) => parseEmotes(t, known).map((p, i) => p.t === "text" ? <span key={i}>{p.v}</span> : <Emote key={i} code={p.code} svg={svg} src={emotes[p.code]} />);
   if (m.kind === "system") return <div style={{ ...rowStyle, color: "rgba(220,228,255,.55)", fontStyle: "italic" }}>{body(m.text)}</div>;
   if (m.kind === "event") {
-    const ev = m.meta?.event, g = row.group, bps = m.meta?.impactBps || 0, tier = ev === "sell" ? bombTier(bps) : null;
+    const ev = m.meta?.event, g = row.group, bps = m.meta?.impactBps || 0, tier = ev === "sell" ? bombTier(m.meta) : null;   // impact-based, same tier as the in-game blast (lib/flight/bombTier)
     const who = m.from ? (m.from.name || shortAddr(m.from.addr)) : "";
     if (ev === "graduate") return <div data-kind="graduate" style={{ ...rowStyle, margin: "3px 0", padding: "4px 6px", borderRadius: 6, background: "rgba(255,231,163,.14)", color: "#ffe7a3", fontWeight: 800 }}><Icon name="graduation" size={14} /> GRADUATED · Outer Space {m.meta?.usd ? fmtUsd(m.meta.usd) : ""}</div>;
     const buy = ev === "buy", col = buy ? "#8ff0c0" : "#ffb0c8";
     if (g) return <div data-kind="group" style={{ ...rowStyle, fontSize: 11, color: col, opacity: 0.85, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}><Icon name={buy ? "rocket" : "dump"} size={12} /> {g.n} {buy ? "buys" : "sells"} · {fmtUsd(g.usd)}</div>;
     if (tier) return <div data-kind="bomb" style={{ ...rowStyle, margin: "2px 0", padding: "3px 6px", borderRadius: 6, background: `${tier.color}22`, borderLeft: `3px solid ${tier.color}`, fontSize: 11.5 }}>
-      <b style={{ color: tier.color, letterSpacing: 1 }}><BombTierIcons tier={TIER_IDX[tier.name] ?? 1} size={13} /> {tier.name}</b>{" "}
+      <b style={{ color: tier.color, letterSpacing: 1 }}><BombTierIcons tier={tier.idx} size={13} /> {tier.name}</b>{" "}
       <span style={{ color: "#ffd0dc" }}>−{(Math.abs(bps) / 100).toFixed(1)}% · {fmtUsd(m.meta?.usd || 0)}</span> <span style={{ opacity: 0.7 }}>{who}</span></div>;
     return <div data-kind={ev} style={{ ...rowStyle, fontSize: 11, color: col, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}><Icon name={buy ? "rocket" : "dump"} size={12} /> {who} {buy ? "bought" : "sold"} {fmtUsd(m.meta?.usd || 0)}{bps ? <span style={{ opacity: 0.7 }}> ({buy ? "+" : "−"}{(Math.abs(bps) / 100).toFixed(1)}%)</span> : null}</div>;
   }

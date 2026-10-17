@@ -1,5 +1,7 @@
 /** Pure helpers for the in-game chat overlay (unit-tested by scripts/test-gamechat.mjs). */
 import type { ChatMsg } from "./adapter";
+import { BOMB_PCT } from "../config";
+import { bombTierIndex, impactPctOf, type ImpactInput } from "../flight/bombTier";
 
 /** Deterministic username colour from the address (FNV-1a → hue), readable on a dark translucent column. */
 export function nameColor(addr: string) {
@@ -8,12 +10,21 @@ export function nameColor(addr: string) {
   const hue = (h >>> 0) % 360, light = 64 + ((h >>> 9) % 3) * 4;
   return `hsl(${hue} 85% ${light}%)`;
 }
-/** Bomb tiers by |impactBps| — same thresholds as docs/bombs.md. */
+/** Chat display for bomb tiers (names/colours unchanged). WHICH tier = lib/flight/bombTier (engine rule + shared
+ *  lib/config thresholds, impact-based); `min` is in bps (= BOMB_PCT × 100, same as docs/bombs.md). */
 export const BOMB_TIERS = [
-  { name: "ATOM", min: 5000, color: "#ff3b6b" }, { name: "NUKE", min: 2500, color: "#ff6b3b" }, { name: "CRUISE", min: 1200, color: "#ffa04a" },
-  { name: "BUNKER", min: 500, color: "#ffc46b" }, { name: "GRENADE", min: 200, color: "#ffd98a" },
+  { name: "ATOM", min: BOMB_PCT.ATOM * 100, color: "#ff3b6b", idx: 5 }, { name: "NUKE", min: BOMB_PCT.NUKE * 100, color: "#ff6b3b", idx: 4 },
+  { name: "CRUISE", min: BOMB_PCT.CRUISE * 100, color: "#ffa04a", idx: 3 }, { name: "BUNKER", min: BOMB_PCT.BUNKER * 100, color: "#ffc46b", idx: 2 },
+  { name: "GRENADE", min: BOMB_PCT.GRENADE * 100, color: "#ffd98a", idx: 1 },
 ] as const;
-export function bombTier(impactBps: number | undefined) { const a = Math.abs(impactBps || 0); return BOMB_TIERS.find((t) => a >= t.min) || null; }
+/** Chat bomb row for a sell: same tier as the in-game blast. Accepts the event meta (impactPct / prePrice+postPrice /
+ *  impactBps, engine precedence) or a bare impactBps number. PUFF (<2 %) or no impact data → null (plain sell row). */
+export function bombTier(x: number | ImpactInput | null | undefined) {
+  const pct = typeof x === "number" ? Math.abs(x) / 100 : impactPctOf(x);
+  if (pct == null) return null;
+  const i = bombTierIndex(pct);
+  return BOMB_TIERS.find((t) => t.idx === i) || null;
+}
 
 export type Part = { t: "text"; v: string } | { t: "emote"; code: string };
 /** split ":code:" tokens (only known codes) — no HTML, rendered as React nodes */
@@ -33,11 +44,11 @@ export function appendRows(rows: Row[], incoming: ChatMsg[], cap = ROW_CAP): Row
   for (const m of incoming) {
     const ev = m.kind === "event" ? m.meta?.event : undefined;
     const side = ev === "buy" || ev === "sell" ? ev : null;
-    const small = side && !bombTier(m.meta?.impactBps);
+    const small = side && !bombTier(m.meta);
     const last = out[out.length - 1];
     if (small && last && last.msg.kind === "event" && m.ts - (last.group?.t1 ?? last.msg.ts) <= GROUP_MS) {
       const lastSide = last.group?.side ?? (last.msg.meta?.event as string);
-      const lastSmall = last.group || !bombTier(last.msg.meta?.impactBps);
+      const lastSmall = last.group || !bombTier(last.msg.meta);
       if (lastSide === side && lastSmall) {
         const g = last.group ?? { side, n: 1, usd: last.msg.meta?.usd || 0, t0: last.msg.ts, t1: last.msg.ts };
         out[out.length - 1] = { key: last.key, msg: last.msg, group: { side, n: g.n + 1, usd: g.usd + (m.meta?.usd || 0), t0: g.t0, t1: m.ts } };
