@@ -1,0 +1,150 @@
+/* Launch pad + plume + lift-off for the trending hero (see HeroPad.tsx). Units: #79 plate px × --s.
+ * --rx / --base: rocket centre x and base y inside the hero stage; --s: plate→CSS scale (rocket = 540px × --s tall).
+ * Motion is transform/opacity only; idle runs after paint (.go on the hero), lift-off on .launching; reduced motion = still. */
+.pad {
+  --s: .5; --rx: max(60%, 660px); --base: 436px; --liftoff-ms: 1300ms;
+  --rk-w: calc(195px * var(--s)); --rk-h: calc(540px * var(--s));
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+}
+.scene { position: absolute; left: var(--rx); top: var(--base); width: 0; height: 0; }
+
+/* low cloud bank the pad stands in: one sheet behind the deck, one in front of its base (from #79 haze) */
+.fog { position: absolute; left: 0; width: 200%; background-repeat: repeat-x; background-size: 50% 100%; }
+.fogBack { top: calc(var(--base) - 70px * var(--s) / .56); height: calc(190px * var(--s) / .56); opacity: .22; }
+.fogFront { top: calc(var(--base) + 34px * var(--s) / .56); height: calc(150px * var(--s) / .56); opacity: .34; }
+.go .fogBack { animation: drift 160s linear infinite; }
+.go .fogFront { animation: drift 110s linear infinite reverse; }
+
+/* the deck (cut from the approved #79 plate, mirrored so the gantry stands right of the rocket, away from the panel), positioned so its baked rocket base point is (0,0) */
+.deck { position: absolute; left: calc(-421px * var(--s)); top: calc(-253px * var(--s)); width: calc(1070px * var(--s)); max-width: none; height: auto; display: block; user-select: none; }
+.lamp {
+  position: absolute; left: calc((var(--lx) * 1px - 421px) * var(--s)); top: calc((var(--ly) * 1px - 253px) * var(--s));
+  width: calc(150px * var(--s)); aspect-ratio: 2.4; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 168, 108, .55), rgba(255, 122, 61, .2) 45%, rgba(255, 122, 61, 0) 100%);
+  mix-blend-mode: screen; opacity: .7;
+}
+.go .lamp { animation: lampPulse 5.2s ease-in-out infinite; }
+.lamp:nth-of-type(2) { animation-delay: -1.7s; } .lamp:nth-of-type(3) { animation-delay: -3.4s; }
+/* warm pool on the deck around the base (#79) + the deck lit by ignition */
+.pool { position: absolute; left: 0; top: 0; width: calc(var(--rk-w) * 3.3); height: calc(var(--rk-h) * .13); transform: translate(-50%, -55%); border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 150, 90, .32), rgba(255, 122, 61, .1) 55%, transparent 100%); mix-blend-mode: screen; }
+.go .pool { animation: lampPulse 6.5s ease-in-out infinite; }
+.deckGlow { position: absolute; left: 0; top: 0; width: calc(900px * var(--s)); height: calc(240px * var(--s)); transform: translate(-50%, -50%); border-radius: 50%; opacity: 0;
+  background: radial-gradient(closest-side, rgba(255, 214, 160, .75), rgba(255, 140, 70, .28) 45%, transparent 100%); mix-blend-mode: screen; }
+/* deck reflection: flipped, masked copy under the base (#79) */
+.refl { position: absolute; left: calc(var(--rk-w) / -2); top: 0; width: var(--rk-w); height: var(--rk-h); opacity: .42;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, .75) 0%, rgba(0, 0, 0, .2) 14%, transparent 30%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, .75) 0%, rgba(0, 0, 0, .2) 14%, transparent 30%); }
+.refl img { width: 100%; height: 100%; display: block; transform: scaleY(-1); filter: blur(1.4px) brightness(.75); }
+
+/* rocket */
+.lift { position: absolute; left: calc(var(--rk-w) / -2); top: calc(-1 * var(--rk-h)); width: var(--rk-w); height: var(--rk-h); will-change: transform; }
+.body { position: absolute; inset: 0; }
+.rocketImg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; filter: drop-shadow(0 0 14px rgba(200, 210, 255, .12)); }
+.rim, .burn { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; mix-blend-mode: screen; }
+/* pad lamps warm the lower hull; ignition floods it */
+.rim { background: linear-gradient(0deg, rgba(255, 150, 90, .34) 0%, rgba(255, 150, 90, .08) 16%, transparent 32%); }
+.burn { opacity: 0; background: linear-gradient(0deg, rgba(255, 232, 196, .95) 0%, rgba(255, 170, 100, .5) 14%, rgba(255, 140, 70, .12) 34%, transparent 52%); }
+/* exhaust (hidden on the pad) */
+.flame { position: absolute; left: 50%; top: 96%; width: 60%; height: 150%; transform: translateX(-50%) scaleY(0); transform-origin: 50% 0; opacity: 0; }
+.flame i { position: absolute; left: 50%; top: 0; transform: translateX(-50%); border-radius: 50% 50% 50% 50% / 30% 30% 70% 70%; }
+.flame i:nth-child(1) { width: 100%; height: 100%; background: radial-gradient(50% 62% at 50% 2%, rgba(255, 226, 180, .95), rgba(255, 150, 80, .55) 40%, rgba(255, 100, 50, .12) 75%, rgba(255, 90, 40, 0) 100%); }
+.flame i:nth-child(2) { width: 44%; height: 46%; background: radial-gradient(50% 55% at 50% 0%, #FFFFFF, rgba(255, 236, 205, .8) 45%, rgba(255, 200, 140, 0) 100%); }
+/* ignition flare at the base */
+.flare { position: absolute; left: 0; top: 0; width: calc(var(--rk-w) * 4.2); aspect-ratio: 1.6; transform: translate(-50%, -50%) scale(.3); border-radius: 50%; opacity: 0;
+  background: radial-gradient(closest-side, rgba(255, 252, 238, 1), rgba(255, 214, 160, .7) 22%, rgba(255, 140, 70, .25) 52%, transparent 100%); mix-blend-mode: screen; }
+
+/* idle venting vapor at the base, partly in front of the rocket (#79) */
+.vapor { position: absolute; left: calc(var(--rk-w) * -.1); top: 0; width: calc(var(--rk-w) * 4.8); height: calc(var(--rk-h) * .36); transform: translate(-50%, -72%); }
+.vapor span { position: absolute; bottom: 0; border-radius: 50%; filter: blur(6px); opacity: 0;
+  background: radial-gradient(closest-side, rgba(220, 226, 240, .82), rgba(198, 206, 224, .34) 55%, transparent 100%); }
+.vapor span:nth-child(1) { left: 22%; width: 36%; height: 72%; --dx: -34%; }
+.vapor span:nth-child(2) { left: 40%; width: 30%; height: 60%; --dx: 42%; }
+.vapor span:nth-child(3) { left: 30%; width: 44%; height: 46%; --dx: -6%; }
+.vapor span:nth-child(4) { left: 14%; width: 60%; height: 50%; opacity: .7; filter: blur(8px);
+  background: radial-gradient(closest-side, rgba(204, 211, 226, .66), rgba(180, 188, 206, .24) 60%, transparent 100%); }
+.go .vapor span { animation: vent 8s ease-out infinite; }
+.go .vapor span:nth-child(2) { animation-delay: -2.7s; }
+.go .vapor span:nth-child(3) { animation-delay: -5.3s; animation-duration: 10s; }
+.go .vapor span:nth-child(4) { animation: mist 11s ease-in-out infinite; }
+
+/* lift-off smoke: rolls out along the deck and up, lit warm from the flame at the core */
+.billow { position: absolute; left: 0; top: 0; }
+.billow i { position: absolute; left: 0; top: 0; width: calc(var(--rk-w) * var(--w, 2.4)); aspect-ratio: 1.7; border-radius: 50%; opacity: 0;
+  transform: translate(-50%, -50%) scale(.2);
+  background: radial-gradient(closest-side, rgba(196, 196, 208, .78), rgba(160, 162, 178, .42) 50%, rgba(140, 144, 162, 0) 100%); }
+/* rolls out along the deck (biased right, away from the panel) and climbs a little; the core is lit by the flame */
+.billow i:nth-child(1) { --w: 2;   --tx: -95%;  --ty: -70%;  --k: 1.9; --d: 60ms; }
+.billow i:nth-child(2) { --w: 2;   --tx: -5%;   --ty: -75%;  --k: 1.9; --d: 90ms; }
+.billow i:nth-child(3) { --w: 2.3; --tx: -125%; --ty: -45%;  --k: 2;   --d: 150ms; }
+.billow i:nth-child(4) { --w: 2.3; --tx: 40%;   --ty: -50%;  --k: 2.1; --d: 180ms; }
+.billow i:nth-child(5) { --w: 1.8; --tx: -50%;  --ty: -120%; --k: 1.8; --d: 240ms; }
+.billow i:nth-child(6) { --w: 2.6; --tx: -140%; --ty: -30%;  --k: 1.9; --d: 300ms; }
+.billow i:nth-child(7) { --w: 2.6; --tx: 75%;   --ty: -35%;  --k: 2.3; --d: 320ms; }
+.billow i:nth-child(1), .billow i:nth-child(2), .billow i:nth-child(5) {
+  background: radial-gradient(closest-side, rgba(255, 214, 178, .85), rgba(214, 186, 180, .5) 45%, rgba(170, 166, 184, 0) 100%); }
+.billow i:nth-child(8) { --w: 1.5; --tx: -50%; --ty: -62%; --k: 1.6; --d: 0ms;
+  background: radial-gradient(closest-side, rgba(255, 244, 222, .95), rgba(255, 190, 130, .55) 45%, rgba(255, 150, 90, 0) 100%); }
+
+/* ---- lift-off sequence (≈1.3s): 0–300ms ignition on the pad, then the rocket accelerates out of frame ---- */
+.launching .lift { animation: liftoff var(--liftoff-ms) linear both; }
+.launching .body { animation: rumble 90ms linear 6 alternate; }
+.launching .flame { animation: flameOn var(--liftoff-ms) linear both; }
+.launching .flame i { animation: flicker 70ms steps(2) infinite alternate; }
+.launching .burn { animation: burn var(--liftoff-ms) linear both; }
+.launching .flare { animation: flare var(--liftoff-ms) linear both; }
+.launching .deckGlow { animation: deckGlow var(--liftoff-ms) linear both; }
+.launching .billow i { animation: billow 1.6s cubic-bezier(.16, .8, .3, 1) var(--d) both; }
+.launching .refl, .launching .rim { opacity: 0; transition: opacity .25s; }
+.launching .vapor { opacity: 0; transition: opacity .5s; }
+.launching .scene { animation: shake 70ms linear 8 alternate; }
+
+@keyframes liftoff {
+  0% { transform: translateY(0); animation-timing-function: ease-in-out; }
+  22% { transform: translateY(calc(-6px * var(--s) / .56)); animation-timing-function: cubic-bezier(.45, 0, .85, .35); }
+  100% { transform: translateY(calc(-1 * (var(--base) + var(--rk-h) * 1.25))); }
+}
+@keyframes flameOn {
+  0% { opacity: 0; transform: translateX(-50%) scaleY(0); }
+  10% { opacity: 1; transform: translateX(-50%) scaleY(.22); }
+  24% { opacity: 1; transform: translateX(-50%) scaleY(.36); }
+  100% { opacity: 1; transform: translateX(-50%) scaleY(1.9); }
+}
+@keyframes burn { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: .85; } }
+@keyframes flare {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.3); }
+  10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  30% { opacity: .85; transform: translate(-50%, -50%) scale(1.25); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+}
+@keyframes deckGlow { 0% { opacity: 0; } 12% { opacity: 1; } 45% { opacity: .8; } 100% { opacity: .15; } }
+@keyframes billow {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.2); }
+  25% { opacity: .9; }
+  100% { opacity: .7; transform: translate(var(--tx), var(--ty)) scale(var(--k)); }
+}
+@keyframes rumble { from { transform: translateX(-.6px); } to { transform: translateX(.6px); } }
+@keyframes shake { 0% { transform: translate(0, 0); } 50% { transform: translate(-1.5px, 1px); } 100% { transform: translate(1.5px, -1px); } }
+@keyframes flicker { from { opacity: .82; } to { opacity: 1; } }
+@keyframes drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
+@keyframes lampPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes vent { 0% { opacity: 0; transform: translate(0, 10%) scale(.6); } 25% { opacity: .9; } 100% { opacity: 0; transform: translate(var(--dx), -6%) scale(1.5); } }
+@keyframes mist { 0%, 100% { opacity: .55; transform: translateX(-3%) scaleX(1); } 50% { opacity: .85; transform: translateX(3%) scaleX(1.12); } }
+
+/* narrower desktops: the pad moves right (as the rocket did), a little smaller */
+@media (max-width: 1180px) and (min-width: 761px) {
+  .pad { --rx: calc(100% - 150px); --s: .44; --base: 446px; }
+}
+/* mobile: centred above the info panel; lighter (no blur filters, one fog sheet) */
+@media (max-width: 760px) {
+  .pad { --rx: 47%; --s: .33; --base: 268px; }
+  .fogBack { display: none; }
+  .vapor span, .vapor span:nth-child(4) { filter: none; }
+  .refl img { filter: brightness(.75); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fog, .lamp, .pool, .go .fogBack, .go .fogFront, .go .lamp, .go .pool { animation: none; }
+  .vapor span, .go .vapor span { animation: none; opacity: .5; transform: none; }
+  .vapor span:nth-child(2) { opacity: .32; }
+  .vapor span:nth-child(4), .go .vapor span:nth-child(4) { animation: none; opacity: .65; }
+}
