@@ -7,10 +7,14 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ILaunchpad} from "../interfaces/ILaunchpad.sol";
+import {Owned2Step} from "../utils/Owned2Step.sol";
 
 interface IFeeRouterClaims {
     function creatorAccrued(address token, address creator) external view returns (uint256);
     function claimCreatorFees(address token) external returns (uint256);
+    /// @dev Post-graduation creator share charged in the launch token itself (hook fee on buys).
+    function creatorTokenAccrued(address token, address creator) external view returns (uint256);
+    function claimCreatorTokenFees(address token) external returns (uint256);
     function tokenQuote(address token) external view returns (address);
 }
 
@@ -26,7 +30,7 @@ interface IERC5564Announcer {
         external;
 }
 
-/// @title DISCIPLE pseudonymous launch add-on (v0, no ZK)
+/// @title DISCIPLE pseudonymous launch add-on (v2, no ZK)
 /// @notice Wraps the live Launchpad without redeploying it. This contract is the on-chain `creator`
 ///         of every coin it launches and keeps an internal registry token => stealth owner. The stealth
 ///         owner is a one-time ERC-5564-style address; it never needs gas: metadata, creator transfer and
@@ -36,7 +40,11 @@ interface IERC5564Announcer {
 ///      and the tokens are forwarded to `buyRecipient`.
 ///      Gas sponsorship happens off-chain (ERC-4337 paymaster); `launchFee` (USDG) recoups it to treasury.
 ///      Pseudonymous, not anonymous: the payer of the launch fee / creator buy is visible on-chain.
-contract AnonLauncher is EIP712, ReentrancyGuard {
+///      v2: claims pay BOTH creator fee sides — quote (FeeRouter.creatorAccrued) and the post-graduation launch-token
+///      share (FeeRouter.creatorTokenAccrued), which v1 could not reach. Ownership is two-step (Owned2Step).
+///      The EIP-712 Claim struct and domain ("DISCIPLE AnonLauncher", "1") are unchanged; the domain binds
+///      verifyingContract, so v1 and v2 signatures never cross-replay.
+contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     using SafeERC20 for IERC20;
 
     uint256 public constant MAX_LAUNCH_FEE = 5 ether; // $5 in 18-dec USDG
@@ -57,7 +65,6 @@ contract AnonLauncher is EIP712, ReentrancyGuard {
     IERC20 public immutable feeToken; // USDG
     IERC5564Announcer public immutable announcer; // may be address(0)
 
-    address public owner;
     address public treasury;
     uint256 public launchFee;
 
@@ -73,12 +80,12 @@ contract AnonLauncher is EIP712, ReentrancyGuard {
         bytes sig;
     }
 
-    error OnlyOwner();
     error ZeroAddress();
     error FeeTooHigh();
     error NotStealthOwner();
     error Expired();
     error BadSignature();
+    error NothingToClaim();
 
     event AnonLaunched(
         address indexed token, address indexed curve, address indexed stealthOwner, uint256 tokensBought
@@ -97,12 +104,11 @@ contract AnonLauncher is EIP712, ReentrancyGuard {
         address treasury_,
         address announcer_,
         uint256 launchFee_
-    ) EIP712("DISCIPLE AnonLauncher", "1") {
+    ) EIP712("DISCIPLE AnonLauncher", "1") Owned2Step(owner_) {
         if (owner_ == address(0) || launchpad_ == address(0) || feeRouter_ == address(0) || treasury_ == address(0)) {
             revert ZeroAddress();
         }
         if (launchFee_ > MAX_LAUNCH_FEE) revert FeeTooHigh();
-        owner = owner_;
         launchpad = ILaunchpad(launchpad_);
         feeRouter = IFeeRouterClaims(feeRouter_);
         feeToken = IERC20(feeToken_);
@@ -114,23 +120,17 @@ contract AnonLauncher is EIP712, ReentrancyGuard {
     // ───────────────────────────── admin ─────────────────────────────
 
     function setLaunchFee(uint256 fee) external {
-        if (msg.sender != owner) revert OnlyOwner();
+        _checkOwner();
         if (fee > MAX_LAUNCH_FEE) revert FeeTooHigh();
         launchFee = fee;
         emit LaunchFeeUpdated(fee);
     }
 
     function setTreasury(address t) external {
-        if (msg.sender != owner) revert OnlyOwner();
+        _checkOwner();
         if (t == address(0)) revert ZeroAddress();
         treasury = t;
         emit TreasuryUpdated(t);
-    }
-
-    function setOwner(address o) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (o == address(0)) revert ZeroAddress();
-        owner = o;
     }
 
     // ───────────────────────────── launch ─────────────────────────────
@@ -214,11 +214,14 @@ contract AnonLauncher is EIP712, ReentrancyGuard {
 
     // ───────────────────────────── claims ─────────────────────────────
 
-    /// @notice Claimable for `token`: quote accrued in FeeRouter + coin-denominated hook fees held here.
+    /// @notice Claimable for `token`: quote accrued in FeeRouter, plus the launch-token side = post-graduation
+    ///         creator share accrued in FeeRouter (creatorTokenAccrued) + any `token` balance held here.
     function pending(address token) public view returns (address quote, uint256 quoteAmt, uint256 tokenAmt) {
         quote = feeRouter.tokenQuote(token);
         quoteAmt = feeRouter.creatorAccrued(token, address(this));
-        if (stealthOwnerOf[token] != address(0)) tokenAmt = IERC20(token).balanceOf(address(this));
+        if (stealthOwnerOf[token] != address(0)) {
+            tokenAmt = feeRouter.creatorTokenAccrued(token, address(this)) + IERC20(token).balanceOf(address(this));
+        }
     }
 
     function claimMany(address[] calldata tokens, address to) external nonReentrant {
@@ -270,16 +273,24 @@ contract AnonLauncher is EIP712, ReentrancyGuard {
         _claim(c.owner, c.tokens, c.to, c.relayerFeeBps);
     }
 
+    /// @dev Per token: claim + pay the quote side and the launch-token side (each net of the same relayer fee).
+    ///      FeeRouter reverts NothingToClaim on a zero balance, so each side is checked first and skipped when 0;
+    ///      a token reverts NothingToClaim only when BOTH sides are 0. An empty `tokens` list is a no-op
+    ///      (claimManyBySig with no tokens just burns the nonce).
     function _claim(address so, address[] calldata tokens, address to, uint256 relayerFeeBps) internal {
+        IFeeRouterClaims fr = feeRouter;
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i];
             if (stealthOwnerOf[token] != so) revert NotStealthOwner();
-            (address quote, uint256 qAmt, uint256 tAmt) = pending(token);
+            uint256 qAmt = fr.creatorAccrued(token, address(this));
             if (qAmt > 0) {
-                qAmt = feeRouter.claimCreatorFees(token);
-                _pay(token, so, quote, qAmt, to, relayerFeeBps);
+                qAmt = fr.claimCreatorFees(token);
+                _pay(token, so, fr.tokenQuote(token), qAmt, to, relayerFeeBps);
             }
+            if (fr.creatorTokenAccrued(token, address(this)) > 0) fr.claimCreatorTokenFees(token);
+            uint256 tAmt = IERC20(token).balanceOf(address(this));
             if (tAmt > 0) _pay(token, so, token, tAmt, to, relayerFeeBps);
+            if (qAmt == 0 && tAmt == 0) revert NothingToClaim();
         }
     }
 

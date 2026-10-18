@@ -21,7 +21,7 @@
     "QuoteProbe": "0x4d6e5131d197318da7aeb502659486eb00bf4c1f",
     "CurveDeployer": "0x5f64b3464e340d2afdc4f4b35aa45346b89d1550",
     "RewardsVault": "0x1f42909f1dea0f6bd0dbd19e05f2e9505d748b9e",
-    "AnonLauncher": "0xe564900809746b1f2baca9d2b8df3224a463f359",
+    "AnonLauncher": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
     "MarketLens": "0x3afe8b96fba7c47790d6d195f0070edd560165ae",
     "UsdgDepositNotifier": "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9",
     "LoginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f"
@@ -297,8 +297,9 @@
   "note": "v4: PRs #60/#61/#64/#65/#75 merged (session-policy referral, Oct-16 audit fixes, LP auto-compound, USDG router, bonding modes PVE/PVP/TRENCH + gas G-1). Broadcast record: deployments/broadcast-v4/.",
   "loginGate": {
     "address": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
-    "attester": "0x0000000000000000000000000000000000000000",
-    "note": "PVE_ATTESTER was not set in env at deploy time; owner (deployer) must call LoginGate.setAttester(<backend attester>) before PVE buys can work."
+    "attester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+    "note": "Attester set by owner via LoginGate.setAttester (on-chain attester() verified 2026-10-17). PVE_ATTESTER was unset at deploy time.",
+    "setAttesterTx": "0x751cf1cbcbe88cc1c2471b911bb7fe8ab32f869ca5c0d5f0059fe46e23c2a0c0"
   },
   "wiring": {
     "note": "All wiring is done inside Deploy.s.sol (see broadcast-v4/Deploy.run-latest.json).",
@@ -339,6 +340,45 @@
         "referralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c"
       },
       "supersedes": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2 (v3 stack)"
+    },
+    "AnonLauncher": {
+      "address": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
+      "version": "v2",
+      "deployTx": "0xd900b2b2ec9f67a04baffe84324d0cb2fcdb3c29636838eac59d6c0ab6075d5b",
+      "deployBlock": 137727851,
+      "deployedAt": "2026-10-17",
+      "script": "script/anon/DeployAnonLauncherV2.s.sol",
+      "branch": "fix/anon-token-fees",
+      "constructor": {
+        "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+        "launchpad": "0x4f540bc1585ca36c8a49662dc642f6e28ae534da",
+        "feeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
+        "feeToken": "0x25030Bff74764aD72b912276a603717DB1C00644",
+        "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+        "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+        "launchFee": "250000000000000000"
+      },
+      "eip712Domain": {
+        "name": "DISCIPLE AnonLauncher",
+        "version": "1",
+        "chainId": 46630,
+        "verifyingContract": "0x06f31a8877c8e025cc55faffb20cba8486cca527"
+      },
+      "wiring": "none needed: Launchpad.launch and FeeRouter claims are permissionless for the creator; DiscipleSessionPolicy takes anonLauncher per session at onInstall",
+      "note": "claimMany/claimManyBySig/claimManyBySigBatch pay BOTH the quote side and the post-grad launch-token side (FeeRouter.creatorTokenAccrued). Owned2Step ownership.",
+      "smoke": {
+        "approveTx": "0xba83b514436ba841e8401956bdfc65cf1eafb17d0830b5b274d8763879cc2722",
+        "launchAnonTx": "0xfdb1098708193de18db5f703106615aa2d18e0a822ad98f9b1d1cda1f6845f39",
+        "token": "0x9ddfde533526cb7116cc46737a239cf36021b06b",
+        "curve": "0xc8931ac615f3385e3b844428f860f2d9d4bdf16b",
+        "checks": "Launchpad.creatorOf(token)==v2, stealthOwnerOf(token)==deployer, pending(token)=(STRATEGY,0,0)"
+      }
+    },
+    "AnonLauncherLegacy": {
+      "address": "0xe564900809746b1f2baca9d2b8df3224a463f359",
+      "version": "v1",
+      "status": "legacy",
+      "note": "v1 AnonLauncher from the v4 Deploy.s.sol run. LEGACY: still the Launchpad creator of anon coins launched before v2 \u2014 keep it for their stealthOwnerOf / pending / quote-side claims. Its post-grad launch-token share (FeeRouter.creatorTokenAccrued[token][v1]) is unclaimable: v1 has no claimCreatorTokenFees path and no way to call Launchpad.transferCreator, so these coins cannot migrate to v2."
     }
   },
   "smoke": {
