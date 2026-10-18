@@ -31,6 +31,15 @@ export const abiHas = (abi: Abi | readonly unknown[], name: string) =>
 const Z = "0x0000000000000000000000000000000000000000";
 const set = (a?: string) => !!a && a.toLowerCase() !== Z;
 export const anonLauncherAddr = () => ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
+/**
+ * AnonLauncher v2 (FLOW, not deployed yet): claimMany / claimManyBySig pay BOTH sides, incl. the post-grad token share
+ * FeeRouter.creatorTokenAccrued[token][AnonLauncher] that v1 can't claim. Wiring it = set NEXT_PUBLIC_ANON_LAUNCHER_V2.
+ * Unset/invalid ⇒ that token share shows read-only as "Pending upgrade". Assumes v2 keeps claimMany(address[] tokens, address to).
+ */
+const V2 = (process.env.NEXT_PUBLIC_ANON_LAUNCHER_V2 || "").trim();
+export const anonLauncherV2Addr = (): `0x${string}` | null => (/^0x[0-9a-fA-F]{40}$/.test(V2) && V2.toLowerCase() !== Z ? (V2 as `0x${string}`) : null);
+/** Where anon claimMany goes: v2 once configured, else v1. */
+export const anonClaimTarget = () => anonLauncherV2Addr() ?? anonLauncherAddr();
 
 /** Static (sync) capabilities: ABI + addresses. A true here still needs probeCaps() before showing UI. */
 export function staticCaps(): Caps {

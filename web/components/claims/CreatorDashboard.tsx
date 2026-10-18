@@ -121,6 +121,13 @@ export default function CreatorDashboard() {
                   {(r.anon || caps.creatorTokenFees) && r.tokenSide && (
                     <div className="cl-token-side"><span className="muted">Token share</span><Money raw={r.tokenSide.claimable} asset={r.tokenSide.asset} /></div>
                   )}
+                  {r.anon && r.tokenPendingUpgrade && (
+                    <div className="cl-token-side cl-pending-upgrade" data-testid="pending-upgrade"
+                      title="Claimable after an AnonLauncher upgrade." aria-label="Token share pending upgrade. Claimable after an AnonLauncher upgrade.">
+                      <span className="muted">Token share <span className="cl-pill">Pending upgrade</span></span>
+                      <Money raw={r.tokenPendingUpgrade.raw} asset={r.tokenPendingUpgrade.asset} />
+                    </div>
+                  )}
                 </div>
                 <dl className="cl-kv">
                   <div><dt>Lifetime earned</dt><dd><Money raw={r.lifetime} asset={r.quote} /></dd></div>
