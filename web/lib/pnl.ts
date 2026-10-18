@@ -44,6 +44,22 @@ export function rebase(p: Position, supply: number): Position {
 
 export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, holdStart: 0, sellScale: 1 });
 
+/**
+ * Book a First BOOST (creator buy inside the launch tx) into the coin's PnL ledger with its EXACT fill: tokens received
+ * and $ paid (fees included). Bug #4: it was never booked, so the creator's HUD showed nothing (or a stale/paper bag)
+ * while the tokens sat in another wallet. Only seeds an empty ledger (never double-books).
+ */
+export function seedCreatorBuyPosition(storageKey: string, tokens: number, usd: number, supply = DEFAULT_SUPPLY, at = Date.now()): Position | null {
+  if (!(tokens > 0) || !(usd > 0)) return null;
+  try {
+    const cur = JSON.parse(localStorage.getItem(storageKey) || "null") as Position | null;
+    if (cur && cur.size > 0) return null;
+    const p: Position = { ...emptyPosition(), size: tokens, costBasis: usd + gasUsd(), holdStart: at, supply };
+    localStorage.setItem(storageKey, JSON.stringify({ ...p, session: null }));
+    return p;
+  } catch { return null; }
+}
+
 export function gasUsd(): number {
   return GAS.execGas * GAS.robinhoodGwei * 1e-9 * GAS.ethUsd;
 }

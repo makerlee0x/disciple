@@ -1,7 +1,8 @@
 /**
  * Top-right wallet balance line. On a coin page the HELD coin comes first and the coin's quote token is marked as
- * what trades spend; ETH is only gas (self-pay smart account). mUSDG is shown but is NOT spent by trades today:
- * buys spend the coin's quote token (e.g. STRATEGY) — there is no mUSDG → quote hop yet.
+ * what trades spend; ETH is only gas (self-pay smart account). With payUsdg (default on RH testnet, bug #2) buys spend
+ * USDG via DiscipleRouter and the header shows it as dollar "cash" in its own card; with payUsdg off, buys spend the
+ * coin's quote token (e.g. STRATEGY) and USDG is not spent.
  */
 export type BalancePart = { symbol: string; amount: number; role?: "held" | "spend" | "gas" | "other" };
 

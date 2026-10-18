@@ -15,7 +15,8 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
+import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent } from "./oneTap";
+import { quotePricerAbi } from "../abi";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 
@@ -23,13 +24,29 @@ import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
 /** Privy app id + signer mode live in ./env (dependency-free, safe for the root layout); re-exported here. */
 export { PRIVY_APP_ID, SIGNER_MODE };
-/** Deployed DiscipleSessionPolicy (PR #53). Unset ⇒ no on-chain session keys yet; owner signs every op. */
-export const SESSION_POLICY = (/^0x[0-9a-fA-F]{40}$/.test(process.env.NEXT_PUBLIC_SESSION_POLICY || "") ? process.env.NEXT_PUBLIC_SESSION_POLICY : "") as Address | "";
+/**
+ * Deployed DiscipleSessionPolicy: NEXT_PUBLIC_SESSION_POLICY, else the per-chain default from the deployments json
+ * (testnet v4: 0x3d36…6e27, moduleId 1.3.0). "" ⇒ no on-chain session keys; owner signs every op (silently with Privy).
+ */
+export const SESSION_POLICY = sessionPolicyFor(ACTIVE_CHAIN.id);
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
 export const DEV_WALLETS = process.env.NEXT_PUBLIC_DEV_WALLETS === "1";
 export const aaAvailable = () => !!BUNDLER_URL && ACTIVE_CHAIN.id === 46630;
 const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
-const SESSION_LIMIT = BigInt(process.env.NEXT_PUBLIC_SESSION_SPEND_LIMIT_WEI || "1000000000000000000000000"); // 1M tokens (18 dec)
+/**
+ * One-tap session budget in DOLLARS (per ≤24h session), converted to each capped quote's raw units at install time via
+ * QuotePricer (bug #1: the old fixed 1e24 raw cap was $1M of USDG but only ~$2.5K of test STRATEGY). When a session's
+ * budget runs out, trades are signed by the owner instead (Privy, silent) — never refused.
+ */
+export const SESSION_SPEND_LIMIT_USD = Number(process.env.NEXT_PUBLIC_SESSION_SPEND_LIMIT_USD || "25000");
+/** Auto-install the one-tap session after sign-in (owner signs it silently). NEXT_PUBLIC_ONE_TAP_AUTO=0 disables. */
+const ONE_TAP_AUTO = process.env.NEXT_PUBLIC_ONE_TAP_AUTO !== "0";
+const sessionOfAbi = [{ type: "function", name: "sessionOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }, { name: "entityId", type: "uint32" }], outputs: [{ type: "tuple", components: [
+  { name: "cfg", type: "tuple", components: [
+    { name: "validUntil", type: "uint48" }, { name: "validAfter", type: "uint48" }, { name: "permissions", type: "uint256" }, { name: "router", type: "address" },
+    { name: "launchpad", type: "address" }, { name: "anonLauncher", type: "address" }, { name: "trampWallManager", type: "address" }, { name: "quote0", type: "address" },
+    { name: "quote1", type: "address" }, { name: "cap0", type: "uint128" }, { name: "cap1", type: "uint128" }, { name: "maxSlippageBps", type: "uint16" }, { name: "stealthOwner", type: "address" }] },
+  { name: "spent0", type: "uint128" }, { name: "spent1", type: "uint128" }, { name: "active", type: "bool" }] }] }] as const;
 
 /** Slippage the session allows (on-chain maxSlippageBps). Default 5%, user range 0.1%..50%. */
 export const SLIPPAGE_DEFAULT_BPS = 500;
@@ -77,10 +94,54 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   save();
   const a = await sa.address();
   onchain = loadSessionKey(a);
-  if (onchain) await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key));
+  if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
+  else void maybeAutoOneTap("login");
   drip(a);
   changed();
   return a;
+}
+function saveSessionKey() { try { if (onchain) localStorage.setItem(SK, JSON.stringify(onchain)); else localStorage.removeItem(SK); } catch {} }
+/**
+ * Mirror the on-chain session (caps, spent, active) into the cached key. An inactive / revoked session on chain is
+ * dropped here, so the UI never says "one-tap on" for a session the policy would reject (bug #5: stale session check).
+ */
+export async function syncSessionFromChain() {
+  const s0 = onchain; if (!s0 || !SESSION_POLICY) return;
+  try {
+    const r = await publicClient().readContract({ address: SESSION_POLICY, abi: sessionOfAbi, functionName: "sessionOf", args: [s0.account, s0.entityId] });
+    if (onchain !== s0) return;   // changed meanwhile
+    if (!r.active) { onchain = null; sa?.clearSession(); saveSessionKey(); changed(); void maybeAutoOneTap("inactive"); return; }
+    const caps: Record<string, string> = {}, spent: Record<string, string> = {};
+    if (!/^0x0{40}$/i.test(r.cfg.quote0)) { caps[r.cfg.quote0.toLowerCase()] = r.cfg.cap0.toString(); spent[r.cfg.quote0.toLowerCase()] = r.spent0.toString(); }
+    if (!/^0x0{40}$/i.test(r.cfg.quote1)) { caps[r.cfg.quote1.toLowerCase()] = r.cfg.cap1.toString(); spent[r.cfg.quote1.toLowerCase()] = r.spent1.toString(); }
+    onchain = { ...s0, caps, spent }; saveSessionKey(); changed();
+  } catch { /* RPC hiccup: keep the cache; headroom without caps ⇒ owner signs */ }
+}
+
+/* ---------- automatic one-tap (bug #5) ---------- */
+let autoBusy: Promise<unknown> | null = null;
+let autoTried = false;
+let autoError = "";
+/**
+ * Privy (and local) owners sign silently anyway, so the "Enable one-tap" step is just a gas-paying install: do it for the
+ * user in the background once the account exists (login with a deployed account, or right after the first owner-signed
+ * trade, which deploys it). Until it lands, trades keep going through the owner signer — no prompt either way.
+ */
+export function maybeAutoOneTap(why: string) {
+  if (!ONE_TAP_AUTO || !oneTapAvailable() || onchain || autoBusy || autoTried || !sa || !state || state.kind === "eoa") return;
+  const acct = sa;
+  autoBusy = (async () => {
+    const a = await acct.address();
+    const code = await publicClient().getCode({ address: a }).catch(() => undefined);
+    if (!code || code === "0x") return;   // not deployed yet: the first trade deploys it, then we retry
+    autoTried = true;
+    try { await enableOneTap(); autoError = ""; } catch (e) { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn(`[one-tap] auto setup (${why}) failed:`, autoError); }
+  })().finally(() => { autoBusy = null; changed(); });
+  changed();
+}
+/** One-tap state for the UI: on (session key signs), setting-up (auto install in flight), or off (owner signs, silently). */
+export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
+  return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
 }
 /** One-time server top-up of test ETH for gas (self-pay, existing drip faucet). Fire-and-forget. */
 export function drip(a: Address) {
@@ -157,7 +218,7 @@ export function aaSession() {
 }
 export async function aaLogout() {
   const kind = state?.kind;
-  state = null; sa = null; ownerAcct = null; onchain = null; save(); changed();
+  state = null; sa = null; ownerAcct = null; onchain = null; autoTried = false; autoError = ""; save(); changed();
   if (kind === "privy") { try { await privyHooks?.logout(); } catch {} }
 }
 /** Owner signs a raw hash (chat login / username proof). Null when no smart session. */
@@ -230,20 +291,41 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const key = generatePrivateKey();
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
   const account = await sa.address();
+  const caps = await sessionCaps();
   const s = sk.buildCreateSession({
     modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
     targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
     sessionSigner: privateKeyToAccount(key).address,
-    caps: [{ token: d.defaultQuote, cap: SESSION_LIMIT }, { token: d.usdg, cap: SESSION_LIMIT }],
+    caps: [{ token: caps[0].token, cap: caps[0].cap }, { token: caps[1].token, cap: caps[1].cap }],
     ttlSec: opts.ttlSec ?? SESSION_TTL_MS / 1000, maxSlippageBps,
     permissions: sessionPermissions(sk.TRADE_PERMS), // + P_REFERRAL when NEXT_PUBLIC_REFERRAL_ATTRIBUTE=1
   });
   const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
-  onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY };
-  try { localStorage.setItem(SK, JSON.stringify(onchain)); } catch {}
+  onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY,
+    caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
+  saveSessionKey();
   await sa.useSession(s.entityId, privateKeyToAccount(key));
   changed();
   return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
+}
+
+/**
+ * Raw caps for SESSION_SPEND_LIMIT_USD in each capped quote (STRATEGY, USDG): $ → raw via QuotePricer.quotePriceUsd
+ * and the token's decimals, read on-chain. USDG falls back to $1 if the pricer can't price it.
+ */
+async function sessionCaps(): Promise<[{ token: Address; cap: bigint }, { token: Address; cap: bigint }]> {
+  const d = deployment(), pc = publicClient();
+  const decAbi = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
+  const one = async (token: Address, fallbackUsdWad?: bigint) => {
+    const [px, dec] = await Promise.all([
+      pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [token] }).then((v) => v as bigint).catch(() => fallbackUsdWad ?? BigInt(0)),
+      pc.readContract({ address: token, abi: decAbi, functionName: "decimals" }).then(Number).catch(() => 18),
+    ]);
+    return { token, cap: usdCapRaw(SESSION_SPEND_LIMIT_USD, px, dec) };
+  };
+  const out = await Promise.all([one(d.defaultQuote), one(d.usdg, BigInt(10) ** BigInt(18))] as const);
+  if (out.some((c) => c.cap <= BigInt(0))) throw new AAError("Policy", "Couldn't price the session budget right now — try again in a moment.");
+  return out;
 }
 
 /** Active on-chain session's max slippage (bps), or null (no session / policy not deployed ⇒ no clamp). */
@@ -263,8 +345,8 @@ export async function endOneTap() {
   const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
   const data = sk.buildUninstallSession(onchain.entityId, { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) });
   const r = await sa.sendCalls([{ to: await sa.address(), data }], "owner");
-  onchain = null; sa.clearSession();
-  try { localStorage.removeItem(SK); } catch {}
+  onchain = null; sa.clearSession(); autoTried = true;   // the user ended it on purpose: don't auto-reinstall this page
+  saveSessionKey();
   changed();
   return r;
 }
@@ -282,21 +364,49 @@ async function canUseSessionKey(calls: Call[]) {
   if (!sa?.hasSession || !onchain || onchain.validUntil * 1000 < Date.now() + 30_000) return false;
   return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry, usdg: policyHasUsdg() ? deployment().usdg : undefined, router: deployment().router });
 }
+/** Quote the batch moves out of the account (capped quotes only), from its exact approvals (raw, lowercase token). */
+function quoteSpend(delta: Record<string, bigint>): Record<string, bigint> {
+  const d = deployment(), q = new Set([d.defaultQuote, d.usdg].map((a) => a.toLowerCase()));
+  return Object.fromEntries(Object.entries(delta).filter(([t]) => q.has(t.toLowerCase())));
+}
+/** Policy reverts we can recover from by letting the owner sign instead (nothing landed: pre-flight/simulation). */
+const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCapExceeded|SessionInactive|SessionExpired|PreExecHookReverted|AA2[234]/i;
 
-/** One userOp for the whole call list, pre-checked against the client policy. Session key if eligible, else owner. */
+/**
+ * One userOp for the whole call list. Signer: the one-tap session key when the policy allows the calls AND the session
+ * budget has headroom; otherwise the owner (Privy embedded wallet, signs silently). Never refuses for "spend limit":
+ * an exhausted session just means the owner signs (bug #1).
+ */
 export async function aaSend(calls: Call[]) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
   const me = await sa.address();
+  // Client mirror of the session policy: decides whether the SESSION KEY may sign. A call outside it (withdraw transfer,
+  // claims on other contracts, …) is not an error — the owner signs it (it's the account's owner).
+  let policyOk = true;
   const delta = await checkCalls(publicClient(), {
     launchpad: d.launchpad, router: d.router, trampWallManager: d.trampWallManager,
-    mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT, spendTokens: [d.defaultQuote, d.usdg],
+    mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), spendTokens: [d.defaultQuote, d.usdg],
     usdg: policyHasUsdg() ? d.usdg : undefined,
     feeRouter: d.feeRouter,
     usdgDepositNotifier: /^0x0{40}$/i.test(d.usdgDepositNotifier) ? undefined : d.usdgDepositNotifier,
-  }, state, calls, me);
-  const r = await sa.sendCalls(calls, (await canUseSessionKey(calls)) ? "session" : "owner");
+    referralRegistry: /^0x0{40}$/i.test(d.referralRegistry) ? undefined : d.referralRegistry,
+  }, state, calls, me).catch((e) => { if ((e as { code?: string }).code !== "SessionPolicy") throw e; policyOk = false; return {} as Record<string, bigint>; });
+  const spend = quoteSpend(delta);
+  const asSession = policyOk && (await canUseSessionKey(calls)) && sessionHasHeadroom(onchain, spend);
+  let r;
+  try { r = await sa.sendCalls(calls, asSession ? "session" : "owner"); }
+  catch (e) {
+    const ae = e as AAError;
+    // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once
+    if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
+      void syncSessionFromChain();
+      r = await sa.sendCalls(calls, "owner");
+    } else throw e;
+  }
   gasListeners.forEach((f) => f("self-pay"));
   state = { ...state, ...recordSpend(state, delta) }; save();
+  if (asSession && onchain) { onchain = addSpent(onchain, spend); saveSessionKey(); }
+  else void maybeAutoOneTap("trade");   // first owner-signed trade deployed the account ⇒ set up one-tap now
   return r;
 }
