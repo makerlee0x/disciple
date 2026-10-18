@@ -9,7 +9,8 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
-const BUNDLE_ABI = path.resolve(ROOT, "contracts/deployments/web-bundle/abi");
+// WEB_BUNDLE_ABI: point at another checkout's bundle (e.g. main after a deploy PR) without copying contracts/.
+const BUNDLE_ABI = process.env.WEB_BUNDLE_ABI ? path.resolve(process.env.WEB_BUNDLE_ABI) : path.resolve(ROOT, "contracts/deployments/web-bundle/abi");
 const FORGE_OUT = process.env.CONTRACTS_OUT || path.resolve(ROOT, "contracts/out");
 const NAMES = [
   "Launchpad",
@@ -22,6 +23,11 @@ const NAMES = [
   "FeeRouter",
   "MarketLens",
   "AnonLauncher",
+  // v4 (PR #97): PVE login gate, referral registry, USDG deposit escrow, quote pricer (keeper poke)
+  "LoginGate",
+  "ReferralRegistry",
+  "UsdgDepositNotifier",
+  "QuotePricer",
 ];
 const dir = path.resolve(__dirname, "../lib/abi");
 fs.mkdirSync(dir, { recursive: true });
@@ -39,7 +45,7 @@ function loadAbi(name) {
 
 const idx = [];
 const source = fs.existsSync(BUNDLE_ABI)
-  ? "contracts/deployments/web-bundle @ 27e92d8 (RH testnet 46630 v3)"
+  ? "contracts/deployments/web-bundle @ fdd436b5 (RH testnet 46630 v4)"
   : "DISCIPLE FLOW forge out";
 for (const n of NAMES) {
   const abi = loadAbi(n);

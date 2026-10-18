@@ -37,6 +37,12 @@ export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () =>
   });
 }
 
+/** 7B × 1e18 (Constants.TOTAL_SUPPLY). */
+const SUPPLY_TOKENS = 7_000_000_000;
+/** USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw) and quotePriceUsd (USD WAD per 1e18 quote raw). */
+export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bigint) =>
+  priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;
+
 /** Normalize an on-chain Trade (curve or hook) into the engine's TradeEvent. */
 export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook", mcapPerPriceWad?: number): ProtocolEvent {
   const a = l.args as Record<string, bigint | string | boolean>;
@@ -49,8 +55,10 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     quoteAmt, tokenAmt, fee: a.fee as bigint, snipeFee: a.snipeFee as bigint,
     usd: quoteRawToUsd(quoteAmt, quotePriceUsd),
     impactBps: bps, impactPct: bps / 100,
-    // Post-grad Trade.mcapAfterUsd is frozen (FLOW bug): rescale the live pool price via the MarketLens ratio.
-    mcapUsd: venue === "hook" && mcapPerPriceWad ? Number(a.priceAfterX18 as bigint) * mcapPerPriceWad : wad(a.mcapAfterUsd as bigint),
+    // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = live pool price ×
+    // MarketLens ratio, else priceAfterX18 × supply × the coin's launch quote price. Curve Trades still carry mcapAfterUsd.
+    mcapUsd: venue === "hook" ? (mcapPerPriceWad ? Number(a.priceAfterX18 as bigint) * mcapPerPriceWad : hookMcapUsd(a.priceAfterX18 as bigint, quotePriceUsd))
+      : wad(a.mcapAfterUsd as bigint),
     txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0), logIndex: l.logIndex ?? 0,
   };
 }
