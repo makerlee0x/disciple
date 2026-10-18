@@ -151,55 +151,11 @@ export const QUOTE_PRESETS = [
 ] as const;
 
 /* ------------------------------------------------------------------ */
-/* Verified tiers (modelled on fomo's blue-check minimums)             */
+/* Verification: manual yes/no flag (see lib/verified.ts)              */
 /* ------------------------------------------------------------------ */
-/*
- * fomo blue check (per fomotrendings.com/tools/fomo-token-verification-checker,
- * describing fomo.family/verify-token): ≥$1M 24h DEX volume, ≥$5M mcap,
- * ≥1,000 holders, unique name+symbol, then manual review.
- * fomo publishes NO token-age or liquidity minimum that we could find → our
- * age/liquidity numbers below are DISCIPLE proposals, marked UNVERIFIED.
- */
-export type VerifiedLevel = "UNVERIFIED" | "BLESSED" | "ANOINTED" | "GLORIFIED";
+/* No automatic tiers or metric thresholds: the team verifies rockets by hand. */
 
-export interface VerifiedTierRule {
-  level: VerifiedLevel;
-  label: string;
-  icon: string;
-  minVolume24hUsd: number;
-  minAgeHours: number;
-  minHolders: number;
-  minLiquidityUsd: number;
-  minMcapUsd: number;
-  /** Which numbers trace to a fomo source vs. our own guess. */
-  provenance: string;
-}
-
-export const VERIFIED_TIERS: readonly VerifiedTierRule[] = [
-  {
-    level: "UNVERIFIED", label: "Unverified", icon: "○",
-    minVolume24hUsd: 0, minAgeHours: 0, minHolders: 0, minLiquidityUsd: 0, minMcapUsd: 0,
-    provenance: "default",
-  },
-  {
-    // Scaled for a $7K→$33K curve: fomo's bar would exclude every pre-grad rocket.
-    level: "BLESSED", label: "Blessed", icon: "✦",
-    minVolume24hUsd: 10_000, minAgeHours: 24, minHolders: 100, minLiquidityUsd: 5_000, minMcapUsd: 33_000,
-    provenance: "DISCIPLE proposal (UNVERIFIED vs fomo; ~1/100 of fomo volume, 1/10 holders; mcap = graduation)",
-  },
-  {
-    level: "ANOINTED", label: "Anointed", icon: "✶",
-    minVolume24hUsd: 100_000, minAgeHours: 72, minHolders: 500, minLiquidityUsd: 50_000, minMcapUsd: 1_000_000,
-    provenance: "DISCIPLE proposal (age/liquidity UNVERIFIED)",
-  },
-  {
-    // Matches fomo's blue check on volume / mcap / holders.
-    level: "GLORIFIED", label: "Glorified", icon: "☀",
-    minVolume24hUsd: 1_000_000, minAgeHours: 168, minHolders: 1_000, minLiquidityUsd: 250_000, minMcapUsd: 5_000_000,
-    provenance: "volume/mcap/holders = fomo blue check; age/liquidity UNVERIFIED",
-  },
-] as const;
-
+/** Per-rocket market stats (display / sorting only; they do NOT drive verification). */
 export interface RocketStats {
   volume24hUsd: number;
   ageHours: number;
@@ -208,21 +164,7 @@ export interface RocketStats {
   mcapUsd: number;
 }
 
-export function verifiedLevel(s: RocketStats): VerifiedTierRule {
-  let best = VERIFIED_TIERS[0];
-  for (const t of VERIFIED_TIERS)
-    if (
-      s.volume24hUsd >= t.minVolume24hUsd &&
-      s.ageHours >= t.minAgeHours &&
-      s.holders >= t.minHolders &&
-      s.liquidityUsd >= t.minLiquidityUsd &&
-      s.mcapUsd >= t.minMcapUsd
-    )
-      best = t;
-  return best;
-}
-
-/** fomo shows all tokens by default with a "verified" filter → default "all". */
+/** Launchpad shows all rockets by default, with a "Verified" (hand-verified only) filter → default "all". */
 export const LAUNCHPAD_DEFAULT_FILTER: "all" | "verified" = "all";
 
 /** Next unlock reward per altitude tier index (PvE crew rewards; mock copy). */
@@ -379,17 +321,47 @@ export const IDENTITY_THRESHOLDS = {
 /* ------------------------------------------------------------------ */
 /* Achievement rarity frames                                           */
 /* ------------------------------------------------------------------ */
-export type AchievementRarity = "COMMON" | "BLESSED" | "ANOINTED" | "GLORIFIED" | "DIVINE";
+/**
+ * One rarity scale shared by achievements and rocket parts (cosmetics) — deliberately NOT the
+ * season-rank names (Blessed/Anointed/Glorified/Divine stay on SEASON_RANKS only).
+ * Lowest → highest.
+ */
+export const RARITY_SCALE = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"] as const;
+export type Rarity = (typeof RARITY_SCALE)[number];
+export type AchievementRarity = Rarity;
+
+/**
+ * Legacy rarity keys (pre-rename, borrowed from season ranks) → current keys. Kept so any stored /
+ * cached / API payload that still carries the old key (e.g. topBadges[].rarity) resolves cleanly.
+ */
+export const LEGACY_RARITY_ALIASES: Readonly<Record<string, Rarity>> = {
+  BLESSED: "RARE",
+  ANOINTED: "EPIC",
+  GLORIFIED: "LEGENDARY",
+  DIVINE: "MYTHIC",
+};
+
+/** Accepts a current or legacy rarity key (any case); unknown values fall back to COMMON. */
+export function normalizeRarity(r: string | null | undefined): Rarity {
+  const k = String(r ?? "").toUpperCase();
+  if ((RARITY_SCALE as readonly string[]).includes(k)) return k as Rarity;
+  return LEGACY_RARITY_ALIASES[k] ?? "COMMON";
+}
+
+/** 0 (COMMON) … 4 (MYTHIC); legacy keys are normalized first. */
+export function rarityRank(r: string): number {
+  return RARITY_SCALE.indexOf(normalizeRarity(r));
+}
 
 export const ACHIEVEMENT_RARITY: Record<
-  AchievementRarity,
+  Rarity,
   { label: string; border: string; glow: string }
 > = {
   COMMON: { label: "Common", border: "rgba(180,190,220,0.45)", glow: "rgba(180,190,220,0.15)" },
-  BLESSED: { label: "Blessed", border: "#67C1BB", glow: "rgba(103,193,187,0.30)" },
-  ANOINTED: { label: "Anointed", border: "#C9A8DC", glow: "rgba(201,168,220,0.32)" },
-  GLORIFIED: { label: "Glorified", border: "#E5875A", glow: "rgba(229,135,90,0.35)" },
-  DIVINE: { label: "Divine", border: "#DA8B9F", glow: "rgba(218,139,159,0.40)" },
+  RARE: { label: "Rare", border: "#67C1BB", glow: "rgba(103,193,187,0.30)" },
+  EPIC: { label: "Epic", border: "#C9A8DC", glow: "rgba(201,168,220,0.32)" },
+  LEGENDARY: { label: "Legendary", border: "#E5875A", glow: "rgba(229,135,90,0.35)" },
+  MYTHIC: { label: "Mythic", border: "#DA8B9F", glow: "rgba(218,139,159,0.40)" },
 };
 
 export const SEASON_PASS = {

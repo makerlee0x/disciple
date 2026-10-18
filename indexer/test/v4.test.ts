@@ -47,7 +47,9 @@ function seeded() {
     mk("TierBreak", { token: TOKEN, fromTier: 0, toTier: 1, mcapUsd: 6000n * E18 }, CURVE, 5n),
     mk("TierBreak", { token: TOKEN, fromTier: 1, toTier: 9, mcapUsd: 1n }, A(0xbad), 5n), // spoofed emitter → ignored
     mk("Transfer", { from: CURVE, to: BOB, value: 10n ** 25n }, TOKEN, 5n),
-    mk("TradeFeeRouted", { token: TOKEN, quote: QUOTE, trader: BOB, creatorShare: 4n * E18, lpShare: 3n * E18, treasuryShare: 2n * E18, referralShare: 1n * E18, creatorTaxAmount: 0n }, stack.feeRouter, 5n),
+    mk("TradeFeeRouted", { token: TOKEN, feeToken: QUOTE, trader: BOB, feeIsQuote: true, creator: ALICE, creatorShare: 4n * E18, creatorTaxAmount: 0n, lpShare: 3n * E18, treasuryShare: 2n * E18, referralPayee: CAROL, referralShare: 1n * E18, kolPayee: A(0), kolShare: 0n }, stack.feeRouter, 5n),
+    // post-grad fee charged in launch-token units → must not be added to quote totals
+    mk("TradeFeeRouted", { token: TOKEN, feeToken: TOKEN, trader: BOB, feeIsQuote: false, creator: ALICE, creatorShare: 40n * E18, creatorTaxAmount: 0n, lpShare: 30n * E18, treasuryShare: 20n * E18, referralPayee: CAROL, referralShare: 10n * E18, kolPayee: A(0), kolShare: 0n }, stack.feeRouter, 9n),
     mk("SnipeFeeRouted", { token: TOKEN, quote: QUOTE, toRewards: 7n * E18, toTreasury: 3n * E18 }, stack.feeRouter, 5n),
     mk("RewardAccrued", { token: TOKEN, asset: QUOTE, amount: 7n * E18 }, stack.rewardsVault!, 5n),
     mk("TrampPlaced", { id: 1n, owner: ALICE, token: TOKEN, tickLower: 0, tickUpper: 60, liquidity: 1n, quoteAmt: 600n * E18 }, stack.trampWallManager!, 6n),
@@ -91,10 +93,17 @@ describe("PR #44 events", () => {
     const carol = await get(api, `/users/${CAROL}`);
     expect(carol.referrals.referred).toHaveLength(1);
     expect(carol.referrals.claims).toHaveLength(1);
-    expect((await get(api, "/leaderboard/referrers"))[0]).toMatchObject({ user: CAROL, attributed: 1, referralShareQuote: 1 });
+    expect((await get(api, "/leaderboard/referrers"))[0]).toMatchObject({ user: CAROL, attributed: 1, referralShareQuote: 1, referralShareToken: 10 });
     const bob = await get(api, `/users/${BOB}`);
     expect(bob.holdings[0]).toMatchObject({ token: TOKEN, balance: (10n ** 25n).toString() });
     expect(bob.counters.trades).toBe(1);
+  });
+  it("audit #11: fee routing keeps quote and token units separate", async () => {
+    const api = new Api(seeded(), null, cfg);
+    const f = await get(api, `/coins/${TOKEN}/fee-routing`);
+    expect(f.trades).toBe(1);
+    expect(f.referral).toBe((1n * E18).toString());
+    expect(f.tokenUnits).toMatchObject({ trades: 1, referral: (10n * E18).toString(), creator: (40n * E18).toString() });
   });
   it("holders and trader/creator leaderboards", async () => {
     const api = new Api(seeded(), null, cfg);
@@ -188,11 +197,15 @@ describe("sync: backfill, atomic chunks, reorg rebuild", () => {
 describe("config", () => {
   it("loads web-bundle addresses.json, STACKS filter, START_BLOCK override", () => {
     const p = new URL("../../contracts/deployments/web-bundle/addresses.json", import.meta.url).pathname;
-    const c = loadConfig({ DEPLOYMENT_JSON: p, STACK_ID: "v3", RPC_URL: "http://rpc" } as any);
+    const c = loadConfig({ DEPLOYMENT_JSON: p, STACK_ID: "v4", RPC_URL: "http://rpc" } as any);
     expect(c.stacks).toHaveLength(1);
-    expect(c.stacks[0]).toMatchObject({ id: "v3", fromBlock: 136187963n, launchpad: "0xf5c09182091e527f0445ce065f7fc59d4b55cede", referralRegistry: "0x633be77ee01aafb35297950d88168ca052e1f9ac" });
-    const all = loadConfig({ STACKS: "v3", START_BLOCK: "136190000" } as any);
-    expect(all.stacks.map((x) => x.id)).toEqual(["v3"]);
-    expect(all.stacks[0].fromBlock).toBe(136190000n);
+    expect(c.stacks[0]).toMatchObject({ id: "v4", fromBlock: 137540728n, launchpad: "0x4f540bc1585ca36c8a49662dc642f6e28ae534da", referralRegistry: "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
+      usdgDepositNotifier: "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9", loginGate: "0xe900b7060895f130e866eeddec2b3efd3ff0b69f" });
+    // main json: v4 newest (PR #97) with v3 → v1 as previous stacks; START_BLOCK overrides the newest only
+    expect(loadConfig({} as any).stacks.map((x) => x.id)).toEqual(["v1", "v2", "v3", "v4"]);
+    const all = loadConfig({ STACKS: "v4", START_BLOCK: "137540800" } as any);
+    expect(all.stacks.map((x) => x.id)).toEqual(["v4"]);
+    expect(all.stacks[0].fromBlock).toBe(137540800n);
+    expect(loadConfig({ STACKS: "v3" } as any).stacks[0].fromBlock).toBe(136187963n);
   });
 });

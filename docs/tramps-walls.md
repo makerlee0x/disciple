@@ -34,7 +34,7 @@ interface TrampWall {
 interface PlaceTrampWallParams {
   token: Address; kind: TrampWallKind;
   mcapUsd: number;         // target center (adapter converts to ticks, aligned to tickSpacing)
-  rangeWidthPct?: number;  // optional, default 2%
+  rangeWidthPct?: number;  // ignored on-chain: a band is always exactly one tick spacing
   amount: bigint; sizeUsd: number;
 }
 
@@ -60,18 +60,12 @@ interface TrampWallAdapter {
 }
 ```
 
-## What FLOW must provide
+## Contract (TrampWallManager, shipped)
 
-Contract (TrampWallManager), suggested shape:
-- `place(token, kind, tickLower, tickUpper, amount) returns (uint256 id)` — reverts if a tramp's `tickUpper >= currentTick` or a wall's `tickLower <= currentTick`; only for graduated pools.
-- `cancel(id)` — owner only; withdraws the remaining liquidity (no fees accrue).
-- Auto-pull when filled: when price fully crosses the range (tramp: below `tickLower`; wall: above `tickUpper`), the manager/keeper removes the liquidity and credits the owner.
-- `positionsOf(owner)`, `positionsFor(token)` views (or indexer only).
-
-Events (indexer) → map to `TrampWallEvent`:
-- `TrampWallPlaced(id, token, owner, kind, tickLower, tickUpper, amount)`
-- `TrampWallCancelled(id, token, owner)`
-- `TrampWallFilled(id, token, owner, filledAt)` (rev2: `Filled`, emitted by the keeper `pull`). Off-chain points (floor($ × `TRAMP_WALL_POINTS_PER_USD`)) are awarded on this event only.
+- `placeTramp(token, tickLower, tickUpper, quoteAmt, minLiquidity, deadline)` / `placeWall(token, tickLower, tickUpper, tokenAmt, minLiquidity, deadline)`: graduated pools only, strictly single-sided (tramp below price, wall above), and `tickUpper - tickLower == tickSpacing`.
+- `cancel(id)`: owner only, any time (no hold, no vesting). Returns the remaining principal plus any filled proceeds. There are no fees to claim.
+- `pull(id)`: anyone (keeper), once `isFilled(id)`. The keeper gets the 0.1% tip and the owner gets the rest.
+- Events: `TrampPlaced` / `WallPlaced`, `Cancelled` (`quoteFees` / `tokenFees` are always 0), `Filled`, `KeeperTipPaid`. Off-chain points are awarded on `Filled`.
 
 Indexer also needs a per-user rollup for achievements: `trampsFilled`, `wallsFilled`, `bigTrampsFilled` (≥$1K) → `IdentityMetrics` in `web/lib/stats.ts`.
 

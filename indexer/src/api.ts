@@ -3,7 +3,7 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
-import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
 
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
@@ -64,7 +64,7 @@ export class Api {
           const p = priceWadFromSqrt(sqrtP, tokenIsC0);
           const curveM = (await client.readContract({ address: coin.curve, abi: READS, functionName: "mcapNow" }).catch(() => 0n)) as bigint;
           return {
-            priceWad: p.toString(), mcapUsd: wad(mcapUsdWad(p, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
+            priceWad: p.toString(), mcapUsd: wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
             liquidityUsd: 2 * wad(virtualQuoteReserve(L, sqrtP, tokenIsC0)) * wad(qUsd),
             curveMcapNowUsd: wad(curveM),
           };
@@ -124,90 +124,6 @@ export class Api {
     }
     const claimed = this.db.prepare("SELECT COUNT(*) n FROM fee_events WHERE token=? AND kind IN ('CreatorFeesClaimed','Claimed')").get(c.token) as any;
     return { token: c.token, creator, quote: c.quote, pending: accrued.toString(), pendingUsd: wad(accrued) * wad(BigInt(c.quote_price_usd ?? 0)), anon, claims: claimed.n };
-  }
-
-  /**
-   * Creator dashboard: every coin `creator` launched (or holds as stealth owner) with lifetime earned / claimed / recent
-   * accruals from indexed FeeRouter events, plus the live claimable balance (FeeRouter.creatorAccrued) when an RPC is set.
-   * Token-side balances (creatorTokenAccrued / CreatorTokenFeesClaimed / TradeFeeRoutedToken) only exist on the
-   * redeploy; on v3 they are simply 0 / null.
-   */
-  async creatorFeesOf(creator: string, q: URLSearchParams) {
-    const who = creator.toLowerCase();
-    const recentN = intParam(q, "recent", 10, 0, 50);
-    const coins = this.db.prepare("SELECT * FROM coins WHERE creator=? OR stealth_owner=? ORDER BY launched_block DESC LIMIT 200").all(who, who) as any[];
-    const sumQ = this.db.prepare("SELECT kind, COUNT(*) n, a, b, c, d, e FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','TradeFeeRoutedToken') GROUP BY id");
-    const claimsQ = this.db.prepare("SELECT kind, a amount, quote asset, ts, tx, block FROM fee_events WHERE token=? AND account=? AND kind IN ('CreatorFeesClaimed','CreatorTokenFeesClaimed','Claimed') ORDER BY block DESC, id DESC");
-    const recentQ = this.db.prepare("SELECT kind, account trader, quote asset, a creatorShare, e creatorTax, ts, tx, block FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','TradeFeeRoutedToken') ORDER BY block DESC, id DESC LIMIT ?");
-    const out = [];
-    for (const c of coins) {
-      const rows = sumQ.all(c.token) as any[];
-      const sum = (kind: string) => rows.filter((r) => r.kind === kind).reduce((acc, r) => acc + BigInt(r.a ?? 0) + BigInt(r.e ?? 0), 0n);
-      const claims = claimsQ.all(c.token, c.anon && c.stealth_owner === who ? who : c.creator) as any[];
-      const claimed = (kind: string) => claims.filter((r) => r.kind === kind).reduce((acc, r) => acc + BigInt(r.amount ?? 0), 0n);
-      let claimable: string | null = null, claimableToken: string | null = null;
-      const st = this.stackOf(c.stack);
-      if (this.client && st && !c.anon) {
-        try { claimable = ((await this.cached(`ca:${c.token}:${c.creator}:${dataVersion(this.db)}`, 10_000, () =>
-          this.client!.readContract({ address: st.feeRouter, abi: READS, functionName: "creatorAccrued", args: [c.token, c.creator] }))) as bigint).toString(); } catch {}
-        try { claimableToken = ((await this.cached(`cta:${c.token}:${c.creator}:${dataVersion(this.db)}`, 10_000, () =>
-          this.client!.readContract({ address: st.feeRouter, abi: READS, functionName: "creatorTokenAccrued", args: [c.token, c.creator] }))) as bigint).toString(); } catch { /* v3: no such function */ }
-      }
-      const qUsd = wad(BigInt(c.quote_price_usd ?? 0));
-      const earned = sum("TradeFeeRouted"), earnedToken = sum("TradeFeeRoutedToken");
-      out.push({
-        token: c.token, stack: c.stack, name: c.name, ticker: c.ticker, quote: c.quote, mode: c.mode ?? null, anon: !!c.anon, graduated: !!c.graduated,
-        creatorTaxBps: c.creator_tax_bps, quotePriceUsd: c.quote_price_usd,
-        lifetimeEarned: earned.toString(), lifetimeEarnedUsd: wad(earned) * qUsd,
-        claimed: claimed("CreatorFeesClaimed").toString(), claimedUsd: wad(claimed("CreatorFeesClaimed")) * qUsd,
-        claimable, claimableUsd: claimable != null ? wad(BigInt(claimable)) * qUsd : null,
-        token_: { lifetimeEarned: earnedToken.toString(), claimed: claimed("CreatorTokenFeesClaimed").toString(), claimable: claimableToken },
-        claims: claims.slice(0, 20),
-        recent: recentN ? recentQ.all(c.token, recentN) : [],
-      });
-    }
-    return { creator: who, coins: out };
-  }
-
-  /** PVE crew pool feed for a coin (redeploy): "crew earned X from this DUMP" rows from ProfitTaxCharged + claims. */
-  coinCrew(token: string, q: URLSearchParams) {
-    const c = this.coin(token);
-    if (!c) return null;
-    const limit = intParam(q, "limit", 25, 1, 200);
-    const qUsd = wad(BigInt(c.quote_price_usd ?? 0));
-    const feed = (this.db.prepare(`SELECT account seller, a tax, b grossQuote, c costBasis, ts, tx, block FROM fee_events
-      WHERE token=? AND kind='ProfitTaxCharged' ORDER BY block DESC, id DESC LIMIT ?`).all(c.token, limit) as any[]).map((r) => ({ ...r, taxUsd: wad(BigInt(r.tax)) * qUsd }));
-    const tot = this.db.prepare(`SELECT kind, COUNT(*) n, a FROM fee_events WHERE token=? AND kind IN ('ProfitTaxCharged','HolderRewardsClaimed') GROUP BY id`).all(c.token) as any[];
-    const sum = (k: string) => tot.filter((r) => r.kind === k).reduce((acc, r) => acc + BigInt(r.a ?? 0), 0n);
-    const taxed = sum("ProfitTaxCharged"), claimed = sum("HolderRewardsClaimed");
-    return { token: c.token, quote: c.quote, mode: c.mode ?? null, totalTax: taxed.toString(), totalTaxUsd: wad(taxed) * qUsd,
-      totalClaimed: claimed.toString(), totalClaimedUsd: wad(claimed) * qUsd, feed };
-  }
-
-  /** A holder's crew-reward claims and the PVE coins they hold (redeploy; empty on v3). */
-  userCrew(addr: string) {
-    const u = addr.toLowerCase();
-    const claims = this.db.prepare(`SELECT token, a amount, quote, ts, tx FROM fee_events WHERE account=? AND kind='HolderRewardsClaimed' ORDER BY block DESC, id DESC LIMIT 200`).all(u);
-    const coins = this.db.prepare(`SELECT c.token, c.name, c.ticker, c.quote, c.curve, c.mode, b.bal FROM balances b JOIN coins c ON c.token=b.token
-      WHERE b.holder=? AND c.mode=1 AND CAST(b.bal AS REAL) > 0 ORDER BY c.launched_block DESC LIMIT 200`).all(u);
-    return { holder: u, coins, claims };
-  }
-
-  /** Referral gate (redeploy): pending/locked status, recorded USDG deposits and escrow entries for `wallet`. */
-  referralGate(addr: string) {
-    const u = addr.toLowerCase();
-    const ref = this.db.prepare("SELECT stack, referrer, status, ts, tx FROM referrals WHERE wallet=? ORDER BY block DESC LIMIT 1").get(u) as any;
-    const recorded = this.db.prepare("SELECT a amount, b total, ts, tx FROM fee_events WHERE kind='UsdgDepositRecorded' AND account=? ORDER BY block DESC, id DESC").all(u) as any[];
-    const escrows = this.db.prepare("SELECT stack, CAST(a AS INTEGER) id, b amount, CAST(c AS INTEGER) unlockAt, ts, tx FROM fee_events WHERE kind='EscrowEscrowed' AND account=? ORDER BY block ASC, id ASC").all(u) as any[];
-    const withdrawn = (this.db.prepare("SELECT a FROM fee_events WHERE kind='EscrowWithdrawn' AND account=?").all(u) as any[]).reduce((acc, r) => acc + BigInt(r.a ?? 0), 0n);
-    const escrowed = escrows.reduce((acc, r) => acc + BigInt(r.amount ?? 0), 0n);
-    return {
-      wallet: u,
-      status: !ref ? "none" : ref.status === "attributed" ? "locked" : "pending",
-      referrer: ref?.referrer ?? null, since: ref?.ts ?? null,
-      depositedTotal: recorded[0]?.total ?? "0", deposits: recorded,
-      escrows, escrowedTotal: escrowed.toString(), withdrawnTotal: withdrawn.toString(), heldNow: (escrowed - withdrawn).toString(),
-    };
   }
 
   listCoins(q: URLSearchParams) {
@@ -321,9 +237,11 @@ export class Api {
   feeRouting(token: string) {
     const c = this.coin(token);
     if (!c) return null;
-    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
     const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
-    const tf = rows.filter((r) => r.kind === "TradeFeeRouted");
+    // audit #11: quote-unit rows only (legacy rows have fee_is_quote NULL = quote); token-unit post-grad fees reported apart
+    const tf = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote !== 0);
+    const tt = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote === 0);
     const sn = rows.filter((r) => r.kind === "SnipeFeeRouted");
     const q = wad(BigInt(c.quote_price_usd ?? 0));
     const out: any = {
@@ -336,7 +254,15 @@ export class Api {
     };
     const usd: any = {};
     for (const [k, v] of Object.entries(out)) if (typeof v === "bigint") { usd[k] = wad(v) * q; out[k] = v.toString(); }
-    return { ...out, usd };
+    const tokenUnits = {
+      trades: tt.length, creator: sum(tt.map((r) => r.a)).toString(), lp: sum(tt.map((r) => r.b)).toString(),
+      treasury: sum(tt.map((r) => r.c)).toString(), referral: sum(tt.map((r) => r.d)).toString(),
+    };
+    const kol = (this.db.prepare("SELECT fee_is_quote fq, amount FROM fee_credits WHERE token=? AND role='kol'").all(c.token) as any[]);
+    out.kol = sum(kol.filter((r) => r.fq === 1).map((r) => r.amount)).toString();
+    (tokenUnits as any).kol = sum(kol.filter((r) => r.fq === 0).map((r) => r.amount)).toString();
+    usd.kol = wad(BigInt(out.kol)) * q;
+    return { ...out, usd, tokenUnits };
   }
 
   leaderboard(kind: string, q: URLSearchParams) {
@@ -363,7 +289,8 @@ export class Api {
           FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
       case "referrers":
         return this.db.prepare(`SELECT referrer user, SUM(status='attributed') attributed, SUM(status='pending') pending,
-          COALESCE((SELECT SUM(CAST(f.d AS REAL))/1e18 FROM fee_events f WHERE f.kind='TradeFeeRouted' AND f.account IN (SELECT wallet FROM referrals r2 WHERE r2.referrer=r.referrer AND r2.status='attributed')),0) referralShareQuote
+          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
+          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=0),0) referralShareToken
           FROM referrals r GROUP BY referrer ORDER BY attributed DESC, pending DESC LIMIT ?`).all(limit);
       default:
         throw new Error("unknown leaderboard (traders|creators|coins|tramps|keepers|referrers)");
@@ -406,10 +333,113 @@ export class Api {
   status() {
     return { chainId: this.cfg.chainId, stacks: this.cfg.stacks.map((x) => ({ ...x, rpc: undefined })), cursors: this.db.prepare("SELECT * FROM cursor").all(),
       coins: (this.db.prepare("SELECT COUNT(*) n FROM coins").get() as any).n, trades: (this.db.prepare("SELECT COUNT(*) n FROM trades").get() as any).n,
-      counts: Object.fromEntries(["orders", "tier_breaks", "keeper_tips", "referrals", "fee_events", "balances"].map((t) => [t, (this.db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as any).n])) };
+      counts: Object.fromEntries(["orders", "tier_breaks", "keeper_tips", "referrals", "fee_events", "balances", "profit_tax", "holder_rewards", "usdg_escrow_events"].map((t) => [t, (this.db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as any).n])) };
+  }
+
+  /**
+   * v4 PVE profit tax for one coin (quote raw strings + USD at the launch quote price). Tax is charged on sells above
+   * the 1.77x trigger and distributed to curve holders; `holderRewardsClaimed` is what holders have pulled so far.
+   */
+  profitTax(token: string, q: URLSearchParams) {
+    const c = this.coin(token);
+    if (!c) return null;
+    const limit = intParam(q, "limit", 50, 1, 500);
+    const t = this.db.prepare("SELECT COUNT(*) n, COUNT(DISTINCT seller) sellers FROM profit_tax WHERE token=?").get(c.token) as any;
+    const sumOf = (sql: string, col: string) => (this.db.prepare(sql).all(c.token) as any[]).reduce((acc, r) => acc + BigInt(r[col] ?? 0), 0n);
+    const tax = sumOf("SELECT tax FROM profit_tax WHERE token=?", "tax");
+    const gross = sumOf("SELECT gross FROM profit_tax WHERE token=?", "gross");
+    const basis = sumOf("SELECT cost_basis FROM profit_tax WHERE token=?", "cost_basis");
+    const claimed = sumOf("SELECT amount FROM holder_rewards WHERE token=?", "amount");
+    const qUsd = wad(BigInt(c.quote_price_usd ?? 0));
+    const events = this.db.prepare("SELECT seller, tax, gross, cost_basis costBasis, block, ts, tx FROM profit_tax WHERE token=? ORDER BY block DESC, id DESC LIMIT ?").all(c.token, limit);
+    const claims = this.db.prepare("SELECT holder, amount, block, ts, tx FROM holder_rewards WHERE token=? ORDER BY block DESC, id DESC LIMIT ?").all(c.token, limit);
+    return {
+      token: c.token, quote: c.quote, mode: c.mode ?? null, count: t.n, sellers: t.sellers,
+      totalTax: tax.toString(), totalGross: gross.toString(), totalCostBasis: basis.toString(),
+      holderRewardsClaimed: claimed.toString(), unclaimedEstimate: (tax > claimed ? tax - claimed : 0n).toString(),
+      usd: { totalTax: wad(tax) * qUsd, totalGross: wad(gross) * qUsd, holderRewardsClaimed: wad(claimed) * qUsd },
+      events, claims,
+    };
+  }
+
+  /**
+   * Everything a wallet earned or paid on v4: PVE holder rewards (claimed per coin + live pendingRewards when an RPC
+   * client is attached), profit tax paid, creator fee claims (quote + launch-token units) and per-role fee credits.
+   */
+  async userRewards(user: string) {
+    const u = user.toLowerCase();
+    const claimed = this.db.prepare(`SELECT r.token, c.ticker, c.quote, COUNT(*) n, GROUP_CONCAT(r.amount) amts FROM holder_rewards r JOIN coins c ON c.token=r.token
+      WHERE r.holder=? GROUP BY r.token`).all(u) as any[];
+    const taxPaid = this.db.prepare(`SELECT p.token, c.ticker, c.quote, COUNT(*) n, GROUP_CONCAT(p.tax) taxes FROM profit_tax p JOIN coins c ON c.token=p.token
+      WHERE p.seller=? GROUP BY p.token`).all(u) as any[];
+    const sumCsv = (x: string | null) => (x ? x.split(",").reduce((acc, v) => acc + BigInt(v), 0n) : 0n).toString();
+    // PVE coins the wallet holds or has claimed from (pending rewards live on the curve)
+    const pveCoins = this.db.prepare(`SELECT DISTINCT c.token, c.curve, c.ticker, c.quote, c.quote_price_usd FROM coins c
+      WHERE c.mode=1 AND (c.token IN (SELECT token FROM balances WHERE holder=? AND bal != '0' AND bal NOT LIKE '-%') OR c.token IN (SELECT token FROM holder_rewards WHERE holder=?))`).all(u, u) as any[];
+    const pending = await Promise.all(pveCoins.map(async (c) => {
+      let amount: string | null = null;
+      if (this.client) try { amount = ((await this.client.readContract({ address: c.curve, abi: READS, functionName: "pendingRewards", args: [u as Address] })) as bigint).toString(); } catch {}
+      return { token: c.token, ticker: c.ticker, quote: c.quote, pending: amount, pendingUsd: amount == null ? null : wad(BigInt(amount)) * wad(BigInt(c.quote_price_usd ?? 0)) };
+    }));
+    const creatorClaims = this.db.prepare(`SELECT kind, token, COUNT(*) n, GROUP_CONCAT(a) amts FROM fee_events WHERE account=? AND kind IN ('CreatorFeesClaimed','CreatorTokenFeesClaimed') GROUP BY kind, token`).all(u) as any[];
+    const credits = this.db.prepare(`SELECT role, fee_is_quote feeIsQuote, fee_token feeToken, COUNT(*) n, GROUP_CONCAT(amount) amts FROM fee_credits WHERE payee=? GROUP BY role, fee_is_quote, fee_token`).all(u) as any[];
+    return {
+      user: u,
+      holderRewards: { claimed: claimed.map((r) => ({ token: r.token, ticker: r.ticker, quote: r.quote, claims: r.n, amount: sumCsv(r.amts) })), pending },
+      profitTaxPaid: taxPaid.map((r) => ({ token: r.token, ticker: r.ticker, quote: r.quote, sells: r.n, tax: sumCsv(r.taxes) })),
+      creatorFeesClaimed: creatorClaims.map((r) => ({ token: r.token, units: r.kind === "CreatorTokenFeesClaimed" ? "token" : "quote", claims: r.n, amount: sumCsv(r.amts) })),
+      feeCredits: credits.map((r) => ({ role: r.role, units: r.feeIsQuote === 0 ? "token" : "quote", feeToken: r.feeToken, count: r.n, amount: sumCsv(r.amts) })),
+    };
+  }
+
+  /**
+   * v4 referral state of a wallet: its referrer (pending until the $10 USDG gate), wallets it referred, gate deposits
+   * (ReferralRegistry.UsdgDepositRecorded running total), UsdgDepositNotifier escrow entries (7-day lock each) and
+   * withdrawals, and referral earnings (fee credits + claims).
+   */
+  userReferral(user: string, now = Math.floor(Date.now() / 1000)) {
+    const u = user.toLowerCase();
+    const referredBy = this.db.prepare("SELECT stack, referrer, status, ts, tx FROM referrals WHERE wallet=? ORDER BY ts DESC").all(u);
+    const referred = this.db.prepare("SELECT stack, wallet, status, ts FROM referrals WHERE referrer=? ORDER BY ts DESC").all(u) as any[];
+    const lastDep = this.db.prepare("SELECT stack, b total, ts FROM fee_events WHERE kind='UsdgDepositRecorded' AND account=? ORDER BY block DESC, id DESC LIMIT 1").get(u) as any;
+    const ev = this.db.prepare("SELECT kind, counterparty, amount, escrow_id escrowId, unlock_at unlockAt, ts, tx FROM usdg_escrow_events WHERE wallet=? ORDER BY block, id").all(u) as any[];
+    const sum = (k: string) => ev.filter((e) => e.kind === k).reduce((acc, e) => acc + BigInt(e.amount), 0n);
+    const escrowed = sum("Escrowed"), withdrawn = sum("Withdrawn");
+    const escrows = ev.filter((e) => e.kind === "Escrowed").map((e) => {
+      const dep = ev.find((d) => d.kind === "Deposited" && d.tx === e.tx);
+      return { id: e.escrowId, amount: e.amount, unlockAt: e.unlockAt, unlocked: e.unlockAt <= now, fundedBy: dep?.counterparty ?? null, ts: e.ts, tx: e.tx };
+    });
+    const credits = this.db.prepare("SELECT fee_is_quote fq, fee_token feeToken, role, amount FROM fee_credits WHERE payee=? AND role IN ('referral','kol')").all(u) as any[];
+    const earned = (fq: number) => credits.filter((c) => c.fq === fq).reduce((acc, c) => acc + BigInt(c.amount), 0n).toString();
+    const claims = this.db.prepare("SELECT stack, quote, a amount, ts, tx FROM fee_events WHERE kind='ReferrerFeesClaimed' AND account=? ORDER BY ts DESC").all(u);
+    return {
+      user: u, referredBy,
+      referred: { total: referred.length, attributed: referred.filter((r) => r.status === "attributed").length, pending: referred.filter((r) => r.status === "pending").length, wallets: referred },
+      usdgGate: {
+        depositedTotal: lastDep?.total ?? "0", lastDepositTs: lastDep?.ts ?? null,
+        escrowedNow: (escrowed > withdrawn ? escrowed - withdrawn : 0n).toString(), withdrawn: withdrawn.toString(),
+        attested: sum("Attested").toString(), escrows,
+        withdrawals: ev.filter((e) => e.kind === "Withdrawn").map((e) => ({ amount: e.amount, ts: e.ts, tx: e.tx })),
+      },
+      earnings: { quoteUnits: earned(1), tokenUnits: earned(0), claims },
+    };
   }
 
   /** Minimal router; returns [status, body]. */
+  /** LP auto-compound history: 33% LP share added to the locked full-range position (raw units). */
+  lpCompounds(token: string) {
+    const t = token.toLowerCase();
+    const rows = this.db.prepare(
+      "SELECT liquidity, token_used tokenUsed, quote_used quoteUsed, token_carry tokenCarry, quote_carry quoteCarry, block, ts, tx FROM lp_compounds WHERE token=? ORDER BY block, id",
+    ).all(t) as any[];
+    const sum = (k: string) => rows.reduce((acc, r) => acc + BigInt(r[k]), 0n).toString();
+    const last = rows[rows.length - 1];
+    return {
+      token: t, count: rows.length, totalLiquidity: sum("liquidity"), totalTokenUsed: sum("tokenUsed"), totalQuoteUsed: sum("quoteUsed"),
+      tokenCarry: last?.tokenCarry ?? "0", quoteCarry: last?.quoteCarry ?? "0", events: rows,
+    };
+  }
+
   async route(method: string, url: URL): Promise<[number, unknown]> {
     if (method !== "GET") return [405, { error: "GET only" }];
     const p = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
@@ -438,20 +468,20 @@ export class Api {
       if (p[2] === "holders") return nf(this.holders(t, q));
       if (p[2] === "altitude") return nf(this.altitude(t));
       if (p[2] === "fee-routing") return nf(this.feeRouting(t));
-      if (p[2] === "crew") return nf(this.coinCrew(t, q));
+      if (p[2] === "lp-compounds") return [200, this.lpCompounds(t)];
+      if (p[2] === "profit-tax") return nf(this.profitTax(t, q));
     }
     if (p[0] === "users" && addr(p[1])) {
       if (p.length === 2) return [200, this.profile(p[1])];
       if (p[2] === "holdings") return [200, this.holdings(p[1])];
       if (p[2] === "referrals") return [200, this.referrals(p[1])];
+      if (p[2] === "referral") return [200, this.userReferral(p[1])];
+      if (p[2] === "rewards") return [200, await this.userRewards(p[1])];
       if (p[2] === "counters") return [200, this.counters(p[1])];
       if (p[2] === "orders") return [200, this.orders("owner", p[1])];
       if (p[2] === "trades") return [200, this.trades("trader", p[1], q)];
       if (p[2] === "coins") return [200, this.listCoins(new URLSearchParams({ creator: p[1] }))];
-      if (p[2] === "crew") return [200, this.userCrew(p[1])];
-      if (p[2] === "referral-gate") return [200, this.referralGate(p[1])];
     }
-    if (p[0] === "creators" && addr(p[1]) && p[2] === "fees") return [200, await this.creatorFeesOf(p[1], q)];
     if (p[0] === "rewards") return [200, this.rewards()];
     if (p[0] === "orders") return [200, this.allOrders(q)];
     if (p[0] === "tier-breaks") return [200, this.tierBreaks(q)];

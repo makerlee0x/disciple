@@ -21,6 +21,8 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
       last_price_usd = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_price_usd ELSE last_price_usd END,
       last_block = CASE WHEN excluded.last_ts > last_ts OR (excluded.last_ts = last_ts AND excluded.last_block >= last_block) THEN excluded.last_block ELSE last_block END,
       last_ts = MAX(last_ts, excluded.last_ts)`);
+  // LaunchMode is emitted just before Launched (same tx ⇒ same chunk): hold it until the coin row exists.
+  const pendingMode = new Map<string, number>();
   const tx = db.transaction(() => {
     for (const l of logs) {
       let ev: { eventName: string; args: any };
@@ -42,6 +44,12 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
             `INSERT OR IGNORE INTO coins (token, stack, curve, creator, quote, name, ticker, creator_tax_bps, launched_block, launched_at, launch_tx)
              VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(lc(a.token), stack.id, lc(a.curve), lc(a.creator), lc(a.quote), a.name, a.ticker, Number(a.creatorTaxBps), block, ts, l.transactionHash);
+          if (pendingMode.has(lc(a.token))) db.prepare("UPDATE coins SET mode=? WHERE token=?").run(pendingMode.get(lc(a.token)), lc(a.token));
+          break;
+        case "LaunchMode":
+          if (!isCore(stack.launchpad)) break;
+          pendingMode.set(lc(a.token), Number(a.mode));
+          db.prepare("UPDATE coins SET mode=? WHERE token=?").run(Number(a.mode), lc(a.token)); // no-op unless out of order
           break;
         case "QuotePriced":
           if (isCore(stack.launchpad)) db.prepare("UPDATE coins SET quote_price_usd = ? WHERE token = ?").run(s(a.quotePriceUsd), lc(a.token));
@@ -63,9 +71,14 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           const coin: any = coinBy.get(lc(a.token));
           if (!coin) break;
           const fromCurve = src === coin.curve;
-          if (!fromCurve && !isCore(stack.hook)) break;
-          // all USD math in one swappable function (src/usd.ts; #75 replaces mcapAfterUsd with sqrtPriceAfter)
-          const usd = tradeUsd({ quotePriceUsdWad: coin.quote_price_usd, quoteAmt: a.quoteAmt, priceAfterX18: a.priceAfterX18, mcapAfterUsd: a.mcapAfterUsd });
+          const hookVariant = a.sqrtPriceAfter !== undefined; // v4 IHookTradeEvents (only the hook may emit it)
+          if (hookVariant ? !isCore(stack.hook) : !fromCurve && !isCore(stack.hook)) break;
+          // all USD math in one function (src/usd.ts): curve → mcapAfterUsd; v4 hook → from sqrtPriceAfter
+          const usd = tradeUsd({
+            quotePriceUsdWad: coin.quote_price_usd, quoteAmt: a.quoteAmt, priceAfterX18: a.priceAfterX18,
+            mcapAfterUsd: hookVariant ? undefined : a.mcapAfterUsd, sqrtPriceAfter: hookVariant ? a.sqrtPriceAfter : undefined,
+            token: coin.token, quote: coin.quote, totalSupply: coin.total_supply,
+          });
           const ins = db.prepare(
             `INSERT OR IGNORE INTO trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(id, lc(a.token), stack.id, fromCurve ? "curve" : "hook", lc(a.trader), a.isBuy ? 1 : 0, s(a.quoteAmt), s(a.tokenAmt), s(a.fee),
@@ -133,6 +146,11 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
               id, stack.id, coin.token, fromCurve ? "curve" : "hook", Number(a.fromTier), Number(a.toTier), s(a.mcapUsd), block, ts, l.transactionHash);
           break;
         }
+        case "LiquidityCompounded":
+          if (!isCore(stack.lockedLP)) break;
+          db.prepare("INSERT OR IGNORE INTO lp_compounds VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, lc(a.token), s(a.liquidity), s(a.tokenUsed), s(a.quoteUsed), s(a.tokenCarry), s(a.quoteCarry), block, ts, l.transactionHash);
+          break;
         case "KeeperTipPaid": {
           if (!isCore(stack.trampWallManager)) break;
           db.prepare("INSERT OR IGNORE INTO keeper_tips VALUES (?,?,?,?,?,?,?,?,?)").run(
@@ -153,48 +171,47 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "LaunchFeePaid":
           if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
           break;
-        case "LaunchMode":
-          if (isCore(stack.launchpad)) db.prepare("UPDATE coins SET mode=? WHERE token=?").run(Number(a.mode), lc(a.token));
-          break;
         case "TradeFeeRouted": {
+          // audit #11: explicit columns (a=creator b=lp c=treasury d=referral e=creatorTax) + unit flag, plus payee credits.
           if (!isCore(stack.feeRouter)) break;
-          // Normalized columns for BOTH signatures: account=trader, quote=fee asset, a=creatorShare, b=lpShare,
-          // c=treasuryShare, d=referralShare, e=creatorTaxAmount. Redeploy fees charged in the launch token
-          // (feeIsQuote=false, post-grad) are kept apart as kind TradeFeeRoutedToken so quote and token units never mix.
-          const next = "feeIsQuote" in a;
-          const kind = next && !a.feeIsQuote ? "TradeFeeRoutedToken" : "TradeFeeRouted";
-          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
-            id, stack.id, kind, lc(a.token), lc(a.trader), lc(next ? a.feeToken : a.quote),
-            s(a.creatorShare), s(a.lpShare), s(a.treasuryShare), s(a.referralShare), s(a.creatorTaxAmount), block, ts, l.transactionHash);
+          const fq = a.feeIsQuote ? 1 : 0;
+          db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx, fee_is_quote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, "TradeFeeRouted", lc(a.token), lc(a.trader), lc(a.feeToken), s(a.creatorShare), s(a.lpShare), s(a.treasuryShare),
+            s(a.referralShare), s(a.creatorTaxAmount), block, ts, l.transactionHash, fq);
+          const credit = db.prepare("INSERT OR IGNORE INTO fee_credits VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+          const put = (payee: string, role: string, amt: bigint) => {
+            if (amt > 0n && lc(payee) !== ZERO) credit.run(id, stack.id, lc(a.token), lc(a.feeToken), fq, lc(payee), role, amt.toString(), block, ts, l.transactionHash);
+          };
+          put(a.creator, "creator", BigInt(a.creatorShare) + BigInt(a.creatorTaxAmount));
+          put(a.referralPayee, "referral", BigInt(a.referralShare));
+          put(a.kolPayee, "kol", BigInt(a.kolShare));
           break;
         }
         case "ProfitTaxCharged":
         case "HolderRewardsClaimed": {
-          // PVE crew pool (redeploy): emitted by the coin's own curve only
+          // only from the coin's own curve (a spoofed emitter can't fake tax / rewards)
           const coin: any = coinBy.get(lc(a.token));
-          if (!coin || src !== coin.curve) break;
-          const who = ev.eventName === "ProfitTaxCharged" ? a.seller : a.holder;
-          const v = ev.eventName === "ProfitTaxCharged" ? [a.tax, a.grossQuote, a.costBasis] : [a.amount];
-          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
-            id, stack.id, ev.eventName, lc(a.token), lc(who), coin.quote, s(v[0]), v[1] != null ? s(v[1]) : null, v[2] != null ? s(v[2]) : null, null, null, block, ts, l.transactionHash);
+          if (!coin || coin.curve !== src) break;
+          if (ev.eventName === "ProfitTaxCharged")
+            db.prepare("INSERT OR IGNORE INTO profit_tax VALUES (?,?,?,?,?,?,?,?,?,?)").run(
+              id, stack.id, coin.token, lc(a.seller), s(a.tax), s(a.grossQuote), s(a.costBasis), block, ts, l.transactionHash);
+          else
+            db.prepare("INSERT OR IGNORE INTO holder_rewards VALUES (?,?,?,?,?,?,?,?)").run(id, stack.id, coin.token, lc(a.holder), s(a.amount), block, ts, l.transactionHash);
           break;
         }
         case "Deposited":
         case "Escrowed":
-        case "Withdrawn": {
-          // UsdgDepositNotifier (redeploy): kinds prefixed so they never collide with other contracts' events
-          if (!isCore(stack.depositNotifier)) break;
-          const kind = `Escrow${ev.eventName}`;
-          const [x, y, z] = ev.eventName === "Escrowed" ? [a.id, a.amount, a.unlockAt] : [a.amount, null, null];
-          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
-            id, stack.id, kind, null, lc(a.wallet), null, s(x), y != null ? s(y) : null, z != null ? s(z) : null, null,
-            ev.eventName === "Deposited" ? lc(a.payer) : null, block, ts, l.transactionHash);
+        case "Withdrawn":
+        case "Attested":
+          if (!isCore(stack.usdgDepositNotifier)) break;
+          db.prepare("INSERT OR IGNORE INTO usdg_escrow_events VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, ev.eventName, lc(a.wallet), a.payer ? lc(a.payer) : a.attestor ? lc(a.attestor) : null, s(a.amount),
+            a.id !== undefined ? Number(a.id) : null, a.unlockAt !== undefined ? Number(a.unlockAt) : null, block, ts, l.transactionHash);
           break;
-        }
-        case "CreatorTokenFeesClaimed":
         case "ReferrerFeesClaimed":
         case "UsdgDepositRecorded":
         case "CreatorFeesClaimed":
+        case "CreatorTokenFeesClaimed":
         case "SnipeFeeRoutedToLP":
         case "SnipeFeeRouted":
         case "Claimed":
@@ -203,10 +220,9 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           const ok = { UsdgDepositRecorded: stack.referralRegistry, Claimed: stack.anonLauncher, RewardAccrued: stack.rewardsVault, Distributed: stack.rewardsVault }[ev.eventName as string] ?? stack.feeRouter;
           if (!isCore(ok)) break;
           const vals = Object.values(a).filter((v) => typeof v === "bigint").map(s); // numeric args only, in ABI order
-          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+          db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
             id, stack.id, ev.eventName, a.token ? lc(a.token) : null,
-            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO),
-            a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : ev.eventName === "CreatorTokenFeesClaimed" ? lc(a.token) : null,
+            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : null,
             vals[0] ?? null, vals[1] ?? null, vals[2] ?? null, vals[3] ?? null, vals.slice(4).join(",") || null, block, ts, l.transactionHash);
           break;
         }

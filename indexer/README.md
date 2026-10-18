@@ -8,17 +8,17 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 ## What it indexes
 | Source | Events |
 |---|---|
-| Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext` |
-| BondingCurve (each coin) | `Trade`, `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44) |
-| DiscipleHook | `Trade` (post-grad), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
+| Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext`, `LaunchMode` (v4: `coins.mode` 0 TRENCH / 1 PVE / 2 PVP) |
+| BondingCurve (each coin) | `Trade` (ends in `mcapAfterUsd`), `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44), v4 PVE: `ProfitTaxCharged`, `HolderRewardsClaimed` |
+| DiscipleHook | `Trade` (post-grad; v4 emits the `IHookTradeEvents` overload ending in `uint160 sqrtPriceAfter` → mcap/price computed in `src/usd.ts` via `mcapUsdFromSqrt`/`priceWadFromSqrt`; older hooks end in `mcapAfterUsd`), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
 | Migration | `Migrated` |
 | TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `KeeperTipPaid` (PR #44), `FeesClaimed` (≤v3 only) |
-| FeeRouter | `TradeFeeRouted`, `CreatorFeesClaimed`, `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
+| FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `CreatorTokenFeesClaimed` (v4, launch-token units), `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
 | AnonLauncher | `AnonLaunched`, `Claimed`, `StealthOwnerTransferred`, `LaunchFeePaid` |
 | ReferralRegistry | `ReferrerPending`, `ReferrerAttributed` (sticky), `UsdgDepositRecorded` |
 | RewardsVault | `RewardAccrued`, `Distributed` |
+| UsdgDepositNotifier (v4) | `Deposited`, `Escrowed` (7-day lock per entry), `Withdrawn`, `Attested` |
 | Token (each coin) | `Transfer` (holder balances) |
-| Redeploy (feat/modes-gas, ignored on v3) | Launchpad `LaunchMode` → `coins.mode`; curve `ProfitTaxCharged` / `HolderRewardsClaimed` (PVE crew rewards, only from the coin's own curve); FeeRouter `CreatorTokenFeesClaimed` and the new `TradeFeeRouted` shape (normalized with v3; token-side fees as `TradeFeeRoutedToken`); UsdgDepositNotifier `Deposited` / `Escrowed` / `Withdrawn` (only from the stack's notifier) |
 
 Events are only accepted from the addresses of the expected stack. Spoofed `Launched` or `Trade` events from other addresses are ignored.
 
@@ -37,15 +37,14 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/rewards` | anti-snipe routing + RewardsVault totals |
 | `/coins/:token/holders?limit=` (1–1000, default 100) | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
 | `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
-| `/creators/:addr/fees?recent=` | per rocket created by `addr`: lifetime earned, claimed, claimable (live `creatorAccrued` when RPC is set), USD, token-side (redeploy), claims, recent accruals |
-| `/coins/:token/crew?limit=` | REDEPLOY: "crew earned X from this DUMP" feed from `ProfitTaxCharged` (+ totals) |
-| `/users/:addr/crew` | REDEPLOY: crew claims + PVE coins held |
-| `/users/:addr/referral-gate` | REDEPLOY: referral status none / pending / locked, deposits, escrows (unlockAt), withdrawn, held now |
-| `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax shares, snipe 70/30, claims (wei + USD) |
+| `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax / kol shares in quote units, plus `tokenUnits` for post-grad fees charged in the launch token (never mixed), snipe 70/30, claims (wei + USD) |
 | `/tier-breaks?limit=` | global tier-break feed (GAME) |
 | `/orders?status=&kind=&token=&owner=&stack=` | tramp/wall orders incl. keeper + keeper tip |
 | `/leaderboard/:board?by=&since=&limit=` | `traders` (by volumeUsd\|trades), `creators`, `coins` (by volume\|mcap\|tier\|new), `tramps`, `keepers`, `referrers` |
 | `/users/:addr` | profile: counters, holdings, launched coins, anon (stealth-owned) coins, referrals, keeper tips |
+| `/coins/:token/profit-tax?limit=` | v4 PVE profit tax: count, sellers, total tax / gross / cost basis, holder rewards claimed, unclaimed estimate (raw + USD), recent events + claims |
+| `/users/:addr/rewards` | holder rewards claimed per coin + live `pendingRewards` on PVE curves, profit tax paid, creator fee claims (quote + token units), fee credits per role |
+| `/users/:addr/referral` | referrer + status, referred wallets (attributed/pending), USDG gate total, notifier escrow entries (unlocked?, funded by), withdrawals, referral earnings + claims |
 | `/users/:addr/holdings` · `/users/:addr/referrals` | per-user holdings (with last price) / referred-by, referred wallets, referrer claims, USDG deposits |
 
 A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy into `/web` when wanted; this PR doesn't touch `/web`).
@@ -55,7 +54,7 @@ A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy i
 - Before graduation, it uses `curve.mcapNow()`.
 - `liquidityUsd` is 2 × virtual in-range quote reserve (post-grad) or 2 × curve quote reserve (pre-grad).
 
-**Verified-tier inputs (`tier`):** `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
+**Coin metric inputs (`tier`):** (display only; they no longer drive verification, which is a manual flag in `web/lib/verified.ts`) `volumeUsd`, `volume24hUsd`, `trades`, `ageSec`, `holders`, `liquidityUsd`. `holders` counts balances > 0, excluding the curve, PoolManager, Migration, hook, TrampWallManager and AnonLauncher.
 
 **USD note:** trade USD values use the coin's launch-time quote price from `QuotePriced`. Live mcap uses the live pricer.
 

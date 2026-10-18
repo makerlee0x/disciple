@@ -1043,13 +1043,13 @@ function drawTickTrail(){   // (name kept for callers) — vertical contrail fro
   for (const p of S.trail){ const q=pts[n++]; q.x=p.x; q.y=trailY(p); q.thrust=p.thrust; }
   { const q=pts[n++]; q.x=tailX; q.y=tailY; q.thrust=true; }
   if(n<2) return;
-  const sc=S.scorch||0, fl=clamp(exhaustParams().flame,0,1.6);
+  const sc=S.scorch||0, fl=clamp(exhaustParams().flame,0,1.6), am=fxMul('aura');   // aura stat: contrail opacity + width (1 at stat 5)
   ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
   // 1) soft contrail body: widens and fades with age (source-over smoke)
   for (let i=1;i<n;i++){ const u=i/(n-1);                 // 0 = oldest, 1 = at the nozzle
-    const a=Math.pow(u,0.9)*(0.32+0.2*fl);
+    const a=am===1?Math.pow(u,0.9)*(0.32+0.2*fl):Math.min(1,Math.pow(u,0.9)*(0.32+0.2*fl)*am);
     ctx.strokeStyle=`rgba(${Math.round(lerp(236,60,sc))},${Math.round(lerp(238,45,sc))},${Math.round(lerp(255,40,sc))},${a})`;
-    ctx.lineWidth=5+22*Math.pow(1-u,0.8);
+    ctx.lineWidth=(5+22*Math.pow(1-u,0.8))*am;
     ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
   // 2) hot core just behind the nozzle (additive), length/brightness from the plume
   ctx.globalCompositeOperation='lighter'; const hotN=Math.max(2,Math.round(n*0.18));
@@ -1088,19 +1088,20 @@ function drawRocket(dt){
   // exhaust (procedural): leaves the nozzle opposite the nose
   const braking=S.pending.some(p=>p.side==='sell'&&p.state==='pending');
   const EP=exhaustParams(), flick=EP.flick, flame=EP.flame;
-  const sa=Math.sin(S.heading), ca=Math.cos(S.heading), ang=rocketDrawAngle();
+  const sa=Math.sin(S.heading), ca=Math.cos(S.heading), ang=rocketVisAngle();   // style stat scales only the drawn tilt
+  const FXT=fxMul('thrust'), FXG=fxMul('glow'), FXH=fxMul('style');   /* loadout stats → cosmetic multipliers (all exactly 1 at stat 5) */
   ctx.save(); ctx.globalCompositeOperation='lighter';
   const TS=thrusterSprites(), HOT=TS.hot, COLD=TS.cold, FIRE_SPR=TS.fire, CORE_SPR=TS.core;   /* loadout thruster (stock = original sprites) */
   { const P=S.particles; for (let i=0;i<P.n;i++){ const p=P.a[i]; ctx.globalAlpha=clamp(0.32*p.life,0,1); blit(p.hot?HOT:COLD,p.x,p.y,p.s*(1.3-p.life*0.3)); } }
   // FLAME CONE — stretched hot sprites along the engine axis; length = volume / speed / climb, flickers, sputters
-  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const L=(34+170*flame)*(0.85+0.3*flick)*TS.l, Wf=(20+12*flame)*TS.w;
+  { ctx.save(); ctx.translate(x,y); ctx.rotate(ang); const L=(34+170*flame)*(0.85+0.3*flick)*TS.l*FXT, Wf=(20+12*flame)*TS.w;
     ctx.globalAlpha=clamp(0.55+0.4*flame,0,0.95); ctx.drawImage(FIRE_SPR,-Wf/2,-Wf*0.25,Wf,L);
     ctx.globalAlpha=clamp(0.5+0.5*flame,0,1); ctx.drawImage(CORE_SPR,-Wf*0.28,-Wf*0.15,Wf*0.56,L*0.55);
     // shock diamonds on a strong burn
     if (flame>0.75){ ctx.globalAlpha=clamp((flame-0.75)*1.6,0,0.7); for(let k=1;k<=3;k++){ const yy=L*0.16*k, r=Wf*0.22*(1-k*0.18); ctx.drawImage(CORE_SPR,-r,yy-r,2*r,2*r); } }
     ctx.restore(); }
   // engine core bloom at nozzle
-  ctx.globalAlpha=clamp(0.55*flame*flick,0,1); blit(CORE_SPR,x,y,Math.min(90,40+45*flame)*flick);
+  ctx.globalAlpha=clamp(0.55*flame*flick*FXG,0,1); blit(CORE_SPR,x,y,Math.min(90,40+45*flame)*flick*Math.sqrt(FXG));   // glow stat: bloom alpha + size
   ctx.restore();
   // rocket — rotate about nozzle (aft). Nose leads; body trails. No center-spin / scaleX barrel-roll.
   if(im.complete&&!im.bad){
@@ -1109,13 +1110,15 @@ function drawRocket(dt){
     const st=clamp((S.vyS||0)/1400,-0.5,1)*0.06, sx=1-st*0.5, sy=1+st;
     // motion blur: two faint ghosts trailing along the velocity when fast
     const spd=Math.abs(S.vyS||0);
-    if (spd>260){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k;
+    if (spd>260){ const bl=clamp((spd-260)/600,0,1); for(let k=2;k>=1;k--){ ctx.save(); ctx.globalAlpha=0.13*bl/k*FXH;
       ctx.translate(x, y+(S.vyS||0)*0.03*k); ctx.rotate(ang); ctx.scale(sx,sy); ctx.drawImage(RB.base,-w/2,-pivotY,w,h); ctx.restore(); } }
     ctx.save(); ctx.translate(x,y); ctx.rotate(ang); ctx.scale(sx,sy);
     // rim light from the sky colour: tinted silhouette offset toward the sky (up-left in world), additive
     const sky=skyNow(), RL=rimSprite(RB,ow,oh,sky); const lx=-1.6*Math.cos(ang)+1.6*Math.sin(ang), ly=-1.6*Math.sin(ang)-1.6*Math.cos(ang);
     ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.85; ctx.drawImage(RL,-w/2+lx*1.5,-pivotY+ly*1.5,w,h); ctx.restore();
-    ctx.drawImage(RB.glow,-w/2-P,-pivotY-P,w+2*P,h+2*P);          // cached rocket + glow
+    if (FXG===1) ctx.drawImage(RB.glow,-w/2-P,-pivotY-P,w+2*P,h+2*P);          // cached rocket + glow
+    else { const HL=rocketHalo(RB); ctx.save(); for(let a=FXG;a>0.001;a-=1){ ctx.globalAlpha=Math.min(1,a); ctx.drawImage(HL,-w/2-P,-pivotY-P,w+2*P,h+2*P); } ctx.restore();   // glow stat: halo alpha ×FXG (>1 = extra pass)
+      ctx.drawImage(RB.base,-w/2,-pivotY,w,h); }
     // per-frame lighting on a small scratch canvas masked to the silhouette: sky tint, moving glint, warm engine underlight
     const oc=drawRocket.oc||(drawRocket.oc=document.createElement('canvas'));
     if(oc.width!==ow||oc.height!==oh){ oc.width=ow; oc.height=oh; }
@@ -1127,6 +1130,7 @@ function drawRocket(dt){
     o.fillStyle=gg; o.fillRect(0,0,ow,oh);
     const wg=o.createLinearGradient(0,oh,0,oh*0.55); wg.addColorStop(0,`rgba(255,170,90,${clamp(0.45*flame,0,0.5)})`); wg.addColorStop(1,'rgba(255,170,90,0)'); o.fillStyle=wg; o.fillRect(0,0,ow,oh);
     ctx.drawImage(oc,-w/2,-pivotY,w,h);
+    drawAccessory(w,h,pivotY);   // nose-cone accessory (cosmetic; nothing if missing/unloaded)
     ctx.restore();
   }
   // nose tip (for brake rings): ahead of nozzle along heading
@@ -1150,6 +1154,9 @@ function rocketSprite(im,ow,oh){ const R=rocketSprite, dec=window.__rocketDecal,
   const P=R.pad=24, gl=R.glow||(R.glow=document.createElement('canvas')); gl.width=ow+2*P; gl.height=oh+2*P; const g=gl.getContext('2d');
   g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.drawImage(base,P,P);
   R.key=key; return R; }
+/* glow-only halo of the cached rocket (shadow drawn with the body offset off-canvas) — built only when the glow stat ≠ 5 */
+function rocketHalo(R){ if(R.halo&&R.haloKey===R.key) return R.halo; const P=R.pad, gl=R.glow, c=R.halo||(R.halo=document.createElement('canvas')); c.width=gl.width; c.height=gl.height;
+  const g=c.getContext('2d'), OFF=gl.width+64; g.shadowColor='rgba(200,220,255,.8)'; g.shadowBlur=24*W/Math.max(1,cv.width)*1.4; g.shadowOffsetX=OFF; g.drawImage(R.base,P-OFF,P); R.haloKey=R.key; return c; }
 /* Exhaust emission runs in the fixed-step sim: rate (particles/s) instead of count-per-rendered-frame. */
 function randLane(){ return LANES[Math.floor(Math.random()*3)]; }
 function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=S.pending.some(p=>p.side==='buy'&&p.state==='pending')?0.5:0;
@@ -1160,11 +1167,11 @@ function exhaustParams(){ const vol=clamp(Math.log10(1+S.volEma)/3.2,0,1), pend=
   const hv=S.hoverF||0, hflick=1-hv*0.5*Math.abs(Math.sin(S.t*23.0+Math.sin(S.t*7.1)*2));   // hover: weak, flickery
   const boost=0.8*(S.wBoost||0)+1.6*(S.buyBoost||0);
   return {flick:flick*hflick, sput, fall, hover:hv, flame:((I*(0.6+0.85*move+0.55*thrustBoost)*(1-0.55*hv)+0.7*(S.flare||0))*hflick+boost)*flick*sput}; }
-function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustParams.fall=EP.fall; const _u=0, sa=Math.sin(S.heading), ca=Math.cos(S.heading);
+function exhaustStep(dt){ const EP=exhaustParams(), {flick,flame}=EP; exhaustParams.fall=EP.fall; const LM=fxMul('launch'), DK=2.2/LM, _u=0, sa=Math.sin(S.heading), ca=Math.cos(S.heading);
   const tx=(S.camX!=null?S.camX:S.x)+(S.sway||0)*0.45, ty=S.ry+(S.bob||0)*0.55;
   S._exAcc=(S._exAcc||0)+(2+flame*9)*(0.55+flick)*60*dt*(0.75+0.3*(S.fwdN||0)); let n=S._exAcc|0; S._exAcc-=n;
   for(let i=0;i<n;i++){ const hv=EP.hover||0, sp=(140+Math.random()*280*flame)*(0.75+flick*0.5)*(1-0.35*hv), j=(Math.random()-.5)*(40+30*flick)*(1+1.6*hv);   // hover: shorter, spread-out plume
-    const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.vxS||0)*0.3; p.vy=ca*sp+sa*j+(S.air||0)*0.6+Math.max(0,S.vyS||0)*0.4; p.life=0.7+Math.random()*0.45; p.s=(5+Math.random()*14*flame)*flick; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
+    const p=S.particles.spawn(); p.x=tx+(Math.random()-.5)*10; p.y=ty; p.vx=-sa*sp+ca*j-(S.vxS||0)*0.3; p.vy=ca*sp+sa*j+(S.air||0)*0.6+Math.max(0,S.vyS||0)*0.4; p.life=0.7+Math.random()*0.45; p.dk=DK; p.s=(5+Math.random()*14*flame)*flick*LM; p.hot=Math.random()<0.45*(1-0.7*(exhaustParams.fall||0)); } }
 // faint 'your entry' altitude marker (set by the PnL HUD: window.__entryMcap)
 function drawEntryLine(){ const m=window.__entryMcap; if(!(m>0)||S.displayAlt==null) return; const y=altToScreenY(mcapToAlt(m)); if(y<-20||y>H+20) return;
   const up=(S.confirmed.mcap||0)>=m; ctx.save(); ctx.strokeStyle=up?'rgba(143,240,192,.45)':'rgba(255,159,184,.45)'; ctx.setLineDash([10,8]); ctx.lineWidth=1.5;
@@ -1902,7 +1909,7 @@ function simStep(stepDt){
   const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown) S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
-  { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*2.2; if(p.life<=0) P.kill(i); } }
+  { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
   { const P=S.shards; for (let i=P.n-1;i>=0;i--){ const s=P.a[i]; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=500*dt; s.life-=dt*0.9; if(s.life<=0||s.y>H+20) P.kill(i); } }
   for (const f of S.flashes) f.life-=dt*0.8; keepIf(S.flashes,ALIVE);
   // motes drift down (speed ∝ trade flow), collect by steering
@@ -2158,9 +2165,35 @@ const THR_SHAPE={stock:[1,1],seraph:[1.06,1.05],ion:[1.18,0.78],plasma:[0.95,1.2
 function normLoadout(l){ if(!l||typeof l!=='object') return null; const C=FLIGHT_COSMETICS, f=(a,id)=>a.find(x=>x.id===id)||a[0];
   const nc=l.noseCoin==='ticker'?'ticker':(l.noseCoin===false||l.noseCoin==='none')?'none':f(C.coins,l.noseCoin).id;
   const o={skin:f(C.skins,l.skin).id, thruster:f(C.thrusters,l.thruster).id, noseCoin:nc, ticker:String(l.ticker||source.ticker||Q.get('ticker')||'').slice(0,5).toUpperCase()};
-  o.key=o.skin+'/'+o.thruster+'/'+o.noseCoin+'/'+o.ticker; return o; }
-function getLoadout(){ return LOADOUT&&{skin:LOADOUT.skin,thruster:LOADOUT.thruster,noseCoin:LOADOUT.noseCoin}; }
-function setLoadout(l){ LOADOUT=normLoadout(l); return getLoadout(); }
+  o.key=o.skin+'/'+o.thruster+'/'+o.noseCoin+'/'+o.ticker; o.accessory=accId(l.accessory); o.stats=normStats(l.stats); return o; }   // accessory/stats: cosmetic only (not in the sprite key)
+function getLoadout(){ return LOADOUT&&{skin:LOADOUT.skin,thruster:LOADOUT.thruster,noseCoin:LOADOUT.noseCoin,accessory:LOADOUT.accessory,stats:Object.assign({},LOADOUT.stats)}; }
+function setLoadout(l){ LOADOUT=normLoadout(l); loadAccessory(LOADOUT?LOADOUT.accessory:null); return getLoadout(); }
+/* LOADOUT STATS (Rocket Factory THRUST / GLOW / AURA / LAUNCH / STYLE, alias handling) — COSMETIC ONLY. Integers 0–10, default 5,
+   clamped. Each maps piecewise-linearly through (0 → lo, 5 → 1, 10 → hi); stat 5 returns exactly 1, so the default
+   loadout renders bit-identically to no stats. Read only by draw code and the exhaust particle look (size / lifetime);
+   never by price, fills, odds, trades, PnL, points, steering, motes or the sim. No randomness. */
+const STAT_KEYS=['thrust','glow','aura','launch','style'];   // style = formerly HANDLING (accepted as an alias when style is missing)
+const FX_RANGE={thrust:[0.8,1.35], glow:[0.5,1.6], aura:[0.6,1.5], launch:[0.75,1.5], style:[0.5,1.6]};
+function normStats(s){ const o={}; for(const k of STAT_KEYS){ const r=s&&typeof s==='object'?(k==='style'&&s.style==null?s.handling:s[k]):undefined, v=r==null?NaN:Number(r); o[k]=Number.isFinite(v)?Math.max(0,Math.min(10,Math.round(v))):5; } return o; }
+function statMul(v,lo,hi){ return v===5?1:v<5?lo+(1-lo)*v/5:1+(hi-1)*(v-5)/5; }
+function fxMul(k){ const s=LOADOUT&&LOADOUT.stats; if(!s) return 1; const r=FX_RANGE[k]; return statMul(s[k],r[0],r[1]); }
+/* style: drawn tilt only (micro-rotation incl. its bank term) — heading, sway, lateral x and capsule untouched */
+function rocketVisAngle(){ const hm=fxMul('style'); if(hm===1) return rocketDrawAngle();
+  const a=clamp((S.aimDisp||0)-(S.microRot||0)*hm*180/Math.PI+(S.wob||0),AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }
+/* ACCESSORY — /assets/accessories/<id>.png (id sanitized to [a-z0-9-]), lazily loaded once, drawn on the nose cone:
+   bottom-centre at the nose tip, ~0.6× rocket width, rotating with the body. Missing / failed / loading → nothing. */
+const ACC={id:null,im:null,state:'none'};   // state: none | loading | ready | missing
+function accId(v){ if(typeof v!=='string') return null; const s=v.toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,64); return s||null; }
+function loadAccessory(id){ if(ACC.id===id) return; ACC.id=id; ACC.im=null; ACC.state=id?'loading':'none'; if(!id) return;
+  try{ const im=new Image(), want=id;
+    im.onload=()=>{ if(ACC.id!==want) return; const b=im.bitmap||im, bw=b.naturalWidth||b.width, bh=b.naturalHeight||b.height; if(bw>0&&bh>0){ ACC.im=b; ACC.state='ready'; } else ACC.state='missing'; };
+    im.onerror=()=>{ if(ACC.id===want){ ACC.im=null; ACC.state='missing'; } };
+    im.src=(window.__DISCIPLE_BASE_PATH__||'')+'/assets/accessories/'+id+'.png'; }catch(_){ ACC.im=null; ACC.state='missing'; } }
+const ACC_NOSE=0.006;   // nose tip = top opaque row of rocket.png (row 1 of 200)
+function drawAccessory(w,h,pivotY){ const im=ACC.im; if(!im||ACC.state!=='ready') return;
+  try{ const iw=im.naturalWidth||im.width, ih=im.naturalHeight||im.height; if(!(iw>0&&ih>0)) return;
+    const aw=w*0.6, ah=aw*ih/iw, ny=-pivotY+h*ACC_NOSE; ctx.drawImage(im,-aw/2,ny-ah,aw,ah); }catch(_){} }
+function accessoryStatus(){ return {id:ACC.id,state:ACC.state}; }
 const hexRgb=h=>{ const n=parseInt(String(h).slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255].join(','); };
 function thrusterSprites(){ const id=LOADOUT?LOADOUT.thruster:'stock', R=thrusterSprites, c=R.c||(R.c={});
   if(c[id]) return c[id];
@@ -2250,6 +2283,6 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,GAS_USD,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();

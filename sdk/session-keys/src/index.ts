@@ -21,14 +21,16 @@ import {
 
 export const EXEC_HOOK_FLAG = 2 ** 31;
 export const DEFAULT_TTL_SEC = 24 * 60 * 60;
-export const MAX_TTL_SEC = 7 * 24 * 60 * 60;
+export const MAX_TTL_SEC = 24 * 60 * 60; // DiscipleSessionPolicy.MAX_SESSION_DURATION (enforced on-chain)
 export const DEFAULT_MAX_SLIPPAGE_BPS = 500;
+export const MIN_SLIPPAGE_BPS = 10; // 0.1% — DiscipleSessionPolicy.MIN_SLIPPAGE_BPS_LIMIT
 export const MAX_SLIPPAGE_BPS = 5000;
 
 /** Permission bits — must match DiscipleSessionPolicy.P_* */
 export const Perm = {
   ROUTER_BUY: 1n << 0n, ROUTER_SELL: 1n << 1n, CURVE_BUY: 1n << 2n, CURVE_SELL: 1n << 3n,
   TRAMP: 1n << 4n, WALL: 1n << 5n, CANCEL: 1n << 6n, LAUNCH: 1n << 7n, ANON_LAUNCH: 1n << 8n, APPROVE: 1n << 9n,
+  REFERRAL: 1n << 10n,
 } as const;
 /** Default "quick trade" set: buy/sell (router + curves), tramps/walls/cancel, approve. Launches are opt-in. */
 export const TRADE_PERMS = Perm.ROUTER_BUY | Perm.ROUTER_SELL | Perm.CURVE_BUY | Perm.CURVE_SELL |
@@ -50,15 +52,16 @@ export type CreateSessionParams = {
   sessionSigner: Address;        // public address of the browser-held session key
   caps: [QuoteCap] | [QuoteCap, QuoteCap];
   entityId?: number;             // default: random in [1, 2^31)
-  ttlSec?: number;               // default 24h, max 7d
+  ttlSec?: number;               // default 24h, max 24h (on-chain limit)
   permissions?: bigint;          // default TRADE_PERMS
-  maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, max 5000
+  stealthOwner?: Address;        // launchAnon: stealth owner allowed besides the account (default: account only)
+  maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, range [10, 5000]
   now?: number;                  // unix seconds (tests)
 };
 
 export const policyAbi = parseAbi([
   "function revoke(uint32 entityId)",
-  "function sessionOf(address account, uint32 entityId) view returns (((uint48 validUntil,uint48 validAfter,uint256 permissions,address router,address launchpad,address anonLauncher,address trampWallManager,address quote0,address quote1,uint128 cap0,uint128 cap1,uint16 maxSlippageBps) cfg,uint128 spent0,uint128 spent1,bool active))",
+  "function sessionOf(address account, uint32 entityId) view returns (((uint48 validUntil,uint48 validAfter,uint256 permissions,address router,address launchpad,address anonLauncher,address trampWallManager,address quote0,address quote1,uint128 cap0,uint128 cap1,uint16 maxSlippageBps,address stealthOwner) cfg,uint128 spent0,uint128 spent1,bool active))",
   "event SessionSpend(address indexed account, uint32 indexed entityId, address quote, uint256 amount, uint256 spent)",
 ]);
 
@@ -68,6 +71,7 @@ const sessionCfgAbi = [{
     { name: "router", type: "address" }, { name: "launchpad", type: "address" }, { name: "anonLauncher", type: "address" },
     { name: "trampWallManager", type: "address" }, { name: "quote0", type: "address" }, { name: "quote1", type: "address" },
     { name: "cap0", type: "uint128" }, { name: "cap1", type: "uint128" }, { name: "maxSlippageBps", type: "uint16" },
+    { name: "stealthOwner", type: "address" },
   ],
 }] as const;
 
@@ -79,7 +83,7 @@ export function randomEntityId(): number {
   return (b[0] % (EXEC_HOOK_FLAG - 2)) + 1;
 }
 
-export function encodePolicyInstallData(entityId: number, p: Required<Pick<CreateSessionParams, "targets" | "caps">> & { validUntil: number; validAfter?: number; permissions: bigint; maxSlippageBps?: number }): Hex {
+export function encodePolicyInstallData(entityId: number, p: Required<Pick<CreateSessionParams, "targets" | "caps">> & { validUntil: number; validAfter?: number; permissions: bigint; maxSlippageBps?: number; stealthOwner?: Address }): Hex {
   const [q0, q1] = p.caps;
   return encodeAbiParameters([{ type: "uint32" }, ...sessionCfgAbi], [entityId, {
     validUntil: p.validUntil, validAfter: p.validAfter ?? 0, permissions: p.permissions,
@@ -87,6 +91,7 @@ export function encodePolicyInstallData(entityId: number, p: Required<Pick<Creat
     trampWallManager: p.targets.trampWallManager,
     quote0: q0.token, quote1: q1?.token ?? ZERO, cap0: q0.cap, cap1: q1?.cap ?? 0n,
     maxSlippageBps: p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS,
+    stealthOwner: p.stealthOwner ?? ZERO, // launchAnon stealth owner allowed besides the account (audit R-2)
   }]);
 }
 
@@ -101,8 +106,8 @@ export function buildCreateSession(p: CreateSessionParams) {
   const validUntil = now + ttl;
   const permissions = p.permissions ?? TRADE_PERMS;
   const maxSlippageBps = p.maxSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS;
-  if (!Number.isInteger(maxSlippageBps) || maxSlippageBps <= 0 || maxSlippageBps > MAX_SLIPPAGE_BPS) throw new Error(`maxSlippageBps must be in [1, ${MAX_SLIPPAGE_BPS}]`);
-  const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions, maxSlippageBps });
+  if (!Number.isInteger(maxSlippageBps) || maxSlippageBps < MIN_SLIPPAGE_BPS || maxSlippageBps > MAX_SLIPPAGE_BPS) throw new Error(`maxSlippageBps must be in [${MIN_SLIPPAGE_BPS}, ${MAX_SLIPPAGE_BPS}]`);
+  const policyData = encodePolicyInstallData(entityId, { targets: p.targets, caps: p.caps, validUntil, permissions, maxSlippageBps, stealthOwner: p.stealthOwner });
 
   const hooks: Hex[] = [
     concat([serializeHookConfig({ address: p.modules.policy, entityId, hookType: HookType.VALIDATION, hasPreHooks: true, hasPostHooks: false }), policyData]),
@@ -181,7 +186,45 @@ export function routerSellCalls(a: { account: Address; router: Address; token: A
     { target: a.router, value: 0n, data: encodeFunctionData({ abi: routerAbi, functionName: "sellExactIn", args: [a.token, a.tokensIn, a.minOut, a.account, a.deadline] }) },
   ];
 }
+/* ---------- USDG-in / USDG-out (DiscipleRouter.buyWithUsdg / sellToUsdg) ----------
+ * The frontend always pays in USDG; the router hops USDG <-> the coin's quote through an owner-registered pool, then
+ * the curve (pre-grad) or the coin's v4 pool (post-grad). Recipient is pinned on-chain to msg.sender (the account).
+ * minOut is END-TO-END: tokens on buys, USDG on sells. Quote it with `quoteUsdgRouteFor(account, …)` (eth_call /
+ * simulateContract) so PVE login / NET caps / profit tax are evaluated for the smart account (the session policy
+ * checks minOut against exactly that quote). `quoteUsdgRoute` quotes for the eth_call `from`.
+ * The session policy only accepts a USDG approve to the router for EXACTLY the batch's buyWithUsdg total, so always
+ * send the approve and the buy in the same batch (these builders do). No Permit2 / UniversalRouter. */
+export const usdgRouterAbi = parseAbi([
+  "function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline) returns (uint256 tokensOut)",
+  "function sellToUsdg(address token, uint256 tokensIn, uint256 minUsdgOut, uint256 deadline) returns (uint256 usdgOut)",
+  "function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
+  "function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn) returns (uint256 amountOut, uint256 maxHopImpactBps)",
+  "function usdg() view returns (address)",
+]);
+
+/** eth_call data for the end-to-end USDG route quote for `trader` (audit M2): the quote applies that trader's
+ *  PVE gate / caps / profit tax, the same account the session policy quotes for when checking minOut. */
+export function encodeQuoteUsdgRouteFor(a: { trader: Address; token: Address; isBuy: boolean; amountIn: bigint }): Hex {
+  return encodeFunctionData({ abi: usdgRouterAbi, functionName: "quoteUsdgRouteFor", args: [a.trader, a.token, a.isBuy, a.amountIn] });
+}
+
+export function routerBuyWithUsdgCalls(a: { router: Address; usdg: Address; token: Address; usdgIn: bigint; minTokensOut: bigint; deadline: bigint }): Call[] {
+  if (a.minTokensOut <= 0n) throw new Error("minTokensOut must be > 0");
+  return [
+    { target: a.usdg, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [a.router, a.usdgIn] }) },
+    { target: a.router, value: 0n, data: encodeFunctionData({ abi: usdgRouterAbi, functionName: "buyWithUsdg", args: [a.token, a.usdgIn, a.minTokensOut, a.deadline] }) },
+  ];
+}
+export function routerSellToUsdgCalls(a: { router: Address; token: Address; tokensIn: bigint; minUsdgOut: bigint; deadline: bigint }): Call[] {
+  if (a.minUsdgOut <= 0n) throw new Error("minUsdgOut must be > 0");
+  return [
+    { target: a.token, value: 0n, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [a.router, a.tokensIn] }) },
+    { target: a.router, value: 0n, data: encodeFunctionData({ abi: usdgRouterAbi, functionName: "sellToUsdg", args: [a.token, a.tokensIn, a.minUsdgOut, a.deadline] }) },
+  ];
+}
+
 /** Account calldata for a session-signed batch (use as userOp.callData, signed by the session key with entityId). */
 export function encodeSessionBatch(calls: Call[]): Hex {
   return encodeFunctionData({ abi: semiModularAccountBytecodeAbi, functionName: "executeBatch", args: [calls] });
 }
+export * from "./modes";

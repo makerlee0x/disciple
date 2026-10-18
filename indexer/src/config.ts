@@ -15,8 +15,11 @@ export interface Stack {
   referralRegistry?: Address;
   marketLens?: Address;
   quotePricer?: Address;
-  /** Redeploy only: UsdgDepositNotifier (referral-gate escrow). */
-  depositNotifier?: Address;
+  /** LockedLP (LiquidityCompounded events). */
+  lockedLP?: Address;
+  /** v4: UsdgDepositNotifier (Deposited / Escrowed / Withdrawn / Attested) and LoginGate (PVE). */
+  usdgDepositNotifier?: Address;
+  loginGate?: Address;
 }
 
 export interface Config {
@@ -39,7 +42,7 @@ export interface Config {
 
 /**
  * Builds stacks from contracts/deployments/rh-testnet-46630.json by walking the `previous` chain:
- *  current (v3, combined redeploy) -> previous (v2, PR #10 + add-ons) -> previous.previous (v1, PR #4).
+ *  current (v4, PR #97, startBlock 137540728) -> previous (v3) -> … -> v1 (PR #4).
  * Also accepts contracts/deployments/web-bundle/addresses.json (its `previous` has no `contracts`, so only that stack is used).
  * STACKS=v3 restricts to a subset. All stacks are indexed (old coins keep trading on their own hook/pools). EXTRA_DEPLOYMENT adds one more json.
  */
@@ -48,12 +51,13 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
   return {
     id, fromBlock,
     launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.DiscipleHook, migration: c.Migration,
-    trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer,
+    trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer, lockedLP: c.LockedLP,
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     rewardsVault: c.RewardsVault,
     referralRegistry: c.ReferralRegistry,
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,
-    depositNotifier: c.UsdgDepositNotifier,
+    usdgDepositNotifier: c.UsdgDepositNotifier,
+    loginGate: c.LoginGate,
   };
 }
 

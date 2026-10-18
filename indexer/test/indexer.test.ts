@@ -4,11 +4,11 @@ import { EVENTS } from "../src/abi";
 import { openDb } from "../src/db";
 import { applyLogs, type RawLog } from "../src/ingest";
 import { Api } from "../src/api";
-import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../src/math";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve } from "../src/math";
 import type { Config, Stack } from "../src/config";
 
 const A = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Hex;
-const stack: Stack = { id: "t", fromBlock: 0n, launchpad: A(1), feeRouter: A(2), hook: A(3), migration: A(4), trampWallManager: A(5), anonLauncher: A(6), rewardsVault: A(7) };
+const stack: Stack = { id: "t", fromBlock: 0n, launchpad: A(1), feeRouter: A(2), hook: A(3), migration: A(4), trampWallManager: A(5), anonLauncher: A(6), rewardsVault: A(7), lockedLP: A(8) };
 const cfg: Config = { chainId: 1, rpcUrl: "", stateView: A(9), stacks: [stack], dbPath: ":memory:", port: 0, chunk: 1000n, pollMs: 0, confirmations: 0, reorgDepth: 64, rpcRps: 0, minChunk: 10n };
 const TOKEN = A(0x100), CURVE = A(0x101), QUOTE = A(0x102), ALICE = A(0xa1), BOB = A(0xb0b);
 let li = 0;
@@ -109,5 +109,45 @@ describe("ingest + api", () => {
     expect(rw[0].kind).toBe("SnipeFeeRouted");
     const [st]: any = await api.route("GET", new URL("http://x/nope"));
     expect(st).toBe(404);
+  });
+});
+
+describe("lp auto-compound", () => {
+  it("indexes LiquidityCompounded from LockedLP only and serves /lp-compounds", async () => {
+    const db = seeded();
+    const ts = (b: bigint) => 1_000_000 + Number(b) * 60;
+    applyLogs(db, stack, [
+      mk("LiquidityCompounded", { token: TOKEN, liquidity: 1000n, tokenUsed: 50n, quoteUsed: 7n, tokenCarry: 1n, quoteCarry: 3n }, stack.lockedLP!, 80n),
+      mk("LiquidityCompounded", { token: TOKEN, liquidity: 500n, tokenUsed: 20n, quoteUsed: 4n, tokenCarry: 9n, quoteCarry: 1n }, stack.lockedLP!, 81n),
+      mk("LiquidityCompounded", { token: TOKEN, liquidity: 999n, tokenUsed: 1n, quoteUsed: 1n, tokenCarry: 0n, quoteCarry: 0n }, A(0xbad), 82n), // spoof
+    ], ts);
+    const api = new Api(db, null, cfg);
+    const [st, r]: any = await api.route("GET", new URL(`http://x/coins/${TOKEN}/lp-compounds`));
+    expect(st).toBe(200);
+    expect(r).toMatchObject({ count: 2, totalLiquidity: "1500", totalTokenUsed: "70", totalQuoteUsed: "11", tokenCarry: "9", quoteCarry: "1" });
+  });
+});
+
+describe("mcap precision", () => {
+  const sqrt = (x: bigint) => { let z = x, y = (x + 1n) / 2n; while (y < z) { z = y; y = (x / y + y) / 2n; } return z; };
+  // $33K over 7B tokens; quote raw per token raw = 33000*10^dec / 7e27
+  const sqrtFor = (dec: bigint, c0: boolean) => {
+    const num = 33_000n * 10n ** dec, den = 7_000_000_000n * 10n ** 18n;
+    return c0 ? sqrt((num << 192n) / den) : sqrt((den << 192n) / num);
+  };
+  const near = (a: bigint, b: bigint) => expect(Number(a) / Number(b)).toBeCloseTo(1, 4);
+  it("6-dec quote: $33K exact from sqrt (priceWad path floors to ~$28K)", () => {
+    for (const c0 of [true, false]) {
+      const sp = sqrtFor(6n, c0);
+      near(mcapUsdFromSqrt(sp, c0, 10n ** 30n), 33_000n * 10n ** 18n);
+      expect(mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 30n) < 30_000n * 10n ** 18n).toBe(true);
+    }
+  });
+  it("18-dec quote: unchanged", () => {
+    for (const c0 of [true, false]) {
+      const sp = sqrtFor(18n, c0);
+      near(mcapUsdFromSqrt(sp, c0, 10n ** 18n), 33_000n * 10n ** 18n);
+      near(mcapUsdFromSqrt(sp, c0, 10n ** 18n), mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 18n));
+    }
   });
 });

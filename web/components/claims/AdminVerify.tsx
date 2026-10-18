@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminDo, adminRows, loginPrivy, NeedLogin, type AdminRow } from "@/lib/claims/verifyClient";
 import { onPrivy } from "@/lib/aa/session";
-import { invalidateVerified } from "@/lib/verified";
+import { invalidateVerified } from "@/lib/verifiedClient";
 import { demoEnabled } from "@/lib/claims/demo";
 import { SampleTag, shortA } from "./ui";
 

@@ -14,15 +14,13 @@ const MOCK_CREW = {
     { who: "0x7Fe…01b", usd: 760 },
   ],
   you: 35,
-  stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
 };
 
 const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir soundtrack", "Golden wings"];
 
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
-/** `coin`: the rocket on screen; its verified mark comes from the admin review (/api/verified), never from stats. */
-export default function CrewPanel({ coin }: { coin?: string }) {
+export default function CrewPanel({ coin, verified }: { coin?: string; verified?: boolean } = {}) {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
   // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
@@ -77,7 +75,7 @@ export default function CrewPanel({ coin }: { coin?: string }) {
       </div>
       {open && (
         <>
-          <VerifiedBadge token={coin} />
+          <div style={{ marginTop: 6 }}><VerifiedBadge verified={verified} token={coin} showLabel /></div>
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>

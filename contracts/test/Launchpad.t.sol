@@ -46,7 +46,7 @@ contract LaunchpadTest is Test {
 
     function setUp() public {
         quote = new MockQuote();
-        referrals = new ReferralRegistry(owner);
+        referrals = new ReferralRegistry(owner, address(quote));
         lockedLP = new LockedLP(owner, treasury);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
@@ -72,6 +72,7 @@ contract LaunchpadTest is Test {
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
+        migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(stack.hook), true);
         vm.stopPrank();

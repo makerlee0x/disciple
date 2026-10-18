@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "./integration/IntegrationBase.sol";
+import {Owned2Step} from "../src/utils/Owned2Step.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 
 contract CreatorBuyCapTest is IntegrationBase {
@@ -40,9 +41,9 @@ contract CreatorBuyCapTest is IntegrationBase {
         (, Token t) = _launch(0, 0);
         t;
         vm.prank(creator);
-        vm.expectRevert(Launchpad.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setCreatorBuyMaxBps(100);
-        vm.expectRevert(Launchpad.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setCreatorBuyMaxBps(100);
     }
 

@@ -54,7 +54,7 @@ export function staticCaps(flag: string | undefined = FLAG): Caps {
     referrerFees: !!fr && abiHas(feeRouterAbi, "referrerAccrued") && abiHas(feeRouterAbi, "claimReferrerFees"),
     creatorTokenFees: !!fr && redeployGate(flag, abiHas(feeRouterAbi, "creatorTokenAccrued")),
     crew: !!d && redeployGate(flag, abiHas(launchpadAbi, "modeOf") && abiHas(launchpadAbi, "claim")),
-    referralGate: !!d && d.depositNotifier !== Z && d.referralRegistry !== Z && redeployGate(flag, true),
+    referralGate: !!d && d.usdgDepositNotifier !== Z && d.referralRegistry !== Z && redeployGate(flag, true),
     anonClaims: abiHas(anonLauncherAbi, "pending") && abiHas(anonLauncherAbi, "claimMany"),
   };
 }
@@ -74,7 +74,7 @@ export function probeCaps(pc: PublicClient, flag: string | undefined = FLAG): Pr
       s.crew ? ok(pc.readContract({ address: d.launchpad, abi: launchpadRedeployAbi, functionName: "modeOf", args: [Z] })) : false,
       s.referralGate
         ? ok(Promise.all([
-            pc.readContract({ address: d.depositNotifier, abi: depositNotifierAbi, functionName: "escrowCount", args: [Z] }),
+            pc.readContract({ address: d.usdgDepositNotifier, abi: depositNotifierAbi, functionName: "escrowCount", args: [Z] }),
             pc.readContract({ address: d.referralRegistry, abi: referralRegistryRedeployAbi, functionName: "pendingReferrer", args: [Z] }),
           ]))
         : false,

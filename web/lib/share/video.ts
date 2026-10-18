@@ -11,7 +11,7 @@ import type { LoadoutIds } from "./loadout";
 import type { PositionPnl } from "../sharePnl";
 
 export type ReplayTrade = { ts: number; tx: string; li: number; side: "buy" | "sell"; usd: number; mcapUsd: number; impactBps: number; trader: string; mine: boolean };
-type ReplayHandle = { loadout?: { skin: string; thruster: string; noseCoin: string }; canvas: HTMLCanvasElement; frames: number; fps: number; step(): { i: number; t: number; done: boolean } | null; hash(): string; dispose(): void; on(k: string, cb: (d: unknown) => void): () => void };
+type ReplayHandle = { loadout?: { skin: string; thruster: string; noseCoin: string; accessory?: string | null; stats?: Record<string, number> }; canvas: HTMLCanvasElement; frames: number; fps: number; step(): { i: number; t: number; done: boolean } | null; hash(): string; dispose(): void; on(k: string, cb: (d: unknown) => void): () => void };
 type ReplayFn = (o: Record<string, unknown>) => Promise<ReplayHandle>;
 
 export const VIDEO = { width: 1080, height: 1920, fps: 30, replaySec: 12, endSec: 3 };
@@ -128,7 +128,8 @@ export async function renderShareVideo(opts: {
   onP(0, "loading replay engine");
   const replay = await getReplay(); if (!replay) return null;
   const { trades, t0, t1, startMcap } = buildReplayTrades(opts.coinFills.length ? opts.coinFills : opts.pnl.fills, opts.wallet, opts.pnl);
-  const replayLoadout = { skin: opts.loadoutIds.skin, thruster: opts.loadoutIds.thruster, noseCoin: opts.loadoutIds.coin };
+  const replayLoadout = { skin: opts.loadoutIds.skin, thruster: opts.loadoutIds.thruster, noseCoin: opts.loadoutIds.coin,
+    ...(opts.loadoutIds.accessory ? { accessory: opts.loadoutIds.accessory } : {}), ...(opts.loadoutIds.stats ? { stats: opts.loadoutIds.stats } : {}) };   // accessory/stats: cosmetic only
   const seed = Number.parseInt(opts.coin.slice(2, 10) || "7", 16) ^ Number.parseInt(opts.wallet.slice(2, 10) || "1", 16);
   const r = await replay({ coin: opts.coin, supply: 7e9, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps,
     width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });

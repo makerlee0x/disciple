@@ -2,7 +2,8 @@
  *
  *   const r = await window.__flight.replay({coin, supply, ticker, t0, t1, trades:[{ts,tx,li,side,usd,mcapUsd,impactBps,trader,mine}],
  *                                          startMcap, durationSec:12, fps:30, width:1080, height:1920, seed, clean:true, canvas?});
- *   opts.loadout = {skin, thruster, noseCoin} — SITE rocket-upgrade ids (lib/rocketSkin.ts); unknown → defaults; noseCoin:'ticker' = ticker badge
+ *   opts.loadout = {skin, thruster, noseCoin, accessory?, stats?} — SITE rocket-upgrade ids (lib/rocketSkin.ts); unknown → defaults; noseCoin:'ticker' = ticker badge;
+ *     accessory = /assets/accessories/<id>.png on the nose; stats {thrust,glow,aura,launch,style} 0–10 (default 5; handling = alias of style) = cosmetic only
  *   window.__flightReplay.tiers / .cosmetics — generated from lib/flight/tiers.ts + lib/rocketSkin.ts
  *   r.canvas  r.frames  r.step()  r.stateAt(t)  r.on('trade'|'bomb'|'tier'|'frame', cb)  r.hash()  r.dispose()
  *

@@ -64,9 +64,9 @@ contract FeeMathTest is Test {
         assertEq(FeeMath.curveSoldSupply(), (Constants.TOTAL_SUPPLY * 7200) / 10_000);
     }
 
-    function test_pearlyGates_33k() public pure {
+    function test_outerSpace_33k() public pure {
         assertEq(Constants.GRADUATION_MCAP_USD, 33_000 * 1e18);
-        assertEq(Constants.PEARLY_GATES_MCAP_USD, Constants.GRADUATION_MCAP_USD);
+        assertEq(Constants.OUTER_SPACE_MCAP_USD, Constants.GRADUATION_MCAP_USD);
         assertEq(Constants.START_MCAP_USD, 7_000 * 1e18);
     }
 
@@ -83,6 +83,6 @@ contract FeeMathTest is Test {
     }
 
     function test_referralGate_10USDG() public pure {
-        assertEq(Constants.REFERRAL_USDG_GATE, 10 * 1e18);
+        assertEq(Constants.REFERRAL_GATE_USD, 10);
     }
 }

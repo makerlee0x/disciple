@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ILockedLP} from "./interfaces/ILockedLP.sol";
@@ -12,27 +13,43 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+/// @dev Hook-side view used by flush() to refuse adds in a tx that already swapped this pool (atomic sandwich).
+interface ISwapInTx {
+    function swappedInTx(PoolId id) external view returns (bool);
+    function compoundRefs(PoolId id) external view returns (uint160 refBlock, uint160 refEma);
+}
 
 /// @title Permanently locked v4 LP owner (§3 / LOCKED #16–#17)
 /// @notice Owns the full-range v4 position forever. removeLiquidity always reverts.
 /// @dev Pool LP fee is 0; trade fees taken by DiscipleHook. collectFees is a no-op residual for #16.
-contract LockedLP is ILockedLP, IUnlockCallback {
+///      LP auto-compound: after graduation the 33% LP share of the 1% hook fee lands in two per-coin buckets
+///      (token side from buys, quote side from sells). On every swap DiscipleHook calls compoundFromHook (the
+///      PoolManager is already unlocked by the swapper); once the matched liquidity passes minCompoundPpm of the
+///      position it is added to the SAME locked full-range position (same ticks + salt), each currency settled
+///      immediately (sync → transfer → settle), and the unmatched remainder carries forward. flush() does the
+///      same outside swaps via unlock. No rebalancing swaps are ever made.
+contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
     using StateLibrary for IPoolManager;
+    using TransientStateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
 
     address public treasury;
-    address public owner;
     address public migration;
     /// @notice FeeRouter allowed to lock LP shares / snipe escrow (SEC-01: addLockedLiquidity is caller-restricted).
     address public feeRouter;
     IPoolManager public poolManager;
 
     int24 public constant TICK_SPACING = 60;
+    address public constant BURN = 0x000000000000000000000000000000000000dEaD;
 
     struct Position {
         address quote;
@@ -45,29 +62,108 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         int24 tickLower;
         int24 tickUpper;
         uint128 liquidity;
+        bool tokenIsC0; // packed with ticks + liquidity (compound hot path reads one slot)
+        // Audit round 3 (HIGH-1 residual) compound budget, same slot: at most one add per block and at most
+        // maxCompoundPpm of liquidity per COMPOUND_WINDOW (window starts at its first add).
+        uint32 cWindowStart; // timestamp (mod 2^32) of the current window's first add
+        uint24 cWindowPpm; // ppm of position liquidity added in the current window
+        uint16 cBlock; // low 16 bits of the last add's block number
         bytes32 salt;
+        PoolId poolId; // cached for the compound hot path (avoids re-hashing / reading the 3-slot key)
     }
 
     mapping(address => Position) internal _positions; // token => position
 
-    error OnlyOwner();
+    /// @notice Post-graduation LP-share buckets pending compound. Invariant: for every graduated coin these are
+    ///         exactly the token / quote amounts LockedLP holds on that coin's behalf.
+    struct Bucket {
+        uint128 token;
+        uint128 quote;
+    }
+
+    mapping(address => Bucket) internal _buckets;
+
+    /// @notice DiscipleHook (only caller of compoundFromHook; also the swappedInTx oracle for flush).
+    address public hook;
+    /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.1%
+    ///         (audit G-5: was 0.005%, which compounded ~every other buy at ~44k gas; fees still bucket every trade).
+    uint32 public minCompoundPpm = 1_000;
+    /// @notice Per-add cap, in ppm of the position's current liquidity (0 = uncapped). Default 0.5% (audit High-1:
+    ///         bounds the value any residual reference manipulation could extract per add).
+    uint32 public maxCompoundPpm = 5_000;
+    /// @notice Skip if spot is more than this away from ANY reference (swap pre-price, block-start price,
+    ///         multi-block EMA). Default 3%.
+    uint16 public maxCompoundDeviationBps = 300;
+
+    uint160 internal immutable SQRT_LOWER;
+    uint160 internal immutable SQRT_UPPER;
+
+    /// @notice Compound budget window (seconds): <= maxCompoundPpm of liquidity per window, <= 1 add per block.
+    uint256 public constant COMPOUND_WINDOW = 60;
+
+    uint8 internal constant CB_SEED = 0;
+    uint8 internal constant CB_FLUSH = 1;
+
     error OnlyMigration();
     error Unauthorized();
     error OnlyPoolManager();
     error RemoveLiquidityDisabled();
     error NotGraduated();
     error ZeroLiquidity();
+    error OnlyHook();
+    error BadParams();
+    error SwappedInTx();
+    error CompoundOverspend();
+    error CompoundCredit();
 
     event LiquidityLocked(address indexed token, address indexed quote, uint256 tokenAmount, uint256 quoteAmount);
     event QuoteEscrowed(address indexed token, address indexed quote, uint256 amount);
     event FeesCollected(address indexed token, uint256 amount0, uint256 amount1);
+    /// @notice Audit #4 (rev. 2026-10-16): quote not absorbed by the full-range add at the curve-end price goes
+    ///         into the coin's compound quote bucket (pairs with incoming token fees over time); token dust
+    ///         (rounding only) → burn address. Emitted once per graduation. Same signature as before.
+    event GraduationLeftover(address indexed token, uint256 quoteToCompoundBucket, uint256 tokenBurned);
     event V4PositionSeeded(
         address indexed token, PoolId poolId, uint128 liquidity, int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96
     );
 
-    constructor(address owner_, address treasury_) {
-        owner = owner_;
+    /// @notice LP-share bucket credited after graduation (one side per swap).
+    event CompoundBucketed(address indexed token, uint256 tokenAmount, uint256 quoteAmount);
+    event LiquidityCompounded(
+        address indexed token,
+        uint128 liquidity,
+        uint256 tokenUsed,
+        uint256 quoteUsed,
+        uint256 tokenCarry,
+        uint256 quoteCarry
+    );
+    event CompoundParamsSet(uint32 minPpm, uint32 maxPpm, uint16 maxDeviationBps);
+    event HookSet(address indexed hook);
+
+    constructor(address owner_, address treasury_) Owned2Step(owner_) {
         treasury = treasury_;
+        SQRT_LOWER = TickMath.getSqrtPriceAtTick(TickMath.minUsableTick(TICK_SPACING));
+        SQRT_UPPER = TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(TICK_SPACING));
+    }
+
+    function setHook(address h) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        hook = h;
+        emit HookSet(h);
+    }
+
+    /// @param minPpm  minimum add as ppm of position liquidity (<= 1e6)
+    /// @param maxPpm  per-add cap as ppm of position liquidity (0 = uncapped; else >= minPpm)
+    /// @param maxDevBps max |post/pre - 1| price move (1..5000)
+    function setCompoundParams(uint32 minPpm, uint32 maxPpm, uint16 maxDevBps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (minPpm > 1e6 || (maxPpm != 0 && maxPpm < minPpm) || maxDevBps == 0 || maxDevBps > 5000) {
+            revert BadParams();
+        }
+        minCompoundPpm = minPpm;
+        maxCompoundPpm = maxPpm;
+        maxCompoundDeviationBps = maxDevBps;
+        emit CompoundParamsSet(minPpm, maxPpm, maxDevBps);
     }
 
     function setTreasury(address t) external {
@@ -99,26 +195,52 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         // SEC-01: only FeeRouter (fee LP share) and Migration (graduation) may add; otherwise anyone could
         // overflow escrowQuote with a worthless token and brick all fee routing for a coin.
         if (msg.sender != feeRouter && msg.sender != migration) revert Unauthorized();
-        Position storage p = _positions[token];
-        if (p.quote == address(0)) p.quote = quote;
-        p.token = token;
-
         if (quoteAmount > 0) {
             IERC20(quote).safeTransferFrom(msg.sender, address(this), quoteAmount);
         }
         if (tokenAmount > 0) {
             IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
         }
+        _credit(token, quote, tokenAmount, quoteAmount);
+        return tokenAmount + quoteAmount;
+    }
+
+    /// @notice Gas path for the per-trade LP share: FeeRouter has ALREADY transferred the amounts here.
+    /// @dev FeeRouter-only (it transfers exactly these amounts immediately before this call, same tx).
+    /// @return compoundReady post-graduation and both buckets hold >= 2 wei (the hook may try to compound).
+    function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        external
+        returns (bool compoundReady)
+    {
+        if (msg.sender != feeRouter) revert Unauthorized();
+        return _credit(token, quote, tokenAmount, quoteAmount);
+    }
+
+    function _credit(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        internal
+        returns (bool compoundReady)
+    {
+        Position storage p = _positions[token];
+        if (p.graduated) {
+            // Post-graduation LP share → compound buckets (FeeRouter sends exactly one side per swap).
+            Bucket memory b = _buckets[token];
+            b.token += SafeCast.toUint128(tokenAmount);
+            b.quote += SafeCast.toUint128(quoteAmount);
+            _buckets[token] = b;
+            emit CompoundBucketed(token, tokenAmount, quoteAmount);
+            return b.token >= 2 && b.quote >= 2;
+        }
+        if (p.quote == address(0)) p.quote = quote;
+        if (p.token != token) p.token = token;
 
         if (tokenAmount == 0 && quoteAmount > 0) {
             p.escrowQuote += quoteAmount;
             emit QuoteEscrowed(token, quote, quoteAmount);
-            return quoteAmount;
+            return false;
         }
 
         p.tokenAmount += tokenAmount;
         p.quoteAmount += quoteAmount;
-        lpShares = tokenAmount + quoteAmount;
         emit LiquidityLocked(token, quote, tokenAmount, quoteAmount);
     }
 
@@ -153,12 +275,15 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         p.tickLower = TickMath.minUsableTick(TICK_SPACING);
         p.tickUpper = TickMath.maxUsableTick(TICK_SPACING);
         p.graduated = true;
+        p.poolId = key.toId();
+        p.tokenIsC0 = Currency.unwrap(key.currency0) == token;
 
         // Include any escrowed quote into the quote side of the seed
         // (caller already transferred primary amounts via addLockedLiquidity)
 
-        // Initialize pool at curve-end price (no jump)
-        try poolManager.initialize(key, sqrtPriceX96) {} catch {}
+        // Initialize pool at curve-end price (no jump). Audit #2: no try/catch — DiscipleHook.beforeInitialize
+        // only lets this contract initialize, so a pre-initialized (mispriced) pool cannot exist.
+        poolManager.initialize(key, sqrtPriceX96);
 
         SeedParams memory sp = SeedParams({
             token: token,
@@ -170,17 +295,173 @@ contract LockedLP is ILockedLP, IUnlockCallback {
             salt: salt
         });
 
-        bytes memory result = poolManager.unlock(abi.encode(sp));
-        liquidity = abi.decode(result, (uint128));
+        bytes memory result = poolManager.unlock(abi.encode(CB_SEED, abi.encode(sp)));
+        uint256 used0;
+        uint256 used1;
+        (liquidity, used0, used1) = abi.decode(result, (uint128, uint256, uint256));
         p.liquidity = liquidity;
 
+        // Audit #4: liquidity is the max matched amount at the curve-end price; whatever one side could not
+        // be paired with is swept explicitly so LockedLP's per-token accounting equals real balances.
+        bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
+        (uint256 tokenUsed, uint256 quoteUsed) = tokenIsC0 ? (used0, used1) : (used1, used0);
+        (uint256 tokenDesired, uint256 quoteDesired) =
+            tokenIsC0 ? (amount0Desired, amount1Desired) : (amount1Desired, amount0Desired);
+        uint256 quoteLeft = quoteDesired - quoteUsed;
+        uint256 tokenLeft = tokenDesired - tokenUsed;
+        if (quoteLeft > 0) _graduationQuoteLeftover(token, quote, quoteLeft);
+        if (tokenLeft > 0) IERC20(token).safeTransfer(BURN, tokenLeft);
+        p.tokenAmount = tokenUsed;
+        p.quoteAmount = quoteUsed;
+        p.escrowQuote = 0;
+        emit GraduationLeftover(token, quoteLeft, tokenLeft);
+
         emit V4PositionSeeded(token, key.toId(), liquidity, p.tickLower, p.tickUpper, sqrtPriceX96);
+    }
+
+    /// @dev Decision (Maker lee, 2026-10-16): unabsorbed graduation quote stays in LockedLP as the coin's compound
+    ///      quote bucket (previously swept to treasury). It is already held here, so the bucket invariant holds.
+    function _graduationQuoteLeftover(address token, address, uint256 amount) internal {
+        _buckets[token].quote += SafeCast.toUint128(amount);
+    }
+
+    // ── LP auto-compound ─────────────────────────────────────────────────────
+
+    /// @notice Called by DiscipleHook.afterSwap (PoolManager already unlocked by the swapper). The hook wraps this
+    ///         in try/catch with a gas cap, so any revert here only skips the add — never the user's swap.
+    /// @param refSwap  this swap's pre-swap sqrtPriceX96
+    /// @param refBlock the pool's block-start sqrtPriceX96
+    /// @param refEma   the hook's multi-block EMA reference (sqrtPriceX96)
+    function compoundFromHook(address token, uint160 refSwap, uint160 refBlock, uint160 refEma)
+        external
+        returns (uint128)
+    {
+        if (msg.sender != hook) revert OnlyHook();
+        if (refEma == 0) return 0;
+        return _compound(token, refSwap, refBlock, refEma);
+    }
+
+    /// @notice Permissionless top-up outside swaps (uses unlock). Same min / cap guards; refuses if the pool was
+    ///         already swapped earlier in this tx (atomic sandwich). Returns liquidity added (0 = skipped).
+    function flush(address token) external returns (uint128 liquidity) {
+        Position storage p = _positions[token];
+        if (!p.graduated) revert NotGraduated();
+        address h = hook;
+        if (h != address(0) && ISwapInTx(h).swappedInTx(p.poolKey.toId())) revert SwappedInTx();
+        // DISCIPLE audit High-1: always check against the hook's multi-block EMA reference (and the block-start
+        // price when the pool traded this block). No hook / reference not ready → skip.
+        if (h == address(0)) return 0;
+        (uint160 refBlock, uint160 refEma) = ISwapInTx(h).compoundRefs(p.poolId);
+        if (refEma == 0) return 0;
+        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token, refBlock, refEma)));
+        liquidity = abi.decode(r, (uint128));
+    }
+
+    /// @notice Compound budget state: current window start (timestamp mod 2^32), ppm of liquidity added in it, and
+    ///         the low 16 bits of the last add's block.
+    function compoundBudget(address token) external view returns (uint32 windowStart, uint24 usedPpm, uint16 lastBlock) {
+        Position storage p = _positions[token];
+        return (p.cWindowStart, p.cWindowPpm, p.cBlock);
+    }
+
+    /// @notice Pending LP-share buckets for a graduated coin (token side, quote side).
+    function compoundBucket(address token) external view returns (uint256 tokenAmount, uint256 quoteAmount) {
+        Bucket memory b = _buckets[token];
+        return (b.token, b.quote);
+    }
+
+    /// @dev Must run while the PoolManager is unlocked. Returns 0 (no state change) when skipped.
+    ///      Each nonzero reference must be within maxCompoundDeviationBps of spot (callers always pass the EMA).
+    function _compound(address token, uint160 r0, uint160 r1, uint160 r2) internal returns (uint128 liq) {
+        Bucket memory b = _buckets[token];
+        // Cheapest exit first: one-sided accumulation (the common case) costs one SLOAD.
+        if (b.token < 2 || b.quote < 2) return 0;
+        // Non-empty buckets imply graduated (addLockedLiquidity only buckets post-graduation).
+        Position storage p = _positions[token];
+        // Budget (one slot, read before any external call): one add per block, maxCompoundPpm per window. The
+        // 16-bit block tag can only collide if 65,536 blocks fit inside one 60 s window.
+        uint32 nowT = uint32(block.timestamp);
+        uint256 used = p.cWindowPpm;
+        bool fresh = nowT - p.cWindowStart >= uint32(COMPOUND_WINDOW);
+        if (fresh) used = 0;
+        else if (p.cBlock == uint16(block.number)) return 0;
+        uint256 maxPpm = maxCompoundPpm;
+        if (maxPpm != 0 && used >= maxPpm) return 0;
+        (uint160 sqrtP,,,) = poolManager.getSlot0(p.poolId);
+        uint256 maxDev = maxCompoundDeviationBps;
+        if (r0 != 0 && _deviationBps(r0, sqrtP) > maxDev) return 0;
+        if (r1 != 0 && _deviationBps(r1, sqrtP) > maxDev) return 0;
+        if (r2 != 0 && _deviationBps(r2, sqrtP) > maxDev) return 0;
+
+        bool tokenIsC0 = p.tokenIsC0;
+        // 1 wei margin per side: amounts owed for L round up by at most 1, so owed <= bucket always.
+        (uint256 a0, uint256 a1) = tokenIsC0 ? (b.token - 1, b.quote - 1) : (b.quote - 1, b.token - 1);
+        liq = LiquidityAmounts.getLiquidityForAmounts(sqrtP, SQRT_LOWER, SQRT_UPPER, a0, a1);
+
+        uint256 posL = p.liquidity;
+        if (liq == 0 || uint256(liq) * 1e6 < posL * minCompoundPpm) return 0;
+        if (maxPpm != 0) {
+            uint256 capL = posL * (maxPpm - used) / 1e6; // remaining window budget
+            if (liq > capL) liq = uint128(capL);
+            if (liq == 0) return 0;
+        }
+
+        // DISCIPLE audit #2: never touch sync/settle state the swapper may be using. If any currency is synced
+        // (a swapper pre-paid via sync→transfer and has not settled yet), our sync() would overwrite it — skip.
+        if (!poolManager.getSyncedCurrency().isAddressZero()) return 0;
+
+        PoolKey memory key = p.poolKey;
+        // Adds to the SAME locked position (owner = this, same ticks + salt). beforeAddLiquidity on our hook only
+        // checks the LockedLP allowlist — no fee logic re-entry.
+        (BalanceDelta delta,) = poolManager.modifyLiquidity(
+            key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: p.tickLower, tickUpper: p.tickUpper, liquidityDelta: int256(uint256(liq)), salt: p.salt
+            }),
+            ""
+        );
+        int128 d0 = delta.amount0();
+        int128 d1 = delta.amount1();
+        if (d0 > 0 || d1 > 0) revert CompoundCredit(); // pool fee 0 → never; never leave a credit open
+        uint256 used0 = uint256(int256(-d0));
+        uint256 used1 = uint256(int256(-d1));
+        (uint256 tokenUsed, uint256 quoteUsed) = tokenIsC0 ? (used0, used1) : (used1, used0);
+        if (tokenUsed > b.token || quoteUsed > b.quote) revert CompoundOverspend();
+
+        // Settle each currency immediately and completely (sync → transfer → settle, no interleaving).
+        if (used0 > 0) key.currency0.settle(poolManager, address(this), used0, false);
+        if (used1 > 0) key.currency1.settle(poolManager, address(this), used1, false);
+
+        uint128 tCarry = b.token - uint128(tokenUsed);
+        uint128 qCarry = b.quote - uint128(quoteUsed);
+        _buckets[token] = Bucket({token: tCarry, quote: qCarry});
+        p.liquidity += liq;
+        used += Math.ceilDiv(uint256(liq) * 1e6, posL);
+        if (fresh) p.cWindowStart = nowT;
+        p.cWindowPpm = uint24(used < type(uint24).max ? used : type(uint24).max);
+        p.cBlock = uint16(block.number);
+        p.tokenAmount += tokenUsed;
+        p.quoteAmount += quoteUsed;
+        emit LiquidityCompounded(token, liq, tokenUsed, quoteUsed, tCarry, qCarry);
+    }
+
+    /// @dev |(hi/lo)^2 - 1| in bps from two sqrt prices (direction-agnostic, slightly conservative).
+    function _deviationBps(uint160 a, uint160 b) internal pure returns (uint256) {
+        if (a == b) return 0;
+        if (a == 0 || b == 0) return type(uint256).max;
+        (uint256 hi, uint256 lo) = a > b ? (uint256(a), uint256(b)) : (uint256(b), uint256(a));
+        return Math.mulDiv(Math.mulDiv(hi, 10_000, lo), hi, lo) - 10_000;
     }
 
     /// @inheritdoc IUnlockCallback
     function unlockCallback(bytes calldata rawData) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
-        SeedParams memory sp = abi.decode(rawData, (SeedParams));
+        (uint8 kind, bytes memory inner) = abi.decode(rawData, (uint8, bytes));
+        if (kind == CB_FLUSH) {
+            (address tk, uint160 rb, uint160 re) = abi.decode(inner, (address, uint160, uint160));
+            return abi.encode(_compound(tk, rb, re, 0));
+        }
+        SeedParams memory sp = abi.decode(inner, (SeedParams));
         Position storage p = _positions[sp.token];
 
         uint160 sqrtPriceX96 = sp.sqrtPriceX96;
@@ -209,15 +490,10 @@ contract LockedLP is ILockedLP, IUnlockCallback {
         if (delta.amount1() < 0) {
             sp.key.currency1.settle(poolManager, address(this), uint256(int256(-delta.amount1())), false);
         }
-        // Take any credits
-        if (delta.amount0() > 0) {
-            sp.key.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), false);
-        }
-        if (delta.amount1() > 0) {
-            sp.key.currency1.take(poolManager, address(this), uint256(int256(delta.amount1())), false);
-        }
-
-        return abi.encode(liq);
+        // Adding liquidity never yields credits (pool fee 0, fresh position)
+        uint256 used0 = delta.amount0() < 0 ? uint256(int256(-delta.amount0())) : 0;
+        uint256 used1 = delta.amount1() < 0 ? uint256(int256(-delta.amount1())) : 0;
+        return abi.encode(liq, used0, used1);
     }
 
     /// @inheritdoc ILockedLP

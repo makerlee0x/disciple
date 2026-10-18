@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -11,6 +12,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {TwapOracle} from "./libraries/TwapOracle.sol";
+import {BasePools} from "./libraries/BasePools.sol";
 
 /// @title Quote/USD oracle (USDG = $1, others via a TRUNCATED TWAP of a registered quote/USDG v4 pool)
 /// @notice Curve mcap targets ($7K / $33K) are USD. At launch the Launchpad asks this contract for the
@@ -23,17 +25,28 @@ import {TwapOracle} from "./libraries/TwapOracle.sol";
 ///        ±maxTickDelta of the previous observation, so a flash move + poke + read in one tx has zero effect and a
 ///        move must be held across blocks (and keepers' pokes) to shift the TWAP. Spot is available separately
 ///        via `spotPriceUsd` for display. `minLiquidity` still applies to the reference pool.
-///      - Owner (multisig) chooses which pool is canonical for each quote. No pool → launch reverts.
-contract QuotePricer is IQuotePricer {
+///      - Permissionless base discovery: `poke(base)` (also called by every launch) auto-registers the deepest
+///        hookless (base, USDG) v4 pool at the standard tiers (BasePools) if its liquidity >= minLiquidity. An
+///        auto-discovered pool prices only after `autoWarmup` seconds of TWAP history (its first observation is the
+///        discovery-time spot, which a flash move could skew; truncated keeper/launch pokes wash that out).
+///      - Owner registration (`setPricePool`) stays as an override and is never replaced by discovery.
+contract QuotePricer is IQuotePricer, Owned2Step {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 
     IPoolManager public immutable poolManager;
     address public immutable usdg;
     uint8 public immutable usdgDecimals;
-    address public owner;
-    /// @notice Minimum in-range liquidity of a reference pool at pricing time.
+    /// @notice Minimum in-range liquidity of a reference pool (discovery + every pricing). Default set in the
+    ///         constructor: 1e4 · 10^((18 + usdgDecimals) / 2), i.e. the in-range L of a full-range pool holding
+    ///         ~$10k per side for an 18-decimal base priced ~$1 (L scales with 1/sqrt(price)). Owner-settable.
     uint128 public minLiquidity;
+    /// @notice TWAP history an AUTO-discovered pool needs before it can price (seconds). Default 1 h (2× window).
+    uint32 public autoWarmup = 3600;
+    /// @notice true if the registered pool came from permissionless discovery (not the owner).
+    mapping(address => bool) public isAutoPool;
+    /// @notice When the auto pool was discovered (its oracle start).
+    mapping(address => uint40) public autoSince;
 
     mapping(address => PoolKey) internal _poolOf;
     mapping(address => bool) public hasPricePool;
@@ -44,8 +57,8 @@ contract QuotePricer is IQuotePricer {
     int24 public maxTickDelta = 2000;
     mapping(address => TwapOracle.State) internal _oracle;
 
-    error OnlyOwner();
     error NoPricePool(address quote);
+    error TwapWarmingUp(uint256 readyAt);
     error BadPool();
     error ThinPool(uint128 liquidity);
     error ZeroPrice();
@@ -54,25 +67,28 @@ contract QuotePricer is IQuotePricer {
     event PricePoolSet(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, address hooks);
     event PricePoolCleared(address indexed quote);
     event MinLiquiditySet(uint128 minLiquidity);
-    event OwnerTransferred(address indexed owner);
+    event PricePoolDiscovered(address indexed quote, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, uint128 liquidity);
+    event AutoWarmupSet(uint32 warmup);
     event TwapParamsSet(uint32 window, int24 maxTickDelta);
     event Poked(address indexed quote, int24 spotTick, int24 recordedTick);
 
-    constructor(address owner_, IPoolManager poolManager_, address usdg_) {
-        owner = owner_;
+    constructor(address owner_, IPoolManager poolManager_, address usdg_) Owned2Step(owner_) {
         poolManager = poolManager_;
         usdg = usdg_;
-        usdgDecimals = IERC20Metadata(usdg_).decimals();
+        uint8 d = IERC20Metadata(usdg_).decimals();
+        usdgDecimals = d;
+        minLiquidity = uint128(1e4 * 10 ** ((18 + uint256(d)) / 2));
+    }
+
+    function setAutoWarmup(uint32 w) external onlyOwner {
+        if (w > 7 days) revert BadParam();
+        autoWarmup = w;
+        emit AutoWarmupSet(w);
     }
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
         _;
-    }
-
-    function transferOwnership(address o) external onlyOwner {
-        owner = o;
-        emit OwnerTransferred(o);
     }
 
     function setTwapParams(uint32 window, int24 maxDelta) external onlyOwner {
@@ -96,6 +112,7 @@ contract QuotePricer is IQuotePricer {
         if (sqrtP == 0) revert BadPool();
         _poolOf[quote] = key;
         hasPricePool[quote] = true;
+        isAutoPool[quote] = false;
         // (Re)start the oracle at the owner-registration spot.
         TwapOracle.initialize(_oracle[quote], _usdTick(quote, key));
         emit PricePoolSet(quote, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, address(key.hooks));
@@ -104,12 +121,27 @@ contract QuotePricer is IQuotePricer {
     function clearPricePool(address quote) external onlyOwner {
         delete _poolOf[quote];
         hasPricePool[quote] = false;
+        isAutoPool[quote] = false;
         emit PricePoolCleared(quote);
     }
 
-    /// @notice Permissionless: record a (lagged, truncated) observation for `quote`. No-op for USDG / unset.
+    /// @notice Permissionless: record a (lagged, truncated) observation for `quote`. If `quote` has no pool yet,
+    ///         discover and auto-register the deepest standard (quote, USDG) v4 pool meeting minLiquidity.
     function poke(address quote) public {
-        if (!hasPricePool[quote]) return;
+        if (quote == usdg) return;
+        // Discover if unset, or re-discover if the AUTO pool fell below the floor (e.g. a thin/narrow-range pool
+        // that was arbitraged out of range). Owner-registered pools are never replaced.
+        if (!hasPricePool[quote] || (isAutoPool[quote] && poolManager.getLiquidity(_poolOf[quote].toId()) < minLiquidity)) {
+            (bool found, PoolKey memory k, uint128 liq) = BasePools.discover(poolManager, quote, usdg);
+            if (!found || liq == 0 || liq < minLiquidity) return;
+            _poolOf[quote] = k;
+            hasPricePool[quote] = true;
+            isAutoPool[quote] = true;
+            autoSince[quote] = uint40(block.timestamp);
+            TwapOracle.initialize(_oracle[quote], _usdTick(quote, k));
+            emit PricePoolDiscovered(quote, PoolId.unwrap(k.toId()), k.fee, k.tickSpacing, liq);
+            return;
+        }
         int24 spot = _usdTick(quote, _poolOf[quote]);
         TwapOracle.State storage o = _oracle[quote];
         if (TwapOracle.write(o, spot, maxTickDelta, true)) emit Poked(quote, spot, TwapOracle.last(o).tick);
@@ -132,6 +164,15 @@ contract QuotePricer is IQuotePricer {
         return _poolOf[quote];
     }
 
+    /// @notice The pool `quote` is (or would be) priced from: the registered pool, else the deepest standard
+    ///         (quote, USDG) v4 pool meeting minLiquidity. Used by QuoteProbe for the round-trip probe.
+    function poolKeyFor(address quote) external view returns (bool ok, PoolKey memory key) {
+        if (hasPricePool[quote]) return (true, _poolOf[quote]);
+        uint128 liq;
+        (ok, key, liq) = BasePools.discover(poolManager, quote, usdg);
+        ok = ok && liq != 0 && liq >= minLiquidity;
+    }
+
     /// @inheritdoc IQuotePricer
     /// @dev TWAP (manipulation-resistant). Used for curve USD targets at launch and live mcap.
     function quotePriceUsd(address quote) external view override returns (uint256 p) {
@@ -140,6 +181,10 @@ contract QuotePricer is IQuotePricer {
         if (!hasPricePool[quote]) revert NoPricePool(quote);
         uint128 liq = poolManager.getLiquidity(_poolOf[quote].toId());
         if (liq < minLiquidity || liq == 0) revert ThinPool(liq);
+        if (isAutoPool[quote]) {
+            uint256 readyAt = uint256(autoSince[quote]) + autoWarmup;
+            if (block.timestamp < readyAt) revert TwapWarmingUp(readyAt);
+        }
         (int24 t,) = twapTick(quote);
         // usdg raw per quote raw at tick t, scaled to USD WAD per 1e18 quote raw
         // Tick-quantized TWAP (≤1 bp). If the TWAP is within ±1 tick of spot, use the exact spot sqrt price:

@@ -80,7 +80,7 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     if (cfg.feeRouter && to === lc(cfg.feeRouter)) {
       try { decodeFunctionData({ abi: claimAbi, data: c.data }); continue; } catch { throw new PolicyError(`Session can't call ${c.to}.`); }
     }
-    if (cfg.depositNotifier && to === lc(cfg.depositNotifier)) {
+    if (cfg.usdgDepositNotifier && to === lc(cfg.usdgDepositNotifier)) {
       let d: { functionName: string; args?: readonly unknown[] };
       try { d = decodeFunctionData({ abi: notifierAbi, data: c.data }); } catch { throw new PolicyError(`Session can't call ${c.to}.`); }
       if (d.functionName === "deposit" && lc(d.args![0] as string) !== lc(account)) throw new PolicyError("Deposits must be for this account.");
@@ -93,8 +93,8 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
       // USDG → router must be exact (policy 1.3.0); USDG → anything else is owner-only (sessionEligible routes it)
       if (cfg.usdg && to === lc(cfg.usdg) && lc(spender) === lc(cfg.router) && usdgNeed > BigInt(0) && amt !== BigInt(0) && amt !== usdgNeed)
         throw new PolicyError("USDG approve must equal this trade's USDG amount.");
-      if (cfg.depositNotifier && lc(spender) === lc(cfg.depositNotifier)) {
-        const need = depositTotal(calls, cfg.depositNotifier);
+      if (cfg.usdgDepositNotifier && lc(spender) === lc(cfg.usdgDepositNotifier)) {
+        const need = depositTotal(calls, cfg.usdgDepositNotifier);
         if (amt !== BigInt(0) && amt !== need) throw new PolicyError("Deposit approve must equal the deposit amount.");
       } else if (!fixed.has(lc(spender)) && !(await isCurve(spender))) throw new PolicyError(`Session can't approve ${spender}.`);
       delta[to] = (delta[to] ?? BigInt(0)) + amt;

@@ -24,7 +24,7 @@ export type GateState = {
   escrows: Escrow[];
 };
 
-const notifier = () => deployment().depositNotifier;
+const notifier = () => deployment().usdgDepositNotifier;
 let usdgAddr: Promise<Address> | null = null;
 export const notifierUsdg = (pc: PublicClient) => (usdgAddr ??= pc.readContract({ address: notifier(), abi: depositNotifierAbi, functionName: "usdg" }) as Promise<Address>);
 

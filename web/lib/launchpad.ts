@@ -28,6 +28,8 @@ export type Rocket = {
   /** Launch order (higher = newer). */
   born?: number;
   stats: Omit<RocketStats, "mcapUsd">;
+  /** Manual yes/no verification flag (e.g. set by a future admin API). isVerified() also checks VERIFIED_COINS. */
+  verified?: boolean;
 };
 
 function rng(seed: number) {

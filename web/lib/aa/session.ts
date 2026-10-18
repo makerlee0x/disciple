@@ -293,7 +293,7 @@ export async function aaSend(calls: Call[]) {
     mintable: MINTABLE_TEST_TOKENS.map((t) => t.address), defaultLimit: SESSION_LIMIT, spendTokens: [d.defaultQuote, d.usdg],
     usdg: policyHasUsdg() ? d.usdg : undefined,
     feeRouter: d.feeRouter,
-    depositNotifier: /^0x0{40}$/i.test(d.depositNotifier) ? undefined : d.depositNotifier,
+    depositNotifier: /^0x0{40}$/i.test(d.usdgDepositNotifier) ? undefined : d.usdgDepositNotifier,
   }, state, calls, me);
   const r = await sa.sendCalls(calls, (await canUseSessionKey(calls)) ? "session" : "owner");
   gasListeners.forEach((f) => f("self-pay"));
