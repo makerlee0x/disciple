@@ -33,7 +33,9 @@ export async function renderShareCard(callSign: string, icon?: string | null): P
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png"));
 }
 
-export default function ShareButton({ callSign, icon }: { callSign: string; icon?: string | null }) {
+/** Rocket card download (inline button; lives in the ESC settings menu's Share section; was a floating SHARE pill
+ *  top-right of the flight page). Click → renders the PNG, downloads it and shows a preview (click the preview to close). */
+export default function ShareButton({ callSign, icon, label = "Download rocket card", style }: { callSign: string; icon?: string | null; label?: string; style?: React.CSSProperties }) {
   const [url, setUrl] = useState<string | null>(null);
   async function onShare() {
     const blob = await renderShareCard(callSign, icon);
@@ -44,14 +46,12 @@ export default function ShareButton({ callSign, icon }: { callSign: string; icon
   }
   return (
     <>
-      <button type="button" onClick={onShare} aria-label="Share rocket card"
-        style={{ position: "fixed", top: "var(--ap-tr-top, 12px)", right: 60, zIndex: 35, height: 38, padding: "0 14px", borderRadius: 19,
-          color: "#E8EAEE", background: "rgba(22,24,28,.82)", border: "1px solid rgba(201,206,214,.7)", font: "bold 12px ui-monospace,monospace", cursor: "pointer" }}>
-        <Icon name="share" size={16} style={{ verticalAlign: -3 }} /> SHARE
+      <button type="button" onClick={onShare} aria-label="Share rocket card" data-testid="share-card" style={style}>
+        <Icon name="share" size={14} style={{ verticalAlign: -2 }} /> {label}
       </button>
       {url && (
-        <div role="dialog" aria-label="Share card preview" onClick={() => setUrl(null)}
-          style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(0,0,0,.7)", display: "grid", placeItems: "center" }}>
+        <div role="dialog" aria-label="Share card preview" onClick={() => { URL.revokeObjectURL(url); setUrl(null); }}
+          style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,.7)", display: "grid", placeItems: "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt="share card" style={{ width: "min(80vw,900px)", borderRadius: 16, border: "1px solid rgba(201,206,214,.6)" }} />
         </div>

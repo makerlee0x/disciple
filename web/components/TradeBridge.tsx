@@ -12,7 +12,9 @@ import AmmoTierNotice from "./AmmoTierNotice";
 import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
-import { SELL_KEYS, SWAP_PREFIX, loadSettings, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { keyLabel, useGameSettings } from "@/lib/game/settings";
+import { useT } from "@/lib/game/i18n";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -34,7 +36,8 @@ declare global {
 type Pos = { size: number; valueUsd: number; costBasis: number };
 /** % sells (default 10/25/50/100). Keys Z/X/C/V; the 4 slots are editable in Swap settings.
  * The SELL row itself is drawn in the engine's AMMO panel. Clicking a preset only SELECTS it (disciple:sellselect);
- * DUMP / Shift (disciple:dump) sells the selected % (or the custom sell field); Z/X/C/V only SELECT (never trade). */
+ * DUMP / Shift (disciple:dump) sells the selected % (or the custom sell field); Z/X/C/V only SELECT (never trade).
+ * Sell-size keys are read by the engine (bindings from the ESC settings menu) and arrive here as disciple:sellselect. */
 type Sell = { id: string; label: string; frac: number; key: string };
 /** frac of a raw balance (1e-6 precision), same rounding everywhere so warmed sell quotes are cache hits. */
 const sellAmount = (bal: bigint, frac: number) => (bal * BigInt(Math.round(Math.min(1, frac) * 1e6))) / BigInt(1e6);
@@ -45,6 +48,8 @@ const DEFAULT_SELL_SEL = 1;   // 25%
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
   const [mode, setMode] = useState(2);
   const [custom, setCustom] = useState("");
+  const gs = useGameSettings();
+  const t = useT();
   const [pos, setPos] = useState<Pos>({ size: 0, valueUsd: 0, costBasis: 0 });
   useEffect(() => {
     const h = (e: Event) => setPos((e as CustomEvent<Pos>).detail);
@@ -82,9 +87,21 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const SELLS = toSells(cfg.sells);
   // push overrides + tag state to the engine (again whenever it (re)announces ammo, i.e. after boot)
   const pushCfg = useRef(() => {});
-  pushCfg.current = () => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: cfgRef.current.buy } })); dispatchEvent(new CustomEvent("disciple:pnltag", { detail: { on: cfgRef.current.tag } })); };
+  pushCfg.current = () => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: cfgRef.current.buy } })); dispatchEvent(new CustomEvent("disciple:pnltag", { detail: { on: cfgRef.current.tag } }));
+    dispatchEvent(new CustomEvent("disciple:custombuy", { detail: { usd: customRef.current } })); pushPresets(); };
+  // ESC settings menu (components/flight/SettingsMenu.tsx) edits the same Swap-settings amounts: it reads them via
+  // disciple:presets and writes them back with disciple:presets-set (one book for the trade bar, ammo panel and menu).
+  const pushPresets = () => dispatchEvent(new CustomEvent("disciple:presets", { detail: { buy: cfgRef.current.buy, sells: cfgRef.current.sells } }));
   const booted = useRef(false);
   useEffect(() => { pushCfg.current(); }, [cfg]);
+  useEffect(() => {
+    const q = () => pushPresets();
+    const set = (e: Event) => { const d = (e as CustomEvent<{ buy?: number[] | null; sells?: SellSlot[] }>).detail; if (!d) return;
+      const n = sanitize({ ...cfgRef.current, ...(d.buy !== undefined ? { buy: d.buy } : {}), ...(d.sells ? { sells: d.sells } : {}) });
+      setCfg(n); saveSettings(scope, n); };
+    addEventListener("disciple:presets-query", q); addEventListener("disciple:presets-set", set);
+    return () => { removeEventListener("disciple:presets-query", q); removeEventListener("disciple:presets-set", set); };
+  }, [scope]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const h = () => { if (!booted.current) { booted.current = true; pushCfg.current(); } }; addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, []);
   useEffect(() => { const o = () => setShowCfg(true); const t = (e: Event) => { const on = !!(e as CustomEvent<{ on: boolean }>).detail?.on; if (on !== cfgRef.current.tag) { const n = { ...cfgRef.current, tag: on }; setCfg(n); saveSettings(scope, n); } };
     addEventListener("disciple:swapsettings", o); addEventListener("disciple:pnltag-state", t); return () => { removeEventListener("disciple:swapsettings", o); removeEventListener("disciple:pnltag-state", t); }; }, [scope]);
@@ -195,14 +212,12 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   }, [SEL_KEY]);
   const dumpRef = useRef<(() => void) | null>(null);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      const i = (SELL_KEYS as readonly string[]).indexOf(e.code); if (i >= 0 && !e.repeat && !e.ctrlKey && !e.metaKey) { selSell.current(i); }   // selector only: updates the DUMP selection/label, never trades (Shift / DUMP sells)
-    };
+    // sell-size keys (default Z/X/C/V, rebindable in the ESC menu) are handled by the engine, which emits disciple:sellselect:
+    // selector only, updates the DUMP selection/label, never trades (Shift / DUMP sells)
     const c = (e: Event) => { const i = (e as CustomEvent<{ i: number }>).detail?.i; if (i >= 0 && i < 4) selSell.current(i); };
     const d = () => dumpRef.current?.();
-    addEventListener("keydown", k); addEventListener("disciple:sellselect", c); addEventListener("disciple:dump", d);
-    return () => { removeEventListener("keydown", k); removeEventListener("disciple:sellselect", c); removeEventListener("disciple:dump", d); };
+    addEventListener("disciple:sellselect", c); addEventListener("disciple:dump", d);
+    return () => { removeEventListener("disciple:sellselect", c); removeEventListener("disciple:dump", d); };
   }, []);
   // SELL row labels/enabled → engine ammo panel
   // live: the wallet's real token balance decides whether selling is possible (polled + after each trade) → engine guard
@@ -218,13 +233,16 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const has = live && liveHas != null ? liveHas : pos.size > 0;
   const [hint, setHint] = useState("");
   useEffect(() => { if (!hint) return; const t = setTimeout(() => setHint(""), 1400); return () => clearTimeout(t); }, [hint]);
-  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0) + "|" + sellSel;
+  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0) + "|" + sellSel + "|" + gs.keys.sell.join();
   const pushSells = useRef(() => {});
-  pushSells.current = () => { const items = toSells(cfgRef.current.sells).map((x, i) => ({ label: x.label, key: x.key.slice(3), on: has, sel: i === sellSel }));
+  pushSells.current = () => { const items = toSells(cfgRef.current.sells).map((x, i) => ({ label: x.label, key: keyLabel(gs.keys.sell[i] || x.key), on: has, sel: i === sellSel }));
     dispatchEvent(new CustomEvent("disciple:sellpresets", { detail: { items } })); };
   useEffect(() => { pushSells.current(); }, [sellSig]);
   useEffect(() => { let n = 0; const h = () => { if (n++ < 3) pushSells.current(); }; addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, []);   // engine may boot after mount (worker)
   const customUsd = +custom > 0 ? +custom : 0;
+  // SPACE (engine) = BOOST with the ACTIVE amount: the custom $ when filled, else the selected preset (was: always the preset)
+  const customRef = useRef(customUsd); customRef.current = customUsd;
+  useEffect(() => { dispatchEvent(new CustomEvent("disciple:custombuy", { detail: { usd: customUsd } })); }, [customUsd]);
   const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number }) =>
     window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } }));
   // sell sizing from the PnL ledger (real mark): x% of the position value
@@ -260,9 +278,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
           onKeyDown={(e) => { if (e.key === "Enter" && customUsd) { e.preventDefault(); shoot("buy"); } e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-        <button type="button" aria-label="buy" data-testid="buy-btn" title={`BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4" }}>▲ BOOST {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> custom</span> : null}</button>
+        <button type="button" aria-label="buy" data-testid="buy-btn" title={`BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
         <button type="button" aria-label="sell" data-testid="sell-btn" title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has} disabled={!has} onClick={() => dumpRef.current?.()}
-          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ DUMP {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> custom</span> : null}</button>
+          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
           <input aria-label="custom sell amount" data-testid="custom-sell" inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
             title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
@@ -275,7 +293,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
           <span title={live ? "wallet signs each shot" : "paper trades — connect wallet to trade"} style={{ justifySelf: "start", padding: "1px 6px", borderRadius: 5,
             background: live ? "rgba(159,243,200,.14)" : "rgba(255,231,163,.14)", color: live ? "#9ff3c8" : "#ffe7a3" }}>{live ? "LIVE" : valid ? "PAPER" : token === "SIMULATOR" ? "SIM" : "PAPER"}</span>
-          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `pos ${fmtMoney(pos.valueUsd)}` : "no position"}</span>
+          <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `${t("tb.pos")} ${fmtMoney(pos.valueUsd)}` : t("tb.noPos")}</span>
         </div>
       </div>
       {hint && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint}</div>}

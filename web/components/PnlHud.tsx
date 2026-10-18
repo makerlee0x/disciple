@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
 import { applyFill, emptyPosition, view, type Position, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
+import { useT } from "@/lib/game/i18n";
 
 type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number; frac?: number; session?: string | null };
 type Mark = { mcap: number; supply: number; session?: string | null };
@@ -65,6 +66,7 @@ function sessionRealized(coin: string, KEY: string) {
  *  so it pushes the whole position on this event ({ pos, supply }) and paper fills are not re-booked here. */
 export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, syncEvent }: { coin: string; storagePrefix?: string; modeLabel?: string; syncEvent?: string }) {
   const KEY = storagePrefix;
+  const t = useT();
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
   const [open, setOpen] = useState(true);
@@ -141,40 +143,42 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
         transition: "border-color .4s" }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
-        <span>YOUR RUN <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || "PAPER"}</span></span>
+        <span>{t("pnl.yourRun")} <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || t("pnl.paper")}</span></span>
         <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>
 
-      {/* hero: unrealized PnL + % */}
-      <div style={{ ...row, marginTop: 4 }}>
+      {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it depends on how far the
+          mcap moved since YOUR entry, not on the share of supply held. E.g. holdings $1.35K at $8.8K MCAP with avg entry MC
+          ≈$7.27K (curve starts at $7K) ⇒ +21%; see docs in lib/pnl.ts. */}
+      <div style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
         <Num value={v.uPnl} fmt={usd} style={{ fontSize: 22, fontWeight: 800, color: col(v.uPnl), textShadow: glow(col(v.uPnl)), letterSpacing: "-.02em" }} />
         <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
           background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
       </div>
-      <div style={label}>UNREALIZED PNL</div>
+      <div style={label}>{t("pnl.unrealized")}</div>
 
       {open && (
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>
-          <div style={row}><span style={label}>MCAP</span><Num value={mark.mcap} fmt={fmtUsd} style={{ fontWeight: 700 }} /></div>
-          <div style={row}><span style={label}>HOLDINGS</span>
+          <div style={row}><span style={label}>{t("pnl.mcap")}</span><Num value={mark.mcap} fmt={fmtUsd} style={{ fontWeight: 700 }} /></div>
+          <div style={row}><span style={label}>{t("pnl.holdings")}</span>
             <span>{amt(v.size)} · <Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
-          <div style={row}><span style={label}>AVG ENTRY</span><span>{holding ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
-          <div style={row}><span style={label}>REALIZED</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
-          {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>EXIT FEES</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
-          <div style={row}><span style={label}>OTHER ROCKETS</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
+          <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{holding ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
+          <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
+          {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
+          <div style={row}><span style={label}>{t("pnl.other")}</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
 
           {/* points hook: off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with
               unrealized PnL + hold time. Never money: it scales season points, not payouts or fees. */}
           <div title={`Off-chain points multiplier: grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}. Points only, never money.`} style={{ marginTop: 6 }}>
             <div style={{ ...row, color: v.bonus > 1 ? "#ffd98a" : "rgba(220,228,255,.6)", fontWeight: 700 }}>
-              <span>POINTS</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
+              <span>{t("pnl.points")}</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
             </div>
             <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,.08)", overflow: "hidden", marginTop: 3 }}>
               <div style={{ width: `${Math.max(3, share * 100)}%`, height: "100%", borderRadius: 3, transition: "width .5s ease-out",
                 background: "linear-gradient(90deg,#ffd98a,#9ff3c8)", boxShadow: v.uPnl > 0 ? "0 0 8px rgba(255,217,138,.6)" : "none" }} />
             </div>
             <div style={{ fontSize: 10, marginTop: 3, color: v.uPnl > 0 ? "#ffe7a3" : "rgba(220,228,255,.5)" }}>
-              {v.uPnl > 0 ? "▲ more uPnL → bigger points multiplier · hold to ramp" : "stay green to earn a bigger points multiplier"}
+              {v.uPnl > 0 ? t("pnl.hintUp") : t("pnl.hintFlat")}
             </div>
           </div>
         </div>

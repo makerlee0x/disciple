@@ -1,6 +1,8 @@
 "use client";
 
-import TouchGrass, { TouchGrassPill } from "./flight/TouchGrass";
+import TouchGrass from "./flight/TouchGrass";
+import SettingsMenu from "./flight/SettingsMenu";
+import { useT } from "@/lib/game/i18n";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import Icon from "@/components/ui/Icon";
 import Link from "next/link";
@@ -13,7 +15,6 @@ import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
-import ControlsPill from "@/components/ControlsPill";
 
 declare global {
   interface Window {
@@ -34,6 +35,7 @@ type Props = {
  */
 export default function FlightCanvas({ search }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const t = useT();
   const [status, setStatus] = useState("Loading flight…");
   const [err, setErr] = useState<string | null>(null);
 
@@ -178,7 +180,7 @@ export default function FlightCanvas({ search }: Props) {
   }, [search]);
 
   // Top-right stacking: the site's wallet strip (top-right, height varies with its state) comes first,
-  // then the Share/Exit row, then the in-canvas status column + crew panel. Measured, not hardcoded.
+  // then the Settings(gear)/Exit row, then the in-canvas status column + crew panel. Measured, not hardcoded.
   useEffect(() => {
     let last = -1;
     const tick = () => {
@@ -215,6 +217,7 @@ export default function FlightCanvas({ search }: Props) {
     if (!/^0x[0-9a-fA-F]{40}$/.test(coin) && !(q.get("source") === "sim" && q.get("chatmock") === "1")) return null;
     if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
     return coin || "0x000000000000000000000000000000000000c0de"; })();
+  const q0 = new URLSearchParams(search);
 
   return (
     <>
@@ -235,7 +238,7 @@ export default function FlightCanvas({ search }: Props) {
       <Link
         id="exitX"
         href="/"
-        title="Back to Launchpad"
+        title={t("exit")}
         aria-label="Close flight and return to Launchpad"
         style={{
           position: "fixed",
@@ -258,13 +261,11 @@ export default function FlightCanvas({ search }: Props) {
         <Icon name="close" size={16} />
       </Link>
       <TouchGrass />
+      {/* ESC settings menu + its gear button (top-right, left of the exit X): Share, Hotkeys, Sound, Language, Display
+          (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
+      <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
       <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
-        <ControlsPill simulator={isSimulator} />
-        <TouchGrassPill />
-        <button id="orbBtn" type="button" title="Toggle orbs (O)" className="ap-pill">
-          ORBS ON · O
-        </button>
         {!isSimulator && <button
           type="button"
           data-testid="sim-toggle"
@@ -273,8 +274,8 @@ export default function FlightCanvas({ search }: Props) {
           className="ap-pill"
           style={{ color: sim.on ? "#d9ccff" : "rgba(220,228,255,.6)", borderColor: sim.on ? "rgba(201,184,255,.7)" : "rgba(255,255,255,.2)" }}
         >
-          {sim.on ? "◆ SIMULATED MARKET · ON" : "◇ SIMULATED MARKET · OFF"}
-          {sim.mode === "auto" ? " (auto)" : ""}
+          {sim.on ? t("sim.on") : t("sim.off")}
+          {sim.mode === "auto" ? " " + t("sim.auto") : ""}
         </button>}
       </div>
       <div
@@ -310,6 +311,16 @@ export default function FlightCanvas({ search }: Props) {
         </div>
       )}
       <style jsx global>{`
+        /* Flight page only (this style unmounts with the page): declutter the SITE wallet strip (components/WalletButton.tsx,
+           SITE-owned; proper fix requested from SITE). Hidden here: the testnet faucet ("Get test funds" mint button = the
+           only title-less button right before the address pill, and the "ETH faucet" links) and the wallet's Disconnect X
+           (a second X next to the exit X; Sign out stays in the account popover). The low-gas status line is kept. */
+        [aria-label="wallet"] button:not([title]):not([aria-label]):has(+ button[title]),
+        [aria-label="wallet"] > span[title] a[href*="faucet"],
+        [aria-label="wallet"] [role="menu"] > a[href*="faucet"],
+        [aria-label="wallet"] button[aria-label="Disconnect"] {
+          display: none !important;
+        }
         body.side-open .flight-wrap {
           left: var(--ap-side-w, 270px) !important;
         }

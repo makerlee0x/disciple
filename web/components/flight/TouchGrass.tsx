@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * TOUCH GRASS — ambient mode: only the rocket, sky, clouds, trail and a faded mcap readout.
- * G toggles, Esc exits, ?grass=1 enables (shareable), state remembered in localStorage.
+ * G toggles (or Display → Touch Grass in the ESC settings menu), Esc exits, ?grass=1 enables (shareable), state remembered in localStorage.
+ * The readout is "$TICKER · $8.8K MCAP" (engine drawGrass; ticker = the coin page's ?cs call sign).
  * The engine (disciple:grass) stops drawing HUD/fx and ignores trade keys; every React overlay is hidden by
  * the html.ap-grass rule below (visibility, so the sim, chat, PnL etc. keep running underneath).
  */
@@ -76,10 +77,4 @@ export default function TouchGrass() {
       `}</style>
     </>
   );
-}
-
-/** Small pill for the bottom-centre pill row (next to '? CONTROLS'). */
-export function TouchGrassPill() {
-  return <button type="button" className="ap-pill" data-testid="grass-toggle" title="Touch Grass: ambient rocket, mcap only (G)"
-    onClick={() => dispatchEvent(new Event("disciple:grass-toggle"))}><Icon name="grass" size={12} /> GRASS · G</button>;
 }

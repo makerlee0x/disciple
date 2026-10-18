@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
-import ShareButton from "@/components/ShareButton";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
@@ -39,7 +38,7 @@ function FlightInner({ address }: { address: string }) {
       <TradeBridge token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
-      <ShareButton callSign={sp.get("cs") || "AI"} icon={sp.get("icon")} />
+      {/* Share (trade card + rocket card) lives in the ESC settings menu (FlightCanvas → SettingsMenu), not a floating pill */}
     </>
   );
 }
