@@ -152,3 +152,5 @@
   .cl-coin-pill { white-space: nowrap; gap: 6px; padding: 3px 3px 3px 10px; font-size: 11px; background: rgba(11, 12, 14, .88); }
   .cl-coin-pill button, .cl-coin-pill a { padding: 4px 10px; font-size: 11px; }
 }
+.cl-pending-upgrade { opacity: .78; cursor: help; }
+.cl-pending-upgrade .cl-pill { margin-left: 6px; padding: 3px 8px; font-size: 10px; color: var(--dsc-muted); }

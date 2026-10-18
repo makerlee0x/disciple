@@ -85,3 +85,15 @@ test("USD helpers", () => {
   assert.equal(toUsd(BigInt(1), { ...a, usd: null }), null);
   assert.equal(fmtUsd(12.34), "$12.34");
 });
+
+test("anon: a token share pending the AnonLauncher upgrade never produces a claim call", async () => {
+  const { creatorClaimCalls } = await import("../lib/claims/creatorFees");
+  const { anonLauncherV2Addr, anonClaimTarget, anonLauncherAddr } = await import("../lib/claims/capabilities");
+  assert.equal(anonLauncherV2Addr(), null); // NEXT_PUBLIC_ANON_LAUNCHER_V2 unset
+  assert.equal(anonClaimTarget(), anonLauncherAddr());
+  const asset = { address: A(9), symbol: "NITE", decimals: 18, usd: null };
+  const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: true, crew: true, referralGate: true, anonClaims: true };
+  const row = { token: A(9), claimable: BigInt(0), anon: true, tokenSide: { asset, claimable: BigInt(0), claimed: BigInt(0) }, tokenPendingUpgrade: { asset, raw: BigInt(5) } };
+  assert.equal(creatorClaimCalls([row], caps, ME).length, 0);
+  assert.equal(creatorClaimCalls([{ ...row, claimable: BigInt(1) }], caps, ME).length, 1);
+});

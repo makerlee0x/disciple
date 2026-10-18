@@ -13,7 +13,7 @@ import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi 
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
-import { anonLauncherAddr, type Caps } from "./capabilities";
+import { anonClaimTarget, anonLauncherAddr, anonLauncherV2Addr, type Caps } from "./capabilities";
 import { assetMeta, lc, type Asset } from "./common";
 
 const ZERO = BigInt(0);
@@ -26,6 +26,9 @@ export type CreatorRocket = {
   tokenSide: { asset: Asset; claimable: bigint; claimed: bigint } | null;
   /** pseudonymous launch: claimed through AnonLauncher.claimMany by the stealth owner */
   anon?: boolean;
+  /** anon only: post-grad token share accrued to AnonLauncher v1 in FeeRouter (creatorTokenAccrued[token][v1]).
+   *  v1 can't claim it ⇒ read-only "Pending upgrade" until NEXT_PUBLIC_ANON_LAUNCHER_V2 is set. */
+  tokenPendingUpgrade?: { asset: Asset; raw: bigint } | null;
 };
 
 type Launch = { token: Address; name: string; ticker: string; quote: Address; block: bigint };
@@ -112,7 +115,10 @@ export async function anonRockets(pc: PublicClient, me: Address): Promise<Creato
   const rows = await Promise.all(tokens.map(async (token): Promise<CreatorRocket | null> => {
     const owner = await pc.readContract({ address: al, abi: anonLauncherAbi, functionName: "stealthOwnerOf", args: [token] }).catch(() => null);
     if (!owner || lc(owner as string) !== lc(me)) return null;
-    const [q, qAmt, tAmt] = (await pc.readContract({ address: al, abi: anonLauncherAbi, functionName: "pending", args: [token] })) as readonly [Address, bigint, bigint];
+    const [[q, qAmt, tAmt], stuck] = await Promise.all([
+      pc.readContract({ address: al, abi: anonLauncherAbi, functionName: "pending", args: [token] }) as Promise<readonly [Address, bigint, bigint]>,
+      (pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [token, al] }) as Promise<bigint>).catch(() => ZERO),
+    ]);
     const [quote, asset, name, ticker] = await Promise.all([
       assetMeta(pc, q), assetMeta(pc, token),
       pc.readContract({ address: token, abi: tokenAbi, functionName: "name" }).catch(() => "Rocket"),
@@ -121,7 +127,11 @@ export async function anonRockets(pc: PublicClient, me: Address): Promise<Creato
     const mine = claims.filter((c) => lc(c.args.token) === token);
     const cq = mine.filter((c) => lc(c.args.asset) === lc(q)).reduce((a, c) => a + c.args.amount, ZERO);
     const ct = mine.filter((c) => lc(c.args.asset) === token).reduce((a, c) => a + c.args.amount, ZERO);
-    return { token, name: String(name), ticker: String(ticker), quote, claimable: qAmt, claimed: cq, lifetime: cq + qAmt, recent: [], tokenSide: { asset, claimable: tAmt, claimed: ct }, anon: true };
+    // v2 configured ⇒ its claimMany pays the FeeRouter token share too, so it joins the claimable token side
+    const v2 = !!anonLauncherV2Addr();
+    return { token, name: String(name), ticker: String(ticker), quote, claimable: qAmt, claimed: cq, lifetime: cq + qAmt, recent: [],
+      tokenSide: { asset, claimable: tAmt + (v2 ? stuck : ZERO), claimed: ct }, anon: true,
+      tokenPendingUpgrade: !v2 && stuck > ZERO ? { asset, raw: stuck } : null };
   }));
   return rows.filter((r): r is CreatorRocket => !!r);
 }
@@ -137,7 +147,7 @@ export function creatorClaimCalls(rows: Pick<CreatorRocket, "token" | "claimable
     if (caps.creatorFees && r.claimable > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (caps.creatorTokenFees && hasTok) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorTokenFees", args: [r.token] }) });
   }
-  const al = anonLauncherAddr();
+  const al = anonClaimTarget();
   if (anon.length && caps.anonClaims && al && me) calls.push({ to: al, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "claimMany", args: [anon, me] }) });
   return calls;
 }
@@ -147,7 +157,7 @@ export type ClaimReceipt = { txHash: Hex; claimed: { token: Address; amount: big
 export async function sendCreatorClaims(calls: Call[]): Promise<ClaimReceipt> {
   if (!calls.length) throw new Error("Nothing to claim yet.");
   const r = await execCalls(calls);
-  const fr = lc(deployment().feeRouter), al = lc(anonLauncherAddr() ?? "");
+  const fr = lc(deployment().feeRouter), al = lc(anonClaimTarget() ?? "");
   const claimed: ClaimReceipt["claimed"] = [];
   for (const l of r.logs) {
     const topics = l.topics as [Hex, ...Hex[]];
