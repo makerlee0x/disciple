@@ -8,15 +8,16 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 ## What it indexes
 | Source | Events |
 |---|---|
-| Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext` |
-| BondingCurve (each coin) | `Trade`, `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44) |
-| DiscipleHook | `Trade` (post-grad), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
+| Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext`, `LaunchMode` (v4: `coins.mode` 0 TRENCH / 1 PVE / 2 PVP) |
+| BondingCurve (each coin) | `Trade` (ends in `mcapAfterUsd`), `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44), v4 PVE: `ProfitTaxCharged`, `HolderRewardsClaimed` |
+| DiscipleHook | `Trade` (post-grad; v4 emits the `IHookTradeEvents` overload ending in `uint160 sqrtPriceAfter` → mcap/price computed in `src/usd.ts` via `mcapUsdFromSqrt`/`priceWadFromSqrt`; older hooks end in `mcapAfterUsd`), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
 | Migration | `Migrated` |
 | TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `KeeperTipPaid` (PR #44), `FeesClaimed` (≤v3 only) |
-| FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
+| FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `CreatorTokenFeesClaimed` (v4, launch-token units), `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |
 | AnonLauncher | `AnonLaunched`, `Claimed`, `StealthOwnerTransferred`, `LaunchFeePaid` |
 | ReferralRegistry | `ReferrerPending`, `ReferrerAttributed` (sticky), `UsdgDepositRecorded` |
 | RewardsVault | `RewardAccrued`, `Distributed` |
+| UsdgDepositNotifier (v4) | `Deposited`, `Escrowed` (7-day lock per entry), `Withdrawn`, `Attested` |
 | Token (each coin) | `Transfer` (holder balances) |
 
 Events are only accepted from the addresses of the expected stack. Spoofed `Launched` or `Trade` events from other addresses are ignored.
@@ -41,6 +42,9 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/orders?status=&kind=&token=&owner=&stack=` | tramp/wall orders incl. keeper + keeper tip |
 | `/leaderboard/:board?by=&since=&limit=` | `traders` (by volumeUsd\|trades), `creators`, `coins` (by volume\|mcap\|tier\|new), `tramps`, `keepers`, `referrers` |
 | `/users/:addr` | profile: counters, holdings, launched coins, anon (stealth-owned) coins, referrals, keeper tips |
+| `/coins/:token/profit-tax?limit=` | v4 PVE profit tax: count, sellers, total tax / gross / cost basis, holder rewards claimed, unclaimed estimate (raw + USD), recent events + claims |
+| `/users/:addr/rewards` | holder rewards claimed per coin + live `pendingRewards` on PVE curves, profit tax paid, creator fee claims (quote + token units), fee credits per role |
+| `/users/:addr/referral` | referrer + status, referred wallets (attributed/pending), USDG gate total, notifier escrow entries (unlocked?, funded by), withdrawals, referral earnings + claims |
 | `/users/:addr/holdings` · `/users/:addr/referrals` | per-user holdings (with last price) / referred-by, referred wallets, referrer claims, USDG deposits |
 
 A typed fetch client for SITE/GAME lives in `client/disciple-indexer.ts` (copy into `/web` when wanted; this PR doesn't touch `/web`).

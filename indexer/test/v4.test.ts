@@ -197,11 +197,15 @@ describe("sync: backfill, atomic chunks, reorg rebuild", () => {
 describe("config", () => {
   it("loads web-bundle addresses.json, STACKS filter, START_BLOCK override", () => {
     const p = new URL("../../contracts/deployments/web-bundle/addresses.json", import.meta.url).pathname;
-    const c = loadConfig({ DEPLOYMENT_JSON: p, STACK_ID: "v3", RPC_URL: "http://rpc" } as any);
+    const c = loadConfig({ DEPLOYMENT_JSON: p, STACK_ID: "v4", RPC_URL: "http://rpc" } as any);
     expect(c.stacks).toHaveLength(1);
-    expect(c.stacks[0]).toMatchObject({ id: "v3", fromBlock: 136187963n, launchpad: "0xf5c09182091e527f0445ce065f7fc59d4b55cede", referralRegistry: "0x633be77ee01aafb35297950d88168ca052e1f9ac" });
-    const all = loadConfig({ STACKS: "v3", START_BLOCK: "136190000" } as any);
-    expect(all.stacks.map((x) => x.id)).toEqual(["v3"]);
-    expect(all.stacks[0].fromBlock).toBe(136190000n);
+    expect(c.stacks[0]).toMatchObject({ id: "v4", fromBlock: 137540728n, launchpad: "0x4f540bc1585ca36c8a49662dc642f6e28ae534da", referralRegistry: "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
+      usdgDepositNotifier: "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9", loginGate: "0xe900b7060895f130e866eeddec2b3efd3ff0b69f" });
+    // main json: v4 newest (PR #97) with v3 → v1 as previous stacks; START_BLOCK overrides the newest only
+    expect(loadConfig({} as any).stacks.map((x) => x.id)).toEqual(["v1", "v2", "v3", "v4"]);
+    const all = loadConfig({ STACKS: "v4", START_BLOCK: "137540800" } as any);
+    expect(all.stacks.map((x) => x.id)).toEqual(["v4"]);
+    expect(all.stacks[0].fromBlock).toBe(137540800n);
+    expect(loadConfig({ STACKS: "v3" } as any).stacks[0].fromBlock).toBe(136187963n);
   });
 });

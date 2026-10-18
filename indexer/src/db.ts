@@ -66,6 +66,23 @@ export function openDb(path: string): DB {
     block INTEGER, ts INTEGER, tx TEXT
   );
   CREATE INDEX IF NOT EXISTS lp_compounds_token ON lp_compounds(token, block);
+  -- v4 PVE curves: profit tax on sells (quote raw) and holder reward claims (quote raw)
+  CREATE TABLE IF NOT EXISTS profit_tax (
+    id TEXT PRIMARY KEY, stack TEXT, token TEXT NOT NULL, seller TEXT NOT NULL, tax TEXT, gross TEXT, cost_basis TEXT, block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS profit_tax_token ON profit_tax(token, block);
+  CREATE INDEX IF NOT EXISTS profit_tax_seller ON profit_tax(seller);
+  CREATE TABLE IF NOT EXISTS holder_rewards (
+    id TEXT PRIMARY KEY, stack TEXT, token TEXT NOT NULL, holder TEXT NOT NULL, amount TEXT, block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS holder_rewards_holder ON holder_rewards(holder);
+  CREATE INDEX IF NOT EXISTS holder_rewards_token ON holder_rewards(token);
+  -- v4 UsdgDepositNotifier: kind Deposited (counterparty=payer) | Escrowed (escrow_id, unlock_at) | Withdrawn | Attested (counterparty=attestor)
+  CREATE TABLE IF NOT EXISTS usdg_escrow_events (
+    id TEXT PRIMARY KEY, stack TEXT, kind TEXT, wallet TEXT NOT NULL, counterparty TEXT, amount TEXT, escrow_id INTEGER, unlock_at INTEGER,
+    block INTEGER, ts INTEGER, tx TEXT
+  );
+  CREATE INDEX IF NOT EXISTS usdg_escrow_wallet ON usdg_escrow_events(wallet);
   -- last indexed block hash per stack, for reorg detection
   CREATE TABLE IF NOT EXISTS block_hashes (stack TEXT, block INTEGER, hash TEXT, PRIMARY KEY (stack, block));
   `);
@@ -77,7 +94,7 @@ export function openDb(path: string): DB {
   };
   add("coins", {
     tier: "INTEGER", altitude_mcap_usd: "TEXT", altitude_block: "INTEGER", start_mcap_usd: "TEXT", graduation_mcap_usd: "TEXT",
-    total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT",
+    total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT", mode: "INTEGER",
   });
   add("fee_events", { fee_is_quote: "INTEGER" });
   add("orders", { placed_block: "INTEGER", keeper_quote_tip: "TEXT DEFAULT '0'", keeper_token_tip: "TEXT DEFAULT '0'" });
@@ -113,7 +130,7 @@ export function wipeStack(db: DB, stack: string) {
   db.transaction(() => {
     db.prepare("DELETE FROM balances WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
     db.prepare("DELETE FROM coin_stats WHERE token IN (SELECT token FROM coins WHERE stack=?)").run(stack);
-    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes", "fee_credits", "lp_compounds"])
+    for (const t of ["trades", "orders", "fee_events", "tier_breaks", "keeper_tips", "referrals", "coins", "cursor", "block_hashes", "fee_credits", "lp_compounds", "profit_tax", "holder_rewards", "usdg_escrow_events"])
       db.prepare(`DELETE FROM ${t} WHERE stack=?`).run(stack);
   })();
   bumpDataVersion(db);

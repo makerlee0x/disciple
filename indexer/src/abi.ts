@@ -2,6 +2,10 @@ import { parseAbi } from "viem";
 
 const TRADE =
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd)";
+/** v4 DiscipleHook (IHookTradeEvents): same name/fields but the last one is the raw v4 sqrtPriceAfter → different topic0.
+ *  Curves (and pre-v4 hooks) keep TRADE. decodeEventLog picks the overload by topic0; tell them apart by the arg name. */
+export const HOOK_TRADE =
+  "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint160 sqrtPriceAfter)";
 
 /** LPDonation (removed in PR #44) is intentionally not decoded. FeesClaimed / SnipeFeeRoutedToLP stay for older stacks.
  * Every event the indexer stores (union across stacks; old stacks simply never emit the newer ones). */
@@ -11,6 +15,19 @@ export const EVENTS = parseAbi([
   "event MetadataUpdated(address indexed token, string imageURI, string description, string socialsURI)",
   "event CreatorTransferred(address indexed token, address indexed previousCreator, address indexed newCreator)",
   TRADE,
+  HOOK_TRADE,
+  // v4 bonding modes (Launchpad, emitted just BEFORE Launched in the same tx): 0 TRENCH, 1 PVE, 2 PVP
+  "event LaunchMode(address indexed token, address indexed curve, uint8 mode)",
+  // v4 PVE curves: profit tax on sells above the trigger, distributed to holders; holders claim from the curve
+  "event ProfitTaxCharged(address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis)",
+  "event HolderRewardsClaimed(address indexed token, address indexed holder, uint256 amount)",
+  // v4 FeeRouter: post-grad creator fees accrued in launch-token units
+  "event CreatorTokenFeesClaimed(address indexed token, address indexed creator, uint256 amount)",
+  // v4 UsdgDepositNotifier (referral gate escrow, 7-day lock per entry)
+  "event Deposited(address indexed payer, address indexed wallet, uint256 amount)",
+  "event Escrowed(address indexed wallet, uint256 indexed id, uint256 amount, uint256 unlockAt)",
+  "event Withdrawn(address indexed wallet, uint256 amount)",
+  "event Attested(address indexed attestor, address indexed wallet, uint256 amount)",
   "event GraduatedToV4(address indexed token, bytes32 poolId, uint256 tokenLiq, uint256 quoteLiq)",
   "event Migrated(address indexed token, address indexed quote, bytes32 poolId, uint256 tokenAmount, uint256 quoteAmount, uint160 sqrtPriceX96)",
   "event TrampPlaced(uint256 indexed id, address indexed owner, address indexed token, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 quoteAmt)",
@@ -57,4 +74,5 @@ export const READS = parseAbi([
   "function getSlot0(bytes32) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)",
   "function getLiquidity(bytes32) view returns (uint128)",
   "function pricer() view returns (address)",
+  "function pendingRewards(address) view returns (uint256)",
 ]);
