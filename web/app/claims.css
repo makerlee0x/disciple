@@ -146,3 +146,9 @@
   .cl-display { font-size: 34px; }
   .cl-page { padding: 24px 16px 80px; }
 }
+@media (max-width: 640px) {
+  .cl-coin { top: 98px; flex-direction: row; flex-wrap: wrap; justify-content: center; width: calc(100vw - 24px); gap: 6px; }
+  .cl-coin-feed { display: none; }
+  .cl-coin-pill { white-space: nowrap; gap: 6px; padding: 3px 3px 3px 10px; font-size: 11px; background: rgba(11, 12, 14, .88); }
+  .cl-coin-pill button, .cl-coin-pill a { padding: 4px 10px; font-size: 11px; }
+}

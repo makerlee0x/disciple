@@ -1,26 +1,20 @@
 /**
- * Claim capabilities: what the deployed contracts support, so the UI shows exactly the balances/claims that exist.
+ * Claim capabilities on the v4 stack (generated ABIs in lib/abi/*, addresses in lib/chains.ts).
  *
- * LIVE on v3 (decided by the generated web ABI, lib/abi/FeeRouter.ts):
- *   creatorFees   FeeRouter.creatorAccrued(token, creator) + claimCreatorFees(token)
- *   referrerFees  FeeRouter.referrerAccrued(referrer, quote) + claimReferrerFees(quote)
+ *   creatorFees       FeeRouter.creatorAccrued(token, creator) + claimCreatorFees(token)           (quote side, pre-grad)
+ *   creatorTokenFees  FeeRouter.creatorTokenAccrued(token, creator) + claimCreatorTokenFees(token) (launch token, post-grad)
+ *   referrerFees      FeeRouter.referrerAccrued(referrer, quote) + claimReferrerFees(quote)        (referrer FIRST)
+ *   crew              Launchpad.modeOf / curveOf + BondingCurve.pendingRewards + Launchpad.claim   (PVE only)
+ *   referralGate      UsdgDepositNotifier minDeposit / deposit / escrowCount / escrowOf / withdraw
+ *   anonClaims        AnonLauncher.pending(token) + claimMany(tokens, to)                         (stealth owner)
  *
- * REDEPLOY (feat/modes-gas, PR #75), fragments in lib/abi/redeploy.ts. Each needs ALL of:
- *   1. the gate: NEXT_PUBLIC_REDEPLOY_CLAIMS = "1" (on) / "0" (force off) / unset = auto, i.e. on only once the
- *      regenerated web ABI itself carries the function (gen-abi after the redeploy);
- *   2. the address (deposit notifier) where one is needed;
- *   3. an on-chain probe: the view answers at the deployed address (so a v3 deployment with the flag on stays hidden).
- *   creatorTokenFees  FeeRouter.creatorTokenAccrued + claimCreatorTokenFees (post-grad share in the launch token)
- *   crew              Launchpad.modeOf + BondingCurve.pendingRewards + Launchpad.claim(token) (PVE only)
- *   referralGate      UsdgDepositNotifier deposit/escrowOf/withdraw + ReferralRegistry.pendingReferrer
- *
- * TODO(anon): pseudonymous launches accrue to AnonLauncher; claim via AnonLauncher.pending(token) / claimMany(...).
- *   Hook: `anonClaims` below (ABI-detected, no UI yet).
+ * Each needs the function in the generated ABI, a non-zero address, and (probeCaps) a view answering on-chain,
+ * so a misconfigured env hides the card instead of showing broken buttons.
  */
 import type { Abi, PublicClient } from "viem";
-import { anonLauncherAbi, feeRouterAbi, launchpadAbi } from "../abi";
-import { deployment, isDeployed } from "../chains";
-import { depositNotifierAbi, feeRouterRedeployAbi, launchpadRedeployAbi, referralRegistryRedeployAbi } from "../abi/redeploy";
+import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, usdgDepositNotifierAbi } from "../abi";
+import { ANON_ADDONS } from "../anon";
+import { ACTIVE_CHAIN, deployment, isDeployed } from "../chains";
 
 export type Caps = {
   creatorFees: boolean;
@@ -28,34 +22,27 @@ export type Caps = {
   creatorTokenFees: boolean;
   crew: boolean;
   referralGate: boolean;
-  /** TODO hook only: AnonLauncher pending/claimMany exist in the ABI. */
   anonClaims: boolean;
 };
 
 export const abiHas = (abi: Abi | readonly unknown[], name: string) =>
   (abi as readonly { type?: string; name?: string }[]).some((x) => x.type === "function" && x.name === name);
 
-/** Pure gate (unit-tested): flag "1" on, "0" off, anything else = auto (on iff the generated ABI already has it). */
-export function redeployGate(flag: string | undefined, abiSignal: boolean): boolean {
-  if (flag === "1" || flag === "true") return true;
-  if (flag === "0" || flag === "false") return false;
-  return abiSignal;
-}
-
 const Z = "0x0000000000000000000000000000000000000000";
-const FLAG = process.env.NEXT_PUBLIC_REDEPLOY_CLAIMS;
+const set = (a?: string) => !!a && a.toLowerCase() !== Z;
+export const anonLauncherAddr = () => ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
 
-/** Static (sync) capabilities: ABI + flag + addresses. A true here still needs probeCaps() before showing UI. */
-export function staticCaps(flag: string | undefined = FLAG): Caps {
+/** Static (sync) capabilities: ABI + addresses. A true here still needs probeCaps() before showing UI. */
+export function staticCaps(): Caps {
   const d = isDeployed() ? deployment() : null;
-  const fr = d?.feeRouter && d.feeRouter !== Z;
+  const fr = set(d?.feeRouter);
   return {
-    creatorFees: !!fr && abiHas(feeRouterAbi, "creatorAccrued") && abiHas(feeRouterAbi, "claimCreatorFees"),
-    referrerFees: !!fr && abiHas(feeRouterAbi, "referrerAccrued") && abiHas(feeRouterAbi, "claimReferrerFees"),
-    creatorTokenFees: !!fr && redeployGate(flag, abiHas(feeRouterAbi, "creatorTokenAccrued")),
-    crew: !!d && redeployGate(flag, abiHas(launchpadAbi, "modeOf") && abiHas(launchpadAbi, "claim")),
-    referralGate: !!d && d.usdgDepositNotifier !== Z && d.referralRegistry !== Z && redeployGate(flag, true),
-    anonClaims: abiHas(anonLauncherAbi, "pending") && abiHas(anonLauncherAbi, "claimMany"),
+    creatorFees: fr && abiHas(feeRouterAbi, "creatorAccrued") && abiHas(feeRouterAbi, "claimCreatorFees"),
+    referrerFees: fr && abiHas(feeRouterAbi, "referrerAccrued") && abiHas(feeRouterAbi, "claimReferrerFees"),
+    creatorTokenFees: fr && abiHas(feeRouterAbi, "creatorTokenAccrued") && abiHas(feeRouterAbi, "claimCreatorTokenFees"),
+    crew: !!d && abiHas(launchpadAbi, "modeOf") && abiHas(launchpadAbi, "claim") && abiHas(bondingCurveAbi, "pendingRewards"),
+    referralGate: !!d && set(d.usdgDepositNotifier) && abiHas(usdgDepositNotifierAbi, "minDeposit") && abiHas(usdgDepositNotifierAbi, "escrowOf"),
+    anonClaims: set(anonLauncherAddr()) && abiHas(anonLauncherAbi, "pending") && abiHas(anonLauncherAbi, "claimMany"),
   };
 }
 
@@ -63,24 +50,22 @@ const ok = (p: Promise<unknown>) => p.then(() => true, () => false);
 let probed: Promise<Caps> | null = null;
 
 /** Static caps confirmed on-chain (views answer at the deployed addresses). Cached per page load. */
-export function probeCaps(pc: PublicClient, flag: string | undefined = FLAG): Promise<Caps> {
-  if (probed && flag === FLAG) return probed;
-  const s = staticCaps(flag);
-  const run = (async (): Promise<Caps> => {
+export function probeCaps(pc: PublicClient): Promise<Caps> {
+  if (probed) return probed;
+  const s = staticCaps();
+  probed = (async (): Promise<Caps> => {
     if (!isDeployed()) return s;
     const d = deployment();
-    const [tokenFees, crew, gate] = await Promise.all([
-      s.creatorTokenFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterRedeployAbi, functionName: "creatorTokenAccrued", args: [Z, Z] })) : false,
-      s.crew ? ok(pc.readContract({ address: d.launchpad, abi: launchpadRedeployAbi, functionName: "modeOf", args: [Z] })) : false,
-      s.referralGate
-        ? ok(Promise.all([
-            pc.readContract({ address: d.usdgDepositNotifier, abi: depositNotifierAbi, functionName: "escrowCount", args: [Z] }),
-            pc.readContract({ address: d.referralRegistry, abi: referralRegistryRedeployAbi, functionName: "pendingReferrer", args: [Z] }),
-          ]))
-        : false,
+    const [quote, token, ref, crew, gate, anon] = await Promise.all([
+      s.creatorFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorAccrued", args: [Z, Z] })) : false,
+      s.creatorTokenFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [Z, Z] })) : false,
+      s.referrerFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "referrerAccrued", args: [Z, Z] })) : false,
+      s.crew ? ok(pc.readContract({ address: d.launchpad, abi: launchpadAbi, functionName: "modeOf", args: [Z] })) : false,
+      s.referralGate ? ok(pc.readContract({ address: d.usdgDepositNotifier, abi: usdgDepositNotifierAbi, functionName: "minDeposit" })) : false,
+      s.anonClaims ? ok(pc.readContract({ address: anonLauncherAddr()!, abi: anonLauncherAbi, functionName: "stealthOwnerOf", args: [Z] })) : false,
     ]);
-    return { ...s, creatorTokenFees: tokenFees, crew, referralGate: gate };
+    return { creatorFees: quote, creatorTokenFees: token, referrerFees: ref, crew, referralGate: gate, anonClaims: anon };
   })();
-  if (flag === FLAG) probed = run;
-  return run;
+  probed.catch(() => { probed = null; });
+  return probed;
 }

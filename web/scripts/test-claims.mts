@@ -1,36 +1,37 @@
-// Unit tests for the claims stack (pure, no RPC): redeploy gate, session policy for claims/deposits,
+// Unit tests for the claims stack (pure, no RPC): v4 ABI coverage, session policy for claims/deposits,
 // escrow unlock labels, custom-error decoding.   pnpm test:claims
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeErrorResult, encodeFunctionData, parseAbi, type Address, type Hex } from "viem";
-import { redeployGate, abiHas } from "../lib/claims/capabilities";
+import { abiHas } from "../lib/claims/capabilities";
 import { checkCalls, depositTotal, PolicyError, type PolicyCfg } from "../lib/aa/policy";
-import { unlockLabel, unlocked, withdrawCall } from "../lib/claims/referralGate";
+import { depositNeeded, unlockLabel, unlocked, withdrawCall } from "../lib/claims/referralGate";
 import { claimErrorText, fmtUsd, toUsd } from "../lib/claims/common";
 import { AAError } from "../lib/aa/core";
-import { depositNotifierAbi, feeRouterRedeployAbi, curveRedeployAbi } from "../lib/abi/redeploy";
-import { feeRouterAbi } from "../lib/abi";
+import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, referralRegistryAbi, usdgDepositNotifierAbi as depositNotifierAbi } from "../lib/abi";
 
 const A = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
 const LP = A(1), ROUTER = A(2), TWM = A(3), FR = A(4), NOTI = A(5), USDG = A(6), ME = A(7), OTHER = A(8);
-const cfg: PolicyCfg = { launchpad: LP, router: ROUTER, trampWallManager: TWM, mintable: [], defaultLimit: BigInt(10) ** BigInt(30), feeRouter: FR, depositNotifier: NOTI, usdg: USDG };
+const cfg: PolicyCfg = { launchpad: LP, router: ROUTER, trampWallManager: TWM, mintable: [], defaultLimit: BigInt(10) ** BigInt(30), feeRouter: FR, usdgDepositNotifier: NOTI, usdg: USDG };
 const st = () => ({ expiresAt: Date.now() + 60_000, spent: {} });
 const pcNoCurve = { readContract: async () => { throw new Error("not a curve"); } } as never;
 const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function transfer(address,uint256) returns (bool)"]);
 const call = (to: Address, data: Hex) => ({ to, data });
 
-test("redeployGate: 1 on, 0 off, unset = ABI signal", () => {
-  assert.equal(redeployGate("1", false), true);
-  assert.equal(redeployGate("true", false), true);
-  assert.equal(redeployGate("0", true), false);
-  assert.equal(redeployGate(undefined, true), true);
-  assert.equal(redeployGate(undefined, false), false);
-  assert.equal(redeployGate("", false), false);
+test("abiHas: v4 ABIs carry every claim entry point the UI calls", () => {
+  for (const f of ["creatorAccrued", "claimCreatorFees", "creatorTokenAccrued", "claimCreatorTokenFees", "referrerAccrued", "claimReferrerFees"]) assert.ok(abiHas(feeRouterAbi, f), f);
+  for (const f of ["curveOf", "modeOf", "claim", "creatorOf"]) assert.ok(abiHas(launchpadAbi, f), f);
+  assert.ok(abiHas(bondingCurveAbi, "pendingRewards"));
+  for (const f of ["minDeposit", "deposit", "escrowCount", "escrowOf", "withdraw", "LOCK_PERIOD", "usdg"]) assert.ok(abiHas(depositNotifierAbi, f), f);
+  for (const f of ["pending", "claimMany", "stealthOwnerOf"]) assert.ok(abiHas(anonLauncherAbi, f), f);
+  for (const f of ["referrerOf", "pendingReferrer", "usdgDeposited", "usdgGate"]) assert.ok(abiHas(referralRegistryAbi, f), f);
 });
-test("abiHas: v3 FeeRouter has the creator/referrer claims, redeploy ABI adds token-side", () => {
-  assert.ok(abiHas(feeRouterAbi, "claimCreatorFees") && abiHas(feeRouterAbi, "creatorAccrued") && abiHas(feeRouterAbi, "claimReferrerFees"));
-  assert.ok(abiHas(feeRouterRedeployAbi, "claimCreatorTokenFees"));
-  assert.ok(abiHas(curveRedeployAbi, "pendingRewards"));
+test("depositNeeded: reach the gate, never below minDeposit", () => {
+  const E = BigInt(10) ** BigInt(18);
+  assert.equal(depositNeeded({ min: E, gate: BigInt(10) * E, deposited: BigInt(0) }), BigInt(10) * E);
+  assert.equal(depositNeeded({ min: E, gate: BigInt(10) * E, deposited: BigInt(9) * E + BigInt(1) }), E);
+  assert.equal(depositNeeded({ min: BigInt(2) * E, gate: null, deposited: BigInt(0) }), BigInt(2) * E);
+  assert.equal(depositNeeded({ min: null, gate: E, deposited: BigInt(0) }), null);
 });
 
 test("policy: FeeRouter claim selectors pass, anything else on FeeRouter is rejected", async () => {
@@ -71,7 +72,7 @@ test("unlock countdown and unlocked()", () => {
 test("revert decoding: Locked / BelowMinimum / NothingToClaim → plain copy", () => {
   const wrap = (data: Hex) => new AAError("Reverted", "reverted", { revertData: data });
   const locked = encodeErrorResult({ abi: depositNotifierAbi, errorName: "Locked", args: [BigInt(3), BigInt(1_800_000_000)] });
-  assert.match(claimErrorText(wrap(locked)), /^Still locked until /);
+  assert.match(claimErrorText(wrap(locked)), /^Deposit still locked until /);
   const below = encodeErrorResult({ abi: depositNotifierAbi, errorName: "BelowMinimum", args: [BigInt(10)] });
   assert.equal(claimErrorText(wrap(below)), "Deposit is below the minimum.");
   const none = encodeErrorResult({ abi: feeRouterAbi, errorName: "NothingToClaim" });

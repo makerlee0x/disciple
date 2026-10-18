@@ -23,8 +23,8 @@ export async function requestVerification(f: { token: string; x: string; website
 }
 
 export type AdminRow = { token: string; creator: string; x: string | null; website: string | null; note: string; status: string; requestedAt: number; updatedAt: number; reviewedBy?: string; reason?: string };
-export const adminRows = (status: string) => call<{ me: string | null; rows: AdminRow[] }>(`/api/admin/verify?status=${encodeURIComponent(status)}`);
+export const adminRows = (status: string) => call<{ me: string | null; rows: AdminRow[] }>(`/api/admin/verifications?status=${encodeURIComponent(status)}`);
 export async function adminDo(token: string, action: "approve" | "reject" | "revoke", reason?: string) {
-  const { nonce } = await call<{ nonce: string }>("/api/admin/verify?nonce=1");
-  return call<{ ok: boolean; status: string }>("/api/admin/verify", { method: "POST", body: JSON.stringify({ token, action, nonce, reason }) });
+  const { nonce } = await call<{ nonce: string }>("/api/admin/verifications?nonce=1");
+  return call<{ ok: boolean; status: string }>("/api/admin/verifications", { method: "POST", body: JSON.stringify({ token, action, nonce, reason }) });
 }

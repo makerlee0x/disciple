@@ -1,7 +1,6 @@
 /** Shared helpers for the claim flows: quote metadata (symbol/decimals/USD), formatting, revert decoding, indexer. */
 import { BaseError, ContractFunctionRevertedError, decodeErrorResult, formatUnits, parseAbi, type Abi, type Address, type Hex, type PublicClient } from "viem";
-import { bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi } from "../abi";
-import { curveRedeployAbi, depositNotifierAbi, feeRouterRedeployAbi } from "../abi/redeploy";
+import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, referralRegistryAbi, tokenAbi, usdgDepositNotifierAbi } from "../abi";
 import { deployment } from "../chains";
 
 const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)"]);
@@ -46,7 +45,7 @@ export function fmtUsd(v: number | null | undefined): string {
   return "$" + v.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: v < 100 ? 2 : 0 });
 }
 
-const ERR_ABIS: Abi[] = [feeRouterAbi as Abi, depositNotifierAbi as Abi, curveRedeployAbi as Abi, feeRouterRedeployAbi as Abi, launchpadAbi as Abi, bondingCurveAbi as Abi];
+const ERR_ABIS: Abi[] = [feeRouterAbi, usdgDepositNotifierAbi, bondingCurveAbi, launchpadAbi, anonLauncherAbi, referralRegistryAbi, tokenAbi] as Abi[];
 /** Custom error name + args from any viem/AA error (simulation or on-chain revert). */
 export function revertOf(e: unknown): { name: string; args: readonly unknown[] } | null {
   // duck-typed (AAError.extra.revertData): instanceof breaks across duplicated module instances
@@ -58,6 +57,11 @@ export function revertOf(e: unknown): { name: string; args: readonly unknown[] }
     const raw = (rev as unknown as { raw?: Hex } | null)?.raw;
     if (raw) for (const abi of ERR_ABIS) { try { const r = decodeErrorResult({ abi, data: raw }); return { name: r.errorName, args: (r.args ?? []) as readonly unknown[] }; } catch { /* next */ } }
   }
+  // eth_call (pc.call) errors carry the raw revert bytes as `data` somewhere down the cause chain
+  for (let x = e as { data?: unknown; cause?: unknown } | undefined, i = 0; x && i < 10; x = x.cause as typeof x, i++) {
+    const d = typeof x.data === "string" ? x.data : (x.data as { data?: unknown } | undefined)?.data;
+    if (typeof d === "string" && /^0x[0-9a-f]{8}/i.test(d)) for (const abi of ERR_ABIS) { try { const r = decodeErrorResult({ abi, data: d as Hex }); return { name: r.errorName, args: (r.args ?? []) as readonly unknown[] }; } catch { /* next */ } }
+  }
   return null;
 }
 
@@ -67,12 +71,29 @@ export function claimErrorText(e: unknown): string {
   switch (r?.name) {
     case "NothingToClaim": case "ZeroAmount": return "Nothing to claim yet.";
     case "NothingEscrowed": return "Nothing to withdraw yet.";
-    case "Locked": return `Still locked until ${new Date(Number(r.args[1]) * 1000).toLocaleString()}.`;
+    case "Locked": return `Deposit still locked until ${new Date(Number(r.args[1]) * 1000).toLocaleString()}. Try again after it unlocks.`;
     case "BelowMinimum": return "Deposit is below the minimum.";
+    case "NotStealthOwner": return "This wallet isn't the creator of that rocket.";
+    case "InvalidMetadata": return "Rocket not found on this launchpad.";
+    case "ZeroAddress": return "Missing wallet address.";
+    case "ERC20InsufficientBalance": return "Not enough balance.";
+    case "ERC20InsufficientAllowance": return "Approval missing. Try again.";
+    case "Panic": return "Nothing to withdraw yet.";
+    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "Approval missing. Try again." : /BAL/i.test(String(r.args[0])) ? "Not enough balance." : String(r.args[0]).slice(0, 120);
   }
   const m = (e as Error)?.message ?? String(e);
   if (/user rejected|denied/i.test(m)) return "Cancelled.";
   return m.split("\n")[0].slice(0, 120);
+}
+
+/**
+ * Read-only preflight: eth_call every call as `from` (the smart account / EOA that will send it) so a revert shows
+ * plain copy (claimErrorText) before anything is signed. Calls run independently against current state; a later call
+ * that depends on an earlier one in the same batch (approve → deposit) must be skipped via `independent=false`.
+ */
+export async function preflight(pc: PublicClient, calls: { to: Address; data: Hex; value?: bigint }[], from: Address, independent = true) {
+  const list = independent ? calls : calls.slice(-1);
+  for (const c of list) await pc.call({ account: from, to: c.to, data: c.data, value: c.value });
 }
 
 /** Optional indexer (indexer/ REST). Unset ⇒ every read falls back to RPC logs. */

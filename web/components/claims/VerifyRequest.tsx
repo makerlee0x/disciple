@@ -1,5 +1,5 @@
 "use client";
-/** Request verification for one rocket (Privy session; stored for admin review at /admin/verify). */
+/** Request verification for one rocket (Privy session; stored for admin review at /admin/verifications). */
 import { useEffect, useState } from "react";
 import { NeedLogin, loginPrivy, myVerification, requestVerification, type MyRequest } from "@/lib/claims/verifyClient";
 import { onPrivy } from "@/lib/aa/session";

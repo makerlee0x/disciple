@@ -1,46 +1,52 @@
 /**
- * Referral qualification — REDEPLOY ONLY (FLOW UsdgDepositNotifier + ReferralRegistry, feat/modes-gas).
- *   deposit   USDG.approve(notifier, amount) + notifier.deposit(wallet, amount) → id   (one userOp)
- *   min       read from the contract: deposit(wallet, 0) is simulated and reverts BelowMinimum(min) — the contract has
- *             no public getter, so this is the only on-chain source (never hard-code $10: decimals differ per chain)
+ * Referral qualification (v4 UsdgDepositNotifier + ReferralRegistry).
+ *   deposit   USDG.approve(notifier, exact amount) + notifier.deposit(wallet, amount) → id   (one userOp)
+ *   min       UsdgDepositNotifier.minDeposit() — read from the contract, never hard-coded (decimals differ per chain)
  *   escrow    escrowCount(wallet) + escrowOf(wallet, id) → (amount, unlockAt); withdraw(ids) once unlocked
  *   status    ReferralRegistry.referrerOf (≠0 ⇒ locked) / pendingReferrer (≠0 ⇒ pending)
- * Behind caps.referralGate. attest() is intentionally not built.
+ * Behind caps.referralGate. attest() is intentionally not built. Withdraw maps Locked(id, unlockAt) to plain copy.
  */
 import { encodeFunctionData, type Address, type PublicClient } from "viem";
-import { tokenAbi } from "../abi";
-import { depositNotifierAbi, referralRegistryRedeployAbi } from "../abi/redeploy";
+import { referralRegistryAbi, tokenAbi, usdgDepositNotifierAbi as depositNotifierAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
-import { assetMeta, revertOf, ZERO_ADDR, type Asset } from "./common";
+import { assetMeta, ZERO_ADDR, type Asset } from "./common";
 
 export type Escrow = { id: number; amount: bigint; unlockAt: number };
 export type GateState = {
   status: "none" | "pending" | "locked";
   referrer: Address | null;
   usdg: Asset; min: bigint | null; lockSec: number;
+  /** ReferralRegistry.usdgGate: cumulative USDG needed to lock the pending referrer */
+  gate: bigint | null;
   deposited: bigint;
+  /** wallet USDG balance (raw) */
+  balance: bigint;
   escrows: Escrow[];
 };
+
+/** Amount to deposit now: enough to reach the gate, never below the per-deposit minimum. null if unknown. */
+export function depositNeeded(g: Pick<GateState, "min" | "gate" | "deposited">): bigint | null {
+  if (g.min == null) return null;
+  const rest = g.gate != null && g.gate > g.deposited ? g.gate - g.deposited : BigInt(0);
+  return rest > g.min ? rest : g.min;
+}
 
 const notifier = () => deployment().usdgDepositNotifier;
 let usdgAddr: Promise<Address> | null = null;
 export const notifierUsdg = (pc: PublicClient) => (usdgAddr ??= pc.readContract({ address: notifier(), abi: depositNotifierAbi, functionName: "usdg" }) as Promise<Address>);
 
 const minCache = new Map<string, bigint>();
-/** Minimum per deposit, from the contract's own BelowMinimum(min) revert. null if it can't be read. */
-export async function depositMinimum(pc: PublicClient, wallet: Address): Promise<bigint | null> {
+/** Minimum per deposit: UsdgDepositNotifier.minDeposit(). null if it can't be read. */
+export async function depositMinimum(pc: PublicClient): Promise<bigint | null> {
   const k = notifier().toLowerCase();
   if (minCache.has(k)) return minCache.get(k)!;
   try {
-    await pc.simulateContract({ address: notifier(), abi: depositNotifierAbi, functionName: "deposit", args: [wallet, BigInt(0)], account: wallet });
-    return null; // a 0 deposit should never succeed; treat as unknown
-  } catch (e) {
-    const r = revertOf(e);
-    if (r?.name === "BelowMinimum") { const m = BigInt(r.args[0] as bigint); minCache.set(k, m); return m; }
-    return null;
-  }
+    const m = (await pc.readContract({ address: notifier(), abi: depositNotifierAbi, functionName: "minDeposit" })) as bigint;
+    minCache.set(k, m);
+    return m;
+  } catch { return null; }
 }
 
 export async function escrowsOf(pc: PublicClient, wallet: Address): Promise<Escrow[]> {
@@ -55,19 +61,21 @@ export async function escrowsOf(pc: PublicClient, wallet: Address): Promise<Escr
 
 export async function gateState(pc: PublicClient, wallet: Address): Promise<GateState> {
   const reg = deployment().referralRegistry;
-  const [ref, pending, deposited, usdgA, lock, escrows, min] = await Promise.all([
-    pc.readContract({ address: reg, abi: referralRegistryRedeployAbi, functionName: "referrerOf", args: [wallet] }) as Promise<Address>,
-    pc.readContract({ address: reg, abi: referralRegistryRedeployAbi, functionName: "pendingReferrer", args: [wallet] }) as Promise<Address>,
-    pc.readContract({ address: reg, abi: referralRegistryRedeployAbi, functionName: "usdgDeposited", args: [wallet] }).catch(() => BigInt(0)) as Promise<bigint>,
+  const [ref, pending, deposited, usdgA, lock, escrows, min, gate] = await Promise.all([
+    pc.readContract({ address: reg, abi: referralRegistryAbi, functionName: "referrerOf", args: [wallet] }) as Promise<Address>,
+    pc.readContract({ address: reg, abi: referralRegistryAbi, functionName: "pendingReferrer", args: [wallet] }) as Promise<Address>,
+    pc.readContract({ address: reg, abi: referralRegistryAbi, functionName: "usdgDeposited", args: [wallet] }).catch(() => BigInt(0)) as Promise<bigint>,
     notifierUsdg(pc),
     pc.readContract({ address: notifier(), abi: depositNotifierAbi, functionName: "LOCK_PERIOD" }).then(Number).catch(() => 7 * 86400),
     escrowsOf(pc, wallet),
-    depositMinimum(pc, wallet),
+    depositMinimum(pc),
+    (pc.readContract({ address: reg, abi: referralRegistryAbi, functionName: "usdgGate" }) as Promise<bigint>).catch(() => null),
   ]);
+  const balance = (await pc.readContract({ address: usdgA, abi: tokenAbi, functionName: "balanceOf", args: [wallet] }).catch(() => BigInt(0))) as bigint;
   const locked = ref && ref !== ZERO_ADDR, isPending = pending && pending !== ZERO_ADDR;
   return {
     status: locked ? "locked" : isPending ? "pending" : "none", referrer: locked ? ref : isPending ? pending : null,
-    usdg: await assetMeta(pc, usdgA), min, lockSec: lock, deposited, escrows,
+    usdg: await assetMeta(pc, usdgA), min, gate, lockSec: lock, deposited, balance, escrows,
   };
 }
 
@@ -80,9 +88,11 @@ export async function depositCalls(pc: PublicClient, wallet: Address, amount: bi
   ];
 }
 export async function deposit(pc: PublicClient, wallet: Address, amount: bigint) {
-  const min = await depositMinimum(pc, wallet);
+  const min = await depositMinimum(pc);
   if (min != null && amount < min) throw new Error("Deposit is below the minimum.");
-  return execCalls(await depositCalls(pc, wallet, amount));
+  const calls = await depositCalls(pc, wallet, amount);
+  // exact approve: the allowance equals this deposit, nothing left over
+  return execCalls(calls);
 }
 
 export const unlocked = (e: Escrow, nowSec = Math.floor(Date.now() / 1000)) => nowSec >= e.unlockAt;

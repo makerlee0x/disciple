@@ -147,3 +147,12 @@ test("rate limits per IP on the request endpoint", async () => {
   assert.equal(last, 429);
   assert.equal((await creatorNonce(d, tok(CREATOR), "8.8.8.8"))[0], 200);
 });
+
+test("ADMIN_EMAILS matches case-insensitively against Privy email / Google accounts", async () => {
+  const { isAdminUser } = await import("../lib/server/privyAuth");
+  const allow = parseAdminEmails(" MakerLeeTV@Gmail.com ");
+  assert.ok(allow);
+  assert.equal(isAdminUser({ id: "did:privy:x", emails: ["makerleetv@gmail.com"], wallets: [] }, allow), true);
+  assert.equal(isAdminUser({ id: "did:privy:x", emails: ["someone@gmail.com"], wallets: [] }, allow), false);
+  assert.equal(isAdminUser({ id: "did:privy:x", emails: ["makerleetv@gmail.com"], wallets: [] }, parseAdminEmails("")), false);
+});

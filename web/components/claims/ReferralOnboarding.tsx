@@ -1,13 +1,14 @@
 "use client";
 /**
- * REDEPLOY (caps.referralGate): after a referral link, ReferralRegistry holds a pending referrer until the user
- * deposits the contract's minimum USDG through UsdgDepositNotifier (held LOCK_PERIOD, then withdrawable).
- * The amount comes from the contract (BelowMinimum(min)); nothing is hard-coded.
+ * v4 deposit-to-qualify (caps.referralGate): after a referral link, ReferralRegistry holds a pending referrer until
+ * the wallet's USDG deposits through UsdgDepositNotifier reach ReferralRegistry.usdgGate. Each deposit is ≥
+ * UsdgDepositNotifier.minDeposit(), sits in escrow LOCK_PERIOD (7 days), then can be withdrawn.
+ * Amounts come from the contracts; nothing is hard-coded. attest() is not used.
  */
 import { useCallback, useEffect, useState } from "react";
 import type { Hex } from "viem";
 import { formatUnits } from "viem";
-import { deposit, gateState, type GateState } from "@/lib/claims/referralGate";
+import { deposit, depositNeeded, gateState, type GateState } from "@/lib/claims/referralGate";
 import { claimErrorText } from "@/lib/claims/common";
 import { demoGate } from "@/lib/claims/demo";
 import { shortAddr } from "@/lib/referral";
@@ -15,9 +16,10 @@ import { ConfirmSheet, pc, useCaps, useWalletAddr } from "./ui";
 
 const DISMISS = "disciple.refgate.dismiss";
 
-export function depositLabel(g: Pick<GateState, "min" | "usdg">) {
-  if (g.min == null) return null;
-  const n = Number(formatUnits(g.min, g.usdg.decimals));
+export function depositLabel(g: Pick<GateState, "min" | "gate" | "deposited" | "usdg">) {
+  const need = depositNeeded(g);
+  if (need == null) return null;
+  const n = Number(formatUnits(need, g.usdg.decimals));
   const amt = n.toLocaleString("en-US", { maximumFractionDigits: 2 });
   return `Deposit ${g.usdg.usd != null && Math.abs(g.usdg.usd - 1) < 0.05 ? "$" : ""}${amt} ${g.usdg.symbol} to lock your referrer`;
 }
@@ -40,14 +42,16 @@ export default function ReferralOnboarding() {
   }, [caps.referralGate, ready, demo, me]);
   useEffect(() => { try { setHidden(sessionStorage.getItem(DISMISS) === "1"); } catch { setHidden(false); } void load(); }, [load]);
 
-  if (!g || hidden || g.status !== "pending" || g.min == null) return null;
+  const need = g ? depositNeeded(g) : null;
+  if (!g || hidden || g.status !== "pending" || need == null) return null;
   const label = depositLabel(g)!;
+  const short = g.balance < need;
   const days = Math.round(g.lockSec / 86400);
   const go = async () => {
     setBusy(true); setErr(null);
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 500)); setDone(`0x${"aa".repeat(32)}` as Hex); return; }
-      setDone((await deposit(pc(), me!, g.min!)).txHash); void load();
+      setDone((await deposit(pc(), me!, need)).txHash); void load();
     } catch (e) { setErr(claimErrorText(e)); } finally { setBusy(false); }
   };
   return (
@@ -60,10 +64,10 @@ export default function ReferralOnboarding() {
         </div>
         <div className="cl-actions">
           <button type="button" className="cl-btn ghost sm" onClick={() => { try { sessionStorage.setItem(DISMISS, "1"); } catch { /* */ } setHidden(true); }}>Later</button>
-          <button type="button" className="cl-btn primary sm" onClick={() => { setErr(null); setDone(null); setSheet(true); }}>Deposit</button>
+          <button type="button" className="cl-btn primary sm" disabled={short} title={short ? `Not enough ${g.usdg.symbol}` : undefined} onClick={() => { setErr(null); setDone(null); setSheet(true); }}>Deposit</button>
         </div>
       </aside>
-      {sheet && <ConfirmSheet title="Lock your referrer" lines={[{ label: "Deposit", raw: g.min, asset: g.usdg }]} to={null}
+      {sheet && <ConfirmSheet title="Lock your referrer" lines={[{ label: "Deposit", raw: need, asset: g.usdg }]} to={null}
         note={`Held ${days} days in escrow, then withdraw it from your profile.`} confirmLabel="Approve & deposit"
         busy={busy} error={err} done={done} onConfirm={go} onClose={() => setSheet(false)} />}
     </>

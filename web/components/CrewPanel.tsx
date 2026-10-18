@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MODES, fmtUsd, nextUnlock } from "@/lib/config";
+import { isVerified } from "@/lib/verified";
 import VerifiedBadge from "./VerifiedBadge";
 import Icon from "@/components/icons/Icon";
 
@@ -50,6 +51,7 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
   }, []);
 
   const u = nextUnlock(mcap);
+  const isVer = isVerified(coin, verified);
   const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
   const ammoTxt = (i: number, d: number) => { const v = ammoUsd[i] ?? d; return "$" + (v < 1 ? v.toFixed(2) : v.toLocaleString()); };
@@ -75,7 +77,7 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
       </div>
       {open && (
         <>
-          <div style={{ marginTop: 6 }}><VerifiedBadge verified={verified} token={coin} showLabel /></div>
+          {isVer && <div style={{ marginTop: 6 }}><VerifiedBadge verified showLabel /></div>}
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>

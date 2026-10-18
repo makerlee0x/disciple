@@ -1,18 +1,19 @@
 "use client";
 /**
  * Private profile: Rewards & claims.
- *  - Creator: link to /creator when the user launched rockets (v3 live)
- *  - Referral rewards: FeeRouter.referrerAccrued(me, quote) + claimReferrerFees(quote) (v3 live)
- *  - Referral deposit: UsdgDepositNotifier escrow list + withdraw (REDEPLOY, caps.referralGate)
- *  - Crew rewards: PVE pendingRewards list + Launchpad.claim (REDEPLOY, caps.crew)
+ *  - Creator: link to /creator when the user launched rockets
+ *  - Referral rewards: FeeRouter.referrerAccrued(me, quote) + claimReferrerFees(quote) (referrer first)
+ *  - Referral deposit: UsdgDepositNotifier deposit (exact approve, minDeposit from chain) + escrow countdown + withdraw(ids)
+ *  - Crew rewards: PVE BondingCurve.pendingRewards list + Launchpad.claim(token)
+ * Every claim is eth_call-simulated first (common.preflight) so reverts show plain copy before signing.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Hex } from "viem";
 import { createdRockets, creatorClaimable, referralBalances, referralClaimCalls, type ReferralBalance } from "@/lib/claims/creatorFees";
 import { crewClaimCall, crewPositions } from "@/lib/claims/crew";
-import { gateState, unlockLabel, unlocked, withdraw, type GateState } from "@/lib/claims/referralGate";
-import { claimErrorText, fmtUsd, toUsd, type Asset } from "@/lib/claims/common";
+import { deposit, depositNeeded, gateState, unlockLabel, unlocked, withdraw, withdrawCall, type GateState } from "@/lib/claims/referralGate";
+import { claimErrorText, fmtUsd, preflight, toUsd, type Asset } from "@/lib/claims/common";
 import { demoCrew, demoGate, demoReferral, demoRockets, demoRedeploy } from "@/lib/claims/demo";
 import { execCalls } from "@/lib/wallet";
 import { ConfirmSheet, Money, SampleTag, pc, useCaps, useWalletAddr, type ConfirmLine } from "./ui";
@@ -86,7 +87,7 @@ export default function ProfileClaims() {
             {refOpen.length ? refOpen.map((r) => <Money key={r.asset.address} raw={r.claimable} asset={r.asset} big={refOpen.length === 1} />) : <p className="muted">Nothing yet. Share your link to earn from friends&apos; trades.</p>}
             <button type="button" className="cl-btn primary" disabled={!refOpen.length}
               onClick={() => open({ title: "Claim referral rewards", lines: refOpen.map((r) => ({ label: r.asset.symbol, raw: r.claimable, asset: r.asset })),
-                run: async () => (await execCalls(referralClaimCalls(refOpen))).txHash })}>
+                run: async () => { const calls = referralClaimCalls(refOpen); await preflight(pc(), calls, me!); return (await execCalls(calls)).txHash; } })}>
               Claim{refOpen.length && refUsd ? ` ${fmtUsd(refUsd)}` : ""}
             </button>
           </article>
@@ -103,8 +104,18 @@ export default function ProfileClaims() {
                 ))}
               </ul>
             ) : <p className="muted">No deposits held.</p>}
+            {gate.status === "pending" && depositNeeded(gate) != null && (() => {
+              const need = depositNeeded(gate)!;
+              return (
+                <button type="button" className="cl-btn primary" disabled={gate.balance < need} data-testid="deposit-btn"
+                  onClick={() => open({ title: "Lock your referrer", label: "Approve & deposit", lines: [{ label: "Deposit", raw: need, asset: gate.usdg }],
+                    note: `Held ${Math.round(gate.lockSec / 86400)} days in escrow, then withdraw it here.`, run: async () => (await deposit(pc(), me!, need)).txHash })}>
+                  {gate.balance < need ? `Need ${gate.usdg.symbol} to deposit` : "Deposit to qualify"}
+                </button>
+              );
+            })()}
             <button type="button" className="cl-btn ghost" disabled={!gate.escrows.some((e) => unlocked(e, nowSec))}
-              onClick={() => { const ok = gate.escrows.filter((e) => unlocked(e, nowSec)); open({ title: "Withdraw deposit", label: "Withdraw", lines: ok.map((e) => ({ label: `Deposit #${e.id}`, raw: e.amount, asset: gate.usdg })), run: async () => (await withdraw(ok)).txHash, note: "Only unlocked deposits are withdrawn." }); }}>
+              onClick={() => { const ok = gate.escrows.filter((e) => unlocked(e, nowSec)); open({ title: "Withdraw deposit", label: "Withdraw", lines: ok.map((e) => ({ label: `Deposit #${e.id}`, raw: e.amount, asset: gate.usdg })), run: async () => { await preflight(pc(), [withdrawCall(ok.map((e) => e.id))], me!); return (await withdraw(ok)).txHash; }, note: "Only unlocked deposits are withdrawn." }); }}>
               Withdraw unlocked
             </button>
           </article>
@@ -120,7 +131,7 @@ export default function ProfileClaims() {
                   <li key={r.token}>
                     <Link href={`/coin/${r.token}`}>${r.ticker ?? r.token.slice(0, 6)}</Link>
                     <Money raw={r.pending} asset={r.quote} />
-                    <button type="button" className="cl-btn gold sm" onClick={() => open({ title: `Claim $${r.ticker ?? ""} crew rewards`, lines: [{ label: "Crew rewards", raw: r.pending, asset: r.quote }], run: async () => (await execCalls([crewClaimCall(r.token)])).txHash })}>Claim</button>
+                    <button type="button" className="cl-btn gold sm" onClick={() => open({ title: `Claim $${r.ticker ?? ""} crew rewards`, lines: [{ label: "Crew rewards", raw: r.pending, asset: r.quote }], run: async () => { await preflight(pc(), [crewClaimCall(r.token)], me!); return (await execCalls([crewClaimCall(r.token)])).txHash; } })}>Claim</button>
                   </li>
                 ))}
               </ul>

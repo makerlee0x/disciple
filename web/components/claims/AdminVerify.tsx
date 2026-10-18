@@ -1,7 +1,8 @@
 "use client";
 /**
- * /admin/verify — review verification requests. Auth = Privy login (email/Google) checked server-side against
- * ADMIN_EMAILS; no wallet involved. Every action uses a fresh single-use nonce.
+ * /admin/verifications — review verification requests. Auth = Privy login (email/Google) checked server-side against
+ * ADMIN_EMAILS (case-insensitive); no wallet involved. Every action uses a fresh single-use nonce.
+ * `configured` comes from the server page: false ⇒ "No admins configured", nothing else is requested (fail closed).
  */
 import { useCallback, useEffect, useState } from "react";
 import { adminDo, adminRows, loginPrivy, NeedLogin, type AdminRow } from "@/lib/claims/verifyClient";
@@ -19,7 +20,7 @@ const DEMO: AdminRow[] = [
   { token: "0x000000000000000000000000000000000000d303", creator: "0x7777777777777777777777777777777777777778", x: null, website: "https://quiet-orbit.xyz/", note: "Art project.", status: "approved", requestedAt: Date.now() - 86_400_000, updatedAt: Date.now() - 80_000_000, reviewedBy: "maker@…" },
 ];
 
-export default function AdminVerify() {
+export default function AdminVerify({ configured = false }: { configured?: boolean }) {
   const demo = typeof window !== "undefined" && demoEnabled();
   const [tab, setTab] = useState<Tab>("pending");
   const [rows, setRows] = useState<AdminRow[] | null>(null);
@@ -31,6 +32,7 @@ export default function AdminVerify() {
 
   const load = useCallback(async () => {
     if (demo) { setMe("maker@example.com"); setRows(DEMO.filter((r) => r.status === tab)); setGate(null); return; }
+    if (!configured) { setRows(null); setGate("off"); return; }
     setErr(null);
     try { const r = await adminRows(tab); setRows(r.rows); setMe(r.me); setGate(null); }
     catch (e) {
@@ -41,8 +43,8 @@ export default function AdminVerify() {
       else if (s === 503) setGate("off");
       else setErr((e as Error).message);
     }
-  }, [tab, demo]);
-  useEffect(() => { void load(); if (!demo) return onPrivy(() => void load()); }, [load, demo]);
+  }, [tab, demo, configured]);
+  useEffect(() => { void load(); if (!demo && configured) return onPrivy(() => void load()); }, [load, demo, configured]);
 
   const act = async (r: AdminRow, action: "approve" | "reject" | "revoke") => {
     setBusy(r.token + action); setErr(null);
@@ -59,14 +61,14 @@ export default function AdminVerify() {
         <div>
           <div className="cl-eyebrow">Admin</div>
           <h1 className="cl-display">Verification review</h1>
-          <p className="muted">{me ? `Signed in as ${me}` : "Email or Google login. Access is limited to the admin list."}</p>
+          <p className="muted">{me ? `Signed in as ${me}` : gate === "off" ? "Review is closed." : "Email or Google login. Access is limited to the admin list."}</p>
         </div>
         <SampleTag show={demo} />
       </header>
 
       {gate === "login" && <section className="cl-card cl-empty"><h3 className="cl-display sm">Log in to review</h3><button type="button" className="cl-btn primary" onClick={loginPrivy}>Log in</button></section>}
       {gate === "denied" && <section className="cl-card cl-empty"><h3 className="cl-display sm">Not an admin</h3><p className="muted">This login isn&apos;t on the admin list.</p></section>}
-      {gate === "off" && <section className="cl-card cl-empty"><h3 className="cl-display sm">Admin access is off</h3><p className="muted">ADMIN_EMAILS isn&apos;t set on the server.</p></section>}
+      {gate === "off" && <section className="cl-card cl-empty" data-testid="admin-off"><h3 className="cl-display sm">No admins configured</h3><p className="muted">Set ADMIN_EMAILS on the server to enable review. Access stays closed until then.</p></section>}
 
       {!gate && (
         <>

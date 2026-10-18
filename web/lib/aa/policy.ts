@@ -47,7 +47,7 @@ export type PolicyCfg = {
   /** FeeRouter: only the claim selectors (creator / referrer / redeploy creator-token) — they move funds TO the caller. */
   feeRouter?: Address;
   /** REDEPLOY: UsdgDepositNotifier — deposit(account, amt) with an exact paired approve, and withdraw(ids). */
-  depositNotifier?: Address;
+  usdgDepositNotifier?: Address;
 };
 export type SessionState = { expiresAt: number; spent: Record<string, string> };
 
