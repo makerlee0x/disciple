@@ -297,8 +297,9 @@
   "note": "v4: PRs #60/#61/#64/#65/#75 merged (session-policy referral, Oct-16 audit fixes, LP auto-compound, USDG router, bonding modes PVE/PVP/TRENCH + gas G-1). Broadcast record: deployments/broadcast-v4/.",
   "loginGate": {
     "address": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
-    "attester": "0x0000000000000000000000000000000000000000",
-    "note": "PVE_ATTESTER was not set in env at deploy time; owner (deployer) must call LoginGate.setAttester(<backend attester>) before PVE buys can work."
+    "attester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+    "note": "Attester set by owner via LoginGate.setAttester (on-chain attester() verified 2026-10-17). PVE_ATTESTER was unset at deploy time.",
+    "setAttesterTx": "0x751cf1cbcbe88cc1c2471b911bb7fe8ab32f869ca5c0d5f0059fe46e23c2a0c0"
   },
   "wiring": {
     "note": "All wiring is done inside Deploy.s.sol (see broadcast-v4/Deploy.run-latest.json).",

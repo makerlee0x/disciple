@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "./integration/IntegrationBase.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
+import {Owned2Step} from "../src/utils/Owned2Step.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {McapMath} from "../src/libraries/McapMath.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -117,7 +118,7 @@ contract AnonLauncherTest is IntegrationBase {
     }
 
     function test_launch_fee_capped_and_owner_only() public {
-        vm.expectRevert(AnonLauncher.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         anon.setLaunchFee(1);
         vm.prank(owner);
         vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
@@ -265,9 +266,193 @@ contract AnonLauncherTest is IntegrationBase {
         toks[0] = address(t1);
         (, uint256 q,) = anon.pending(address(t1));
         assertGt(q, 0);
+        (,, uint256 tp) = anon.pending(address(t1));
+        assertGt(tp, 0, "post-grad buy accrued token-side creator fees");
         anon.claimManyBySig(_req(skA, stealthA, toks, makeAddr("d"), 0));
         assertEq(feeRouter.creatorAccrued(address(t1), address(anon)), 0);
+        assertEq(feeRouter.creatorTokenAccrued(address(t1), address(anon)), 0);
         assertEq(t1.balanceOf(address(anon)), 0);
+        assertEq(t1.balanceOf(makeAddr("d")), tp);
+    }
+
+    // ───────────────────── v2: token-side (post-grad) creator fees ─────────────────────
+
+    /// @dev Anon coin graduates; post-grad buy (hook fee in TOKEN) + sell (fee in quote) accrue both sides.
+    function _gradWithBothSides(address stealth) internal returns (Token t) {
+        BondingCurve c;
+        (c, t,) = _anonLaunch(stealth, address(0), 0);
+        _graduate(c);
+        _swapExactInQuoteForToken(t, trader1, 5_000 ether);
+        _swapExactInTokenForQuote(t, trader1, t.balanceOf(trader1) / 2);
+        assertGt(feeRouter.creatorTokenAccrued(address(t), address(anon)), 0, "token side accrued to AnonLauncher");
+        assertGt(feeRouter.creatorAccrued(address(t), address(anon)), 0, "quote side accrued to AnonLauncher");
+    }
+
+    function test_v2_pending_includes_token_side() public {
+        Token t = _gradWithBothSides(stealthA);
+        (address q, uint256 qa, uint256 ta) = anon.pending(address(t));
+        assertEq(q, address(quote));
+        assertEq(qa, feeRouter.creatorAccrued(address(t), address(anon)));
+        assertEq(ta, feeRouter.creatorTokenAccrued(address(t), address(anon)));
+    }
+
+    function test_v2_claimMany_pays_both_sides() public {
+        Token t = _gradWithBothSides(stealthA);
+        (, uint256 qa, uint256 ta) = anon.pending(address(t));
+        address dest = makeAddr("dest");
+        address[] memory toks = new address[](1);
+        toks[0] = address(t);
+        vm.prank(stealthA);
+        anon.claimMany(toks, dest);
+        assertEq(quote.balanceOf(dest), qa);
+        assertEq(t.balanceOf(dest), ta);
+        assertEq(feeRouter.creatorAccrued(address(t), address(anon)), 0);
+        assertEq(feeRouter.creatorTokenAccrued(address(t), address(anon)), 0);
+        assertEq(t.balanceOf(address(anon)), 0);
+        (, qa, ta) = anon.pending(address(t));
+        assertEq(qa + ta, 0);
+        // nothing left on either side -> NothingToClaim
+        vm.prank(stealthA);
+        vm.expectRevert(AnonLauncher.NothingToClaim.selector);
+        anon.claimMany(toks, dest);
+    }
+
+    function test_v2_claimManyBySig_relayer_fee_on_both_sides_multi_coin() public {
+        Token t1 = _gradWithBothSides(stealthA);
+        Token t2 = _gradWithBothSides(stealthA);
+        (, uint256 q1, uint256 a1) = anon.pending(address(t1));
+        (, uint256 q2, uint256 a2) = anon.pending(address(t2));
+        address[] memory toks = new address[](2);
+        toks[0] = address(t1);
+        toks[1] = address(t2);
+        address dest = makeAddr("dest");
+        uint256 rf = 250; // 2.5%
+        uint256 relQ0 = quote.balanceOf(relayer);
+        AnonLauncher.ClaimReq memory r = _req(skA, stealthA, toks, dest, rf);
+        vm.prank(relayer);
+        anon.claimManyBySig(r);
+        uint256 fq = (q1 * rf) / 10_000 + (q2 * rf) / 10_000;
+        assertEq(quote.balanceOf(relayer) - relQ0, fq, "relayer fee on quote side");
+        assertEq(quote.balanceOf(dest), q1 + q2 - fq);
+        assertEq(t1.balanceOf(relayer), (a1 * rf) / 10_000, "relayer fee on token side (t1)");
+        assertEq(t2.balanceOf(relayer), (a2 * rf) / 10_000, "relayer fee on token side (t2)");
+        assertGt(t1.balanceOf(relayer), 0);
+        assertEq(t1.balanceOf(dest), a1 - (a1 * rf) / 10_000);
+        assertEq(t2.balanceOf(dest), a2 - (a2 * rf) / 10_000);
+        assertEq(feeRouter.creatorTokenAccrued(address(t1), address(anon)), 0);
+        assertEq(feeRouter.creatorTokenAccrued(address(t2), address(anon)), 0);
+        assertEq(anon.nonces(stealthA), 1);
+    }
+
+    function test_v2_claimManyBySigBatch_pays_token_side() public {
+        Token t1 = _gradWithBothSides(stealthA);
+        Token t2 = _gradWithBothSides(stealthB);
+        (,, uint256 a1) = anon.pending(address(t1));
+        (,, uint256 a2) = anon.pending(address(t2));
+        address[] memory a = new address[](1);
+        a[0] = address(t1);
+        address[] memory b = new address[](1);
+        b[0] = address(t2);
+        AnonLauncher.ClaimReq[] memory rs = new AnonLauncher.ClaimReq[](2);
+        rs[0] = _req(skA, stealthA, a, makeAddr("dA"), 100);
+        rs[1] = _req(skB, stealthB, b, makeAddr("dB"), 100);
+        vm.prank(relayer);
+        anon.claimManyBySigBatch(rs);
+        assertEq(t1.balanceOf(makeAddr("dA")), a1 - (a1 * 100) / 10_000);
+        assertEq(t2.balanceOf(makeAddr("dB")), a2 - (a2 * 100) / 10_000);
+        assertEq(t1.balanceOf(relayer), (a1 * 100) / 10_000);
+        assertEq(t2.balanceOf(relayer), (a2 * 100) / 10_000);
+    }
+
+    function test_v2_skips_zero_side_without_revert() public {
+        Token t = _gradWithBothSides(stealthA);
+        address[] memory toks = new address[](1);
+        toks[0] = address(t);
+        vm.prank(stealthA);
+        anon.claimMany(toks, makeAddr("d0"));
+        // token side only (post-grad buy, no sell): quote side is 0 and must be skipped
+        _swapExactInQuoteForToken(t, trader2, 1_000 ether);
+        (, uint256 qa, uint256 ta) = anon.pending(address(t));
+        assertEq(qa, 0);
+        assertGt(ta, 0);
+        vm.prank(stealthA);
+        anon.claimMany(toks, makeAddr("d1"));
+        assertEq(t.balanceOf(makeAddr("d1")), ta);
+        assertEq(quote.balanceOf(makeAddr("d1")), 0);
+        // quote side only (sell): token side is 0 and must be skipped
+        _swapExactInTokenForQuote(t, trader2, t.balanceOf(trader2) / 2);
+        (, qa, ta) = anon.pending(address(t));
+        assertGt(qa, 0);
+        assertEq(ta, 0);
+        vm.prank(stealthA);
+        anon.claimMany(toks, makeAddr("d2"));
+        assertEq(quote.balanceOf(makeAddr("d2")), qa);
+        assertEq(t.balanceOf(makeAddr("d2")), 0);
+    }
+
+    function test_v2_pre_grad_quote_only_and_empty_list_noop() public {
+        (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
+        address[] memory toks = new address[](1);
+        toks[0] = address(t1);
+        vm.prank(stealthA);
+        vm.expectRevert(AnonLauncher.NothingToClaim.selector);
+        anon.claimMany(toks, stealthA);
+        _warpPastSnipe();
+        _buy(c1, trader1, 100 ether, 0);
+        (, uint256 qa, uint256 ta) = anon.pending(address(t1));
+        assertGt(qa, 0);
+        assertEq(ta, 0);
+        vm.prank(stealthA);
+        anon.claimMany(toks, makeAddr("d"));
+        assertEq(quote.balanceOf(makeAddr("d")), qa);
+        // empty list: no-op (burns the nonce via claimManyBySig, never reverts NothingToClaim)
+        address[] memory none = new address[](0);
+        anon.claimManyBySig(_req(skA, stealthA, none, stealthA, 0));
+        assertEq(anon.nonces(stealthA), 1);
+    }
+
+    function test_v2_eip712_domain_and_claim_digest_unchanged() public view {
+        (, string memory name, string memory version, uint256 chainId, address vc,,) = anon.eip712Domain();
+        assertEq(name, "DISCIPLE AnonLauncher");
+        assertEq(version, "1");
+        assertEq(chainId, block.chainid);
+        assertEq(vc, address(anon));
+        assertEq(
+            anon.CLAIM_TYPEHASH(),
+            keccak256(
+                "Claim(address owner,address[] tokens,address to,uint256 relayerFeeBps,uint256 nonce,uint256 deadline)"
+            )
+        );
+        address[] memory toks = new address[](1);
+        toks[0] = address(0xBEEF);
+        bytes32 sh = keccak256(
+            abi.encode(anon.CLAIM_TYPEHASH(), stealthA, keccak256(abi.encodePacked(toks)), relayer, 7, 3, 99)
+        );
+        assertEq(
+            anon.claimDigest(stealthA, toks, relayer, 7, 3, 99),
+            keccak256(abi.encodePacked("\x19\x01", anon.domainSeparator(), sh))
+        );
+    }
+
+    function test_v2_owned2step() public {
+        address n = makeAddr("newOwner");
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        anon.transferOwnership(n);
+        vm.prank(owner);
+        anon.transferOwnership(n);
+        assertEq(anon.owner(), owner);
+        assertEq(anon.pendingOwner(), n);
+        vm.expectRevert(Owned2Step.NotPendingOwner.selector);
+        anon.acceptOwnership();
+        vm.prank(n);
+        anon.acceptOwnership();
+        assertEq(anon.owner(), n);
+        vm.prank(owner);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        anon.setTreasury(n);
+        vm.prank(n);
+        anon.setLaunchFee(1 ether);
+        assertEq(anon.launchFee(), 1 ether);
     }
 }
 
