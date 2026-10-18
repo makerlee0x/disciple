@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IntegrationBase, MockUSDG} from "../integration/IntegrationBase.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
@@ -10,7 +11,7 @@ import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
-import {ITradeEvents} from "../../src/interfaces/ITradeEvents.sol";
+import {IHookTradeEvents} from "../../src/interfaces/ITradeEvents.sol";
 import {IAltitudeEvents} from "../../src/interfaces/IAltitudeEvents.sol";
 import {Altitude} from "../../src/libraries/Altitude.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -90,10 +91,10 @@ contract JitTwapTest is IntegrationBase {
         if (!_tIs0()) {
             // quote is c0 → quote-only range sits ABOVE the pool tick
             lo = a + ts;
-            hi = lo + ts * w;
+            hi = lo + ts * w / w; // audit #6: bands are exactly one tick spacing
         } else {
             hi = a;
-            lo = hi - ts * w;
+            lo = hi - ts * w / w; // audit #6
         }
     }
 
@@ -169,14 +170,16 @@ contract JitTwapTest is IntegrationBase {
         vm.recordLogs();
         _sell(whale, 2_000_000 ether); // fee in quote
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,uint256,uint256,uint256,uint256,uint256)");
+        bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,bool,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)");
         uint256 cs;
         uint256 lps;
         uint256 ts;
         uint256 rs;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].topics[0] == tfr) {
-                (cs, lps, ts, rs,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                (,, cs,, lps, ts,, rs,,) = abi.decode(
+                    logs[i].data, (bool, address, uint256, uint256, uint256, uint256, address, uint256, address, uint256)
+                );
             }
         }
         uint256 fee = cs + lps + ts + rs;
@@ -250,7 +253,7 @@ contract JitTwapTest is IntegrationBase {
     }
 
     function test_pricer_params_owner_only() public {
-        vm.expectRevert(QuotePricer.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         pricer.setTwapParams(60, 100);
         vm.startPrank(owner);
         vm.expectRevert(QuotePricer.BadParam.selector);
@@ -273,10 +276,10 @@ contract JitTwapTest is IntegrationBase {
         int24 a = _floor(tick, ts);
         if (c0Side) {
             lo = a + ts;
-            hi = lo + ts * w;
+            hi = lo + ts * w / w; // audit #6: bands are exactly one tick spacing
         } else {
             hi = a;
-            lo = hi - ts * w;
+            lo = hi - ts * w / w; // audit #6
         }
     }
 
@@ -370,22 +373,25 @@ contract JitTwapTest is IntegrationBase {
         assertEq(hook.altitudeTierOf(pid), down);
     }
 
+    /// @dev G-1: hook Trade carries sqrtPriceAfter; AltitudeUpdate.mcapUsd = that spot at the launch-time quote price.
     function test_altitude_update_equals_trade_mcap() public {
         vm.recordLogs();
         _buy(alice, 100 ether);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 tradeMcap;
         uint256 altMcap;
+        (,,,, uint256 launchQUsd) = hook.metaOf(pid);
+        bool tIs0 = _tIs0();
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter != address(hook)) continue;
             if (logs[i].topics[0] == IAltitudeEvents.AltitudeUpdate.selector) {
                 (altMcap,) = abi.decode(logs[i].data, (uint256, uint8));
             }
-            if (logs[i].topics[0] == ITradeEvents.Trade.selector) {
-                (,,,,,,,, uint256 m) = abi.decode(
-                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256)
+            if (logs[i].topics[0] == IHookTradeEvents.Trade.selector) {
+                (,,,,,,,, uint160 sqrtAfter) = abi.decode(
+                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160)
                 );
-                tradeMcap = m;
+                tradeMcap = hook.mcapUsdFromSqrt(sqrtAfter, tIs0, launchQUsd);
             }
         }
         assertGt(altMcap, 0);

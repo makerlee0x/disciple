@@ -96,7 +96,6 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   else if (raw > BigInt(0) && limits) {
     if (overCap) error = COPY.overCap(pct!, maxStr, symbol);
     else if (balance != null && raw > balance) error = COPY.balance(fmtAmount(balance, limits.decimals), symbol);
-    else if (pve && pveVerified === false) error = COPY.pveLoginUnverified;
   } else if (raw > BigInt(0) && limitsErr) error = COPY.unavailable;
   const ready = raw === BigInt(0) || (!!limits && raw != null);
 
@@ -133,7 +132,9 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
         </p>
       )}
       {limits?.capBy === "mode" && <p className="first-boost-note first-boost-mode">{COPY.modeCap(modeName(limits.mode), pct!, bpsToPct(limits.launchpadCapBps))}</p>}
-      {pve && pveVerified !== false && <p className="first-boost-note first-boost-mode">{me ? COPY.pveLogin : COPY.pveLoginUnknown}</p>}
+      {pve && raw != null && raw > BigInt(0) && (
+        <p className="first-boost-note first-boost-mode">{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
+      )}
       {error && <p role="alert" className="first-boost-error">{error}</p>}
     </div>
   );

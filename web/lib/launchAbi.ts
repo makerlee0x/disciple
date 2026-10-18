@@ -92,9 +92,12 @@ export interface LaunchParamsArg {
 }
 
 export function encodeLaunchCall(params: LaunchParamsArg, mode: number = LaunchMode.TRENCH_WARFARE, shape: LaunchAbiShape = LAUNCH_ABI_SHAPE): Hex {
+  // #99: validate against the on-chain enum (0 TRENCH, 1 PVE, 2 PVP) and encode with the generated v4 Launchpad ABI.
+  if (!Number.isInteger(mode) || !(mode in LAUNCH_MODE_NAME)) throw new Error(`Bad launch mode ${mode} (0 TRENCH, 1 PVE, 2 PVP).`);
   if (shape === "modes") {
-    if (!(mode in LAUNCH_MODE_NAME)) throw new Error(`Unknown launch mode ${mode}.`);
-    return encodeFunctionData({ abi: launchpadModesAbi, functionName: "launchWithMode", args: [params, mode] });
+    return ABI_HAS_MODES
+      ? encodeFunctionData({ abi: launchpadAbi, functionName: "launchWithMode", args: [params, mode] } as never)
+      : encodeFunctionData({ abi: launchpadModesAbi, functionName: "launchWithMode", args: [params, mode] });
   }
   // Current ABI: launchCoin only. Refuse a non-TRENCH mode rather than silently launching TRENCH.
   if (mode !== LaunchMode.TRENCH_WARFARE) throw new Error("This Launchpad has no modes yet (launchCoin = TRENCH WARFARE only).");

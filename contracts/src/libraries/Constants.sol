@@ -8,43 +8,44 @@ library Constants {
     // ── Supply (§2 Curve parameters / LOCKED #7) ─────────────────────────────
     uint8 internal constant TOKEN_DECIMALS = 18;
     uint256 internal constant TOTAL_SUPPLY = 7_000_000_000 * 1e18; // 7B fixed
-    /// @dev ~72% of supply sold on the bonding curve before Pearly Gates graduation.
+    /// @dev ~72% of supply sold on the bonding curve before graduation (Outer Space, $33K).
     uint256 internal constant CURVE_SOLD_BPS = 7200; // 72.00%
 
     // ── Curve market caps (§2 / LOCKED #6, §9 Tier Ladder) — LOCKED 2026-10-15 ─
     /// @dev Launch Pad start market cap (USD, 18-dec fixed-point for quote pricing).
     uint256 internal constant START_MCAP_USD = 7_000 * 1e18; // $7K
-    /// @dev Pearly Gates graduation market cap.
+    /// @dev Graduation market cap (opens the Outer Space tier).
     uint256 internal constant GRADUATION_MCAP_USD = 33_000 * 1e18; // $33K
     /// @dev Alias for GRADUATION_MCAP_USD.
-    uint256 internal constant PEARLY_GATES_MCAP_USD = GRADUATION_MCAP_USD;
+    uint256 internal constant OUTER_SPACE_MCAP_USD = GRADUATION_MCAP_USD;
 
-    // Tier ladder ranges (USD, whole dollars) — LOCKED 2026-10-15
-    // Pre-grad evenly spaced $7K→$33K; post-grad roughly geometric to Seventh Heaven.
+    // Tier ladder ranges (USD, whole dollars). Official ladder (disciple-brand/LEXICON.md §4, web/lib/flight/tiers.ts),
+    // renamed 2026-10-17; ranges unchanged since LOCKED 2026-10-15. Pre-grad evenly spaced $7K→$33K (OUTER SPACE =
+    // graduation); post-grad roughly geometric to Seventh Heaven. Altitude.tierOf uses the same lows (index 0..17).
     uint256 internal constant TIER_LAUNCH_PAD_LO_USD = 7_000;
     uint256 internal constant TIER_LAUNCH_PAD_HI_USD = 12_000;
-    uint256 internal constant TIER_LIMBO_LO_USD = 12_000;
-    uint256 internal constant TIER_LIMBO_HI_USD = 18_000;
-    uint256 internal constant TIER_ASCENSION_LO_USD = 18_000;
-    uint256 internal constant TIER_ASCENSION_HI_USD = 25_000;
-    uint256 internal constant TIER_NARROW_GATE_LO_USD = 25_000;
-    uint256 internal constant TIER_NARROW_GATE_HI_USD = 33_000;
-    uint256 internal constant TIER_PEARLY_GATES_LO_USD = 33_000;
-    uint256 internal constant TIER_PEARLY_GATES_HI_USD = 55_000;
+    uint256 internal constant TIER_OZONE_LO_USD = 12_000;
+    uint256 internal constant TIER_OZONE_HI_USD = 18_000;
+    uint256 internal constant TIER_STRATOSPHERE_LO_USD = 18_000;
+    uint256 internal constant TIER_STRATOSPHERE_HI_USD = 25_000;
+    uint256 internal constant TIER_KARMAN_LINE_LO_USD = 25_000;
+    uint256 internal constant TIER_KARMAN_LINE_HI_USD = 33_000;
+    uint256 internal constant TIER_OUTER_SPACE_LO_USD = 33_000;
+    uint256 internal constant TIER_OUTER_SPACE_HI_USD = 55_000;
     uint256 internal constant TIER_FIRMAMENT_LO_USD = 55_000;
     uint256 internal constant TIER_FIRMAMENT_HI_USD = 100_000;
-    uint256 internal constant TIER_ANGELS_LO_USD = 100_000;
-    uint256 internal constant TIER_ANGELS_HI_USD = 333_000;
-    uint256 internal constant TIER_ARCHANGELS_LO_USD = 333_000;
-    uint256 internal constant TIER_ARCHANGELS_HI_USD = 777_000;
-    uint256 internal constant TIER_HEAVENLY_HOST_LO_USD = 777_000;
-    uint256 internal constant TIER_HEAVENLY_HOST_HI_USD = 1_200_000;
-    uint256 internal constant TIER_MORNING_STARS_LO_USD = 1_200_000;
-    uint256 internal constant TIER_MORNING_STARS_HI_USD = 3_300_000;
-    uint256 internal constant TIER_VIRTUES_LO_USD = 3_300_000;
-    uint256 internal constant TIER_VIRTUES_HI_USD = 7_700_000;
-    uint256 internal constant TIER_DOMINIONS_LO_USD = 7_700_000;
-    uint256 internal constant TIER_DOMINIONS_HI_USD = 33_000_000;
+    uint256 internal constant TIER_MORNING_STARS_LO_USD = 100_000;
+    uint256 internal constant TIER_MORNING_STARS_HI_USD = 333_000;
+    uint256 internal constant TIER_HEAVENLY_HOST_LO_USD = 333_000;
+    uint256 internal constant TIER_HEAVENLY_HOST_HI_USD = 777_000;
+    uint256 internal constant TIER_THE_MOON_LO_USD = 777_000;
+    uint256 internal constant TIER_THE_MOON_HI_USD = 1_200_000;
+    uint256 internal constant TIER_URANUS_LO_USD = 1_200_000;
+    uint256 internal constant TIER_URANUS_HI_USD = 3_300_000;
+    uint256 internal constant TIER_LIMBO_LO_USD = 3_300_000;
+    uint256 internal constant TIER_LIMBO_HI_USD = 7_700_000;
+    uint256 internal constant TIER_GATES_OF_HEAVEN_LO_USD = 7_700_000;
+    uint256 internal constant TIER_GATES_OF_HEAVEN_HI_USD = 33_000_000;
     uint256 internal constant TIER_THRONE_ROOM_LO_USD = 33_000_000;
     uint256 internal constant TIER_THRONE_ROOM_HI_USD = 77_000_000;
     uint256 internal constant TIER_CHERUBIM_LO_USD = 77_000_000;
@@ -58,18 +59,19 @@ library Constants {
     uint256 internal constant TIER_SEVENTH_HEAVEN_LO_USD = 3_300_000_000;
     uint256 internal constant TIER_SEVENTH_HEAVEN_HI_USD = 7_770_000_000;
 
-    // Legacy single-point aliases (tier lower bound / milestone)
+    // Single-point aliases (tier lower bound / milestone)
     uint256 internal constant TIER_LAUNCH_PAD_USD = TIER_LAUNCH_PAD_LO_USD;
-    uint256 internal constant TIER_LIMBO_USD = TIER_LIMBO_LO_USD;
-    uint256 internal constant TIER_ASCENSION_USD = TIER_ASCENSION_LO_USD;
-    uint256 internal constant TIER_NARROW_GATE_USD = TIER_NARROW_GATE_LO_USD;
+    uint256 internal constant TIER_OZONE_USD = TIER_OZONE_LO_USD;
+    uint256 internal constant TIER_STRATOSPHERE_USD = TIER_STRATOSPHERE_LO_USD;
+    uint256 internal constant TIER_KARMAN_LINE_USD = TIER_KARMAN_LINE_LO_USD;
+    uint256 internal constant TIER_OUTER_SPACE_USD = TIER_OUTER_SPACE_LO_USD;
     uint256 internal constant TIER_FIRMAMENT_USD = TIER_FIRMAMENT_LO_USD;
-    uint256 internal constant TIER_ANGELS_USD = TIER_ANGELS_LO_USD;
-    uint256 internal constant TIER_ARCHANGELS_USD = TIER_ARCHANGELS_LO_USD;
-    uint256 internal constant TIER_HEAVENLY_HOST_USD = TIER_HEAVENLY_HOST_LO_USD;
     uint256 internal constant TIER_MORNING_STARS_USD = TIER_MORNING_STARS_LO_USD;
-    uint256 internal constant TIER_VIRTUES_USD = TIER_VIRTUES_LO_USD;
-    uint256 internal constant TIER_DOMINIONS_USD = TIER_DOMINIONS_LO_USD;
+    uint256 internal constant TIER_HEAVENLY_HOST_USD = TIER_HEAVENLY_HOST_LO_USD;
+    uint256 internal constant TIER_THE_MOON_USD = TIER_THE_MOON_LO_USD;
+    uint256 internal constant TIER_URANUS_USD = TIER_URANUS_LO_USD;
+    uint256 internal constant TIER_LIMBO_USD = TIER_LIMBO_LO_USD;
+    uint256 internal constant TIER_GATES_OF_HEAVEN_USD = TIER_GATES_OF_HEAVEN_LO_USD;
     uint256 internal constant TIER_THRONE_ROOM_USD = TIER_THRONE_ROOM_LO_USD;
     uint256 internal constant TIER_CHERUBIM_USD = TIER_CHERUBIM_LO_USD;
     uint256 internal constant TIER_SERAPHIM_USD = TIER_SERAPHIM_LO_USD;
@@ -111,7 +113,10 @@ library Constants {
     uint256 internal constant KOL_OF_CREATOR_FEES_BPS = 300; // 3% of creator fees (composed)
 
     // ── Referral gate (§4 / LOCKED #18) ───────────────────────────────────────
-    uint256 internal constant REFERRAL_USDG_GATE = 10 * 1e18; // $10 USDG deposit
+    /// @dev Whole USD; contracts scale it by the USDG token's decimals at construction (immutable), so the
+    ///      18-dec testnet mock and 6-dec mainnet USDG both gate at $10. See ReferralRegistry.usdgGate /
+    ///      UsdgDepositNotifier.minDeposit.
+    uint256 internal constant REFERRAL_GATE_USD = 10; // $10 USDG deposit
 
     // ── Creator buy at launch (§5 / LOCKED #27) ───────────────────────────────
     /// @dev Default protocol-owner-settable creator-buy cap (Launchpad.creatorBuyMaxBps) — 0.77% of supply.
@@ -121,4 +126,22 @@ library Constants {
 
     // ── BPS helper ───────────────────────────────────────────────────────────
     uint256 internal constant BPS_DENOM = 10_000;
+
+    // ── Bonding-curve game modes (contracts/docs/bonding-modes.md) — curve only, never post-graduation ──
+    uint8 internal constant MODE_TRENCH = 0; // hard: no mode caps (pre-existing behaviour, incl. walletCapBps)
+    uint8 internal constant MODE_PVE = 1; // easy
+    uint8 internal constant MODE_PVP = 2; // medium
+    // PVE (proposals — Maker lee can tweak before redeploy)
+    uint256 internal constant PVE_NET_CAP_BPS = 100; // 1% of supply, NET curve position
+    uint256 internal constant PVE_WINDOW = 7 minutes; // launch window (Maker lee 2026-10-16: 7 min)
+    uint256 internal constant PVE_WINDOW_BUY_CAP_BPS = 25; // 0.25% of supply per buy inside the window
+    uint256 internal constant PVE_MAX_SELL_BPS = 50; // 0.5% of supply per curve sell
+    uint256 internal constant PVE_PROFIT_TRIGGER_BPS = 17_700; // exit price > avg cost * 1.77 (i.e. >77% profit)
+    uint256 internal constant PVE_PROFIT_TAX_PPM = 7770; // 0.777% of the sell proceeds (ppm)
+    /// @dev Max age of a curve's cached LoginGate expiry (audit L1): a revoke takes effect within this window.
+    uint256 internal constant PVE_LOGIN_CACHE_TTL = 10 minutes;
+    // PVP
+    uint256 internal constant PVP_CAP_START_BPS = 400; // 4% NET cap at launch
+    uint256 internal constant PVP_CAP_END_BPS = 1200; // 12% NET cap at graduation (linear in curve progress)
+    uint256 internal constant PVP_MAX_BUY_BPS = 333; // 3.33% per buy
 }

@@ -21,6 +21,8 @@ export const FIRST_BOOST_COPY = {
   modeCap: (mode: string, pct: string, launchpadPct: string) => `${mode} launch: the first 7 minutes allow at most ${pct} of supply per buy, so your First BOOST is capped at ${pct} (not ${launchpadPct}).`,
   pveLogin: "PVE rockets only sell to login-verified wallets. Your wallet must be verified before you can First BOOST.",
   pveLoginUnverified: "Your wallet isn't login-verified for PVE yet, so the First BOOST would revert. Verify your login first, or set First BOOST to 0.",
+  // #99: /api/pve/attest verifies the Privy login and relays LoginGate.attest when you launch.
+  pveLoginAttest: "PVE rockets only sell to login-verified wallets. Your wallet isn't attested yet: launching checks your login (email, Google or X) and attests it first.",
   pveLoginUnknown: "PVE rockets only sell to login-verified wallets. Connect your wallet to check yours before you First BOOST.",
   overCap: (pct: string, max: string, symbol: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${max} ${symbol} or less.`,
   balance: (have: string, symbol: string) => `Not enough ${symbol}: your balance is ${have} ${symbol}.`,

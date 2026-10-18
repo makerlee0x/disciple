@@ -10,6 +10,7 @@ import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
 import PairPicker from "@/components/create/PairPicker";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { protocolStub, type Address } from "@/lib/protocol";
+import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
@@ -25,6 +26,12 @@ const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
 const labelCls = "mb-1 block text-xs tracking-wider text-[#C9CED6]";
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
+/** v4 bonding modes (contracts/docs/bonding-modes.md, Constants.sol). Rules apply on the curve only, never after orbit. */
+const GAME_MODES = [
+  { id: LaunchMode.TRENCH_WARFARE, label: "TRENCH WARFARE", copy: "Classic curve. No mode caps." },
+  { id: LaunchMode.PVP, label: "PVP", copy: "Wallet cap grows 4% → 12% as the curve fills; max 3.33% per buy." },
+  { id: LaunchMode.PVE, label: "PVE", copy: "Verified logins only. 1% cap per wallet, small sells, 7.77% tax on >1.77× profits paid to holders." },
+] as const;
 
 export default function LaunchRocketPage() {
   const router = useRouter();
@@ -36,6 +43,8 @@ export default function LaunchRocketPage() {
   const [contrast, setContrast] = useState<string | null>(null);
   const [mod, setMod] = useState<{ state: "idle" | "checking" | ModerationVerdict; uri?: string; note?: string }>({ state: "idle" });
   const [advanced, setAdvanced] = useState(false);
+  // v4 bonding mode (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP); immutable per rocket.
+  const [gameMode, setGameMode] = useState<number>(LaunchMode.TRENCH_WARFARE);
   const defaultPair = useMemo(() => recommendedPairs()[0], []);
   const [quote, setQuote] = useState<{ address: Address | null; label: string }>({ address: defaultPair?.address ?? null, label: defaultPair?.symbol ?? "" });
   const [twitter, setTwitter] = useState("");
@@ -160,6 +169,7 @@ export default function LaunchRocketPage() {
         creatorTaxPct: effTax,
         creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
         socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
+        mode: LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
       });
       if (fr && isDeployed()) {
         const me = await activeAddress();
@@ -247,6 +257,7 @@ export default function LaunchRocketPage() {
         <FirstBoostField
           pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
           ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
+          mode={LAUNCH_ABI_SHAPE === "modes" ? gameMode : LaunchMode.TRENCH_WARFARE}
         />
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -265,6 +276,20 @@ export default function LaunchRocketPage() {
           <input className={`${inputCls} font-mono`} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="0x… (leave empty to receive fees yourself)" />
           <span className="muted tiny block mt-1">Set via Launchpad.transferCreator right after launch (one extra confirmation). That wallet becomes the rocket&apos;s creator and receives creator fees.</span>
         </label>
+
+        {LAUNCH_ABI_SHAPE === "modes" && (
+          <fieldset className="block">
+            <legend className={labelCls}>GAME MODE <span className="normal-case opacity-70">(permanent, curve only)</span></legend>
+            <div className="grid gap-2 md:grid-cols-3">
+              {GAME_MODES.map((m) => (
+                <label key={m.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2 text-xs ${gameMode === m.id ? "border-[rgba(201,206,214,.6)]" : "border-[rgba(201,206,214,.2)]"}`}>
+                  <input type="radio" name="game-mode" checked={gameMode === m.id} onChange={() => setGameMode(m.id)} />
+                  <span><span className="font-bold text-[#E8EAEE]">{m.label}</span><span className="block text-[rgba(232,234,238,.7)]">{m.copy}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         <button
           type="button"

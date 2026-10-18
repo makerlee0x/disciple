@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {Owned2Step} from "./utils/Owned2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./libraries/Constants.sol";
@@ -18,17 +19,20 @@ import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
 
 /// @title Permissionless DISCIPLE launchpad / factory (§5 / LOCKED #23–#27)
 /// @notice Anyone can launch. Metadata: image+name+ticker required; description/socials optional.
+interface IRouterKill {
+    function setRouterKilled(bool killed) external;
+}
+
 interface IPricerPoke {
     function poke(address quote) external;
 }
 
-contract Launchpad is ILaunchpad {
+contract Launchpad is ILaunchpad, Owned2Step {
     using SafeERC20 for IERC20;
 
     address public immutable feeRouter;
     address public immutable antiSnipe;
     address public immutable migration;
-    address public owner;
 
     /// @notice Default quote (STRATEGY on RH chain). Used when launch/launchCoin passes quote=address(0).
     address public defaultQuote;
@@ -64,17 +68,29 @@ contract Launchpad is ILaunchpad {
     /// @notice walletCapBps snapshotted per coin at launch (immutable in the curve).
     mapping(address => uint256) public walletCapBpsOf;
 
+    /// @notice Routers allowed to call curve.routerBuy / routerSell on behalf of a trader (owner-managed).
+    mapping(address => bool) public isTrustedRouter;
+    /// @notice Primary router, snapshotted into each NEW curve as an immutable (gas: no external call per router
+    ///         trade). Set by setTrustedRouter(r, true); cleared when that router is untrusted. Existing curves keep
+    ///         trusting their snapshot (documented; prepaid amounts are balance-checked by the curve).
+    address public curveRouter;
+    /// @notice PVE LoginGate (EIP-712 Privy-login attestations). Required to launch PVE coins; snapshotted per coin.
+    address public loginGate;
+    /// @notice Game mode per coin (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP), immutable.
+    mapping(address => uint8) public modeOf;
+
     error InvalidMetadata();
     error TaxTooHigh();
     error CreatorBuyTooLarge();
     error OnlyCreator();
-    error OnlyOwner();
     error QuoteRejected(string detail);
     error DefaultQuoteUnset();
     error PricerUnset();
     error CurveDeployerUnset();
     error CreatorBuyMaxTooHigh();
     error WalletCapTooHigh();
+    error BadMode();
+    error LoginGateUnset();
 
     event Launched(
         address indexed token,
@@ -92,6 +108,11 @@ contract Launchpad is ILaunchpad {
     event PricerUpdated(address indexed pricer);
     event CreatorBuyMaxSet(uint256 bps);
     event WalletCapSet(uint256 bps);
+    event TrustedRouterSet(address indexed router, bool trusted);
+    event CurveRouterKilled(address indexed curve, bool killed);
+    event LoginGateSet(address indexed gate);
+    /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
+    event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
     event QuotePriced(address indexed token, address indexed quote, uint256 quotePriceUsd);
     /// @notice Emitted at launch for off-chain/indexer tier tracking (no on-chain tier hooks).
@@ -99,8 +120,7 @@ contract Launchpad is ILaunchpad {
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
     );
 
-    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) {
-        owner = owner_;
+    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) Owned2Step(owner_) {
         feeRouter = feeRouter_;
         antiSnipe = antiSnipe_;
         migration = migration_;
@@ -135,6 +155,37 @@ contract Launchpad is ILaunchpad {
         emit WalletCapSet(bps);
     }
 
+    function setTrustedRouter(address r, bool ok) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        isTrustedRouter[r] = ok;
+        if (ok) curveRouter = r;
+        else if (curveRouter == r) curveRouter = address(0);
+        emit TrustedRouterSet(r, ok);
+    }
+
+    /// @notice Audit round 3 (ops) kill switch: existing curves snapshot their primary router as an immutable;
+    ///         the owner (protocol multisig) can stop them accepting it (and resume). Curves via `curveOf[token]`.
+    function setCurveRouterKilled(address[] calldata curves, bool killed) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        for (uint256 i; i < curves.length; ++i) {
+            IRouterKill(curves[i]).setRouterKilled(killed);
+            emit CurveRouterKilled(curves[i], killed);
+        }
+    }
+
+    function setLoginGate(address g) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        loginGate = g;
+        emit LoginGateSet(g);
+    }
+
+    /// @notice Claim PVE holder rewards (profit-tax pool) of `token`'s curve. Works after graduation.
+    function claim(address token) external returns (uint256) {
+        address c = curveOf[token];
+        if (c == address(0)) revert InvalidMetadata();
+        return BondingCurve(c).claimFor(msg.sender);
+    }
+
     function setPricer(address pricer_) external {
         if (msg.sender != owner) revert OnlyOwner();
         pricer = IQuotePricer(pricer_);
@@ -149,15 +200,26 @@ contract Launchpad is ILaunchpad {
 
     /// @inheritdoc ILaunchpad
     function launchCoin(LaunchParams calldata params) external override returns (LaunchResult memory) {
-        return _launch(params);
+        return _launch(params, Constants.MODE_TRENCH);
     }
 
     /// @inheritdoc ILaunchpad
     function launch(LaunchParams calldata params) external override returns (LaunchResult memory result) {
-        return _launch(params);
+        return _launch(params, Constants.MODE_TRENCH);
     }
 
-    function _launch(LaunchParams calldata params) internal returns (LaunchResult memory result) {
+    /// @notice Launch with a bonding-curve game mode (0 TRENCH WARFARE, 1 PVE, 2 PVP). launch/launchCoin = TRENCH.
+    function launchWithMode(LaunchParams calldata params, uint8 mode) external returns (LaunchResult memory) {
+        return _launch(params, mode);
+    }
+
+    function _launch(LaunchParams calldata params, uint8 mode) internal returns (LaunchResult memory result) {
+        if (mode > Constants.MODE_PVP) revert BadMode();
+        address gate;
+        if (mode == Constants.MODE_PVE) {
+            gate = loginGate;
+            if (gate == address(0)) revert LoginGateUnset();
+        }
         if (bytes(params.name).length == 0 || bytes(params.ticker).length == 0 || bytes(params.imageURI).length == 0) {
             revert InvalidMetadata();
         }
@@ -167,14 +229,18 @@ contract Launchpad is ILaunchpad {
         if (quote == address(0)) {
             if (defaultQuote == address(0)) revert DefaultQuoteUnset();
             quote = defaultQuote;
-        } else if (address(quoteProbe) != address(0)) {
+        }
+        // (f) every non-USDG base, the default included, gets the buy/transfer round-trip probe.
+        if (address(quoteProbe) != address(0)) {
             (IQuoteProbe.ProbeResult pr, string memory detail) = quoteProbe.probe(quote);
             if (pr == IQuoteProbe.ProbeResult.RejectHoneypot || pr == IQuoteProbe.ProbeResult.RejectFeeOnTransfer) {
                 revert QuoteRejected(detail);
             }
         }
 
-        Token t = new Token(params.name, params.ticker, msg.sender, address(this), address(this));
+        Token t = new Token(
+            params.name, params.ticker, msg.sender, address(this), address(this), mode == Constants.MODE_PVE
+        );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
         if (address(pricer) == address(0)) revert PricerUnset();
@@ -193,11 +259,15 @@ contract Launchpad is ILaunchpad {
                 antiSnipe,
                 migration,
                 params.creatorTaxBps,
-                quotePriceUsd,
-                wcap
+                CurveMath.makeParams(quotePriceUsd),
+                wcap,
+                mode,
+                gate,
+                curveRouter
             )
         );
 
+        if (mode == Constants.MODE_PVE) t.setPveCurve(address(curve));
         IERC20(address(t)).safeTransfer(address(curve), Constants.TOTAL_SUPPLY);
 
         AntiSnipe(antiSnipe).registerLaunch(address(t));
@@ -216,6 +286,8 @@ contract Launchpad is ILaunchpad {
             creatorTaxBps: params.creatorTaxBps,
             launchedAt: block.timestamp
         });
+        if (mode != Constants.MODE_TRENCH) modeOf[address(t)] = mode;
+        emit LaunchMode(address(t), address(curve), mode);
         uint256 capBps = creatorBuyMaxBps;
         creatorBuyMaxBpsOf[address(t)] = capBps;
         unchecked {

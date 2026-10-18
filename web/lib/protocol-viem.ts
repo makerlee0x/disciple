@@ -13,7 +13,7 @@ import {
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
-import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi, readPveLoginVerified } from "./launchAbi";
+import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi } from "./launchAbi";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address;
 const referralRegistryAbi = parseAbi([
@@ -27,7 +27,8 @@ import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
 import { ZERO_ADDRESS } from "./protocol";
-import { activeAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
+import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
+import { ensurePveLogin, PveError } from "./pve";
 import { AAError, type Call } from "./aa/core";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
@@ -79,11 +80,6 @@ export function friendlyError(e: unknown): ProtocolError {
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
       CreatorBuyTooLarge: "Creator buy is above Launchpad.creatorBuyMaxBps() (and/or the 7% wallet cap).",
-      NotVerified: "PVE rockets only sell to login-verified wallets. Verify your login first.",
-      BuyTooLarge: "That buy is above this mode's per-buy cap (PVE: 0.25% of supply in the first 7 minutes).",
-      BadMode: "Unknown launch mode.",
-      LoginGateUnset: "PVE launches are paused: the login gate isn't configured yet.",
-      LaunchBlock: "PVE: no buys in the launch block. Try again in a moment.",
       Slippage: "Price moved too much. Try again or raise slippage.",
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
@@ -92,6 +88,14 @@ export function friendlyError(e: unknown): ProtocolError {
       InsufficientLiquidity: "Not enough left on the curve for that size.",
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
+      // v4 bonding modes (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP)
+      NotVerified: "PVE rocket: this wallet needs a verified login first (email, Google or X).",
+      BuyTooLarge: "That buy is above this rocket's per-buy cap right now. Try a smaller shot.",
+      SellTooLarge: "That sell is above this PVE rocket's per-sell cap (0.5% of supply). Sell in smaller chunks.",
+      LaunchBlock: "PVE rocket just launched: buys open from the next block.",
+      PriceImpactTooHigh: "Price impact too high for the router cap. Try a smaller shot.",
+      LoginGateUnset: "PVE launches are paused: the login gate isn't configured.",
+      BadMode: "Unknown game mode.",
       ERC20InsufficientBalance: "Not enough balance for that shot size — top up the quote token or pick a smaller ammo.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
       Error: args?.[0] ? String(args[0]) : "reverted",
@@ -200,15 +204,52 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
 }
 
 /** Curve, graduated, quote token + decimals — cached (graduated=false re-read after 5 s; graduation is one-way). */
-export async function coinFacts(pc: PublicClient, token: Address): Promise<{ curve: Address; graduated: boolean; quote: Address; quoteDecimals: number }> {
+export type CoinFacts = { curve: Address; graduated: boolean; quote: Address; quoteDecimals: number; /** Constants.MODE_*: 0 TRENCH, 1 PVE, 2 PVP (v4; pre-v4 curves ⇒ 0) */ mode: number };
+export const MODE = { TRENCH: 0, PVE: 1, PVP: 2 } as const;
+export async function coinFacts(pc: PublicClient, token: Address): Promise<CoinFacts> {
   const kk = ckey("facts", token);
-  const cached = COIN.fresh(kk) as { curve: Address; graduated: boolean; quote: Address; quoteDecimals: number; at: number } | undefined;
+  const cached = COIN.fresh(kk) as (CoinFacts & { at: number }) | undefined;
   if (cached && (cached.graduated || Date.now() - cached.at < 5000)) return cached;
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const [graduated, quote] = await Promise.all([pc.readContract({ ...c, functionName: "graduated" }), pc.readContract({ ...c, functionName: "quote" })]);
-  const v = { curve, graduated, quote, quoteDecimals: await decimalsOf(pc, quote), at: Date.now() };
+  const [graduated, quote, mode] = await Promise.all([
+    pc.readContract({ ...c, functionName: "graduated" }), pc.readContract({ ...c, functionName: "quote" }),
+    (COIN.get(ckey("mode", curve), () => pc.readContract({ ...c, functionName: "mode" }).then(Number).catch(() => 0)) as Promise<number>),
+  ]);
+  const v = { curve, graduated, quote, quoteDecimals: await decimalsOf(pc, quote), mode, at: Date.now() };
   COIN.set(kk, v); return v;
+}
+
+/** Trader the curve evaluates mode rules for (PVE login/caps/profit tax, PVP caps): the connected account by default. */
+const quoteTrader = (t?: Address | null) => t ?? connectedAddress() ?? null;
+/** Decoded custom-error name of a revert. Duck-typed down the cause chain (an instanceof check misses when viem is
+ * loaded twice, e.g. CJS + ESM copies in a bundle/test runner). */
+const revertName = (e: unknown): string | undefined => {
+  for (let x = e as { data?: { errorName?: unknown }; cause?: unknown } | undefined, i = 0; x && i < 10; x = x.cause as typeof x, i++) {
+    const n = x.data?.errorName; if (typeof n === "string") return n;
+  }
+  return undefined;
+};
+
+/**
+ * Curve quotes. TRENCH: quoteBuy/quoteSell (no per-trader rules). PVE/PVP: quoteBuyFor/quoteSellFor(trader) — they
+ * enforce the mode caps exactly like the trade and (PVE sells) DEDUCT THE PROFIT TAX, so minOut from quoteSell would
+ * be too high and the sell would revert with Slippage. A not-yet-verified PVE buyer (attest lands in the same batch)
+ * falls back to the plain quote.
+ */
+async function curveBuyQuote(pc: PublicClient, curve: Address, mode: number, quoteIn: bigint, trader?: Address | null) {
+  const c = { address: curve, abi: bondingCurveAbi } as const;
+  const who = mode === MODE.TRENCH ? null : quoteTrader(trader);
+  if (who) {
+    try { return await pc.readContract({ ...c, functionName: "quoteBuyFor", args: [who, quoteIn] }); }
+    catch (e) { if (revertName(e) !== "NotVerified") throw e; }
+  }
+  return pc.readContract({ ...c, functionName: "quoteBuy", args: [quoteIn] });
+}
+async function curveSellQuote(pc: PublicClient, curve: Address, mode: number, tokensIn: bigint, trader?: Address | null) {
+  const c = { address: curve, abi: bondingCurveAbi } as const;
+  const who = mode === MODE.PVE ? quoteTrader(trader) : null;
+  return who ? pc.readContract({ ...c, functionName: "quoteSellFor", args: [who, tokensIn] }) : pc.readContract({ ...c, functionName: "quoteSell", args: [tokensIn] });
 }
 
 /** amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote. */
@@ -220,14 +261,13 @@ export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "
 }
 /** amountOut only — ONE eth_call (router quoteExactIn post-grad, curve quoteBuy/quoteSell pre-grad); readQuote also
  * reads the lens for the mcap preview, which a trade doesn't need. */
-export async function readAmountOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint): Promise<bigint> {
-  const { curve, graduated } = await coinFacts(pc, token);
+export async function readAmountOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, trader?: Address | null): Promise<bigint> {
+  const { curve, graduated, mode } = await coinFacts(pc, token);
   if (graduated) {
     const { result } = await pc.simulateContract({ address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn] });
     return result[0];
   }
-  const c = { address: curve, abi: bondingCurveAbi } as const;
-  return side === "buy" ? (await pc.readContract({ ...c, functionName: "quoteBuy", args: [amountIn] })).tokensOut : (await pc.readContract({ ...c, functionName: "quoteSell", args: [amountIn] })).quoteOut;
+  return side === "buy" ? (await curveBuyQuote(pc, curve, mode, amountIn, trader)).tokensOut : (await curveSellQuote(pc, curve, mode, amountIn, trader)).quoteOut;
 }
 /** Background refresh of a preset quote (TradeBridge calls this ~1 s). */
 /** After a trade lands, quotes on its route are stale: drop them (the 1 s warm loop re-fills them). */
@@ -255,7 +295,7 @@ export async function shotAmountIn(pc: PublicClient, token: Address, side: "buy"
 export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
   const r = deployment().router;
-  if (await usdgRouteFor(pc, token)) { await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0); return; }
+  if (await usdgRouteFor(pc, token)) { await usdgRouteQuote(pc, r, token, side === "buy", amountIn, 0, connectedAddress()); return; }
   return warmQuote(pc, token, side, amountIn);
 }
 export async function warmQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
@@ -266,10 +306,8 @@ export async function warmQuote(pc: PublicClient, token: Address, side: "buy" | 
 
 /** Exact preview for the current block. Curve views pre-grad, router eth_call post-grad. */
 export async function readQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint): Promise<TradeQuote> {
-  const curve = await curveOf(pc, token);
-  const c = { address: curve, abi: bondingCurveAbi } as const;
-  const { graduated, quoteDecimals } = await coinFacts(pc, token);
-  const base = { side, amountIn, quoteDecimals, snipeFee: B(0), graduates: false } as const;
+  const { curve, graduated, quoteDecimals, mode } = await coinFacts(pc, token);
+  const base = { side, amountIn, quoteDecimals, snipeFee: B(0), graduates: false, mode } as const;
 
   if (graduated) {
     if (!hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
@@ -278,22 +316,22 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
       address: deployment().router, abi: discipleRouterAbi, functionName: "quoteExactIn", args: [token, side === "buy", amountIn],
     });
     const bps = Number(impactBps) * (side === "buy" ? 1 : -1); // impactBps is unsigned; sign from side
-    // Router's mcapAfterUsd is frozen post-grad: recompute from the live lens mcap and the on-chain impact.
+    // v4 router: mcapAfterUsd = hook.mcapUsdFromSqrt at the live quote price; prefer the live lens × impact when available.
     const live = await readMarket(pc, token);
     const mcapAfter = live ? live.mcapUsd * (1 + bps / 10000) : wadToNum(mcapAfterUsd);
     return { ...base, amountOut, fee: B(0), impactBps: bps, impactPct: bps / 100, mcapAfterUsd: mcapAfter, venue: "router" };
   }
 
   if (side === "buy") {
-    const q = await pc.readContract({ ...c, functionName: "quoteBuy", args: [amountIn] });
+    const q = await curveBuyQuote(pc, curve, mode, amountIn);
     const bps = Number(q.impactBps);
     return { ...base, amountOut: q.tokensOut, fee: q.fee, snipeFee: q.snipeFee, impactBps: bps, impactPct: bps / 100,
              mcapAfterUsd: wadToNum(q.mcapAfterUsd), graduates: q.graduates, venue: "curve" };
   }
-  const q = await pc.readContract({ ...c, functionName: "quoteSell", args: [amountIn] });
+  const q = await curveSellQuote(pc, curve, mode, amountIn);
   const bps = -Number(q.impactBps);
   return { ...base, amountOut: q.quoteOut, fee: q.fee, impactBps: bps, impactPct: bps / 100,
-           mcapAfterUsd: wadToNum(q.mcapAfterUsd), venue: "curve" };
+           mcapAfterUsd: wadToNum(q.mcapAfterUsd), profitTax: q.profitTax, venue: "curve" };
 }
 
 /** Launchpad.quoteCreatorBuy: preview the optional same-tx creator buy. quote = 0 ⇒ default quote. */
@@ -394,18 +432,23 @@ export function createViemProtocol(): ProtocolClient {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
-      const [{ curve, graduated, quote: quoteAsset }, me] = await Promise.all([coinFacts(pc, t.token), activeAddress()]);
+      const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([coinFacts(pc, t.token), activeAddress()]);
       const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
+      // v4 PVE: the curve checks LoginGate.verifiedUntil(trader) on buys (trader = token recipient; router: msg.sender).
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const usdg = await usdgRouteFor(pc, t.token);
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline });
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE });
+      const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const smart = isSmartMode();
       const [qOut, have, refCalls, approve] = await Promise.all([
-        t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age)),
+        t.minAmountOut > B(0) ? Promise.resolve(B(0))
+          // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
+          : !graduated && mode !== MODE.TRENCH ? readAmountOut(pc, t.token, side, t.amountIn, side === "buy" ? recipient : me)
+          : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age)),
         balanceHint(pc, spendAsset, me),
         side === "buy" ? referralCallCached(me) : Promise.resolve([]),
         smart ? Promise.resolve(null) : approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn),
@@ -434,7 +477,7 @@ export function createViemProtocol(): ProtocolClient {
       }
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
       const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
-      const calls = [...refCalls, ...approveCalls, { to: target, data }];
+      const calls = [...pveCalls, ...refCalls, ...approveCalls, { to: target, data }];
       BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
       const done = addInflight(ckey("coin", t.token, side), t.amountIn);
       try {
@@ -443,6 +486,7 @@ export function createViemProtocol(): ProtocolClient {
       } finally { done(); dropRouteQuotes(t.token); }
     } catch (e) {
       if (e instanceof ProtocolError) throw e;
+      if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
       throw friendlyError(e);
     }
   }
@@ -453,11 +497,15 @@ export function createViemProtocol(): ProtocolClient {
    * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint }): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean }): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
+    // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
+    const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
+    // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
+    if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const [q, have] = await Promise.all([
-      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("usdgroute", t.token, side), t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age)),
+      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("usdgroute", t.token, side), t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me)),
       balanceHint(pc, spend, c.me),
     ]);
     if (have < t.amountIn) {
@@ -467,7 +515,7 @@ export function createViemProtocol(): ProtocolClient {
     const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
     const calls: Call[] = isBuy
-      ? [...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
+      ? [...pveCalls, ...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: minOut, deadline: c.deadline }));
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     const done = addInflight(ckey("usdgroute", t.token, side), t.amountIn);
@@ -505,10 +553,10 @@ export function createViemProtocol(): ProtocolClient {
           if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
             throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow at most ${eff.bps / 100}% of supply per buy. Lower the First BOOST.`);
           }
-          if (modesActive() && mode === LaunchMode.PVE) {
-            const v = await readPveLoginVerified(pc, launchpad, me);
-            if (!v.verified) throw new ProtocolError("NotVerified", "PVE First BOOST needs a login-verified wallet. Verify your login first, or set First BOOST to 0.");
-          }
+          // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
+          // ensurePveLogin (#99) gets one from /api/pve/attest (relayed on-chain) or prepends LoginGate.attest; it throws
+          // a friendly PveError when the Privy login isn't verified.
+          if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
           params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS); // quote − 1%
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
@@ -529,6 +577,7 @@ export function createViemProtocol(): ProtocolClient {
         }
         throw new ProtocolError("NoLaunchEvent", `Launch tx ${r.txHash} had no Launched event.`);
       } catch (e) {
+        if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
         throw e instanceof ProtocolError ? e : friendlyError(e);
       }
     },

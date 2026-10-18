@@ -31,7 +31,7 @@ function FlightInner({ address }: { address: string }) {
   return (
     <>
       <FlightCanvas search={search} />
-      <CrewPanel />
+      <CrewPanel coin={address} />
       <PnlHud coin={address} />
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />

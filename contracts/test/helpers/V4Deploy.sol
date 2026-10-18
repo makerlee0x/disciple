@@ -25,7 +25,7 @@ library V4Deploy {
         s.manager = IPoolManager(address(manager));
 
         uint160 flags = uint160(
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
                 | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
 
@@ -43,6 +43,7 @@ library V4Deploy {
         s.router = new DiscipleRouter(s.manager, lockedLP, address(hook));
         hook.setTrustedRouter(address(s.router), true);
         hook.setLiquidityManager(address(lockedLP), true);
+        hook.setCompounder(address(lockedLP), 250_000);
         s.hook = hook;
         s.migration = migration;
     }

@@ -8,3 +8,7 @@ export { tokenAbi } from "./Token";
 export { feeRouterAbi } from "./FeeRouter";
 export { marketLensAbi } from "./MarketLens";
 export { anonLauncherAbi } from "./AnonLauncher";
+export { loginGateAbi } from "./LoginGate";
+export { referralRegistryAbi } from "./ReferralRegistry";
+export { usdgDepositNotifierAbi } from "./UsdgDepositNotifier";
+export { quotePricerAbi } from "./QuotePricer";

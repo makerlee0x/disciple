@@ -3,7 +3,7 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
-import { candles, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
 
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
@@ -64,7 +64,7 @@ export class Api {
           const p = priceWadFromSqrt(sqrtP, tokenIsC0);
           const curveM = (await client.readContract({ address: coin.curve, abi: READS, functionName: "mcapNow" }).catch(() => 0n)) as bigint;
           return {
-            priceWad: p.toString(), mcapUsd: wad(mcapUsdWad(p, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
+            priceWad: p.toString(), mcapUsd: wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
             liquidityUsd: 2 * wad(virtualQuoteReserve(L, sqrtP, tokenIsC0)) * wad(qUsd),
             curveMcapNowUsd: wad(curveM),
           };
@@ -237,9 +237,11 @@ export class Api {
   feeRouting(token: string) {
     const c = this.coin(token);
     if (!c) return null;
-    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
+    const rows = this.db.prepare("SELECT kind, quote, a, b, c, d, e, fee_is_quote FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','SnipeFeeRouted','SnipeFeeRoutedToLP','CreatorFeesClaimed','RewardAccrued')").all(c.token) as any[];
     const sum = (xs: (string | null)[]) => xs.reduce((acc, x) => acc + BigInt(x ?? 0), 0n);
-    const tf = rows.filter((r) => r.kind === "TradeFeeRouted");
+    // audit #11: quote-unit rows only (legacy rows have fee_is_quote NULL = quote); token-unit post-grad fees reported apart
+    const tf = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote !== 0);
+    const tt = rows.filter((r) => r.kind === "TradeFeeRouted" && r.fee_is_quote === 0);
     const sn = rows.filter((r) => r.kind === "SnipeFeeRouted");
     const q = wad(BigInt(c.quote_price_usd ?? 0));
     const out: any = {
@@ -252,7 +254,15 @@ export class Api {
     };
     const usd: any = {};
     for (const [k, v] of Object.entries(out)) if (typeof v === "bigint") { usd[k] = wad(v) * q; out[k] = v.toString(); }
-    return { ...out, usd };
+    const tokenUnits = {
+      trades: tt.length, creator: sum(tt.map((r) => r.a)).toString(), lp: sum(tt.map((r) => r.b)).toString(),
+      treasury: sum(tt.map((r) => r.c)).toString(), referral: sum(tt.map((r) => r.d)).toString(),
+    };
+    const kol = (this.db.prepare("SELECT fee_is_quote fq, amount FROM fee_credits WHERE token=? AND role='kol'").all(c.token) as any[]);
+    out.kol = sum(kol.filter((r) => r.fq === 1).map((r) => r.amount)).toString();
+    (tokenUnits as any).kol = sum(kol.filter((r) => r.fq === 0).map((r) => r.amount)).toString();
+    usd.kol = wad(BigInt(out.kol)) * q;
+    return { ...out, usd, tokenUnits };
   }
 
   leaderboard(kind: string, q: URLSearchParams) {
@@ -279,7 +289,8 @@ export class Api {
           FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
       case "referrers":
         return this.db.prepare(`SELECT referrer user, SUM(status='attributed') attributed, SUM(status='pending') pending,
-          COALESCE((SELECT SUM(CAST(f.d AS REAL))/1e18 FROM fee_events f WHERE f.kind='TradeFeeRouted' AND f.account IN (SELECT wallet FROM referrals r2 WHERE r2.referrer=r.referrer AND r2.status='attributed')),0) referralShareQuote
+          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
+          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=0),0) referralShareToken
           FROM referrals r GROUP BY referrer ORDER BY attributed DESC, pending DESC LIMIT ?`).all(limit);
       default:
         throw new Error("unknown leaderboard (traders|creators|coins|tramps|keepers|referrers)");
@@ -326,6 +337,20 @@ export class Api {
   }
 
   /** Minimal router; returns [status, body]. */
+  /** LP auto-compound history: 33% LP share added to the locked full-range position (raw units). */
+  lpCompounds(token: string) {
+    const t = token.toLowerCase();
+    const rows = this.db.prepare(
+      "SELECT liquidity, token_used tokenUsed, quote_used quoteUsed, token_carry tokenCarry, quote_carry quoteCarry, block, ts, tx FROM lp_compounds WHERE token=? ORDER BY block, id",
+    ).all(t) as any[];
+    const sum = (k: string) => rows.reduce((acc, r) => acc + BigInt(r[k]), 0n).toString();
+    const last = rows[rows.length - 1];
+    return {
+      token: t, count: rows.length, totalLiquidity: sum("liquidity"), totalTokenUsed: sum("tokenUsed"), totalQuoteUsed: sum("quoteUsed"),
+      tokenCarry: last?.tokenCarry ?? "0", quoteCarry: last?.quoteCarry ?? "0", events: rows,
+    };
+  }
+
   async route(method: string, url: URL): Promise<[number, unknown]> {
     if (method !== "GET") return [405, { error: "GET only" }];
     const p = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
@@ -354,6 +379,7 @@ export class Api {
       if (p[2] === "holders") return nf(this.holders(t, q));
       if (p[2] === "altitude") return nf(this.altitude(t));
       if (p[2] === "fee-routing") return nf(this.feeRouting(t));
+      if (p[2] === "lp-compounds") return [200, this.lpCompounds(t)];
     }
     if (p[0] === "users" && addr(p[1])) {
       if (p.length === 2) return [200, this.profile(p[1])];

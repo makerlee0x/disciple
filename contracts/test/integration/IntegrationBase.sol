@@ -98,7 +98,7 @@ abstract contract IntegrationBase is Test {
 
     function setUp() public virtual {
         quote = new MockUSDG();
-        referrals = new ReferralRegistry(owner);
+        referrals = new ReferralRegistry(owner, address(quote));
         lockedLP = new LockedLP(owner, treasury);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
@@ -112,6 +112,7 @@ abstract contract IntegrationBase is Test {
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
+        lockedLP.setHook(address(hook));
         depositHook = new DepositHookMock(referrals);
         referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
@@ -124,19 +125,16 @@ abstract contract IntegrationBase is Test {
 
         strategy = new MockUSDG(); // treat as STRATEGY
         // Rename via nothing — MockUSDG is fine as STRATEGY stand-in
-        quoteProbe = new QuoteProbe(owner);
 
         vm.startPrank(owner);
         feeRouter.setLaunchpad(address(launchpad));
+        migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
         feeRouter.setAuthorized(address(hook), true);
         rewardsVault = new RewardsVault(owner);
         rewardsVault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(rewardsVault));
         launchpad.setDefaultQuote(address(strategy));
-        launchpad.setQuoteProbe(address(quoteProbe));
-        quoteProbe.setAlwaysPass(address(strategy), true);
-        quoteProbe.setAlwaysPass(address(quote), true);
         vm.stopPrank();
 
         // Launch-time oracle: USDG ($1) + STRATEGY priced from a STRATEGY/USDG v4 pool at 1:1
@@ -145,8 +143,12 @@ abstract contract IntegrationBase is Test {
         refPoolQuoteSeed = quote.balanceOf(address(manager));
         vm.startPrank(owner);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
+        // Real round-trip probe ($1 of USDG); the default (strategy) is probed too, no allowlist.
+        quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), 1e18);
+        launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
+        launchpad.setTrustedRouter(address(router), true);
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);
@@ -164,6 +166,7 @@ abstract contract IntegrationBase is Test {
     }
 
     function _bindReferral(address wallet, address referrer, uint256 usdgDeposit) internal {
+        vm.prank(wallet); // audit #3: only the wallet (or an attestor) may attribute itself
         referrals.tryAttribute(wallet, referrer);
         if (usdgDeposit > 0) {
             depositHook.notifyDeposit(wallet, usdgDeposit);
@@ -222,6 +225,26 @@ abstract contract IntegrationBase is Test {
         uint256 out = curve.sell(tokensIn, minOut, block.timestamp + 1 hours);
         vm.stopPrank();
         return out;
+    }
+
+    /// @dev DiscipleHook compound reference needs REF_MIN_AGE (60 s) of history after graduation.
+    function _warpRefReady() internal {
+        vm.warp(vm.getBlockTimestamp() + 61);
+        vm.roll(vm.getBlockNumber() + 1);
+    }
+
+    /// @dev Make the hook's compound reference ready (audit round 3: >= 3 observations, last >= 60 s after the
+    ///      seed): two dust buys in distinct blocks by a throwaway wallet, then a fresh block.
+    function _refReady(Token tok) internal {
+        address w = makeAddr("refObserver");
+        vm.warp(vm.getBlockTimestamp() + 31);
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInQuoteForToken(tok, w, 1e12);
+        vm.warp(vm.getBlockTimestamp() + 31);
+        vm.roll(vm.getBlockNumber() + 1);
+        _swapExactInQuoteForToken(tok, w, 1e12);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.roll(vm.getBlockNumber() + 1);
     }
 
     function _warpPastSnipe() internal {
@@ -324,7 +347,7 @@ abstract contract IntegrationBase is Test {
 
     /// @dev Quote held in protocol buckets (curve reserve / LP escrow / accrued / treasury).
     function _quoteDistributed(address token, address creator_) internal view returns (uint256) {
-        uint256 sum = quote.balanceOf(treasury);
+        uint256 sum = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         sum += feeRouter.creatorAccrued(token, creator_);
         sum += feeRouter.referrerAccrued(kol, address(quote));
         sum += feeRouter.referrerAccrued(referred, address(quote));

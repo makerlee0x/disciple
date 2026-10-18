@@ -12,10 +12,28 @@ interface IQuoteSources {
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
+    // DiscipleRouter USDG route quote for an explicit trader (simulate-and-revert)
+    function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
+        external
+        returns (uint256 amountOut, uint256 maxHopImpactBps);
+    function usdg() external view returns (address);
 }
 
 interface ITokenOf {
     function token() external view returns (address);
+}
+
+interface IQuoteOf {
+    function quote() external view returns (address);
+}
+
+interface IDefaultQuote {
+    function defaultQuote() external view returns (address);
+}
+
+interface IAnonFee {
+    function feeToken() external view returns (address);
+    function launchFee() external view returns (uint256);
 }
 
 /// @title DiscipleSessionPolicy
@@ -31,8 +49,8 @@ interface ITokenOf {
 /// @dev Storage is keyed `[entityId][account]` (account innermost) so validation-phase reads are account-associated.
 contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     // ───────────────────────── permissions (bitmask) ─────────────────────────
-    uint256 public constant P_ROUTER_BUY = 1 << 0; // DiscipleRouter.buyExactIn
-    uint256 public constant P_ROUTER_SELL = 1 << 1; // DiscipleRouter.sellExactIn
+    uint256 public constant P_ROUTER_BUY = 1 << 0; // DiscipleRouter.buyExactIn + buyWithUsdg
+    uint256 public constant P_ROUTER_SELL = 1 << 1; // DiscipleRouter.sellExactIn + sellToUsdg
     uint256 public constant P_CURVE_BUY = 1 << 2; // BondingCurve.buy (3- and 4-arg)
     uint256 public constant P_CURVE_SELL = 1 << 3; // BondingCurve.sell (3- and 4-arg)
     uint256 public constant P_TRAMP = 1 << 4; // TrampWallManager.placeTramp
@@ -41,10 +59,13 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     uint256 public constant P_LAUNCH = 1 << 7; // Launchpad.launch / launchCoin
     uint256 public constant P_ANON_LAUNCH = 1 << 8; // AnonLauncher.launchAnon
     uint256 public constant P_APPROVE = 1 << 9; // ERC20.approve(spender ∈ DISCIPLE contracts | registered curve)
+    uint256 public constant P_REFERRAL = 1 << 10; // ReferralRegistry.tryAttribute(wallet == account, referrer)
 
     uint32 public constant EXEC_HOOK_FLAG = 1 << 31;
     uint16 public constant DEFAULT_MAX_SLIPPAGE_BPS = 500; // 5%
+    uint16 public constant MIN_SLIPPAGE_BPS_LIMIT = 10; // 0.1% (audit #7)
     uint16 public constant MAX_SLIPPAGE_BPS_LIMIT = 5000; // 50%
+    uint256 public constant MAX_SESSION_DURATION = 24 hours; // audit #7: on-chain expiry bound
     uint256 internal constant BPS = 10_000;
 
     // selectors
@@ -53,6 +74,8 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     bytes4 internal constant EXECUTE_USER_OP = 0x8dd7712f; // IAccountExecute.executeUserOp
     bytes4 internal constant ROUTER_BUY = bytes4(keccak256("buyExactIn(address,uint256,uint256,address,uint256)"));
     bytes4 internal constant ROUTER_SELL = bytes4(keccak256("sellExactIn(address,uint256,uint256,address,uint256)"));
+    bytes4 internal constant ROUTER_BUY_USDG = bytes4(keccak256("buyWithUsdg(address,uint256,uint256,uint256)"));
+    bytes4 internal constant ROUTER_SELL_USDG = bytes4(keccak256("sellToUsdg(address,uint256,uint256,uint256)"));
     bytes4 internal constant CURVE_BUY3 = bytes4(keccak256("buy(uint256,uint256,uint256)"));
     bytes4 internal constant CURVE_BUY4 = bytes4(keccak256("buy(uint256,uint256,uint256,address)"));
     bytes4 internal constant CURVE_SELL3 = bytes4(keccak256("sell(uint256,uint256,uint256)"));
@@ -64,12 +87,21 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         bytes4(keccak256("launch((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
     bytes4 internal constant LAUNCH_COIN =
         bytes4(keccak256("launchCoin((string,string,string,string,string,address,uint256,uint256,uint256,uint256))"));
+    bytes4 internal constant LAUNCH_MODE = bytes4(
+        keccak256("launchWithMode((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8)")
+    );
     bytes4 internal constant ANON_LAUNCH = bytes4(
         keccak256(
             "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1)"
         )
     );
     bytes4 internal constant APPROVE = bytes4(keccak256("approve(address,uint256)"));
+    bytes4 internal constant TRY_ATTRIBUTE = bytes4(keccak256("tryAttribute(address,address)"));
+
+    /// @notice DISCIPLE ReferralRegistry (first-touch attribution read by FeeRouter on referral-attributed buys).
+    ///         Fixed per deployment (immutable) so the SessionConfig ABI used by the SDK is unchanged.
+    ///         address(0) disables P_REFERRAL entirely.
+    address public immutable referralRegistry;
 
     /// @notice Install-time session configuration (abi-encoded after the uint32 entityId in onInstall data).
     struct SessionConfig {
@@ -82,9 +114,10 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         address trampWallManager;
         address quote0; // capped quote assets (e.g. USDG, STRATEGY); address(0) = unused
         address quote1;
-        uint128 cap0; // max total approve() of quote0 during the session (raw units)
+        uint128 cap0; // max total quote0 actually SPENT during the session (raw units; buys/tramps/launches)
         uint128 cap1;
-        uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT_MAX_SLIPPAGE_BPS
+        uint16 maxSlippageBps; // buys/sells: minOut >= onchainQuote * (1 - bps); 0 = DEFAULT, else 10..5000
+        address stealthOwner; // launchAnon: the only stealth owner allowed besides the account (0 = account only)
     }
 
     struct Session {
@@ -113,6 +146,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error NotAllowed(address target, bytes4 selector);
     error EthValueNotAllowed();
     error RecipientNotAccount();
+    error StealthOwnerNotAllowed(address stealthOwner);
     error SpenderNotAllowed(address spender);
     error SpendCapExceeded(address quote, uint256 spent, uint256 cap);
     error NotCurve(address target);
@@ -121,6 +155,12 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error ZeroMinOut();
     error MinOutTooLow(uint256 minOut, uint256 required);
     error QuoteFailed(address target);
+    error WalletNotAccount();
+    error UsdgApproveNotExact(uint256 amount, uint256 required);
+
+    constructor(address referralRegistry_) {
+        referralRegistry = referralRegistry_;
+    }
 
     // ───────────────────────── install / uninstall / revoke ─────────────────────────
 
@@ -133,7 +173,11 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (cfg.validUntil == 0 || cfg.validUntil <= cfg.validAfter || cfg.validUntil <= block.timestamp) {
             revert InvalidConfig();
         }
+        // Audit #7: session lifetime ≤ 24h from when it becomes usable.
+        uint256 start = cfg.validAfter > block.timestamp ? cfg.validAfter : block.timestamp;
+        if (cfg.validUntil - start > MAX_SESSION_DURATION) revert InvalidConfig();
         if (cfg.permissions == 0 || cfg.maxSlippageBps > MAX_SLIPPAGE_BPS_LIMIT) revert InvalidConfig();
+        if (cfg.maxSlippageBps != 0 && cfg.maxSlippageBps < MIN_SLIPPAGE_BPS_LIMIT) revert InvalidConfig();
         if (cfg.maxSlippageBps == 0) cfg.maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS;
         Session storage s = _sessions[entityId][msg.sender];
         s.cfg = cfg;
@@ -163,7 +207,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.0.0";
+        return "disciple.session-policy.1.3.0";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -212,11 +256,12 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (value != 0) revert EthValueNotAllowed();
         Session storage s = _active(entityId & ~EXEC_HOOK_FLAG, msg.sender);
         _checkTime(s.cfg); // runtime path / defense in depth (userOp path is enforced by EntryPoint)
-        Call[] memory calls = _decode(data);
+        Call[] memory calls = _decode(_unwrapExecuteUserOp(data));
         uint256 add0;
         uint256 add1;
+        address usdg = _usdgOf(s.cfg);
         for (uint256 i; i < calls.length; ++i) {
-            (uint256 a0, uint256 a1) = _fullCheck(s.cfg, msg.sender, calls[i]);
+            (uint256 a0, uint256 a1) = _fullCheck(s.cfg, msg.sender, calls[i], usdg, calls);
             add0 += a0;
             add1 += a1;
         }
@@ -248,6 +293,25 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (block.timestamp > c.validUntil || block.timestamp < c.validAfter) revert SessionExpired();
     }
 
+    /// @dev MAv2 `executeUserOp` passes its full `msg.data` (`executeUserOp(PackedUserOperation,bytes32)`) to
+    ///      validation-associated pre-exec hooks (ExecutionLib.allocatePreExecHookCallBuffer(msg.data)).
+    ///      Unwrap to `userOp.callData[4:]` (the inner execute/executeBatch); otherwise pass `data` through.
+    function _unwrapExecuteUserOp(bytes calldata data) internal pure returns (bytes calldata) {
+        if (data.length < 4 || bytes4(data[:4]) != EXECUTE_USER_OP) return data;
+        bytes calldata args = data[4:];
+        if (args.length < 64) revert OnlyExecuteCalls();
+        uint256 rel = uint256(bytes32(args[:32]));
+        if (rel > args.length - 32) revert OnlyExecuteCalls();
+        PackedUserOperation calldata op;
+        assembly ("memory-safe") {
+            op := add(args.offset, rel)
+        }
+        bytes calldata inner = op.callData; // Solidity bounds-checks the dynamic field against calldatasize
+        if (inner.length < 4) revert OnlyExecuteCalls();
+        if (bytes4(inner[:4]) != EXECUTE_USER_OP) revert OnlyExecuteCalls();
+        return inner[4:];
+    }
+
     /// @dev Decodes `execute` / `executeBatch` account calldata. Anything else is rejected.
     function _decode(bytes calldata data) internal pure returns (Call[] memory calls) {
         if (data.length < 4) revert OnlyExecuteCalls();
@@ -276,7 +340,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     /// @return add0 / add1 quote spend to count against cap0 / cap1.
-    function _fullCheck(SessionConfig storage c, address account, Call memory k)
+    function _fullCheck(SessionConfig storage c, address account, Call memory k, address usdg, Call[] memory calls)
         internal
         returns (uint256 add0, uint256 add1)
     {
@@ -287,11 +351,20 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (p == 0 || c.permissions & p == 0) revert NotAllowed(k.target, sel);
         bytes memory args = _args(k.data);
 
-        if (p == P_ROUTER_BUY || p == P_ROUTER_SELL) {
+        if ((p == P_ROUTER_BUY && sel == ROUTER_BUY_USDG) || (p == P_ROUTER_SELL && sel == ROUTER_SELL_USDG)) {
+            // buyWithUsdg / sellToUsdg(token, amountIn, minOut, deadline): the router pins the recipient to
+            // msg.sender (= this account). minOut is end-to-end (tokens on buys, USDG on sells) and is checked
+            // against the router's own multi-hop quote at this state. The cap counts USDG spent.
+            (address token, uint256 amountIn, uint256 minOut) = abi.decode(args, (address, uint256, uint256));
+            bool isBuy = sel == ROUTER_BUY_USDG;
+            _checkMinOut(c, minOut, _usdgRouteQuote(k.target, account, token, isBuy, amountIn), k.target);
+            if (isBuy) (add0, add1) = _spend(c, usdg, amountIn);
+        } else if (p == P_ROUTER_BUY || p == P_ROUTER_SELL) {
             (address token, uint256 amountIn, uint256 minOut, address recipient,) =
                 abi.decode(args, (address, uint256, uint256, address, uint256));
             if (recipient != account) revert RecipientNotAccount();
             _checkMinOut(c, minOut, _routerQuote(k.target, token, p == P_ROUTER_BUY, amountIn), k.target);
+            if (p == P_ROUTER_BUY) (add0, add1) = _spend(c, _quoteOfToken(c, token), amountIn);
         } else if (p == P_CURVE_BUY || p == P_CURVE_SELL) {
             if (!_isCurve(c, k.target)) revert NotCurve(k.target);
             if (sel == CURVE_BUY4 || sel == CURVE_SELL4) {
@@ -299,19 +372,151 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
                 if (recipient != account) revert RecipientNotAccount();
             }
             (uint256 amountIn, uint256 minOut) = abi.decode(args, (uint256, uint256));
-            _checkMinOut(c, minOut, _curveQuote(k.target, p == P_CURVE_BUY, amountIn), k.target);
+            _checkMinOut(c, minOut, _curveQuote(k.target, account, p == P_CURVE_BUY, amountIn), k.target);
+            if (p == P_CURVE_BUY) (add0, add1) = _spend(c, IQuoteOf(k.target).quote(), amountIn);
         } else if (p == P_ANON_LAUNCH) {
-            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 2 = buyRecipient
+            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 1 =
+            // stealthOwner, word 2 = buyRecipient. Audit R-2: a leaked key must not launch with ITS stealth owner
+            // (the creator role + fees): only the account or the stealth address registered at install.
+            address so = _word(args, 1);
+            if (so != account && (so != c.stealthOwner || so == address(0))) revert StealthOwnerNotAllowed(so);
             address buyRecipient = _word(args, 2);
             if (buyRecipient != account) revert RecipientNotAccount();
+            (address q, uint256 buyIn) = _launchSpend(c, args);
+            (add0, add1) = _spend(c, q, buyIn);
+            (uint256 f0, uint256 f1) = _spend(c, IAnonFee(k.target).feeToken(), IAnonFee(k.target).launchFee());
+            add0 += f0;
+            add1 += f1;
+        } else if (p == P_REFERRAL) {
+            // tryAttribute(wallet, referrer): the session key may only attribute ITS OWN account (no third parties).
+            (address wallet,) = abi.decode(args, (address, address));
+            if (wallet != account) revert WalletNotAccount();
         } else if (p == P_APPROVE) {
-            (address spender, uint256 amount) = abi.decode(args, (address, uint256));
+            (address spender, uint256 amt) = abi.decode(args, (address, uint256));
             if (!_isFixedTarget(c, spender) && !_isCurve(c, spender)) revert SpenderNotAllowed(spender);
-            if (k.target == c.quote0 && c.quote0 != address(0)) add0 = amount;
-            else if (k.target == c.quote1 && c.quote1 != address(0)) add1 = amount;
-            // non-quote tokens (rocket tokens for sells / walls): uncapped, spender-pinned, proceeds pinned to account
+            if (usdg != address(0) && k.target == usdg && amt != 0) {
+                // USDG (DISCIPLE audit #5): an allowance to the router, a curve, TrampWallManager, Launchpad or
+                // AnonLauncher must equal EXACTLY what this batch's calls to that spender pull in USDG (0 = revoke).
+                uint256 need = _usdgNeedFor(c, calls, spender, usdg);
+                if (amt != need) revert UsdgApproveNotExact(amt, need);
+            }
+            // Audit #8: approvals are NOT what the cap counts (a leftover or pre-existing allowance would bypass
+            // it). The cap counts the quote each spending call actually moves (buys, tramps, launch buys/fees).
+        } else if (p == P_TRAMP) {
+            // placeTramp(token, tl, tu, quoteAmt, minLiq, deadline): quote-side liquidity pulled from the account
+            (address token,,, uint256 amt) = abi.decode(args, (address, int24, int24, uint256));
+            (add0, add1) = _spend(c, _quoteOfToken(c, token), amt);
+        } else if (p == P_LAUNCH) {
+            (address q, uint256 buyIn) = _launchSpend(c, args);
+            (add0, add1) = _spend(c, q, buyIn);
         }
-        // P_TRAMP / P_WALL / P_CANCEL / P_LAUNCH: positions & launches are owned by msg.sender (= account)
+        // P_WALL / P_CANCEL / sells: no quote leaves the account (walls pull launch tokens; proceeds pinned)
+    }
+
+    /// @dev USDG of the configured router (address(0) for a router without USDG routing).
+    function _usdgOf(SessionConfig storage c) internal view returns (address usdg) {
+        address r = c.router;
+        if (r == address(0) || r.code.length == 0) return address(0);
+        try IQuoteSources(r).usdg() returns (address u) {
+            usdg = u;
+        } catch {}
+    }
+
+    /// @dev Total USDG the batch's spending calls targeting `spender` pull from the account.
+    function _usdgNeedFor(SessionConfig storage c, Call[] memory calls, address spender, address usdg)
+        internal
+        view
+        returns (uint256 need)
+    {
+        for (uint256 i; i < calls.length; ++i) {
+            Call memory k = calls[i];
+            if (k.target != spender || k.data.length < 4) continue;
+            bytes4 sel = _sel(k.data);
+            bytes memory args = _args(k.data);
+            if (spender == c.router) {
+                if (sel == ROUTER_BUY_USDG) {
+                    (, uint256 a) = abi.decode(args, (address, uint256));
+                    need += a;
+                } else if (sel == ROUTER_BUY) {
+                    (address t, uint256 a) = abi.decode(args, (address, uint256));
+                    if (_quoteOfToken(c, t) == usdg) need += a;
+                }
+            } else if (spender == c.trampWallManager) {
+                if (sel == TRAMP) {
+                    (address t,,, uint256 a) = abi.decode(args, (address, int24, int24, uint256));
+                    if (_quoteOfToken(c, t) == usdg) need += a;
+                }
+            } else if (spender == c.launchpad || spender == c.anonLauncher) {
+                if (sel == LAUNCH || sel == LAUNCH_COIN || sel == LAUNCH_MODE || sel == ANON_LAUNCH) {
+                    (address q, uint256 a) = _launchSpend(c, args);
+                    if (q == usdg) need += a;
+                    if (sel == ANON_LAUNCH && IAnonFee(spender).feeToken() == usdg) need += IAnonFee(spender).launchFee();
+                }
+            } else if (sel == CURVE_BUY3 || sel == CURVE_BUY4) {
+                // spender is a registry-verified curve (checked by the caller)
+                if (IQuoteOf(spender).quote() == usdg) {
+                    (uint256 a) = abi.decode(args, (uint256));
+                    need += a;
+                }
+            }
+        }
+    }
+
+    /// @dev DISCIPLE audit Medium-2: quoted for the ACCOUNT (not this policy contract), so PVE login, NET caps and
+    ///      the PVE profit tax match the real trade.
+    function _usdgRouteQuote(address router, address account, address token, bool isBuy, uint256 amountIn)
+        internal
+        returns (uint256 out)
+    {
+        try IQuoteSources(router).quoteUsdgRouteFor(account, token, isBuy, amountIn) returns (uint256 o, uint256) {
+            out = o;
+        } catch {
+            revert QuoteFailed(router);
+        }
+    }
+
+    struct LaunchParamsLite {
+        string name;
+        string ticker;
+        string imageURI;
+        string description;
+        string socialsURI;
+        address quote;
+        uint256 creatorTaxBps;
+        uint256 creatorBuyQuoteIn;
+        uint256 creatorBuyMinTokensOut;
+        uint256 deadline;
+    }
+
+    /// @dev Decodes the leading LaunchParams tuple of launch/launchCoin/launchAnon args.
+    function _launchSpend(SessionConfig storage c, bytes memory args) internal view returns (address q, uint256 amt) {
+        uint256 off;
+        assembly {
+            off := mload(add(args, 32))
+        }
+        bytes memory tup = new bytes(args.length - off + 32);
+        assembly {
+            mstore(add(tup, 32), 32)
+        }
+        for (uint256 i; i < args.length - off; ++i) {
+            tup[i + 32] = args[off + i];
+        }
+        LaunchParamsLite memory lp = abi.decode(tup, (LaunchParamsLite));
+        amt = lp.creatorBuyQuoteIn;
+        q = lp.quote;
+        if (q == address(0) && amt != 0) q = IDefaultQuote(c.launchpad).defaultQuote();
+    }
+
+    function _quoteOfToken(SessionConfig storage c, address token) internal view returns (address) {
+        return IQuoteOf(ICurveOf(c.launchpad).curveOf(token)).quote();
+    }
+
+    /// @dev Audit #8: every quote outflow must be a configured capped quote; anything else is refused.
+    function _spend(SessionConfig storage c, address q, uint256 amt) internal view returns (uint256, uint256) {
+        if (amt == 0) return (0, 0);
+        if (q == c.quote0 && q != address(0)) return (amt, 0);
+        if (q == c.quote1 && q != address(0)) return (0, amt);
+        revert SpendCapExceeded(q, amt, 0);
     }
 
     /// @dev Quotes are read at execution-hook time, i.e. against the state the trade will execute on (same tx).
@@ -332,10 +537,17 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         }
     }
 
-    /// @dev BondingCurve.quoteBuy / quoteSell return all-static structs whose first word is the net output.
-    function _curveQuote(address curve, bool isBuy, uint256 amountIn) internal view returns (uint256) {
+    /// @dev BondingCurve.quoteBuyFor / quoteSellFor(account, …) return all-static structs whose first word is the net
+    ///      output, with the account's mode caps / PVE login / PVE profit tax applied (audit Medium-2).
+    function _curveQuote(address curve, address account, bool isBuy, uint256 amountIn)
+        internal
+        view
+        returns (uint256)
+    {
         (bool ok, bytes memory r) = curve.staticcall(
-            abi.encodeWithSignature(isBuy ? "quoteBuy(uint256)" : "quoteSell(uint256)", amountIn)
+            abi.encodeWithSignature(
+                isBuy ? "quoteBuyFor(address,uint256)" : "quoteSellFor(address,uint256)", account, amountIn
+            )
         );
         if (!ok || r.length < 32) revert QuoteFailed(curve);
         return abi.decode(r, (uint256));
@@ -346,6 +558,12 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (target == c.router && target != address(0)) {
             if (sel == ROUTER_BUY) return P_ROUTER_BUY;
             if (sel == ROUTER_SELL) return P_ROUTER_SELL;
+            if (sel == ROUTER_BUY_USDG) return P_ROUTER_BUY;
+            if (sel == ROUTER_SELL_USDG) return P_ROUTER_SELL;
+            return 0;
+        }
+        if (target == referralRegistry && target != address(0)) {
+            if (sel == TRY_ATTRIBUTE) return P_REFERRAL;
             return 0;
         }
         if (target == c.trampWallManager && target != address(0)) {
@@ -355,7 +573,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             return 0;
         }
         if (target == c.launchpad && target != address(0)) {
-            if (sel == LAUNCH || sel == LAUNCH_COIN) return P_LAUNCH;
+            if (sel == LAUNCH || sel == LAUNCH_COIN || sel == LAUNCH_MODE) return P_LAUNCH;
             return 0;
         }
         if (target == c.anonLauncher && target != address(0)) {
@@ -369,8 +587,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function _isFixedTarget(SessionConfig storage c, address a) internal view returns (bool) {
-        return a != address(0)
-            && (a == c.router || a == c.launchpad || a == c.anonLauncher || a == c.trampWallManager);
+        return a != address(0) && (a == c.router || a == c.launchpad || a == c.anonLauncher || a == c.trampWallManager);
     }
 
     function _isCurve(SessionConfig storage c, address a) internal view returns (bool) {

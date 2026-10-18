@@ -11,6 +11,7 @@ import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
 import {AntiSnipe} from "../src/AntiSnipe.sol";
 import {Migration} from "../src/Migration.sol";
+import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
@@ -19,6 +20,7 @@ import {QuotePricer} from "../src/QuotePricer.sol";
 import {DiscipleRouter} from "../src/DiscipleRouter.sol";
 import {DiscipleHook} from "../src/DiscipleHook.sol";
 import {RewardsVault} from "../src/RewardsVault.sol";
+import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {MarketLens} from "../src/addons/MarketLens.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -62,7 +64,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
-///   UNIVERSAL_ROUTER    also allowlist in the hook for hookData trader attribution (RH: 0x8876…0904)
+///   (UNIVERSAL_ROUTER is intentionally NOT trusted: audit #10 / SEC-05 — anyone can pass arbitrary hookData
+///    through it and spoof the credited trader. Only DiscipleRouter is a trusted router.)
 ///   REWARDS_VAULT_OWNER community RewardsVault owner/multisig (default deployer); 70% of anti-snipe tax
 ///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee (default 0.25e18, cap 5e18)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
@@ -90,6 +93,7 @@ contract Deploy is Script {
         address pricer;
         address usdg;
         address defaultQuote;
+        address depositNotifier;
     }
 
     function run() external returns (Out memory o) {
@@ -100,7 +104,8 @@ contract Deploy is Script {
         o.defaultQuote = vm.envOr("DEFAULT_QUOTE", address(0));
 
         vm.startBroadcast();
-        address deployer = msg.sender;
+        // The broadcasting account (== msg.sender under `forge script`; also correct when run() is called from a test).
+        (, address deployer,) = vm.readCallers();
         if (treasury == address(0)) treasury = deployer;
 
         if (o.manager == address(0)) {
@@ -108,13 +113,16 @@ contract Deploy is Script {
         }
         IPoolManager manager = IPoolManager(o.manager);
 
-        ReferralRegistry referrals = new ReferralRegistry(deployer);
+        // USDG first: the referral gate is scaled by its decimals at construction.
+        bool devUsdg = o.usdg == address(0);
+        if (devUsdg) o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
         LockedLP lockedLP = new LockedLP(deployer, treasury);
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
 
         // Hook salt is mined against the CREATE2 factory that actually deploys it (not the EOA).
         uint160 flags = uint160(
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
                 | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
@@ -134,15 +142,18 @@ contract Deploy is Script {
         // SEC-02: only LockedLP + TrampWallManager may add liquidity to DISCIPLE pools.
         hook.setLiquidityManager(address(lockedLP), true);
         hook.setLiquidityManager(o.trampWall, true);
+        // LP auto-compound: hook calls LockedLP after fee routing; LockedLP trusts only this hook.
+        hook.setCompounder(address(lockedLP), 250_000);
+        lockedLP.setHook(address(hook));
         hook.setTrustedRouter(address(router), true);
-        address ur = vm.envOr("UNIVERSAL_ROUTER", address(0));
-        if (ur != address(0)) hook.setTrustedRouter(ur, true);
+        // Audit #10 (SEC-05): only our DiscipleRouter is trusted for hookData trader attribution.
 
         uint64 n = uint64(vm.getNonce(deployer));
         address launchpadAddr = vm.computeCreateAddress(deployer, n + 1);
         AntiSnipe antiSnipe = new AntiSnipe(launchpadAddr);
         Launchpad launchpad = new Launchpad(deployer, address(feeRouter), address(antiSnipe), address(migration));
         require(address(launchpad) == launchpadAddr, "Deploy: launchpad address mismatch");
+        migration.setLaunchpad(address(launchpad)); // audit #1: migrate() only from launchpad.curveOf(token)
 
         feeRouter.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
@@ -151,9 +162,8 @@ contract Deploy is Script {
         // ── quote assets + oracle ──
         PoolKey memory refKey;
         bool hasRef;
-        if (o.usdg == address(0)) {
-            // local: mock USDG + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
-            o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        if (devUsdg) {
+            // local: mock USDG (created above) + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
             if (o.defaultQuote == address(0)) {
                 o.defaultQuote = address(new DevToken("Strategy Coin (dev)", "STRATEGY", 18, deployer, 1e30));
                 refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, 245e13); // $0.00245
@@ -167,8 +177,13 @@ contract Deploy is Script {
         }
         if (o.defaultQuote == address(0)) o.defaultQuote = o.usdg;
 
+        // Audit #5: the referral USDG gate needs a deposit notifier, else onUsdgDeposit always reverts.
+        o.depositNotifier = address(new UsdgDepositNotifier(deployer, referrals, IERC20(o.usdg)));
+        referrals.setDepositHook(o.depositNotifier);
+
         QuotePricer pricer = new QuotePricer(deployer, manager, o.usdg);
-        pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(0))));
+        // Default floor is set by the constructor (1e4 * 10^((18 + usdgDecimals) / 2)); MIN_LIQUIDITY overrides it.
+        pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(pricer.minLiquidity()))));
         if (!hasRef && o.defaultQuote != o.usdg) {
             (address c0, address c1) =
                 uint160(o.defaultQuote) < uint160(o.usdg) ? (o.defaultQuote, o.usdg) : (o.usdg, o.defaultQuote);
@@ -182,12 +197,24 @@ contract Deploy is Script {
             hasRef = true;
         }
         if (hasRef) pricer.setPricePool(o.defaultQuote, refKey);
+        // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
+        router.setUsdgRouting(o.usdg, address(launchpad));
+        // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
+        launchpad.setTrustedRouter(address(router), true);
+        // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
+        {
+            address attester = vm.envOr("PVE_ATTESTER", address(0));
+            LoginGate gate = new LoginGate(deployer, attester);
+            launchpad.setLoginGate(address(gate));
+        }
+        if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");
 
-        QuoteProbe probe = new QuoteProbe(deployer);
-        probe.setAlwaysPass(o.defaultQuote, true);
-        probe.setAlwaysPass(o.usdg, true);
+        // Real round-trip probe through the pricer's base/USDG pool; probes the default base too (no allowlist).
+        QuoteProbe probe = new QuoteProbe(
+            deployer, manager, o.usdg, address(pricer), uint256(vm.envOr("PROBE_USDG", 10 ** uint256(pricer.usdgDecimals())))
+        );
 
         launchpad.setPricer(address(pricer));
         o.curveDeployer = address(new CurveDeployer());
@@ -226,6 +253,7 @@ contract Deploy is Script {
         console2.log("Launchpad", o.launchpad);
         console2.log("QuoteProbe", o.probe);
         console2.log("QuotePricer", o.pricer);
+        console2.log("UsdgDepositNotifier", o.depositNotifier);
         console2.log("USDG", o.usdg);
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));

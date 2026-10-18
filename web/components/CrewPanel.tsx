@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MODES, fmtUsd, nextUnlock, verifiedLevel } from "@/lib/config";
+import { MODES, fmtUsd, nextUnlock } from "@/lib/config";
+import { isVerified } from "@/lib/verified";
 import VerifiedBadge from "./VerifiedBadge";
 import Icon from "@/components/icons/Icon";
 
@@ -14,14 +15,13 @@ const MOCK_CREW = {
     { who: "0x7Fe…01b", usd: 760 },
   ],
   you: 35,
-  stats: { volume24hUsd: 42_000, ageHours: 900, holders: 640, liquidityUsd: 60_000 },
 };
 
 const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir soundtrack", "Golden wings"];
 
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
-export default function CrewPanel() {
+export default function CrewPanel({ coin, verified }: { coin?: string; verified?: boolean } = {}) {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
   // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
@@ -51,7 +51,7 @@ export default function CrewPanel() {
   }, []);
 
   const u = nextUnlock(mcap);
-  const tier = verifiedLevel({ ...MOCK_CREW.stats, mcapUsd: mcap });
+  const isVer = isVerified(coin, verified);
   const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
   const ammoTxt = (i: number, d: number) => { const v = ammoUsd[i] ?? d; return "$" + (v < 1 ? v.toFixed(2) : v.toLocaleString()); };
@@ -77,7 +77,7 @@ export default function CrewPanel() {
       </div>
       {open && (
         <>
-          <div style={{ marginTop: 6 }}><VerifiedBadge tier={tier} /></div>
+          {isVer && <div style={{ marginTop: 6 }}><VerifiedBadge verified showLabel /></div>}
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>

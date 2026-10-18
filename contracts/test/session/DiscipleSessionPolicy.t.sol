@@ -5,6 +5,23 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {DiscipleSessionPolicy as P} from "../../src/session/DiscipleSessionPolicy.sol";
 import {PackedUserOperation} from "../../src/session/IERC6900.sol";
+import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
+import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
+import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
+
+contract MockAnon {
+    address public feeToken;
+
+    constructor(address f) {
+        feeToken = f;
+    }
+
+    function launchFee() external pure returns (uint256) {
+        return 0;
+    }
+
+    fallback() external {}
+}
 
 contract TKN is ERC20 {
     constructor(string memory n) ERC20(n, n) {}
@@ -48,7 +65,7 @@ contract MockRouter {
 
 contract MockCurve {
     address public token;
-    TKN quote;
+    TKN public quote;
 
     constructor(address t, TKN q) {
         token = t;
@@ -68,6 +85,14 @@ contract MockCurve {
         return BuyQuote(t, 0);
     }
 
+    function quoteBuyFor(address, uint256 q) external pure returns (BuyQuote memory) {
+        return BuyQuote(q, 0);
+    }
+
+    function quoteSellFor(address, uint256 t) external pure returns (BuyQuote memory) {
+        return BuyQuote(t, 0);
+    }
+
     function buy(uint256 q, uint256, uint256, address recipient) external returns (uint256) {
         quote.transferFrom(msg.sender, address(this), q);
         TKN(token).mint(recipient, q);
@@ -83,6 +108,11 @@ contract MockCurve {
 
 contract MockLaunchpad {
     mapping(address => address) public curveOf;
+    address public defaultQuote;
+
+    function setDefaultQuote(address q) external {
+        defaultQuote = q;
+    }
 
     function set(address t, address c) external {
         curveOf[t] = c;
@@ -148,8 +178,21 @@ contract MockMAv2 {
         sessionKey = address(0);
     }
 
+    /// @dev Mirrors MAv2 ModularAccountBase.executeUserOp: validation-associated pre-exec hooks receive the
+    ///      FULL `msg.data` (executeUserOp selector + abi(PackedUserOperation, bytes32)), sender = EntryPoint,
+    ///      then the account self-calls `userOp.callData[4:]` (self-calls skip validation hooks).
+    address public constant ENTRY_POINT = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+
+    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external {
+        require(msg.sender == ENTRY_POINT, "ep");
+        policy.preUserOpValidationHook(entity, userOp, userOpHash); // EntryPoint validation phase (simplified)
+        policy.preExecutionHook(entity | policy.EXEC_HOOK_FLAG(), msg.sender, 0, msg.data);
+        (bool ok, bytes memory r) = address(this).call(userOp.callData[4:]);
+        if (!ok) assembly { revert(add(r, 32), mload(r)) }
+    }
+
     function _auth() internal {
-        if (msg.sender == owner) return;
+        if (msg.sender == owner || msg.sender == address(this)) return;
         require(msg.sender == sessionKey && sessionKey != address(0), "unauthorized");
         policy.preRuntimeValidationHook(entity, msg.sender, msg.value, msg.data, "");
         policy.preExecutionHook(entity | policy.EXEC_HOOK_FLAG(), msg.sender, msg.value, msg.data);
@@ -179,6 +222,7 @@ contract MockMAv2 {
 
 contract DiscipleSessionPolicyTest is Test {
     P policy;
+    ReferralRegistry registry;
     TKN usdg;
     TKN rocket;
     TKN rocket2;
@@ -196,8 +240,9 @@ contract DiscipleSessionPolicyTest is Test {
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        policy = new P();
         usdg = new TKN("USDG");
+        registry = new ReferralRegistry(address(this), address(usdg));
+        policy = new P(address(registry));
         rocket = new TKN("RKT");
         rocket2 = new TKN("RKT2");
         router = new MockRouter(usdg);
@@ -205,6 +250,7 @@ contract DiscipleSessionPolicyTest is Test {
         curve = new MockCurve(address(rocket2), usdg);
         fakeCurve = new MockCurve(address(rocket2), usdg); // not registered
         lp.set(address(rocket2), address(curve));
+        lp.set(address(rocket), address(new MockCurve(address(rocket), usdg))); // router-traded rocket's quote
         twm = new MockTWM(usdg);
         acct = new MockMAv2(owner);
         usdg.mint(address(acct), 1000e18);
@@ -394,23 +440,72 @@ contract DiscipleSessionPolicyTest is Test {
         assertEq(policy.sessionOf(address(acct), E).spent0, CAP);
     }
 
-    function test_capCountsAllApprovesInBatch() public {
+    /// @dev Audit #8: approvals are not counted; the cap counts quote actually spent.
+    function test_capCountsActualSpendNotApprovals() public {
+        _batch(_approve(address(usdg), address(router), 60e18), _approve(address(usdg), address(twm), 60e18));
+        assertEq(policy.sessionOf(address(acct), E).spent0, 0);
         _expectBatchRevert(
             abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 120e18, CAP),
-            _approve(address(usdg), address(router), 60e18),
-            _approve(address(usdg), address(twm), 60e18)
+            _buy(60e18, address(acct)),
+            _buy(60e18, address(acct))
         );
     }
 
+    /// @dev Audit #8 regression: a leftover / pre-existing allowance used to let buys skip the cap entirely.
+    function test_audit8_leftoverAllowanceCannotBypassCap() public {
+        vm.prank(owner); // owner grants a standing max allowance (no session hooks)
+        acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), type(uint256).max)));
+        MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
+        cs[0] = _buy(60e18, address(acct));
+        vm.prank(key);
+        acct.executeBatch(cs);
+        assertEq(policy.sessionOf(address(acct), E).spent0, 60e18);
+        cs[0] = _buy(41e18, address(acct));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        acct.executeBatch(cs);
+        // tramps also count
+        cs[0] = MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 41e18, 0, 0)));
+        vm.prank(owner);
+        acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(twm), type(uint256).max)));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        acct.executeBatch(cs);
+    }
+
     function testFuzz_spentNeverExceedsCap(uint96[5] memory amts) public {
+        vm.prank(owner);
+        acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), type(uint256).max)));
         for (uint256 i; i < amts.length; ++i) {
-            uint256 a = uint256(amts[i]) % 80e18;
+            uint256 a = uint256(amts[i]) % 80e18 + 1;
             MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
-            cs[0] = _approve(address(usdg), address(router), a);
+            cs[0] = _buy(a, address(acct));
             vm.prank(key);
             try acct.executeBatch(cs) {} catch {}
             assertLe(policy.sessionOf(address(acct), E).spent0, CAP);
         }
+    }
+
+    /// @dev Audit #7: on-chain session lifetime ≤ 24h and slippage in [10, 5000] bps.
+    function test_audit7_expiryAndSlippageBounds() public {
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 24 hours + 1));
+        vm.prank(owner);
+        vm.expectRevert(P.InvalidConfig.selector);
+        acct.installSession(policy, E, key, c);
+        c = _cfg(uint48(block.timestamp + 24 hours));
+        c.maxSlippageBps = 9;
+        vm.prank(owner);
+        vm.expectRevert(P.InvalidConfig.selector);
+        acct.installSession(policy, E, key, c);
+        c.maxSlippageBps = 10;
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        // delayed start: 24h window counted from validAfter
+        c.validAfter = uint48(block.timestamp + 1 hours);
+        c.validUntil = uint48(block.timestamp + 25 hours);
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        assertEq(policy.MAX_SESSION_DURATION(), 24 hours);
     }
 
     // ───────── slippage (minOut vs on-chain quote) ─────────
@@ -549,5 +644,98 @@ contract DiscipleSessionPolicyTest is Test {
     function test_signatureValidationDisabled() public {
         vm.expectRevert(P.SignatureValidationNotAllowed.selector);
         policy.preSignatureValidationHook(E, key, bytes32(0), "");
+    }
+
+    // ───────── executeUserOp path (real MAv2 exec-hook data shape) ─────────
+
+    function _uo(bytes memory inner) internal view returns (PackedUserOperation memory op) {
+        op.sender = address(acct);
+        op.callData = abi.encodePacked(bytes4(0x8dd7712f), inner);
+    }
+
+    function test_regression_executeUserOpPrefixedSessionOp() public {
+        bytes memory inner = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 1))));
+        vm.prank(acct.ENTRY_POINT());
+        acct.executeUserOp(_uo(inner), keccak256("uo"));
+        assertEq(usdg.allowance(address(acct), address(router)), 1);
+    }
+
+    function test_executeUserOpBatchAndRulesStillEnforced() public {
+        MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
+        cs[0] = MockMAv2.Call(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), 2)));
+        vm.prank(acct.ENTRY_POINT());
+        acct.executeUserOp(_uo(abi.encodeCall(MockMAv2.executeBatch, (cs))), bytes32(0));
+        assertEq(usdg.allowance(address(acct), address(router)), 2);
+        // disallowed inner call still rejected by the exec hook (bypass validation hook to isolate it)
+        PackedUserOperation memory op = _uo(abi.encodeCall(MockMAv2.execute, (address(usdg), 0, abi.encodeCall(ERC20.transfer, (attacker, 1)))));
+        uint32 hE = E | policy.EXEC_HOOK_FLAG();
+        address ep = acct.ENTRY_POINT();
+        vm.prank(address(acct));
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(usdg), ERC20.transfer.selector));
+        policy.preExecutionHook(hE, ep, 0, abi.encodeCall(MockMAv2.executeUserOp, (op, bytes32(0))));
+    }
+
+    function test_executeUserOpNonExecuteInnerRejected() public {
+        PackedUserOperation memory op = _uo(abi.encodeCall(ERC20.approve, (address(router), 1)));
+        bytes memory hookData = abi.encodeCall(MockMAv2.executeUserOp, (op, bytes32(0)));
+        uint32 hE = E | policy.EXEC_HOOK_FLAG();
+        address ep = acct.ENTRY_POINT();
+        vm.startPrank(address(acct));
+        vm.expectRevert(P.OnlyExecuteCalls.selector);
+        policy.preExecutionHook(hE, ep, 0, hookData);
+        // inner callData lacking the executeUserOp prefix is rejected too
+        op.callData = abi.encodeCall(MockMAv2.execute, (address(usdg), 0, ""));
+        hookData = abi.encodeCall(MockMAv2.executeUserOp, (op, bytes32(0)));
+        vm.expectRevert(P.OnlyExecuteCalls.selector);
+        policy.preExecutionHook(hE, ep, 0, hookData);
+        // truncated / malformed
+        vm.expectRevert(P.OnlyExecuteCalls.selector);
+        policy.preExecutionHook(hE, ep, 0, abi.encodePacked(bytes4(0x8dd7712f), uint256(0x40)));
+        vm.stopPrank();
+    }
+
+    // ── audit R-2: launchAnon stealthOwner pinned to the account (or the install-time stealth address) ──
+    function _anonCall(address anon, address stealthOwner, address buyRecipient)
+        internal
+        view
+        returns (bytes memory)
+    {
+        ILaunchpad.LaunchParams memory lpp;
+        lpp.name = "A";
+        lpp.ticker = "A";
+        lpp.quote = address(usdg);
+        lpp.deadline = block.timestamp + 1 hours;
+        return abi.encodeWithSelector(
+            AnonLauncher.launchAnon.selector, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0)
+        );
+    }
+
+    function test_anonLaunch_stealthOwnerPinned() public {
+        MockAnon anon = new MockAnon(address(usdg));
+        address stealth = makeAddr("myStealth");
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 24 hours));
+        c.anonLauncher = address(anon);
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        // leaked key → attacker as stealth owner: rejected
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, attacker));
+        acct.execute(address(anon), 0, _anonCall(address(anon), attacker, address(acct)));
+        // an unregistered stealth address: rejected too
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, stealth));
+        acct.execute(address(anon), 0, _anonCall(address(anon), stealth, address(acct)));
+        // the account itself: ok
+        vm.prank(key);
+        acct.execute(address(anon), 0, _anonCall(address(anon), address(acct), address(acct)));
+        // stealth address registered at install: ok
+        c.stealthOwner = stealth;
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        vm.prank(key);
+        acct.execute(address(anon), 0, _anonCall(address(anon), stealth, address(acct)));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, attacker));
+        acct.execute(address(anon), 0, _anonCall(address(anon), attacker, address(acct)));
     }
 }

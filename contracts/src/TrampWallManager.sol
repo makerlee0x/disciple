@@ -238,6 +238,8 @@ contract TrampWallManager is IUnlockCallback, ReentrancyGuardTransient {
         PoolKey memory key = poolKeyOf(token);
         if (tl >= tu || tl < TickMath.MIN_TICK || tu > TickMath.MAX_TICK) revert BadRange();
         if (tl % key.tickSpacing != 0 || tu % key.tickSpacing != 0) revert BadRange();
+        // Audit #6 / spec: a tramp or wall is exactly one tick spacing wide.
+        if (tu - tl != key.tickSpacing) revert BadRange();
 
         (uint160 sp,,,) = poolManager.getSlot0(key.toId());
         uint160 sL = TickMath.getSqrtPriceAtTick(tl);

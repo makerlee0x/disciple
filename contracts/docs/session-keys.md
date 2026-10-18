@@ -23,14 +23,15 @@ Each session is stored per account and per entity id. The validation hook uses e
 | Rule | Where | Detail |
 |---|---|---|
 | Only `execute` / `executeBatch` | both | anything else reverts (`OnlyExecuteCalls`) |
-| Expiry (default 24h, SDK max 7d) | validation | returns `validUntil`/`validAfter` in the userOp validationData. The EntryPoint enforces it. The runtime path reverts. |
+| Expiry (default 24h, **max 24h enforced on-chain** in `onInstall`) | validation | returns `validUntil`/`validAfter` in the userOp validationData. The EntryPoint enforces it. The runtime path reverts. |
 | Revoked / uninstalled | both | `SessionInactive` |
 | Targets | both | `router`, `launchpad`, `anonLauncher`, `trampWallManager` come from the install config (taken from deployments JSON). The account itself and the policy contract are never allowed targets. |
+| Slippage | install | `maxSlippageBps` 0 (= default 500) or within [10, 5000] |
 | Selectors (bitmask `P_*`) | both | Router `buyExactIn`/`sellExactIn`; TWM `placeTramp`/`placeWall`/`cancel`; Launchpad `launch`/`launchCoin`; AnonLauncher `launchAnon`; curve `buy`/`sell` (3- and 4-arg); ERC-20 `approve`. **No** `transfer`, `transferFrom`, `permit`, or `*WithPermit` |
 | Bonding curves | execution | target must satisfy `launchpad.curveOf(curve.token()) == curve`. This is an external call, which ERC-7562 forbids in validation, so it runs in the execution hook. |
 | Recipient pinning | execution | `recipient == account` for router buy/sell and 4-arg curve buy/sell. `buyRecipient == account` for `launchAnon`. |
 | Approve spender pinning | execution | spender must be one of the 4 DISCIPLE targets or a registered curve |
-| Spend cap | execution | the total `approve` amount on `quote0`/`quote1` (e.g. USDG, STRATEGY) is capped at `cap0`/`cap1` per session. This overcounts on purpose: approve exactly the trade size. Rocket-token approves (sells and walls) are uncapped, but they are spender-pinned and their proceeds go to the account. |
+| Spend cap | execution | counts quote **actually spent** by each call (router/curve buy `amountIn`, tramp `quoteAmt`, launch `creatorBuyQuoteIn`, anon-launch fee) against `cap0`/`cap1`. Approvals are spender-pinned but not counted, so a leftover or pre-existing allowance cannot bypass the cap (audit #8). A spend in any quote other than `quote0`/`quote1` reverts. |
 | Slippage (minOut) | execution | for router `buyExactIn`/`sellExactIn` and curve `buy`/`sell`: `minOut != 0` (`ZeroMinOut`) and `minOut >= quote × (1 − maxSlippageBps)` (`MinOutTooLow`). The quote is read on-chain in the execution hook: `DiscipleRouter.quoteExactIn` after graduation (simulate-and-revert, includes the 1% hook fee), `curve.quoteBuy`/`quoteSell` before. `maxSlippageBps` is set by the owner per session (default 500 = 5%, max 5000). If the quote fails, the trade reverts (`QuoteFailed`). |
 | ETH | both | `value` must be 0 on the account call and on every inner call |
 | ERC-1271 | sig hook | reverts. Session keys never sign messages. |

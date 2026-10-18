@@ -63,6 +63,10 @@ export interface TradeQuote {
   graduates: boolean;
   venue: "curve" | "router";
   quoteDecimals: number;
+  /** v4 bonding mode of the coin's curve (0 TRENCH, 1 PVE, 2 PVP). */
+  mode?: number;
+  /** PVE sells: profit tax already deducted from amountOut (quote raw). */
+  profitTax?: bigint;
 }
 
 export interface TradeResult {
@@ -148,7 +152,7 @@ export const DEFAULT_QUOTE: Address = ZERO_ADDRESS;
 /** What the factory's defaultQuote is expected to be today (display/indexer hint only). */
 export const EXPECTED_DEFAULT_QUOTE: Address = STRATEGY_TOKEN.address;
 
-/** Off-chain coin metadata (indexer / UI). Verified tiers + moderation live here, NOT on-chain. */
+/** Off-chain coin metadata (indexer / UI). The manual verified flag + moderation live here, NOT on-chain. */
 export interface CoinMetadata {
   token: Address;
   name: string;
@@ -161,8 +165,8 @@ export interface CoinMetadata {
     provider: string;
     checkedAt: string;
   };
-  /** Off-chain verified level (see VERIFIED_TIERS in config.ts). */
-  verifiedLevel?: "UNVERIFIED" | "BLESSED" | "ANOINTED" | "GLORIFIED";
+  /** Manual yes/no verification, set by the team (e.g. via a future admin API). See lib/verified.ts (isVerified). */
+  verified?: boolean;
   /** Set by indexer if the image is flagged post-launch → UI must hide the coin. */
   hidden?: boolean;
 }
@@ -241,5 +245,5 @@ export const PROTOCOL_META = {
   curve: CURVE,
   hookFeeBps: CURVE.tradeFeeBps,
   v4PoolFee: V4_POOL_FEE,
-  note: "No custody: the Privy embedded wallet signs each trade; approve curve/router once (max). Verified tiers are off-chain. Gas not sponsored.",
+  note: "No custody: the Privy embedded wallet signs each trade; approve curve/router once (max). Verification is a manual off-chain flag. Gas not sponsored.",
 } as const;

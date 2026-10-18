@@ -11,6 +11,6 @@ interface IReferralRegistry {
     /// @dev Only sets referrer if unset and referrer != wallet (no self-referral).
     function tryAttribute(address wallet, address referrer) external returns (bool attributed);
 
-    /// @notice Called when USDG deposit confirms the gate (≥ REFERRAL_USDG_GATE).
+    /// @notice Called when USDG deposit confirms the gate (≥ usdgGate = $10 in USDG raw units).
     function onUsdgDeposit(address wallet, uint256 amount) external;
 }
