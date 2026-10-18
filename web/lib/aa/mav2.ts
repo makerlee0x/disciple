@@ -11,7 +11,19 @@ import { concatHex, encodeFunctionData, http, parseAbi, type Address, type Chain
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
 import { clientFees } from "./gasPolicy";
-import { AAError, type Call, type GasMode, type OwnerSigner, type UserOpReceipt } from "./core";
+import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
+import { ENTRYPOINT_V07 } from "./constants";
+
+const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
+/**
+ * Relay answers that do NOT prove the op wasn't sent: the response was lost/garbled, the relay timed out waiting for the
+ * receipt, or the nonce is already used (= an earlier send of this op landed). Bug #6: these were all shown as
+ * "simulation failed" — and the standard-path fallback re-sent the same nonce (AA25 ⇒ "simulation failed") — while
+ * the first send went through. Now we look the op up on-chain first.
+ */
+export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|502|503|504|FUNCTION_INVOCATION/i;
+/** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
+export const TRANSIENT_SIM = /AA23|AA24|SessionInactive|0xf9be14df/i;
 
 const BUNDLER_METHODS = [
   "eth_sendUserOperation", "eth_estimateUserOperationGas", "eth_getUserOperationReceipt", "eth_getUserOperationByHash",
@@ -143,6 +155,24 @@ export class Mav2Account {
   async signMessage(message: string): Promise<Hex> { return (await this.owned()).account.signMessageWith6492({ message }); }
   async address(): Promise<Address> { return (await this.owned()).account.address; }
 
+  /** Look an op up on-chain by hash (UserOperationEvent), polling briefly: did an ambiguous send actually land? */
+  async findOp(hash: Hex, sender: Address, waitMs = 6000): Promise<{ userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[] } | null> {
+    const until = Date.now() + waitMs;
+    for (;;) {
+      try {
+        const head = await this.o.pc.getBlockNumber();
+        const ev = await this.o.pc.getLogs({ address: ENTRYPOINT_V07, event: uoEventAbi[0], args: { userOpHash: hash, sender }, fromBlock: head > BigInt(600) ? head - BigInt(600) : BigInt(0), toBlock: head });
+        if (ev.length) {
+          const l = ev[ev.length - 1];
+          const rc = await this.o.pc.getTransactionReceipt({ hash: l.transactionHash! });
+          return { userOpHash: hash, txHash: rc.transactionHash, success: !!l.args.success, logs: rc.logs.map((x) => ({ address: x.address, data: x.data, topics: x.topics as Hex[] })) };
+        }
+      } catch { /* RPC hiccup: retry until the deadline */ }
+      if (Date.now() > until) return null;
+      await new Promise((res) => setTimeout(res, 400));
+    }
+  }
+
   /** Warm everything a trade needs (clients, address, fees) so the first tap doesn't pay for it. */
   /** deployed-state cache (true is final; false re-checked on warm) */
   deployed?: boolean;
@@ -194,10 +224,23 @@ export class Mav2Account {
       const t1 = now();
       try { signed = await client.signUserOperation({ uoStruct: struct }); } catch (e) { return fail(e); }
       const t2 = now();
+      const wire = deepHexlify(signed) as UserOp;
+      const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
+      type SyncRes = { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
       const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" }, keepalive: true,
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_sendUserOperationSync", params: [deepHexlify(signed), client.account.getEntryPoint().address] }) });
-      const j = await r.json().catch(() => ({})) as { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_sendUserOperationSync", params: [wire, client.account.getEntryPoint().address] }) }).catch((e) => ({ status: 0, json: async () => ({ error: { code: -32099, message: `network: ${(e as Error).message}` } }) }) as unknown as Response);
+      let j = await r.json().catch(() => ({ error: { code: -32098, message: `relay response unreadable (HTTP ${r.status})` } })) as SyncRes;
       const t3 = now();
+      // Ambiguous failure (lost response, receipt timeout, nonce already used): the op may have landed — check before failing.
+      if (j.error && hash && j.error.code !== -32601 && AMBIGUOUS_RELAY.test(j.error.message)) {
+        const got = await this.findOp(hash, sender);
+        if (got) j = { result: got };
+      }
+      if (j.error && feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
+        // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
+        await new Promise((res) => setTimeout(res, 700));
+        return this.sendCalls(calls, as, false);
+      }
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
       else if (j.error && feeRetry && /fee below relayer floor/i.test(j.error.message)) {
         // cached fees went stale (base fee rose): nothing was sent; refresh fees and re-sign once
@@ -206,6 +249,9 @@ export class Mav2Account {
         return this.sendCalls(calls, as, false);
       } else if (j.error) {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(kind);   // stale limits → re-estimate next time
+        // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the
+        // first landed. Relay-side errors that aren't a pre-flight rejection are labelled as such, not "simulation failed".
+        if (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message)) throw new AAError("Bundler", `relay error: ${j.error.message.split("\n")[0].slice(0, 200)}`, { userOpHash: hash });
         return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
       } else if (j.result) {
         this.syncOk = true;
@@ -221,7 +267,14 @@ export class Mav2Account {
 
     // ---- standard path (first trade of a preset, or Alchemy): estimate once, then cache the limits
     let req;
-    try { req = await client.sendUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides }); } catch (e) { return fail(e); }
+    try { req = await client.sendUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides }); }
+    catch (e) {
+      const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
+      // self-bundler eth_sendUserOperation broadcasts, then waits ≤25 s for the receipt: a timeout is NOT a failed simulation
+      if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.");
+      if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false); }
+      return fail(e);
+    }
     const t1 = now();
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
     if (!gas && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))

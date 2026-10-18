@@ -92,7 +92,7 @@ await t("USDG router (#65 SDK mirror): exact approve + buyWithUsdg / sellToUsdg 
 await t("session policy version gating (config): 1.1.1 ⇒ USDG calls owner-signed; 1.3.0 ⇒ session-signable", () => {
   assert.equal(policyHasUsdg("1.1.1"), false); assert.equal(policyHasUsdg("1.3.0"), true); assert.equal(policyHasUsdg("1.10.0"), true);
   assert.ok(!tradeSelectors("1.1.1").has(BUY_WITH_USDG)); assert.ok(tradeSelectors("1.3.0").has(BUY_WITH_USDG) && tradeSelectors("1.3.0").has(SELL_TO_USDG));
-  assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.1.1"}`);
+  assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.3.0"}`);
 });
 await t("1.3.0 rules mirrored: USDG approve to a curve/tramp ⇒ owner signer; to router must be exact", async () => {
   const router = "0x00000000000000000000000000000000000000aa" as const, usdg = "0x00000000000000000000000000000000000000bb" as const, curve = "0x00000000000000000000000000000000000000cc" as const;

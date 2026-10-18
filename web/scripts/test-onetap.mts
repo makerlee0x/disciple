@@ -44,7 +44,7 @@ test("expiry label: partial hours, minutes, expired", () => {
 });
 
 import { SESSION_POLICY_MODULE_ID, cachedSessionUsable } from "../lib/aa/oneTap";
-test("policy version: expects 1.1.1", () => assert.equal(SESSION_POLICY_MODULE_ID, "disciple.session-policy.1.1.1"));
+test("policy version: defaults to v4 1.3.0", () => assert.equal(SESSION_POLICY_MODULE_ID, `disciple.session-policy.${process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.3.0"}`));
 test("cached session on an old policy (1.1.0) or without a policy is treated as OFF ⇒ reinstall", () => {
   const NEW = "0x0399d58C802CfEfE0A559Fe9bBC147Ad92212bE2" as const, OLD = "0x476a7ed0775f6c7720c9157e4dade639424218cc" as const;
   const now = 1_800_000_000_000;

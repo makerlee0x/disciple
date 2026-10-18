@@ -46,7 +46,15 @@ export const BUY_WITH_USDG = toFunctionSelector("buyWithUsdg(address,uint256,uin
 export const SELL_TO_USDG = toFunctionSelector("sellToUsdg(address,uint256,uint256,uint256)").toLowerCase();
 export const toCalls = (c: SdkCall[]): Call[] => c.map((x) => ({ to: x.target, data: x.data }));
 
-export const payUsdg = () => process.env.NEXT_PUBLIC_PAY_USDG === "1";
+/**
+ * Pay in USDG (buys spend USDG, sells pay out USDG; the router hops through the coin's quote in the same tx)?
+ * NEXT_PUBLIC_PAY_USDG=1 forces on, =0 forces off; UNSET ⇒ on for RH testnet (46630), where the v4 router has USDG
+ * routing (router.usdg() = mUSDG) and policy 1.3.0 lets the session key sign it. Before this default the flag was
+ * unset in Vercel ⇒ every buy silently spent STRATEGY and USDG never moved (bug #2). Still gated per router below:
+ * a router without usdg() falls back to the native quote path.
+ */
+export const payUsdg = (v = process.env.NEXT_PUBLIC_PAY_USDG, chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 46630)) =>
+  v === "1" || (v !== "0" && chainId === 46630);
 
 /** router.usdg() per router (cached; a pre-#65 router reverts ⇒ null ⇒ native-quote fallback). */
 const ROUTER_USDG = new Map<string, Promise<Address | null>>();

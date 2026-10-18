@@ -34,6 +34,8 @@ export interface LaunchCoinResult {
   token: Address;
   curve: Address;
   txHash: string;
+  /** First BOOST as executed in the launch tx (curve Trade event): tokens to the creator's account, quote paid, $ cost. */
+  creatorBuy?: { recipient: Address; tokens: bigint; quoteIn: bigint; usd: number };
 }
 
 export interface TradeParams {

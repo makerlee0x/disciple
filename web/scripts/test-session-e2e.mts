@@ -1,5 +1,5 @@
 /**
- * One-tap session e2e on RH testnet (DiscipleSessionPolicy v1.1.1) against a running app (/api/drip, /api/bundler).
+ * One-tap session e2e on RH testnet (DiscipleSessionPolicy v1.3.0, v4) against a running app (/api/drip, /api/bundler).
  * A fresh local key stands in for the Privy embedded EOA (same viem LocalAccount interface as toViemAccount).
  *   1. drip → owner op: mint test STRATEGY (deploys the MAv2)
  *   2. owner installs the session ONCE (TRADE_PERMS + P_REFERRAL, max slippage 5%) — same builder/permissions as the app
@@ -19,7 +19,7 @@ import { applySlippage } from "../lib/curveMath";
 import type { Call } from "../lib/aa/core";
 
 const APP = process.env.APP || "http://localhost:3001";
-const POLICY = (process.env.NEXT_PUBLIC_SESSION_POLICY || "0x0399d58C802CfEfE0A559Fe9bBC147Ad92212bE2") as Address;
+const POLICY = (process.env.NEXT_PUBLIC_SESSION_POLICY || "0x3d3667e8880c6b633b424d645b8004788b1d6e27") as Address;
 const { robinhoodTestnet, DEPLOYMENTS, TESTNET_COINS } = await import("../lib/chains");
 const { ANON_ADDONS } = await import("../lib/anon");
 const d = DEPLOYMENTS[46630];

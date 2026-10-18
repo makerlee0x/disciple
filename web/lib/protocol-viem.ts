@@ -29,6 +29,7 @@ import type {
 import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
 import { ensurePveLogin, PveError } from "./pve";
+import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
@@ -51,8 +52,24 @@ const ozErrors = parseAbi([
   "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)",
   "error Error(string)",
 ]);
+/** MAv2 hook wrappers + DiscipleSessionPolicy errors (one-tap session key path). */
+const sessionErrors = parseAbi([
+  "error PreExecHookReverted(bytes24 moduleFunction, bytes revertReason)",
+  "error PreUserOpValidationHookReverted(bytes24 moduleFunction, bytes revertReason)",
+  "error PreRuntimeValidationHookReverted(bytes24 moduleFunction, bytes revertReason)",
+  "error SpendCapExceeded(address quote, uint256 spent, uint256 cap)",
+  "error MinOutTooLow(uint256 minOut, uint256 required)",
+  "error QuoteFailed(address target)",
+  "error SessionInactive()", "error SessionExpired()", "error NotAllowed(address target, bytes4 selector)",
+  "error UsdgApproveNotExact(uint256 amount, uint256 required)", "error RecipientNotAccount()", "error SpenderNotAllowed(address spender)",
+]);
 function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[] } | null {
   if (!data) return null;
+  try {   // unwrap the account's hook wrapper to the policy's own error
+    const w = decodeErrorResult({ abi: sessionErrors, data });
+    if (/HookReverted$/.test(w.errorName)) return decodeRevert((w.args as readonly unknown[])[1] as Hex) ?? { errorName: w.errorName };
+    return { errorName: w.errorName, args: w.args as readonly unknown[] | undefined };
+  } catch { /* not a session error */ }
   for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors, modesErrorsAbi] as const) {
     try { const r = decodeErrorResult({ abi: abi as never, data }); return { errorName: r.errorName, args: r.args as readonly unknown[] | undefined }; } catch { /* next */ }
   }
@@ -61,10 +78,12 @@ function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[
 
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
-  if (e instanceof AAError && e.code === "Estimate") {
-    const d = decodeRevert(e.extra?.revertData as Hex | undefined);
+  // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
+  const est = (e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError") && (e as AAError).code === "Estimate" ? (e as AAError) : null;
+  if (est) {
+    const d = decodeRevert(est.extra?.revertData as Hex | undefined);
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
-    else return new ProtocolError("Estimate", e.message);
+    else return new ProtocolError("Estimate", est.message);
   }
   if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
@@ -96,11 +115,16 @@ export function friendlyError(e: unknown): ProtocolError {
       PriceImpactTooHigh: "Price impact too high for the router cap. Try a smaller shot.",
       LoginGateUnset: "PVE launches are paused: the login gate isn't configured.",
       BadMode: "Unknown game mode.",
-      ERC20InsufficientBalance: "Not enough balance for that shot size — top up the quote token or pick a smaller ammo.",
+      ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
+      SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
+      MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
+      QuoteFailed: "Couldn't price that trade on-chain (too large for the curve or this rocket's per-buy cap). Try a smaller shot.",
+      SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
+      SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
       Error: args?.[0] ? String(args[0]) : "reverted",
     };
-    const pre = e instanceof AAError && e.code === "Estimate" ? "simulation: " : "";
+    const pre = est ? "simulation: " : "";
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
@@ -510,7 +534,9 @@ export function createViemProtocol(): ProtocolClient {
     ]);
     if (have < t.amountIn) {
       const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
-      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", `not enough ${isBuy ? "USDG" : "tokens"}: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
+      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
+        ? `not enough cash: need $${(Number(t.amountIn) / 1e18).toFixed(2)}, have $${(Number(live) / 1e18).toFixed(2)} — deposit more`
+        : `not enough tokens: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
     }
     const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
@@ -571,11 +597,31 @@ export function createViemProtocol(): ProtocolClient {
         // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
         calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
         const r = await execCalls(calls);
+        let launched: LaunchCoinResult | null = null, qp = B(0), supply = 0;
         for (const l of r.logs) {
           if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;
-          try { const ev = decodeEventLog({ abi: launchpadAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.eventName === "Launched") return { token: ev.args.token as Address, curve: ev.args.curve as Address, txHash: r.txHash }; } catch { /* other event */ }
+          try {
+            const ev = decodeEventLog({ abi: launchpadAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: Record<string, unknown> };
+            if (ev.eventName === "Launched") launched = { token: ev.args.token as Address, curve: ev.args.curve as Address, txHash: r.txHash };
+            else if (ev.eventName === "QuotePriced") qp = ev.args.quotePriceUsd as bigint;
+            else if (ev.eventName === "LaunchTierContext") supply = Number(ev.args.totalSupply as bigint) / 1e18;
+          } catch { /* other event */ }
         }
-        throw new ProtocolError("NoLaunchEvent", `Launch tx ${r.txHash} had no Launched event.`);
+        if (!launched) throw new ProtocolError("NoLaunchEvent", `Launch tx ${r.txHash} had no Launched event.`);
+        // First BOOST: the curve's Trade event in the SAME tx (emitted before Launched). trader = msg.sender = the signed-in
+        // smart account (the only signer allowed now, lib/wallet) ⇒ tokens land in the account the HUD/balances read.
+        for (const l of r.logs) {
+          if (l.address.toLowerCase() !== launched.curve.toLowerCase()) continue;
+          try {
+            const ev = decodeEventLog({ abi: bondingCurveAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: Record<string, unknown> };
+            if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
+            const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
+            launched.creatorBuy = { recipient: ev.args.trader as Address, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
+            seedCreatorBuyPosition(`disciple.pnl.${launched.token}`, Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
+            bumpBalance(launched.token, ev.args.trader as Address, tokens);
+          } catch { /* other event */ }
+        }
+        return launched;
       } catch (e) {
         if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
         throw e instanceof ProtocolError ? e : friendlyError(e);
