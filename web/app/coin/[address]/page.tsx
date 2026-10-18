@@ -10,6 +10,7 @@ import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import TradeBridge from "@/components/TradeBridge";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
+import CoinClaims from "@/components/claims/CoinClaims";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
 import { PROTOCOL_META } from "@/lib/protocol";
@@ -31,12 +32,13 @@ function FlightInner({ address }: { address: string }) {
   return (
     <>
       <FlightCanvas search={search} />
-      <CrewPanel />
+      <CrewPanel coin={address} />
       <PnlHud coin={address} />
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />
       <TradeBridge token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
+      <CoinClaims token={address} />
       <ShareButton callSign={sp.get("cs") || "AI"} icon={sp.get("icon")} />
     </>
   );

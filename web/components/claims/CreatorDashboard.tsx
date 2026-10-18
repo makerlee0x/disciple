@@ -1,0 +1,147 @@
+"use client";
+/**
+ * /creator — Rocket creator dashboard: per rocket claimable fees (quote coin + USD), lifetime earned, claimed so far,
+ * recent accruals, Claim / Claim all, and verification requests. LIVE on v3 (FeeRouter creatorAccrued /
+ * claimCreatorFees). Redeploy launch-token share appears only when caps.creatorTokenFees passes its probe.
+ */
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Hex } from "viem";
+import { creatorClaimCalls, creatorDashboard, sendCreatorClaims, type CreatorRocket } from "@/lib/claims/creatorFees";
+import { claimErrorText, fmtUsd, toUsd } from "@/lib/claims/common";
+import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
+import { connectPrivy } from "@/lib/wallet";
+import VerifiedBadge from "@/components/VerifiedBadge";
+import { ConfirmSheet, Money, SampleTag, TxLink, pc, shortA, useCaps, useWalletAddr, type ConfirmLine } from "./ui";
+import VerifyRequest from "./VerifyRequest";
+
+type Pending = { rows: CreatorRocket[]; title: string } | null;
+
+export default function CreatorDashboard() {
+  const me = useWalletAddr();
+  const { caps, ready, demo } = useCaps();
+  const [rows, setRows] = useState<CreatorRocket[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const [busy, setBusy] = useState(false);
+  const [sheetErr, setSheetErr] = useState<string | null>(null);
+  const [done, setDone] = useState<Hex | null>(null);
+
+  const load = useCallback(async () => {
+    if (demo) { setRows(demoRockets(demoRedeploy())); return; }
+    if (!me || !ready) return;
+    setErr(null);
+    try { setRows(await creatorDashboard(pc(), me, caps)); } catch (e) { setErr(claimErrorText(e)); setRows([]); }
+  }, [me, ready, demo, caps]);
+  useEffect(() => { void load(); }, [load]);
+
+  const totals = useMemo(() => {
+    const t = { claimable: 0, lifetime: 0, claimed: 0, open: 0 };
+    for (const r of rows ?? []) {
+      t.claimable += toUsd(r.claimable, r.quote) ?? 0; t.lifetime += toUsd(r.lifetime, r.quote) ?? 0; t.claimed += toUsd(r.claimed, r.quote) ?? 0;
+      if (r.claimable > BigInt(0) || (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0)) t.open++;
+    }
+    return t;
+  }, [rows]);
+
+  const linesOf = (rs: CreatorRocket[]): ConfirmLine[] => rs.flatMap((r) => [
+    ...(r.claimable > BigInt(0) ? [{ label: `$${r.ticker} fees`, raw: r.claimable, asset: r.quote }] : []),
+    ...(caps.creatorTokenFees && r.tokenSide && r.tokenSide.claimable > BigInt(0) ? [{ label: `$${r.ticker} token share`, raw: r.tokenSide.claimable, asset: r.tokenSide.asset }] : []),
+  ]);
+  const open = (rs: CreatorRocket[], title: string) => { setSheetErr(null); setDone(null); setPending({ rows: rs, title }); };
+  const confirm = async () => {
+    if (!pending) return;
+    setBusy(true); setSheetErr(null);
+    try {
+      if (demo) { await new Promise((r) => setTimeout(r, 600)); setDone(`0x${"ab".repeat(32)}` as Hex); return; }
+      const r = await sendCreatorClaims(creatorClaimCalls(pending.rows, caps));
+      setDone(r.txHash);
+      void load();
+    } catch (e) { setSheetErr(claimErrorText(e)); } finally { setBusy(false); }
+  };
+  const claimable = (rows ?? []).filter((r) => r.claimable > BigInt(0) || (caps.creatorTokenFees && (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0)));
+
+  return (
+    <div className="cl-page" data-testid="creator-dashboard">
+      <header className="cl-head">
+        <div>
+          <div className="cl-eyebrow">Creator</div>
+          <h1 className="cl-display">Your rockets</h1>
+          <p className="muted">Fees from every BOOST and DUMP on rockets you launched. Claim any time.</p>
+        </div>
+        <SampleTag show={demo} />
+      </header>
+
+      {!me && !demo ? (
+        <section className="cl-card cl-empty">
+          <h3 className="cl-display sm">Log in to see your rockets</h3>
+          <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Log in</button>
+        </section>
+      ) : rows == null ? (
+        <section className="cl-card cl-empty"><div className="cl-skel" /><div className="cl-skel short" /></section>
+      ) : !rows.length ? (
+        <section className="cl-card cl-empty">
+          <h3 className="cl-display sm">No rockets yet</h3>
+          <p className="muted">Launch one and its fees show up here.</p>
+          <Link className="cl-btn primary" href="/create">Launch a rocket</Link>
+          {err && <p className="cl-err">{err}</p>}
+        </section>
+      ) : (
+        <>
+          <section className="cl-summary">
+            <div className="cl-stat hero"><span>Claimable now</span><strong>{fmtUsd(totals.claimable) || "—"}</strong><em>{totals.open} rocket{totals.open === 1 ? "" : "s"}</em></div>
+            <div className="cl-stat"><span>Lifetime earned</span><strong>{fmtUsd(totals.lifetime) || "—"}</strong></div>
+            <div className="cl-stat"><span>Claimed so far</span><strong>{fmtUsd(totals.claimed) || "—"}</strong></div>
+            <button type="button" className="cl-btn primary lg" disabled={!claimable.length} onClick={() => open(claimable, "Claim all fees")} data-testid="claim-all">
+              Claim all
+            </button>
+          </section>
+          <p className="cl-fine muted">USD uses the live quote price. One transaction for Claim all.</p>
+
+          <div className="cl-grid">
+            {rows.map((r) => (
+              <article key={r.token} className="cl-card cl-rocket" data-testid="creator-rocket">
+                <div className="cl-rocket-top">
+                  <div>
+                    <Link href={`/coin/${r.token}`} className="cl-rocket-name">{r.name} <VerifiedBadge token={r.token} size={14} /></Link>
+                    <div className="muted cl-mono">${r.ticker} · {shortA(r.token)}</div>
+                  </div>
+                  <button type="button" className="cl-btn gold" disabled={!(r.claimable > BigInt(0) || (caps.creatorTokenFees && (r.tokenSide?.claimable ?? BigInt(0)) > BigInt(0)))}
+                    onClick={() => open([r], `Claim $${r.ticker} fees`)} data-testid="claim-one">Claim</button>
+                </div>
+                <div className="cl-claimable">
+                  <span className="cl-eyebrow">Claimable</span>
+                  <Money raw={r.claimable} asset={r.quote} big />
+                  {caps.creatorTokenFees && r.tokenSide && (
+                    <div className="cl-token-side"><span className="muted">Token share</span><Money raw={r.tokenSide.claimable} asset={r.tokenSide.asset} /></div>
+                  )}
+                </div>
+                <dl className="cl-kv">
+                  <div><dt>Lifetime earned</dt><dd><Money raw={r.lifetime} asset={r.quote} /></dd></div>
+                  <div><dt>Claimed so far</dt><dd><Money raw={r.claimed} asset={r.quote} /></dd></div>
+                </dl>
+                <div className="cl-recent">
+                  <div className="cl-eyebrow">Recent fees</div>
+                  {r.recent.length ? (
+                    <ul>
+                      {r.recent.map((a) => (
+                        <li key={`${a.tx}${a.trader}`}><span className="cl-mono muted">{shortA(a.trader)}</span><Money raw={a.amount} asset={r.quote} /><TxLink hash={a.tx}>tx</TxLink></li>
+                      ))}
+                    </ul>
+                  ) : <p className="muted">No trades yet.</p>}
+                </div>
+                <VerifyRequest token={r.token} demo={demo} />
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+
+      {pending && (
+        <ConfirmSheet title={pending.title} lines={linesOf(pending.rows)} to={me ?? (demo ? "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006" : null)}
+          note={pending.rows.length > 1 ? `${pending.rows.length} rockets in one transaction.` : "Fees go to the wallet that launched the rocket."}
+          busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
+      )}
+    </div>
+  );
+}

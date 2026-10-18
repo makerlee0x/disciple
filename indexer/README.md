@@ -18,6 +18,7 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 | ReferralRegistry | `ReferrerPending`, `ReferrerAttributed` (sticky), `UsdgDepositRecorded` |
 | RewardsVault | `RewardAccrued`, `Distributed` |
 | Token (each coin) | `Transfer` (holder balances) |
+| Redeploy (feat/modes-gas, ignored on v3) | Launchpad `LaunchMode` → `coins.mode`; curve `ProfitTaxCharged` / `HolderRewardsClaimed` (PVE crew rewards, only from the coin's own curve); FeeRouter `CreatorTokenFeesClaimed` and the new `TradeFeeRouted` shape (normalized with v3; token-side fees as `TradeFeeRoutedToken`); UsdgDepositNotifier `Deposited` / `Escrowed` / `Withdrawn` (only from the stack's notifier) |
 
 Events are only accepted from the addresses of the expected stack. Spoofed `Launched` or `Trade` events from other addresses are ignored.
 
@@ -36,6 +37,10 @@ Events are only accepted from the addresses of the expected stack. Spoofed `Laun
 | `/rewards` | anti-snipe routing + RewardsVault totals |
 | `/coins/:token/holders?limit=` (1–1000, default 100) | balances desc, `pct` of supply, `protocol` flag (curve/PoolManager/hook/TWM…) |
 | `/coins/:token/altitude` | current `tier` + spot `mcapUsd` (from `AltitudeUpdate`), `LaunchTierContext`, every `TierBreak` |
+| `/creators/:addr/fees?recent=` | per rocket created by `addr`: lifetime earned, claimed, claimable (live `creatorAccrued` when RPC is set), USD, token-side (redeploy), claims, recent accruals |
+| `/coins/:token/crew?limit=` | REDEPLOY: "crew earned X from this DUMP" feed from `ProfitTaxCharged` (+ totals) |
+| `/users/:addr/crew` | REDEPLOY: crew claims + PVE coins held |
+| `/users/:addr/referral-gate` | REDEPLOY: referral status none / pending / locked, deposits, escrows (unlockAt), withdrawn, held now |
 | `/coins/:token/fee-routing` | summed `TradeFeeRouted` creator / lp / treasury / referral / creatorTax shares, snipe 70/30, claims (wei + USD) |
 | `/tier-breaks?limit=` | global tier-break feed (GAME) |
 | `/orders?status=&kind=&token=&owner=&stack=` | tramp/wall orders incl. keeper + keeper tip |

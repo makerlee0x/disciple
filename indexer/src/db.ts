@@ -65,8 +65,9 @@ export function openDb(path: string): DB {
   };
   add("coins", {
     tier: "INTEGER", altitude_mcap_usd: "TEXT", altitude_block: "INTEGER", start_mcap_usd: "TEXT", graduation_mcap_usd: "TEXT",
-    total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT",
+    total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT", mode: "INTEGER",
   });
+  db.exec("CREATE INDEX IF NOT EXISTS fee_account ON fee_events(account, kind)");
   add("orders", { placed_block: "INTEGER", keeper_quote_tip: "TEXT DEFAULT '0'", keeper_token_tip: "TEXT DEFAULT '0'" });
   // one-time backfill of coin_stats for DBs indexed before the aggregates existed
   const v = db.prepare("SELECT v FROM meta WHERE k='coin_stats_v'").get() as { v: string } | undefined;

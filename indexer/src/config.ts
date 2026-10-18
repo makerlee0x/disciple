@@ -15,6 +15,8 @@ export interface Stack {
   referralRegistry?: Address;
   marketLens?: Address;
   quotePricer?: Address;
+  /** Redeploy only: UsdgDepositNotifier (referral-gate escrow). */
+  depositNotifier?: Address;
 }
 
 export interface Config {
@@ -51,6 +53,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
     rewardsVault: c.RewardsVault,
     referralRegistry: c.ReferralRegistry,
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,
+    depositNotifier: c.UsdgDepositNotifier,
   };
 }
 

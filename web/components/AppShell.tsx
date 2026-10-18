@@ -3,6 +3,7 @@
 import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import WalletButton from "./WalletButton";
 import RefCapture from "./RefCapture";
+import ReferralOnboarding from "./claims/ReferralOnboarding";
 import HowItWorksHost from "./home/HowItWorksHost";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
@@ -14,6 +15,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Sidebar />
       <RefCapture />
+      <ReferralOnboarding />
       <HowItWorksHost />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
       <WalletButton compact={!isGame} />

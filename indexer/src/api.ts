@@ -126,6 +126,90 @@ export class Api {
     return { token: c.token, creator, quote: c.quote, pending: accrued.toString(), pendingUsd: wad(accrued) * wad(BigInt(c.quote_price_usd ?? 0)), anon, claims: claimed.n };
   }
 
+  /**
+   * Creator dashboard: every coin `creator` launched (or holds as stealth owner) with lifetime earned / claimed / recent
+   * accruals from indexed FeeRouter events, plus the live claimable balance (FeeRouter.creatorAccrued) when an RPC is set.
+   * Token-side balances (creatorTokenAccrued / CreatorTokenFeesClaimed / TradeFeeRoutedToken) only exist on the
+   * redeploy; on v3 they are simply 0 / null.
+   */
+  async creatorFeesOf(creator: string, q: URLSearchParams) {
+    const who = creator.toLowerCase();
+    const recentN = intParam(q, "recent", 10, 0, 50);
+    const coins = this.db.prepare("SELECT * FROM coins WHERE creator=? OR stealth_owner=? ORDER BY launched_block DESC LIMIT 200").all(who, who) as any[];
+    const sumQ = this.db.prepare("SELECT kind, COUNT(*) n, a, b, c, d, e FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','TradeFeeRoutedToken') GROUP BY id");
+    const claimsQ = this.db.prepare("SELECT kind, a amount, quote asset, ts, tx, block FROM fee_events WHERE token=? AND account=? AND kind IN ('CreatorFeesClaimed','CreatorTokenFeesClaimed','Claimed') ORDER BY block DESC, id DESC");
+    const recentQ = this.db.prepare("SELECT kind, account trader, quote asset, a creatorShare, e creatorTax, ts, tx, block FROM fee_events WHERE token=? AND kind IN ('TradeFeeRouted','TradeFeeRoutedToken') ORDER BY block DESC, id DESC LIMIT ?");
+    const out = [];
+    for (const c of coins) {
+      const rows = sumQ.all(c.token) as any[];
+      const sum = (kind: string) => rows.filter((r) => r.kind === kind).reduce((acc, r) => acc + BigInt(r.a ?? 0) + BigInt(r.e ?? 0), 0n);
+      const claims = claimsQ.all(c.token, c.anon && c.stealth_owner === who ? who : c.creator) as any[];
+      const claimed = (kind: string) => claims.filter((r) => r.kind === kind).reduce((acc, r) => acc + BigInt(r.amount ?? 0), 0n);
+      let claimable: string | null = null, claimableToken: string | null = null;
+      const st = this.stackOf(c.stack);
+      if (this.client && st && !c.anon) {
+        try { claimable = ((await this.cached(`ca:${c.token}:${c.creator}:${dataVersion(this.db)}`, 10_000, () =>
+          this.client!.readContract({ address: st.feeRouter, abi: READS, functionName: "creatorAccrued", args: [c.token, c.creator] }))) as bigint).toString(); } catch {}
+        try { claimableToken = ((await this.cached(`cta:${c.token}:${c.creator}:${dataVersion(this.db)}`, 10_000, () =>
+          this.client!.readContract({ address: st.feeRouter, abi: READS, functionName: "creatorTokenAccrued", args: [c.token, c.creator] }))) as bigint).toString(); } catch { /* v3: no such function */ }
+      }
+      const qUsd = wad(BigInt(c.quote_price_usd ?? 0));
+      const earned = sum("TradeFeeRouted"), earnedToken = sum("TradeFeeRoutedToken");
+      out.push({
+        token: c.token, stack: c.stack, name: c.name, ticker: c.ticker, quote: c.quote, mode: c.mode ?? null, anon: !!c.anon, graduated: !!c.graduated,
+        creatorTaxBps: c.creator_tax_bps, quotePriceUsd: c.quote_price_usd,
+        lifetimeEarned: earned.toString(), lifetimeEarnedUsd: wad(earned) * qUsd,
+        claimed: claimed("CreatorFeesClaimed").toString(), claimedUsd: wad(claimed("CreatorFeesClaimed")) * qUsd,
+        claimable, claimableUsd: claimable != null ? wad(BigInt(claimable)) * qUsd : null,
+        token_: { lifetimeEarned: earnedToken.toString(), claimed: claimed("CreatorTokenFeesClaimed").toString(), claimable: claimableToken },
+        claims: claims.slice(0, 20),
+        recent: recentN ? recentQ.all(c.token, recentN) : [],
+      });
+    }
+    return { creator: who, coins: out };
+  }
+
+  /** PVE crew pool feed for a coin (redeploy): "crew earned X from this DUMP" rows from ProfitTaxCharged + claims. */
+  coinCrew(token: string, q: URLSearchParams) {
+    const c = this.coin(token);
+    if (!c) return null;
+    const limit = intParam(q, "limit", 25, 1, 200);
+    const qUsd = wad(BigInt(c.quote_price_usd ?? 0));
+    const feed = (this.db.prepare(`SELECT account seller, a tax, b grossQuote, c costBasis, ts, tx, block FROM fee_events
+      WHERE token=? AND kind='ProfitTaxCharged' ORDER BY block DESC, id DESC LIMIT ?`).all(c.token, limit) as any[]).map((r) => ({ ...r, taxUsd: wad(BigInt(r.tax)) * qUsd }));
+    const tot = this.db.prepare(`SELECT kind, COUNT(*) n, a FROM fee_events WHERE token=? AND kind IN ('ProfitTaxCharged','HolderRewardsClaimed') GROUP BY id`).all(c.token) as any[];
+    const sum = (k: string) => tot.filter((r) => r.kind === k).reduce((acc, r) => acc + BigInt(r.a ?? 0), 0n);
+    const taxed = sum("ProfitTaxCharged"), claimed = sum("HolderRewardsClaimed");
+    return { token: c.token, quote: c.quote, mode: c.mode ?? null, totalTax: taxed.toString(), totalTaxUsd: wad(taxed) * qUsd,
+      totalClaimed: claimed.toString(), totalClaimedUsd: wad(claimed) * qUsd, feed };
+  }
+
+  /** A holder's crew-reward claims and the PVE coins they hold (redeploy; empty on v3). */
+  userCrew(addr: string) {
+    const u = addr.toLowerCase();
+    const claims = this.db.prepare(`SELECT token, a amount, quote, ts, tx FROM fee_events WHERE account=? AND kind='HolderRewardsClaimed' ORDER BY block DESC, id DESC LIMIT 200`).all(u);
+    const coins = this.db.prepare(`SELECT c.token, c.name, c.ticker, c.quote, c.curve, c.mode, b.bal FROM balances b JOIN coins c ON c.token=b.token
+      WHERE b.holder=? AND c.mode=1 AND CAST(b.bal AS REAL) > 0 ORDER BY c.launched_block DESC LIMIT 200`).all(u);
+    return { holder: u, coins, claims };
+  }
+
+  /** Referral gate (redeploy): pending/locked status, recorded USDG deposits and escrow entries for `wallet`. */
+  referralGate(addr: string) {
+    const u = addr.toLowerCase();
+    const ref = this.db.prepare("SELECT stack, referrer, status, ts, tx FROM referrals WHERE wallet=? ORDER BY block DESC LIMIT 1").get(u) as any;
+    const recorded = this.db.prepare("SELECT a amount, b total, ts, tx FROM fee_events WHERE kind='UsdgDepositRecorded' AND account=? ORDER BY block DESC, id DESC").all(u) as any[];
+    const escrows = this.db.prepare("SELECT stack, CAST(a AS INTEGER) id, b amount, CAST(c AS INTEGER) unlockAt, ts, tx FROM fee_events WHERE kind='EscrowEscrowed' AND account=? ORDER BY block ASC, id ASC").all(u) as any[];
+    const withdrawn = (this.db.prepare("SELECT a FROM fee_events WHERE kind='EscrowWithdrawn' AND account=?").all(u) as any[]).reduce((acc, r) => acc + BigInt(r.a ?? 0), 0n);
+    const escrowed = escrows.reduce((acc, r) => acc + BigInt(r.amount ?? 0), 0n);
+    return {
+      wallet: u,
+      status: !ref ? "none" : ref.status === "attributed" ? "locked" : "pending",
+      referrer: ref?.referrer ?? null, since: ref?.ts ?? null,
+      depositedTotal: recorded[0]?.total ?? "0", deposits: recorded,
+      escrows, escrowedTotal: escrowed.toString(), withdrawnTotal: withdrawn.toString(), heldNow: (escrowed - withdrawn).toString(),
+    };
+  }
+
   listCoins(q: URLSearchParams) {
     const limit = intParam(q, "limit", 50, 1, 500);
     const sort = q.get("sort") ?? "new";
@@ -354,6 +438,7 @@ export class Api {
       if (p[2] === "holders") return nf(this.holders(t, q));
       if (p[2] === "altitude") return nf(this.altitude(t));
       if (p[2] === "fee-routing") return nf(this.feeRouting(t));
+      if (p[2] === "crew") return nf(this.coinCrew(t, q));
     }
     if (p[0] === "users" && addr(p[1])) {
       if (p.length === 2) return [200, this.profile(p[1])];
@@ -363,7 +448,10 @@ export class Api {
       if (p[2] === "orders") return [200, this.orders("owner", p[1])];
       if (p[2] === "trades") return [200, this.trades("trader", p[1], q)];
       if (p[2] === "coins") return [200, this.listCoins(new URLSearchParams({ creator: p[1] }))];
+      if (p[2] === "crew") return [200, this.userCrew(p[1])];
+      if (p[2] === "referral-gate") return [200, this.referralGate(p[1])];
     }
+    if (p[0] === "creators" && addr(p[1]) && p[2] === "fees") return [200, await this.creatorFeesOf(p[1], q)];
     if (p[0] === "rewards") return [200, this.rewards()];
     if (p[0] === "orders") return [200, this.allOrders(q)];
     if (p[0] === "tier-breaks") return [200, this.tierBreaks(q)];

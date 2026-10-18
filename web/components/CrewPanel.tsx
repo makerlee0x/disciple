@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MODES, fmtUsd, nextUnlock, verifiedLevel } from "@/lib/config";
+import { MODES, fmtUsd, nextUnlock } from "@/lib/config";
 import VerifiedBadge from "./VerifiedBadge";
 import Icon from "@/components/icons/Icon";
 
@@ -21,7 +21,8 @@ const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir s
 
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
-export default function CrewPanel() {
+/** `coin`: the rocket on screen; its verified mark comes from the admin review (/api/verified), never from stats. */
+export default function CrewPanel({ coin }: { coin?: string }) {
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
   // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
@@ -51,7 +52,6 @@ export default function CrewPanel() {
   }, []);
 
   const u = nextUnlock(mcap);
-  const tier = verifiedLevel({ ...MOCK_CREW.stats, mcapUsd: mcap });
   const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
   const ammoTxt = (i: number, d: number) => { const v = ammoUsd[i] ?? d; return "$" + (v < 1 ? v.toFixed(2) : v.toLocaleString()); };
@@ -77,7 +77,7 @@ export default function CrewPanel() {
       </div>
       {open && (
         <>
-          <div style={{ marginTop: 6 }}><VerifiedBadge tier={tier} /></div>
+          <VerifiedBadge token={coin} />
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
           {MOCK_CREW.top.map((t, i) => (
             <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>

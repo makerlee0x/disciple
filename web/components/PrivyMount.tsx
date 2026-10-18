@@ -11,11 +11,12 @@ import { PRIVY_APP_ID, aaSession, registerPrivy } from "@/lib/aa/session";
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
 
 function PrivyBridge() {
-  const { ready, authenticated, login, logout } = usePrivy();
+  const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
   const { wallets, ready: walletsReady } = useWallets();
   const linked = useRef<string | null>(null);
 
-  useEffect(() => { registerPrivy({ login, logout }); return () => registerPrivy(null); }, [login, logout]);
+  // getAccessToken: Privy session for our API routes (verification requests / admin review), no wallet signature
+  useEffect(() => { registerPrivy({ login, logout, getAccessToken, authenticated: ready && authenticated }); return () => registerPrivy(null); }, [login, logout, getAccessToken, ready, authenticated]);
 
   useEffect(() => {
     if (!ready || !walletsReady) return;

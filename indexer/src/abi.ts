@@ -38,6 +38,19 @@ export const EVENTS = parseAbi([
   "event UsdgDepositRecorded(address indexed wallet, uint256 amount, uint256 total)",
   "event LaunchFeePaid(address indexed token, uint256 amount)",
   "event Transfer(address indexed from, address indexed to, uint256 value)",
+  // ── redeploy (feat/modes-gas, PR #75) additions. Old stacks never emit these; signatures from contracts/src on that branch.
+  // TradeFeeRouted changed signature (different topic0): feeToken + feeIsQuote (post-grad fees can be in the launch token),
+  // creator, referral/KOL payees. Both overloads decode; ingest normalizes them to the same fee_events columns.
+  "event TradeFeeRouted(address indexed token, address indexed feeToken, address indexed trader, bool feeIsQuote, address creator, uint256 creatorShare, uint256 creatorTaxAmount, uint256 lpShare, uint256 treasuryShare, address referralPayee, uint256 referralShare, address kolPayee, uint256 kolShare)",
+  "event CreatorTokenFeesClaimed(address indexed token, address indexed creator, uint256 amount)",
+  "event LaunchMode(address indexed token, address indexed curve, uint8 mode)",
+  // BondingCurve (PVE): 0.777% profit tax on DUMPs → crew (holder) rewards pool; holders claim via Launchpad.claim(token)
+  "event ProfitTaxCharged(address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis)",
+  "event HolderRewardsClaimed(address indexed token, address indexed holder, uint256 amount)",
+  // UsdgDepositNotifier: referral-gate USDG escrow (each deposit locked 7 days)
+  "event Deposited(address indexed payer, address indexed wallet, uint256 amount)",
+  "event Escrowed(address indexed wallet, uint256 indexed id, uint256 amount, uint256 unlockAt)",
+  "event Withdrawn(address indexed wallet, uint256 amount)",
 ]);
 
 export const READS = parseAbi([
@@ -49,6 +62,7 @@ export const READS = parseAbi([
   "function quotePriceUsd(address) view returns (uint256)",
   "function creatorOf(address) view returns (address)",
   "function creatorAccrued(address,address) view returns (uint256)",
+  "function creatorTokenAccrued(address,address) view returns (uint256)",
   "function pending(address) view returns (address quote, uint256 quoteAmt, uint256 tokenAmt)",
   "function stealthOwnerOf(address) view returns (address)",
   "function market(address) view returns (uint256 priceWad, uint256 mcapUsd, bool graduated)",

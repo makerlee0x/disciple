@@ -15,6 +15,7 @@ import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import SettingsModal from "./SettingsModal";
+import ProfileClaims from "@/components/claims/ProfileClaims";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import { onWallet } from "@/lib/wallet";
 import Icon, { OrbMeter, type BombTier } from "@/components/icons/Icon";
@@ -117,6 +118,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       </header>
       {share && <ShareModal target={share} onClose={() => setShare(null)} />}
       {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
+      {isPrivate && <ProfileClaims />}
       <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
       <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(201,206,214,0.12)` }}>

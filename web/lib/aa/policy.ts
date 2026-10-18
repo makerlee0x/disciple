@@ -13,6 +13,23 @@ import type { Call } from "./core";
 
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const erc20 = parseAbi(["function approve(address spender, uint256 amount) returns (bool)", "function mint(address to, uint256 amount)"]);
+/** Claim entry points (msg.sender receives the funds; no args that redirect them). */
+const claimAbi = parseAbi([
+  "function claimCreatorFees(address token) returns (uint256)",
+  "function claimReferrerFees(address quote) returns (uint256)",
+  "function claimCreatorTokenFees(address token) returns (uint256)",
+]);
+const notifierAbi = parseAbi(["function deposit(address wallet, uint256 amount) returns (uint256)", "function withdraw(uint256[] ids) returns (uint256)"]);
+/** Σ amount of the batch's notifier.deposit calls (the only approve amount to the notifier this policy accepts). */
+export function depositTotal(calls: Call[], notifier?: Address): bigint {
+  let n = BigInt(0);
+  if (!notifier) return n;
+  for (const c of calls) {
+    if (c.to.toLowerCase() !== notifier.toLowerCase()) continue;
+    try { const d = decodeFunctionData({ abi: notifierAbi, data: c.data }); if (d.functionName === "deposit") n += d.args[1] as bigint; } catch { /* other */ }
+  }
+  return n;
+}
 
 export type PolicyCfg = {
   launchpad: Address; router: Address; trampWallManager: Address;
@@ -27,6 +44,10 @@ export type PolicyCfg = {
    * buyWithUsdg total (0 = revoke ok). No standalone USDG approves to curves / tramps.
    */
   usdg?: Address;
+  /** FeeRouter: only the claim selectors (creator / referrer / redeploy creator-token) — they move funds TO the caller. */
+  feeRouter?: Address;
+  /** REDEPLOY: UsdgDepositNotifier — deposit(account, amt) with an exact paired approve, and withdraw(ids). */
+  depositNotifier?: Address;
 };
 export type SessionState = { expiresAt: number; spent: Record<string, string> };
 
@@ -56,6 +77,15 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     if (c.value && c.value > BigInt(0)) throw new PolicyError("Session can't send ETH.");
     const to = lc(c.to);
     if (fixed.has(to)) continue;
+    if (cfg.feeRouter && to === lc(cfg.feeRouter)) {
+      try { decodeFunctionData({ abi: claimAbi, data: c.data }); continue; } catch { throw new PolicyError(`Session can't call ${c.to}.`); }
+    }
+    if (cfg.depositNotifier && to === lc(cfg.depositNotifier)) {
+      let d: { functionName: string; args?: readonly unknown[] };
+      try { d = decodeFunctionData({ abi: notifierAbi, data: c.data }); } catch { throw new PolicyError(`Session can't call ${c.to}.`); }
+      if (d.functionName === "deposit" && lc(d.args![0] as string) !== lc(account)) throw new PolicyError("Deposits must be for this account.");
+      continue;
+    }
     let fn: { functionName: string; args?: readonly unknown[] } | null = null;
     try { fn = decodeFunctionData({ abi: erc20, data: c.data }); } catch { fn = null; }
     if (fn?.functionName === "approve") {
@@ -63,7 +93,10 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
       // USDG → router must be exact (policy 1.3.0); USDG → anything else is owner-only (sessionEligible routes it)
       if (cfg.usdg && to === lc(cfg.usdg) && lc(spender) === lc(cfg.router) && usdgNeed > BigInt(0) && amt !== BigInt(0) && amt !== usdgNeed)
         throw new PolicyError("USDG approve must equal this trade's USDG amount.");
-      if (!fixed.has(lc(spender)) && !(await isCurve(spender))) throw new PolicyError(`Session can't approve ${spender}.`);
+      if (cfg.depositNotifier && lc(spender) === lc(cfg.depositNotifier)) {
+        const need = depositTotal(calls, cfg.depositNotifier);
+        if (amt !== BigInt(0) && amt !== need) throw new PolicyError("Deposit approve must equal the deposit amount.");
+      } else if (!fixed.has(lc(spender)) && !(await isCurve(spender))) throw new PolicyError(`Session can't approve ${spender}.`);
       delta[to] = (delta[to] ?? BigInt(0)) + amt;
       continue;
     }

@@ -68,6 +68,8 @@ export interface Deployment {
   usdg: Address;
   /** First block to scan for events. */
   fromBlock: bigint;
+  /** REDEPLOY ONLY (feat/modes-gas): UsdgDepositNotifier (referral-gate escrow). Zero until the redeploy lands. */
+  depositNotifier: Address;
 }
 
 // NOTE: NEXT_PUBLIC_* must be referenced literally for Next.js to inline them.
@@ -89,6 +91,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
+    depositNotifier: addr(process.env.NEXT_PUBLIC_RH_DEPOSIT_NOTIFIER),
   },
   // Testnet — source of truth: contracts/deployments/web-bundle @ 27e92d8 (FLOW combined redeploy v3, startBlock 136187963).
   // After a redeploy, edit these defaults or set NEXT_PUBLIC_RHT_* env. Do NOT send new launches to the old v2 stack (SEC-01).
@@ -109,6 +112,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec; reused from v1)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "136187963"),
+    depositNotifier: addr(process.env.NEXT_PUBLIC_RHT_DEPOSIT_NOTIFIER),
   },
   [anvil.id]: {
     launchpad: addr(process.env.NEXT_PUBLIC_ANVIL_LAUNCHPAD),
@@ -128,6 +132,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
     usdg: addr(process.env.NEXT_PUBLIC_ANVIL_USDG),
     fromBlock: BigInt(0),
+    depositNotifier: addr(process.env.NEXT_PUBLIC_ANVIL_DEPOSIT_NOTIFIER),
   },
 };
 

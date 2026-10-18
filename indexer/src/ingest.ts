@@ -153,9 +153,47 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "LaunchFeePaid":
           if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
           break;
+        case "LaunchMode":
+          if (isCore(stack.launchpad)) db.prepare("UPDATE coins SET mode=? WHERE token=?").run(Number(a.mode), lc(a.token));
+          break;
+        case "TradeFeeRouted": {
+          if (!isCore(stack.feeRouter)) break;
+          // Normalized columns for BOTH signatures: account=trader, quote=fee asset, a=creatorShare, b=lpShare,
+          // c=treasuryShare, d=referralShare, e=creatorTaxAmount. Redeploy fees charged in the launch token
+          // (feeIsQuote=false, post-grad) are kept apart as kind TradeFeeRoutedToken so quote and token units never mix.
+          const next = "feeIsQuote" in a;
+          const kind = next && !a.feeIsQuote ? "TradeFeeRoutedToken" : "TradeFeeRouted";
+          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, kind, lc(a.token), lc(a.trader), lc(next ? a.feeToken : a.quote),
+            s(a.creatorShare), s(a.lpShare), s(a.treasuryShare), s(a.referralShare), s(a.creatorTaxAmount), block, ts, l.transactionHash);
+          break;
+        }
+        case "ProfitTaxCharged":
+        case "HolderRewardsClaimed": {
+          // PVE crew pool (redeploy): emitted by the coin's own curve only
+          const coin: any = coinBy.get(lc(a.token));
+          if (!coin || src !== coin.curve) break;
+          const who = ev.eventName === "ProfitTaxCharged" ? a.seller : a.holder;
+          const v = ev.eventName === "ProfitTaxCharged" ? [a.tax, a.grossQuote, a.costBasis] : [a.amount];
+          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, ev.eventName, lc(a.token), lc(who), coin.quote, s(v[0]), v[1] != null ? s(v[1]) : null, v[2] != null ? s(v[2]) : null, null, null, block, ts, l.transactionHash);
+          break;
+        }
+        case "Deposited":
+        case "Escrowed":
+        case "Withdrawn": {
+          // UsdgDepositNotifier (redeploy): kinds prefixed so they never collide with other contracts' events
+          if (!isCore(stack.depositNotifier)) break;
+          const kind = `Escrow${ev.eventName}`;
+          const [x, y, z] = ev.eventName === "Escrowed" ? [a.id, a.amount, a.unlockAt] : [a.amount, null, null];
+          db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+            id, stack.id, kind, null, lc(a.wallet), null, s(x), y != null ? s(y) : null, z != null ? s(z) : null, null,
+            ev.eventName === "Deposited" ? lc(a.payer) : null, block, ts, l.transactionHash);
+          break;
+        }
+        case "CreatorTokenFeesClaimed":
         case "ReferrerFeesClaimed":
         case "UsdgDepositRecorded":
-        case "TradeFeeRouted":
         case "CreatorFeesClaimed":
         case "SnipeFeeRoutedToLP":
         case "SnipeFeeRouted":
@@ -167,7 +205,8 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           const vals = Object.values(a).filter((v) => typeof v === "bigint").map(s); // numeric args only, in ABI order
           db.prepare("INSERT OR IGNORE INTO fee_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
             id, stack.id, ev.eventName, a.token ? lc(a.token) : null,
-            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO), a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : null,
+            lc(a.creator ?? a.trader ?? a.referrer ?? a.wallet ?? a.stealthOwner ?? a.to ?? ZERO),
+            a.quote ? lc(a.quote) : a.asset ? lc(a.asset) : ev.eventName === "CreatorTokenFeesClaimed" ? lc(a.token) : null,
             vals[0] ?? null, vals[1] ?? null, vals[2] ?? null, vals[3] ?? null, vals.slice(4).join(",") || null, block, ts, l.transactionHash);
           break;
         }
