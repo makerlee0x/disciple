@@ -7,7 +7,7 @@
  */
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
-import { PRIVY_APP_ID, SIGNER_MODE } from "@/lib/aa/session";
+import { PRIVY_APP_ID, SIGNER_MODE } from "@/lib/aa/env"; // not lib/aa/session: that would put viem + noble in every page's first-load JS
 
 const PrivyMount = dynamic(() => import("./PrivyMount"), { ssr: false });
 

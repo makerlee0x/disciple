@@ -17,11 +17,12 @@ import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
 import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions } from "./oneTap";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
+import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
 export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
-/** Privy app id. Vercel previews use a separate dev app (NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW) — see PR #59 notes. */
-export const PRIVY_APP_ID = (process.env.NEXT_PUBLIC_VERCEL_ENV === "preview" && process.env.NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW) || process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
+/** Privy app id + signer mode live in ./env (dependency-free, safe for the root layout); re-exported here. */
+export { PRIVY_APP_ID, SIGNER_MODE };
 /** Deployed DiscipleSessionPolicy (PR #53). Unset ⇒ no on-chain session keys yet; owner signs every op. */
 export const SESSION_POLICY = (/^0x[0-9a-fA-F]{40}$/.test(process.env.NEXT_PUBLIC_SESSION_POLICY || "") ? process.env.NEXT_PUBLIC_SESSION_POLICY : "") as Address | "";
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
@@ -37,7 +38,6 @@ export const SLIPPAGE_MAX_BPS = 5000;
 export const clampSlippageBps = (b: number) => Math.min(SLIPPAGE_MAX_BPS, Math.max(SLIPPAGE_MIN_BPS, Math.round(b) || SLIPPAGE_DEFAULT_BPS));
 
 export type OwnerKind = "privy" | "eoa" | "local";
-export const SIGNER_MODE: "privy" | "local" = PRIVY_APP_ID && process.env.NEXT_PUBLIC_AA_SIGNER !== "local" ? "privy" : "local";
 const LOCAL_KEY = "disciple.local.ownerKey.v1";
 const LS = "disciple.aa.session.v2";
 const SK = "disciple.aa.sessionKey.v2"; // per-account on-chain session key (testnet; never sent anywhere)

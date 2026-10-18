@@ -1,0 +1,14 @@
+.faq { display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; margin-top: 30px; align-items: start; }
+.q { padding: 20px 0; border-top: 1px solid rgba(201, 206, 214, .12); }
+.h { margin: 0; font-size: 16px; font-weight: 600; }
+.btn {
+  all: unset; box-sizing: border-box; display: flex; gap: 10px; align-items: baseline; width: 100%; cursor: pointer;
+  font: 600 16px/1.35 var(--dsc-font-ui); color: var(--dsc-text); border-radius: 6px;
+}
+.btn:hover { color: #fff; }
+.btn:focus-visible { outline: 2px solid var(--dsc-primary); outline-offset: 4px; }
+.chev { color: var(--dsc-muted); transform: translateY(2px) rotate(-90deg); transition: transform var(--dsc-duration-base) var(--dsc-easing-standard); }
+.btn[aria-expanded="true"] .chev { transform: translateY(2px); }
+.a p { margin: 8px 0 0; max-width: 60ch; font-size: 14px; line-height: 1.6; color: var(--dsc-muted-on-sky); }
+@media (max-width: 760px) { .faq { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
