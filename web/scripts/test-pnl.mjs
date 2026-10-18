@@ -21,7 +21,7 @@ const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pu
 let ivs = [], tos = [];
 const window = {}, S = { confirmed: { mcap: null }, simF: 1 };
 const env = { setInterval: (f, ms) => (ivs.push({ f, ms }), ivs.length), clearInterval() {}, setTimeout: (f) => (tos.push(f), 1), window, REPLAY: undefined, S };
-const build = new Function(...Object.keys(env), "let source;" + cls + markSrc + "return { PoolV3Base, shownMcap, markMcap, setSource:(s)=>{source=s;} };");
+const build = new Function(...Object.keys(env), "let source;" + cls + markSrc + "return { PoolV3Base, shownMcap, markMcap, fillMcapEst, setSource:(s)=>{source=s;} };");
 const E = build(...Object.values(env));
 let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(a), Math.abs(b));
@@ -121,3 +121,39 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(near(view(nb, px(10_000), S7, 0).entryMcap, view(old, 10_000 / 1e9, 1e9, 0).entryMcap, 1e-6) && nb.costBasis === old.costBasis, "supply 1e9 → 7e9 rebase keeps cost basis and entry mcap");
   if (bad) { console.error(bad + " audit scenario(s) FAILED"); process.exit(1); }
   console.log("ok  audit scenarios"); }
+
+// ---- #3 (maker lee, 2026-10): "I own $1.35K of an $8.8K mcap but I'm only up 21%?" — holdings value vs PnL % ----------
+// PnL % = uPnL ÷ cost basis = mark ÷ avg-entry price − 1 (fees in the basis): it measures how far the mcap moved since YOUR
+// entry, not your share of supply. The DISCIPLE curve starts at $7K (not $0), so even the very first buyer is entering at ≥$7K.
+{ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
+  const S7 = DEFAULT_SUPPLY, px = (m) => m / S7;
+  // the reported numbers: value $1.35K at $8.8K ⇒ 15.3% of supply; +21% ⇒ cost $1.116K ⇒ avg entry MC = 8.8K / 1.21 ≈ $7.27K
+  { const tokens = 1350 / px(8800), cost = 1350 / 1.21, p = { ...emptyPosition(), size: tokens, costBasis: cost, holdStart: 1 }, v = view(p, px(8800), S7, 0);
+    ok(Math.abs(v.valueUsd - 1350) < 1e-6 && Math.abs(v.pnlPct - 21) < 1e-9 && Math.abs(v.entryMcap - 8800 / 1.21) < 1e-6,
+      `report: $1.35K held at $8.8K MC (${(tokens / S7 * 100).toFixed(1)}% of supply), +21% ⇔ avg entry MC ${fmtMoney(v.entryMcap)} — consistent`);
+    ok(Math.abs(v.pnlPct - (8800 / v.entryMcap - 1) * 100) < 1e-9, "identity: PnL % = MCAP ÷ AVG ENTRY MC − 1 (the HUD's AVG ENTRY row explains the %)"); }
+  // DISCIPLE bonding curve (x·y = k, spot = x / y; START $7K, GRADUATION $33K at 72% sold; CurveMath.sol / lib/sim)
+  const sC = 0.72 * S7, r = Math.sqrt(33_000 / 7_000), y0 = sC * r / (r - 1), x0 = 7_000 / S7 * y0, k = x0 * y0, FEEc = 0.01;
+  const mcOf = (y) => k / y / y * S7, buyCurve = (y, usd) => { const y2 = k / (k / y + usd * (1 - FEEc)); return { tokens: y - y2, y2 }; };
+  { const m1 = mcOf(y0); ok(Math.abs(m1 - 7000) < 1e-6, "curve mirror: starts at $7K"); }
+  // a launch buy of the reported cost: exact curve fill (paper path) — ledger tokens = curve tokens; uPnL ≥ −fees right after
+  { const usd = 1350 / 1.21, f = buyCurve(y0, usd), fillMcap = usd * (1 - FEEc) / f.tokens * S7, post = mcOf(f.y2);
+    const p = applyFill(emptyPosition(), "buy", usd, px(fillMcap), GAS, 0), v = view(p, px(post), S7, 0);
+    ok(Math.abs(p.size - f.tokens) / f.tokens < 1e-12, `paper: $${usd.toFixed(0)} launch buy books exactly the curve's ${(f.tokens / 1e9).toFixed(3)}B tokens`);
+    ok(v.uPnl >= -(usd * FEEc + GAS) - 1e-9, `paper: right after the buy uPnL ${fmtPnl(v.uPnl)} (${fmtPct(v.pnlPct)}) ≥ −fees (marked at the post-trade price $${post.toFixed(0)}, not net of impact)`);
+    const v88 = view(p, px(8800), S7, 0);
+    ok(v88.pnlPct > 0 && v88.pnlPct < 21, `even the launch buyer of that size is only ${fmtPct(v88.pnlPct)} at $8.8K (avg entry MC ${fmtMoney(v88.entryMcap)}): +21% needs a lower average entry`);
+    const best = (8800 / 7000 * (1 - FEEc) - 1) * 100;
+    ok(best < 25, `upper bound from a $7K start to $8.8K: ${best.toFixed(1)}% (1% fee) — 21% is in range, a 15% stake doesn't change %`); }
+  // LIVE booking: was the PRE-trade mark (tokens overstated by ~impact/2); now mark × √(price ratio) = constant-product average
+  { const usd = 1000, f = buyCurve(y0, usd), ratio = mcOf(f.y2) / 7000;
+    window.__discipleTrade = () => {}; S.simF = 1; S.confirmed.mcap = 7000;
+    E.setSource({ supply: S7, realMcap: () => 7000, impact: () => ratio });
+    const est = E.fillMcapEst(usd, "buy"), pre = E.markMcap();
+    const live = applyFill(emptyPosition(), "buy", usd, px(est), 0, 0), old = applyFill(emptyPosition(), "buy", usd, px(pre), 0, 0);
+    const errNew = live.size / f.tokens - 1, errOld = old.size / f.tokens - 1;
+    ok(Math.abs(errNew) < 0.002, `live: $1K buy at $7K books ${(live.size / 1e9).toFixed(4)}B vs curve ${(f.tokens / 1e9).toFixed(4)}B (${(errNew * 100).toFixed(2)}%)`);
+    ok(errOld > 0.05, `… the old pre-trade booking over-credited ${(errOld * 100).toFixed(1)}% tokens (uPnL ${fmtPct(view(old, px(mcOf(f.y2)), S7, 0).pnlPct)} vs real ${fmtPct(view(live, px(mcOf(f.y2)), S7, 0).pnlPct)})`);
+    delete window.__discipleTrade; }
+  if (bad) { console.error(bad + " #3 scenario(s) FAILED"); process.exit(1); }
+  console.log("ok  #3 holdings vs PnL % scenarios"); }

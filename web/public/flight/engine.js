@@ -1,5 +1,5 @@
 /* DISCIPLE flight engine — ported from prototype/game.html (faithful port).
- * Prerequisites on the page: #c canvas, #orbBtn, #launchFade, optional #exitX.
+ * Prerequisites on the page: #c canvas, #launchFade, optional #exitX / #orbBtn (orbs toggle now lives in the ESC menu: disciple:orbs).
  * Set window.REPLAY before running, or fetch /replay.json.
  * Query string: ?replay=1&speed=&zoom=&source=&coin=&launched=1&debugBomb=
  */
@@ -691,6 +691,12 @@ const SESSION=source instanceof MockReplaySource?'mock-'+Math.random().toString(
 const isLive=()=>!!window.__discipleTrade;
 function shownMcap(){ const m=S.confirmed.mcap; return m>0 ? m*(isLive()?1:(S.simF||1)) : m; }
 function markMcap(){ if(isLive()){ const r=source&&source.realMcap?source.realMcap():null; return r>0?r:S.confirmed.mcap; } return shownMcap(); }
+/* PnL fill price estimate (pool/live branch of submit): the marked mcap × √(price ratio of this trade's own impact) = the
+   constant-product AVERAGE execution price (curve x·y=k pre-grad, full-range pool post-grad). PAPER prices the shot with
+   paperImpact on the shown scale, LIVE with the source's real curve/pool impact. (Was: LIVE booked at the PRE-trade mark, so
+   a buy was credited usd/pre-price tokens: more than the curve gives, e.g. +10.6% tokens on $1K at $7K ⇒ uPnL +22% vs +9.5%.) */
+function fillMcapEst(usd,side){ const live=isLive(), r=source&&source.paperImpact&&!live?source.paperImpact(usd,side):source&&source.impact?source.impact(usd,side):1;
+  return markMcap()*(r>0&&Number.isFinite(r)?Math.sqrt(r):1); }
 function pushMark(){ const m=markMcap(); if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:mark',{detail:{mcap:m,supply:source.supply||7e9,session:SESSION}})); }catch(_){} }
 function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({title,sub,life:4}); }
@@ -725,7 +731,7 @@ function submit(side,usd,force,opt){
   // no-signing model (fomo-style): ONE token approval at deposit, then shots run without per-trade signatures.
   // Gas is a real per-swap cost (it sets MIN_SHOT); nothing is sponsored. In this prototype shots are PAPER only.
   // PnL ledger: fill at the marked price (paper: shown price; live: real) × average AMM execution √(impact)
-  const fillMark=markMcap()*(source.impact&&!isLive()?Math.sqrt(srcImpact(S.tradeUsd,side)):1);
+  const fillMark=fillMcapEst(S.tradeUsd,side);
   // paper sells (no wallet, not the sim): a % sell sells exactly that share of the ledger's tokens; a $ sell never more than held
   const paperSell=side==='sell'&&!isLive()&&!source.isSim&&S.hold.tokens>0;
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
@@ -756,14 +762,35 @@ addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode===
   if(typeof d.mode==='number'&&!d.side) pushAmmo();
   if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0?{usd:d.usd,frac:d.frac}:undefined); });
 const isTyping=e=>{ const t=e.target; return !!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')); };
-addEventListener('keydown',e=>{
-  if (isTyping(e)) return;   // typing in a field (chat, amount) never steers or trades
+/* @hotkeys — gameplay keys. Bindings come from the ESC settings menu (components/flight/SettingsMenu.tsx →
+   lib/game/settings.ts, localStorage 'disciple.game.settings.v1', pushed as disciple:hotkeys).
+   Buy-preset keys (default 1–6) and sell-size keys (default Z/X/C/V) only SELECT, they never trade.
+   SPACE = BOOST buys the ACTIVE amount: the trade bar's custom $ when filled (disciple:custombuy), else the selected preset.
+   SHIFT = DUMP sells the selected size (TradeBridge sizes it). While the ESC menu is open (disciple:menu) no gameplay key fires. */
+const HOTKEYS={buy:['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6'],sell:['KeyZ','KeyX','KeyC','KeyV']};
+function hotkeyLabel(c){ c=String(c||''); return /^Digit\d$/.test(c)?c.slice(5):/^Key[A-Z]$/.test(c)?c.slice(3):/^Numpad\d$/.test(c)?'N'+c.slice(6):c; }
+function setHotkeys(h){ if(!h) return;
+  if(Array.isArray(h.buy)&&h.buy.length===HOTKEYS.buy.length) HOTKEYS.buy=h.buy.map(String);
+  if(Array.isArray(h.sell)&&h.sell.length===HOTKEYS.sell.length) HOTKEYS.sell=h.sell.map(String);
+  for(let i=0;i<MODES.length&&i<HOTKEYS.buy.length;i++) MODES[i].key=hotkeyLabel(HOTKEYS.buy[i]); }
+try{ const g=JSON.parse(localStorage.getItem('disciple.game.settings.v1')||'null'); if(g&&g.keys) setHotkeys(g.keys); }catch(_){}
+addEventListener('disciple:hotkeys',e=>setHotkeys(e.detail));
+S.customBuyUsd=0;
+addEventListener('disciple:custombuy',e=>{ const u=+(e.detail&&e.detail.usd); S.customBuyUsd=u>0&&Number.isFinite(u)?u:0; });
+S.menuOpen=false;
+addEventListener('disciple:menu',e=>{ S.menuOpen=!!(e.detail&&e.detail.open); if(S.menuOpen) S.keys={}; });
+/** BOOST = buy the active amount: custom $ (trade bar) wins over the selected preset. */
+function boost(){ trade('buy', S.customBuyUsd>0?{usd:S.customBuyUsd}:undefined); }
+function onHotkey(e){
+  if (isTyping(e) || S.menuOpen) return;   // typing in a field (chat, amount) or the ESC menu open: never steers or trades
   if (S.grass && !/^(Arrow(Left|Right|Up|Down)|Key[WASD])$/.test(e.code)) return;   // TOUCH GRASS: steering may nudge, nothing can trade
   S.keys[e.code]=true;
+  const mod=e.ctrlKey||e.metaKey||e.altKey;
   if (/^Arrow(Left|Right|Up|Down)$/.test(e.code)) e.preventDefault();
-  if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) trade('buy'); }
-  if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
-  const dm=/^Digit([1-6])$/.exec(e.code); if(dm&&!e.repeat){ S.mode=+dm[1]-1; pushAmmo(); buyPreset(S.mode); }   // shortcut: digit = BUY that preset now + select it (Z/X/C/V only SELECT a sell %; Shift dumps)
+  if (e.code==='Space'){ e.preventDefault(); if(!e.repeat) boost(); return; }
+  if ((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!mod){ if(!e.repeat){ if(!hasTokens()) noTokens(); else dispatchEvent(new CustomEvent('disciple:dump')); } return; }   // DUMP = sell the SELECTED % (TradeBridge sizes it from the ledger)
+  const bi=HOTKEYS.buy.indexOf(e.code); if(bi>=0&&!mod){ if(!e.repeat){ S.mode=bi; S.pressFx={i:bi,t:S.t}; pushAmmo(); } return; }   // buy-preset key = SELECT only (SPACE / BOOST buys it)
+  const si=HOTKEYS.sell.indexOf(e.code); if(si>=0&&!mod){ if(!e.repeat){ S.pressFx={i:6+si,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:si}})); } return; }   // sell-size key = SELECT only (SHIFT / DUMP sells it)
   if (e.code==='Equal'||e.code==='BracketRight'){ S.mode=Math.min(MODES.length-1,S.mode+1);  pushAmmo(); }
   if (e.code==='Minus'||e.code==='BracketLeft'){ S.mode=Math.max(0,S.mode-1);  pushAmmo(); }
   // A/D/←/→ (steer) and S/↓ (dive) are read from S.keys every sim step (hold-to-steer), not from key repeat.
@@ -774,11 +801,16 @@ addEventListener('keydown',e=>{
   if (e.code==='KeyB'&&!e.repeat) setBombs(!S.bombsOn);
   if (e.code==='KeyF' && window.__flight.source.faster) window.__flight.source.faster();
   if (e.code==='KeyT' && source instanceof MockReplaySource){ source.turbo=!source.turbo; S.turbo=source.turbo; }
-});
+}
+/* @hotkeys-end */
+addEventListener('keydown',onHotkey);
 function setOrbs(on){ S.orbsOn=on; try{localStorage.setItem('disciple.orbs',on?'on':'off');}catch(_){}
   if(!on){ S.motes=[]; S.obstacles=[]; }
-  const b=document.getElementById('orbBtn'); b.textContent='ORBS '+(on?'ON':'OFF')+' · O'; b.classList.toggle('off',!on); dispatchEvent(new Event('apflightorbs')); }
-document.getElementById('orbBtn').addEventListener('click',e=>{ setOrbs(!S.orbsOn); e.currentTarget.blur(); });
+  const b=document.getElementById('orbBtn'); if(b){ b.textContent='ORBS '+(on?'ON':'OFF')+' · O'; b.classList.toggle('off',!on); }   // legacy pill (optional)
+  dispatchEvent(new Event('apflightorbs')); try{ dispatchEvent(new CustomEvent('disciple:orbstate',{detail:{on:!!on}})); }catch(_){} }
+{ const b=document.getElementById('orbBtn'); if(b) b.addEventListener('click',e=>{ setOrbs(!S.orbsOn); e.currentTarget.blur(); }); }
+/* ESC settings menu: Orbs toggle (disciple:orbs {on}) + state query */
+addEventListener('disciple:orbs',e=>{ const d=e.detail||{}; if(typeof d.on==='boolean') setOrbs(d.on); else try{ dispatchEvent(new CustomEvent('disciple:orbstate',{detail:{on:!!S.orbsOn}})); }catch(_){} });
 setOrbs(S.orbsOn);
 addEventListener('keyup',e=>{ S.keys[e.code]=false; });
 addEventListener('blur',()=>{ S.keys={}; });
@@ -819,7 +851,6 @@ cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const ctf=typeof char
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
   if(i>=6){ S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:i-6}})); return; }   // click = SELECT only (DUMP / Shift sells it)
   S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
-function buyPreset(i){ S.pressFx={i,t:S.t}; trade('buy'); }
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const SKY_SRC=Object.fromEntries(TIERS.map(t=>[t.bg,t.sky]));   // tier plates load from TIERS[i].sky (lib/flight/tiers.ts)
@@ -1312,18 +1343,18 @@ function drawHud(){
     if(r.ic){ drawIcon(r.ic,36,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),36+18,fy); } else ctx.fillText(r.txt.slice(0,38),36,fy); }); ctx.globalAlpha=1;
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
   if (S.controlsDocked) pushControls(); else { panel(RX,H-104,310,84);
-  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · 1-6 / click`,RX+16,H-82);
+  const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · ${MODES[0].key}-${MODES[MODES.length-1].key} select / click`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select, then BOOST (or 1–6)',ax+40,ay+16);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<6){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
-    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText('SELL · Z/X/C/V select, SHIFT dump',ax+AW-12,ay+16); }
+    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText(HOTKEYS.sell.join()==='KeyZ,KeyX,KeyC,KeyV'?'SELL · Z/X/C/V select, SHIFT dump':'SELL · '+HOTKEYS.sell.map(hotkeyLabel).join('/')+' select, SHIFT dump',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
@@ -2251,16 +2282,18 @@ function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }
    Only sky, clouds/parallax, rocket + trail and one faded mcap readout; no HUD, fx, bombs, walls, tags or chart.
    Reuses #50's clean-mode idea at runtime: everything gated here is simply not drawn (cheaper frames). */
 addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.cine=!!(d.on&&d.cine); S._grassA=S._grassA||0; });
+/* readout: "$TICKER · $8.8K MCAP" (ticker from the source, ?ticker or the coin page's ?cs call sign; "$8.8K MCAP" without one) */
+function grassTicker(){ const t=String(source.ticker||Q.get('ticker')||Q.get('cs')||'').replace(/^\$/,'').split(/\s*\/\s*/)[0].trim().toUpperCase(); return /^[A-Z0-9]{1,10}$/.test(t)?t:''; }
+function grassLine(m){ const tk=grassTicker(); return (tk?'$'+tk+' · ':'')+fmtUsd(m)+' MCAP'; }
 function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)+dt*0.8);
-  if(m>0){ const tk=String(source.ticker||Q.get('ticker')||'').slice(0,10).toUpperCase();
-    ctx.save(); ctx.globalAlpha=S._grassA;   // soft dark halo so the thin number reads over white clouds
+  if(m>0){
+    ctx.save(); ctx.globalAlpha=S._grassA;   // soft dark halo so the thin text reads over white clouds
     { const g=ctx.createRadialGradient(W/2,H-100,0,W/2,H-100,Math.min(W*0.32,380)); g.addColorStop(0,'rgba(6,8,20,.55)'); g.addColorStop(0.55,'rgba(6,8,20,.28)'); g.addColorStop(1,'rgba(6,8,20,0)');
       ctx.fillStyle=g; ctx.save(); ctx.translate(W/2,H-100); ctx.scale(1,0.42); ctx.translate(-W/2,-(H-100)); ctx.fillRect(W/2-400,H-100-400,800,800); ctx.restore(); }
     ctx.globalAlpha=0.86*S._grassA; ctx.textAlign='center'; ctx.fillStyle='#fff7ef';
-    const fs=Math.round(clamp(W*0.06,46,96)); ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`;
-    glowText(fmtUsd(m),W/2,H-86,'rgba(255,236,200,1)',10,0.18);
-    ctx.globalAlpha=0.7*S._grassA; ctx.font='300 14px "Helvetica Neue","Inter",system-ui,sans-serif'; ctx.fillStyle='#ffe9c4';
-    ctx.fillText(((tk&&tk.length<=8?'$'+tk+'   ·   ':'')+'MARKET CAP').split('').join(String.fromCharCode(8202)),W/2,H-86+28);
+    const line=grassLine(m); let fs=Math.round(clamp(W*0.04,30,64)); ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`;
+    const maxW=W*0.86, tw=ctx.measureText(line).width; if(tw>maxW){ fs=Math.max(18,Math.floor(fs*maxW/tw)); ctx.font=`200 ${fs}px "Helvetica Neue","Inter",system-ui,sans-serif`; }
+    glowText(line,W/2,H-80,'rgba(255,236,200,1)',10,0.18);
     const c=S.grassCard||0; if(c>0&&S.tierShown>=0){ const a=Math.min(1,c/1.2,(4.5-c)/1.2);   // tier title card: fade in, hold, fade out
       ctx.globalAlpha=0.85*a; ctx.font=`300 ${Math.round(clamp(W*0.045,32,64))}px Georgia,serif`; ctx.fillStyle='#fff3dc';
       glowText(fmtUsd(TIERS[S.tierShown].lo),W/2,H*0.2,'rgba(255,220,160,1)',12,0.25);   // milestone, never the tier name

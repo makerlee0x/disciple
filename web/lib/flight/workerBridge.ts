@@ -41,9 +41,9 @@ export function chooseRenderMode(search: string): "main" | "worker" {
   return "main";
 }
 
-const INBOUND = ["disciple:event", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "apsidebar"];
+const INBOUND = ["disciple:event", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "disciple:hotkeys", "disciple:custombuy", "disciple:menu", "disciple:orbs", "apsidebar"];
 const GLOBALS = ["__trampWalls", "__twPreview", "__entryMcap", "__hudRT"];
-const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim"];
+const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim", "disciple.game.settings.v1"];   // last: ESC-menu hotkey bindings (lib/game/settings SETTINGS_KEY)
 
 export function startWorkerRender(o: {
   canvas: HTMLCanvasElement; wrap: HTMLElement; basePath: string; globals: Record<string, unknown>;
@@ -132,7 +132,7 @@ export function startWorkerRender(o: {
     post({ k: "key", type: k.type, code: k.code, key: k.key, repeat: k.repeat, ctrlKey: k.ctrlKey, metaKey: k.metaKey, shiftKey: k.shiftKey }); };
   on(window, "keydown", key); on(window, "keyup", key);
   on(window, "blur", () => post({ k: "blur" }));
-  const ptr = (e: Event) => { const p = e as PointerEvent; if (p.type === "pointerdown") p.preventDefault(); post({ k: "ptr", type: p.type, x: p.clientX, y: p.clientY }); };
+  const ptr = (e: Event) => { const p = e as PointerEvent; if (p.type === "pointerdown") { p.preventDefault(); const a = document.activeElement as HTMLElement | null; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur(); } post({ k: "ptr", type: p.type, x: p.clientX, y: p.clientY }); };
   for (const t of ["pointermove", "pointerleave", "pointerdown"]) on(o.canvas, t, ptr);
   on(document, "visibilitychange", () => post({ k: "vis", hidden: document.hidden }));
   const orb = document.getElementById("orbBtn");

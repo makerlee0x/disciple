@@ -52,23 +52,26 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(g > 0 && g < th, "engine: no-tokens guard runs before any thrust/bomb visual or submit");
   ok(/md\.usd>S\.hold\.valueUsd/.test(tr), "engine: paper sell capped at holdings value"); }
 // 4) select-then-fire: clicks only select, shortcuts fire, DUMP/Shift sells the selected %
-{ const pd = eng.slice(eng.indexOf("cv.addEventListener('pointerdown'"), eng.indexOf("function buyPreset"));
+{ const pd = eng.slice(eng.indexOf("cv.addEventListener('pointerdown'"), eng.indexOf("addEventListener('resize',resize)"));
   ok(pd.length > 0 && !/trade\(|buyPreset\(|disciple:sellpreset/.test(pd), "engine: clicking a buy/sell preset never trades (select only)");
   ok(/disciple:sellselect/.test(pd), "engine: sell preset click → disciple:sellselect");
-  const kd = eng.slice(eng.indexOf("addEventListener('keydown'"), eng.indexOf("addEventListener('keyup'") > 0 ? eng.indexOf("addEventListener('keyup'") : undefined);
-  ok(/Digit\(\[1-6\]\)[\s\S]{0,120}buyPreset/.test(kd), "engine: 1–6 shortcut buys instantly");
+  // gameplay keys live in the engine's @hotkeys block (bindings from the ESC settings menu; see scripts/test-hotkeys.mjs)
+  const kd = eng.slice(eng.indexOf("/* @hotkeys"), eng.indexOf("/* @hotkeys-end */"));
+  { const bl = (kd.match(/^.*HOTKEYS\.buy\.indexOf\(e\.code\).*$/m) || [""])[0];
+    ok(/S\.mode=bi/.test(bl) && !/trade\(|buyPreset|boost\(/.test(bl) && !/buyPreset/.test(eng), "engine: 1–6 (buy-preset keys) only SELECT, never buy (2026-10: was 'buys instantly')"); }
+  ok(/e\.code==='Space'[^\n]*boost\(\)/.test(kd) && /function boost\(\)\{ trade\('buy', S\.customBuyUsd>0\?\{usd:S\.customBuyUsd\}:undefined\); \}/.test(kd), "engine: SPACE = BOOST with the active amount (custom $ wins)");
   ok(/ShiftLeft[\s\S]{0,200}disciple:dump/.test(kd), "engine: Shift = DUMP the selected preset");
   ok(/NO TOKENS IN WALLET/.test(eng) && !/no tokens to sell/i.test(eng), "engine hint says NO TOKENS IN WALLET");
   const tb = fs.readFileSync(path.join(dir, "../components/TradeBridge.tsx"), "utf8");
   ok(/disciple:sellselect/.test(tb) && /disciple:dump/.test(tb) && /selSell\.current\(i\); \}/.test(tb) && !/sellRef/.test(tb), "TradeBridge: Z/X/C/V only SELECT (never trade); DUMP / Shift sell");
-  ok(/ShiftLeft'\|\|e\.code==='ShiftRight'\)&&!e\.ctrlKey&&!e\.metaKey&&!e\.altKey/.test(kd) && kd.indexOf("isTyping(e)") < kd.indexOf("ShiftLeft"), "Shift: no modifier combos, never while typing");
+  ok(/const mod=e\.ctrlKey\|\|e\.metaKey\|\|e\.altKey/.test(kd) && /ShiftLeft'\|\|e\.code==='ShiftRight'\)&&!mod/.test(kd) && kd.indexOf("isTyping(e)") < kd.indexOf("ShiftLeft"), "Shift: no modifier combos, never while typing");
   ok((kd.match(/Shift(Left|Right)/g) || []).length === 2 && !/Shift/.test(eng.slice(eng.indexOf("addEventListener('keyup'"), eng.indexOf("addEventListener('keyup'") + 200)), "Shift does nothing else in the engine");
   ok(/SELL · Z\/X\/C\/V select, SHIFT dump/.test(eng), "SELL row hint: Z/X/C/V select, SHIFT dump");
-  ok(/▲ BOOST \{fmtShot\(shotUsd\)\}/.test(tb) && /▼ DUMP \{/.test(tb) && /disabled=\{!has\}/.test(tb), "BOOST/DUMP show the selected amount; DUMP disabled with 0 tokens");
+  ok(/▲ \{t\("tb\.boost"\)\} \{fmtShot\(shotUsd\)\}/.test(tb) && /▼ \{t\("tb\.dump"\)\} \{/.test(tb) && /disabled=\{!has\}/.test(tb), "BOOST/DUMP show the selected amount; DUMP disabled with 0 tokens");
   ok(!/no tokens to sell/i.test(tb), "TradeBridge hint says NO TOKENS IN WALLET");
   ok(!/INITIALS|"init"/.test(tb.replace(/INITIALS → 25%/, "")) && !/INITIALS/.test(eng), "INITIALS removed (engine + bridge)");
   ok(/fmtShot=v=>fmtMoney\(v\)/.test(eng) && /const fmtShot = fmtMoney/.test(tb), "buttons and buy tiles use the shared formatter");
-  ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /▼ DUMP \{dumpLabel\}/.test(tb), "custom sell field + %/$ toggle; DUMP shows the exact amount");
+  ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /▼ \{t\("tb\.dump"\)\} \{dumpLabel\}/.test(tb), "custom sell field + %/$ toggle; DUMP shows the exact amount");
   ok(/Math\.min\(sellCustomN, pos\.valueUsd\)/.test(tb) && /Math\.min\(100, sellCustomN\)/.test(tb), "custom sell: $ capped at position value, % capped at 100");
   ok(!/i===am/.test(eng), "no auto-ammo suggestion outline on buy tiles"); }
 // 5) PnL regression: a $60K paper buy at $7K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards.
