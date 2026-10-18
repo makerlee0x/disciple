@@ -66,5 +66,15 @@ const T = 1_700_000_000_000;
   const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50n, priceAfterX18: 100n, mcapAfterUsd: 7_000_000_000n * 10n ** 18n });
   ok(near(v.usd, 0.75), `fillUsd mid ${v.usd}`);
 }
+// 7) v4 hook fill (no mcapAfterUsd): mcap = priceAfterX18 × supply × quotePriceUsd. 1 token raw = 1e-5 quote raw·1e18
+//    ⇒ price 1e13 (x18), quote $2 ⇒ token $2e-5, mcap 7e9 × 2e-5 = $140k; must match the curve formula for the same mcap.
+{
+  const h = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 10n ** 13n, priceAfterX18: 10n ** 13n, quotePriceUsd: 2n * 10n ** 18n });
+  ok(near(h.mcapUsd, 140_000) && near(h.priceUsd, 2e-5), `fillUsd hook ${JSON.stringify(h)}`);
+  const c = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 10n ** 13n, priceAfterX18: 10n ** 13n, mcapAfterUsd: 140_000n * 10n ** 18n });
+  ok(near(c.usd, h.usd), "hook fill USD == curve fill USD at the same mcap");
+  const z = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 1n, priceAfterX18: 1n });
+  ok(z.mcapUsd === 0 && z.usd === 0, "hook fill without a quote price ⇒ 0, never NaN");
+}
 console.log(fail ? `${fail}/${n} FAILED` : `ok ${n} checks`);
 process.exit(fail ? 1 : 0);

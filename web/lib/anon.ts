@@ -10,8 +10,8 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 /** Add-ons for RH testnet 46630 — AnonLauncher/MarketLens from web-bundle @ 27e92d8; announcer is the ERC-5564 singleton (on-chain AnonLauncher.announcer()). */
 export const ANON_ADDONS: Record<number, { anonLauncher: Address; marketLens: Address; announcer: Address }> = {
   46630: {
-    anonLauncher: "0xd38e9DB3790e4587f97D0541943CF5a0239F1870",
-    marketLens: "0x4683F586aD2F70443f74f40751D202494EC9d0Ed",
+    anonLauncher: "0xe564900809746b1f2baca9d2b8df3224a463f359",
+    marketLens: "0x3afe8b96fba7c47790d6d195f0070edd560165ae",
     announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
   },
 };
