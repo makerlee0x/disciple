@@ -12,6 +12,8 @@ import { bondingCurveAbi, launchpadAbi } from "../abi";
 import type { Call } from "./core";
 
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+/** ReferralRegistry.tryAttribute(address,address) */
+const TRY_ATTRIBUTE_SEL = "0x9026092d";
 const erc20 = parseAbi(["function approve(address spender, uint256 amount) returns (bool)", "function mint(address to, uint256 amount)"]);
 /** Claim entry points (msg.sender receives the funds; no args that redirect them). */
 const claimAbi = parseAbi([
@@ -36,7 +38,14 @@ export type PolicyCfg = {
   mintable: Address[];
   /** per-token cap in raw units for spend (quote) tokens; tokens not listed use defaultLimit */
   limits?: Record<string, bigint>;
-  defaultLimit: bigint;
+  /**
+   * Optional client-side running cap (legacy LightAccount era). The app no longer sets it: the only real cap is the
+   * on-chain session cap, which lib/aa/session.ts checks per op (sessionHasHeadroom) and routes to the owner signer
+   * when exhausted — owner-signed ops have no cap, so refusing them with "spend limit reached" was wrong (bug #1).
+   */
+  defaultLimit?: bigint;
+  /** ReferralRegistry: tryAttribute(account, referrer) only. */
+  referralRegistry?: Address;
   /** Tokens whose approvals count toward the spend limit (quote assets). Rocket-token approvals (sells) are uncapped. */
   spendTokens?: Address[];
   /**
@@ -77,6 +86,7 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     if (c.value && c.value > BigInt(0)) throw new PolicyError("Session can't send ETH.");
     const to = lc(c.to);
     if (fixed.has(to)) continue;
+    if (cfg.referralRegistry && to === lc(cfg.referralRegistry) && c.data.slice(0, 10).toLowerCase() === TRY_ATTRIBUTE_SEL) continue;
     if (cfg.feeRouter && to === lc(cfg.feeRouter)) {
       try { decodeFunctionData({ abi: claimAbi, data: c.data }); continue; } catch { throw new PolicyError(`Session can't call ${c.to}.`); }
     }
@@ -105,9 +115,11 @@ export async function checkCalls(pc: PublicClient, cfg: PolicyCfg, s: SessionSta
     throw new PolicyError(`Session can't call ${c.to}.`);
   }
   const capped = cfg.spendTokens?.map(lc);
+  if (cfg.defaultLimit === undefined && !cfg.limits) return delta;
   for (const [t, d] of Object.entries(delta)) {
     if (capped && !capped.includes(t)) continue;
     const lim = cfg.limits?.[t] ?? cfg.defaultLimit;
+    if (lim === undefined) continue;
     const used = BigInt(s.spent[t] ?? "0") + d;
     if (used > lim) throw new PolicyError("Session spend limit reached — sign in again to raise it.");
   }

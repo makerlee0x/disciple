@@ -30,9 +30,21 @@ export async function ensureChain(w: WalletClient) {
   }
 }
 
+/**
+ * Plain injected-wallet (EOA) trading is a legacy/dev path. It is allowed ONLY after an explicit connectWallet() from
+ * the wallet menu (dev builds, or chains without the smart-account stack). Bug #3: before this, any write while signed
+ * out fell back to window.ethereum, so MetaMask could launch a rocket (and trade) without a DISCIPLE sign-in — the
+ * launch, the First BOOST and its tokens all landed on the MetaMask EOA instead of the user's embedded account.
+ */
+let plainWallet: Address | null = null;
+export class SignInRequired extends Error { code = "SignIn"; constructor(m = "Sign in to trade or launch (Email / Google) — your DISCIPLE wallet signs for you.") { super(m); } }
+/** May writes go through right now? Smart session (signed in), or an explicitly connected plain wallet. */
+export function canTransact(): boolean { return isSmartMode() || !!plainWallet; }
+
 /** Explicit connect (wallet button). Returns the address. */
 export async function connectWallet(): Promise<Address> {
   const s = await getSigner();
+  plainWallet = s.account.address;
   emit(s.account.address);
   return s.account.address;
 }
@@ -78,13 +90,14 @@ export async function restoreSmart() { if (!aaAvailable()) return null; const a 
 export async function connectLocal() { const a = await localStart(); emit(a); return a; }
 export async function importLocal(k: string) { const a = await localImport(k); emit(a); return a; }
 export async function resetLocal() { await localReset(); emit(null); }
-export async function disconnect() { await aaLogout(); emit(null); }
+export async function disconnect() { plainWallet = null; await aaLogout(); emit(null); }
 
-/** The address that holds funds/trades: smart account if signed in, else the EOA. */
+/** The address that holds funds/trades: the smart account when signed in, else an explicitly connected plain wallet. */
 export async function activeAddress(): Promise<Address> {
   const a = await aaAddress();
   if (a) return a;
-  return (await getSigner()).account.address;
+  if (plainWallet) return (await getSigner()).account.address;
+  throw new SignInRequired();
 }
 
 /**
@@ -92,6 +105,7 @@ export async function activeAddress(): Promise<Address> {
  * EOA ⇒ legacy: one tx per call, in order.
  */
 export async function execCalls(calls: Call[]): Promise<ExecResult> {
+  if (!isSmartMode() && !plainWallet) throw new SignInRequired();
   if (isSmartMode()) {
     const r = await aaSend(calls);
     return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };

@@ -31,6 +31,7 @@
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
     "test:onetap": "tsx --test scripts/test-onetap.mts",
+    "test:v4-fixes": "tsx --test scripts/test-v4-fixes.mts",
     "test:session-e2e": "tsx scripts/test-session-e2e.mts",
     "test:trade-order": "tsx scripts/test-trade-order.mts",
     "test:op-race": "tsx scripts/test-op-race.mts",

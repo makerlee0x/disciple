@@ -10,12 +10,13 @@
  * No fee share: TrampWallManager rev2 has no claimFees/pendingFees and the hook no longer donates to in-range LPs
  * (contracts/docs/redeploy-migration.md, revision 3), so nothing here reads or promises LP yield.
  */
-import { maxUint256, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, tokenAbi, trampWallManagerAbi } from "../abi";
-import { ACTIVE_CHAIN, deployment } from "../chains";
+import { decodeEventLog, encodeFunctionData, type Hex, type Log, type PublicClient } from "viem";
+import { bondingCurveAbi, trampWallManagerAbi } from "../abi";
+import { deployment } from "../chains";
 import type { Address } from "../protocol";
 import { curveOf, curveParams, friendlyError, publicClient, quoteRawToUsd } from "../protocol-viem";
-import { getSigner } from "../wallet";
+import { execCalls } from "../wallet";
+import { placeTramp, placeWall } from "../trampWall";
 import {
   computePreview, pointsEarned, pointsFor, type PlaceTrampWallParams, type TrampWall, type TrampWallAdapter, type TrampWallEvent,
 } from "./adapter";
@@ -149,13 +150,12 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
     return c;
   }
 
+  // Writes go through the shared wallet seam (smart account userOp when signed in; refuses when signed out — bug #3:
+  // this used to call the injected wallet directly, so MetaMask could place/cancel without a DISCIPLE sign-in).
   async function send(fn: "cancel" | "pull", id: string) {
     try {
-      const w = await getSigner();
-      const { request } = await pc.simulateContract({ account: w.account.address, address: mgr(), abi: trampWallManagerAbi, functionName: fn, args: [B(id)] });
-      const txHash = await w.writeContract(request);
-      await pc.waitForTransactionReceipt({ hash: txHash });
-      return { ok: true, txHash };
+      const r = await execCalls([{ to: mgr(), data: encodeFunctionData({ abi: trampWallManagerAbi, functionName: fn, args: [B(id)] }) }]);
+      return { ok: true, txHash: r.txHash };
     } catch (e) { return { ok: false, reason: friendlyError(e).message }; }
   }
 
@@ -193,23 +193,14 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
         const c = await ctx(p.token);
         const w = (p.rangeWidthPct ?? 2) / 100;
         const [lo, hi] = rangeFor(c, p.kind, p.mcapUsd * (1 - w / 2), p.mcapUsd * (1 + w / 2));
-        const s = await getSigner();
-        const me = s.account.address;
-        const asset = p.kind === "tramp" ? c.quote : p.token;
-        const allowance = await pc.readContract({ address: asset, abi: tokenAbi, functionName: "allowance", args: [me, mgr()] });
-        if (allowance < p.amount) {
-          const h = await s.writeContract({ chain: ACTIVE_CHAIN, account: me, address: asset, abi: tokenAbi, functionName: "approve", args: [mgr(), maxUint256] });
-          await pc.waitForTransactionReceipt({ hash: h });
+        // minLiquidity 1: range is single-sided, no price slippage. ONE userOp (exact approve + place) via lib/trampWall.
+        const r = p.kind === "tramp" ? await placeTramp(p.token, c.quote, lo, hi, p.amount, B(1)) : await placeWall(p.token, lo, hi, p.amount, B(1));
+        let id = "";
+        for (const l of r.logs) {
+          if (l.address.toLowerCase() !== mgr().toLowerCase()) continue;
+          try { const ev = decodeEventLog({ abi: trampWallManagerAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.eventName === "TrampPlaced" || ev.eventName === "WallPlaced") { id = String((ev.args as { id: bigint }).id); break; } } catch { /* other event */ }
         }
-        const deadline = B(Math.floor(Date.now() / 1000) + 300);
-        const { request, result } = await pc.simulateContract({
-          account: me, address: mgr(), abi: trampWallManagerAbi,
-          functionName: p.kind === "tramp" ? "placeTramp" : "placeWall",
-          args: [p.token, lo, hi, p.amount, B(1), deadline], // minLiquidity 1: range is single-sided, no price slippage
-        });
-        const txHash = await s.writeContract(request);
-        await pc.waitForTransactionReceipt({ hash: txHash });
-        return { ok: true, id: result[0].toString(), txHash };
+        return { ok: true, id, txHash: r.txHash };
       } catch (e) { return { ok: false, reason: friendlyError(e).message }; }
     },
 

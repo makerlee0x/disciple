@@ -1,5 +1,5 @@
 /**
- * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy v1.1.1, PR #60). Shared by session.ts (browser),
+ * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.3.0, v4 stack). Shared by session.ts (browser),
  * WalletButton, and scripts/test-session-e2e.mts (node), so tests exercise the exact logic the app uses.
  */
 import { toFunctionSelector, type Address, type Hex } from "viem";
@@ -8,9 +8,20 @@ import type { Call } from "./core";
 /**
  * Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else.
  * Config, so the redeploy swaps it with the address: NEXT_PUBLIC_SESSION_POLICY (address) +
- * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.1.1 = what's deployed; 1.3.0 = FLOW #65 with USDG routing).
+ * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.3.0 = the v4 testnet policy, contracts/deployments/rh-testnet-46630.json
+ * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.3.0", USDG routing).
  */
-export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.1.1";
+export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.3.0";
+/**
+ * Deployed DiscipleSessionPolicy per chain — source of truth: contracts/deployments/rh-testnet-46630.json
+ * (addons.DiscipleSessionPolicy.address, v4, constructor referralRegistry 0x0aa4…9a9c). NEXT_PUBLIC_SESSION_POLICY overrides.
+ * (v3's 0x0399…2be2 / 1.1.1 is superseded: its sessions were installed against the v3 router/launchpad.)
+ */
+export const DEFAULT_SESSION_POLICY: Record<number, Address> = {
+  46630: "0x3d3667e8880c6b633b424d645b8004788b1d6e27",
+};
+export const sessionPolicyFor = (chainId: number, env = process.env.NEXT_PUBLIC_SESSION_POLICY): Address | "" =>
+  (/^0x[0-9a-fA-F]{40}$/.test(env || "") ? (env as Address) : DEFAULT_SESSION_POLICY[chainId] ?? "");
 export const SESSION_POLICY_MODULE_ID = `disciple.session-policy.${SESSION_POLICY_VERSION}`;
 const verAtLeast = (v: string, min: string) => { const a = v.split(".").map(Number), b = min.split(".").map(Number); for (let i = 0; i < 3; i++) { if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); } return true; };
 /** Policy 1.3.0+ lets the session key sign buyWithUsdg / sellToUsdg; before that those go to the owner signer. */
@@ -67,8 +78,49 @@ export function fmtSessionExpiry(validUntilSec: number, nowMs = Date.now(), loca
   return `${left} left (until ${at})`;
 }
 
-/** A one-tap session key cached in the browser. `policy` = the DiscipleSessionPolicy it was installed against. */
-export type CachedSession = { account: Address; entityId: number; key: Hex; validUntil: number; maxSlippageBps: number; policy?: Address };
+/**
+ * A one-tap session key cached in the browser. `policy` = the DiscipleSessionPolicy it was installed against.
+ * caps / spent (raw units, decimal strings, keyed by lowercase quote token) mirror the on-chain SessionConfig cap0/cap1 and
+ * Session.spent0/spent1, so the client knows BEFORE signing whether the session key can still pay for a buy.
+ */
+export type CachedSession = {
+  account: Address; entityId: number; key: Hex; validUntil: number; maxSlippageBps: number; policy?: Address;
+  caps?: Record<string, string>; spent?: Record<string, string>;
+};
+
+/**
+ * Session spend cap in the quote token's RAW units for a $ budget. The on-chain caps (cap0/cap1) are raw token amounts,
+ * NOT dollars: the old fixed 1e24 ("1M tokens") meant $1M of USDG but only ~$2.5K of test STRATEGY (~$0.0025) — the
+ * "Spend limit reached" bug. quotePriceUsdWad = QuotePricer.quotePriceUsd(token) (USD WAD per 1e18 raw); USDG = 1e18.
+ */
+export function usdCapRaw(usd: number, quotePriceUsdWad: bigint, decimals = 18): bigint {
+  if (!(usd > 0) || quotePriceUsdWad <= BigInt(0)) return BigInt(0);
+  const usdWad = BigInt(Math.round(usd * 1e6)) * BigInt(1e12);
+  const cap = (usdWad * BigInt(10) ** BigInt(decimals)) / quotePriceUsdWad;
+  const MAX128 = (BigInt(1) << BigInt(128)) - BigInt(1);
+  return cap > MAX128 ? MAX128 : cap;
+}
+
+/**
+ * Can the session key pay for this batch? Every quote the batch spends must be a session-capped quote with headroom
+ * left (spent + delta ≤ cap). Unknown caps (older cache) ⇒ false ⇒ the owner signs (Privy, silently) instead of the
+ * policy reverting with SpendCapExceeded / the client refusing with "spend limit reached".
+ */
+export function sessionHasHeadroom(s: Pick<CachedSession, "caps" | "spent"> | null | undefined, delta: Record<string, bigint>): boolean {
+  const entries = Object.entries(delta).filter(([, d]) => d > BigInt(0));
+  if (!entries.length) return true;
+  if (!s?.caps) return false;
+  return entries.every(([t, d]) => {
+    const cap = s.caps![t.toLowerCase()];
+    if (cap === undefined) return false;
+    return BigInt(s.spent?.[t.toLowerCase()] ?? "0") + d <= BigInt(cap);
+  });
+}
+export function addSpent(s: CachedSession, delta: Record<string, bigint>): CachedSession {
+  const spent = { ...(s.spent ?? {}) };
+  for (const [t, d] of Object.entries(delta)) if (d > BigInt(0)) spent[t.toLowerCase()] = (BigInt(spent[t.toLowerCase()] ?? "0") + d).toString();
+  return { ...s, spent };
+}
 /**
  * Is a cached session still usable? Same account, not about to expire, and installed on the CURRENT policy.
  * Sessions from an older policy (e.g. 1.1.0, or cached before the policy was recorded) count as off ⇒ the UI prompts
