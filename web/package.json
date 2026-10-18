@@ -37,6 +37,8 @@
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
+    "test:verify-api": "tsx --test scripts/test-verify-api.mts",
+    "test:claims": "tsx --test scripts/test-claims.mts",
     "test:ssrf": "tsx --test scripts/test-ssrf.mts",
     "test:coin-images": "tsx --test scripts/test-coin-images.mts",
     "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",

@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { CURVE, fmtUsd, gradProgress } from "@/lib/config";
 import { isRocketVerified } from "@/lib/verified";
+import { useVerifiedMany } from "@/lib/verifiedClient";
 import VerifiedBadge from "@/components/VerifiedBadge";
 import PairArt from "@/components/pairart/PairArt";
 import { BASE_PAIRS, basePair } from "@/lib/pairArt";
@@ -46,7 +47,7 @@ function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
   return (
     <span className="lp-av2">
       <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size={size <= 32 ? "icon" : "list"} px={size} />
-      {verOf(c) && <span className="lp-av-check"><VerifiedBadge verified size={13} /></span>}
+      <span className="lp-av-check"><VerifiedBadge verified={verOf(c)} token={c.id} size={13} /></span>
     </span>
   );
 }
@@ -95,7 +96,7 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
             </span>
-            <span className="lp-tname">{c.name} <VerifiedBadge verified={verOf(c)} size={13} /></span>
+            <span className="lp-tname">{c.name} <VerifiedBadge verified={verOf(c)} token={c.id} size={13} /></span>
             <span className="lp-tmeta"><b>${c.tk}</b></span>
             <span className="lp-tmeta"><b className="lp-mc">{c.mcap ? fmtUsd(c.mcap) : "…"}</b> <Chg v={c.chg} /></span>
           </button>
@@ -138,7 +139,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
       <div className="lp-card-art"><PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
-        <div className="lp-card-name">{c.name} <VerifiedBadge verified={verOf(c)} size={14} /></div>
+        <div className="lp-card-name">{c.name} <VerifiedBadge verified={verOf(c)} token={c.id} size={14} /></div>
         <div className="lp-card-sub">${c.tk} · {c.pairSym ?? "STRATEGY"} · {c.stats.holders} crew</div>
         <div className="lp-card-mc">{c.mcap ? fmtUsd(c.mcap) : "…"} <Chg v={c.chg} /></div>
         <i className="lp-bar"><i style={{ width: `${grad ? 100 : p || 0}%` }} /></i>
@@ -198,6 +199,9 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
   const pickView = (v: "list" | "grid") => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ } };
 
   const visible = useMemo(() => coins.filter((c) => !c.hidden), [coins]);
+  // admin-approved rockets only (lib/verified); the filter needs every visible coin's verdict
+  const vset = useVerifiedMany(verified === "verified" ? visible.map((c) => c.id) : []);
+  const vkey = Array.from(vset).sort().join();
   const trending = useMemo(() => [...visible].sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.stats.volume24hUsd - a.stats.volume24hUsd).slice(0, 12), [visible]);
 
   const rows = useMemo(() => {
@@ -205,7 +209,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
     let r = visible.filter((c) => {
       if (pair !== "any" && baseOf(c) !== pair) return false;
       if (needle && !(c.name.toLowerCase().includes(needle) || c.tk.toLowerCase().includes(needle) || c.id.toLowerCase().includes(needle))) return false;
-      if (verified === "verified" && !verOf(c)) return false;
+      if (verified === "verified" && !verOf(c) && !vset.has(c.id.toLowerCase())) return false;
       if (tab === "graduated") return isGrad(c);
       if (tab === "near") { const p = gradProgress(c.mcap); return !isGrad(c) && p != null && p >= 60; }
       return true;
@@ -217,7 +221,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
     else r.sort((a, b) => mc(b) - mc(a));
     // LIVE rockets stay pinned on top of every sort.
     return [...r.filter((c) => c.live), ...r.filter((c) => !c.live)];
-  }, [visible, q, pair, verified, tab]);
+  }, [visible, q, pair, verified, tab, vkey]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => setShown(CHUNK), [q, pair, verified, tab]);
   useEffect(() => {
