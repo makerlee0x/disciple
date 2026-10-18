@@ -13,7 +13,7 @@ import {
 import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
-import { encodeLaunchCall } from "./launchAbi";
+import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi } from "./launchAbi";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address;
 const referralRegistryAbi = parseAbi([
@@ -22,7 +22,7 @@ const referralRegistryAbi = parseAbi([
   "function tryAttribute(address wallet, address referrer) returns (bool)",
 ]);
 import { CURVE, TIERS } from "./config";
-import { applySlippage, type CurveParams } from "./curveMath";
+import { applySlippage, creatorBuyMaxTokens, type CurveParams } from "./curveMath";
 import type {
   Address, CurveState, LaunchCoinParams, LaunchCoinResult, ProtocolClient, TradeParams, TradeQuote, TradeResult,
 } from "./protocol";
@@ -53,7 +53,7 @@ const ozErrors = parseAbi([
 ]);
 function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[] } | null {
   if (!data) return null;
-  for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors] as const) {
+  for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors, modesErrorsAbi] as const) {
     try { const r = decodeErrorResult({ abi: abi as never, data }); return { errorName: r.errorName, args: r.args as readonly unknown[] | undefined }; } catch { /* next */ }
   }
   return null;
@@ -89,7 +89,7 @@ export function friendlyError(e: unknown): ProtocolError {
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
       // v4 bonding modes (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP)
-      NotVerified: "PVE rocket: this wallet needs a verified login first (email or Google).",
+      NotVerified: "PVE rocket: this wallet needs a verified login first (email, Google or X).",
       BuyTooLarge: "That buy is above this rocket's per-buy cap right now. Try a smaller shot.",
       SellTooLarge: "That sell is above this PVE rocket's per-sell cap (0.5% of supply). Sell in smaller chunks.",
       LaunchBlock: "PVE rocket just launched: buys open from the next block.",
@@ -530,6 +530,7 @@ export function createViemProtocol(): ProtocolClient {
       if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
       const launchpad = deployment().launchpad;
       const creatorBuy = lp.creatorBuyQuoteIn ?? B(0);
+      const mode = lp.mode ?? DEFAULT_LAUNCH_MODE;
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
@@ -543,18 +544,32 @@ export function createViemProtocol(): ProtocolClient {
         const me = await activeAddress();
         const calls: Call[] = [];
         if (creatorBuy > B(0)) {
-          const cq = await readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps));
+          const [cq, launchpadCapBps] = await Promise.all([
+            readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps)), readCreatorBuyMaxBps(pc),
+          ]);
           if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy exceeds Launchpad.creatorBuyMaxBps() / wallet cap. Lower it.");
-          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+          // Mode caps stack on top of creatorBuyMaxBps (PVE 0.25% per buy in its launch window); quoteCreatorBuy can't see them.
+          const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
+          if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
+            throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow at most ${eff.bps / 100}% of supply per buy. Lower the First BOOST.`);
+          }
+          // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
+          // ensurePveLogin (#99) gets one from /api/pve/attest (relayed on-chain) or prepends LoginGate.attest; it throws
+          // a friendly PveError when the Privy login isn't verified.
+          if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
+          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS); // quote − 1%
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
             : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
-          // creator buy pulls amount + launch fee headroom; approve with 5% slack
-          calls.push(...(await approveCall(me, q, launchpad, creatorBuy + creatorBuy / B(20))));
+          // First BOOST: Launchpad pulls exactly creatorBuyQuoteIn (fees come out of it); check balance up front.
+          const have = await pc.readContract({ address: q, abi: tokenAbi, functionName: "balanceOf", args: [me] });
+          if (have < creatorBuy) throw new ProtocolError("InsufficientBalance", `Not enough balance for the First BOOST: need ${fmtUnits(creatorBuy, await decimalsOf(pc, q))}, have ${fmtUnits(have, await decimalsOf(pc, q))}.`);
+          // Exact approve of creatorBuyQuoteIn (Launchpad pulls exactly that): no slack, never unlimited, and a leftover
+          // larger allowance is set back down to the exact amount. Skipped only when it already equals creatorBuyQuoteIn.
+          const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
+          if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
         }
-        // v4 PVE: the First BOOST is a curve buy by the creator ⇒ the creator needs a LoginGate attestation first.
-        if (lp.mode === 1 && creatorBuy > B(0)) calls.unshift(...(await ensurePveLogin(pc, me)));
-        // launchWithMode(params, mode) on v4 (lib/launchAbi.ts; same switch as PR #96), launchCoin = TRENCH.
-        calls.push({ to: launchpad, data: encodeLaunchCall(params, lp.mode) });
+        // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
+        calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
         const r = await execCalls(calls);
         for (const l of r.logs) {
           if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;
