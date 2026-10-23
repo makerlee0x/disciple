@@ -32,15 +32,16 @@ contract AnonLauncherTest is IntegrationBase {
     address internal stealthA;
     uint256 internal skB;
     address internal stealthB;
-    uint256 constant FEE = 0.5 ether;
+    uint256 internal FEE; // $0.50 at the USDG decimals
 
     function setUp() public override {
         super.setUp();
+        FEE = U / 2;
         anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), FEE);
         (stealthA, skA) = makeAddrAndKey("stealthA");
         (stealthB, skB) = makeAddrAndKey("stealthB");
-        quote.mint(payer, 1_000_000 ether);
+        quote.mint(payer, 1_000_000 * U);
         vm.prank(payer);
         quote.approve(address(anon), type(uint256).max);
     }
@@ -90,8 +91,8 @@ contract AnonLauncherTest is IntegrationBase {
     function test_launch_creator_is_stealth_not_payer_fee_and_buy_routed() public {
         address fresh = makeAddr("fresh");
         uint256 tBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        (uint256 expOut,,,,) = launchpad.quoteCreatorBuy(address(quote), 10 ether, 0);
-        (BondingCurve c, Token t, uint256 bought) = _anonLaunch(stealthA, fresh, 10 ether);
+        (uint256 expOut,,,,) = launchpad.quoteCreatorBuy(address(quote), 10 * U, 0);
+        (BondingCurve c, Token t, uint256 bought) = _anonLaunch(stealthA, fresh, 10 * U);
         assertEq(anon.stealthOwnerOf(address(t)), stealthA);
         assertEq(launchpad.creatorOf(address(t)), address(anon));
         assertEq(c.creator(), address(anon));
@@ -106,14 +107,14 @@ contract AnonLauncherTest is IntegrationBase {
 
     function testFuzz_buyRecipient_routing(address recipient, uint96 buy) public {
         vm.assume(recipient != address(0) && recipient != address(anon) && uint160(recipient) > 0x100);
-        uint256 b = bound(uint256(buy), 1 ether, 40 ether);
+        uint256 b = bound(uint256(buy), 1 * U, 40 * U);
         (, Token t, uint256 bought) = _anonLaunch(stealthA, recipient, b);
         assertGt(bought, 0);
         assertEq(t.balanceOf(recipient), bought);
     }
 
     function test_zero_recipient_defaults_to_stealth() public {
-        (, Token t, uint256 bought) = _anonLaunch(stealthA, address(0), 10 ether);
+        (, Token t, uint256 bought) = _anonLaunch(stealthA, address(0), 10 * U);
         assertEq(t.balanceOf(stealthA), bought);
     }
 
@@ -122,19 +123,31 @@ contract AnonLauncherTest is IntegrationBase {
         anon.setLaunchFee(1);
         vm.prank(owner);
         vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
-        anon.setLaunchFee(6 ether);
+        anon.setLaunchFee(6 * U);
+    }
+
+    /// @dev 6-dec fix: the $5 ceiling is in USDG raw units at the token's decimals (was a fixed 5e18).
+    function test_launch_fee_cap_is_five_dollars_at_usdg_decimals() public {
+        assertEq(anon.MAX_LAUNCH_FEE(), 5 * U);
+        vm.startPrank(owner);
+        anon.setLaunchFee(5 * U);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.setLaunchFee(5 * U + 1);
+        vm.stopPrank();
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 5 * U + 1);
     }
 
     function test_claimManyBySig_batch_across_coins_any_address() public {
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         (BondingCurve c2, Token t2,) = _anonLaunch(stealthA, address(0), 0);
         _warpPastSnipe();
-        _buy(c1, trader1, 200 ether, 0);
-        _buy(c2, trader2, 300 ether, 0);
+        _buy(c1, trader1, 200 * U, 0);
+        _buy(c2, trader2, 300 * U, 0);
         (, uint256 p1,) = anon.pending(address(t1));
         (, uint256 p2,) = anon.pending(address(t2));
         // 33% of 1% creator share (no KOL)
-        (uint256 cs1,,,) = FeeMath.splitTradeFee(FeeMath.protocolFee(200 ether));
+        (uint256 cs1,,,) = FeeMath.splitTradeFee(FeeMath.protocolFee(200 * U));
         assertEq(p1, cs1);
         address[] memory toks = new address[](2);
         toks[0] = address(t1);
@@ -156,7 +169,7 @@ contract AnonLauncherTest is IntegrationBase {
     function test_sig_expiry_wrong_signer_wrong_chain() public {
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         _warpPastSnipe();
-        _buy(c1, trader1, 100 ether, 0);
+        _buy(c1, trader1, 100 * U, 0);
         address[] memory toks = new address[](1);
         toks[0] = address(t1);
         AnonLauncher.ClaimReq memory r = _req(skB, stealthA, toks, relayer, 0);
@@ -188,8 +201,8 @@ contract AnonLauncherTest is IntegrationBase {
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         (BondingCurve c2, Token t2,) = _anonLaunch(stealthB, address(0), 0);
         _warpPastSnipe();
-        _buy(c1, trader1, 500 ether, 0);
-        _buy(c2, trader1, 500 ether, 0);
+        _buy(c1, trader1, 500 * U, 0);
+        _buy(c2, trader1, 500 * U, 0);
         address[] memory a = new address[](1);
         a[0] = address(t1);
         address[] memory b = new address[](1);
@@ -207,12 +220,12 @@ contract AnonLauncherTest is IntegrationBase {
         Wallet1271 w = new Wallet1271(stealthA);
         (BondingCurve c1, Token t1,) = _anonLaunch(address(w), address(0), 0);
         _warpPastSnipe();
-        _buy(c1, trader1, 100 ether, 0);
+        _buy(c1, trader1, 100 * U, 0);
         address[] memory toks = new address[](1);
         toks[0] = address(t1);
         anon.claimManyBySig(_req(skA, address(w), toks, makeAddr("d"), 0));
         assertGt(quote.balanceOf(makeAddr("d")), 0);
-        _buy(c1, trader1, 100 ether, 0);
+        _buy(c1, trader1, 100 * U, 0);
         vm.prank(address(w));
         anon.claimMany(toks, makeAddr("d2"));
         assertGt(quote.balanceOf(makeAddr("d2")), 0);
@@ -244,7 +257,7 @@ contract AnonLauncherTest is IntegrationBase {
         assertEq(img, "ipfs://new");
 
         _warpPastSnipe();
-        _buy(c1, trader1, 100 ether, 0);
+        _buy(c1, trader1, 100 * U, 0);
         address[] memory toks = new address[](1);
         toks[0] = address(t1);
         AnonLauncher.ClaimReq memory rq = _req(skA, stealthA, toks, stealthA, 0);
@@ -258,7 +271,7 @@ contract AnonLauncherTest is IntegrationBase {
         (BondingCurve c1, Token t1,) = _anonLaunch(stealthA, address(0), 0);
         _graduate(c1);
         uint256 m0 = c1.mcapNow();
-        _swapExactInQuoteForToken(t1, trader1, 5_000 ether);
+        _swapExactInQuoteForToken(t1, trader1, 5_000 * U);
         uint256 m1 = c1.mcapNow();
         assertGt(m1, m0, "mcapNow tracks v4 pool after graduation");
         _swapExactInTokenForQuote(t1, trader1, t1.balanceOf(trader1) / 2);
@@ -282,7 +295,7 @@ contract AnonLauncherTest is IntegrationBase {
         BondingCurve c;
         (c, t,) = _anonLaunch(stealth, address(0), 0);
         _graduate(c);
-        _swapExactInQuoteForToken(t, trader1, 5_000 ether);
+        _swapExactInQuoteForToken(t, trader1, 5_000 * U);
         _swapExactInTokenForQuote(t, trader1, t.balanceOf(trader1) / 2);
         assertGt(feeRouter.creatorTokenAccrued(address(t), address(anon)), 0, "token side accrued to AnonLauncher");
         assertGt(feeRouter.creatorAccrued(address(t), address(anon)), 0, "quote side accrued to AnonLauncher");
@@ -371,7 +384,7 @@ contract AnonLauncherTest is IntegrationBase {
         vm.prank(stealthA);
         anon.claimMany(toks, makeAddr("d0"));
         // token side only (post-grad buy, no sell): quote side is 0 and must be skipped
-        _swapExactInQuoteForToken(t, trader2, 1_000 ether);
+        _swapExactInQuoteForToken(t, trader2, 1_000 * U);
         (, uint256 qa, uint256 ta) = anon.pending(address(t));
         assertEq(qa, 0);
         assertGt(ta, 0);
@@ -398,7 +411,7 @@ contract AnonLauncherTest is IntegrationBase {
         vm.expectRevert(AnonLauncher.NothingToClaim.selector);
         anon.claimMany(toks, stealthA);
         _warpPastSnipe();
-        _buy(c1, trader1, 100 ether, 0);
+        _buy(c1, trader1, 100 * U, 0);
         (, uint256 qa, uint256 ta) = anon.pending(address(t1));
         assertGt(qa, 0);
         assertEq(ta, 0);
@@ -451,8 +464,8 @@ contract AnonLauncherTest is IntegrationBase {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         anon.setTreasury(n);
         vm.prank(n);
-        anon.setLaunchFee(1 ether);
-        assertEq(anon.launchFee(), 1 ether);
+        anon.setLaunchFee(1 * U);
+        assertEq(anon.launchFee(), 1 * U);
     }
 }
 
@@ -466,7 +479,7 @@ contract McapNowGraduatedTest is IntegrationBase {
         uint256 launchVal = CurveMathView.mcap(curve);
         // right after graduation pool price == curve-end price
         assertApproxEqRel(curve.mcapNow(), launchVal, 1e12);
-        _swapExactInQuoteForToken(tok, trader1, 10_000 ether);
+        _swapExactInQuoteForToken(tok, trader1, 10_000 * U);
         (uint160 sp,,,) = manager.getSlot0(_poolKey(tok).toId());
         uint256 px = uint160(address(tok)) < uint160(address(quote))
             ? Math.mulDiv(Math.mulDiv(sp, sp, 1 << 64), 1e18, 1 << 128)
@@ -507,7 +520,7 @@ contract MarketLensTest is IntegrationBase {
         MarketLens lens = new MarketLens(address(launchpad), address(migration));
         assertEq(lens.mcapNow(address(tok)), curve.mcapNow());
         _graduate(curve);
-        _swapExactInQuoteForToken(tok, trader1, 10_000 ether);
+        _swapExactInQuoteForToken(tok, trader1, 10_000 * U);
         (uint256 p, uint256 m, bool g) = lens.market(address(tok));
         assertTrue(g);
         assertEq(p, curve.priceNow());

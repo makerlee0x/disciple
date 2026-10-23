@@ -10,7 +10,7 @@ abstract contract BaseTestBase is IntegrationBase {
     function _std(address base, uint24 fee, int24 ts, uint128 liq) internal returns (PoolKey memory key) {
         (address c0, address c1) = uint160(base) < uint160(address(quote)) ? (base, address(quote)) : (address(quote), base);
         key = PoolKey({currency0: Currency.wrap(c0), currency1: Currency.wrap(c1), fee: fee, tickSpacing: ts, hooks: IHooks(address(0))});
-        manager.initialize(key, uint160(1) << 96);
+        manager.initialize(key, _parSqrtP(base));
         PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
         MockUSDG(base).mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
@@ -19,7 +19,7 @@ abstract contract BaseTestBase is IntegrationBase {
         int24 hi = (887272 / ts) * ts;
         lp.modifyLiquidity(
             key,
-            IPoolManager.ModifyLiquidityParams({tickLower: -hi, tickUpper: hi, liquidityDelta: int256(uint256(liq)), salt: 0}),
+            IPoolManager.ModifyLiquidityParams({tickLower: -hi, tickUpper: hi, liquidityDelta: int256(_liq(liq)), salt: 0}),
             ""
         );
     }
@@ -53,8 +53,8 @@ contract BaseDiscoveryTest is BaseTestBase {
     // ───────────── (e) discovery ─────────────
 
     function test_default_minLiquidity() public view {
-        // 18-dec USDG mock: 1e4 * 10^18
-        assertEq(pricer.minLiquidity(), 1e22);
+        // 1e4 * 10^((18 + usdgDec) / 2): 1e22 at 18-dec USDG, 1e16 at 6-dec
+        assertEq(pricer.minLiquidity(), _liq(1e22));
     }
 
     function test_discovery_registers_deepest_standard_pool_then_warms_up() public {
@@ -105,7 +105,7 @@ contract BaseDiscoveryTest is BaseTestBase {
     }
 
     function test_usdg_is_one_dollar() public view {
-        assertEq(pricer.quotePriceUsd(address(quote)), 1e18);
+        assertEq(pricer.quotePriceUsd(address(quote)), _usdgQuoteUsd());
     }
 
     function test_rediscovers_when_auto_pool_drops_below_floor() public {
@@ -116,7 +116,7 @@ contract BaseDiscoveryTest is BaseTestBase {
         // a deeper pool appears, then the auto pool's liquidity falls under the floor
         _std(address(b), 3000, 60, 5e22);
         vm.prank(owner);
-        pricer.setMinLiquidity(3e22);
+        pricer.setMinLiquidity(uint128(_liq(3e22)));
         pricer.poke(address(b));
         assertEq(pricer.pricePoolOf(address(b)).fee, 3000, "re-discovered");
         assertTrue(pricer.isAutoPool(address(b)));

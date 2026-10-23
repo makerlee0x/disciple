@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
@@ -47,7 +48,12 @@ interface IERC5564Announcer {
 contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     using SafeERC20 for IERC20;
 
-    uint256 public constant MAX_LAUNCH_FEE = 5 ether; // $5 in 18-dec USDG
+    /// @notice Launch-fee ceiling in whole USD ($5).
+    uint256 public constant MAX_LAUNCH_FEE_USD = 5;
+    /// @notice Launch-fee ceiling in `feeToken` raw units: MAX_LAUNCH_FEE_USD * 10**feeToken.decimals() (5e6 for
+    ///         6-dec USDG, 5e18 for the 18-dec mock). Was a hard-coded `5 ether`, i.e. $5 trillion with 6-dec USDG.
+    ///         Same getter name/ABI as the old constant.
+    uint256 public immutable MAX_LAUNCH_FEE;
     uint256 public constant MAX_RELAYER_FEE_BPS = 500; // 5%
     uint256 public constant SCHEME_ID = 1; // ERC-5564 secp256k1
 
@@ -108,7 +114,10 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (owner_ == address(0) || launchpad_ == address(0) || feeRouter_ == address(0) || treasury_ == address(0)) {
             revert ZeroAddress();
         }
-        if (launchFee_ > MAX_LAUNCH_FEE) revert FeeTooHigh();
+        // feeToken may be unset only for a fee-less deployment (cap 0 ⇒ launchFee must stay 0).
+        uint256 maxFee = feeToken_ == address(0) ? 0 : MAX_LAUNCH_FEE_USD * 10 ** uint256(IERC20Metadata(feeToken_).decimals());
+        MAX_LAUNCH_FEE = maxFee;
+        if (launchFee_ > maxFee) revert FeeTooHigh();
         launchpad = ILaunchpad(launchpad_);
         feeRouter = IFeeRouterClaims(feeRouter_);
         feeToken = IERC20(feeToken_);

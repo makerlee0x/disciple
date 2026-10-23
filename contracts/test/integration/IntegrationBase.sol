@@ -121,6 +121,17 @@ abstract contract IntegrationBase is Test {
             : uint160((uint256(1) << 96) * f);
     }
 
+    /// @dev v4 liquidity for an 18-dec-base/USDG pool with the same USD depth as `liq18` at 18-dec USDG
+    ///      (L = sqrt(x*y) raw, so it scales by sqrt(10^(usdgDec-18))). Identity at 18 decimals.
+    function _liq(uint256 liq18) internal view returns (uint256) {
+        return liq18 / 10 ** ((18 - uint256(quote.decimals())) / 2);
+    }
+
+    /// @dev QuotePricer convention for USDG itself: USD WAD per 1e18 raw units (1e18 at 18 dec, 1e30 at 6 dec).
+    function _usdgQuoteUsd() internal view returns (uint256) {
+        return 1e36 / U;
+    }
+
     function setUp() public virtual {
         quote = new MockUSDGDec(_usdgDecimals());
         U = 10 ** uint256(_usdgDecimals());
@@ -323,7 +334,7 @@ abstract contract IntegrationBase is Test {
         lp.modifyLiquidity(
             key,
             IPoolManager.ModifyLiquidityParams({
-                tickLower: -887220, tickUpper: 887220, liquidityDelta: 100_000 ether, salt: 0
+                tickLower: -887220, tickUpper: 887220, liquidityDelta: int256(_liq(100_000 ether)), salt: 0
             }),
             ""
         );

@@ -46,7 +46,7 @@ contract JitTwapTest is IntegrationBase {
         pid = _poolKey(tok).toId();
         address[3] memory us = [alice, whale, jit];
         for (uint256 i; i < 3; i++) {
-            quote.mint(us[i], 10_000_000 ether);
+            quote.mint(us[i], 10_000_000 * U);
             deal(address(tok), us[i], 1_000_000_000 ether);
             vm.startPrank(us[i]);
             quote.approve(address(twm), type(uint256).max);
@@ -115,7 +115,7 @@ contract JitTwapTest is IntegrationBase {
     function _jitAroundSells(address lp) internal returns (uint256 id) {
         (int24 lo, int24 hi) = _trampRange(8);
         vm.prank(lp);
-        (id,) = twm.placeTramp(address(tok), lo, hi, 50_000 ether, 0, block.timestamp + 1);
+        (id,) = twm.placeTramp(address(tok), lo, hi, 50_000 * U, 0, block.timestamp + 1);
         for (uint256 i; i < 6; i++) {
             _sell(whale, 2_000_000 ether);
         }
@@ -224,7 +224,7 @@ contract JitTwapTest is IntegrationBase {
         pricer.poke(address(strategy));
         uint256 p0 = pricer.quotePriceUsd(address(strategy));
         // flash: pump STRATEGY 4x+ in the reference pool, poke, read, launch, all in one block
-        _refSwap(false, 100_000 ether);
+        _refSwap(false, 100_000 * U);
         assertGt(pricer.spotPriceUsd(address(strategy)), p0 * 3, "spot manipulated");
         pricer.poke(address(strategy));
         assertEq(pricer.quotePriceUsd(address(strategy)), p0, "TWAP moved in-block");
@@ -236,7 +236,7 @@ contract JitTwapTest is IntegrationBase {
         _next(3600);
         pricer.poke(address(strategy));
         (int24 t0,) = pricer.twapTick(address(strategy));
-        _refSwap(false, 100_000 ether); // held
+        _refSwap(false, 100_000 * U); // held
         pricer.poke(address(strategy));
         _next(60);
         pricer.poke(address(strategy));
@@ -288,7 +288,7 @@ contract JitTwapTest is IntegrationBase {
         vm.prank(alice);
         (id,) = twm.placeWall(address(tok), lo, hi, 5_000_000 ether, 0, block.timestamp + 1);
         for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
-            _buy(whale, 20_000 ether);
+            _buy(whale, 20_000 * U);
         }
         require(twm.isFilled(id), "wall not filled");
     }
@@ -323,7 +323,7 @@ contract JitTwapTest is IntegrationBase {
     function test_pull_filled_tramp_floor_pays_owner_tokens() public {
         (int24 lo, int24 hi) = _sideRange(!_tIs0(), 4); // tramp = quote side, below price
         vm.prank(alice);
-        (uint256 id,) = twm.placeTramp(address(tok), lo, hi, 2_000 ether, 0, block.timestamp + 1);
+        (uint256 id,) = twm.placeTramp(address(tok), lo, hi, 2_000 * U, 0, block.timestamp + 1);
         for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
             _sell(whale, 5_000_000 ether);
         }
@@ -341,7 +341,7 @@ contract JitTwapTest is IntegrationBase {
         twm.setKeeperTipBps(0);
         (int24 lo, int24 hi) = _sideRange(!_tIs0(), 4); // tramp below price
         vm.prank(alice);
-        (uint256 tid,) = twm.placeTramp(address(tok), lo, hi, 1_000 ether, 0, block.timestamp + 1);
+        (uint256 tid,) = twm.placeTramp(address(tok), lo, hi, 1_000 * U, 0, block.timestamp + 1);
         vm.expectRevert(TrampWallManager.NotFilled.selector);
         twm.pull(tid);
         uint256 id = _placeAndFillWall(); // pulled in the same block it filled (no hold)
@@ -356,7 +356,7 @@ contract JitTwapTest is IntegrationBase {
     function test_altitude_hook_tier_follows_spot_each_trade() public {
         uint8 tier0 = hook.altitudeTierOf(pid);
         vm.recordLogs();
-        _buy(whale, 20_000 ether);
+        _buy(whale, 20_000 * U);
         uint8 up = Altitude.tierOf(_mcapSpot());
         assertGt(up, tier0);
         (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
@@ -376,7 +376,7 @@ contract JitTwapTest is IntegrationBase {
     /// @dev G-1: hook Trade carries sqrtPriceAfter; AltitudeUpdate.mcapUsd = that spot at the launch-time quote price.
     function test_altitude_update_equals_trade_mcap() public {
         vm.recordLogs();
-        _buy(alice, 100 ether);
+        _buy(alice, 100 * U);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 tradeMcap;
         uint256 altMcap;
@@ -403,7 +403,7 @@ contract JitTwapTest is IntegrationBase {
         _warpPastSnipe();
         vm.recordLogs();
         for (uint256 i; i < 400 && c.mcapNow() < 13_000 ether; i++) {
-            _buy(c, trader1, 50 ether, 0);
+            _buy(c, trader1, 50 * U, 0);
         }
         (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(c));
         assertEq(n, 1);

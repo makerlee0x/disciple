@@ -268,7 +268,7 @@ contract UsdgRouterTest is IntegrationBase {
     }
 
     function test_sessionBuySellViaExecuteUserOp_capInUsdg() public {
-        _installSession(150 * U);
+        _installSession(uint128(150 * U));
         (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 100 * U);
         _uo(_buyCalls(100 * U, 100 * U, q * 9950 / 10_000));
         assertGt(sTok.balanceOf(address(acct)), 0);
@@ -296,7 +296,7 @@ contract UsdgRouterTest is IntegrationBase {
     }
 
     function test_sessionRejects() public {
-        _installSession(1_000 * U);
+        _installSession(uint128(1_000 * U));
         (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 10 * U);
         // slippage beyond maxSlippageBps (1%) end to end
         uint256 req = q * 9900 / 10_000;
@@ -335,7 +335,7 @@ contract UsdgRouterTest is IntegrationBase {
             trampWallManager: address(0),
             quote0: address(quote),
             quote1: address(0),
-            cap0: 100 * U,
+            cap0: uint128(100 * U),
             cap1: 0,
             maxSlippageBps: 100,
             stealthOwner: address(0)
@@ -390,7 +390,7 @@ contract UsdgRouterTest is IntegrationBase {
         );
         Token pTok = Token(r.token);
         vm.roll(block.number + 1);
-        _installSession(150 * U);
+        _installSession(uint128(150 * U));
         uint64 exp = uint64(vm.getBlockTimestamp() + 12 hours);
         (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp, address(0)));
         gate.attest(address(acct), exp, address(0), abi.encodePacked(rr, ss, v));
