@@ -90,6 +90,79 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
   return q;
 }
 
+/**
+ * EXACT fill from the tx receipt (lib/flight/fills.ts decodes UsdgTrade / Trade logs): real USDG in/out and real token amounts,
+ * so cost basis, avg entry and realized use what actually moved instead of the curve-average estimate applyFill books.
+ *   buy : size += tokens received; costBasis += USDG spent (fee inside) + gas
+ *   sell: closes `tokens` of the bag; realized += (usdOut + feeUsd) − basisOut (gross of the exit fee, same convention as
+ *         applyFill), fees += feeUsd + gas. A sell larger than the ledger bag (tokens bought outside this ledger) books
+ *         only the ledger's share of the proceeds.
+ * Paper / sim fills keep applyFill (curve-average booking); this is for live (receipt-backed) fills only.
+ */
+export interface ExactFill {
+  /** USDG spent (buy, refund already subtracted) or received (sell, net of fees), in $ */
+  usd: number;
+  /** tokens received (buy) or sold (sell), whole tokens */
+  tokens: number;
+  /** trade fee in $ (sell: inside the gross; buy: informational, already inside `usd`) */
+  feeUsd?: number;
+}
+export function applyExactFill(p: Position, side: "buy" | "sell", x: ExactFill, gas = gasUsd(), at = Date.now()): Position {
+  const q = { ...p };
+  if (!(x.tokens > 0) || !(x.usd >= 0)) return q;
+  if (side === "buy") {
+    if (q.size <= 0) { q.holdStart = at; q.sellScale = 1; }
+    q.size += x.tokens;
+    q.costBasis += x.usd + gas;
+    return q;
+  }
+  if (q.size <= 0) return q;
+  const tokens = Math.min(q.size, x.tokens);
+  const share = tokens / x.tokens;                      // part of this sell that closes ledger tokens
+  const fee = (x.feeUsd || 0) * share;
+  const frac = tokens / q.size;
+  const basisOut = q.costBasis * frac;
+  q.realized += x.usd * share + fee - basisOut;
+  q.fees = (q.fees || 0) + fee + gas;
+  q.costBasis -= basisOut;
+  q.size -= tokens;
+  q.sellScale *= 1 - frac;
+  if (q.size <= Math.max(1e-12, tokens * 1e-9)) { q.size = 0; q.costBasis = 0; q.holdStart = 0; q.sellScale = 1; }
+  return q;
+}
+
+/**
+ * Optimistic live fills, reconciled when the receipt lands. The HUD books the estimate immediately (applyFill at the
+ * engine's fill mark) and keeps {id: txHash, before, est}; when the receipt's exact fill arrives, the ledger is rebuilt
+ * from that entry's `before` replaying every later pending fill (exact where known, else its estimate). Entries whose
+ * receipt is in (and that have no earlier pending entry) are final and dropped.
+ */
+export interface PendingFill {
+  id: string;
+  side: "buy" | "sell";
+  before: Position;
+  est: { usd: number; price: number; gas: number; at: number; frac?: number };
+  exact?: ExactFill;
+}
+export function bookPending(pos: Position, pending: PendingFill[], f: Omit<PendingFill, "before">): { pos: Position; pending: PendingFill[] } {
+  const e: PendingFill = { ...f, before: pos };
+  return { pos: replayOne(pos, e), pending: [...pending, e] };
+}
+function replayOne(p: Position, e: PendingFill): Position {
+  return e.exact ? applyExactFill(p, e.side, e.exact, e.est.gas, e.est.at) : applyFill(p, e.side, e.est.usd, e.est.price, e.est.gas, e.est.at, e.est.frac);
+}
+/** Receipt for pending fill `id` → rebuilt position, or null when `id` is not pending (caller books it directly). */
+export function reconcileFill(pending: PendingFill[], id: string, exact: ExactFill): { pos: Position; pending: PendingFill[] } | null {
+  const i = pending.findIndex((e) => e.id === id);
+  if (i < 0) return null;
+  const list = pending.map((e) => ({ ...e }));
+  list[i].exact = exact;
+  let pos = list[i].before;
+  for (let k = i; k < list.length; k++) { list[k].before = pos; pos = replayOne(pos, list[k]); }
+  let n = 0; while (n < list.length && list[n].exact) n++;
+  return { pos, pending: list.slice(n) };
+}
+
 /** Shared PnL money/percent formatting (HUD, rocket tag, bottom bar, toasts).
  *  $ always 2 decimals; ≥ $1K compact with 2 decimals ($1.23K / $4.56M / $7.89B / $1.00T). Percent: 1 decimal. */
 export function fmtMoney(v: number): string {

@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { isDeployed } from "@/lib/chains";
+import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { balanceHint, createViemProtocol, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
+import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
+import { decodeTradeFill, units } from "@/lib/flight/fills";
+import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
+import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
 import AmmoTierNotice from "./AmmoTierNotice";
-import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
-import { SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
-type Bridge = (side: "buy" | "sell", usd: number, o?: { frac?: number }) => Promise<{ ok: boolean; reason?: string; txHash?: string }>;
+type Bridge = (side: "buy" | "sell", usd: number, o?: { frac?: number; all?: boolean }) => Promise<{ ok: boolean; reason?: string; txHash?: string }>;
 declare global {
   interface Window {
     __discipleTrade?: Bridge;
@@ -34,19 +36,17 @@ declare global {
  * No chain or no wallet ⇒ no bridge ⇒ engine keeps paper fills (mock/replay unchanged).
  */
 type Pos = { size: number; valueUsd: number; costBasis: number };
-/** % sells (default 10/25/50/100). Keys Z/X/C/V; the 4 slots are editable in Swap settings.
+/** % sells, FIXED at 10/25/50/100% of the bag (plus the one custom sell field). Keys Z/X/C/V.
  * The SELL row itself is drawn in the engine's AMMO panel. Clicking a preset only SELECTS it (disciple:sellselect);
  * DUMP / Shift (disciple:dump) sells the selected % (or the custom sell field); Z/X/C/V only SELECT (never trade).
  * Sell-size keys are read by the engine (bindings from the ESC settings menu) and arrive here as disciple:sellselect. */
 type Sell = { id: string; label: string; frac: number; key: string };
-/** frac of a raw balance (1e-6 precision), same rounding everywhere so warmed sell quotes are cache hits. */
-const sellAmount = (bal: bigint, frac: number) => (bal * BigInt(Math.round(Math.min(1, frac) * 1e6))) / BigInt(1e6);
 const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: String(v), label: sellLabel(v), frac: v / 100, key: SELL_KEYS[i] }));
 const DEFAULT_SELL_SEL = 1;   // 25%
 
 /** Bottom bar = custom $ + BOOST (buy) / DUMP (sell) + position/paper badge. storagePrefix scopes Swap settings (sim has its own). */
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
-  const [mode, setMode] = useState(2);
+  const [mode, setMode] = useState(0);
   const [custom, setCustom] = useState("");
   const gs = useGameSettings();
   const t = useT();
@@ -56,8 +56,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     addEventListener("disciple:position", h);
     return () => removeEventListener("disciple:position", h);
   }, []);
-  // Preset $ sizes come from the engine (scaled by the rocket's ammo tier, see lib/flight/ammoTiers.ts).
-  const [ammo, setAmmo] = useState<Ammo>({ tier: null, name: null, usd: MODES.map((m) => m.usd), names: MODES.map((m) => m.name), mode: 2 });
+  // Buy preset $ sizes come from the engine: the player's own 4 (Swap settings / ESC menu) else $10/$25/$50/$100 (no mcap tier scaling).
+  const [ammo, setAmmo] = useState<Ammo>({ tier: null, name: null, usd: MODES.map((m) => m.usd), names: MODES.map((m) => m.name), mode: 0 });
   useEffect(() => {
     const h = (e: Event) => { const d = (e as CustomEvent<Ammo>).detail; setAmmo(d); if (typeof d.mode === "number") setMode(d.mode); };
     addEventListener("disciple:ammo", h);
@@ -77,6 +77,12 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     return () => { delete window.__flightWallet; };
   }, [addr]);
   const live = valid && !!addr;
+  // last real mark (engine 'disciple:mark', ≤10/s) — live sell $ sizing and receipt decoding of hook-only fills
+  const markRef = useRef({ mcap: 0, supply: DEFAULT_SUPPLY });
+  useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ mcap: number; supply?: number }>).detail; if (d?.mcap > 0) markRef.current = { mcap: d.mcap, supply: d.supply || DEFAULT_SUPPLY }; };
+    addEventListener("disciple:mark", h); return () => removeEventListener("disciple:mark", h); }, []);
+  const lastOwnTradeAt = useRef(0);
+  const liveTokens = useRef(0);   // last real balanceOf (whole tokens) of the trading account
   // Swap settings, per scope (sim / paper / live)
   const scope = storagePrefix + (live ? "live" : "paper");
   const [cfg, setCfg] = useState<SwapSettings>(() => loadSettings(scope));
@@ -97,7 +103,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     const q = () => pushPresets();
     const set = (e: Event) => { const d = (e as CustomEvent<{ buy?: number[] | null; sells?: SellSlot[] }>).detail; if (!d) return;
-      const n = sanitize({ ...cfgRef.current, ...(d.buy !== undefined ? { buy: d.buy } : {}), ...(d.sells ? { sells: d.sells } : {}) });
+      // only the buy amounts are customisable; sell sizes are fixed (sanitize pins them), so a `sells` field is ignored
+      const n = sanitize({ ...cfgRef.current, ...(d.buy !== undefined ? { buy: d.buy } : {}) });
       setCfg(n); saveSettings(scope, n); };
     addEventListener("disciple:presets-query", q); addEventListener("disciple:presets-set", set);
     return () => { removeEventListener("disciple:presets-query", q); removeEventListener("disciple:presets-set", set); };
@@ -110,6 +117,22 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (!live) return;
     const client = createViemProtocol();
     const pc = publicClient();
+    /** Fix 3: receipt → exact USDG / token amounts (UsdgTrade, else the venue Trade event) → 'disciple:fillreceipt' {txHash, side,
+     *  usd, tokens, feeUsd}; components/PnlHud swaps its optimistic estimate for it (lib/pnl reconcileFill). Best effort. */
+    const bookReceipt = async (hash: string, side: "buy" | "sell") => {
+      try {
+        const me = await activeAddress();
+        const [rc, usdgDec] = await Promise.all([
+          pc.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 60_000, pollingInterval: 700 }),
+          decimalsOf(pc, deployment().usdg).catch(() => 18),
+        ]);
+        if (rc.status !== "success") return;
+        const m = markRef.current;
+        const x = decodeTradeFill(rc.logs as unknown as { address: string; topics: string[]; data: string }[],
+          { token, trader: me, router: deployment().router, usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
+        if (x && x.side === side) dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source } }));
+      } catch { /* the optimistic estimate stays booked */ }
+    };
     window.__discipleTrade = async (side, usd, o) => {
       try {
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
@@ -117,9 +140,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await shotAmountIn(pc, token as Address, side, usd);
         if (side === "sell") {
           const me = await activeAddress();
-          const bal = await balanceHint(pc, token as Address, me);
+          const bal = await freshSellBalance(() => tokenBalance(pc, token as Address, me), () => balanceHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
           if (bal === BigInt(0)) { setLast("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
-          if (o?.frac && o.frac > 0) amountIn = sellAmount(bal, o.frac);   // % of the real balance
+          if (o?.all || (o?.frac && o.frac > 0)) amountIn = sellAmountFor(bal, o);   // % of the real balance; DUMP ALL = all of it
           if (amountIn > bal) amountIn = bal;
         }
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
@@ -130,6 +153,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ✓ ${r.txHash.slice(0, 10)}…`);
         // exact new coin balance from the receipt (buy: + received; sell: already decremented optimistically) — no
         // immediate balanceOf: a lagging RPC node would clobber it; the 5 s hint TTL re-reads once nodes caught up
+        lastOwnTradeAt.current = Date.now();
+        if (r.ok && r.txHash) void bookReceipt(r.txHash, side);   // Fix 3: exact fill from the receipt → PnL HUD reconciles
         if (side === "buy" && r.amountOut) bumpBalance(token as Address, await activeAddress(), r.amountOut);
         else void new Promise((res) => setTimeout(res, 1200)).then(async () => tokenBalance(pc, token as Address, await activeAddress())).catch(() => undefined);
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
@@ -206,7 +231,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     let restored = false, tries = 0;   // retry until the engine (maybe still booting in its worker) echoes the saved mode
     const h = (e: Event) => { const m = (e as CustomEvent<{ mode: number }>).detail?.mode;
       try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}");
-        if (!restored) { if (!(o.buy >= 0 && o.buy < 6) || o.buy === m || ++tries > 20) restored = true; else { dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: o.buy } })); setMode(o.buy); return; } }
+        if (!restored) { if (!(o.buy >= 0 && o.buy < MODES.length) || o.buy === m || ++tries > 20) restored = true; else { dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: o.buy } })); setMode(o.buy); return; } }
         if (typeof m === "number" && o.buy !== m) localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, buy: m })); } catch { /* */ } };
     addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h);
   }, [SEL_KEY]);
@@ -226,7 +251,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (!live) { setLiveHas(null); dispatchEvent(new CustomEvent("disciple:holdings", { detail: null })); return; }
     let alive = true; const pc = publicClient();
     const poll = async () => { try { const me = await activeAddress(); if (!me) return; const b = await tokenBalance(pc, token as Address, me);
-      if (alive) { setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0) } })); } } catch { /* keep last */ } };
+      // tokens: the real balanceOf → engine S.liveBag (live % / DUMP ALL $ sizing at its mark)
+      if (alive) { liveTokens.current = units(b); setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0), tokens: liveTokens.current } })); } } catch { /* keep last */ } };
     void poll(); const iv = setInterval(poll, 10_000); addEventListener("disciple:livetrade", poll);
     return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", poll); };
   }, [live, token]);
@@ -243,14 +269,20 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // SPACE (engine) = BOOST with the ACTIVE amount: the custom $ when filled, else the selected preset (was: always the preset)
   const customRef = useRef(customUsd); customRef.current = customUsd;
   useEffect(() => { dispatchEvent(new CustomEvent("disciple:custombuy", { detail: { usd: customUsd } })); }, [customUsd]);
-  const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number }) =>
+  const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number; all?: boolean }) =>
     window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } }));
-  // sell sizing from the PnL ledger (real mark): x% of the position value
+  // sell sizing. LIVE (Fix 4): frac of the smart account's REAL balanceOf × the real mark (the bridge re-reads balanceOf before
+  // quoting; this $ only labels the shot) — was the PnL ledger's value, or $0.01 for a bag the ledger didn't know (blocked by
+  // the engine's MIN_SHOT guard ⇒ DUMP did nothing). The $ here is only a label: sells are never size-filtered and the chart
+  // marker is resized from the decoded receipt (disciple:fillreceipt → engine @sellfill). Paper: x% of the ledger position value.
   const sellPlan = (frac: number) => {
-    if (!(pos.valueUsd > 0)) return live && liveHas ? { usd: 0.01, frac } : null;   // live wallet bag the ledger doesn't know: frac of the real balance
+    if (live && liveHas) { const m = markRef.current, v = liveTokens.current * (m.mcap > 0 ? m.mcap / m.supply : 0);
+      return { usd: v > 0 ? v * frac : pos.valueUsd > 0 ? pos.valueUsd * frac : 0.01, frac }; }
+    if (!(pos.valueUsd > 0)) return null;
     return { usd: pos.valueUsd * frac, frac };
   };
-  const sellFrac = (frac: number) => { if (!has) { setHint("NO TOKENS IN WALLET"); return; } const p = sellPlan(Math.min(1, frac)); if (p && p.usd > 0) shoot("sell", { usd: +p.usd.toFixed(2), frac: p.frac }); };
+  const sellFrac = (frac: number) => { if (!has) { setHint("NO TOKENS IN WALLET"); return; } const p = sellPlan(Math.min(1, frac));
+    if (p && p.usd > 0) shoot("sell", { usd: +Math.max(0.01, p.usd).toFixed(2), frac: p.frac, ...(p.frac >= 1 ? { all: true } : {}) }); };
   const sell = (s: Sell) => sellFrac(s.frac);
   const selSellPreset = SELLS[sellSel] || SELLS[DEFAULT_SELL_SEL];
   // custom sell: % of holdings (≤ 100) or a $ value capped at the position value; overrides the selected preset (same rule as custom buy $)
@@ -270,7 +302,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const noKeyActivate = { onKeyDown: (e: React.KeyboardEvent) => { if (e.key === " ") e.preventDefault(); },
     onKeyUp: (e: React.KeyboardEvent) => { if (e.key === " ") e.preventDefault(); } };
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
-  const autoUsd = ammo.tier != null ? AMMO_TIERS[ammo.tier].usd.slice() : MODES.map((m) => m.usd);
+  const autoUsd = DEFAULT_BUY.slice();
   const shotUsd = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
   return (
     <>
@@ -305,7 +337,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
-      onSave={(n, t) => { setCfg(n); saveSettings(scope, n); if (t != null && t !== ammo.tier && !n.buy) dispatchEvent(new CustomEvent("disciple:ammo-tier", { detail: { tier: t } })); setShowCfg(false); }} />}
+      onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}
     </>
   );
 }

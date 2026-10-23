@@ -27,6 +27,8 @@ export interface LaunchCoinParams {
   creatorBuyQuoteIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */
   slippageBps?: number;
+  /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
+  private?: { stealthOwner: Address; ephemeralPubKey: `0x${string}`; viewTag: `0x${string}` };
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.
 }
 
@@ -209,6 +211,9 @@ export interface TradeEvent {
   side: "buy" | "sell";
   amountIn: bigint;
   amountOut: bigint;
+  /** REAL USDG of a DiscipleRouter trade (UsdgTrade, same tx): $ paid on a buy / $ received on a sell. Absent otherwise. */
+  usdIn?: number;
+  usdOut?: number;
   /** Raw Trade fields (quote raw units in quote decimals; token raw in 18). */
   quoteAmt?: bigint;
   tokenAmt?: bigint;

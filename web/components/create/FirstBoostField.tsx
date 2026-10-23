@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { deployment, isDeployed } from "@/lib/chains";
 import { TOTAL_SUPPLY_WEI as SUPPLY_WEI, launchBuyTokensOut, paramsFromQuotePrice } from "@/lib/curveMath";
 import {
-  FIRST_BOOST_COPY as COPY, bpsToPct, fmtAmount, modeName, parseAmount, readFirstBoostLimits, readQuoteBalance, toInputString,
+  FIRST_BOOST_COPY as COPY, bpsToPct, fmtAmount, fmtUsdWad, modeName, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
   type FirstBoostLimits,
 } from "@/lib/firstBoost";
 import { DEFAULT_LAUNCH_MODE, LaunchMode, modesActive, readPveLoginVerified } from "@/lib/launchAbi";
@@ -65,7 +65,10 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
     return () => { alive = false; };
   }, [limits, me]);
 
-  const raw = limits ? parseAmount(value, limits.decimals) : parseAmount(value, 18);
+  // 1b: the input is a $ amount; the pair-token amount the Launchpad pulls is derived from the live pair price
+  const usdWad = parseAmount(value, 18);
+  const raw = usdWad == null ? null : usdWad === BigInt(0) ? BigInt(0) : limits ? usdToQuoteRaw(usdWad, limits.quotePriceUsd) ?? BigInt(0) : BigInt(0);
+  const usd = (r: bigint) => (limits ? fmtUsdWad(quoteRawToUsdWad(r, limits.quotePriceUsd)) : "…");
   const localTokens = useMemo(() => {
     if (!limits || !raw || raw <= BigInt(0) || limits.quotePriceUsd <= BigInt(0)) return null;
     return launchBuyTokensOut(paramsFromQuotePrice(limits.quotePriceUsd), raw, BigInt(creatorTaxBps));
@@ -89,15 +92,15 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const tokens = fresh ? fresh.tokens : localTokens;
   // exceedsCap only knows creatorBuyMaxBps; the mode clamp (capTokens) is checked here too.
   const overCap = !!limits && raw != null && raw > BigInt(0) && (fresh ? fresh.exceedsCap || fresh.tokens > limits.capTokens : raw > limits.maxQuoteIn);
-  const maxStr = limits ? fmtAmount(limits.maxQuoteIn, limits.decimals) : "";
+  const maxStr = limits ? usd(limits.maxQuoteIn) : "";
 
   let error: string | null = null;
   if (raw == null) error = COPY.invalid;
   else if (raw > BigInt(0) && limits) {
-    if (overCap) error = COPY.overCap(pct!, maxStr, symbol);
-    else if (balance != null && raw > balance) error = COPY.balance(fmtAmount(balance, limits.decimals), symbol);
+    if (overCap) error = COPY.overCap(pct!, maxStr);
+    else if (balance != null && raw > balance) error = COPY.balance(usd(balance), symbol);
   } else if (raw > BigInt(0) && limitsErr) error = COPY.unavailable;
-  const ready = raw === BigInt(0) || (!!limits && raw != null);
+  const ready = usdWad === BigInt(0) || (!!limits && raw != null && raw > BigInt(0));
 
   useEffect(() => { onState({ raw: raw ?? BigInt(0), error, ready }); }, [raw, error, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -107,21 +110,22 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
       <label className="first-boost-label" htmlFor="first-boost-input">{COPY.label}</label>
       <p className="first-boost-helper">{COPY.helper(pct ?? "…")}</p>
       <div className="first-boost-row">
+        <span className="first-boost-unit" aria-hidden>$</span>
         <input
           id="first-boost-input" inputMode="decimal" autoComplete="off" placeholder="0"
           aria-invalid={!!error} aria-describedby="first-boost-meta"
           value={value} onChange={(e) => onChange(e.target.value.replace(/,/g, "."))}
         />
-        <span className="first-boost-unit">{symbol}</span>
         <button type="button" className="first-boost-max" disabled={!limits || limits.maxQuoteIn <= BigInt(0)}
           title="Fills 99.5% of the max: leaves headroom in case the pair price ticks before your tx lands"
-          onClick={() => limits && onChange(toInputString((limits.maxQuoteIn * BigInt(995)) / BigInt(1000), limits.decimals))}>MAX</button>
+          onClick={() => limits && onChange(toInputString(quoteRawToUsdWad((limits.maxQuoteIn * BigInt(995)) / BigInt(1000), limits.quotePriceUsd), 18, 2))}>MAX</button>
       </div>
       <div id="first-boost-meta" className="first-boost-meta" aria-live="polite">
         {!deployed ? null : limitsErr ? <span>{COPY.unavailable}</span> : !limits ? <span>{COPY.loading}</span> : (
           <>
-            <span>{COPY.max(maxStr, symbol, fmtAmount(limits.capTokens, 18), pct!)}</span>
-            <span>{balance != null ? `Balance ${fmtAmount(balance, limits.decimals)} ${symbol}` : me ? "Balance …" : COPY.connect}</span>
+            <span>{COPY.max(maxStr, fmtAmount(limits.capTokens, 18), pct!)}</span>
+            <span>{balance != null ? `Balance ${usd(balance)}` : me ? "Balance …" : COPY.connect}</span>
+            {raw != null && raw > BigInt(0) && <span data-testid="first-boost-pays">{COPY.pays(fmtAmount(raw, limits.decimals), symbol)}</span>}
           </>
         )}
       </div>

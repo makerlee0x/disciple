@@ -28,6 +28,8 @@
     "test:icon-gate": "node scripts/test-icon-gate.mjs",
     "test:loadout-fx": "node scripts/test-loadout-fx.mjs",
     "test:hotkeys": "node scripts/test-hotkeys.mjs",
+    "test:live-fixes": "node scripts/test-live-fixes.mjs",
+    "test:trade-ui": "node scripts/test-trade-ui.mjs",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
@@ -40,6 +42,7 @@
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
     "test:paymaster": "tsx --test scripts/test-paymaster.mts",
     "paymaster:keeper": "tsx scripts/paymaster-keeper.mts",
+    "test:trade-errors": "tsx --test scripts/test-trade-errors.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
     "test:claims": "tsx --test scripts/test-claims.mts",
@@ -50,6 +53,8 @@
     "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts",
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
     "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
+    "test:holders": "tsx --test scripts/test-holders.mts",
+    "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:paymaster-e2e": "tsx --conditions=react-server scripts/test-paymaster-e2e.mts"
   },
   "dependencies": {

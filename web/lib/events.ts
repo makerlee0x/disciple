@@ -7,7 +7,8 @@
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
 import type { Log, PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, launchpadAbi } from "./abi";
+import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
+import { usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
 import { deployment } from "./chains";
 import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import type { Address, ProtocolEvent } from "./protocol";
@@ -44,7 +45,7 @@ export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bi
   priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;
 
 /** Normalize an on-chain Trade (curve or hook) into the engine's TradeEvent. */
-export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook", mcapPerPriceWad?: number): ProtocolEvent {
+export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook", mcapPerPriceWad?: number, usdg?: UsdgTradeArgs): ProtocolEvent {
   const a = l.args as Record<string, bigint | string | boolean>;
   const isBuy = a.isBuy as boolean;
   const quoteAmt = a.quoteAmt as bigint, tokenAmt = a.tokenAmt as bigint;
@@ -54,6 +55,7 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     amountIn: isBuy ? quoteAmt : tokenAmt, amountOut: isBuy ? tokenAmt : quoteAmt,
     quoteAmt, tokenAmt, fee: a.fee as bigint, snipeFee: a.snipeFee as bigint,
     usd: quoteRawToUsd(quoteAmt, quotePriceUsd),
+    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined),
     impactBps: bps, impactPct: bps / 100,
     // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = live pool price ×
     // MarketLens ratio, else priceAfterX18 × supply × the coin's launch quote price. Curve Trades still carry mcapAfterUsd.
@@ -197,18 +199,24 @@ export async function listLaunches(pc: PublicClient = publicClient(), resolveIma
 /** Backfill a coin's Trades (curve + hook) and graduation from `fromBlock` (default: deployment start block). */
 export async function tradeHistory(token: Address, curve: Address, pc: PublicClient = publicClient(), fromBlock = deployment().fromBlock): Promise<ProtocolEvent[]> {
   const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
-  const [curveLogs, hookLogs] = await Promise.all([
+  const router = deployment().router;
+  const [curveLogs, hookLogs, routerLogs] = await Promise.all([
     pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock, toBlock: "latest" }),
     pc.getContractEvents({ address: deployment().hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock, toBlock: "latest" }),
+    router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])
+      : pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock, toBlock: "latest" }).catch(() => []),
   ]);
+  // real USDG in/out of router trades, matched by (tx, token, side)
+  const usdg = usdgIndex((routerLogs as unknown as L[]).map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })));
+  const take = (l: L) => usdg.get(usdgKey(l.transactionHash ?? "", String(l.args.token), Boolean(l.args.isBuy)))?.shift();
   const key = (l: L) => (l.blockNumber ?? BigInt(0)) * BigInt(100000) + BigInt(l.logIndex ?? 0);
   const out: { k: bigint; e: ProtocolEvent }[] = [];
   for (const l of curveLogs as unknown as L[]) {
-    if (l.eventName === "Trade") out.push({ k: key(l), e: tradeFromLog(l, qp, "curve") });
+    if (l.eventName === "Trade") out.push({ k: key(l), e: tradeFromLog(l, qp, "curve", undefined, take(l)) });
     else if (l.eventName === "GraduatedToV4") out.push({ k: key(l), e: { type: "Graduate", token, poolId: l.args.poolId as `0x${string}` } });
   }
   const scale = hookLogs.length ? await lensScale(token, pc) : undefined;
-  for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook", scale) });
+  for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook", scale, take(l)) });
   out.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
   return out.map((x) => x.e);
 }

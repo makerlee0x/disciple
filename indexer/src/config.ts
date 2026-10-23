@@ -11,6 +11,8 @@ export interface Stack {
   migration?: Address;
   trampWallManager?: Address;
   anonLauncher?: Address;
+  /** AnonLauncher v1 (legacy): still the Launchpad creator of private coins launched before v2. */
+  anonLauncherLegacy?: Address;
   rewardsVault?: Address;
   referralRegistry?: Address;
   marketLens?: Address;
@@ -53,6 +55,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
     launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.DiscipleHook, migration: c.Migration,
     trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer, lockedLP: c.LockedLP,
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
+    anonLauncherLegacy: d.addons?.AnonLauncherLegacy?.address,
     rewardsVault: c.RewardsVault,
     referralRegistry: c.ReferralRegistry,
     marketLens: c.MarketLens ?? d.addons?.MarketLens?.address,

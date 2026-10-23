@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyFill, emptyPosition, view, type Position, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, reconcileFill, view, type ExactFill, type PendingFill, type Position, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
 
-type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number; frac?: number; session?: string | null };
+type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number; frac?: number; session?: string | null; live?: boolean; txHash?: string };
+type Receipt = ExactFill & { txHash: string; side: "buy" | "sell" };
 type Mark = { mcap: number; supply: number; session?: string | null };
 type FlightWin = {
   __flight?: { S?: { confirmed?: { mcap?: number | null } }; source?: { supply?: number }; markMcap?: () => number };
@@ -85,15 +86,34 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
 
   useEffect(() => {
     const w = window as unknown as FlightWin;
+    const commit = (next: Position) => { posRef.current = next; setPos(next); try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ } };
+    // Fix 3 — LIVE fills (txHash): book the optimistic estimate now, keep it pending, and replace it with the EXACT receipt
+    // amounts (USDG in/out, tokens; lib/flight/fills via TradeBridge 'disciple:fillreceipt') when the receipt lands.
+    // A receipt that beats its fill event waits in `early`. Paper / sim fills keep applyFill's curve-average booking.
+    let pending: PendingFill[] = [];
+    const early = new Map<string, Receipt>();
     const onFill = (f: Fill) => {
       const supply = f.supply || DEFAULT_SUPPLY, price = f.mcap / supply;
       let cur = rebase(posRef.current, supply);
       if (f.session !== undefined && cur.session !== undefined && cur.session !== f.session && cur.size > 0) cur = { ...emptyPosition(), realized: 0 };   // mock restarted: drop the stale bag
-      const next = { ...applyFill(cur, f.side, f.usd, price, f.gas, f.at, f.frac), supply, session: f.session ?? null };
-      posRef.current = next;
-      setPos(next);
-      try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ }
+      const meta = { supply, session: f.session ?? null };
+      if (f.live && f.txHash) {
+        const at = f.at ?? Date.now(), rc = early.get(f.txHash);
+        if (rc) { early.delete(f.txHash); return commit({ ...applyExactFill(cur, f.side, rc, f.gas, at), ...meta }); }
+        pending = pending.filter((e) => at - e.est.at < 180_000);   // a receipt that never came: its estimate stays booked
+        const r = bookPending(cur, pending, { id: f.txHash, side: f.side, est: { usd: f.usd, price, gas: f.gas, at, frac: f.frac } });
+        pending = r.pending;
+        return commit({ ...r.pos, ...meta });
+      }
+      commit({ ...applyFill(cur, f.side, f.usd, price, f.gas, f.at, f.frac), ...meta });
     };
+    const onReceipt = (e: Event) => { const d = (e as CustomEvent<Receipt>).detail; if (!d?.txHash || !(d.tokens > 0)) return;
+      const r = reconcileFill(pending, d.txHash, d);
+      if (!r) { early.set(d.txHash, d); if (early.size > 20) early.delete(early.keys().next().value as string); return; }
+      pending = r.pending;
+      commit({ ...r.pos, supply: posRef.current.supply, session: posRef.current.session ?? null });
+    };
+    addEventListener("disciple:fillreceipt", onReceipt);
     const h = (e: Event) => { if (!syncEvent) onFill((e as CustomEvent<Fill>).detail); };
     const onSync = (e: Event) => { const d = (e as CustomEvent<{ pos: Position; supply: number }>).detail; if (!d?.pos) return;
       const next = { ...d.pos, supply: d.supply || DEFAULT_SUPPLY, session: null }; posRef.current = next; setPos(next);
@@ -111,7 +131,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
     const m0s = w.__flight?.markMcap?.() || m0;   // same shown price the HUD/rocket use (paper: × sim offset)
     if (m0s) setMark({ mcap: m0s, supply: w.__flight?.source?.supply || DEFAULT_SUPPLY });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
-    return () => { removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
+    return () => { removeEventListener("disciple:fillreceipt", onReceipt); removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
   }, [coin, KEY, syncEvent]);
 
   const price = mark.mcap / mark.supply;

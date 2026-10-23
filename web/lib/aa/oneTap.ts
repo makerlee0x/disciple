@@ -95,6 +95,14 @@ export type CachedSession = {
  * NOT dollars: the old fixed 1e24 ("1M tokens") meant $1M of USDG but only ~$2.5K of test STRATEGY (~$0.0025) — the
  * "Spend limit reached" bug. quotePriceUsdWad = QuotePricer.quotePriceUsd(token) (USD WAD per 1e18 raw); USDG = 1e18.
  */
+/** uint128 max = "no session spend cap" (Maker: no cap by default). A ZERO cap or zero quote slot BLOCKS spending on-chain
+ *  (DiscipleSessionPolicy L270/276/519), so both slots are always set and uncapped slots get this value, never 0. */
+export const SESSION_NO_CAP = (BigInt(1) << BigInt(128)) - BigInt(1);
+/** Opt-in one-tap spend limit in $ (Advanced). Blank / 0 / invalid ⇒ null = no cap. */
+export const parseSpendLimitUsd = (v: string | number | null | undefined): number | null => {
+  const n = Number(String(v ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 export function usdCapRaw(usd: number, quotePriceUsdWad: bigint, decimals = 18): bigint {
   if (!(usd > 0) || quotePriceUsdWad <= BigInt(0)) return BigInt(0);
   const usdWad = BigInt(Math.round(usd * 1e6)) * BigInt(1e12);

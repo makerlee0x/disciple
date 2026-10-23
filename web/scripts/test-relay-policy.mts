@@ -105,3 +105,40 @@ test("paymaster ops: only our paymaster, deposit must cover the max prefund at >
   // paymaster gas limits count toward the prefund and the caps
   assert.equal(totalGas(pmOp), totalGas(o) + BigInt(200_000));
 });
+
+// ---- FLOW 1: launch-specific caps (≈ 7.9M estimated launch gas was rejected by the 3M / 4M W-1 caps)
+import { capsForOp, isLaunchOp, isLaunchCalls, LAUNCH_GAS_CAPS } from "../lib/aa/gasPolicy";
+import { encodeFunctionData, parseAbi, toFunctionSelector, type Hex } from "viem";
+import { launchpadAbi } from "../lib/abi/Launchpad";
+const LP = "0x1111111111111111111111111111111111111111", OTHER = "0x2222222222222222222222222222222222222222", TOK = "0x3333333333333333333333333333333333333333";
+const acct = parseAbi(["function execute(address target, uint256 value, bytes data)", "function executeBatch((address target, uint256 value, bytes data)[] calls)"]);
+const launchFn = (launchpadAbi as readonly { type: string; name?: string }[]).find((f) => f.type === "function" && /^launch(WithMode|Coin)?$/.test(f.name ?? "")) as { name: string };
+const launchData = (toFunctionSelector(launchFn as never) + "00".repeat(64)) as Hex;
+const approve = encodeFunctionData({ abi: parseAbi(["function approve(address,uint256)"]), args: [LP, BigInt(1)] });
+const batch = (calls: { to: string; data: Hex }[]) => encodeFunctionData({ abi: acct, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to as Hex, value: BigInt(0), data: c.data }))] });
+const launchOp = (callData: Hex, g: Record<string, number> = {}) => ({ ...op({ callGasLimit: 7_900_000, verificationGasLimit: 450_000, preVerificationGas: 60_000, ...g }), callData });
+
+test("launch op (approve + launch to the Launchpad) gets the launch caps: ~7.9M call passes, >10M call / >11M total rejected", () => {
+  const cd = batch([{ to: TOK, data: approve }, { to: LP, data: launchData }]);
+  assert.equal(isLaunchOp(cd, [LP]), true);
+  assert.equal(isLaunchCalls([{ to: LP, data: launchData }], [LP]), true);
+  const o = launchOp(cd);
+  assert.ok(checkOpGas(o, BASE, capsForOp(o, [LP])) > BigInt(0));
+  assert.throws(() => checkOpGas(o, BASE), RelayPolicyError);   // same op under W-1 caps: rejected (the bug)
+  const big = launchOp(cd, { callGasLimit: 10_000_001 });
+  assert.throws(() => checkOpGas(big, BASE, capsForOp(big, [LP])), /callGasLimit .* above cap/);
+  const tot = launchOp(cd, { callGasLimit: 10_000_000, verificationGasLimit: 900_000, preVerificationGas: 150_000 });
+  assert.throws(() => checkOpGas(tot, BASE, capsForOp(tot, [LP])), /total gas .* above cap 11000000/);
+  assert.equal(LAUNCH_GAS_CAPS.verificationGasLimit, GAS_CAPS.verificationGasLimit);   // only call + total widen
+});
+test("non-launch ops keep W-1 caps: wrong target, extra non-approve call, single execute of a trade, garbage callData", () => {
+  assert.equal(isLaunchOp(batch([{ to: OTHER, data: launchData }]), [LP]), false);
+  assert.equal(isLaunchOp(batch([{ to: LP, data: launchData }, { to: OTHER, data: "0xdeadbeef" }]), [LP]), false);
+  assert.equal(isLaunchOp(batch([{ to: TOK, data: approve }]), [LP]), false);
+  assert.equal(isLaunchOp(encodeFunctionData({ abi: acct, functionName: "execute", args: [LP, BigInt(0), "0xdeadbeef"] }), [LP]), false);
+  assert.equal(isLaunchOp("0x1234", [LP]), false);
+  assert.equal(capsForOp({ callData: batch([{ to: OTHER, data: launchData }]) }, [LP]), GAS_CAPS);
+  // executeUserOp-prefixed single execute of a launch is still a launch
+  const ex = encodeFunctionData({ abi: acct, functionName: "execute", args: [LP, BigInt(0), launchData] });
+  assert.equal(isLaunchOp(("0x8dd7712f" + ex.slice(2)) as Hex, [LP]), true);
+});

@@ -2,18 +2,18 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
-import { encodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
-import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { formatUnits, parseAbi } from "viem";
+import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, readCurveState, tokenBalance, usdgRouteFor } from "@/lib/protocol-viem";
 import { balanceLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
-  aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
-  execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
+  aaAvailable, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
+  hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
   DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, aaSession, enableOneTap, endOneTap,
-  legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapStatus,
+  legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
 } from "@/lib/aa/session";
 import { loadPortfolio, type Portfolio } from "@/lib/portfolio";
 import IdentitySigil from "@/components/profile/IdentitySigil";
@@ -29,7 +29,6 @@ const GREEN = "#8ff0c0", RED = "#ff9fb8";
 /** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile, Cash panel). */
 const DEPOSIT_HREF = "/profile#cash";
 
-const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
 const symAbi = parseAbi(["function symbol() view returns (string)"]);
 const coinMeta = new Map<string, Promise<{ symbol: string; quote: Address } | null>>();
 /** Symbol + pair (quote) token of a DISCIPLE coin, cached per page load. */
@@ -48,7 +47,7 @@ function metaOf(coin: Address) {
 export default function WalletButton({ compact = false }: { compact?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [busy, setBusy] = useState("");
-  const [eth, setEth] = useState<bigint | null>(null);
+  const [, setEth] = useState<bigint | null>(null);
   const [bal, setBal] = useState("");
   const [balTitle, setBalTitle] = useState("");
   const path = usePathname() || "";
@@ -56,6 +55,22 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
   const [slipPct, setSlipPct] = useState(String(SLIPPAGE_DEFAULT_BPS / 100));
+  // Opt-in one-tap spend limit ($, Advanced). Blank = no limit (default, per spec 05).
+  const [limitUsd, setLimitUsd] = useState("");
+  useEffect(() => { const v = oneTapSpendLimitUsd(); setLimitUsd(v ? String(v) : ""); }, []);
+  const limitNum = () => { const n = Number(limitUsd.replace(/[$,\s]/g, "")); return Number.isFinite(n) && n > 0 ? n : null; };
+  const saveLimit = () => setOneTapSpendLimitUsd(limitNum());
+  const limitLabel = (v: number | null) => v ? `$${v.toLocaleString("en-US")} spend limit` : "no spend limit";
+  const advancedLimit = (onApply: () => void, applyLabel: string) => (
+    <details>
+      <summary style={{ cursor: "pointer", opacity: 0.8 }}>Advanced</summary>
+      <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>Spend limit $
+        <input aria-label="one-tap spend limit $" inputMode="decimal" placeholder="none" value={limitUsd} onChange={(e) => setLimitUsd(e.target.value)} style={{ ...input, minWidth: 0, width: 80 }} />
+        <button type="button" disabled={!!busy} onClick={onApply} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "#C9CED6", color: "#0B0C0E" }}>{applyLabel}</button>
+      </label>
+      <span style={{ opacity: 0.7 }}>Optional cap on what one-tap can spend per session. Leave blank for no limit. Price protection (max slippage) always applies.</span>
+    </details>
+  );
   const [, bump] = useState(0);
   const [copied, setCopied] = useState(false);
   const [acct, setAcct] = useState(false);
@@ -83,7 +98,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       const meta = coin ? await metaOf(coin) : null;
       // USDG pays only once the router supports it (#65); until then trades still spend the coin's quote
       const usdgPays = coin ? !!(await usdgRouteFor(pc, coin).catch(() => null)) : payUsdg() && !!(await routerUsdg(pc, deployment().router));
-      const parts: BalancePart[] = [{ symbol: "ETH", amount: Number(formatUnits(e, 18)), role: "gas" }];
+      // Users never need ETH (network fees are topped up for them): no ETH in the balance line
+      const parts: BalancePart[] = [];
       const syms = MINTABLE_TEST_TOKENS.length ? MINTABLE_TEST_TOKENS : [{ symbol: "STRATEGY", address: deployment().defaultQuote }];
       const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: (usdgPays ? t.address.toLowerCase() === deployment().usdg.toLowerCase() : !!meta && t.address.toLowerCase() === meta.quote.toLowerCase()) ? "spend" : "other" }));
       if (meta) list.unshift({ symbol: meta.symbol, address: coin!, role: "held" });
@@ -108,20 +124,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
-  }
-
-  async function getFunds() {
-    await run("minting", async () => {
-      const pc = publicClient();
-      const me = await activeAddress();
-      const calls = [];
-      for (const t of MINTABLE_TEST_TOKENS) {
-        const d = await decimalsOf(pc, t.address);
-        calls.push({ to: t.address, data: encodeFunctionData({ abi: mintAbi, functionName: "mint", args: [me, parseUnits(t.amount, d)] }) });
-      }
-      await execCalls(calls); // smart account: ONE userOp for all mints
-      await refresh(me);
-    });
   }
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -153,7 +155,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const smart = isSmartMode();
   const sess = aaSession();
   const oneTap = oneTapStatus();
-  const needFund = smart && eth !== null && eth < BigInt(3e12);
   const cardStyle: CSSProperties = { display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, padding: compact ? "3px 9px" : "5px 11px",
     borderRadius: 12, background: "rgba(22,24,28,.88)", border: "1px solid rgba(201,206,214,.22)", lineHeight: 1.15 };
   const pill = { all: "unset" as const, cursor: "pointer", padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: ".04em" };
@@ -189,11 +190,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                     <IdentitySigil id="believer" size={26} />
                   </a>
                 </div>
-              )}
-              {MINTABLE_TEST_TOKENS.length > 0 && (
-                <button type="button" disabled={!!busy} onClick={getFunds} style={{ ...pill, background: "#2E323A", color: "#C9CED6" }}>
-                  {busy || "Get test funds"}
-                </button>
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
@@ -236,8 +232,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             {bal && <span title={balTitle}>{bal}</span>}
             {sess?.oneTap ? (
               <>
-                <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
+                <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {limitLabel(oneTapSpendLimitUsd())} · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
                 <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
+                {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(sess.oneTap!.maxSlippageBps); }), "Apply (new session)")}
               </>
             ) : oneTapAvailable() && oneTap.settingUp ? (
               <span style={{ color: "#C9CED6" }}>Setting up one-tap trading in the background… trades already go through without prompts (your wallet signs them silently).</span>
@@ -247,13 +244,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Max slippage
                   <input aria-label="session max slippage %" type="number" min={SLIPPAGE_MIN_BPS / 100} max={SLIPPAGE_MAX_BPS / 100} step={0.1} value={slipPct} onChange={(e) => setSlipPct(e.target.value)} style={{ ...input, minWidth: 0, width: 60 }} />%
                 </label>
-                <button type="button" disabled={!!busy} onClick={() => run("approve session", () => enableOneTap({ maxSlippageBps: Math.round(Number(slipPct) * 100) }))} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Enable one-tap trading</button>
-                <span style={{ opacity: 0.7 }}>Optional: a 24h session key (a little gas) caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
+                <button type="button" disabled={!!busy} onClick={() => run("approve session", () => { saveLimit(); return enableOneTap({ maxSlippageBps: Math.round(Number(slipPct) * 100), spendLimitUsd: limitNum() }); })} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Enable one-tap trading</button>
+                {advancedLimit(saveLimit, "Save")}
+                <span style={{ opacity: 0.7 }}>Optional: a 24h session key caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
               </>
             ) : (
               <span style={{ opacity: 0.7 }}>Trades are signed by your Privy wallet in the background.</span>
             )}
-            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a>
             <button type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>
         )}
@@ -263,7 +260,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
             {bal && <span title={balTitle}>{bal}</span>}
-            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a>
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
             ) : (
@@ -277,8 +273,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           </div>
         )}
       </div>
-      {addr && bal && !compact && <span title={balTitle} style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? " · self-pay gas" : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a></span>}
-      {needFund && <span role="status" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
+      {addr && bal && !compact && <span title={balTitle} style={{ fontSize: 10, opacity: 0.8 }}>{bal}</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
           Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}

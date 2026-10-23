@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MODES, fmtUsd, nextUnlock } from "@/lib/config";
+import { DEMO_POOL, MODES, fmtUsd, nextUnlock } from "@/lib/config";
+import { isDeployed } from "@/lib/chains";
 import { isVerified } from "@/lib/verified";
 import VerifiedBadge from "./VerifiedBadge";
 import Icon from "@/components/icons/Icon";
@@ -22,6 +23,8 @@ const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir s
 type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
 
 export default function CrewPanel({ coin, verified }: { coin?: string; verified?: boolean } = {}) {
+  // 1d: on a live coin the sample crew numbers (aboard / top boosters / your contribution) are hidden, not labelled MOCK
+  const sample = !isDeployed() || !coin || coin.toLowerCase() === DEMO_POOL.address.toLowerCase();
   const [mcap, setMcap] = useState(21_400);
   const [mode, setMode] = useState(2);
   // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
@@ -67,8 +70,8 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
     >
       <button type="button" data-testid="crew-toggle" onClick={() => setOpen((o) => !o)} title={open ? "Collapse crew" : "Expand crew"}
         style={{ all: "unset", cursor: "pointer", display: "flex", width: "100%", gap: 8, alignItems: "center", color: "#ffe7a3", fontWeight: "bold" }}>
-        <span>CREW <span style={{ color: "#ffb0c8" }}>· MOCK</span></span>
-        <span style={{ color: "#E8EAEE", fontWeight: 400 }}><Icon name="crew" size={16} style={{ verticalAlign: -4 }} /> {MOCK_CREW.aboard} aboard</span>
+        <span>CREW{sample && <span style={{ color: "#ffb0c8" }}> · SAMPLE</span>}</span>
+        {sample && <span style={{ color: "#E8EAEE", fontWeight: 400 }}><Icon name="crew" size={16} style={{ verticalAlign: -4 }} /> {MOCK_CREW.aboard} aboard</span>}
         <span style={{ marginLeft: "auto", display: "inline-flex" }}><Icon name={open ? "minus" : "plus"} size={16} /></span>
       </button>
       {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}
@@ -78,13 +81,15 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
       {open && (
         <>
           {isVer && <div style={{ marginTop: 6 }}><VerifiedBadge verified showLabel /></div>}
-          <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
-          {MOCK_CREW.top.map((t, i) => (
-            <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>{i === 0 ? <Icon name="crown" size={16} label="top booster" /> : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
-            </div>
-          ))}
-          <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
+          {sample && <>
+            <div style={{ marginTop: 6, color: "#ffe7a3" }}>TOP BOOSTERS</div>
+            {MOCK_CREW.top.map((t, i) => (
+              <div key={t.who} style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>{i === 0 ? <Icon name="crown" size={16} label="top booster" /> : i + 1} {t.who}</span><span>{fmtUsd(t.usd)}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
+          </>}
           <div style={{ marginTop: 6, color: "#ffe7a3" }}>BUY PRESETS</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 14 }}>
             {MODES.map((m, i) => (

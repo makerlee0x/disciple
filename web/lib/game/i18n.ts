@@ -29,7 +29,7 @@ const en = {
   "hk.sell": "Sell sizes",
   "hk.press": "press a key…",
   "hk.reset": "Reset keys",
-  "hk.auto": "Auto-scale buy amounts with mcap",
+  "hk.auto": "Use default buy amounts ($10 / $25 / $50 / $100)",
   "hk.save": "Save amounts",
   "hk.saved": "Saved",
   "hk.reserved": "That key is reserved",
@@ -97,7 +97,7 @@ type Dict = Partial<Record<I18nKey, string>>;
 const zh: Dict = {
   "settings.title": "设置", "settings.open": "设置 (Esc)", "settings.close": "关闭 (Esc)", "settings.paused": "菜单打开时游戏快捷键暂停",
   "sec.share": "分享", "share.trade": "分享你的交易", "share.card": "下载火箭卡片",
-  "sec.hotkeys": "快捷键", "hk.buy": "买入预设", "hk.sell": "卖出比例", "hk.press": "请按一个键…", "hk.reset": "重置按键", "hk.auto": "买入金额随市值自动缩放",
+  "sec.hotkeys": "快捷键", "hk.buy": "买入预设", "hk.sell": "卖出比例", "hk.press": "请按一个键…", "hk.reset": "重置按键", "hk.auto": "使用默认买入金额（$10 / $25 / $50 / $100）",
   "hk.save": "保存金额", "hk.saved": "已保存", "hk.reserved": "该按键已被占用",
   "hk.note": "预设键只做选择。空格 BOOST 使用当前金额（自定义金额优先），SHIFT 按所选比例 DUMP。",
   "sec.audio": "声音", "audio.sfx": "音效", "audio.music": "音乐", "audio.note": "暂未加入声音：设置会保存，加入后自动生效。",
@@ -118,7 +118,7 @@ const zh: Dict = {
 const ko: Dict = {
   "settings.title": "설정", "settings.open": "설정 (Esc)", "settings.close": "닫기 (Esc)", "settings.paused": "메뉴가 열려 있는 동안 게임 단축키가 일시 중지됩니다",
   "sec.share": "공유", "share.trade": "내 거래 공유", "share.card": "로켓 카드 다운로드",
-  "sec.hotkeys": "단축키", "hk.buy": "매수 프리셋", "hk.sell": "매도 비율", "hk.press": "키를 누르세요…", "hk.reset": "키 초기화", "hk.auto": "시가총액에 맞춰 매수 금액 자동 조정",
+  "sec.hotkeys": "단축키", "hk.buy": "매수 프리셋", "hk.sell": "매도 비율", "hk.press": "키를 누르세요…", "hk.reset": "키 초기화", "hk.auto": "기본 매수 금액 사용 ($10 / $25 / $50 / $100)",
   "hk.save": "금액 저장", "hk.saved": "저장됨", "hk.reserved": "이미 사용 중인 키입니다",
   "hk.note": "프리셋 키는 선택만 합니다. SPACE는 현재 금액으로 BOOST(직접 입력 금액 우선), SHIFT는 선택한 비율로 DUMP합니다.",
   "sec.audio": "사운드", "audio.sfx": "효과음", "audio.music": "음악", "audio.note": "아직 사운드가 없습니다. 설정은 저장되며 추가되면 적용됩니다.",
@@ -139,7 +139,7 @@ const ko: Dict = {
 const ja: Dict = {
   "settings.title": "設定", "settings.open": "設定 (Esc)", "settings.close": "閉じる (Esc)", "settings.paused": "メニュー表示中はゲームのホットキーが停止します",
   "sec.share": "シェア", "share.trade": "トレードをシェア", "share.card": "ロケットカードを保存",
-  "sec.hotkeys": "ホットキー", "hk.buy": "買いプリセット", "hk.sell": "売りサイズ", "hk.press": "キーを押してください…", "hk.reset": "キーをリセット", "hk.auto": "時価総額に合わせて買い金額を自動調整",
+  "sec.hotkeys": "ホットキー", "hk.buy": "買いプリセット", "hk.sell": "売りサイズ", "hk.press": "キーを押してください…", "hk.reset": "キーをリセット", "hk.auto": "デフォルトの買い金額を使う（$10 / $25 / $50 / $100）",
   "hk.save": "金額を保存", "hk.saved": "保存しました", "hk.reserved": "そのキーは予約済みです",
   "hk.note": "プリセットキーは選択のみ。SPACEで現在の金額をBOOST（カスタム金額優先）、SHIFTで選択サイズをDUMP。",
   "sec.audio": "サウンド", "audio.sfx": "効果音", "audio.music": "音楽", "audio.note": "サウンドは未実装です。設定は保存され、追加時に反映されます。",
@@ -160,7 +160,7 @@ const ja: Dict = {
 const es: Dict = {
   "settings.title": "AJUSTES", "settings.open": "Ajustes (Esc)", "settings.close": "Cerrar (Esc)", "settings.paused": "Los atajos del juego se pausan mientras este menú está abierto",
   "sec.share": "Compartir", "share.trade": "Comparte tu operación", "share.card": "Descargar tarjeta del cohete",
-  "sec.hotkeys": "Atajos", "hk.buy": "Montos de compra", "hk.sell": "Tamaños de venta", "hk.press": "pulsa una tecla…", "hk.reset": "Restablecer teclas", "hk.auto": "Escalar montos de compra con el mcap",
+  "sec.hotkeys": "Atajos", "hk.buy": "Montos de compra", "hk.sell": "Tamaños de venta", "hk.press": "pulsa una tecla…", "hk.reset": "Restablecer teclas", "hk.auto": "Usar montos de compra por defecto ($10 / $25 / $50 / $100)",
   "hk.save": "Guardar montos", "hk.saved": "Guardado", "hk.reserved": "Esa tecla está reservada",
   "hk.note": "Las teclas de preset solo seleccionan. ESPACIO hace BOOST con el monto activo (el $ personalizado manda), SHIFT hace DUMP del tamaño elegido.",
   "sec.audio": "Sonido", "audio.sfx": "Efectos de sonido", "audio.music": "Música", "audio.note": "Aún no hay sonidos: estos ajustes se guardan y se aplicarán cuando lleguen.",
