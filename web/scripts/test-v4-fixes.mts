@@ -17,6 +17,7 @@ test("#1 usdCapRaw: $25k of STRATEGY @ $0.00253 ≈ 9.88M tokens; $25k USDG = 25
   assert.ok(strat / E18 > BigInt(9_880_000) && strat / E18 < BigInt(9_882_000), String(strat / E18));
   assert.equal(usdCapRaw(25_000, E18), BigInt(25_000) * E18);
   assert.equal(usdCapRaw(0, E18), BigInt(0));
+  assert.equal(usdCapRaw(25_000, BigInt(10) ** BigInt(30)), BigInt(25_000) * BigInt(1e6), "6-dec USDG (px 1e30): $25k = 25k×1e6 raw");
   assert.equal(usdCapRaw(1e40, BigInt(1)), (BigInt(1) << BigInt(128)) - BigInt(1), "clamped to uint128");
 });
 test("no session cap by default: uint128 max (never 0, which blocks spending); opt-in $ limit parses", () => {

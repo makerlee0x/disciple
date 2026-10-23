@@ -5,6 +5,9 @@ export type DB = Database.Database;
 export function openDb(path: string): DB {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
+  // qd(raw, decimals): raw token units → whole units; NULL when decimals are unknown (no 18 assumption for quote sums)
+  db.function("qd", { deterministic: true }, (raw: unknown, dec: unknown) =>
+    raw == null || dec == null ? null : Number(raw as string | number | bigint) / 10 ** Number(dec));
   db.exec(`
   CREATE TABLE IF NOT EXISTS cursor (stack TEXT PRIMARY KEY, block INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS coins (
@@ -95,6 +98,9 @@ export function openDb(path: string): DB {
   add("coins", {
     tier: "INTEGER", altitude_mcap_usd: "TEXT", altitude_block: "INTEGER", start_mcap_usd: "TEXT", graduation_mcap_usd: "TEXT",
     total_supply: "TEXT", decimals: "INTEGER", launch_fee: "TEXT", mode: "INTEGER",
+    // the coin's QUOTE token decimals (USDG 6 on mainnet / the testnet redeploy, mUSDG + STRATEGY 18) — filled by
+    // fillQuoteDecimals (src/decimals.ts) from QUOTE_DECIMALS or decimals() on-chain; NULL until known (never guessed)
+    quote_decimals: "INTEGER",
   });
   add("fee_events", { fee_is_quote: "INTEGER" });
   add("orders", { placed_block: "INTEGER", keeper_quote_tip: "TEXT DEFAULT '0'", keeper_token_tip: "TEXT DEFAULT '0'" });

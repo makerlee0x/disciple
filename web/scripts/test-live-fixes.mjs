@@ -106,25 +106,25 @@ const buyRc = [
   ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: true, amountIn: e18(50), amountOut: e18(4.9e6), viaCurve: true }, ROUTER),
 ];
 ok(decodeEventLog({ abi: discipleRouterAbi, ...buyRc[2] }).args.amountIn === e18(50), "fixture receipt round-trips through viem");
-const buy = fills.decodeTradeFill(buyRc, { token: TOKEN, trader: ME, router: ROUTER });
+const buy = fills.decodeTradeFill(buyRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 });
 ok(buy && buy.source === "usdg" && buy.side === "buy" && near(buy.usd, 50) && near(buy.tokens, 4.9e6), "UsdgTrade (trader = smart account): USDG in / tokens out exact, other traders ignored");
 ok(near(buy.feeUsd, 0.5, 1e-6), "fee $ from the venue Trade fee / quoteAmt");
 // graduating buy with a refund
 const refRc = [ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: true, amountIn: e18(100), amountOut: e18(8e6), viaCurve: true }, ROUTER),
   ev(discipleRouterAbi, "UsdgRefund", { trader: ME, token: TOKEN, quoteRefund: e18(12), usdgRefund: e18(12) }, ROUTER)];
-ok(near(fills.decodeTradeFill(refRc, { token: TOKEN, trader: ME, router: ROUTER }).usd, 88), "UsdgRefund subtracted from the USDG spent");
+ok(near(fills.decodeTradeFill(refRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 }).usd, 88), "UsdgRefund subtracted from the USDG spent");
 // SELL 2.45M tokens → $27.0 net (fee $0.27)
 const sellRc = [ev(bondingCurveAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, mcapAfterUsd: e18(77000) }, CURVE),
   ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: false, amountIn: e18(2.45e6), amountOut: e18(27), viaCurve: true }, ROUTER)];
-const sell = fills.decodeTradeFill(sellRc, { token: TOKEN, trader: ME, router: ROUTER });
+const sell = fills.decodeTradeFill(sellRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 });
 ok(sell.side === "sell" && near(sell.usd, 27) && near(sell.tokens, 2.45e6) && near(sell.feeUsd, 0.27, 1e-6), "sell: tokens in / USDG out exact");
 // native path (no router event): curve Trade only; $ from mcapAfterUsd (USD per quote raw derived)
-const nat = fills.decodeTradeFill([sellRc[0]], { token: TOKEN, trader: ME, router: ROUTER, supply: 7e9 });
+const nat = fills.decodeTradeFill([sellRc[0]], { token: TOKEN, trader: ME, router: ROUTER, supply: 7e9, usdgDecimals: 18 });
 ok(nat && nat.source === "curve" && near(nat.tokens, 2.45e6) && near(nat.usd, 27, 1e-6), "no UsdgTrade → curve Trade (quoteAmt × $/quote from mcapAfterUsd)");
 // hook-only fill priced at the caller's mark
 const hk = ev(discipleHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, sqrtPriceAfter: 1n << 96n }, "0x" + "16".repeat(20));
-ok(near(fills.decodeTradeFill([hk], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5 }).usd, 27, 1e-6), "hook Trade (sqrtPriceAfter variant) decoded at the mark");
-ok(fills.decodeTradeFill([hk], { token: "0x" + "01".repeat(20), trader: ME, markPriceUsd: 1e-5 }) === null, "other token's logs → null");
+ok(near(fills.decodeTradeFill([hk], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5, usdgDecimals: 18 }).usd, 27, 1e-6), "hook Trade (sqrtPriceAfter variant) decoded at the mark");
+ok(fills.decodeTradeFill([hk], { token: "0x" + "01".repeat(20), trader: ME, markPriceUsd: 1e-5, usdgDecimals: 18 }) === null, "other token's logs → null");
 // ledger: exact booking
 const gas = 0.01;
 let p = pnl.applyExactFill(pnl.emptyPosition(), "buy", buy, gas, 1);

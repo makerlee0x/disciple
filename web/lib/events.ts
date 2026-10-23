@@ -9,6 +9,7 @@
 import type { Log, PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
 import { usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
+import { usdgDecimals } from "./usdg";
 import { deployment } from "./chains";
 import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import type { Address, ProtocolEvent } from "./protocol";
@@ -55,7 +56,7 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     amountIn: isBuy ? quoteAmt : tokenAmt, amountOut: isBuy ? tokenAmt : quoteAmt,
     quoteAmt, tokenAmt, fee: a.fee as bigint, snipeFee: a.snipeFee as bigint,
     usd: quoteRawToUsd(quoteAmt, quotePriceUsd),
-    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined),
+    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined, usdgDecimals()),
     impactBps: bps, impactPct: bps / 100,
     // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = live pool price ×
     // MarketLens ratio, else priceAfterX18 × supply × the coin's launch quote price. Curve Trades still carry mcapAfterUsd.

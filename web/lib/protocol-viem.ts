@@ -6,6 +6,7 @@
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
 import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
+import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
 import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
@@ -184,6 +185,7 @@ export async function curveParams(pc: PublicClient, curve: Address): Promise<Cur
 const decCache = new Map<string, number>();
 /** ERC-20 decimals, cached. USDG mainnet = 6, STRATEGY = 18, testnet mUSDG = 18. */
 export async function decimalsOf(pc: PublicClient, erc20: Address): Promise<number> {
+  const known = knownDecimals(erc20); if (known !== undefined) return known;   // USDG / STRATEGY from config, no RPC
   const k = erc20.toLowerCase();
   const hit = decCache.get(k);
   if (hit !== undefined) return hit;
@@ -319,7 +321,7 @@ function dropRouteQuotes(token: Address) {
   for (const sd of ["buy", "sell"]) { LAST_QUOTE.delete(ckey(token, sd)); LAST_QUOTE.delete(ckey("usdg", token, sd)); }
   QUOTES.dropWhere((k) => k.startsWith(ckey(token)) || k.startsWith(ckey("usdg", token)));
 }
-/** amountIn for a $ shot: USDG mode buys spend mUSDG 1:1 ($1 = 1 USDG, 18 dp); otherwise quote/coin via usdToAmountIn. */
+/** amountIn for a $ shot: USDG mode buys spend USDG 1:1 ($1 = 1 USDG, config usdgDecimals); otherwise quote/coin via usdToAmountIn. */
 /**
  * USDG router (#65) for this coin? Flag on — or the coin is USDG-quoted (then always, once the router supports it, so
  * no USDG approve ever goes to a curve: policy 1.3.0 rejects those). null ⇒ native quote path (today's deployment).
@@ -332,7 +334,7 @@ export async function usdgRouteFor(pc: PublicClient, token: Address): Promise<Ad
   return quote.toLowerCase() === ru.toLowerCase() ? ru : null;
 }
 export async function shotAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
-  if (side === "buy" && (await usdgRouteFor(pc, token))) return BigInt(Math.round(usd * 1e6)) * BigInt(1e12);
+  if (side === "buy" && (await usdgRouteFor(pc, token))) return usdToUsdgRaw(usd);
   return usdToAmountIn(pc, token, side, usd);
 }
 /** Warm the quote a tap will need (USDG route: the router's end-to-end quoteUsdgRoute; else the native quote). */
@@ -527,9 +529,10 @@ export function createViemProtocol(): ProtocolClient {
         if (live < t.amountIn) {
           const [sym, dec] = await Promise.all([
             pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "symbol" }).catch(() => "token"),
-            pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "decimals" }).catch(() => 18),
+            decimalsOf(pc, spendAsset).catch(() => null),
           ]);
-          throw new ProtocolError("InsufficientBalance", `not enough ${sym}: need ${fmtUnits(t.amountIn, Number(dec))} have ${fmtUnits(live, Number(dec))}`);
+          throw new ProtocolError("InsufficientBalance", dec == null ? `not enough ${sym} for that shot size`
+            : `not enough ${sym}: need ${fmtUnits(t.amountIn, dec)} have ${fmtUnits(live, dec)}`);
         }
       }
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
@@ -568,8 +571,8 @@ export function createViemProtocol(): ProtocolClient {
     if (have < t.amountIn) {
       const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
       if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
-        ? `Not enough cash for $${(Number(t.amountIn) / 1e18).toFixed(2)}: you have $${(Number(live) / 1e18).toFixed(2)}. Pick a smaller amount or deposit more.`
-        : `not enough tokens: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
+        ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
+        : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);
     }
     const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");

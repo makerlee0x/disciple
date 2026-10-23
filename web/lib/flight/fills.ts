@@ -48,7 +48,8 @@ export interface DecodeOpts {
   trader?: string | null;
   /** DiscipleRouter address (only its UsdgTrade/UsdgRefund logs are trusted) */
   router?: string | null;
-  usdgDecimals?: number;
+  /** USDG decimals (config: lib/usdg usdgDecimals()); required — no 18 default (6-dec USDG). */
+  usdgDecimals: number;
   /** $ per token at the mark, for a hook-only fill (no mcapAfterUsd in the event) */
   markPriceUsd?: number;
   /** total supply (whole tokens) for curve mcap → price */
@@ -57,7 +58,7 @@ export interface DecodeOpts {
 
 export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): DecodedFill | null {
   const token = lc(o.token), me = o.trader ? lc(o.trader) : "", router = o.router ? lc(o.router) : "";
-  const dec = o.usdgDecimals ?? 18, supply = o.supply || 7_000_000_000;
+  const dec = o.usdgDecimals, supply = o.supply || 7_000_000_000;
   const fromRouter = (l: LogLike) => !router || lc(l.address) === router;
   const mine = (a: string) => !me || a === me;
   // venue Trade for this token (prefer the trader's own row): token amount, fee, price

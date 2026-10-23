@@ -5,6 +5,12 @@ import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
 import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
 
+/**
+ * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
+ * amounts stay /1e18 (DISCIPLE launch tokens are fixed 18-dec). Keeper tips map order → coin for the quote decimals.
+ */
+const KEEPER_QD = "(SELECT c.quote_decimals FROM orders o JOIN coins c ON c.token=o.token WHERE o.stack=k.stack AND o.id=k.order_id)";
+
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
 export const BIG_TRAMP_USD = 1000;
@@ -196,7 +202,7 @@ export class Api {
 
   rewards() {
     return this.db.prepare(
-      `SELECT stack, quote asset, kind, COUNT(*) n, SUM(CAST(a AS REAL))/1e18 sum_a, SUM(CAST(b AS REAL))/1e18 sum_b FROM fee_events
+      `SELECT stack, quote asset, kind, COUNT(*) n, SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_a, SUM(qd(b, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_b FROM fee_events
        WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed') GROUP BY stack, quote, kind`,
     ).all();
   }
@@ -287,11 +293,11 @@ export class Api {
           SUM(CASE WHEN status='filled' THEN amount_in_usd ELSE 0 END) filledUsd, COUNT(*) placed FROM orders WHERE COALESCE(placed_at,0) >= ?
           GROUP BY owner ORDER BY trampsFilled + wallsFilled DESC, filledUsd DESC LIMIT ?`).all(since, limit);
       case "keepers":
-        return this.db.prepare(`SELECT keeper user, COUNT(*) tips, SUM(CAST(quote_tip AS REAL))/1e18 quoteTips, SUM(CAST(token_tip AS REAL))/1e18 tokenTips
-          FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
+        return this.db.prepare(`SELECT k.keeper user, COUNT(*) tips, SUM(qd(k.quote_tip, ${KEEPER_QD})) quoteTips, SUM(CAST(k.token_tip AS REAL))/1e18 tokenTips
+          FROM keeper_tips k WHERE k.ts >= ? GROUP BY k.keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
       case "referrers":
         return this.db.prepare(`SELECT referrer user, SUM(status='attributed') attributed, SUM(status='pending') pending,
-          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
+          COALESCE((SELECT SUM(qd(f.amount, (SELECT c.quote_decimals FROM coins c WHERE c.token=f.token))) FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
           COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=0),0) referralShareToken
           FROM referrals r GROUP BY referrer ORDER BY attributed DESC, pending DESC LIMIT ?`).all(limit);
       default:
@@ -321,7 +327,7 @@ export class Api {
       user: u, counters: this.counters(u), holdings: this.holdings(u), coins: this.listCoins(new URLSearchParams({ creator: u })),
       anonCoins: this.db.prepare("SELECT token, ticker, stack FROM coins WHERE stealth_owner=?").all(u),
       referrals: this.referrals(u),
-      keeperTips: this.db.prepare("SELECT COUNT(*) n, SUM(CAST(quote_tip AS REAL))/1e18 quote, SUM(CAST(token_tip AS REAL))/1e18 token FROM keeper_tips WHERE keeper=?").get(u),
+      keeperTips: this.db.prepare(`SELECT COUNT(*) n, SUM(qd(k.quote_tip, ${KEEPER_QD})) quote, SUM(CAST(k.token_tip AS REAL))/1e18 token FROM keeper_tips k WHERE k.keeper=?`).get(u),
     };
   }
 

@@ -61,8 +61,12 @@ export function usdgIndex(logs: { tx: string; args: UsdgTradeArgs }[]): Map<stri
   for (const l of logs) { const k = usdgKey(l.tx, l.args.token, l.args.isBuy); (m.get(k) ?? m.set(k, []).get(k)!).push(l.args); }
   return m;
 }
-/** Real $ in/out for a fill from its matched UsdgTrade (USDG has 18 decimals). */
-export function usdgAmounts(u: UsdgTradeArgs | undefined): Pick<Fill, "usdIn" | "usdOut"> {
+/**
+ * Real $ in/out for a fill from its matched UsdgTrade. `dec` = the chain's USDG decimals (lib/usdg usdgDecimals(): 18 on
+ * today's testnet, 6 on mainnet / the redeploy) — required, no 18 default; this file stays import-free (test-share-pnl).
+ */
+export function usdgAmounts(u: UsdgTradeArgs | undefined, dec: number): Pick<Fill, "usdIn" | "usdOut"> {
   if (!u) return {};
-  return u.isBuy ? { usdIn: Number(u.amountIn) / 1e18 } : { usdOut: Number(u.amountOut) / 1e18 };
+  const usd = (raw: bigint) => Number(raw) / 10 ** dec;
+  return u.isBuy ? { usdIn: usd(u.amountIn) } : { usdOut: usd(u.amountOut) };
 }

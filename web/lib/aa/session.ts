@@ -17,6 +17,7 @@ import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
 import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
+import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 
@@ -356,15 +357,14 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
 async function sessionCaps(limitUsd: number | null): Promise<[{ token: Address; cap: bigint }, { token: Address; cap: bigint }]> {
   const d = deployment(), pc = publicClient();
   if (!limitUsd) return [{ token: d.defaultQuote, cap: SESSION_NO_CAP }, { token: d.usdg, cap: SESSION_NO_CAP }];
-  const decAbi = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
+  // px = USD WAD per 1e18 raw (decimal-agnostic), so the cap needs no decimals() read — and no guessed-18 fallback
   const one = async (token: Address, fallbackUsdWad?: bigint) => {
-    const [px, dec] = await Promise.all([
-      pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [token] }).then((v) => v as bigint).catch(() => fallbackUsdWad ?? BigInt(0)),
-      pc.readContract({ address: token, abi: decAbi, functionName: "decimals" }).then(Number).catch(() => 18),
-    ]);
-    return { token, cap: usdCapRaw(limitUsd, px, dec) };
+    const px = await pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [token] })
+      .then((v) => v as bigint).catch(() => fallbackUsdWad ?? BigInt(0));
+    return { token, cap: usdCapRaw(limitUsd, px) };
   };
-  const out = await Promise.all([one(d.defaultQuote), one(d.usdg, BigInt(10) ** BigInt(18))] as const);
+  // USDG falls back to $1 = 10^(36 − usdgDecimals) (QuotePricer units: USD WAD per 1e18 raw)
+  const out = await Promise.all([one(d.defaultQuote), one(d.usdg, usdgPriceWadPer1e18Raw())] as const);
   if (out.some((c) => c.cap <= BigInt(0))) throw new AAError("Policy", "Couldn't price your spend limit right now — try again in a moment.");
   return out;
 }

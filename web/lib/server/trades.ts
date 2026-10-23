@@ -21,6 +21,7 @@ import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv } from "./kv";
 import { fillUsd, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgTradeArgs } from "@/lib/trades";
+import { usdgDecimals } from "@/lib/usdg";
 
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
 const CURVE_TRADE = getAbiItem({ abi: bondingCurveAbi, name: "Trade" });
@@ -58,7 +59,7 @@ export function toFill(log: { transactionHash: string; logIndex: number; blockNu
     id: `${log.transactionHash}:${log.logIndex}`, tx: log.transactionHash, logIndex: log.logIndex, block: Number(log.blockNumber), ts,
     coin: a.token.toLowerCase(), trader: a.trader.toLowerCase(), side: a.isBuy ? "buy" : "sell", venue, ...u,
     // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630)
-    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined),
+    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined, usdgDecimals()),
   };
 }
 
