@@ -1,5 +1,5 @@
 "use client";
-/** Coin page header art: pair art + name, compact chip docked in the empty foot of the sidebar rail (top-left next to the menu on mobile), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels.. */
+/** Coin page header art: pair art + name + ticker, docked right under the MARKET CAP panel (top-left next to the menu on mobile, art only), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels. */
 import { useEffect, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import { DEMO_POOL } from "@/lib/config";

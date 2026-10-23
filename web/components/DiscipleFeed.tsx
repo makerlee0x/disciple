@@ -23,7 +23,8 @@ export default function DiscipleFeed({ token }: { token: string }) {
         // No history replay here: the engine draws past fills from /api/trades (engine.js liveHistory). Replaying every
         // Trade as a "live" event stacked old fills into the current candle and re-fed buys/sells the chart already had.
         if (!order.state(st.mcapUsd, b0) && !(order.mcap > 0)) toEngine({ type: "State", mcapUsd: st.mcapUsd } as never);
-        const u = await watchCurve(token as Address, curve, toEngine, pc, order);
+        // stream from the block after the state read: nothing between the read and the first poll is skipped
+        const u = await watchCurve(token as Address, curve, toEngine, pc, order, b0 + BigInt(1));
         const r = reconcileMcap(token as Address, order, pc);
         const both = () => { u(); r(); };
         if (alive) stop = both; else both();

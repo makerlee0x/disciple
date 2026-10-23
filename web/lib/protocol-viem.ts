@@ -568,7 +568,7 @@ export function createViemProtocol(): ProtocolClient {
     if (have < t.amountIn) {
       const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
       if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
-        ? `not enough cash: need $${(Number(t.amountIn) / 1e18).toFixed(2)}, have $${(Number(live) / 1e18).toFixed(2)} — deposit more`
+        ? `Not enough cash for $${(Number(t.amountIn) / 1e18).toFixed(2)}: you have $${(Number(live) / 1e18).toFixed(2)}. Pick a smaller amount or deposit more.`
         : `not enough tokens: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
     }
     const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
