@@ -67,3 +67,10 @@ contract FeeClaimsTest is IntegrationBase {
         assertGe(tok.balanceOf(address(feeRouter)), owedT);
     }
 }
+
+/// @notice 6-decimal USDG run of FeeClaimsTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract FeeClaims6DecTest is FeeClaimsTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

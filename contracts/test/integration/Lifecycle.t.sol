@@ -257,3 +257,10 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertApproxEqRel(distributed, totalQuoteIn, 0.02e18);
     }
 }
+
+/// @notice 6-decimal USDG run of LifecycleIntegrationTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract LifecycleIntegration6DecTest is LifecycleIntegrationTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

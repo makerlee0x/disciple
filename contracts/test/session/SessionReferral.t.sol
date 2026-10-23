@@ -127,3 +127,10 @@ contract SessionReferralTest is DiscipleSessionPolicyTest {
         acct.execute(address(registry), 0, abi.encodeCall(IReferralRegistry.tryAttribute, (address(acct), ref)));
     }
 }
+
+/// @notice 6-decimal USDG run of SessionReferralTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract SessionReferral6DecTest is SessionReferralTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

@@ -140,3 +140,10 @@ contract BaseDiscoveryTest is BaseTestBase {
         return makeAddr("rando");
     }
 }
+
+/// @notice 6-decimal USDG run of BaseDiscoveryTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract BaseDiscovery6DecTest is BaseDiscoveryTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

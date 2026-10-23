@@ -421,3 +421,10 @@ contract JitTwapTest is IntegrationBase {
         assertEq(Altitude.tierOf(1e40), 17);
     }
 }
+
+/// @notice 6-decimal USDG run of JitTwapTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract JitTwap6DecTest is JitTwapTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

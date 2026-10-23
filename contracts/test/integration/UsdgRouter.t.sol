@@ -415,3 +415,10 @@ contract UsdgRouterTest is IntegrationBase {
         assertEq(qs, BondingCurve(r.curve).quoteSellFor(address(acct), bal).quoteOut);
     }
 }
+
+/// @notice 6-decimal USDG run of UsdgRouterTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract UsdgRouter6DecTest is UsdgRouterTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

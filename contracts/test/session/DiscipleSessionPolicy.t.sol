@@ -761,3 +761,10 @@ contract DiscipleSessionPolicyTest is Test {
         acct.execute(address(anon), 0, _anonCall(address(anon), attacker, address(acct)));
     }
 }
+
+/// @notice 6-decimal USDG run of DiscipleSessionPolicyTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract DiscipleSessionPolicy6DecTest is DiscipleSessionPolicyTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

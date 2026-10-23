@@ -174,3 +174,10 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         assertEq(creatorFees, creatorRaw - (creatorRaw * 200) / 10_000);
     }
 }
+
+/// @notice 6-decimal USDG run of ReferralOwnershipIntegrationTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract ReferralOwnershipIntegration6DecTest is ReferralOwnershipIntegrationTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

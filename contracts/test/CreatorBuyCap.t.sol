@@ -97,3 +97,10 @@ contract CreatorBuyCapTest is IntegrationBase {
         assertEq(launchpad.creatorBuyMaxBpsOf(r.token), 500);
     }
 }
+
+/// @notice 6-decimal USDG run of CreatorBuyCapTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract CreatorBuyCap6DecTest is CreatorBuyCapTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

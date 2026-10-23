@@ -527,3 +527,24 @@ contract MarketLensTest is IntegrationBase {
         assertEq(m, curve.mcapNow());
     }
 }
+
+/// @notice 6-decimal USDG run of AnonLauncherTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract AnonLauncher6DecTest is AnonLauncherTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}
+
+/// @notice 6-decimal USDG run of McapNowGraduatedTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract McapNowGraduated6DecTest is McapNowGraduatedTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}
+
+/// @notice 6-decimal USDG run of MarketLensTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract MarketLens6DecTest is MarketLensTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}
