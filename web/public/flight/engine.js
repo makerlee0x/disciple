@@ -407,7 +407,7 @@ class DiscipleSource {
       if(e.type==='Trade'){ const pre=this.mcap; this.mcap=e.mcapUsd; this.block=+e.block||this.block;
         emit({t:'block',block:this.block,ts:Date.now()});
         emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
-              prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader}); }
+              prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader,mine:isMine(e.trader)}); }
       else if(e.type==='Graduate'){ this.graduated=true; emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'}); }
       else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
     addEventListener('disciple:event',this.h); }
@@ -502,6 +502,15 @@ const ALIVE=e=>e.life>0, NOT_DEAD_MOTE=m=>!m.dead&&m.y<H+30, NOT_DEAD_OBS=o=>!o.
 
 const source = makeSource();
 if (IS_POOL||source.isSim) S.fuelers={'you':0};
+/* REAL HOLDERS (components/flight/HoldersBridge.tsx → lib/flight/holders.ts): on-chain balances (SITE /api/holders, else
+   balanceOf of the known traders), pool/curve/locker rows labelled and never ranked, the user's own row `mine`. When present
+   they replace the session "fuelers" (who bought in THIS session, with made-up names) in KOTH / the chat HOLDERS tab. */
+if (source instanceof DiscipleSource) S.fuelers={'you':0};   // live coin: no fake seed wallets
+S.holders=null; S.wallet='';
+addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
+addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address; S.wallet=typeof a==='string'?a.toLowerCase():''; });
+function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
+function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
 if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
 function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
@@ -516,7 +525,7 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift({txt:`${e.side==='buy'?'▲ BOOST':'▼ DUMP'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?'(you·paper)':e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
+      S.feed.unshift({txt:`${e.side==='buy'?'▲ BOOST':'▼ DUMP'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
     if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
@@ -608,15 +617,32 @@ function flushThrustQueue(){
    thrust, bombs and the feed. S.confirmed.mcap, disciple:mark, paper fills, balances and PnL stay real.
    ===================================================================== */
 const SIM_REG=[{n:'lull',rate:0.2},{n:'flow',rate:0.9},{n:'burst',rate:3.2}];
-const SIM={on:false, mode:(()=>{ try{ const v=localStorage.getItem('disciple.sim'); return v==='on'||v==='off'?v:'auto'; }catch(_){ return 'auto'; } })(),
+/* Fix 1 (live trading): the simulated market is OFF by default everywhere (was: 'auto' ⇒ ON on every testnet coin, with
+   fake whales/bombs/thrust and an S.simF display offset on a real market). LIVE MARKET = a wallet bridge is attached
+   (window.__discipleTrade: real trades) or the source is a real coin / live pool: the sim never runs with a wallet, its pill
+   is hidden (simstate.available=false) and a stale localStorage 'disciple.sim' is cleared. Opt-ins: the pill on mock/replay
+   (persisted), or ?sim=on (dev; also on a live coin WITHOUT a wallet). The /flight/sim SIMULATOR (source.isSim) is unchanged. */
+/* @sim (sliced by scripts/test-live-fixes.mjs) */
+const SIM_Q=(()=>{ const v=Q.get('sim'); return v==='on'||v==='1'?'on':v==='off'||v==='0'?'off':null; })();
+function simLiveMarket(){ return !!window.__discipleTrade||source instanceof DiscipleSource||source instanceof PoolLiveSource; }
+const SIM={on:false, mode:(()=>{ let v=null; try{ v=localStorage.getItem('disciple.sim'); }catch(_){}
+    if(simLiveMarket()||(v!=null&&v!=='on'&&v!=='off')){ if(v!=null) try{ localStorage.removeItem('disciple.sim'); }catch(_){} v=null; }   // stale 'on' / legacy 'auto' never carries into a live market
+    return SIM_Q||(v==='on'?'on':'off'); })(),
   regime:1, regT:4, bias:0, realRate:0};
 function simActive(){ if(source&&source.isSim) return false;   // SIMULATOR: the local market IS the market (no display offset)
-  if(SIM.mode==='off') return false; if(SIM.mode==='on') return true; return !!window.__DISCIPLE_TESTNET || SIM.realRate<0.05; }
-function pushSim(){ try{ dispatchEvent(new CustomEvent('disciple:simstate',{detail:{on:SIM.on,mode:SIM.mode}})); }catch(_){} }
-addEventListener('disciple:sim',e=>{ const m=e.detail&&e.detail.mode; if(m==='on'||m==='off'||m==='auto'){ SIM.mode=m; try{ m==='auto'?localStorage.removeItem('disciple.sim'):localStorage.setItem('disciple.sim',m); }catch(_){} }
+  if(window.__discipleTrade) return false;                       // real trading: never fake the market
+  if(simLiveMarket()) return SIM_Q==='on';                       // live coin / pool, no wallet: explicit dev ?sim=on only
+  return SIM.mode==='on'; }
+function simAvailable(){ return !(source&&source.isSim)&&!simLiveMarket(); }
+function pushSim(){ try{ dispatchEvent(new CustomEvent('disciple:simstate',{detail:{on:SIM.on,mode:SIM.mode,available:simAvailable()}})); }catch(_){} }
+addEventListener('disciple:sim',e=>{ const m=e.detail&&e.detail.mode;
+  if((m==='on'||m==='off')&&simAvailable()){ SIM.mode=m; try{ localStorage.setItem('disciple.sim',m); }catch(_){} }
+  else if(m==='auto'){ SIM.mode='off'; try{ localStorage.removeItem('disciple.sim'); }catch(_){} }   // legacy: 'auto' is off now
   SIM.on=simActive(); pushSim(); });
+let _simAvail=null;
+/* @sim-end */
 function simMarketStep(dt){
-  SIM.realRate*=Math.exp(-dt/30); const was=SIM.on; SIM.on=simActive(); if(was!==SIM.on) pushSim();
+  SIM.realRate*=Math.exp(-dt/30); const was=SIM.on; SIM.on=simActive(); const av=simAvailable(); if(was!==SIM.on||av!==_simAvail){ _simAvail=av; pushSim(); }
   S.simT=Math.exp(Math.log(S.simT||1)*Math.exp(-dt/(SIM.on?90:3)));         // target drifts back toward the real price
   // displayed factor follows the target with a critically damped spring in log space (ω=2.5 → ~1 s, no jumps)
   { const e=Math.log(S.simT)-Math.log(S.simF), w=2.5; S.simV=(S.simV||0)+(w*w*e-2*w*(S.simV||0))*dt; S.simF=Math.exp(Math.log(S.simF)+S.simV*dt); }
@@ -667,9 +693,10 @@ addEventListener('disciple:ammo-override',e=>{ const u=e.detail&&e.detail.usd; S
 S.sellPresets=[{label:'10%',key:'Z',on:false},{label:'25%',key:'X',on:false,sel:true},{label:'50%',key:'C',on:false},{label:'100%',key:'V',on:false}];
 /* HOLDINGS guard (audit): paper/sim = the PnL ledger (disciple:position, same book as the HUD); live = the wallet's real
    token balance pushed by TradeBridge (disciple:holdings). No tokens ⇒ no sell, no bomb, a small 'no tokens' hint. */
-S.hold={tokens:0,valueUsd:0}; S.liveHas=null;
+S.hold={tokens:0,valueUsd:0}; S.liveHas=null; S.liveBag=null;
 addEventListener('disciple:position',e=>{ const d=e.detail||{}; S.hold={tokens:+d.size||0,valueUsd:+d.valueUsd||0}; });
-addEventListener('disciple:holdings',e=>{ const d=e.detail; S.liveHas=d&&typeof d.has==='boolean'?d.has:null; });
+addEventListener('disciple:holdings',e=>{ const d=e.detail; S.liveHas=d&&typeof d.has==='boolean'?d.has:null;
+  S.liveBag=d&&d.tokens>=0?{tokens:+d.tokens||0}:null; });   // live: the smart account's real balanceOf (whole tokens)
 function hasTokens(){ return isLive()&&S.liveHas!=null ? S.liveHas : S.hold.tokens>0; }
 function noTokens(){ if(S.t-(S._ntT??-9)>0.8){ S._ntT=S.t; S.flashes.push({txt:'NO TOKENS IN WALLET',life:1.2,c:'#ffb0c8'}); } }
 addEventListener('disciple:sellpresets',e=>{ const a=e.detail&&e.detail.items; if(Array.isArray(a)) S.sellPresets=a.slice(0,4); });
@@ -703,15 +730,23 @@ function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({
 /* No wallet cap anywhere (paper, sim, live): the Launchpad default is Constants.WALLET_CAP_BPS_DEFAULT = 0. */
 /* paper sources price the player's shot on the curve/pool (paperImpact); bots and live use source.impact */
 function srcImpact(usd,side){ return source.paperImpact&&!isLive()?source.paperImpact(usd,side):source.impact?source.impact(usd,side):1; }
+/* @trade (sliced by scripts/test-live-fixes.mjs) */
 function trade(side,opt){
   if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
   if (side==='sell' && !hasTokens()){ noTokens(); return; }          // nothing to sell: no trade, no bomb visual
   if (opt&&opt.usd>0) md={...md,usd:+opt.usd};   // custom amount / % sells from the ammo bar
   if (side==='sell' && !isLive() && S.hold.valueUsd>0 && md.usd>S.hold.valueUsd) md={...md,usd:S.hold.valueUsd};   // a sell never exceeds holdings
-  if (side==='sell'&&opt&&opt.all){ if(stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } md={...md,usd:stack}; }
-  if (side==='sell') S.fullStackNext = stack>=MIN_SHOT && md.usd>=stack*0.98;
-  if (md.usd<MIN_SHOT && !source.isSim){                 // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
+  // Fix 4 — DUMP ALL / % sells size from the REAL bag. Live (wallet bridge): TradeBridge re-reads the smart account's
+  // balanceOf right before quoting and sells frac × that balance; S.liveBag (its last real balance × mark) only sizes the
+  // $ shown here. Paper: frac of the ledger bag. (Was: opt.all sold S.fuelers.you — the session BOOST $ stack, 0 for a
+  // live bag bought earlier / elsewhere ⇒ "NO PAPER STACK TO DUMP", and the 100% fallback $0.01 hit the MIN_SHOT guard.)
+  if (side==='sell'&&opt&&opt.all) opt={...opt,frac:1};
+  const liveFrac=side==='sell'&&isLive()&&opt&&opt.frac>0;
+  if (liveFrac&&S.liveBag&&S.liveBag.tokens>0){ const v=S.liveBag.tokens*(markMcap()||0)/(source.supply||7e9); if(v>0) md={...md,usd:+(v*Math.min(1,opt.frac)).toFixed(2)}; }
+  if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
+  if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=MIN_SHOT && md.usd>=stack*0.98);
+  if (md.usd<MIN_SHOT && !source.isSim && !(liveFrac&&opt.frac>=1)){   // live dump-all always goes out (sizes from balanceOf, not this $)                 // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
   if (side==='buy' && !window.__discipleTrade && !source.isSim && S.balance<md.usd){   /* SIMULATOR: the sim checks its own balance (tramps spend it too) */ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
@@ -719,6 +754,7 @@ function trade(side,opt){
   applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(srcImpact(md.usd,side)-1)*100:undefined);
   submit(side, md.usd, false, opt);
 }
+/* @trade-end */
 function submit(side,usd,force,opt){
   S.tradeUsd=usd;
   const now=performance.now();
@@ -749,7 +785,10 @@ function submit(side,usd,force,opt){
     //  so a $60K buy was booked far above the mark → uPnL deeply negative right after the buy.)
     const fm=r.pre>0&&r.post>0&&!isLive()?Math.sqrt(r.pre*r.post)*(S.simF||1):fillMark;
     S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
-    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
+    // live: optimistic estimate now; TradeBridge decodes the receipt (UsdgTrade / Trade logs) → 'disciple:fillreceipt' and the
+    // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
+    const live=isLive()&&!!r.txHash;
+    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f'}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
@@ -760,7 +799,7 @@ function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|i
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode));
   if(typeof d.mode==='number'&&!d.side) pushAmmo();
-  if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0?{usd:d.usd,frac:d.frac}:undefined); });
+  if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0||d.all?{usd:d.usd,frac:d.frac,all:!!d.all}:undefined); });
 const isTyping=e=>{ const t=e.target; return !!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')); };
 /* @hotkeys — gameplay keys. Bindings come from the ESC settings menu (components/flight/SettingsMenu.tsx →
    lib/game/settings.ts, localStorage 'disciple.game.settings.v1', pushed as disciple:hotkeys).
@@ -1229,8 +1268,16 @@ function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const m
   const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
   const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
 function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
-  try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:S.fuelers&&S.fuelers.you||0}})); }catch(_){} }
-function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t; _top=Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
+  const h=realHolders(), items=h?h.items.slice(0,10).concat(h.system):undefined, me=h&&h.items.find(r=>r.mine);
+  try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:h?(me?me.usd:0):(S.fuelers&&S.fuelers.you||0),items,asOfBlock:h?h.asOfBlock:undefined}})); }catch(_){} }
+/* Real holders (S.holders from HoldersBridge): $ re-marked at the CURRENT mark from each row's share of supply, so the list
+   moves with the price between balance refreshes. items = ranked holders, system = labelled pool / curve / locker rows. */
+function realHolders(){ const h=S.holders; if(!h) return null; const m=markMcap()||0, me=myWallet();
+  const map=r=>{ const mine=!!r.mine||(!!me&&r.address===me); const usd=r.pct>0&&m>0?r.pct/100*m:(+r.usd||0);
+    return {who:mine?'you':short(r.address),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
+  return {items:h.rows.filter(r=>!r.label).map(map), system:h.rows.filter(r=>r.label).map(map), asOfBlock:h.asOfBlock??null}; }
+function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t;
+  const h=realHolders(); _top=h?h.items.map(r=>[r.who,r.usd]):Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
 let _twT=-1, _twSrc=null, _twLen=-1, _tw=[]; const TW_LIST=[]; let _pvRef=null, _pvObj=null;
 function twGroupsCached(){ const src=window.__trampWalls||null, len=src?src.length:0;
   if (src!==_twSrc || len!==_twLen || S.t-_twT>0.25){ _twSrc=src; _twLen=len; _twT=S.t; _tw=twGroups(); } return _tw; }
@@ -1331,7 +1378,7 @@ function drawHud(){
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
-  const top=topFuelers(), kothTitle=IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
+  const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS · on-chain balances':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   else { panel(RX,RT+100,310,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
@@ -1963,7 +2010,7 @@ function simStep(stepDt){
   keepIf(S.motes,NOT_DEAD_MOTE); keepIf(S.obstacles,NOT_DEAD_OBS);
   bombStep(dt);
   for (const t of S.toasts) t.life-=dt*0.6; keepIf(S.toasts,ALIVE);
-  if (!S.ach.koth){ let top=null, tv=-Infinity; for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }
+  if (!S.ach.koth){ let top=null, tv=-Infinity; if(S.holders){ const t=topFuelers()[0]; if(t) top=t[0]; } else for (const k in S.fuelers) if(S.fuelers[k]>tv){ tv=S.fuelers[k]; top=k; } if(top==='you') award('koth','KING OF THE HILL','top booster on this coin'); }
   cloudStep(dt); shockStep(dt);
   twStep(); exhaustStep(dt);
 }
