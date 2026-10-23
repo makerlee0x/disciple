@@ -43,3 +43,12 @@ test("RPC errors don't advance or crash; stop() halts", async () => {
   await sleep(40); fail = false; await sleep(60); p.stop(); const c = calls; await sleep(60);
   assert.equal(got.length, 1); assert.equal(calls, c);
 });
+
+test("mcapOrderer passes each tx:logIndex to the engine once", async () => {
+  const { mcapOrderer } = await import("../lib/events");
+  const out: string[] = [];
+  const o = mcapOrderer((e) => out.push(`${(e as { txHash?: string }).txHash}:${(e as { logIndex?: number }).logIndex}`));
+  const t = (h: string, i: number, b: number) => ({ type: "Trade", txHash: h, logIndex: i, block: BigInt(b), mcapUsd: 7000 + b }) as never;
+  o.trade(t("0xAB", 10, 1)); o.trade(t("0xab", 10, 1)); o.trade(t("0xab", 11, 1)); o.trade(t("0xcd", 10, 2)); o.trade(t("0xAB", 10, 1));
+  assert.deepEqual(out, ["0xAB:10", "0xab:11", "0xcd:10"]);
+});

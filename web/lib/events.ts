@@ -82,9 +82,18 @@ export const tradeKey = (e: { block: bigint | string | number; logIndex?: number
  */
 export function mcapOrderer(emit: Cb) {
   let lastK = BigInt(-1), lastMcap = 0;
+  // Every Trade reaches the engine at most once (tx:logIndex). The engine has no dedupe of its own: a repeat drew a second
+  // "▲ BOOST" row + chart tick (viem's getLogs fallback re-delivered a range whenever a lagging node's lower blockNumber
+  // rewound its cursor).
+  let seen = new Set<string>();
   return {
     trade(e: ProtocolEvent) {
       if (e.type === "Trade") {
+        if (e.txHash) {
+          const id = `${e.txHash.toLowerCase()}:${e.logIndex ?? 0}`;
+          if (seen.has(id)) return;
+          seen.add(id); if (seen.size > 2000) seen = new Set(Array.from(seen).slice(-1000));
+        }
         const k = tradeKey(e);
         if (k >= lastK) { lastK = k; lastMcap = e.mcapUsd; } else if (lastMcap > 0) e = { ...e, mcapUsd: lastMcap };
       }
