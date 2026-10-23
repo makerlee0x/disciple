@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { isDeployed } from "@/lib/chains";
-import { mcapOrderer, reconcileMcap, toEngine, tradeHistory, watchCurve } from "@/lib/events";
+import { mcapOrderer, reconcileMcap, toEngine, watchCurve } from "@/lib/events";
 import { curveOf, publicClient, readCurveState } from "@/lib/protocol-viem";
 import type { Address } from "@/lib/protocol";
 
@@ -17,11 +17,11 @@ export default function DiscipleFeed({ token }: { token: string }) {
         const pc = publicClient();
         const curve = await curveOf(pc, token as Address);
         const st = await readCurveState(pc, token as Address);
-        // One orderer for backfill + live + reconcile: the engine's mcap only ever moves forward in chain order.
+        // One orderer for live + reconcile: the engine's mcap only ever moves forward in chain order.
         const order = mcapOrderer(toEngine);
         const b0 = await pc.getBlockNumber();
-        // Backfill trades since the deployment start block so the chart has history, then go live.
-        try { for (const e of await tradeHistory(token as Address, curve, pc)) order.trade(e); } catch { /* RPC range limits → live only */ }
+        // No history replay here: the engine draws past fills from /api/trades (engine.js liveHistory). Replaying every
+        // Trade as a "live" event stacked old fills into the current candle and re-fed buys/sells the chart already had.
         if (!order.state(st.mcapUsd, b0) && !(order.mcap > 0)) toEngine({ type: "State", mcapUsd: st.mcapUsd } as never);
         const u = await watchCurve(token as Address, curve, toEngine, pc, order);
         const r = reconcileMcap(token as Address, order, pc);
