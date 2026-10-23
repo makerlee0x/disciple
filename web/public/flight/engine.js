@@ -831,32 +831,7 @@ function setHotkeys(h){ if(!h) return;
 try{ const g=JSON.parse(localStorage.getItem('disciple.game.settings.v1')||'null'); if(g&&g.keys) setHotkeys(g.keys); }catch(_){}
 addEventListener('disciple:hotkeys',e=>setHotkeys(e.detail));
 S.customBuyUsd=0;
-addEventListener('disciple:custombuy',e=>{ const u=+(e.detail&&e.detail.usd); S.customBuyUsd=u>0&&Number.isFinite(u)?u:0; noteBuyAmount(); });
-/* @cash — BOOST vs cash. Live: TradeBridge pushes the account's cash ($, USDG) as disciple:cash {usd} (null = unknown);
-   paper: S.balance. activeBuyUsd() is what BOOST / SPACE would spend (custom $ wins over the selected preset).
-   When that amount changes, stale "✕ …" error rows (e.g. an earlier not-enough-cash failure) leave the TRADES feed. */
-S.liveCash=null;
-addEventListener('disciple:cash',e=>{ const u=e.detail&&e.detail.usd; S.liveCash=typeof u==='number'&&Number.isFinite(u)?u:null; });
-function activeBuyUsd(){ return S.customBuyUsd>0?S.customBuyUsd:(MODES[S.mode]||MODES[0]).usd; }
-function cashNow(){ return source.isSim?null:window.__discipleTrade?S.liveCash:S.balance; }
-function boostShort(){ const c=cashNow(), u=activeBuyUsd(); return typeof c==='number'&&Number.isFinite(c)&&c+1e-9<u; }
-/* paper cash → TradeBridge (it greys BOOST out when the amount is more than the cash) */
-function pushPaperCash(){ try{ dispatchEvent(new CustomEvent('disciple:papercash',{detail:{usd:source.isSim||window.__discipleTrade?null:S.balance}})); }catch(_){} }
-function noteBuyAmount(){ const u=activeBuyUsd(); if(S._buyAmt!==undefined&&u!==S._buyAmt) keepIf(S.feed,r=>!r.err); S._buyAmt=u; }
-/* "PAPER $139.98" / "CASH $42.10" / "SIM $250.00", then the reason BOOST is blocked, if any — dollars only */
-function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
-  const head=source.isSim?`SIM ${fmtMoney(S.balance)}`:window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
-  if(!source.isSim&&u<MIN_SHOT) return `${head} · minimum buy ${fmtShot(MIN_SHOT)}`;
-  if(boostShort()) return `${head} · not enough cash for ${fmtShot(u)}`;
-  return head; }
-/* @cash-end */
-/* @rules — the coin's mode + wallet cap for the TIER line ("TRENCH · no cap", "EASY · cap 1%"). TradeBridge reads them
-   onchain (BondingCurve.mode() + netCapNow(); caps move with mcap after the mode-rules-v2 redeploy) and pushes
-   disciple:coinrules {ticker, mode, label}. Nothing is hardcoded here: no event → no rules text. */
-S.coinRules=null;
-addEventListener('disciple:coinrules',e=>{ const d=e.detail; S.coinRules=d&&typeof d==='object'?d:null; });
-function tierRulesText(){ const r=S.coinRules; return r&&typeof r.label==='string'?r.label.slice(0,28):''; }
-/* @rules-end */
+addEventListener('disciple:custombuy',e=>{ const u=+(e.detail&&e.detail.usd); S.customBuyUsd=u>0&&Number.isFinite(u)?u:0; });
 S.menuOpen=false;
 addEventListener('disciple:menu',e=>{ S.menuOpen=!!(e.detail&&e.detail.open); if(S.menuOpen) S.keys={}; });
 /** BOOST = buy the active amount: custom $ (trade bar) wins over the selected preset. */
@@ -883,6 +858,32 @@ function onHotkey(e){
   if (e.code==='KeyT' && source instanceof MockReplaySource){ source.turbo=!source.turbo; S.turbo=source.turbo; }
 }
 /* @hotkeys-end */
+/* @cash — BOOST vs cash. Live: TradeBridge pushes the account's cash ($, USDG) as disciple:cash {usd} (null = unknown);
+   paper: S.balance. activeBuyUsd() is what BOOST / SPACE would spend (custom $ wins over the selected preset).
+   When that amount changes, stale "✕ …" error rows (e.g. an earlier not-enough-cash failure) leave the TRADES feed. */
+S.liveCash=null;
+addEventListener('disciple:cash',e=>{ const u=e.detail&&e.detail.usd; S.liveCash=typeof u==='number'&&Number.isFinite(u)?u:null; });
+addEventListener('disciple:custombuy',()=>noteBuyAmount());   // after @hotkeys' listener set S.customBuyUsd
+function activeBuyUsd(){ return S.customBuyUsd>0?S.customBuyUsd:(MODES[S.mode]||MODES[0]).usd; }
+function cashNow(){ return source.isSim?null:window.__discipleTrade?S.liveCash:S.balance; }
+function boostShort(){ const c=cashNow(), u=activeBuyUsd(); return typeof c==='number'&&Number.isFinite(c)&&c+1e-9<u; }
+/* paper cash → TradeBridge (it greys BOOST out when the amount is more than the cash) */
+function pushPaperCash(){ try{ dispatchEvent(new CustomEvent('disciple:papercash',{detail:{usd:source.isSim||window.__discipleTrade?null:S.balance}})); }catch(_){} }
+function noteBuyAmount(){ const u=activeBuyUsd(); if(S._buyAmt!==undefined&&u!==S._buyAmt) keepIf(S.feed,r=>!r.err); S._buyAmt=u; }
+/* "PAPER $139.98" / "CASH $42.10" / "SIM $250.00", then the reason BOOST is blocked, if any — dollars only */
+function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
+  const head=source.isSim?`SIM ${fmtMoney(S.balance)}`:window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
+  if(!source.isSim&&u<MIN_SHOT) return `${head} · minimum buy ${fmtShot(MIN_SHOT)}`;
+  if(boostShort()) return `${head} · not enough cash for ${fmtShot(u)}`;
+  return head; }
+/* @cash-end */
+/* @rules — the coin's mode + wallet cap for the TIER line ("TRENCH · no cap", "EASY · cap 1%"). TradeBridge reads them
+   onchain (BondingCurve.mode() + netCapNow(); caps move with mcap after the mode-rules-v2 redeploy) and pushes
+   disciple:coinrules {ticker, mode, label}. Nothing is hardcoded here: no event → no rules text. */
+S.coinRules=null;
+addEventListener('disciple:coinrules',e=>{ const d=e.detail; S.coinRules=d&&typeof d==='object'?d:null; });
+function tierRulesText(){ const r=S.coinRules; return r&&typeof r.label==='string'?r.label.slice(0,28):''; }
+/* @rules-end */
 addEventListener('keydown',onHotkey);
 function setOrbs(on){ S.orbsOn=on; try{localStorage.setItem('disciple.orbs',on?'on':'off');}catch(_){}
   if(!on){ S.motes=[]; S.obstacles=[]; }
