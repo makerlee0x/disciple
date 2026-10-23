@@ -8,7 +8,7 @@ const me = privateKeyToAccount(process.env.PRIVATE_KEY);
 const wc = createWalletClient({ chain, transport: http(RPC), account: me });
 const LP = "0x4f540bc1585ca36c8a49662dc642f6e28ae534da", ROUTER = "0xb53c37baa373c22b85fd3bb27fa71b8091abd316", LOCKED = "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a", MIG = "0x37f20243c2cb78613fcfbd58607ce9905cf423b0";
 const S = "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3", U = "0x25030Bff74764aD72b912276a603717DB1C00644";
-const OUT = process.env.OUT ?? "fixtures-state.json"; // usage: PRIVATE_KEY=.. node fixtures.mjs fresh|near|grad
+const OUT = process.env.OUT ?? "fixtures-state.json"; // usage: PRIVATE_KEY=.. node fixtures.mjs fresh|near|grad|pve
 const st = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT)) : { coins: {} };
 const save = () => fs.writeFileSync(OUT, JSON.stringify(st, (k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
 const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)"]);
@@ -31,12 +31,12 @@ const bal0 = await pc.getBalance({ address: me.address });
 for (const a of [LP, ROUTER]) if ((await pc.readContract({ address: S, abi: erc20, functionName: "allowance", args: [me.address, a] })) < parseEther("1000000000")) await send("approveS " + a, { address: S, abi: erc20, functionName: "approve", args: [a, maxUint256] });
 if ((await pc.readContract({ address: U, abi: erc20, functionName: "allowance", args: [me.address, ROUTER] })) < parseEther("1000000")) await send("approveU router", { address: U, abi: erc20, functionName: "approve", args: [ROUTER, maxUint256] });
 
-async function launch(key, name, ticker, creatorBuy) {
+async function launch(key, name, ticker, creatorBuy, mode = 0) {
   if (st.coins[key]?.token) return st.coins[key];
   const P = { name, ticker, imageURI: "ipfs://replay-fixture", description: "testnet replay fixture (" + key + ")", socialsURI: "", quote: S, creatorTaxBps: 0n, creatorBuyQuoteIn: creatorBuy, creatorBuyMinTokensOut: 0n, deadline: dl() };
-  const sim = await pc.simulateContract({ account: me, address: LP, abi: lp, functionName: "launchWithMode", args: [P, 0], gas: 7_000_000n });
+  const sim = await pc.simulateContract({ account: me, address: LP, abi: lp, functionName: "launchWithMode", args: [P, mode], gas: 7_000_000n });
   const r = await send("launch " + ticker, { ...sim.request, gas: 7_000_000n });
-  const c = { name, symbol: ticker, mode: 0, token: sim.result.token, curve: sim.result.curve, launchTx: r.transactionHash, launchGas: r.gasUsed, creatorBuyStrategy: formatEther(creatorBuy), creatorTokens: formatEther(sim.result.creatorTokensBought), buys: [] };
+  const c = { name, symbol: ticker, mode, token: sim.result.token, curve: sim.result.curve, launchTx: r.transactionHash, launchGas: r.gasUsed, creatorBuyStrategy: formatEther(creatorBuy), creatorTokens: formatEther(sim.result.creatorTokensBought), buys: [] };
   st.coins[key] = c; save(); return c;
 }
 async function approveCurve(c) { if (!c.approved) { await send("approveS curve", { address: S, abi: erc20, functionName: "approve", args: [c.curve, maxUint256] }); c.approved = true; save(); } }
@@ -60,6 +60,7 @@ async function buyTo(c, targetBps, allowGrad) {
   }
 }
 const which = process.argv[2];
+if (which === "pve") { await launch("pve", "Replay Easy", "RPEZ", 0n, 1); }
 if (which === "fresh") { const c = await launch("fresh", "Replay Fresh", "RPFR", parseEther("1000")); }
 if (which === "near") { const c = await launch("near", "Replay Near", "RPNR", parseEther("1000")); await buyTo(c, 9000, false); }
 if (which === "grad") { const c = await launch("grad", "Replay Grad", "RPGD", parseEther("1000")); await buyTo(c, 10000, true);

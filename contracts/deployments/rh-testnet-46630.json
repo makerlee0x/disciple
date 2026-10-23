@@ -524,6 +524,26 @@
           "buyWithUsdgTx": "0x890e6579eca08b77e0eaf736f71a6539885b28121de55250580eb3ad77436500",
           "sellToUsdgTx": "0xfbbf9ac56dae5ef7df533319d8876977f29a6b3874b2aaf4c74e77bb80f1e65d"
         }
+      },
+      {
+        "name": "Replay Easy",
+        "symbol": "RPEZ",
+        "mode": 1,
+        "modeName": "PVE (Easy)",
+        "quote": "STRATEGY",
+        "token": "0xc47F8Edf14F2D907d467c55f86BDE1c8B6DB65B3",
+        "curve": "0xe9ceA6DA3D2533F2094B65922eA80c7Cb5BF18DC",
+        "stage": "fresh (just launched, no creator buy)",
+        "progressBps": 0,
+        "graduated": false,
+        "mcapUsdAtSeed": 7000.0,
+        "launchTx": "0x97b879f9cb4fa5722773601e10c32596083f2456c5e16a7cc03023b6015de632",
+        "launchGas": 6077851,
+        "creatorBuy": "none",
+        "loginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
+        "loginGateAttester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+        "verified": "curve.mode()=1, curve.loginGate()=LoginGate, Launchpad.modeOf=1, LoginGate.attester() unchanged",
+        "unsignedBuyCheck": "eth_call only: router buyWithUsdg 1 and 0.1 mUSDG from unattested deployer -> NotVerified() (0xa95362b5); quoteBuyFor -> NotVerified(); 20 mUSDG -> BuyTooLarge() first (maxBuyNow 17.5M tokens = 0.25% supply)"
       }
     ]
   }
