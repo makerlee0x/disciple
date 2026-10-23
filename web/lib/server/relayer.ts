@@ -2,7 +2,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 
 /**
- * The relayer EOA (relayerKey(): RELAYER_PRIVATE_KEY; non-production may fall back to DRIP_FAUCET_KEY) signs the self-bundler's handleOps
+ * The relayer EOA (relayerKey(): RELAYER_PRIVATE_KEY; local dev/test may fall back to DRIP_FAUCET_KEY) signs the self-bundler's handleOps
  * (and, when they are the same key, /api/drip top-ups). Concurrent requests fetched
  * the same pending nonce ("Nonce provided for the transaction is lower than the current nonce of the account").
  * withRelayer() runs relayer sends one at a time per server instance and retries nonce errors (another instance /
@@ -30,7 +30,8 @@ export function withRelayer<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
  *  - PRODUCTION (isProductionRelayer): FAIL CLOSED. RELAYER_PRIVATE_KEY must be set, valid, and derive to a different
  *    address than DRIP_FAUCET_KEY; otherwise relayerKey() throws RelayerNotConfiguredError and /api/bundler answers
  *    503 "relayer not configured". The faucet key is never used to sign bundles in production.
- *  - non-production (local dev, Vercel preview): RELAYER_PRIVATE_KEY if set, else DRIP_FAUCET_KEY with a one-time warning.
+ *  - local only (next dev / tests / `vercel dev` / RELAYER_LOCAL_TEST=1): RELAYER_PRIVATE_KEY if set, else DRIP_FAUCET_KEY
+ *    with a one-time warning. Vercel preview is NOT local: it fails closed like production.
  * Never logs key material.
  */
 export class RelayerNotConfiguredError extends Error {
@@ -42,14 +43,20 @@ export const isRelayerNotConfigured = (e: unknown): e is RelayerNotConfiguredErr
   e instanceof RelayerNotConfiguredError || (e as { code?: string })?.code === "relayer_not_configured";
 
 /**
- * Production = Vercel production, or NODE_ENV=production outside Vercel (self-hosted `next start`) unless it is an
- * explicit local test run (RELAYER_LOCAL_TEST=1, ignored on Vercel). Vercel preview/development keep the fallback.
+ * "Production" for the relayer key = FAIL CLOSED (a dedicated RELAYER_PRIVATE_KEY, never the faucet key). AUDIT Lows:
+ *  - Vercel: production AND preview fail closed (a preview deploy must not relay from DRIP_FAUCET_KEY); only
+ *    VERCEL_ENV=development (`vercel dev`, local) keeps the fallback.
+ *  - Self-hosted (no VERCEL): production unless the process is EXPLICITLY local: NODE_ENV=development|test (next dev,
+ *    test runners) or RELAYER_LOCAL_TEST=1 (local `next start` e2e). NODE_ENV unset / anything else ⇒ production, so
+ *    a self-hosted server can't silently keep the fallback by not setting NODE_ENV.
+ *  - RELAYER_ENV=production asserts production everywhere (overrides RELAYER_LOCAL_TEST and NODE_ENV).
  */
 export function isProductionRelayer(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.VERCEL_ENV === "production") return true;
-  if (env.VERCEL_ENV) return false; // preview / development deployments
-  if (env.NODE_ENV !== "production") return false;
-  return !(env.RELAYER_LOCAL_TEST === "1" && !env.VERCEL);
+  if (env.RELAYER_ENV === "production") return true;
+  if (env.VERCEL_ENV) return env.VERCEL_ENV !== "development";
+  if (env.VERCEL) return true;                                       // on Vercel without VERCEL_ENV: fail closed
+  if (env.RELAYER_LOCAL_TEST === "1") return false;
+  return env.NODE_ENV !== "development" && env.NODE_ENV !== "test";
 }
 
 const addrOf = (k: string | undefined): string | undefined => {
@@ -86,7 +93,7 @@ export function relayerKey(env: NodeJS.ProcessEnv = process.env): Hex {
   }
   if (r.fallback && !warnedFallback) {
     warnedFallback = true;
-    console.warn("[relayer] RELAYER_PRIVATE_KEY is not set: the self-bundler is relaying from DRIP_FAUCET_KEY (non-production only). Set a dedicated, funded RELAYER_PRIVATE_KEY.");
+    console.warn("[relayer] RELAYER_PRIVATE_KEY is not set: the self-bundler is relaying from DRIP_FAUCET_KEY (local dev/test only). Set a dedicated, funded RELAYER_PRIVATE_KEY.");
   }
   return r.key;
 }

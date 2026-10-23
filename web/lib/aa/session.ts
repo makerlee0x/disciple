@@ -171,6 +171,30 @@ export function maybeAutoOneTap(why: string) {
 export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
   return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
 }
+/**
+ * AA21 fix: the account pays every op's gas PREFUND (gas × maxFee ≈ 0.00011 ETH per trade) from its balance + EntryPoint
+ * deposit. Once that's below one prefund every trade fails "AA21 didn't pay prefund" (nothing is sent). Ask /api/drip for
+ * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
+ * fresh nonce key. No refill available ⇒ the original FundAccount error.
+ */
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address) {
+  try { return await sa!.sendCalls(calls, as); }
+  catch (e) {
+    if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
+    return sa!.sendCalls(calls, as);
+  }
+}
+/** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
+export async function refillGas(a: Address): Promise<boolean> {
+  if (ACTIVE_CHAIN.id !== 46630) return false;
+  try {
+    const r = await fetch("/api/drip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) });
+    const j = await r.json().catch(() => ({})) as { ok?: boolean; txHash?: Hex };
+    if (!j.ok || !j.txHash) return false;
+    await publicClient().waitForTransactionReceipt({ hash: j.txHash, timeout: 20_000 });
+    return true;
+  } catch { return false; }
+}
 /** One-time server top-up of test ETH for gas (self-pay, existing drip faucet). Fire-and-forget. */
 export function drip(a: Address) {
   if (ACTIVE_CHAIN.id !== 46630) return;
@@ -425,7 +449,7 @@ export async function aaSend(calls: Call[]) {
   const spend = quoteSpend(delta);
   const asSession = policyOk && (await canUseSessionKey(calls)) && sessionHasHeadroom(onchain, spend);
   let r;
-  try { r = await sa.sendCalls(calls, asSession ? "session" : "owner"); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me); }
   catch (e) {
     const ae = e as AAError;
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once

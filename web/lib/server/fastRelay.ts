@@ -23,6 +23,7 @@ import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from 
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
 import { SenderTrust } from "./relayTrust";
+import { kvTrustStore } from "./relayTrustStore";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -66,10 +67,12 @@ async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); e
  * prefund; periodic re-simulation every RESIM_EVERY ops / RESIM_MS; reverted handleOps ⇒ escalating strike, then a
  * passing simulation is required before the fast path returns).
  */
-const TRUST = new SenderTrust();
+const TRUST = new SenderTrust(Date.now, kvTrustStore());   // AUDIT Low: strikes / verification shared + durable (KV)
 async function primeSender(sender: string) {
-  TRUST.prime(sender, await pc.getBalance({ address: sender as Hex }));
+  await TRUST.primeShared(sender, await pc.getBalance({ address: sender as Hex }));
 }
+/** Await the trust ledger's pending KV writes (the bundler route calls this before responding). */
+export const flushRelayTrust = () => TRUST.flush();
 /** After a simulated + successful send (eth_sendUserOperation path): mark verified, refresh the balance. */
 export const primeSenderNow = async (sender: string, opts: { simulated?: boolean } = {}) => {
   if (opts.simulated) TRUST.simulated(sender);
