@@ -221,7 +221,8 @@ contract ModeRulesV2Test is IntegrationBase {
             prev = cap;
         }
         assertEq(lens.capRoom(address(t), alice), c.capRoom(alice));
-        assertEq(c.capRoom(alice), c.netCapNow(), "fresh wallet: full cap");
+        (, uint256 sCurve,,) = c.curveParams();
+        assertEq(c.capRoom(alice), Math.min(c.netCapNow(), sCurve - c.tokensSold()), "fresh wallet: full cap (or curve left)");
     }
 
     /// forge-config: default.fuzz.runs = 32
@@ -551,9 +552,12 @@ contract ModeRulesV2Test is IntegrationBase {
         _sellT(c, alice, lo);
         assertEq(c.rewardsHeld(), held0, "at the threshold: no tip");
         vm.revertToState(snap);
+        vm.prank(alice);
+        t.approve(address(c), hi);
         vm.expectEmit(true, true, false, false, address(c));
         emit ProfitTaxCharged(address(t), alice, tipHi, 0, 0);
-        uint256 got = _sellT(c, alice, hi);
+        vm.prank(alice);
+        uint256 got = c.sell(hi, 0, vm.getBlockTimestamp() + 1 hours);
         assertEq(got, outHi, "net of the tip");
         assertEq(c.rewardsHeld() - held0, tipHi, "tip to the holders claim pool");
         assertEq(c.pendingRewards(alice), 0, "seller excluded");
@@ -617,8 +621,9 @@ contract ModeRulesV2Test is IntegrationBase {
         address anon = makeAddr("anonPostGrad");
         _swapExactInQuoteForToken(t, anon, 3_000 ether);
         assertGt(t.balanceOf(anon), Constants.TOTAL_SUPPLY * 333 / 10_000, "no cap post-graduation");
+        uint256 ab = t.balanceOf(anon);
         vm.prank(anon);
-        t.transfer(bob, t.balanceOf(anon));
+        t.transfer(bob, ab);
         uint256 cb = t.balanceOf(creator);
         vm.prank(creator);
         t.transfer(bob, cb); // creator lock lifted
