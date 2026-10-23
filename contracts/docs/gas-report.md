@@ -212,3 +212,31 @@ because the swap path never reads it.
   a 1 h TWAP warm-up; owner registration still overrides.
 - Referral gate / deposit minimum = $10 scaled by USDG decimals at construction (`ReferralRegistry.usdgGate`,
   `UsdgDepositNotifier.minDeposit`).
+
+## Mode rules v2 (2026-10-23)
+
+`forge test --match-path test/gas/GasBench.t.sol --isolate`, before = parent of this PR, after = this PR. Same bench
+(5-USDG First BOOST launch; 5 USDG direct/router buys after the sniper window).
+
+| bench | before | after | Δ |
+|---|---:|---:|---:|
+| pve.launch.boost5 | 6,389,326 | 6,699,828 | +310,502 |
+| pvp.launch.boost5 | 6,307,953 | 6,616,444 | +308,491 |
+| trench.launch.boost5 | 6,285,150 | 6,596,308 | +311,158 |
+| pve.direct.buy.cold / warm | 253,629 / 194,128 | 256,984 / 197,493 | +3,355 / +3,365 |
+| pve.direct.sell.warm | 195,263 | 195,593 | +330 |
+| pve.usdg1.buy / sell warm | 218,070 / 216,108 | 224,003 / 216,656 | +5,933 / +548 |
+| pvp.direct.buy.cold / warm | 213,286 / 179,086 | 216,267 / 182,067 | +2,981 / +2,981 |
+| pvp.direct.sell.warm | 179,312 | 179,616 | +304 |
+| pvp.usdg1.buy / sell warm | 203,020 / 200,146 | 208,353 / 200,663 | +5,333 / +517 |
+| trench.direct.buy.cold / warm | 212,730 / 178,530 | 214,031 / 179,831 | +1,301 / +1,301 |
+| trench.direct.sell.warm | 179,324 | 179,628 | +304 |
+| v4 (post-grad) swaps | — | — | +207 … +417 (router/hook unchanged; Launchpad lookups) |
+
+* Launch +~310k (~4.9%): the curve no longer fits in one EIP-170 blob next to its init code, so CurveDeployer
+  stitches two code chunks (SSTORE2-style `extcodecopy`) and the curve runtime grew (partial fill search, escrow,
+  mcap-linear caps, creator lock, tunable snapshots). Runtime stays ≤ 24,576 B (asserted in
+  `test_curveDeployer_runtimeIdenticalToNew`).
+* Buys +1.3k (TRENCH) to +3.4k (Easy): mcap-linear cap computation and the snipe-escrow slot. Router buys add the
+  refund balance check. A partial-filled buy additionally pays the bounded binary search (~+15–25k, only when capped).
+* Sells ~+300 (Easy crew-tip threshold reads mcap).
