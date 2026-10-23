@@ -78,7 +78,8 @@ const en = {
   "pnl.points": "POINTS",
   "pnl.hintUp": "▲ more uPnL → bigger points multiplier · hold to ramp",
   "pnl.hintFlat": "stay green to earn a bigger points multiplier",
-  "pnl.pctTitle": "uPnL ÷ cost basis (incl. buy fee + gas) = MCAP ÷ AVG ENTRY MC − 1. Marked at the current price, before exit fee and price impact.",
+  "pnl.inclBuyFees": "incl. {fee} buy fees",
+  "pnl.pctTitle": "uPnL ÷ cost basis (incl. buy fee) = MCAP ÷ AVG ENTRY MC − 1. Marked at the current price, before exit fee and price impact.",
   "tb.boost": "BOOST",
   "tb.dump": "DUMP",
   "tb.custom": "custom",
@@ -111,7 +112,7 @@ const zh: Dict = {
   "pnl.yourRun": "你的航程", "pnl.paper": "模拟", "pnl.unrealized": "未实现盈亏", "pnl.mcap": "市值", "pnl.holdings": "持仓", "pnl.avgEntry": "平均入场",
   "pnl.realized": "已实现", "pnl.exitFees": "退出费用", "pnl.other": "其他火箭", "pnl.points": "积分",
   "pnl.hintUp": "▲ 未实现盈亏越高 → 积分倍数越大 · 持有以提升", "pnl.hintFlat": "保持盈利以获得更高积分倍数",
-  "pnl.pctTitle": "未实现盈亏 ÷ 成本（含买入手续费 + Gas）= 市值 ÷ 平均入场市值 − 1。按当前价格计价，未扣除退出费用与价格冲击。",
+  "pnl.pctTitle": "未实现盈亏 ÷ 成本（含买入手续费）= 市值 ÷ 平均入场市值 − 1。按当前价格计价，未扣除退出费用与价格冲击。",
   "tb.custom": "自定义", "tb.noPos": "无持仓", "tb.pos": "持仓", "tb.noTokens": "钱包中没有代币",
   "sim.on": "◆ 模拟市场 · 开", "sim.off": "◇ 模拟市场 · 关", "sim.auto": "（自动）", "exit": "返回发射台",
 };
@@ -132,7 +133,7 @@ const ko: Dict = {
   "pnl.yourRun": "나의 비행", "pnl.paper": "모의", "pnl.unrealized": "미실현 손익", "pnl.mcap": "시총", "pnl.holdings": "보유", "pnl.avgEntry": "평균 진입",
   "pnl.realized": "실현 손익", "pnl.exitFees": "청산 수수료", "pnl.other": "다른 로켓", "pnl.points": "포인트",
   "pnl.hintUp": "▲ 미실현 손익 증가 → 포인트 배수 상승 · 보유할수록 상승", "pnl.hintFlat": "수익을 유지하면 포인트 배수가 커집니다",
-  "pnl.pctTitle": "미실현 손익 ÷ 원가(매수 수수료 + 가스 포함) = 시총 ÷ 평균 진입 시총 − 1. 현재 가격 기준이며 청산 수수료와 가격 영향은 제외됩니다.",
+  "pnl.pctTitle": "미실현 손익 ÷ 원가(매수 수수료 포함) = 시총 ÷ 평균 진입 시총 − 1. 현재 가격 기준이며 청산 수수료와 가격 영향은 제외됩니다.",
   "tb.custom": "직접 입력", "tb.noPos": "포지션 없음", "tb.pos": "포지션", "tb.noTokens": "지갑에 토큰이 없습니다",
   "sim.on": "◆ 시뮬레이션 시장 · 켜짐", "sim.off": "◇ 시뮬레이션 시장 · 꺼짐", "sim.auto": "(자동)", "exit": "런치패드로 돌아가기",
 };
@@ -153,7 +154,7 @@ const ja: Dict = {
   "pnl.yourRun": "あなたのフライト", "pnl.paper": "ペーパー", "pnl.unrealized": "含み損益", "pnl.mcap": "時価総額", "pnl.holdings": "保有", "pnl.avgEntry": "平均取得",
   "pnl.realized": "確定損益", "pnl.exitFees": "決済手数料", "pnl.other": "他のロケット", "pnl.points": "ポイント",
   "pnl.hintUp": "▲ 含み益が増えるほどポイント倍率アップ · 保有で上昇", "pnl.hintFlat": "プラスを保つとポイント倍率が上がります",
-  "pnl.pctTitle": "含み損益 ÷ 取得コスト（買い手数料 + ガス込み）= 時価総額 ÷ 平均取得時価総額 − 1。現在価格で評価、決済手数料と価格影響は含みません。",
+  "pnl.pctTitle": "含み損益 ÷ 取得コスト（買い手数料込み）= 時価総額 ÷ 平均取得時価総額 − 1。現在価格で評価、決済手数料と価格影響は含みません。",
   "tb.custom": "カスタム", "tb.noPos": "ポジションなし", "tb.pos": "ポジ", "tb.noTokens": "ウォレットにトークンがありません",
   "sim.on": "◆ シミュレーション市場 · オン", "sim.off": "◇ シミュレーション市場 · オフ", "sim.auto": "（自動）", "exit": "ローンチパッドに戻る",
 };
@@ -174,7 +175,7 @@ const es: Dict = {
   "pnl.yourRun": "TU VUELO", "pnl.paper": "PAPEL", "pnl.unrealized": "PNL NO REALIZADO", "pnl.mcap": "MCAP", "pnl.holdings": "TENENCIA", "pnl.avgEntry": "ENTRADA PROM.",
   "pnl.realized": "REALIZADO", "pnl.exitFees": "COMISIONES DE SALIDA", "pnl.other": "OTROS COHETES", "pnl.points": "PUNTOS",
   "pnl.hintUp": "▲ más uPnL → mayor multiplicador de puntos · mantén para subir", "pnl.hintFlat": "mantente en verde para un multiplicador mayor",
-  "pnl.pctTitle": "uPnL ÷ costo (incl. comisión de compra + gas) = MCAP ÷ MC de entrada promedio − 1. Valorado al precio actual, antes de la comisión de salida y el impacto de precio.",
+  "pnl.pctTitle": "uPnL ÷ costo (incl. comisión de compra) = MCAP ÷ MC de entrada promedio − 1. Valorado al precio actual, antes de la comisión de salida y el impacto de precio.",
   "tb.custom": "personalizado", "tb.noPos": "sin posición", "tb.pos": "pos", "tb.noTokens": "NO HAY TOKENS EN LA BILLETERA",
   "sim.on": "◆ MERCADO SIMULADO · SÍ", "sim.off": "◇ MERCADO SIMULADO · NO", "sim.auto": "(auto)", "exit": "Volver al Launchpad",
 };

@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyExactFill, applyFill, bookPending, emptyPosition, reconcileFill, view, type ExactFill, type PendingFill, type Position, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, reconcileFill, view, type ExactFill, type PendingFill, type Position, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
 
-type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; gas: number; at?: number; frac?: number; session?: string | null; live?: boolean; txHash?: string };
+type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; /** always 0 (no per-trade gas line in the ledger) */ gas?: number; at?: number; frac?: number; session?: string | null; live?: boolean; txHash?: string };
 type Receipt = ExactFill & { txHash: string; side: "buy" | "sell" };
 type Mark = { mcap: number; supply: number; session?: string | null };
 type FlightWin = {
@@ -99,13 +99,13 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
       const meta = { supply, session: f.session ?? null };
       if (f.live && f.txHash) {
         const at = f.at ?? Date.now(), rc = early.get(f.txHash);
-        if (rc) { early.delete(f.txHash); return commit({ ...applyExactFill(cur, f.side, rc, f.gas, at), ...meta }); }
+        if (rc) { early.delete(f.txHash); return commit({ ...applyExactFill(cur, f.side, rc, 0, at), ...meta }); }
         pending = pending.filter((e) => at - e.est.at < 180_000);   // a receipt that never came: its estimate stays booked
-        const r = bookPending(cur, pending, { id: f.txHash, side: f.side, est: { usd: f.usd, price, gas: f.gas, at, frac: f.frac } });
+        const r = bookPending(cur, pending, { id: f.txHash, side: f.side, est: { usd: f.usd, price, gas: 0, at, frac: f.frac } });
         pending = r.pending;
         return commit({ ...r.pos, ...meta });
       }
-      commit({ ...applyFill(cur, f.side, f.usd, price, f.gas, f.at, f.frac), ...meta });
+      commit({ ...applyFill(cur, f.side, f.usd, price, 0, f.at, f.frac), ...meta });
     };
     const onReceipt = (e: Event) => { const d = (e as CustomEvent<Receipt>).detail; if (!d?.txHash || !(d.tokens > 0)) return;
       const r = reconcileFill(pending, d.txHash, d);
@@ -150,6 +150,8 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
 
   const holding = v.size > 0;
+  // red only because of the buy fee inside the cost basis (price hasn't moved enough to cover it): say so, in dollars
+  const feeNote = redFromBuyFees(pos, v);
   const maxMult = 1 + HOLD_BONUS.maxBoost;
   const share = Math.max(0, Math.min(1, (v.bonus - 1) / HOLD_BONUS.maxBoost));
   const label = { color: "rgba(220,228,255,.62)", fontSize: 10, letterSpacing: ".06em" } as const;
@@ -175,7 +177,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
           background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
       </div>
-      <div style={label}>{t("pnl.unrealized")}</div>
+      <div style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
 
       {open && (
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>
@@ -184,7 +186,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
             <span>{amt(v.size)} · <Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
           <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{holding ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
-          {v.fees > 0 && <div style={row} title="exit fee + sell gas (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
+          {v.fees > 0 && <div style={row} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
           <div style={row}><span style={label}>{t("pnl.other")}</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
 
           {/* points hook: off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with

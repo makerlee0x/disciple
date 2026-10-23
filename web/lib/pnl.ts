@@ -3,24 +3,28 @@
  * ProtocolClient.getPosition).
  *
  * Invariants (maker lee):
- *   uPnL     = holdings × (mark − avgEntry)            avgEntry = costBasis / size (buy fee + gas included)
+ *   uPnL     = holdings × (mark − avgEntry)            avgEntry = costBasis / size (buy fee included)
  *   realized += exactly the uPnL portion closed by a sell  = tokens × (fillPrice − avgEntry)
- *   exit fee + sell gas are booked separately in `fees` (they are costs of the exit, not price PnL),
+ *   the exit fee is booked separately in `fees` (a cost of the exit, not price PnL),
  *   so a rising mark with size > 0 always means rising uPnL, and a sell at the mark moves PnL from
  *   uPnL into realized one-for-one.
  */
-import { CURVE, GAS, holdBonus } from "./config";
+import { CURVE, holdBonus } from "./config";
+// No network-fee line in the ledger: there is no flat per-trade "gas" charge to book. The cost basis is exactly the $ the
+// buy spent (fee inside), and a receipt-backed fill books what actually moved. (Was: every buy and the creator's First
+// BOOST added a modelled ~$0.01 "gas" to the cost basis, so a fresh position showed red from a charge nobody paid.)
+// The `gas` arguments below stay for call-site compatibility and default to 0; callers pass 0.
 
 export const FEE = CURVE.tradeFeeBps / 10_000;
 
 export interface Position {
   /** token units */
   size: number;
-  /** $ paid incl. fees + gas for the current size */
+  /** $ paid (buy fee included) for the current size */
   costBasis: number;
-  /** $ realized on sells (net of fees + gas) */
+  /** $ realized on sells (closed uPnL; the exit fee is in `fees`) */
   realized: number;
-  /** $ exit fees + sell gas paid (kept out of realized so realized == closed uPnL) */
+  /** $ exit fees paid (kept out of realized so realized == closed uPnL) */
   fees?: number;
   /** ms timestamp continuous holding started (0 = flat) */
   holdStart: number;
@@ -54,20 +58,16 @@ export function seedCreatorBuyPosition(storageKey: string, tokens: number, usd: 
   try {
     const cur = JSON.parse(localStorage.getItem(storageKey) || "null") as Position | null;
     if (cur && cur.size > 0) return null;
-    const p: Position = { ...emptyPosition(), size: tokens, costBasis: usd + gasUsd(), holdStart: at, supply };
+    const p: Position = { ...emptyPosition(), size: tokens, costBasis: usd, holdStart: at, supply };
     localStorage.setItem(storageKey, JSON.stringify({ ...p, session: null }));
     return p;
   } catch { return null; }
 }
 
-export function gasUsd(): number {
-  return GAS.execGas * GAS.robinhoodGwei * 1e-9 * GAS.ethUsd;
-}
-
 /** Apply a fill. usd = gross notional; price = $ per token at fill.
  *  frac (sells): close exactly that fraction of the bag (a "50%" button sells half the TOKENS, whatever the fill price);
  *  otherwise tokens = usd / price. A sell never exceeds holdings; selling with no holdings is a no-op. */
-export function applyFill(p: Position, side: "buy" | "sell", usd: number, price: number, gas = gasUsd(), at = Date.now(), sellFrac?: number): Position {
+export function applyFill(p: Position, side: "buy" | "sell", usd: number, price: number, gas = 0, at = Date.now(), sellFrac?: number): Position {
   const q = { ...p };
   if (price <= 0 || usd <= 0) return q;
   if (side === "buy") {
@@ -93,9 +93,9 @@ export function applyFill(p: Position, side: "buy" | "sell", usd: number, price:
 /**
  * EXACT fill from the tx receipt (lib/flight/fills.ts decodes UsdgTrade / Trade logs): real USDG in/out and real token amounts,
  * so cost basis, avg entry and realized use what actually moved instead of the curve-average estimate applyFill books.
- *   buy : size += tokens received; costBasis += USDG spent (fee inside) + gas
+ *   buy : size += tokens received; costBasis += USDG spent (fee inside)
  *   sell: closes `tokens` of the bag; realized += (usdOut + feeUsd) − basisOut (gross of the exit fee, same convention as
- *         applyFill), fees += feeUsd + gas. A sell larger than the ledger bag (tokens bought outside this ledger) books
+ *         applyFill), fees += feeUsd. A sell larger than the ledger bag (tokens bought outside this ledger) books
  *         only the ledger's share of the proceeds.
  * Paper / sim fills keep applyFill (curve-average booking); this is for live (receipt-backed) fills only.
  */
@@ -107,7 +107,7 @@ export interface ExactFill {
   /** trade fee in $ (sell: inside the gross; buy: informational, already inside `usd`) */
   feeUsd?: number;
 }
-export function applyExactFill(p: Position, side: "buy" | "sell", x: ExactFill, gas = gasUsd(), at = Date.now()): Position {
+export function applyExactFill(p: Position, side: "buy" | "sell", x: ExactFill, gas = 0, at = Date.now()): Position {
   const q = { ...p };
   if (!(x.tokens > 0) || !(x.usd >= 0)) return q;
   if (side === "buy") {
@@ -198,4 +198,15 @@ export function view(p: Position, price: number, supply: number, now = Date.now(
     uPnl, realized: p.realized, fees: p.fees || 0,
     bonus: holdBonus(uPnl, held, p.sellScale, valueUsd),
   };
+}
+
+/**
+ * Buy fees inside the open position's cost basis, in $, when they are the ONLY reason uPnL is red (the mark is at or above
+ * the fee-free entry), else 0. The PnL HUD then labels the red number "incl. $X buy fees". Buy fee = FEE × $ spent
+ * (applyFill books tokens = usd·(1−FEE)/price), so the fee share of the basis is costBasis × FEE.
+ */
+export function redFromBuyFees(p: Position, v: Pick<PositionView, "size" | "uPnl">): number {
+  if (!(v.size > 0) || !(v.uPnl < -0.005)) return 0;
+  const fees = p.costBasis * FEE;
+  return -v.uPnl <= fees + 1e-9 ? fees : 0;
 }
