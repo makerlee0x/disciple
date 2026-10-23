@@ -229,7 +229,7 @@ export class Mav2Account {
       const raw = typeof (e as { data?: unknown }).data === "string" ? String((e as { data: string }).data).toLowerCase() : "";
       if (/insufficient|prefund|AA21|didn't pay/i.test(msg) || raw.includes("41413231")) {
         const have = await this.o.pc.getBalance({ address: sender });
-        throw new AAError("FundAccount", "Your account is still being set up for network fees — try again in a moment.", { have, address: sender });
+        throw new AAError("FundAccount", "Your account is still getting ready. Try again in a moment.", { have, address: sender });
       }
       // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
       let revertData: string | undefined = typeof (e as { data?: unknown }).data === "string" && /^0x[0-9a-fA-F]{8,}$/.test((e as { data: string }).data) ? (e as { data: string }).data : undefined;

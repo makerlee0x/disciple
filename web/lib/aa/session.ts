@@ -307,7 +307,7 @@ export async function sweepLegacy() {
   const { clientFees } = await import("./gasPolicy");
   const reserve = clientFees(blk.baseFeePerGas ?? BigInt(0)).maxFeePerGas * BigInt(800_000); // worst-case gas for this op (same fee formula as LightSmartAccount.selfPayGas)
   if (lb.eth > reserve * BigInt(2)) calls.push({ to, data: "0x", value: lb.eth - reserve });
-  if (!calls.length) throw new AAError("FundAccount", "Old account only holds gas dust — nothing worth sweeping.");
+  if (!calls.length) throw new AAError("FundAccount", "Your old account is empty — nothing to move over.");
   const old = new LightSmartAccount({ pc, chainId: ACTIVE_CHAIN.id, bundler: alchemyBundler(BUNDLER_URL), owner: ownerAcct });
   return old.sendCalls(calls);
 }
