@@ -225,7 +225,9 @@ export class Mav2Account {
     const fail = async (e: unknown): Promise<never> => {
       const m = (e as { details?: string; shortMessage?: string; message?: string });
       const msg = String(m.details || m.shortMessage || m.message || e);
-      if (/insufficient|prefund|AA21|didn't pay/i.test(msg)) {
+      // the relay's pre-flight returns FailedOp(0, "AA21 didn't pay prefund") as revert DATA ("AA21" = 0x41413231), not text
+      const raw = typeof (e as { data?: unknown }).data === "string" ? String((e as { data: string }).data).toLowerCase() : "";
+      if (/insufficient|prefund|AA21|didn't pay/i.test(msg) || raw.includes("41413231")) {
         const have = await this.o.pc.getBalance({ address: sender });
         throw new AAError("FundAccount", "Your account is still being set up for network fees — try again in a moment.", { have, address: sender });
       }
