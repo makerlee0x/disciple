@@ -59,7 +59,7 @@
     "tickSpacing": 60,
     "hooks": "0x0000000000000000000000000000000000000000",
     "initPriceUsd": 0.00245,
-    "liquidity": "4e22 full-range",
+    "liquidity": "4.54e24 full-range (deepened 2026-10-23, see testFixtures)",
     "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
   },
   "previous": {
@@ -423,5 +423,108 @@
     "routerBuyWithUsdg": "1 mUSDG -> TRENCH tokens via STRATEGY/mUSDG hop",
     "pveBuy": "not executed: LoginGate attester unset; quoteBuyFor(deployer) reverts NotVerified as expected",
     "pvpBuyTx": "0x955f7ecbfa5c66895e0df44f260e3dede5ace1f5a15d84612574cef3684a39e1"
+  },
+  "testFixtures": {
+    "createdAt": "2026-10-23",
+    "note": "testnet-only replay fixtures (test tokens). Curve buys sent to throwaway recipients. progressBps = tokensSold / 72% supply.",
+    "strategyUsdgRefPool": {
+      "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
+      "method": "PoolModifyLiquidityTest 0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c modifyLiquidity full-range (-887220..887220), liquidityDelta +4.5e24 at current price (tick 57816 unchanged)",
+      "mintUsdgTx": "0x65212117d547660bdf88f1b43d8cce0e2a65fb5631a52c986f0187b52dc4a76b",
+      "addLiquidityTx": "0xa5f0611a7e9c59559460067ed959e17a30cc75c70690e7200fd55dafebf21726",
+      "added": "~249,930 mUSDG + ~81.0M STRATEGY (existing deployer STRATEGY balance)",
+      "before": {
+        "liquidity": "4e22",
+        "tick": 57816,
+        "usdgSideApprox": "2,221",
+        "quote20UsdgToStrategy": "6407.21"
+      },
+      "after": {
+        "liquidity": "4.54e24",
+        "tick": 57816,
+        "usdgSideApprox": "252,100",
+        "quote20UsdgToStrategy": "6464.21"
+      },
+      "quotePricerStrategyUsd": "0.003084434186546977 (unchanged)"
+    },
+    "coins": [
+      {
+        "name": "Replay Fresh",
+        "symbol": "RPFR",
+        "mode": 0,
+        "quote": "STRATEGY",
+        "token": "0x073811470e7F81925Fcf8287f14230C484CBE840",
+        "curve": "0x13f179C34c822C91CA7902862a9ee2e926e5D666",
+        "stage": "fresh (just launched + creator buy)",
+        "progressBps": 6,
+        "graduated": false,
+        "mcapUsdAtSeed": 7004.58,
+        "launchTx": "0xc1de0401a977f8f1df61ffd6fa4d46810e3f19c1420cc301df02aa483a22de8c",
+        "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
+        "curveBuys": []
+      },
+      {
+        "name": "Replay Near",
+        "symbol": "RPNR",
+        "mode": 0,
+        "quote": "STRATEGY",
+        "token": "0xaB2D901023D31c1d7Fe2c85ee0eBd3bB07C00328",
+        "curve": "0x256A738e2EFB95C5003325F552B1226Bc4e869B7",
+        "stage": "near graduation",
+        "progressBps": 9179,
+        "graduated": false,
+        "mcapUsdAtSeed": 27465.22,
+        "launchTx": "0x4f4e10b1f24502be3d23c0148814d5f0aaa9357b4e16ee02c906b6f4d1d91507",
+        "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
+        "curveBuys": [
+          {
+            "strategyIn": "2000000",
+            "tx": "0x1b18882984cfc5a3fe9ed9590f7a83dcc4ac2bff40ad3b5da74922d45b6d3024"
+          },
+          {
+            "strategyIn": "1000000",
+            "tx": "0x4985181fa9aba7a2599305392ba71bd946448b672daa00ed5f40d63a3ce29009"
+          }
+        ]
+      },
+      {
+        "name": "Replay Grad",
+        "symbol": "RPGD",
+        "mode": 0,
+        "quote": "STRATEGY",
+        "token": "0x8456bFf4c15Bc639F5EBE697551BfcFD189dc404",
+        "curve": "0x53753db249300f5DfF4755099f27D35Ef02e7242",
+        "stage": "graduated",
+        "progressBps": 10000,
+        "graduated": true,
+        "mcapUsdAtSeed": 33202.33,
+        "launchTx": "0x737a0da72c5598f8f24c1fc9c2dc861b77f3e9b855888e689398514aed8234fb",
+        "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
+        "curveBuys": [
+          {
+            "strategyIn": "2500000",
+            "tx": "0xfefe355672fb3b2507e85633d4d0b52f5409159feb848ea6e2d6b3a478516ddc"
+          },
+          {
+            "strategyIn": "2500000",
+            "tx": "0x8b4aee0806c9b76da346994bb73db20377c584b6c162e57e591b3558059b4a37"
+          }
+        ],
+        "poolId": "0xd3efe5fa9475f7b434c34e39980370e86e62f654386262441854033b15bb700b",
+        "graduationTx": "0x8b4aee0806c9b76da346994bb73db20377c584b6c162e57e591b3558059b4a37",
+        "lockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
+        "lockedLPPosition": "full-range (-887220..887220), liquidity 7.6626e25 = 100% of pool liquidity",
+        "postGradRouter": {
+          "buyExactInTx": "0x50709835e30993b3ef718f5f5d4ab60972e59cb8fc6e7adf7ab493cb0c4a4c20",
+          "strategyIn": "10000",
+          "tokensOut": "6455761.605820955206185917",
+          "sellExactInTx": "0xb1c5508dc6a85f814899bf1e962dec4bfdc20068228d973f4b41b591e267c6b9",
+          "tokensSold": "3227880.802910477603092958",
+          "strategyOut": "4908.747423257889671771",
+          "buyWithUsdgTx": "0x890e6579eca08b77e0eaf736f71a6539885b28121de55250580eb3ad77436500",
+          "sellToUsdgTx": "0xfbbf9ac56dae5ef7df533319d8876977f29a6b3874b2aaf4c74e77bb80f1e65d"
+        }
+      }
+    ]
   }
 }
