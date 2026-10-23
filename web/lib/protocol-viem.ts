@@ -10,7 +10,8 @@ import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQ
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
-import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
 import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi } from "./launchAbi";
@@ -556,7 +557,10 @@ export function createViemProtocol(): ProtocolClient {
       if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
       const launchpad = deployment().launchpad;
       const creatorBuy = lp.creatorBuyQuoteIn ?? B(0);
-      const mode = lp.mode ?? DEFAULT_LAUNCH_MODE;
+      // Private launches go through AnonLauncher v2 (Launchpad.launch ⇒ TRENCH mode; it pulls the fee + First BOOST).
+      const anonL = lp.private ? ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher : undefined;
+      if (lp.private && !anonL) throw new ProtocolError("NotDeployed", "Private launches aren't available on this chain.");
+      const mode = lp.private ? LaunchMode.TRENCH_WARFARE : lp.mode ?? DEFAULT_LAUNCH_MODE;
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
@@ -591,11 +595,33 @@ export function createViemProtocol(): ProtocolClient {
           if (have < creatorBuy) throw new ProtocolError("InsufficientBalance", `Not enough balance for the First BOOST: need ${fmtUnits(creatorBuy, await decimalsOf(pc, q))}, have ${fmtUnits(have, await decimalsOf(pc, q))}.`);
           // Exact approve of creatorBuyQuoteIn (Launchpad pulls exactly that): no slack, never unlimited, and a leftover
           // larger allowance is set back down to the exact amount. Skipped only when it already equals creatorBuyQuoteIn.
-          const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
-          if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
+          if (!anonL) {
+            const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
+            if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
+          }
         }
-        // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
-        calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
+        if (anonL && lp.private) {
+          // AnonLauncher pulls launchFee (feeToken = USDG) + creatorBuyQuoteIn (quote) from this account: exact approvals
+          // (summed when the pair IS the fee token), then launchAnon(params, stealthOwner, buyRecipient = me, eph, viewTag).
+          const [feeToken, fee] = await Promise.all([
+            pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "feeToken" }) as Promise<Address>,
+            pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "launchFee" }) as Promise<bigint>,
+          ]);
+          const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
+          const need = new Map<string, bigint>();
+          if (fee > B(0)) need.set(feeToken.toLowerCase(), fee);
+          if (creatorBuy > B(0)) need.set(q.toLowerCase(), (need.get(q.toLowerCase()) ?? B(0)) + creatorBuy);
+          for (const [tok, amt] of Array.from(need.entries())) {
+            const have = await pc.readContract({ address: tok as Address, abi: tokenAbi, functionName: "balanceOf", args: [me] });
+            if (have < amt) throw new ProtocolError("InsufficientBalance", `Not enough ${tok.toLowerCase() === feeToken.toLowerCase() ? "USDG" : "balance"} for this private launch: need ${fmtUnits(amt, await decimalsOf(pc, tok as Address))}, have ${fmtUnits(have, await decimalsOf(pc, tok as Address))}.`);
+            calls.push({ to: tok as Address, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, amt] }) });
+          }
+          const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
+          calls.push({ to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag] }) });
+        } else {
+          // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
+          calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
+        }
         const r = await execCalls(calls);
         let launched: LaunchCoinResult | null = null, qp = B(0), supply = 0;
         for (const l of r.logs) {
@@ -616,9 +642,11 @@ export function createViemProtocol(): ProtocolClient {
             const ev = decodeEventLog({ abi: bondingCurveAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: Record<string, unknown> };
             if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
-            launched.creatorBuy = { recipient: ev.args.trader as Address, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
+            // private launch: the curve's trader is the AnonLauncher; it forwards the tokens to buyRecipient = this account
+            const recipient = anonL ? me : (ev.args.trader as Address);
+            launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
             seedCreatorBuyPosition(`disciple.pnl.${launched.token}`, Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
-            bumpBalance(launched.token, ev.args.trader as Address, tokens);
+            bumpBalance(launched.token, recipient, tokens);
           } catch { /* other event */ }
         }
         return launched;
