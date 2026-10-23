@@ -122,6 +122,31 @@ outside the contract's `[minRate, maxRate]`.
 8. **Penalty math** — v0.7 bills the paymaster 10% of unused execution gas; we bill the user for it (Pimlico's formula),
    so over-estimated callGasLimit costs the user a little. STATIC_GAS (1.8M call) should be tightened for paymaster ops.
 
+## SITE handoff (nothing below has been done — no deploys, no env changes)
+Order matters: paymaster first (the policy bakes its address in as an immutable).
+1. **Deploy `DisciplePaymaster`** on RH testnet with `contracts/script/DeployPaymaster.s.sol` (refuses any chain but
+   46630). Env: `USDG` (testnet mUSDG `0x25030Bff74764aD72b912276a603717DB1C00644`), `PAYMASTER_OWNER` (multisig/ops),
+   `PAYMASTER_SIGNER` (ADDRESS of the quote key), `PAYMASTER_TREASURY`, `PAYMASTER_MIN_RATE` / `PAYMASTER_MAX_RATE`
+   (USDG base units per ETH — testnet 18 dec, e.g. 1000e18 / 10000e18), `PAYMASTER_MAX_COST` (per-op USDG cap, e.g.
+   5e18), `PAYMASTER_POST_OP_GAS` (30000), `PAYMASTER_DEPOSIT_WEI`, `PAYMASTER_STAKE_WEI` (1-day unstake delay).
+2. **Redeploy `DiscipleSessionPolicy` 1.4.0** with `contracts/script/DeploySessionPolicy.s.sol`, env `REFERRAL_REGISTRY`
+   + `PAYMASTER` = the address from step 1. Constructor is now `(referralRegistry, paymaster)`.
+3. **Every user reinstalls their session** against the new policy (moduleId `disciple.session-policy.1.4.0`). Sessions
+   must list **USDG as quote0 or quote1 with a spend cap** — the gas allowance is debited from that cap. Old 1.3.0
+   sessions keep working in ETH self-pay mode only.
+4. **Web env** — server only: `PAYMASTER_SIGNER_KEY` (dedicated key; must differ from `RELAYER_PRIVATE_KEY` and
+   `DRIP_FAUCET_KEY`; never `NEXT_PUBLIC_`), `PAYMASTER_USD_PER_ETH` (e.g. `3000`) or `PAYMASTER_RATE`, optional
+   `PAYMASTER_ADDRESS`, `PAYMASTER_QUOTE_TTL_SEC`, `PAYMASTER_MAX_SLACK_BPS`. Public: `NEXT_PUBLIC_RHT_PAYMASTER`,
+   `NEXT_PUBLIC_SESSION_POLICY_VERSION=1.4.0`, and the new policy address wherever the 1.3.0 address lives today
+   (`contracts/deployments/rh-testnet-46630.json` → web defaults). Keeper: `PAYMASTER_KEEPER_KEY`,
+   `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI`; run `pnpm paymaster:keeper --send --loop`.
+5. **ABI regen** (`web/scripts/gen-abi.mjs`): add `DisciplePaymaster`; `DiscipleSessionPolicy` changed (new ctor arg,
+   `paymaster()` getter, `PaymasterApproveNotExact(uint256,uint256)` error, moduleId string).
+6. **Decimals**: `tradeViaUsdg` "not enough cash" no longer divides by `1e18` (fixed in this PR); audit any other USDG
+   display that assumes 18 decimals before mainnet (USDG is 6 there).
+7. Client wiring: `Mav2Account.sendCalls` still self-pays; switching it to `payGasInUsdg` (lib/aa/paymasterClient) is
+   the remaining code step and is gated on `NEXT_PUBLIC_RHT_PAYMASTER` being non-zero.
+
 ## Estimate (realistic)
 | Day | Work |
 |---|---|
@@ -132,3 +157,7 @@ outside the contract's `[minRate, maxRate]`.
 | Thu Oct 29 | review fixes; testnet deploy (after approval) + policy redeploy + session reinstall by SITE |
 | Fri Oct 30 | e2e on testnet, monitoring (DebtRecorded, deposit), buffer |
 Realistic code-complete: **Wed Oct 28**; testnet live after review: **Fri Oct 30, 2026**. Mainnet TWAP pricing: design only.
+
+**Status Fri Oct 23 (end of day):** (a)–(e) landed ahead of plan; remaining is the `Mav2Account.sendCalls` switch to
+`payGasInUsdg` + a fork/anvil end-to-end through a real MAv2 session. Revised: code-complete **Mon Oct 26**; testnet live
+after review + SITE steps **Thu Oct 29, 2026** (Fri Oct 30 kept as buffer).
