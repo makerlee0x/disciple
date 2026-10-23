@@ -83,13 +83,11 @@ const MODES=[
 ];
 const SIM_BASE_USD=5;   // simulated-flow / candle-volume reference (was MODES[2].usd = $5 FLARE; kept so sim noise is unchanged)
 /* @presets-end */
-// [MEASURED 2026-10-15 ~09:37 CT] executor swap gas ≈ 200K (v4 swap ~168K + vault ledger ~30K) × eth_gasPrice × ETH $2,372
-const CHAIN_GAS={robinhood:{gwei:0.0207,label:'RH'},arbitrum:{gwei:0.020,label:'ARB'},base:{gwei:0.006,label:'BASE'}};
-const CHAIN=CHAIN_GAS[Q.get('chain')]||CHAIN_GAS.robinhood, EXEC_GAS=200e3, ETH_USD=2372;
-const GAS_USD=EXEC_GAS*CHAIN.gwei*1e-9*ETH_USD;   // ≈ $0.0098 on RH
-const MAX_GAS_OVERHEAD=0.05;                       // [PARAM] min shot = gas / 5%
-const MIN_SHOT=GAS_USD/MAX_GAS_OVERHEAD;           // ≈ $0.20 on RH/ARB, ≈ $0.06 on Base
-const PROMO_GAS=false;                             // no gas sponsorship: shots below the min are blocked
+/* Smallest BOOST, in dollars. Players pay network fees in USDG through DISCIPLE's paymaster (they never see or need ETH);
+   the engine books no modelled per-trade network fee anywhere (not in paper cash, not in the PnL cost basis) and the HUD
+   shows no fee line. (Was: a modelled ~$0.01 per-swap fee from gas units × gwei × an ETH price, charged to paper cash
+   and the cost basis and printed in the BUY panel; the minimum was derived from it.) */
+const MIN_SHOT=0.20;                               // [PARAM] minimum buy $ (sells are never size-filtered)
 // auto label: shot* ≈ 0.1% of quote depth x (≈0.2% price per press), snapped to nearest mode (log distance)
 /* AMMO TIERS — preset $ sizes scale with the rocket's mcap tier so each preset is a similar % impact.
    Single source of truth: web/lib/flight/ammoTiers.ts (documented in docs/ammo-tiers.md), handed to the engine as
@@ -475,7 +473,7 @@ function makeSource(){
 const S = {
   confirmed:{mcap:null, block:0, lastSwapTs:0, lastBlockTs:0},
   displayAlt:null, levels:[], pending:[], feed:[], volEma:0, buyEma:0, sellEma:0,
-  x:W/2, vx:0, tilt:0, tradeUsd:10, mode:0, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, simF:1, simT:1, simV:0, fwd:60, fwdV:0, fwdN:0, vyS:0, ry:H*0.58, anch:null, ammoHover:-1, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
+  x:W/2, vx:0, tilt:0, tradeUsd:10, mode:0, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, simF:1, simT:1, simV:0, fwd:60, fwdV:0, fwdN:0, vyS:0, ry:H*0.58, anch:null, ammoHover:-1, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
   orbsOn:localStorage.getItem('disciple.orbs')!=='off', lastOrbT:-99,
   tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
@@ -527,7 +525,7 @@ function onEvent(e){
     e=ownSellSwap(e); if(!e) return;   // @sellfill: own sell $ from the decoded receipt; already drawn from the receipt ⇒ skip
     S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
     if (S.displayAlt===null) S.displayAlt=mcapToAlt(e.mcap);
-    if(e.side==='buy'&&e.usd>0){ const who=e.mine?'you':e.trader?short(e.trader):['0xA11…ce','0xB0b…42','0xC4t…77'][Math.floor(Math.random()*3)]; S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }
+    if(e.side==='buy'&&e.usd>0){ const who=e.mine?'you':e.trader?short(e.trader):null; if(who) S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }   // no made-up wallet when the trader is unknown
     if(e.side==='sell'&&e.mine) S.fuelers.you=Math.max(0,S.fuelers.you-e.usd);
     if(e.mine&&e.side==='buy') award('first','FIRST FLAME','first confirmed thrust');
     if (e.side==='sell'&&e.usd>0){ const fs=e.mine&&S.fullStackNext; if(e.mine) S.fullStackNext=false; noteSell({side:'sell',usd:e.usd,prePrice:e.prePrice,postPrice:e.postPrice,impactPct:e.impactPct,trader:e.trader,mine:e.mine,fullStack:fs}); }
@@ -676,7 +674,7 @@ function simTrade(){
 }
 setTimeout(pushSim,0);
 const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced)
-function pushAmmo(){ try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
+function pushAmmo(){ noteBuyAmount(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
   name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
   const u=S.ammoOverride||AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
@@ -759,14 +757,16 @@ function trade(side,opt){
   if (liveFrac&&S.liveBag&&S.liveBag.tokens>0){ const v=S.liveBag.tokens*(markMcap()||0)/(source.supply||7e9); if(v>0) md={...md,usd:+(v*Math.min(1,opt.frac)).toFixed(2)}; }
   if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
   if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=MIN_SHOT && md.usd>=stack*0.98);
-  // MIN_SHOT gates BUYS only (gas vs a tiny net buy). A sell is never dropped by it: the bag is real (live: TradeBridge sizes
+  // MIN_SHOT gates BUYS only (the smallest buy). A sell is never dropped by it: the bag is real (live: TradeBridge sizes
   // it from balanceOf and sends a $0.01 placeholder when it can't price the bag yet), and the confirmed fill is drawn on the
   // chart from the real USDG received (feed swap / decoded receipt, @sellfill). (Was: a live % sell of a bag the ledger
   // didn't know went out as $0.01 and this guard swallowed it ⇒ no trade, nothing on the chart.)
-  if (side==='buy' && md.usd<MIN_SHOT && !source.isSim){   // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
-    if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
-    S.promoLeft--; }
-  if (side==='buy' && !window.__discipleTrade && !source.isSim && S.balance<md.usd){   /* SIMULATOR: the sim checks its own balance (tramps spend it too) */ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
+  if (side==='buy' && md.usd<MIN_SHOT && !source.isSim){ S.flashes.push({txt:`MINIMUM BUY ${fmtShot(MIN_SHOT)}`,life:1.6}); return; }   // SIMULATOR: no minimum
+  // BOOST cash check (paper: the paper balance; live: the account's cash pushed by TradeBridge as disciple:cash). Blocked
+  // here, before anything is sent, so a too-big BOOST never becomes a failed trade row. (Was: live buys went out and came
+  // back as "✕ not enough cash: need $100.00, have …" rows stacking in TRADES.)
+  if (side==='buy' && !source.isSim){ const cash=window.__discipleTrade?S.liveCash:S.balance;
+    if (typeof cash==='number' && Number.isFinite(cash) && cash+1e-9<md.usd){ S.flashes.push({txt:`NOT ENOUGH CASH · ${fmtShot(md.usd)} BOOST, you have ${fmtShot(Math.max(0,cash))}`,life:1.6}); return; } }
   // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
   applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(srcImpact(md.usd,side)-1)*100:undefined);
   submit(side, md.usd, false, opt);
@@ -782,7 +782,6 @@ function submit(side,usd,force,opt){
   const proj = source.impact? S.confirmed.mcap*srcImpact(S.tradeUsd,side) : S.confirmed.mcap;
   const p={id:Math.random(),side,usd:S.tradeUsd,proj,t0:now,state:'pending'}; S.pending.push(p);
   // no-signing model (fomo-style): ONE token approval at deposit, then shots run without per-trade signatures.
-  // Gas is a real per-swap cost (it sets MIN_SHOT); nothing is sponsored. In this prototype shots are PAPER only.
   // PnL ledger: fill at the marked price (paper: shown price; live: real) × average AMM execution √(impact)
   const fillMark=fillMcapEst(S.tradeUsd,side);
   // paper sells (no wallet, not the sim): a % sell sells exactly that share of the ledger's tokens; a $ sell never more than held
@@ -790,24 +789,24 @@ function submit(side,usd,force,opt){
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
   source.submitTrade(side,S.tradeUsd,o).then(r=>{
     p.state=r.ok?'confirmed':'failed';
-    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:r.gas||0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
+    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
     else if(r.ok&&r.exact){   // PAPER (mock / DISCIPLE, no wallet): exact curve/pool fill — spent $ (a curve-completing buy is refunded the rest), sell proceeds net of the fee
-      S.balance+=(side==='buy'?-r.usd:r.net)-GAS_USD;
+      S.balance+=(side==='buy'?-r.usd:r.net);
       if(r.refund>0.005) S.flashes.push({txt:`CURVE COMPLETE · ${fmtShot(r.refund)} REFUNDED`,life:1.8,c:'#9ff3c8'});
-      dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap*(S.simF||1),supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }
+      dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap*(S.simF||1),supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }
     else if(r.ok){
     // v3 pool sources (replay / live AI pool, paper on the real liquidity): fill = AMM average of the move the market
     // ACTUALLY made (√(pre·post) on a constant-product curve), on the shown scale. (Mock + DISCIPLE paper: exact branch above.)
     // (Was: mark × √(estimated impact) — DISCIPLE paper never moved the price and mock walls could absorb the move,
     //  so a $60K buy was booked far above the mark → uPnL deeply negative right after the buy.)
     const fm=r.pre>0&&r.post>0&&!isLive()?Math.sqrt(r.pre*r.post)*(S.simF||1):fillMark;
-    S.balance+= (side==='buy' ? -p.usd : p.usd*0.99) - GAS_USD;
+    S.balance+= (side==='buy' ? -p.usd : p.usd*0.99);
     // live: optimistic estimate now; TradeBridge decodes the receipt (UsdgTrade / Trade logs) → 'disciple:fillreceipt' and the
     // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
     const live=isLive()&&!!r.txHash;
-    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:GAS_USD,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
+    dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
-      S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f'}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
+      S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f',err:1}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
   });
 }
@@ -832,7 +831,30 @@ function setHotkeys(h){ if(!h) return;
 try{ const g=JSON.parse(localStorage.getItem('disciple.game.settings.v1')||'null'); if(g&&g.keys) setHotkeys(g.keys); }catch(_){}
 addEventListener('disciple:hotkeys',e=>setHotkeys(e.detail));
 S.customBuyUsd=0;
-addEventListener('disciple:custombuy',e=>{ const u=+(e.detail&&e.detail.usd); S.customBuyUsd=u>0&&Number.isFinite(u)?u:0; });
+addEventListener('disciple:custombuy',e=>{ const u=+(e.detail&&e.detail.usd); S.customBuyUsd=u>0&&Number.isFinite(u)?u:0; noteBuyAmount(); });
+/* @cash — BOOST vs cash. Live: TradeBridge pushes the account's cash ($, USDG) as disciple:cash {usd} (null = unknown);
+   paper: S.balance. activeBuyUsd() is what BOOST / SPACE would spend (custom $ wins over the selected preset).
+   When that amount changes, stale "✕ …" error rows (e.g. an earlier not-enough-cash failure) leave the TRADES feed. */
+S.liveCash=null;
+addEventListener('disciple:cash',e=>{ const u=e.detail&&e.detail.usd; S.liveCash=typeof u==='number'&&Number.isFinite(u)?u:null; });
+function activeBuyUsd(){ return S.customBuyUsd>0?S.customBuyUsd:(MODES[S.mode]||MODES[0]).usd; }
+function cashNow(){ return source.isSim?null:window.__discipleTrade?S.liveCash:S.balance; }
+function boostShort(){ const c=cashNow(), u=activeBuyUsd(); return typeof c==='number'&&Number.isFinite(c)&&c+1e-9<u; }
+function noteBuyAmount(){ const u=activeBuyUsd(); if(S._buyAmt!==undefined&&u!==S._buyAmt) keepIf(S.feed,r=>!r.err); S._buyAmt=u; }
+/* "PAPER $139.98" / "CASH $42.10" / "SIM $250.00", then the reason BOOST is blocked, if any — dollars only */
+function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
+  const head=source.isSim?`SIM ${fmtMoney(S.balance)}`:window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
+  if(!source.isSim&&u<MIN_SHOT) return `${head} · minimum buy ${fmtShot(MIN_SHOT)}`;
+  if(boostShort()) return `${head} · not enough cash for ${fmtShot(u)}`;
+  return head; }
+/* @cash-end */
+/* @rules — the coin's mode + wallet cap for the TIER line ("TRENCH · no cap", "EASY · cap 1%"). TradeBridge reads them
+   onchain (BondingCurve.mode() + netCapNow(); caps move with mcap after the mode-rules-v2 redeploy) and pushes
+   disciple:coinrules {ticker, mode, label}. Nothing is hardcoded here: no event → no rules text. */
+S.coinRules=null;
+addEventListener('disciple:coinrules',e=>{ const d=e.detail; S.coinRules=d&&typeof d==='object'?d:null; });
+function tierRulesText(){ const r=S.coinRules; return r&&typeof r.label==='string'?r.label.slice(0,28):''; }
+/* @rules-end */
 S.menuOpen=false;
 addEventListener('disciple:menu',e=>{ S.menuOpen=!!(e.detail&&e.detail.open); if(S.menuOpen) S.keys={}; });
 /** BOOST = buy the active amount: custom $ (trade bar) wins over the selected preset. */
@@ -1379,9 +1401,10 @@ function drawHud(){
   ctx.save(); ctx.textBaseline='alphabetic';
   // top-left: MCAP + tier
   panel(20,18,380,130);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:'MARKET CAP · confirmed',36,42);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed',36,42);
   ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
+  { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
   // progress to next tier
   drawTierBar(m,ti);   /* HUD+ block */
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
@@ -1402,7 +1425,7 @@ function drawHud(){
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+140+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
   // bottom-left: trade feed (compact)
   panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText(IS_POOL?'TRADES (real onchain + your paper)':'TRADES (onchain only)',36,H-138);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',36,H-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=H-116+i*17;
     if(r.ic){ drawIcon(r.ic,36,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),36+18,fy); } else ctx.fillText(r.txt.slice(0,38),36,fy); }); ctx.globalAlpha=1;
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
@@ -1427,8 +1450,7 @@ function drawHud(){
     { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,TW,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
     ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+TW-3,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
   ctx.font='11px ui-monospace,monospace';
-  if (MODES[S.mode].usd<MIN_SHOT&&!source.isSim){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
-  else { ctx.fillStyle='#9ff3c8'; ctx.fillText(source.isSim?`SIM ${fmtMoney(S.balance)} · no gas · no min shot`:`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
+  ctx.fillStyle=boostShort()||(activeBuyUsd()<MIN_SHOT&&!source.isSim)?'#ffb0c8':'#9ff3c8'; ctx.fillText(cashLineText(),ax+12,ay+72);
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
   { const sy=ay+80, sh=20; ctx.font='bold 10px ui-monospace,monospace'; ctx.fillStyle='rgba(255,176,200,.75)'; ctx.fillText('SELL',ax+12,sy+14);
     S.sellPresets.forEach((p,k)=>{ const bx=ax+50+k*86, R=AMMO_HIT[6+k], hov=S.ammoHover===6+k; R.x=bx; R.y=sy; R.w=82; R.h=sh;
@@ -2158,7 +2180,7 @@ function chartMine(side,m,tx){ const C=chartState(), k=tx?String(tx).toLowerCase
    · receipt first → own-fill marker + candle volume + feed row + bomb now, at the mark; the feed swap for that tx later only
      moves the price (no second marker / row / bomb);
    · feed swap first → drawn from the swap; its $ is the receipt's when the swap carried none.
-   Sells are never filtered by $ size (MIN_SHOT is a buy-side gas guard only). */
+   Sells are never filtered by $ size (MIN_SHOT is a buy-side minimum only). */
 S.rcpt=new Map(); S.rcptDrawn=new Set();
 function ownSellSwap(e){ if(!e||e.side!=='sell'||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
   if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,'sell'); }catch(_){} return null; }
@@ -2174,12 +2196,8 @@ function onFillReceipt(d){ if(!d||!d.txHash||d.side!=='sell') return; const usd=
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
-function chartPoolLabel(){
-  const base=(source.ticker||Q.get('ticker')||'COIN').toString().replace(/^\$/,'').split(/\s*\/\s*/)[0].slice(0,10).toUpperCase();
-  const quote=(source.quoteSymbol||Q.get('quote')||(IS_POOL?'WETH':'STRATEGY')).toString().slice(0,10).toUpperCase();
-  const bps=source.feeBps!=null?+source.feeBps:Q.get('feeBps')!=null?+Q.get('feeBps'):(+(Q.get('lpFeeBps')||0)+ +(Q.get('hookFeeBps')||100));
-  const fee=bps%100===0?(bps/100)+'%':(bps/100).toFixed(2).replace(/0$/,'')+'%';
-  return `${base}/${quote} ${fee}`; }
+/* chart title: "$TICKER" (or "PRICE" without one). (Was "COIN/STRATEGY 1%": pair + pool-fee jargon.) */
+function chartPoolLabel(){ const tk=coinTicker(); return tk?'$'+tk:'PRICE'; }
 const p2=n=>String(n).padStart(2,'0'), MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function chartTimeLabel(t,tf,live){ if(!live){ const s=Math.round(t); return Math.floor(s/60)+':'+p2(s%60); }
   const d=new Date(t*1000); return tf>=86400?MON[d.getMonth()]+' '+d.getDate():tf>=14400&&d.getHours()===0?MON[d.getMonth()]+' '+d.getDate():tf<60?p2(d.getMinutes())+':'+p2(d.getSeconds()):p2(d.getHours())+':'+p2(d.getMinutes()); }   /* sub-minute: mm:ss */
@@ -2374,6 +2392,8 @@ function CLEAN_TAG(){ return typeof CLEAN!=='undefined'&&CLEAN; }
    Reuses #50's clean-mode idea at runtime: everything gated here is simply not drawn (cheaper frames). */
 addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.cine=!!(d.on&&d.cine); S._grassA=S._grassA||0; });
 /* readout: "$TICKER · $8.8K MCAP" (ticker from the source, ?ticker or the coin page's ?cs call sign; "$8.8K MCAP" without one) */
+/* $TICKER for the HUD: the coin's own symbol (disciple:coinrules, read onchain by TradeBridge) else grassTicker() */
+function coinTicker(){ const r=S.coinRules, t=r&&typeof r.ticker==='string'?r.ticker.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,10}$/.test(t)?t:grassTicker(); }
 function grassTicker(){ const t=String(source.ticker||Q.get('ticker')||Q.get('cs')||'').replace(/^\$/,'').split(/\s*\/\s*/)[0].trim().toUpperCase(); return /^[A-Z0-9]{1,10}$/.test(t)?t:''; }
 function grassLine(m){ const tk=grassTicker(); return (tk?'$'+tk+' · ':'')+fmtUsd(m)+' MCAP'; }
 function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)+dt*0.8);
