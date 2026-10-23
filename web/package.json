@@ -40,6 +40,8 @@
     "test:op-race": "tsx scripts/test-op-race.mts",
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:paymaster": "tsx --test scripts/test-paymaster.mts",
+    "paymaster:keeper": "tsx scripts/paymaster-keeper.mts",
     "test:trade-errors": "tsx --test scripts/test-trade-errors.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
@@ -52,7 +54,8 @@
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
     "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
     "test:holders": "tsx --test scripts/test-holders.mts",
-    "test:usdg-fill": "tsx scripts/test-usdg-fill.mts"
+    "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
+    "test:paymaster-e2e": "tsx --conditions=react-server scripts/test-paymaster-e2e.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

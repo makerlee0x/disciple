@@ -70,6 +70,8 @@ export interface Deployment {
   defaultQuote: Address;
   /** USDG (or mock) — decimals are read on-chain, never assumed. */
   usdg: Address;
+  /** DisciplePaymaster (USDG token paymaster, EntryPoint v0.7). Zero ⇒ paymaster off, ops self-pay in ETH. */
+  paymaster: Address;
   /** First block to scan for events. */
   fromBlock: bigint;
 }
@@ -94,6 +96,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    paymaster: Z, // mainnet: not deployed (testnet only for now)
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
   // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (PR #97, v4 from main@fdd436b5, startBlock 137540728).
@@ -116,6 +119,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec; reused from v1)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
+    paymaster: addr(process.env.NEXT_PUBLIC_RHT_PAYMASTER), // DisciplePaymaster — set after the reviewed testnet deploy
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "137540728"),
   },
   [anvil.id]: {
@@ -137,6 +141,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     v4Quoter: Z, stateView: Z, universalRouter: Z, permit2: RH_V4.permit2,
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
     usdg: addr(process.env.NEXT_PUBLIC_ANVIL_USDG),
+    paymaster: addr(process.env.NEXT_PUBLIC_ANVIL_PAYMASTER),
     fromBlock: BigInt(0),
   },
 };

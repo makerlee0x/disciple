@@ -115,8 +115,16 @@ export type GasFields = {
 };
 const big = (x: string | bigint | undefined) => { try { return x === undefined || x === "" ? BigInt(0) : BigInt(x); } catch { return BigInt(-1); } };
 
+/** Plain copy for any infrastructure-side failure a user could see (no gas / ETH / paymaster / bundler wording). */
+export const TRADING_UNAVAILABLE = "Trading is temporarily unavailable — try again shortly.";
+/** Plain copy when the account's USDG can't cover the trade plus its network cost. */
+export const NOT_ENOUGH_USDG = "Not enough USDG — deposit more.";
+/** Infrastructure wording that must never reach the UI verbatim. */
+export const INFRA_WORDING = /\bgas\b|gaslimit|paymaster|bundler|sponsor|prefund|\bETH\b|\bwei\b|entry ?point|userop|AA3[0-9]/i;
+
 export class RelayPolicyError extends Error {
-  constructor(msg: string, public code: "fee" | "gas") { super(msg); }
+  /** `detail`: internal reason for logs (may name gas / paymaster); `message` is what a client can show. */
+  constructor(msg: string, public code: "fee" | "gas" | "paymaster", public detail?: string) { super(msg); }
 }
 
 /** Total gas the op may consume (what the EntryPoint prefunds). */
@@ -150,6 +158,22 @@ export function checkOpGas(op: GasFields, baseFee: bigint, caps: GasCaps = GAS_C
   const total = totalGas(op);
   if (total > caps.total) throw new RelayPolicyError(`total gas ${total} above cap ${caps.total}`, "gas");
   return total;
+}
+
+/**
+ * Paymaster ops (DisciplePaymaster, USDG gas): the EntryPoint takes the prefund from the PAYMASTER's deposit, not the
+ * sender (who holds no ETH), and refunds the relayer from it. Only our own paymaster is accepted (a foreign one could
+ * fail validation on-chain and leave the relayer paying), and its deposit must cover the op's max prefund priced at
+ * >= the relayer floor, else handleOps reverts AA31 at the relayer's expense. No-op for self-pay ops.
+ */
+export function checkPaymaster(op: GasFields, allowed: string | undefined, deposit: bigint, baseFee: bigint): void {
+  if (!op.paymaster) return;
+  // Client-visible message is plain (Lee: users never see gas wording); the reason rides in `detail` for logs.
+  if (!allowed || op.paymaster.toLowerCase() !== allowed.toLowerCase())
+    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster ${op.paymaster} not accepted (DisciplePaymaster only)`);
+  const need = maxPrefund(op, relayerPrice(baseFee));
+  if (deposit < need)
+    throw new RelayPolicyError(TRADING_UNAVAILABLE, "paymaster", `paymaster deposit too low: ${deposit} < ${need} wei (keeper top-up pending)`);
 }
 
 /**

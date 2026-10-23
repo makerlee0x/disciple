@@ -103,6 +103,12 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     ///         address(0) disables P_REFERRAL entirely.
     address public immutable referralRegistry;
 
+    /// @notice DISCIPLE USDG token paymaster (EntryPoint v0.7). Fixed per deployment (immutable) so the SessionConfig
+    ///         ABI is unchanged. The session key may approve it USDG only for EXACTLY the signed `maxTokenCost` in the
+    ///         same userOp's paymasterAndData, and that amount counts against the USDG spend cap (the gas fee's upper
+    ///         bound; the paymaster pulls the actual cost ≤ it). address(0) disables paymaster approvals.
+    address public immutable paymaster;
+
     /// @notice Install-time session configuration (abi-encoded after the uint32 entityId in onInstall data).
     struct SessionConfig {
         uint48 validUntil; // unix seconds; 0 is rejected
@@ -157,9 +163,11 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     error QuoteFailed(address target);
     error WalletNotAccount();
     error UsdgApproveNotExact(uint256 amount, uint256 required);
+    error PaymasterApproveNotExact(uint256 amount, uint256 required);
 
-    constructor(address referralRegistry_) {
+    constructor(address referralRegistry_, address paymaster_) {
         referralRegistry = referralRegistry_;
+        paymaster = paymaster_;
     }
 
     // ───────────────────────── install / uninstall / revoke ─────────────────────────
@@ -207,7 +215,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.3.0";
+        return "disciple.session-policy.1.4.0";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -261,7 +269,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         uint256 add1;
         address usdg = _usdgOf(s.cfg);
         for (uint256 i; i < calls.length; ++i) {
-            (uint256 a0, uint256 a1) = _fullCheck(s.cfg, msg.sender, calls[i], usdg, calls);
+            (uint256 a0, uint256 a1) = _isPaymasterApprove(calls[i])
+                ? _paymasterApprove(s.cfg, calls[i], usdg, data)
+                : _fullCheck(s.cfg, msg.sender, calls[i], usdg, calls);
             add0 += a0;
             add1 += a1;
         }
@@ -310,6 +320,50 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         if (inner.length < 4) revert OnlyExecuteCalls();
         if (bytes4(inner[:4]) != EXECUTE_USER_OP) revert OnlyExecuteCalls();
         return inner[4:];
+    }
+
+    /// @dev `approve(paymaster, …)` on any token (only USDG is then accepted by _paymasterApprove).
+    function _isPaymasterApprove(Call memory k) internal view returns (bool) {
+        if (paymaster == address(0) || k.data.length < 68 || _sel(k.data) != APPROVE) return false;
+        uint256 w;
+        bytes memory d = k.data;
+        assembly {
+            w := mload(add(d, 36))
+        }
+        return w == uint256(uint160(paymaster));
+    }
+
+    /// @dev USDG gas-fee approval to the DISCIPLE paymaster: exact signed maxTokenCost, counted against the USDG cap.
+    function _paymasterApprove(SessionConfig storage c, Call memory k, address usdg, bytes calldata data)
+        internal
+        view
+        returns (uint256, uint256)
+    {
+        if (k.value != 0) revert EthValueNotAllowed();
+        if (c.permissions & P_APPROVE == 0) revert NotAllowed(k.target, APPROVE);
+        if (usdg == address(0) || k.target != usdg) revert SpenderNotAllowed(paymaster);
+        (, uint256 amt) = abi.decode(_args(k.data), (address, uint256));
+        if (amt == 0) return (0, 0); // revoke
+        uint256 need = _paymasterMaxCost(data);
+        if (amt != need) revert PaymasterApproveNotExact(amt, need);
+        return _spend(c, usdg, amt);
+    }
+
+    /// @dev maxTokenCost from the executing userOp's paymasterAndData (DisciplePaymaster layout:
+    ///      paymaster(20)|pmGas(32)|validUntil(6)|validAfter(6)|rate(32)|maxTokenCost(32)|sig(65)).
+    ///      Only on the userOp path (MAv2 passes the executeUserOp msg.data); otherwise refused.
+    function _paymasterMaxCost(bytes calldata data) internal view returns (uint256) {
+        if (data.length < 68 || bytes4(data[:4]) != EXECUTE_USER_OP) revert SpenderNotAllowed(paymaster);
+        bytes calldata args = data[4:];
+        uint256 rel = uint256(bytes32(args[:32]));
+        if (rel > args.length - 32) revert SpenderNotAllowed(paymaster);
+        PackedUserOperation calldata op;
+        assembly ("memory-safe") {
+            op := add(args.offset, rel)
+        }
+        bytes calldata pmd = op.paymasterAndData;
+        if (pmd.length != 193 || address(bytes20(pmd[:20])) != paymaster) revert SpenderNotAllowed(paymaster);
+        return uint256(bytes32(pmd[96:128]));
     }
 
     /// @dev Decodes `execute` / `executeBatch` account calldata. Anything else is rejected.
@@ -450,7 +504,9 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
                 if (sel == LAUNCH || sel == LAUNCH_COIN || sel == LAUNCH_MODE || sel == ANON_LAUNCH) {
                     (address q, uint256 a) = _launchSpend(c, args);
                     if (q == usdg) need += a;
-                    if (sel == ANON_LAUNCH && IAnonFee(spender).feeToken() == usdg) need += IAnonFee(spender).launchFee();
+                    if (sel == ANON_LAUNCH && IAnonFee(spender).feeToken() == usdg) {
+                        need += IAnonFee(spender).launchFee();
+                    }
                 }
             } else if (sel == CURVE_BUY3 || sel == CURVE_BUY4) {
                 // spender is a registry-verified curve (checked by the caller)
@@ -539,11 +595,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
 
     /// @dev BondingCurve.quoteBuyFor / quoteSellFor(account, …) return all-static structs whose first word is the net
     ///      output, with the account's mode caps / PVE login / PVE profit tax applied (audit Medium-2).
-    function _curveQuote(address curve, address account, bool isBuy, uint256 amountIn)
-        internal
-        view
-        returns (uint256)
-    {
+    function _curveQuote(address curve, address account, bool isBuy, uint256 amountIn) internal view returns (uint256) {
         (bool ok, bytes memory r) = curve.staticcall(
             abi.encodeWithSignature(
                 isBuy ? "quoteBuyFor(address,uint256)" : "quoteSellFor(address,uint256)", account, amountIn

@@ -2,7 +2,7 @@
 //   pnpm test:relay-policy   (pure: no RPC, no live endpoint)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkOpGas, clientFees, GAS_CAPS, maxPrefund, MIN_PRE_VERIFICATION_GAS, relayerPrice, relayerTxFees, RELAYER_TIP, RelayPolicyError, totalGas } from "../lib/aa/gasPolicy";
+import { checkOpGas, checkPaymaster, clientFees, GAS_CAPS, maxPrefund, MIN_PRE_VERIFICATION_GAS, relayerPrice, relayerTxFees, RELAYER_TIP, RelayPolicyError, totalGas } from "../lib/aa/gasPolicy";
 import { hitLimit, memoryCounter, clientIp, type CounterStore } from "../lib/server/limits";
 import { STATIC_GAS, FeeCache } from "../lib/aa/fastPath";
 
@@ -87,6 +87,23 @@ test("rate limiter: fixed window per key, retry-after, store errors fall back to
   assert.equal(clientIp(h({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" })), "1.2.3.4");
   assert.equal(clientIp(h({ "x-real-ip": "5.6.7.8", "x-forwarded-for": "1.2.3.4" })), "5.6.7.8");
   assert.equal(clientIp(h({})), "unknown");
+});
+
+test("paymaster ops: only our paymaster, deposit must cover the max prefund at >= the relayer floor; self-pay untouched", () => {
+  const PM = "0x1111111111111111111111111111111111111111";
+  const o = op({ paymasterVerificationGasLimit: 120_000, paymasterPostOpGasLimit: 80_000 });
+  const pmOp = { ...o, paymaster: PM };
+  const need = maxPrefund(pmOp, relayerPrice(BASE));
+  checkPaymaster(o, undefined, BigInt(0), BASE); // no paymaster: no-op
+  checkPaymaster(pmOp, PM.toUpperCase().replace("0X", "0x"), need, BASE);
+  const bad = (fn: () => void) => assert.throws(fn, (e: unknown) => e instanceof RelayPolicyError && e.code === "paymaster");
+  bad(() => checkPaymaster(pmOp, PM, need - BigInt(1), BASE));
+  bad(() => checkPaymaster(pmOp, undefined, need, BASE));
+  bad(() => checkPaymaster({ ...pmOp, paymaster: "0x2222222222222222222222222222222222222222" }, PM, need, BASE));
+  // a fee-0 paymaster op is priced at the relayer floor, not at 0
+  bad(() => checkPaymaster({ ...pmOp, maxFeePerGas: "0x0" }, PM, BigInt(1), BASE));
+  // paymaster gas limits count toward the prefund and the caps
+  assert.equal(totalGas(pmOp), totalGas(o) + BigInt(200_000));
 });
 
 // ---- FLOW 1: launch-specific caps (≈ 7.9M estimated launch gas was rejected by the 3M / 4M W-1 caps)
