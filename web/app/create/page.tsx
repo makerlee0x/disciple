@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { PSEUDONYMOUS_COPY } from "@/lib/anon";
+import { PRIVATE_COPY } from "@/lib/anon";
+import { newStealthOwner } from "@/lib/privateLaunch";
+
+// AnonLauncher v2 launchFee (0.25 USDG on testnet; launchCoin reads the live value and approves exactly that).
+const PRIVATE_LAUNCH_FEE = "$0.25";
 import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
@@ -52,7 +56,8 @@ export default function LaunchRocketPage() {
   const [feeReceiver, setFeeReceiver] = useState("");
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
-  const [pseudonymous, setPseudonymous] = useState(false);
+  // Private launch (AnonLauncher v2): stealth on-chain creator; TRENCH WARFARE only; fees claimed privately on /creator.
+  const [privateLaunch, setPrivateLaunch] = useState(false);
   // First BOOST (creator launch buy): human amount in the pair token; validated by FirstBoostField.
   const [boost, setBoost] = useState("");
   const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), error: null, ready: true });
@@ -161,6 +166,7 @@ export default function LaunchRocketPage() {
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
     try {
       const client = isDeployed() ? createViemProtocol() : protocolStub;
+      const priv = privateLaunch && isDeployed() ? await newStealthOwner() : undefined;
       const res = await client.launchCoin({
         name: name.trim(),
         ticker: callSign.trim().toUpperCase(),
@@ -169,9 +175,10 @@ export default function LaunchRocketPage() {
         creatorTaxPct: effTax,
         creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
         socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
-        mode: LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
+        mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
+        private: priv,
       });
-      if (fr && isDeployed()) {
+      if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
           setLaunched(`Launched ${res.token}. Assigning fee receiver ${fr.slice(0, 8)}… (one more confirmation)`);
@@ -257,7 +264,7 @@ export default function LaunchRocketPage() {
         <FirstBoostField
           pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
           ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-          mode={LAUNCH_ABI_SHAPE === "modes" ? gameMode : LaunchMode.TRENCH_WARFARE}
+          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE}
         />
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -271,13 +278,13 @@ export default function LaunchRocketPage() {
           </label>
         </div>
 
-        <label className="block">
+        {!privateLaunch && <label className="block">
           <span className={labelCls}>FEE RECEIVER WALLET <span className="normal-case opacity-70">(optional — defaults to the deployer)</span></span>
           <input className={`${inputCls} font-mono`} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="0x… (leave empty to receive fees yourself)" />
           <span className="muted tiny block mt-1">Set via Launchpad.transferCreator right after launch (one extra confirmation). That wallet becomes the rocket&apos;s creator and receives creator fees.</span>
-        </label>
+        </label>}
 
-        {LAUNCH_ABI_SHAPE === "modes" && (
+        {LAUNCH_ABI_SHAPE === "modes" && !privateLaunch && (
           <fieldset className="block">
             <legend className={labelCls}>GAME MODE <span className="normal-case opacity-70">(permanent, curve only)</span></legend>
             <div className="grid gap-2 md:grid-cols-3">
@@ -297,7 +304,7 @@ export default function LaunchRocketPage() {
           onClick={() => setAdvanced((a) => !a)}
           className="flex w-full items-center justify-between rounded-xl border border-[rgba(201,206,214,.25)] px-3 py-2 text-xs tracking-wider text-[#C9CED6]"
         >
-          <span>ADVANCED · creator tax &amp; pseudonymous</span>
+          <span>ADVANCED · creator tax &amp; private launch</span>
           <span><Icon name={advanced ? "chevron-up" : "chevron-down"} size={16} /> {advanced ? "ON" : "OFF"}</span>
         </button>
 
@@ -308,10 +315,11 @@ export default function LaunchRocketPage() {
               <input type="number" min={0} max={CURVE.creatorTaxMaxPct} step={0.1} className={inputCls} value={tax} onChange={(e) => setTax(+e.target.value)} />
             </label>
             <label className="flex items-start gap-2 text-xs">
-              <input type="checkbox" checked={pseudonymous} onChange={(e) => setPseudonymous(e.target.checked)} />
+              <input type="checkbox" data-testid="private-launch" checked={privateLaunch} onChange={(e) => setPrivateLaunch(e.target.checked)} />
               <span>
-                <span className={labelCls}>PSEUDONYMOUS CREATOR (beta)</span>
-                <span className="block text-[rgba(232,234,238,.7)]">{PSEUDONYMOUS_COPY}</span>
+                <span className={labelCls}>PRIVATE LAUNCH</span>
+                <span className="block text-[rgba(232,234,238,.7)]">{PRIVATE_COPY}</span>
+                {privateLaunch && <span className="block text-[rgba(232,234,238,.7)]">Private rockets fly in TRENCH WARFARE mode and pay creator fees to you, not a separate fee receiver. Claim them on your creator page. Includes a {PRIVATE_LAUNCH_FEE} private launch fee.</span>}
               </span>
             </label>
           </div>

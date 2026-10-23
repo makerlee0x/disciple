@@ -122,6 +122,10 @@ export async function syncSessionFromChain() {
     const r = await publicClient().readContract({ address: SESSION_POLICY, abi: sessionOfAbi, functionName: "sessionOf", args: [s0.account, s0.entityId] });
     if (onchain !== s0) return;   // changed meanwhile
     if (!r.active) { onchain = null; sa?.clearSession(); saveSessionKey(); changed(); void maybeAutoOneTap("inactive"); return; }
+    // Sessions installed against AnonLauncher v1 (before v2 became the default): drop the cached key and reinstall in
+    // the background (owner signs silently). Trades keep working meanwhile: no session ⇒ the owner signs them.
+    const al = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
+    if (al && r.cfg.anonLauncher.toLowerCase() !== al.toLowerCase()) { onchain = null; sa?.clearSession(); saveSessionKey(); autoTried = false; changed(); void maybeAutoOneTap("anon-launcher-v2"); return; }
     const caps: Record<string, string> = {}, spent: Record<string, string> = {};
     if (!/^0x0{40}$/i.test(r.cfg.quote0)) { caps[r.cfg.quote0.toLowerCase()] = r.cfg.cap0.toString(); spent[r.cfg.quote0.toLowerCase()] = r.spent0.toString(); }
     if (!/^0x0{40}$/i.test(r.cfg.quote1)) { caps[r.cfg.quote1.toLowerCase()] = r.cfg.cap1.toString(); spent[r.cfg.quote1.toLowerCase()] = r.spent1.toString(); }
