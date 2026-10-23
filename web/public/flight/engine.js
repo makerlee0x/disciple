@@ -239,7 +239,7 @@ class MockReplaySource {
     const hash='0x'+Math.random().toString(16).slice(2,14);
     const delay=180+Math.random()*700;          // bundler + 1-3 RH blocks
     return new Promise(res=>setTimeout(()=>{
-      if (Math.random()<0.06) return res({ok:false,hash,reason:'slippage guard (amountOutMin)'});
+      if (Math.random()<0.06) return res({ok:false,hash,reason:'price moved too far (price protection)'});
       const f=this.paperTrade(side,usd,o,hash); if(!f.ok) return res({ok:false,hash,reason:f.reason});
       res({ok:true,hash,block:this.block,exact:true,pre:f.pre,post:f.post,usd:f.usd,net:f.net,tokens:f.tokens,fillMcap:f.fillMcap,refund:f.refund});
     },delay)).then(r=>r).catch(e=>({ok:false,hash,reason:String(e)}));
@@ -806,7 +806,7 @@ function submit(side,usd,force,opt){
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
-      S.feed.unshift({txt:(pre?'✕ tx reverted: ':'✕ ')+why,c:'#ff8f8f',err:1}); S.flashes.push({txt:(pre?'TX REVERTED · ':'TRADE FAILED · ')+why,life:1.6}); }
+      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:'TRADE FAILED · '+why,life:1.6}); }
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
   });
 }
@@ -1420,7 +1420,7 @@ function drawHud(){
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
-  const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS · on-chain balances':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
+  const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   else { panel(RX,RT+100,310,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
