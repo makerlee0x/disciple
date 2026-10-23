@@ -23,6 +23,10 @@ interface IRewardsVault {
     function notifyReward(address token, address asset, uint256 amount) external;
 }
 
+interface ILaunchpadRouterCheck {
+    function isTrustedRouter(address r) external view returns (bool);
+}
+
 contract FeeRouter is IFeeRouter, Owned2Step {
     using SafeERC20 for IERC20;
 
@@ -262,6 +266,19 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         address quote = _quoteOf(token);
         IERC20(quote).safeTransfer(msg.sender, amount);
         emit CreatorFeesClaimed(token, msg.sender, amount);
+    }
+
+    /// @notice Trusted-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
+    ///         side of `creator`'s accrued fees to the ROUTER, which swaps it to USDG for the creator in the same tx.
+    ///         Only Launchpad.isTrustedRouter(msg.sender); the router passes its own msg.sender as `creator`.
+    function claimCreatorFeesFor(address token, address creator) external returns (uint256 amount) {
+        address lp = launchpad;
+        if (lp == address(0) || !ILaunchpadRouterCheck(lp).isTrustedRouter(msg.sender)) revert OnlyAuthorized();
+        amount = creatorAccrued[token][creator];
+        if (amount == 0) revert NothingToClaim();
+        creatorAccrued[token][creator] = 0;
+        IERC20(_quoteOf(token)).safeTransfer(msg.sender, amount);
+        emit CreatorFeesClaimed(token, creator, amount);
     }
 
     /// @notice Creator share accrued in the launch token itself (post-graduation buys pay the hook fee in token).
