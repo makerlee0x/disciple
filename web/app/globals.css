@@ -1242,11 +1242,13 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .lp-av2 .lp-av-check { top: -5px; right: -5px; bottom: auto; }
 .hold-tok { display: flex; align-items: center; gap: 10px; }
 /* sits over the tier sky plate: v2 panel scrim + blur, secondary line in --dsc-muted-on-sky (≥4.85:1 behind the scrim) */
-.coin-id { position: fixed; left: 8px; bottom: 12px; z-index: 60; display: flex; align-items: center; gap: 8px; padding: 4px; max-width: 200px; border-radius: 14px; background: var(--dsc-gradient-scrim-panel); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgba(201,206,214,.28); pointer-events: none; }
-.coin-id-txt { display: none; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.25; color: #E8EAEE; white-space: nowrap; }
+/* coin name + ticker docked right under the engine's MARKET CAP panel (canvas 20,18 → 400,148 from the rail), above the
+   YOUR RUN panel (PnlHud top 212): the name reads with the market cap instead of a bare icon in the bottom-left corner */
+.coin-id { position: fixed; left: calc(var(--ap-rail-w, 64px) + 20px); top: 156px; z-index: 60; display: flex; align-items: center; gap: 8px; padding: 4px; max-width: 380px; padding-right: 12px; border-radius: 14px; background: var(--dsc-gradient-scrim-panel); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgba(201,206,214,.28); pointer-events: none; }
+.coin-id-txt { display: flex; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.25; color: #E8EAEE; white-space: nowrap; }
 .coin-id-txt b { font: 700 13px var(--dsc-font-ui); color: #E8EAEE; overflow: hidden; text-overflow: ellipsis; }
 .coin-id-txt span { color: var(--dsc-muted-on-sky); font-weight: 600; }
-@media (max-width: 760px) { .coin-id { left: 66px; top: 10px; bottom: auto; padding: 3px; } }
+@media (max-width: 760px) { .coin-id { left: 66px; top: 10px; bottom: auto; padding: 3px; max-width: 200px; } .coin-id-txt { display: none; } }
 
 /* —— Rocket factory v2: full-bleed hangar scene above the part pickers —— */
 .factory-below { padding-top: 18px; }

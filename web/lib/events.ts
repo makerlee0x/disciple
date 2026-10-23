@@ -105,36 +105,96 @@ export function mcapOrderer(emit: Cb) {
 }
 export type McapOrderer = ReturnType<typeof mcapOrderer>;
 
+/** RH testnet RPC: ~4 blocks/s, no eth_newFilter, and its load-balanced nodes lag each other by a few blocks. */
+const LIVE_POLL_MS = 1500;
+/** Blocks re-scanned on every poll (≈30 s at 4 blocks/s): logs a lagging node didn't have yet are picked up next time. */
+const LIVE_RESCAN_BLOCKS = BigInt(120);
+
+/**
+ * Lag-tolerant log poller. viem's watchContractEvent falls back to getLogs(previous+1 … head) when the RPC has no
+ * filters (RH testnet), then moves `previous` to `head` even when the getLogs landed on a node that was still a few
+ * blocks behind (it answers [] for blocks it doesn't have yet, no error) ⇒ that trade never reached the engine (TRADES
+ * empty after a buy, mcap/rocket only caught up at the next 8 s reconcile). Here every poll re-scans the last
+ * LIVE_RESCAN_BLOCKS and dedupes by tx:logIndex, and starts at `fromBlock` (the block the page read its state at), so no
+ * trade between the state read and the first poll is skipped either. `kick()` polls now (own trade just landed).
+ */
+export function pollLogs(o: {
+  pc: PublicClient; fromBlock: bigint; fetch: (from: bigint, to: bigint) => Promise<L[]>; onLogs: (logs: L[]) => void;
+  everyMs?: number; rescan?: bigint;
+}): { stop: () => void; kick: () => void } {
+  const rescan = o.rescan ?? LIVE_RESCAN_BLOCKS;
+  let head = o.fromBlock - BigInt(1), alive = true, busy = false, again = false;
+  const seen = new Map<string, bigint>();
+  const tick = async () => {
+    if (!alive) return;
+    if (busy) { again = true; return; }
+    busy = true;
+    try {
+      const h = await o.pc.getBlockNumber();
+      if (h > head) head = h;
+      const lo = head - rescan, from = lo > o.fromBlock ? lo : o.fromBlock;
+      if (from <= head) {
+        const logs = await o.fetch(from, head);
+        const fresh = logs.filter((l) => {
+          const k = `${l.transactionHash}:${l.logIndex}`;
+          if (seen.has(k)) return false;
+          seen.set(k, l.blockNumber ?? head); return true;
+        }).sort((a, b) => Number(tradeKey({ block: a.blockNumber ?? BigInt(0), logIndex: a.logIndex ?? 0 }) - tradeKey({ block: b.blockNumber ?? BigInt(0), logIndex: b.logIndex ?? 0 })));
+        for (const [k, b] of seen) if (b < from) seen.delete(k);
+        if (alive && fresh.length) o.onLogs(fresh);
+      }
+    } catch { /* RPC hiccup: the rescan window covers it next poll */ }
+    finally { busy = false; if (again && alive) { again = false; void tick(); } }
+  };
+  const iv = setInterval(tick, o.everyMs ?? LIVE_POLL_MS);
+  void tick();
+  return { stop: () => { alive = false; clearInterval(iv); }, kick: () => { void tick(); } };
+}
+
 /**
  * Per-coin trade stream: curve Trade + GraduatedToV4, and the hook's Trade for this token
  * (post-grad swaps from DiscipleRouter or any third-party router). Batches are processed strictly in arrival
  * order (one promise chain) and the lens scale is cached, so a slow RPC can't reorder a DUMP behind older buys.
+ * `fromBlock`: first block to stream (DiscipleFeed passes the block after its state read). Own trades (TradeBridge
+ * "disciple:livetrade" / "disciple:fillreceipt") trigger an immediate poll.
  */
-export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: PublicClient = publicClient(), order: McapOrderer = mcapOrderer(cb)): Promise<() => void> {
+export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: PublicClient = publicClient(), order: McapOrderer = mcapOrderer(cb), fromBlock?: bigint): Promise<() => void> {
   const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
-  const stops: (() => void)[] = [];
+  const start = fromBlock ?? (await pc.getBlockNumber()) + BigInt(1);
+  const stops: (() => void)[] = [], kicks: (() => void)[] = [];
   let chain: Promise<void> = Promise.resolve();
   const inOrder = (f: () => Promise<void> | void) => { chain = chain.then(f).catch(() => undefined); };
   let scale: { k: number | undefined; at: number } | null = null;
   const scaleNow = async () => { if (!scale || Date.now() - scale.at > 15_000) scale = { k: await lensScale(token, pc).catch(() => scale?.k), at: Date.now() }; return scale.k; };
 
-  stops.push(pc.watchContractEvent({
-    address: curve, abi: bondingCurveAbi,
+  const c = pollLogs({
+    pc, fromBlock: start,
+    fetch: (from, to) => pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>,
     onLogs: (logs) => inOrder(() => {
-      for (const l of logs as L[]) {
+      for (const l of logs) {
         if (l.eventName === "GraduatedToV4") order.trade({ type: "Graduate", token, poolId: l.args.poolId as `0x${string}` });
         else if (l.eventName === "Trade") order.trade(tradeFromLog(l, qp, "curve"));
       }
     }),
-  }));
+  });
+  stops.push(c.stop); kicks.push(c.kick);
 
   const hook = deployment().hook;
-  if (hook !== "0x0000000000000000000000000000000000000000")
-    stops.push(pc.watchContractEvent({
-      address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token },
-      onLogs: (logs) => inOrder(async () => { const k = await scaleNow(); for (const l of logs as L[]) order.trade(tradeFromLog(l, qp, "hook", k)); }),
-    }));
+  if (hook !== "0x0000000000000000000000000000000000000000") {
+    const h = pollLogs({
+      pc, fromBlock: start,
+      fetch: (from, to) => pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>,
+      onLogs: (logs) => inOrder(async () => { const k = await scaleNow(); for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k)); }),
+    });
+    stops.push(h.stop); kicks.push(h.kick);
+  }
 
+  if (typeof window !== "undefined") {
+    // own trade: poll right away and again shortly after (the receipt node can be ahead of the getLogs node)
+    const own = () => { kicks.forEach((k) => k()); setTimeout(() => kicks.forEach((k) => k()), 700); };
+    window.addEventListener("disciple:livetrade", own); window.addEventListener("disciple:fillreceipt", own);
+    stops.push(() => { window.removeEventListener("disciple:livetrade", own); window.removeEventListener("disciple:fillreceipt", own); });
+  }
   return () => stops.forEach((s) => s());
 }
 
