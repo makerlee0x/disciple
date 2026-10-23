@@ -37,13 +37,13 @@ contract SessionReferralTest is DiscipleSessionPolicyTest {
         _reinstall(_refCfg());
         MockMAv2.Call[] memory cs = new MockMAv2.Call[](3);
         cs[0] = _attr(address(acct), ref);
-        cs[1] = _approve(address(usdg), address(router), 10e18);
-        cs[2] = _buy(10e18, address(acct));
+        cs[1] = _approve(address(usdg), address(router), 10 * U);
+        cs[2] = _buy(10 * U, address(acct));
         vm.prank(key);
         acct.executeBatch(cs);
         assertEq(registry.pendingReferrer(address(acct)), ref);
-        assertEq(rocket.balanceOf(address(acct)), 1010e18);
-        assertEq(policy.sessionOf(address(acct), E).spent0, 10e18);
+        assertEq(rocket.balanceOf(address(acct)), 1010 * U);
+        assertEq(policy.sessionOf(address(acct), E).spent0, 10 * U);
     }
 
     function test_userOpPathAllowsAttribute() public {
@@ -102,7 +102,7 @@ contract SessionReferralTest is DiscipleSessionPolicyTest {
     function test_revert_buyStillPinnedToAccount() public {
         _reinstall(_refCfg());
         _expectBatchRevert(
-            abi.encodeWithSelector(P.RecipientNotAccount.selector), _attr(address(acct), ref), _buy(10e18, attacker)
+            abi.encodeWithSelector(P.RecipientNotAccount.selector), _attr(address(acct), ref), _buy(10 * U, attacker)
         );
     }
 
