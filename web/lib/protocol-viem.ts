@@ -63,12 +63,20 @@ const sessionErrors = parseAbi([
   "error QuoteFailed(address target)",
   "error SessionInactive()", "error SessionExpired()", "error NotAllowed(address target, bytes4 selector)",
   "error UsdgApproveNotExact(uint256 amount, uint256 required)", "error RecipientNotAccount()", "error SpenderNotAllowed(address spender)",
+  // EntryPoint v0.7 handleOps simulation: the inner bytes of FailedOpWithRevert are the account's / policy's revert
+  "error FailedOp(uint256 opIndex, string reason)", "error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner)",
+  // Uniswap v4 (post-grad sells through the router): slippage / price-limit reverts
+  "error V4TooLittleReceived(uint256 minAmountOutReceived, uint256 amountReceived)", "error V4TooMuchRequested(uint256 maxAmountInRequested, uint256 amountRequested)",
+  "error WrappedError(address target, bytes4 selector, bytes reason, bytes details)",
 ]);
 function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[] } | null {
   if (!data) return null;
   try {   // unwrap the account's hook wrapper to the policy's own error
     const w = decodeErrorResult({ abi: sessionErrors, data });
     if (/HookReverted$/.test(w.errorName)) return decodeRevert((w.args as readonly unknown[])[1] as Hex) ?? { errorName: w.errorName };
+    if (w.errorName === "FailedOpWithRevert") return decodeRevert((w.args as readonly unknown[])[2] as Hex) ?? { errorName: "FailedOp", args: [(w.args as readonly unknown[])[1]] };
+    if (w.errorName === "FailedOp") return { errorName: "FailedOp", args: [(w.args as readonly unknown[])[1]] };
+    if (w.errorName === "WrappedError") return decodeRevert((w.args as readonly unknown[])[2] as Hex) ?? { errorName: w.errorName };
     return { errorName: w.errorName, args: w.args as readonly unknown[] | undefined };
   } catch { /* not a session error */ }
   for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors, modesErrorsAbi] as const) {
@@ -77,14 +85,22 @@ function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[
   return null;
 }
 
+/** Revert names meaning "price moved past minOut" (curve, router, v4, session policy): retried once with a fresh quote. */
+export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMuchRequested)$/;
+
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
-  const est = (e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError") && (e as AAError).code === "Estimate" ? (e as AAError) : null;
-  if (est) {
-    const d = decodeRevert(est.extra?.revertData as Hex | undefined);
+  const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  const est = isAA && (e as AAError).code === "Estimate" ? (e as AAError) : null;
+  const rv = isAA && (e as AAError).code === "Reverted" ? (e as AAError) : null;
+  if (est || rv) {
+    const raw = (est ?? rv)!.extra?.revertData as Hex | undefined;
+    const d = decodeRevert(raw);
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
-    else return new ProtocolError("Estimate", est.message);
+    // FLOW 2: unknown revert ⇒ keep the real payload (selector) instead of a bare "simulation failed"
+    else if (est) return new ProtocolError("Estimate", raw && raw.length >= 10 && !est.message.includes(raw.slice(0, 10)) ? `${est.message} (revert ${raw.slice(0, 10)})` : est.message);
+    else return new ProtocolError("Reverted", raw && raw.length >= 10 ? `${rv!.message} — revert ${raw.slice(0, 10)}` : rv!.message);
   }
   if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
@@ -123,9 +139,12 @@ export function friendlyError(e: unknown): ProtocolError {
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
       SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
+      V4TooLittleReceived: "Price moved too much. Try again or raise slippage.",
+      V4TooMuchRequested: "Price moved too much. Try again or raise slippage.",
+      FailedOp: `Couldn't validate the trade${args?.[0] ? ` (${String(args[0])})` : ""}. Try again.`,
       Error: args?.[0] ? String(args[0]) : "reverted",
     };
-    const pre = est ? "simulation: " : "";
+    const pre = "";   // the decoded reason is the message; no "simulation:" prefix (FLOW 2)
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
@@ -453,7 +472,20 @@ export function createViemProtocol(): ProtocolClient {
     const r = await referralCall(me); if (!r.length) refDone.add(me.toLowerCase()); return r;
   }
 
+  /**
+   * FLOW 2: a min-out / slippage revert on a quote WE derived (minAmountOut 0) means the warm quote went stale between
+   * quote and execution (busy curve, our own previous shot). Drop the cached quotes, re-quote and retry ONCE. A caller-
+   * pinned minAmountOut is never retried (that is the user's explicit limit).
+   */
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
+    try { return await tradeOnce(side, t); }
+    catch (e) {
+      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code)) throw e;
+      dropRouteQuotes(t.token);
+      return tradeOnce(side, t);
+    }
+  }
+  async function tradeOnce(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).

@@ -39,6 +39,7 @@
     "test:op-race": "tsx scripts/test-op-race.mts",
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:trade-errors": "tsx --test scripts/test-trade-errors.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
     "test:claims": "tsx --test scripts/test-claims.mts",
