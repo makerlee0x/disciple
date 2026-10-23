@@ -15,8 +15,9 @@ import { LAUNCH_ABI_SHAPE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapB
 /** The approved draft says "0.77%"; `pct` is rendered from the live creatorBuyMaxBps so the copy can't drift. */
 export const FIRST_BOOST_COPY = {
   label: "First BOOST (optional)",
-  helper: (pct: string) => `BOOST your own rocket in the launch transaction, before anyone else. Up to ${pct} of supply.`,
-  max: (amount: string, symbol: string, tokens: string, pct: string) => `Max ${amount} ${symbol} (${tokens} tokens, ${pct} of supply)`,
+  helper: (pct: string) => `BOOST your own rocket in the launch transaction, before anyone else. Enter a $ amount, up to ${pct} of supply.`,
+  max: (usd: string, tokens: string, pct: string) => `Max ${usd} (${tokens} tokens, ${pct} of supply)`,
+  pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
   modeCap: (mode: string, pct: string, launchpadPct: string) => `${mode} launch: the first 7 minutes allow at most ${pct} of supply per buy, so your First BOOST is capped at ${pct} (not ${launchpadPct}).`,
   pveLogin: "PVE rockets only sell to login-verified wallets. Your wallet must be verified before you can First BOOST.",
@@ -24,13 +25,19 @@ export const FIRST_BOOST_COPY = {
   // #99: /api/pve/attest verifies the Privy login and relays LoginGate.attest when you launch.
   pveLoginAttest: "PVE rockets only sell to login-verified wallets. Your wallet isn't attested yet: launching checks your login (email, Google or X) and attests it first.",
   pveLoginUnknown: "PVE rockets only sell to login-verified wallets. Connect your wallet to check yours before you First BOOST.",
-  overCap: (pct: string, max: string, symbol: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${max} ${symbol} or less.`,
-  balance: (have: string, symbol: string) => `Not enough ${symbol}: your balance is ${have} ${symbol}.`,
-  invalid: "Enter an amount like 25 or 12.5.",
+  overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
+  balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`,
+  invalid: "Enter a $ amount like 25 or 12.5.",
   connect: "Connect your wallet to check your balance.",
   loading: "Reading the live cap…",
   unavailable: "Couldn't read the live cap from the Launchpad. Leave this at 0 or try again.",
 } as const;
+
+/** First BOOST is entered in $ (USD WAD, 18 dp) and converted with the live QuotePricer price (USD WAD per 1e18 raw). */
+const WAD = BigInt(10) ** BigInt(18);
+export const usdToQuoteRaw = (usdWad: bigint, quotePriceUsd: bigint) => (quotePriceUsd > BigInt(0) ? (usdWad * WAD) / quotePriceUsd : null);
+export const quoteRawToUsdWad = (raw: bigint, quotePriceUsd: bigint) => (raw * quotePriceUsd) / WAD;
+export const fmtUsdWad = (usdWad: bigint) => `$${(Math.floor(Number(formatUnits(usdWad, 18)) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** bps → "0.77%" */
 export const bpsToPct = (bps: number) => `${(bps / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;

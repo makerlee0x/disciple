@@ -227,7 +227,7 @@ export class Mav2Account {
       const msg = String(m.details || m.shortMessage || m.message || e);
       if (/insufficient|prefund|AA21|didn't pay/i.test(msg)) {
         const have = await this.o.pc.getBalance({ address: sender });
-        throw new AAError("FundAccount", "Fund your account with test ETH to pay gas.", { have, address: sender });
+        throw new AAError("FundAccount", "Your account is still being set up for network fees — try again in a moment.", { have, address: sender });
       }
       // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
       let revertData: string | undefined = typeof (e as { data?: unknown }).data === "string" && /^0x[0-9a-fA-F]{8,}$/.test((e as { data: string }).data) ? (e as { data: string }).data : undefined;

@@ -33,6 +33,9 @@ const GAME_MODES = [
   { id: LaunchMode.PVE, label: "PVE", copy: "Verified logins only. 1% cap per wallet, small sells, 7.77% tax on >1.77× profits paid to holders." },
 ] as const;
 
+/** Website field: prefix https:// when no scheme was typed (1g). */
+const withHttps = (w: string) => { const t = w.trim(); return !t || /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t.replace(/^\/+/, "")}`; };
+
 export default function LaunchRocketPage() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -53,7 +56,7 @@ export default function LaunchRocketPage() {
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
   const [pseudonymous, setPseudonymous] = useState(false);
-  // First BOOST (creator launch buy): human amount in the pair token; validated by FirstBoostField.
+  // First BOOST (creator launch buy): $ amount, converted to the pair token at the live price by FirstBoostField.
   const [boost, setBoost] = useState("");
   const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), error: null, ready: true });
   // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
@@ -140,9 +143,11 @@ export default function LaunchRocketPage() {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
     }
-    const web = website.trim();
+    // 1g: "mysite.com" ⇒ "https://mysite.com" (http:// kept as typed); still must look like a host
+    const web = withHttps(website);
+    if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
-      setMsg("Website must start with https://");
+      setMsg("Enter a website like mysite.com");
       return;
     }
     // Moderated at center; launch with the user's chosen square crop of the same approved image.
@@ -186,7 +191,7 @@ export default function LaunchRocketPage() {
       setLaunched(`Launched! Rocket ${res.token}${imageNote} — taking you to it…`);
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
-      setMsg(isDeployed() ? String((err as Error).message) : "Contracts not deployed yet (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));
+      setMsg(isDeployed() ? String((err as Error).message) : "Launches aren't open on this network yet.");
     }
   }
 
@@ -194,7 +199,6 @@ export default function LaunchRocketPage() {
     <div className="page-shell">
       <h1>Launch a Rocket</h1>
       <div className="sub">EVERYONE ABOARD FLIES TOGETHER · PRICES IN $</div>
-      <span className="tag mock">{isDeployed() ? `ON-CHAIN · ${deployment() && "Robinhood Chain testnet"} · connect wallet (top right)` : "MOCK FORM · NOT ON-CHAIN YET"}</span>
       <form className="card create-form" onSubmit={onSubmit}>
         <div className="create-grid">
           <div className="space-y-4">
@@ -267,7 +271,7 @@ export default function LaunchRocketPage() {
           </label>
           <label className="block">
             <span className={labelCls}>WEBSITE <span className="normal-case opacity-70">(optional)</span></span>
-            <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" maxLength={120} />
+            <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} onBlur={() => setWebsite((w) => withHttps(w))} placeholder="mysite.com" inputMode="url" maxLength={120} />
           </label>
         </div>
 
@@ -330,7 +334,7 @@ export default function LaunchRocketPage() {
           type="submit"
           className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
         >
-          <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> {isDeployed() ? "Launch Rocket on-chain (testnet)" : "Launch Rocket (UI only)"}
+          <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
         </button>
         {status && (
           <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>

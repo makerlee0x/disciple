@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { encodeFunctionData, formatUnits, isAddress, parseAbi, parseUnits } from "viem";
-import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
 import { execCalls, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
@@ -14,7 +14,6 @@ type Row = { symbol: string; address: Address; bal: bigint; dec: number };
 /** Private-profile cash: balances + deposit (your address) + withdraw (ERC-20 transfer out). */
 export default function CashPanel() {
   const [addr, setAddr] = useState<Address | null>(null);
-  const [eth, setEth] = useState<bigint | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [sym, setSym] = useState("");
@@ -29,7 +28,6 @@ export default function CashPanel() {
     if (!isDeployed()) return;
     try {
       const pc = publicClient();
-      setEth(await pc.getBalance({ address: a }));
       const toks = MINTABLE_TEST_TOKENS.length ? MINTABLE_TEST_TOKENS : [{ symbol: "STRATEGY", address: deployment().defaultQuote }];
       const out: Row[] = [];
       for (const t of toks) {
@@ -66,7 +64,6 @@ export default function CashPanel() {
       <div className="table-head"><h3>Cash</h3><span className="muted tiny">{ACTIVE_CHAIN.name} · only visible to you</span></div>
       {!addr ? <p className="muted">Sign in (top right) to see balances and deposit.</p> : <>
         <div className="cash-balances">
-          <div className="cash-tile"><span>ETH (gas)</span><strong>{eth === null ? "…" : fmt(eth, 18)}</strong></div>
           {rows.map((r) => <div key={r.symbol} className="cash-tile"><span>{r.symbol}</span><strong>{fmt(r.bal, r.dec)}</strong></div>)}
         </div>
         <div className="ds-seg" role="tablist">
@@ -76,9 +73,8 @@ export default function CashPanel() {
         </div>
         {tab === "deposit" ? (
           <div className="cash-body">
-            <p className="muted tiny">Send ERC-20s or ETH on {ACTIVE_CHAIN.name} to your account address:</p>
+            <p className="muted tiny">Send USDG (or any ERC-20) on {ACTIVE_CHAIN.name} to your account address:</p>
             <div className="cash-addr mono">{addr}<button type="button" className="ds-btn gold" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? "Copied" : "Copy"}</button></div>
-            <p className="muted tiny">Need test gas? <a href={GAS_FAUCET} target="_blank" rel="noreferrer">ETH faucet</a>{MINTABLE_TEST_TOKENS.length > 0 ? " · use “Get test funds” (top right) for STRATEGY / mUSDG." : ""}</p>
           </div>
         ) : (
           <div className="cash-body cash-form">
