@@ -211,6 +211,9 @@ export interface TradeEvent {
   side: "buy" | "sell";
   amountIn: bigint;
   amountOut: bigint;
+  /** REAL USDG of a DiscipleRouter trade (UsdgTrade, same tx): $ paid on a buy / $ received on a sell. Absent otherwise. */
+  usdIn?: number;
+  usdOut?: number;
   /** Raw Trade fields (quote raw units in quote decimals; token raw in 18). */
   quoteAmt?: bigint;
   tokenAmt?: bigint;

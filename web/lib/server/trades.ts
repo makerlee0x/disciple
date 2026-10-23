@@ -16,16 +16,17 @@ import "server-only";
  *   trades:lock                10s run lock
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log } from "viem";
-import { bondingCurveAbi, discipleHookAbi, launchpadAbi } from "@/lib/abi";
+import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
 import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv } from "./kv";
-import { fillUsd, type Fill } from "@/lib/trades";
+import { fillUsd, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgTradeArgs } from "@/lib/trades";
 
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
 const CURVE_TRADE = getAbiItem({ abi: bondingCurveAbi, name: "Trade" });
 const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
+const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
 export const cursorKey = (launchpad: string) => `trades:cur:${launchpad.toLowerCase()}`;
 const curveCache = new Map<string, string>();
 const qpCache = new Map<string, bigint>();
@@ -51,11 +52,13 @@ async function tsOf(bn: bigint): Promise<number> {
 /** Pure: decoded log → Fill (exported for tests). */
 export function toFill(log: { transactionHash: string; logIndex: number; blockNumber: bigint }, venue: Fill["venue"], a: {
   token: string; trader: string; isBuy: boolean; tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint;
-}, ts: number): Fill {
+}, ts: number, usdg?: UsdgTradeArgs): Fill {
   const u = fillUsd(a);
   return {
     id: `${log.transactionHash}:${log.logIndex}`, tx: log.transactionHash, logIndex: log.logIndex, block: Number(log.blockNumber), ts,
     coin: a.token.toLowerCase(), trader: a.trader.toLowerCase(), side: a.isBuy ? "buy" : "sell", venue, ...u,
+    // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630)
+    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined),
   };
 }
 
@@ -84,6 +87,10 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         if (chunk > BigInt(50)) { chunk = chunk / BigInt(4); continue; } // RPC result/range cap: shrink and retry
         throw e;
       }
+      // DiscipleRouter UsdgTrade in the same range (address-filtered: the RH RPC serves those over any range) ⇒ real USDG in/out
+      const router = d.router;
+      const usdgLogs = router === ZERO ? [] : ((await pc.getLogs({ address: router, event: USDG_TRADE, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgTradeArgs }[]);
+      const usdg = usdgIndex(usdgLogs.map((x) => ({ tx: x.transactionHash, args: x.args })));
       const fills: Fill[] = [];
       for (const l of logs) {
         let dec: { args: Record<string, unknown> };
@@ -98,7 +105,7 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         if (venue === "hook") { delete a.mcapAfterUsd; a.quotePriceUsd = await quotePriceOf(curve); }
         const tx = l.transactionHash ?? "", li = l.logIndex ?? 0;
         if (!(await s.setNX(`trades:seen:${tx}:${li}`, "1"))) continue;
-        fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(l.blockNumber ?? BigInt(0))));
+        fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(l.blockNumber ?? BigInt(0)), usdg.get(usdgKey(tx, a.token, a.isBuy))?.shift()));
       }
       await storeFills(fills);
       n += fills.length;
