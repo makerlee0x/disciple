@@ -11,7 +11,6 @@ import {Token} from "./Token.sol";
 import {BondingCurve} from "./BondingCurve.sol";
 import {CurveDeployer} from "./CurveDeployer.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
-import {AntiSnipe} from "./AntiSnipe.sol";
 import {FeeRouter} from "./FeeRouter.sol";
 import {IReferralRegistry} from "./interfaces/IReferralRegistry.sol";
 import {IQuoteProbe} from "./interfaces/IQuoteProbe.sol";
@@ -31,6 +30,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     using SafeERC20 for IERC20;
 
     address public immutable feeRouter;
+    /// @notice Legacy (pre mode rules v2). v2 curves compute the sniper tax inline; never called.
     address public immutable antiSnipe;
     address public immutable migration;
 
@@ -78,6 +78,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
     address public loginGate;
     /// @notice Game mode per coin (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP), immutable.
     mapping(address => uint8) public modeOf;
+    /// @notice Easy crew-tip threshold for FUTURE launches, bps of the coin's mcap at the time of sale (default 0.5%;
+    ///         bounds [CREW_TIP_THRESHOLD_BPS_MIN, _MAX]). Snapshotted into each curve as an immutable.
+    uint256 public crewTipThresholdBps = Constants.CREW_TIP_THRESHOLD_BPS_DEFAULT;
 
     error InvalidMetadata();
     error TaxTooHigh();
@@ -91,6 +94,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error WalletCapTooHigh();
     error BadMode();
     error LoginGateUnset();
+    error CrewTipThresholdOutOfBounds();
+    error NotRouter();
 
     event Launched(
         address indexed token,
@@ -111,6 +116,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event TrustedRouterSet(address indexed router, bool trusted);
     event CurveRouterKilled(address indexed curve, bool killed);
     event LoginGateSet(address indexed gate);
+    event CrewTipThresholdSet(uint256 bps);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
@@ -173,6 +179,24 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
     }
 
+    /// @notice Protocol owner sets the Easy crew-tip threshold for FUTURE launches (bps of mcap, bounded).
+    function setCrewTipThresholdBps(uint256 bps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (bps < Constants.CREW_TIP_THRESHOLD_BPS_MIN || bps > Constants.CREW_TIP_THRESHOLD_BPS_MAX) {
+            revert CrewTipThresholdOutOfBounds();
+        }
+        crewTipThresholdBps = bps;
+        emit CrewTipThresholdSet(bps);
+    }
+
+    /// @notice First BOOST (creator launch buy) max for `mode`, bps of supply: Easy 1.2%, Hard 3.33%, TRENCH the
+    ///         owner-settable creatorBuyMaxBps (default 0.77%, ceiling 7%). Above it the buy partially fills.
+    function firstBoostMaxBps(uint8 mode) public view returns (uint256) {
+        if (mode == Constants.MODE_PVE) return Constants.FIRST_BOOST_MAX_BPS_PVE;
+        if (mode == Constants.MODE_PVP) return Constants.FIRST_BOOST_MAX_BPS_PVP;
+        return creatorBuyMaxBps;
+    }
+
     function setLoginGate(address g) external {
         if (msg.sender != owner) revert OnlyOwner();
         loginGate = g;
@@ -200,20 +224,37 @@ contract Launchpad is ILaunchpad, Owned2Step {
 
     /// @inheritdoc ILaunchpad
     function launchCoin(LaunchParams calldata params) external override returns (LaunchResult memory) {
-        return _launch(params, Constants.MODE_TRENCH);
+        return _launch(msg.sender, params, Constants.MODE_TRENCH);
     }
 
     /// @inheritdoc ILaunchpad
     function launch(LaunchParams calldata params) external override returns (LaunchResult memory result) {
-        return _launch(params, Constants.MODE_TRENCH);
+        return _launch(msg.sender, params, Constants.MODE_TRENCH);
     }
 
     /// @notice Launch with a bonding-curve game mode (0 TRENCH WARFARE, 1 PVE, 2 PVP). launch/launchCoin = TRENCH.
     function launchWithMode(LaunchParams calldata params, uint8 mode) external returns (LaunchResult memory) {
-        return _launch(params, mode);
+        return _launch(msg.sender, params, mode);
     }
 
-    function _launch(LaunchParams calldata params, uint8 mode) internal returns (LaunchResult memory result) {
+    /// @notice Launch on behalf of `creator` — trusted routers only (DiscipleRouter.launchWithUsdg, which passes its
+    ///         own msg.sender). `creator` is the coin's creator everywhere (Token.creator, fees, metadata, First
+    ///         BOOST recipient + Easy creator lock + sniper exemption + Easy login); the ROUTER pays the First BOOST
+    ///         (pulled from it) and receives any partial-fill refund.
+    function launchFor(address creator, LaunchParams calldata params, uint8 mode)
+        external
+        returns (LaunchResult memory)
+    {
+        if (!isTrustedRouter[msg.sender]) revert NotRouter();
+        if (creator == address(0)) revert InvalidMetadata();
+        return _launch(creator, params, mode);
+    }
+
+    /// @dev `creator` = coin creator; msg.sender = payer of the First BOOST (== creator except launchFor).
+    function _launch(address creator, LaunchParams calldata params, uint8 mode)
+        internal
+        returns (LaunchResult memory result)
+    {
         if (mode > Constants.MODE_PVP) revert BadMode();
         address gate;
         if (mode == Constants.MODE_PVE) {
@@ -239,7 +280,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
 
         Token t = new Token(
-            params.name, params.ticker, msg.sender, address(this), address(this), mode == Constants.MODE_PVE
+            params.name, params.ticker, creator, address(this), address(this), mode == Constants.MODE_PVE
         );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
@@ -254,25 +295,24 @@ contract Launchpad is ILaunchpad, Owned2Step {
             curveDeployer.deploy(
                 address(t),
                 quote,
-                msg.sender,
+                creator,
                 feeRouter,
-                antiSnipe,
                 migration,
                 params.creatorTaxBps,
                 CurveMath.makeParams(quotePriceUsd),
                 wcap,
                 mode,
                 gate,
-                curveRouter
+                curveRouter,
+                crewTipThresholdBps
             )
         );
 
         if (mode == Constants.MODE_PVE) t.setPveCurve(address(curve));
         IERC20(address(t)).safeTransfer(address(curve), Constants.TOTAL_SUPPLY);
 
-        AntiSnipe(antiSnipe).registerLaunch(address(t));
         FeeRouter(feeRouter).setAuthorized(address(curve), true);
-        FeeRouter(feeRouter).registerTokenLaunch(address(t), quote, msg.sender);
+        FeeRouter(feeRouter).registerTokenLaunch(address(t), quote, creator);
 
         isLaunched[address(t)] = true;
         curveOf[address(t)] = address(curve);
@@ -282,13 +322,13 @@ contract Launchpad is ILaunchpad, Owned2Step {
             imageURI: params.imageURI,
             description: params.description,
             socialsURI: params.socialsURI,
-            creator: msg.sender,
+            creator: creator,
             creatorTaxBps: params.creatorTaxBps,
             launchedAt: block.timestamp
         });
         if (mode != Constants.MODE_TRENCH) modeOf[address(t)] = mode;
         emit LaunchMode(address(t), address(curve), mode);
-        uint256 capBps = creatorBuyMaxBps;
+        uint256 capBps = firstBoostMaxBps(mode);
         creatorBuyMaxBpsOf[address(t)] = capBps;
         unchecked {
             ++launchCount;
@@ -296,16 +336,20 @@ contract Launchpad is ILaunchpad, Owned2Step {
 
         uint256 bought;
         if (params.creatorBuyQuoteIn > 0) {
-            // Optional same-tx creator buy; max creatorBuyMaxBps of supply (default 0.77%, §5 / #27)
+            // Optional same-tx First BOOST, max firstBoostMaxBps(mode) of supply (mode rules v2): above the max it
+            // PARTIALLY FILLS and the unused input goes back to the payer (no CreatorBuyTooLarge revert).
+            uint256 maxTokens = FeeMath.creatorBuyMax(capBps);
+            if (maxTokens == 0) revert CreatorBuyTooLarge(); // owner set TRENCH creatorBuyMaxBps = 0
             IERC20(quote).safeTransferFrom(msg.sender, address(this), params.creatorBuyQuoteIn);
             IERC20(quote).forceApprove(address(curve), params.creatorBuyQuoteIn);
-            bought = BondingCurve(curve)
-                .buyFor(msg.sender, params.creatorBuyQuoteIn, params.creatorBuyMinTokensOut, params.deadline);
-            if (bought > FeeMath.creatorBuyMax(capBps)) revert CreatorBuyTooLarge();
+            uint256 refund;
+            (bought, refund) = BondingCurve(curve)
+                .buyFor(creator, params.creatorBuyQuoteIn, params.creatorBuyMinTokensOut, params.deadline, maxTokens);
+            if (refund != 0) IERC20(quote).safeTransfer(msg.sender, refund);
         }
 
         result = LaunchResult({token: address(t), curve: address(curve), creatorTokensBought: bought});
-        emit Launched(address(t), address(curve), msg.sender, quote, params.name, params.ticker, params.creatorTaxBps);
+        emit Launched(address(t), address(curve), creator, quote, params.name, params.ticker, params.creatorTaxBps);
         // Off-chain/indexer consumes this for verified tier ladder — no on-chain tier hooks.
         emit QuotePriced(address(t), quote, quotePriceUsd);
         emit LaunchTierContext(
@@ -345,7 +389,16 @@ contract Launchpad is ILaunchpad, Owned2Step {
         view
         returns (uint256 tokensOut, uint256 fee, uint256 snipeFee, uint256 quotePriceUsd, bool exceedsCap)
     {
-        return quoteCreatorBuy(quote, creatorBuyQuoteIn, 0);
+        return quoteCreatorBuy(quote, creatorBuyQuoteIn, 0, Constants.MODE_TRENCH);
+    }
+
+    /// @notice TRENCH preview (v1 ABI). See the mode-aware overload.
+    function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn, uint256 creatorTaxBps)
+        external
+        view
+        returns (uint256 tokensOut, uint256 fee, uint256 snipeFee, uint256 quotePriceUsd, bool exceedsCap)
+    {
+        return quoteCreatorBuy(quote, creatorBuyQuoteIn, creatorTaxBps, Constants.MODE_TRENCH);
     }
 
     /// @notice Preview the same-tx creator buy at launch: anti-snipe is at its launch-time value
@@ -355,8 +408,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @return fee         protocol + creator tax (quote raw)
     /// @return snipeFee    always 0 (creator buy is anti-snipe exempt; kept for ABI stability)
     /// @return quotePriceUsd price the pricer would bake into the curve right now
-    /// @return exceedsCap  true if tokensOut > creatorBuyMaxBps of supply (current setting) (launch would revert CreatorBuyTooLarge)
-    function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn, uint256 creatorTaxBps)
+    /// @return exceedsCap  true if the buy is above firstBoostMaxBps(mode): it PARTIALLY FILLS (tokensOut is then the
+    ///                     max) and the unused input is refunded at launch
+    function quoteCreatorBuy(address quote, uint256 creatorBuyQuoteIn, uint256 creatorTaxBps, uint8 mode)
         public
         view
         returns (uint256 tokensOut, uint256 fee, uint256 snipeFee, uint256 quotePriceUsd, bool exceedsCap)
@@ -370,7 +424,11 @@ contract Launchpad is ILaunchpad, Owned2Step {
         uint256 afterSnipe = creatorBuyQuoteIn;
         fee = FeeMath.protocolFee(afterSnipe) + FeeMath.creatorTax(afterSnipe, creatorTaxBps);
         tokensOut = CurveMath.tokensOutForQuote(CurveMath.makeParams(quotePriceUsd), 0, afterSnipe - fee);
-        exceedsCap = tokensOut > FeeMath.creatorBuyMax(creatorBuyMaxBps);
+        uint256 maxTokens = FeeMath.creatorBuyMax(firstBoostMaxBps(mode));
+        if (tokensOut > maxTokens) {
+            exceedsCap = true;
+            tokensOut = maxTokens;
+        }
     }
 
     /// @inheritdoc ILaunchpad

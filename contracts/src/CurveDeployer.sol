@@ -13,14 +13,14 @@ contract CurveDeployer {
         address quote,
         address creator,
         address feeRouter,
-        address antiSnipe,
         address migration,
         uint256 creatorTaxBps,
         CurveMath.Params calldata params,
         uint256 walletCapBps,
         uint8 mode,
         address loginGate,
-        address trustedRouter
+        address trustedRouter,
+        uint256 crewTipThresholdBps
     ) external returns (address) {
         return address(
             new BondingCurve(
@@ -29,14 +29,14 @@ contract CurveDeployer {
                 creator,
                 msg.sender,
                 feeRouter,
-                antiSnipe,
                 migration,
                 creatorTaxBps,
                 params,
                 walletCapBps,
                 mode,
                 loginGate,
-                trustedRouter
+                trustedRouter,
+                crewTipThresholdBps
             )
         );
     }
