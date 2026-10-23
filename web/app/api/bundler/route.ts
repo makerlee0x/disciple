@@ -54,10 +54,14 @@ export async function POST(req: Request) {
     // Alchemy key rejected (401 "Must be authenticated!") ⇒ fall back to the built-in self-bundler.
     if (r.status !== 401 && !/must be authenticated/i.test(text)) return new NextResponse(text, { status: r.status, headers: { "content-type": "application/json" } });
   }
+  // AUDIT Low: a strike / verification recorded while relaying must reach the shared store before the lambda freezes
+  const flushTrust = async () => { if (SEND.has(body.method!) || SIM.has(body.method!)) await (await import("@/lib/server/fastRelay")).flushRelayTrust().catch(() => undefined); };
   try {
     const result = await selfBundle(body.method, body.params || []);
+    await flushTrust();
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, result });
   } catch (e) {
+    await flushTrust();
     // production without a dedicated RELAYER_PRIVATE_KEY (or set to the faucet key): fail closed, never sign with the faucet
     if (isRelayerNotConfigured(e))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });

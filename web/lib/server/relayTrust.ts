@@ -13,6 +13,11 @@
  *    fast path back only once a simulation has passed again (a balance refresh alone doesn't restore trust).
  * Honest one-tap users: verified at the first prime (login warm / first deploy op), then ≤ 1 eth_call per
  * RESIM_EVERY trades or RESIM_MS — the rest stay one round trip.
+ *
+ * AUDIT Low (shared state): with a TrustStore (lib/server/relayTrustStore → shared KV) the verification + strike state
+ * survives restarts / cold serverless instances and is shared across them: primeShared() hydrates it before the first
+ * check on an instance, and the one-time "fresh sender ⇒ verified at first prime" grant is taken at most ONCE per
+ * sender globally (SET NX), not once per instance. Without a store (tests, local) it behaves exactly as before.
  */
 export const TRUST_TTL = 60_000;
 export const RESIM_EVERY = 16;
@@ -28,11 +33,60 @@ export type TrustEntry = {
   fastOps: number;                   // fast-path ops since verifiedAt
   strikes: number; lastStrikeAt: number; strikeUntil: number;
 };
+/** The durable part of a TrustEntry (balances are re-read, never persisted). */
+export type PersistedTrust = Pick<TrustEntry, "verifiedAt" | "fastOps" | "strikes" | "lastStrikeAt" | "strikeUntil">;
+export interface TrustStore {
+  load(sender: string): Promise<PersistedTrust | null>;
+  save(sender: string, p: PersistedTrust): Promise<void>;
+  /** true exactly once per sender across all instances (the first-prime grant); false if it was already taken. */
+  claimFirstPrime(sender: string): Promise<boolean>;
+}
+export const persistedOf = (e: TrustEntry): PersistedTrust =>
+  ({ verifiedAt: e.verifiedAt, fastOps: e.fastOps, strikes: e.strikes, lastStrikeAt: e.lastStrikeAt, strikeUntil: e.strikeUntil });
 export type TrustReason = "unknown" | "stale-balance" | "strike" | "unverified" | "resim-ops" | "resim-time" | "low-balance";
 
 export class SenderTrust {
   private m = new Map<string, TrustEntry>();
-  constructor(private now: () => number = Date.now) {}
+  private hydrated = new Set<string>();
+  private pending = new Set<Promise<unknown>>();
+  constructor(private now: () => number = Date.now, private store?: TrustStore) {}
+  /** Write-through to the store (no-op without one). Errors are swallowed: the in-memory state stays authoritative. */
+  private persist(sender: string) {
+    if (!this.store) return;
+    const e = this.m.get(sender.toLowerCase()); if (!e) return;
+    const p = this.store.save(sender.toLowerCase(), persistedOf(e)).catch(() => undefined);
+    this.pending.add(p); void p.finally(() => this.pending.delete(p));
+  }
+  /** Await pending store writes (call before a serverless response returns, so a strike isn't lost). */
+  async flush() { await Promise.all([...this.pending]); }
+  /**
+   * Balance read with shared state (use instead of prime() when a store is set). First call per sender on this instance
+   * loads the persisted entry; the stricter of memory/store wins (later strike, earlier-expiring trust). A sender with no
+   * persisted record is verified at its first prime only if it wins the global SET NX — a cold instance never grants it
+   * again. Store errors ⇒ not verified (the op is simulated: fail safe).
+   */
+  async primeShared(sender: string, bal: bigint) {
+    if (!this.store) return this.prime(sender, bal);
+    const k = sender.toLowerCase();
+    if (!this.hydrated.has(k)) {
+      let p: PersistedTrust | null | undefined;
+      try { p = await this.store.load(k); } catch { p = undefined; }
+      const had = this.m.has(k), e = this.entry(k);
+      if (p) {
+        e.strikes = Math.max(e.strikes, p.strikes); e.lastStrikeAt = Math.max(e.lastStrikeAt, p.lastStrikeAt);
+        e.strikeUntil = Math.max(e.strikeUntil, p.strikeUntil); e.fastOps = Math.max(e.fastOps, p.fastOps);
+        e.verifiedAt = had ? Math.min(e.verifiedAt, p.verifiedAt) : p.verifiedAt;
+      } else if (p === null && !had) {
+        let first = false; try { first = await this.store.claimFirstPrime(k); } catch { first = false; }
+        if (first) e.verifiedAt = this.now();
+      }
+      if (p !== undefined) this.hydrated.add(k);
+      if (this.hydrated.size > MAX_ENTRIES) this.hydrated.delete(this.hydrated.values().next().value!);
+    }
+    const e = this.entry(k);
+    e.bal = bal; e.at = this.now();
+    this.persist(k);
+  }
   get(sender: string) { return this.m.get(sender.toLowerCase()); }
   private entry(sender: string): TrustEntry {
     const k = sender.toLowerCase();
@@ -50,7 +104,7 @@ export class SenderTrust {
     if (fresh) e.verifiedAt = e.at;
   }
   /** A simulation (eth_call of handleOps) passed: restore / renew the fast path. */
-  simulated(sender: string) { const e = this.entry(sender); e.verifiedAt = this.now(); e.fastOps = 0; }
+  simulated(sender: string) { const e = this.entry(sender); e.verifiedAt = this.now(); e.fastOps = 0; this.persist(sender); }
   /** The relayer's handleOps reverted (validation failure the relayer paid for): escalating strike. Returns its length. */
   strike(sender: string): number {
     const e = this.entry(sender), t = this.now();
@@ -58,6 +112,7 @@ export class SenderTrust {
     e.strikes++; e.lastStrikeAt = t;
     const ms = Math.min(STRIKE_MAX_MS, STRIKE_BASE_MS * 2 ** Math.min(e.strikes - 1, 20));
     e.strikeUntil = t + ms; e.verifiedAt = 0; e.fastOps = 0;
+    this.persist(sender);
     return ms;
   }
   /** A successful send: count fast ops, and debit the max prefund until the next balance refresh (conservative). */
@@ -65,11 +120,13 @@ export class SenderTrust {
     const e = this.m.get(sender.toLowerCase()); if (!e) return;
     if (fast) e.fastOps++;
     e.bal -= prefund;
+    if (fast) this.persist(sender);
   }
   /** null ⇒ the op may skip simulation; else why it must be simulated. */
   check(sender: string, prefund: bigint): TrustReason | null {
-    const e = this.m.get(sender.toLowerCase()), t = this.now();
+    const k = sender.toLowerCase(), e = this.m.get(k), t = this.now();
     if (!e) return "unknown";
+    if (this.store && !this.hydrated.has(k)) return "unknown";   // shared state not loaded on this instance yet
     if (t < e.strikeUntil) return "strike";
     if (!e.verifiedAt || e.verifiedAt < e.strikeUntil) return "unverified";
     if (t >= e.at + TRUST_TTL) return "stale-balance";

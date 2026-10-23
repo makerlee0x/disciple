@@ -92,6 +92,16 @@ export async function importLocal(k: string) { const a = await localImport(k); e
 export async function resetLocal() { await localReset(); emit(null); }
 export async function disconnect() { plainWallet = null; await aaLogout(); emit(null); }
 
+/**
+ * #103: off-chain proofs (chat login, username claim) sign with the injected wallet ONLY after an explicit
+ * connectWallet() for that address. A Privy / smart-account user is never sent to window.ethereum (MetaMask).
+ */
+export async function plainWalletSigner(expect?: string): Promise<Signer> {
+  if (!plainWallet || (expect && plainWallet.toLowerCase() !== expect.toLowerCase())) throw new SignInRequired();
+  const s = await getSigner();
+  if (s.account.address.toLowerCase() !== plainWallet.toLowerCase()) throw new SignInRequired();
+  return s;
+}
 /** The address that holds funds/trades: the smart account when signed in, else an explicitly connected plain wallet. */
 export async function activeAddress(): Promise<Address> {
   const a = await aaAddress();

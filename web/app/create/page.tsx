@@ -18,7 +18,7 @@ import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
-import { activeAddress, execCalls } from "@/lib/wallet";
+import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
 import { launchpadAbi } from "@/lib/abi";
 import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
@@ -68,6 +68,16 @@ export default function LaunchRocketPage() {
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
+  // #103 follow-up: sign in BEFORE launching (the launch, First BOOST and fees must land on the DISCIPLE account).
+  // Signed out ⇒ the submit button opens sign-in instead of failing at launch time with SignInRequired.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => onWallet(() => setSignedIn(canTransact())), []);
+  const needsSignIn = isDeployed() && !IS_STATIC_PREVIEW && !signedIn;
+  const signIn = () => {
+    setMsg(null);
+    if (aaAvailable()) connectPrivy();
+    else connectWallet().catch((err) => setMsg(String((err as Error).message)));
+  };
 
   const blocked = mod.state === "block";
   useEffect(() => { preloadModeration(); }, []);
@@ -125,6 +135,7 @@ export default function LaunchRocketPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
+    if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim() || !file) {
       setMsg("Rocket name, call sign, and an uploaded rocket icon are required.");
       return;
@@ -338,12 +349,23 @@ export default function LaunchRocketPage() {
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
           {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
         </details>
-        <button
-          type="submit"
-          className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
-        >
-          <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
-        </button>
+        {needsSignIn ? (
+          <button
+            type="button"
+            onClick={signIn}
+            data-testid="create-sign-in"
+            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
+          >
+            Sign in to launch
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
+          >
+            <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
+          </button>
+        )}
         {status && (
           <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
         )}
