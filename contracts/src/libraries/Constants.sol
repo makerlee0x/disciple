@@ -84,11 +84,19 @@ library Constants {
     uint256 internal constant WALLET_CAP_BPS = 700;
     uint256 internal constant WALLET_CAP_BPS_DEFAULT = 0;
 
-    // ── Anti-snipe (§2 / LOCKED #9) ───────────────────────────────────────────
-    uint256 internal constant ANTI_SNIPE_START_BPS = 7770; // 77.7%
-    uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% after 7s — protocol 1% only
-    uint256 internal constant ANTI_SNIPE_DURATION = 7; // seconds
-    /// @dev Anti-snipe tax split (LOCKED #9 rev. 2026-10-15): 70% community RewardsVault / 30% treasury.
+    // ── Sniper tax (§2 / LOCKED #9, mode rules v2 2026-10-23) — ALL modes, curve buys only ──
+    /// @dev 99% → 0% linearly over 60s from launch. The creator's First BOOST is exempt. Taken in the pair coin and
+    ///      held in the curve's `snipeEscrow` (outside reserves/price): added to the locked LP at graduation, or
+    ///      released to RewardsVault by anyone if the coin has not graduated SNIPE_ESCROW_TIMEOUT after launch.
+    uint256 internal constant ANTI_SNIPE_START_BPS = 9900; // 99%
+    uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% after 60s — protocol 1% only
+    uint256 internal constant ANTI_SNIPE_DURATION = 60; // seconds
+    /// @dev Unclaimed-escrow timeout DEFAULT. Maker lee 2026-10-23: 30 days → RewardsVault. Tunable by the protocol
+    ///      owner for FUTURE launches (`Launchpad.setSnipeEscrowTimeout`, bounds below), snapshotted per curve.
+    uint256 internal constant SNIPE_ESCROW_TIMEOUT = 30 days;
+    uint256 internal constant SNIPE_ESCROW_TIMEOUT_MIN = 1 days;
+    uint256 internal constant SNIPE_ESCROW_TIMEOUT_MAX = 365 days;
+    /// @dev Legacy 70/30 FeeRouter snipe split (pre-v2 curves). v2 curves never route a snipe fee through FeeRouter.
     uint256 internal constant SNIPE_REWARDS_BPS = 7000;
 
     // ── Base trade fee + split (§3 / LOCKED #11) ──────────────────────────────
@@ -128,20 +136,27 @@ library Constants {
     uint256 internal constant BPS_DENOM = 10_000;
 
     // ── Bonding-curve game modes (contracts/docs/bonding-modes.md) — curve only, never post-graduation ──
-    uint8 internal constant MODE_TRENCH = 0; // hard: no mode caps (pre-existing behaviour, incl. walletCapBps)
-    uint8 internal constant MODE_PVE = 1; // easy
-    uint8 internal constant MODE_PVP = 2; // medium
-    // PVE (proposals — Maker lee can tweak before redeploy)
-    uint256 internal constant PVE_NET_CAP_BPS = 100; // 1% of supply, NET curve position
-    uint256 internal constant PVE_WINDOW = 7 minutes; // launch window (Maker lee 2026-10-16: 7 min)
-    uint256 internal constant PVE_WINDOW_BUY_CAP_BPS = 25; // 0.25% of supply per buy inside the window
-    uint256 internal constant PVE_MAX_SELL_BPS = 50; // 0.5% of supply per curve sell
-    uint256 internal constant PVE_PROFIT_TRIGGER_BPS = 17_700; // exit price > avg cost * 1.77 (i.e. >77% profit)
-    uint256 internal constant PVE_PROFIT_TAX_PPM = 7770; // 0.777% of the sell proceeds (ppm)
+    uint8 internal constant MODE_TRENCH = 0; // no mode caps (legacy walletCapBps only); sniper tax applies
+    uint8 internal constant MODE_PVE = 1; // Easy
+    uint8 internal constant MODE_PVP = 2; // Hard
+    // Mode rules v2 (Maker lee 2026-10-23). All curve-only; everything switches off at graduation.
+    // Holding cap = NET curve position, linear in mcap progress START_MCAP_USD ($7K) → GRADUATION_MCAP_USD ($33K).
+    // A buy above the wallet's room partially fills (unused input refunded); no max buy, no max sell, no window.
+    uint256 internal constant PVE_CAP_START_BPS = 100; // Easy: 1% at $7K
+    uint256 internal constant PVE_CAP_END_BPS = 333; // Easy: 3.33% at $33K
+    uint256 internal constant PVP_CAP_START_BPS = 333; // Hard: 3.33% at $7K
+    uint256 internal constant PVP_CAP_END_BPS = 777; // Hard: 7.77% at $33K
+    /// @dev First BOOST (creator launch buy) max per mode. TRENCH keeps Launchpad.creatorBuyMaxBps (owner-settable).
+    ///      The First BOOST is exempt from the holding cap for that buy only (it still counts in NET afterwards).
+    uint256 internal constant FIRST_BOOST_MAX_BPS_PVE = 120; // 1.2%
+    uint256 internal constant FIRST_BOOST_MAX_BPS_PVP = 333; // 3.33%
+    /// @dev Easy crew tip: 0.777% of the sell proceeds, only when realized profit on that sale > threshold.
+    uint256 internal constant PVE_CREW_TIP_PPM = 7770;
+    /// @dev Crew-tip threshold, bps of the coin's market cap at the time of sale (Launchpad.crewTipThresholdBps,
+    ///      owner-settable within [MIN, MAX], snapshotted per coin at launch). Default 0.5% of mcap.
+    uint256 internal constant CREW_TIP_THRESHOLD_BPS_DEFAULT = 50;
+    uint256 internal constant CREW_TIP_THRESHOLD_BPS_MIN = 10; // 0.1%
+    uint256 internal constant CREW_TIP_THRESHOLD_BPS_MAX = 500; // 5%
     /// @dev Max age of a curve's cached LoginGate expiry (audit L1): a revoke takes effect within this window.
     uint256 internal constant PVE_LOGIN_CACHE_TTL = 10 minutes;
-    // PVP
-    uint256 internal constant PVP_CAP_START_BPS = 400; // 4% NET cap at launch
-    uint256 internal constant PVP_CAP_END_BPS = 1200; // 12% NET cap at graduation (linear in curve progress)
-    uint256 internal constant PVP_MAX_BUY_BPS = 333; // 3.33% per buy
 }

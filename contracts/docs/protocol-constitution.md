@@ -21,8 +21,8 @@ This document is the source of truth for locked product and protocol decisions. 
 | 5 | Architecture | **Option B:** external bonding curve (**single steep Pump-style CPAMM**) + **same-tx** Uniswap v4 migrate (init at curve-end sqrtPriceX96 — **no price jump**; full-range LP owned forever by LockedLP); **no migration pause/gap** | LOCKED 2026-10-15 |
 | 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Outer Space); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
 | 7 | Supply on curve | **~72%** sold on curve; **7B** total supply; fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
-| 8 | Wallet cap | Per-wallet holding cap on the bonding curve only (not post-grad) = **`Launchpad.walletCapBps`** of supply — default **0 (no cap)**, protocol-owner-settable 0–10000 bps (event `WalletCapSet`), **snapshotted per coin at launch** (`walletCapBpsOf(token)`, immutable in the curve; changes affect future coins only); when set, **no wallet exemptions** (rev. 2026-10-15, was fixed 7%) | LOCKED 2026-10-15 |
-| 9 | Anti-snipe | **77.7% → 0%** buy-side fee over **7s** (after 7s only protocol 1% remains); snipe fee **portion above the 1% protocol fee** routes **70% to the community RewardsVault / 30% to treasury** (not 33/33/33/1; rev. 2026-10-15, was 100% LP lock). **Creator launch buy (≤ creatorBuyMaxBps, default 0.77%, same tx) is exempt** — pays only the 1% protocol fee (+ own creator tax) | LOCKED 2026-10-15 |
+| 8 | Wallet cap | Bonding curve only (not post-grad). **Easy (PVE):** NET holding cap **1% → 3.33%** of supply, linear in mcap $7K → $33K. **Hard (PVP):** **3.33% → 7.77%**. Measured at the pre-trade mcap. **TRENCH:** legacy `Launchpad.walletCapBps` (default 0 = no cap, owner-settable, snapshotted per coin). Over-cap buys **partial-fill** to the cap and refund the rest (no revert; room 0 reverts `WalletCap`). No max buy / max sell. **No wallet exemptions** except the First BOOST for its own buy (#27). See mode-rules-v2.md | LOCKED 2026-10-23 (rev., was walletCapBps-only / 7%) |
+| 9 | Anti-snipe (sniper tax) | **All modes, curve only:** buy-side tax **99% → 0% linearly over 60 s** after launch (then only the protocol 1% + creator tax). Held in the curve's **`snipeEscrow`**, outside reserves and price; **added to the locked LP at graduation**; if the coin has not graduated **30 days** after launch (owner-tunable for future launches, 1–365 days, snapshotted), **anyone** can send it to the community RewardsVault. **First BOOST exempt.** The 70/30 vault/treasury routing and the launch-block rule are removed | LOCKED 2026-10-23 (rev., was 77.7%→0 over 7 s, 70/30) |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
 | 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** LP share / **33%** treasury / **1%** leftover. **Leftover priority:** (1) the coin's launch KOL (referrer of the creating wallet, #21) if set, else (2) the trader's referrer, else (3) treasury. Curve phase: the LP share is escrowed in LockedLP and folded into the graduation seed. Post-grad: the LP share goes to LockedLP and is **auto-compounded in batches** into the locked full-range position (#16: added once the matched amount reaches **0.1%** of the position's liquidity, capped at **0.5%** per 60 s window and one add per block) | LOCKED |
 | 12 | Creator tax | Optional; default **0%**, optional **≤7%**, **immutable at launch**; on top of 1% fee. **Curve-only:** charged on bonding-curve trades; after graduation the hook charges the flat 1% only (no creator tax) | LOCKED |
@@ -40,7 +40,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 24 | Metadata (launch) | Like Flaunch: **image + name + ticker required**; description + socials optional | LOCKED |
 | 25 | Metadata (post-launch) | Creator can update **image, description, socials** — **NOT** name or ticker | LOCKED |
 | 26 | Ownership | Transferable anytime, multi-hop OK; full pack: metadata + fee claim + creator tax rights | LOCKED |
-| 27 | Creator buy | Optional creator buy in launch tx; max **`Launchpad.creatorBuyMaxBps`** of supply — default **0.77%** (77 bps), protocol-owner-settable (never the coin creator), hard ceiling **7%** (700 bps), snapshotted per coin at launch (changes affect future coins only); **anti-snipe exempt** (1% protocol fee only) | LOCKED 2026-10-15 |
+| 27 | Creator buy (First BOOST) | Optional creator buy in the launch tx. Max per mode: **Easy 1.2%**, **Hard 3.33%**, **TRENCH `Launchpad.creatorBuyMaxBps`** (default 0.77%, owner-settable, ceiling 7%, snapshotted). A larger amount partial-fills to the max. Exempt from the holding cap **for that buy only** (counts in NET afterwards) and from the sniper tax. **Easy:** First BOOST tokens are **locked until graduation** (`Token._update`); later buys are free. Easy still requires login | LOCKED 2026-10-23 (rev.) |
 | 28 | Deposits / gas | One deposit approval; user pays gas; **no gas sponsorship** | LOCKED |
 | 29 | MEV protection | **Deadline + non-zero minAmountOut**, plus a per-swap **price-impact cap on DiscipleRouter** (`maxImpactBps`, default 50%, owner-settable 1%–1000%; router only, direct PoolManager swaps unaffected) | LOCKED |
 | 30 | Pause | **No pause** — curves and graduated pools always live | LOCKED |
@@ -56,6 +56,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% puff; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
 | 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K) through Seventh Heaven ($3.3B–$7.77B); Outer Space = $33K graduation — see detailed section. Names per disciple-brand/LEXICON.md §4 (renamed 2026-10-17, ranges unchanged) | LOCKED 2026-10-15 |
 | 42 | Tramps & walls | Graduated coins only. Users place **single-sided concentrated v4 LP ranges** via the `TrampWallManager` periphery: **tramp** = quote-only range strictly below price (support), **wall** = token-only range strictly above (resistance). **Pure limit orders, no yield** (pool LP fee 0, no donation). Owner can cancel anytime (no hold); anyone can `pull` a fully crossed range immediately (proceeds to owner minus a keeper tip, default 0.1%, owner-settable max 1%). Only LockedLP and TrampWallManager may add liquidity (hook gate). | LOCKED 2026-10-16 |
+| 43 | Launch modes (v2) | Creator picks at launch: **TRENCH (0)**, **Easy = PVE (1)**: LoginGate login to buy, cap 1%→3.33%, partial fill, **crew tip** 0.777% of sell proceeds only when realized profit > tunable threshold (default **0.5% of mcap** at sale; owner-settable 0.1%–5%, snapshotted) → holders claim pool (replaces the 77% profit tax; 7-min window, 0.25% per-buy and 0.5% sell caps removed), First BOOST ≤1.2% locked to graduation; **Hard = PVP (2)**: no login, cap 3.33%→7.77%, partial fill, no max buy, First BOOST ≤3.33%, no crew tip / lock. All rules off at graduation | LOCKED 2026-10-23 |
 
 ---
 
@@ -108,14 +109,17 @@ This document is the source of truth for locked product and protocol decisions. 
 | Quote pricing | Any ERC-20; USD start/grad converted via quote price at launch |
 
 ### Wallet limits (bonding curve only)
-- Per-wallet cap while on the bonding curve = `walletCapBps` of total supply, snapshotted at launch. **Default 0 = no cap.** The protocol owner sets it with `Launchpad.setWalletCapBps(bps)` (0–10000, emits `WalletCapSet`). Coins launched before a change keep their snapshot (v1–v3 testnet coins keep the old fixed 7%).
+- **Easy (PVE):** NET holding cap 1% → 3.33% of supply, linear in curve mcap $7K → $33K (pre-trade mcap).
+- **Hard (PVP):** 3.33% → 7.77%, same formula.
+- **TRENCH:** `walletCapBps` of total supply, snapshotted at launch. **Default 0 = no cap.** The protocol owner sets it with `Launchpad.setWalletCapBps(bps)` (0–10000, emits `WalletCapSet`). Coins launched before a change keep their snapshot (v1–v3 testnet coins keep the old fixed 7%).
+- **Partial fill:** a buy over the cap fills up to the cap and refunds the rest (`BuyRefunded`); on the router USDG path the refund is swapped back to USDG. Room 0 reverts `WalletCap`. No max buy or max sell in any mode.
 - Cap does **not** apply post-graduation.
 - **No wallet exemptions.**
 
 ### Anti-snipe
-- Buy-side fee decays from **77.7% → 0%** over **7 seconds** after launch.
-- After the window, total fee is only the protocol **1%** trade fee (no residual snipe fee).
-- The anti-snipe fee portion (**above** the protocol 1%) routes **70% to the community `RewardsVault`** (owner-settable on FeeRouter via `setRewardsVault`; accrues for later USDG/rewards distribution) and **30% to treasury** (incl. rounding remainder) — it does **not** use the 33/33/33/1 trade-fee split (`FeeRouter.routeSnipeFee`). If no vault is set, 100% goes to treasury. No anti-snipe exists post-graduation (hook path).
+- All modes. Buy-side sniper tax decays linearly from **99% → 0%** over **60 seconds** after launch; the First BOOST is exempt.
+- After the window, total fee is only the protocol **1%** trade fee (+ creator tax).
+- The tax is held in the curve's `snipeEscrow` (pair coin), outside `quoteReserve` and the price. At graduation it is added to the **locked LP** (`SnipeEscrowToLP`). If the coin has not graduated `snipeEscrowTimeout` after launch (default **30 days**; `Launchpad.setSnipeEscrowTimeout`, 1–365 days, future launches only), anyone can call `releaseSnipeEscrow()` to send it to `FeeRouter.rewardsVault()`. No 70/30 split; no anti-snipe post-graduation (hook path).
 
 ### Token deployment
 - Standard **CREATE** address generation.
@@ -203,7 +207,10 @@ Style target: Flaunch-like required set (image + name + ticker).
 
 ### Optional creator buy
 - Allowed in the **same launch transaction**.
-- Cap: **max `creatorBuyMaxBps` of supply** — default 0.77%, set by the protocol owner via `Launchpad.setCreatorBuyMaxBps` (emits `CreatorBuyMaxSet`), ceiling 7%; per-coin snapshot `creatorBuyMaxBpsOf(token)`.
+- Cap ("First BOOST max", `Launchpad.firstBoostMaxBps(mode)`): **Easy 1.2%**, **Hard 3.33%**, **TRENCH `creatorBuyMaxBps`** — default 0.77%, set by the protocol owner via `Launchpad.setCreatorBuyMaxBps` (emits `CreatorBuyMaxSet`), ceiling 7%; per-coin snapshot `creatorBuyMaxBpsOf(token)`. Larger amounts partial-fill.
+- Exempt from the holding cap for that buy only (counts in NET afterwards) and from the sniper tax.
+- **Easy:** the First BOOST tokens are locked until graduation (enforced in `Token._update` for the original creator); later buys are free.
+- Can be paid in USDG via `DiscipleRouter.launchWithUsdg` (router-only `Launchpad.launchFor`); not a session-key action.
 
 ### Deposits, gas, MEV, liveness
 | Topic | Rule |
@@ -343,6 +350,7 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 - **Revisions 2026-10-16 (audit fixes):** #11 leftover priority spelled out; #15/#16 LP share described as held pending compound; #29 router impact cap; graduation leftover quote → treasury.  
 - **Revisions 2026-10-16 (LP auto-compound):** #16 LP share is auto-compounded per trade into the locked full-range position (threshold 0.005% of position liquidity, cap 2%, 3% price-deviation skip, permissionless `flush`; **superseded on PR #75:** threshold 0.1%, cap 0.5% per 60 s window + one add per block, batched). Graduation leftover quote → compound quote bucket (was treasury).  
 - **Revisions 2026-10-17 (PR #75):** #41/§9 tier names → official ladder (Ozone, Stratosphere, Kármán Line, Outer Space = graduation, Morning Stars, Heavenly Host, The Moon, Uranus, Limbo, Gates of Heaven; ranges unchanged; `Constants.PEARLY_GATES_MCAP_USD` → `OUTER_SPACE_MCAP_USD`, `TIER_*` renamed). #35 non-upgradeable, redeploy-only. #12 creator tax curve-only. #11/#16 compound numbers: 0.1% minimum, 0.5% per 60 s cap, one add per block, batched.  
+- **Revisions 2026-10-23 (mode rules v2, Maker lee):** #8 per-mode caps growing with mcap + partial fill; #9 sniper tax 99%→0 over 60 s into `snipeEscrow` → locked LP at graduation / RewardsVault after 30 days (tunable); #27 per-mode First BOOST max + Easy creator lock; new #43 launch modes (Easy crew tip replaces the 77% profit tax). Requires the combined testnet redeploy (with paymaster #106 + 6-dec USDG). Needs AUDIT.  
 - **Change policy:** Treat the LOCKED table as authoritative. New decisions require an explicit unlock / revision of this constitution; do not silently override LOCKED rows.
 
 *End of DISCIPLE Protocol Constitution.*

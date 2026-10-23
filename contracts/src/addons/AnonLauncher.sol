@@ -152,13 +152,21 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         uint256 fee = launchFee;
         if (fee > 0) feeToken.safeTransferFrom(msg.sender, treasury, fee);
 
+        address q;
+        uint256 b0;
         if (p.creatorBuyQuoteIn > 0) {
-            address q = p.quote == address(0) ? ILaunchpadAdmin(address(launchpad)).defaultQuote() : p.quote;
+            q = p.quote == address(0) ? ILaunchpadAdmin(address(launchpad)).defaultQuote() : p.quote;
+            b0 = IERC20(q).balanceOf(address(this));
             IERC20(q).safeTransferFrom(msg.sender, address(this), p.creatorBuyQuoteIn);
             IERC20(q).forceApprove(address(launchpad), p.creatorBuyQuoteIn);
         }
 
         r = launchpad.launch(p);
+        // mode rules v2: a First BOOST above the max partially fills; the Launchpad refunds the unused quote here
+        if (q != address(0)) {
+            uint256 left = IERC20(q).balanceOf(address(this)) - b0;
+            if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
+        }
         stealthOwnerOf[r.token] = stealthOwner;
         if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
 

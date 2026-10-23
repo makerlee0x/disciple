@@ -13,11 +13,14 @@ contract CreatorBuyCapTest is IntegrationBase {
         (BondingCurve c, Token t) = _launch(0, 10 ether);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 77);
         c;
-        // just above 0.77% reverts by default
-        (,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 ether, 0);
+        // above 0.77%: flagged by the quote, and (mode rules v2) partially filled instead of reverting
+        (uint256 qOut,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 ether, 0);
         assertTrue(ex);
-        vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector);
-        this.launchExt(200 ether);
+        assertEq(qOut, FeeMath.creatorBuyMax(), "quote clamps to the max");
+        uint256 b0 = quote.balanceOf(creator);
+        (, Token t2) = _launch(0, 200 ether);
+        assertEq(t2.balanceOf(creator), FeeMath.creatorBuyMax(), "partial fill to the max");
+        assertLt(b0 - quote.balanceOf(creator), 200 ether, "refund");
     }
 
     function launchExt(uint256 buy) external {
@@ -63,7 +66,11 @@ contract CreatorBuyCapTest is IntegrationBase {
         assertEq(launchpad.creatorBuyMaxBpsOf(address(old)), 77);
         (, Token nu) = _launch(0, 0);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(nu)), 10);
-        vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector);
+        (, Token nu2) = _launch(0, 10 ether);
+        assertEq(nu2.balanceOf(creator), FeeMath.creatorBuyMax(10), "partial fill to the new 0.1% max");
+        vm.prank(owner);
+        launchpad.setCreatorBuyMaxBps(0);
+        vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector); // max 0 = First BOOST disabled
         this.launchExt(10 ether);
     }
 
@@ -86,9 +93,12 @@ contract CreatorBuyCapTest is IntegrationBase {
         });
         vm.startPrank(payer);
         quote.approve(address(anon), type(uint256).max);
-        vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector);
-        anon.launchAnon(p, makeAddr("st"), makeAddr("fr"), "", 0x00);
+        uint256 pb0 = quote.balanceOf(payer);
+        ILaunchpad.LaunchResult memory r0 = anon.launchAnon(p, makeAddr("st"), makeAddr("fr0"), "", 0x00);
         vm.stopPrank();
+        assertEq(r0.creatorTokensBought, FeeMath.creatorBuyMax(), "partial fill to 0.77%");
+        assertLt(pb0 - quote.balanceOf(payer), 200 ether, "refund forwarded to the payer");
+        assertEq(quote.balanceOf(address(anon)), 0, "AnonLauncher keeps nothing");
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
         vm.prank(payer);
