@@ -12,10 +12,9 @@ import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
 import AmmoTierNotice from "./AmmoTierNotice";
-import { AMMO_TIERS } from "@/lib/flight/ammoTiers";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
-import { SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 
@@ -37,7 +36,7 @@ declare global {
  * No chain or no wallet ⇒ no bridge ⇒ engine keeps paper fills (mock/replay unchanged).
  */
 type Pos = { size: number; valueUsd: number; costBasis: number };
-/** % sells (default 10/25/50/100). Keys Z/X/C/V; the 4 slots are editable in Swap settings.
+/** % sells, FIXED at 10/25/50/100% of the bag (plus the one custom sell field). Keys Z/X/C/V.
  * The SELL row itself is drawn in the engine's AMMO panel. Clicking a preset only SELECTS it (disciple:sellselect);
  * DUMP / Shift (disciple:dump) sells the selected % (or the custom sell field); Z/X/C/V only SELECT (never trade).
  * Sell-size keys are read by the engine (bindings from the ESC settings menu) and arrive here as disciple:sellselect. */
@@ -47,7 +46,7 @@ const DEFAULT_SELL_SEL = 1;   // 25%
 
 /** Bottom bar = custom $ + BOOST (buy) / DUMP (sell) + position/paper badge. storagePrefix scopes Swap settings (sim has its own). */
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
-  const [mode, setMode] = useState(2);
+  const [mode, setMode] = useState(0);
   const [custom, setCustom] = useState("");
   const gs = useGameSettings();
   const t = useT();
@@ -57,8 +56,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     addEventListener("disciple:position", h);
     return () => removeEventListener("disciple:position", h);
   }, []);
-  // Preset $ sizes come from the engine (scaled by the rocket's ammo tier, see lib/flight/ammoTiers.ts).
-  const [ammo, setAmmo] = useState<Ammo>({ tier: null, name: null, usd: MODES.map((m) => m.usd), names: MODES.map((m) => m.name), mode: 2 });
+  // Buy preset $ sizes come from the engine: the player's own 4 (Swap settings / ESC menu) else $10/$25/$50/$100 (no mcap tier scaling).
+  const [ammo, setAmmo] = useState<Ammo>({ tier: null, name: null, usd: MODES.map((m) => m.usd), names: MODES.map((m) => m.name), mode: 0 });
   useEffect(() => {
     const h = (e: Event) => { const d = (e as CustomEvent<Ammo>).detail; setAmmo(d); if (typeof d.mode === "number") setMode(d.mode); };
     addEventListener("disciple:ammo", h);
@@ -104,7 +103,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     const q = () => pushPresets();
     const set = (e: Event) => { const d = (e as CustomEvent<{ buy?: number[] | null; sells?: SellSlot[] }>).detail; if (!d) return;
-      const n = sanitize({ ...cfgRef.current, ...(d.buy !== undefined ? { buy: d.buy } : {}), ...(d.sells ? { sells: d.sells } : {}) });
+      // only the buy amounts are customisable; sell sizes are fixed (sanitize pins them), so a `sells` field is ignored
+      const n = sanitize({ ...cfgRef.current, ...(d.buy !== undefined ? { buy: d.buy } : {}) });
       setCfg(n); saveSettings(scope, n); };
     addEventListener("disciple:presets-query", q); addEventListener("disciple:presets-set", set);
     return () => { removeEventListener("disciple:presets-query", q); removeEventListener("disciple:presets-set", set); };
@@ -231,7 +231,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     let restored = false, tries = 0;   // retry until the engine (maybe still booting in its worker) echoes the saved mode
     const h = (e: Event) => { const m = (e as CustomEvent<{ mode: number }>).detail?.mode;
       try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}");
-        if (!restored) { if (!(o.buy >= 0 && o.buy < 6) || o.buy === m || ++tries > 20) restored = true; else { dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: o.buy } })); setMode(o.buy); return; } }
+        if (!restored) { if (!(o.buy >= 0 && o.buy < MODES.length) || o.buy === m || ++tries > 20) restored = true; else { dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: o.buy } })); setMode(o.buy); return; } }
         if (typeof m === "number" && o.buy !== m) localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, buy: m })); } catch { /* */ } };
     addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h);
   }, [SEL_KEY]);
@@ -273,7 +273,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } }));
   // sell sizing. LIVE (Fix 4): frac of the smart account's REAL balanceOf × the real mark (the bridge re-reads balanceOf before
   // quoting; this $ only labels the shot) — was the PnL ledger's value, or $0.01 for a bag the ledger didn't know (blocked by
-  // the engine's MIN_SHOT guard ⇒ DUMP did nothing). Paper: x% of the ledger position value.
+  // the engine's MIN_SHOT guard ⇒ DUMP did nothing). The $ here is only a label: sells are never size-filtered and the chart
+  // marker is resized from the decoded receipt (disciple:fillreceipt → engine @sellfill). Paper: x% of the ledger position value.
   const sellPlan = (frac: number) => {
     if (live && liveHas) { const m = markRef.current, v = liveTokens.current * (m.mcap > 0 ? m.mcap / m.supply : 0);
       return { usd: v > 0 ? v * frac : pos.valueUsd > 0 ? pos.valueUsd * frac : 0.01, frac }; }
@@ -301,7 +302,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const noKeyActivate = { onKeyDown: (e: React.KeyboardEvent) => { if (e.key === " ") e.preventDefault(); },
     onKeyUp: (e: React.KeyboardEvent) => { if (e.key === " ") e.preventDefault(); } };
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
-  const autoUsd = ammo.tier != null ? AMMO_TIERS[ammo.tier].usd.slice() : MODES.map((m) => m.usd);
+  const autoUsd = DEFAULT_BUY.slice();
   const shotUsd = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
   return (
     <>
@@ -336,7 +337,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
-      onSave={(n, t) => { setCfg(n); saveSettings(scope, n); if (t != null && t !== ammo.tier && !n.buy) dispatchEvent(new CustomEvent("disciple:ammo-tier", { detail: { tier: t } })); setShowCfg(false); }} />}
+      onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}
     </>
   );
 }
