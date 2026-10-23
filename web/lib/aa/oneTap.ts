@@ -26,6 +26,8 @@ export const SESSION_POLICY_MODULE_ID = `disciple.session-policy.${SESSION_POLIC
 const verAtLeast = (v: string, min: string) => { const a = v.split(".").map(Number), b = min.split(".").map(Number); for (let i = 0; i < 3; i++) { if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); } return true; };
 /** Policy 1.3.0+ lets the session key sign buyWithUsdg / sellToUsdg; before that those go to the owner signer. */
 export const policyHasUsdg = (v = SESSION_POLICY_VERSION) => verAtLeast(v, "1.3.0");
+/** 1.4.0+: the policy allows the exact USDG gas approve to its (immutable) DisciplePaymaster. */
+export const policyHasPaymaster = (v = SESSION_POLICY_VERSION) => verAtLeast(v, "1.4.0");
 export const moduleIdAbi = [{ type: "function", name: "moduleId", stateMutability: "pure", inputs: [], outputs: [{ type: "string" }] }] as const;
 /** P_REFERRAL (1<<10): ReferralRegistry.tryAttribute(wallet == account, referrer). Not in the SDK's TRADE_PERMS. */
 export const P_REFERRAL = BigInt(1) << BigInt(10);
