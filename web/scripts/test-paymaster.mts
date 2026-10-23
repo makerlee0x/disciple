@@ -12,7 +12,7 @@ import {
   paymasterApproveCall, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
 } from "../lib/aa/paymaster";
 import { DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
-import { checkPaymaster, clientFees, GAS_CAPS, LAUNCH_GAS_CAPS, maxPrefund, relayerPrice } from "../lib/aa/gasPolicy";
+import { checkPaymaster, clientFees, GAS_CAPS, INFRA_WORDING, LAUNCH_GAS_CAPS, maxPrefund, NOT_ENOUGH_USDG, RelayPolicyError, relayerPrice, TRADING_UNAVAILABLE } from "../lib/aa/gasPolicy";
 import { launchpadAbi } from "../lib/abi/Launchpad";
 import { toFunctionSelector, type AbiFunction } from "viem";
 import { STATIC_GAS } from "../lib/aa/fastPath";
@@ -150,6 +150,9 @@ for (const dec of [18, 6]) {
     await (await twoPhase(d, true, (x) => x + (x * DEFAULT_MAX_SLACK_BPS) / BigInt(10_000))).final(); // at the slack edge: OK
     await rejects((await twoPhase(deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: BigInt(1) }) }))).final(), "approve");
     await rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(), "balance");
+    // the balance message reaches the client: no gas wording (mav2 matches /not enough USDG/ and shows NOT_ENOUGH_USDG)
+    await assert.rejects((await twoPhase(deps({ balanceOf: async () => BigInt(1) }))).final(),
+      (e: unknown) => e instanceof PaymasterQuoteError && /^not enough USDG: need /.test(e.message) && !INFRA_WORDING.test(e.message));
     const { op } = await twoPhase(d);
     await rejects(finalQuote(op, ENTRYPOINT_V07, 4663, cfg, d), "chain");
     await rejects(finalQuote(op, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", 46630, cfg, d), "entrypoint");
@@ -265,7 +268,9 @@ test("relay deposit check covers an 11M-gas launch op; keeper band fits N concur
   const fees = clientFees(BASE);
   const op = { callGasLimit: hex(LAUNCH_GAS_CAPS.callGasLimit), verificationGasLimit: hex(700_000), preVerificationGas: hex(100_000), maxFeePerGas: hex(fees.maxFeePerGas), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas), paymaster: PM, paymasterVerificationGasLimit: hex(120_000), paymasterPostOpGasLimit: hex(80_000) };
   const need = maxPrefund(op, relayerPrice(BASE));
-  assert.throws(() => checkPaymaster(op, PM, need - BigInt(1), BASE), /deposit too low/);
+  // client-visible message is plain; the internal reason is in `detail` (logged server-side)
+  assert.throws(() => checkPaymaster(op, PM, need - BigInt(1), BASE),
+    (e: unknown) => e instanceof RelayPolicyError && e.message === TRADING_UNAVAILABLE && /deposit too low/.test(e.detail ?? ""));
   checkPaymaster(op, PM, need, BASE);
   const { launchPrefund, depositBand } = await import("./paymaster-keeper.mts");
   const per = launchPrefund(BASE);
@@ -286,3 +291,14 @@ test("keeper topUpAmount: none above min; fills to target; never dips into the k
   assert.equal(topUpAmount(e(0.01), e(0.03), e(0.05), e(0.2), e(0.01)), e(0.02));
   assert.equal(topUpAmount(e(0.01), e(0.005), e(0.05), e(0.2), e(0.01)), BigInt(0));
 });
+
+test("user-facing copy never mentions gas / ETH / paymaster / bundler / sponsorship (Lee's rule)", () => {
+  for (const m of [TRADING_UNAVAILABLE, NOT_ENOUGH_USDG]) assert.equal(INFRA_WORDING.test(m), false, m);
+  for (const m of ["paymaster deposit too low: 1 < 2 wei", "callGasLimit 9 above cap 3", "gas sponsorship is disabled", "AA33 reverted", "not enough USDG for gas", "self-pay in ETH", "bundler response unreadable"])
+    assert.equal(INFRA_WORDING.test(m), true, m);
+  assert.equal(INFRA_WORDING.test("Price moved too much. Try again or raise slippage."), false);
+  // the relay's paymaster rejection (wrong paymaster / low deposit) is plain copy for the client
+  const PM2 = "0x2222222222222222222222222222222222222222";
+  assert.throws(() => checkPaymaster({ paymaster: PM2 } as never, PM, BigInt(0), BASE), (e: unknown) => e instanceof RelayPolicyError && e.message === TRADING_UNAVAILABLE && /not accepted/.test(e.detail ?? ""));
+});
+

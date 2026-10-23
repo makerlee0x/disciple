@@ -12,7 +12,7 @@ import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type Clien
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
-import { clientFees, isLaunchCalls } from "./gasPolicy";
+import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
@@ -239,6 +239,8 @@ export class Mav2Account {
         const have = await this.o.pc.getBalance({ address: sender });
         throw new AAError("FundAccount", "Your account is still being set up for network fees — try again in a moment.", { have, address: sender });
       }
+      // AA3x = the paymaster rejected / couldn't pay (deposit, signature, postOp): infrastructure, never shown verbatim
+      if (/AA3[0-9]/.test(msg) || raw.includes("414133")) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: msg.split("\n")[0].slice(0, 300) });
       // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
       let revertData: string | undefined = typeof (e as { data?: unknown }).data === "string" && /^0x[0-9a-fA-F]{8,}$/.test((e as { data: string }).data) ? (e as { data: string }).data : undefined;
       if (!revertData) (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const dd = (x as { data?: unknown }).data; if (typeof dd === "string" && /^0x[0-9a-fA-F]{8,}$/.test(dd)) { revertData = dd; return true; } return false; });
@@ -268,11 +270,16 @@ export class Mav2Account {
           sign: async (op) => ((await client.signUserOperation({ uoStruct: op })) as UserOp).signature,
         }));
       } catch (e) {
+        // User-facing copy is plain (no gas / paymaster wording); the server's reason stays in `detail` for logs.
+        // `usdg: true` ⇒ session.ts skips the ETH refill (it can't cover a USDG shortfall).
         if (e instanceof PaymasterRpcError) {
-          if (/not enough USDG/i.test(e.message)) throw new AAError("FundAccount", "Not enough USDG to pay gas — deposit more.", { address: sender, data: e.data });
+          if (/not enough USDG/i.test(e.message)) throw new AAError("FundAccount", NOT_ENOUGH_USDG, { address: sender, data: e.data, usdg: true, detail: e.message });
           if (feeRetry && /fee below relayer floor/i.test(e.message)) { FEES.invalidate(); return this.sendCalls(calls, as, false); }
-          throw new AAError("Bundler", `paymaster: ${e.message.split("\n")[0].slice(0, 200)}`, { data: e.data });
+          throw new AAError("Bundler", TRADING_UNAVAILABLE, { data: e.data, detail: `paymaster: ${e.message.split("\n")[0].slice(0, 300)}` });
         }
+        // client-side paymasterData checks (paymaster.ts) — real reverts from estimation still go through fail()
+        const em = (e as Error)?.message ?? String(e);
+        if (/^paymaster|fetch failed|failed to fetch|networkerror/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: em.split("\n")[0].slice(0, 300) });
         return fail(e);
       }
       if (!gas && !launch && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
@@ -359,7 +366,11 @@ export class Mav2Account {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(c.kind);   // stale limits → re-estimate next time
         // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the
         // first landed. Relay-side errors that aren't a pre-flight rejection are labelled as such, not "simulation failed".
-        if (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message)) throw new AAError("Bundler", `relay error: ${j.error.message.split("\n")[0].slice(0, 200)}`, { userOpHash: hash });
+        if (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message)) {
+          const line = j.error.message.split("\n")[0].slice(0, 200);
+          // relay policy / paymaster / gas-cap rejections: plain copy, reason kept in `detail` (users never see gas wording)
+          throw new AAError("Bundler", INFRA_WORDING.test(line) ? TRADING_UNAVAILABLE : `relay error: ${line}`, { userOpHash: hash, detail: line });
+        }
         return c.fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
       } else if (j.result) {
         this.syncOk = true;
@@ -378,14 +389,17 @@ export class Mav2Account {
   private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode): Promise<SendResult> {
     const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
-    const j = await r.json().catch(() => ({ error: { message: `bundler response unreadable (HTTP ${r.status})` } })) as { result?: Hex; error?: { message: string; data?: string } };
+    const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
     if (j.error) {
       if (/not confirmed|timeout/i.test(j.error.message)) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.");
+      // unreadable response / relay policy (gas caps, paymaster deposit): plain copy; real reverts still decode via fail()
+      if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
+        throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
       return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
     }
     opPhase({ phase: "submitted", userOpHash: hash });
     const got = await this.findOp(hash, wire.sender, 30_000);
-    if (!got) throw new AAError("Timeout", `UserOp ${hash} not mined yet`);
+    if (!got) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.", { userOpHash: hash });
     if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
     const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings });

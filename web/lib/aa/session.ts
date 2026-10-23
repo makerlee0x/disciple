@@ -180,7 +180,8 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
 async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address) {
   try { return await sa!.sendCalls(calls, as); }
   catch (e) {
-    if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
+    // a USDG shortfall (USDG-paid network cost) can't be fixed by an ETH refill: surface "Not enough USDG" as is
+    if ((e as AAError).code !== "FundAccount" || (e as AAError).extra?.usdg || !(await refillGas(me))) throw e;
     return sa!.sendCalls(calls, as);
   }
 }

@@ -118,7 +118,7 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
   if (amount > required + (required * slack) / BigInt(10_000)) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} too far above required ${d(required)}`, data);
   if (amount > b.maxCostCap) throw new PaymasterQuoteError("approve", `USDG gas allowance ${d(amount)} above the paymaster cap ${d(b.maxCostCap)} (lower gas limits / fees)`, data);
   const bal = await deps.balanceOf(o.sender);
-  if (bal < amount) throw new PaymasterQuoteError("balance", `not enough USDG for gas: need ${d(amount)}, have ${d(bal)}`, { ...data, balance: hex(bal) });
+  if (bal < amount) throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(amount)}, have ${d(bal)}`, { ...data, balance: hex(bal) });
 
   const now = deps.now();
   const q: PaymasterQuote = { validUntil: now + ttl(cfg), validAfter: now - VALID_AFTER_SKEW_SEC, rate: cfg.rate, maxTokenCost: amount };

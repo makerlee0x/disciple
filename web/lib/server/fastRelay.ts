@@ -18,7 +18,7 @@ import { ENTRYPOINT_V07 } from "../aa/constants";
 import { isNonceError, relayerKey } from "./relayer";
 import { capsForOp, checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
 import { launchTargets } from "../aa/launchTargets";
-import { checkPaymaster } from "../aa/gasPolicy";
+import { checkPaymaster, RelayPolicyError } from "../aa/gasPolicy";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
@@ -143,7 +143,11 @@ export async function sendUserOperationSync(op: UserOp) {
   const fee = await baseFee();
   checkOpGas(op, fee, capsForOp(op, launchTargets(robinhoodTestnet.id)));
   // USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee)
-  if (op.paymaster) { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), fee); }
+  if (op.paymaster) {
+    const pm = allowedPaymaster();
+    try { checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), fee); }
+    catch (e) { if (e instanceof RelayPolicyError) console.warn("[fastRelay] paymaster check:", e.detail ?? e.message); throw e; }
+  }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
   if (!fast) {

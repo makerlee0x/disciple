@@ -129,7 +129,7 @@ export function firstCallApproveAmount(callData: Hex, usdg: Address, paymaster: 
   } catch { return null; }
 }
 
-/** Human USDG amount (for "not enough USDG for gas" messages) — decimals-aware, never hard-codes 1e18. */
+/** Human USDG amount (for "not enough USDG" messages) — decimals-aware, never hard-codes 1e18. */
 export function formatUsdg(amount: bigint, decimals: number, dp = 4): string {
   const s = amount.toString().padStart(decimals + 1, "0");
   const whole = s.slice(0, s.length - decimals), frac = s.slice(s.length - decimals).slice(0, dp).replace(/0+$/, "");

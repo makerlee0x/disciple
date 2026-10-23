@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
-    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: gas sponsorship is disabled (self-pay in ETH, or USDG gas via /api/paymaster)` } }, { status: 400 });
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: not supported` } }, { status: 400 });
   const selfOnly = !!body?.method && SELF_ONLY.has(body.method);
   if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1")
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: self-bundler only` } });

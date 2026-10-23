@@ -98,7 +98,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
       try { checkOpGas(op, base, capsForOp(op, launchTargets(robinhoodTestnet.id))); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
       // USDG-gas op: the prefund comes from OUR paymaster's deposit (the sender holds no ETH; launches up to 11M gas)
-      if (op.paymaster) { try { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; } }
+      if (op.paymaster) { try { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); } catch (e) { if (e instanceof RelayPolicyError) { console.warn("[selfBundler] paymaster check:", e.detail ?? e.message); throw new BundlerRpcError(e.message); } throw e; } }
       const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], relayer.address] });
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
