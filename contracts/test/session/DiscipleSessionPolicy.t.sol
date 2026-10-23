@@ -24,10 +24,23 @@ contract MockAnon {
 }
 
 contract TKN is ERC20 {
+    uint8 internal _d = 18;
+
     constructor(string memory n) ERC20(n, n) {}
+
+    function decimals() public view override returns (uint8) {
+        return _d;
+    }
 
     function mint(address to, uint256 a) external {
         _mint(to, a);
+    }
+}
+
+/// @dev TKN with configurable decimals (6-dec USDG matrix).
+contract TKNDec is TKN {
+    constructor(string memory n, uint8 d) TKN(n) {
+        _d = d;
     }
 }
 
@@ -236,15 +249,24 @@ contract DiscipleSessionPolicyTest is Test {
     address key = makeAddr("sessionKey");
     address attacker = makeAddr("attacker");
     uint32 constant E = 8;
-    uint128 constant CAP = 100e18;
+    uint128 internal CAP; // $100 at the USDG decimals
+    /// @notice One whole USDG in raw units. Mock router/curves are 1:1 raw, so RKT tokens share the decimals.
+    uint256 internal U;
+
+    /// @notice USDG decimals for this run; the 6-decimal matrix overrides it (thin `...6Dec` subclass).
+    function _usdgDecimals() internal pure virtual returns (uint8) {
+        return 18;
+    }
 
     function setUp() public {
         vm.warp(1_800_000_000);
-        usdg = new TKN("USDG");
+        U = 10 ** uint256(_usdgDecimals());
+        CAP = uint128(100 * U);
+        usdg = new TKNDec("USDG", _usdgDecimals());
         registry = new ReferralRegistry(address(this), address(usdg));
         policy = new P(address(registry));
-        rocket = new TKN("RKT");
-        rocket2 = new TKN("RKT2");
+        rocket = new TKNDec("RKT", _usdgDecimals());
+        rocket2 = new TKNDec("RKT2", _usdgDecimals());
         router = new MockRouter(usdg);
         lp = new MockLaunchpad();
         curve = new MockCurve(address(rocket2), usdg);
@@ -253,8 +275,8 @@ contract DiscipleSessionPolicyTest is Test {
         lp.set(address(rocket), address(new MockCurve(address(rocket), usdg))); // router-traded rocket's quote
         twm = new MockTWM(usdg);
         acct = new MockMAv2(owner);
-        usdg.mint(address(acct), 1000e18);
-        rocket.mint(address(acct), 1000e18);
+        usdg.mint(address(acct), 1000 * U);
+        rocket.mint(address(acct), 1000 * U);
         vm.deal(address(acct), 1 ether);
         vm.prank(owner);
         acct.installSession(policy, E, key, _cfg(uint48(block.timestamp + 24 hours)));
@@ -302,33 +324,33 @@ contract DiscipleSessionPolicyTest is Test {
     // ───────── happy paths ─────────
 
     function test_routerBuyAndSell() public {
-        _batch(_approve(address(usdg), address(router), 10e18), _buy(10e18, address(acct)));
-        assertEq(rocket.balanceOf(address(acct)), 1010e18);
+        _batch(_approve(address(usdg), address(router), 10 * U), _buy(10 * U, address(acct)));
+        assertEq(rocket.balanceOf(address(acct)), 1010 * U);
         _batch(
-            _approve(address(rocket), address(router), 5e18),
+            _approve(address(rocket), address(router), 5 * U),
             MockMAv2.Call(
                 address(router),
                 0,
-                abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 5e18, 5e18, address(acct), block.timestamp))
+                abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 5 * U, 5 * U, address(acct), block.timestamp))
             )
         );
-        assertEq(policy.sessionOf(address(acct), E).spent0, 10e18); // sells don't consume the quote cap
+        assertEq(policy.sessionOf(address(acct), E).spent0, 10 * U); // sells don't consume the quote cap
     }
 
     function test_registeredCurveBuy() public {
         _batch(
-            _approve(address(usdg), address(curve), 3e18),
+            _approve(address(usdg), address(curve), 3 * U),
             MockMAv2.Call(
-                address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 3e18, 0, address(acct))
+                address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3 * U, 3 * U, 0, address(acct))
             )
         );
-        assertEq(rocket2.balanceOf(address(acct)), 3e18);
+        assertEq(rocket2.balanceOf(address(acct)), 3 * U);
     }
 
     function test_trampPlaceAndCancel() public {
         _batch(
-            _approve(address(usdg), address(twm), 4e18),
-            MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 4e18, 0, 0)))
+            _approve(address(usdg), address(twm), 4 * U),
+            MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 4 * U, 0, 0)))
         );
         assertEq(twm.ownerOf(1), address(acct));
         vm.prank(key);
@@ -370,8 +392,8 @@ contract DiscipleSessionPolicyTest is Test {
         acct.installSession(policy, E, key, c);
         _expectBatchRevert(
             abi.encodeWithSelector(P.NotAllowed.selector, address(router), MockRouter.buyExactIn.selector),
-            _approve(address(usdg), address(router), 1e18),
-            _buy(1e18, address(acct))
+            _approve(address(usdg), address(router), 1 * U),
+            _buy(1 * U, address(acct))
         );
     }
 
@@ -407,8 +429,8 @@ contract DiscipleSessionPolicyTest is Test {
     function test_cannotBuyToForeignRecipient() public {
         _expectBatchRevert(
             abi.encodeWithSelector(P.RecipientNotAccount.selector),
-            _approve(address(usdg), address(router), 1e18),
-            _buy(1e18, attacker)
+            _approve(address(usdg), address(router), 1 * U),
+            _buy(1 * U, attacker)
         );
     }
 
@@ -430,24 +452,24 @@ contract DiscipleSessionPolicyTest is Test {
     // ───────── spend cap ─────────
 
     function test_capEnforcedAcrossCalls() public {
-        _batch(_approve(address(usdg), address(router), 60e18), _buy(60e18, address(acct)));
+        _batch(_approve(address(usdg), address(router), 60 * U), _buy(60 * U, address(acct)));
         _expectBatchRevert(
-            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP),
-            _approve(address(usdg), address(router), 41e18),
-            _buy(41e18, address(acct))
+            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101 * U, CAP),
+            _approve(address(usdg), address(router), 41 * U),
+            _buy(41 * U, address(acct))
         );
-        _batch(_approve(address(usdg), address(router), 40e18), _buy(40e18, address(acct))); // exactly at cap
+        _batch(_approve(address(usdg), address(router), 40 * U), _buy(40 * U, address(acct))); // exactly at cap
         assertEq(policy.sessionOf(address(acct), E).spent0, CAP);
     }
 
     /// @dev Audit #8: approvals are not counted; the cap counts quote actually spent.
     function test_capCountsActualSpendNotApprovals() public {
-        _batch(_approve(address(usdg), address(router), 60e18), _approve(address(usdg), address(twm), 60e18));
+        _batch(_approve(address(usdg), address(router), 60 * U), _approve(address(usdg), address(twm), 60 * U));
         assertEq(policy.sessionOf(address(acct), E).spent0, 0);
         _expectBatchRevert(
-            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 120e18, CAP),
-            _buy(60e18, address(acct)),
-            _buy(60e18, address(acct))
+            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 120 * U, CAP),
+            _buy(60 * U, address(acct)),
+            _buy(60 * U, address(acct))
         );
     }
 
@@ -456,20 +478,20 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(owner); // owner grants a standing max allowance (no session hooks)
         acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), type(uint256).max)));
         MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
-        cs[0] = _buy(60e18, address(acct));
+        cs[0] = _buy(60 * U, address(acct));
         vm.prank(key);
         acct.executeBatch(cs);
-        assertEq(policy.sessionOf(address(acct), E).spent0, 60e18);
-        cs[0] = _buy(41e18, address(acct));
+        assertEq(policy.sessionOf(address(acct), E).spent0, 60 * U);
+        cs[0] = _buy(41 * U, address(acct));
         vm.prank(key);
-        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101 * U, CAP));
         acct.executeBatch(cs);
         // tramps also count
-        cs[0] = MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 41e18, 0, 0)));
+        cs[0] = MockMAv2.Call(address(twm), 0, abi.encodeCall(MockTWM.placeTramp, (address(rocket), 0, 60, 41 * U, 0, 0)));
         vm.prank(owner);
         acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(twm), type(uint256).max)));
         vm.prank(key);
-        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101e18, CAP));
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(usdg), 101 * U, CAP));
         acct.executeBatch(cs);
     }
 
@@ -477,7 +499,7 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(owner);
         acct.execute(address(usdg), 0, abi.encodeCall(ERC20.approve, (address(router), type(uint256).max)));
         for (uint256 i; i < amts.length; ++i) {
-            uint256 a = uint256(amts[i]) % 80e18 + 1;
+            uint256 a = uint256(amts[i]) % (80 * U) + 1;
             MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
             cs[0] = _buy(a, address(acct));
             vm.prank(key);
@@ -522,44 +544,44 @@ contract DiscipleSessionPolicyTest is Test {
 
     function test_zeroMinOutRejected() public {
         _expectBatchRevert(
-            abi.encodeWithSelector(P.ZeroMinOut.selector), _approve(address(usdg), address(router), 1e18), _routerBuy(1e18, 0)
+            abi.encodeWithSelector(P.ZeroMinOut.selector), _approve(address(usdg), address(router), 1 * U), _routerBuy(1 * U, 0)
         );
         vm.prank(key);
         vm.expectRevert(P.ZeroMinOut.selector);
         acct.execute(
-            address(router), 0, abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 1e18, 0, address(acct), 0))
+            address(router), 0, abi.encodeCall(MockRouter.sellExactIn, (address(rocket), 1 * U, 0, address(acct), 0))
         );
         vm.prank(key);
         vm.expectRevert(P.ZeroMinOut.selector);
-        acct.execute(address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1e18, 0, 0));
+        acct.execute(address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256)", 1 * U, 0, 0));
     }
 
     function test_minOutBelowQuoteMinusSlippageRejected() public {
-        // quote 10e18, 5% → required 9.5e18
+        // quote 10 * U, 5% → required 95 * U / 10
         _expectBatchRevert(
-            abi.encodeWithSelector(P.MinOutTooLow.selector, 9.4e18, 9.5e18),
-            _approve(address(usdg), address(router), 10e18),
-            _routerBuy(10e18, 9.4e18)
+            abi.encodeWithSelector(P.MinOutTooLow.selector, 94 * U / 10, 95 * U / 10),
+            _approve(address(usdg), address(router), 10 * U),
+            _routerBuy(10 * U, 94 * U / 10)
         );
-        _batch(_approve(address(usdg), address(router), 10e18), _routerBuy(10e18, 9.5e18)); // exactly at bound
+        _batch(_approve(address(usdg), address(router), 10 * U), _routerBuy(10 * U, 95 * U / 10)); // exactly at bound
     }
 
     function test_minOutUsesLiveQuote() public {
         router.setQuoteBps(5000); // pool now quotes half
-        // minOut 4.75e18 = 0.95 * 5e18 passes the policy (router then enforces its own slippage on the real fill)
-        _batch(_approve(address(usdg), address(router), 10e18), _routerBuy(10e18, 4.75e18));
+        // minOut 475 * U / 100 = 0.95 * 5 * U passes the policy (router then enforces its own slippage on the real fill)
+        _batch(_approve(address(usdg), address(router), 10 * U), _routerBuy(10 * U, 475 * U / 100));
         _expectBatchRevert(
-            abi.encodeWithSelector(P.MinOutTooLow.selector, 4.7e18, 4.75e18),
-            _approve(address(usdg), address(router), 10e18),
-            _routerBuy(10e18, 4.7e18)
+            abi.encodeWithSelector(P.MinOutTooLow.selector, 47 * U / 10, 475 * U / 100),
+            _approve(address(usdg), address(router), 10 * U),
+            _routerBuy(10 * U, 47 * U / 10)
         );
     }
 
     function test_curveSlippageEnforced() public {
         vm.prank(key);
-        vm.expectRevert(abi.encodeWithSelector(P.MinOutTooLow.selector, 1, 2.85e18));
+        vm.expectRevert(abi.encodeWithSelector(P.MinOutTooLow.selector, 1, 285 * U / 100));
         acct.execute(
-            address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3e18, 1, 0, address(acct))
+            address(curve), 0, abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 3 * U, 1, 0, address(acct))
         );
     }
 
@@ -569,9 +591,9 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(owner);
         acct.installSession(policy, E, key, c);
         _expectBatchRevert(
-            abi.encodeWithSelector(P.MinOutTooLow.selector, 9.8e18, 9.9e18),
-            _approve(address(usdg), address(router), 10e18),
-            _routerBuy(10e18, 9.8e18)
+            abi.encodeWithSelector(P.MinOutTooLow.selector, 98 * U / 10, 99 * U / 10),
+            _approve(address(usdg), address(router), 10 * U),
+            _routerBuy(10 * U, 98 * U / 10)
         );
         c.maxSlippageBps = 5001;
         vm.prank(owner);
@@ -737,5 +759,12 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.StealthOwnerNotAllowed.selector, attacker));
         acct.execute(address(anon), 0, _anonCall(address(anon), attacker, address(acct)));
+    }
+}
+
+/// @notice 6-decimal USDG run of DiscipleSessionPolicyTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract DiscipleSessionPolicy6DecTest is DiscipleSessionPolicyTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
     }
 }

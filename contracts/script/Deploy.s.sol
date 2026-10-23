@@ -5,6 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReferralRegistry} from "../src/ReferralRegistry.sol";
 import {LockedLP} from "../src/LockedLP.sol";
@@ -58,7 +59,11 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       unset → deploy a fresh PoolManager (local). Quotes: DiscipleRouter.quoteExactIn
 ///   V4_QUOTER           official V4Quoter (RH: 0x8dc178efb8111bb0973dd9d722ebeff267c98f94) — logged only
 ///   USDG                USDG address (RH mainnet: 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168);
-///                       unset → deploy 18-dec DevToken "USDG" + mock STRATEGY w/ STRATEGY/USDG pool at $0.00245
+///                       unset → deploy a mock DevToken "USDG" (MOCK_USDG_DECIMALS, minted to the deployer)
+///                       + mock STRATEGY w/ STRATEGY/USDG pool at $0.00245
+///   MOCK_USDG_DECIMALS  mock USDG decimals when USDG is unset (default 18; 6 = mainnet-like). Testnet 6-dec
+///                       redeploy: USDG + DEFAULT_QUOTE unset, MOCK_USDG_DECIMALS=6 (redeploy.sh USDG6=1)
+///   MOCK_USDG_MINT      mock USDG minted to the deployer, raw (default 1e12 * 10**decimals = $1T)
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
@@ -67,14 +72,20 @@ contract DevToken is ERC20, ERC20Permit {
 ///   (UNIVERSAL_ROUTER is intentionally NOT trusted: audit #10 / SEC-05 — anyone can pass arbitrary hookData
 ///    through it and spoof the credited trader. Only DiscipleRouter is a trusted router.)
 ///   REWARDS_VAULT_OWNER community RewardsVault owner/multisig (default deployer); 70% of anti-snipe tax
-///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee (default 0.25e18, cap 5e18)
+///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee, raw (default $0.25 = 25 * 10**usdgDecimals / 100;
+///                       cap $5 = 5 * 10**usdgDecimals)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
 ///   DEPLOY_TEST_STRATEGY true → (with USDG set, DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a
-///                       STRATEGY/USDG pool at TEST_STRATEGY_PRICE_WAD (default 2.45e15 = $0.00245)
-///                       with REF_POOL_LIQUIDITY (default 1e24) full-range liquidity from the deployer
+///                       STRATEGY/USDG pool at TEST_STRATEGY_PRICE_WAD (USD per whole STRATEGY, WAD;
+///                       default 2.45e15 = $0.00245; scaled to raw by the USDG decimals)
+///                       with REF_POOL_LIQUIDITY (default 1e24 at 18-dec USDG, sqrt(1e30 * 10**usdgDecimals)
+///                       in general, i.e. 1e18 at 6-dec) full-range liquidity from the deployer
 contract Deploy is Script {
     /// @dev forge script routes `new X{salt: s}` through this deterministic CREATE2 factory.
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
+    /// @dev USDG decimals (mock or real); scales every USD-denominated default below.
+    uint8 internal usdgDecimals;
 
     struct Out {
         address manager;
@@ -115,7 +126,15 @@ contract Deploy is Script {
 
         // USDG first: the referral gate is scaled by its decimals at construction.
         bool devUsdg = o.usdg == address(0);
-        if (devUsdg) o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        if (devUsdg) {
+            uint8 d = _mockUsdgDecimals();
+            require(d == 6 || d == 18, "Deploy: MOCK_USDG_DECIMALS must be 6 or 18");
+            o.usdg = address(
+                new DevToken("Global Dollar (dev)", "USDG", d, deployer, vm.envOr("MOCK_USDG_MINT", 1e12 * 10 ** d))
+            );
+        }
+        usdgDecimals = IERC20Metadata(o.usdg).decimals();
+        console2.log("USDG decimals", uint256(usdgDecimals));
         ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
         LockedLP lockedLP = new LockedLP(deployer, treasury);
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
@@ -283,7 +302,7 @@ contract Deploy is Script {
             usdg,
             treasury,
             vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564)),
-            vm.envOr("ANON_LAUNCH_FEE", uint256(0.25 ether))
+            vm.envOr("ANON_LAUNCH_FEE", 25 * 10 ** usdgDecimals / 100) // $0.25
         );
         MarketLens lens = new MarketLens(address(launchpad), address(migration));
         console2.log("RewardsVault", address(vault));
@@ -291,11 +310,19 @@ contract Deploy is Script {
         console2.log("MarketLens", address(lens));
     }
 
-    /// @dev price = usdg raw per quote raw, WAD.
-    function _seedRefPool(IPoolManager manager, address q, address usdg, uint256 priceWad)
+    /// @dev Mock USDG decimals when USDG is unset (virtual so tests can pin it without process-wide env).
+    function _mockUsdgDecimals() internal view virtual returns (uint8) {
+        return uint8(vm.envOr("MOCK_USDG_DECIMALS", uint256(18)));
+    }
+
+    /// @dev priceUsdWad = USD per whole (18-dec) quote token, WAD; converted to usdg raw per quote raw here so the
+    ///      same default works for 6- and 18-dec USDG. Liquidity default keeps the same USD depth at any decimals.
+    function _seedRefPool(IPoolManager manager, address q, address usdg, uint256 priceUsdWad)
         internal
         returns (PoolKey memory key)
     {
+        uint256 priceWad = Math.mulDiv(priceUsdWad, 10 ** usdgDecimals, 1e18);
+        require(priceWad > 0, "Deploy: ref price rounds to 0");
         bool qIsC0 = uint160(q) < uint160(usdg);
         key = PoolKey({
             currency0: Currency.wrap(qIsC0 ? q : usdg),
@@ -314,7 +341,7 @@ contract Deploy is Script {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: TickMath.minUsableTick(60),
                 tickUpper: TickMath.maxUsableTick(60),
-                liquidityDelta: int256(vm.envOr("REF_POOL_LIQUIDITY", uint256(1e24))),
+                liquidityDelta: int256(vm.envOr("REF_POOL_LIQUIDITY", Math.sqrt(1e30 * 10 ** usdgDecimals))),
                 salt: 0
             }),
             ""
