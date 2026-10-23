@@ -3,7 +3,7 @@
 //   pnpm test:relay-trust   (pure: fake clock, no RPC, no live endpoint)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RESIM_EVERY, RESIM_MS, SenderTrust, STRIKE_BASE_MS, STRIKE_DECAY_MS, STRIKE_MAX_MS, TRUST_TTL } from "../lib/server/relayTrust";
+import { RESIM_EVERY, RESIM_MS, SenderTrust, STRIKE_BASE_MS, STRIKE_DECAY_MS, STRIKE_MAX_MS, TRUST_TTL, type PersistedTrust, type TrustStore } from "../lib/server/relayTrust";
 
 const A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
 const BAL = BigInt(10) ** BigInt(18), PREFUND = BigInt(10) ** BigInt(14);
@@ -94,4 +94,46 @@ test("successful sends debit the cached balance until the next refresh", () => {
   tr.prime(A, PREFUND * BigInt(2));
   tr.succeeded(A, true, PREFUND); assert.equal(tr.check(A, PREFUND), null);
   tr.succeeded(A, true, PREFUND); assert.equal(tr.check(A, PREFUND), "low-balance");
+});
+
+// AUDIT Low: shared / durable trust state (TrustStore → KV). Strikes and verification survive a restart / cold instance.
+function memStore() {
+  const rec = new Map<string, PersistedTrust>(), first = new Set<string>();
+  const store: TrustStore = {
+    async load(s) { return rec.get(s) ?? null; },
+    async save(s, p) { rec.set(s, { ...p }); },
+    async claimFirstPrime(s) { if (first.has(s)) return false; first.add(s); return true; },
+  };
+  return { store, rec };
+}
+test("shared store: first-prime grant happens once globally, not once per (cold) instance", async () => {
+  let t = 1_000_000; const now = () => t; const { store } = memStore();
+  const a = new SenderTrust(now, store);
+  assert.equal(a.check(A, PREFUND), "unknown");
+  await a.primeShared(A, BAL);
+  assert.equal(a.check(A, PREFUND), null);                  // honest first login stays fast
+  await a.flush();
+  // restart / new lambda: the verification is loaded, not re-granted from a balance read
+  const b = new SenderTrust(now, store);
+  assert.equal(b.check(A, PREFUND), "unknown");             // not hydrated yet ⇒ simulate
+  await b.primeShared(A, BAL);
+  assert.equal(b.check(A, PREFUND), null);
+  // a sender whose record was lost but whose grant was used is NOT verified again by a balance read
+  const B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
+  await a.primeShared(B, BAL); a.strike(B); await a.flush();
+  const c = new SenderTrust(now, store);
+  await c.primeShared(B, BAL);
+  assert.equal(c.check(B, PREFUND), "strike");               // strike crosses instances
+  t += STRIKE_MAX_MS + 1;
+  await c.primeShared(B, BAL);
+  assert.equal(c.check(B, PREFUND), "unverified");           // and still needs a passing simulation afterwards
+  c.simulated(B); await c.flush();
+  assert.equal(c.check(B, PREFUND), null);
+});
+test("shared store errors fail safe (simulate), never grant trust", async () => {
+  const bad: TrustStore = { load: async () => { throw new Error("kv down"); }, save: async () => { throw new Error("kv down"); }, claimFirstPrime: async () => { throw new Error("kv down"); } };
+  const tr = new SenderTrust(() => 1_000_000, bad);
+  await tr.primeShared(A, BAL);
+  assert.notEqual(tr.check(A, PREFUND), null);
+  tr.simulated(A); await tr.flush();                        // write errors are swallowed
 });

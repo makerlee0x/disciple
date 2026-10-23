@@ -238,6 +238,11 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
             const cur = BigInt((get.get(src, who) as any)?.bal ?? "0");
             set.run(src, who, (cur + sign * v).toString());
           }
+          // #103: a private launch's First BOOST is bought by the AnonLauncher (Trade.trader = launcher) and then forwarded
+          // to buyRecipient in the same tx. Credit that buy to the recipient (the creator's smart account), not the launcher.
+          const from = lc(a.from);
+          if ((from === lc(stack.anonLauncher ?? "") || from === lc(stack.anonLauncherLegacy ?? "")) && lc(a.to) !== ZERO)
+            db.prepare("UPDATE trades SET trader=? WHERE tx=? AND token=? AND trader=? AND is_buy=1").run(lc(a.to), l.transactionHash, src, from);
           break;
         }
       }

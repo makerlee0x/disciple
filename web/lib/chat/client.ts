@@ -66,7 +66,8 @@ export async function login(): Promise<Tok | null> {
   const w = await import("@/lib/wallet");
   const s = await import("@/lib/aa/session");
   const smart = await s.aaAddress().catch(() => null);
-  const addr = lc(smart || w.connectedAddress() || "");
+  // #103: smart account (Privy) first; an injected wallet only if the user explicitly connected it (never a MetaMask popup otherwise)
+  const addr = lc(smart || (w.canTransact() ? w.connectedAddress() : "") || "");
   if (!/^0x[0-9a-f]{40}$/.test(addr)) return null;
   const hit = cachedToken(addr); if (hit) return hit;
   // single-use server nonce first (replay protection), then the same one signature as before
@@ -82,7 +83,7 @@ export async function login(): Promise<Tok | null> {
       if (!o) return null;
       body = { addr, ts, nonce, sig: o.sig, owner: o.owner };
     } else {
-      const signer = await w.getSigner();
+      const signer = await w.plainWalletSigner(addr);
       body = { addr, ts, nonce, sig: await signer.signMessage({ account: signer.account.address, message: msg }) };
     }
   } catch { return null; }
