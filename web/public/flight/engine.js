@@ -674,7 +674,7 @@ function simTrade(){
 }
 setTimeout(pushSim,0);
 const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced)
-function pushAmmo(){ noteBuyAmount(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
+function pushAmmo(){ noteBuyAmount(); pushPaperCash(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
   name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
   const u=S.ammoOverride||AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
@@ -789,9 +789,9 @@ function submit(side,usd,force,opt){
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
   source.submitTrade(side,S.tradeUsd,o).then(r=>{
     p.state=r.ok?'confirmed':'failed';
-    if(r.ok&&r.sim){ S.balance=r.balance; dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
+    if(r.ok&&r.sim){ S.balance=r.balance; pushPaperCash(); dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
     else if(r.ok&&r.exact){   // PAPER (mock / DISCIPLE, no wallet): exact curve/pool fill — spent $ (a curve-completing buy is refunded the rest), sell proceeds net of the fee
-      S.balance+=(side==='buy'?-r.usd:r.net);
+      S.balance+=(side==='buy'?-r.usd:r.net); pushPaperCash();
       if(r.refund>0.005) S.flashes.push({txt:`CURVE COMPLETE · ${fmtShot(r.refund)} REFUNDED`,life:1.8,c:'#9ff3c8'});
       dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap*(S.simF||1),supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }
     else if(r.ok){
@@ -800,7 +800,7 @@ function submit(side,usd,force,opt){
     // (Was: mark × √(estimated impact) — DISCIPLE paper never moved the price and mock walls could absorb the move,
     //  so a $60K buy was booked far above the mark → uPnL deeply negative right after the buy.)
     const fm=r.pre>0&&r.post>0&&!isLive()?Math.sqrt(r.pre*r.post)*(S.simF||1):fillMark;
-    S.balance+= (side==='buy' ? -p.usd : p.usd*0.99);
+    S.balance+= (side==='buy' ? -p.usd : p.usd*0.99); pushPaperCash();
     // live: optimistic estimate now; TradeBridge decodes the receipt (UsdgTrade / Trade logs) → 'disciple:fillreceipt' and the
     // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
     const live=isLive()&&!!r.txHash;
@@ -840,6 +840,8 @@ addEventListener('disciple:cash',e=>{ const u=e.detail&&e.detail.usd; S.liveCash
 function activeBuyUsd(){ return S.customBuyUsd>0?S.customBuyUsd:(MODES[S.mode]||MODES[0]).usd; }
 function cashNow(){ return source.isSim?null:window.__discipleTrade?S.liveCash:S.balance; }
 function boostShort(){ const c=cashNow(), u=activeBuyUsd(); return typeof c==='number'&&Number.isFinite(c)&&c+1e-9<u; }
+/* paper cash → TradeBridge (it greys BOOST out when the amount is more than the cash) */
+function pushPaperCash(){ try{ dispatchEvent(new CustomEvent('disciple:papercash',{detail:{usd:source.isSim||window.__discipleTrade?null:S.balance}})); }catch(_){} }
 function noteBuyAmount(){ const u=activeBuyUsd(); if(S._buyAmt!==undefined&&u!==S._buyAmt) keepIf(S.feed,r=>!r.err); S._buyAmt=u; }
 /* "PAPER $139.98" / "CASH $42.10" / "SIM $250.00", then the reason BOOST is blocked, if any — dollars only */
 function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
