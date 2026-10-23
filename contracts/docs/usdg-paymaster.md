@@ -82,6 +82,28 @@ Web
   check paymaster deposit), `web/lib/aa/mav2.ts` (prepend exact approve, fetch paymasterAndData), `web/lib/server/relayTrust.ts`
 - `web/scripts/paymaster-keeper.mts` (deposit top-up), `web/scripts/test-paymaster.mts` (unit tests)
 
+## Pricing (`/api/paymaster`)
+
+`rate` = USDG base units per 1 ETH (1e18 wei); `tokenCost(wei) = ceil(wei * rate / 1e18)`. Decimals come from
+`USDG.decimals()` on-chain (18 on testnet mUSDG, 6 on mainnet USDG `0x5fc5…d168`) — no `1e18` assumption anywhere.
+
+**Testnet (implemented):** fixed, configurable rate from server env — `PAYMASTER_RATE` (integer base units per ETH)
+or `PAYMASTER_USD_PER_ETH` (e.g. `3000`, scaled by the on-chain decimals). The server refuses to sign if the rate is
+outside the contract's `[minRate, maxRate]`.
+
+**Mainnet (design only — not implemented, not deployed):**
+1. Source: the USDG/WETH Uniswap v3 pool on RH mainnet. Read `observe([1800, 0])` → 30-minute arithmetic-mean tick
+   → TWAP price, converted to USDG base units per 1e18 wei using `USDG.decimals()` (6) and WETH decimals (18), with
+   token0/token1 ordering handled.
+2. Sanity: read `slot0` spot; refuse to quote if |spot − TWAP| > 2% (manipulation or a fast move) or if the pool's
+   in-range liquidity is below a floor; require the pool's observation cardinality to cover 30 min.
+3. Margin: quote `rate = TWAP × (1 + 1%)` so a move inside the quote TTL (≤ 3 min) can't make the paymaster pay.
+4. Clamp: the contract's `minRate`/`maxRate` (owner-set, e.g. ±25% of the launch price, reviewed weekly) are the
+   hard backstop; the server never signs outside them even if the TWAP says so.
+5. Cache the TWAP for ~15 s per server instance; the quote still re-reads the sender's debt and balance per op.
+6. Fallback: if the pool read fails or a sanity check trips, answer `-32003` (paymaster unavailable) — never fall back
+   to a stale fixed rate on mainnet.
+
 ## Risks
 1. **Absorbed gas on reverted ops** — mitigated by validation balance/allowance checks, signer-gated quotes after
    simulation, debt carry-forward; residual: one op per abandoned account. Monitor `DebtRecorded` events.
