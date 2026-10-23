@@ -79,6 +79,7 @@ curl localhost:4200/coins/0xfa86b94d37cba24910bd68426c5c0ace683d6628   # TRMP
 | `RPC_RPS` | `20` — token-bucket limit on RPC calls |
 | `MIN_LOG_CHUNK` | `500` — floor for adaptive getLogs range splitting |
 | `DB_PATH` | `./disciple-indexer.sqlite` |
+| `QUOTE_DECIMALS` | optional `0xUSDG:6,0xSTRAT:18` — known quote decimals for `coins.quote_decimals` (else `decimals()` is read on-chain once per quote; unknown stays NULL, never assumed 18). Set USDG:6 for the 6-dec redeploy. |
 | `PORT` | `4200` |
 | `POLL_MS` | `4000` |
 | `LIST_CACHE_MS` | `5000` — TTL of the list-endpoint cache (0 = off) |

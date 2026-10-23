@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
-import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, readCurveState, tokenBalance, usdgRouteFor } from "@/lib/protocol-viem";
 import { balanceLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
@@ -172,7 +172,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-          <span title="Network" style={{ fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(201,206,214,.25)", color: "#C9CED6", opacity: 0.85 }}>{ACTIVE_CHAIN.name}</span>
           {addr ? (
             <>
               {pf && smart && (

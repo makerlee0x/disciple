@@ -21,6 +21,7 @@ import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv } from "./kv";
 import { fillUsd, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgTradeArgs } from "@/lib/trades";
+import { usdgDecimals } from "@/lib/usdg";
 
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
 const CURVE_TRADE = getAbiItem({ abi: bondingCurveAbi, name: "Trade" });
@@ -43,6 +44,14 @@ async function quotePriceOf(curve: string): Promise<bigint> {
   const v = await serverPc().readContract({ address: curve as Address, abi: bondingCurveAbi, functionName: "quotePriceUsd" }).catch(() => BigInt(0));
   qpCache.set(curve, v as bigint); return v as bigint;
 }
+const quoteCache = new Map<string, string>();
+/** A coin's quote token (curve.quote(); immutable) — the v4 currency order for hook fills' sqrtPriceAfter → mcap. */
+async function quoteOf(curve: string): Promise<string | undefined> {
+  const hit = quoteCache.get(curve); if (hit) return hit;
+  const q = await serverPc().readContract({ address: curve as Address, abi: bondingCurveAbi, functionName: "quote" }).catch(() => undefined);
+  if (!q) return undefined;
+  const v = String(q).toLowerCase(); quoteCache.set(curve, v); return v;
+}
 async function tsOf(bn: bigint): Promise<number> {
   const hit = blockTs.get(bn); if (hit) return hit;
   const b = await serverPc().getBlock({ blockNumber: bn });
@@ -52,13 +61,14 @@ async function tsOf(bn: bigint): Promise<number> {
 /** Pure: decoded log → Fill (exported for tests). */
 export function toFill(log: { transactionHash: string; logIndex: number; blockNumber: bigint }, venue: Fill["venue"], a: {
   token: string; trader: string; isBuy: boolean; tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint;
+  sqrtPriceAfter?: bigint; quote?: string;
 }, ts: number, usdg?: UsdgTradeArgs): Fill {
   const u = fillUsd(a);
   return {
     id: `${log.transactionHash}:${log.logIndex}`, tx: log.transactionHash, logIndex: log.logIndex, block: Number(log.blockNumber), ts,
     coin: a.token.toLowerCase(), trader: a.trader.toLowerCase(), side: a.isBuy ? "buy" : "sell", venue, ...u,
     // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630)
-    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined),
+    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined, usdgDecimals()),
   };
 }
 
@@ -98,11 +108,13 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         const fromHook = src === hook;
         // decode with the emitter's own signature (hook: sqrtPriceAfter; curve: mcapAfterUsd)
         try { dec = decodeEventLog({ abi: [fromHook ? HOOK_TRADE : CURVE_TRADE], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as never; } catch { continue; }
-        const a = dec.args as { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint };
+        const a = dec.args as { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string };
         const curve = await curveOf(a.token.toLowerCase() as Address);
         const venue: Fill["venue"] | null = fromHook ? (curve !== ZERO.toLowerCase() ? "hook" : null) : curve === src ? "curve" : null;
         if (!venue) continue; // spoofed Trade event from an unrelated contract (or a hook trade of a foreign token)
-        if (venue === "hook") { delete a.mcapAfterUsd; a.quotePriceUsd = await quotePriceOf(curve); }
+        // hook: mcap from sqrtPriceAfter (full precision; priceAfterX18 is floored to single digits at 6-dec USDG — FLOW #115)
+        if (venue === "hook") { delete a.mcapAfterUsd; a.quotePriceUsd = await quotePriceOf(curve); a.quote = await quoteOf(curve); }
+        else delete a.sqrtPriceAfter;
         const tx = l.transactionHash ?? "", li = l.logIndex ?? 0;
         if (!(await s.setNX(`trades:seen:${tx}:${li}`, "1"))) continue;
         fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(l.blockNumber ?? BigInt(0)), usdg.get(usdgKey(tx, a.token, a.isBuy))?.shift()));

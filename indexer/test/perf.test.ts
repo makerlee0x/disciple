@@ -21,8 +21,9 @@ function mk(name: string, args: Record<string, any>, address: Hex, block = 1n): 
   return { address, topics: topics as any, data, blockNumber: block, transactionHash: `0x${(++li).toString(16).padStart(64, "0")}` as Hex, logIndex: li };
 }
 const E18 = 10n ** 18n;
-const trade = (token: Hex, src: Hex, trader: Hex, quote: bigint, price: bigint, mcap: bigint, block: bigint) =>
-  mk("Trade", { token, trader, isBuy: true, quoteAmt: quote * E18, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: price * E18, impactBps: 0n, mcapAfterUsd: mcap * E18 }, src, block);
+// mcapAfterUsd consistent with the price ($/token × 7B supply): the indexer prices from mcap / supply (FLOW #115).
+const trade = (token: Hex, src: Hex, trader: Hex, quote: bigint, price: bigint, block: bigint) =>
+  mk("Trade", { token, trader, isBuy: true, quoteAmt: quote * E18, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: price * E18, impactBps: 0n, mcapAfterUsd: price * 7_000_000_000n * E18 }, src, block);
 const ts = (b: bigint) => 1_000_000 + Number(b) * 60;
 const bkt = (b: bigint) => Math.floor(ts(b) / 60) * 60;
 const launches = () => [
@@ -33,9 +34,9 @@ const launches = () => [
   mk("Launched", { token: T3, curve: C3, creator: BOB, quote: QUOTE, name: "Quiet", ticker: "QQ", creatorTaxBps: 0n }, stack.launchpad, 3n),
 ];
 const tradesBatch = () => [
-  trade(T1, C1, BOB, 100n, 2n, 10_000n, 5n), trade(T1, C1, ALICE, 50n, 3n, 20_000n, 5n),   // same block: later log wins
-  trade(T2, C2, BOB, 10n, 1n, 5_000n, 6n), trade(T1, stack.hook, BOB, 7n, 4n, 40_000n, 90n), trade(T2, C2, ALICE, 1n, 9n, 90_000n, 7n),
-  trade(T1, A(0xbad), BOB, 999n, 1n, 1n, 8n),   // spoofed emitter: ignored
+  trade(T1, C1, BOB, 100n, 2n, 5n), trade(T1, C1, ALICE, 50n, 3n, 5n),   // same block: later log wins
+  trade(T2, C2, BOB, 10n, 1n, 6n), trade(T1, stack.hook, BOB, 7n, 4n, 90n), trade(T2, C2, ALICE, 1n, 9n, 7n),
+  trade(T1, A(0xbad), BOB, 999n, 1n, 8n),   // spoofed emitter: ignored
 ];
 function seeded() { const db = openDb(":memory:"); applyLogs(db, stack, launches(), ts); applyLogs(db, stack, tradesBatch(), ts); return db; }
 
@@ -54,7 +55,7 @@ describe("coin_stats aggregates (listCoins)", () => {
       expect(now).toEqual(legacy(db, order));
     }
     const one = (await get(api, "/coins?sort=volume")).find((c: any) => c.ticker === "ONE");
-    expect(one).toMatchObject({ volume_usd: 157, trades: 3, last_mcap: 40_000 });
+    expect(one).toMatchObject({ volume_usd: 157, trades: 3, last_mcap: 28_000_000_000 });
     const quiet = (await get(api, "/coins")).find((c: any) => c.ticker === "QQ");
     expect(quiet).toMatchObject({ volume_usd: 0, trades: 0, last_mcap: null });
     expect(Object.keys(one).slice(-3)).toEqual(["volume_usd", "trades", "last_mcap"]);
@@ -88,8 +89,11 @@ describe("coin_stats aggregates (listCoins)", () => {
     expect(plan).toMatch(/trades_trader_ts/);
   });
   it("USD math lives in one function (swap point for #75)", () => {
-    expect(tradeUsd({ quotePriceUsdWad: (2n * E18).toString(), quoteAmt: 3n * E18, priceAfterX18: 5n * E18, mcapAfterUsd: 7n * E18 }))
-      .toEqual({ priceUsd: 10, volumeUsd: 6, mcapUsdWad: (7n * E18).toString() });
+    // price = mcap / supply (7e10 / 7e9 = $10), never the floored priceAfterX18 (here deliberately inconsistent: 1)
+    expect(tradeUsd({ quotePriceUsdWad: (2n * E18).toString(), quoteAmt: 3n * E18, priceAfterX18: 1n, mcapAfterUsd: 70_000_000_000n * E18 }))
+      .toEqual({ priceUsd: 10, volumeUsd: 6, mcapUsdWad: (70_000_000_000n * E18).toString() });
+    // no mcap source at all ⇒ legacy priceAfterX18 × quote price
+    expect(tradeUsd({ quotePriceUsdWad: (2n * E18).toString(), quoteAmt: 3n * E18, priceAfterX18: 5n * E18 }).priceUsd).toBe(10);
   });
 });
 
@@ -131,7 +135,7 @@ describe("params + list cache", () => {
     const a = await get(api, "/coins?sort=volume"), b = await get(api, "/coins?sort=volume");
     expect(b).toBe(a);   // same cached object
     const v = dataVersion(db);
-    applyLogs(db, stack, [trade(T2, C2, BOB, 1000n, 1n, 1n, 200n)], ts);
+    applyLogs(db, stack, [trade(T2, C2, BOB, 1000n, 1n, 200n)], ts);
     expect(dataVersion(db)).toBe(v + 1);
     const c = await get(api, "/coins?sort=volume");
     expect(c).not.toBe(a); expect(c[0].ticker).toBe("TWO");

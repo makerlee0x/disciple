@@ -54,7 +54,9 @@
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
     "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
     "test:holders": "tsx --test scripts/test-holders.mts",
-    "test:usdg-fill": "tsx scripts/test-usdg-fill.mts"
+    "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
+    "test:usdg-decimals": "tsx --test scripts/test-usdg-decimals.mts",
+    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

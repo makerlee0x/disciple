@@ -3,7 +3,13 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
-import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
+
+/**
+ * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
+ * amounts stay /1e18 (DISCIPLE launch tokens are fixed 18-dec). Keeper tips map order → coin for the quote decimals.
+ */
+const KEEPER_QD = "(SELECT c.quote_decimals FROM orders o JOIN coins c ON c.token=o.token WHERE o.stack=k.stack AND o.id=k.order_id)";
 
 const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
 const INTERVALS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
@@ -23,8 +29,16 @@ export function intParam(q: URLSearchParams, name: string, def: number, min: num
 }
 
 type Live = {
-  priceWad: string; mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
+  /** quote raw × 1e18 / token raw — FLOORED (single digits at 6-dec USDG): display/debug only, use priceUsd / mcapUsd. */
+  priceWad: string;
+  /** $ per token = mcapUsd / total supply (full precision at any quote decimals). */
+  priceUsd: number;
+  mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
 };
+
+/** A coin's total supply (raw) — coins.total_supply when indexed, else the fixed 7B × 1e18. */
+const supplyOf = (coin: any): bigint => (coin?.total_supply ? BigInt(coin.total_supply) : TOTAL_SUPPLY);
+const supplyTokens = (coin: any) => Number(supplyOf(coin)) / 1e18;
 
 export class Api {
   private cache = new Map<string, { at: number; v: any }>();
@@ -63,15 +77,16 @@ export class Api {
           const tokenIsC0 = BigInt(coin.token) < BigInt(coin.quote);
           const p = priceWadFromSqrt(sqrtP, tokenIsC0);
           const curveM = (await client.readContract({ address: coin.curve, abi: READS, functionName: "mcapNow" }).catch(() => 0n)) as bigint;
+          const m = wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd, supplyOf(coin)));
           return {
-            priceWad: p.toString(), mcapUsd: wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
+            priceWad: p.toString(), priceUsd: m / supplyTokens(coin), mcapUsd: m, quoteUsd: wad(qUsd), mcapSource: "v4-pool",
             liquidityUsd: 2 * wad(virtualQuoteReserve(L, sqrtP, tokenIsC0)) * wad(qUsd),
             curveMcapNowUsd: wad(curveM),
           };
         } catch {
           if (st.marketLens) {
             const [p, m] = (await client.readContract({ address: st.marketLens, abi: READS, functionName: "market", args: [coin.token] })) as any;
-            return { priceWad: p.toString(), mcapUsd: wad(m), quoteUsd: wad(qUsd), mcapSource: "market-lens", liquidityUsd: 0 };
+            return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(qUsd), mcapSource: "market-lens", liquidityUsd: 0 };
           }
           throw new Error("no pool price");
         }
@@ -81,7 +96,7 @@ export class Api {
         client.readContract({ address: coin.curve, abi: READS, functionName: "priceNow" }) as Promise<bigint>,
         client.readContract({ address: coin.curve, abi: READS, functionName: "quoteReserve" }) as Promise<bigint>,
       ]);
-      return { priceWad: p.toString(), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ) };
+      return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ) };
     });
   }
 
@@ -196,7 +211,7 @@ export class Api {
 
   rewards() {
     return this.db.prepare(
-      `SELECT stack, quote asset, kind, COUNT(*) n, SUM(CAST(a AS REAL))/1e18 sum_a, SUM(CAST(b AS REAL))/1e18 sum_b FROM fee_events
+      `SELECT stack, quote asset, kind, COUNT(*) n, SUM(qd(a, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_a, SUM(qd(b, (SELECT c.quote_decimals FROM coins c WHERE c.quote=fee_events.quote AND c.quote_decimals IS NOT NULL LIMIT 1))) sum_b FROM fee_events
        WHERE kind IN ('RewardAccrued','SnipeFeeRouted','SnipeFeeRoutedToLP','Distributed') GROUP BY stack, quote, kind`,
     ).all();
   }
@@ -287,11 +302,11 @@ export class Api {
           SUM(CASE WHEN status='filled' THEN amount_in_usd ELSE 0 END) filledUsd, COUNT(*) placed FROM orders WHERE COALESCE(placed_at,0) >= ?
           GROUP BY owner ORDER BY trampsFilled + wallsFilled DESC, filledUsd DESC LIMIT ?`).all(since, limit);
       case "keepers":
-        return this.db.prepare(`SELECT keeper user, COUNT(*) tips, SUM(CAST(quote_tip AS REAL))/1e18 quoteTips, SUM(CAST(token_tip AS REAL))/1e18 tokenTips
-          FROM keeper_tips WHERE ts >= ? GROUP BY keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
+        return this.db.prepare(`SELECT k.keeper user, COUNT(*) tips, SUM(qd(k.quote_tip, ${KEEPER_QD})) quoteTips, SUM(CAST(k.token_tip AS REAL))/1e18 tokenTips
+          FROM keeper_tips k WHERE k.ts >= ? GROUP BY k.keeper ORDER BY tips DESC LIMIT ?`).all(since, limit);
       case "referrers":
         return this.db.prepare(`SELECT referrer user, SUM(status='attributed') attributed, SUM(status='pending') pending,
-          COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
+          COALESCE((SELECT SUM(qd(f.amount, (SELECT c.quote_decimals FROM coins c WHERE c.token=f.token))) FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=1),0) referralShareQuote,
           COALESCE((SELECT SUM(CAST(f.amount AS REAL))/1e18 FROM fee_credits f WHERE f.payee=r.referrer AND f.role IN ('referral','kol') AND f.fee_is_quote=0),0) referralShareToken
           FROM referrals r GROUP BY referrer ORDER BY attributed DESC, pending DESC LIMIT ?`).all(limit);
       default:
@@ -321,7 +336,7 @@ export class Api {
       user: u, counters: this.counters(u), holdings: this.holdings(u), coins: this.listCoins(new URLSearchParams({ creator: u })),
       anonCoins: this.db.prepare("SELECT token, ticker, stack FROM coins WHERE stealth_owner=?").all(u),
       referrals: this.referrals(u),
-      keeperTips: this.db.prepare("SELECT COUNT(*) n, SUM(CAST(quote_tip AS REAL))/1e18 quote, SUM(CAST(token_tip AS REAL))/1e18 token FROM keeper_tips WHERE keeper=?").get(u),
+      keeperTips: this.db.prepare(`SELECT COUNT(*) n, SUM(qd(k.quote_tip, ${KEEPER_QD})) quote, SUM(CAST(k.token_tip AS REAL))/1e18 token FROM keeper_tips k WHERE k.keeper=?`).get(u),
     };
   }
 

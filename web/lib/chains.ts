@@ -9,6 +9,8 @@ import { CHAIN, STRATEGY_TOKEN } from "./config";
 
 const Z = "0x0000000000000000000000000000000000000000" as Address;
 const addr = (v: string | undefined, fallback: Address = Z) => ((v && /^0x[0-9a-fA-F]{40}$/.test(v) ? v : fallback) as Address);
+/** ERC-20 decimals from env (integer 0..36), else the per-chain default. */
+export const decimalsEnv = (v: string | undefined, fallback: number) => (v && /^\d{1,2}$/.test(v.trim()) && Number(v) <= 36 ? Number(v) : fallback);
 
 export const robinhood = defineChain({
   id: CHAIN.id,
@@ -68,8 +70,14 @@ export interface Deployment {
   permit2: Address;
   /** Expected factory defaultQuote (display hint; the contract value wins). */
   defaultQuote: Address;
-  /** USDG (or mock) — decimals are read on-chain, never assumed. */
+  /** USDG (or mock). */
   usdg: Address;
+  /**
+   * USDG decimals — the single source of truth for every $ ⇄ USDG raw conversion (lib/usdg.ts). Mainnet USDG = 6;
+   * today's testnet mUSDG = 18; the testnet redeploy (~Nov 2) switches to a 6-dec USDG via NEXT_PUBLIC_RHT_USDG_DECIMALS=6
+   * (+ NEXT_PUBLIC_RHT_USDG). scripts/check-usdg-decimals.mts asserts it against the token's decimals().
+   */
+  usdgDecimals: number;
   /** First block to scan for events. */
   fromBlock: bigint;
 }
@@ -94,6 +102,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RH_USDG_DECIMALS, 6),
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
   },
   // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json on main (PR #97, v4 from main@fdd436b5, startBlock 137540728).
@@ -116,6 +125,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     ...RH_V4,
     defaultQuote: addr(process.env.NEXT_PUBLIC_RHT_DEFAULT_QUOTE, "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3"), // test STRATEGY (18 dec; reused from v1)
     usdg: addr(process.env.NEXT_PUBLIC_RHT_USDG, "0x25030Bff74764aD72b912276a603717DB1C00644"), // mUSDG (18 dec on testnet)
+    usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RHT_USDG_DECIMALS, 18),
     fromBlock: BigInt(process.env.NEXT_PUBLIC_RHT_FROM_BLOCK || "137540728"),
   },
   [anvil.id]: {
@@ -137,6 +147,7 @@ export const DEPLOYMENTS: Record<number, Deployment> = {
     v4Quoter: Z, stateView: Z, universalRouter: Z, permit2: RH_V4.permit2,
     defaultQuote: addr(process.env.NEXT_PUBLIC_ANVIL_DEFAULT_QUOTE),
     usdg: addr(process.env.NEXT_PUBLIC_ANVIL_USDG),
+    usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_ANVIL_USDG_DECIMALS, 18),
     fromBlock: BigInt(0),
   },
 };
