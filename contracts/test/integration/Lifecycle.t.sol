@@ -168,10 +168,13 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(a1, 0);
 
         // Price continuity vs curve end
+        // From the virtual reserves (as Migration does), not the WAD spot price: quote raw * 1e18 / token raw is a
+        // single-digit integer at 6-dec USDG, so fromPriceWad(spotPriceWad) is ~16% off there.
         CurveMath.Params memory p = CurveMath.makeParams(curve.quotePriceUsd());
-        uint256 priceWad = CurveMath.spotPriceWad(p, FeeMath.curveSoldSupply());
+        uint256 sold = FeeMath.curveSoldSupply();
         bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
-        uint160 expected = SqrtPrice.fromPriceWad(priceWad, tokenIsC0);
+        uint160 expected =
+            SqrtPrice.fromReserves(CurveMath.virtualQuote(p, sold), CurveMath.virtualToken(p, sold), tokenIsC0);
         (uint160 actual,,,) = manager.getSlot0(key.toId());
         assertApproxEqRel(uint256(actual), uint256(expected), 0.01e18);
     }
