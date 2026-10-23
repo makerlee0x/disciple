@@ -14,7 +14,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { createPublicClient, createTestClient, createWalletClient, encodeFunctionData, http, parseAbi, parseEther, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi, parseEther, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const FORK = process.env.FORK_RPC || "https://rpc.testnet.chain.robinhood.com";

@@ -127,8 +127,10 @@ Order matters: paymaster first (the policy bakes its address in as an immutable)
 1. **Deploy `DisciplePaymaster`** on RH testnet with `contracts/script/DeployPaymaster.s.sol` (refuses any chain but
    46630). Env: `USDG` (testnet mUSDG `0x25030Bff74764aD72b912276a603717DB1C00644`), `PAYMASTER_OWNER` (multisig/ops),
    `PAYMASTER_SIGNER` (ADDRESS of the quote key), `PAYMASTER_TREASURY`, `PAYMASTER_MIN_RATE` / `PAYMASTER_MAX_RATE`
-   (USDG base units per ETH — testnet 18 dec, e.g. 1000e18 / 10000e18), `PAYMASTER_MAX_COST` (per-op USDG cap, e.g.
-   5e18), `PAYMASTER_POST_OP_GAS` (30000), `PAYMASTER_DEPOSIT_WEI`, `PAYMASTER_STAKE_WEI` (1-day unstake delay).
+   (USDG base units per ETH — e.g. 1000 / 10000 USDG, i.e. 1000e6 / 10000e6 with the new 6-dec mock USDG, 1000e18 /
+   10000e18 with today's 18-dec mUSDG), `PAYMASTER_MAX_COST` (per-op USDG cap; **default 10 USDG** at the token's
+   decimals, see "Launch ops"), `PAYMASTER_POST_OP_GAS` (30000), `PAYMASTER_DEPOSIT_WEI`, `PAYMASTER_STAKE_WEI`
+   (1-day unstake delay).
 2. **Redeploy `DiscipleSessionPolicy` 1.4.0** with `contracts/script/DeploySessionPolicy.s.sol`, env `REFERRAL_REGISTRY`
    + `PAYMASTER` = the address from step 1. Constructor is now `(referralRegistry, paymaster)`.
 3. **Every user reinstalls their session** against the new policy (moduleId `disciple.session-policy.1.4.0`). Sessions
@@ -144,8 +146,41 @@ Order matters: paymaster first (the policy bakes its address in as an immutable)
    `paymaster()` getter, `PaymasterApproveNotExact(uint256,uint256)` error, moduleId string).
 6. **Decimals**: `tradeViaUsdg` "not enough cash" no longer divides by `1e18` (fixed in this PR); audit any other USDG
    display that assumes 18 decimals before mainnet (USDG is 6 there).
-7. Client wiring: `Mav2Account.sendCalls` still self-pays; switching it to `payGasInUsdg` (lib/aa/paymasterClient) is
-   the remaining code step and is gated on `NEXT_PUBLIC_RHT_PAYMASTER` being non-zero.
+7. Client wiring (done in this PR): `Mav2Account.sendCalls` pays gas in USDG via `payGasInUsdg` whenever
+   `NEXT_PUBLIC_RHT_PAYMASTER` is non-zero (owner ops always; session-key ops only with
+   `NEXT_PUBLIC_SESSION_POLICY_VERSION` ≥ 1.4.0). Unset ⇒ unchanged ETH prefund. Optional `NEXT_PUBLIC_PAYMASTER_URL`
+   (default `/api/paymaster`). Fork e2e: `pnpm test:paymaster-e2e` (anvil fork, nothing sent to testnet).
+8. **Merge order with PR #111** (SITE launch gas caps): this PR carries #111's `gasPolicy.ts` launch-cap block
+   (`LAUNCH_GAS_CAPS`, `capsForOp`, `isLaunchOp/isLaunchCalls`), `lib/aa/launchTargets.ts` and the
+   `checkOpGas(op, fee, capsForOp(…))` relay lines **byte-identical**, so those merge cleanly either way. Expected
+   textual conflicts, resolve by keeping both sides: `web/lib/aa/mav2.ts` (this PR moved the sync-relay block into
+   `relaySync()`; #111's `opRevertReason` / `launch` edits are already applied there) and the FundAccount copy;
+   `web/scripts/test-relay-policy.mts` (take #111's added tests). When the router USDG-in launch path lands, add the
+   router to `launchTargets()` — the relay, `/api/paymaster` quotes and the keeper all read it.
+
+## Launch ops (PR #111 caps)
+Launches (Launchpad `launch*` / AnonLauncher `launchAnon`, plus their approves and LoginGate.attest) get the relay's
+LAUNCH_GAS_CAPS: 10M call gas, 11M total. The paymaster path uses the same caps everywhere:
+- `/api/paymaster` (`paymasterCore.quoteCaps`) validates and sizes stubs with `capsForOp(op, launchTargets())`.
+- Relay (`fastRelay` / `selfBundler`) `checkOpGas(…capsForOp…)` then `checkPaymaster` (deposit ≥ op gas × max(maxFee,
+  relayer price)) — an 11M-gas launch needs ≈ **0.000348 ETH** of deposit at today's 0.01 gwei base fee.
+- Client: launches always estimate (no STATIC_GAS / cache) and never use the session key (wallet confirm).
+
+Numbers at base fee 0.01 gwei (client maxFee = (2·base + 1.1·tip)·1.5 = 0.03165 gwei), $3000/ETH:
+| | gas | max cost (approve) | typical actual |
+|---|---|---|---|
+| trade at STATIC_GAS | 2.41M | ≈ 0.23 USDG | ≈ 0.002–0.003 USDG (fork e2e) |
+| launch at the caps | 11M | **≈ 1.04 USDG** (10.61M stub ≈ 1.01) | ≈ 6.1M × 0.011 gwei ≈ 0.2 USDG |
+- `maxCostCap` default **10 USDG** (`DEFAULT_MAX_COST_USDG`): ~9.6x headroom — an 11M launch fits up to ≈ 0.1 gwei
+  base fee at $3000/ETH (≈ 0.03 gwei at the $10000 max rate). Above that the quote fails closed ("above the paymaster
+  cap"), nothing is charged.
+- Keeper: MIN is raised to `PAYMASTER_LAUNCH_CONCURRENCY` (default 20) × 11M × maxFee at the current base fee,
+  TARGET to 2× that: 20 launches ≈ 0.007 ETH today (< the 0.05 ETH default MIN, which already covers ~143 concurrent
+  launches; 0.2 ETH target ≈ 570); at 10x base fee 20 launches need ≈ 0.066 ETH and MIN follows.
+- **Session caps**: a launch's paymaster approve equals its max cost (≈ 1.04 USDG at the caps). Launches are not
+  session-key ops (TRADE_PERMS has no launch selector; they always need the owner's wallet confirm), so that approve
+  is **not** debited from any session USDG cap. Only session trades' approves (≤ ≈ 0.23 USDG each at STATIC_GAS)
+  count against the session's USDG cap.
 
 ## Estimate (realistic)
 | Day | Work |
@@ -158,6 +193,11 @@ Order matters: paymaster first (the policy bakes its address in as an immutable)
 | Fri Oct 30 | e2e on testnet, monitoring (DebtRecorded, deposit), buffer |
 Realistic code-complete: **Wed Oct 28**; testnet live after review: **Fri Oct 30, 2026**. Mainnet TWAP pricing: design only.
 
-**Status Fri Oct 23 (end of day):** (a)–(e) landed ahead of plan; remaining is the `Mav2Account.sendCalls` switch to
+**Status Fri Oct 23, 3:30 PM CDT:** Mav2Account USDG-gas switch + anvil-fork e2e (owner deploy op, session install,
+session-key curve buy, ETH fallback: 12/12 ok) + launch caps landed. **#106 is code-complete (Fri Oct 23)**; open
+items are review, the 6-decimal USDG test matrix (separate PR) and SITE's deploy steps. Testnet live after review +
+SITE steps: **Thu Oct 29, 2026** (Fri Oct 30 buffer).
+
+Earlier status (Fri Oct 23): (a)–(e) landed ahead of plan; remaining is the `Mav2Account.sendCalls` switch to
 `payGasInUsdg` + a fork/anvil end-to-end through a real MAv2 session. Revised: code-complete **Mon Oct 26**; testnet live
 after review + SITE steps **Thu Oct 29, 2026** (Fri Oct 30 kept as buffer).

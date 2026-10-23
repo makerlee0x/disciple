@@ -17,7 +17,7 @@
  * We never sponsor: the user's own USDG pays every op's gas (and any carried debt).
  */
 import { size, type Address, type Hex } from "viem";
-import { checkOpGas, clientFees, GAS_CAPS, RelayPolicyError } from "../aa/gasPolicy";
+import { capsForOp, checkOpGas, clientFees, RelayPolicyError, type GasCaps } from "../aa/gasPolicy";
 import type { UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import {
@@ -39,7 +39,11 @@ export class PaymasterQuoteError extends Error {
 export type QuoteConfig = {
   paymaster: Address; usdg: Address; usdgDecimals: number; rate: bigint;
   ttlSec?: number; maxSlackBps?: bigint;
+  /** Launchpad / AnonLauncher(s) (lib/aa/launchTargets): their launch ops get LAUNCH_GAS_CAPS (10M call / 11M total), as in the relay. */
+  launchers?: string[];
 };
+/** Same per-op caps the relay applies (fastRelay / selfBundler): launches to `launchers` ⇒ LAUNCH_GAS_CAPS, else GAS_CAPS. */
+export const quoteCaps = (op: UserOp, cfg: QuoteConfig): GasCaps => capsForOp(op, cfg.launchers ?? []);
 export type QuoteDeps = {
   now(): number; // unix seconds
   debtOf(sender: Address): Promise<bigint>;
@@ -76,10 +80,11 @@ export async function stubQuote(op: UserOp, entryPoint: string, chainId: string 
   checkTarget(entryPoint, chainId);
   await rateInBounds(cfg, deps);
   const o = withPaymaster(op, cfg.paymaster);
+  const caps = quoteCaps(o, cfg);
   const sized: UserOp = {
     ...o,
-    callGasLimit: o.callGasLimit || hex(GAS_CAPS.callGasLimit), verificationGasLimit: o.verificationGasLimit || hex(GAS_CAPS.verificationGasLimit),
-    preVerificationGas: o.preVerificationGas || hex(GAS_CAPS.preVerificationGas),
+    callGasLimit: o.callGasLimit || hex(caps.callGasLimit), verificationGasLimit: o.verificationGasLimit || hex(caps.verificationGasLimit),
+    preVerificationGas: o.preVerificationGas || hex(caps.preVerificationGas),
     maxFeePerGas: o.maxFeePerGas || hex(clientFees(await deps.baseFee()).maxFeePerGas),
   };
   const debt = await deps.debtOf(op.sender);
@@ -99,7 +104,7 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
   if (op.paymaster && op.paymaster.toLowerCase() !== cfg.paymaster.toLowerCase()) throw new PaymasterQuoteError("op", `op names paymaster ${op.paymaster}, not ${cfg.paymaster}`);
   const o = withPaymaster(op, cfg.paymaster);
   // the deposit fronts the gas and the relayer is refunded from it: same fee floor + caps as self-pay ops
-  try { checkOpGas(o, await deps.baseFee()); } catch (e) { if (e instanceof RelayPolicyError) throw new PaymasterQuoteError("gas", e.message); throw e; }
+  try { checkOpGas(o, await deps.baseFee(), quoteCaps(o, cfg)); } catch (e) { if (e instanceof RelayPolicyError) throw new PaymasterQuoteError("gas", e.message); throw e; }
   const b = await rateInBounds(cfg, deps);
 
   const amount = firstCallApproveAmount(o.callData, cfg.usdg, cfg.paymaster);

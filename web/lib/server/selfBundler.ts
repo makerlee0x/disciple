@@ -9,7 +9,9 @@ import "server-only";
 import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { relayerKey, withRelayer } from "./relayer";
-import { checkOpGas, checkPaymaster, maxPrefund, relayerPrice, relayerTxFees, RelayPolicyError } from "../aa/gasPolicy";
+import { capsForOp, checkOpGas, relayerTxFees, RelayPolicyError } from "../aa/gasPolicy";
+import { launchTargets } from "../aa/launchTargets";
+import { checkPaymaster, maxPrefund, relayerPrice } from "../aa/gasPolicy";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -94,11 +96,9 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const relayer = privateKeyToAccount(key);
       // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)
       const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
-      try {
-        checkOpGas(op, base);
-        // USDG-gas op: the prefund comes from OUR paymaster's deposit (the sender holds no ETH)
-        if (op.paymaster) { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); }
-      } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
+      try { checkOpGas(op, base, capsForOp(op, launchTargets(robinhoodTestnet.id))); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
+      // USDG-gas op: the prefund comes from OUR paymaster's deposit (the sender holds no ETH; launches up to 11M gas)
+      if (op.paymaster) { try { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; } }
       const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], relayer.address] });
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });

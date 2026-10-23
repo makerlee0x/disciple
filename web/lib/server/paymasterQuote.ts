@@ -19,6 +19,7 @@ import { createPublicClient, http, parseAbi, type Address, type Hex } from "viem
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
+import { launchTargets } from "../aa/launchTargets";
 import { PAYMASTER_CHAIN_ID, PaymasterQuoteError, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"]);
@@ -61,6 +62,7 @@ export async function quoteConfig(): Promise<QuoteConfig> {
     paymaster, usdg, usdgDecimals: decimals.d, rate: rateFromEnv({ PAYMASTER_RATE: process.env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: process.env.PAYMASTER_USD_PER_ETH }, decimals.d),
     ttlSec: Number.isFinite(ttl) && ttl > 0 ? ttl : undefined,
     maxSlackBps: slack && /^\d+$/.test(slack) ? BigInt(slack) : undefined,
+    launchers: launchTargets(PAYMASTER_CHAIN_ID),
   };
 }
 

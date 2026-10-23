@@ -16,7 +16,9 @@ import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import { isNonceError, relayerKey } from "./relayer";
-import { checkOpGas, checkPaymaster, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
+import { capsForOp, checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
+import { launchTargets } from "../aa/launchTargets";
+import { checkPaymaster } from "../aa/gasPolicy";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
@@ -136,13 +138,19 @@ export async function sendUserOperationSync(op: UserOp) {
   const me = account();
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
-  checkOpGas(op, fee);
+  checkOpGas(op, fee, capsForOp(op, launchTargets(robinhoodTestnet.id)));
+  // USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee)
   if (op.paymaster) { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), fee); }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
   if (!fast) {
     const s = Date.now();
-    await pc.call({ account: me.address, to: ENTRYPOINT_V07, data }).catch((e) => { throw new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`); });
+    await pc.call({ account: me.address, to: ENTRYPOINT_V07, data }).catch((e) => {
+      // keep the revert payload (FailedOp / FailedOpWithRevert(inner)) so the client can show the real reason (FLOW 2)
+      let rd: string | undefined;
+      (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
+      throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd });
+    });
     t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
   const gas = totalGas(op) + BigInt(120_000);

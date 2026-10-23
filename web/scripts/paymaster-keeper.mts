@@ -7,10 +7,13 @@
 //
 // Env: PAYMASTER_ADDRESS (or NEXT_PUBLIC_RHT_PAYMASTER), PAYMASTER_KEEPER_KEY (funded testnet EOA; only needed with
 // --send; never printed), PAYMASTER_MIN_DEPOSIT_WEI (default 0.05 ETH), PAYMASTER_TARGET_DEPOSIT_WEI (default 0.2 ETH),
-// PAYMASTER_KEEPER_RESERVE_WEI (left in the keeper for its own gas, default 0.01 ETH), RHT_RPC_URL (optional).
+// PAYMASTER_KEEPER_RESERVE_WEI (left in the keeper for its own gas, default 0.01 ETH), RHT_RPC_URL (optional),
+// PAYMASTER_LAUNCH_CONCURRENCY (default 20): MIN is raised to cover that many in-flight LAUNCH ops at the current base
+// fee (each may hold LAUNCH_GAS_CAPS.total = 11M gas × client maxFee of the deposit until it lands), TARGET to 2× that.
 // Testnet: a plain top-up. Mainnet (later): also sweep treasury USDG → ETH on a schedule; out of scope here.
 import { createPublicClient, createWalletClient, formatEther, http, parseAbi, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { LAUNCH_GAS_CAPS, clientFees, relayerPrice } from "../lib/aa/gasPolicy";
 
 const CHAIN_ID = 46630;
 const RPC = process.env.RHT_RPC_URL || "https://rpc.testnet.chain.robinhood.com";
@@ -28,6 +31,7 @@ const wei = (name: string, dflt: string) => { const v = process.env[name]; if (v
 const MIN = wei("PAYMASTER_MIN_DEPOSIT_WEI", "0.05");
 const TARGET = wei("PAYMASTER_TARGET_DEPOSIT_WEI", "0.2");
 const RESERVE = wei("PAYMASTER_KEEPER_RESERVE_WEI", "0.01");
+const LAUNCH_N = BigInt(Math.max(1, Number(process.env.PAYMASTER_LAUNCH_CONCURRENCY || 20)));
 const INTERVAL = Math.max(15, Number(process.env.PAYMASTER_KEEPER_INTERVAL_SEC || 60)) * 1000;
 const PM = (process.env.PAYMASTER_ADDRESS || process.env.NEXT_PUBLIC_RHT_PAYMASTER || "") as Address;
 if (TARGET < MIN) throw new Error("PAYMASTER_TARGET_DEPOSIT_WEI must be >= PAYMASTER_MIN_DEPOSIT_WEI");
@@ -39,6 +43,18 @@ export function topUpAmount(deposit: bigint, keeperBal: bigint, min = MIN, targe
   if (deposit >= min) return BigInt(0);
   const want = target - deposit, can = keeperBal > reserve ? keeperBal - reserve : BigInt(0);
   return want < can ? want : can;
+}
+
+/** Deposit one launch op can reserve: 11M gas × max(client maxFee, relayer price) — the relay's checkPaymaster figure. */
+export function launchPrefund(baseFee: bigint): bigint {
+  const f = clientFees(baseFee).maxFeePerGas, r = relayerPrice(baseFee);
+  return LAUNCH_GAS_CAPS.total * (f > r ? f : r);
+}
+/** MIN / TARGET raised so `n` concurrent launch ops fit (pure, exported for tests). */
+export function depositBand(baseFee: bigint, n = LAUNCH_N, min = MIN, target = TARGET): { min: bigint; target: bigint } {
+  const need = n * launchPrefund(baseFee);
+  const m = need > min ? need : min;
+  return { min: m, target: target > m * BigInt(2) ? target : m * BigInt(2) };
 }
 
 async function once() {
@@ -54,10 +70,12 @@ async function once() {
   const key = process.env.PAYMASTER_KEEPER_KEY as Hex | undefined;
   const keeper = key && /^0x[0-9a-fA-F]{64}$/.test(key) ? privateKeyToAccount(key) : undefined;
   const kbal = keeper ? await pc.getBalance({ address: keeper.address }) : BigInt(0);
-  const amt = topUpAmount(dep, kbal);
-  console.log(`[${new Date().toISOString()}] paymaster ${PM} deposit ${formatEther(dep)} ETH (min ${formatEther(MIN)}, target ${formatEther(TARGET)}); staked=${info.staked} stake=${formatEther(info.stake)} ETH delay=${info.unstakeDelaySec}s; keeper ${keeper ? `${keeper.address} ${formatEther(kbal)} ETH` : "(no PAYMASTER_KEEPER_KEY)"}`);
+  const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
+  const band = depositBand(base);
+  const amt = topUpAmount(dep, kbal, band.min, band.target);
+  console.log(`[${new Date().toISOString()}] paymaster ${PM} deposit ${formatEther(dep)} ETH (min ${formatEther(band.min)}, target ${formatEther(band.target)}; ${LAUNCH_N} launches × ${formatEther(launchPrefund(base))} ETH at base ${base} wei); staked=${info.staked} stake=${formatEther(info.stake)} ETH delay=${info.unstakeDelaySec}s; keeper ${keeper ? `${keeper.address} ${formatEther(kbal)} ETH` : "(no PAYMASTER_KEEPER_KEY)"}`);
   if (!info.staked) console.warn("WARN: paymaster not staked — ERC-7562 bundlers may throttle it (DeployPaymaster.s.sol stakes it)");
-  if (dep >= MIN) return;
+  if (dep >= band.min) return;
   if (amt === BigInt(0)) { console.warn(`WARN: deposit below min and the keeper can't cover a top-up (fund ${keeper?.address ?? "the keeper"})`); return; }
   if (!SEND) { console.log(`dry run: would deposit ${formatEther(amt)} ETH (pass --send)`); return; }
   if (!keeper) throw new Error("--send needs PAYMASTER_KEEPER_KEY");

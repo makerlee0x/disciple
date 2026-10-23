@@ -9,15 +9,28 @@
  */
 import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
-import { concatHex, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
 import { NonceCursor, GasCache, STATIC_GAS, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
-import { clientFees } from "./gasPolicy";
+import { clientFees, isLaunchCalls } from "./gasPolicy";
+import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
 import { payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
+const uoRevertAbi = parseAbi(["event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)"]);
+/** The EntryPoint's UserOperationRevertReason for `hash` in a receipt's logs: the REAL revert (min-out, balance, policy). */
+export function opRevertReason(logs: { address: string; data: Hex; topics: Hex[] }[], hash?: Hex): Hex | undefined {
+  for (const l of logs) {
+    if (l.address.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) continue;
+    try {
+      const ev = decodeEventLog({ abi: uoRevertAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] });
+      if (!hash || ev.args.userOpHash === hash) return ev.args.revertReason;
+    } catch { /* other event */ }
+  }
+  return undefined;
+}
 /**
  * Relay answers that do NOT prove the op wasn't sent: the response was lost/garbled, the relay timed out waiting for the
  * receipt, or the nonce is already used (= an earlier send of this op landed). Bug #6: these were all shown as
@@ -26,7 +39,9 @@ const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHas
  */
 export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|502|503|504|FUNCTION_INVOCATION/i;
 /** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
-export const TRANSIENT_SIM = /AA23|AA24|SessionInactive|0xf9be14df/i;
+/** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
+ * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
+export const TRANSIENT_SIM = /AA23|AA24|SessionInactive|0xf9be14df|ERC20InsufficientBalance|0xe450d38c|exceeds balance|insufficient balance/i;
 
 const BUNDLER_METHODS = [
   "eth_sendUserOperation", "eth_estimateUserOperationGas", "eth_getUserOperationReceipt", "eth_getUserOperationByHash",
@@ -208,20 +223,23 @@ export class Mav2Account {
     const sender: Address = client.account.address;
     const nonce = this.nonces.next(session ? this.sessionClient!.entityId : 0, !session);
     const kind = `${as}|${callsKind(calls)}`;
+    // Launches (≈ 6M+ execution gas) ALWAYS estimate: STATIC_GAS (1.8M) runs out and a cached 1.5x would exceed the
+    // launch cap. Fees are fresh and un-doubled so the prefund (gas × maxFee) stays small (~0.0002 ETH at 8M gas).
+    const launch = isLaunchCalls(calls, launchTargets(this.o.chain.id));
     // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
-    const gas = this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
-    const fees = FEES.peek(() => fetchFees(client as unknown as FeeClient));
+    const gas = launch ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
+    const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined) : FEES.peek(() => fetchFees(client as unknown as FeeClient));
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
       const m = (e as { details?: string; shortMessage?: string; message?: string });
       const msg = String(m.details || m.shortMessage || m.message || e);
       if (/insufficient|prefund|AA21|didn't pay/i.test(msg)) {
         const have = await this.o.pc.getBalance({ address: sender });
-        throw new AAError("FundAccount", "Fund your account with test ETH to pay gas.", { have, address: sender });
+        throw new AAError("FundAccount", "Your account is still being set up for network fees — try again in a moment.", { have, address: sender });
       }
       // keep the revert payload (e.g. PreExecHookReverted(module, reason)) so callers/tests can decode the policy error
-      let revertData: string | undefined;
-      (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const dd = (x as { data?: unknown }).data; if (typeof dd === "string" && /^0x[0-9a-fA-F]{8,}$/.test(dd)) { revertData = dd; return true; } return false; });
+      let revertData: string | undefined = typeof (e as { data?: unknown }).data === "string" && /^0x[0-9a-fA-F]{8,}$/.test((e as { data: string }).data) ? (e as { data: string }).data : undefined;
+      if (!revertData) (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const dd = (x as { data?: unknown }).data; if (typeof dd === "string" && /^0x[0-9a-fA-F]{8,}$/.test(dd)) { revertData = dd; return true; } return false; });
       throw new AAError("Estimate", `simulation failed: ${msg.split("\n")[0].slice(0, 200)}`, { revertData });
     };
 
@@ -232,7 +250,8 @@ export class Mav2Account {
       // Frozen after the first build ⇒ every phase prices the same gas. A session op can't be estimated without its
       // signed paymasterAndData (the policy checks approve == maxTokenCost), and sessions imply a deployed account:
       // static limits. Owner ops estimate execution once (self-bundler: no prefund check) with the placeholder approve.
-      let limits: GasLimits | undefined = gas ?? (session ? STATIC_GAS : undefined);
+      // Launches (owner-signed) always estimate (gas undefined above) and are capped by LAUNCH_GAS_CAPS server-side.
+      let limits: GasLimits | undefined = gas ?? (session && !launch ? STATIC_GAS : undefined);
       const build = async (cs: Call[], pmf: PaymasterFields): Promise<UserOp> => {
         const u = cs.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
         const struct = await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: { nonce, ...f, ...(limits ?? {}) } });
@@ -254,7 +273,7 @@ export class Mav2Account {
         }
         return fail(e);
       }
-      if (!gas && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
+      if (!gas && !launch && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
       const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       if (this.syncOk !== false) {
@@ -288,7 +307,7 @@ export class Mav2Account {
     }
     const t1 = now();
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
-    if (!gas && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
+    if (!gas && !launch && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
       this.gas.set(kind, { callGasLimit: BigInt(rq.callGasLimit), verificationGasLimit: BigInt(rq.verificationGasLimit), preVerificationGas: BigInt(rq.preVerificationGas) });
     opPhase({ phase: "submitted", userOpHash: req.hash });
     let txHash: Hex;
@@ -297,7 +316,7 @@ export class Mav2Account {
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
       success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
     } | null;
-    if (rc && !rc.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { rc }); }
+    if (rc && !rc.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { rc, txHash, revertData: opRevertReason(rc.receipt.logs ?? [], req.hash) }); }
     const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
@@ -345,7 +364,7 @@ export class Mav2Account {
         const { userOpHash, txHash, success, logs } = j.result;
         opPhase({ phase: "submitted", userOpHash, txHash });
         const timings: OpTimings = { build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), rpc: Math.round(t3 - c.t2), total: Math.round(t3 - c.t0), fast: true, server: j.result.t };
-        if (!success) { this.gas.drop(c.kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { txHash }); }
+        if (!success) { this.gas.drop(c.kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { txHash, revertData: opRevertReason(logs, userOpHash) }); }
         opPhase({ phase: "confirmed", userOpHash, txHash, timings });
         this.deployed = true;
         return { userOpHash, txHash, gasMode: c.gasMode, receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
@@ -365,7 +384,7 @@ export class Mav2Account {
     opPhase({ phase: "submitted", userOpHash: hash });
     const got = await this.findOp(hash, wire.sender, 30_000);
     if (!got) throw new AAError("Timeout", `UserOp ${hash} not mined yet`);
-    if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash }); }
+    if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
     const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings });
     this.deployed = true;
