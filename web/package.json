@@ -29,6 +29,7 @@
     "test:loadout-fx": "node scripts/test-loadout-fx.mjs",
     "test:hotkeys": "node scripts/test-hotkeys.mjs",
     "test:live-fixes": "node scripts/test-live-fixes.mjs",
+    "test:trade-ui": "node scripts/test-trade-ui.mjs",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
@@ -39,6 +40,7 @@
     "test:op-race": "tsx scripts/test-op-race.mts",
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:trade-errors": "tsx --test scripts/test-trade-errors.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
     "test:claims": "tsx --test scripts/test-claims.mts",
@@ -48,7 +50,9 @@
     "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
     "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts",
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
-    "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts"
+    "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
+    "test:holders": "tsx --test scripts/test-holders.mts",
+    "test:usdg-fill": "tsx scripts/test-usdg-fill.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

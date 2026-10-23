@@ -14,21 +14,32 @@ const DEV = { NODE_ENV: "development" } as NodeJS.ProcessEnv;
 const notConfigured = (fn: () => unknown) => assert.throws(fn, (e: unknown) => e instanceof RelayerNotConfiguredError && isRelayerNotConfigured(e) && e.status === 503 && /^relayer not configured/.test((e as Error).message));
 const quiet = <T,>(fn: () => T): T => { const w = console.warn, er = console.error; console.warn = console.error = () => {}; try { return fn(); } finally { console.warn = w; console.error = er; } };
 
-test("production detection: Vercel prod, self-hosted NODE_ENV=production; not preview/dev; RELAYER_LOCAL_TEST only off Vercel", () => {
+test("production detection: Vercel prod + preview, self-hosted unless explicitly local; RELAYER_LOCAL_TEST only off Vercel", () => {
   assert.equal(isProductionRelayer(PROD), true);
   assert.equal(isProductionRelayer({ VERCEL_ENV: "production" } as NodeJS.ProcessEnv), true);
   assert.equal(isProductionRelayer({ NODE_ENV: "production" } as NodeJS.ProcessEnv), true);
   assert.equal(isProductionRelayer({ NODE_ENV: "production", RELAYER_LOCAL_TEST: "1" } as NodeJS.ProcessEnv), false);
   assert.equal(isProductionRelayer({ ...PROD, RELAYER_LOCAL_TEST: "1" }), true); // can't opt out on Vercel prod
-  assert.equal(isProductionRelayer(PREVIEW), false);
+  // AUDIT Low: preview fails closed (no faucet fallback on any Vercel deploy except `vercel dev`)
+  assert.equal(isProductionRelayer(PREVIEW), true);
+  assert.equal(isProductionRelayer({ VERCEL: "1", NODE_ENV: "production" } as NodeJS.ProcessEnv), true);
+  assert.equal(isProductionRelayer({ VERCEL: "1", VERCEL_ENV: "development", NODE_ENV: "development" } as NodeJS.ProcessEnv), false);
+  assert.equal(isProductionRelayer({ ...PREVIEW, RELAYER_LOCAL_TEST: "1" }), true);
   assert.equal(isProductionRelayer(DEV), false);
   assert.equal(isProductionRelayer({ NODE_ENV: "test" } as NodeJS.ProcessEnv), false);
+  // AUDIT Low: self-hosted without NODE_ENV (or any non-dev value) is production; RELAYER_ENV=production asserts it
+  assert.equal(isProductionRelayer({} as NodeJS.ProcessEnv), true);
+  assert.equal(isProductionRelayer({ NODE_ENV: "staging" } as NodeJS.ProcessEnv), true);
+  assert.equal(isProductionRelayer({ NODE_ENV: "production", RELAYER_LOCAL_TEST: "1", RELAYER_ENV: "production" } as NodeJS.ProcessEnv), true);
+  assert.equal(isProductionRelayer({ NODE_ENV: "development", RELAYER_ENV: "production" } as NodeJS.ProcessEnv), true);
 });
 
 test("production: RELAYER_PRIVATE_KEY unset ⇒ fail closed (never the faucet key)", () => quiet(() => {
   notConfigured(() => relayerKey({ ...PROD, DRIP_FAUCET_KEY: FAUCET }));
   notConfigured(() => relayerKey({ NODE_ENV: "production", DRIP_FAUCET_KEY: FAUCET } as NodeJS.ProcessEnv));
   notConfigured(() => relayerKey({ ...PROD }));
+  notConfigured(() => relayerKey({ ...PREVIEW, DRIP_FAUCET_KEY: FAUCET }));            // AUDIT Low: preview fails closed
+  notConfigured(() => relayerKey({ DRIP_FAUCET_KEY: FAUCET } as NodeJS.ProcessEnv));   // AUDIT Low: self-hosted, NODE_ENV unset
   assert.equal(relayerIsFaucet({ ...PROD, DRIP_FAUCET_KEY: FAUCET }), false); // drip doesn't route through the relayer cursor
 }));
 
@@ -48,7 +59,7 @@ test("production: a distinct relayer key is used", () => {
 test("non-production keeps the faucet fallback with a one-time warning", () => {
   const warns: string[] = []; const w = console.warn; console.warn = (m: string) => warns.push(String(m));
   try {
-    for (const env of [PREVIEW, DEV, { NODE_ENV: "production", RELAYER_LOCAL_TEST: "1" } as NodeJS.ProcessEnv]) {
+    for (const env of [DEV, { NODE_ENV: "test" } as NodeJS.ProcessEnv, { NODE_ENV: "production", RELAYER_LOCAL_TEST: "1" } as NodeJS.ProcessEnv]) {
       assert.equal(relayerKey({ ...env, DRIP_FAUCET_KEY: FAUCET }), FAUCET);
       assert.equal(relayerIsFaucet({ ...env, DRIP_FAUCET_KEY: FAUCET }), true);
       assert.equal(relayerKey({ ...env, RELAYER_PRIVATE_KEY: RELAYER, DRIP_FAUCET_KEY: FAUCET }), RELAYER);

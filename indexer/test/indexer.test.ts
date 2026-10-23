@@ -151,3 +151,30 @@ describe("mcap precision", () => {
     }
   });
 });
+
+describe("#103 creator First BOOST attribution", () => {
+  it("credits a private launch's First BOOST to the buyRecipient (smart account), not the AnonLauncher", () => {
+    const db = openDb(":memory:");
+    const ts = (b: bigint) => 1_000_000 + Number(b) * 60;
+    const ANON = stack.anonLauncher!, SMART = A(0x5a), TOK2 = A(0x200), CURVE2 = A(0x201);
+    const tx = `0x${"77".repeat(32)}` as Hex;
+    const same = (l: RawLog) => ({ ...l, transactionHash: tx });
+    applyLogs(db, stack, [
+      mk("Launched", { token: TOK2, curve: CURVE2, creator: ANON, quote: QUOTE, name: "Priv", ticker: "P", creatorTaxBps: 0n }, stack.launchpad),
+      mk("QuotePriced", { token: TOK2, quote: QUOTE, quotePriceUsd: 10n ** 18n }, stack.launchpad),
+    ], ts);
+    const t = (trader: Hex) => mk("Trade", { token: TOK2, trader, isBuy: true, quoteAmt: 5n * 10n ** 18n, tokenAmt: 9n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: 10n ** 18n, impactBps: 0n, mcapAfterUsd: 33_000n * 10n ** 18n }, CURVE2, 2n);
+    applyLogs(db, stack, [
+      same(mk("Transfer", { from: A(0), to: CURVE2, value: 7n * 10n ** 27n }, TOK2, 2n)),
+      same(t(ANON)),
+      same(mk("Transfer", { from: CURVE2, to: ANON, value: 9n }, TOK2, 2n)),
+      same(mk("Transfer", { from: ANON, to: SMART, value: 9n }, TOK2, 2n)),
+      t(BOB), // an unrelated buy in another tx is untouched
+    ], ts);
+    const rows = db.prepare("SELECT trader, tx FROM trades WHERE token=? ORDER BY trader").all(TOK2.toLowerCase()) as any[];
+    expect(rows.map((r) => r.trader).sort()).toEqual([BOB.toLowerCase(), SMART.toLowerCase()].sort());
+    expect(rows.find((r) => r.trader === SMART.toLowerCase())!.tx).toBe(tx);
+    const bal = db.prepare("SELECT bal FROM balances WHERE token=? AND holder=?").get(TOK2.toLowerCase(), SMART.toLowerCase()) as any;
+    expect(bal.bal).toBe("9");
+  });
+});

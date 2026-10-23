@@ -257,7 +257,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
             </div>
           </div>
           <div className="lp-count lp-dim">
-            {rows.length.toLocaleString()} rockets · showing {Math.min(shown, rows.length)} · {liveN} LIVE · the rest are SAMPLE data (MOCK stats)
+            {rows.length.toLocaleString()} rockets · showing {Math.min(shown, rows.length)} · {liveN} live{rows.length > liveN ? ` · ${(rows.length - liveN).toLocaleString()} sample` : ""}
           </div>
           {view === "list" ? (
             <div className="lp-table" role="table">

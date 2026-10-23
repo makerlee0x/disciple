@@ -80,8 +80,8 @@ async function signClaim(username: string, address: string, nonce: string): Prom
       return o ? { signature: o.sig, owner: o.owner } : null;
     }
     const w = await import("./wallet");
-    const signer = await w.getSigner();
-    if (signer.account.address.toLowerCase() !== address) return null;
+    // #103: no window.ethereum fallback — only an explicitly connected injected wallet for this exact address
+    const signer = await w.plainWalletSigner(address);
     return { signature: await signer.signMessage({ account: signer.account.address, message: msg }) };
   } catch { return null; }
 }

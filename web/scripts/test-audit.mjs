@@ -34,11 +34,11 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   const S = await import(pathToFileURL(path.join(tmp, "s.mjs")).href);
   const sv = (x) => JSON.stringify(S.sanitize(x).sells);
   ok(JSON.stringify(S.DEFAULT_SELLS) === "[10,25,50,100]", "default sells 10/25/50/100");
-  ok(sv({ sells: [12, 33, 77, "init"] }) === "[10,25,50,100]", "v1 saved defaults 12/33/77/INITIALS → migrated");
-  ok(sv({ v: 2, sells: [25, 50, 100, "init"] }) === "[10,25,50,100]", "v2 saved defaults 25/50/100/INITIALS → migrated");
-  ok(sv({ v: 2, sells: [20, "init", 90, "init"] }) === "[20,25,90,100]", "any INITIALS slot → its new default; custom numbers kept");
-  ok(sv({ sells: [10, 33, 90, 40] }) === "[10,25,90,40]", "v1: custom slots kept, untouched old default slot migrated");
-  ok(sv({ v: 3, sells: [12, 33, 77, 5] }) === "[12,33,77,5]", "a v3 save that chose 12/33/77 on purpose is kept");
+  // sell sizes are FIXED at 10/25/50/100% since v4 (GAME trade-ui-fixes): every older save → the fixed sizes
+  ok(sv({ sells: [12, 33, 77, "init"] }) === "[10,25,50,100]", "v1 saved defaults 12/33/77/INITIALS → fixed sizes");
+  ok(sv({ v: 2, sells: [25, 50, 100, "init"] }) === "[10,25,50,100]", "v2 saved defaults 25/50/100/INITIALS → fixed sizes");
+  ok(sv({ v: 2, sells: [20, "init", 90, "init"] }) === "[10,25,50,100]", "custom sell slots → fixed sizes (one custom sell field on the bar instead)");
+  ok(sv({ v: 3, sells: [12, 33, 77, 5] }) === "[10,25,50,100]", "a v3 custom save → fixed sizes");
   ok(S.sellLabel(37) === "37%", "sell label = plain %");
   const pnlSrc = fs.readFileSync(path.join(dir, "../lib/pnl.ts"), "utf8"), f0 = pnlSrc.indexOf("export function fmtMoney");
   const fmtMoney = new Function(ts.transpileModule(pnlSrc.slice(f0, pnlSrc.indexOf("\n}\n", f0) + 3).replace("export ", ""), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + "return fmtMoney;")();

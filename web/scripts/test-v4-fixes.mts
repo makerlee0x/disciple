@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeErrorResult, parseAbi, type Hex } from "viem";
-import { usdCapRaw, sessionHasHeadroom, addSpent, sessionPolicyFor, type CachedSession } from "../lib/aa/oneTap";
+import { usdCapRaw, sessionHasHeadroom, addSpent, sessionPolicyFor, SESSION_NO_CAP, parseSpendLimitUsd, type CachedSession } from "../lib/aa/oneTap";
 import { payUsdg } from "../lib/trade/usdgRouter";
 import { price24hAgo, summarize } from "../lib/portfolio";
 import { friendlyError } from "../lib/protocol-viem";
@@ -18,6 +18,14 @@ test("#1 usdCapRaw: $25k of STRATEGY @ $0.00253 ≈ 9.88M tokens; $25k USDG = 25
   assert.equal(usdCapRaw(25_000, E18), BigInt(25_000) * E18);
   assert.equal(usdCapRaw(0, E18), BigInt(0));
   assert.equal(usdCapRaw(1e40, BigInt(1)), (BigInt(1) << BigInt(128)) - BigInt(1), "clamped to uint128");
+});
+test("no session cap by default: uint128 max (never 0, which blocks spending); opt-in $ limit parses", () => {
+  assert.equal(SESSION_NO_CAP, (BigInt(1) << BigInt(128)) - BigInt(1));
+  const s = { caps: { [STRAT]: SESSION_NO_CAP.toString(), [USDG]: SESSION_NO_CAP.toString() }, spent: { [USDG]: (BigInt(10_000_000) * E18).toString() } };
+  assert.equal(sessionHasHeadroom(s, { [USDG]: BigInt(1_000_000) * E18, [STRAT]: BigInt(10) ** BigInt(30) }), true, "$1M+ buys stay one-tap");
+  for (const v of ["", "0", "-5", "abc", null, undefined]) assert.equal(parseSpendLimitUsd(v), null);
+  assert.equal(parseSpendLimitUsd("$1,000"), 1000);
+  assert.equal(parseSpendLimitUsd(250), 250);
 });
 test("#1 old 1e24 cap = only ~$2.5k of STRATEGY (the 'Spend limit reached' root cause)", () => {
   const usd = Number(BigInt(10) ** BigInt(24) / E18) * 0.00253;

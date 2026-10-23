@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { PSEUDONYMOUS_COPY } from "@/lib/anon";
+import { PRIVATE_COPY } from "@/lib/anon";
+import { newStealthOwner } from "@/lib/privateLaunch";
+
+// AnonLauncher v2 launchFee (0.25 USDG on testnet; launchCoin reads the live value and approves exactly that).
+const PRIVATE_LAUNCH_FEE = "$0.25";
 import { CURVE, MODERATION, type ModerationVerdict } from "@/lib/config";
 import { contrastWarning } from "@/lib/decal";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
@@ -14,7 +18,7 @@ import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
-import { activeAddress, execCalls } from "@/lib/wallet";
+import { activeAddress, aaAvailable, canTransact, connectPrivy, connectWallet, execCalls, onWallet } from "@/lib/wallet";
 import { launchpadAbi } from "@/lib/abi";
 import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
@@ -32,6 +36,9 @@ const GAME_MODES = [
   { id: LaunchMode.PVP, label: "PVP", copy: "Wallet cap grows 4% → 12% as the curve fills; max 3.33% per buy." },
   { id: LaunchMode.PVE, label: "PVE", copy: "Verified logins only. 1% cap per wallet, small sells, 7.77% tax on >1.77× profits paid to holders." },
 ] as const;
+
+/** Website field: prefix https:// when no scheme was typed (1g). */
+const withHttps = (w: string) => { const t = w.trim(); return !t || /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t.replace(/^\/+/, "")}`; };
 
 export default function LaunchRocketPage() {
   const router = useRouter();
@@ -52,14 +59,25 @@ export default function LaunchRocketPage() {
   const [feeReceiver, setFeeReceiver] = useState("");
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
-  const [pseudonymous, setPseudonymous] = useState(false);
-  // First BOOST (creator launch buy): human amount in the pair token; validated by FirstBoostField.
+  // Private launch (AnonLauncher v2): stealth on-chain creator; TRENCH WARFARE only; fees claimed privately on /creator.
+  const [privateLaunch, setPrivateLaunch] = useState(false);
+  // First BOOST (creator launch buy): $ amount, converted to the pair token at the live price by FirstBoostField.
   const [boost, setBoost] = useState("");
   const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), error: null, ready: true });
   // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
+  // #103 follow-up: sign in BEFORE launching (the launch, First BOOST and fees must land on the DISCIPLE account).
+  // Signed out ⇒ the submit button opens sign-in instead of failing at launch time with SignInRequired.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => onWallet(() => setSignedIn(canTransact())), []);
+  const needsSignIn = isDeployed() && !IS_STATIC_PREVIEW && !signedIn;
+  const signIn = () => {
+    setMsg(null);
+    if (aaAvailable()) connectPrivy();
+    else connectWallet().catch((err) => setMsg(String((err as Error).message)));
+  };
 
   const blocked = mod.state === "block";
   useEffect(() => { preloadModeration(); }, []);
@@ -117,6 +135,7 @@ export default function LaunchRocketPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
+    if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim() || !file) {
       setMsg("Rocket name, call sign, and an uploaded rocket icon are required.");
       return;
@@ -140,9 +159,11 @@ export default function LaunchRocketPage() {
       setMsg("Fee receiver must be a 0x wallet address (or leave it empty to use your own).");
       return;
     }
-    const web = website.trim();
+    // 1g: "mysite.com" ⇒ "https://mysite.com" (http:// kept as typed); still must look like a host
+    const web = withHttps(website);
+    if (web !== website.trim()) setWebsite(web);
     if (web && !/^https?:\/\/\S+\.\S+/.test(web)) {
-      setMsg("Website must start with https://");
+      setMsg("Enter a website like mysite.com");
       return;
     }
     // Moderated at center; launch with the user's chosen square crop of the same approved image.
@@ -161,6 +182,7 @@ export default function LaunchRocketPage() {
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
     try {
       const client = isDeployed() ? createViemProtocol() : protocolStub;
+      const priv = privateLaunch && isDeployed() ? await newStealthOwner() : undefined;
       const res = await client.launchCoin({
         name: name.trim(),
         ticker: callSign.trim().toUpperCase(),
@@ -169,9 +191,10 @@ export default function LaunchRocketPage() {
         creatorTaxPct: effTax,
         creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
         socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
-        mode: LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
+        mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
+        private: priv,
       });
-      if (fr && isDeployed()) {
+      if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
           setLaunched(`Launched ${res.token}. Assigning fee receiver ${fr.slice(0, 8)}… (one more confirmation)`);
@@ -186,7 +209,7 @@ export default function LaunchRocketPage() {
       setLaunched(`Launched! Rocket ${res.token}${imageNote} — taking you to it…`);
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
-      setMsg(isDeployed() ? String((err as Error).message) : "Contracts not deployed yet (DISCIPLE FLOW). Form validated locally — " + String((err as Error).message));
+      setMsg(isDeployed() ? String((err as Error).message) : "Launches aren't open on this network yet.");
     }
   }
 
@@ -194,7 +217,6 @@ export default function LaunchRocketPage() {
     <div className="page-shell">
       <h1>Launch a Rocket</h1>
       <div className="sub">EVERYONE ABOARD FLIES TOGETHER · PRICES IN $</div>
-      <span className="tag mock">{isDeployed() ? `ON-CHAIN · ${deployment() && "Robinhood Chain testnet"} · connect wallet (top right)` : "MOCK FORM · NOT ON-CHAIN YET"}</span>
       <form className="card create-form" onSubmit={onSubmit}>
         <div className="create-grid">
           <div className="space-y-4">
@@ -257,7 +279,7 @@ export default function LaunchRocketPage() {
         <FirstBoostField
           pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
           ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-          mode={LAUNCH_ABI_SHAPE === "modes" ? gameMode : LaunchMode.TRENCH_WARFARE}
+          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE}
         />
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -267,17 +289,17 @@ export default function LaunchRocketPage() {
           </label>
           <label className="block">
             <span className={labelCls}>WEBSITE <span className="normal-case opacity-70">(optional)</span></span>
-            <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" maxLength={120} />
+            <input className={inputCls} value={website} onChange={(e) => setWebsite(e.target.value)} onBlur={() => setWebsite((w) => withHttps(w))} placeholder="mysite.com" inputMode="url" maxLength={120} />
           </label>
         </div>
 
-        <label className="block">
+        {!privateLaunch && <label className="block">
           <span className={labelCls}>FEE RECEIVER WALLET <span className="normal-case opacity-70">(optional — defaults to the deployer)</span></span>
           <input className={`${inputCls} font-mono`} value={feeReceiver} onChange={(e) => setFeeReceiver(e.target.value.trim())} placeholder="0x… (leave empty to receive fees yourself)" />
           <span className="muted tiny block mt-1">Set via Launchpad.transferCreator right after launch (one extra confirmation). That wallet becomes the rocket&apos;s creator and receives creator fees.</span>
-        </label>
+        </label>}
 
-        {LAUNCH_ABI_SHAPE === "modes" && (
+        {LAUNCH_ABI_SHAPE === "modes" && !privateLaunch && (
           <fieldset className="block">
             <legend className={labelCls}>GAME MODE <span className="normal-case opacity-70">(permanent, curve only)</span></legend>
             <div className="grid gap-2 md:grid-cols-3">
@@ -297,7 +319,7 @@ export default function LaunchRocketPage() {
           onClick={() => setAdvanced((a) => !a)}
           className="flex w-full items-center justify-between rounded-xl border border-[rgba(201,206,214,.25)] px-3 py-2 text-xs tracking-wider text-[#C9CED6]"
         >
-          <span>ADVANCED · creator tax &amp; pseudonymous</span>
+          <span>ADVANCED · creator tax &amp; private launch</span>
           <span><Icon name={advanced ? "chevron-up" : "chevron-down"} size={16} /> {advanced ? "ON" : "OFF"}</span>
         </button>
 
@@ -308,10 +330,11 @@ export default function LaunchRocketPage() {
               <input type="number" min={0} max={CURVE.creatorTaxMaxPct} step={0.1} className={inputCls} value={tax} onChange={(e) => setTax(+e.target.value)} />
             </label>
             <label className="flex items-start gap-2 text-xs">
-              <input type="checkbox" checked={pseudonymous} onChange={(e) => setPseudonymous(e.target.checked)} />
+              <input type="checkbox" data-testid="private-launch" checked={privateLaunch} onChange={(e) => setPrivateLaunch(e.target.checked)} />
               <span>
-                <span className={labelCls}>PSEUDONYMOUS CREATOR (beta)</span>
-                <span className="block text-[rgba(232,234,238,.7)]">{PSEUDONYMOUS_COPY}</span>
+                <span className={labelCls}>PRIVATE LAUNCH</span>
+                <span className="block text-[rgba(232,234,238,.7)]">{PRIVATE_COPY}</span>
+                {privateLaunch && <span className="block text-[rgba(232,234,238,.7)]">Private rockets fly in TRENCH WARFARE mode and pay creator fees to you, not a separate fee receiver. Claim them on your creator page. Includes a {PRIVATE_LAUNCH_FEE} private launch fee.</span>}
               </span>
             </label>
           </div>
@@ -326,12 +349,23 @@ export default function LaunchRocketPage() {
           Your rocket is an ERC-20 token on Robinhood Chain, traded on a bonding curve
           {quote.address ? ` paired with ${quote.label} (${quote.address})` : ""}. BOOST to buy. DUMP to sell, and drop a bomb.
         </details>
-        <button
-          type="submit"
-          className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
-        >
-          <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> {isDeployed() ? "Launch Rocket on-chain (testnet)" : "Launch Rocket (UI only)"}
-        </button>
+        {needsSignIn ? (
+          <button
+            type="button"
+            onClick={signIn}
+            data-testid="create-sign-in"
+            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
+          >
+            Sign in to launch
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
+          >
+            <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
+          </button>
+        )}
         {status && (
           <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
         )}

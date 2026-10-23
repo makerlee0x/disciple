@@ -149,9 +149,7 @@ export default function LeaderboardView() {
         <div>
           <h1>Leaderboard</h1>
           <div className="sub">PRESTIGE LADDER · TOP PILOTS</div>
-          <span className={`tag ${source === "mock" ? "mock" : ""}`}>
-            {source === "mock" ? "SAMPLE DATA · INDEXER TBD" : "LIVE INDEXER"}
-          </span>
+          {source === "mock" && <span className="tag mock">SAMPLE DATA</span>}
         </div>
         <div className="lb-controls">
           <nav className="lb-seg" aria-label="Sort by">

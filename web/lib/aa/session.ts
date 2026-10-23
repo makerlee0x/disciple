@@ -15,7 +15,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent } from "./oneTap";
+import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
@@ -34,11 +34,22 @@ export const DEV_WALLETS = process.env.NEXT_PUBLIC_DEV_WALLETS === "1";
 export const aaAvailable = () => !!BUNDLER_URL && ACTIVE_CHAIN.id === 46630;
 const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
 /**
- * One-tap session budget in DOLLARS (per ≤24h session), converted to each capped quote's raw units at install time via
- * QuotePricer (bug #1: the old fixed 1e24 raw cap was $1M of USDG but only ~$2.5K of test STRATEGY). When a session's
- * budget runs out, trades are signed by the owner instead (Privy, silent) — never refused.
+ * One-tap session spend limit. Maker (spec 05-gasless-wallet-pill): NO cap by default ⇒ cap0 = cap1 = uint128 max on both
+ * quote slots (STRATEGY, USDG). The 5% on-chain price protection (maxSlippageBps) is unaffected. A user can opt in to a
+ * $ limit in the wallet menu's Advanced section (saved in this browser; converted to raw units via QuotePricer at install).
+ * NEXT_PUBLIC_SESSION_SPEND_LIMIT_USD (optional) sets a deployment-wide default limit; unset = no cap.
  */
-export const SESSION_SPEND_LIMIT_USD = Number(process.env.NEXT_PUBLIC_SESSION_SPEND_LIMIT_USD || "25000");
+const SPEND_LIMIT_LS = "disciple.oneTap.spendLimitUsd";
+export const SESSION_SPEND_LIMIT_USD: number | null = parseSpendLimitUsd(process.env.NEXT_PUBLIC_SESSION_SPEND_LIMIT_USD);
+/** The opt-in $ limit for new sessions (null = no cap). */
+export function oneTapSpendLimitUsd(): number | null {
+  try { const v = localStorage.getItem(SPEND_LIMIT_LS); if (v !== null) return parseSpendLimitUsd(v); } catch { /* SSR / private mode */ }
+  return SESSION_SPEND_LIMIT_USD;
+}
+/** Save the opt-in limit (null / 0 = no cap). Applies to the NEXT session (enable / restart). */
+export function setOneTapSpendLimitUsd(usd: number | null) {
+  try { localStorage.setItem(SPEND_LIMIT_LS, usd && usd > 0 ? String(usd) : "0"); } catch { /* */ }
+}
 /** Auto-install the one-tap session after sign-in (owner signs it silently). NEXT_PUBLIC_ONE_TAP_AUTO=0 disables. */
 const ONE_TAP_AUTO = process.env.NEXT_PUBLIC_ONE_TAP_AUTO !== "0";
 const sessionOfAbi = [{ type: "function", name: "sessionOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }, { name: "entityId", type: "uint32" }], outputs: [{ type: "tuple", components: [
@@ -111,6 +122,10 @@ export async function syncSessionFromChain() {
     const r = await publicClient().readContract({ address: SESSION_POLICY, abi: sessionOfAbi, functionName: "sessionOf", args: [s0.account, s0.entityId] });
     if (onchain !== s0) return;   // changed meanwhile
     if (!r.active) { onchain = null; sa?.clearSession(); saveSessionKey(); changed(); void maybeAutoOneTap("inactive"); return; }
+    // Sessions installed against AnonLauncher v1 (before v2 became the default): drop the cached key and reinstall in
+    // the background (owner signs silently). Trades keep working meanwhile: no session ⇒ the owner signs them.
+    const al = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
+    if (al && r.cfg.anonLauncher.toLowerCase() !== al.toLowerCase()) { onchain = null; sa?.clearSession(); saveSessionKey(); autoTried = false; changed(); void maybeAutoOneTap("anon-launcher-v2"); return; }
     const caps: Record<string, string> = {}, spent: Record<string, string> = {};
     if (!/^0x0{40}$/i.test(r.cfg.quote0)) { caps[r.cfg.quote0.toLowerCase()] = r.cfg.cap0.toString(); spent[r.cfg.quote0.toLowerCase()] = r.spent0.toString(); }
     if (!/^0x0{40}$/i.test(r.cfg.quote1)) { caps[r.cfg.quote1.toLowerCase()] = r.cfg.cap1.toString(); spent[r.cfg.quote1.toLowerCase()] = r.spent1.toString(); }
@@ -142,6 +157,30 @@ export function maybeAutoOneTap(why: string) {
 /** One-tap state for the UI: on (session key signs), setting-up (auto install in flight), or off (owner signs, silently). */
 export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
   return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
+}
+/**
+ * AA21 fix: the account pays every op's gas PREFUND (gas × maxFee ≈ 0.00011 ETH per trade) from its balance + EntryPoint
+ * deposit. Once that's below one prefund every trade fails "AA21 didn't pay prefund" (nothing is sent). Ask /api/drip for
+ * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
+ * fresh nonce key. No refill available ⇒ the original FundAccount error.
+ */
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address) {
+  try { return await sa!.sendCalls(calls, as); }
+  catch (e) {
+    if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
+    return sa!.sendCalls(calls, as);
+  }
+}
+/** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
+export async function refillGas(a: Address): Promise<boolean> {
+  if (ACTIVE_CHAIN.id !== 46630) return false;
+  try {
+    const r = await fetch("/api/drip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) });
+    const j = await r.json().catch(() => ({})) as { ok?: boolean; txHash?: Hex };
+    if (!j.ok || !j.txHash) return false;
+    await publicClient().waitForTransactionReceipt({ hash: j.txHash, timeout: 20_000 });
+    return true;
+  } catch { return false; }
 }
 /** One-time server top-up of test ETH for gas (self-pay, existing drip faucet). Fire-and-forget. */
 export function drip(a: Address) {
@@ -280,7 +319,7 @@ export const oneTapAvailable = () => !!SESSION_POLICY && ACTIVE_CHAIN.id === 466
  * Owner approves ONE userOp: installValidation(SingleSigner(sessionKey) + DiscipleSessionPolicy hooks).
  * After this, aaSend signs trades with the session key (no Privy prompt) until validUntil.
  */
-export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: number } = {}) {
+export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: number; spendLimitUsd?: number | null } = {}) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   if (!SESSION_POLICY) throw new AAError("Policy", "One-tap sessions aren't live yet (session policy not deployed).");
   const sk = await import("@disciple/session-keys");
@@ -291,7 +330,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const key = generatePrivateKey();
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
   const account = await sa.address();
-  const caps = await sessionCaps();
+  const caps = await sessionCaps(opts.spendLimitUsd !== undefined ? opts.spendLimitUsd : oneTapSpendLimitUsd());
   const s = sk.buildCreateSession({
     modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
     targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
@@ -310,21 +349,23 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
 }
 
 /**
- * Raw caps for SESSION_SPEND_LIMIT_USD in each capped quote (STRATEGY, USDG): $ → raw via QuotePricer.quotePriceUsd
- * and the token's decimals, read on-chain. USDG falls back to $1 if the pricer can't price it.
+ * Raw caps for both quote slots (STRATEGY, USDG). No limit (default) ⇒ SESSION_NO_CAP (uint128 max) on BOTH: a zero cap or
+ * zero quote address would block spending on-chain. Opt-in $ limit ⇒ $ → raw via QuotePricer.quotePriceUsd and decimals
+ * (USDG falls back to $1 if the pricer can't price it).
  */
-async function sessionCaps(): Promise<[{ token: Address; cap: bigint }, { token: Address; cap: bigint }]> {
+async function sessionCaps(limitUsd: number | null): Promise<[{ token: Address; cap: bigint }, { token: Address; cap: bigint }]> {
   const d = deployment(), pc = publicClient();
+  if (!limitUsd) return [{ token: d.defaultQuote, cap: SESSION_NO_CAP }, { token: d.usdg, cap: SESSION_NO_CAP }];
   const decAbi = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
   const one = async (token: Address, fallbackUsdWad?: bigint) => {
     const [px, dec] = await Promise.all([
       pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [token] }).then((v) => v as bigint).catch(() => fallbackUsdWad ?? BigInt(0)),
       pc.readContract({ address: token, abi: decAbi, functionName: "decimals" }).then(Number).catch(() => 18),
     ]);
-    return { token, cap: usdCapRaw(SESSION_SPEND_LIMIT_USD, px, dec) };
+    return { token, cap: usdCapRaw(limitUsd, px, dec) };
   };
   const out = await Promise.all([one(d.defaultQuote), one(d.usdg, BigInt(10) ** BigInt(18))] as const);
-  if (out.some((c) => c.cap <= BigInt(0))) throw new AAError("Policy", "Couldn't price the session budget right now — try again in a moment.");
+  if (out.some((c) => c.cap <= BigInt(0))) throw new AAError("Policy", "Couldn't price your spend limit right now — try again in a moment.");
   return out;
 }
 
@@ -395,7 +436,7 @@ export async function aaSend(calls: Call[]) {
   const spend = quoteSpend(delta);
   const asSession = policyOk && (await canUseSessionKey(calls)) && sessionHasHeadroom(onchain, spend);
   let r;
-  try { r = await sa.sendCalls(calls, asSession ? "session" : "owner"); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me); }
   catch (e) {
     const ae = e as AAError;
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once

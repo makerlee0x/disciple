@@ -44,14 +44,14 @@ export default function PairPicker({ value, onChange }: { value: Address | null;
   return (
     <div className="pair-picker">
       <input className="ds-input pp-search" placeholder="Search pairs…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search pairs" />
-      <div className="pp-list" role="listbox" aria-label="Recommended pairs">
+      <div className="pp-list" role="listbox" aria-label="Pairs">
         {filtered.map((p) => {
           const on = selectedPreset?.address === p.address;
           return (
             <button key={p.address} type="button" role="option" aria-selected={on} className={`pp-card ${on ? "on" : ""}`} onClick={() => pick(p)}>
               <span className="pp-logo" style={{ background: `radial-gradient(circle at 35% 30%, #fff, ${p.tint} 55%, #121634)` }}>{p.symbol[0]}</span>
               <span className="pp-meta">
-                <span className="pp-sym">{p.symbol}{p.recommended && <span className="pp-rec">RECOMMENDED</span>}</span>
+                <span className="pp-sym">{p.symbol}{p.recommended && <span className="pp-rec">DEFAULT</span>}</span>
                 <span className="pp-name">{p.name}</span>
                 <span className="pp-note">{p.note}</span>
               </span>
