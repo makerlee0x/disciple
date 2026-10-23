@@ -48,7 +48,8 @@
     "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
     "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts",
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
-    "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts"
+    "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
+    "test:holders": "tsx --test scripts/test-holders.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
