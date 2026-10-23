@@ -86,14 +86,18 @@ test("USD helpers", () => {
   assert.equal(fmtUsd(12.34), "$12.34");
 });
 
-test("anon: a token share pending the AnonLauncher upgrade never produces a claim call", async () => {
+test("anon: claims route per launcher; legacy token share and stealth rows never produce a direct claim", async () => {
   const { creatorClaimCalls } = await import("../lib/claims/creatorFees");
-  const { anonLauncherV2Addr, anonClaimTarget, anonLauncherAddr } = await import("../lib/claims/capabilities");
-  assert.equal(anonLauncherV2Addr(), null); // NEXT_PUBLIC_ANON_LAUNCHER_V2 unset
-  assert.equal(anonClaimTarget(), anonLauncherAddr());
+  const { anonLauncherAddr, anonLauncherLegacyAddr } = await import("../lib/claims/capabilities");
+  const v2 = anonLauncherAddr()!, v1 = anonLauncherLegacyAddr()!;
+  assert.equal(v2.toLowerCase(), "0x06f31a8877c8e025cc55faffb20cba8486cca527");
+  assert.equal(v1.toLowerCase(), "0xe564900809746b1f2baca9d2b8df3224a463f359");
   const asset = { address: A(9), symbol: "NITE", decimals: 18, usd: null };
   const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: true, crew: true, referralGate: true, anonClaims: true };
-  const row = { token: A(9), claimable: BigInt(0), anon: true, tokenSide: { asset, claimable: BigInt(0), claimed: BigInt(0) }, tokenPendingUpgrade: { asset, raw: BigInt(5) } };
-  assert.equal(creatorClaimCalls([row], caps, ME).length, 0);
-  assert.equal(creatorClaimCalls([{ ...row, claimable: BigInt(1) }], caps, ME).length, 1);
+  const row = { token: A(9), claimable: BigInt(0), anon: true, launcher: v1, tokenSide: { asset, claimable: BigInt(0), claimed: BigInt(0) }, tokenUnclaimable: { asset, raw: BigInt(5) } };
+  assert.equal(creatorClaimCalls([row], caps, ME).length, 0);                      // only an unclaimable legacy share
+  const calls = creatorClaimCalls([{ ...row, claimable: BigInt(1) }, { ...row, token: A(8), launcher: v2, claimable: BigInt(1) }], caps, ME);
+  assert.deepEqual(calls.map((c) => c.to), [v1, v2]);                              // one claimMany per launcher
+  const stealthRow = { ...row, launcher: v2, claimable: BigInt(1), stealth: { owner: A(7), ephemeralPubKey: "0x02" as const } };
+  assert.equal(creatorClaimCalls([stealthRow], caps, ME).length, 0);               // signed path (anonSigClaimCalls)
 });

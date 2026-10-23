@@ -27,6 +27,8 @@ export interface LaunchCoinParams {
   creatorBuyQuoteIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */
   slippageBps?: number;
+  /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
+  private?: { stealthOwner: Address; ephemeralPubKey: `0x${string}`; viewTag: `0x${string}` };
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.
 }
 

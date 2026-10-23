@@ -117,10 +117,12 @@ export class Api {
     const creator = (await this.client.readContract({ address: st.launchpad, abi: READS, functionName: "creatorOf", args: [c.token] })) as Address;
     const accrued = (await this.client.readContract({ address: st.feeRouter, abi: READS, functionName: "creatorAccrued", args: [c.token, creator] })) as bigint;
     let anon: any = null;
-    if (st.anonLauncher && creator.toLowerCase() === st.anonLauncher.toLowerCase()) {
-      const [q, qa, ta] = (await this.client.readContract({ address: st.anonLauncher, abi: READS, functionName: "pending", args: [c.token] })) as any;
-      const owner = await this.client.readContract({ address: st.anonLauncher, abi: READS, functionName: "stealthOwnerOf", args: [c.token] });
-      anon = { stealthOwner: owner, quote: q, quotePending: qa.toString(), tokenPending: ta.toString() };
+    // the coin's launcher = its Launchpad creator: v2, or v1 legacy (whose post-grad token share is unclaimable)
+    const al = [st.anonLauncher, st.anonLauncherLegacy].find((x) => x && creator.toLowerCase() === x.toLowerCase());
+    if (al) {
+      const [q, qa, ta] = (await this.client.readContract({ address: al, abi: READS, functionName: "pending", args: [c.token] })) as any;
+      const owner = await this.client.readContract({ address: al, abi: READS, functionName: "stealthOwnerOf", args: [c.token] });
+      anon = { launcher: al, legacy: al === st.anonLauncherLegacy, stealthOwner: owner, quote: q, quotePending: qa.toString(), tokenPending: ta.toString() };
     }
     const claimed = this.db.prepare("SELECT COUNT(*) n FROM fee_events WHERE token=? AND kind IN ('CreatorFeesClaimed','Claimed')").get(c.token) as any;
     return { token: c.token, creator, quote: c.quote, pending: accrued.toString(), pendingUsd: wad(accrued) * wad(BigInt(c.quote_price_usd ?? 0)), anon, claims: claimed.n };
@@ -213,7 +215,7 @@ export class Api {
 
   excluded(coin: any) {
     const st = this.stackOf(coin.stack);
-    return [coin.curve, POOL_MANAGER, st?.migration, st?.anonLauncher, st?.hook, st?.trampWallManager].filter(Boolean).map((x) => String(x).toLowerCase());
+    return [coin.curve, POOL_MANAGER, st?.migration, st?.anonLauncher, st?.anonLauncherLegacy, st?.hook, st?.trampWallManager].filter(Boolean).map((x) => String(x).toLowerCase());
   }
 
   altitude(token: string) {

@@ -15,6 +15,7 @@ import { paperCurve } from "@/lib/flight/paperCurve";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
+import HoldersBridge from "@/components/flight/HoldersBridge";
 
 declare global {
   interface Window {
@@ -124,7 +125,8 @@ export default function FlightCanvas({ search }: Props) {
           __AMMO_TIERS: AMMO_TIERS,
           // Paper fills (no wallet): bonding curve pre-grad / full-range pool post-grad, same math + params as the sim.
           __PAPER_CURVE: paperCurve(),
-          // Simulated market defaults ON for testnet chains (no address hardcoding — chain flag only).
+          // Chain flag for the engine. NOTE: no longer turns the simulated market on — it is OFF by default everywhere and never
+          // runs on a live market (engine SIM block: pill on mock/replay, ?sim=on dev opt-in).
           __DISCIPLE_TESTNET: !!(ACTIVE_CHAIN as { testnet?: boolean }).testnet,
           REPLAY: window.REPLAY,
         };
@@ -201,7 +203,8 @@ export default function FlightCanvas({ search }: Props) {
   }, []);
 
   // Simulated-market toggle (engine owns the state; this just mirrors + flips it).
-  const [sim, setSim] = useState<{ on: boolean; mode: string }>({ on: false, mode: "auto" });
+  // `available` is false on a live market (real coin / live pool / wallet attached): the pill is hidden there (engine decides).
+  const [sim, setSim] = useState<{ on: boolean; mode: string; available?: boolean }>({ on: false, mode: "off", available: false });
   useEffect(() => {
     const on = (e: Event) => setSim((e as CustomEvent).detail);
     window.addEventListener("disciple:simstate", on);
@@ -265,8 +268,9 @@ export default function FlightCanvas({ search }: Props) {
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
+      {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
       <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
-        {!isSimulator && <button
+        {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"
           title="Simulated market: random buys/sells keep the rocket moving when the pool is quiet. Visual only — never touches balances or PnL."

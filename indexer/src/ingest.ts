@@ -37,6 +37,7 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
       const ts = tsOf(l.blockNumber!);
       const id = `${l.transactionHash}:${l.logIndex}`;
       const isCore = (x?: string) => !!x && lc(x) === src;
+      const isAnon = isCore(stack.anonLauncher) || isCore(stack.anonLauncherLegacy); // v2 + v1 legacy launcher
       switch (ev.eventName) {
         case "Launched":
           if (!isCore(stack.launchpad)) break;
@@ -62,10 +63,10 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           if (isCore(stack.launchpad)) db.prepare("UPDATE coins SET creator=? WHERE token=?").run(lc(a.newCreator), lc(a.token));
           break;
         case "AnonLaunched":
-          if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET anon=1, stealth_owner=? WHERE token=?").run(lc(a.stealthOwner), lc(a.token));
+          if (isAnon) db.prepare("UPDATE coins SET anon=1, stealth_owner=? WHERE token=?").run(lc(a.stealthOwner), lc(a.token));
           break;
         case "StealthOwnerTransferred":
-          if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET stealth_owner=? WHERE token=?").run(lc(a.to), lc(a.token));
+          if (isAnon) db.prepare("UPDATE coins SET stealth_owner=? WHERE token=?").run(lc(a.to), lc(a.token));
           break;
         case "Trade": {
           const coin: any = coinBy.get(lc(a.token));
@@ -169,7 +170,7 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
           ).run(stack.id, lc(a.wallet), lc(a.referrer), ev.eventName === "ReferrerAttributed" ? "attributed" : "pending", block, ts, l.transactionHash);
           break;
         case "LaunchFeePaid":
-          if (isCore(stack.anonLauncher)) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
+          if (isAnon) db.prepare("UPDATE coins SET launch_fee=? WHERE token=?").run(s(a.amount), lc(a.token));
           break;
         case "TradeFeeRouted": {
           // audit #11: explicit columns (a=creator b=lp c=treasury d=referral e=creatorTax) + unit flag, plus payee credits.
@@ -218,7 +219,7 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "RewardAccrued":
         case "Distributed": {
           const ok = { UsdgDepositRecorded: stack.referralRegistry, Claimed: stack.anonLauncher, RewardAccrued: stack.rewardsVault, Distributed: stack.rewardsVault }[ev.eventName as string] ?? stack.feeRouter;
-          if (!isCore(ok)) break;
+          if (!(isCore(ok) || (ev.eventName === "Claimed" && isAnon))) break;
           const vals = Object.values(a).filter((v) => typeof v === "bigint").map(s); // numeric args only, in ABI order
           db.prepare("INSERT OR IGNORE INTO fee_events (id, stack, kind, token, account, quote, a, b, c, d, e, block, ts, tx) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
             id, stack.id, ev.eventName, a.token ? lc(a.token) : null,
