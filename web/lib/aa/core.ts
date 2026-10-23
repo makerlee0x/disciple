@@ -156,7 +156,7 @@ export class LightSmartAccount {
     op.preVerificationGas = numberToHex(BigInt(est.preVerificationGas) * BigInt(12) / BigInt(10));
     const need = (BigInt(op.callGasLimit) + BigInt(op.verificationGasLimit!) + BigInt(op.preVerificationGas)) * BigInt(op.maxFeePerGas);
     const have = await pc.getBalance({ address: op.sender });
-    if (have < need) throw new AAError("FundAccount", "Gas sponsorship is off — fund your account with test ETH to pay gas.", { need, have, address: op.sender });
+    if (have < need) throw new AAError("FundAccount", "Your account is still being set up for network fees — try again in a moment.", { need, have, address: op.sender });
   }
 
   /** Send calls as ONE userOp. Owner signs once per op (session/embedded signer ⇒ no popup). */

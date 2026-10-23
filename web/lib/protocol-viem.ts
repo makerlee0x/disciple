@@ -10,7 +10,8 @@ import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQ
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
-import { bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
 import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi } from "./launchAbi";
@@ -62,12 +63,20 @@ const sessionErrors = parseAbi([
   "error QuoteFailed(address target)",
   "error SessionInactive()", "error SessionExpired()", "error NotAllowed(address target, bytes4 selector)",
   "error UsdgApproveNotExact(uint256 amount, uint256 required)", "error RecipientNotAccount()", "error SpenderNotAllowed(address spender)",
+  // EntryPoint v0.7 handleOps simulation: the inner bytes of FailedOpWithRevert are the account's / policy's revert
+  "error FailedOp(uint256 opIndex, string reason)", "error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner)",
+  // Uniswap v4 (post-grad sells through the router): slippage / price-limit reverts
+  "error V4TooLittleReceived(uint256 minAmountOutReceived, uint256 amountReceived)", "error V4TooMuchRequested(uint256 maxAmountInRequested, uint256 amountRequested)",
+  "error WrappedError(address target, bytes4 selector, bytes reason, bytes details)",
 ]);
 function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[] } | null {
   if (!data) return null;
   try {   // unwrap the account's hook wrapper to the policy's own error
     const w = decodeErrorResult({ abi: sessionErrors, data });
     if (/HookReverted$/.test(w.errorName)) return decodeRevert((w.args as readonly unknown[])[1] as Hex) ?? { errorName: w.errorName };
+    if (w.errorName === "FailedOpWithRevert") return decodeRevert((w.args as readonly unknown[])[2] as Hex) ?? { errorName: "FailedOp", args: [(w.args as readonly unknown[])[1]] };
+    if (w.errorName === "FailedOp") return { errorName: "FailedOp", args: [(w.args as readonly unknown[])[1]] };
+    if (w.errorName === "WrappedError") return decodeRevert((w.args as readonly unknown[])[2] as Hex) ?? { errorName: w.errorName };
     return { errorName: w.errorName, args: w.args as readonly unknown[] | undefined };
   } catch { /* not a session error */ }
   for (const abi of [bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi, ozErrors, modesErrorsAbi] as const) {
@@ -76,14 +85,22 @@ function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[
   return null;
 }
 
+/** Revert names meaning "price moved past minOut" (curve, router, v4, session policy): retried once with a fresh quote. */
+export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMuchRequested)$/;
+
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
-  const est = (e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError") && (e as AAError).code === "Estimate" ? (e as AAError) : null;
-  if (est) {
-    const d = decodeRevert(est.extra?.revertData as Hex | undefined);
+  const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  const est = isAA && (e as AAError).code === "Estimate" ? (e as AAError) : null;
+  const rv = isAA && (e as AAError).code === "Reverted" ? (e as AAError) : null;
+  if (est || rv) {
+    const raw = (est ?? rv)!.extra?.revertData as Hex | undefined;
+    const d = decodeRevert(raw);
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
-    else return new ProtocolError("Estimate", est.message);
+    // FLOW 2: unknown revert ⇒ keep the real payload (selector) instead of a bare "simulation failed"
+    else if (est) return new ProtocolError("Estimate", raw && raw.length >= 10 && !est.message.includes(raw.slice(0, 10)) ? `${est.message} (revert ${raw.slice(0, 10)})` : est.message);
+    else return new ProtocolError("Reverted", raw && raw.length >= 10 ? `${rv!.message} — revert ${raw.slice(0, 10)}` : rv!.message);
   }
   if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
@@ -122,9 +139,12 @@ export function friendlyError(e: unknown): ProtocolError {
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
       SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
+      V4TooLittleReceived: "Price moved too much. Try again or raise slippage.",
+      V4TooMuchRequested: "Price moved too much. Try again or raise slippage.",
+      FailedOp: `Couldn't validate the trade${args?.[0] ? ` (${String(args[0])})` : ""}. Try again.`,
       Error: args?.[0] ? String(args[0]) : "reverted",
     };
-    const pre = est ? "simulation: " : "";
+    const pre = "";   // the decoded reason is the message; no "simulation:" prefix (FLOW 2)
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
@@ -452,7 +472,20 @@ export function createViemProtocol(): ProtocolClient {
     const r = await referralCall(me); if (!r.length) refDone.add(me.toLowerCase()); return r;
   }
 
+  /**
+   * FLOW 2: a min-out / slippage revert on a quote WE derived (minAmountOut 0) means the warm quote went stale between
+   * quote and execution (busy curve, our own previous shot). Drop the cached quotes, re-quote and retry ONCE. A caller-
+   * pinned minAmountOut is never retried (that is the user's explicit limit).
+   */
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
+    try { return await tradeOnce(side, t); }
+    catch (e) {
+      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code)) throw e;
+      dropRouteQuotes(t.token);
+      return tradeOnce(side, t);
+    }
+  }
+  async function tradeOnce(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
@@ -556,7 +589,10 @@ export function createViemProtocol(): ProtocolClient {
       if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
       const launchpad = deployment().launchpad;
       const creatorBuy = lp.creatorBuyQuoteIn ?? B(0);
-      const mode = lp.mode ?? DEFAULT_LAUNCH_MODE;
+      // Private launches go through AnonLauncher v2 (Launchpad.launch ⇒ TRENCH mode; it pulls the fee + First BOOST).
+      const anonL = lp.private ? ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher : undefined;
+      if (lp.private && !anonL) throw new ProtocolError("NotDeployed", "Private launches aren't available on this chain.");
+      const mode = lp.private ? LaunchMode.TRENCH_WARFARE : lp.mode ?? DEFAULT_LAUNCH_MODE;
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
@@ -591,11 +627,33 @@ export function createViemProtocol(): ProtocolClient {
           if (have < creatorBuy) throw new ProtocolError("InsufficientBalance", `Not enough balance for the First BOOST: need ${fmtUnits(creatorBuy, await decimalsOf(pc, q))}, have ${fmtUnits(have, await decimalsOf(pc, q))}.`);
           // Exact approve of creatorBuyQuoteIn (Launchpad pulls exactly that): no slack, never unlimited, and a leftover
           // larger allowance is set back down to the exact amount. Skipped only when it already equals creatorBuyQuoteIn.
-          const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
-          if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
+          if (!anonL) {
+            const cur = await pc.readContract({ address: q, abi: tokenAbi, functionName: "allowance", args: [me, launchpad] });
+            if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
+          }
         }
-        // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
-        calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
+        if (anonL && lp.private) {
+          // AnonLauncher pulls launchFee (feeToken = USDG) + creatorBuyQuoteIn (quote) from this account: exact approvals
+          // (summed when the pair IS the fee token), then launchAnon(params, stealthOwner, buyRecipient = me, eph, viewTag).
+          const [feeToken, fee] = await Promise.all([
+            pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "feeToken" }) as Promise<Address>,
+            pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "launchFee" }) as Promise<bigint>,
+          ]);
+          const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
+          const need = new Map<string, bigint>();
+          if (fee > B(0)) need.set(feeToken.toLowerCase(), fee);
+          if (creatorBuy > B(0)) need.set(q.toLowerCase(), (need.get(q.toLowerCase()) ?? B(0)) + creatorBuy);
+          for (const [tok, amt] of Array.from(need.entries())) {
+            const have = await pc.readContract({ address: tok as Address, abi: tokenAbi, functionName: "balanceOf", args: [me] });
+            if (have < amt) throw new ProtocolError("InsufficientBalance", `Not enough ${tok.toLowerCase() === feeToken.toLowerCase() ? "USDG" : "balance"} for this private launch: need ${fmtUnits(amt, await decimalsOf(pc, tok as Address))}, have ${fmtUnits(have, await decimalsOf(pc, tok as Address))}.`);
+            calls.push({ to: tok as Address, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, amt] }) });
+          }
+          const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
+          calls.push({ to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag] }) });
+        } else {
+          // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
+          calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
+        }
         const r = await execCalls(calls);
         let launched: LaunchCoinResult | null = null, qp = B(0), supply = 0;
         for (const l of r.logs) {
@@ -616,9 +674,11 @@ export function createViemProtocol(): ProtocolClient {
             const ev = decodeEventLog({ abi: bondingCurveAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as { eventName: string; args: Record<string, unknown> };
             if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
-            launched.creatorBuy = { recipient: ev.args.trader as Address, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
+            // private launch: the curve's trader is the AnonLauncher; it forwards the tokens to buyRecipient = this account
+            const recipient = anonL ? me : (ev.args.trader as Address);
+            launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
             seedCreatorBuyPosition(`disciple.pnl.${launched.token}`, Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
-            bumpBalance(launched.token, ev.args.trader as Address, tokens);
+            bumpBalance(launched.token, recipient, tokens);
           } catch { /* other event */ }
         }
         return launched;

@@ -6,7 +6,7 @@
  *   referrerFees      FeeRouter.referrerAccrued(referrer, quote) + claimReferrerFees(quote)        (referrer FIRST)
  *   crew              Launchpad.modeOf / curveOf + BondingCurve.pendingRewards + Launchpad.claim   (PVE only)
  *   referralGate      UsdgDepositNotifier minDeposit / deposit / escrowCount / escrowOf / withdraw
- *   anonClaims        AnonLauncher.pending(token) + claimMany(tokens, to)                         (stealth owner)
+ *   anonClaims        AnonLauncher.pending(token) + claimMany / claimManyBySig, on the coin's launcher (v2, or v1 legacy)
  *
  * Each needs the function in the generated ABI, a non-zero address, and (probeCaps) a view answering on-chain,
  * so a misconfigured env hides the card instead of showing broken buttons.
@@ -30,16 +30,10 @@ export const abiHas = (abi: Abi | readonly unknown[], name: string) =>
 
 const Z = "0x0000000000000000000000000000000000000000";
 const set = (a?: string) => !!a && a.toLowerCase() !== Z;
+/** AnonLauncher v2 (default for new private launches; its claims pay both the quote and the post-grad token share). */
 export const anonLauncherAddr = () => ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
-/**
- * AnonLauncher v2 (FLOW, not deployed yet): claimMany / claimManyBySig pay BOTH sides, incl. the post-grad token share
- * FeeRouter.creatorTokenAccrued[token][AnonLauncher] that v1 can't claim. Wiring it = set NEXT_PUBLIC_ANON_LAUNCHER_V2.
- * Unset/invalid ⇒ that token share shows read-only as "Pending upgrade". Assumes v2 keeps claimMany(address[] tokens, address to).
- */
-const V2 = (process.env.NEXT_PUBLIC_ANON_LAUNCHER_V2 || "").trim();
-export const anonLauncherV2Addr = (): `0x${string}` | null => (/^0x[0-9a-fA-F]{40}$/.test(V2) && V2.toLowerCase() !== Z ? (V2 as `0x${string}`) : null);
-/** Where anon claimMany goes: v2 once configured, else v1. */
-export const anonClaimTarget = () => anonLauncherV2Addr() ?? anonLauncherAddr();
+/** AnonLauncher v1 (legacy coins only). Each coin's launcher = Launchpad.creatorOf(token); see lib/claims/creatorFees anonRockets. */
+export const anonLauncherLegacyAddr = () => ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncherLegacy;
 
 /** Static (sync) capabilities: ABI + addresses. A true here still needs probeCaps() before showing UI. */
 export function staticCaps(): Caps {

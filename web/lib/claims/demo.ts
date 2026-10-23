@@ -39,7 +39,7 @@ export function demoRockets(redeploy: boolean): CreatorRocket[] {
   if (redeploy) rows.push({ token: "0x000000000000000000000000000000000000d304", name: "Night Shift", ticker: "NITE", quote: STRAT, anon: true,
     claimable: r(2_640), claimed: BigInt(0), lifetime: r(2_640), recent: [],
     tokenSide: { asset: { address: "0x000000000000000000000000000000000000d304", symbol: "NITE", decimals: 18, usd: null }, claimable: BigInt(0), claimed: BigInt(0) },
-    tokenPendingUpgrade: { asset: { address: "0x000000000000000000000000000000000000d304", symbol: "NITE", decimals: 18, usd: null }, raw: r(84_000) } });
+    tokenUnclaimable: { asset: { address: "0x000000000000000000000000000000000000d304", symbol: "NITE", decimals: 18, usd: null }, raw: r(84_000) } });
   return rows;
 }
 export const demoReferral = () => [{ asset: STRAT, claimable: r(3_100) }, { asset: USDG, claimable: r(1.84) }];

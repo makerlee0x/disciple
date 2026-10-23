@@ -24,7 +24,10 @@ const W_MIN = 240, W_DEF = 310, W_MAX = 560, FLUSH_MS = 200;
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
 type Tab = "chat" | "holders";
-type Holders = { title: string; rows: [string, number][]; you: number };
+type HolderItem = { who: string; address: string; usd: number; pct: number; label: "pool" | "curve" | "locker" | null; mine: boolean };
+/** rows: legacy [name, $] (session boosters on mock / sim / pool); items: REAL holders from on-chain balances (live coins:
+ *  engine realHolders ← components/flight/HoldersBridge) — ranked rows first, labelled pool / curve / locker rows after. */
+type Holders = { title: string; rows: [string, number][]; you: number; items?: HolderItem[]; asOfBlock?: number | null };
 
 export default function GameChat({ coin }: { coin: string }) {
   const [api, setApi] = useState<{ api: ChatApi; svg: boolean; source: string } | null>(null);
@@ -213,9 +216,21 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
 function HoldersView({ h }: { h: Holders | null }) {
   return <div data-testid="holders-list" style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "thin" }}>
     <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top boosters"}</div>
-    {!h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no boosters yet</div> : h.rows.map(([w, v], i) =>
+    {h?.items ? <RealHolders items={h.items} you={h.you} /> : !h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no boosters yet</div> : h.rows.map(([w, v], i) =>
       <div key={w} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", color: w === "you" ? "#9ff3c8" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : 400 }}>
         <span>{i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
-    {h && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your BOOST: {fmtUsd(h.you)}</div>}
+    {h && !h.items && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your BOOST: {fmtUsd(h.you)}</div>}
   </div>;
+}
+function RealHolders({ items, you }: { items: HolderItem[]; you: number }) {
+  const ranked = items.filter((r) => !r.label), sys = items.filter((r) => r.label);
+  const row = (r: HolderItem, i: number | null) => <div key={r.address} data-testid={r.mine ? "holder-mine" : undefined} title={r.address}
+    style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "2px 0", color: r.mine ? "#9ff3c8" : r.label ? "rgba(220,228,255,.55)" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : r.mine ? 700 : 400 }}>
+    <span>{i === null ? "  ·" : i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {r.mine ? "you" : r.who}{r.label ? ` (${r.label})` : ""}</span>
+    <span>{r.pct >= 0.01 ? r.pct.toFixed(2) + "% · " : ""}{fmtUsd(r.usd)}</span></div>;
+  return <>
+    {!ranked.length ? <div style={{ opacity: 0.6 }}>no holders yet</div> : ranked.map((r, i) => row(r, i))}
+    {sys.length > 0 && <div style={{ marginTop: 6, opacity: 0.8 }}>{sys.map((r) => row(r, null))}</div>}
+    {you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your bag: {fmtUsd(you)}</div>}
+  </>;
 }
