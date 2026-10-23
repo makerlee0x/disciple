@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "./integration/IntegrationBase.sol";
 import {Owned2Step} from "../src/utils/Owned2Step.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /// @notice Sniper tax (mode rules v2, replaces LOCKED #9 rev. 2026-10-15's 70/30 split): 99% → 0 over 60 s, held in
 ///         the curve's `snipeEscrow` in the pair coin (outside reserves / price), added to the locked LP at

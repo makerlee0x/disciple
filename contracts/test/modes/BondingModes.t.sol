@@ -218,22 +218,33 @@ contract BondingModesTest is IntegrationBase {
     function test_pve_partialFillAtCapThenRoomZero() public {
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
         _verify(alice);
+        _verify(bob);
+        _verify(carol);
         _open(61); // just past the sniper tax
         assertEq(c.maxBuyNow(), type(uint256).max, "no max buy");
+        assertEq(c.netCapNow(), Constants.TOTAL_SUPPLY * Constants.PVE_CAP_START_BPS / 10_000, "1% at $7K");
+        _buyQ(c, bob, _quoteFor(c, ONE_PCT * 9 / 10));
+        _buyQ(c, carol, _quoteFor(c, ONE_PCT * 9 / 10));
         uint256 cap = c.netCapNow();
-        assertEq(cap, Constants.TOTAL_SUPPLY * Constants.PVE_CAP_START_BPS / 10_000, "1% at $7K");
-        uint256 q = _quoteFor(c, ONE_PCT * 2); // 2% > 1%
+        uint256 q = _quoteFor(c, ONE_PCT * 3); // 3% > cap
         uint256 b0 = quote.balanceOf(alice);
         uint256 out = _buyQ(c, alice, q);
-        assertEq(out, cap, "filled exactly to the cap");
+        assertEq(out, cap, "filled exactly to the cap (measured at the pre-trade mcap)");
         assertLt(b0 - quote.balanceOf(alice), q, "refunded");
-        assertEq(c.capRoom(alice), 0);
+        assertEq(c.capRoom(alice), c.netCapNow() - out, "the buy lifted mcap, so the cap grew a little");
+        // sellers push mcap below where alice filled → her cap drops under her NET → room 0
+        _sellT(c, t, bob, t.balanceOf(bob));
+        _sellT(c, t, carol, t.balanceOf(carol));
+        assertLt(c.netCapNow(), out);
+        assertEq(c.capRoom(alice), 0, "cap <= NET");
         vm.startPrank(alice);
         quote.approve(address(c), 1 ether);
-        vm.expectRevert(BondingCurve.WalletCap.selector); // room 0 → revert (documented)
+        vm.expectRevert(BondingCurve.WalletCap.selector); // room 0 → revert (documented choice)
         c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
+        vm.expectRevert(BondingCurve.WalletCap.selector);
+        c.quoteBuyFor(alice, 1 ether);
         vm.stopPrank();
-        // sells free up room (NET)
+        // her own sells free up room (NET)
         _sellT(c, t, alice, c.balanceOnCurve(alice) / 2);
         assertGt(c.capRoom(alice), 0);
         _buyQ(c, alice, q);
@@ -376,8 +387,7 @@ contract BondingModesTest is IntegrationBase {
         assertEq(c.netCapNow(), cap0, "3.33% at $7K");
         uint256 q = _quoteFor(c, ONE_PCT * 5); // 5% > 3.33%: no max buy, partial fill to the cap
         uint256 out = _buyQ(c, alice, q); // no login needed
-        assertEq(out, cap0);
-        assertEq(c.capRoom(alice), 0);
+        assertEq(out, cap0, "filled to the pre-trade cap");
         // progress → cap grows linearly in mcap
         for (uint256 i; i < 12; ++i) {
             address w = makeAddr(string(abi.encodePacked("pvp", vm.toString(i))));
@@ -430,12 +440,13 @@ contract BondingModesTest is IntegrationBase {
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVP);
         _warpPastSnipe();
         uint256 q = _quoteFor(c, ONE_PCT * 5);
+        uint256 cap = c.netCapNow();
         uint256 b0 = quote.balanceOf(alice);
         vm.startPrank(alice);
         quote.approve(address(router), type(uint256).max);
         uint256 out = router.buyWithUsdg(address(t), q, 1, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
-        assertEq(out, c.netCapNow(), "router buy partially fills to the trader's cap");
+        assertEq(out, cap, "router buy partially fills to the trader's cap");
         assertEq(c.balanceOnCurve(alice), out);
         assertLt(b0 - quote.balanceOf(alice), q, "unused USDG back to the trader");
         assertEq(quote.balanceOf(address(router)), 0, "router keeps nothing");
