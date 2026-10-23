@@ -20,7 +20,7 @@ function mk(name: string, args: Record<string, any>, address: Hex, block = 1n): 
   return { address, topics: topics as any, data, blockNumber: block, transactionHash: `0x${(++li).toString(16).padStart(64, "0")}` as Hex, logIndex: li };
 }
 const trade = (trader: Hex, isBuy: boolean, quoteAmt: bigint, priceAfter: bigint, src: Hex, block: bigint) =>
-  mk("Trade", { token: TOKEN, trader, isBuy, quoteAmt, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: priceAfter, impactBps: 0n, mcapAfterUsd: 33_000n * 10n ** 18n }, src, block);
+  mk("Trade", { token: TOKEN, trader, isBuy, quoteAmt, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: priceAfter, impactBps: 0n, mcapAfterUsd: priceAfter * 7_000_000_000n }, src, block); // mcap = price × 7B (quote $1)
 
 function seeded() {
   const db = openDb(":memory:");

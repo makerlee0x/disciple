@@ -3,7 +3,7 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
-import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, virtualQuoteReserve, wad } from "./math.js";
+import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
 
 /**
  * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
@@ -29,8 +29,16 @@ export function intParam(q: URLSearchParams, name: string, def: number, min: num
 }
 
 type Live = {
-  priceWad: string; mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
+  /** quote raw × 1e18 / token raw — FLOORED (single digits at 6-dec USDG): display/debug only, use priceUsd / mcapUsd. */
+  priceWad: string;
+  /** $ per token = mcapUsd / total supply (full precision at any quote decimals). */
+  priceUsd: number;
+  mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
 };
+
+/** A coin's total supply (raw) — coins.total_supply when indexed, else the fixed 7B × 1e18. */
+const supplyOf = (coin: any): bigint => (coin?.total_supply ? BigInt(coin.total_supply) : TOTAL_SUPPLY);
+const supplyTokens = (coin: any) => Number(supplyOf(coin)) / 1e18;
 
 export class Api {
   private cache = new Map<string, { at: number; v: any }>();
@@ -69,15 +77,16 @@ export class Api {
           const tokenIsC0 = BigInt(coin.token) < BigInt(coin.quote);
           const p = priceWadFromSqrt(sqrtP, tokenIsC0);
           const curveM = (await client.readContract({ address: coin.curve, abi: READS, functionName: "mcapNow" }).catch(() => 0n)) as bigint;
+          const m = wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd, supplyOf(coin)));
           return {
-            priceWad: p.toString(), mcapUsd: wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd)), quoteUsd: wad(qUsd), mcapSource: "v4-pool",
+            priceWad: p.toString(), priceUsd: m / supplyTokens(coin), mcapUsd: m, quoteUsd: wad(qUsd), mcapSource: "v4-pool",
             liquidityUsd: 2 * wad(virtualQuoteReserve(L, sqrtP, tokenIsC0)) * wad(qUsd),
             curveMcapNowUsd: wad(curveM),
           };
         } catch {
           if (st.marketLens) {
             const [p, m] = (await client.readContract({ address: st.marketLens, abi: READS, functionName: "market", args: [coin.token] })) as any;
-            return { priceWad: p.toString(), mcapUsd: wad(m), quoteUsd: wad(qUsd), mcapSource: "market-lens", liquidityUsd: 0 };
+            return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(qUsd), mcapSource: "market-lens", liquidityUsd: 0 };
           }
           throw new Error("no pool price");
         }
@@ -87,7 +96,7 @@ export class Api {
         client.readContract({ address: coin.curve, abi: READS, functionName: "priceNow" }) as Promise<bigint>,
         client.readContract({ address: coin.curve, abi: READS, functionName: "quoteReserve" }) as Promise<bigint>,
       ]);
-      return { priceWad: p.toString(), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ) };
+      return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ) };
     });
   }
 

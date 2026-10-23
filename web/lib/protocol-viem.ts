@@ -162,6 +162,7 @@ export function publicClient(): PublicClient {
  * Live market for a coin. Curve mcapNow()/priceNow() and Trade.mcapAfterUsd FREEZE after graduation (FLOW bug,
  * fixed on-chain later), so graduated coins read MarketLens.market(token) (v4 slot0 × live QuotePricer).
  * Returns null when no lens is configured or the call fails (callers fall back to the curve).
+ * `priceWad` is the lens's floored quote-raw price (single-digit at 6-dec USDG): use `mcapUsd` (full precision) for $.
  */
 export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; graduated: boolean } | null> {
   if (!hasLens()) return null;
@@ -215,14 +216,12 @@ function nextTierOf(mcap: number) {
 export async function readCurveState(pc: PublicClient, token: Address): Promise<CurveState> {
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const [quote, graduated, quoteReserve, tokensSold, mcapWad, spotWad, quotePriceUsd, taxBps, p, progress, snipe] = await Promise.all([
+  const [quote, graduated, quoteReserve, tokensSold, mcapWad, taxBps, p, progress, snipe] = await Promise.all([
     pc.readContract({ ...c, functionName: "quote" }),
     pc.readContract({ ...c, functionName: "graduated" }),
     pc.readContract({ ...c, functionName: "quoteReserve" }),
     pc.readContract({ ...c, functionName: "tokensSold" }),
     pc.readContract({ ...c, functionName: "marketCapUsd" }),
-    pc.readContract({ ...c, functionName: "spotPriceWad" }),
-    pc.readContract({ ...c, functionName: "quotePriceUsd" }),
     pc.readContract({ ...c, functionName: "creatorTaxBps" }),
     curveParams(pc, curve),
     pc.readContract({ ...c, functionName: "progressBps" }),
@@ -235,8 +234,9 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
   const progressBps = Number(progress);
   return {
     token, quote, mcapUsd,
-    // spot = quote raw * 1e18 / token raw; quotePriceUsd = USD WAD per 1e18 quote raw ⇒ decimal-agnostic
-    priceUsd: live ? mcapUsd / (Number(p.totalSupply) / 1e18) : wadToNum(spotWad) * wadToNum(quotePriceUsd),
+    // $ per token = mcap / supply. NOT spotPriceWad × quotePriceUsd: spotPriceWad (quote raw × 1e18 / token raw) is
+    // floored on-chain to a single-digit integer at 6-dec USDG (FLOW #115); marketCapUsd is full precision.
+    priceUsd: mcapUsd / (Number(p.totalSupply) / 1e18),
     soldPct,
     curveProgressPct: graduated ? 100 : progressBps / 100,
     progressBps: graduated ? 10000 : progressBps,

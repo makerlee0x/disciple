@@ -7,10 +7,10 @@
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
 import type { Log, PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
-import { usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
+import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi, quotePricerAbi } from "./abi";
+import { mcapUsdFromSqrt, tokenIsCurrency0, usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
-import { deployment } from "./chains";
+import { deployment, ZERO } from "./chains";
 import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import type { Address, ProtocolEvent } from "./protocol";
 
@@ -41,12 +41,24 @@ export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () =>
 
 /** 7B × 1e18 (Constants.TOTAL_SUPPLY). */
 const SUPPLY_TOKENS = 7_000_000_000;
-/** USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw) and quotePriceUsd (USD WAD per 1e18 quote raw). */
+/** LEGACY (18-dec quotes only): USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw, floored on-chain — a
+ *  single-digit integer at 6-dec USDG) and quotePriceUsd (USD WAD per 1e18 quote raw). Hook Trades use sqrtPriceAfter. */
 export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bigint) =>
   priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;
 
+/** Hook-Trade context: the coin's quote token (v4 currency order) and the LIVE quote price (QuotePricer, USD WAD per 1e18 raw). */
+export type HookCtx = { quote?: string; liveQuoteUsd?: bigint };
+
+/** v4 hook Trade → $ mcap: sqrtPriceAfter × live (else launch) quote price, full precision. Legacy priceAfterX18 fallback. */
+export function hookTradeMcapUsd(a: { token: string; sqrtPriceAfter?: bigint; priceAfterX18?: bigint }, quotePriceUsd: bigint, ctx?: HookCtx): number {
+  const q = ctx?.liveQuoteUsd && ctx.liveQuoteUsd > BigInt(0) ? ctx.liveQuoteUsd : quotePriceUsd;
+  if (a.sqrtPriceAfter !== undefined && a.sqrtPriceAfter > BigInt(0) && ctx?.quote)
+    return mcapUsdFromSqrt(a.sqrtPriceAfter, tokenIsCurrency0(a.token, ctx.quote), q, SUPPLY_TOKENS);
+  return hookMcapUsd(a.priceAfterX18, q);
+}
+
 /** Normalize an on-chain Trade (curve or hook) into the engine's TradeEvent. */
-export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook", mcapPerPriceWad?: number, usdg?: UsdgTradeArgs): ProtocolEvent {
+export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook", hook?: HookCtx, usdg?: UsdgTradeArgs): ProtocolEvent {
   const a = l.args as Record<string, bigint | string | boolean>;
   const isBuy = a.isBuy as boolean;
   const quoteAmt = a.quoteAmt as bigint, tokenAmt = a.tokenAmt as bigint;
@@ -58,18 +70,22 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     usd: quoteRawToUsd(quoteAmt, quotePriceUsd),
     ...usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined, usdgDecimals()),
     impactBps: bps, impactPct: bps / 100,
-    // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = live pool price ×
-    // MarketLens ratio, else priceAfterX18 × supply × the coin's launch quote price. Curve Trades still carry mcapAfterUsd.
-    mcapUsd: venue === "hook" ? (mcapPerPriceWad ? Number(a.priceAfterX18 as bigint) * mcapPerPriceWad : hookMcapUsd(a.priceAfterX18 as bigint, quotePriceUsd))
+    // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = sqrtPriceAfter × the
+    // live quote price (QuotePricer; else the coin's launch quote price) — never the floored priceAfterX18 (6-dec USDG,
+    // FLOW #115). Curve Trades still carry mcapAfterUsd.
+    mcapUsd: venue === "hook"
+      ? hookTradeMcapUsd({ token: String(a.token), sqrtPriceAfter: a.sqrtPriceAfter as bigint | undefined, priceAfterX18: a.priceAfterX18 as bigint }, quotePriceUsd, hook)
       : wad(a.mcapAfterUsd as bigint),
     txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0), logIndex: l.logIndex ?? 0,
   };
 }
 
-/** USD mcap per unit of priceWad from MarketLens (live v4 price × live quote/USD). undefined if no lens. */
-export async function lensScale(token: Address, pc: PublicClient = publicClient()): Promise<number | undefined> {
-  const m = await readMarket(pc, token);
-  return m && m.priceWad > BigInt(0) ? m.mcapUsd / Number(m.priceWad) : undefined;
+/** Live quote price (QuotePricer.quotePriceUsd: USD WAD per 1e18 raw quote, decimal-agnostic). undefined if no pricer / 0. */
+export async function liveQuoteUsd(quote: Address, pc: PublicClient = publicClient()): Promise<bigint | undefined> {
+  const qp = deployment().quotePricer;
+  if (qp === ZERO) return undefined;
+  const v = await pc.readContract({ address: qp, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [quote] }).catch(() => BigInt(0));
+  return (v as bigint) > BigInt(0) ? (v as bigint) : undefined;
 }
 
 /** Chain-order key of a Trade (block, logIndex). */
@@ -169,13 +185,20 @@ export function pollLogs(o: {
  * "disciple:livetrade" / "disciple:fillreceipt") trigger an immediate poll.
  */
 export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: PublicClient = publicClient(), order: McapOrderer = mcapOrderer(cb), fromBlock?: bigint): Promise<() => void> {
-  const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
+  const [qp, quote] = await Promise.all([
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" }),
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }).catch(() => undefined),
+  ]);
   const start = fromBlock ?? (await pc.getBlockNumber()) + BigInt(1);
   const stops: (() => void)[] = [], kicks: (() => void)[] = [];
   let chain: Promise<void> = Promise.resolve();
   const inOrder = (f: () => Promise<void> | void) => { chain = chain.then(f).catch(() => undefined); };
-  let scale: { k: number | undefined; at: number } | null = null;
-  const scaleNow = async () => { if (!scale || Date.now() - scale.at > 15_000) scale = { k: await lensScale(token, pc).catch(() => scale?.k), at: Date.now() }; return scale.k; };
+  let scale: { k: HookCtx; at: number } | null = null;
+  const scaleNow = async (): Promise<HookCtx> => {
+    if (!scale || Date.now() - scale.at > 15_000)
+      scale = { k: { quote, liveQuoteUsd: quote ? await liveQuoteUsd(quote, pc).catch(() => scale?.k.liveQuoteUsd) : undefined }, at: Date.now() };
+    return scale.k;
+  };
 
   const c = pollLogs({
     pc, fromBlock: start,
@@ -268,7 +291,10 @@ export async function listLaunches(pc: PublicClient = publicClient(), resolveIma
 
 /** Backfill a coin's Trades (curve + hook) and graduation from `fromBlock` (default: deployment start block). */
 export async function tradeHistory(token: Address, curve: Address, pc: PublicClient = publicClient(), fromBlock = deployment().fromBlock): Promise<ProtocolEvent[]> {
-  const qp = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" });
+  const [qp, quote] = await Promise.all([
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" }),
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }).catch(() => undefined),
+  ]);
   const router = deployment().router;
   const [curveLogs, hookLogs, routerLogs] = await Promise.all([
     pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock, toBlock: "latest" }),
@@ -285,7 +311,7 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
     if (l.eventName === "Trade") out.push({ k: key(l), e: tradeFromLog(l, qp, "curve", undefined, take(l)) });
     else if (l.eventName === "GraduatedToV4") out.push({ k: key(l), e: { type: "Graduate", token, poolId: l.args.poolId as `0x${string}` } });
   }
-  const scale = hookLogs.length ? await lensScale(token, pc) : undefined;
+  const scale: HookCtx | undefined = hookLogs.length ? { quote, liveQuoteUsd: quote ? await liveQuoteUsd(quote, pc) : undefined } : undefined;
   for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook", scale, take(l)) });
   out.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
   return out.map((x) => x.e);

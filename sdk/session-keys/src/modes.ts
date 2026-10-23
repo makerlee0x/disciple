@@ -26,6 +26,8 @@ export const launchpadModesAbi = parseAbi([
 ]);
 
 export const curveModesAbi = parseAbi([
+  // priceAfterX18 (quote raw × 1e18 / token raw) is FLOORED: a single-digit integer at 6-dec USDG (FLOW #115). Use
+  // mcapAfterUsd (USD WAD) / supply for $ per token; format USDG amounts with decimals() (6), never 1e18.
   "struct BuyQuote { uint256 tokensOut; uint256 fee; uint256 snipeFee; uint256 quoteToCurve; uint256 priceAfterX18; uint256 impactBps; uint256 mcapAfterUsd; bool graduates; uint256 refund; }",
   "struct SellQuote { uint256 quoteOut; uint256 fee; uint256 grossQuote; uint256 priceAfterX18; uint256 impactBps; uint256 mcapAfterUsd; uint256 profitTax; }",
   "function mode() view returns (uint8)",
@@ -68,7 +70,9 @@ export const hookAnchorAbi = parseAbi([
 
 /** Trade events. BondingCurve (pre-grad) ends with `uint256 mcapAfterUsd`; DiscipleHook (post-grad, gas G-1) ends with
  *  `uint160 sqrtPriceAfter` (different topic0). Decode both. Hook USD mcap off-chain:
- *  DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, DiscipleHook.quoteUsdOf(poolId)). */
+ *  DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, DiscipleHook.quoteUsdOf(poolId)).
+ *  Never derive price/mcap from priceBeforeX18/priceAfterX18: floored to single digits when the quote has 6 decimals
+ *  (USDG — FLOW #115). Curve: mcapAfterUsd; hook: sqrtPriceAfter. */
 export const tradeEventsAbi = parseAbi([
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd)",
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint160 sqrtPriceAfter)",

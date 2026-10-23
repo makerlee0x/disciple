@@ -19,6 +19,7 @@ const mulDiv = (a: bigint, b: bigint, d: bigint) => (a * b) / d;
 export function virtualQuote(p: CurveParams, sold: bigint) {
   return mulDiv(p.x0, p.y0, p.y0 - sold);
 }
+/** quote raw × 1e18 / token raw — floored; single-digit at 6-dec quotes, don't derive $ or ratios from it. */
 export function spotPriceWad(p: CurveParams, sold: bigint) {
   const y = p.y0 - sold;
   return mulDiv(mulDiv(p.x0, p.y0, y), WAD, y);
@@ -50,8 +51,10 @@ export function applySlippage(amount: bigint, slippageBps: number) {
 
 /** Price impact % between two sold levels (spot-to-spot). */
 export function impactPctBetween(p: CurveParams, soldBefore: bigint, soldAfter: bigint) {
-  const a = Number(spotPriceWad(p, soldBefore)), b = Number(spotPriceWad(p, soldAfter));
-  return a > 0 ? ((b - a) / a) * 100 : 0;
+  // spot ∝ x0·y0 / y² ⇒ b/a = (yBefore / yAfter)². Exact ratio of token reserves, NOT of spotPriceWad (floored to a
+  // single-digit integer when the quote has 6 decimals — FLOW #115).
+  const ya = Number(p.y0 - soldBefore), yb = Number(p.y0 - soldAfter);
+  return ya > 0 && yb > 0 ? ((ya / yb) ** 2 - 1) * 100 : 0;
 }
 
 /* ---- Launch-time curve (sold = 0), mirrors CurveMath.makeParams / quoteInForTokens ---- */

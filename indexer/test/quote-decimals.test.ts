@@ -4,6 +4,7 @@ import type { Hex } from "viem";
 import { openDb } from "../src/db";
 import { Api } from "../src/api";
 import { fillQuoteDecimals, parseQuoteDecimals } from "../src/decimals";
+import { tradeUsd } from "../src/usd";
 import type { Config, Stack } from "../src/config";
 
 const A = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Hex;
@@ -63,5 +64,25 @@ describe("quote decimals (6-dec USDG)", () => {
     await fillQuoteDecimals(db, async () => 18);
     const [, rw]: any = await new Api(db, null, cfg).route("GET", new URL("http://x/rewards"));
     expect(rw.find((r: any) => r.asset === USDG6)).toMatchObject({ sum_a: 5, sum_b: 2.5 });
+  });
+});
+
+describe("6-dec USDG prices (FLOW #115): never from the floored priceAfterX18", () => {
+  const E18 = 10n ** 18n, Q96 = 1n << 96n;
+  it("curve Trade: price = mcapAfterUsd / supply even when priceAfterX18 is a single digit", () => {
+    const u = tradeUsd({ quotePriceUsdWad: (10n ** 30n).toString(), quoteAmt: 25n * 10n ** 6n, priceAfterX18: 4n, mcapAfterUsd: 33_000n * E18 });
+    expect(u.priceUsd).toBeCloseTo(33_000 / 7e9, 15);
+    expect(u.volumeUsd).toBeCloseTo(25, 9);
+  });
+  it("v4 hook Trade: price and mcap from sqrtPriceAfter (both currency orders)", () => {
+    // $33K / 7B tokens at 6-dec USDG ⇒ quote raw per token raw = 33000e6 / 7e27
+    const num = 33_000n * 10n ** 6n, den = 7_000_000_000n * E18;
+    const isqrt = (n: bigint) => { let x = n, y = (x + 1n) / 2n; while (y < x) { x = y; y = (x + n / x) / 2n; } return x; };
+    const lo = "0x0000000000000000000000000000000000000001", hi = "0xffffffffffffffffffffffffffffffffffffffff";
+    for (const [token, quote, sp] of [[lo, hi, isqrt((num * Q96 * Q96) / den)], [hi, lo, isqrt((den * Q96 * Q96) / num)]] as const) {
+      const u = tradeUsd({ quotePriceUsdWad: (10n ** 30n).toString(), quoteAmt: 1n, priceAfterX18: 4n, sqrtPriceAfter: sp, token, quote });
+      expect(Number(BigInt(u.mcapUsdWad)) / 1e18 / 33_000).toBeCloseTo(1, 6);
+      expect(u.priceUsd / (33_000 / 7e9)).toBeCloseTo(1, 6);
+    }
   });
 });
