@@ -17,13 +17,13 @@ export const LOCALE_IDS: Locale[] = ["en", "zh", "ko", "ja", "es"];
 export interface AudioChannel { on: boolean; vol: number }
 export interface GameSettings {
   v: 1;
-  /** KeyboardEvent.code per slot: 6 buy presets (select only) + 4 sell sizes (select only) */
+  /** KeyboardEvent.code per slot: 4 buy presets (select only) + 4 sell sizes (select only) */
   keys: { buy: string[]; sell: string[] };
   sfx: AudioChannel;
   music: AudioChannel;
   lang: Locale;
 }
-export const DEFAULT_BUY_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"];
+export const DEFAULT_BUY_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4"];   // 4 buy presets (was 6: an older 6-key save keeps its first 4)
 export const DEFAULT_SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"];
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   v: 1, keys: { buy: DEFAULT_BUY_KEYS, sell: DEFAULT_SELL_KEYS },
@@ -54,7 +54,7 @@ const chan = (x: unknown, d: AudioChannel): AudioChannel => {
   return { on: typeof o.on === "boolean" ? o.on : d.on, vol: clamp01(o.vol, d.vol) };
 };
 function keyList(x: unknown, d: string[], taken: Set<string>): string[] {
-  const a = Array.isArray(x) && x.length === d.length ? x : d;
+  const a = Array.isArray(x) && x.length >= d.length ? x.slice(0, d.length) : d;
   return a.map((c, i) => {
     const k = typeof c === "string" && isBindable(c) && !taken.has(c) ? c : !taken.has(d[i]) ? d[i] : "";
     if (k) taken.add(k);

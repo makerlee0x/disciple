@@ -54,13 +54,13 @@ export const TIERS = [
   { name: "SEVENTH HEAVEN", lo: 3.3e9, hi: 7.77e9, bg: "tier17" },
 ] as const;
 
+/** BUY presets ($ per shot): 4 slots, default $10 / $25 / $50 / $100, editable (Swap settings / ESC menu, stored in
+ *  lib/trade/swapSettings). Mirrors public/flight/engine.js MODES (@presets). Sell sizes are fixed 10/25/50/100%. */
 export const MODES = [
-  { key: "1", name: "FEATHER", usd: 0.01, range: "swarm label" },
-  { key: "2", name: "EMBER", usd: 0.5, range: "swarm label" },
-  { key: "3", name: "FLARE", usd: 5, range: "Launch Pad–Kármán Line" },
-  { key: "4", name: "COMET", usd: 10, range: "Outer Space–Morning Stars" },
-  { key: "5", name: "ARCHANGEL", usd: 100, range: "Morning Stars–Limbo" },
-  { key: "6", name: "GLORY", usd: 1000, range: "≥$33M (Gates of Heaven+)" },
+  { key: "1", name: "P1", usd: 10 },
+  { key: "2", name: "P2", usd: 25 },
+  { key: "3", name: "P3", usd: 50 },
+  { key: "4", name: "P4", usd: 100 },
 ] as const;
 
 /** Tramps & walls: off-chain points per $1 of FILLED order size, rounded down. Awarded only when the order is filled

@@ -68,15 +68,21 @@ function altToMcap(a){
   const lo=i===0?FLOOR_MCAP:t.lo; return lo*Math.pow(t.hi/lo,f);
 }
 const PX_PER_ALT = 1.5*H*(+new URLSearchParams(location.search).get('zoom') || (['mock','dexscreener','rpc'].includes(new URLSearchParams(location.search).get('source'))?3:10));   // real pool: ×10 so a ~1% move ≈ 150 px; mock/coarse feeds ×3 (was ×1: climbs/drops were barely visible)
-// ---------- [PARAM] MODES = $ per shot (see game-modes-and-progression.md §1) ----------
+// ---------- [PARAM] MODES = BUY presets, $ per shot ----------
+/* @presets — 4 buy presets, default $10 / $25 / $50 / $100 (= lib/config MODES = lib/trade/swapSettings DEFAULT_BUY).
+   The player edits them (Swap settings / ESC menu → TradeBridge → disciple:ammo-override); null override = these defaults.
+   No mcap-scaled ammo tiers any more: the amounts on the tiles are exactly what the player set. One custom $ field
+   (trade bar, disciple:custombuy) overrides the selected preset for BOOST / SPACE. SELL sizes are fixed 10/25/50/100% of
+   the bag plus one custom sell field (TradeBridge). Preset keys (ESC-menu bindings) only SELECT. */
+const DEFAULT_BUY_USD=[10,25,50,100];
 const MODES=[
-  {key:'1',name:'FEATHER',  usd:0.01, range:'swarm label'},
-  {key:'2',name:'EMBER',    usd:0.50, range:'swarm label'},
-  {key:'3',name:'FLARE',    usd:5,    range:'Launch Pad–Kármán Line'},
-  {key:'4',name:'COMET',    usd:10,   range:'Outer Space–Morning Stars'},
-  {key:'5',name:'ARCHANGEL',usd:100,  range:'Morning Stars–Limbo'},
-  {key:'6',name:'GLORY',    usd:1000, range:'≥$33M (Gates of Heaven+)'},
+  {key:'1',name:'P1',usd:DEFAULT_BUY_USD[0]},
+  {key:'2',name:'P2',usd:DEFAULT_BUY_USD[1]},
+  {key:'3',name:'P3',usd:DEFAULT_BUY_USD[2]},
+  {key:'4',name:'P4',usd:DEFAULT_BUY_USD[3]},
 ];
+const SIM_BASE_USD=5;   // simulated-flow / candle-volume reference (was MODES[2].usd = $5 FLARE; kept so sim noise is unchanged)
+/* @presets-end */
 // [MEASURED 2026-10-15 ~09:37 CT] executor swap gas ≈ 200K (v4 swap ~168K + vault ledger ~30K) × eth_gasPrice × ETH $2,372
 const CHAIN_GAS={robinhood:{gwei:0.0207,label:'RH'},arbitrum:{gwei:0.020,label:'ARB'},base:{gwei:0.006,label:'BASE'}};
 const CHAIN=CHAIN_GAS[Q.get('chain')]||CHAIN_GAS.robinhood, EXEC_GAS=200e3, ETH_USD=2372;
@@ -90,7 +96,9 @@ const PROMO_GAS=false;                             // no gas sponsorship: shots 
    window.__AMMO_TIERS by FlightCanvas before this script loads. Without it, MODES keep their fixed defaults.
    S.ammoTier = the player's chosen preset tier; S.rocketAmmoTier = the tier the rocket's mcap is in (5% hysteresis).
    Tier-up → 'disciple:ammotier' (UI shows Upgrade / Keep). Keeping is always allowed. */
-const AMMO_TIERS=Array.isArray(window.__AMMO_TIERS)&&window.__AMMO_TIERS.length?window.__AMMO_TIERS:null, AMMO_HYST=1.05;
+/* 2026-10 (GAME trade-ui-fixes): buy presets are fixed $10/$25/$50/$100 defaults or the player's own amounts, never
+   rescaled by mcap tier ⇒ window.__AMMO_TIERS is ignored (tier logic below is inert; no Upgrade/Keep prompt). */
+const AMMO_TIERS=null, AMMO_HYST=1.05;
 function ammoTierOf(m){ if(!AMMO_TIERS||!(m>0)) return 0; for(let k=0;k<AMMO_TIERS.length;k++){ const x=AMMO_TIERS[k].maxMcap; if(x==null||m<x) return k; } return AMMO_TIERS.length-1; }
 function autoMode(m){ const x=m<=50e3?Math.sqrt(Math.max(m,2e3)*5000):0.09*m, t=0.001*x;
   let b=0; MODES.forEach((md,i)=>{ if(Math.abs(Math.log(md.usd/t))<Math.abs(Math.log(MODES[b].usd/t))) b=i; }); return b; }
@@ -467,7 +475,7 @@ function makeSource(){
 const S = {
   confirmed:{mcap:null, block:0, lastSwapTs:0, lastBlockTs:0},
   displayAlt:null, levels:[], pending:[], feed:[], volEma:0, buyEma:0, sellEma:0,
-  x:W/2, vx:0, tilt:0, tradeUsd:5, mode:2, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, simF:1, simT:1, simV:0, fwd:60, fwdV:0, fwdN:0, vyS:0, ry:H*0.58, anch:null, ammoHover:-1, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
+  x:W/2, vx:0, tilt:0, tradeUsd:10, mode:0, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, simF:1, simT:1, simV:0, fwd:60, fwdV:0, fwdN:0, vyS:0, ry:H*0.58, anch:null, ammoHover:-1, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0,'0xA11…ce':6,'0xB0b…42':4,'0xC4t…77':2}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
   orbsOn:localStorage.getItem('disciple.orbs')!=='off', lastOrbT:-99,
   tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
@@ -516,6 +524,7 @@ function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
     if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
+    e=ownSellSwap(e); if(!e) return;   // @sellfill: own sell $ from the decoded receipt; already drawn from the receipt ⇒ skip
     S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
     if (S.displayAlt===null) S.displayAlt=mcapToAlt(e.mcap);
     if(e.side==='buy'&&e.usd>0){ const who=e.mine?'you':e.trader?short(e.trader):['0xA11…ce','0xB0b…42','0xC4t…77'][Math.floor(Math.random()*3)]; S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }
@@ -653,7 +662,7 @@ function simMarketStep(dt){
   if(Math.random()<rate*dt) simTrade();
 }
 function simTrade(){
-  const buy=Math.random()<0.5+SIM.bias-Math.log(S.simT||1)*2, base=Math.max(MIN_SHOT,MODES[2].usd);
+  const buy=Math.random()<0.5+SIM.bias-Math.log(S.simT||1)*2, base=Math.max(MIN_SHOT,SIM_BASE_USD);
   let usd=base*Math.exp((Math.random()+Math.random()+Math.random()-1.5)*1.6), whale=false;
   if(Math.random()<0.025){ usd*=20+Math.random()*40; whale=true; }
   usd=+Math.max(MIN_SHOT,usd).toPrecision(3);
@@ -666,7 +675,7 @@ function simTrade(){
   S.feed.length=Math.min(S.feed.length,7);
 }
 setTimeout(pushSim,0);
-const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1,y:-1,w:0,h:0}));   // 0–5 ammo tiles · 6–9 SELL presets · 10 gear (Advanced)
+const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced)
 function pushAmmo(){ try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
   name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
@@ -687,8 +696,12 @@ addEventListener('disciple:ammo-keep',e=>{ const d=e.detail||{}; if(d.tier!=null
 addEventListener('disciple:ammo-tier',e=>{ const d=e.detail||{}; if(d.tier!=null) setAmmoTier(d.tier); });
 addEventListener('disciple:ammo-query',()=>pushAmmo());
 /* Swap settings (components/trade/SwapSettings.tsx): custom $ presets override the mcap-scaled tier amounts; null = auto */
-addEventListener('disciple:ammo-override',e=>{ const u=e.detail&&e.detail.usd; S.ammoOverride=Array.isArray(u)&&u.length===MODES.length&&u.every(v=>v>0)?u.map(Number):null;
-  if(AMMO_TIERS&&S.ammoTier!=null) setAmmoTier(S.ammoTier); else if(S.ammoOverride){ for(let i=0;i<MODES.length;i++) MODES[i].usd=S.ammoOverride[i]; pushAmmo(); } });
+/* @ammo-override — the player's buy amounts (TradeBridge: Swap settings / ESC menu); anything else (null, wrong length,
+   a non-positive amount) = the $10/$25/$50/$100 defaults */
+function setBuyPresets(u){ S.ammoOverride=Array.isArray(u)&&u.length===MODES.length&&u.every(v=>+v>0&&Number.isFinite(+v))?u.map(Number):null;
+  const a=S.ammoOverride||DEFAULT_BUY_USD; for(let i=0;i<MODES.length;i++) MODES[i].usd=a[i]; pushAmmo(); }
+addEventListener('disciple:ammo-override',e=>setBuyPresets(e.detail&&e.detail.usd));
+/* @ammo-override-end */
 /* SELL row in the ammo panel: labels/enabled pushed by TradeBridge (which owns the sell sizing from the PnL ledger); clicks go back to it */
 S.sellPresets=[{label:'10%',key:'Z',on:false},{label:'25%',key:'X',on:false,sel:true},{label:'50%',key:'C',on:false},{label:'100%',key:'V',on:false}];
 /* HOLDINGS guard (audit): paper/sim = the PnL ledger (disciple:position, same book as the HUD); live = the wallet's real
@@ -746,7 +759,11 @@ function trade(side,opt){
   if (liveFrac&&S.liveBag&&S.liveBag.tokens>0){ const v=S.liveBag.tokens*(markMcap()||0)/(source.supply||7e9); if(v>0) md={...md,usd:+(v*Math.min(1,opt.frac)).toFixed(2)}; }
   if (side==='sell'&&opt&&opt.all&&!isLive()){ if(!(S.hold.tokens>0)&&stack<MIN_SHOT){ S.flashes.push({txt:'NO PAPER STACK TO DUMP',life:1.4}); return; } if(S.hold.valueUsd>0) md={...md,usd:S.hold.valueUsd}; else md={...md,usd:stack}; }
   if (side==='sell') S.fullStackNext = !!(opt&&opt.frac>=0.98) || (stack>=MIN_SHOT && md.usd>=stack*0.98);
-  if (md.usd<MIN_SHOT && !source.isSim && !(liveFrac&&opt.frac>=1)){   // live dump-all always goes out (sizes from balanceOf, not this $)                 // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
+  // MIN_SHOT gates BUYS only (gas vs a tiny net buy). A sell is never dropped by it: the bag is real (live: TradeBridge sizes
+  // it from balanceOf and sends a $0.01 placeholder when it can't price the bag yet), and the confirmed fill is drawn on the
+  // chart from the real USDG received (feed swap / decoded receipt, @sellfill). (Was: a live % sell of a bag the ledger
+  // didn't know went out as $0.01 and this guard swallowed it ⇒ no trade, nothing on the chart.)
+  if (side==='buy' && md.usd<MIN_SHOT && !source.isSim){   // below net-buy minimum: blocked (no gas sponsorship). SIMULATOR: no gas (free mode) → no guard
     if (!PROMO_GAS || S.promoLeft<=0){ S.flashes.push({txt:`BELOW MIN SHOT ${fmtShot(MIN_SHOT)} · gas would eat ${(GAS_USD/md.usd*100).toFixed(0)}%`,life:1.6}); return; }
     S.promoLeft--; }
   if (side==='buy' && !window.__discipleTrade && !source.isSim && S.balance<md.usd){   /* SIMULATOR: the sim checks its own balance (tramps spend it too) */ S.flashes.push({txt:'INSUFFICIENT DEPOSITED BALANCE',life:1.5}); return; }
@@ -797,19 +814,19 @@ function submit(side,usd,force,opt){
 // Pre-flight failures (gas estimate / simulation / balance) are not reverts — show the reason as-is.
 function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient)/i.test(reason); }
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
-addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode));
+addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode|0));
   if(typeof d.mode==='number'&&!d.side) pushAmmo();
   if(d.side==='buy'||d.side==='sell') trade(d.side, d.usd>0||d.frac>0||d.all?{usd:d.usd,frac:d.frac,all:!!d.all}:undefined); });
 const isTyping=e=>{ const t=e.target; return !!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')); };
 /* @hotkeys — gameplay keys. Bindings come from the ESC settings menu (components/flight/SettingsMenu.tsx →
    lib/game/settings.ts, localStorage 'disciple.game.settings.v1', pushed as disciple:hotkeys).
-   Buy-preset keys (default 1–6) and sell-size keys (default Z/X/C/V) only SELECT, they never trade.
+   Buy-preset keys (default 1–4) and sell-size keys (default Z/X/C/V) only SELECT, they never trade.
    SPACE = BOOST buys the ACTIVE amount: the trade bar's custom $ when filled (disciple:custombuy), else the selected preset.
    SHIFT = DUMP sells the selected size (TradeBridge sizes it). While the ESC menu is open (disciple:menu) no gameplay key fires. */
-const HOTKEYS={buy:['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6'],sell:['KeyZ','KeyX','KeyC','KeyV']};
+const HOTKEYS={buy:['Digit1','Digit2','Digit3','Digit4'],sell:['KeyZ','KeyX','KeyC','KeyV']};   // one key per buy preset (4) / sell size (4)
 function hotkeyLabel(c){ c=String(c||''); return /^Digit\d$/.test(c)?c.slice(5):/^Key[A-Z]$/.test(c)?c.slice(3):/^Numpad\d$/.test(c)?'N'+c.slice(6):c; }
 function setHotkeys(h){ if(!h) return;
-  if(Array.isArray(h.buy)&&h.buy.length===HOTKEYS.buy.length) HOTKEYS.buy=h.buy.map(String);
+  if(Array.isArray(h.buy)&&h.buy.length>=HOTKEYS.buy.length) HOTKEYS.buy=h.buy.slice(0,HOTKEYS.buy.length).map(String);   // older 6-slot saves: first 4 kept
   if(Array.isArray(h.sell)&&h.sell.length===HOTKEYS.sell.length) HOTKEYS.sell=h.sell.map(String);
   for(let i=0;i<MODES.length&&i<HOTKEYS.buy.length;i++) MODES[i].key=hotkeyLabel(HOTKEYS.buy[i]); }
 try{ const g=JSON.parse(localStorage.getItem('disciple.game.settings.v1')||'null'); if(g&&g.keys) setHotkeys(g.keys); }catch(_){}
@@ -881,7 +898,7 @@ function resize(){ const dpr=Math.min(DPR_PIN||DPR_STEPS[dprIx],devicePixelRatio
 function relayout(w,h){ if(w===W&&h===H&&typeof ROCKET_Y!=='undefined') return; const ow=W;
   W=w; H=h; LANES[0]=W/2-150; LANES[1]=W/2; LANES[2]=W/2+150; ROCKET_Y=H*0.60;
   if(typeof S!=='undefined'&&S){ S.x=S.x*(W/ow); if(S.steer) S.steer.x*=W/ow; } }
-// ammo tiles are mouse targets: whole tile = hit area, hover highlight, click selects (same as 1-6)
+// buy/sell tiles are mouse targets: whole tile = hit area, hover highlight, click selects (same as 1-4 / Z-X-C-V)
 function ammoAt(e){ const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height;
   for(let i=0;i<AMMO_HIT.length;i++){ const R=AMMO_HIT[i]; if(x>=R.x&&x<=R.x+R.w&&y>=R.y&&y<=R.y+R.h) return i; } return -1; }
 cv.addEventListener('pointermove',e=>{ const i=ammoAt(e); if(i!==S.ammoHover){ S.ammoHover=i; cv.style.cursor=i>=0?'pointer':''; } });
@@ -889,7 +906,7 @@ cv.addEventListener('pointerleave',()=>{ S.ammoHover=-1; cv.style.cursor=''; });
 cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const ctf=typeof chartBtnAt==='function'?chartBtnAt(e):null; if(ctf!=null){ e.preventDefault(); setChartTf(ctf); return; } const i=ammoAt(e); if(i<0) return; e.preventDefault();
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
   if(i>=6){ S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:i-6}})); return; }   // click = SELECT only (DUMP / Shift sells it)
-  S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
+  if(i>=MODES.length) return; S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const SKY_SRC=Object.fromEntries(TIERS.map(t=>[t.bg,t.sky]));   // tier plates load from TIERS[i].sky (lib/flight/tiers.ts)
@@ -1399,16 +1416,16 @@ function drawHud(){
   const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
-    if(hv>=0&&hv<6){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
+    if(hv>=0&&hv<MODES.length){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
     else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText(HOTKEYS.sell.join()==='KeyZ,KeyX,KeyC,KeyV'?'SELL · Z/X/C/V select, SHIFT dump':'SELL · '+HOTKEYS.sell.map(hotkeyLabel).join('/')+' select, SHIFT dump',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
-  MODES.forEach((q,i)=>{ const bx=ax+12+i*76, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=72; R.h=30;
-    ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,72,30);
-    ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,72,30);
-    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+36,by+20); ctx.textAlign='left';
-    { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,72,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
-    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+69,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
+  MODES.forEach((q,i)=>{ const TW=82, bx=ax+50+i*86, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=TW; R.h=30;   // 4 tiles, aligned over the 4 SELL tiles
+    ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,TW,30);
+    ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,TW,30);
+    ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+TW/2,by+20); ctx.textAlign='left';
+    { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,TW,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
+    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+TW-3,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
   ctx.font='11px ui-monospace,monospace';
   if (MODES[S.mode].usd<MIN_SHOT&&!source.isSim){ ctx.fillStyle='#ffb0c8'; ctx.fillText(`below min shot on ${CHAIN.label} (${fmtShot(MIN_SHOT)}): blocked`,ax+12,ay+72); }
   else { ctx.fillStyle='#9ff3c8'; ctx.fillText(source.isSim?`SIM ${fmtMoney(S.balance)} · no gas · no min shot`:`PAPER ${fmtMoney(S.balance)} · min ${fmtShot(MIN_SHOT)} · gas ~$${GAS_USD<0.01?GAS_USD.toFixed(3):GAS_USD.toFixed(2)}`,ax+12,ay+72); }
@@ -1905,7 +1922,7 @@ function simStep(stepDt){
   /* FORWARD SPEED from volume + momentum: rolling USD/s (volEma τ6 s) normalised by the tier's FLARE
      preset, plus |buy−sell| imbalance. Second-order smoothed (ω=1.4) so it never jumps.
      Quiet ≈ 60 px/s drift, heavy flow → ~520 px/s blast. */
-  { const ref=Math.max(MIN_SHOT,MODES[2].usd), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
+  { const ref=Math.max(MIN_SHOT,SIM_BASE_USD), x=(MOM.vol/TF.sec)/ref + Math.abs(MOM.buy-MOM.sell)/TF.sec/ref*0.6;   // candle-window volume
     const tgt=60+460*(1-Math.exp(-x*0.8)), w=1.4; S.fwdV=(S.fwdV||0)+(w*w*(tgt-(S.fwd||60))-2*w*(S.fwdV||0))*dt; S.fwd=(S.fwd||60)+S.fwdV*dt;
     S.fwdN=clamp((S.fwd-60)/460,0,1); }
   /* AIRSPEED (vertical scroller): the rocket is always flying up through the air, so cosmetic layers
@@ -2105,15 +2122,17 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
 /* live only (never CLEAN/replay → share videos stay deterministic): fetch the coin's indexed fills once (/api/trades, the same
    index the PnL uses) and seed every interval; dedupe against live swaps already ticked (tx[:logIndex]). Own fills → mine markers
    when the page exposes the wallet (window.__flightWallet or ?wallet=). */
+/* real USDG of an indexed fill (/api/trades, SITE #113): sells usdOut (received), buys usdIn (paid); older fills lack them ⇒ usd */
+function fillUsd(f){ const v=f&&(f.side==='sell'?(f.usdOut??f.usd):(f.usdIn??f.usd)); return +v>0?+v:0; }
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
   fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
-    const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:+f.usd,side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
+    const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:fillUsd(f),side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
     chartSeedK(C.k,fs,keep); C.hist=2;
     /* no live swap yet → seed the confirmed mcap from the latest indexed fill so the game (and the chart) render right away */
     if(S.confirmed.mcap===null){ const lf=fills.reduce((a,f)=>!a||f.block>a.block||(f.block===a.block&&f.logIndex>a.logIndex)?f:a,null), lm=lf&&+lf.mcapUsd;
       if(lm>0){ if(source&&'mcap' in source&&source.mcap==null) source.mcap=lm; S.confirmed.mcap=lm; if(S.displayAlt===null) S.displayAlt=mcapToAlt(lm); } }
-    for(const f of fs) if(f.mine&&f.usd>0&&f.m>0) C.mine.push({t:f.t,side:f.side,m:f.m});
+    for(const f of fs) if(f.mine&&f.m>0&&(f.usd>0||f.side==='sell')) C.mine.push({t:f.t,side:f.side,m:f.m});   // own sells always marked
     C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
   }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
 function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
@@ -2128,7 +2147,32 @@ function chartTick(m,usd,side){ if(!(m>0)) return; const C=chartState(), t=chart
     if(usd>0) k.v+=usd; } }
 function chartSample(){ chartTick(shownMcap()); }
 function hudNoteTrade(e){ if(!(e.mcap>0)) return; if(e.txHash) chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); const m=e.mcap*(isLive()?1:(S.simF||1)); chartTick(m,e.usd>0?e.usd:0,e.side);
-  if(!e.mine||!(e.usd>0)) return; const C=chartState(); C.mine.push({t:chartNow(),side:e.side,m}); if(C.mine.length>60) C.mine.shift(); }
+  if(!e.mine||!(e.usd>0||e.side==='sell')) return;   // an own SELL is always marked (even before its $ is known)
+  chartMine(e.side,m,e.txHash); }
+function chartMine(side,m,tx){ const C=chartState(), k=tx?String(tx).toLowerCase():'';
+  if(k){ if(!C.mineTx) C.mineTx=new Set(); if(C.mineTx.has(k)) return; C.mineTx.add(k); if(C.mineTx.size>400) C.mineTx=new Set(Array.from(C.mineTx).slice(-200)); }
+  C.mine.push({t:chartNow(),side,m}); if(C.mine.length>60) C.mine.shift(); }
+/* @sellfill — every CONFIRMED own sell lands on the chart, sized from the real USDG received.
+   TradeBridge decodes the receipt (lib/flight/fills.ts decodeTradeFill: UsdgTrade amountOut, else the venue Trade event) and
+   sends 'disciple:fillreceipt' {txHash, side, usd}. Whichever arrives first draws it, once per tx:
+   · receipt first → own-fill marker + candle volume + feed row + bomb now, at the mark; the feed swap for that tx later only
+     moves the price (no second marker / row / bomb);
+   · feed swap first → drawn from the swap; its $ is the receipt's when the swap carried none.
+   Sells are never filtered by $ size (MIN_SHOT is a buy-side gas guard only). */
+S.rcpt=new Map(); S.rcptDrawn=new Set();
+function ownSellSwap(e){ if(!e||e.side!=='sell'||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
+  if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,'sell'); }catch(_){} return null; }
+  const r=S.rcpt.get(k); if(!(e.usd>0)&&r&&r.usd>0) e={...e,usd:r.usd};
+  S.rcptDrawn.add(k); return e; }
+function onFillReceipt(d){ if(!d||!d.txHash||d.side!=='sell') return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
+  S.rcpt.set(k,{usd}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
+  if(S.rcptDrawn.has(k)) return;   // the feed swap already drew it
+  S.rcptDrawn.add(k); if(S.rcptDrawn.size>400) S.rcptDrawn=new Set(Array.from(S.rcptDrawn).slice(-200));
+  const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
+  if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:d.impactPct,trader:null,mine:true,fullStack:fs}); }
+  S.feed.unshift({txt:`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#ffb0c8'}); S.feed.length=Math.min(S.feed.length,7); }
+addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
+/* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
 function chartPoolLabel(){
   const base=(source.ticker||Q.get('ticker')||'COIN').toString().replace(/^\$/,'').split(/\s*\/\s*/)[0].slice(0,10).toUpperCase();
