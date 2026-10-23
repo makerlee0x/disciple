@@ -261,10 +261,16 @@ contract CurveTest is Test {
         assertEq(curve.walletCapBps(), 700);
         assertEq(FeeMath.walletCap(), (Constants.TOTAL_SUPPLY * 700) / 10_000);
 
+        // mode rules v2: an over-cap buy partial-fills to the cap (pre-trade mcap) and refunds the rest
         vm.startPrank(alice);
         quote.approve(address(curve), type(uint256).max);
+        uint256 b0 = quote.balanceOf(alice);
+        uint256 out = curve.buy(100_000 ether, 0, vm.getBlockTimestamp() + 1);
+        assertEq(out, FeeMath.walletCap(), "filled exactly to the 7% cap");
+        assertLt(b0 - quote.balanceOf(alice), 100_000 ether, "rest refunded");
+        // room 0 now: the next buy reverts
         vm.expectRevert(BondingCurve.WalletCap.selector);
-        curve.buy(100_000 ether, 0, vm.getBlockTimestamp() + 1);
+        curve.buy(1 ether, 0, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
     }
 
