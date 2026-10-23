@@ -187,3 +187,46 @@ test("parity with DisciplePaymaster.sol (getHash, parse, firstCallApproves, toke
   for (const w of [BigInt(1), BigInt(999_999_999_999), BigInt(3) * E18]) assert.equal(await pc.readContract({ address: ADDR!, abi, functionName: "tokenCost", args: [w, q.rate] }), tokenCost(w, q.rate));
   void toHex;
 });
+
+test("signed paymaster gas limits fit under the relay caps", () => {
+  assert.ok(PAYMASTER_GAS.verificationGasLimit <= GAS_CAPS.paymasterVerificationGasLimit);
+  assert.ok(PAYMASTER_GAS.postOpGasLimit <= GAS_CAPS.paymasterPostOpGasLimit);
+});
+
+test("client payGasInUsdg: stub → exact approve first → final, against the real quote rules (mocked fetch)", async () => {
+  const { payGasInUsdg, withPaymasterApprove } = await import("../lib/aa/paymasterClient");
+  const dec = 18, RATE = BigInt(3000) * E18;
+  const signer = privateKeyToAccount(generatePrivateKey());
+  const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: dec, rate: RATE };
+  const d: QuoteDeps = {
+    now: () => 1_790_000_000, debtOf: async () => BigInt(7), balanceOf: async () => E18 * BigInt(100),
+    bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: E18 * BigInt(5) }),
+    baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }),
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_u: string, init: { body: string }) => {
+    const b = JSON.parse(init.body);
+    try {
+      const result = b.method === "pm_getPaymasterStubData" ? await stubQuote(b.params[0], b.params[1], b.params[2], cfg, d) : await finalQuote(b.params[0], b.params[1], b.params[2], cfg, d);
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }, (_k, v) => (typeof v === "bigint" ? `0x${v.toString(16)}` : v)));
+    } catch (e) { return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: (e as Error).message, data: (e as PaymasterQuoteError).data } })); }
+  }) as typeof fetch;
+  try {
+    const fees = clientFees(BASE);
+    const staleApprove = paymasterApproveCall(USDG, PM, BigInt(1));
+    assert.equal(withPaymasterApprove([trade, staleApprove], USDG, PM, BigInt(9)).length, 2);
+    const { op, maxTokenCost } = await payGasInUsdg({
+      url: "http://x/api/paymaster", chainId: 46630, usdg: USDG, paymaster: PM, calls: [trade, staleApprove],
+      build: async (calls, pm) => ({
+        sender: SENDER, nonce: "0x9", callData: batch(calls.map((c) => ({ to: c.to, data: c.data })), true), signature: "0x",
+        callGasLimit: hex(STATIC_GAS.callGasLimit), verificationGasLimit: hex(STATIC_GAS.verificationGasLimit), preVerificationGas: hex(STATIC_GAS.preVerificationGas),
+        maxFeePerGas: hex(fees.maxFeePerGas), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas), ...pm,
+      }),
+      sign: async () => "0x1234",
+    });
+    assert.equal(firstCallApproveAmount(op.callData, USDG, PM), maxTokenCost);
+    assert.equal(maxTokenCost, tokenCost(entryPointMaxCost(op), RATE) + BigInt(7));
+    assert.equal(decodePaymasterData(op.paymasterData!).maxTokenCost, maxTokenCost);
+    assert.equal(op.signature, "0x1234");
+  } finally { globalThis.fetch = realFetch; }
+});

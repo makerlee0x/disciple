@@ -16,7 +16,8 @@ import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import { isNonceError, relayerKey } from "./relayer";
-import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
+import { checkOpGas, checkPaymaster, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
+import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
 import { SenderTrust } from "./relayTrust";
@@ -93,8 +94,14 @@ export function sessionOpLooksAllowed(op: UserOp): boolean {
 export function trusted(op: UserOp): boolean {
   if (op.factory) return false; // first op (deploy) always simulated
   if (!sessionOpLooksAllowed(op)) return false;
-  return TRUST.check(op.sender, maxPrefund(op, relayerPrice(base.fee))) === null;   // priced at >= the relayer floor: a fee-0 op never looks covered
+  return TRUST.check(op.sender, senderPrefund(op)) === null;   // priced at >= the relayer floor: a fee-0 op never looks covered
 }
+/**
+ * What the SENDER's ETH must cover: the max prefund for self-pay ops; 0 for paymaster ops (DisciplePaymaster's deposit
+ * pays, checked by checkPaymaster before trust; the user's USDG balance/allowance is checked by the paymaster's
+ * validation, and a failure there is a relayer-paid revert ⇒ strike, like any other).
+ */
+const senderPrefund = (op: UserOp) => (op.paymaster ? BigInt(0) : maxPrefund(op, relayerPrice(base.fee)));
 
 /** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
 export async function warmRelay(sender?: string) {
@@ -130,6 +137,7 @@ export async function sendUserOperationSync(op: UserOp) {
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
   checkOpGas(op, fee);
+  if (op.paymaster) { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), fee); }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
   if (!fast) {
@@ -147,6 +155,7 @@ export async function sendUserOperationSync(op: UserOp) {
     try {
       const r = await sendSync(raw);
       t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
+      if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));
       const hash = userOpHash(op, robinhoodTestnet.id);
       let success = false;
       for (const l of r.rc.logs) {
@@ -154,7 +163,7 @@ export async function sendUserOperationSync(op: UserOp) {
         try { const ev = decodeEventLog({ abi: [uoEvent], data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if ((ev.args as { userOpHash: Hex }).userOpHash === hash) success = (ev.args as { success: boolean }).success; } catch { /* other event */ }
       }
       if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
-      else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, maxPrefund(op, relayerPrice(base.fee))); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
+      else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, senderPrefund(op)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
       if (r.rc.status !== "0x1") throw new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`);
       return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
     } catch (e) {

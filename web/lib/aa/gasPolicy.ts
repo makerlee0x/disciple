@@ -50,7 +50,7 @@ export type GasFields = {
 const big = (x: string | bigint | undefined) => { try { return x === undefined || x === "" ? BigInt(0) : BigInt(x); } catch { return BigInt(-1); } };
 
 export class RelayPolicyError extends Error {
-  constructor(msg: string, public code: "fee" | "gas") { super(msg); }
+  constructor(msg: string, public code: "fee" | "gas" | "paymaster") { super(msg); }
 }
 
 /** Total gas the op may consume (what the EntryPoint prefunds). */
@@ -84,6 +84,19 @@ export function checkOpGas(op: GasFields, baseFee: bigint): bigint {
   const total = totalGas(op);
   if (total > GAS_CAPS.total) throw new RelayPolicyError(`total gas ${total} above cap ${GAS_CAPS.total}`, "gas");
   return total;
+}
+
+/**
+ * Paymaster ops (DisciplePaymaster, USDG gas): the EntryPoint takes the prefund from the PAYMASTER's deposit, not the
+ * sender (who holds no ETH), and refunds the relayer from it. Only our own paymaster is accepted (a foreign one could
+ * fail validation on-chain and leave the relayer paying), and its deposit must cover the op's max prefund priced at
+ * >= the relayer floor, else handleOps reverts AA31 at the relayer's expense. No-op for self-pay ops.
+ */
+export function checkPaymaster(op: GasFields, allowed: string | undefined, deposit: bigint, baseFee: bigint): void {
+  if (!op.paymaster) return;
+  if (!allowed || op.paymaster.toLowerCase() !== allowed.toLowerCase()) throw new RelayPolicyError(`paymaster ${op.paymaster} not accepted (DisciplePaymaster only)`, "paymaster");
+  const need = maxPrefund(op, relayerPrice(baseFee));
+  if (deposit < need) throw new RelayPolicyError(`paymaster deposit too low: ${deposit} < ${need} wei (keeper top-up pending)`, "paymaster");
 }
 
 /**

@@ -534,9 +534,10 @@ export function createViemProtocol(): ProtocolClient {
     ]);
     if (have < t.amountIn) {
       const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
-      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
-        ? `not enough cash: need $${(Number(t.amountIn) / 1e18).toFixed(2)}, have $${(Number(live) / 1e18).toFixed(2)} — deposit more`
-        : `not enough tokens: need ${fmtUnits(t.amountIn, 18)} have ${fmtUnits(live, 18)}`);
+      // decimals-aware: USDG is 18 dec on testnet (mUSDG) but 6 on mainnet — never divide by 1e18 here
+      if (live < t.amountIn) { const dec = await decimalsOf(pc, spend); throw new ProtocolError("InsufficientBalance", isBuy
+        ? `not enough cash: need $${(Number(t.amountIn) / 10 ** dec).toFixed(2)}, have $${(Number(live) / 10 ** dec).toFixed(2)} — deposit more`
+        : `not enough tokens: need ${fmtUnits(t.amountIn, dec)} have ${fmtUnits(live, dec)}`); }
     }
     const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");

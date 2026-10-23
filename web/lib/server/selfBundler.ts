@@ -9,7 +9,8 @@ import "server-only";
 import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { relayerKey, withRelayer } from "./relayer";
-import { checkOpGas, relayerTxFees, RelayPolicyError } from "../aa/gasPolicy";
+import { checkOpGas, checkPaymaster, maxPrefund, relayerPrice, relayerTxFees, RelayPolicyError } from "../aa/gasPolicy";
+import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
@@ -93,7 +94,11 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const relayer = privateKeyToAccount(key);
       // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)
       const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
-      try { checkOpGas(op, base); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
+      try {
+        checkOpGas(op, base);
+        // USDG-gas op: the prefund comes from OUR paymaster's deposit (the sender holds no ETH)
+        if (op.paymaster) { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); }
+      } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
       const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], relayer.address] });
       await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
@@ -109,6 +114,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
+      if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
       if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
       if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
