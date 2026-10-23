@@ -230,3 +230,12 @@ test("client payGasInUsdg: stub → exact approve first → final, against the r
     assert.equal(op.signature, "0x1234");
   } finally { globalThis.fetch = realFetch; }
 });
+
+test("keeper topUpAmount: none above min; fills to target; never dips into the keeper's gas reserve", async () => {
+  const { topUpAmount } = await import("./paymaster-keeper.mts");
+  const e = (x: number) => BigInt(Math.round(x * 1e6)) * BigInt(10) ** BigInt(12);
+  assert.equal(topUpAmount(e(0.05), e(10), e(0.05), e(0.2), e(0.01)), BigInt(0));
+  assert.equal(topUpAmount(e(0.01), e(10), e(0.05), e(0.2), e(0.01)), e(0.19));
+  assert.equal(topUpAmount(e(0.01), e(0.03), e(0.05), e(0.2), e(0.01)), e(0.02));
+  assert.equal(topUpAmount(e(0.01), e(0.005), e(0.05), e(0.2), e(0.01)), BigInt(0));
+});
