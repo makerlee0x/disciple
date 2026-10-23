@@ -91,8 +91,11 @@ library Constants {
     uint256 internal constant ANTI_SNIPE_START_BPS = 9900; // 99%
     uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% after 60s — protocol 1% only
     uint256 internal constant ANTI_SNIPE_DURATION = 60; // seconds
-    /// @dev Unclaimed-escrow timeout (tunable at redeploy). Maker lee 2026-10-23: 30 days → RewardsVault.
+    /// @dev Unclaimed-escrow timeout DEFAULT. Maker lee 2026-10-23: 30 days → RewardsVault. Tunable by the protocol
+    ///      owner for FUTURE launches (`Launchpad.setSnipeEscrowTimeout`, bounds below), snapshotted per curve.
     uint256 internal constant SNIPE_ESCROW_TIMEOUT = 30 days;
+    uint256 internal constant SNIPE_ESCROW_TIMEOUT_MIN = 1 days;
+    uint256 internal constant SNIPE_ESCROW_TIMEOUT_MAX = 365 days;
     /// @dev Legacy 70/30 FeeRouter snipe split (pre-v2 curves). v2 curves never route a snipe fee through FeeRouter.
     uint256 internal constant SNIPE_REWARDS_BPS = 7000;
 

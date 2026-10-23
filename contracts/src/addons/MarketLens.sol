@@ -36,6 +36,7 @@ interface ILensCurveV2 {
     function mode() external view returns (uint8);
     function token() external view returns (address);
     function launchTime() external view returns (uint256);
+    function snipeEscrowTimeout() external view returns (uint256);
     function netCapNow() external view returns (uint256);
     function capRoom(address wallet) external view returns (uint256);
     function currentSnipeFeeBps() external view returns (uint256);
@@ -135,12 +136,12 @@ contract MarketLens {
         if (block.timestamp < end) secondsLeft = end - block.timestamp;
     }
 
-    /// @notice Sniper escrow: `amount` held, `releasableAt` (launch + 30 days; anyone may then send it to RewardsVault
+    /// @notice Sniper escrow: `amount` held, `releasableAt` (launch + the curve's snipeEscrowTimeout, default 30 days; anyone may then send it to RewardsVault
     ///         if the coin has not graduated), `releasable` now.
     function snipeEscrow(address token) external view returns (uint256 amount, uint256 releasableAt, bool releasable) {
         ILensCurveV2 c = _v2(token);
         amount = c.snipeEscrow();
-        releasableAt = c.launchTime() + Constants.SNIPE_ESCROW_TIMEOUT;
+        releasableAt = c.launchTime() + c.snipeEscrowTimeout();
         releasable = amount != 0 && !ILensCurve(address(c)).graduated() && block.timestamp >= releasableAt;
     }
 

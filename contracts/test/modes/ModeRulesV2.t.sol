@@ -187,7 +187,8 @@ contract ModeRulesV2Test is IntegrationBase {
             c.mode(),
             c.loginGate(),
             c.trustedRouter(),
-            c.crewTipThresholdBps()
+            c.crewTipThresholdBps(),
+            c.snipeEscrowTimeout()
         );
         assertEq(keccak256(address(c).code), keccak256(address(ref).code), "same runtime incl. immutables");
         assertLe(address(c).code.length, 24_576, "EIP-170");
@@ -416,12 +417,12 @@ contract ModeRulesV2Test is IntegrationBase {
         (BondingCurve c, Token t) = _launchM(Constants.MODE_PVE);
         _buyQ(c, bob, 5 ether);
         uint256 esc = c.snipeEscrow();
-        vm.warp(c.launchTime() + Constants.SNIPE_ESCROW_TIMEOUT - 1);
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout() - 1);
         vm.expectRevert(BondingCurve.EscrowLocked.selector);
         c.releaseSnipeEscrow();
         (,, bool rel) = lens.snipeEscrow(address(t));
         assertFalse(rel);
-        vm.warp(c.launchTime() + Constants.SNIPE_ESCROW_TIMEOUT);
+        vm.warp(c.launchTime() + c.snipeEscrowTimeout());
         (,, rel) = lens.snipeEscrow(address(t));
         assertTrue(rel);
         uint256 v0 = quote.balanceOf(address(rewardsVault));
@@ -596,6 +597,36 @@ contract ModeRulesV2Test is IntegrationBase {
         (BondingCurve b,) = _launchM(Constants.MODE_PVE);
         assertEq(a.crewTipThresholdBps(), 50, "existing coin keeps its snapshot");
         assertEq(b.crewTipThresholdBps(), 200);
+    }
+
+    function test_snipeEscrowTimeout_tunable_snapshotted() public {
+        (BondingCurve a,) = _launchM(Constants.MODE_PVP);
+        assertEq(a.snipeEscrowTimeout(), 30 days, "default 30 days");
+        vm.startPrank(owner);
+        vm.expectRevert(Launchpad.SnipeEscrowTimeoutOutOfBounds.selector);
+        launchpad.setSnipeEscrowTimeout(Constants.SNIPE_ESCROW_TIMEOUT_MIN - 1);
+        vm.expectRevert(Launchpad.SnipeEscrowTimeoutOutOfBounds.selector);
+        launchpad.setSnipeEscrowTimeout(Constants.SNIPE_ESCROW_TIMEOUT_MAX + 1);
+        launchpad.setSnipeEscrowTimeout(7 days);
+        vm.stopPrank();
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        launchpad.setSnipeEscrowTimeout(2 days);
+        (BondingCurve b, Token tb) = _launchM(Constants.MODE_PVP);
+        assertEq(a.snipeEscrowTimeout(), 30 days, "existing coin keeps its snapshot");
+        assertEq(b.snipeEscrowTimeout(), 7 days);
+        _buyQ(b, bob, 10 ether);
+        assertGt(b.snipeEscrow(), 0);
+        (,, bool rel) = lens.snipeEscrow(address(tb));
+        assertFalse(rel);
+        vm.warp(b.launchTime() + 7 days - 1);
+        vm.expectRevert(BondingCurve.EscrowLocked.selector);
+        b.releaseSnipeEscrow();
+        vm.warp(b.launchTime() + 7 days);
+        (, uint256 at, bool rel2) = lens.snipeEscrow(address(tb));
+        assertEq(at, b.launchTime() + 7 days);
+        assertTrue(rel2);
+        b.releaseSnipeEscrow();
+        assertEq(b.snipeEscrow(), 0);
     }
 
     // ───────── rules off after graduation ─────────

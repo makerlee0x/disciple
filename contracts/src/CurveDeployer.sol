@@ -59,7 +59,8 @@ contract CurveDeployer {
         uint8 mode,
         address loginGate,
         address trustedRouter,
-        uint256 crewTipThresholdBps
+        uint256 crewTipThresholdBps,
+        uint256 snipeEscrowTimeout
     ) external returns (address curve) {
         bytes memory args = abi.encode(
             token,
@@ -74,7 +75,8 @@ contract CurveDeployer {
             mode,
             loginGate,
             trustedRouter,
-            crewTipThresholdBps
+            crewTipThresholdBps,
+            snipeEscrowTimeout
         );
         address c0 = _chunk0;
         address c1 = _chunk1;

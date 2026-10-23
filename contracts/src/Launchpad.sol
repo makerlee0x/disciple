@@ -81,6 +81,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @notice Easy crew-tip threshold for FUTURE launches, bps of the coin's mcap at the time of sale (default 0.5%;
     ///         bounds [CREW_TIP_THRESHOLD_BPS_MIN, _MAX]). Snapshotted into each curve as an immutable.
     uint256 public crewTipThresholdBps = Constants.CREW_TIP_THRESHOLD_BPS_DEFAULT;
+    /// @notice Sniper-escrow timeout for FUTURE launches (default 30 days; bounds [1 day, 365 days]). Snapshotted into
+    ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
+    uint256 public snipeEscrowTimeout = Constants.SNIPE_ESCROW_TIMEOUT;
 
     error InvalidMetadata();
     error TaxTooHigh();
@@ -95,6 +98,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error BadMode();
     error LoginGateUnset();
     error CrewTipThresholdOutOfBounds();
+    error SnipeEscrowTimeoutOutOfBounds();
     error NotRouter();
 
     event Launched(
@@ -117,6 +121,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event CurveRouterKilled(address indexed curve, bool killed);
     event LoginGateSet(address indexed gate);
     event CrewTipThresholdSet(uint256 bps);
+    event SnipeEscrowTimeoutSet(uint256 secs);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
@@ -187,6 +192,16 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
         crewTipThresholdBps = bps;
         emit CrewTipThresholdSet(bps);
+    }
+
+    /// @notice Protocol owner sets the sniper-escrow timeout for FUTURE launches (seconds, bounded).
+    function setSnipeEscrowTimeout(uint256 secs) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (secs < Constants.SNIPE_ESCROW_TIMEOUT_MIN || secs > Constants.SNIPE_ESCROW_TIMEOUT_MAX) {
+            revert SnipeEscrowTimeoutOutOfBounds();
+        }
+        snipeEscrowTimeout = secs;
+        emit SnipeEscrowTimeoutSet(secs);
     }
 
     /// @notice First BOOST (creator launch buy) max for `mode`, bps of supply: Easy 1.2%, Hard 3.33%, TRENCH the
@@ -304,7 +319,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
                 mode,
                 gate,
                 curveRouter,
-                crewTipThresholdBps
+                crewTipThresholdBps,
+                snipeEscrowTimeout
             )
         );
 

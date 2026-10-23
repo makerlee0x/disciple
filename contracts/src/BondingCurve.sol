@@ -81,11 +81,14 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     address public immutable trustedRouter;
     /// @notice Easy crew-tip threshold in bps of the coin's mcap at the time of sale (snapshotted from Launchpad).
     uint256 public immutable crewTipThresholdBps;
+    /// @notice Seconds after launch when a not-graduated curve's snipeEscrow becomes releasable to RewardsVault
+    ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 30 days).
+    uint256 public immutable snipeEscrowTimeout;
 
     CurveMath.Params private _params;
 
     /// @notice Sniper tax (mode rules v2, all modes) held in the pair coin. NOT part of quoteReserve / price math and
-    ///         not withdrawable: added to the locked LP at graduation, or (if not graduated SNIPE_ESCROW_TIMEOUT
+    ///         not withdrawable: added to the locked LP at graduation, or (if not graduated `snipeEscrowTimeout`
     ///         after launch) sent to RewardsVault by anyone via releaseSnipeEscrow().
     uint256 public snipeEscrow;
 
@@ -189,7 +192,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint8 mode_,
         address loginGate_,
         address trustedRouter_,
-        uint256 crewTipThresholdBps_
+        uint256 crewTipThresholdBps_,
+        uint256 snipeEscrowTimeout_
     ) {
         if (
             mode_ > Constants.MODE_PVP || (mode_ == Constants.MODE_PVE && loginGate_ == address(0))
@@ -210,6 +214,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         launchBlock = block.number;
         trustedRouter = trustedRouter_;
         crewTipThresholdBps = crewTipThresholdBps_;
+        snipeEscrowTimeout = snipeEscrowTimeout_;
 
         _params = params_;
     }
@@ -877,12 +882,12 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     // ── sniper escrow timeout ──
 
-    /// @notice Anyone, once SNIPE_ESCROW_TIMEOUT (30 days) has passed since launch without graduation: send the
+    /// @notice Anyone, once `snipeEscrowTimeout` (default 30 days) has passed since launch without graduation: send the
     ///         sniper escrow to the protocol RewardsVault (FeeRouter.rewardsVault). Reverts before the timeout,
     ///         after graduation (the escrow is in the LP), or when there is nothing to release.
     function releaseSnipeEscrow() external returns (uint256 amount) {
         if (graduated) revert Graduated();
-        if (block.timestamp < launchTime + Constants.SNIPE_ESCROW_TIMEOUT) revert EscrowLocked();
+        if (block.timestamp < launchTime + snipeEscrowTimeout) revert EscrowLocked();
         amount = snipeEscrow;
         if (amount == 0) revert ZeroAmount();
         address v = IFeeRouterCurve(address(feeRouter)).rewardsVault();
