@@ -35,6 +35,10 @@ contract BondingModesTest is IntegrationBase {
         gate = new LoginGate(owner, vm.addr(attesterPk));
         vm.prank(owner);
         launchpad.setLoginGate(address(gate));
+        // mode rules v2: the reward-accumulator tests below use the MIN crew-tip threshold (0.1% of mcap) so a
+        // 2x pump makes their sells tip; the default 0.5% threshold edges are covered in ModeRulesV2.t.sol
+        vm.prank(owner);
+        launchpad.setCrewTipThresholdBps(Constants.CREW_TIP_THRESHOLD_BPS_MIN);
         router.setUsdgRouting(address(quote), address(launchpad));
         address[4] memory ws = [alice, bob, carol, dave];
         for (uint256 i; i < 4; ++i) quote.mint(ws[i], 10_000_000 ether);
@@ -177,7 +181,8 @@ contract BondingModesTest is IntegrationBase {
         vm.stopPrank();
     }
 
-    function test_pve_launchBlockOnlyCreatorBuy() public {
+    /// mode rules v2: no launch-block rule — anyone may buy in the launch block (paying the 99% sniper tax).
+    function test_pve_noLaunchBlock_firstBoostCountsNet() public {
         _verify(creator);
         _verify(alice);
         vm.startPrank(creator);
@@ -185,66 +190,65 @@ contract BondingModesTest is IntegrationBase {
         ILaunchpad.LaunchResult memory res = launchpad.launchWithMode(_params(5 ether), Constants.MODE_PVE);
         vm.stopPrank();
         BondingCurve c = BondingCurve(res.curve);
-        assertGt(res.creatorTokensBought, 0, "creator launch buy allowed in launch tx");
-        assertEq(c.balanceOnCurve(creator), res.creatorTokensBought, "creator buy counts toward NET");
-        vm.startPrank(alice);
-        quote.approve(address(c), 1 ether);
-        vm.expectRevert(BondingCurve.LaunchBlock.selector);
-        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        vm.roll(block.number + 1);
-        _buyQ(c, alice, 1 ether);
+        assertGt(res.creatorTokensBought, 0, "First BOOST in the launch tx");
+        assertEq(c.balanceOnCurve(creator), res.creatorTokensBought, "First BOOST counts toward NET");
+        assertEq(c.snipeEscrow(), 0, "First BOOST is sniper-exempt");
+        uint256 out = _buyQ(c, alice, 1 ether); // same block: allowed, taxed 99%
+        assertGt(out, 0);
+        assertEq(c.snipeEscrow(), 1 ether * 9900 / 10_000, "99% to the sniper escrow");
     }
 
-    function test_pve_creatorLaunchBuyCapped() public {
+    /// mode rules v2: Easy First BOOST max 1.2% — an oversized First BOOST partially fills and refunds the payer.
+    function test_pve_firstBoostPartialFill() public {
         _verify(creator);
+        uint256 maxT = Constants.TOTAL_SUPPLY * Constants.FIRST_BOOST_MAX_BPS_PVE / 10_000;
+        uint256 b0 = quote.balanceOf(creator);
         vm.startPrank(creator);
         quote.approve(address(launchpad), 200 ether);
-        vm.expectRevert(BondingCurve.BuyTooLarge.selector); // > 0.25% inside the launch window
-        launchpad.launchWithMode(_params(200 ether), Constants.MODE_PVE);
+        ILaunchpad.LaunchResult memory res = launchpad.launchWithMode(_params(200 ether), Constants.MODE_PVE);
         vm.stopPrank();
+        assertEq(res.creatorTokensBought, maxT, "filled to the 1.2% max");
+        uint256 spent = b0 - quote.balanceOf(creator);
+        assertLt(spent, 200 ether, "unused input refunded");
+        assertEq(quote.balanceOf(address(launchpad)), 0, "launchpad keeps nothing");
+        assertEq(Token(res.token).creatorLocked(), maxT, "creator lock = First BOOST");
     }
 
-    function test_pve_windowCapThenNetCap() public {
+    /// mode rules v2: no 7-minute window / per-buy cap; the holding cap partially fills instead of reverting.
+    function test_pve_partialFillAtCapThenRoomZero() public {
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
         _verify(alice);
-        _open(10); // past anti-snipe, inside the 7-min window
-        assertEq(c.maxBuyNow(), Constants.TOTAL_SUPPLY * 25 / 10_000);
-        uint256 q = _quoteFor(c, ONE_PCT / 2); // 0.5% > 0.25%
+        _open(61); // just past the sniper tax
+        assertEq(c.maxBuyNow(), type(uint256).max, "no max buy");
+        uint256 cap = c.netCapNow();
+        assertEq(cap, Constants.TOTAL_SUPPLY * Constants.PVE_CAP_START_BPS / 10_000, "1% at $7K");
+        uint256 q = _quoteFor(c, ONE_PCT * 2); // 2% > 1%
+        uint256 b0 = quote.balanceOf(alice);
+        uint256 out = _buyQ(c, alice, q);
+        assertEq(out, cap, "filled exactly to the cap");
+        assertLt(b0 - quote.balanceOf(alice), q, "refunded");
+        assertEq(c.capRoom(alice), 0);
         vm.startPrank(alice);
-        quote.approve(address(c), q);
-        vm.expectRevert(BondingCurve.BuyTooLarge.selector);
-        c.buy(q, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        _buyQ(c, alice, _quoteFor(c, ONE_PCT / 5)); // 0.2% ok
-        // window ends at exactly 7 minutes
-        vm.warp(c.launchTime() + Constants.PVE_WINDOW);
-        assertEq(c.maxBuyNow(), type(uint256).max);
-        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 7 / 10)); // total ~0.9%
-        uint256 q2 = _quoteFor(c, ONE_PCT / 5);
-        vm.startPrank(alice);
-        quote.approve(address(c), q2);
-        vm.expectRevert(BondingCurve.WalletCap.selector);
-        c.buy(q2, 0, vm.getBlockTimestamp() + 1 hours);
+        quote.approve(address(c), 1 ether);
+        vm.expectRevert(BondingCurve.WalletCap.selector); // room 0 → revert (documented)
+        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
         // sells free up room (NET)
         _sellT(c, t, alice, c.balanceOnCurve(alice) / 2);
-        _buyQ(c, alice, q2);
-        assertLe(c.balanceOnCurve(alice), ONE_PCT);
+        assertGt(c.capRoom(alice), 0);
+        _buyQ(c, alice, q);
+        assertLe(c.balanceOnCurve(alice), c.netCapNow());
     }
 
-    function test_pve_maxSell() public {
+    /// mode rules v2: no Easy max sell — a whole position sells in one go.
+    function test_pve_noMaxSell() public {
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
         _verify(alice);
-        _open(8 minutes);
+        _open(61);
         _buyQ(c, alice, _quoteFor(c, ONE_PCT * 9 / 10));
-        uint256 tooMuch = ONE_PCT / 2 + 1;
-        vm.startPrank(alice);
-        t.approve(address(c), tooMuch);
-        vm.expectRevert(BondingCurve.SellTooLarge.selector);
-        c.sell(tooMuch, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        _sellT(c, t, alice, ONE_PCT / 2);
+        assertEq(c.maxSellNow(), type(uint256).max);
+        _sellT(c, t, alice, t.balanceOf(alice));
+        assertEq(c.balanceOnCurve(alice), 0);
     }
 
     /// Pump price ≥ 1.8x with many verified wallets (each under the 1% cap).
@@ -353,10 +357,7 @@ contract BondingModesTest is IntegrationBase {
             address w = makeAddr(string(abi.encodePacked("g", vm.toString(i))));
             quote.mint(w, 10_000_000 ether);
             _verify(w);
-            uint256 room = ONE_PCT - 1;
-            uint256 left = _sc(c) - c.tokensSold();
-            uint256 q = room < left ? _quoteFor(c, room * 99 / 100) : 1_000_000 ether;
-            _buyQ(c, w, q);
+            _buyQ(c, w, 1_000_000 ether); // partial fill: fills to the wallet's cap (or the curve end)
         }
         assertTrue(c.graduated(), "graduated");
         assertEq(c.pendingRewards(bob), pb, "frozen at graduation");
@@ -368,33 +369,31 @@ contract BondingModesTest is IntegrationBase {
 
     // ── PVP ──
 
-    function test_pvp_maxBuyAndGrowingNetCap() public {
+    function test_pvp_noMaxBuy_partialFill_growingNetCap() public {
         (BondingCurve c,) = _launchMode(Constants.MODE_PVP);
         _warpPastSnipe();
-        assertEq(c.netCapNow(), Constants.TOTAL_SUPPLY * 400 / 10_000, "4% at launch");
-        uint256 q = _quoteFor(c, ONE_PCT * 35 / 10); // 3.5% > 3.33%
-        vm.startPrank(alice);
-        quote.approve(address(c), q);
-        vm.expectRevert(BondingCurve.BuyTooLarge.selector);
-        c.buy(q, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 3)); // 3%, no login needed
-        uint256 q2 = _quoteFor(c, ONE_PCT * 15 / 10);
-        vm.startPrank(alice);
-        quote.approve(address(c), q2);
-        vm.expectRevert(BondingCurve.WalletCap.selector); // 4.5% > ~4.x%
-        c.buy(q2, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        // progress → cap grows linearly
+        uint256 cap0 = Constants.TOTAL_SUPPLY * Constants.PVP_CAP_START_BPS / 10_000;
+        assertEq(c.netCapNow(), cap0, "3.33% at $7K");
+        uint256 q = _quoteFor(c, ONE_PCT * 5); // 5% > 3.33%: no max buy, partial fill to the cap
+        uint256 out = _buyQ(c, alice, q); // no login needed
+        assertEq(out, cap0);
+        assertEq(c.capRoom(alice), 0);
+        // progress → cap grows linearly in mcap
         for (uint256 i; i < 12; ++i) {
             address w = makeAddr(string(abi.encodePacked("pvp", vm.toString(i))));
             quote.mint(w, 10_000_000 ether);
             _buyQ(c, w, _quoteFor(c, ONE_PCT * 3));
         }
-        uint256 expectBps = 400 + (800 * c.tokensSold()) / _sc(c);
-        assertEq(c.netCapNow(), Constants.TOTAL_SUPPLY * expectBps / 10_000);
-        assertGt(expectBps, 500);
-        _buyQ(c, alice, q2); // now fits
+        uint256 mc = c.marketCapUsd();
+        uint256 expectCap = cap0
+            + Constants.TOTAL_SUPPLY * (Constants.PVP_CAP_END_BPS - Constants.PVP_CAP_START_BPS)
+                * (mc - Constants.START_MCAP_USD)
+                / (10_000 * (Constants.GRADUATION_MCAP_USD - Constants.START_MCAP_USD));
+        assertApproxEqAbs(c.netCapNow(), expectCap, 1e6);
+        assertGt(c.netCapNow(), cap0);
+        assertEq(c.capRoom(alice), c.netCapNow() - out);
+        _buyQ(c, alice, 1_000 ether); // room again
+        assertLe(c.balanceOnCurve(alice), c.netCapNow());
     }
 
     // ── router pass-through ──
@@ -430,12 +429,16 @@ contract BondingModesTest is IntegrationBase {
     function test_router_capsApplyToTrader() public {
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVP);
         _warpPastSnipe();
-        uint256 q = _quoteFor(c, ONE_PCT * 35 / 10);
+        uint256 q = _quoteFor(c, ONE_PCT * 5);
+        uint256 b0 = quote.balanceOf(alice);
         vm.startPrank(alice);
         quote.approve(address(router), type(uint256).max);
-        vm.expectRevert(BondingCurve.BuyTooLarge.selector);
-        router.buyWithUsdg(address(t), q, 1, vm.getBlockTimestamp() + 1 hours);
+        uint256 out = router.buyWithUsdg(address(t), q, 1, vm.getBlockTimestamp() + 1 hours);
         vm.stopPrank();
+        assertEq(out, c.netCapNow(), "router buy partially fills to the trader's cap");
+        assertEq(c.balanceOnCurve(alice), out);
+        assertLt(b0 - quote.balanceOf(alice), q, "unused USDG back to the trader");
+        assertEq(quote.balanceOf(address(router)), 0, "router keeps nothing");
     }
 
     function test_router_untrustedCallerRejected() public {
@@ -510,7 +513,7 @@ contract BondingModesTest is IntegrationBase {
         t.transfer(dave, half);
         assertEq(c.pendingRewards(carol), cp, "sender's earned rewards kept");
         assertEq(c.pendingRewards(dave), dp, "receiver gets none of the past");
-        assertEq(c.rewardsHeld(), quote.balanceOf(address(c)) - c.quoteReserve(), "reward pool fully backed");
+        assertEq(c.rewardsHeld(), quote.balanceOf(address(c)) - c.quoteReserve() - c.snipeEscrow(), "reward pool fully backed");
     }
 
     function test_pve_transferReceiverNetCap() public {
@@ -699,7 +702,7 @@ contract BondingModesTest is IntegrationBase {
         assertEq(sumNet, c.totalNet(), "NET conservation");
         // each pendingRewards floors separately → allow ≤ 1 wei per holder of rounding in the protocol's favour
         assertLe(sumPending, c.rewardsHeld() + hs.length, "sum(pending) <= rewardsHeld");
-        assertGe(quote.balanceOf(address(c)), c.quoteReserve() + c.rewardsHeld(), "curve solvent");
+        assertGe(quote.balanceOf(address(c)), c.quoteReserve() + c.rewardsHeld() + c.snipeEscrow(), "curve solvent");
     }
 
     /// Random buys / sells / transfers (incl. self) / claims: NET conserved, rewards always backed.

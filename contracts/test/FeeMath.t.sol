@@ -71,9 +71,10 @@ contract FeeMathTest is Test {
     }
 
     function test_antiSnipe_constants() public pure {
-        assertEq(Constants.ANTI_SNIPE_START_BPS, 7770);
+        assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
-        assertEq(Constants.ANTI_SNIPE_DURATION, 7);
+        assertEq(Constants.ANTI_SNIPE_DURATION, 60);
+        assertEq(Constants.SNIPE_ESCROW_TIMEOUT, 30 days);
     }
 
     function test_creatorBuyMax_0_77pct() public pure {
