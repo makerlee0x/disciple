@@ -115,8 +115,9 @@ contract BaseDiscoveryTest is BaseTestBase {
         assertEq(pricer.pricePoolOf(address(b)).fee, 100);
         // a deeper pool appears, then the auto pool's liquidity falls under the floor
         _std(address(b), 3000, 60, 5e22);
+        uint128 floor = uint128(_liq(3e22)); // before the prank: _liq reads quote.decimals()
         vm.prank(owner);
-        pricer.setMinLiquidity(uint128(_liq(3e22)));
+        pricer.setMinLiquidity(floor);
         pricer.poke(address(b));
         assertEq(pricer.pricePoolOf(address(b)).fee, 3000, "re-discovered");
         assertTrue(pricer.isAutoPool(address(b)));

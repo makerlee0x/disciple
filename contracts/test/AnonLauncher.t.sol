@@ -492,9 +492,18 @@ contract McapNowGraduatedTest is IntegrationBase {
                 sp, uint160(address(tok)) < uint160(address(quote)), Constants.TOTAL_SUPPLY, curve.quotePriceUsd()
             )
         );
-        assertApproxEqRel(
-            curve.mcapNow(), Math.mulDiv(Math.mulDiv(px, Constants.TOTAL_SUPPLY, 1e18), curve.quotePriceUsd(), 1e18), 1e6
-        );
+        // Via the floored WAD price only at 18-dec USDG: at 6 dec priceNow() is a single-digit integer (here
+        // ~5) so px-based mcap is off by up to ~25% (why mcapNow() reads sqrtPrice). SITE: never derive mcap/price from
+        // priceNow()/priceAfterX18 at 6 dec.
+        if (_usdgDecimals() == 18) {
+            assertApproxEqRel(
+                curve.mcapNow(),
+                Math.mulDiv(Math.mulDiv(px, Constants.TOTAL_SUPPLY, 1e18), curve.quotePriceUsd(), 1e18),
+                1e6
+            );
+        } else {
+            assertLt(px, 100, "6-dec priceNow is coarse");
+        }
         assertGt(curve.mcapNow(), launchVal);
         uint256 hi = curve.mcapNow();
         _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1));

@@ -227,9 +227,14 @@ contract JitTwapTest is IntegrationBase {
         _refSwap(false, 100_000 * U);
         assertGt(pricer.spotPriceUsd(address(strategy)), p0 * 3, "spot manipulated");
         pricer.poke(address(strategy));
-        assertEq(pricer.quotePriceUsd(address(strategy)), p0, "TWAP moved in-block");
+        // p0 used the exact spot sqrt (spot within ±1 tick of the TWAP); with spot pushed away the pricer falls back
+        // to the tick-quantized TWAP. At 18-dec USDG the par price sits exactly on tick 0 (identical); at 6-dec it is
+        // tick -276324.02 so the two differ by < 1 tick (designed ≤ 2 bp), never by the 3x+ manipulation.
+        uint256 p1 = pricer.quotePriceUsd(address(strategy));
+        if (_usdgDecimals() == 18) assertEq(p1, p0, "TWAP moved in-block");
+        else assertApproxEqRel(p1, p0, 1e14, "TWAP moved in-block (> 1 tick)");
         (BondingCurve c2,) = _launchWithQuote(address(0), 0, 0); // default quote = STRATEGY; Launchpad pokes too
-        assertEq(c2.quotePriceUsd(), p0, "curve baked manipulated price");
+        assertEq(c2.quotePriceUsd(), p1, "curve baked manipulated price");
     }
 
     function test_pricer_sustained_move_is_rate_limited_then_tracks() public {
