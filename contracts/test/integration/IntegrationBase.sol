@@ -36,14 +36,23 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {RewardsVault} from "../../src/RewardsVault.sol";
 
 contract MockUSDG is ERC20, ERC20Permit {
+    uint8 internal _dec = 18;
+
     constructor() ERC20("USD Mock", "USDG") ERC20Permit("USD Mock") {}
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
 
-    function decimals() public pure override returns (uint8) {
-        return 18;
+    function decimals() public view override returns (uint8) {
+        return _dec;
+    }
+}
+
+/// @dev MockUSDG with configurable decimals (6 = mainnet USDG / the next testnet mock).
+contract MockUSDGDec is MockUSDG {
+    constructor(uint8 d) {
+        _dec = d;
     }
 }
 
@@ -96,8 +105,25 @@ abstract contract IntegrationBase is Test {
     // Accounting trackers (quote wei paid by users into the system)
     uint256 internal totalQuoteIn;
 
+    /// @notice One whole USDG in raw units (10 ** USDG decimals). Tests express USDG amounts as `n * U`.
+    uint256 internal U;
+
+    /// @notice USDG decimals for this run. The 6-decimal matrix overrides this (thin `...6Dec` subclasses).
+    function _usdgDecimals() internal pure virtual returns (uint8) {
+        return 18;
+    }
+
+    /// @dev sqrtPriceX96 for an 18-dec `base` worth $1 per whole token vs USDG (raw price 10^(usdgDec-18)).
+    function _parSqrtP(address base) internal view returns (uint160) {
+        uint256 f = 10 ** ((18 - uint256(quote.decimals())) / 2); // sqrt(10^(18-d)); d is 18 or 6 here
+        return uint160(base) < uint160(address(quote))
+            ? uint160((uint256(1) << 96) / f)
+            : uint160((uint256(1) << 96) * f);
+    }
+
     function setUp() public virtual {
-        quote = new MockUSDG();
+        quote = new MockUSDGDec(_usdgDecimals());
+        U = 10 ** uint256(_usdgDecimals());
         referrals = new ReferralRegistry(owner, address(quote));
         lockedLP = new LockedLP(owner, treasury);
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
@@ -139,12 +165,12 @@ abstract contract IntegrationBase is Test {
 
         // Launch-time oracle: USDG ($1) + STRATEGY priced from a STRATEGY/USDG v4 pool at 1:1
         pricer = new QuotePricer(owner, manager, address(quote));
-        strategyUsdgKey = _initRefPool(address(strategy), address(quote), uint160(1) << 96);
+        strategyUsdgKey = _initRefPool(address(strategy), address(quote), _parSqrtP(address(strategy)));
         refPoolQuoteSeed = quote.balanceOf(address(manager));
         vm.startPrank(owner);
         pricer.setPricePool(address(strategy), strategyUsdgKey);
         // Real round-trip probe ($1 of USDG); the default (strategy) is probed too, no allowlist.
-        quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), 1e18);
+        quoteProbe = new QuoteProbe(owner, manager, address(quote), address(pricer), U);
         launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
@@ -161,7 +187,7 @@ abstract contract IntegrationBase is Test {
         // Fund actors
         address[7] memory actors = [creator, sniper, trader1, trader2, kol, referred, address(this)];
         for (uint256 i = 0; i < actors.length; i++) {
-            quote.mint(actors[i], 50_000_000 ether);
+            quote.mint(actors[i], 50_000_000 * U);
         }
     }
 
@@ -239,10 +265,11 @@ abstract contract IntegrationBase is Test {
         address w = makeAddr("refObserver");
         vm.warp(vm.getBlockTimestamp() + 31);
         vm.roll(vm.getBlockNumber() + 1);
-        _swapExactInQuoteForToken(tok, w, 1e12);
+        uint256 dust = U / 1e6 < 100 ? 100 : U / 1e6; // 1e12 raw at 18 dec (unchanged); 100 raw ($0.0001) at 6 dec
+        _swapExactInQuoteForToken(tok, w, dust);
         vm.warp(vm.getBlockTimestamp() + 31);
         vm.roll(vm.getBlockNumber() + 1);
-        _swapExactInQuoteForToken(tok, w, 1e12);
+        _swapExactInQuoteForToken(tok, w, dust);
         vm.warp(vm.getBlockTimestamp() + 1);
         vm.roll(vm.getBlockNumber() + 1);
     }
@@ -260,8 +287,9 @@ abstract contract IntegrationBase is Test {
         _warpPastSnipe();
         for (uint256 i = 0; i < 80 && !curve.graduated(); i++) {
             address w = makeAddr(string(abi.encodePacked("gradW", vm.toString(i), address(q))));
-            q.mint(w, 50_000 ether);
-            uint256[6] memory sizes = [uint256(400 ether), 200 ether, 100 ether, 50 ether, 10 ether, 1 ether];
+            uint256 qu = 10 ** uint256(q.decimals());
+            q.mint(w, 50_000 * qu);
+            uint256[6] memory sizes = [uint256(400 * qu), 200 * qu, 100 * qu, 50 * qu, 10 * qu, 1 * qu];
             for (uint256 j = 0; j < sizes.length && !curve.graduated(); j++) {
                 vm.startPrank(w);
                 q.approve(address(curve), sizes[j]);

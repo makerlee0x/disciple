@@ -31,7 +31,7 @@ contract UsdgRouterTest is IntegrationBase {
         (sCurve, sTok) = _launchWithQuote(address(strategy), 0, 0);
         (uCurve, uTok) = _launchWithQuote(address(quote), 0, 0);
         _warpPastSnipe();
-        quote.mint(alice, 1_000_000 ether);
+        quote.mint(alice, 1_000_000 * U);
         vm.startPrank(alice);
         quote.approve(address(router), type(uint256).max);
         sTok.approve(address(router), type(uint256).max);
@@ -80,17 +80,17 @@ contract UsdgRouterTest is IntegrationBase {
     // ───────── curve (pre-graduation) ─────────
 
     function test_curveMultiHopBuySell() public {
-        (uint256 out, uint256 gb) = _buy(sTok, 100 ether);
+        (uint256 out, uint256 gb) = _buy(sTok, 100 * U);
         assertGt(out, 0);
         (uint256 usdgOut, uint256 gs) = _sellAll(sTok);
         assertGt(usdgOut, 0);
-        assertLt(usdgOut, 50 ether); // fees on both hops + curve
+        assertLt(usdgOut, 50 * U); // fees on both hops + curve
         console2.log("gas buyWithUsdg curve 2-hop", gb);
         console2.log("gas sellToUsdg curve 2-hop", gs);
     }
 
     function test_curveSingleHopUsdgQuote() public {
-        (uint256 out, uint256 gb) = _buy(uTok, 100 ether);
+        (uint256 out, uint256 gb) = _buy(uTok, 100 * U);
         assertGt(out, 0);
         (, uint256 gs) = _sellAll(uTok);
         console2.log("gas buyWithUsdg curve 1-hop", gb);
@@ -101,7 +101,7 @@ contract UsdgRouterTest is IntegrationBase {
 
     function test_gradMultiHopBuySell() public {
         _graduateWith(sCurve, strategy);
-        (uint256 out, uint256 gb) = _buy(sTok, 100 ether);
+        (uint256 out, uint256 gb) = _buy(sTok, 100 * U);
         assertGt(out, 0);
         (, uint256 gs) = _sellAll(sTok);
         console2.log("gas buyWithUsdg v4 2-hop", gb);
@@ -110,7 +110,7 @@ contract UsdgRouterTest is IntegrationBase {
 
     function test_gradSingleHopUsdgQuote() public {
         _graduateWith(uCurve, quote);
-        (, uint256 gb) = _buy(uTok, 100 ether);
+        (, uint256 gb) = _buy(uTok, 100 * U);
         (, uint256 gs) = _sellAll(uTok);
         console2.log("gas buyWithUsdg v4 1-hop", gb);
         console2.log("gas sellToUsdg v4 1-hop", gs);
@@ -127,30 +127,30 @@ contract UsdgRouterTest is IntegrationBase {
             try sCurve.buy(400 ether, 0, _dl()) {} catch {}
             vm.stopPrank();
         }
-        quote.mint(alice, 10_000 ether);
+        quote.mint(alice, 10_000 * U);
         vm.prank(router.owner() == address(this) ? address(this) : router.owner());
         router.setMaxImpactBps(100_000);
         uint256 s0 = strategy.balanceOf(alice);
         uint256 u0 = quote.balanceOf(alice);
         vm.prank(alice);
-        router.buyWithUsdg(address(sTok), 2000 ether, 1, _dl());
+        router.buyWithUsdg(address(sTok), 2000 * U, 1, _dl());
         assertTrue(sCurve.graduated(), "router buy graduated the curve");
         // DISCIPLE audit #6: the unused intermediate quote is swapped back and refunded in USDG
         assertEq(strategy.balanceOf(alice), s0, "no intermediate-quote refund");
-        assertLt(u0 - quote.balanceOf(alice), 2000 ether, "unused quote refunded to buyer in USDG");
+        assertLt(u0 - quote.balanceOf(alice), 2000 * U, "unused quote refunded to buyer in USDG");
         _noDust();
     }
 
     // ───────── guards ─────────
 
     function test_slippageRevertsEndToEnd() public {
-        (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 100 ether);
+        (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 100 * U);
         vm.prank(alice);
         vm.expectRevert();
-        router.buyWithUsdg(address(sTok), 100 ether, q + 1, _dl());
+        router.buyWithUsdg(address(sTok), 100 * U, q + 1, _dl());
 
         vm.prank(alice);
-        router.buyWithUsdg(address(sTok), 100 ether, q, _dl());
+        router.buyWithUsdg(address(sTok), 100 * U, q, _dl());
         uint256 bal = sTok.balanceOf(alice);
         (uint256 qs,) = router.quoteSellToUsdg(address(sTok), bal);
         vm.prank(alice);
@@ -158,46 +158,46 @@ contract UsdgRouterTest is IntegrationBase {
         router.sellToUsdg(address(sTok), bal, qs + 1, _dl());
 
         _graduateWith(sCurve, strategy);
-        (q,) = router.quoteBuyWithUsdg(address(sTok), 10 ether);
+        (q,) = router.quoteBuyWithUsdg(address(sTok), 10 * U);
         vm.prank(alice);
         vm.expectRevert(DiscipleRouter.Slippage.selector);
-        router.buyWithUsdg(address(sTok), 10 ether, q + 1, _dl());
+        router.buyWithUsdg(address(sTok), 10 * U, q + 1, _dl());
     }
 
     function test_zeroMinOutAndDeadline() public {
         vm.startPrank(alice);
         vm.expectRevert(DiscipleRouter.ZeroMinOut.selector);
-        router.buyWithUsdg(address(sTok), 1 ether, 0, _dl());
+        router.buyWithUsdg(address(sTok), 1 * U, 0, _dl());
         vm.expectRevert(DiscipleRouter.ZeroMinOut.selector);
-        router.sellToUsdg(address(sTok), 1 ether, 0, _dl());
+        router.sellToUsdg(address(sTok), 1 * U, 0, _dl());
         vm.expectRevert(DiscipleRouter.Expired.selector);
-        router.buyWithUsdg(address(sTok), 1 ether, 1, block.timestamp - 1);
+        router.buyWithUsdg(address(sTok), 1 * U, 1, block.timestamp - 1);
         vm.stopPrank();
     }
 
     function test_impactCapOnUsdgHop() public {
         // USDG/STRATEGY ref pool is 100k liquidity full-range: a big buy moves it > 50%
-        (, uint256 imp) = router.quoteBuyWithUsdg(address(sTok), 60_000 ether);
+        (, uint256 imp) = router.quoteBuyWithUsdg(address(sTok), 60_000 * U);
         assertGt(imp, 5000);
-        quote.mint(alice, 100_000 ether);
+        quote.mint(alice, 100_000 * U);
         vm.prank(alice);
         vm.expectPartialRevert(DiscipleRouter.PriceImpactTooHigh.selector);
-        router.buyWithUsdg(address(sTok), 60_000 ether, 1, _dl());
+        router.buyWithUsdg(address(sTok), 60_000 * U, 1, _dl());
     }
 
     function test_impactCapOnCurveHop() public {
         router.setMaxImpactBps(100); // 1%
         vm.prank(alice);
         vm.expectPartialRevert(DiscipleRouter.PriceImpactTooHigh.selector);
-        router.buyWithUsdg(address(uTok), 500 ether, 1, _dl());
+        router.buyWithUsdg(address(uTok), 500 * U, 1, _dl());
     }
 
     function test_impactCapOnGraduatedHop() public {
         _graduateWith(uCurve, quote);
-        quote.mint(alice, 100_000 ether);
+        quote.mint(alice, 100_000 * U);
         vm.prank(alice);
         vm.expectPartialRevert(DiscipleRouter.PriceImpactTooHigh.selector);
-        router.buyWithUsdg(address(uTok), 20_000 ether, 1, _dl());
+        router.buyWithUsdg(address(uTok), 20_000 * U, 1, _dl());
     }
 
     function test_registryOwnerOnlyAndValidated() public {
@@ -215,7 +215,7 @@ contract UsdgRouterTest is IntegrationBase {
         router.removeUsdgPool(address(strategy));
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(DiscipleRouter.NoUsdgPool.selector, address(strategy)));
-        router.buyWithUsdg(address(sTok), 1 ether, 1, _dl());
+        router.buyWithUsdg(address(sTok), 1 * U, 1, _dl());
     }
 
     // ───────── session key path (executeUserOp) ─────────
@@ -228,7 +228,7 @@ contract UsdgRouterTest is IntegrationBase {
     function _installSession(uint128 cap) internal {
         acct = new MockMAv2(address(this));
         policy = new P(address(referrals));
-        quote.mint(address(acct), 1_000 ether);
+        quote.mint(address(acct), 1_000 * U);
         P.SessionConfig memory c = P.SessionConfig({
             validUntil: uint48(block.timestamp + 1 hours),
             validAfter: 0,
@@ -268,17 +268,17 @@ contract UsdgRouterTest is IntegrationBase {
     }
 
     function test_sessionBuySellViaExecuteUserOp_capInUsdg() public {
-        _installSession(150 ether);
-        (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 100 ether);
-        _uo(_buyCalls(100 ether, 100 ether, q * 9950 / 10_000));
+        _installSession(150 * U);
+        (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 100 * U);
+        _uo(_buyCalls(100 * U, 100 * U, q * 9950 / 10_000));
         assertGt(sTok.balanceOf(address(acct)), 0);
-        assertEq(policy.sessionOf(address(acct), E).spent0, 100 ether, "cap counted in USDG");
+        assertEq(policy.sessionOf(address(acct), E).spent0, 100 * U, "cap counted in USDG");
         assertEq(quote.allowance(address(acct), address(router)), 0, "exact approve consumed");
 
         // over the USDG cap: 100 + 60 > 150
-        (q,) = router.quoteBuyWithUsdg(address(sTok), 60 ether);
-        MockMAv2.Call[] memory cs = _buyCalls(60 ether, 60 ether, q);
-        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(quote), 160 ether, 150 ether));
+        (q,) = router.quoteBuyWithUsdg(address(sTok), 60 * U);
+        MockMAv2.Call[] memory cs = _buyCalls(60 * U, 60 * U, q);
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(quote), 160 * U, 150 * U));
         _uo(cs);
 
         // sell to USDG: proceeds pinned to the account (router pays msg.sender)
@@ -292,39 +292,39 @@ contract UsdgRouterTest is IntegrationBase {
         uint256 u0 = quote.balanceOf(address(acct));
         _uo(cs);
         assertGt(quote.balanceOf(address(acct)), u0);
-        assertEq(policy.sessionOf(address(acct), E).spent0, 100 ether, "sells do not count");
+        assertEq(policy.sessionOf(address(acct), E).spent0, 100 * U, "sells do not count");
     }
 
     function test_sessionRejects() public {
-        _installSession(1_000 ether);
-        (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 10 ether);
+        _installSession(1_000 * U);
+        (uint256 q,) = router.quoteBuyWithUsdg(address(sTok), 10 * U);
         // slippage beyond maxSlippageBps (1%) end to end
         uint256 req = q * 9900 / 10_000;
         vm.expectRevert(abi.encodeWithSelector(P.MinOutTooLow.selector, req - 1, req));
-        _uo(_buyCalls(10 ether, 10 ether, req - 1));
+        _uo(_buyCalls(10 * U, 10 * U, req - 1));
         // USDG approve must be exact
-        vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 11 ether, 10 ether));
-        _uo(_buyCalls(11 ether, 10 ether, q));
+        vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 11 * U, 10 * U));
+        _uo(_buyCalls(11 * U, 10 * U, q));
         // USDG approve only to DiscipleRouter (no curve / Permit2 / UniversalRouter)
         address permit2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
         MockMAv2.Call[] memory cs = new MockMAv2.Call[](1);
-        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (permit2, 10 ether)));
+        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (permit2, 10 * U)));
         vm.expectRevert(abi.encodeWithSelector(P.SpenderNotAllowed.selector, permit2));
         _uo(cs);
         // USDG approve to a curve is allowed only for exactly that batch's curve spend (none here → 0 required)
-        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(uCurve), 10 ether)));
-        vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 10 ether, 0));
+        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(uCurve), 10 * U)));
+        vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 10 * U, 0));
         _uo(cs);
         // zero minOut
         vm.expectRevert(P.ZeroMinOut.selector);
-        _uo(_buyCalls(10 ether, 10 ether, 0));
+        _uo(_buyCalls(10 * U, 10 * U, 0));
     }
 
     /// DISCIPLE audit #5: exact-amount USDG approvals to a curve (and other spenders) matched to the batch's spend.
     function test_sessionUsdgApproveToCurveExact() public {
         acct = new MockMAv2(address(this));
         policy = new P(address(referrals));
-        quote.mint(address(acct), 1_000 ether);
+        quote.mint(address(acct), 1_000 * U);
         P.SessionConfig memory c = P.SessionConfig({
             validUntil: uint48(block.timestamp + 1 hours),
             validAfter: 0,
@@ -335,32 +335,32 @@ contract UsdgRouterTest is IntegrationBase {
             trampWallManager: address(0),
             quote0: address(quote),
             quote1: address(0),
-            cap0: 100 ether,
+            cap0: 100 * U,
             cap1: 0,
             maxSlippageBps: 100,
             stealthOwner: address(0)
         });
         acct.installSession(policy, E, sessKey, c);
-        uint256 q = uCurve.quoteBuy(5 ether).tokensOut;
+        uint256 q = uCurve.quoteBuy(5 * U).tokensOut;
         MockMAv2.Call[] memory cs = new MockMAv2.Call[](2);
-        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(uCurve), 5 ether)));
+        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(uCurve), 5 * U)));
         cs[1] = MockMAv2.Call(
             address(uCurve),
             0,
-            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 5 ether, q * 9950 / 10_000, _dl(), address(acct))
+            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 5 * U, q * 9950 / 10_000, _dl(), address(acct))
         );
         _uo(cs);
         assertGt(uTok.balanceOf(address(acct)), 0, "session USDG curve buy works");
-        assertEq(policy.sessionOf(address(acct), E).spent0, 5 ether);
+        assertEq(policy.sessionOf(address(acct), E).spent0, 5 * U);
         // not exact → rejected
-        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(uCurve), 6 ether)));
-        q = uCurve.quoteBuy(5 ether).tokensOut;
+        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(uCurve), 6 * U)));
+        q = uCurve.quoteBuy(5 * U).tokensOut;
         cs[1] = MockMAv2.Call(
             address(uCurve),
             0,
-            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 5 ether, q * 9950 / 10_000, _dl(), address(acct))
+            abi.encodeWithSignature("buy(uint256,uint256,uint256,address)", 5 * U, q * 9950 / 10_000, _dl(), address(acct))
         );
-        vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 6 ether, 5 ether));
+        vm.expectRevert(abi.encodeWithSelector(P.UsdgApproveNotExact.selector, 6 * U, 5 * U));
         _uo(cs);
     }
 
@@ -390,7 +390,7 @@ contract UsdgRouterTest is IntegrationBase {
         );
         Token pTok = Token(r.token);
         vm.roll(block.number + 1);
-        _installSession(150 ether);
+        _installSession(150 * U);
         uint64 exp = uint64(vm.getBlockTimestamp() + 12 hours);
         (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp, address(0)));
         gate.attest(address(acct), exp, address(0), abi.encodePacked(rr, ss, v));
@@ -398,13 +398,13 @@ contract UsdgRouterTest is IntegrationBase {
         // the policy (msg.sender of the old quote path) is not verified → old behaviour reverted NotVerified
         vm.prank(address(policy));
         vm.expectRevert(BondingCurve.NotVerified.selector);
-        router.quoteUsdgRoute(address(pTok), true, 10 ether);
+        router.quoteUsdgRoute(address(pTok), true, 10 * U);
 
-        (uint256 q,) = router.quoteUsdgRouteFor(address(acct), address(pTok), true, 10 ether);
+        (uint256 q,) = router.quoteUsdgRouteFor(address(acct), address(pTok), true, 10 * U);
         MockMAv2.Call[] memory cs = new MockMAv2.Call[](2);
-        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(router), 10 ether)));
+        cs[0] = MockMAv2.Call(address(quote), 0, abi.encodeCall(IERC20.approve, (address(router), 10 * U)));
         cs[1] = MockMAv2.Call(
-            address(router), 0, abi.encodeCall(DiscipleRouter.buyWithUsdg, (address(pTok), 10 ether, q, _dl()))
+            address(router), 0, abi.encodeCall(DiscipleRouter.buyWithUsdg, (address(pTok), 10 * U, q, _dl()))
         );
         _uo(cs);
         assertEq(pTok.balanceOf(address(acct)), q, "PVE session buy executed at the account's quote");

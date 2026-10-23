@@ -30,7 +30,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
 
     function test_launch_with_creatorBuy_under_0_77pct() public {
         // Small buy to stay under wallet cap + creator buy max
-        uint256 buyQuote = 20 ether;
+        uint256 buyQuote = 20 * U;
         (BondingCurve curve, Token tok) = _launch(0, buyQuote);
         uint256 bought = tok.balanceOf(creator);
         assertGt(bought, 0);
@@ -40,7 +40,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
 
     function test_launch_creatorBuy_reverts_above_0_77pct() public {
         // Huge quote would buy >> 0.77% at start — Launchpad checks after buy
-        uint256 huge = 5_000 ether;
+        uint256 huge = 5_000 * U;
         uint256 ts = block.timestamp;
         vm.startPrank(creator);
         quote.approve(address(launchpad), huge);
@@ -67,7 +67,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(curve.creatorTaxBps(), 700);
         _warpPastSnipe();
         uint256 before = feeRouter.creatorAccrued(address(curve.token()), creator);
-        _buy(curve, trader1, 50 ether, 0);
+        _buy(curve, trader1, 50 * U, 0);
         // tax + 33% of proto fee accrue to creator
         assertGt(feeRouter.creatorAccrued(address(curve.token()), creator), before);
     }
@@ -80,7 +80,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creator0 = feeRouter.creatorAccrued(address(tok), creator);
 
-        uint256 qIn = 50 ether;
+        uint256 qIn = 50 * U;
         uint256 expectedSnipe = (qIn * 7770) / 10_000;
         _buy(curve, sniper, qIn, 0);
 
@@ -114,7 +114,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         vm.startPrank(trader1);
         quote.approve(address(curve), type(uint256).max);
         vm.expectRevert(BondingCurve.WalletCap.selector);
-        curve.buy(100_000 ether, 0, block.timestamp + 1);
+        curve.buy(100_000 * U, 0, block.timestamp + 1);
         vm.stopPrank();
     }
 
@@ -123,9 +123,9 @@ contract LifecycleIntegrationTest is IntegrationBase {
         _warpPastSnipe();
 
         // Round-trip no profit mid-curve
-        uint256 tOut = _buy(curve, trader1, 80 ether, 0);
+        uint256 tOut = _buy(curve, trader1, 80 * U, 0);
         uint256 qBack = _sell(curve, tok, trader1, tOut / 2, 0);
-        assertLe(qBack, 80 ether);
+        assertLe(qBack, 80 * U);
 
         uint256 mcapBeforeGrad = curve.marketCapUsd();
         assertLt(mcapBeforeGrad, Constants.OUTER_SPACE_MCAP_USD);
@@ -168,7 +168,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(a1, 0);
 
         // Price continuity vs curve end
-        CurveMath.Params memory p = CurveMath.makeParams(1e18);
+        CurveMath.Params memory p = CurveMath.makeParams(curve.quotePriceUsd());
         uint256 priceWad = CurveMath.spotPriceWad(p, FeeMath.curveSoldSupply());
         bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
         uint160 expected = SqrtPrice.fromPriceWad(priceWad, tokenIsC0);
@@ -193,7 +193,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         uint256 creatorQ0 = feeRouter.creatorAccrued(address(tok), creator);
 
         // quote → token: hook fee in launch token → physical split (creator/treasury get tokens)
-        _swapExactInQuoteForToken(tok, trader1, 20 ether);
+        _swapExactInQuoteForToken(tok, trader1, 20 * U);
         assertTrue(
             (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > treTok0 || tok.balanceOf(creator) > creatorTok0,
             "post-grad buy: 1% hook fee routed in token"
@@ -237,11 +237,11 @@ contract LifecycleIntegrationTest is IntegrationBase {
         (BondingCurve curve,) = _launch(0, 0);
         _warpPastSnipe();
         vm.startPrank(trader1);
-        quote.approve(address(curve), 10 ether);
+        quote.approve(address(curve), 10 * U);
         vm.expectRevert(BondingCurve.Slippage.selector);
-        curve.buy(10 ether, type(uint256).max, block.timestamp + 1);
+        curve.buy(10 * U, type(uint256).max, block.timestamp + 1);
         vm.expectRevert(BondingCurve.Expired.selector);
-        curve.buy(10 ether, 0, block.timestamp - 1);
+        curve.buy(10 * U, 0, block.timestamp - 1);
         vm.stopPrank();
     }
 
@@ -249,8 +249,8 @@ contract LifecycleIntegrationTest is IntegrationBase {
         totalQuoteIn = 0;
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _warpPastSnipe();
-        _buy(curve, trader1, 50 ether, 0);
-        _buy(curve, trader2, 50 ether, 0);
+        _buy(curve, trader1, 50 * U, 0);
+        _buy(curve, trader2, 50 * U, 0);
         // Before graduation: distributed ≈ totalQuoteIn (fees + reserve)
         uint256 distributed = _quoteDistributed(address(tok), creator);
         // Allow small slack for dust / rounding

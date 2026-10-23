@@ -13,9 +13,9 @@ contract FeeClaimsTest is IntegrationBase {
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();
         uint256 t0 = quote.balanceOf(treasury);
-        _buy(c, trader1, 100 ether, 0);
+        _buy(c, trader1, 100 * U, 0);
         assertEq(quote.balanceOf(treasury), t0, "no per-trade push");
-        (, , uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(FeeMath.protocolFee(100 ether));
+        (, , uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(FeeMath.protocolFee(100 * U));
         uint256 acc = feeRouter.treasuryAccrued(address(quote));
         assertEq(acc, tsh + rsh, "33% + unrouted 1%");
         vm.prank(trader2); // permissionless
@@ -29,7 +29,7 @@ contract FeeClaimsTest is IntegrationBase {
     function test_snipeTreasuryShareAccrues() public {
         (BondingCurve c,) = _launch(0, 0);
         uint256 t0 = quote.balanceOf(treasury);
-        _buy(c, sniper, 10 ether, 0); // inside the 7s anti-snipe window
+        _buy(c, sniper, 10 * U, 0); // inside the 7s anti-snipe window
         assertEq(quote.balanceOf(treasury), t0);
         assertGt(feeRouter.treasuryAccrued(address(quote)), 0);
     }
@@ -38,7 +38,7 @@ contract FeeClaimsTest is IntegrationBase {
         (BondingCurve c, Token tok) = _launch(0, 0);
         _graduate(c);
         uint256 cTok0 = tok.balanceOf(creator);
-        _swapExactInQuoteForToken(tok, trader1, 100 ether); // buy: hook fee charged in TOKEN
+        _swapExactInQuoteForToken(tok, trader1, 100 * U); // buy: hook fee charged in TOKEN
         assertEq(tok.balanceOf(creator), cTok0, "no push to creator");
         uint256 accd = feeRouter.creatorTokenAccrued(address(tok), creator);
         assertGt(accd, 0, "creator token-side accrued");
@@ -58,7 +58,7 @@ contract FeeClaimsTest is IntegrationBase {
     function test_feeRouterSolventAfterClaims() public {
         (BondingCurve c, Token tok) = _launch(100, 0);
         _graduate(c);
-        _swapExactInQuoteForToken(tok, trader1, 50 ether);
+        _swapExactInQuoteForToken(tok, trader1, 50 * U);
         _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1) / 2);
         // every accrued balance is backed by FeeRouter holdings
         uint256 owedQ = feeRouter.treasuryAccrued(address(quote)) + feeRouter.creatorAccrued(address(tok), creator);

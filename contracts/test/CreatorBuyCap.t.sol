@@ -10,14 +10,14 @@ contract CreatorBuyCapTest is IntegrationBase {
 
     function test_default_77bps() public {
         assertEq(launchpad.creatorBuyMaxBps(), 77);
-        (BondingCurve c, Token t) = _launch(0, 10 ether);
+        (BondingCurve c, Token t) = _launch(0, 10 * U);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 77);
         c;
         // just above 0.77% reverts by default
-        (,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 ether, 0);
+        (,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 * U, 0);
         assertTrue(ex);
         vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector);
-        this.launchExt(200 ether);
+        this.launchExt(200 * U);
     }
 
     function launchExt(uint256 buy) external {
@@ -29,9 +29,9 @@ contract CreatorBuyCapTest is IntegrationBase {
         emit CreatorBuyMaxSet(500);
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
-        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 ether, 0);
+        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 * U, 0);
         assertFalse(ex);
-        (, Token t) = _launch(0, 200 ether);
+        (, Token t) = _launch(0, 200 * U);
         assertEq(t.balanceOf(creator), out);
         assertGt(out, FeeMath.creatorBuyMax());
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 500);
@@ -57,21 +57,21 @@ contract CreatorBuyCapTest is IntegrationBase {
     }
 
     function test_existing_coins_keep_snapshot() public {
-        (, Token old) = _launch(0, 10 ether);
+        (, Token old) = _launch(0, 10 * U);
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(10);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(old)), 77);
         (, Token nu) = _launch(0, 0);
         assertEq(launchpad.creatorBuyMaxBpsOf(address(nu)), 10);
         vm.expectRevert(Launchpad.CreatorBuyTooLarge.selector);
-        this.launchExt(10 ether);
+        this.launchExt(10 * U);
     }
 
     function test_anonLauncher_respects_owner_cap() public {
         AnonLauncher anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
         address payer = makeAddr("payer");
-        quote.mint(payer, 1_000 ether);
+        quote.mint(payer, 1_000 * U);
         ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({
             name: "A",
             ticker: "A",
@@ -80,7 +80,7 @@ contract CreatorBuyCapTest is IntegrationBase {
             socialsURI: "",
             quote: address(quote),
             creatorTaxBps: 0,
-            creatorBuyQuoteIn: 200 ether,
+            creatorBuyQuoteIn: 200 * U,
             creatorBuyMinTokensOut: 0,
             deadline: block.timestamp + 1 hours
         });
