@@ -231,12 +231,12 @@ because the swap path never reads it.
 | pvp.usdg1.buy / sell warm | 203,020 / 200,146 | 208,353 / 200,663 | +5,333 / +517 |
 | trench.direct.buy.cold / warm | 212,730 / 178,530 | 214,031 / 179,831 | +1,301 / +1,301 |
 | trench.direct.sell.warm | 179,324 | 179,628 | +304 |
-| v4 (post-grad) swaps | — | — | +207 … +417 (router/hook unchanged; Launchpad lookups) |
+| v4 (post-grad) swaps | — | — | +207 … +417 (hook unchanged; DiscipleRouter bytecode changed by the add-on) |
 
 * Launch +~310k (~4.9%): the curve no longer fits in one EIP-170 blob next to its init code, so CurveDeployer
   stitches two code chunks (SSTORE2-style `extcodecopy`) and the curve runtime grew (partial fill search, escrow,
   mcap-linear caps, creator lock, tunable snapshots). Runtime stays ≤ 24,576 B (asserted in
   `test_curveDeployer_runtimeIdenticalToNew`).
 * Buys +1.3k (TRENCH) to +3.4k (Easy): mcap-linear cap computation and the snipe-escrow slot. Router buys add the
-  refund balance check. A partial-filled buy additionally pays the bounded binary search (~+15–25k, only when capped).
+  refund balance check. A partial-filled buy additionally pays the bounded binary search (only when capped; not benched here).
 * Sells ~+300 (Easy crew-tip threshold reads mcap).
