@@ -182,7 +182,6 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 | `NEXT_PUBLIC_RHT_QUOTE_PRICER` | QuotePricer |
 | `NEXT_PUBLIC_RHT_QUOTE_PROBE` | QuoteProbe |
 | `NEXT_PUBLIC_RHT_MIGRATION` | Migration |
-| `NEXT_PUBLIC_RHT_ANTI_SNIPE` | AntiSnipe |
 | `NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER` | TrampWallManager |
 | `NEXT_PUBLIC_RHT_MARKET_LENS` | MarketLens |
 | `NEXT_PUBLIC_RHT_LOGIN_GATE` | LoginGate |
@@ -192,7 +191,7 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 | `NEXT_PUBLIC_RHT_USDG_DECIMALS` | `6` |
 | `NEXT_PUBLIC_RHT_FROM_BLOCK` | `startBlock` from the new deployments json |
 | `NEXT_PUBLIC_SESSION_POLICY` | new DiscipleSessionPolicy |
-| `NEXT_PUBLIC_SESSION_POLICY_VERSION` | `1.4.0` |
+| `NEXT_PUBLIC_SESSION_POLICY_VERSION` | `1.4.1` |
 | `NEXT_PUBLIC_RHT_PAYMASTER` | DisciplePaymaster |
 | `NEXT_PUBLIC_PAYMASTER_URL` | paymaster quote endpoint (see `docs/usdg-paymaster.md`) |
 | `PAYMASTER_ADDRESS` (server) | DisciplePaymaster |
