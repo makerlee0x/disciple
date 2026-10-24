@@ -11,6 +11,7 @@ import { deployment } from "./chains";
 import { CURVE } from "./config";
 import { TOTAL_SUPPLY_TOKENS, type Fill } from "./trades";
 import { coinFacts, decimalsOf, readMarket } from "./protocol-viem";
+import { fillBook } from "./fillBook";
 
 export type Holding = { coin: Address; tokens: number; priceNow: number; price24h: number };
 export type Portfolio = { cashUsd: number; holdingsUsd: number; totalUsd: number; change24hUsd: number; holdings: Holding[]; at: number };
@@ -31,6 +32,25 @@ export function summarize(cashUsd: number, holdings: Holding[], at = Date.now())
   const holdingsUsd = held.reduce((s, h) => s + h.tokens * h.priceNow, 0);
   const change24hUsd = held.reduce((s, h) => s + h.tokens * (h.priceNow - h.price24h), 0);
   return { cashUsd, holdingsUsd, totalUsd: cashUsd + holdingsUsd, change24hUsd, holdings: held, at };
+}
+
+/** What bookedPortfolio needs of lib/fillBook's FillBook. */
+export interface BookView { display(holder: string, token: string): number | undefined; pendingTokens(holder: string): string[] }
+/**
+ * Pure: the portfolio with our own fills booked from their receipts (lib/fillBook) on top of the last read — cash =
+ * booked USDG, coin tokens = booked balances, a coin bought but not read yet priced at our fill's $/token (`fillPx`)
+ * until a read prices it. No RPC (SITE #137: the header updates from the receipt, not a lagging re-read).
+ */
+export function bookedPortfolio(pf: Portfolio, holder: string, usdg: string, fillPx: Map<string, number> = new Map(), book: BookView = fillBook): Portfolio {
+  const cash = book.display(holder, usdg) ?? pf.cashUsd;
+  const seen = new Set<string>();
+  const holdings: Holding[] = pf.holdings.map((h) => { seen.add(h.coin.toLowerCase()); return { ...h, tokens: book.display(holder, h.coin) ?? h.tokens }; });
+  for (const t of book.pendingTokens(holder)) {
+    if (seen.has(t) || t === usdg.toLowerCase()) continue;
+    const tokens = book.display(holder, t), px = fillPx.get(t);
+    if (tokens !== undefined && tokens > 0 && px && px > 0) holdings.push({ coin: t as Address, tokens, priceNow: px, price24h: px });
+  }
+  return summarize(Math.max(0, cash), holdings, pf.at);
 }
 
 const fillsCache = new Map<string, { at: number; p: Promise<number> }>();
@@ -59,16 +79,23 @@ async function coinsOf(account: Address, extra: Address[]): Promise<Address[]> {
   return [...set.values()];
 }
 
-export async function loadPortfolio(pc: PublicClient, account: Address, extra: Address[] = []): Promise<Portfolio> {
+/**
+ * `o.blockNumber`: balances read AT that block (lib/fillBook readAtOrAfter: ≥ our last fill's receipt block, so a lagging
+ * public-RPC node can't serve the pre-fill balances); a node without that block rejects the read ⇒ the caller retries.
+ */
+export async function loadPortfolio(pc: PublicClient, account: Address, extra: Address[] = [], o: { blockNumber?: bigint } = {}): Promise<Portfolio> {
   const usdg = deployment().usdg;
+  const at = o.blockNumber !== undefined ? { blockNumber: o.blockNumber } : {};
   const [cashRaw, dec, coins] = await Promise.all([
-    pc.readContract({ address: usdg, abi: tokenAbi, functionName: "balanceOf", args: [account] }) as Promise<bigint>,
+    pc.readContract({ address: usdg, abi: tokenAbi, functionName: "balanceOf", args: [account], ...at }) as Promise<bigint>,
     decimalsOf(pc, usdg),
     coinsOf(account, extra),
   ]);
   const holdings = (await Promise.all(coins.map(async (coin): Promise<Holding | null> => {
+    // pinned read: a node without the block must fail the whole read (caller retries), not drop the coin as "0"
+    const pinned = o.blockNumber !== undefined ? await pc.readContract({ address: coin, abi: erc20, functionName: "balanceOf", args: [account], ...at }) : undefined;
     try {
-      const bal = await pc.readContract({ address: coin, abi: erc20, functionName: "balanceOf", args: [account] });
+      const bal = pinned ?? await pc.readContract({ address: coin, abi: erc20, functionName: "balanceOf", args: [account] });
       if (bal === BigInt(0)) return null;
       const [pn, p24] = await Promise.all([priceNow(pc, coin), cachedPrice24h(coin)]);
       return { coin, tokens: Number(bal) / 1e18, priceNow: pn, price24h: p24 };
