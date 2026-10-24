@@ -22,7 +22,7 @@ const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "fun
 const lp = parseAbi([
   "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
   "struct R { address token; address curve; uint256 creatorTokensBought; }",
-  "function launchWithMode(P,uint8) returns (R)", "function quoteCreatorBuy(address,uint256) view returns (uint256,uint256,uint256,uint256,bool)"]);
+  "error BadMode()", "function launchWithMode(P,uint8) returns (R)", "function quoteCreatorBuy(address,uint256) view returns (uint256,uint256,uint256,uint256,bool)"]);
 const cv = parseAbi([
   "struct Q { uint256 tokensOut; uint256 fee; uint256 snipeFee; uint256 quoteToCurve; uint256 priceAfterX18; uint256 impactBps; uint256 mcapAfterUsd; bool graduates; uint256 refund; }",
   "function quoteBuy(uint256) view returns (Q)", "function buy(uint256,uint256,uint256,address) returns (uint256)",
