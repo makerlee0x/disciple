@@ -1,7 +1,7 @@
 # DISCIPLE testnet redeploy runbook (RH testnet 46630)
 
 One redeploy that ships: steep curve #1 (84.24% sold, $3,333 → $33,333), the 16-band USDG-only graduation floor,
-FeeRouter `referralSink`, the 77s sniper tax (99% → 0) held in escrow and sent to the compound bucket at graduation,
+FeeRouter `referralSink`, the 7s sniper tax (99% at launch, 25% at 1s, 3% at 2s, 0 from 7s; per-second table) held in escrow and sent to the compound bucket at graduation,
 a 6-decimal mock USDG (like mainnet), AnonLauncher v2, and (via #106) the USDG paymaster + session policy 1.4.0.
 
 Nothing here runs by itself. **Broadcast only on lee's GO, after AUDIT signs off.**
@@ -50,7 +50,7 @@ Conflict hotspots (files changed on main since 38e8802e that the stack also chan
    at 0.01 gwei ≈ 0.0004 ETH + L1 data; paymaster deposit/stake extra).
 7. Confirm env with lee: `TREASURY`, `REWARDS_VAULT_OWNER`, `PVE_ATTESTER` (must match the key SITE signs logins with), `REFERRAL_SINK` (default 0).
 8. `cfg` lines in the deploy log must read: USDG decimals 6, CURVE_SOLD_BPS 8424, START 3333, GRADUATION 33333,
-   ANTI_SNIPE 9900 / 77, MAX_FLOOR_BANDS 16, referralSink 0x0.
+   ANTI_SNIPE 9900 / 7 s (table 9900·2500·300·100·30·10·3, 0 from 7 s), MAX_FLOOR_BANDS 16, referralSink 0x0.
 
 ## 3. Core deploy
 
@@ -159,13 +159,14 @@ Check the indexer catches up to head and that the smoke coin appears.
 
 ```bash
 cd contracts; set -a; . /workspace/anypair/.secrets/testnet-deployer.env; set +a
-GRADUATE=1 node script/redeploy/smoke.mjs     # waits out the 77s window in real time; ~9,000 USDG minted from the mock
+GRADUATE=1 node script/redeploy/smoke.mjs     # waits out the 7s window in real time; ~9,000 USDG minted from the mock
 ```
 
 Checks (each prints PASS/FAIL, exit 1 on any FAIL, writes `deployments/rh-testnet-46630.smoke.json`):
 USDG decimals 6 · `referralSink` = 0 (or `EXPECT_REFERRAL_SINK`) · RewardsVault wired · `AnonLauncher.MAX_LAUNCH_FEE() == 5 * 10**usdg.decimals()`
 and `launchFee` ≤ it · `FeeRouter.isClaimRouter(DiscipleRouter)` · SEC-01 (`addLockedLiquidity` from an EOA reverts) ·
-sniper buy inside 77s is taxed into `snipeEscrow`, no `SnipeFeeRouted`, RewardsVault delta 0 · tax 0 after 77s ·
+First BOOST sniper-exempt (`snipeEscrow` 0 after launch) · sniper buy inside 7s is taxed into `snipeEscrow` at exactly the table
+value for its second (fork: pinned to launch+1s = 25%), no `SnipeFeeRouted`, RewardsVault delta 0 · tax 0 from 7s ·
 graduation: `quoteBuy.graduates`, `GraduatedToV4`, tokens sold = 84.24%, mcap = $33,333 (±0.1%) ·
 floor: `FloorSeeded` with 16 bands, ≈ $1,201.27 seeded (±1%), all bands quote-only (tokenAmount 0) and summing to `quoteSeeded` ·
 `SnipeEscrowToLP` = escrow and compound bucket ≥ escrow · progress 10000 · graduating-buy tx gas ≤ 3.0M (AUDIT measured ≈ 2.764M
@@ -177,7 +178,7 @@ Optional: `node script/redeploy/fixtures.mjs fresh|near|grad|pve` for replay coi
 ```bash
 anvil --fork-url https://rpc.testnet.chain.robinhood.com --port 8545 --silent &   # chain id 46630
 cd contracts && FORK=1 ./script/redeploy/redeploy.sh                              # anvil key #0; writes deployments/fork/ (gitignored)
-FORK=1 node script/redeploy/smoke.mjs                                            # evm_increaseTime skips the 77s window
+FORK=1 node script/redeploy/smoke.mjs                                            # snipe pinned to launch+1s; evm_increaseTime skips the 7s window
 FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                   # optional STRATEGY coin + router swaps
 ```
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
