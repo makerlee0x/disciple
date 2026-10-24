@@ -67,10 +67,12 @@ export async function getSigner(): Promise<Signer> {
 
 /* ---------------- smart account (one-tap) seam ---------------- */
 import type { Call } from "./aa/core";
-import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import type { SendOpts } from "./aa/fastPath";
+import type { GasOpKind } from "./aa/gasReserve";
+import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaPeekGasReservePerOp, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import type { Hex, LocalAccount } from "viem";
 
-export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string };
+export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string; /** GAME reservation id (SendOpts.pressId) */ pressId?: string };
 
 /** Smart-account mode is on when a session exists; otherwise the legacy EOA path is used. */
 export const isSmartMode = () => !!aaSession();
@@ -111,14 +113,29 @@ export async function activeAddress(): Promise<Address> {
 }
 
 /**
+ * Rapid taps (GAME): USDG base units one pending trade may still take for network fees — SYNC, never awaits.
+ *   reserve = liveCash − Σ pending (amountIn + gasReservePerOp())
+ * Warm: the fresh allowance's real maxTokenCost (never min'd with an estimate); cold: derived (lib/aa/gasReserve:
+ * gas limit × the allowance's maxFee formula at the live gas price × the paymaster rate ≈ $0.3–0.5/trade today);
+ * 0n when gas isn't paid in USDG (EOA / ETH). kind: "trade" (buy / sell, default) | "gradBuy".
+ */
+export function gasReservePerOp(kind: GasOpKind = "trade"): bigint { return isSmartMode() ? aaGasReservePerOp(kind) : BigInt(0); }
+// SITE #144 (lib/trade/reservations, not in this base yet) — at rebase add, once at module scope here:
+//   import { setGasReserveSource } from "@/lib/trade/reservations";
+//   setGasReserveSource(() => gasReservePerOp());   // raw USDG base units (18 dec testnet mUSDG, 6 mainnet); 0n ⇒ ETH gas
+/** Same, but null while cold (no fresh allowance yet) instead of the derived value. */
+export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null { return isSmartMode() ? aaPeekGasReservePerOp(kind) : BigInt(0); }
+export type { GasOpKind } from "./aa/gasReserve";
+
+/**
  * Execute a call list. Smart account ⇒ ONE sponsored (or self-paid) userOp, no popup.
  * EOA ⇒ legacy: one tx per call, in order.
  */
-export async function execCalls(calls: Call[]): Promise<ExecResult> {
+export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecResult> {
   if (!isSmartMode() && !plainWallet) throw new SignInRequired();
   if (isSmartMode()) {
-    const r = await aaSend(calls);
-    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };
+    const r = await aaSend(calls, o);
+    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode, pressId: r.pressId };
   }
   const w = await getSigner();
   const { createPublicClient, http } = await import("viem");

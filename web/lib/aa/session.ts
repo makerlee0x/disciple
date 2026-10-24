@@ -15,6 +15,8 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
+import { newPressId, tagPress, type SendOpts } from "./fastPath";
+import { derivedGasReserve, fallbackUsdgDecimals, type GasOpKind } from "./gasReserve";
 import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
@@ -117,6 +119,7 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
   save();
   const a = await sa.address();
+  void sa.warmGasReserve().catch(() => undefined);   // rapid taps: gasReservePerOp is warm before the first tap
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
   else void maybeAutoOneTap("login");
@@ -177,12 +180,12 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
  * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
  * fresh nonce key. No refill available ⇒ the original FundAccount error.
  */
-async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address) {
-  try { return await sa!.sendCalls(calls, as); }
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, o: SendOpts = {}) {
+  try { return await sa!.sendCalls(calls, { ...o, as }); }
   catch (e) {
     // a USDG shortfall (USDG-paid network cost) can't be fixed by an ETH refill: surface "Not enough USDG" as is
     if ((e as AAError).code !== "FundAccount" || (e as AAError).extra?.usdg || !(await refillGas(me))) throw e;
-    return sa!.sendCalls(calls, as);
+    return sa!.sendCalls(calls, { ...o, as });
   }
 }
 /** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
@@ -406,6 +409,22 @@ export async function endOneTap() {
   return r;
 }
 
+/**
+ * Rapid taps (GAME cash reservation), SYNC, USDG base units: what one pending op may still take for gas.
+ *   reserve = liveCash − Σ pending (amountIn + aaGasReservePerOp())
+ * peek: the WARM value (fresh allowance: its real maxTokenCost; grad buys: the per-op bound) or null while cold;
+ * 0n when gas isn't paid in USDG. kind: "trade" (buy / sell, default) | "gradBuy". See lib/aa/gasReserve.
+ */
+export function aaPeekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
+  if (sa) return sa.peekGasReservePerOp(kind);
+  return usdgGasConfig() ? null : BigInt(0);
+}
+/** Never null: warm value, else derived from gas limit × allowance-formula maxFee(gas price) × rate (config before any RPC). */
+export function aaGasReservePerOp(kind: GasOpKind = "trade"): bigint {
+  if (sa) return sa.gasReservePerOp(kind);
+  return usdgGasConfig() ? derivedGasReserve({ kind, decimals: fallbackUsdgDecimals(ACTIVE_CHAIN.id) }) : BigInt(0);
+}
+
 /** Keep the smart account hot: clients + deployment status + fee cache (client) and relayer nonce/fees (server). */
 export async function aaWarm() {
   if (!sa) return;
@@ -432,7 +451,16 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  * budget has headroom; otherwise the owner (Privy embedded wallet, signs silently). Never refuses for "spend limit":
  * an exhausted session just means the owner signs (bug #1).
  */
-export async function aaSend(calls: Call[]) {
+/**
+ * GAME: `o0.pressId` is the caller's reservation id (optional; generated when absent). It is reused on every retry
+ * (fee floor, TRANSIENT_SIM rebuild, gas refill, owner fallback) and echoed on every "disciple:op" event
+ * (submitted/confirmed/error), on SendResult.pressId, and on every thrown error (AAError.extra.pressId / err.pressId).
+ */
+export async function aaSend(calls: Call[], o0: SendOpts = {}) {
+  const o: SendOpts = { ...o0, pressId: o0.pressId ?? newPressId() };   // one press: refill retry + owner fallback share it
+  try { return await aaSend1(calls, o); } catch (e) { tagPress(e, o.pressId!); throw e; }
+}
+async function aaSend1(calls: Call[], o: SendOpts) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
   const me = await sa.address();
@@ -450,13 +478,13 @@ export async function aaSend(calls: Call[]) {
   const spend = quoteSpend(delta);
   const asSession = policyOk && (await canUseSessionKey(calls)) && sessionHasHeadroom(onchain, spend);
   let r;
-  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, o); }
   catch (e) {
     const ae = e as AAError;
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
-      r = await sa.sendCalls(calls, "owner");
+      r = await sa.sendCalls(calls, { ...o, as: "owner" });
     } else throw e;
   }
   gasListeners.forEach((f) => f("self-pay"));

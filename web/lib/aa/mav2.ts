@@ -11,14 +11,15 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, type GasLimits, type Fees } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend, relayUnclear } from "./relayClient";
-import type { RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
+import type { RelayErrorData, RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
+import { PaymasterCapCache, fallbackUsdgDecimals, peekReserve, reserveOrDerived, type GasOpKind, type WarmAllowance } from "./gasReserve";
 /** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
 export const NEXT_BLOCK_MS = 170;
 const nextBlock = () => new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
@@ -42,10 +43,19 @@ export function opRevertReason(logs: { address: string; data: Hex; topics: Hex[]
  * "simulation failed" — and the standard-path fallback re-sent the same nonce (AA25 ⇒ "simulation failed") — while
  * the first send went through. Now we look the op up on-chain first.
  */
-export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|502|503|504|FUNCTION_INVOCATION/i;
-/** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
-/** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
- * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
+export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|unreadable|internal error|context canceled|socket|ECONN|502|503|504|FUNCTION_INVOCATION/i;
+/**
+ * AUDIT L2 (client side): the relay error MAY mean the op is in ⇒ look it up (receipt by txHash, else a userOpHash log
+ * scan) and, if not found, report "still confirming" — NEVER resend / re-sign / retry. True when the relay reported a
+ * txHash without notSent (it signed and can't prove the node refused), or the message / transport is ambiguous.
+ */
+export function relayErrorUnclear(err: { code?: number; message: string; data?: unknown }): boolean {
+  if (err.code === -32601 || err.code === -32005 || err.code === -32003) return false;   // method missing / rate limited / relayer off: nothing sent
+  const d = err.data as { txHash?: unknown; notSent?: unknown } | undefined;
+  if (d && typeof d === "object" && typeof d.txHash === "string") return d.notSent !== true;
+  if (/simulation failed/i.test(err.message)) return false;   // the relay's pre-flight: rejected before signing (no txHash)
+  return AMBIGUOUS_RELAY.test(err.message);
+}
 const STILL_CONFIRMING = "Trade sent — still confirming on-chain. Check your balance in a moment.";
 /** AAError("Timeout").extra for an UNCLEAR outcome: the relay fields (relayNonce = the RELAYER EOA nonce) + the smart
  * account `sender` and the op's own EntryPoint v0.7 `nonce` (bigint; SITE's watcher checks it for landed / dropped). */
@@ -54,6 +64,19 @@ export function unclearExtra(u: RelayUnclearInfo, userOpHash: Hex, op: { sender:
   try { if (op.nonce !== undefined) nonce = BigInt(op.nonce); } catch { /* malformed: leave it out */ }
   return { ...u, userOpHash, sender: op.sender, ...(nonce !== undefined ? { nonce } : {}) };
 }
+/** The unclear fields of a relay error the client treats as "may be in" (relayErrorUnclear): relayUnclear() when the
+ * relay / message says so, else (e.g. AA25 / "already known" / internal error after signing) the ids the relay sent,
+ * reason "network" (no usable answer). */
+export function unclearOf(err: { code?: number; message: string; data?: unknown }, userOpHash?: Hex): RelayUnclearInfo {
+  const u = relayUnclear(err, userOpHash);
+  if (u) return u;
+  const d = err.data && typeof err.data === "object" ? (err.data as RelayErrorData) : undefined;
+  const uoh = d?.userOpHash ?? userOpHash;
+  return { unclear: true, reason: "network", ...(uoh ? { userOpHash: uoh } : {}), ...(d?.txHash ? { txHash: d.txHash } : {}), ...(typeof d?.relayNonce === "number" ? { relayNonce: d.relayNonce } : {}) };
+}
+/** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
+/** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
+ * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
 export const TRANSIENT_SIM = /AA23|AA24|SessionInactive|0xf9be14df|ERC20InsufficientBalance|0xe450d38c|exceeds balance|insufficient balance/i;
 
 const BUNDLER_METHODS = [
@@ -69,7 +92,10 @@ const BUNDLER_METHODS = [
  * minimum via rundler_maxPriorityFeePerGas (+10% headroom, the precheck floor moves with the base fee).
  */
 /** UserOp lifecycle → window "disciple:op" (optimistic UI + latency marks). No-op outside the browser. */
-export type OpPhase = { phase: "submitted" | "confirmed"; userOpHash: Hex; txHash?: Hex; timings?: unknown };
+/** `pressId` (GAME reservation id = SendOpts.pressId, caller-supplied or generated) is on EVERY event of the press, all
+ * retries included. "submitted" = pending (op handed to the relay / tx known). "error" = the press failed (terminal);
+ * `code` is the AAError code when known. */
+export type OpPhase = { phase: "submitted" | "confirmed" | "error"; userOpHash?: Hex; txHash?: Hex; timings?: unknown; pressId?: string; code?: string; message?: string };
 function opPhase(d: OpPhase) { if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("disciple:op", { detail: { ...d, at: performance.now() } })); }
 
 type FeeClient = { request: (a: { method: string; params?: unknown[] }) => Promise<Hex>; estimateFeesPerGas: () => Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint }> };
@@ -140,7 +166,7 @@ export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; sal
 /** Per-stage latency (ms) of one op. build = calldata+nonce+fees+gas, sign = signature, rpc = client→server→client,
  * server = self-bundler stages (sign tx, send, mined/receipt) when the sync method is used. */
 export type OpTimings = { build: number; sign: number; rpc: number; total: number; fast: boolean; server?: Record<string, number> };
-export type SendResult = { userOpHash: Hex; txHash: Hex; receipt: UserOpReceipt; gasMode: GasMode; timings?: OpTimings };
+export type SendResult = { userOpHash: Hex; txHash: Hex; receipt: UserOpReceipt; gasMode: GasMode; timings?: OpTimings; /** GAME: the press/reservation id (SendOpts.pressId) */ pressId?: string };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 function absUrl(u: string) {
@@ -159,6 +185,10 @@ export class Mav2Account {
   private sessionClient?: { entityId: number; c: Promise<any> };
   /** Pre-issued per-sender paymaster allowance (item 5): 0 pm_* calls on a warm USDG-gas trade. */
   readonly allowances?: AllowanceCache;
+  /** paymaster.maxCostCap() + USDG decimals, read at warm (gasReservePerOp's second tier). */
+  readonly caps = new PaymasterCapCache();
+  /** The account address once known (warm / first send): lets the SYNC gas-reserve read peek the allowance. */
+  private senderAddr?: Address;
   constructor(private o: Mav2Opts, private owner: LocalAccount) {
     this.gasMode = o.usdgGas ? "usdg" : "self-pay";
     if (o.usdgGas) this.allowances = new AllowanceCache({ url: absUrl(o.usdgGas.url), chainId: o.chain.id });
@@ -235,7 +265,9 @@ export class Mav2Account {
   deployed?: boolean;
   async warm() {
     const c = await (this.sessionClient ? this.sessionClient.c : this.owned());
+    this.senderAddr = c.account.address as Address;
     await Promise.all([
+      this.warmGasReserve(),
       this.deployed ? 0 : c.account.isAccountDeployed?.().then((d: boolean) => { this.deployed = d; }),
       FEES.get(() => fetchFees(c as unknown as FeeClient)),
       this.allowances?.refresh(c.account.address as Address),
@@ -249,13 +281,35 @@ export class Mav2Account {
    * No queue: each op takes its own nonce key, so rapid shots are in flight at once. Fast path (warm preset):
    * nonce/fees/gas are local, the op is signed in memory and sent with ONE round trip to /api/bundler
    * (disciple_sendUserOperationSync: the self-bundler relays handleOps immediately and answers with the receipt).
+   * `o.rebuild` (rapid taps): the ONE transient-error retry re-quotes via rebuild() (fresh minOut) instead of re-sending
+   * the stale calls; every attempt, retries included, takes a fresh 2D nonce key. The fee-floor retry keeps the calls.
+   * Shapes: sendCalls(calls, { rebuild, as, feeRetry, pressId }) (SITE #144) or the positional (calls, as, feeRetry, o).
    */
-  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true): Promise<SendResult> {
+  async sendCalls(calls: Call[], asOrOpts: "owner" | "session" | SendCallsOpts = "owner", feeRetry0 = true, o0: SendOpts = {}): Promise<SendResult> {
+    const so: SendCallsOpts = typeof asOrOpts === "string" ? { ...o0, as: asOrOpts, feeRetry: feeRetry0 } : asOrOpts;
+    const pressId = so.pressId ?? newPressId();   // same press id on every retry (GAME: the caller's reservation id)
+    const top = !this.pressDepth.has(pressId);    // retries re-enter sendCalls with the same id: ONE error event per press
+    if (top) this.pressDepth.add(pressId);
+    try {
+      const r = await this.sendCalls1(calls, { ...so, pressId });
+      return { ...r, pressId };
+    } catch (e) {
+      tagPress(e, pressId);
+      if (top) { const ae = e as AAError; opPhase({ phase: "error", pressId, code: ae?.code, message: (ae as Error)?.message?.slice(0, 200), userOpHash: ae?.extra?.userOpHash as Hex | undefined, txHash: ae?.extra?.txHash as Hex | undefined }); }
+      throw e;
+    } finally { if (top) this.pressDepth.delete(pressId); }
+  }
+  private readonly pressDepth = new Set<string>();
+
+  private async sendCalls1(calls: Call[], so: SendCallsOpts & { pressId: string }): Promise<SendResult> {
+    const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
+    const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId };
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
     const uo = calls.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
     const sender: Address = client.account.address;
+    this.senderAddr = sender;
     const nonce = this.nonces.next(session ? this.sessionClient!.entityId : 0, !session);
     const kind = `${as}|${callsKind(calls)}`;
     // Launches (≈ 6M+ execution gas) ALWAYS estimate: STATIC_GAS (1.8M) runs out and a cached 1.5x would exceed the
@@ -312,7 +366,7 @@ export class Mav2Account {
         // `usdg: true` ⇒ session.ts skips the ETH refill (it can't cover a USDG shortfall).
         if (e instanceof PaymasterRpcError) {
           if (/not enough USDG/i.test(e.message)) throw new AAError("FundAccount", NOT_ENOUGH_USDG, { address: sender, data: e.data, usdg: true, detail: e.message });
-          if (feeRetry && /fee below relayer floor/i.test(e.message)) { FEES.invalidate(); return this.sendCalls(calls, as, false); }
+          if (feeRetry && /fee below relayer floor/i.test(e.message)) { FEES.invalidate(); return this.sendCalls(calls, as, false, o); }
           throw new AAError("Bundler", TRADING_UNAVAILABLE, { data: e.data, detail: `paymaster: ${e.message.split("\n")[0].slice(0, 300)}` });
         }
         // client-side paymasterData checks (paymaster.ts) — real reverts from estimation still go through fail()
@@ -324,10 +378,10 @@ export class Mav2Account {
       const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       if (this.syncOk !== false) {
-        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
+        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
         if (r) return r;
       }
-      return this.sendRaw(wire, hash, kind, t0, fail, "usdg");
+      return this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);
     }
 
     // ---- fast path: warm preset + self-bundler sync method
@@ -339,7 +393,7 @@ export class Mav2Account {
       const t2 = now();
       const wire = deepHexlify(signed) as UserOp;
       const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
-      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient });
+      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient });
       if (r) return r;
     }
     // ---- standard path (first trade of a preset, or Alchemy): estimate once, then cache the limits
@@ -348,15 +402,17 @@ export class Mav2Account {
     catch (e) {
       const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
       // self-bundler eth_sendUserOperation broadcasts, then waits ≤25 s for the receipt: a timeout is NOT a failed simulation
-      if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.");
-      if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(calls, as, false); }
+      if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", STILL_CONFIRMING);
+      // AUDIT L2: a transport / internal error may follow a broadcast ⇒ "still confirming", never a retry
+      if (/fetch failed|failed to fetch|network|socket|ECONN|unreadable|internal error|context canceled|\b50[234]\b|FUNCTION_INVOCATION/i.test(m)) throw new AAError("Timeout", STILL_CONFIRMING, { detail: m.split("\n")[0].slice(0, 300) });
+      if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(await retryCalls(calls, o), as, false, o); }
       return fail(e);
     }
     const t1 = now();
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
     if (!gas && !launch && !grad && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
       this.gas.set(kind, { callGasLimit: BigInt(rq.callGasLimit), verificationGasLimit: BigInt(rq.verificationGasLimit), preVerificationGas: BigInt(rq.preVerificationGas) });
-    opPhase({ phase: "submitted", userOpHash: req.hash });
+    opPhase({ phase: "submitted", userOpHash: req.hash, pressId: o.pressId });
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
     catch { throw new AAError("Timeout", `UserOp ${req.hash} not mined yet`, unclearExtra({ unclear: true, reason: "receipt-timeout" }, req.hash, { sender, nonce: (req.request as { nonce?: Hex }).nonce })); }
@@ -367,27 +423,71 @@ export class Mav2Account {
     const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
-    opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings });
+    opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings, pressId: o.pressId });
     this.deployed = true;
     return { userOpHash: req.hash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
+  }
+
+  /**
+   * Rapid taps (GAME): USDG base units one pending op may still take for gas — SYNC, never awaits (lib/aa/gasReserve).
+   * 0n when gas isn't paid in USDG; WARM (fresh allowance): its real maxTokenCost (trade) / the grad per-op bound;
+   * null when cold. `kind`: "trade" (buy/sell, default) | "gradBuy".
+   * USDG gas configured ⇒ reserved whichever key signs (a session op may fall back to the owner, which pays in USDG).
+   */
+  peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
+    const pm = this.o.usdgGas;
+    const a = pm && this.senderAddr ? this.allowances?.peek(this.senderAddr) : undefined;
+    let allowance: WarmAllowance | undefined;
+    if (a) {
+      const d = a.disciple;
+      allowance = { maxTokenCost: BigInt(d.maxTokenCost), rate: BigInt(d.rate), debt: BigInt(d.debt), maxFeePerGas: BigInt(d.maxFeePerGas) };
+      this.lastRate = allowance.rate;
+    }
+    return peekReserve({ usdgGas: !!pm, kind, allowance, opMaxFee: FEES.peek()?.maxFeePerGas, cap: this.caps.peek()?.cap });
+  }
+  /** The paymaster's signed rate from the last fresh allowance (cold derivation prefers it over the config ETH/USD). */
+  private lastRate?: bigint;
+  /** peekGasReservePerOp, or (cold) the derived value: gas limit × allowance-formula maxFee(live gas price) × rate. */
+  gasReservePerOp(kind: GasOpKind = "trade"): bigint {
+    return reserveOrDerived(this.peekGasReservePerOp(kind), {
+      kind, gasPriceWei: this.caps.gasPrice(), rate: this.lastRate, cap: this.caps.peek()?.cap,
+      decimals: this.caps.peek()?.decimals ?? fallbackUsdgDecimals(this.o.chain.id),
+    });
+  }
+  /** Warm every reserve input off the trade path (session start + warm()): gas price, maxCostCap + decimals, the
+   * allowance (its maxTokenCost is the real warm value). */
+  async warmGasReserve() {
+    const pm = this.o.usdgGas; if (!pm) return;
+    const me = this.senderAddr ?? (this.senderAddr = await this.address().catch(() => undefined));
+    await Promise.all([
+      this.caps.warmGasPrice(this.o.pc), this.caps.warm(this.o.pc, pm.paymaster, pm.usdg),
+      me ? this.allowances?.refresh(me).catch(() => undefined) : undefined,
+    ]);
   }
 
   private usdgGasFor(as: "owner" | "session") { const u = this.o.usdgGas; return !!u && (as === "owner" || u.session); }
 
   /** One round trip: disciple_sendUserOperationSync. null ⇒ the server doesn't support it (Alchemy): use the standard path. */
   private async relaySync(wire: UserOp, hash: Hex | undefined, c: {
-    sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; fail: (e: unknown) => Promise<never>;
+    sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; opts: SendOpts; fail: (e: unknown) => Promise<never>;
     t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
   }): Promise<SendResult | null> {
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
-      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash }));
+      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash, pressId: c.opts.pressId }), fetch, { pressId: c.opts.pressId });
       const t3 = now();
-      // Ambiguous failure (lost response, receipt timeout, nonce already used): the op may have landed — check before failing.
-      if (j.error && hash && j.error.code !== -32601 && AMBIGUOUS_RELAY.test(j.error.message)) {
-        // the relay always reports the tx hash once it signed: ONE receipt read for it; log scan only without a hash
+      // Ambiguous failure (lost response, receipt timeout, -32603 after acceptance, nonce already used): the op may have
+      // landed — look it up; not found ⇒ "still confirming", never a resend (AUDIT L2: a resend can trade twice).
+      if (j.error && relayErrorUnclear(j.error)) {
+        // the relay always reports the tx hash once it signed: ONE receipt read for it, then the userOpHash log scan
         const txh = (j.error.data as { txHash?: Hex } | undefined)?.txHash;
-        const got = txh ? await this.receiptFor(txh, hash) : await this.findOp(hash, c.sender);
+        const got = hash ? (txh ? await this.receiptFor(txh, hash) : null) ?? await this.findOp(hash, c.sender) : null;
         if (got) j = { result: { kind: "confirmed", via: "rpc-wait", t: { simulate: 0, signTx: 0, send: 0, mined: 0, total: 0 }, receipt: { transactionHash: got.txHash, blockHash: "0x", blockNumber: "0x0", status: "0x1", gasUsed: "0x0", logs: got.logs }, ...got } };
+        else {
+          // #141: the unclear fields (reason, txHash, relayNonce, userOpHash, sender, EntryPoint nonce) for SITE's watcher
+          const u = unclearOf(j.error, hash);
+          const detail = j.error.message.split("\n")[0].slice(0, 300);
+          throw new AAError("Timeout", STILL_CONFIRMING, u.userOpHash ? { ...unclearExtra(u, u.userOpHash, { sender: c.sender, nonce: wire.nonce }), detail } : { ...u, sender: c.sender, detail });
+        }
       }
       // Still no answer and the outcome is unclear (receipt timeout, lost stream, network): NEVER a definite failure and
       // never a retry / re-sign (it may land). AAError("Timeout").extra = RelayTimeoutExtra { unclear, reason, userOpHash,
@@ -396,21 +496,21 @@ export class Mav2Account {
       const unclear = j.error && j.error.code !== -32601 ? relayUnclear(j.error, hash) : null;
       if (unclear) {
         const uoh = unclear.userOpHash;
-        if (uoh) opPhase({ phase: "submitted", userOpHash: uoh, txHash: unclear.txHash });
+        if (uoh) opPhase({ phase: "submitted", userOpHash: uoh, txHash: unclear.txHash, pressId: c.opts.pressId });
         throw new AAError("Timeout", STILL_CONFIRMING, uoh ? unclearExtra(unclear, uoh, { sender: c.sender, nonce: wire.nonce }) : { ...unclear, sender: c.sender });
       }
       if (j.error && c.gasMode === "usdg" && /AA3[0-9]|MaxCostTooLow|signature error/i.test(`${j.error.message} ${String(j.error.data ?? "")}`)) this.allowances?.invalidate(c.sender);
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
         await nextBlock();
-        return this.sendCalls(c.calls, c.as, false);
+        return this.sendCalls(await retryCalls(c.calls, c.opts), c.as, false, c.opts);
       }
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
       else if (j.error && c.feeRetry && /fee below relayer floor/i.test(j.error.message)) {
         // cached fees went stale (base fee rose): nothing was sent; refresh fees and re-sign once
         FEES.invalidate();
         await FEES.get(() => fetchFees(c.feeClient)).catch(() => undefined);
-        return this.sendCalls(c.calls, c.as, false);
+        return this.sendCalls(c.calls, c.as, false, c.opts);
       } else if (j.error) {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(c.kind);   // stale limits → re-estimate next time
         // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the
@@ -424,10 +524,10 @@ export class Mav2Account {
       } else if (j.result) {
         this.syncOk = true;
         const { userOpHash, txHash, success, logs } = j.result;
-        opPhase({ phase: "submitted", userOpHash, txHash });
+        opPhase({ phase: "submitted", userOpHash, txHash, pressId: c.opts.pressId });
         const timings: OpTimings = { build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), rpc: Math.round(t3 - c.t2), total: Math.round(t3 - c.t0), fast: true, server: j.result.t as Record<string, number> };
         if (!success) { this.gas.drop(c.kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { txHash, revertData: opRevertReason(logs, userOpHash) }); }
-        opPhase({ phase: "confirmed", userOpHash, txHash, timings });
+        opPhase({ phase: "confirmed", userOpHash, txHash, timings, pressId: c.opts.pressId });
         this.deployed = true;
         return { userOpHash, txHash, gasMode: c.gasMode, receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
       }
@@ -435,24 +535,33 @@ export class Mav2Account {
   }
 
   /** Standard eth_sendUserOperation for an already-signed op (USDG-gas ops on a bundler without the sync method). */
-  private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode): Promise<SendResult> {
+  private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string): Promise<SendResult> {
     const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
     if (j.error) {
       if (/not confirmed|timeout/i.test(j.error.message))
         throw new AAError("Timeout", STILL_CONFIRMING, unclearExtra(relayUnclear({ message: j.error.message, data: j.error.data }, hash) ?? { unclear: true, reason: "receipt-timeout" }, hash, wire));
+      // AUDIT L2: unreadable answer / internal error after the POST — the op may be in: look it up, never resend
+      if (j.error.unreadable || relayErrorUnclear(j.error)) {
+        const got = await this.findOp(hash, wire.sender);
+        if (!got) throw new AAError("Timeout", STILL_CONFIRMING, { ...unclearExtra(unclearOf(j.error, hash), hash, wire), detail: j.error.message.split("\n")[0].slice(0, 300) });
+        if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
+        opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, pressId });
+        this.deployed = true;
+        return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } } };
+      }
       // unreadable response / relay policy (gas caps, paymaster deposit): plain copy; real reverts still decode via fail()
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
       return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
     }
-    opPhase({ phase: "submitted", userOpHash: hash });
+    opPhase({ phase: "submitted", userOpHash: hash, pressId });
     const got = await this.findOp(hash, wire.sender, 30_000);
     if (!got) throw new AAError("Timeout", STILL_CONFIRMING, unclearExtra({ unclear: true, reason: "receipt-timeout" }, hash, wire));
     if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
     const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: false };
-    opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings });
+    opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings, pressId });
     this.deployed = true;
     return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } }, timings };
   }

@@ -28,6 +28,10 @@ export interface Kv {
   incrEx(k: string, ttlSec: number): Promise<number>;
   /** Seconds until k expires (-1 no ttl, -2 missing). */
   ttl(k: string): Promise<number>;
+  /** Atomic compare-and-expire: reset k's TTL to ttlSec only while k == v (lease renewal). true if refreshed. */
+  expireIfEq(k: string, v: string, ttlSec: number): Promise<boolean>;
+  /** Atomic compare-and-delete: DEL k only while k == v (lease release by its owner token). true if deleted. */
+  delIfEq(k: string, v: string): Promise<boolean>;
 }
 
 /* ---------------- local ---------------- */
@@ -56,10 +60,14 @@ function local(): Kv {
     async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
     async incrEx(k, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
     async ttl(k) { await ready; const e = live(k); return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1; },
+    async expireIfEq(k, v, ttl) { await ready; const e = live(k); if (!e || e.v !== v) return false; e.exp = Date.now() + ttl * 1000; save(); return true; },
+    async delIfEq(k, v) { await ready; const e = live(k); if (!e || e.v !== v) return false; delete st.kv[k]; save(); return true; },
   };
 }
 
 /* ---------------- Upstash REST ---------------- */
+const EXPIRE_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('EXPIRE',KEYS[1],ARGV[2]) else return 0 end";
+const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end";
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
 function upstash(url: string, token: string): Kv {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
@@ -89,6 +97,8 @@ function upstash(url: string, token: string): Kv {
     getDel: (k) => cmd<string | null>("GETDEL", k),
     async incrEx(k, ttl) { return Number(await cmd<number>("EVAL", INCR_EX_LUA, 1, k, ttl)); },
     async ttl(k) { return Number(await cmd<number>("TTL", k)); },
+    async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
+    async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },
   };
 }
 
