@@ -13,6 +13,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
+import { NO_PRICE_MSG, logTradeError } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -90,6 +91,7 @@ function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[
 /** Revert names meaning "price moved past minOut" (curve, router, v4, session policy): retried once with a fresh quote. */
 export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMuchRequested)$/;
 
+const pickIds = (x?: Record<string, unknown>) => ({ userOpHash: x?.userOpHash, txHash: x?.txHash });
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
@@ -102,7 +104,8 @@ export function friendlyError(e: unknown): ProtocolError {
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
     // FLOW 2: unknown revert ⇒ keep the real payload (selector) instead of a bare "simulation failed"
     else if (est) return new ProtocolError("Estimate", raw && raw.length >= 10 && !est.message.includes(raw.slice(0, 10)) ? `${est.message} (revert ${raw.slice(0, 10)})` : est.message);
-    else return new ProtocolError("Reverted", raw && raw.length >= 10 ? `${rv!.message} — revert ${raw.slice(0, 10)}` : rv!.message);
+    // Reverted: players see the plain line only; the unknown selector goes to the console (never hex in copy)
+    else { if (raw && raw.length >= 10) logTradeError("trade reverted (unknown reason)", { selector: raw.slice(0, 10), revertData: raw, ...pickIds(rv!.extra) }); return new ProtocolError("Reverted", rv!.message); }
   }
   if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
@@ -137,7 +140,7 @@ export function friendlyError(e: unknown): ProtocolError {
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
       SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
       MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
-      QuoteFailed: "Couldn't price that trade on-chain (too large for the curve or this rocket's per-buy cap). Try a smaller shot.",
+      QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
       SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
@@ -147,6 +150,7 @@ export function friendlyError(e: unknown): ProtocolError {
       Error: args?.[0] ? String(args[0]) : "reverted",
     };
     const pre = "";   // the decoded reason is the message; no "simulation:" prefix (FLOW 2)
+    if (name === "QuoteFailed") logTradeError("quote failed", { target: args?.[0] });
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;

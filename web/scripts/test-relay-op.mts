@@ -37,8 +37,11 @@ const rpc = (method: string, params: unknown[]): unknown => {
 };
 const realFetch = globalThis.fetch;
 let routePOST: (req: Request) => Promise<Response>;
+/** when set, answers the client's /api/bundler call instead of the real route (network failure, unreadable body, …) */
+let bundlerOverride: ((body: { params: [Record<string, unknown>] }) => Promise<Response>) | null = null;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
+  if (url.includes("/api/bundler") && bundlerOverride) return bundlerOverride(JSON.parse(String(init?.body)));
   if (url.includes("/api/bundler")) return routePOST(new Request(url, { method: "POST", body: init?.body as string, headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.1" } }));
   const body = JSON.parse(String(init?.body));
   const one = (b: { id: number; method: string; params: unknown[] }) => {
@@ -170,6 +173,78 @@ test("a relay id for a DIFFERENT op is never kept (stale / wrong id dropped)", (
   // message-only transports (viem RpcRequestError.details) still carry the id
   assert.equal(relayOpRef({ details: `eth_sendUserOperation: relayer tx ${tx} not confirmed (timeout) [userOp ${mine}]` })?.userOpHash, mine);
   assert.equal(relayOpRef({ message: "simulation failed: execution reverted" }), undefined);
+});
+
+const NO_PRICE = "Couldn't get a price right now. Try again.";
+const { encodeErrorResult } = await import("viem");
+const { AAError } = await import("../lib/aa/core");
+const errOf = (p: Promise<unknown>) => p.then(() => assert.fail("should throw"), (x) => x as { code: string; message: string; extra: Record<string, unknown> });
+
+test("client: op executed but reverted (no readable reason) → plain 'didn't go through', tx hash / ids only on extra + console", async () => {
+  warned.length = 0;
+  const tx = ("0x" + "9a".repeat(32)) as Hex;
+  bundlerOverride = async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { userOpHash: expectedHash(), txHash: tx, success: false, logs: [] } }), { status: 200 });
+  try {
+    const e = await errOf(send());
+    assert.equal(e.code, "Reverted");
+    assert.equal(e.extra.txHash, tx);
+    assert.equal(e.extra.userOpHash, expectedHash());
+    assert.equal(e.message, REJECTED);
+    assert.equal(friendlyError(e).message, REJECTED);
+    plain(friendlyError(e).message, [tx, expectedHash()]);
+    const log = warned.find((w) => String(w[0]) === "[disciple] trade reverted");
+    assert.ok(log, "logged"); assert.equal((log![1] as { txHash: Hex }).txHash, tx);
+  } finally { bundlerOverride = null; }
+});
+
+test("client: network failure before the relay answers → plain 'didn't go through', raw text to console only", async () => {
+  warned.length = 0;
+  bundlerOverride = async () => { throw new TypeError("fetch failed: getaddrinfo ENOTFOUND relay.test"); };
+  try {
+    const e = await errOf(send());
+    assert.equal(e.code, "Bundler");
+    assert.equal(e.message, REJECTED);
+    assert.equal(friendlyError(e).message, REJECTED);
+    plain(friendlyError(e).message, [expectedHash()]);
+    assert.match(String(e.extra.relayError), /^network: /, "raw detail kept on extra");
+    assert.ok(warned.some((w) => String(w[0]).startsWith("[disciple] ") && /network: /.test(JSON.stringify(w[1]))), "raw text logged");
+  } finally { bundlerOverride = null; }
+});
+
+test("client: unreadable relay response → plain 'didn't go through', HTTP detail to console only", async () => {
+  warned.length = 0;
+  bundlerOverride = async () => new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "content-type": "text/html" } });
+  try {
+    const e = await errOf(send());
+    assert.equal(e.code, "Bundler");
+    assert.equal(e.message, REJECTED);
+    assert.equal(friendlyError(e).message, REJECTED);
+    plain(friendlyError(e).message, [expectedHash()]);
+    assert.match(String(e.extra.relayError), /unreadable \(HTTP 502\)/);
+    assert.ok(warned.some((w) => String(w[0]).startsWith("[disciple] ") && /HTTP 502/.test(JSON.stringify(w[1]))), "HTTP detail logged");
+  } finally { bundlerOverride = null; }
+});
+
+test("price/quote failure (QuoteFailed, also wrapped in PreExecHookReverted) → 'Couldn't get a price right now. Try again.'", () => {
+  warned.length = 0;
+  const target = "0x00000000000000000000000000000000000000aa";
+  const inner = encodeErrorResult({ abi: parseAbi(["error QuoteFailed(address target)"]), errorName: "QuoteFailed", args: [target] });
+  const outer = encodeErrorResult({ abi: parseAbi(["error PreExecHookReverted(bytes24 moduleFunction, bytes revertReason)"]), errorName: "PreExecHookReverted", args: [`0x${"11".repeat(24)}`, inner] });
+  for (const raw of [inner, outer]) for (const code of ["Estimate", "Reverted"] as const) {
+    const pe = friendlyError(new AAError(code, "x", { revertData: raw }));
+    assert.equal(pe.code, "QuoteFailed");
+    assert.equal(pe.message, NO_PRICE);
+    plain(pe.message, [target]);
+  }
+  assert.ok(warned.some((w) => String(w[0]) === "[disciple] quote failed"), "target logged");
+});
+
+test("unknown revert selector on a Reverted op stays out of the copy (console only)", () => {
+  warned.length = 0;
+  const pe = friendlyError(new AAError("Reverted", REJECTED, { revertData: "0xcafebabe", txHash: "0x" + "12".repeat(32) }));
+  assert.equal(pe.message, REJECTED);
+  plain(pe.message, ["0xcafebabe"]);
+  assert.ok(warned.some((w) => /cafebabe/.test(JSON.stringify(w[1]))), "selector logged");
 });
 
 test.after(() => { globalThis.fetch = realFetch; console.warn = realWarn; });

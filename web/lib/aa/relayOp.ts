@@ -72,7 +72,12 @@ export const BUNDLE_REVERTED = /relayer tx 0x[0-9a-fA-F]{64} reverted/i;
  */
 export const PENDING_MSG = "Still confirming. Check back in a moment.";
 export const REJECTED_MSG = "That didn't go through. Try again.";
+export const NO_PRICE_MSG = "Couldn't get a price right now. Try again.";
 /** Console-only trace of a sent op's ids (support/debugging); never shown to players. */
 export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: string; txHash?: string }) {
   if (typeof console !== "undefined") console.warn(`[disciple] trade ${state}`, { userOpHash: ids.userOpHash, txHash: ids.txHash });
+}
+/** Console-only detail for a plain-worded trade error (ids, raw relay text, revert selector); never shown to players. */
+export function logTradeError(what: string, detail: Record<string, unknown>) {
+  if (typeof console !== "undefined") console.warn(`[disciple] ${what}`, detail);
 }

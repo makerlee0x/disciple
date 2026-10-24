@@ -14,7 +14,7 @@ import { clientFees, isLaunchCalls } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
-import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, relayOpRef } from "./relayOp";
+import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
 const uoRevertAbi = parseAbi(["event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)"]);
@@ -282,15 +282,25 @@ export class Mav2Account {
       } else if (j.error) {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(kind);   // stale limits → re-estimate next time
         // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the
-        // first landed. Relay-side errors that aren't a pre-flight rejection are labelled as such, not "simulation failed".
-        if (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message)) throw new AAError("Bundler", `relay error: ${j.error.message.split("\n")[0].slice(0, 200)}`, { userOpHash: hash });
+        // first landed. Relay-side errors that aren't a pre-flight rejection (incl. network failure / unreadable response,
+        // codes -32099 / -32098) get the plain line; the raw relay text goes to the console + extra.relayError only.
+        if (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message)) {
+          const relayError = j.error.message.split("\n")[0].slice(0, 200);
+          logTradeError("trade failed (relay error)", { code: j.error.code, relayError, userOpHash: hash });
+          throw new AAError("Bundler", REJECTED_MSG, { userOpHash: hash, relayError, rpcCode: j.error.code });
+        }
         return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
       } else if (j.result) {
         this.syncOk = true;
         const { userOpHash, txHash, success, logs } = j.result;
         opPhase({ phase: "submitted", userOpHash, txHash });
         const timings: OpTimings = { build: Math.round(t1 - t0), sign: Math.round(t2 - t1), rpc: Math.round(t3 - t2), total: Math.round(t3 - t0), fast: true, server: j.result.t };
-        if (!success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { userOpHash, txHash, revertData: opRevertReason(logs, userOpHash) }); }
+        if (!success) {
+          this.gas.drop(kind);
+          const revertData = opRevertReason(logs, userOpHash);
+          logTradeError("trade reverted", { userOpHash, txHash, revertData });
+          throw new AAError("Reverted", REJECTED_MSG, { userOpHash, txHash, revertData });
+        }
         opPhase({ phase: "confirmed", userOpHash, txHash, timings });
         this.deployed = true;
         return { userOpHash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
@@ -323,7 +333,12 @@ export class Mav2Account {
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
       success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
     } | null;
-    if (rc && !rc.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { rc, userOpHash: req.hash, txHash, revertData: opRevertReason(rc.receipt.logs ?? [], req.hash) }); }
+    if (rc && !rc.success) {
+      this.gas.drop(kind);
+      const revertData = opRevertReason(rc.receipt.logs ?? [], req.hash);
+      logTradeError("trade reverted", { userOpHash: req.hash, txHash, revertData });
+      throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: req.hash, txHash, revertData });
+    }
     const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
