@@ -15,7 +15,7 @@ const web = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), re
 let bad = 0; const ok = (c, m) => { if (c) console.log("ok   " + m); else { bad++; console.error("FAIL " + m); } };
 const { mods, cleanup } = await loadLib(undefined, "parity-");
 const { CURVE, TIERS: CFG_TIERS } = mods["config"], CM = mods["curveMath"], { FLIGHT_TIERS, tierIndexAt } = mods["flight/tiers"];
-const { LAUNCH, TIERS: SIM_TIERS, tierOf, cloneConfig, mergeTune, SIM_STORAGE } = mods["sim/config"], { Market } = mods["sim/market"], { FLOOR } = mods["sim/pool"];
+const { LAUNCH, TIERS: SIM_TIERS, tierOf, cloneConfig, mergeTune, SIM_STORAGE } = mods["sim/config"], { Market } = mods["sim/market"], { FLOOR, floorBandRanges } = mods["sim/pool"];
 
 // ---- Constants.sol (parsed, numbers only; 1e18-scaled values are de-scaled) ----
 const sol = fs.readFileSync(path.join(repo, "contracts/src/libraries/Constants.sol"), "utf8");
@@ -101,7 +101,17 @@ const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
   eq(FLOOR.flatBps, C.FLOOR_FLAT_BPS, "floor flat bps  sim ⇄ Constants"); eq(FLOOR.tickSpacing, sp ? +sp[1] : NaN, "floor tick spacing  sim ⇄ FloorBands.SPACING");
   const n = C.MAX_FLOOR_BANDS - C.FLOOR_FLAT_BANDS, w = pk ? Array.from({ length: n }, (_, j) => Number((BigInt(pk[1]) >> BigInt(16 * j)) & 0xffffn)) : [];
   ok(JSON.stringify(w) === JSON.stringify(FLOOR.bottomBps), `floor bottom weights  sim ⇄ FloorBands.BOTTOM_BPS_PACKED (${w.join(" ")})`);
-  ok(w.reduce((a, b) => a + b, 0) + C.FLOOR_FLAT_BPS === 10_000, "floor weights sum to 100%"); }
+  ok(w.reduce((a, b) => a + b, 0) + C.FLOOR_FLAT_BPS === 10_000, "floor weights sum to 100%");
+  // band split: 4 flat + 12 bottom-heavy, per Constants.sol (read-only) — the sim can't drift from the contract
+  ok(C.FLOOR_FLAT_BANDS === 4 && C.MAX_FLOOR_BANDS - C.FLOOR_FLAT_BANDS === 12 && FLOOR.flatBands === C.FLOOR_FLAT_BANDS && FLOOR.bottomBps.length === C.MAX_FLOOR_BANDS - C.FLOOR_FLAT_BANDS,
+    `floor split  sim ${FLOOR.flatBands} flat / ${FLOOR.bottomBps.length} bottom ⇄ Constants ${C.FLOOR_FLAT_BANDS} / ${C.MAX_FLOOR_BANDS - C.FLOOR_FLAT_BANDS} (= 4 / 12)`);
+  ok(Math.abs(FLOOR.flatBps / FLOOR.flatBands - 750) < 1e-9 && Math.abs(FLOOR.bottomBps[n - 1] / FLOOR.bottomBps[0] - 4) < 0.01, `floor bps  flat ${FLOOR.flatBps / FLOOR.flatBands} each, bottom/top ${(FLOOR.bottomBps[n - 1] / FLOOR.bottomBps[0]).toFixed(3)}× (4× bottom-heavy)`);
+  // geometry at graduation: the sim's bands seeded at the curve-end price reach $25K (flat) and the $3,333 bottom
+  const g = new Market(cloneConfig()); g.buy(1e9, 1e9, 0); const sv = g.pool.s, rs = floorBandRanges(sv), mc = (x) => x * x * g.S * LAUNCH.quotePriceUsd;
+  const flatLo = Math.min(...rs.slice(0, C.FLOOR_FLAT_BANDS).map((r) => r.a)), botLo = Math.min(...rs.map((r) => r.a)), top = Math.max(...rs.map((r) => r.b));
+  ok(rs.length === C.MAX_FLOOR_BANDS && Math.abs(mc(top) / C.GRADUATION_MCAP_USD - 1) < 0.01, `floor top  $${mc(top).toFixed(0)} ≈ graduation $${C.GRADUATION_MCAP_USD} (${rs.length} bands)`);
+  ok(Math.abs(mc(flatLo) / (0.75 * C.GRADUATION_MCAP_USD) - 1) < 0.01, `floor flat layer bottom  $${mc(flatLo).toFixed(0)} ≈ 0.75 × graduation ($25K)`);
+  ok(Math.abs(mc(botLo) / C.START_MCAP_USD - 1) < 0.01, `floor bottom  $${mc(botLo).toFixed(0)} ≈ Constants START_MCAP_USD $${C.START_MCAP_USD.toLocaleString()} (within 1%; ${C.FLOOR_BOTTOM_SPACINGS} spacings × ${FLOOR.tickSpacing} ticks below a tick-aligned base)`); }
 
 cleanup();
 if (bad) { console.error(bad + " FAILED"); process.exit(1); } console.log("PASS");
