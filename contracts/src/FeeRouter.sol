@@ -45,7 +45,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ///         trader's referrer, or the coin's launch KOL — the same 1% share) goes here instead. treasury →
     ///         credited to treasuryAccrued; any other address → claimable via claimReferrerFees. address(0) = off
     ///         (today's routing). Future trades only; already-accrued referral fees stay claimable. The KOL's 2% of
-    ///         the creator share is NOT redirected.
+    ///         the creator share is NOT redirected. A sink equal to the treasury follows setTreasury (audit r127).
     address public referralSink;
     /// @notice Post-grad creator share charged in the LAUNCH TOKEN (hook fee on buys) — token => creator => amount.
     mapping(address => mapping(address => uint256)) public creatorTokenAccrued;
@@ -111,11 +111,19 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         lockedLP = ILockedLP(lockedLP_);
     }
 
+    /// @dev Audit r127 Low (FeeRouter.sol:193): routeTradeFee reads `referralSink == treasury` at trade time. A sink
+    ///      set to "the treasury" follows a treasury change, so the old treasury never starts accruing the 1% as a
+    ///      referrer (and the owner's "send it to treasury" choice isn't silently dropped back to referrers).
     function setTreasury(address treasury_) external {
         if (msg.sender != owner) revert OnlyOwner();
         if (treasury_ == address(0)) revert ZeroAddress();
+        address old = treasury;
         treasury = treasury_;
         emit TreasuryUpdated(treasury_);
+        if (old != treasury_ && referralSink == old) {
+            emit ReferralSinkSet(old, treasury_);
+            referralSink = treasury_;
+        }
     }
 
     function setReferralSink(address sink) external {
