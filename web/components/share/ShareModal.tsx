@@ -55,7 +55,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
       const res = await renderShareVideo({
         coin: target.coin, ticker: target.ticker, wallet: target.wallet ?? pnl.wallet, pnl, coinFills, loadout: loadoutFromIds(ids), loadoutIds: ids,
         scene: { gainUsd: pnl.gainUsd, gainPct: pnl.gainPct, kind: pnl.kind, ticker: target.ticker, mcapStart: pnl.mcapStartUsd, mcapEnd: pnl.mcapEndUsd,
-          endTs: pnl.endTs || at, username: target.username, refLabel: refLabel(target.username, target.wallet, window.location.host), sample: !!demo,
+          endTs: pnl.endTs || at, username: target.username, refLabel: refLabel(target.username, target.wallet, window.location.host), sample: !!demo, wallet: target.wallet ?? pnl.wallet,
           fills: pnl.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })) },
         onProgress: (p, stage) => setVp({ p, stage }),
       });

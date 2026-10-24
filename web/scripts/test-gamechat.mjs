@@ -5,7 +5,7 @@ import ts from "typescript";
 const dir = path.dirname(fileURLToPath(import.meta.url)), tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gc-"));
 // format.ts imports ../config + ../flight/bombTier: transpile the three into tmp/{gamechat,flight}/ with .mjs specifiers
 fs.mkdirSync(path.join(tmp, "gamechat")); fs.mkdirSync(path.join(tmp, "flight"));
-for (const rel of ["config", "flight/bombTier", "gamechat/format"]) {
+for (const rel of ["config", "flight/bombTier", "defaultUsername", "gamechat/format"]) {
   const src = fs.readFileSync(path.join(dir, "../lib", rel + ".ts"), "utf8").replace(/from "(\.{1,2}\/[^"]+)"/g, 'from "$1.mjs"');
   fs.writeFileSync(path.join(tmp, rel + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }

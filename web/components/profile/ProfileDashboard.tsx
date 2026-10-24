@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { localUsername } from "@/lib/profile";
+import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import BrandedRocket from "@/components/BrandedRocket";
 import PairArt from "@/components/pairart/PairArt";
 import { sampleArtFor } from "@/lib/pairArt";
@@ -58,15 +59,37 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);
-  // Private: the signed-in wallet. Public: reverse lookup username → wallet.
+  // Public /u/<0x…> (leaderboard rows without a username link here): the slug IS the wallet; its claimed username,
+  // if any, is looked up below, else the page shows the wallet's space-themed default call sign.
+  const slugAddr = !isPrivate && isAddressLike(username) ? username!.toLowerCase() : null;
+  const [slugName, setSlugName] = useState<string | null>(null);
+  // Private: the signed-in wallet. Public: reverse lookup username → wallet (or the address slug itself).
   useEffect(() => {
     if (isPrivate) return onWallet((a) => setWallet(a ? a.toLowerCase() : null));
     if (!username) return;
     let alive = true;
+    if (slugAddr) {
+      setWallet(slugAddr); setSlugName(null);
+      fetch(`/api/profile/username?address=${slugAddr}`).then((r) => r.json())
+        .then((j: { username?: string | null }) => { if (alive) setSlugName(j.username ?? null); }).catch(() => {});
+      return () => { alive = false; };
+    }
     fetch(`/api/profile/username?resolve=${encodeURIComponent(username)}`).then((r) => r.json())
       .then((j: { address?: string | null }) => { if (alive) setWallet(j.address ?? null); }).catch(() => {});
     return () => { alive = false; };
-  }, [isPrivate, username]);
+  }, [isPrivate, username, slugAddr]);
+  // Private, no username saved in this browser: use the wallet's claimed username from the registry (claimed on
+  // another device), so the default call sign below only shows when there really is no username.
+  useEffect(() => {
+    if (!isPrivate || !wallet || localUsername()) return;
+    let alive = true;
+    fetch(`/api/profile/username?address=${wallet}`).then((r) => r.json())
+      .then((j: { username?: string | null }) => { if (alive && j.username) setMe(j.username); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isPrivate, wallet]);
+  // Public name: claimed @username, else (address slug without one) the default call sign. Defaults never get an "@".
+  const publicName = slugAddr ? (slugName ? `@${slugName}` : defaultUsername(slugAddr)) : `@${username}`;
+  const publicUsername = slugAddr ? slugName : username;
   const [pnlRange, setPnlRange] = useState<RangeKey>("30d");
   const [volRange, setVolRange] = useState<RangeKey>("30d");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "pnl", dir: "desc" });
@@ -109,7 +132,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     <div className="profile-page">
       <header className="profile-head">
         <div>
-          <h1>{isPrivate ? "Your Profile" : `@${username}`}</h1>
+          <h1>{isPrivate ? "Your Profile" : publicName}</h1>
           <div className="sub">{isPrivate ? "PILOT OVERVIEW · CASH & ACCOUNT LIVE IN SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
         </div>
         {isPrivate && (
@@ -125,7 +148,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <div className="banner-frame" style={{ borderColor: border }}>
           <div className="banner-rocket"><BrandedRocket height={160} icon={data.showcaseIcon} /></div>
           <div className="banner-meta">
-            <div className="banner-handle">{isPrivate ? (me ? `@${me}` : data.handle) : `@${username}`}</div>
+            <div className="banner-handle">{isPrivate ? (me ? `@${me}` : wallet ? defaultUsername(wallet) : data.handle) : publicName}</div>
             <div className="persona-badge" title={`${badge.label} — earned from your playstyle. ${badge.blurb}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={withBase(badge.icon)} alt="" width={28} height={28} />
@@ -186,7 +209,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
                   <td>
                     {/* Rows are still sample data; the modal checks the wallet's indexed fills and stamps SAMPLE when there are none. */}
                     <button type="button" className="ds-btn share-btn" aria-label={`Share this ${r.ticker} trade`}
-                      onClick={() => setShare({ coin: r.token, ticker: r.ticker, wallet, username: (isPrivate ? me : username) || null })}>
+                      onClick={() => setShare({ coin: r.token, ticker: r.ticker, wallet, username: (isPrivate ? me : publicUsername) || null })}>
                       Share this trade
                     </button>
                   </td>

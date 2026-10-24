@@ -8,6 +8,7 @@
  */
 import { fmtCt, fmtMcap, fmtMoney, fmtPct } from "./format";
 import { FLIGHT_TIERS, tierIndexAt } from "@/lib/flight/tiers";
+import { defaultUsername } from "@/lib/defaultUsername";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ctx = any; // CanvasRenderingContext2D | @napi-rs/canvas SKRSContext2D
@@ -23,6 +24,8 @@ export interface SceneData {
   gainUsd: number; gainPct: number; kind: "unrealized" | "realized" | "none";
   ticker: string; mcapStart: number; mcapEnd: number; endTs: number;
   username: string | null; refLabel: string; sample: boolean;
+  /** player wallet: no username → footer shows its space-themed default call sign (lib/defaultUsername) */
+  wallet?: string | null;
   fills: { side: string; mcapUsd: number }[];
 }
 export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null }
@@ -211,7 +214,7 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   const fy = H - (story ? 90 : 62);
   ctx.fillStyle = "rgba(232,234,238,.35)"; ctx.fillRect(L, fy - (story ? 70 : 58), R - L, 2);
   ctx.fillStyle = INK; ctx.font = `${story ? 54 : 42}px ${FONT.black}`;
-  ctx.fillText(d.username ? `@${d.username}` : d.refLabel.split("/r/")[1] || "", L, fy);
+  ctx.fillText(d.username ? `@${d.username}` : defaultUsername(d.wallet) || d.refLabel.split("/r/")[1] || "", L, fy);
   ctx.font = `${story ? 28 : 24}px ${FONT.mono}`;
   const lw = ctx.measureText(d.refLabel).width + 36;
   ctx.fillStyle = "rgba(10,10,14,.6)"; ctx.fillRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);
