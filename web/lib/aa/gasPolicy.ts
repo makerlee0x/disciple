@@ -155,28 +155,49 @@ const approveAbi = parseAbi(["function approve(address spender, uint256 amount)"
 export const MAX_GRAD_BUY_INTENTS = 2;
 /** An approve that runs inside the op before the buy: token = the approve's target. */
 export type InOpApproval = { token: string; spender: string; amount: bigint };
+/** usdg.approve(paymaster, x): the one extra leading call a USDG-gas (DisciplePaymaster) op must carry. */
+export type GradPaymasterApprove = { usdg?: string; paymaster?: string };
+/** `c` decoded as ERC-20 approve(spender, amount) on `c.to`, else null (selector AND full decode required). */
+function asApprove(c: { to: string; data: string }): InOpApproval | null {
+  if (c.data.slice(0, 10).toLowerCase() !== APPROVE_SEL) return null;
+  try {
+    const d = decodeFunctionData({ abi: approveAbi, data: c.data as Hex });
+    return { token: c.to.toLowerCase(), spender: (d.args[0] as string).toLowerCase(), amount: d.args[1] as bigint };
+  } catch { return null; }
+}
 /**
- * The only buy that may earn GRAD_GAS_CAPS (audit r106 Low, gradBuy.ts:40/:28): the LAST non-approve call of the op
- * must be the buy (a lone buy, or approve(s) + buy); anything after it, or more than MAX_GRAD_BUY_INTENTS buys in the
- * op ⇒ null. Also returns the approves that run before it (they raise the allowance the buy will see). Pure.
+ * The only op shape that may earn GRAD_GAS_CAPS (audit r106 Low gradBuy.ts:40, round 2 gasPolicy.ts:168/:177):
+ *
+ *   [ usdg.approve(paymaster, x)?          ← only for a USDG-gas op, only when `pm` names the op's paymaster + USDG
+ *   , approve(quoteToken, spender, y)*     ← zero or more, ALL on one token, spender = the buy's target (curve / router)
+ *   , buy ]                                ← the literal LAST call (curve buy / buyFor, router buyWithUsdg / buyExactIn)
+ *
+ * Anything else ⇒ null: any non-approve call before the buy, any call after it, an approve to another spender or on
+ * a second token, more than MAX_GRAD_BUY_INTENTS buys (checked first, before any decode work). The approve token is
+ * returned as `quoteToken`; the caller (lib/server/gradBuy) must check it equals the curve's quote on-chain. Because
+ * only approves precede the buy, the post-approve state the buy sees is (pre-op balance, last approve's amount — or
+ * the pre-op allowance when there is none): `approvals` carries them in order. Pure.
  */
-export function gradBuyCandidate(callData: string): { intent: BuyIntent; approvals: InOpApproval[] } | null {
+export function gradBuyCandidate(callData: string, pm: GradPaymasterApprove = {}): { intent: BuyIntent; approvals: InOpApproval[]; quoteToken?: string } | null {
   const calls = accountCalls(callData);
   if (!calls?.length) return null;
   if (buyIntents(calls).length > MAX_GRAD_BUY_INTENTS) return null;
-  let last = -1;
-  for (let i = calls.length - 1; i >= 0; i--) if (calls[i].data.slice(0, 10).toLowerCase() !== APPROVE_SEL) { last = i; break; }
-  if (last < 0) return null;
+  const last = calls.length - 1;
   const [intent] = buyIntents([calls[last]]);
   if (!intent) return null;
-  const approvals: InOpApproval[] = [];
-  for (const c of calls.slice(0, last)) {
-    try {
-      const d = decodeFunctionData({ abi: approveAbi, data: c.data as Hex });
-      approvals.push({ token: c.to.toLowerCase(), spender: (d.args[0] as string).toLowerCase(), amount: d.args[1] as bigint });
-    } catch { /* not an approve */ }
+  let i = 0;
+  if (last > 0 && pm.usdg && pm.paymaster) {
+    const a = asApprove(calls[0]);
+    if (a && a.token === pm.usdg.toLowerCase() && a.spender === pm.paymaster.toLowerCase()) i = 1;
   }
-  return { intent, approvals };
+  const approvals: InOpApproval[] = [];
+  for (; i < last; i++) {
+    const a = asApprove(calls[i]);
+    if (!a || a.spender !== intent.to) return null;                           // unknown call / wrong spender
+    if (approvals.length && a.token !== approvals[0].token) return null;     // approves on two different tokens
+    approvals.push(a);
+  }
+  return { intent, approvals, quoteToken: approvals[0]?.token };
 }
 /** A buy may graduate the curve when its quote reaches the remaining quote to graduation (> 0: not yet graduated). */
 export const isGradBuy = (quoteIn: bigint, remainingToGrad: bigint) => remainingToGrad > BigInt(0) && quoteIn >= remainingToGrad;

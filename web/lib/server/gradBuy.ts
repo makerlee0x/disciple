@@ -3,15 +3,19 @@
  * remaining quote to graduation runs Migration + 16 floor bands (≈ 2.76M execution gas at 6-dec USDG) and gets
  * GRAD_GAS_CAPS (5M call / 6M total) instead of GAS_CAPS. Checked ON-CHAIN, and only for ops that are above GAS_CAPS
  * (normal ops pay no extra RPC). Rules (audit r106 Lows, gradBuy.ts:28/:40, gasPolicy.ts:132):
- *  - only ONE buy is considered: the op's last non-approve call (gasPolicy.gradBuyCandidate); ops with more than
- *    MAX_GRAD_BUY_INTENTS buys are never upgraded ⇒ bounded work per op;
+ *  - exact op shape only (audit r106 round 2): [usdg.approve(paymaster)?, approve(quoteToken, curve|router)*, buy]
+ *    with the buy as the literal last call (gasPolicy.gradBuyCandidate); every approve must be on the curve's quote
+ *    token (checked here) with the buy's spender; ops with more than MAX_GRAD_BUY_INTENTS buys are rejected before
+ *    any read ⇒ bounded work per op;
  *  - the buy targets a real curve: Launchpad.curveOf(curve.token()) == target (a fake contract can't claim it), or
  *    our DiscipleRouter (buyWithUsdg / buyExactIn) with Launchpad.curveOf(token) != 0;
  *  - units: router buyWithUsdg's amount is USDG; it is only compared with curve.quoteBuy when the curve's quote is
  *    USDG (else no upgrade — no price conversion on the hot path);
  *  - the curve is not graduated, curve.quoteBuy(quoteIn).graduates, and the sender can actually pay:
- *    balanceOf(sender) ≥ quoteIn and allowance(sender → curve/router) ≥ quoteIn (an approve earlier in the same op
- *    counts) — so an op can't claim the wide caps for a buy that would revert.
+ *    balanceOf(sender) ≥ quoteIn and allowance(sender → curve/router) ≥ quoteIn, both in the POST-APPROVE state the
+ *    buy sees: only approves run before it, so balance = the pre-op balance and allowance = the last in-op approve's
+ *    amount (the pre-op allowance only when the op has no approve) — so an op can't claim the wide caps for a buy
+ *    that would revert.
  * Reads are batched (one multicall per step, ≤ 3 steps) and injected (GradReads) so the rule is unit-tested without
  * RPC (scripts/test-relay-policy.mts).
  */
@@ -27,6 +31,8 @@ export type GradCheck = { curveOf: string; graduates: boolean; balance: bigint; 
 export type GradReads = {
   router?: string;
   usdg?: string;
+  /** DisciplePaymaster: a USDG-gas op's leading usdg.approve(paymaster) is allowed only when the op names it. */
+  paymaster?: string;
   /** Launchpad.curveOf(token) (router path, step 1). */
   curveOf(token: string): Promise<string>;
   /** One batch: curve.token(), curve.quote(), curve.graduated(). */
@@ -37,8 +43,10 @@ export type GradReads = {
 const isZero = (a: string | undefined) => !a || /^0x0{40}$/i.test(a);
 const eq = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-export async function isGradBuyOp(callData: string, sender: string | undefined, r: GradReads): Promise<boolean> {
-  const cand = gradBuyCandidate(callData);
+/** `opPaymaster`: the op's paymaster field (USDG-gas ops); its leading approve is skipped only if it is r.paymaster. */
+export async function isGradBuyOp(callData: string, sender: string | undefined, r: GradReads, opPaymaster?: string): Promise<boolean> {
+  const pm = opPaymaster && eq(opPaymaster, r.paymaster) ? { usdg: r.usdg, paymaster: r.paymaster } : {};
+  const cand = gradBuyCandidate(callData, pm);
   if (!cand || !sender || isZero(sender)) return false;
   const b = cand.intent;
   try {
@@ -52,13 +60,13 @@ export async function isGradBuyOp(callData: string, sender: string | undefined, 
     if (isZero(info.token) || info.graduated) return false;
     if (b.kind === "router" && !eq(info.token, b.token)) return false;
     if (b.unit === "usdg" && (!r.usdg || !eq(info.quote, r.usdg))) return false;   // USDG amount vs a non-USDG curve: skip
-    const spender = b.kind === "router" ? b.to.toLowerCase() : curve;
+    if (cand.quoteToken && !eq(cand.quoteToken, info.quote)) return false;   // in-op approves must be on the quote token
+    const spender = b.kind === "router" ? b.to.toLowerCase() : curve;      // == every in-op approve's spender (candidate)
     const c = await r.check({ token: info.token, curve, quoteIn: b.quoteIn, payToken: info.quote, owner: sender, spender });
     if (!eq(c.curveOf, curve) || !c.graduates) return false;
-    if (c.balance < b.quoteIn) return false;
-    let allowance = c.allowance;
-    for (const a of cand.approvals) if (eq(a.token, info.quote) && eq(a.spender, spender)) allowance = a.amount;   // last approve wins
-    return allowance >= b.quoteIn;
+    // post-approve state: approves don't move the balance; the last in-op approve SETS the allowance
+    const allowance = cand.approvals.length ? cand.approvals[cand.approvals.length - 1].amount : c.allowance;
+    return c.balance >= b.quoteIn && allowance >= b.quoteIn;
   } catch { return false; /* unreadable ⇒ not a graduating buy (normal caps) */ }
 }
 
@@ -66,21 +74,25 @@ export async function isGradBuyOp(callData: string, sender: string | undefined, 
 export async function relayCaps(op: GasFields & { callData?: string; sender?: string }, launchers: string[], reads: GradReads): Promise<GasCaps> {
   const caps = capsForOp(op, launchers);
   if (caps !== GAS_CAPS || !op.callData || !exceedsCaps(op, GAS_CAPS)) return caps;
-  return capsForOp(op, launchers, { gradBuy: await isGradBuyOp(op.callData, op.sender, reads) });
+  return capsForOp(op, launchers, { gradBuy: await isGradBuyOp(op.callData, op.sender, reads, op.paymaster) });
 }
 
 /** Multicall3 (canonical address; deployed on Robinhood Chain testnet 46630). */
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
-/** GradReads against a chain's Launchpad + DiscipleRouter (each step = one Multicall3 eth_call). */
-export function chainGradReads(pc: PublicClient, chainId: number): GradReads {
+/**
+ * GradReads against a chain's Launchpad + DiscipleRouter (each step = one Multicall3 eth_call). `over`: the caller's
+ * own paymaster / USDG (relay: allowedPaymaster(); paymaster quote: its cfg) — else DEPLOYMENTS[chainId].
+ */
+export function chainGradReads(pc: PublicClient, chainId: number, over: { paymaster?: string; usdg?: string } = {}): GradReads {
   const d = DEPLOYMENTS[chainId];
   const lp = d?.launchpad && d.launchpad !== ZERO ? (d.launchpad as Address) : undefined;
   const mc = <T extends readonly unknown[]>(contracts: readonly unknown[]) =>
     pc.multicall({ contracts: contracts as never, allowFailure: false, multicallAddress: MULTICALL3 }) as unknown as Promise<T>;
   return {
     router: d?.router && d.router !== ZERO ? d.router : undefined,
-    usdg: d?.usdg && d.usdg !== ZERO ? d.usdg : undefined,
+    usdg: over.usdg ?? (d?.usdg && d.usdg !== ZERO ? d.usdg : undefined),
+    paymaster: over.paymaster ?? (d?.paymaster && d.paymaster !== ZERO ? d.paymaster : undefined),
     async curveOf(token) { if (!lp) return ZERO; return pc.readContract({ address: lp, abi: launchpadAbi, functionName: "curveOf", args: [token as Address] }); },
     async curveInfo(curve) {
       const c = { address: curve as Address, abi: curveAbi } as const;
