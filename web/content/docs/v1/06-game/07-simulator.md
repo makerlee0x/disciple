@@ -5,7 +5,7 @@ section: Game
 ---
 # Simulator
 
-The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($7,777 → $33,333) and bots trade it with you. You choose how hostile they are.
+The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($3,333 → $33,333) and bots trade it with you. You choose how hostile they are.
 
 Open the Simulator at `/flight/sim`.
 

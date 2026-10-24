@@ -22,6 +22,7 @@
     "test:replay": "node scripts/test-replay.mjs",
     "test:chartseed": "node scripts/test-chartseed.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
+    "test:snipe": "node scripts/test-snipe.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",
     "test:sim-parity": "node scripts/test-sim-parity.mjs",

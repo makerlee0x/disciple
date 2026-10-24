@@ -43,6 +43,8 @@ export type HomeCoin = {
   creator: string;
   mcapUsd: number;
   graduated: boolean;
+  /** curve progressBps (tokens sold / curve supply, 1e4 = graduation) */
+  progressBps?: number;
   /** launch block (newer = larger) */
   block: number;
   /** launch time, ms (filled for the hero + strip only) */

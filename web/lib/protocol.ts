@@ -85,9 +85,9 @@ export interface CurveState {
   quote: Address;
   mcapUsd: number;
   priceUsd: number;
-  /** % of TOTAL supply sold (graduates at 72). */
+  /** % of TOTAL supply sold (graduates at 84.24). */
   soldPct: number;
-  /** 0–100 progress toward the 72% graduation point. */
+  /** 0–100 progress toward the 84.24% graduation point. */
   curveProgressPct: number;
   nextTier: { name: string; mcapUsd: number } | null;
   tokensSold: bigint;
