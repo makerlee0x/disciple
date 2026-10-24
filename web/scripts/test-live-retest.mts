@@ -10,7 +10,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { graduationPct, pctFromBps } from "../lib/mcap";
-import { graduationPct as idxGraduationPct } from "../../indexer/src/math";
+import { graduationPct as idxGraduationPct, steepCurveMcap } from "../../indexer/src/math";
+import { curveMcapAtFrac } from "../lib/curveMath";
+/** pre-v5 (v4 testnet) coins: constant-product curve $7K → $33K (LaunchTierContext start / graduation) */
+const V4_M0 = 7_000, V4_M1 = 33_000;
 import { playerUsd, type Fill } from "../lib/trades";
 import { tradeFromLog } from "../lib/events";
 import { statsFromFills } from "../lib/home/trending";
@@ -18,15 +21,15 @@ import { chipLabel, clearNameCache, lookupFirstName, lookupName, cachedName } fr
 
 const near = (a: number | null, b: number, eps: number, msg?: string) => { assert.ok(a != null && Math.abs(a - b) <= eps, `${msg ?? ""} ${a} vs ${b}`); };
 
-test("#4 RPNR: graduation % = the curve's progressBps (91.8%), not the old mcap-linear 79%", () => {
+test("#4 RPNR (v4 coin, $7K/$33K constant-product endpoints): graduation % = the curve's progressBps (91.8%), not the old mcap-linear 79%", () => {
   const mcap = 27465.222876627162;           // curve.marketCapQuote × quotePriceUsd, read-only on chain 2026-10-24
-  near(graduationPct(mcap), 91.79, 0.01, "web");
-  near(idxGraduationPct(mcap), 91.79, 0.01, "indexer");
+  near(graduationPct(mcap, V4_M0, V4_M1), 91.79, 0.01, "web");
+  near(idxGraduationPct(mcap, V4_M0, V4_M1), 91.79, 0.01, "indexer");
   near(pctFromBps(9179), 91.79, 1e-9);
   const linear = ((mcap - 7000) / (33000 - 7000)) * 100;
   assert.equal(Math.round(linear), 79);       // what the card showed
-  near(graduationPct(7081.061019245381), 1.06, 0.01, "GOLDEN (progressBps 106)");
-  near(graduationPct(7004.57632997613), 0.06, 0.01, "RPFR (progressBps 6)");
+  near(graduationPct(7081.061019245381, V4_M0, V4_M1), 1.06, 0.01, "GOLDEN (progressBps 106)");
+  near(graduationPct(7004.57632997613, V4_M0, V4_M1), 0.06, 0.01, "RPFR (progressBps 6)");
 });
 
 test("#4 graduationPct = tokensSold / sCurve along the real CurveMath curve (any quote price, own start/grad)", () => {
@@ -35,14 +38,26 @@ test("#4 graduationPct = tokensSold / sCurve along the real CurveMath curve (any
   const mcapAt = (sold: number) => { const y = y0 - sold, x = (x0 * y0) / y; return (x * S / y) * qp; };
   near(mcapAt(0), 7000, 0.01); near(mcapAt(sC), 33000, 0.05);
   for (const f of [0.01, 0.1, 0.25, 0.5, 0.75, 0.9179, 0.99]) {
-    near(graduationPct(mcapAt(f * sC)), f * 100, 1e-6, `web @${f}`);
-    near(idxGraduationPct(mcapAt(f * sC)), f * 100, 1e-6, `indexer @${f}`);
+    near(graduationPct(mcapAt(f * sC), V4_M0, V4_M1), f * 100, 1e-6, `web @${f}`);
+    near(idxGraduationPct(mcapAt(f * sC), V4_M0, V4_M1), f * 100, 1e-6, `indexer @${f}`);
   }
   // a coin launched with other targets (LaunchTierContext start/graduation)
   near(graduationPct(40_000, 10_000, 90_000), (1 - Math.sqrt(10 / 40)) / (1 - Math.sqrt(10 / 90)) * 100, 1e-9);
-  assert.equal(graduationPct(33_000), 100); assert.equal(graduationPct(50_000), 100);
-  assert.equal(graduationPct(6_000), 0); assert.equal(graduationPct(null), null); assert.equal(graduationPct(NaN), null);
-  assert.equal(idxGraduationPct(null), null);
+  assert.equal(graduationPct(33_000, V4_M0, V4_M1), 100); assert.equal(graduationPct(50_000, V4_M0, V4_M1), 100);
+  assert.equal(graduationPct(6_000, V4_M0, V4_M1), 0); assert.equal(graduationPct(null, V4_M0, V4_M1), null); assert.equal(graduationPct(NaN, V4_M0, V4_M1), null);
+  assert.equal(idxGraduationPct(null, V4_M0, V4_M1), null);
+});
+
+// Redeploy v5 (integration): the default endpoints are the steep curve #1 ($3,333 → $33,333, m(g) = M0/(1−a·g)² + T·g^30,
+// not a pure constant product) ⇒ graduationPct(mcap) = g = sold / sCurve along THAT curve (web and indexer agree).
+test("v5 steep curve: graduationPct(mcap) = sold / sCurve on CurveMath m(g) (default endpoints), web = indexer", () => {
+  for (const g of [0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.97, 0.99]) {
+    const m = curveMcapAtFrac(g);
+    near(graduationPct(m), g * 100, 1e-6, `web @${g}`);
+    near(idxGraduationPct(m), g * 100, 1e-3, `indexer @${g}`);
+  }
+  assert.equal(graduationPct(33_333), 100); assert.equal(graduationPct(3_333), 0); assert.equal(idxGraduationPct(33_333), 100);
+  near(steepCurveMcap(1), 33_333, 1e-6); near(steepCurveMcap(0), 3_333, 1e-9);
 });
 
 test("#3 playerUsd: buys = USDG paid, sells = USDG received, else the estimate", () => {

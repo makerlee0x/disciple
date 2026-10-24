@@ -24,13 +24,17 @@ export function mcapUsdFromSqrt(sqrtP: bigint, tokenIsC0: boolean, quoteUsdWad: 
  * Graduation progress 0–100 from a USD mcap — the SAME formula as web/lib/mcap.ts graduationPct (live retest #4), equal to
  * the curve's progressBps() (tokensSold / sCurve): x·y = x0·y0, mcap ∝ 1/(y0 − sold)² ⇒
  * progress = (1 − √(M0/M)) / (1 − √(M0/Mgrad)). M0/Mgrad = the coin's LaunchTierContext startMcapUsd/graduationMcapUsd
- * (default $7K/$33K for coins indexed before that event existed). null when unknown.
+ * null when unknown.
+ * Redeploy v5: the default endpoints are the steep curve #1 ($3,333 → $33,333, m(g) = M0/(1−a·g)² + T·g^30, NOT a pure
+ * constant product) ⇒ progress = g from the exact inverse (steepCurveFrac, same as web curveFracAtMcap); other
+ * endpoints (pre-v5 constant-product coins, $7K/$33K) keep the √ formula.
  */
-export function graduationPct(mcapUsd: number | null | undefined, startMcapUsd = 7_000, graduationMcapUsd = 33_000): number | null {
+export function graduationPct(mcapUsd: number | null | undefined, startMcapUsd = CURVE_START_MCAP_USD, graduationMcapUsd = CURVE_GRADUATION_MCAP_USD): number | null {
   if (mcapUsd == null || !Number.isFinite(mcapUsd)) return null;
   if (!(startMcapUsd > 0) || !(graduationMcapUsd > startMcapUsd)) return null;
   if (mcapUsd >= graduationMcapUsd) return 100;
   if (mcapUsd <= startMcapUsd) return 0;
+  if (startMcapUsd === CURVE_START_MCAP_USD && graduationMcapUsd === CURVE_GRADUATION_MCAP_USD) return Math.max(0, Math.min(100, steepCurveFrac(mcapUsd) * 100));
   const p = (1 - Math.sqrt(startMcapUsd / mcapUsd)) / (1 - Math.sqrt(startMcapUsd / graduationMcapUsd));
   return Math.max(0, Math.min(100, p * 100));
 }
@@ -75,6 +79,20 @@ export function candles(rows: { ts: number; price: number; vol: number }[], inte
 export const CURVE_START_MCAP_USD = 3_333;
 export const CURVE_GRADUATION_MCAP_USD = 33_333;
 export const CURVE_SOLD_BPS = 8424n;
+/** Constants.CURVE_MID_MCAP_USD: the CP part's mcap at g = 1 (the g^30 tail adds GRADUATION − MID). */
+export const CURVE_MID_MCAP_USD = 15_000;
+const STEEP_A = 1 - Math.sqrt(CURVE_START_MCAP_USD / CURVE_MID_MCAP_USD);
+const STEEP_TAIL = CURVE_GRADUATION_MCAP_USD - CURVE_START_MCAP_USD / (1 - STEEP_A) ** 2;
+/** Steep curve #1 mcap ($) at g = sold / sCurve (CurveMath.sol m(g)). */
+export const steepCurveMcap = (g: number) => { const x = Math.max(0, Math.min(1, g)); return CURVE_START_MCAP_USD / (1 - STEEP_A * x) ** 2 + STEEP_TAIL * x ** 30; };
+/** Inverse of steepCurveMcap (bisection; m(g) strictly increasing), clamped to [0, 1]. */
+export function steepCurveFrac(mcapUsd: number): number {
+  if (!(mcapUsd > CURVE_START_MCAP_USD)) return 0;
+  if (mcapUsd >= CURVE_GRADUATION_MCAP_USD) return 1;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (steepCurveMcap(m) < mcapUsd) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
 
 function isqrt(n: bigint): bigint {
   if (n < 2n) return n;
