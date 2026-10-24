@@ -209,7 +209,7 @@ test("L2 client: unclear and NOT found (txHash or userOpHash) ⇒ Timeout 'still
     (a as unknown as { findOp: () => Promise<null> }).findOp = async () => { scans++; return null; };
     const s = stubRelayOnce({ error });
     try {
-      await assert.rejects(a.sendCalls(CALLS, { rebuild: async () => { rebuilds++; return [approve, buy(1)]; } }), (e: { code?: string; message: string }) => e.code === "Timeout" && /still confirming/.test(e.message));
+      await assert.rejects(a.sendCalls(CALLS, { rebuild: async () => { rebuilds++; return [approve, buy(1)]; } }), (e: { code?: string; message: string }) => e.code === "Timeout" && /still confirming/i.test(e.message));
     } finally { s.restore(); }
     assert.equal(s.posts(), 1, error.message); assert.equal(sent.length, 1); assert.equal(rebuilds, 0); assert.equal(scans, 1);
   }

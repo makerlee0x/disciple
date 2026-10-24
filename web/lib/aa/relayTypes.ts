@@ -96,6 +96,8 @@ export type RelayErrorData = {
   userOpHash?: Hex;
   /** revert payload (FailedOp / FailedOpWithRevert …) when the pre-flight simulation rejected the op */
   revert?: Hex;
+  /** main #130: set when the relay raised a RelayBroadcastError (bundle tx signed/sent; client relayOpRef keeps this op's ids) */
+  broadcast?: true;
   /** relayer EOA nonce of the signed handleOps tx, when known (NOT the op's EntryPoint nonce) */
   relayNonce?: number;
   /** outcome UNKNOWN: the tx may still be mined. Never treat as a definite failure. */
@@ -138,9 +140,10 @@ export function relayErrorData(e: unknown, userOpHash?: Hex): RelayErrorData | u
   if (typeof x.data === "string" && /^0x[0-9a-fA-F]*$/.test(x.data)) d.revert = x.data as Hex;
   // main #130 RelayBroadcastError.data = { userOpHash, txHash?, broadcast } (lib/aa/relayOp)
   else if (x.data && typeof x.data === "object") {
-    const o = x.data as { userOpHash?: unknown; txHash?: unknown };
+    const o = x.data as { userOpHash?: unknown; txHash?: unknown; broadcast?: unknown };
     if (!d.userOpHash && typeof o.userOpHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(o.userOpHash)) d.userOpHash = o.userOpHash as Hex;
     if (!d.txHash && typeof o.txHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(o.txHash)) d.txHash = o.txHash as Hex;
+    if (o.broadcast === true && d.userOpHash) d.broadcast = true;
   }
   if (typeof x.relayNonce === "number" && Number.isSafeInteger(x.relayNonce) && x.relayNonce >= 0) d.relayNonce = x.relayNonce;
   if (x.unclear === true) { d.unclear = true; d.reason = (x.reason as RelayUnclearReason) ?? "receipt-timeout"; }
