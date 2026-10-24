@@ -83,3 +83,56 @@ export class FeeCache {
     }).finally(() => { this.inflight = undefined; }));
   }
 }
+
+/**
+ * Rapid taps: per-send options. `rebuild` re-quotes a trade (fresh quote ⇒ fresh minOut) for the ONE transient-error
+ * retry (lagging-node pre-flight, TRANSIENT_SIM) — the original calls were priced before the preceding in-flight ops
+ * moved the curve, so re-sending them verbatim would just revert on min-out. Fee-floor retries keep the same calls.
+ */
+export type SendOpts = {
+  rebuild?: () => Promise<Call[]>;
+  /** One id per PRESS, kept across its retries (set by sendCalls when absent): the relay doesn't count retries of the
+   * same press toward the per-sender limit (spec item 10, lib/server/limits.hitSenderSend). */
+  pressId?: string;
+};
+/** SITE's shape (#144): sendCalls(calls, { rebuild }) — plus the signer / fee-retry switches as options. */
+export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean };
+/** GAME: every error a press throws carries its pressId: AAError ⇒ extra.pressId; any object error ⇒ .pressId too.
+ * Duck-typed (no AAError import) so this module stays light. */
+export function tagPress(e: unknown, pressId: string) {
+  if (!e || typeof e !== "object") return;
+  const x = e as { extra?: Record<string, unknown>; code?: unknown; pressId?: string };
+  try {
+    if ("extra" in x && "code" in x) x.extra = { ...(x.extra ?? {}), pressId };
+    x.pressId = pressId;
+  } catch { /* frozen */ }
+}
+export function newPressId(): string {
+  const a = new Uint8Array(12); (globalThis.crypto as Crypto).getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+/**
+ * The calls to retry with: rebuild() when given and it keeps the same shape (same targets + selectors ⇒ same gas class
+ * and the same session-policy decision); otherwise (no rebuild, it threw, or the shape changed) the original calls.
+ */
+export async function retryCalls(calls: Call[], o: SendOpts = {}): Promise<Call[]> {
+  if (!o.rebuild) return calls;
+  try {
+    const next = await o.rebuild();
+    if (next.length && callsKind(next) === callsKind(calls)) return next;
+    console.warn("[aa] rebuild changed the call shape; retrying the original calls");
+  } catch (e) {
+    console.warn("[aa] rebuild failed; retrying the original calls:", (e as Error)?.message ?? e);
+  }
+  return calls;
+}
+
+/**
+ * AUDIT Info: a rebuilt (re-quoted) trade may never accept a WORSE price than the press's original minOut (quote taken
+ * at press time − the user's slippage). fresh < original ⇒ throw: retryCalls then keeps the ORIGINAL calls (same minOut,
+ * so the chain still enforces the user's bound). fresh ≥ original ⇒ the fresh (tighter-or-equal) bound.
+ */
+export function boundRebuiltMinOut(original: bigint, fresh: bigint): bigint {
+  if (fresh < original) throw Object.assign(new Error(`rebuilt minOut ${fresh} below the press's minOut ${original}`), { code: "RebuildWorsePrice" });
+  return fresh;
+}

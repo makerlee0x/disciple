@@ -137,3 +137,39 @@ test("shared store errors fail safe (simulate), never grant trust", async () => 
   assert.notEqual(tr.check(A, PREFUND), null);
   tr.simulated(A); await tr.flush();                        // write errors are swallowed
 });
+
+// ---- AUDIT #145 L-B: at most one unsimulated (fast-path) op in flight per sender ----
+import { FastInflight } from "../lib/server/relayTrust";
+function memLease() {
+  const m = new Map<string, string>();
+  return { m, setNX: async (k: string, v: string) => (m.has(k) ? false : (m.set(k, v), true)), del: async (...ks: string[]) => { for (const k of ks) m.delete(k); } };
+}
+test("L-B: a 2nd concurrent fast op for the same sender is refused (⇒ simulated); released ⇒ fast again", async () => {
+  const g = new FastInflight();
+  const r1 = await g.acquire(A);
+  assert.ok(r1);
+  assert.equal(await g.acquire(A.toLowerCase()), null);   // same sender, any case
+  assert.ok(await g.acquire("0x" + "bb".repeat(20)));       // other senders unaffected
+  await r1!(); await r1!();                                  // idempotent release
+  assert.ok(await g.acquire(A));
+});
+test("L-B: shared lease across instances (SET NX); store error ⇒ refuse (simulate, fail-safe)", async () => {
+  const st = memLease();
+  const i1 = new FastInflight(st), i2 = new FastInflight(st);
+  const r = await i1.acquire(A);
+  assert.ok(r);
+  assert.equal(await i2.acquire(A), null);                   // another instance sees the lease
+  await r!();
+  assert.equal(st.m.size, 0);
+  const r2 = await i2.acquire(A);
+  assert.ok(r2);
+  assert.equal(await i1.acquire(A), null);
+  await r2!();
+  // a failed setNX releases the local hold too, so the sender isn't stuck on this instance
+  const bad = new FastInflight({ setNX: async () => { throw new Error("kv down"); }, del: async () => undefined });
+  assert.equal(await bad.acquire(A), null);
+  const flaky = { ...memLease() }; let fail = true;
+  const f = new FastInflight({ setNX: async (k, v) => (fail ? (fail = false, Promise.reject(new Error("x"))) : flaky.setNX(k, v)), del: flaky.del });
+  assert.equal(await f.acquire(A), null);
+  assert.ok(await f.acquire(A));
+});
