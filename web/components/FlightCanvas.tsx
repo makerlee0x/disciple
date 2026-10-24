@@ -268,7 +268,7 @@ export default function FlightCanvas({ search }: Props) {
         <Icon name="close" size={16} />
       </Link>
       {/* ✕ above, rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
-      <ExitConfirm active={flightActive} />
+      <ExitConfirm active={flightActive} mode={isSimulator ? "sim" : "live"} />
       <TouchGrass />
       {/* ESC settings menu + its gear button (top-right, left of the exit X): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}

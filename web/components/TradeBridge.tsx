@@ -1,5 +1,6 @@
 "use client";
 
+import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
 import { useEffect, useRef, useState } from "react";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
@@ -135,6 +136,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       } catch { /* the optimistic estimate stays booked */ }
     };
     window.__discipleTrade = async (side, usd, o) => {
+      // pending-trade state for the exit confirm ("Your BOOST / DUMP still lands on-chain."): in-flight count per side
+      const pt = (window.__disciplePendingTrades ||= { buy: 0, sell: 0 });
+      const bump = (d: number) => { pt[side] = Math.max(0, pt[side] + d); dispatchEvent(new CustomEvent(TRADE_PENDING_EVENT, { detail: { ...pt } })); };
+      bump(1);
       try {
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         // % sells size from the (polled, ≤5 s) balance hint; $ shots from the cached launch quote price ⇒ no reads when warm
@@ -164,7 +169,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const m = (e as Error).message.split("\n")[0].slice(0, 90);
         setLast(`✕ ${m}`);
         return { ok: false, reason: m };
-      }
+      } finally { bump(-1); }
     };
     return () => { delete window.__discipleTrade; };
   }, [token, live]);

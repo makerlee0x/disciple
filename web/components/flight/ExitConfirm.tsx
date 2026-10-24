@@ -15,13 +15,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useT } from "@/lib/game/i18n";
-import { EXIT_REQUEST_EVENT, GUARD_KEY, OPT_OUT_ATTR, backNeedsConfirm, guardState, interceptClick, leavesFlight, nextFocus } from "@/lib/game/exitGuard";
+import { EXIT_REQUEST_EVENT, GUARD_KEY, OPT_OUT_ATTR, backNeedsConfirm, guardState, interceptClick, leavesFlight, nextFocus, secondaryKeys, TRADE_PENDING_EVENT, type ExitMode, type PendingTrades } from "@/lib/game/exitGuard";
 
 const GOLD = "#ffe7a3", INK = "#fff7df", DIM = "rgba(220,228,255,.72)";
 type Pending = { kind: "href"; href: string } | { kind: "back" };
 
-export default function ExitConfirm({ active }: { active: boolean }) {
+declare global { interface Window { __disciplePendingTrades?: PendingTrades } }
+
+/** mode: "live" (default) or "sim" (?source=sim simulator / practice run) — picks the secondary line */
+export default function ExitConfirm({ active, mode = "live" }: { active: boolean; mode?: ExitMode }) {
   const t = useT();
+  const [trades, setTrades] = useState<PendingTrades | null>(null);
   const router = useRouter();
   const [pending, setPending] = useState<Pending | null>(null);
   const stayRef = useRef<HTMLButtonElement>(null), leaveRef = useRef<HTMLButtonElement>(null), boxRef = useRef<HTMLDivElement>(null);
@@ -96,6 +100,15 @@ export default function ExitConfirm({ active }: { active: boolean }) {
     return () => { removeEventListener("keydown", k, true); dispatchEvent(new CustomEvent("disciple:menu", { detail: { open: false } })); };
   }, [open, stay]);
 
+  // pending BOOST / DUMP (TradeBridge in-flight counts): read on open, follow changes while open
+  useEffect(() => {
+    if (!open) return;
+    setTrades(window.__disciplePendingTrades ? { ...window.__disciplePendingTrades } : null);
+    const on = (e: Event) => setTrades((e as CustomEvent<PendingTrades>).detail ?? null);
+    addEventListener(TRADE_PENDING_EVENT, on);
+    return () => removeEventListener(TRADE_PENDING_EVENT, on);
+  }, [open]);
+
   if (!pending) return null;
   const card: React.CSSProperties = { position: "relative", width: 380, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 14, padding: "20px 20px 18px", borderRadius: 16, outline: "none",
     background: "linear-gradient(180deg,rgba(16,14,40,.96),rgba(8,10,26,.95))", border: "1px solid rgba(255,231,163,.5)", boxShadow: "0 0 0 1px rgba(0,0,0,.4), 0 24px 70px rgba(0,0,0,.65), 0 0 30px rgba(255,220,150,.12)",
@@ -104,12 +117,15 @@ export default function ExitConfirm({ active }: { active: boolean }) {
   const primary: React.CSSProperties = { ...base, background: GOLD, color: "#151830", border: "1px solid rgba(255,231,163,.95)", boxShadow: "0 0 18px rgba(255,220,150,.35)" };
   const ghost: React.CSSProperties = { ...base, fontWeight: 600, background: "transparent", color: DIM, border: "1px solid rgba(255,255,255,.16)" };
   return (
-    <div data-testid="exit-confirm" role="dialog" aria-modal="true" aria-labelledby="exitc-title" aria-describedby="exitc-body"
+    <div data-testid="exit-confirm" role="dialog" aria-modal="true" aria-labelledby="exitc-title" aria-describedby="exitc-body exitc-note"
       onPointerDown={(e) => { if (e.target === e.currentTarget) stay(); }}
       style={{ position: "fixed", inset: 0, zIndex: 80, display: "grid", placeItems: "center", background: "rgba(4,5,14,.55)", backdropFilter: "blur(3px)" }}>
       <div ref={boxRef} tabIndex={-1} style={card} onKeyDown={(e) => e.stopPropagation()} onKeyUp={(e) => e.stopPropagation()}>
         <div id="exitc-title" style={{ color: GOLD, fontWeight: 800, letterSpacing: ".08em", fontSize: 14 }}>{t("exitc.title")}</div>
         <div id="exitc-body" style={{ color: DIM, fontSize: 12, lineHeight: 1.5 }}>{t("exitc.body")}</div>
+        <div id="exitc-note" data-testid="exit-confirm-note" style={{ color: DIM, opacity: .8, fontSize: 11, lineHeight: 1.45, marginTop: -6 }}>
+          {secondaryKeys(mode, trades).map((k) => <div key={k}>{t(k)}</div>)}
+        </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
           <button ref={leaveRef} type="button" data-testid="exit-confirm-leave" onClick={leave} style={ghost}>{t("exitc.leave")}</button>
           <button ref={stayRef} type="button" data-testid="exit-confirm-stay" onClick={stay} autoFocus style={primary}>{t("exitc.stay")}</button>

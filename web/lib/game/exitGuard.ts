@@ -50,3 +50,16 @@ export function guardState(state: unknown): Record<string, unknown> {
 
 /** focus order inside the dialog: Stay first (default), Leave second; Tab / Shift+Tab wrap between them */
 export function nextFocus(i: number, shift: boolean, n = 2): number { return ((shift ? i - 1 : i + 1) % n + n) % n; }
+
+/** pending on-chain trades (live TradeBridge): window.__disciplePendingTrades = {buy, sell} in-flight counts, and this event fires on each change */
+export const TRADE_PENDING_EVENT = "disciple:tradepending";
+export type PendingTrades = { buy: number; sell: number };
+export type ExitMode = "live" | "sim";
+/** the dialog's smaller secondary lines (i18n keys): sim → practice line; live → coins line + one per pending side */
+export function secondaryKeys(mode: ExitMode, pending?: Partial<PendingTrades> | null): ("exitc.note.live" | "exitc.note.sim" | "exitc.note.boost" | "exitc.note.dump")[] {
+  if (mode === "sim") return ["exitc.note.sim"];
+  const out: ("exitc.note.live" | "exitc.note.boost" | "exitc.note.dump")[] = ["exitc.note.live"];
+  if ((pending?.buy ?? 0) > 0) out.push("exitc.note.boost");
+  if ((pending?.sell ?? 0) > 0) out.push("exitc.note.dump");
+  return out;
+}

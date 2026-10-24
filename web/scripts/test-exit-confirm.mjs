@@ -39,6 +39,14 @@ const s = G.guardState({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: [1] });
 ok(s.__NA === true && Array.isArray(s.__PRIVATE_NEXTJS_INTERNALS_TREE) && s[G.GUARD_KEY] === 1, "guard entry keeps Next's history fields (its pushState passes it through) + the mark");
 ok(G.guardState(null)[G.GUARD_KEY] === 1, "guard entry from an empty state");
 ok(G.nextFocus(0, false) === 1 && G.nextFocus(1, false) === 0 && G.nextFocus(0, true) === 1 && G.nextFocus(1, true) === 0, "Tab / Shift+Tab wrap Stay ↔ Leave");
+console.log("— 1b. secondary line variants");
+const K = (m, p) => G.secondaryKeys(m, p).join(",");
+ok(K("live") === "exitc.note.live" && K("live", { buy: 0, sell: 0 }) === "exitc.note.live", "live, nothing pending → coins line only");
+ok(K("sim") === "exitc.note.sim" && K("sim", { buy: 2, sell: 1 }) === "exitc.note.sim", "sim / practice → practice line only (no on-chain line)");
+ok(K("live", { buy: 1, sell: 0 }) === "exitc.note.live,exitc.note.boost", "live + pending BOOST → + BOOST line");
+ok(K("live", { buy: 0, sell: 1 }) === "exitc.note.live,exitc.note.dump", "live + pending DUMP → + DUMP line");
+ok(K("live", { buy: 1, sell: 1 }) === "exitc.note.live,exitc.note.boost,exitc.note.dump", "both pending → both lines");
+ok(K("live", null) === "exitc.note.live", "pending side unknown → no on-chain line");
 cleanup();
 
 console.log("— 2. copy (lib/game/i18n)");
@@ -48,11 +56,14 @@ const get = (k) => (en.match(new RegExp(`"${k.replace(".", "\\.")}":\\s*"([^"]*)
 ok(get("exitc.title") === "Leave the mission?", `title: ${get("exitc.title")}`);
 ok(get("exitc.body") === "The mission continues, with or without you.", `body: ${get("exitc.body")}`);
 ok(get("exitc.stay") === "Stay" && get("exitc.leave") === "Leave", "buttons: Stay / Leave");
-ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"].every((k) => !/!/.test(get(k) || "!")), "no exclamation marks");
+ok(get("exitc.note.live") === "Your coins stay. This run's orb points and streak don't.", `live note: ${get("exitc.note.live")}`);
+ok(get("exitc.note.sim") === "This practice run will end.", `sim note: ${get("exitc.note.sim")}`);
+ok(get("exitc.note.boost") === "Your BOOST still lands on-chain." && get("exitc.note.dump") === "Your DUMP still lands on-chain.", "pending notes: BOOST / DUMP");
+ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave", "exitc.note.live", "exitc.note.sim", "exitc.note.boost", "exitc.note.dump"].every((k) => !/!/.test(get(k) || "!")), "no exclamation marks");
 const rest = i18n.slice(i18n.indexOf("const zh: Dict"), i18n.indexOf("export const DICTS"));
 ok(!/"exitc\./.test(rest), "zh / ko / ja / es carry no exitc.* yet (fall back to English via translate())");
 ok((rest.match(/NEEDS_REVIEW: exitc\.\*/g) || []).length === 4, "each non-English locale is marked NEEDS_REVIEW for exitc.*");
-ok(/ENGLISH_ONLY: readonly I18nKey\[\] = \["exitc\.title", "exitc\.body", "exitc\.stay", "exitc\.leave"\]/.test(i18n), "exitc.* listed in ENGLISH_ONLY (translation-coverage check in test:hotkeys skips them)");
+ok(/ENGLISH_ONLY: readonly I18nKey\[\] = \["exitc\.title", "exitc\.body", "exitc\.stay", "exitc\.leave", "exitc\.note\.live", "exitc\.note\.sim", "exitc\.note\.boost", "exitc\.note\.dump"\]/.test(i18n), "exitc.* listed in ENGLISH_ONLY (translation-coverage check in test:hotkeys skips them)");
 ok(/DICTS\[lang\]\?\.\[key\] \?\? en\[key\]/.test(i18n), "translate() falls back to English per key");
 const comp = rd("components/flight/ExitConfirm.tsx");
 ok(!/(Leave the mission|mission continues|"Stay"|"Leave")/.test(comp.replace(/^\s*\*.*$/gm, "")), "component has no hardcoded copy (one-line swap in i18n)");
@@ -60,7 +71,11 @@ ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"].every((k) => comp.
 
 console.log("— 3. wiring");
 const fc = rd("components/FlightCanvas.tsx");
-ok(/<ExitConfirm active=\{flightActive\} \/>/.test(fc), "FlightCanvas mounts <ExitConfirm active={flightActive} />");
+ok(/<ExitConfirm active=\{flightActive\} mode=\{isSimulator \? "sim" : "live"\} \/>/.test(fc), "FlightCanvas mounts <ExitConfirm active={flightActive} mode={sim|live} /> (sim = ?source=sim)");
+ok(/secondaryKeys\(mode, trades\)/.test(comp) && /data-testid="exit-confirm-note"/.test(comp) && /fontSize: 11/.test(comp), "component renders the smaller secondary line(s) from secondaryKeys(mode, pending)");
+const tb = rd("components/TradeBridge.tsx");
+ok(/__disciplePendingTrades/.test(tb) && /TRADE_PENDING_EVENT/.test(tb) && /finally \{ bump\(-1\); \}/.test(tb), "TradeBridge counts in-flight trades per side (+1 on tap, −1 in finally) and fires the pending event");
+ok(/addEventListener\(TRADE_PENDING_EVENT/.test(comp) && /window\.__disciplePendingTrades/.test(comp), "ExitConfirm reads pending trades on open and follows the event");
 ok(/flightActive = status === "Live" && !err && !isReplay/.test(fc), "armed only while the engine is Live, no error, not a replay");
 ok(/id="exitX"/.test(fc) && /href="\/"/.test(fc), "✕ (#exitX) is still a plain link to / (caught by the capture-phase click guard)");
 ok(/document\.addEventListener\("click", onClick, true\)/.test(comp) && /e\.preventDefault\(\); e\.stopPropagation\(\);/.test(comp), "document capture-phase click guard runs before next/link");
