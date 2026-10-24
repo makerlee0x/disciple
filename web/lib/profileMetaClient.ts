@@ -20,12 +20,12 @@ export async function fetchProfileMeta(address: string | null | undefined): Prom
   if (!isAddr(address)) return { ...EMPTY_META };
   try {
     const j = (await (await fetch(`/api/profile/meta?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as Partial<ProfileMeta>;
-    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "" };
+    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "" };
   } catch { return { ...EMPTY_META }; }
 }
 
 export async function saveProfileMeta(input: ProfileMeta, address: string | null): Promise<{ ok: boolean; reason?: string }> {
-  const m: ProfileMeta = { pfp: input.pfp, bio: sanitizeBio(input.bio), flag: normalizeFlag(input.flag) };
+  const m: ProfileMeta = { pfp: input.pfp, bio: sanitizeBio(input.bio), flag: normalizeFlag(input.flag), title: input.title || "" };
   const bad = validateMeta(m);
   if (bad) return { ok: false, reason: bad };
   if (IS_STATIC_PREVIEW) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m)); } catch { /* ignore */ } notifyProfileChanged(); return { ok: true }; }
