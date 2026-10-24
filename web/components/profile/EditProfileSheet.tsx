@@ -25,7 +25,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   const [draft, setDraft] = useState<ProfileMeta>(EMPTY_META);
   const [me, setMe] = useState("");
   const [name, setName] = useState("");
-  const [nameStatus, setNameStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [nameStatus, setNameStatus] = useState<{ ok: boolean; text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = useState<"" | "upload" | "save">("");
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
@@ -58,7 +58,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   useEffect(() => {
     if (!open || !nameChanged) { setNameStatus(null); return; }
     const bad = validateUsername(name);
-    if (bad) { setNameStatus({ ok: false, text: bad }); return; }
+    if (bad) { setNameStatus({ ok: false, text: bad, bad: true }); return; }
     setNameStatus({ ok: false, text: C["edit.username.checking"] });
     let alive = true;
     const t = setTimeout(async () => {
@@ -82,7 +82,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
     const r = await uploadPfp(f);
     setBusy("");
     if (r.id) setDraft((d) => ({ ...d, pfp: r.id! }));
-    else setErr(r.reason || "This image can't be used.");
+    else setErr(r.reason || C["edit.pfp.error.failed"]);
     if (file.current) file.current.value = "";
   }
 
@@ -146,7 +146,8 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
               {nameLocked ? C["username.cooldown.note"](formatLocalWhen(nextNameAt!)) : C["username.cooldown.rule"]}
             </span>
             <span className="pf-help-row">
-              {nameStatus ? <span className={nameStatus.ok ? "pf-ok" : "pf-help"} role={nameStatus.ok ? "status" : undefined}>{nameStatus.text}</span>
+              {nameStatus ? <span className={nameStatus.ok ? "pf-ok" : nameStatus.bad ? "pf-bad" : "pf-help"} role={nameStatus.ok ? "status" : undefined}
+                  data-testid="username-status">{nameStatus.text}</span>
                 : name && !nameChanged ? <span className="pf-help">That&apos;s you.</span> : <span />}
               <span className="pf-help pf-mono">{name.length}/20</span>
             </span>

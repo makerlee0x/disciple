@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  *   (lastUsernameChangeAt) lives in KV with the wallet's profile meta (lib/server/profileMeta).
  */
 import { NextResponse } from "next/server";
-import { RESERVED, USERNAME_RE } from "@/lib/profile";
+import { USERNAME_RE, validateUsername } from "@/lib/profile";
 import { claim, usernameOf, walletOf } from "@/lib/server/usernames";
 import { kv } from "@/lib/server/kv";
 import { consumeNonce, issueNonce, nonceValid } from "@/lib/server/nonces";
@@ -50,8 +50,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ address: USERNAME_RE.test(r) ? await walletOf(r) : null });
   }
   const u = norm(url.searchParams.get("u"));
-  if (!USERNAME_RE.test(u)) return NextResponse.json({ available: false, reason: "3–20 chars: a–z, 0–9, underscore." });
-  if (RESERVED.has(u)) return NextResponse.json({ available: false, reason: "That name is reserved." });
+  const badU = validateUsername(u);
+  if (badU) return NextResponse.json({ available: false, reason: badU });
   const taken = !!(await walletOf(u));
   return NextResponse.json({ available: !taken, reason: taken ? "Username taken." : undefined });
 }
@@ -61,7 +61,10 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   const u = norm(body.username);
   const addr = String(body.address ?? "").toLowerCase();
-  if (!USERNAME_RE.test(u) || RESERVED.has(u)) return NextResponse.json({ ok: false, reason: "Invalid username." }, { status: 400 });
+  // Same rules as the edit form (lib/profile.validateUsername): 3–20 chars a–z 0–9 _, not reserved. Only a NEW claim is
+  // checked here; an existing name is never re-validated, so nobody's current profile breaks.
+  const badU = validateUsername(u);
+  if (badU) return NextResponse.json({ ok: false, reason: badU }, { status: 400 });
   if (!isAddr(addr)) return NextResponse.json({ ok: false, reason: "Invalid address." }, { status: 400 });
   // Wallet-signed claim: single-use server nonce + signature over claimMessage.
   const nonce = String(body.nonce ?? "");
