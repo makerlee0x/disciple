@@ -1,71 +1,100 @@
-/* Launch pad + idle exhaust smog + moon + lift-off for the trending hero (see HeroPad.tsx). Units: plate px × --s.
- * --rx / --base: rocket centre x and base y (the launch-mount top) inside the hero stage; --s: plate→CSS scale
- * (rocket = 540px × --s tall). Motion is transform/opacity only; idle runs after paint (.go), lift-off on .launching;
- * reduced motion = everything still (smog and moon shown, frozen). */
+/* Launch pad + idle exhaust smog + moon + lift-off for the trending hero (see HeroPad.tsx). BRAND home-hero layers r1 (SPEC.md).
+ * .pad is the plate frame: the sky's aspect, covering the stage. Children are in % of the frame or in pad px:
+ * --u = one pad.webp pixel at its rendered size (pad.webp = 76.25% of the frame width desktop, 199.2% mobile; cq units
+ * resolve against the frame, which is a size container). The scene origin is the rocket seat = pad px (497.2, 501).
+ * Motion is transform/opacity (+ background-position on the smog bands); idle runs after paint (.go), lift-off on
+ * .launching; reduced motion = everything still. */
 .pad {
-  --s: .5; --rx: max(60%, 660px); --base: 436px; --liftoff-ms: 1300ms;
-  --rk-w: calc(195px * var(--s)); --rk-h: calc(540px * var(--s));
-  --moon-dx: 230px; --moon-y: 104px; --moon-d: 25px;
-  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  --liftoff-ms: 1300ms;
+  --fw: max(100cqw, calc(var(--hero-h, 580px) * 16 / 9));
+  position: absolute; left: 0; z-index: 2; pointer-events: none; container-type: inline-size;
+  width: var(--fw); aspect-ratio: 16 / 9;
+  /* seat at 76% of the hero height (as before), clamped so the frame always covers the stage */
+  top: clamp(calc(var(--hero-h, 580px) - var(--fw) * 9 / 16), calc(var(--hero-h, 580px) * .76 - var(--fw) * .4227), 0px);
 }
-.scene { position: absolute; left: var(--rx); top: var(--base); width: 0; height: 0; }
+.plate {
+  --u: calc(76.25cqw / 1070); /* 1 pad px */
+  --rk-h: calc(362 * var(--u)); --rk-w: calc(131 * var(--u));
+  --seat-y: 42.27cqw; /* seat height inside the frame (75.14% of 9/16) */
+  position: absolute; inset: 0; transform-origin: 53.87% 75.14%;
+}
+/* blur-up placeholder under the sky (inline LQIP from SPEC §6) */
+.plate::before { content: ""; position: absolute; inset: 0; filter: blur(14px); transform: scale(1.04);
+  background: url("data:image/webp;base64,UklGRnIAAABXRUJQVlA4IGYAAACwBACdASogABIAPu1oq04ppiQiMAgBMB2JZQDMHCHfv0YQK81bwL90UnXqi6QAAP7wyJwLT9SMWptd2dyqgVD0uFkrXRuTtBy7U0UblZeYTcEQ1eb16+Yig0wwxatSmf8e9EoYYAA=") 0 0 / 100% 100% no-repeat; }
+.plate > picture, .scene > picture { display: contents; }
+.sky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; }
+/* the whole frame drifts together (sky + pad + rocket); never the sky alone: the pad is baked into it */
+.go .plate { animation: frameDrift 75s ease-in-out infinite alternate; }
 
-/* the moon (our target): far away, off to the side of the rocket's path; above the grain so its edge stays crisp */
-.moon { position: absolute; left: calc(var(--rx) + var(--moon-dx)); top: var(--moon-y); width: var(--moon-d); aspect-ratio: 1; animation: fadeIn 2.4s ease-out both; }
-.moon img { position: relative; display: block; width: 100%; height: 100%; border-radius: 50%;
-  box-shadow: 0 0 10px 1px rgba(201, 206, 214, .2), 0 0 2px rgba(201, 206, 214, .35); user-select: none; }
-.moonGlow { position: absolute; left: 50%; top: 50%; width: 900%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(201, 206, 214, .2), rgba(201, 206, 214, .07) 22%, rgba(201, 206, 214, .02) 50%, transparent 100%); }
+/* z1: twinkle tiles over the sky (dense/small + sparse/haloed, out of phase), faded out towards the horizon */
+.stars { position: absolute; inset: 0; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 78%); mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 78%); }
+.stars i { position: absolute; inset: -8% -12%; background-size: 640px 400px; opacity: .5; animation: twinkleA 6.5s ease-in-out infinite, starDrift 90s ease-in-out infinite alternate; }
+.stars i + i { background-position: 213px 131px; opacity: .3; animation: twinkleB 9.2s ease-in-out infinite, starDrift 90s ease-in-out infinite alternate-reverse; }
 
-/* low cloud bank the pad stands in: one sheet behind the deck, one in front of its base (from #79 haze) */
-.fog { position: absolute; left: 0; width: 200%; background-repeat: repeat-x; background-size: 50% 100%; }
-.fogBack { top: calc(var(--base) - 70px * var(--s) / .56); height: calc(190px * var(--s) / .56); opacity: .22; }
-.fogFront { top: calc(var(--base) + 40px * var(--s) / .56); height: calc(150px * var(--s) / .56); opacity: .3; }
-.go .fogBack { animation: drift 160s linear infinite; }
-.go .fogFront { animation: drift 110s linear infinite reverse; }
+/* z2: the moon (our target) carries its own glow: no border-radius / box-shadow / glow element */
+.moon { position: absolute; left: 74.14%; top: -4.58%; width: 26.56%; aspect-ratio: 1; animation: fadeIn 2.4s ease-out both; }
+.moon img { display: block; width: 100%; height: 100%; user-select: none; }
+.go .moon img { animation: moonBreathe 9s ease-in-out infinite alternate; }
 
-/* the deck + service gantry + launch mount (#79 plate deck, mirrored; the gantry stands just right of the rocket, its
- * near leg tucked behind the hull and the umbilical arms running in to it), placed so its
- * baked mount point (516, 522) is the scene origin */
-.deck { position: absolute; left: calc(-516px * var(--s)); top: calc(-522px * var(--s)); width: calc(1070px * var(--s)); max-width: none; height: auto; display: block; user-select: none; }
-.beacon { position: absolute; left: calc(88px * var(--s)); top: calc(-497px * var(--s)); width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%;
+/* z3: back smog bands (seamless tile, repeat-x) drifting behind the deck, y ≈ 66–80% of the desktop frame */
+.band { position: absolute; left: 0; width: 100%; height: calc(110 * var(--u)); background: var(--smog-tile) 0 0 / calc(308 * var(--u)) 100% repeat-x; will-change: background-position; }
+.bandA { top: 66%; opacity: .32; animation: bandL 120s linear infinite; }
+.bandB { top: 70%; opacity: .25; animation: bandR 160s linear infinite; }
+
+.scene { position: absolute; left: 53.87%; top: 75.14%; width: 0; height: 0; }
+.back, .front { position: absolute; left: 0; top: 0; }
+.back { opacity: .45; }
+.front { opacity: .35; transition: opacity .3s; }
+.launching .front { opacity: 1; }
+
+/* z4: deck + service gantry + mount ring (soft-alpha cut-out of the baked pad), its mount point (497.2, 501) on the origin */
+.deck { position: absolute; left: calc(-497.2 * var(--u)); top: calc(-501 * var(--u)); width: calc(1070 * var(--u)); max-width: none; height: auto; display: block; user-select: none; }
+/* gantry-top beacon (baked light at pad px (704, 17)) */
+.beacon { position: absolute; left: calc(206.8 * var(--u)); top: calc(-484 * var(--u)); width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%;
   background: #FF5A3D; box-shadow: 0 0 6px 2px rgba(255, 90, 61, .55); opacity: .85; }
 .go .beacon { animation: beacon 3.2s ease-in-out infinite; }
 .lamp {
-  position: absolute; left: calc((var(--lx) * 1px - 516px) * var(--s)); top: calc((var(--ly) * 1px - 522px) * var(--s));
-  width: calc(150px * var(--s)); aspect-ratio: 2.4; transform: translate(-50%, -50%); border-radius: 50%;
+  position: absolute; left: calc((var(--lx) - 497.2) * var(--u)); top: calc((var(--ly) - 501) * var(--u));
+  width: calc(150 * var(--u)); aspect-ratio: 2.4; transform: translate(-50%, -50%); border-radius: 50%;
   background: radial-gradient(closest-side, rgba(255, 168, 108, .55), rgba(255, 122, 61, .2) 45%, rgba(255, 122, 61, 0) 100%);
   mix-blend-mode: screen; opacity: .7;
 }
 .go .lamp { animation: lampPulse 5.2s ease-in-out infinite; }
 .lamp:nth-of-type(3) { animation-delay: -1.7s; } .lamp:nth-of-type(4) { animation-delay: -3.4s; }
-/* warm pool on the deck around the mount (#79) + the deck lit by ignition */
+/* warm pool on the deck around the mount + the deck lit by ignition */
 .pool { position: absolute; left: 0; top: 0; width: calc(var(--rk-w) * 3.6); height: calc(var(--rk-h) * .16); transform: translate(-50%, -45%); border-radius: 50%;
   background: radial-gradient(closest-side, rgba(255, 150, 90, .3), rgba(255, 122, 61, .09) 55%, transparent 100%); mix-blend-mode: screen; }
 .go .pool { animation: lampPulse 6.5s ease-in-out infinite; }
-.deckGlow { position: absolute; left: 0; top: 0; width: calc(900px * var(--s)); height: calc(240px * var(--s)); transform: translate(-50%, -50%); border-radius: 50%; opacity: 0;
+.deckGlow { position: absolute; left: 0; top: 0; width: calc(900 * var(--u)); height: calc(240 * var(--u)); transform: translate(-50%, -50%); border-radius: 50%; opacity: 0;
   background: radial-gradient(closest-side, rgba(255, 214, 160, .75), rgba(255, 140, 70, .28) 45%, transparent 100%); mix-blend-mode: screen; }
-/* faint reflection on the deck in front of the mount */
-.refl { position: absolute; left: calc(var(--rk-w) / -2); top: calc(22px * var(--s)); width: var(--rk-w); height: var(--rk-h); opacity: .22;
-  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, .7) 0%, rgba(0, 0, 0, .15) 10%, transparent 22%);
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, .7) 0%, rgba(0, 0, 0, .15) 10%, transparent 22%); }
-.refl img { width: 100%; height: 100%; display: block; transform: scaleY(-1); filter: blur(1.4px) brightness(.7); }
 
-/* rocket: fin tips on the mount top, the centre spike drops into the mount */
+/* z5: rocket (362 pad px tall): fin-tip line (95.5% of the sprite) on the seat, the spike + fin tips behind pad-front */
 .lift { position: absolute; left: calc(var(--rk-w) / -2); top: calc(-.955 * var(--rk-h)); width: var(--rk-w); height: var(--rk-h); will-change: transform; }
 .body { position: absolute; inset: 0; }
 .rocketImg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; filter: drop-shadow(0 0 14px rgba(200, 210, 255, .12)); }
-.rim, .burn { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; mix-blend-mode: screen; }
-/* pad lamps + smog glow warm the lower hull; the moon side (right) catches a cool silver edge; ignition floods it */
+.tint, .rim, .burn { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+/* night tint (SPEC §4): rgb × [0.392, 0.392, 0.556] */
+.tint { background: rgb(100 100 142); mix-blend-mode: multiply; }
+.rim, .burn { mix-blend-mode: screen; }
+/* faint amber bounce from the deck lamps below; the moon side (right) catches a cool edge (≤ .16); ignition floods it */
 .rim { background:
-  linear-gradient(0deg, rgba(255, 150, 90, .4) 0%, rgba(255, 150, 90, .1) 14%, transparent 30%),
+  linear-gradient(0deg, rgba(255, 150, 90, .22) 0%, rgba(255, 150, 90, .06) 14%, transparent 30%),
   linear-gradient(270deg, rgba(201, 206, 214, .16) 0%, rgba(201, 206, 214, 0) 24%); }
 .burn { opacity: 0; background: linear-gradient(0deg, rgba(255, 232, 196, .95) 0%, rgba(255, 170, 100, .5) 14%, rgba(255, 140, 70, .12) 34%, transparent 52%); }
-/* exhaust (hidden on the pad) */
+/* lift-off exhaust (hidden on the pad) */
 .flame { position: absolute; left: 50%; top: 96%; width: 60%; height: 150%; transform: translateX(-50%) scaleY(0); transform-origin: 50% 0; opacity: 0; }
 .flame i { position: absolute; left: 50%; top: 0; transform: translateX(-50%); border-radius: 50% 50% 50% 50% / 30% 30% 70% 70%; }
 .flame i:nth-child(1) { width: 100%; height: 100%; background: radial-gradient(50% 62% at 50% 2%, rgba(255, 226, 180, .95), rgba(255, 150, 80, .55) 40%, rgba(255, 100, 50, .12) 75%, rgba(255, 90, 40, 0) 100%); }
 .flame i:nth-child(2) { width: 44%; height: 46%; background: radial-gradient(50% 55% at 50% 0%, #FFFFFF, rgba(255, 236, 205, .8) 45%, rgba(255, 200, 140, 0) 100%); }
+
+/* z6 / z8: idle exhaust glow (341×171 plate px, centred 6 plate px above the seat), screen; the spill copy sits over the lip */
+.glow { position: absolute; left: calc(-186.9 * var(--u)); top: calc(-100.3 * var(--u)); width: calc(373.8 * var(--u)); height: calc(187.5 * var(--u));
+  background: var(--glow) center / 100% 100% no-repeat; mix-blend-mode: screen; }
+.glowMain { opacity: .85; animation: glowMain 3.8s ease-in-out infinite; }
+.glowSpill { opacity: .3; animation: glowSpill 3.8s ease-in-out -1.9s infinite; }
+/* z7: front lip of the mount ring (front railing + wall), in front of the rocket */
+.padFront { position: absolute; left: calc(-126.6 * var(--u)); top: calc(-25.2 * var(--u)); width: calc(254.3 * var(--u)); height: calc(54.8 * var(--u)); max-width: none; display: block; user-select: none; }
 /* ignition flare at the base */
 .flare { position: absolute; left: 0; top: 0; width: calc(var(--rk-w) * 4.2); aspect-ratio: 1.6; transform: translate(-50%, -50%) scale(.3); border-radius: 50%; opacity: 0;
   background: radial-gradient(closest-side, rgba(255, 252, 238, 1), rgba(255, 214, 160, .7) 22%, rgba(255, 140, 70, .25) 52%, transparent 100%); mix-blend-mode: screen; }
@@ -76,30 +105,29 @@
  * deck and lift a little as they thin; wisps climb, widen and dissipate; a bed + front haze breathe. */
 .smog { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
 .smog i { position: absolute; left: 0; top: 0; opacity: 0; background-position: center; background-size: 100% 100%; background-repeat: no-repeat; }
-.bed { width: calc(600px * var(--s)); height: calc(190px * var(--s)); background-image: var(--smog-roll); transform: translate(-50%, -80%); }
+.bed { width: calc(600 * var(--u)); height: calc(190 * var(--u)); background-image: var(--smog-roll); transform: translate(-50%, -80%); }
 .go .bed { animation: bed 13s ease-in-out infinite; }
-.wisp { width: calc(300px * var(--s)); height: calc(300px * var(--s)); background-image: var(--smog-wisp); }
-.wisp:nth-child(2) { --dx: calc(-150px * var(--s)); --r: -14deg; --dl: 0s; }
-.wisp:nth-child(3) { --dx: calc(120px * var(--s)); --r: 12deg; --dl: -5.3s; }
-.wisp:nth-child(4) { --dx: calc(-40px * var(--s)); --r: 6deg; --dl: -10.6s; }
+.wisp { width: calc(300 * var(--u)); height: calc(300 * var(--u)); background-image: var(--smog-wisp); }
+.wisp:nth-child(2) { --dx: calc(-150 * var(--u)); --r: -14deg; --dl: 0s; }
+.wisp:nth-child(3) { --dx: calc(120 * var(--u)); --r: 12deg; --dl: -5.3s; }
+.wisp:nth-child(4) { --dx: calc(-40 * var(--u)); --r: 6deg; --dl: -10.6s; }
 .go .wisp { animation: wispRise 16s cubic-bezier(.3, .1, .4, 1) infinite var(--dl, 0s); }
-.roll { width: calc(480px * var(--s)); height: calc(170px * var(--s)); background-image: var(--smog-roll); }
-.roll:nth-child(1) { --dx: calc(-380px * var(--s)); --k: 1.35; --fx: 1;  --dl: 0s; }
-.roll:nth-child(2) { --dx: calc(400px * var(--s));  --k: 1.45; --fx: -1; --dl: -3.1s; }
-.roll:nth-child(3) { --dx: calc(-290px * var(--s)); --k: 1.2; --fx: -1; --dl: -6.2s; }
-.roll:nth-child(4) { --dx: calc(310px * var(--s));  --k: 1.28; --fx: 1;  --dl: -9.3s; }
+.roll { width: calc(480 * var(--u)); height: calc(170 * var(--u)); background-image: var(--smog-roll); }
+.roll:nth-child(1) { --dx: calc(-380 * var(--u)); --k: 1.35; --fx: 1;  --dl: 0s; }
+.roll:nth-child(2) { --dx: calc(400 * var(--u));  --k: 1.45; --fx: -1; --dl: -3.1s; }
+.roll:nth-child(3) { --dx: calc(-290 * var(--u)); --k: 1.2; --fx: -1; --dl: -6.2s; }
+.roll:nth-child(4) { --dx: calc(310 * var(--u));  --k: 1.28; --fx: 1;  --dl: -9.3s; }
 .go .roll { animation: rollOut 12.4s cubic-bezier(.22, .6, .35, 1) infinite var(--dl, 0s); }
-.vent { width: calc(270px * var(--s)); height: calc(250px * var(--s)); background-image: var(--smog-puff); }
-.vent:nth-child(5) { --dx: calc(-70px * var(--s)); --r: -18deg; --dl: 0s; }
-.vent:nth-child(6) { --dx: calc(64px * var(--s));  --r: 16deg;  --dl: -2.3s; }
-.vent:nth-child(7) { --dx: calc(-8px * var(--s));  --r: 8deg;   --dl: -4.6s; }
+.vent { width: calc(270 * var(--u)); height: calc(250 * var(--u)); background-image: var(--smog-puff); }
+.vent:nth-child(5) { --dx: calc(-70 * var(--u)); --r: -18deg; --dl: 0s; }
+.vent:nth-child(6) { --dx: calc(64 * var(--u));  --r: 16deg;  --dl: -2.3s; }
 .go .vent { animation: ventPuff 6.9s cubic-bezier(.2, .7, .4, 1) infinite var(--dl, 0s); }
-.core { width: calc(440px * var(--s)); height: calc(150px * var(--s)); background-image: var(--smog-roll); transform: translate(-50%, -58%); opacity: .6; }
+.core { width: calc(440 * var(--u)); height: calc(150 * var(--u)); background-image: var(--smog-roll); transform: translate(-50%, -58%); opacity: .6; }
 .go .core { animation: core 5.6s ease-in-out infinite; }
-.haze { width: calc(900px * var(--s)); height: calc(150px * var(--s)); background-image: var(--smog-roll); transform: translate(-50%, -30%); }
+.haze { width: calc(900 * var(--u)); height: calc(150 * var(--u)); background-image: var(--smog-roll); transform: translate(-50%, -30%); }
 .go .haze { animation: haze 19s ease-in-out infinite alternate; }
 /* lamp light caught in the smog, strongest low at the base */
-.smogGlow { position: absolute; left: 0; top: 0; width: calc(760px * var(--s)); height: calc(220px * var(--s)); transform: translate(-50%, -62%); border-radius: 50%; opacity: .75;
+.smogGlow { position: absolute; left: 0; top: 0; width: calc(760 * var(--u)); height: calc(220 * var(--u)); transform: translate(-50%, -62%); border-radius: 50%; opacity: .75;
   background: radial-gradient(closest-side, rgba(255, 150, 90, .3), rgba(255, 122, 61, .1) 55%, transparent 100%); mix-blend-mode: screen; }
 .go .smogGlow { animation: lampPulse 7.3s ease-in-out infinite; }
 
@@ -131,13 +159,13 @@
 .launching .billow i { animation: billow 1.6s cubic-bezier(.16, .8, .3, 1) var(--d) both; }
 .launching .smog { animation: smogSurge var(--liftoff-ms) cubic-bezier(.3, .6, .4, 1) both; }
 .launching .smogGlow { animation: smogIgnite var(--liftoff-ms) linear both; }
-.launching .refl, .launching .rim { opacity: 0; transition: opacity .25s; }
+.launching .rim { opacity: 0; transition: opacity .25s; }
 .launching .scene { animation: shake 70ms linear 8 alternate; }
 
 @keyframes liftoff {
   0% { transform: translateY(0); animation-timing-function: ease-in-out; }
-  22% { transform: translateY(calc(-6px * var(--s) / .56)); animation-timing-function: cubic-bezier(.45, 0, .85, .35); }
-  100% { transform: translateY(calc(-1 * (var(--base) + var(--rk-h) * 1.25))); }
+  22% { transform: translateY(calc(-6 * var(--u) / .56)); animation-timing-function: cubic-bezier(.45, 0, .85, .35); }
+  100% { transform: translateY(calc(-1 * (var(--seat-y) + var(--rk-h) * 1.25))); }
 }
 @keyframes flameOn {
   0%, 7% { opacity: 0; transform: translateX(-50%) scaleY(0); }
@@ -161,7 +189,6 @@
 @keyframes rumble { from { transform: translateX(-.6px); } to { transform: translateX(.6px); } }
 @keyframes shake { 0% { transform: translate(0, 0); } 50% { transform: translate(-1.5px, 1px); } 100% { transform: translate(1.5px, -1px); } }
 @keyframes flicker { from { opacity: .82; } to { opacity: 1; } }
-@keyframes drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
 @keyframes lampPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 
 @keyframes smogSurge {
@@ -183,45 +210,60 @@
   0% { opacity: 0; transform: translate(-50%, -58%) scale(.3) rotate(0deg); }
   14% { opacity: .95; }
   50% { opacity: .75; }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-58% - 120px * var(--s))) scale(1.35) rotate(var(--r)); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-58% - 120 * var(--u))) scale(1.35) rotate(var(--r)); }
 }
 @keyframes rollOut {
   0% { opacity: 0; transform: translate(-50%, -82%) scale(calc(.42 * var(--fx)), .45); }
   12% { opacity: .9; }
   45% { opacity: .6; }
   80% { opacity: .22; }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-82% - 34px * var(--s))) scale(calc(var(--k) * var(--fx)), calc(var(--k) * .82)); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-82% - 34 * var(--u))) scale(calc(var(--k) * var(--fx)), calc(var(--k) * .82)); }
 }
 @keyframes wispRise {
-  0% { opacity: 0; transform: translate(-50%, calc(-50% - 50px * var(--s))) scale(.45) rotate(0deg); }
+  0% { opacity: 0; transform: translate(-50%, calc(-50% - 50 * var(--u))) scale(.45) rotate(0deg); }
   22% { opacity: .5; }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% - 430px * var(--s))) scale(2) rotate(var(--r)); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% - 430 * var(--u))) scale(2) rotate(var(--r)); }
 }
 @keyframes beacon { 0%, 100% { opacity: .25; } 45%, 55% { opacity: 1; } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes frameDrift { from { transform: scale(1); } to { transform: scale(1.02); } }
+@keyframes starDrift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(2.2%, .6%, 0); } }
+@keyframes twinkleA { 0%, 100% { opacity: .55; } 50% { opacity: .18; } }
+@keyframes twinkleB { 0%, 100% { opacity: .12; } 50% { opacity: .5; } }
+@keyframes moonBreathe { from { opacity: .9; } to { opacity: 1; } }
+@keyframes bandL { from { background-position-x: 0; } to { background-position-x: calc(-308 * var(--u)); } }
+@keyframes bandR { from { background-position-x: 0; } to { background-position-x: calc(308 * var(--u)); } }
+@keyframes glowMain { 0%, 100% { opacity: .6; transform: scale(1); } 50% { opacity: .9; transform: scale(1.04); } }
+@keyframes glowSpill { 0%, 100% { opacity: .2; transform: scale(1); } 50% { opacity: .3; transform: scale(1.04); } }
 
-/* narrower desktops: the pad moves right (as the rocket did), a little smaller; the moon sits just left of the edge */
-@media (max-width: 1180px) and (min-width: 761px) {
-  .pad { --rx: calc(100% - 150px); --s: .44; --base: 446px; --moon-dx: 84px; --moon-y: 100px; --moon-d: 23px; }
-}
-/* mobile: centred above the info panel */
+/* mobile: portrait plate window (plate x 530…1020, y -40…1020), anchored to the top of the stage */
 @media (max-width: 760px) {
-  .pad { --rx: 47%; --s: .33; --base: 268px; --moon-dx: 112px; --moon-y: 96px; --moon-d: 18px; }
-  .fogBack { display: none; }
-  .refl img { filter: brightness(.7); }
+  .pad { width: 100cqw; aspect-ratio: 828 / 1792; top: 0; }
+  .plate {
+    --u: calc(199.2cqw / 1070);
+    --seat-y: 118.6cqw; /* 54.81% of 1792/828 */
+    transform-origin: 32.55% 54.81%;
+  }
+  .plate::before { background-image: url("data:image/webp;base64,UklGRlwAAABXRUJQVlA4IFAAAADwAwCdASoMABoAPu1kqk4ppaQiMAgBMB2JQBibBDjxJQ+8PLHO/poAAP7r7iAOuWXdymYX2L0MLx6eW8QzZH25Oa4q2xQXJq+r3RJq/gAAAA=="); }
+  .scene { left: 32.55%; top: 54.81%; }
+  .moon { left: 61.7%; top: -2.7%; width: 48.6%; }
+  .bandA { top: 48.6%; }
+  .bandB { top: 50.4%; }
 }
-/* reduced motion: nothing moves; the smog is shown as a still, layered plume and the moon as a still */
+/* reduced motion: nothing moves; stars at their "from" opacities, smog as a still layered plume, glow .8 */
 @media (prefers-reduced-motion: reduce) {
-  .moon, .fog, .lamp, .pool, .beacon, .smogGlow, .smog i,
-  .go .fogBack, .go .fogFront, .go .lamp, .go .pool, .go .beacon, .go .smogGlow, .go .smog i { animation: none !important; }
+  .plate, .moon, .moon img, .stars i, .band, .lamp, .pool, .beacon, .smogGlow, .smog i, .glow,
+  .go .plate, .go .moon img, .go .lamp, .go .pool, .go .beacon, .go .smogGlow, .go .smog i { animation: none !important; }
+  .stars i { opacity: .55; } .stars i + i { opacity: .12; }
+  .glowMain { opacity: .8; } .glowSpill { opacity: .3; }
   .bed { opacity: .72; }
   .haze { opacity: .3; }
   .core { opacity: .6; }
-  .roll:nth-child(1) { opacity: .7; transform: translate(calc(-50% - 170px * var(--s)), -84%) scale(.95, .8); }
-  .roll:nth-child(2) { opacity: .66; transform: translate(calc(-50% + 190px * var(--s)), -84%) scale(-1, .85); }
+  .roll:nth-child(1) { opacity: .7; transform: translate(calc(-50% - 170 * var(--u)), -84%) scale(.95, .8); }
+  .roll:nth-child(2) { opacity: .66; transform: translate(calc(-50% + 190 * var(--u)), -84%) scale(-1, .85); }
   .roll:nth-child(3), .roll:nth-child(4) { opacity: .4; transform: translate(calc(-50% + var(--dx) * .7), -88%) scale(calc(1.2 * var(--fx)), 1); }
   .vent:nth-child(5) { opacity: .7; transform: translate(-58%, -70%) scale(.75) rotate(-6deg); }
   .vent:nth-child(6) { opacity: .5; transform: translate(-40%, -80%) scale(.95) rotate(8deg); }
-  .wisp:nth-child(2) { opacity: .3; transform: translate(-62%, calc(-50% - 170px * var(--s))) scale(1.2); }
-  .wisp:nth-child(3) { opacity: .22; transform: translate(-36%, calc(-50% - 280px * var(--s))) scale(1.5); }
+  .wisp:nth-child(2) { opacity: .3; transform: translate(-62%, calc(-50% - 170 * var(--u))) scale(1.2); }
+  .wisp:nth-child(3) { opacity: .22; transform: translate(-36%, calc(-50% - 280 * var(--u))) scale(1.5); }
 }
