@@ -36,6 +36,19 @@ eq(CURVE.walletCapDefaultBps, C.WALLET_CAP_BPS_DEFAULT, "wallet cap default bps 
 eq(Math.round(CURVE.antiSnipeStartPct * 100), C.ANTI_SNIPE_START_BPS, "anti-snipe start  config ⇄ Constants"); eq(LAUNCH.antiSnipeStartBps, C.ANTI_SNIPE_START_BPS, "anti-snipe start  sim ⇄ Constants");
 eq(CURVE.antiSnipeWindowSec, C.ANTI_SNIPE_DURATION, "anti-snipe window  config ⇄ Constants"); eq(LAUNCH.antiSnipeDurationS, C.ANTI_SNIPE_DURATION, "anti-snipe window  sim ⇄ Constants");
 eq(C.ANTI_SNIPE_END_BPS, 0, "anti-snipe ends at 0 (sim decays to 0)");
+// anti-snipe schedule: one source (lib/config CURVE → sim LAUNCH → Market.antiSnipe), linear 99% → 0 over 77 s, buys only, curve only
+{ const AS0 = C.ANTI_SNIPE_START_BPS / 10_000, D = C.ANTI_SNIPE_DURATION, m = new Market(cloneConfig());
+  const pts = [[0, AS0], [D / 2, AS0 / 2], [D - 1, AS0 / D], [D, 0], [D + 60, 0]], off = pts.filter(([t, v]) => Math.abs(m.antiSnipe(t) - v) > 1e-12);
+  ok(!off.length, `sim anti-snipe ${AS0 * 100}% → 0 linear over ${D} s (t=0,${D / 2},${D - 1},${D},${D + 60})${off.length ? " differs at t=" + off.map((x) => x[0]).join(",") : ""}`);
+  ok(!/antiSnipe/.test(m.sell.toString()), "Market.sell does not read the anti-snipe clock (buys only)");
+  // every written schedule in GAME's sim + engine sources (comments included) must match Constants — catches stale "7 s" / "77.7%"
+  const files = ["lib/sim/market.ts", "lib/sim/run.ts", "lib/sim/config.ts", "public/flight/engine.js", "scripts/test-sim.mjs"], stale = [];
+  for (const f of files) { const src = fs.readFileSync(path.join(web, f), "utf8").split("\n");
+    src.forEach((ln, i) => { if (!/snipe|sniper tax/i.test(ln)) return;
+      for (const mm of ln.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:→|->|to)\s*0%?/g)) if (+mm[1] !== AS0 * 100) stale.push(`${f}:${i + 1} ${mm[0]}`);
+      for (const mm of ln.matchAll(/(\d+(?:\.\d+)?)\s*(?:s|sec|seconds)\b(?=[^a-z]*(?:anti-snipe|sniper tax|tax))|over\s+(\d+(?:\.\d+)?)\s*s\b|\((\d+(?:\.\d+)?)\s*s\)/gi)) { const v = +(mm[1] ?? mm[2] ?? mm[3]); if (v !== D) stale.push(`${f}:${i + 1} ${mm[0]}`); } }); }
+  ok(!stale.length, `anti-snipe prose in ${files.length} GAME files says ${AS0 * 100}% → 0 over ${D} s${stale.length ? " — stale: " + stale.join(" | ") : ""}`);
+  eq(/ANTI_SNIPE|antiSnipe/.test(fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")), false, "engine.js charges no anti-snipe of its own (live: contract; paper: no launch clock) — nothing to drift"); }
 eq(Number(CM.TRADE_FEE_BPS), C.TRADE_FEE_BPS, "trade fee  curveMath ⇄ Constants");  eq(LAUNCH.tradeFeeBps, C.TRADE_FEE_BPS, "trade fee  sim ⇄ Constants");
 ok(!!twm, "TrampWallManager.sol: keeperTipBps default found"); if (twm) eq(LAUNCH.keeperTipBps, +twm[1], "keeper tip  sim ⇄ TrampWallManager default");
 // a stale saved tuning can never override launch params
