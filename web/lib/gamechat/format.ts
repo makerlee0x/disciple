@@ -2,6 +2,7 @@
 import type { ChatMsg } from "./adapter";
 import { BOMB_PCT } from "../config";
 import { bombTierIndex, impactPctOf, type ImpactInput } from "../flight/bombTier";
+import { defaultUsername, isAddressLike } from "../defaultUsername";
 
 /** Deterministic username colour from the address (FNV-1a → hue), readable on a dark translucent column. */
 export function nameColor(addr: string) {
@@ -60,4 +61,7 @@ export function appendRows(rows: Row[], incoming: ChatMsg[], cap = ROW_CAP): Row
   return out.length > cap ? out.slice(out.length - cap) : out;
 }
 export const fmtUsd = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${Math.round(v)}`);
-export const shortAddr = (a: string) => (a && a.length > 10 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "?");
+/** Chat name fallback for a sender/trader without a username (GameChat renders `from.name || shortAddr(from.addr)`):
+ *  a 0x address → its space-themed default call sign (lib/defaultUsername, same name as every other surface);
+ *  anything else keeps the old short form. Name kept for GameChat's import. */
+export const shortAddr = (a: string) => (isAddressLike(a) ? defaultUsername(a) : a && a.length > 10 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "?");

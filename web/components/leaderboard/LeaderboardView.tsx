@@ -7,6 +7,7 @@ import AchievementBadge, { EmptyBadge } from "@/components/profile/AchievementBa
 import { identityLabel } from "@/components/profile/IdentitySigil";
 import { rarityStyle } from "@/lib/achievements";
 import { profileUrl } from "@/lib/profile";
+import { displayName } from "@/lib/defaultUsername";
 import {
   flagEmoji,
   fmtHold,
@@ -63,7 +64,7 @@ function Row({ row }: { row: LeaderboardRow }) {
   const badges = row.badges.slice(0, 6);
   const empties = Math.max(0, 6 - badges.length);
   const tierColor = ladderColor(row.ladderTier);
-  const name = row.handle;
+  const name = displayName(row.handle, row.address);   // no handle → space-themed default call sign
   const router = useRouter();
   const href = row.username ? profileUrl(row.username) : `/u/${row.address}`;
   const go = (e: React.MouseEvent | React.KeyboardEvent) => {
@@ -83,7 +84,7 @@ function Row({ row }: { row: LeaderboardRow }) {
       <div className="lb-cell lb-player">
         <div className="lb-name">
           <Link href={href} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
-            {name || `${row.address.slice(0, 6)}…${row.address.slice(-4)}`}
+            {name}
           </Link>
           <span className="lb-flag" title={row.country}>
             {flagEmoji(row.country)}
