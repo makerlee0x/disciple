@@ -90,3 +90,15 @@ export async function fetchHolders(coin: string, o: BuildOpts, d: HoldersDeps, m
   try { bals = await d.balancesOf(addrs); } catch { return null; }
   return { rows: buildHolders(addrs.map((a, i) => ({ address: a, balance: bals[i] ?? BigInt(0) })), o), asOfBlock: null, source: "balances", at };
 }
+
+/** The user's own row from the receipt-derived own-balance ledger (lib/flight/ownLedger), over any snapshot (api or balances).
+ *  A lagging node / indexer can't show the pre-trade (e.g. 0) holdings after our own fill. Re-ranked; row labels kept. */
+export function overlayOwn(snap: HoldersSnapshot, o: BuildOpts, ownRaw: bigint | undefined): HoldersSnapshot {
+  const me = o.me ? lc(o.me) : "";
+  if (!me || ownRaw === undefined) return snap;
+  const labels: Record<string, HolderLabel> = { ...(o.labels || {}) };
+  for (const r of snap.rows) if (r.label && !labels[lc(r.address)]) labels[lc(r.address)] = r.label;
+  const bal: { address: string; balance: bigint | string }[] = snap.rows.filter((r) => lc(r.address) !== me).map((r) => ({ address: r.address, balance: r.balance }));
+  bal.push({ address: me, balance: ownRaw });
+  return { ...snap, rows: buildHolders(bal, { ...o, labels }) };
+}
