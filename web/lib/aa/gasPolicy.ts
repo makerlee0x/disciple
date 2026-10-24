@@ -15,6 +15,8 @@
  */
 import { decodeFunctionData, encodeFunctionData, parseAbi, toFunctionSelector, type AbiFunction, type AbiItem, type Hex } from "viem";
 import { anonLauncherAbi } from "../abi/AnonLauncher";
+import { bondingCurveAbi } from "../abi/BondingCurve";
+import { discipleRouterAbi } from "../abi/DiscipleRouter";
 import { launchpadAbi } from "../abi/Launchpad";
 
 /** 0.001 gwei: the relayer's priority fee (RH testnet inclusion floor; also what rundler_maxPriorityFeePerGas answers). */
@@ -41,9 +43,12 @@ export const GAS_CAPS = {
   total: BigInt(4_000_000),
 } as const;
 /**
- * Launch ops only (Launchpad launch / AnonLauncher launchAnon, plus their approvals): a launch deploys the token +
- * curve and seeds state ≈ 6.06M execution gas, ≈ 7.9M after the self-bundler's 1.3x + 20k estimate padding, which
- * GAS_CAPS (3M / 4M) rejected as "above cap" ⇒ "simulation failed". Every other op keeps the W-1 caps above.
+ * Launch ops only (Launchpad launch / AnonLauncher launchAnon / DiscipleRouter launchWithUsdg, plus their approvals): a
+ * launch deploys the token + curve and seeds state ≈ 6.06M execution gas, ≈ 7.9M after the self-bundler's 1.3x + 20k
+ * estimate padding, which GAS_CAPS (3M / 4M) rejected as "above cap" ⇒ "simulation failed". Every other op keeps the
+ * W-1 caps above. v5: the live smoke launch (approve + Launchpad.launch with First BOOST) used 6,780,271 gas;
+ * launchWithUsdg = the same launchFor + the router's USDG pull / USDG→pair swap (+ an optional refund swap) ≈ 7.0–7.3M
+ * ⇒ ≈ 9.1–9.5M estimated call gas: inside 10M, with the account / paymaster limits inside the 11M total.
  */
 export const LAUNCH_GAS_CAPS = {
   ...GAS_CAPS,
@@ -63,9 +68,11 @@ export const GRAD_GAS_CAPS = {
 } as const;
 export type GasCaps = { [K in keyof typeof GAS_CAPS]: bigint };
 
-const LAUNCH_SELECTORS = new Set(
-  ([...launchpadAbi, ...anonLauncherAbi] as readonly AbiItem[])
-    .filter((f): f is AbiFunction => f.type === "function" && ["launch", "launchCoin", "launchWithMode", "launchAnon"].includes(f.name))
+/** User-callable launch entry points (Launchpad.launchFor is router-only, not listed). Exported for tests. */
+export const LAUNCH_FUNCTIONS = ["launch", "launchCoin", "launchWithMode", "launchAnon", "launchWithUsdg"] as const;
+export const LAUNCH_SELECTORS: ReadonlySet<string> = new Set(
+  ([...launchpadAbi, ...anonLauncherAbi, ...discipleRouterAbi] as readonly AbiItem[])
+    .filter((f): f is AbiFunction => f.type === "function" && (LAUNCH_FUNCTIONS as readonly string[]).includes(f.name))
     .map((f) => toFunctionSelector(f).toLowerCase()),
 );
 /** Calls allowed next to a launch: the exact First BOOST approve and the PVE LoginGate.attest (#99 ensurePveLogin). */
@@ -90,8 +97,8 @@ export function accountCalls(callData: string): { to: string; data: string; valu
 }
 /**
  * Is this op a launch? Every inner call must be an approve / LoginGate.attest or a launch selector, at least one launch, and every launch
- * must target one of `launchers` (Launchpad, AnonLauncher v2). Anything else (or an undecodable callData) ⇒ false ⇒
- * normal GAS_CAPS. Selectors come from the generated Launchpad / AnonLauncher ABIs.
+ * must target one of `launchers` (Launchpad, AnonLauncher(s), DiscipleRouter: lib/aa/launchTargets). Anything else (or an undecodable callData) ⇒ false ⇒
+ * normal GAS_CAPS. Selectors come from the generated Launchpad / AnonLauncher / DiscipleRouter ABIs.
  */
 export function isLaunchOp(callData: string, launchers: string[]): boolean {
   const calls = accountCalls(callData);
@@ -117,15 +124,18 @@ export const isLaunchCalls = (calls: { to: string; data: string }[], launchers: 
 export const capsForOp = (op: { callData?: string }, launchers: string[], opts?: { gradBuy?: boolean }): GasCaps =>
   op.callData && isLaunchOp(op.callData, launchers) ? LAUNCH_GAS_CAPS : opts?.gradBuy ? GRAD_GAS_CAPS : GAS_CAPS;
 
-/** Curve buys (direct, or DiscipleRouter buyWithUsdg / buyExactIn ⇒ curve.routerBuy pre-graduation). */
-const buyAbi = parseAbi([
-  "function buy(uint256 quoteIn, uint256 minTokensOut, uint256 deadline)",
-  "function buy(uint256 quoteIn, uint256 minTokensOut, uint256 deadline, address recipient)",
-  "function buyFor(address buyer, uint256 quoteIn, uint256 minTokensOut, uint256 deadline)",
-  "function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline)",
-  "function buyExactIn(address token, uint256 quoteIn, uint256 minTokensOut, address recipient, uint256 deadline)",
-]);
-const BUY_SELECTORS = new Set(buyAbi.map((f) => toFunctionSelector(f).toLowerCase()));
+/**
+ * Curve buys (direct, or DiscipleRouter buyWithUsdg / buyExactIn ⇒ curve.routerBuy pre-graduation), taken from the
+ * generated v5 ABIs so a contract signature change can't leave a stale selector here (v5 buyFor is 5-arg:
+ * buyFor(buyer, quoteIn, minTokensOut, deadline, maxTokens); it is Launchpad-only on-chain, so a user op calling it reverts).
+ * Arg order the decoder relies on: curve buy / buyFor quoteIn = args[0] / args[1]; router (token, amountIn, …).
+ */
+const buyAbi = [
+  ...bondingCurveAbi.filter((f) => f.type === "function" && (f.name === "buy" || f.name === "buyFor")),
+  ...discipleRouterAbi.filter((f) => f.type === "function" && (f.name === "buyWithUsdg" || f.name === "buyExactIn")),
+] as readonly AbiFunction[];
+/** Exported for tests: must equal the ABI-derived selectors of the five buy entry points above. */
+export const BUY_SELECTORS: ReadonlySet<string> = new Set(buyAbi.map((f) => toFunctionSelector(f).toLowerCase()));
 /**
  * One buy inside a call list: `curve` = called on a curve (to = curve); `router` = called on a router (to = router, token
  * named). `unit` = what quoteIn is denominated in: "quote" (the curve's own quote: curve buy / buyFor, router
