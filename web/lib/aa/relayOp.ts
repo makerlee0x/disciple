@@ -64,11 +64,15 @@ export function keptOpRef(local: Hex | undefined, ref: RelayOpRef | undefined): 
   if (ref && ref.userOpHash.toLowerCase() === local.toLowerCase()) return { userOpHash: local, txHash: ref.txHash };
   return { userOpHash: local };
 }
-/** "0x1234…abcd" for status lines. */
-export const shortHash = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
-
 /** The relay's bundle tx itself reverted (handleOps rejected the op at inclusion): the op did NOT execute. */
 export const BUNDLE_REVERTED = /relayer tx 0x[0-9a-fA-F]{64} reverted/i;
-/** Status-line copy for a sent op whose outcome is still unknown / whose bundle was rejected (op id shown short). */
-export const sentPendingMsg = (h?: string) => `Trade sent — still confirming on-chain${h ? ` (op ${shortHash(h)})` : ""}. Check your balance in a moment.`;
-export const bundleRejectedMsg = (h?: string) => `Trade didn't go through: the relay rejected it${h ? ` (op ${shortHash(h)})` : ""}. Try again.`;
+/**
+ * Player-facing copy (approved by lee 2026-10-24). NO ids or chain/relay wording here: the op id and bundle tx hash
+ * live on AAError.extra and in the console (logRelayOp), never in a toast / inline error.
+ */
+export const PENDING_MSG = "Still confirming. Check back in a moment.";
+export const REJECTED_MSG = "That didn't go through. Try again.";
+/** Console-only trace of a sent op's ids (support/debugging); never shown to players. */
+export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: string; txHash?: string }) {
+  if (typeof console !== "undefined") console.warn(`[disciple] trade ${state}`, { userOpHash: ids.userOpHash, txHash: ids.txHash });
+}

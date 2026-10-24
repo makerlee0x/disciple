@@ -56,7 +56,19 @@ const { clientFees } = await import("../lib/aa/gasPolicy");
 const { STATIC_GAS } = await import("../lib/aa/fastPath");
 const { robinhoodTestnet } = await import("../lib/chains");
 const { ENTRYPOINT_V07 } = await import("../lib/aa/constants");
-const { relayOpRef, keptOpRef, shortHash } = await import("../lib/aa/relayOp");
+const { relayOpRef, keptOpRef } = await import("../lib/aa/relayOp");
+// approved by lee 2026-10-24 — asserted verbatim (not imported) so a copy change has to touch this test too
+const PENDING = "Still confirming. Check back in a moment.";
+const REJECTED = "That didn't go through. Try again.";
+/** player-visible text must carry no ids and no chain/relay jargon */
+const plain = (m: string, ids: (string | undefined)[]) => {
+  for (const id of ids) if (id) { assert.ok(!m.toLowerCase().includes(id.toLowerCase()), `id leaked: ${m}`); assert.ok(!m.includes(`${id.slice(0, 6)}…`), `short id leaked: ${m}`); }
+  assert.doesNotMatch(m, /0x[0-9a-f]{4}|op|userop|tx|relay|on-?chain|bundle|simulation/i);
+};
+/** console.warn capture: the ids go to the console log instead */
+const warned: unknown[][] = [];
+const realWarn = console.warn;
+console.warn = (...a: unknown[]) => { warned.push(a); };
 const { friendlyError } = await import("../lib/protocol-viem");
 
 const SENDER = privateKeyToAccount(generatePrivateKey()).address;
@@ -107,17 +119,21 @@ test("server: post-broadcast timeout answers with THIS op's userOpHash + the bun
   assert.deepEqual(relayOpRef(j.error), { userOpHash: j.error.data.userOpHash, txHash: j.error.data.txHash, broadcast: true });
 });
 
-test("client: sent-but-unconfirmed op keeps its own id (Timeout, not 'simulation failed') and the status line shows it", async () => {
-  mode = "timeout"; landed = null;
+test("client: sent-but-unconfirmed op keeps its own id (Timeout) — player sees only the approved pending line, ids go to the console", async () => {
+  mode = "timeout"; landed = null; warned.length = 0;
   const e = await send().then(() => assert.fail("should throw"), (x) => x as { code: string; message: string; extra: { userOpHash: Hex; txHash?: Hex } });
   const h = expectedHash();
   assert.equal(e.code, "Timeout");
   assert.equal(e.extra.userOpHash, h);
   assert.equal(e.extra.txHash, keccak256(raws[raws.length - 1]));
-  assert.doesNotMatch(e.message, /simulation/);
+  assert.equal(e.message, PENDING);
   const pe = friendlyError(e);
-  assert.ok(pe.message.includes(shortHash(h)), pe.message);
+  assert.equal(pe.message, PENDING);
+  plain(pe.message, [h, e.extra.txHash]);
   assert.ok(`✕ ${pe.message}`.length <= 92, "fits the trade bar status (90 chars)");
+  const log = warned.find((w) => String(w[0]).includes("pending"));
+  assert.ok(log, "ids logged to the console");
+  assert.deepEqual(log![1], { userOpHash: h, txHash: e.extra.txHash });
 });
 
 test("client: op that landed after the relay timed out resolves to a success with the SAME id", async () => {
@@ -132,14 +148,18 @@ test("client: op that landed after the relay timed out resolves to a success wit
   } finally { fakePc.getLogs = prev; landed = null; }
 });
 
-test("client: reverted bundle is a clear 'didn't go through' with this op's id (not 'simulation failed')", async () => {
-  mode = "reverted";
+test("client: reverted bundle → the approved 'didn't go through' line, ids kept on extra + console only", async () => {
+  mode = "reverted"; warned.length = 0;
   const e = await send().then(() => assert.fail("should throw"), (x) => x as { code: string; message: string; extra: { userOpHash: Hex; txHash?: Hex } });
   assert.equal(e.code, "Reverted");
   assert.equal(e.extra.userOpHash, expectedHash());
   assert.equal(e.extra.txHash, keccak256(raws[raws.length - 1]));
-  assert.doesNotMatch(e.message, /simulation/);
-  assert.ok(friendlyError(e).message.includes(shortHash(expectedHash())));
+  assert.equal(e.message, REJECTED);
+  assert.equal(friendlyError(e).message, REJECTED);
+  plain(friendlyError(e).message, [expectedHash(), e.extra.txHash]);
+  const log = warned.find((w) => String(w[0]).includes("rejected"));
+  assert.ok(log, "ids logged to the console");
+  assert.deepEqual(log![1], { userOpHash: expectedHash(), txHash: e.extra.txHash });
 });
 
 test("a relay id for a DIFFERENT op is never kept (stale / wrong id dropped)", () => {
@@ -152,4 +172,4 @@ test("a relay id for a DIFFERENT op is never kept (stale / wrong id dropped)", (
   assert.equal(relayOpRef({ message: "simulation failed: execution reverted" }), undefined);
 });
 
-test.after(() => { globalThis.fetch = realFetch; });
+test.after(() => { globalThis.fetch = realFetch; console.warn = realWarn; });

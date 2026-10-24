@@ -14,7 +14,7 @@ import { clientFees, isLaunchCalls } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
-import { BUNDLE_REVERTED, bundleRejectedMsg, keptOpRef, relayOpRef, sentPendingMsg } from "./relayOp";
+import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, relayOpRef } from "./relayOp";
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
 const uoRevertAbi = parseAbi(["event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)"]);
@@ -258,15 +258,15 @@ export class Mav2Account {
       const ids = keptOpRef(hash, ref);
       if (j.error && ref && BUNDLE_REVERTED.test(j.error.message)) {
         // handleOps itself reverted: the op was not executed (no UserOperationEvent) — not a "simulation failed"
-        this.gas.drop(kind);
-        throw new AAError("Reverted", bundleRejectedMsg(ids.userOpHash), { userOpHash: ids.userOpHash, txHash: ids.txHash });
+        this.gas.drop(kind); logRelayOp("rejected", ids);
+        throw new AAError("Reverted", REJECTED_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash });
       }
       // Ambiguous failure (lost response, receipt timeout, nonce already used, or sent but unconfirmed): the op may have
       // landed — check before failing.
       if (j.error && ids.userOpHash && j.error.code !== -32601 && (ref || AMBIGUOUS_RELAY.test(j.error.message))) {
         const got = await this.findOp(ids.userOpHash, sender);
         if (got) j = { result: got };
-        else if (ref) throw new AAError("Timeout", sentPendingMsg(ids.userOpHash), { userOpHash: ids.userOpHash, txHash: ids.txHash });
+        else if (ref) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash }); }
       }
       if (j.error && feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
@@ -303,10 +303,12 @@ export class Mav2Account {
     catch (e) {
       const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
       // self-bundler eth_sendUserOperation broadcasts, then waits ≤25 s for the receipt: a timeout is NOT a failed simulation.
-      // The relay reports the op's ids (error.data / "[userOp 0x…]"): keep and show them.
+      // The relay reports the op's ids (error.data / "[userOp 0x…]"): kept on AAError.extra + console, never in the copy.
+      // Any post-broadcast error (ref set) is pending unless the bundle reverted — its raw relay text never reaches players.
       const ref = relayOpRef(e);
-      if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); throw new AAError("Reverted", bundleRejectedMsg(ref.userOpHash), { userOpHash: ref.userOpHash, txHash: ref.txHash }); }
-      if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", sentPendingMsg(ref?.userOpHash), { userOpHash: ref?.userOpHash, txHash: ref?.txHash });
+      const ids = { userOpHash: ref?.userOpHash, txHash: ref?.txHash };
+      if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); logRelayOp("rejected", ids); throw new AAError("Reverted", REJECTED_MSG, ids); }
+      if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, ids); }
       if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false); }
       return fail(e);
     }
@@ -317,7 +319,7 @@ export class Mav2Account {
     opPhase({ phase: "submitted", userOpHash: req.hash });
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
-    catch { throw new AAError("Timeout", sentPendingMsg(req.hash), { userOpHash: req.hash }); }
+    catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: req.hash }); }
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
       success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
     } | null;
