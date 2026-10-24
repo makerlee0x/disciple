@@ -14,8 +14,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
-import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
+import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
+import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
@@ -94,9 +94,22 @@ function loadSessionKey(account: Address): StoredSessionKey | null {
   } catch { return null; }
 }
 
+/** ERC-7677 paymaster endpoint (our /api/paymaster); override with NEXT_PUBLIC_PAYMASTER_URL. */
+export const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_URL || "/api/paymaster";
+/**
+ * USDG gas via DisciplePaymaster when the chain has one (NEXT_PUBLIC_RHT_PAYMASTER); unset ⇒ ETH prefund (self-pay).
+ * Session keys use it only on a policy that knows the paymaster (moduleId ≥ 1.4.0); older sessions keep paying ETH.
+ */
+export function usdgGasConfig(): UsdgGasOpts | undefined {
+  const d = deployment();
+  const pm = d.paymaster, usdg = d.usdg;
+  if (!pm || /^0x0{40}$/i.test(pm) || !usdg || /^0x0{40}$/i.test(usdg)) return undefined;
+  return { paymaster: pm, usdg, url: PAYMASTER_URL, session: policyHasPaymaster() };
+}
+
 async function makeAccount(owner: LocalAccount) {
   const { Mav2Account } = await import("./mav2");
-  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL }, owner);
+  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL, usdgGas: usdgGasConfig() }, owner);
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
@@ -168,7 +181,8 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
 async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address) {
   try { return await sa!.sendCalls(calls, as); }
   catch (e) {
-    if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
+    // a USDG shortfall (USDG-paid network cost) can't be fixed by an ETH refill: surface "Not enough USDG" as is
+    if ((e as AAError).code !== "FundAccount" || (e as AAError).extra?.usdg || !(await refillGas(me))) throw e;
     return sa!.sendCalls(calls, as);
   }
 }

@@ -39,7 +39,7 @@ export type UserOp = {
 };
 export type UserOpReceipt = { success: boolean; actualGasCost?: Hex; paymaster?: Address; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] } };
 
-export type GasMode = "self-pay";
+export type GasMode = "self-pay" | "usdg";
 export class AAError extends Error {
   constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted" | "Estimate", msg: string, public extra?: Record<string, unknown>) { super(msg); }
 }

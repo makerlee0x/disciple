@@ -242,7 +242,7 @@ contract DiscipleSessionPolicyTest is Test {
         vm.warp(1_800_000_000);
         usdg = new TKN("USDG");
         registry = new ReferralRegistry(address(this), address(usdg));
-        policy = new P(address(registry));
+        policy = new P(address(registry), address(0));
         rocket = new TKN("RKT");
         rocket2 = new TKN("RKT2");
         router = new MockRouter(usdg);

@@ -36,6 +36,8 @@ import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResul
 import { ensurePveLogin, PveError } from "./pve";
 import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
+import { markGradBuy } from "./aa/fastPath";
+import { GradHint } from "./trade/gradHint";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
 const B = BigInt;
@@ -309,6 +311,11 @@ const revertName = (e: unknown): string | undefined => {
  * falls back to the plain quote.
  */
 async function curveBuyQuote(pc: PublicClient, curve: Address, mode: number, quoteIn: bigint, trader?: Address | null) {
+  const q = await curveBuyQuoteRaw(pc, curve, mode, quoteIn, trader);
+  GRAD.record(curve, quoteIn, q.graduates);   // every curve buy quote also answers "does this amount graduate?"
+  return q;
+}
+async function curveBuyQuoteRaw(pc: PublicClient, curve: Address, mode: number, quoteIn: bigint, trader?: Address | null) {
   const c = { address: curve, abi: bondingCurveAbi } as const;
   const who = mode === MODE.TRENCH ? null : quoteTrader(trader);
   if (who) {
@@ -316,6 +323,17 @@ async function curveBuyQuote(pc: PublicClient, curve: Address, mode: number, quo
     catch (e) { if (revertName(e) !== "NotVerified") throw e; }
   }
   return pc.readContract({ ...c, functionName: "quoteBuy", args: [quoteIn] });
+}
+/** Graduating-buy hints (quote ≥ remaining to graduation), fed by every curve buy quote (lib/trade/gradHint). */
+const GRAD = new GradHint();
+/**
+ * Pre-grad buy of `quoteIn` that may graduate the curve? Warm taps answer from GRAD (no RPC); else one quoteBuy.
+ * true ⇒ the op is flagged (markGradBuy) so mav2 estimates its gas fresh (Migration + 16 floor bands ≈ 2.76M).
+ * Unreadable ⇒ false (normal path, as before).
+ */
+async function buyMayGraduate(pc: PublicClient, curve: Address, mode: number, quoteIn: bigint, trader?: Address | null): Promise<boolean> {
+  const k = GRAD.known(curve, quoteIn); if (k !== undefined) return k;
+  try { return (await curveBuyQuote(pc, curve, mode, quoteIn, trader)).graduates; } catch { return false; }
 }
 async function curveSellQuote(pc: PublicClient, curve: Address, mode: number, tokensIn: bigint, trader?: Address | null) {
   const c = { address: curve, abi: bondingCurveAbi } as const;
@@ -534,11 +552,14 @@ export function createViemProtocol(): ProtocolClient {
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const usdg = await usdgRouteFor(pc, t.token);
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE });
+      // graduation check only when the curve itself is USDG-quoted (usdgIn is then the curve's quoteIn)
+      const gradCurve = usdg && side === "buy" && !graduated && quoteAsset.toLowerCase() === usdg.toLowerCase() ? { curve, mode } : undefined;
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve });
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const smart = isSmartMode();
+      const gradP = side === "buy" && !graduated ? buyMayGraduate(pc, curve, mode, t.amountIn, recipient) : Promise.resolve(false);
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve(B(0))
           // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
@@ -557,6 +578,7 @@ export function createViemProtocol(): ProtocolClient {
       } else {
         target = curve;
         data = encodeFunctionData({ abi: bondingCurveAbi, functionName: side, args: [t.amountIn, minOut, deadline, recipient] });
+        if (await gradP) { markGradBuy(data); GRAD.drop(curve); }
       }
       // Preflight: an underfunded spend otherwise surfaces only as an opaque estimate failure / on-chain revert.
       if (have < t.amountIn) {
@@ -593,13 +615,14 @@ export function createViemProtocol(): ProtocolClient {
    * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean }): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number } }): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
     const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
     // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
     if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
+    const gradP = isBuy && c.gradCurve ? buyMayGraduate(pc, c.gradCurve.curve, c.gradCurve.mode, t.amountIn, c.me) : Promise.resolve(false);
     const [q, have] = await Promise.all([
       t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("usdgroute", t.token, side), t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me)),
       balanceHint(pc, spend, c.me),
@@ -615,6 +638,7 @@ export function createViemProtocol(): ProtocolClient {
     const calls: Call[] = isBuy
       ? [...pveCalls, ...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: minOut, deadline: c.deadline }));
+    if (await gradP) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); }
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     const done = addInflight(ckey("usdgroute", t.token, side), t.amountIn);
     try {
