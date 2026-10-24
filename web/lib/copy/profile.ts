@@ -85,9 +85,16 @@ export const PROFILE_COPY = {
   "edit.pfp.upload": "Upload photo",
   "edit.pfp.change": "Change photo",
   "edit.pfp.remove": "Remove",
-  "edit.pfp.helper": "Square works best. JPG, PNG or WebP, up to 2 MB.",
+  "edit.pfp.helper": "Square works best. JPG, PNG or WebP. Big pictures are shrunk for you.",
+  // Picture upload failures (lib/pfpUpload): plain words only, detail goes to console.warn.
+  "edit.pfp.error.big": "That picture is too big. Try a smaller one.",
+  "edit.pfp.error.format": "That file isn't a picture we can use. Try a JPG, PNG or WebP.",
+  "edit.pfp.error.rejected": "That picture can't be used. Try a different one.",
+  "edit.pfp.error.busy": "Too many uploads. Try again in a minute.",
+  "edit.pfp.error.failed": "Couldn't upload your picture. Try again.",
   "edit.username.label": "Username",
   "edit.username.checking": "Checking…",
+  "edit.username.error.short": "Usernames need at least 3 characters.",
   // Username: one change per 24h (lee 2026-10-24). `when` is the viewer's local date + time.
   "username.cooldown.note": (when: string) => `You can change your username again on ${when}.`,
   "username.cooldown.rule": "You can change your username once every 24 hours.",
