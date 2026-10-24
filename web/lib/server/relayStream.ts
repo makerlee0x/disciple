@@ -24,7 +24,7 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>): 
       try { hash = userOpHash(op, robinhoodTestnet.id); } catch { /* malformed op: fastRelay rejects it */ }
       try {
         const { sendUserOperationSync } = await import("./fastRelay");
-        const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason, ...(p.nonce !== undefined ? { nonce: p.nonce } : {}) }); });
+        const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }); });
         await settle().catch(() => undefined);
         push(r);
       } catch (e) {
@@ -32,7 +32,7 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>): 
         const x = e as { shortMessage?: string; message?: string };
         const nc = isRelayerNotConfigured(e);
         const m = nc ? "relayer not configured" : (x.shortMessage || x.message || String(e)).split("\n")[0].slice(0, 300);
-        // terminal frame: txHash / userOpHash / relayer nonce; on a receipt timeout also unclear + reason (never a failure)
+        // terminal frame: txHash / userOpHash / relayNonce; on a receipt timeout also unclear + reason (never a failure)
         push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: relayErrorData(e, hash) });
       }
       ctl.close();

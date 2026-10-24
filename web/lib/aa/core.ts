@@ -178,6 +178,7 @@ export class LightSmartAccount {
         return { userOpHash: uoh, txHash: rc.receipt.transactionHash, receipt: rc, gasMode: mode };
       }
     }
-    throw new AAError("Timeout", `UserOp ${uoh} not mined yet`);
+    // still unknown, not failed: the ids + the op's EntryPoint nonce let the trade layer watch it (SITE #144 shape)
+    throw new AAError("Timeout", `UserOp ${uoh} not mined yet`, { userOpHash: uoh, nonce: BigInt(op.nonce), sender: op.sender });
   }
 }

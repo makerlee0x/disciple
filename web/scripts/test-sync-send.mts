@@ -99,7 +99,7 @@ test("client: error frame / plain-JSON server passthrough", async () => {
   assert.equal(p.result?.txHash, HASH);
 });
 
-// ---- SITE: unclear-outcome error fields (userOpHash / txHash / relayer nonce, unclear + reason) ----
+// ---- SITE: unclear-outcome error fields (userOpHash / txHash / relayNonce = relayer EOA nonce, unclear + reason) ----
 import { relayUnclear } from "../lib/aa/relayClient";
 import { relayErrorData } from "../lib/aa/relayTypes";
 const UOH = `0x${"ef".repeat(32)}` as const;
@@ -111,29 +111,31 @@ test("server: syncSend receipt timeout ⇒ unclear: true, reason 'receipt-timeou
     (e: { txHash?: string; unclear?: boolean; reason?: string }) => e.txHash === HASH && e.unclear === true && e.reason === "receipt-timeout");
 });
 
-test("server: relayErrorData ⇒ JSON-RPC error.data / NDJSON terminal frame carries userOpHash, txHash, nonce, unclear, reason", () => {
-  const timeout = Object.assign(new Error("tx not confirmed"), { txHash: HASH, nonce: 12, unclear: true, reason: "receipt-timeout" });
-  assert.deepEqual(relayErrorData(timeout, UOH), { txHash: HASH, userOpHash: UOH, nonce: 12, unclear: true, reason: "receipt-timeout" });
+test("server: relayErrorData ⇒ JSON-RPC error.data / NDJSON terminal frame carries userOpHash, txHash, relayNonce, unclear, reason", () => {
+  const timeout = Object.assign(new Error("tx not confirmed"), { txHash: HASH, relayNonce: 12, unclear: true, reason: "receipt-timeout" });
+  assert.deepEqual(relayErrorData(timeout, UOH), { txHash: HASH, userOpHash: UOH, relayNonce: 12, unclear: true, reason: "receipt-timeout" });
+  // the relayer nonce never lands in `nonce` (that name is the op's EntryPoint nonce, SITE's watcher)
+  assert.equal("nonce" in relayErrorData(Object.assign(new Error("x"), { txHash: HASH, nonce: 9, unclear: true }))!, false);
   // the error's own userOpHash wins; reason defaults to receipt-timeout
   assert.deepEqual(relayErrorData(Object.assign(new Error("x"), { userOpHash: UOH, unclear: true }), HASH), { userOpHash: UOH, unclear: true, reason: "receipt-timeout" });
   // definite post-sign failure: fields, but NOT unclear
-  assert.deepEqual(relayErrorData(Object.assign(new Error("handleOps reverted"), { txHash: HASH, nonce: 0 }), UOH), { txHash: HASH, userOpHash: UOH, nonce: 0 });
-  // pre-sign simulation revert: revert bytes only, no unclear; bad nonce dropped
-  assert.deepEqual(relayErrorData(Object.assign(new Error("simulation"), { data: "0x08c379a0", nonce: -1 })), { revert: "0x08c379a0" });
+  assert.deepEqual(relayErrorData(Object.assign(new Error("handleOps reverted"), { txHash: HASH, relayNonce: 0 }), UOH), { txHash: HASH, userOpHash: UOH, relayNonce: 0 });
+  // pre-sign simulation revert: revert bytes only, no unclear; bad relayNonce dropped
+  assert.deepEqual(relayErrorData(Object.assign(new Error("simulation"), { data: "0x08c379a0", relayNonce: -1 })), { revert: "0x08c379a0" });
   assert.equal(relayErrorData(new Error("plain")), undefined);
 });
 
 test("client: timeout error frame passes the full unclear data through", async () => {
-  const data = { txHash: HASH, userOpHash: UOH, nonce: 7, unclear: true, reason: "receipt-timeout" };
-  const a = await relaySend("http://x", {}, HASH, undefined, ndjson([{ kind: "pending", pending: true, userOpHash: UOH, txHash: HASH, reason: "sync-timeout", nonce: 7 }, { kind: "error", code: -32000, message: "disciple_sendUserOperationSync: tx not confirmed", data }]));
+  const data = { txHash: HASH, userOpHash: UOH, relayNonce: 7, unclear: true, reason: "receipt-timeout" };
+  const a = await relaySend("http://x", {}, HASH, undefined, ndjson([{ kind: "pending", pending: true, userOpHash: UOH, txHash: HASH, reason: "sync-timeout", relayNonce: 7 }, { kind: "error", code: -32000, message: "disciple_sendUserOperationSync: tx not confirmed", data }]));
   assert.deepEqual(a.error!.data, data);
-  assert.deepEqual(relayUnclear(a.error!, UOH), { unclear: true, reason: "receipt-timeout", userOpHash: UOH, txHash: HASH, nonce: 7 });
+  assert.deepEqual(relayUnclear(a.error!, UOH), { unclear: true, reason: "receipt-timeout", userOpHash: UOH, txHash: HASH, relayNonce: 7 });
 });
 
-test("client: stream lost after pending ⇒ unclear 'stream-lost' with txHash, userOpHash and relayer nonce from the pending frame", async () => {
-  const a = await relaySend("http://x", {}, HASH, undefined, ndjson([{ kind: "pending", pending: true, userOpHash: UOH, txHash: HASH, reason: "sync-error", nonce: 3 }], true));
+test("client: stream lost after pending ⇒ unclear 'stream-lost' with txHash, userOpHash and relayNonce from the pending frame", async () => {
+  const a = await relaySend("http://x", {}, HASH, undefined, ndjson([{ kind: "pending", pending: true, userOpHash: UOH, txHash: HASH, reason: "sync-error", relayNonce: 3 }], true));
   assert.match(a.error!.message, /^network:/);
-  assert.deepEqual(relayUnclear(a.error!), { unclear: true, reason: "stream-lost", userOpHash: UOH, txHash: HASH, nonce: 3 });
+  assert.deepEqual(relayUnclear(a.error!), { unclear: true, reason: "stream-lost", userOpHash: UOH, txHash: HASH, relayNonce: 3 });
 });
 
 test("client: fetch failure ⇒ unclear 'network' (may have reached the relayer)", async () => {
@@ -147,6 +149,6 @@ test("client: relayUnclear — old-server timeout message still unclear; simulat
     { unclear: true, reason: "receipt-timeout", userOpHash: UOH, txHash: HASH });
   assert.equal(relayUnclear({ code: -32000, message: "HTTP 504 FUNCTION_INVOCATION_TIMEOUT" }, UOH)?.unclear, true);
   assert.equal(relayUnclear({ code: -32500, message: "simulation failed: AA33 reverted", data: "0x08c379a0" }, UOH), null);
-  assert.equal(relayUnclear({ code: -32000, message: "handleOps reverted", data: { txHash: HASH, nonce: 2 } }, UOH), null);
+  assert.equal(relayUnclear({ code: -32000, message: "handleOps reverted", data: { txHash: HASH, relayNonce: 2 } }, UOH), null);
   assert.equal(relayUnclear({ code: -32000, message: "AA25 invalid account nonce" }, UOH), null);
 });

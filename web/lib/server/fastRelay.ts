@@ -150,7 +150,7 @@ async function sendSync(raw: Hex, onPending?: OnPending) {
   warmSequencer();
   return syncSend(raw, keccak256(raw), { send: SEND, getReceipt: receiptOf, onPending });
 }
-export type OnPending = (p: { txHash: Hex; reason: PendingReason; nonce?: number }) => void;
+export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: number }) => void;
 
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
@@ -187,7 +187,7 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
     t.signTx = Date.now() - s;
     const txHash = keccak256(raw);
     try {
-      const r = await sendSync(raw, onPending && ((p) => onPending({ ...p, txHash, nonce })));
+      const r = await sendSync(raw, onPending && ((p) => onPending({ ...p, txHash, relayNonce: nonce })));
       t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));
       let success = false;
@@ -203,7 +203,7 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
     } catch (e) {
       if (attempt < 2 && (isNonceError(e) || isNonceErr(e as RpcErr))) { nextNonce = undefined; await syncNonce(); continue; }
       // signed ⇒ txHash + relayer nonce always ride on the error; syncSend's receipt timeout keeps unclear/reason
-      throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, nonce });
+      throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, relayNonce: nonce });
     }
   }
 }

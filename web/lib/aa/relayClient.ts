@@ -32,7 +32,7 @@ export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onP
       if (f.kind === "pending") { pending = f; onPending?.(f); continue; }
       if (f.kind === "confirmed") { void reader.cancel().catch(() => undefined); return { result: f }; }
       void reader.cancel().catch(() => undefined);
-      // unclear (receipt timeout) ⇒ the whole RelayErrorData (txHash / userOpHash / nonce / reason); else revert as before
+      // unclear (receipt timeout) ⇒ the whole RelayErrorData (txHash / userOpHash / relayNonce / reason); else revert as before
       return { error: { code: f.code, message: f.message, data: f.data?.unclear ? f.data : f.data?.revert ?? (f.data?.txHash ? f.data : undefined) } };
     }
     if (chunk.done) return lost(pending, "stream ended without a result");
@@ -41,18 +41,18 @@ export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onP
 /**
  * Is this relay error an UNCLEAR outcome (the op may still land)? Flagged by the server/client (data.unclear), or an
  * old-server message that says so (timeout / not confirmed / network / 5xx) and isn't a pre-flight rejection.
- * Returns the fields SITE needs (userOpHash, txHash, relayer nonce, reason); null ⇒ a definite answer.
+ * Returns the fields SITE needs (userOpHash, txHash, relayNonce = the relayer EOA nonce, reason); null ⇒ a definite answer.
  */
 export function relayUnclear(err: { code?: number; message: string; data?: unknown }, userOpHash?: Hex): RelayUnclearInfo | null {
   const d = err.data && typeof err.data === "object" ? (err.data as RelayErrorData) : undefined;
   if (d?.unclear !== true && !(UNCLEAR_RELAY.test(err.message) && !/simulation|revert|AA[0-9]{2}/i.test(err.message))) return null;
   const reason: RelayUnclearReason = d?.reason ?? (/stream lost/i.test(err.message) ? "stream-lost" : /not confirmed|timeout|timed out/i.test(err.message) && d?.txHash ? "receipt-timeout" : "network");
   const uoh = d?.userOpHash ?? userOpHash;
-  return { unclear: true, reason, ...(uoh ? { userOpHash: uoh } : {}), ...(d?.txHash ? { txHash: d.txHash } : {}), ...(typeof d?.nonce === "number" ? { nonce: d.nonce } : {}) };
+  return { unclear: true, reason, ...(uoh ? { userOpHash: uoh } : {}), ...(d?.txHash ? { txHash: d.txHash } : {}), ...(typeof d?.relayNonce === "number" ? { relayNonce: d.relayNonce } : {}) };
 }
 
-/** Stream cut before a terminal frame: unclear (the tx may land); keep txHash / userOpHash / nonce if the server had sent them. */
+/** Stream cut before a terminal frame: unclear (the tx may land); keep txHash / userOpHash / relayNonce if the server had sent them. */
 function lost(p: RelayPending | undefined, why: string): RelayAnswer {
-  const data: RelayErrorData = { unclear: true, reason: "stream-lost", ...(p ? { txHash: p.txHash, userOpHash: p.userOpHash, ...(p.nonce !== undefined ? { nonce: p.nonce } : {}) } : {}) };
+  const data: RelayErrorData = { unclear: true, reason: "stream-lost", ...(p ? { txHash: p.txHash, userOpHash: p.userOpHash, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) } : {}) };
   return { error: { code: -32099, message: `network: relay stream lost (${why})`, data } };
 }

@@ -18,6 +18,7 @@ import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type Us
 import { ENTRYPOINT_V07 } from "./constants";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend, relayUnclear } from "./relayClient";
+import type { RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
 /** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
 export const NEXT_BLOCK_MS = 170;
 const nextBlock = () => new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
@@ -46,6 +47,13 @@ export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid acc
 /** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
  * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
 const STILL_CONFIRMING = "Trade sent — still confirming on-chain. Check your balance in a moment.";
+/** AAError("Timeout").extra for an UNCLEAR outcome: the relay fields (relayNonce = the RELAYER EOA nonce) + the smart
+ * account `sender` and the op's own EntryPoint v0.7 `nonce` (bigint; SITE's watcher checks it for landed / dropped). */
+export function unclearExtra(u: RelayUnclearInfo, userOpHash: Hex, op: { sender: Address; nonce?: Hex | bigint }): RelayTimeoutExtra {
+  let nonce: bigint | undefined;
+  try { if (op.nonce !== undefined) nonce = BigInt(op.nonce); } catch { /* malformed: leave it out */ }
+  return { ...u, userOpHash, sender: op.sender, ...(nonce !== undefined ? { nonce } : {}) };
+}
 export const TRANSIENT_SIM = /AA23|AA24|SessionInactive|0xf9be14df|ERC20InsufficientBalance|0xe450d38c|exceeds balance|insufficient balance/i;
 
 const BUNDLER_METHODS = [
@@ -351,7 +359,7 @@ export class Mav2Account {
     opPhase({ phase: "submitted", userOpHash: req.hash });
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
-    catch { throw new AAError("Timeout", `UserOp ${req.hash} not mined yet`, { unclear: true, reason: "receipt-timeout", userOpHash: req.hash }); }
+    catch { throw new AAError("Timeout", `UserOp ${req.hash} not mined yet`, unclearExtra({ unclear: true, reason: "receipt-timeout" }, req.hash, { sender, nonce: (req.request as { nonce?: Hex }).nonce })); }
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
       success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
     } | null;
@@ -382,10 +390,15 @@ export class Mav2Account {
         if (got) j = { result: { kind: "confirmed", via: "rpc-wait", t: { simulate: 0, signTx: 0, send: 0, mined: 0, total: 0 }, receipt: { transactionHash: got.txHash, blockHash: "0x", blockNumber: "0x0", status: "0x1", gasUsed: "0x0", logs: got.logs }, ...got } };
       }
       // Still no answer and the outcome is unclear (receipt timeout, lost stream, network): NEVER a definite failure and
-      // never a retry / re-sign (it may land). AAError("Timeout").extra = RelayUnclearInfo { unclear, reason, userOpHash,
-      // txHash, nonce } so SITE can keep the hold and watch the op ('pending_unknown').
+      // never a retry / re-sign (it may land). AAError("Timeout").extra = RelayTimeoutExtra { unclear, reason, userOpHash,
+      // txHash, relayNonce, sender, nonce (the op's EntryPoint nonce) } so SITE can keep the hold and watch the op
+      // ('pending_unknown').
       const unclear = j.error && j.error.code !== -32601 ? relayUnclear(j.error, hash) : null;
-      if (unclear) { if (unclear.userOpHash) opPhase({ phase: "submitted", userOpHash: unclear.userOpHash, txHash: unclear.txHash }); throw new AAError("Timeout", STILL_CONFIRMING, unclear); }
+      if (unclear) {
+        const uoh = unclear.userOpHash;
+        if (uoh) opPhase({ phase: "submitted", userOpHash: uoh, txHash: unclear.txHash });
+        throw new AAError("Timeout", STILL_CONFIRMING, uoh ? unclearExtra(unclear, uoh, { sender: c.sender, nonce: wire.nonce }) : { ...unclear, sender: c.sender });
+      }
       if (j.error && c.gasMode === "usdg" && /AA3[0-9]|MaxCostTooLow|signature error/i.test(`${j.error.message} ${String(j.error.data ?? "")}`)) this.allowances?.invalidate(c.sender);
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
@@ -427,7 +440,8 @@ export class Mav2Account {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
     if (j.error) {
-      if (/not confirmed|timeout/i.test(j.error.message)) throw new AAError("Timeout", STILL_CONFIRMING, { ...relayUnclear({ message: j.error.message, data: j.error.data }, hash), unclear: true, userOpHash: hash });
+      if (/not confirmed|timeout/i.test(j.error.message))
+        throw new AAError("Timeout", STILL_CONFIRMING, unclearExtra(relayUnclear({ message: j.error.message, data: j.error.data }, hash) ?? { unclear: true, reason: "receipt-timeout" }, hash, wire));
       // unreadable response / relay policy (gas caps, paymaster deposit): plain copy; real reverts still decode via fail()
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
@@ -435,7 +449,7 @@ export class Mav2Account {
     }
     opPhase({ phase: "submitted", userOpHash: hash });
     const got = await this.findOp(hash, wire.sender, 30_000);
-    if (!got) throw new AAError("Timeout", STILL_CONFIRMING, { unclear: true, reason: "receipt-timeout", userOpHash: hash });
+    if (!got) throw new AAError("Timeout", STILL_CONFIRMING, unclearExtra({ unclear: true, reason: "receipt-timeout" }, hash, wire));
     if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
     const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings });

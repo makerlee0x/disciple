@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
     // data: the revert payload (string) as before for definite rejections; once the relayer tx was signed, RelayErrorData
-    // { txHash, userOpHash, nonce } — plus unclear/reason when the outcome is unknown (receipt timeout: never a failure)
+    // { txHash, userOpHash, relayNonce } — plus unclear/reason when the outcome is unknown (receipt timeout: never a failure)
     const d = relayErrorData(e);
     const rev = (e as { data?: unknown }).data;
     const data = d?.unclear || d?.txHash ? d : typeof rev === "string" ? rev : undefined;

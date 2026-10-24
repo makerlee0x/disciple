@@ -119,7 +119,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
       // unclear, never a failure: the tx may still land (relayTypes RelayErrorData.unclear)
-      if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), nonce: relayerNonce, unclear: true, reason: "receipt-timeout" });
+      if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), relayNonce: relayerNonce, unclear: true, reason: "receipt-timeout" });
       if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);
     }
