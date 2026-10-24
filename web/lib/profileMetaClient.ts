@@ -5,6 +5,7 @@
  */
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { notifyProfileChanged, signWalletMessage } from "./profile";
+import { PFP_ERROR, pfpFailure, pfpPrecheck, shrinkForUpload } from "./pfpUpload";
 import { EMPTY_META, normalizeFlag, PFP_ID_RE, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "./profileMeta";
 
 const LOCAL_KEY = "disciple.profileMeta";
@@ -19,12 +20,12 @@ export async function fetchProfileMeta(address: string | null | undefined): Prom
   if (!isAddr(address)) return { ...EMPTY_META };
   try {
     const j = (await (await fetch(`/api/profile/meta?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as Partial<ProfileMeta>;
-    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "" };
+    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "" };
   } catch { return { ...EMPTY_META }; }
 }
 
 export async function saveProfileMeta(input: ProfileMeta, address: string | null): Promise<{ ok: boolean; reason?: string }> {
-  const m: ProfileMeta = { pfp: input.pfp, bio: sanitizeBio(input.bio), flag: normalizeFlag(input.flag) };
+  const m: ProfileMeta = { pfp: input.pfp, bio: sanitizeBio(input.bio), flag: normalizeFlag(input.flag), title: input.title || "" };
   const bad = validateMeta(m);
   if (bad) return { ok: false, reason: bad };
   if (IS_STATIC_PREVIEW) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m)); } catch { /* ignore */ } notifyProfileChanged(); return { ok: true }; }
@@ -46,16 +47,24 @@ export async function saveProfileMeta(input: ProfileMeta, address: string | null
   return { ok: true };
 }
 
-/** Upload a picture through the moderation path. Resolves the stored image id, or a reason. */
+/** Upload a picture through the moderation path (shrunk in the browser first). Resolves the stored image id, or a plain reason. */
 export async function uploadPfp(file: File): Promise<{ id?: string; reason?: string }> {
   if (IS_STATIC_PREVIEW) return { reason: "Static preview: uploads need the server." };
+  const pre = pfpPrecheck(file);
+  if (pre) { console.warn("[disciple] pfp: refused before upload", { kind: pre, type: file.type, bytes: file.size }); return { reason: PFP_ERROR[pre] }; }
+  const blob = await shrinkForUpload(file);
   const fd = new FormData();
-  fd.append("file", file);
+  fd.append("file", blob, file.name || "picture");
   try {
     const r = await fetch("/api/moderate-image", { method: "POST", body: fd });
-    const j = (await r.json().catch(() => ({}))) as { verdict?: string; imageUri?: string; error?: string };
-    const id = j.imageUri?.split("/").pop() || "";
-    if (j.verdict === "allow" && PFP_ID_RE.test(id)) return { id };
-    return { reason: j.error || "This image can't be used." };
-  } catch { return { reason: "Could not reach the image check." }; }
+    const j = (await r.json().catch(() => null)) as { verdict?: string; imageUri?: string; error?: string } | null;
+    const id = j?.imageUri?.split("/").pop() || "";
+    if (r.ok && j?.verdict === "allow" && PFP_ID_RE.test(id)) return { id };
+    const kind = pfpFailure(r.status, j);
+    console.warn("[disciple] pfp upload failed", { kind, status: r.status, verdict: j?.verdict, error: j?.error, sentBytes: blob.size, sentType: blob.type, fileBytes: file.size });
+    return { reason: PFP_ERROR[kind] };
+  } catch (e) {
+    console.warn("[disciple] pfp upload: network error", e);
+    return { reason: PFP_ERROR.failed };
+  }
 }

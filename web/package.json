@@ -22,6 +22,8 @@
     "test:username-claim": "node scripts/test-username-claim.mjs",
     "test:profile-meta": "tsx --test scripts/test-profile-meta.mts",
     "test:profile-meta-api": "node scripts/test-profile-meta-api.mjs",
+    "test:profile-edit-fixes": "tsx --conditions=react-server --test scripts/test-profile-edit-fixes.mts",
+    "test:profile-edit-focus": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-profile-edit-focus.mts",
     "test:replay": "node scripts/test-replay.mjs",
     "test:chartseed": "node scripts/test-chartseed.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
@@ -63,7 +65,9 @@
     "test:mcap": "tsx --conditions=react-server --test scripts/test-mcap.mts",
     "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:usdg-decimals": "tsx --test scripts/test-usdg-decimals.mts",
-    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts"
+    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts",
+    "test:profile-one-page": "tsx --conditions=react-server --test scripts/test-profile-one-page.mts",
+    "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
@@ -90,6 +94,7 @@
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
+    "happy-dom": "^21.0.4",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.23.15",

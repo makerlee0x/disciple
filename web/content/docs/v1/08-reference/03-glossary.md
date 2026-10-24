@@ -36,7 +36,7 @@ section: Reference
 | **NUKE** | A bomb with 25–50% price impact. |
 | **Outer Space** | The graduation tier, from $33K. |
 | **Pair** | A rocket and its base. |
-| **Pilgrim** | A pilot with no identity yet, and the prestige-0 label. |
+| **Normie** | A pilot with no identity yet, and the prestige-0 label. |
 | **Pilot** | A trader. |
 | **Price impact** | How far one trade moves the price, in %. |
 | **PUFF** | The smallest bomb: under 2% price impact. |

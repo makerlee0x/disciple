@@ -5,6 +5,7 @@ import {
   ACHIEVEMENT_CATEGORIES, evaluateAchievements, type AchievementCategory, type AchievementView,
 } from "@/lib/achievements";
 import AchievementCard from "./AchievementCard";
+import TitlesSection from "./TitlesSection";
 import { rarityRank } from "@/lib/config";
 import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
 import { prestigeFromPoints } from "@/lib/prestige";
@@ -55,6 +56,8 @@ export default function AchievementsGrid() {
           </div>
         </div>
       </section>
+
+      <TitlesSection />
 
       <div className="ach-filters">
         <button type="button" className={cat === "all" ? "on" : ""} onClick={() => setCat("all")}>All</button>
