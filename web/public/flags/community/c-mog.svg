@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" width="60" height="40" role="img" aria-label="MOG (placeholder)">
+  <!-- PLACEHOLDER community flag (MOG); BRAND will replace. Brand tokens: --dsc-surface-2 / --dsc-border / --dsc-primary. -->
+  <rect width="60" height="40" fill="#1F2228"/>
+  <rect x="0.5" y="0.5" width="59" height="39" fill="none" stroke="#2E323A"/>
+  <rect x="0" y="34" width="60" height="6" fill="#C9CED6" opacity="0.18"/>
+  <text x="30" y="26.5" text-anchor="middle" font-family="Geist, Inter, Arial, sans-serif" font-weight="700" font-size="18" letter-spacing="0.5" fill="#C9CED6">MOG</text>
+</svg>

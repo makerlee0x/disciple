@@ -6,7 +6,8 @@ export const runtime = "nodejs";
  * GET  ?nonce=1&address=0x…  → { nonce, ttlSec }
  * POST { address, pfp, bio, flag, nonce, signature, owner? } → { ok, reason? }
  *   pfp = id of an image that passed /api/moderate-image (must exist in the moderated image store) or "".
- *   bio must already be canonical (sanitizeBio) and ≤ BIO_MAX; flag = ISO 3166-1 alpha-2 or "".
+ *   bio must already be canonical (sanitizeBio) and ≤ BIO_MAX grapheme clusters (emoji = 1; links allowed, stored as text);
+ *   flag = "" (no flag), an ISO 3166-1 alpha-2 code, or a community flag id from lib/flags/community.
  * Per-IP + per-wallet fixed-window limits (lib/server/limits, same as /api/moderate-image).
  */
 import { NextResponse } from "next/server";
@@ -16,7 +17,7 @@ import { verifyWalletSignature } from "@/lib/server/chat/identity";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { getImage } from "@/lib/server/imageStore";
 import { metaOf, setMeta } from "@/lib/server/profileMeta";
-import { normalizeFlag, pfpUrl, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "@/lib/profileMeta";
+import { BIO_MAX, BIO_RAW_MAX, normalizeFlag, pfpUrl, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "@/lib/profileMeta";
 
 const NONCE_TTL = 600;
 const NONCE_PREFIX = "meta:nonce";
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
   if (!rlA.ok) return tooMany(rlA.retryAfterSec);
 
   const rawBio = typeof body.bio === "string" ? body.bio : "";
+  if (rawBio.length > BIO_RAW_MAX) return NextResponse.json({ ok: false, reason: `Bio: max ${BIO_MAX} characters.` }, { status: 400 });
   const m: ProfileMeta = {
     pfp: typeof body.pfp === "string" ? body.pfp.trim().toLowerCase() : "",
     bio: sanitizeBio(rawBio),

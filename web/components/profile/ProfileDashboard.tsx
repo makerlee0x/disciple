@@ -8,7 +8,8 @@ import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { evaluateAchievements } from "@/lib/achievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
-import { useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
+import { PROFILE_TABS, useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
+import { LOOT_ENABLED } from "@/lib/features";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
 import { fmtUsd } from "@/lib/config";
@@ -21,6 +22,7 @@ import EditProfileSheet from "./EditProfileSheet";
 import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
 import IdentitySigil from "./IdentitySigil";
 import Flag from "./Flag";
+import BioText from "./BioText";
 import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
 import type { RocketCardRow } from "./tabs/RocketsTab";
@@ -229,7 +231,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     ...identity.secondary.map((t) => ({ id: t.id, label: t.label, primary: false, rule: identityRuleText(t.id) }))];
   const shownTags = tagsOpen ? tags : tags.slice(0, MAX_TAGS);
   const rpnl = kpi("rpnl");
-  const tabCount = { rockets: String(rocketRows.length), loot: String(loot.length), achievements: `${unlocked}/${achievements.length}`, activity: "" };
+  const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: `${unlocked}/${achievements.length}`, activity: "" };
   const prefetch = (t: ProfileTab) => { void TAB_LOADERS[t](); };
 
   return (
@@ -272,7 +274,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             )}
           </ul>
           {tagInfo && <p className="pf-taginfo muted" role="status">{tags.find((t) => t.id === tagInfo)?.rule}</p>}
-          {meta.bio ? <p className="pf-bio">{meta.bio}</p>
+          {meta.bio ? <p className="pf-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
             : isPrivate ? <button type="button" className="pf-btn-text pf-addbio" onClick={() => setEdit({ focus: "bio" })}>{C["profile.bio.empty.own"]}</button> : null}
         </div>
 
@@ -298,7 +300,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
       <div className="pf-tabbar" ref={tabBar}>
         <div className="pf-tabs" role="tablist">
-          {(["rockets", "loot", "achievements", "activity"] as const).map((t) => (
+          {PROFILE_TABS.map((t) => (
             <button key={t} type="button" role="tab" aria-selected={url.tab === t} className={url.tab === t ? "on" : ""} data-testid={`tab-btn-${t}`}
               onClick={() => goTab(t)} onMouseEnter={() => prefetch(t)} onTouchStart={() => prefetch(t)}>
               {C[`profile.tab.${t}`]}{tabCount[t] && <span className={`pf-count ${t === "achievements" ? "pf-count-desk" : ""}`}>{tabCount[t]}</span>}
@@ -312,7 +314,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <RocketsTab rows={pageSlice(rocketRows, page, PAGE.rockets)} total={rocketRows.length} page={page} pages={pages} onPage={goPage}
             isPrivate={isPrivate} owner={ownerName} sample={rocketsSample} />
         )}
-        {url.tab === "loot" && (
+        {LOOT_ENABLED && url.tab === "loot" && (
           <LootTab rows={pageSlice(lootShown, page, PAGE.loot)} total={lootShown.length} counts={lootCounts} filter={lootFilter}
             onFilter={(f) => setUrl({ filter: f, page: 1, loot: null })} page={page} pages={pages} onPage={goPage} onOpen={openPopup}
             isPrivate={isPrivate} owner={ownerName} onSeeAchievements={() => goTab("achievements")} />
@@ -330,7 +332,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             { label: "Biggest L", value: fmtUsd(data.ct.biggestL), tone: "neg" },
             { label: C["activity.record.grads"], value: String(data.ct.graduationsWitnessed) },
             { label: "Rugged count", value: String(data.ct.ruggedCount) },
-          ]} rows={pageSlice(data.activity, page, PAGE.activity)} total={data.activity.length} page={page} pages={pages} onPage={goPage}
+          ]} pnl={data.cumulativePnl} rows={pageSlice(data.activity, page, PAGE.activity)} total={data.activity.length} page={page} pages={pages} onPage={goPage}
             isPrivate={isPrivate} owner={ownerName} />
         )}
       </section>

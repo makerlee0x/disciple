@@ -2,13 +2,15 @@ export const runtime = "nodejs";
 /**
  * Username registry (Upstash via lib/server/usernames; local file fallback without KV env).
  * GET  ?u=name            → { available, reason? }
- * GET  ?address=0x…       → { username | null }
+ * GET  ?address=0x…       → { username | null, nextAllowedAt | null }   (nextAllowedAt: ms epoch of the next allowed rename)
  * GET  ?resolve=name      → { address | null }        (reverse lookup username → wallet)
  * GET  ?nonce=1&address=0x… → { nonce, ttlSec }   (fresh random nonce per request, bound to address, 10 min;
  *                              never deletes/overwrites another nonce; consumed only by a successful claim)
  * POST { username, address, nonce, signature, owner? } → { ok, reason? }
  *   signature = wallet signMessage(claimMessage(...)) — EOA/1271/6492, or a DISCIPLE smart account's owner signing
  *   keccak(message) raw (pass `owner`). Verified with lib/server/chat/identity.verifyWalletSignature.
+ *   One rename per 24h (lib/usernameCooldown): too soon → 429 { ok: false, reason, nextAllowedAt }. The timestamp
+ *   (lastUsernameChangeAt) lives in KV with the wallet's profile meta (lib/server/profileMeta).
  */
 import { NextResponse } from "next/server";
 import { RESERVED, USERNAME_RE } from "@/lib/profile";
@@ -17,6 +19,9 @@ import { kv } from "@/lib/server/kv";
 import { consumeNonce, issueNonce, nonceValid } from "@/lib/server/nonces";
 import { verifyWalletSignature } from "@/lib/server/chat/identity";
 import { claimMessage } from "@/lib/usernameClaim";
+import { lastUsernameChangeAt, markUsernameChange } from "@/lib/server/profileMeta";
+import { nextUsernameChangeAt, usernameChange } from "@/lib/usernameCooldown";
+import { PROFILE_COPY } from "@/lib/copy/profile";
 
 const NONCE_TTL = 600;
 const NONCE_PREFIX = "user:nonce";
@@ -34,7 +39,11 @@ export async function GET(req: Request) {
     const nonce = await issueNonce(kv(), NONCE_PREFIX, address, NONCE_TTL);
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
-  if (address) return NextResponse.json({ username: isAddr(address) ? await usernameOf(address) : null });
+  if (address) {
+    if (!isAddr(address)) return NextResponse.json({ username: null, nextAllowedAt: null });
+    const [username, last] = await Promise.all([usernameOf(address), lastUsernameChangeAt(address).catch(() => null)]);
+    return NextResponse.json({ username, nextAllowedAt: nextUsernameChangeAt(last, Date.now()) }, { headers: { "cache-control": "no-store" } });
+  }
   const resolve = url.searchParams.get("resolve");
   if (resolve !== null) {
     const r = norm(resolve);
@@ -59,8 +68,15 @@ export async function POST(req: Request) {
   if (!(await nonceValid(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
   const who = await verifyWalletSignature(addr, claimMessage(u, addr, nonce), String(body.signature ?? ""), body.owner ?? null);
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
+  // 24h rename cooldown, checked after the signature (so a stranger can't probe it) and before the claim.
+  const now = Date.now();
+  const change = usernameChange({ prev: await usernameOf(addr), next: u, lastChangeAt: await lastUsernameChangeAt(addr), now });
+  if (change.kind === "wait") {
+    return NextResponse.json({ ok: false, reason: PROFILE_COPY["username.cooldown.error"], nextAllowedAt: change.nextAllowedAt }, { status: 429 });
+  }
   const r = await claim(u, addr);
   if (!r.ok) return NextResponse.json(r, { status: 409 });
+  if (change.kind === "allowed") await markUsernameChange(addr, now);
   // single use, consumed only by a successful claim (a concurrent replay of the same signed claim is the same
   // name for the same wallet, i.e. idempotent; any later replay finds no nonce)
   await consumeNonce(kv(), NONCE_PREFIX, nonce, addr);

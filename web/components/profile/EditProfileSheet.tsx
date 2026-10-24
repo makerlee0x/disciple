@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { checkUsername, claimUsername, localUsername, normalizeUsername, validateUsername } from "@/lib/profile";
-import { BIO_MAX, COUNTRY_CODES, EMPTY_META, bioLength, pfpUrl, sanitizeBio, type ProfileMeta } from "@/lib/profileMeta";
+import { checkUsername, claimUsername, fetchUsernameStatus, localUsername, normalizeUsername, validateUsername } from "@/lib/profile";
+import { formatLocalWhen } from "@/lib/usernameCooldown";
+import { BIO_MAX, BIO_RAW_MAX, EMPTY_META, bioLength, pfpUrl, sanitizeBio, type ProfileMeta } from "@/lib/profileMeta";
 import { saveProfileMeta, uploadPfp } from "@/lib/profileMetaClient";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import Icon from "@/components/icons/Icon";
 import Sheet from "./Sheet";
-import Flag, { countryName } from "./Flag";
+import FlagPicker from "./FlagPicker";
 
 const same = (a: ProfileMeta, b: ProfileMeta) => a.pfp === b.pfp && a.flag === b.flag && sanitizeBio(a.bio) === sanitizeBio(b.bio);
 
 /**
- * Edit profile: picture · username · bio · country flag, one Save. Desktop modal / mobile bottom sheet (Sheet).
+ * Edit profile: picture · username · bio · flag (country or coin community), one Save. Username: one change per 24h,
+ * enforced by the server; the field is disabled until the server's nextAllowedAt. Desktop modal / mobile bottom sheet (Sheet).
  * Username keeps its own signed claim (/api/profile/username); picture / bio / flag share one signed write
  * (/api/profile/meta). Pictures pass /api/moderate-image before they can be saved.
  */
@@ -28,6 +30,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [nextNameAt, setNextNameAt] = useState<number | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
 
@@ -37,6 +40,14 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
     setMe(u); setName(u); setDraft(meta); setErr(""); setNote(""); setConfirm(false); setNameStatus(null);
     if (focus === "bio") requestAnimationFrame(() => bioRef.current?.focus());
   }, [open, meta, focus]);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setNextNameAt(null);
+    void fetchUsernameStatus(wallet).then((s) => { if (alive) setNextNameAt(s.nextAllowedAt); });
+    return () => { alive = false; };
+  }, [open, wallet]);
+  const nameLocked = nextNameAt != null && nextNameAt > Date.now();
 
   const nameChanged = !!name && normalizeUsername(name) !== me;
   useEffect(() => {
@@ -52,7 +63,6 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
     return () => { alive = false; clearTimeout(t); };
   }, [name, nameChanged, open]);
 
-  const countries = useMemo(() => COUNTRY_CODES.map((c) => ({ c, n: countryName(c) })).sort((a, b) => a.n.localeCompare(b.n)), []);
   const bioLen = bioLength(sanitizeBio(draft.bio));
   const metaChanged = !same(draft, meta);
   const dirty = metaChanged || nameChanged;
@@ -77,7 +87,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
       setNote(C["edit.sign"]);
       const r = await claimUsername(name, wallet);
       setNote("");
-      if (!r.ok) { setBusy(""); setErr(r.reason || C["edit.error.save"]); return; }
+      if (!r.ok) { if (r.nextAllowedAt) { setNextNameAt(r.nextAllowedAt); setName(me); } setBusy(""); setErr(r.reason || C["edit.error.save"]); return; }
       setMe(normalizeUsername(name));
     }
     if (metaChanged) {
@@ -125,7 +135,10 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
             <span className="pf-field-label">{C["edit.username.label"]}</span>
             <span className="pf-input-wrap"><span className="muted">@</span>
               <input className="pf-input" value={name} maxLength={20} placeholder="your_name" autoComplete="off" spellCheck={false}
-                onChange={(e) => setName(e.target.value.toLowerCase())} />
+                disabled={nameLocked} aria-describedby="pf-name-cooldown" onChange={(e) => setName(e.target.value.toLowerCase())} />
+            </span>
+            <span className="pf-help" id="pf-name-cooldown" data-testid="username-cooldown">
+              {nameLocked ? C["username.cooldown.note"](formatLocalWhen(nextNameAt!)) : C["username.cooldown.rule"]}
             </span>
             <span className="pf-help-row">
               {nameStatus ? <span className={nameStatus.ok ? "pf-ok" : "pf-help"} role={nameStatus.ok ? "status" : undefined}>{nameStatus.text}</span>
@@ -136,25 +149,19 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
 
           <label className="pf-field">
             <span className="pf-field-label">{C["edit.bio.label"]}</span>
-            <textarea ref={bioRef} className="pf-input pf-textarea" rows={3} maxLength={BIO_MAX * 2} value={draft.bio} placeholder={C["edit.bio.placeholder"]}
+            <textarea ref={bioRef} className="pf-input pf-textarea" rows={3} maxLength={BIO_RAW_MAX} value={draft.bio} placeholder={C["edit.bio.placeholder"]}
               onChange={(e) => setDraft((d) => ({ ...d, bio: e.target.value.replace(/[\r\n]+/g, " ") }))} />
             <span className="pf-help-row">
-              {bioLen > BIO_MAX ? <span className="pf-bad" role="alert">{C["edit.bio.error.length"]}</span> : <span className="pf-help">{C["edit.bio.helper"]}</span>}
+              {bioLen > BIO_MAX ? <span className="pf-bad" role="alert">{C["edit.bio.error.length"]}</span> : <span className="pf-help">{C["edit.bio.helper"]} {C["edit.bio.helper.links"]}</span>}
               <span className={`pf-help pf-mono ${bioLen > BIO_MAX ? "pf-bad" : ""}`}>{bioLen}/{BIO_MAX}</span>
             </span>
           </label>
 
-          <label className="pf-field">
-            <span className="pf-field-label">{C["edit.flag.label"]}</span>
-            <span className="pf-input-wrap">
-              {draft.flag ? <Flag cc={draft.flag} size={16} /> : null}
-              <select className="pf-input pf-select" value={draft.flag} onChange={(e) => setDraft((d) => ({ ...d, flag: e.target.value }))}>
-                <option value="">{C["edit.flag.none"]}</option>
-                {countries.map(({ c, n }) => <option key={c} value={c}>{n}</option>)}
-              </select>
-            </span>
-            <span className="pf-help">{C["edit.flag.helper"]}</span>
-          </label>
+          <div className="pf-field" role="group" aria-label={C["edit.flag.label.any"]}>
+            <span className="pf-field-label">{C["edit.flag.label.any"]}</span>
+            <FlagPicker value={draft.flag} onChange={(id) => setDraft((d) => ({ ...d, flag: id }))} />
+            <span className="pf-help">{C["edit.flag.helper.any"]}</span>
+          </div>
 
           {note && <p className="pf-help" role="status">{note}</p>}
           {err && <p className="pf-bad" role="alert">{err}</p>}

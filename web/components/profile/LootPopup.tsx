@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ACHIEVEMENT_CATEGORIES, achievementIconPath, rewardPreview, type AchievementView } from "@/lib/achievements";
 import type { LootPart } from "@/lib/profileLoot";
+import { LOOT_ENABLED } from "@/lib/features";
 import { withBase } from "@/lib/base-path";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import Icon from "@/components/icons/Icon";
@@ -75,7 +76,8 @@ export default function LootPopup({ items, index, onIndex, onClose }: {
                 <div className="ach-bar"><div style={{ width: `${a.pct}%`, background: v.color }} /></div>
                 <span>{a.current}/{a.target}</span>
               </div>
-              <div className="ach-reward">Reward: {rewardPreview(a)}</div>
+              {/* Loot off (lib/features): the reward line shows points only, no cosmetic parts. */}
+              {(LOOT_ENABLED || !!a.reward.points) && <div className="ach-reward">Reward: {rewardPreview(LOOT_ENABLED ? a : { reward: { points: a.reward.points } })}</div>}
             </>
           ) : (
             <p className="pf-loot-source"><Icon name="achievement" size={14} /> {C["loot.popup.source.achievement"](a.name)}</p>

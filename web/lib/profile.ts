@@ -48,7 +48,17 @@ export async function checkUsername(u: string): Promise<{ available: boolean; re
   } catch { return { available: false, reason: "Could not reach username service." }; }
 }
 
-export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string }> {
+/** The wallet's claimed username and, during the 24h rename cooldown, when the next change is allowed (ms epoch). */
+export async function fetchUsernameStatus(address: string | null | undefined): Promise<{ username: string | null; nextAllowedAt: number | null }> {
+  if (IS_STATIC_PREVIEW || !address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return { username: null, nextAllowedAt: null };
+  try {
+    const j = (await (await fetch(`/api/profile/username?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as { username?: string | null; nextAllowedAt?: number | null };
+    const t = typeof j.nextAllowedAt === "number" && j.nextAllowedAt > Date.now() ? j.nextAllowedAt : null;
+    return { username: j.username ?? null, nextAllowedAt: t };
+  } catch { return { username: null, nextAllowedAt: null }; }
+}
+
+export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string; nextAllowedAt?: number }> {
   const n = normalizeUsername(u);
   const bad = validateUsername(n);
   if (bad) return { ok: false, reason: bad };
@@ -66,7 +76,7 @@ export async function claimUsername(u: string, address: string | null): Promise<
         body: JSON.stringify({ username: n, address: a, nonce, ...signed }),
       });
       const j = await r.json();
-      if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken." };
+      if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
     } catch { return { ok: false, reason: "Could not reach username service." }; }
   }
   set(K.username, n);

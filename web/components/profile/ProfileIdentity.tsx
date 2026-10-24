@@ -5,17 +5,20 @@ import { useEffect, useState } from "react";
 import { onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
 import {
-  checkUsername, claimUsername, localUsername, localXHandle, normalizeUsername,
+  checkUsername, claimUsername, fetchUsernameStatus, localUsername, localXHandle, normalizeUsername,
   profileUrl, referralUrl, setLocalXHandle, validateUsername,
 } from "@/lib/profile";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { refLabel } from "@/lib/referral";
+import { formatLocalWhen } from "@/lib/usernameCooldown";
+import { PROFILE_COPY as C } from "@/lib/copy/profile";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /**
  * Private-profile identity strip: unique username (referral handle), X connect, wallet address.
- * `hideUsername`: the Settings modal on /profile, where the username is edited in Edit profile instead.
+ * `hideUsername`: the Settings modal on /profile, where the username is edited in Edit profile instead; the username
+ * shows read-only here with the 24h change rule / when the next change is allowed (server's nextAllowedAt, local time).
  */
 export default function ProfileIdentity({ hideUsername = false }: { hideUsername?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
@@ -30,6 +33,23 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
 
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { setUsername(localUsername()); setX(localXHandle()); }, []);
+  // 24h username cooldown (server-enforced): when the next change is allowed, in the viewer's local time.
+  const [nextNameAt, setNextNameAt] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetchUsernameStatus(addr).then((s) => {
+      if (!alive) return;
+      setNextNameAt(s.nextAllowedAt);
+      if (s.username && !localUsername()) setUsername(s.username);
+    });
+    return () => { alive = false; };
+  }, [addr]);
+  const nameLocked = nextNameAt != null && nextNameAt > Date.now();
+  const cooldownNote = (
+    <span className="muted tiny pid-cooldown" data-testid="username-cooldown">
+      {nameLocked ? C["username.cooldown.note"](formatLocalWhen(nextNameAt!)) : C["username.cooldown.rule"]}
+    </span>
+  );
 
   // Debounced availability check while editing.
   useEffect(() => {
@@ -47,6 +67,7 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
 
   async function save() {
     const r = await claimUsername(draft, addr);
+    if (!r.ok && r.nextAllowedAt) { setNextNameAt(r.nextAllowedAt); setEditing(false); }
     if (!r.ok) { setStatus({ ok: false, text: r.reason || "Could not save." }); return; }
     setUsername(normalizeUsername(draft)); setEditing(false); setStatus(null);
   }
@@ -69,10 +90,19 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
           ) : (
             <div className="pid-value">
               {username ? <Link href={profileUrl(username)} title="Open public profile">@{username}</Link> : <span className="muted">Not set</span>}
-              <button type="button" className="ds-btn" onClick={() => { setDraft(username); setEditing(true); }}>{username ? "Edit" : "Choose username"}</button>
+              <button type="button" className="ds-btn" disabled={nameLocked} onClick={() => { setDraft(username); setEditing(true); }}>{username ? "Edit" : "Choose username"}</button>
             </div>
           )}
+          {cooldownNote}
           {status && <span className={`pid-status ${status.ok ? "ok" : "bad"}`} role="status">{status.text}</span>}
+        </div>}
+
+        {hideUsername && <div className="pid-block">
+          <span className="pid-label">USERNAME</span>
+          <div className="pid-value">
+            {username ? <Link href={profileUrl(username)} title="Open public profile">@{username}</Link> : <span className="muted">Not set</span>}
+          </div>
+          {cooldownNote}
         </div>}
 
         <div className="pid-block">

@@ -70,6 +70,7 @@ export const PROFILE_COPY = {
   // Activity
   "activity.record": "Record",
   "activity.record.grads": "Graduations",
+  "activity.pnl.title": "Cumulative PnL", // existed on the old profile; moved here as the one PnL chart
   "activity.empty.own": "Nothing here yet. BOOST a rocket and your war log starts.",
   "activity.empty.other": (u: string) => `No activity from ${u} yet.`,
 
@@ -82,13 +83,25 @@ export const PROFILE_COPY = {
   "edit.pfp.helper": "Square works best. JPG, PNG or WebP, up to 2 MB.",
   "edit.username.label": "Username",
   "edit.username.checking": "Checking…",
+  // Username: one change per 24h (lee 2026-10-24). `when` is the viewer's local date + time.
+  "username.cooldown.note": (when: string) => `You can change your username again on ${when}.`,
+  "username.cooldown.rule": "You can change your username once every 24 hours.",
+  "username.cooldown.error": "You can change your username once every 24 hours.",
   "edit.bio.label": "Bio",
   "edit.bio.placeholder": "Who you fly for, what you hold, how you fight.",
   "edit.bio.helper": "Shown on your public profile.",
   "edit.bio.error.length": "Keep it to 160 characters.",
+  "edit.bio.helper.links": "Emoji and links welcome. Links open in a new tab.",
   "edit.flag.label": "Country flag",
   "edit.flag.helper": "Optional. Shown next to your name.",
   "edit.flag.none": "No flag",
+  "edit.flag.label.any": "Flag",
+  "edit.flag.helper.any": "Optional. Your country or your coin community, shown next to your name.",
+  "edit.flag.search": "Search flags",
+  "edit.flag.section.community": "Communities",
+  "edit.flag.section.country": "Countries",
+  "edit.flag.empty": "No flags match.",
+  "edit.flag.change": "Change",
   "edit.save": "Save",
   "edit.saving": "Saving…",
   "edit.saved": "Profile saved",
