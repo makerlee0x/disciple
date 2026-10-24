@@ -62,6 +62,16 @@ alone: the AnonLauncher cap fix (2f55717a) and the 6-dec `Trade.fee` fix (06d46f
    cast code 0xcA11bde05977b3631167028862bE2a173976CA11 --rpc-url https://rpc.testnet.chain.robinhood.com | wc -c   # must be > 3 (not "0x")
    ```
    `smoke.mjs` repeats this as a PASS/FAIL check (eth_getCode). Fork dry run 2026-10-24: 3,808 bytes of code served from the forked live chain.
+11. **`PVE_ATTESTER` is set** (AUDIT round 3 on #131): `Deploy.s.sol:230` reads `vm.envOr("PVE_ATTESTER", address(0))`, so an unset
+   var silently deploys `LoginGate` with attester 0x0 and no PVE login can ever be attested. `env.testnet` leaves it unset on purpose
+   (lee confirms the value, item 7), so export it before `redeploy.sh`: `test -n "$PVE_ATTESTER" && [ "$PVE_ATTESTER" != 0x0000000000000000000000000000000000000000 ]`.
+   Public address only (the SITE login-attest key's address), never the key. Smoke checks `LoginGate.attester() != 0` read-only before any tx.
+12. **LEE DECISION — paymaster stake (AUDIT I-2 on #141).** Validation now writes the paymaster's sender-keyed storage
+   (`reservedOf` / `reservedBy` / `rolledOf`) and returns a context, so under ERC-7562 (STO-031) a **public** 4337 mempool / bundler
+   only accepts it if the paymaster is **staked**. We self-relay (`selfBundler` / `fastRelay` call `handleOps` directly; no public
+   bundler), and the EntryPoint itself never checks stake, so **stake is not needed for our path**. Options: (a) leave
+   `PAYMASTER_STAKE_WEI` unset — `DeployPaymaster.s.sol` then skips `addStake` (default; recommended while we self-relay); (b) set
+   it (owner broadcast, 1-day unstake delay) only if we ever route ops through a public bundler. lee: ☐ (a) no stake ☐ (b) stake ___ ETH.
 
 ## 3. Core deploy
 
@@ -89,7 +99,7 @@ From merged main (`contracts/`), with the new addresses:
 set -a; . /workspace/anypair/.secrets/testnet-deployer.env; set +a
 USDG=<new USDG> PAYMASTER_OWNER=<lee/ops> PAYMASTER_SIGNER=<address of PAYMASTER_SIGNER_KEY> PAYMASTER_TREASURY=<treasury> \
 PAYMASTER_MIN_RATE=1000000000 PAYMASTER_MAX_RATE=10000000000 \   # USDG raw (6 dec) per ETH: $1,000–$10,000
-PAYMASTER_DEPOSIT_WEI=<≥ 348000000000000 per 11M-gas launch> PAYMASTER_STAKE_WEI=<stake, 1-day unstake> \
+PAYMASTER_DEPOSIT_WEI=<≥ 348000000000000 per 11M-gas launch> \
 forge script script/DeployPaymaster.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --private-key "$PRIVATE_KEY" --broadcast --slow
 REFERRAL_REGISTRY=<new ReferralRegistry> PAYMASTER=<DisciplePaymaster> \
 forge script script/DeploySessionPolicy.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --private-key "$PRIVATE_KEY" --broadcast --slow
@@ -97,6 +107,8 @@ SESSION_POLICY=<policy> PAYMASTER=<paymaster> node script/redeploy/postprocess.m
 ```
 
 The session policy must be redeployed in any case: its constructor takes the ReferralRegistry, which is new. Users reinstall sessions (policy 1.4.0).
+No `PAYMASTER_STAKE_WEI` by default (pre-flight item 12, LEE DECISION: stake only matters for a public 7562 bundler; we self-relay).
+If lee picks (b), add `PAYMASTER_STAKE_WEI=<stake>` to the first command (owner broadcast only; 1-day unstake delay).
 `PAYMASTER_MAX_COST` defaults to 10 USDG at the token's decimals; `PAYMASTER_POST_OP_GAS` 30000.
 Paymaster keeper (server): `PAYMASTER_KEEPER_KEY`, `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI`; run `pnpm paymaster:keeper --send --loop`.
 Fork e2e before going live: `pnpm test:paymaster-e2e`.
@@ -120,8 +132,12 @@ cast send $RV "acceptOwnership()" --rpc-url $RPC         # signed by REWARDS_VAU
 # verify (read-only):
 cast call $RV "owner()(address)" --rpc-url $RPC          # must equal REWARDS_VAULT_OWNER
 cast call $RV "pendingOwner()(address)" --rpc-url $RPC   # must be 0x0000000000000000000000000000000000000000
-EXPECT_REWARDS_VAULT_OWNER=<REWARDS_VAULT_OWNER> GRADUATE=0 node script/redeploy/smoke.mjs   # adds the owner()/pendingOwner PASS check
 ```
+
+These two read-only `cast call`s ARE the post-acceptance verification (AUDIT round 3 on #131): **do not re-run the full smoke** for it —
+a full smoke launches a coin and buys (live txs). If a smoke-style PASS/FAIL record is wanted, use the read-only mode, which sends nothing
+and needs no key: `EXPECT_REWARDS_VAULT_OWNER=<REWARDS_VAULT_OWNER> READ_ONLY=1 node script/redeploy/smoke.mjs`.
+Any smoke re-run that sends txs (no `READ_ONLY=1`) on the live chain needs **lee's GO**, like every live tx.
 
 Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 2026-10-24 (anvil only, public anvil keys #0 → #1):
 `transferOwnership` → `pendingOwner` = #1 → `acceptOwnership` from #1 → `owner()` = #1, `pendingOwner()` = 0; smoke with
@@ -212,19 +228,34 @@ floor: `FloorSeeded` with 16 bands, ≈ $1,201.27 seeded (±1%), all bands quote
 execution at 6-dec USDG in #115's forge harness; forge `FloorSeedGas` keeps the 3.0M cap on the 18-dec harness, ≈ 2.56M) ·
 **Multicall3** has code at `0xcA11bde05977b3631167028862bE2a173976CA11` (eth_getCode; AUDIT r2 #106/#131) ·
 with `EXPECT_REWARDS_VAULT_OWNER` set (after step 5a): `RewardsVault.owner()` = it and `pendingOwner()` = 0.
-Without `EXPECT_REWARDS_VAULT_OWNER` smoke only prints owner / pendingOwner, so run it once more after the acceptance (`GRADUATE=0` is enough).
+Without `EXPECT_REWARDS_VAULT_OWNER` smoke only prints owner / pendingOwner; verify the acceptance with the two read-only `cast call`s in
+step 5a (or `READ_ONLY=1` smoke), never with a tx-sending re-run unless lee gives a GO.
+**Fail fast (AUDIT round 3):** smoke runs every read-only check first — code at all 17 bundle addresses + USDG, owners of the owned
+contracts nonzero (`EXPECT_OWNER` to pin them), config (USDG 6 dec, referralSink, RewardsVault wiring, `MAX_LAUNCH_FEE`, launchFee,
+claim router, optional RewardsVault owner), Multicall3, `LoginGate.attester() != 0` and `Launchpad.loginGate() == LoginGate` — and
+if any of them FAILs it writes `ABORT: N read-only check(s) failed; no tx sent` and exits 1 **before the first tx** (mint / approve / launch / buy).
+`READ_ONLY=1` stops after this phase.
 Optional: `node script/redeploy/fixtures.mjs fresh|near|grad|pve` for replay coins plus post-graduation router buy/sell (STRATEGY and USDG legs).
 
 ## 9. Fork dry run (no live broadcast)
 
 ```bash
 anvil --fork-url https://rpc.testnet.chain.robinhood.com --port 8545 --silent &   # chain id 46630
-cd contracts && FORK=1 ./script/redeploy/redeploy.sh                              # anvil key #0; writes deployments/fork/ (gitignored)
+cd contracts && PVE_ATTESTER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 FORK=1 ./script/redeploy/redeploy.sh   # anvil key #0, attester = anvil #1 (public); writes deployments/fork/ (gitignored)
+FORK=1 READ_ONLY=1 node script/redeploy/smoke.mjs                                # read-only phase only, no tx
 FORK=1 node script/redeploy/smoke.mjs                                            # snipe pinned to launch+1s; evm_increaseTime skips the 7s window
 FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                   # optional STRATEGY coin + router swaps
 ```
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
+
+Result 2026-10-24 ~10:55 AM CDT (fork of the live head, block 141962528, port 8546; feat/redeploy-prep with the AUDIT round 3 fail-fast
+smoke; `PVE_ATTESTER` = anvil #1): deploy addresses **identical** to the 10:28 and 9:44 AM runs (all 17 contracts + 2 tokens + v4
+addresses); 40,448,858 gas used (+20,140 vs the attester-0 runs: the nonzero attester slot); `READ_ONLY=1` smoke **11/11 PASS**, no tx
+sent (deployer nonce unchanged); full smoke **28/28 PASS** (11 read-only first: code at 17 + USDG, owners nonzero, attester ≠ 0,
+`Launchpad.loginGate`, config, Multicall3 3,808 bytes; then 17 tx checks); launch 6,712,430 gas; graduation buy 2,365,962 gas; floor
+1,201.27337 USDG; mcap $33,332.999999. Negative rehearsal (anvil only: snapshot revert, `LoginGate.setAttester(0)` from the impersonated
+owner): smoke prints `FAIL LoginGate.attester != 0`, `ABORT: 1 read-only check(s) failed; no tx sent`, exit 1, nonce and block unchanged.
 
 Result 2026-10-24 ~10:28 AM CDT (fork of the live head, block 141953628; feat/redeploy-prep with the AUDIT round 2 smoke checks): deploy
 addresses **identical** to the 9:44 AM run (all 17 contracts + tokens; the smoke/runbook changes don't touch Deploy.s.sol, env or
@@ -282,6 +313,10 @@ users reinstall the old session policy. Coins launched on the new stack keep tra
 | Round 2 run item (#106/#131): Multicall3 on 46630 unverified | pre-flight item 10 + smoke check (eth_getCode) | this PR | read-only; fork: 3,808 bytes |
 | Round 2 run item (#121/#127/#131): RewardsVault `acceptOwnership` | step 5a + smoke `EXPECT_REWARDS_VAULT_OWNER` check | this PR | one tx by REWARDS_VAULT_OWNER after the deploy |
 | Round 2 (#127): cut the redeploy from #131, not #127 | merge-order note + pre-flight item 9 | this PR | none |
+| Round 3 (#131): smoke must fail fast | all read-only checks first; any FAIL ⇒ `ABORT … no tx sent` before mint/approve/launch/buy; `READ_ONLY=1` | this PR | smoke only; fork 28/28 |
+| Round 3 (#131): post-acceptOwnership smoke re-run sends live txs | step 5a: two read-only `cast call`s (`owner()`, `pendingOwner() == 0`) or `READ_ONLY=1`; tx-sending re-runs need lee's GO | this PR | none |
+| Round 3 (#131): `PVE_ATTESTER` unset ⇒ LoginGate attester 0x0 (Deploy.s.sol:230) | pre-flight item 11 + smoke `LoginGate.attester() != 0` (read-only) | this PR | env must be exported; no Deploy.s.sol change |
+| I-2 (#141): ERC-7562 needs a staked paymaster | LEE DECISION, pre-flight item 12 (default: no stake; we self-relay) | this PR | `PAYMASTER_STAKE_WEI` unset unless lee picks (b) |
 | Round 2 Info (#121): Easy First BOOST never unlocks without graduation | SITE copy item (section 6) | SITE | none |
 | Round 2 Info (#127): MarketLens 7 s for legacy curves; `SnipeEscrowReleased` attribution | section 6 / section 7 notes | SITE / indexer | none |
 | lee 2026-10-24: sniper tax 77 s linear → 7 s | per-second table 99/25/3/1/0.3/0.1/0.03 %, 0 from 7 s (`FeeMath.snipeBps`) | #127 01afead5 | smoke checks the table value at the snipe's second and 0 from 7 s; `MarketLens.sniperTax` window 7; SITE/GAME copy + sim |

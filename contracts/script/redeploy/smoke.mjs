@@ -2,9 +2,11 @@
 // Checks: 6-dec USDG, referralSink default, SEC-01, 7s per-second sniper tax → snipeEscrow (no 70/30 routing), graduation at
 // $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket; AUDIT fixes (launch-fee
 // cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M); AUDIT round 2 run items (canonical Multicall3 has
-// code on 46630 — #106's relay batches its graduating-buy reads through it; RewardsVault Owned2Step acceptance).
+// code on 46630 — #106's relay batches its graduating-buy reads through it; RewardsVault Owned2Step acceptance); AUDIT round 3:
+// every read-only check (code at every bundle address, owners, config, Multicall3, LoginGate attester != 0) runs FIRST and
+// smoke aborts before sending any tx if one fails.
 // Env:
-//   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed)
+//   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed; not needed with READ_ONLY=1)
 //   RPC_URL       default https://rpc.testnet.chain.robinhood.com (FORK=1 → http://127.0.0.1:8545)
 //   FORK=1        local anvil fork: reads deployments/fork/web-bundle, pins the snipe buy to launch+1s (25%) and uses evm_increaseTime to skip the 7s window
 //   BUNDLE        web-bundle dir (default deployments/web-bundle, or deployments/fork/web-bundle with FORK=1)
@@ -13,6 +15,8 @@
 //   EXPECT_REFERRAL_SINK  default 0x000…000 (today's routing)
 //   EXPECT_REWARDS_VAULT_OWNER  set after REWARDS_VAULT_OWNER ran acceptOwnership() (runbook §5): checks owner() == it and
 //                 pendingOwner() == 0. Unset ⇒ owner / pendingOwner are printed only (the acceptance may not have happened yet).
+//   EXPECT_OWNER  optional: every owned contract except RewardsVault must have owner() == it (default: owner() != 0 only)
+//   READ_ONLY=1   run only the read-only checks (phase 1) and exit; never sends a tx
 // ABIs come from the bundle (forge artifacts), so AUDIT's contract fixes need no change here unless an API changes.
 import { createPublicClient, createWalletClient, http, parseAbi, formatUnits, decodeEventLog, maxUint256, zeroAddress, getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -28,8 +32,9 @@ const [lpAbi, curveAbi, llAbi, frAbi] = ["Launchpad", "BondingCurve", "LockedLP"
 const RPC = process.env.RPC_URL ?? (FORK ? "http://127.0.0.1:8545" : "https://rpc.testnet.chain.robinhood.com");
 const chain = { id: 46630, name: "rh-testnet", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [RPC] } } };
 const pc = createPublicClient({ chain, transport: http(RPC) });
-const me = privateKeyToAccount(process.env.PRIVATE_KEY ?? (FORK ? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" : undefined));
-const wc = createWalletClient({ chain, transport: http(RPC), account: me });
+const KEY = process.env.PRIVATE_KEY ?? (FORK ? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" : undefined);
+const me = KEY ? privateKeyToAccount(KEY) : null; // READ_ONLY=1 needs no key
+const wc = me ? createWalletClient({ chain, transport: http(RPC), account: me }) : null;
 const USDG = getAddress(bundle.tokens.USDG.address);
 const Q = getAddress(process.env.QUOTE ?? USDG);
 const GRADUATE = process.env.GRADUATE ? process.env.GRADUATE === "1" : FORK;
@@ -51,7 +56,29 @@ const send = async (k, p) => {
 const decodeAll = (logs, abis) => logs.flatMap((l) => abis.flatMap((a) => { try { return [{ ...decodeEventLog({ abi: a, ...l }), address: l.address }]; } catch { return []; } }));
 const now = async () => (await pc.getBlock()).timestamp;
 
-// 1. config
+// 1. read-only checks (AUDIT round 3 on #131): all of them run before any tx; any FAIL aborts before the first send.
+// 1a. code at every bundle address (eth_getCode)
+const noCode = [];
+for (const [n, a] of [...Object.entries(B), ["USDG", USDG]]) { const c = await pc.getCode({ address: getAddress(a) }); if (!c || c === "0x") noCode.push(`${n} ${a}`); }
+check("code at every bundle address (eth_getCode)", noCode.length === 0, noCode.length ? `no code: ${noCode.join(", ")}` : `${Object.keys(B).length} contracts + USDG`);
+// 1b. owners: every owned contract has a nonzero owner (== EXPECT_OWNER when set); RewardsVault is checked separately below
+const ownerWant = process.env.EXPECT_OWNER ? getAddress(process.env.EXPECT_OWNER) : null;
+const badOwner = [];
+for (const n of Object.keys(B)) {
+  if (n === "RewardsVault" || !fs.existsSync(path.join(BUNDLE, "abi", `${n}.json`))) continue;
+  const a = abi(n);
+  if (!a.some((x) => x.type === "function" && x.name === "owner")) continue;
+  const o = await rd(B[n], a, "owner");
+  info(`${n}.owner`, o);
+  if (o === zeroAddress || (ownerWant && o !== ownerWant)) badOwner.push(`${n} ${o}`);
+}
+check(`owned contracts: owner() ${ownerWant ? "== EXPECT_OWNER" : "!= 0"}`, badOwner.length === 0, badOwner.join(", ") || (ownerWant ?? "all nonzero"));
+// 1c. PVE LoginGate: Deploy.s.sol falls back to attester 0x0 when PVE_ATTESTER is unset (no login could ever be attested)
+const lgAbi = abi("LoginGate");
+const attester = await rd(B.LoginGate, lgAbi, "attester");
+check("LoginGate.attester != 0 (PVE_ATTESTER set at deploy)", attester !== zeroAddress, attester);
+check("Launchpad.loginGate() == LoginGate", getAddress(await rd(B.Launchpad, lpAbi, "loginGate")) === getAddress(B.LoginGate), B.LoginGate);
+// 1d. config
 const dec = await rd(USDG, erc20, "decimals");
 check("USDG decimals == 6", dec === 6, `USDG ${USDG} decimals ${dec}`);
 const qDec = await rd(Q, erc20, "decimals");
@@ -82,6 +109,16 @@ if (process.env.EXPECT_REWARDS_VAULT_OWNER) {
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const mc3 = await pc.getCode({ address: MULTICALL3 });
 check("Multicall3 has code at 0xcA11…CA11 (eth_getCode)", !!mc3 && mc3 !== "0x", `${MULTICALL3}: ${mc3 && mc3 !== "0x" ? (mc3.length - 2) / 2 : 0} bytes`);
+const outDir = path.join(root, "deployments", FORK ? "fork" : "");
+const finish = () => {
+  console.log(res.result);
+  fs.writeFileSync(path.join(outDir, "rh-testnet-46630.smoke.json"), JSON.stringify(res, (k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n");
+  process.exit(fails ? 1 : 0);
+};
+res.readOnlyChecks = Object.keys(res.checks).length;
+if (fails) { res.result = `ABORT: ${fails} read-only check(s) failed; no tx sent`; finish(); }
+if (process.env.READ_ONLY === "1") { res.result = `PASS (read-only, ${res.readOnlyChecks} checks; no tx sent)`; finish(); }
+if (!me) throw new Error("PRIVATE_KEY unset (only READ_ONLY=1 runs without a key)");
 
 // 2. launch (TRENCH; 10-quote creator buy, which is sniper-exempt)
 const ensure = async (amt) => { if ((await rd(Q, erc20, "balanceOf", [me.address])) < amt) await send("mint", { address: Q, abi: erc20, functionName: "mint", args: [me.address, amt * 2n] }); };
@@ -162,7 +199,4 @@ if (GRADUATE) {
   check("progressBps = 10000", (await rd(curve, curveAbi, "progressBps")) === 10000n);
 }
 res.result = fails === 0 ? "PASS" : `FAIL (${fails})`;
-console.log(res.result);
-const outDir = path.join(root, "deployments", FORK ? "fork" : "");
-fs.writeFileSync(path.join(outDir, "rh-testnet-46630.smoke.json"), JSON.stringify(res, (k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n");
-process.exit(fails ? 1 : 0);
+finish();
