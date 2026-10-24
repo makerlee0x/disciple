@@ -3,7 +3,7 @@
 **Status (2026-10-17):** broadcast as stack **v4** from main @ fdd436b5 (start block 137540728); see `deployments/rh-testnet-46630.json` and `deployments/broadcast-v4/`. v3 is superseded. The web app still points at v3 until the site migration below is done.
 
 ## Contents
-- Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and DiscipleHook (`setPricer`; since G-1 the pricer is only read by the `quoteUsdOf` view, never on the swap path).
+- Core changes: FeeRouter (anti-snipe 70% RewardsVault / 30% treasury at the time; superseded by mode rules v2, where the sniper escrow goes to LockedLP's compound bucket), Launchpad (`creatorBuyMaxBps`), BondingCurve and CurveDeployer (post-grad `mcapNow` reads the v4 pool and the live QuotePricer), and DiscipleHook (`setPricer`; since G-1 the pricer is only read by the `quoteUsdOf` view, never on the swap path).
 - New contracts: RewardsVault, AnonLauncher, MarketLens.
 - Everything else is redeployed because FeeRouter and Launchpad addresses are immutable in hook, curves, Launchpad, AntiSnipe and Migration.
 - Reused: v4 PoolManager / Quoter / StateView / UniversalRouter / Permit2, mUSDG, test STRATEGY, and the STRATEGY/mUSDG reference pool (3000/60/no hook).
@@ -42,7 +42,7 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
    - Hook: adds `pricer()` and `setPricer`.
    - New ABIs: RewardsVault, AnonLauncher, MarketLens.
 3. Old coins (TRMP, etc.) stay on the old contracts and keep trading there. Index both stacks: the indexer in `/indexer` does this. Use `MarketLens` (old: `0x1d5f…59e9`) for old graduated coins' mcap.
-4. Re-run the smoke tests: a launch with STRATEGY, a snipe-window buy (check 70/30 to vault and treasury), graduation, a router buy/sell, tramp/wall, and an anon launch plus batch claim.
+4. Re-run the smoke tests: a launch with STRATEGY, a snipe-window buy (v2: check `curve.snipeEscrow()` grows, then moves to LockedLP's compound bucket at graduation), graduation, a router buy/sell, tramp/wall, and an anon launch plus batch claim.
 5. Do not repoint old-stack Launchpad / FeeRouter owners; they keep serving old coins.
 
 ---

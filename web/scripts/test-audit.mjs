@@ -97,10 +97,11 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   // curve state at a mcap (for the "curve left" bound)
   const soldAt = (M) => PCv.y0 - Math.min(PCv.y0, Math.sqrt(PCv.x0 * PCv.y0 / (M / SUP)));
   const W18 = (x) => BigInt(Math.round(x * 1e18)), N18 = (b) => Number(b) / 1e18;
-  const CP = { totalSupply: W18(PCv.S), sCurve: W18(PCv.sC), x0: W18(PCv.x0), y0: W18(PCv.y0) };
+  // tail 0 = curveMath's CP part: the paper curve (GAME mirror) is still a pure CPAMM; steep g^30 tail not ported yet
+  const CP = { totalSupply: W18(PCv.S), sCurve: W18(PCv.sC), x0: W18(PCv.x0), y0: W18(PCv.y0), tail: 0n };
   const rel = (a, b) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
   // 5a) $60K at $7K: completes the curve (72% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
-  { const f = paperFill("buy", 7_777, USD, null, false);
+  { const f = paperFill("buy", PCv.startMcap, USD, null, false); // launch-price fill ($3,333 start)
     ok(f.ok && f.tokens < SUP && f.tokens <= PCv.sC + 1e-3 && rel(f.tokens, PCv.sC) < 1e-9, `paper $60K @ $7K: ${(f.tokens / SUP * 100).toFixed(2)}% of supply = the whole curve (< 100%; was 142.9% with the linear paper model)`);
     ok(rel(f.usd + f.refund, USD) < 1e-12 && f.usd < USD && rel(f.post, PCv.gradMcap) < 1e-9 && f.graduated, `paper $60K @ $7K: spends $${f.usd.toFixed(2)} to finish the curve at $${Math.round(f.post).toLocaleString()}, $${f.refund.toFixed(2)} refunded`);
     const cm = N18(CM.quoteBuy(CP, 0n, W18(f.usd), 0n)); ok(rel(cm, f.tokens) < 1e-9, `paper $60K @ $7K = curveMath.quoteBuy(spent) within 1e-9 (${cm.toExponential(9)} vs ${f.tokens.toExponential(9)})`);
@@ -148,7 +149,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   }
   // SIMULATOR: exact fills, NO wallet cap (live Launchpad default walletCapBps = 0). A buy that completes the curve is
   // filled up to the curve end and the unspent quote refunded. After the 7 s anti-snipe window (that tax is a real cost).
-  for (const T of [10, 40, 90]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
+  for (const T of [80, 120, 170]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
     const pre = r.m.mcap(), wasCurve = r.m.phase === "curve"; const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
     ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 1e4).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);
     const curveEnd = wasCurve && r.m.phase === "pool" && f.tokens <= 0.07 * r.m.S;

@@ -175,8 +175,12 @@ const paramsCache = new Map<string, CurveParams>();
 export async function curveParams(pc: PublicClient, curve: Address): Promise<CurveParams> {
   const hit = paramsCache.get(curve);
   if (hit) return hit;
-  const [totalSupply, sCurve, x0, y0] = await pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "curveParams" });
-  const p = { totalSupply, sCurve, x0, y0 };
+  const [[totalSupply, sCurve, x0, y0], tail] = await Promise.all([
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "curveParams" }),
+    // steep curve #1 tail; pre-steep (pure CPAMM) curves don't have it → 0 = the old math exactly
+    pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "curveTail" }).catch(() => BigInt(0)),
+  ]);
+  const p = { totalSupply, sCurve, x0, y0, tail };
   paramsCache.set(curve, p);
   return p;
 }

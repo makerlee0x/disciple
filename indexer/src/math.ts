@@ -54,3 +54,29 @@ export function candles(rows: { ts: number; price: number; vol: number }[], inte
   }
   return out;
 }
+
+/** Steep curve (Constants.sol): mcap $3,333 → $33,333 over 84.24% of supply. The curve's Trade events carry
+ *  mcapAfterUsd, so the indexer needs no curve math; these are for display/defaults and the graduation-price mirror. */
+export const CURVE_START_MCAP_USD = 3_333;
+export const CURVE_GRADUATION_MCAP_USD = 33_333;
+export const CURVE_SOLD_BPS = 8424n;
+
+function isqrt(n: bigint): bigint {
+  if (n < 2n) return n;
+  // Newton from above (floor sqrt, exact for any size)
+  let x = BigInt(Math.ceil(Math.sqrt(Number(n)))) + 1n;
+  for (;;) {
+    const y = (x + n / x) >> 1n;
+    if (y >= x) break;
+    x = y;
+  }
+  while (x * x > n) x--;
+  return x;
+}
+
+/** Mirror of BondingCurve._graduate: SqrtPrice.fromReserves(curve mcap in quote raw, total supply, tokenIsC0) —
+ *  the v4 pool opens at price = curve-end mcap / supply (floor sqrt, like OZ Math.sqrt). */
+export function graduationSqrtPriceX96(mcapQuote: bigint, supply: bigint, tokenIsC0: boolean): bigint {
+  const ratioX192 = tokenIsC0 ? (mcapQuote << 192n) / supply : (supply << 192n) / mcapQuote;
+  return isqrt(ratioX192);
+}

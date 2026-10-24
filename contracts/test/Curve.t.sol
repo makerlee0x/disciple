@@ -54,13 +54,14 @@ contract CurveTest is Test {
     CurveMath.Params internal params;
 
     // Worked-table bands (USDG @$1)
-    uint256 internal constant MCAP_0 = 7_777 ether;
-    uint256 internal constant MCAP_10_MIN = 8_600 ether; // ≈ $9,027
-    uint256 internal constant MCAP_10_MAX = 9_400 ether;
-    uint256 internal constant MCAP_25_MIN = 11_000 ether; // ≈ $11,552
-    uint256 internal constant MCAP_25_MAX = 12_100 ether;
-    uint256 internal constant MCAP_50_MIN = 18_000 ether; // ≈ $18,928
-    uint256 internal constant MCAP_50_MAX = 19_900 ether;
+    // Steep curve #1: m(g) = 3333/(1−a·g)² + 18,333·g^30, g = sold / 84.24%
+    uint256 internal constant MCAP_0 = 3_333 ether;
+    uint256 internal constant MCAP_10_MIN = 3_700 ether; // ≈ $3,794
+    uint256 internal constant MCAP_10_MAX = 3_900 ether;
+    uint256 internal constant MCAP_25_MIN = 4_550 ether; // ≈ $4,689
+    uint256 internal constant MCAP_25_MAX = 4_850 ether;
+    uint256 internal constant MCAP_50_MIN = 6_900 ether; // ≈ $7,078
+    uint256 internal constant MCAP_50_MAX = 7_250 ether;
     uint256 internal constant MCAP_72 = 33_333 ether;
 
     DiscipleHook internal hook;
@@ -128,7 +129,7 @@ contract CurveTest is Test {
         vm.stopPrank();
         curve = BondingCurve(r.curve);
         tok = Token(r.token);
-        vm.warp(ts + Constants.ANTI_SNIPE_DURATION + 1); // past the 60 s sniper tax
+        vm.warp(ts + Constants.ANTI_SNIPE_DURATION + 1); // past the 7 s sniper tax
     }
 
     // ── Geometry ─────────────────────────────────────────────────────────────
@@ -169,9 +170,9 @@ contract CurveTest is Test {
         assertLe(m50, MCAP_50_MAX);
         assertApproxEqRel(m72, MCAP_72, 0.01e18);
 
-        // Total quote raised at graduation ≈ $10,943
+        // Quote reaching the curve by graduation ≈ $6,455 ($6,520 paid incl. the 1% fee)
         uint256 raise = CurveMath.quoteInForTokens(params, 0, params.sCurve);
-        assertApproxEqRel(raise, 11_592 ether, 0.02e18); // $7,777→$33,333 at 72% sold
+        assertApproxEqRel(raise, 6_455 ether, 0.002e18); // $3,333→$33,333 at 84.24% sold
     }
 
     function test_price_monotonic_across_curve() public view {
@@ -343,7 +344,7 @@ contract CurveTest is Test {
 
     function test_antiSnipe_decays_to_zero() public {
         (BondingCurve curve,) = _launch();
-        // _launch warps past the 60 s window — fee should be 0
+        // _launch warps past the 7 s window — fee should be 0
         assertEq(curve.currentSnipeFeeBps(), 0);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
         assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);

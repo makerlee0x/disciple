@@ -286,6 +286,42 @@ contract GasBenchModes is IntegrationBase {
         console2.log(string(abi.encodePacked("BENCH ", tag, ".usdg1.sell.warm")), vm.lastCallGas().gasTotalUsed);
     }
 
+    /// @dev Steep curve #1 buy/sell gas at three points on the curve (early CP region, mid, steep g^30 tail) plus a
+    ///      curve-completing partial fill. Writes snapshots/curve-steep.json (forge gas snapshot).
+    function test_bench_steep_curve() public {
+        (BondingCurve c, Token t) = _coin(0); // TRENCH: no holding cap
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 8 minutes); // past the 7s sniper window
+        address w = _w("steepWhale", c, t);
+        address a = _w("steepA", c, t);
+        uint256[3] memory targets = [uint256(5_000e18), 15_000e18, 28_000e18];
+        string[3] memory tags = ["g.early", "g.mid", "g.tail"];
+        for (uint256 i; i < 3; ++i) {
+            while (c.mcapNow() < targets[i]) {
+                vm.prank(w);
+                c.buy(100 ether, 1, block.timestamp + 1 hours, w);
+            }
+            vm.prank(a);
+            c.buy(20 ether, 1, block.timestamp + 1 hours, a);
+            uint256 gb = vm.lastCallGas().gasTotalUsed;
+            uint256 y = t.balanceOf(a) / 4;
+            vm.prank(a);
+            c.sell(y, 1, block.timestamp + 1 hours, a);
+            uint256 gs = vm.lastCallGas().gasTotalUsed;
+            console2.log(string(abi.encodePacked("BENCH steep.", tags[i], ".buy.warm")), gb);
+            console2.log(string(abi.encodePacked("BENCH steep.", tags[i], ".sell.warm")), gs);
+            vm.snapshotValue("curve-steep", string(abi.encodePacked(tags[i], ".buy")), gb);
+            vm.snapshotValue("curve-steep", string(abi.encodePacked(tags[i], ".sell")), gs);
+        }
+        // curve-completing buy: capped at the curve end, refund path (binary search on fees + one exact cost)
+        vm.prank(a);
+        c.buy(10_000 ether, 1, block.timestamp + 1 hours, a);
+        uint256 gg = vm.lastCallGas().gasTotalUsed;
+        console2.log("BENCH steep.graduating.buy", gg);
+        vm.snapshotValue("curve-steep", "graduating.buy", gg);
+        assertTrue(c.graduated(), "graduated");
+    }
+
     function test_bench_modes_trench() public {
         _run(0, "trench");
     }

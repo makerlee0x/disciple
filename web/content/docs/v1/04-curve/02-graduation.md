@@ -26,7 +26,7 @@ The BOOST that crosses the line triggers graduation in the same transaction. The
 | Supply | 72% sells on the curve | The remaining 28% is locked forever in the Uniswap v4 LP |
 | Liquidity | Base builds up in the curve | Full-range, owned by LockedLP, locked forever |
 | Fee | 1% + optional creator tax | 1%, via the DISCIPLE hook |
-| Anti-snipe | First 7 seconds | None |
+| Sniper tax | First 77 seconds | None |
 | Wallet cap | If set at launch | None |
 | Tramps and walls | No | Yes |
 

@@ -90,8 +90,8 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 
 ## 3) TRENCH WARFARE
 
-Unchanged except the v2 **sniper tax** (all modes): 99% → 0 over 60 s, First BOOST exempt, held in `snipeEscrow`
-outside reserves/price, added to the locked LP at graduation, or sent to RewardsVault by anyone if not graduated
+Unchanged except the v2 **sniper tax** (all modes): 99% → 0 over 7 s (per-second table), First BOOST exempt, held in `snipeEscrow`
+outside reserves/price, credited to LockedLP's locked compound bucket at graduation (not the floor), or sent to RewardsVault by anyone if not graduated
 after `snipeEscrowTimeout` (default 30 days). The legacy owner `walletCapBps` (default 0) still applies to TRENCH
 coins only and now partial-fills. First BOOST max = `creatorBuyMaxBps`.
 

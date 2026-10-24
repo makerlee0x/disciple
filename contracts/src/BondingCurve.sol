@@ -51,7 +51,8 @@ interface IFeeRouterCurve {
 }
 
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
-/// @notice Start mcap $7,777 → graduation (Outer Space) $33,333 at exactly CURVE_SOLD_BPS (72%) supply sold; 7% wallet cap.
+/// @notice Steep curve #1: start mcap $3,333 → graduation (Outer Space) $33,333 at exactly CURVE_SOLD_BPS (84.24%)
+///         supply sold (CurveMath: CP part to $15K + g^30 tail); 7% wallet cap.
 /// @dev Single constant-product virtual reserves; quotePriceUsd scales USD targets into quote units.
 /// @dev Altitude: after each Trade the SPOT mcap (Trade.mcapAfterUsd) is streamed as AltitudeUpdate, plus
 ///      TierBreak when the spot tier changes.
@@ -88,7 +89,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     CurveMath.Params private _params;
 
     /// @notice Sniper tax (mode rules v2, all modes) held in the pair coin. NOT part of quoteReserve / price math and
-    ///         not withdrawable: added to the locked LP at graduation, or (if not graduated `snipeEscrowTimeout`
+    ///         not withdrawable: at graduation it goes to LockedLP's locked compound bucket (excluded from the floor), or (if not graduated `snipeEscrowTimeout`
     ///         after launch) sent to RewardsVault by anyone via releaseSnipeEscrow().
     uint256 public snipeEscrow;
 
@@ -227,6 +228,11 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         return (p.totalSupply, p.sCurve, p.x0, p.y0);
     }
 
+    /// @notice Tail mcap of the steep curve at g = 1 in quote wei (m(g) = CP(x0, y0) + tail·g^30; see CurveMath).
+    function curveTail() external view returns (uint256) {
+        return _params.tail;
+    }
+
     /// @inheritdoc IBondingCurve
     /// @dev After graduation reads the live v4 pool price (was: frozen curve-end value).
     function marketCapUsd() public view override returns (uint256) {
@@ -273,17 +279,16 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         return spotPriceWad();
     }
 
-    /// @notice Progress to graduation in bps (tokensSold / 72% of supply). 10000 = graduated.
+    /// @notice Progress to graduation in bps (tokensSold / CURVE_SOLD_BPS of supply). 10000 = graduated.
     function progressBps() external view returns (uint256) {
         if (graduated) return Constants.BPS_DENOM;
         return (tokensSold * Constants.BPS_DENOM) / _params.sCurve;
     }
 
-    /// @notice Current sniper tax in bps (99% → 0 linearly over 60s after launch; all modes; First BOOST exempt).
+    /// @notice Current sniper tax in bps (99% at launch → 25% at 1s → 3% at 2s → … → 0 from 7s; per-second table
+    ///         FeeMath.snipeBps; all modes; First BOOST exempt).
     function currentSnipeFeeBps() public view returns (uint256) {
-        uint256 e = block.timestamp - launchTime;
-        if (e >= Constants.ANTI_SNIPE_DURATION) return 0;
-        return Constants.ANTI_SNIPE_START_BPS - (Constants.ANTI_SNIPE_START_BPS * e) / Constants.ANTI_SNIPE_DURATION;
+        return FeeMath.snipeBps(block.timestamp - launchTime);
     }
 
     /// @notice Exact preview of `buy(quoteIn, ...)` at the current block (incl. 1% fee, creator tax, sniper tax).
@@ -297,57 +302,47 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     ///      needed for exactly that many tokens (incl. its fees / sniper tax) and refunds the rest (`q.refund`).
     function _quoteBuy(uint256 quoteIn, bool snipeExempt, uint256 limit) internal view returns (BuyQuote memory q) {
         if (graduated) revert Graduated();
-        q = _quoteBuyRaw(quoteIn, snipeExempt);
         uint256 lim = _params.sCurve - tokensSold;
         if (limit < lim) lim = limit;
-        if (q.tokensOut >= lim && lim > 0) {
-            uint256 needCurve = CurveMath.quoteInForTokens(_params, tokensSold, lim) + 1;
-            if (needCurve < q.quoteToCurve) {
-                // DISCIPLE audit #8: binary search for the smallest spend that still buys `lim`. Start from the
-                // linear gross-up estimate; `hi` always buys `lim` (quoteIn does), so it never overcharges.
-                uint256 used = Math.mulDiv(needCurve, quoteIn, q.quoteToCurve, Math.Rounding.Ceil);
+        q = _quoteBuyRaw(quoteIn, snipeExempt, lim);
+        if (lim > 0 && q.tokensOut == lim) {
+            // Capped (curve end / holding cap / First BOOST max): charge only the smallest input whose curve share
+            // covers the exact (ceil) cost of `lim`, refund the rest. The predicate is pure fee arithmetic (monotone
+            // in the input), so this binary search is exact and cheap; one curve evaluation at the end.
+            uint256 need = CurveMath.quoteInForTokens(_params, tokensSold, lim);
+            if (need < q.quoteToCurve) {
                 uint256 lo;
                 uint256 hi = quoteIn;
-                if (used < quoteIn) {
-                    uint256 probe = used + used / 1e9 + 1; // tight upper guess first (usually enough)
-                    if (probe < quoteIn && _quoteBuyRaw(probe, snipeExempt).tokensOut >= lim) hi = probe;
-                    lo = used > 0 ? used - 1 : 0;
-                    if (lo < hi && _quoteBuyRaw(lo, snipeExempt).tokensOut >= lim) {
-                        hi = lo;
-                        lo = hi - hi / 1e6 - 1;
-                        if (_quoteBuyRaw(lo, snipeExempt).tokensOut >= lim) lo = 0;
-                    }
-                }
-                // invariant: buys(hi) && (lo == 0 || !buys(lo)). Stop at 1e-12 relative precision or 64 steps.
-                for (uint256 i; i < 64 && hi - lo > hi / 1e12 + 1; ++i) {
+                while (hi - lo > 1) {
                     uint256 mid = lo + (hi - lo) / 2;
-                    if (_quoteBuyRaw(mid, snipeExempt).tokensOut >= lim) hi = mid;
+                    if (_toCurve(mid, snipeExempt) >= need) hi = mid;
                     else lo = mid;
                 }
                 if (hi < quoteIn) {
-                    BuyQuote memory u = _quoteBuyRaw(hi, snipeExempt);
-                    if (u.tokensOut < lim) revert Slippage(); // fallback: never silently overcharge
+                    BuyQuote memory u = _quoteBuyRaw(hi, snipeExempt, lim);
+                    if (u.tokensOut < lim) revert Slippage(); // never silently overcharge
                     u.refund = quoteIn - hi;
                     q = u;
                 }
             }
-            // the few wei of curve-side overshoot stay in the reserve (buyer overpays by < 1e-12 relative)
-            if (q.tokensOut > lim) {
-                q.tokensOut = lim;
-                _fill(q);
-            }
         }
     }
 
-    function _quoteBuyRaw(uint256 quoteIn, bool snipeExempt) internal view returns (BuyQuote memory q) {
-        // Sniper tax (mode rules v2): inline, no external call; 0 after 60s.
+    /// @dev Input that reaches the curve after sniper tax, protocol fee and creator tax (same rounding as _quoteBuyRaw).
+    function _toCurve(uint256 quoteIn, bool snipeExempt) internal view returns (uint256) {
+        uint256 afterSnipe = snipeExempt ? quoteIn : quoteIn - (quoteIn * currentSnipeFeeBps()) / Constants.BPS_DENOM;
+        return afterSnipe - FeeMath.protocolFee(afterSnipe) - FeeMath.creatorTax(afterSnipe, creatorTaxBps);
+    }
+
+    function _quoteBuyRaw(uint256 quoteIn, bool snipeExempt, uint256 cap) internal view returns (BuyQuote memory q) {
+        // Sniper tax (mode rules v2): inline, no external call; 0 from 7s.
         if (!snipeExempt) q.snipeFee = (quoteIn * currentSnipeFeeBps()) / Constants.BPS_DENOM;
         uint256 afterSnipe = quoteIn - q.snipeFee;
         uint256 protoFee = FeeMath.protocolFee(afterSnipe);
         uint256 tax = FeeMath.creatorTax(afterSnipe, creatorTaxBps);
         q.fee = protoFee + tax;
         q.quoteToCurve = afterSnipe - q.fee;
-        q.tokensOut = CurveMath.tokensOutForQuote(_params, tokensSold, q.quoteToCurve);
+        q.tokensOut = CurveMath.tokensOutForQuoteCapped(_params, tokensSold, q.quoteToCurve, cap);
         _fill(q);
     }
 
@@ -371,21 +366,17 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         q.mcapAfterUsd = CurveMath.marketCapUsd(_params, sAfter);
     }
 
-    /// @dev Price ∝ 1/y² on a CPAMM (x = k/y): impact = |y0² - y1²| / y1², full precision.
+    /// @dev Spot-to-spot impact relative to the price before (price ∝ curve mcap; full-precision quote-wei mcap).
     function _impactBps(uint256 sBefore, uint256 sAfter) internal view returns (uint256) {
-        uint256 yb = _params.y0 - sBefore;
-        uint256 ya = _params.y0 - sAfter;
-        uint256 b2 = yb * yb;
-        uint256 a2 = ya * ya;
-        uint256 d = a2 > b2 ? a2 - b2 : b2 - a2;
-        // priceBefore ∝ 1/b2 → impact relative to before = d / a2
-        return Math.mulDiv(d, Constants.BPS_DENOM, a2);
+        uint256 mb = CurveMath.marketCapQuote(_params, sBefore);
+        uint256 ma = CurveMath.marketCapQuote(_params, sAfter);
+        return Math.mulDiv(ma > mb ? ma - mb : mb - ma, Constants.BPS_DENOM, mb);
     }
 
     // ───────────────────────────── mode views ─────────────────────────────
 
     /// @notice Current NET-position holding cap for a wallet in token wei (type(uint256).max = none).
-    ///         Easy 1% → 3.33%, Hard 3.33% → 7.77% of supply, linear in mcap progress $7,777 → $33,333 (curve mcap now).
+    ///         Easy 1% → 3.33%, Hard 3.33% → 7.77% of supply, linear in mcap progress $3,333 → $33,333 (curve mcap now).
     ///         TRENCH: the legacy Launchpad walletCapBps (0 = none).
     function netCapNow() public view returns (uint256) {
         uint8 m = mode;
@@ -915,13 +906,14 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         graduated = true;
 
         uint256 tokenLiq = IERC20(token).balanceOf(address(this));
-        // mode rules v2: the sniper escrow joins the locked LP (any excess over the pool ratio goes to LockedLP's
-        // compound bucket, which is locked too)
+        // mode rules v2: the sniper escrow is passed to migration with the reserve; Migration marks it non-floor, so
+        // LockedLP credits it to the coin's locked compound bucket (never the graduation floor)
         uint256 esc = snipeEscrow;
         uint256 quoteLiq = quoteReserve + esc;
-        uint256 y = _params.y0 - tokensSold;
-        uint256 x = CurveMath.virtualQuote(_params, tokensSold);
-        uint160 sqrtPriceX96 = SqrtPrice.fromReserves(x, y, uint160(token) < uint160(quote));
+        // Pool opens at the curve-end spot price: price = curve mcap / supply (quote wei per token wei, full precision).
+        uint160 sqrtPriceX96 = SqrtPrice.fromReserves(
+            CurveMath.marketCapQuote(_params, tokensSold), _params.totalSupply, uint160(token) < uint160(quote)
+        );
 
         IERC20(token).forceApprove(address(migration), tokenLiq);
         IERC20(quote).forceApprove(address(migration), quoteLiq);

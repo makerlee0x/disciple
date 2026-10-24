@@ -19,17 +19,20 @@ export const DEMO_POOL = {
 };
 
 export const CURVE = {
-  startMcap: 7_777,
+  startMcap: 3_333,
   graduationMcap: 33_333,
-  soldPctAtGrad: 72,
+  soldPctAtGrad: 84.24,
   totalSupply: 1_000_000,
   decimals: 18,
   /** wallet cap = Launchpad default Constants.WALLET_CAP_BPS_DEFAULT = 0 (no cap): live, paper and SIMULATOR alike */
   walletCapDefaultBps: 0,
   tradeFeeBps: 100, // 1%
   creatorTaxMaxPct: 7,
-  antiSnipeStartPct: 77.7,
+  antiSnipeStartPct: 99,
+  /** sniper tax window: Constants.ANTI_SNIPE_DURATION (7s, lee 2026-10-24; was 77s linear) */
   antiSnipeWindowSec: 7,
+  /** sniper tax bps per elapsed whole second, 0 from antiSnipeWindowSec: Constants.ANTI_SNIPE_TABLE (FeeMath.snipeBps) */
+  antiSnipeBpsBySec: [9900, 2500, 300, 100, 30, 10, 3],
 } as const;
 
 /** 18-tier biblically ascending ladder (constitution LOCKED 2026-10-15) */

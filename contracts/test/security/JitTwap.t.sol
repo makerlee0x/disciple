@@ -288,7 +288,7 @@ contract JitTwapTest is IntegrationBase {
         vm.prank(alice);
         (id,) = twm.placeWall(address(tok), lo, hi, 750 ether, 0, block.timestamp + 1);
         for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
-            _buy(whale, 20_000 ether);
+            _buy(whale, 10_000 ether); // steep curve #1: shallower pool ($5.25K + 15.76%), 20K would exceed the 1000% cap
         }
         require(twm.isFilled(id), "wall not filled");
     }
@@ -356,7 +356,7 @@ contract JitTwapTest is IntegrationBase {
     function test_altitude_hook_tier_follows_spot_each_trade() public {
         uint8 tier0 = hook.altitudeTierOf(pid);
         vm.recordLogs();
-        _buy(whale, 20_000 ether);
+        _buy(whale, 10_000 ether); // steep curve #1: shallower pool ($5.25K + 15.76%), 20K would exceed the 1000% cap
         uint8 up = Altitude.tierOf(_mcapSpot());
         assertGt(up, tier0);
         (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
