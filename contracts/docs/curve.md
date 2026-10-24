@@ -60,7 +60,7 @@ Gross buys to graduate are higher once the 1% trade fee (+ anti-snipe) is includ
 ## Invariants kept
 
 - 1% trade fee (33/33/33/1), optional creator tax ≤7%
-- Sniper tax 99% → 0% over 77s (mode rules v2; escrowed → LockedLP compound bucket at graduation)
+- Sniper tax 99% → 0% over 7s (per-second: 99/25/3/1/0.3/0.1/0.03%, 0 from 7s) (mode rules v2; escrowed → LockedLP compound bucket at graduation)
 - Per-wallet curve cap is configurable (`Launchpad.walletCapBps`), default 0 = no cap
 - Optional creator buy ≤0.77% at launch
 - Atomic graduate → locked v4 (stub)

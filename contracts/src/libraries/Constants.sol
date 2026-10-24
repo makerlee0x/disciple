@@ -94,12 +94,18 @@ library Constants {
     uint256 internal constant WALLET_CAP_BPS_DEFAULT = 0;
 
     // ── Sniper tax (§2 / LOCKED #9, mode rules v2 2026-10-23) — ALL modes, curve buys only ──
-    /// @dev 99% → 0% linearly over 77s from launch. The creator's First BOOST is exempt. Taken in the pair coin and
+    /// @dev 99% at launch, fast per-second decay to 0 at 7s (lee 2026-10-24, was linear over 77s): 99% · 25% · 3% · 1% ·
+    ///      0.3% · 0.1% · 0.03% for elapsed seconds 0–6, hard 0 from 7s (FeeMath.snipeBps reads ANTI_SNIPE_TABLE).
+    ///      The creator's First BOOST is exempt. Taken in the pair coin and
     ///      held in the curve's `snipeEscrow` (outside reserves/price): added to the locked LP at graduation, or
     ///      released to RewardsVault by anyone if the coin has not graduated SNIPE_ESCROW_TIMEOUT after launch.
     uint256 internal constant ANTI_SNIPE_START_BPS = 9900; // 99%
-    uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% after 77s — protocol 1% only
-    uint256 internal constant ANTI_SNIPE_DURATION = 77; // seconds (rev. 2026-10-23, lee)
+    uint256 internal constant ANTI_SNIPE_END_BPS = 0; // 0% from 7s — protocol 1% only
+    uint256 internal constant ANTI_SNIPE_DURATION = 7; // seconds (rev. 2026-10-24, lee: "lets just do 7 seconds")
+    /// @dev Sniper tax in bps per elapsed second, packed 16 bits each, entry e at bits [16e, 16e+16):
+    ///      [9900, 2500, 300, 100, 30, 10, 3] for e = 0..6 (≈ Pons V2: 99% → ~25% at 1s → ~3% at 2s → ~0).
+    ///      One shift + mask: block.timestamp has 1s resolution, so a per-second table is exact and fully tunable.
+    uint256 internal constant ANTI_SNIPE_TABLE = 0x0003000a001e0064012c09c426ac;
     /// @dev Unclaimed-escrow timeout DEFAULT. Maker lee 2026-10-23: 30 days → RewardsVault. Tunable by the protocol
     ///      owner for FUTURE launches (`Launchpad.setSnipeEscrowTimeout`, bounds below), snapshotted per curve.
     uint256 internal constant SNIPE_ESCROW_TIMEOUT = 30 days;

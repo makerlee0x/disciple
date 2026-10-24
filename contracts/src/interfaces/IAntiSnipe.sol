@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title LEGACY anti-snipe fee schedule interface: 99% → 0% over 77s (Constants.ANTI_SNIPE_*)
+/// @title LEGACY anti-snipe fee schedule interface: 99% → 0% over 7s (Constants.ANTI_SNIPE_*)
 /// @dev Not used by mode-rules-v2 curves, which tax inline and hold the tax in BondingCurve.snipeEscrow
 ///      (→ LockedLP compound bucket at graduation, not the floor; → RewardsVault via releaseSnipeEscrow after the timeout).
 interface IAntiSnipe {

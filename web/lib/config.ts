@@ -29,7 +29,10 @@ export const CURVE = {
   tradeFeeBps: 100, // 1%
   creatorTaxMaxPct: 7,
   antiSnipeStartPct: 99,
-  antiSnipeWindowSec: 77,
+  /** sniper tax window: Constants.ANTI_SNIPE_DURATION (7s, lee 2026-10-24; was 77s linear) */
+  antiSnipeWindowSec: 7,
+  /** sniper tax bps per elapsed whole second, 0 from antiSnipeWindowSec: Constants.ANTI_SNIPE_TABLE (FeeMath.snipeBps) */
+  antiSnipeBpsBySec: [9900, 2500, 300, 100, 30, 10, 3],
 } as const;
 
 /** 18-tier biblically ascending ladder (constitution LOCKED 2026-10-15) */

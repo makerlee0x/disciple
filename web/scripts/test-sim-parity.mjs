@@ -36,10 +36,16 @@ eq(CURVE.walletCapDefaultBps, C.WALLET_CAP_BPS_DEFAULT, "wallet cap default bps 
 eq(Math.round(CURVE.antiSnipeStartPct * 100), C.ANTI_SNIPE_START_BPS, "anti-snipe start  config ⇄ Constants"); eq(LAUNCH.antiSnipeStartBps, C.ANTI_SNIPE_START_BPS, "anti-snipe start  sim ⇄ Constants");
 eq(CURVE.antiSnipeWindowSec, C.ANTI_SNIPE_DURATION, "anti-snipe window  config ⇄ Constants"); eq(LAUNCH.antiSnipeDurationS, C.ANTI_SNIPE_DURATION, "anti-snipe window  sim ⇄ Constants");
 eq(C.ANTI_SNIPE_END_BPS, 0, "anti-snipe ends at 0 (sim decays to 0)");
-// anti-snipe schedule: one source (lib/config CURVE → sim LAUNCH → Market.antiSnipe), linear 99% → 0 over 77 s, buys only, curve only
+// sniper tax schedule: one source (Constants.ANTI_SNIPE_TABLE → lib/config CURVE → sim LAUNCH → Market.antiSnipe), per-second table, 0 from 7 s, buys only, curve only
 { const AS0 = C.ANTI_SNIPE_START_BPS / 10_000, D = C.ANTI_SNIPE_DURATION, m = new Market(cloneConfig());
-  const pts = [[0, AS0], [D / 2, AS0 / 2], [D - 1, AS0 / D], [D, 0], [D + 60, 0]], off = pts.filter(([t, v]) => Math.abs(m.antiSnipe(t) - v) > 1e-12);
-  ok(!off.length, `sim anti-snipe ${AS0 * 100}% → 0 linear over ${D} s (t=0,${D / 2},${D - 1},${D},${D + 60})${off.length ? " differs at t=" + off.map((x) => x[0]).join(",") : ""}`);
+  const h = sol.match(/constant\s+ANTI_SNIPE_TABLE\s*=\s*(0x[0-9a-fA-F]+)\s*;/); ok(!!h, "Constants.sol: ANTI_SNIPE_TABLE found");
+  const tbl = h ? Array.from({ length: C.ANTI_SNIPE_DURATION }, (_, e) => Number((BigInt(h[1]) >> BigInt(16 * e)) & 0xffffn)) : [];
+  eq(JSON.stringify(CURVE.antiSnipeBpsBySec), JSON.stringify(tbl), "anti-snipe per-second table  config ⇄ Constants");
+  eq(JSON.stringify(LAUNCH.antiSnipeBpsBySec), JSON.stringify(tbl), "anti-snipe per-second table  sim ⇄ Constants");
+  eq(tbl[0], C.ANTI_SNIPE_START_BPS, "anti-snipe table[0] = START_BPS");
+  const mk = new Market(cloneConfig()); eq([0, 1, 2, 3, 5, 6.9, 7, 77].map(t => Math.round(mk.antiSnipe(t) * 1e4)).join(","), "9900,2500,300,100,10,3,0,0", "sim antiSnipe(t) = FeeMath.snipeBps(floor t)");
+  eq(Array.from({ length: D + 3 }, (_, e) => Math.round(m.antiSnipe(e + 0.5) * 1e4)).join(","), [...tbl, 0, 0, 0].join(","), `sim antiSnipe steps through the table every second (0 from ${D} s)`);
+  ok(tbl.every((v, e) => e === 0 || v <= tbl[e - 1]), "anti-snipe table never rises");
   ok(!/antiSnipe/.test(m.sell.toString()), "Market.sell does not read the anti-snipe clock (buys only)");
   // every written schedule in GAME's sim + engine sources (comments included) must match Constants — catches stale "7 s" / "77.7%"
   const files = ["lib/sim/market.ts", "lib/sim/run.ts", "lib/sim/config.ts", "public/flight/engine.js", "scripts/test-sim.mjs"], stale = [];
@@ -47,7 +53,7 @@ eq(C.ANTI_SNIPE_END_BPS, 0, "anti-snipe ends at 0 (sim decays to 0)");
     src.forEach((ln, i) => { if (!/snipe|sniper tax/i.test(ln)) return;
       for (const mm of ln.matchAll(/(\d+(?:\.\d+)?)\s*%\s*(?:→|->|to)\s*0%?/g)) if (+mm[1] !== AS0 * 100) stale.push(`${f}:${i + 1} ${mm[0]}`);
       for (const mm of ln.matchAll(/(\d+(?:\.\d+)?)\s*(?:s|sec|seconds)\b(?=[^a-z]*(?:anti-snipe|sniper tax|tax))|over\s+(\d+(?:\.\d+)?)\s*s\b|\((\d+(?:\.\d+)?)\s*s\)/gi)) { const v = +(mm[1] ?? mm[2] ?? mm[3]); if (v !== D) stale.push(`${f}:${i + 1} ${mm[0]}`); } }); }
-  ok(!stale.length, `anti-snipe prose in ${files.length} GAME files says ${AS0 * 100}% → 0 over ${D} s${stale.length ? " — stale: " + stale.join(" | ") : ""}`);
+  ok(!stale.length, `anti-snipe prose in ${files.length} GAME files says ${AS0 * 100}% at 0 s, 0 from ${D} s${stale.length ? " — stale: " + stale.join(" | ") : ""}`);
   eq(/ANTI_SNIPE|antiSnipe/.test(fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")), false, "engine.js charges no anti-snipe of its own (live: contract; paper: no launch clock) — nothing to drift"); }
 eq(Number(CM.TRADE_FEE_BPS), C.TRADE_FEE_BPS, "trade fee  curveMath ⇄ Constants");  eq(LAUNCH.tradeFeeBps, C.TRADE_FEE_BPS, "trade fee  sim ⇄ Constants");
 ok(!!twm, "TrampWallManager.sol: keeperTipBps default found"); if (twm) eq(LAUNCH.keeperTipBps, +twm[1], "keeper tip  sim ⇄ TrampWallManager default");
@@ -84,7 +90,7 @@ const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
   eq(LAUNCH.curveMidMcapUsd, C.CURVE_MID_MCAP_USD, "curve mid mcap  sim ⇄ Constants");
   ok(Math.abs(m.mcap() / LAUNCH.startMcapUsd - 1) < 1e-9, `sim curve starts at $${m.mcap().toFixed(2)}`);
   let worst = 0; for (const [soldFrac, usd] of [[0, 50], [0.1, 300], [0.4, 1000], [0.7, 2500], [0.95, 100]]) {
-    const q = new Market(cloneConfig()); q.sold = q.sC * soldFrac; const f = q.buy(usd, 120, 0); // t past the 77s sniper window
+    const q = new Market(cloneConfig()); q.sold = q.sC * soldFrac; const f = q.buy(usd, 120, 0); // t past the 7s sniper window
     const ref = Number(CM.quoteBuy(p, wei(q.sC * soldFrac), wei(usd), 0n)) / 1e18, eb = Math.abs(f.tokens / ref - 1);
     const s = new Market(cloneConfig()); s.sold = s.sC * Math.max(soldFrac, 0.2); const tk = s.sold * 0.05, sold0 = s.sold, fs2 = s.sell(tk);
     const ref2 = Number(CM.quoteSell(p, wei(sold0), wei(tk), 0n)) / 1e18, es = Math.abs(fs2.usd * (1 - LAUNCH.tradeFeeBps / 1e4) / ref2 - 1);
