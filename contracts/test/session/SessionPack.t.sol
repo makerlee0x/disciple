@@ -242,6 +242,105 @@ contract SessionPackTest is Test {
         _batch2(_approve(address(rogue), 1e18), _toUsdg(address(rogue), 1e18, 1e18, address(acct)));
     }
 
+    // ── swapQuoteToUsdg: no cap by default (lee 2026-10-24, 12:22 CT: "coin-to-cash swaps one-tap with no cap by
+    //    default"). Same semantics as buy / swapUsdgToQuote: the app's "no cap" is SESSION_NO_CAP (uint128 max) on both
+    //    quote slots (web/lib/aa/oneTap.ts); an opt-in cap is a finite cap, enforced and decremented.
+    uint128 constant NO_CAP = type(uint128).max;
+
+    /// @dev Reinstall the session the way the app does by default: both quote slots uncapped.
+    function _installNoCap() internal {
+        vm.startPrank(owner);
+        acct.uninstallSession();
+        P.SessionConfig memory c;
+        c.validUntil = uint48(block.timestamp + 1 days);
+        c.permissions = (1 << 11) - 1;
+        c.router = address(router);
+        c.launchpad = address(lp);
+        c.anonLauncher = address(0xA11CE);
+        c.quote0 = address(usdg);
+        c.cap0 = NO_CAP;
+        c.quote1 = address(strat);
+        c.cap1 = NO_CAP;
+        acct.installSession(policy, E, key, c);
+        vm.stopPrank();
+    }
+
+    function testFuzz_swapQuoteToUsdg_noCap_anyAmountPasses(uint256 a) public {
+        _installNoCap();
+        a = bound(a, 1, NO_CAP - 1000e18); // account already holds 1000e18 STRAT; total supply must fit
+        strat.mint(address(acct), a);
+        _batch2(_approve(address(strat), a), _toUsdg(address(strat), a, a, address(acct)));
+        (, uint128 s1) = _spent();
+        assertEq(s1, a);
+        assertEq(usdg.balanceOf(address(acct)), 1000e18 + a);
+    }
+
+    function test_swapQuoteToUsdg_noCap_repeatedLargeSwapsPass() public {
+        _installNoCap();
+        strat.mint(address(acct), 3e30);
+        for (uint256 i; i < 3; ++i) {
+            _batch2(_approve(address(strat), 1e30), _toUsdg(address(strat), 1e30, 1e30, address(acct)));
+        }
+        (uint128 s0, uint128 s1) = _spent();
+        assertEq(s0, 0);
+        assertEq(s1, 3e30);
+        // parity: the buy-side swap (USDG -> coin) is uncapped under the same default
+        usdg.mint(address(acct), 1e30);
+        _batch2(_approve(address(usdg), 1e30), _toQuote(address(strat), 1e30, 1e30, address(acct)));
+        (s0,) = _spent();
+        assertEq(s0, 1e30);
+    }
+
+    function test_swapQuoteToUsdg_capSet_enforcedAndDecremented() public {
+        // default setUp: opt-in cap CAP1 on STRAT
+        _batch2(_approve(address(strat), 30e18), _toUsdg(address(strat), 30e18, 30e18, address(acct)));
+        (, uint128 s1) = _spent();
+        assertEq(s1, 30e18);
+        _batch2(_approve(address(strat), 20e18), _toUsdg(address(strat), 20e18, 20e18, address(acct)));
+        (, s1) = _spent();
+        assertEq(s1, CAP1); // exactly at the cap is allowed
+        vm.expectRevert(
+            abi.encodeWithSelector(P.SpendCapExceeded.selector, address(strat), uint256(CAP1) + 1, uint256(CAP1))
+        );
+        _batch2(_approve(address(strat), 1), _toUsdg(address(strat), 1, 1, address(acct)));
+        (, s1) = _spent();
+        assertEq(s1, CAP1); // the reverted swap did not count
+    }
+
+    function test_swapQuoteToUsdg_noCap_otherChecksStillApply() public {
+        _installNoCap();
+        // recipient must be the account
+        vm.expectRevert(P.RecipientNotAccount.selector);
+        _batch2(_approve(address(strat), 10e18), _toUsdg(address(strat), 10e18, 10e18, attacker));
+        // router must be the configured router
+        MockPackRouter evil = new MockPackRouter(usdg);
+        MockMAv2.Call memory c = _toUsdg(address(strat), 10e18, 10e18, address(acct));
+        vm.expectRevert(
+            abi.encodeWithSelector(P.NotAllowed.selector, address(evil), MockPackRouter.swapQuoteToUsdg.selector)
+        );
+        vm.prank(key);
+        acct.execute(address(evil), 0, c.data);
+        // approvals only to DISCIPLE spenders
+        vm.expectRevert(abi.encodeWithSelector(P.SpenderNotAllowed.selector, address(evil)));
+        vm.prank(key);
+        acct.execute(address(strat), 0, abi.encodeCall(ERC20.approve, (address(evil), 10e18)));
+        // exact USDG approve rule still holds next to an uncapped swap
+        vm.expectRevert();
+        _batch2(_approve(address(usdg), 11e18), _toQuote(address(strat), 10e18, 10e18, address(acct)));
+        // price protection still holds
+        vm.expectRevert();
+        _batch2(_approve(address(strat), 10e18), _toUsdg(address(strat), 10e18, 9e18, address(acct)));
+        // a coin that is not a session quote slot is still refused (audit #8, same as buys)
+        vm.expectRevert(abi.encodeWithSelector(P.SpendCapExceeded.selector, address(rogue), 1e18, 0));
+        _batch2(_approve(address(rogue), 1e18), _toUsdg(address(rogue), 1e18, 1e18, address(acct)));
+        // claims are still not one-tap
+        _rejects(
+            address(router), abi.encodeWithSignature("claimCreatorFeesToUsdg(address,uint256)", address(0xC0FFEE), 0)
+        );
+        (, uint128 s1) = _spent();
+        assertEq(s1, 0);
+    }
+
     function test_swapQuoteToUsdg_lowMinOut() public {
         vm.expectRevert();
         _batch2(_approve(address(strat), 10e18), _toUsdg(address(strat), 10e18, 9e18, address(acct)));
