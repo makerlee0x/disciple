@@ -143,7 +143,7 @@ export async function sendUserOperationSync(op: UserOp) {
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
   // launches ⇒ LAUNCH_GAS_CAPS; above GAS_CAPS + verified graduating buy ⇒ GRAD_GAS_CAPS (on-chain check, lib/server/gradBuy)
-  checkOpGas(op, fee, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id)));
+  checkOpGas(op, fee, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id, { paymaster: allowedPaymaster() })));
   // USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee)
   if (op.paymaster) {
     const pm = allowedPaymaster();
