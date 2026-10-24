@@ -7,6 +7,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Owned2Step} from "../utils/Owned2Step.sol";
 import {PackedUserOperation, PostOpMode, IPaymasterV07, IEntryPointStakeV07} from "./IPaymasterV07.sol";
 
+interface IDecimalsPm {
+    function decimals() external view returns (uint8);
+}
+
 /// @title DisciplePaymaster — USDG token paymaster for EntryPoint v0.7 (self-hosted, no sponsorship)
 /// @notice Users pay gas in USDG. A DISCIPLE quote signer issues a per-sender ALLOWANCE: it signs
 ///         (sender, chainId, paymaster, validUntil, validAfter, rate, maxTokenCost) once, and every op of that sender
@@ -64,10 +68,14 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     bytes4 internal constant EXECUTE_BATCH = bytes4(keccak256("executeBatch((address,uint256,bytes)[])"));
     bytes4 internal constant EXECUTE_USER_OP = 0x8dd7712f; // IAccountExecute.executeUserOp (MAv2 prefix)
     bytes4 internal constant APPROVE = 0x095ea7b3; // approve(address,uint256)
+    /// @notice AUDIT Info (2026-10-24): sanity ceiling on maxCostCap, in whole USDG (scaled by decimals at construction).
+    uint256 public constant MAX_COST_CAP_LIMIT_USDG = 100;
 
     IEntryPointStakeV07 public immutable entryPoint;
     /// @notice The only fee token.
     address public immutable usdg;
+    /// @notice MAX_COST_CAP_LIMIT_USDG in USDG raw units (100 * 10**usdg.decimals()); enforced by setBounds.
+    uint256 public immutable maxCostCapLimit;
 
     // ───────────────────────── owner-set config ─────────────────────────
     address public signer;
@@ -114,6 +122,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     error NotEntryPoint();
     error ZeroAddress();
     error InvalidBounds();
+    error MaxCostCapAboveLimit(uint256 maxCostCap, uint256 limit);
     error PaymasterAndDataLengthInvalid();
     error QuoteWindowInvalid();
     error RateOutOfBounds(uint256 rate);
@@ -139,6 +148,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         }
         entryPoint = IEntryPointStakeV07(entryPoint_);
         usdg = usdg_;
+        maxCostCapLimit = MAX_COST_CAP_LIMIT_USDG * 10 ** IDecimalsPm(usdg_).decimals();
         _setSigner(signer_);
         _setTreasury(treasury_);
         _setBounds(minRate_, maxRate_, maxCostCap_);
@@ -465,6 +475,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
     function _setBounds(uint256 minRate_, uint256 maxRate_, uint256 maxCostCap_) internal {
         if (minRate_ == 0 || minRate_ > maxRate_ || maxCostCap_ == 0) revert InvalidBounds();
+        if (maxCostCap_ > maxCostCapLimit) revert MaxCostCapAboveLimit(maxCostCap_, maxCostCapLimit);
         minRate = minRate_;
         maxRate = maxRate_;
         maxCostCap = maxCostCap_;

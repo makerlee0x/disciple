@@ -198,12 +198,14 @@ Order matters: paymaster first (the policy bakes its address in as an immutable)
    46630). Env: `USDG` (testnet mUSDG `0x25030Bff74764aD72b912276a603717DB1C00644`), `PAYMASTER_OWNER` (multisig/ops),
    `PAYMASTER_SIGNER` (ADDRESS of the quote key), `PAYMASTER_TREASURY`, `PAYMASTER_MIN_RATE` / `PAYMASTER_MAX_RATE`
    (USDG base units per ETH — e.g. 1000 / 10000 USDG, i.e. 1000e6 / 10000e6 with the new 6-dec mock USDG, 1000e18 /
-   10000e18 with today's 18-dec mUSDG), `PAYMASTER_MAX_COST` (per-op USDG cap; **default 10 USDG** at the token's
-   decimals, see "Launch ops"), `PAYMASTER_POST_OP_GAS` (30000), `PAYMASTER_DEPOSIT_WEI`, `PAYMASTER_STAKE_WEI`
+   10000e18 with today's 18-dec mUSDG), `PAYMASTER_MAX_COST_USDG` (per-op USDG cap in **WHOLE USDG**, scaled by
+   `decimals()`; **default 10**; must be within [0.1, 100] USDG — e.g. `2` → `maxCostCap = 2000000` on 6-dec mock USDG;
+   the old raw-unit `PAYMASTER_MAX_COST` is rejected, see "Launch ops"; the contract also caps `maxCostCap` at
+   `maxCostCapLimit = 100 USDG` in `setBounds`), `PAYMASTER_POST_OP_GAS` (30000), `PAYMASTER_DEPOSIT_WEI`, `PAYMASTER_STAKE_WEI`
    (1-day unstake delay).
-2. **Redeploy `DiscipleSessionPolicy` 1.4.0** with `contracts/script/DeploySessionPolicy.s.sol`, env `REFERRAL_REGISTRY`
+2. **Redeploy `DiscipleSessionPolicy` 1.4.1** with `contracts/script/DeploySessionPolicy.s.sol`, env `REFERRAL_REGISTRY`
    + `PAYMASTER` = the address from step 1. Constructor is now `(referralRegistry, paymaster)`.
-3. **Every user reinstalls their session** against the new policy (moduleId `disciple.session-policy.1.4.0`). Sessions
+3. **Every user reinstalls their session** against the new policy (moduleId `disciple.session-policy.1.4.1`). Sessions
    must list **USDG as quote0 or quote1 with a spend cap** — the gas allowance is debited from that cap. Old 1.3.0
    sessions keep working in ETH self-pay mode only.
 4. **Web env** — server only: `PAYMASTER_SIGNER_KEY` (dedicated key; must differ from `RELAYER_PRIVATE_KEY` and
@@ -244,6 +246,12 @@ Numbers at base fee 0.01 gwei (client maxFee = (2·base + 1.1·tip)·1.5 = 0.031
 - `maxCostCap` default **10 USDG** (`DEFAULT_MAX_COST_USDG`): ~9.6x headroom — an 11M launch fits up to ≈ 0.1 gwei
   base fee at $3000/ETH (≈ 0.03 gwei at the $10000 max rate). Above that the quote fails closed ("above the paymaster
   cap"), nothing is charged.
+- Set at deploy via `PAYMASTER_MAX_COST_USDG` (WHOLE USDG; script bounds [0.1, 100]; testnet runbook uses `2`).
+  `DeployPaymaster.s.sol` is **46630-only** — mainnet needs its own deploy path (start at 3–5 USDG).
+- **Sanity ceiling**: `maxCostCapLimit` (immutable, `MAX_COST_CAP_LIMIT_USDG = 100` × 10**decimals) — the constructor
+  and `setBounds` revert `MaxCostCapAboveLimit(cap, limit)` above it (exactly 100 USDG is allowed).
+- **Lowering the cap** (`setBounds`): a sender whose outstanding debt (`owedOf`) is above the new cap is blocked until
+  they repay or the owner calls `forgiveDebt` — check debts (`DebtRecorded` / `owedOf`) before tightening.
 - Keeper: MIN is raised to `PAYMASTER_LAUNCH_CONCURRENCY` (default 20) × 11M × maxFee at the current base fee,
   TARGET to 2× that: 20 launches ≈ 0.007 ETH today (< the 0.05 ETH default MIN, which already covers ~143 concurrent
   launches; 0.2 ETH target ≈ 570); at 10x base fee 20 launches need ≈ 0.066 ETH and MIN follows.
