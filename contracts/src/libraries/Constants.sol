@@ -141,6 +141,18 @@ library Constants {
     /// @dev Hard ceiling for Launchpad.creatorBuyMaxBps — 7% of supply.
     uint256 internal constant CREATOR_BUY_MAX_BPS_CEILING = 700;
 
+    // ── Graduation floor (phase 3a, Maker lee 2026-10-24) ─────────────────────
+    /// @dev The curve's leftover USDG (curve reserve − full-range pairing; the sniper escrow and the curve-phase
+    ///      fee LP escrow stay in the compound bucket) is seeded at graduation as USDG-only locked bands below spot:
+    ///      layer A 30% flat in FLOOR_FLAT_BANDS equal bands over spot → 0.75x (48 spacings = $25K mcap), layer B
+    ///      70% in the remaining bands, geometric edges spot → 0.1x (384 spacings ≈ $3,330), USDG weight 4x from the
+    ///      top band to the bottom band (curve-model/floorbins.py "hybrid"). Never removable; never compounded.
+    uint256 internal constant MAX_FLOOR_BANDS = 16;
+    uint256 internal constant FLOOR_FLAT_BANDS = 4;
+    uint256 internal constant FLOOR_FLAT_SPACINGS = 48;
+    uint256 internal constant FLOOR_BOTTOM_SPACINGS = 384;
+    uint256 internal constant FLOOR_FLAT_BPS = 3_000;
+
     // ── BPS helper ───────────────────────────────────────────────────────────
     uint256 internal constant BPS_DENOM = 10_000;
 

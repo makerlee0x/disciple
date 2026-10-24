@@ -45,6 +45,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     /// @notice Treasury share (33% + unrouted 1% + 30% of anti-snipe) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
     mapping(address => uint256) public treasuryAccrued;
+    /// @notice Phase 3a (Maker lee 2026-10-24): when set, the 1% referral share that would go to a referrer (the
+    ///         trader's referrer, or the coin's launch KOL — the same 1% share) goes here instead. treasury →
+    ///         credited to treasuryAccrued; any other address → claimable via claimReferrerFees. address(0) = off
+    ///         (today's routing). Future trades only; already-accrued referral fees stay claimable. The KOL's 2% of
+    ///         the creator share is NOT redirected.
+    address public referralSink;
     /// @notice Post-grad creator share charged in the LAUNCH TOKEN (hook fee on buys) — token => creator => amount.
     mapping(address => mapping(address => uint256)) public creatorTokenAccrued;
     error OnlyAuthorized();
@@ -72,6 +78,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         uint256 kolShare
     );
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount);
+    event ReferralSinkSet(address indexed previous, address indexed sink);
     event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount);
     event TreasuryFeesClaimed(address indexed asset, address indexed treasury, uint256 amount);
     event CreatorTokenFeesClaimed(address indexed token, address indexed creator, uint256 amount);
@@ -105,6 +112,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (treasury_ == address(0)) revert ZeroAddress();
         treasury = treasury_;
         emit TreasuryUpdated(treasury_);
+    }
+
+    function setReferralSink(address sink) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        emit ReferralSinkSet(referralSink, sink);
+        referralSink = sink;
     }
 
     function setAuthorized(address caller, bool ok) external {
@@ -171,6 +184,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
             leftoverTo = launchKol;
         } else if (traderRef != address(0)) {
             leftoverTo = traderRef;
+        }
+
+        // Referral sink: redirect the referrer's 1% (only when a referrer would have been paid).
+        if (leftoverTo != address(0)) {
+            address sink = referralSink;
+            if (sink != address(0)) leftoverTo = sink == treasury ? address(0) : sink;
         }
 
         if (leftoverTo == address(0) || referralShare == 0) {
