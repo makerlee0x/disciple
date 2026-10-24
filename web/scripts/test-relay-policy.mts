@@ -211,12 +211,12 @@ test("buyIntents decodes curve buy / buyFor and router buyWithUsdg / buyExactIn;
   assert.deepEqual(buyIntents([{ to: CURVE, data: "0xdeadbeef" }]), []);
 });
 test("relayCaps: verified graduating buy above GAS_CAPS ⇒ GRAD_GAS_CAPS (curve and router paths)", async () => {
-  const o = gradOp([{ to: USDG, data: approve }, curveBuy(REMAINING)]);
+  const o = gradOp([approveTo(USDG, CURVE, REMAINING), curveBuy(REMAINING)]);
   assert.throws(() => checkOpGas(o, BASE), /callGasLimit .* above cap 3000000/);   // the bug: rejected under W-1 caps
   const caps = await relayCaps(o, [LP], reads());
   assert.deepEqual(caps, GRAD_GAS_CAPS);   // deepEqual: tsx may load gasPolicy twice (ESM test + CJS lib)
   assert.ok(checkOpGas(o, BASE, caps) > BigInt(0));
-  assert.deepEqual(await relayCaps(gradOp([{ to: USDG, data: approve }, routerBuy(REMAINING + BigInt(1))]), [LP], reads()), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, ROUTER, BIG), routerBuy(REMAINING + BigInt(1))]), [LP], reads()), GRAD_GAS_CAPS);
   // 5M call still the limit
   const big = gradOp([curveBuy(REMAINING)], { callGasLimit: 5_000_001 });
   const bigCaps = await relayCaps(big, [LP], reads());
@@ -232,10 +232,11 @@ test("relayCaps: GAS_CAPS for non-graduating buy, fake curve, wrong router, grad
   assert.equal(await isGradBuyOp("0x1234", SENDER, reads()), false);
   assert.equal(await isGradBuyOp(gradOp([curveBuy(REMAINING)]).callData, undefined, reads()), false);   // no sender ⇒ can't check funds
 });
-test("audit r106 (gradBuy.ts:40): only the single / last non-approve call counts, and only if the sender can pay", async () => {
+test("audit r106 (gradBuy.ts:40): only a buy that is the literal last call counts, and only if the sender can pay", async () => {
   const g = curveBuy(REMAINING);
-  // last call after approves ⇒ ok; a trailing non-approve call (sell / anything) ⇒ GAS_CAPS
-  assert.deepEqual(await relayCaps(gradOp([{ to: USDG, data: approve }, g, { to: USDG, data: approve }]), [LP], reads()), GRAD_GAS_CAPS);
+  // last call after approves ⇒ ok; anything after the buy (even an approve) ⇒ GAS_CAPS (round 2: buy must be last)
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, BIG), g]), [LP], reads()), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, BIG), g, approveTo(USDG, CURVE, BIG)]), [LP], reads()), GAS_CAPS);
   const sell = { to: CURVE, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: "sell", args: [BigInt(5), BigInt(1), D] }) };
   assert.deepEqual(await relayCaps(gradOp([g, sell]), [LP], reads()), GAS_CAPS);
   assert.deepEqual(await relayCaps(gradOp([g, curveBuy(BigInt(1))]), [LP], reads()), GAS_CAPS);   // grad buy not last
@@ -262,12 +263,80 @@ test("audit r106 (gradBuy.ts:28): bounded + batched — ≤ MAX_GRAD_BUY_INTENTS
   const r = reads();
   assert.deepEqual(await relayCaps(many, [LP], r), GAS_CAPS);
   assert.equal(r.calls, 0);   // rejected before any RPC
-  const two = reads();
-  assert.deepEqual(await relayCaps(gradOp([curveBuy(BigInt(1)), curveBuy(REMAINING)]), [LP], two), GRAD_GAS_CAPS);
-  assert.equal(two.calls, 2);   // curve path: curveInfo batch + check batch
+  const two = reads();   // round 2: a second buy is not an approve ⇒ not the exact shape, rejected before any RPC
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(BigInt(1)), curveBuy(REMAINING)]), [LP], two), GAS_CAPS);
+  assert.equal(two.calls, 0);
+  const one = reads();
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], one), GRAD_GAS_CAPS);
+  assert.equal(one.calls, 2);   // curve path: curveInfo batch + check batch
   const rt = reads();
   assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], rt), GRAD_GAS_CAPS);
   assert.equal(rt.calls, 3);    // router path: curveOf + curveInfo batch + check batch
+});
+test("audit r106 round 2 (gasPolicy.ts:168/:177): only the exact [approve(quote, curve|router)*, buy] shape is a candidate", async () => {
+  const g = curveBuy(REMAINING), rb = routerBuy(REMAINING);
+  const erc20w = parseAbi(["function transfer(address,uint256)", "function approve(address,uint256)"]);
+  // accepted shapes (pure): lone buy, approve(s) to the buy's spender + buy; curve and router paths
+  assert.deepEqual(gradBuyCandidate(batch([g]))?.approvals, []);
+  const c2 = gradBuyCandidate(batch([approveTo(USDG, CURVE, BigInt(0)), approveTo(USDG, CURVE, REMAINING), g]));
+  assert.equal(c2?.approvals.length, 2); assert.equal(c2?.quoteToken, USDG);
+  assert.equal(gradBuyCandidate(batch([approveTo(USDG, ROUTER, REMAINING), rb]))?.quoteToken, USDG);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, REMAINING), g]), [LP], reads()), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, ROUTER, REMAINING), rb]), [LP], reads()), GRAD_GAS_CAPS);
+  // rejected before any RPC: extra / unknown calls before the buy, anything after it, wrong spender, mixed tokens
+  const sell = { to: CURVE, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: "sell", args: [BigInt(5), BigInt(1), D] }) };
+  const drain = { to: USDG, data: encodeFunctionData({ abi: erc20w, functionName: "transfer", args: [OTHER as Hex, BIG] }) };
+  const fakeApprove = { to: OTHER, data: encodeFunctionData({ abi: erc20w, functionName: "approve", args: [OTHER as Hex, BigInt(1)] }) };
+  const badApprove = { to: USDG, data: ("0x095ea7b3" + "00".repeat(8)) as Hex };   // approve selector, undecodable args
+  const rejected: [string, { to: string; data: Hex }[]][] = [
+    ["[anyCall, buy]", [sell, g]],
+    ["[usdg.transfer(away, all), buy]", [drain, g]],
+    ["[approve, unknown, buy]", [approveTo(USDG, CURVE, BIG), { to: OTHER, data: "0xdeadbeef" }, g]],
+    ["[buy, approve-selector call to an arbitrary contract]", [g, fakeApprove]],
+    ["[buy, approve(quote, curve)]", [g, approveTo(USDG, CURVE, BIG)]],
+    ["wrong spender (OTHER)", [approveTo(USDG, OTHER, BIG), g]],
+    ["wrong spender (router approve for a curve buy)", [approveTo(USDG, ROUTER, BIG), g]],
+    ["wrong spender (curve approve for a router buy)", [approveTo(USDG, CURVE, BIG), rb]],
+    ["approves on two tokens", [approveTo(USDG, CURVE, BIG), approveTo(TOK, CURVE, BIG), g]],
+    ["approve selector with garbage args", [badApprove, g]],
+    ["two buys", [curveBuy(BigInt(1)), g]],
+  ];
+  for (const [name, calls] of rejected) {
+    assert.equal(gradBuyCandidate(batch(calls)), null, name);
+    const r = reads();
+    assert.deepEqual(await relayCaps(gradOp(calls), [LP], r), GAS_CAPS, name);
+    assert.equal(r.calls, 0, name);
+  }
+  // wrong token: shape ok, but the approve is not on the curve's quote (USDG) ⇒ rejected after curveInfo, before check
+  const wt = reads();
+  assert.deepEqual(await relayCaps(gradOp([approveTo(TOK, CURVE, BIG), g]), [LP], wt), GAS_CAPS);
+  assert.equal(wt.seen.length, 0);
+  // post-approve funding: approve then buy with ZERO prior allowance passes; the in-op approve (not the pre-op
+  // allowance) is what the buy sees, so a short approve fails even with a huge pre-op allowance
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, REMAINING), g]), [LP], reads({}, { allowance: BigInt(0) })), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, ROUTER, REMAINING), rb]), [LP], reads({}, { allowance: BigInt(0) })), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, REMAINING - BigInt(1)), g]), [LP], reads({}, { allowance: BIG })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([g]), [LP], reads({}, { allowance: BigInt(0) })), GAS_CAPS);   // no approve, none on-chain
+  // insufficient balance fails, approve or not
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, BIG), g]), [LP], reads({}, { balance: REMAINING - BigInt(1), allowance: BigInt(0) })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, BIG), g]), [LP], reads({}, { balance: REMAINING, allowance: BigInt(0) })), GRAD_GAS_CAPS);
+});
+test("audit r106 round 2: a USDG-gas op's leading usdg.approve(paymaster) is allowed only for our paymaster, only first", async () => {
+  const PM = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", g = curveBuy(REMAINING);
+  const pmOp = (calls: { to: string; data: Hex }[], paymaster?: string) => ({ ...gradOp(calls), ...(paymaster ? { paymaster } : {}) });
+  const pmA = approveTo(USDG, PM, BigInt(1_000_000));
+  const rp = () => reads({ paymaster: PM }, { allowance: BigInt(0) });
+  assert.deepEqual(await relayCaps(pmOp([pmA, approveTo(USDG, CURVE, REMAINING), g], PM), [LP], rp()), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(pmOp([pmA, g], PM), [LP], reads({ paymaster: PM })), GRAD_GAS_CAPS);
+  // op without a paymaster / a foreign paymaster / no paymaster configured ⇒ the approve is just a wrong spender
+  assert.deepEqual(await relayCaps(pmOp([pmA, approveTo(USDG, CURVE, REMAINING), g]), [LP], rp()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(pmOp([pmA, approveTo(USDG, CURVE, REMAINING), g], OTHER), [LP], rp()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(pmOp([pmA, approveTo(USDG, CURVE, REMAINING), g], PM), [LP], reads({}, { allowance: BigInt(0) })), GAS_CAPS);
+  // not first, on the wrong token, or twice ⇒ rejected; the paymaster approve never counts as the buy's allowance
+  assert.deepEqual(await relayCaps(pmOp([approveTo(USDG, CURVE, REMAINING), pmA, g], PM), [LP], rp()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(pmOp([approveTo(TOK, PM, BIG), approveTo(USDG, CURVE, REMAINING), g], PM), [LP], rp()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(pmOp([pmA, pmA, g], PM), [LP], rp()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(pmOp([pmA, g], PM), [LP], rp()), GAS_CAPS);   // pm approve ≠ allowance to the curve
 });
 test("audit r106 (gasPolicy.ts:132): buyWithUsdg (USDG units) on a non-USDG curve is skipped; buyExactIn (quote units) is checked", async () => {
   const STRAT = "0x9999999999999999999999999999999999999999";
