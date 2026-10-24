@@ -182,6 +182,13 @@ ok(/void warmGasPrice\(pc\);/.test(tb) && tb.indexOf("void warmGasPrice(pc)") > 
   ok(/kind === "gradBuy" \? \{ gasReserve: gasReservePerOp\("gradBuy"\) \} : \{\}/.test(fn) && !/gasReservePerOp\(\)/.test(fn), "reservePress passes gasReserve only for a gradBuy BOOST (never for DUMPs)");
   ok(/const kind = gasKindFor\(side, usd, gradRef\.current, markRef\.current\.mcap\);/.test(tb) && /reservePress\(pressId, side, token, side === "buy" \? usd : undefined, kind\)/.test(tb), "TradeBridge: gas kind from the preview at entry (sync) → canSpend + reservePress");
   ok(/gradRef\.current = \{ usd, graduates: b\.graduates, mcapAfterUsd: b\.mcapAfterUsd, venue: b\.venue \}/.test(tb), "gas-kind hint = the warm buy preview (graduates / mcapAfter / venue)"); }
+console.log("— phone trade bar (#139 PhoneTradeBar) keeps the rapid-tap states");
+{ const ph = tb.slice(tb.indexOf("if (phone) return ("), tb.indexOf("<PhoneTradeBar") + 1600);
+  ok(/boostDisabled=\{short \|\| full\} dumpDisabled=\{!has \|\| full\}/.test(ph), "phone: BOOST greyed when short or 3 in flight, DUMP when no tokens or 3 in flight");
+  ok(/const boostTitle = full \? COPY\.inFlight : short \? shortMsg :/.test(tb) && /boostTitle=\{boostTitle\}/.test(ph), "phone: BOOST title = '3 IN FLIGHT' while full (same as desktop)");
+  ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortMsg \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
+    "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / the trade line while pending or 'Still confirming your last trade…'");
+  ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, gasKindFor/.test(tb) && (tb.match(/const short = /g) || []).length === 1, "one short (rapid-tap raw + gas kind), #139's float short dropped"); }
 console.log("— pressId (FLOW #145)");
 ok(/reservationId: pressId, pressId \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
 ok(/bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb) && /bookReceipt\(r\.txHash, side, rp, bag\)/.test(tb) && /const rp = r\.pressId \?\? pressId;/.test(tb), "bookReceipt(r.txHash, side, r.pressId) (press id fallback when the stack doesn't return it)");

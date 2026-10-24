@@ -2,6 +2,8 @@
 
 import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
 import { useEffect, useRef, useState } from "react";
+import PhoneTradeBar, { chipUsd } from "./flight/PhoneTradeBar";
+import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
@@ -76,6 +78,7 @@ const ownHint = async (pc: PcLike, erc20: Address, me: Address, maxAge: number) 
 
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
   const [mode, setMode] = useState(0);
+  const phone = useIsPhoneHud();
   const [custom, setCustom] = useState("");
   const gs = useGameSettings();
   const t = useT();
@@ -520,6 +523,30 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const short = rawLive ? !canSpend(CASH_RAW.v!, shotUsd, gasKindFor("buy", shotUsd, gradRef.current, markRef.current.mcap)) : spendable != null && spendable + 1e-9 < shotUsd;   // BOOST greyed out: the amount is more than the spendable cash
   const shortMsg = short ? `Not enough cash: ${fmtShot(shotUsd)} BOOST, you have ${fmtShot(Math.max(0, spendable ?? 0))}${inFlight.n ? ` (${inFlight.n} pending)` : ""}` : "";
   const full = inFlight.n >= inFlight.max;   // 3 in flight: BOOST + DUMP greyed until one resolves
+  const boostTitle = full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`;
+  const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
+  // phones (html.ap-phone, PhoneHud): the v3 bar — same amount state + trade calls as the desktop bar below, layout only.
+  // Rapid tap on the phone bar (it has no status line, only the hint bubble): '3 IN FLIGHT' while full, the pending-hold
+  // "Not enough cash … (n pending)", and the trade line while presses are pending or SITE is still confirming one
+  // ("· Still confirming your last trade…") — same state as the desktop bar's title / hint / status line.
+  const phoneHint = hint || (full ? COPY.inFlight : "") || shortMsg || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
+  if (phone) return (
+    <>
+    <AmmoTierNotice />
+    <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+      onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short || full} dumpDisabled={!has || full} boostTitle={boostTitle} dumpTitle={dumpTitle}
+      buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
+      onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
+      onSetBuy={(v) => setCustom(v)}
+      sellOpts={SELLS.slice(0, 4).map((x) => x.label)} sellSel={sellCustomN ? -1 : sellSel}
+      onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
+      onSetSell={(v) => { pickUnit("%"); setSellCustom(v); }}
+      hint={phoneHint} keyGuard={noKeyActivate} />
+    {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
+      onClose={() => setShowCfg(false)}
+      onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}
+    </>
+  );
   return (
     <>
     <AmmoTierNotice />

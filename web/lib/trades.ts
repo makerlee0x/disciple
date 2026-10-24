@@ -79,6 +79,16 @@ export function fillUsd(a: {
   return { tokens, usd: tokens * mid, priceUsd, mcapUsd };
 }
 
+/**
+ * THE player-facing $ of a fill (live retest #3: feed rows, the trade status line, home chips and 24h volume all use
+ * this): the real USDG paid on a buy / received on a sell when the router reported it (UsdgTrade), else `usd` (the
+ * quote-value estimate). Same rule as engine.js fillUsd() for /api/trades fills.
+ */
+export function playerUsd(f: { side: "buy" | "sell"; usd: number; usdIn?: number; usdOut?: number }): number {
+  const v = f.side === "sell" ? (f.usdOut ?? f.usd) : (f.usdIn ?? f.usd);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 /** DiscipleRouter UsdgTrade args (amountIn = USDG on buys / tokens on sells; amountOut = tokens on buys / USDG on sells). */
 export type UsdgTradeArgs = { trader: string; token: string; isBuy: boolean; amountIn: bigint; amountOut: bigint };
 /** Key for matching a Trade fill to the router's UsdgTrade of the same tx (token + side). */

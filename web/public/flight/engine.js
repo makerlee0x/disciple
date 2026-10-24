@@ -318,6 +318,34 @@ class RpcSource {
 const POOL={addr:'0xc4a21f9d6485fc5893dd4a491b320a83daf4da1d', http:RH.http, dec0:18, dec1:18, spacing:200,
   topic:'0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'};  // v3 Swap(address,address,int256,int256,uint160,uint128,int24)
 const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4) : String(a).slice(0,16);   // sim bots pass names
+/* @feed-names:start — TRADES feed names + history seed + narrow HUD column (test: scripts/test-feed-names.mjs).
+   Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
+   event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
+   that arrives after the row was drawn relabels it. */
+const NAMES={};
+function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
+  return n?'@'+String(n).replace(/^@/,'').slice(0,11):short(a); }
+function feedTradeRow(side,usd,who,trader){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
+  const r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at:Date.now()}; if(who==null&&trader){ r.tr=String(trader).toLowerCase(); r.pre=pre; } return r; }
+function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null) r.txt=r.pre+nameOf(r.tr); }
+/* after a reload the feed is empty (since #113 it lists live swaps only): seed it from the newest indexed fills (/api/trades,
+   newest first), below any live rows already there, deduped by tx[:logIndex]; dollars only (fillUsd = USDG paid/received). */
+function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
+  for(const f of fills){ if(n>=max) break; if(!f||(seen&&(seen.has(f.tx+':'+f.logIndex)||seen.has(f.tx)))) continue;
+    const u=fillUsd(f); if(!(u>0)) continue; const mine=!!me&&String(f.trader||'').toLowerCase()===me;
+    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader); r.hist=1; if(f.ts>0) r.at=+f.ts; feed.push(r); out.push(r); n++; }
+  feed.length=Math.min(feed.length,7); return out; }
+/* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
+   (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
+   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
+const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
+function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+/* @phone-hud v3: phones (<HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
+   {on, sheet, drawer, pillTop, hudTop, dTop, body:{x,y,w,h}}: the floating MCAP · TIER pill at `pillTop`, the bottom HUD
+   (handle / PnL line / BOOST · DUMP, DOM) from `hudTop` down, and — while the drawer is open (dTop = its top) — the drawer's
+   transparent body rect, where the engine draws the FEED / HOLDERS / CHART tab. Nothing else is drawn on the sky. */
+function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<HUD_NARROW_W&&p&&p.on?p:null; }
+/* @feed-names:end */
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {
   constructor(){ this.paper=1; this.real=null; this.L=null; this.levels=[]; this.supply=(window.REPLAY&&REPLAY.totalSupply)||null; this.ethUsd=(window.REPLAY&&REPLAY.ethUsd)||null; }
@@ -515,6 +543,7 @@ if (source instanceof DiscipleSource) S.fuelers={'you':0};   // live coin: no fa
 S.holders=null; S.wallet='';
 addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
 addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address; S.wallet=typeof a==='string'?a.toLowerCase():''; });
+addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m) if(typeof m[k]==='string'&&m[k]) NAMES[k.toLowerCase()]=m[k]; feedRelabel(S.feed); });
 function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
 function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
 if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
@@ -532,8 +561,8 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift({txt:`${e.side==='buy'?'▲ BOOST':'▼ DUMP'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
-    if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
+      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
+    if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
@@ -897,7 +926,7 @@ addEventListener('disciple:hotkeys',e=>setHotkeys(e.detail));
 S.customBuyUsd=0;
 addEventListener('disciple:custombuy',e=>{ const u=+(e.detail&&e.detail.usd); S.customBuyUsd=u>0&&Number.isFinite(u)?u:0; });
 S.menuOpen=false;
-addEventListener('disciple:menu',e=>{ S.menuOpen=!!(e.detail&&e.detail.open); if(S.menuOpen) S.keys={}; });
+addEventListener('disciple:menu',e=>{ S.menuOpen=!!(e.detail&&e.detail.open); if(S.menuOpen){ S.keys={}; S.drag=null; } });
 /** BOOST = buy the active amount: custom $ (trade bar) wins over the selected preset. */
 function boost(){ trade('buy', S.customBuyUsd>0?{usd:S.customBuyUsd}:undefined); }
 function onHotkey(e){
@@ -959,7 +988,7 @@ function setOrbs(on){ S.orbsOn=on; try{localStorage.setItem('disciple.orbs',on?'
 addEventListener('disciple:orbs',e=>{ const d=e.detail||{}; if(typeof d.on==='boolean') setOrbs(d.on); else try{ dispatchEvent(new CustomEvent('disciple:orbstate',{detail:{on:!!S.orbsOn}})); }catch(_){} });
 setOrbs(S.orbsOn);
 addEventListener('keyup',e=>{ S.keys[e.code]=false; });
-addEventListener('blur',()=>{ S.keys={}; });
+addEventListener('blur',()=>{ S.keys={}; S.drag=null; });
 document.addEventListener('visibilitychange',()=>{ if(document.hidden) S.keys={}; });
 
 /* =====================================================================
@@ -997,6 +1026,29 @@ cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const ctf=typeof char
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
   if(i>=6){ S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:i-6}})); return; }   // click = SELECT only (DUMP / Shift sells it)
   if(i>=MODES.length) return; S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
+/* @drag-steer (maker lee, phone v3): a touch / pen drag on the SKY steers — horizontal finger movement sets a target x that the
+   existing hold-to-steer spring chases (steerDragDir → stepSteerAuto, same lag + bank as A/D), clamped to steerMargin; release ⇒
+   the normal auto-centre. Never on a HUD element (DOM sits above the canvas; the canvas-drawn phone pill, bottom HUD band and
+   drawer are excluded here), never with the ESC menu open, allowed in TOUCH GRASS (like the steer keys). A tap (< DRAG_SLOP px)
+   does nothing and never trades. Mouse pointers are ignored (desktop unchanged). Worker mode: workerBridge forwards
+   pointerdown/move/up/cancel with pointerId + pointerType. */
+S.drag=null;
+const DRAG_SLOP=8;
+function dragPointer(e){ return e.pointerType==='touch'||e.pointerType==='pen'; }
+function canvasXY(e){ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]; }
+function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
+  if(P){ if(P.drawer||y>=P.hudTop) return false; const q=S.phonePill; if(q&&x>=q.x&&x<=q.x+q.w&&y>=q.y&&y<=q.y+q.h) return false; }
+  return true; }
+cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; const [x,y]=canvasXY(e);
+  if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)))) return;
+  S.drag={id:e.pointerId,x0:x,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
+  try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch(_){} });
+cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
+  const dx=canvasXY(e)[0]-d.x0; if(!d.on&&Math.abs(dx)<DRAG_SLOP) return; d.on=true;
+  const m=steerMargin(W); d.tx=clamp(d.sx+dx,m,W-m); });
+function dragEnd(e){ const d=S.drag; if(d&&e.pointerId===d.id) S.drag=null; }
+cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dragEnd);
+/* @drag-steer-end */
 addEventListener('resize',resize); addEventListener('apsidebar',()=>requestAnimationFrame(resize)); resize();
 
 const IMG={}; let loaded=0; const SKY_SRC=Object.fromEntries(TIERS.map(t=>[t.bg,t.sky]));   // tier plates load from TIERS[i].sky (lib/flight/tiers.ts)
@@ -1464,9 +1516,77 @@ const GLOW_STEPS=[1.6,1.0,0.5];
 function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.strokeStyle='rgba(220,230,255,.18)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,y,w,h,10) : ctx.rect(x,y,w,h); ctx.fill(); ctx.stroke(); ctx.restore(); }
 
+/* @phone-hud v3: one floating glass pill under the top buttons — `$94.19M · CHERUBIM` + a thin progress line to the next tier,
+   a 'SIM' tag in paper / simulated market (final, lee 11:29 CT), and the tier label (`34% to OUTER SPACE`) just under the pill. */
+const PH_FONT='ui-monospace,Menlo,"DejaVu Sans Mono",monospace';
+function rrect(x,y,w,h,r){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
+function drawPhonePill(m,ti,P){
+  const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
+  const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
+  ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
+  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=t.name, wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
+  ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
+  const h=46, w=Math.round(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
+  S.phonePill={x,y,w,h};
+  ctx.save(); ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle='rgba(16,18,34,.66)'; rrect(x,y,w,h,20); ctx.fill(); ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1; rrect(x+.5,y+.5,w-1,h-1,20); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.07)'; ctx.beginPath(); ctx.moveTo(x+18,y+1.5); ctx.lineTo(x+w-18,y+1.5); ctx.stroke();
+  const ty=y+19; let tx=x+20; ctx.font=`bold 15px ${PH_FONT}`;
+  ctx.fillStyle='#EEF1FA'; ctx.fillText(a,tx,ty); tx+=wa+10; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.fillText('·',tx,ty); tx+=wd+10;
+  ctx.fillStyle='#FFD873'; const room=x+w-20-(sim?10+wt:0)-tx; let nm=b; while(nm.length>3&&ctx.measureText(nm).width>room) nm=nm.slice(0,-1);
+  if(nm!==b) nm=nm.slice(0,-1)+'…'; ctx.fillText(nm,tx,ty); tx+=Math.min(wb,ctx.measureText(nm).width);
+  if(sim){ const gx=tx+10, gy=ty-9; ctx.fillStyle='rgba(201,184,255,.16)'; rrect(gx,gy,wt,18,6); ctx.fill(); ctx.strokeStyle='rgba(201,184,255,.4)'; rrect(gx+.5,gy+.5,wt-1,17,6); ctx.stroke();
+    ctx.font=`800 10px ${PH_FONT}`; ctx.fillStyle='#d9ccff'; ctx.fillText('SIM',gx+6,ty+.5); }
+  const bx=x+20, bw=w-40, by=y+h-10; ctx.fillStyle='rgba(255,255,255,.12)'; rrect(bx,by,bw,2,1); ctx.fill();
+  const g=ctx.createLinearGradient(bx,0,bx+bw*Math.max(f,.02),0); g.addColorStop(0,'#FFB547'); g.addColorStop(1,'#FFD873');
+  ctx.save(); ctx.shadowColor='rgba(255,216,115,.7)'; ctx.shadowBlur=6; ctx.fillStyle=g; rrect(bx,by,Math.max(2,bw*f),2,1); ctx.fill(); ctx.restore();
+  const lb=P.drawer?'':tierLabel(f,nx); S.phoneTierLabel=lb;   // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
+  if(lb){ ctx.font=`600 11px ${PH_FONT}`; ctx.textAlign='center'; ctx.shadowColor='rgba(0,0,0,.85)'; ctx.shadowBlur=6;
+    ctx.fillStyle='rgba(226,232,250,.72)'; ctx.fillText(phFit(lb,W-48),x+w/2,y+h+13); ctx.textAlign='left'; }
+  ctx.restore();
+}
+/* drawer body background (same tint as the DOM drawer chrome; the DOM leaves this band transparent for the canvas tabs) */
+const PH_DRAWER_BG='rgba(14,16,32,.94)';
+function drawPhoneBodyBg(P){ const B=P.body; ctx.fillStyle=PH_DRAWER_BG; const pd=P.bodyPad||0; ctx.fillRect(0,B.y-pd,W,B.h+2*pd); }
+const PH_AVA=['#9AD7FF','#FFB3CF','#FFE08A','#B9F5D2','#D2C4FF','#FFC9A3'];
+function phAva(name){ let h=0; for(const c of String(name)) h=(h*31+c.charCodeAt(0))>>>0; return PH_AVA[h%PH_AVA.length]; }
+function phAgo(at){ if(!(at>0)) return ''; const s=Math.max(0,Math.round((Date.now()-at)/1000)); return s<60?s+'s':s<3600?Math.floor(s/60)+'m':s<86400?Math.floor(s/3600)+'h':Math.floor(s/86400)+'d'; }
+function phFit(t,w){ if(ctx.measureText(t).width<=w) return t; while(t.length>1&&ctx.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; }
+/* FEED tab: the same S.feed rows as the desktop TRADES panel, laid out like the mockup (avatar · name · BOOST/DUMP · $ · ago) */
+function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28}, rh=50, n=Math.max(1,Math.floor(B.h/rh)), x0=B.x+4, iw=B.w-8, gap=8, cAva=30, cTag=70, cUsd=66, cAgo=34, cNm=Math.max(40,iw-cAva-cTag-cUsd-cAgo-4*gap);
+  ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0px';
+  const rows=S.feed.slice(0,n);
+  if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No trades yet',B.x+B.w/2,B.y+40); ctx.textAlign='left'; }
+  rows.forEach((r,i)=>{ const y=B.y+i*rh, cy=y+rh/2, mt=/^(▲ BOOST|▼ DUMP)\s+(\S+)\s+(.+)$/.exec(r.txt||'');
+    if(i<rows.length-1){ ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1); }
+    if(!mt){ ctx.font=`12px ${PH_FONT}`; ctx.fillStyle=r.c||'rgba(214,222,245,.7)'; ctx.fillText(phFit(String(r.txt||''),iw),x0,cy); return; }
+    const buy=mt[1][0]==='▲', who=mt[3].trim(), letter=(who.replace(/^[@(#]+/,'').replace(/^0x/i,'')[0]||'?').toUpperCase();
+    let cx=x0; ctx.fillStyle=phAva(who); rrect(cx,cy-15,cAva,cAva,10); ctx.fill();
+    ctx.fillStyle='#0b0d18'; ctx.font=`800 13px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(letter,cx+cAva/2,cy+.5); ctx.textAlign='left'; cx+=cAva+gap;
+    ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(who,cNm),cx,cy); cx+=cNm+gap;
+    const tw=66; ctx.fillStyle=buy?'rgba(47,217,138,.13)':'rgba(255,61,127,.14)'; rrect(cx,cy-12,tw,24,8); ctx.fill();
+    ctx.fillStyle=buy?'#7FF2B9':'#FF8DB3'; ctx.font=`800 11.5px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(buy?'BOOST':'DUMP',cx+tw/2,cy+.5); cx+=cTag+gap;
+    ctx.textAlign='right'; ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(mt[2],cx+cUsd,cy); cx+=cUsd+gap;
+    ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`12.5px ${PH_FONT}`; ctx.fillText(phAgo(r.at),cx+cAgo,cy); ctx.textAlign='left'; });
+  ctx.restore(); }
+/* HOLDERS tab: the same topFuelers() list as the desktop TOP HOLDERS / KOTH panel, as rows */
+function drawPhoneHolders(P,top,title){ const B=P.body, rh=46, n=Math.max(1,Math.min(10,Math.floor((B.h-26)/rh))), x0=B.x+4, iw=B.w-8;
+  ctx.save(); ctx.textBaseline='middle'; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`11.5px ${PH_FONT}`; if('letterSpacing' in ctx) ctx.letterSpacing='1.4px'; ctx.fillText(phFit(title.toUpperCase(),iw),x0,B.y+10); if('letterSpacing' in ctx) ctx.letterSpacing='0px';
+  const rows=top.slice(0,n);
+  if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No holders yet',B.x+B.w/2,B.y+60); ctx.textAlign='left'; }
+  rows.forEach(([w,v],i)=>{ const y=B.y+26+i*rh, cy=y+rh/2, you=w==='you';
+    if(i<rows.length-1){ ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1); }
+    ctx.fillStyle=i===0?'rgba(255,216,115,.18)':'rgba(255,255,255,.06)'; rrect(x0,cy-14,28,28,9); ctx.fill();
+    ctx.fillStyle=i===0?'#FFD873':'rgba(214,222,245,.75)'; ctx.font=`800 12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(String(i+1),x0+14,cy+.5); ctx.textAlign='left';
+    if(i===0) drawIcon('crown',x0+38,cy-7,14,'#FFD873');
+    ctx.fillStyle=you?'#9FF5C8':'#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(String(w),iw-150),x0+(i===0?58:38),cy);
+    ctx.textAlign='right'; ctx.fillText(fmtUsd(v),x0+iw,cy); ctx.textAlign='left'; });
+  ctx.restore(); }
 function drawHud(){
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
   ctx.save(); ctx.textBaseline='alphabetic';
+  const PH=phoneHud(W,CLEAN);
+  if (PH) drawPhonePill(m,ti,PH); else {
   // top-left: MCAP + tier
   panel(20,18,380,130);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed',36,42);
@@ -1474,35 +1594,44 @@ function drawHud(){
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
   { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
   // progress to next tier
-  drawTierBar(m,ti);   /* HUD+ block */
+  const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
+  drawTierBar(m,ti,tierEnd);   /* HUD+ block */
+  }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
-  S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); const RT=Math.round(S.hudRT), RX=W-330;   // eased: no HUD jump when the wallet strip changes height
-  panel(RX,RT,310,92);
+  S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
+  if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
+  if (!PH){
+  panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(String(S.status.msg).slice(0,40),RX+16,RT+42);
   if (SIM.on){ ctx.fillStyle='#c9b8ff'; ctx.font='bold 11px ui-monospace,monospace'; const d=(S.simF-1)*100;
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
-  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
+  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78); }
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
-  else { panel(RX,RT+100,310,96);
+  if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
+  else if (!S.kothDocked){ panel(RX,RT+100,CW,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+140+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
   // bottom-left: trade feed (compact)
-  panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',36,H-138);
-  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=H-116+i*17;
-    if(r.ic){ drawIcon(r.ic,36,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),36+18,fy); } else ctx.fillText(r.txt.slice(0,38),36,fy); }); ctx.globalAlpha=1;
+  if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
+  else { const FX=20, FY=H, FW=310;
+  panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
+  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
+    if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; }
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
-  if (S.controlsDocked) pushControls(); else { panel(RX,H-104,310,84);
+  if (S.controlsDocked) pushControls(); else if (!PH) { panel(RX,H-104,310,84);
   const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · ${MODES[0].key}-${MODES[MODES.length-1].key} select / click`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
+  let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
+  if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
@@ -1529,7 +1658,8 @@ function drawHud(){
     const gx=ax+AW-12-62, R=AMMO_HIT[10], hov=S.ammoHover===10; R.x=gx; R.y=sy; R.w=62; R.h=sh;
     ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
     ctx.fillStyle='#ffe7a3'; drawIcon('gear',gx+10,sy+4,12,'#ffe7a3'); ctx.fillText('ADV',gx+10+15,sy+14); }
-  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=ay+118+i*58, tx=Math.round(ax+(AW-300)/2); ctx.globalAlpha=a; panel(tx,y,300,50);
+  TOX=Math.round(ax+(AW-300)/2); TOY=ay+118; }
+  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=TOY+i*58, tx=TOX; ctx.globalAlpha=a; panel(tx,y,300,50);
     ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; drawIcon('star',tx+14,y+9,14,'#ffe7a3'); ctx.fillText('ACHIEVEMENT · '+t.title,tx+14+18,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,tx+14,y+39); ctx.globalAlpha=1; });
   }   /* end !CLEAN */
   // tier banner
@@ -1857,6 +1987,11 @@ function stepSteerAuto(st, dir, dt, W){
   vx+=(RECENTER_W*RECENTER_W*(c-x)-2*RECENTER_W*vx)*dt; x+=vx*dt;
   st.x=x; st.vx=vx; return x;
 }
+/* Drag-to-steer (phones): target x → a steering input for stepSteer. Desired velocity ∝ distance (capped at the key max),
+   input = velocity error; so the rocket chases the finger with the same acceleration / bank as the keys and settles on it. */
+const DRAG_K=9, DRAG_GAIN=0.3;
+function steerDragDir(st, tx, W){ if(!Number.isFinite(tx)) return 0; const vmax=STEER_VMAX*W, x=Number.isFinite(st.x)?st.x:W/2, vx=Number.isFinite(st.vx)?st.vx:0;
+  const want=Math.max(-vmax,Math.min(vmax,(tx-x)*DRAG_K)); return Math.max(-1,Math.min(1,(want-vx)/(vmax*DRAG_GAIN))); }
 /*STEER-END*/
 /*HEADING-BEGIN*/
 function rocketDrawAngle(){ const a=clamp((S.aimDisp||0)-(S.microRot||0)*180/Math.PI+(S.wob||0),AIM_MIN,AIM_MAX); return Math.PI/2-a*Math.PI/180; }   // blast wobble ≤ ±6°, final angle still clamped
@@ -1998,8 +2133,9 @@ function simStep(stepDt){
   // lateral = lane + small cosmetic drift (buy/sell imbalance + slow wind). Never a sideways cruise.
   const imb=MOM.vol>0?clamp((MOM.buy-MOM.sell)/MOM.vol,-1,1):0;
   S.drift=lerp(S.drift||0, imb*26 + 16*Math.sin(S.t*0.23) + 7*Math.sin(S.t*0.61+1.3), 1-Math.exp(-dt*0.8));
-  const K=S.keys||{}, dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
+  const K=S.keys||{}; let dir=((K.KeyD||K.ArrowRight)?1:0)-((K.KeyA||K.ArrowLeft)?1:0);
   if (S.steer==null) S.steer={x:S.x,vx:0};
+  if (!dir&&S.drag&&S.drag.on&&S.drag.tx!=null){ dir=steerDragDir(S.steer,S.drag.tx-(S.drift||0)*0.35,W); S.steer.idle=0; }   // @drag-steer: finger held = steering input (no auto-centre until release)
   stepSteerAuto(S.steer, dir*(steer/7), dt, W);     // hold-to-steer (VOID orb: weaker thrust); idle ⇒ auto-centre
   { const m=steerMargin(W); S.x=clamp(S.steer.x+S.drift*0.35,m,W-m); S.vx=S.steer.vx; }
   S.dive=lerp(S.dive||0,(K.KeyS||K.ArrowDown)?1:0,1-Math.exp(-dt*((K.KeyS||K.ArrowDown)?8:4)));   // S/↓ = dive (cosmetic, off-chain)
@@ -2054,7 +2190,8 @@ function simStep(stepDt){
     S.camAlt=(S.cinePx+Math.sin(S.t*0.21)*10+Math.sin(S.t*0.083)*16)/PX_PER_ALT; } else S.cinePx=null;
   { const e=S.x+(S.cine?Math.sin(S.t*0.11)*22:0)-S.camX, w=S.cine?2.6:8; S.camXV=(S.camXV||0)+(w*w*e-2*w*(S.camXV||0))*dt; S.camX+=S.camXV*dt; }
   // screen anchor eases on resize (no jump when the window / sidebar changes)
-  S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,S.cine?H*0.55:ROCKET_Y,1-Math.exp(-dt*(S.cine?0.8:5)));
+  { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
+    S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
   S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) - 22*(S.wBoost||0) - 34*(S.buyBoost||0) + 40*(S.dive||0);   // W nudge / buy turbo hop, decays back
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
@@ -2153,15 +2290,26 @@ function usdToReach(M,Mt){
   if (Mt>TB_M1) q+=poolQuote(Mt)-poolQuote(Math.max(M,TB_M1));
   return q/(1-TB_FEE);
 }
+/* @tier-label (maker lee 11:29 CT): "X% to NEXT_TIER" on the tier bar, phone + desktop. Same log progress as the bar fill;
+   whole percent rounded DOWN (never claims 100% before the tier is reached); next tier name as TIERS spells it (caps).
+   Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone pill already names the tier. */
+function tierProgress(m,ti){ const t=TIERS[ti], nx=TIERS[ti+1]||null, lo=t.lo, hi=nx?nx.lo:t.hi;
+  return { f:clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1), next:nx }; }
+function tierLineEnd(ti,t){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width;
+  const rl=tierRulesText(); if(rl){ ctx.font='bold 12px ui-monospace,monospace'; e+=ctx.measureText('  ·  '+rl).width; } ctx.restore(); return e; }
+function tierLabel(f,nx){ return nx ? `${Math.min(99,Math.max(0,Math.floor(f*100)))}% to ${nx.name}` : ''; }
+/* @tier-label-end */
 /* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = log progress inside the tier band */
-function drawTierBar(m,ti){
-  const t=TIERS[ti], nx=TIERS[ti+1], lo=t.lo, hi=nx?nx.lo:t.hi, f=clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1);
+function drawTierBar(m,ti,leftEnd){
+  const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
   const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
-  ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillText(`${(f*100).toFixed(0)}%`,384,108);
+  ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
+  { let lb=tierLabel(f,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
+    if(lb) ctx.fillText(lb,384,108); }
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
     const need=usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8'; ctx.fillText(`≈${fmtUsd(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
@@ -2215,11 +2363,14 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
    when the page exposes the wallet (window.__flightWallet or ?wallet=). */
 /* real USDG of an indexed fill (/api/trades, SITE #113): sells usdOut (received), buys usdIn (paid); older fills lack them ⇒ usd */
 function fillUsd(f){ const v=f&&(f.side==='sell'?(f.usdOut??f.usd):(f.usdIn??f.usd)); return +v>0?+v:0; }
+function feedHistNames(rows){ const want=[...new Set(rows.filter(r=>r.tr&&/^0x[0-9a-f]{40}$/.test(r.tr)&&!NAMES[r.tr]&&!(window.__discipleNames&&window.__discipleNames[r.tr])).map(r=>r.tr))];
+  for(const a of want) fetch('/api/profile/username?address='+a,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ const n=j&&typeof j.username==='string'&&j.username.trim(); if(n){ NAMES[a]=n; feedRelabel(S.feed); } }).catch(()=>{}); }
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
   fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
     const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:fillUsd(f),side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
     chartSeedK(C.k,fs,keep); C.hist=2;
+    feedHistNames(feedSeedFills(S.feed,fills,myWallet()||me,C.seen));   // TRADES after a reload: newest indexed fills (+ their names)
     /* no live swap yet → seed the confirmed mcap from the latest indexed fill so the game (and the chart) render right away */
     if(S.confirmed.mcap===null){ const lf=fills.reduce((a,f)=>!a||f.block>a.block||(f.block===a.block&&f.logIndex>a.logIndex)?f:a,null), lm=lf&&+lf.mcapUsd;
       if(lm>0){ if(source&&'mcap' in source&&source.mcap==null) source.mcap=lm; S.confirmed.mcap=lm; if(S.displayAlt===null) S.displayAlt=mcapToAlt(lm); } }
@@ -2281,10 +2432,11 @@ const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*864
 const GRID_COLS='ABCDEFGH';
 const CHART_PNL_BOTTOM=456;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
-  if (source.isSim){ const y=Math.round((S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
+  { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x+Math.max(0,(B.w-st.w)/2)),y:Math.round(B.y+4),h:Math.round(clamp(B.h-8,132,st.h))}:{x:-1e4,y:-1e4,h:st.h}; } }   /* @phone-hud: chart only inside the drawer's CHART tab */
+  if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
-function chartBtnAt(e){ const C=CH; if(!C||!C.on||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
+function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
   for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }
 function redrawChart(dt){
   const st=CHART_STYLE, C=chartState(), h=chartRect().h, w=st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.height!==h) C.cv.height=h;
@@ -2369,7 +2521,7 @@ function redrawChart(dt){
   g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
 }
 function drawChartMap(){
-  const C=chartState(); chartSample(); if(!C.on) return;
+  const C=chartState(); chartSample(); { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
   const r=chartRect(); ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }

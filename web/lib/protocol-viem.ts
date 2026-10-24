@@ -13,6 +13,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
+import { fillBook, readAtOrAfter } from "./fillBook";
 import { NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, logTradeError, plainText } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
@@ -429,8 +430,15 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
   return mcapWad > B(0) ? (usdMicro * B(1e12) * p.totalSupply) / mcapWad : B(0);
 }
 
+/**
+ * balanceOf, written to the hot cache. Within ~20 s of our own fill (lib/fillBook floor = the relay receipt's block) the
+ * read is pinned AT or after that block (a lagging public-RPC node errors on it ⇒ brief retry), so it can't write the
+ * pre-fill balance over the one bumpBalance booked from the receipt logs (SITE #137). Retries exhausted ⇒ `latest`.
+ */
 export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Address) {
-  const b = await pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] });
+  const at = (blockNumber?: bigint) => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner], ...(blockNumber !== undefined ? { blockNumber } : {}) });
+  const f = fillBook.floor(owner);
+  const b = f === undefined ? await at() : await readAtOrAfter(pc, f, at).then((r) => r.value, () => at());
   BALANCES.set(ckey(erc20, owner), b); return b;
 }
 /**
@@ -443,7 +451,11 @@ export function bumpBalance(erc20: Address, owner: Address, delta: bigint) {
 }
 /** Balance hint ≤ maxAge ms old (polled / refreshed after trades), else a live read. */
 export async function balanceHint(pc: PublicClient, erc20: Address, owner: Address, maxAge = 5000) {
-  return BALANCES.get(ckey(erc20, owner), () => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] }), maxAge);
+  return BALANCES.get(ckey(erc20, owner), () => {
+    const at = (blockNumber?: bigint) => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner], ...(blockNumber !== undefined ? { blockNumber } : {}) });
+    const f = fillBook.floor(owner);   // same receipt-block pin as tokenBalance
+    return f === undefined ? at() : readAtOrAfter(pc, f, at).then((r) => r.value, () => at());
+  }, maxAge);
 }
 
 /* ---------------- client ---------------- */
