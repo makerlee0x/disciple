@@ -46,9 +46,9 @@ ok(TS.doneLine("buy", 5, { ok: true }, { side: "sell", usd: 9 }, fmtMoney) === "
 ok(TS.doneLine("sell", 5, { ok: false, reason: "Price moved" }, sellFill, fmtMoney) === "▼ $5.00 ✕ Price moved", "failure keeps its reason (no fill $)");
 // wiring
 ok(/handOffLogs\(r\.txHash, r\.receipt\?\.receipt\?\.logs\)/.test(wl) && /handOffLogs\(hash, last\.logs\)/.test(wl), "lib/wallet.execCalls hands the returned logs over (smart account + EOA paths)");
-ok(/takeReceipt\(r\.txHash\)/.test(tb) && /await bookReceipt\(r\.txHash, side, bag, logs\)/.test(tb), "TradeBridge decodes the fill from the returned logs BEFORE the result returns (fillreceipt at ✓ done)");
+ok(/takeReceipt\(r\.txHash\)/.test(tb) && /await bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb), "TradeBridge decodes the fill from the returned logs BEFORE the result returns (fillreceipt at ✓ done)");
 ok(!/pollingInterval: 700/.test(tb), "TradeBridge: the 700 ms waitForTransactionReceipt poll is gone");
-ok(/if \(!rl\) \{[^}]*waitForTransactionReceipt/.test(tb) && /&& !logs\) void bookReceipt\(r\.txHash, side, bag\)/.test(tb), "receipt polling kept only as the fallback when no logs came back");
+ok(/if \(!rl\) \{[^}]*waitForTransactionReceipt/.test(tb) && /&& !logs\) (void|releaseAfter =) bookReceipt\(r\.txHash, side, rp, bag\)/.test(tb), "receipt polling kept only as the fallback when no logs came back");
 ok(/setLast\(doneLine\(side, usd, r, fill, fmtMoney\)\)/.test(tb) && /if \(x\) setLast\(doneLine\(side, usd, r, x, fmtMoney\)\)/.test(tb), "TradeBridge ✓ done line = doneLine (fill $), also once a polled receipt lands");
 ok(/fillUsd: fill\.usd/.test(tb), "bridge result carries the fill $ (fillUsd) to the engine");
 
@@ -76,7 +76,7 @@ function engine({ live = true, result, sell = false }) {
   ok(E.S.buyBoost === 1 && E.thrust.length === 1 && E.thrust[0].side === "buy" && near(E.thrust[0].usd, 9.7) && near(E.thrust[0].pct, 2), "confirmed buy: turbo flare + thrust, sized from the real fill ($9.70) at the click's impact");
   ok(E.events.some((e) => e.type === "disciple:paperfill" && e.detail.live && e.detail.txHash === "0x1"), "the confirmed fill still books the PnL ledger (paperfill → receipt reconcile)"); }
 { const E = engine({}); E.trade("buy"); await E.fill({ ok: false, reason: "Price moved" });
-  ok(E.S.buyBoost === 0 && E.thrust.length === 0 && E.S.pending[0].state === "failed", "failed buy: no flare, no thrust"); }
+  ok(E.S.buyBoost === 0 && E.thrust.length === 0 && E.S.pending.length === 0, "failed buy: no flare, no thrust, its ghost dropped at once (rapid-tap: no 450 ms linger)"); }
 { const E = engine({}); E.trade("sell", { usd: 5, frac: 0.25 });
   ok(E.thrust.length === 0, "sell click: the rocket doesn't move before the fill");
   await E.fill({ ok: true, txHash: "0x2" });
@@ -115,11 +115,16 @@ console.log("— 5. click → confirm → fill ms");
   ok(op && op.submittedAt === 1100 && op.confirmedAt === 1450 && op.timings.rpc === 300, "op marks collected by op hash, found by tx hash (own 'filled' events ignored)");
   const ms = TS.tradeMs(1000, { quoteAt: 1004, op, resultAt: 1460, fillAt: 1462 });
   ok(ms.quote === 4 && ms.submit === 100 && ms.confirm === 450 && ms.fill === 462 && ms.total === 462, "ms from the click: quote / submit / confirm / fill / total");
+  { const P = new TS.OpMarks();   // FLOW #145: disciple:op tagged with the press id; "error" is terminal
+    P.note({ phase: "submitted", pressId: "p1", userOpHash: "0xA", at: 10 }); P.note({ phase: "submitted", pressId: "p2", userOpHash: "0xB", at: 11 });
+    P.note({ phase: "confirmed", pressId: "p2", txHash: "0xTB", at: 40 }); P.note({ phase: "error", pressId: "p1", code: "rejected", at: 50 });
+    ok(P.byPress("p2").submittedAt === 11 && P.byPress("p2").confirmedAt === 40 && P.byTx("0xtb") === P.byPress("p2"), "OpMarks: keyed by pressId (2 presses in flight don't mix), txHash lookup still works");
+    ok(P.byPress("p1").errorAt === 50 && P.byPress("p1").code === "rejected" && P.byPress("nope") === undefined && P.byPress(undefined) === undefined, "OpMarks: terminal 'error' phase noted on its press"); }
   const slow = new TS.OpMarks(); slow.note({ phase: "submitted", userOpHash: "0xOP2", at: 1200 }); slow.note({ phase: "confirmed", userOpHash: "0xOP2", txHash: "0xT2", at: 3000 });
   ok(slow.byTx("0xT2").submittedAt === 1200, "slow path (submitted carries only the userOpHash) still joins by op");
   ok(TS.tradeMs(0, { resultAt: 900 }).confirm === 900 && TS.tradeMs(0, { resultAt: 900 }).fill === undefined, "no op marks / no fill: confirm = result time, fill undefined"); }
 ok(/new CustomEvent\("disciple:op", \{ detail: \{ phase: "filled"/.test(tb) && /logs: logs \? "returned" : "polled", ms/.test(tb), "TradeBridge emits disciple:op {phase:'filled', ms, logs:'returned'|'polled'} (no UI)");
-ok(/if \(d\?\.phase === "submitted"\)/.test(tb) && /if \(d\?\.phase === "confirmed"\)/.test(tb), "existing disciple:op consumers only act on submitted / confirmed (filled is instrumentation only)");
+ok(/if \(d\?\.phase === "submitted"( && mine)?\)/.test(tb) && /if \(d\?\.phase === "confirmed"\)/.test(tb) && !/d\?\.phase === "filled"/.test(tb), "existing disciple:op consumers only act on submitted / confirmed (filled is instrumentation only)");
 
 // ───────────── SITE conditions on the lib/wallet.ts hand-off: no-throw, sync, logs as returned (no RPC) ─────────────
 console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra RPC");
@@ -237,7 +242,7 @@ console.log("— own balances from the receipt logs at confirm; stale reads neve
     t = 4500; let thr = false; let v; try { v = await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t); } catch { thr = true; }
     ok(!thr && v === E(17000) + 3n, "RPC error during reconcile ⇒ keeps the fill value, never throws"); }
   // wiring
-  const ai = tb.indexOf("if (r.ok && r.txHash && logs) await applyOwn(r.txHash, logs)"), bi = tb.indexOf("await bookReceipt(r.txHash, side, bag, logs)");
+  const ai = tb.indexOf("if (r.ok && r.txHash && logs) await applyOwn(r.txHash, logs)"), bi = tb.indexOf("await bookReceipt(r.txHash, side, rp, bag, logs)");
   ok(ai > 0 && bi > ai, "TradeBridge: the ledger is updated from the logs BEFORE fillreceipt (HUD / PnL / engine see the same fill)");
   ok(/await applyOwn\(hash, rl, rc\.blockNumber\)/.test(tb), "slow path: balances from the polled receipt (its block noted)");
   ok(!/setTimeout\(res, 1200\)\)\.then\(async \(\) => tokenBalance/.test(tb) && !/bumpBalance\(token as Address, await activeAddress\(\), r\.amountOut\)/.test(tb), "no post-trade balanceOf (1.2 s sell re-read) and no amountOut bump (both replaced by the logs)");
