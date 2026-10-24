@@ -9,7 +9,7 @@ section: Fees and rewards
 
 ## What's in it
 
-The vault collects 70% of every anti-snipe fee: the extra fee on BOOSTs in a rocket's first 7 seconds. Nothing else goes in. It's held in each rocket's base coin.
+The vault collects 70% of every anti-snipe fee: the extra fee on BOOSTs in a rocket's first 77 seconds. Nothing else goes in. It's held in each rocket's base coin.
 
 ## How it's shared
 

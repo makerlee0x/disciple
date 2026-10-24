@@ -34,7 +34,7 @@ export const CURVE = {
 
 /** 18-tier biblically ascending ladder (constitution LOCKED 2026-10-15) */
 export const TIERS = [
-  { name: "LAUNCH PAD", lo: 7e3, hi: 12e3, bg: "tier0" },
+  { name: "LAUNCH PAD", lo: 3_333, hi: 12e3, bg: "tier0" },
   { name: "OZONE", lo: 12e3, hi: 18e3, bg: "tier1" },
   { name: "STRATOSPHERE", lo: 18e3, hi: 25e3, bg: "tier2" },
   { name: "KÁRMÁN LINE", lo: 25e3, hi: 33_333, bg: "tier3" },

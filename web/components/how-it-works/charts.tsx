@@ -1,12 +1,15 @@
 /**
  * /how-it-works charts: inline SVG, server-rendered, no chart library. Text comes from content/how-it-works.ts.
- * The curve is the real constant-product bonding curve shape ($7,777 → $33,333 over 72% of supply); phase 2 is illustrative.
+ * The curve is the real steep bonding curve (lib/curveMath: $3,333 → $33,333 over 84.24% of supply); phase 2 is illustrative.
  */
 import { HIW_FEES, HIW_PHASES } from "@/content/how-it-works";
+import { CURVE_GRAD_USD, CURVE_SOLD_FRAC, CURVE_START_USD, curveMcapAtFrac } from "@/lib/curveMath";
 import { POOL_WANDER, SPARKS } from "./chartData";
 import s from "./charts.module.css";
 
 const f1 = (n: number) => n.toFixed(1);
+/** $ axis label: $0, $3.3K, $15K, $33.3K */
+const kUsd = (v: number) => (v === 0 ? "$0" : `$${+(v / 1000).toFixed(1)}K`);
 
 /** Bonding curve → Uniswap v4. `compact` is a taller, larger-type layout for phones (same data). */
 export function CurveChart({ compact = false }: { compact?: boolean }) {
@@ -15,16 +18,16 @@ export function CurveChart({ compact = false }: { compact?: boolean }) {
   const L = compact ? 40 : 58, R = compact ? 8 : 20, T = compact ? 44 : 18, B = compact ? 36 : 40;
   const fs = compact ? 10 : 11;
   const gx = L + (W - L - R) * 0.72;
-  const X = (sold: number) => L + (gx - L) * (sold / 0.72);
+  const SF = CURVE_SOLD_FRAC, M0 = CURVE_START_USD, M1 = CURVE_GRAD_USD;
+  const X = (sold: number) => L + (gx - L) * (sold / SF);
   const Y = (m: number) => T + (H - T - B) * (1 - m / 48000);
-  const y0 = (0.72 * Math.sqrt(33333 / 7777)) / (Math.sqrt(33333 / 7777) - 1);
   const pts: [number, number][] = [];
-  for (let i = 0; i <= 120; i++) { const sold = (i / 120) * 0.72; pts.push([X(sold), Y(7777 * (y0 / (y0 - sold)) ** 2)]); }
+  for (let i = 0; i <= 240; i++) { const g = i / 240; pts.push([X(g * SF), Y(curveMcapAtFrac(g))]); }
   const path = "M" + pts.map(([x, y]) => `${f1(x)},${f1(y)}`).join(" L");
   const area = `${path} L${f1(gx)},${f1(Y(0))} L${L},${f1(Y(0))} Z`;
   const p2 = "M" + POOL_WANDER.map((m, i) => `${f1(gx + ((W - R - gx) * i) / (POOL_WANDER.length - 1))},${f1(Y(m))}`).join(" L");
-  const ticks = compact ? [0, 7000, 15000, 25000, 33000, 45000] : [0, 7000, 15000, 25000, 33000, 45000];
-  const xt = compact ? [0, 0.36, 0.72] : [0, 0.18, 0.36, 0.54, 0.72];
+  const ticks = [0, M0, 15000, 25000, M1, 45000];
+  const xt = compact ? [0, SF / 2, SF] : [0, SF / 4, SF / 2, (3 * SF) / 4, SF];
   const gid = compact ? "hiwCurveAreaM" : "hiwCurveArea";
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className={s.svg} role="img" aria-label={C.title}>
@@ -37,7 +40,7 @@ export function CurveChart({ compact = false }: { compact?: boolean }) {
       {ticks.map((v) => (
         <g key={v}>
           <line x1={L} x2={W - R} y1={f1(Y(v))} y2={f1(Y(v))} stroke="rgba(201,206,214,.08)" />
-          <text x={L - 8} y={f1(Y(v) + 4)} textAnchor="end" className={s.mono} fontSize={fs} fill="#9095A0">${v / 1000}K</text>
+          <text x={L - 8} y={f1(Y(v) + 4)} textAnchor="end" className={s.mono} fontSize={fs} fill="#9095A0">{kUsd(v)}</text>
         </g>
       ))}
       {xt.map((v) => <text key={v} x={f1(X(v))} y={H - B + 18} textAnchor="middle" className={s.mono} fontSize={fs} fill="#9095A0">{Math.round(v * 100)}%</text>)}
@@ -45,11 +48,11 @@ export function CurveChart({ compact = false }: { compact?: boolean }) {
       <path d={path} fill="none" stroke="#E8EAEE" strokeWidth="2.2" />
       <path d={p2} fill="none" stroke="#AEABCC" strokeWidth="1.8" strokeDasharray="5 5" />
       <line x1={f1(gx)} x2={f1(gx)} y1={T} y2={H - B} stroke="rgba(232,234,238,.5)" strokeDasharray="3 4" />
-      <circle cx={X(0)} cy={f1(Y(7777))} r="5" fill="#0B0C0E" stroke="#E8EAEE" strokeWidth="2" />
-      <text x={X(0) + 10} y={f1(Y(7777) - 10)} className={s.ui} fontSize={compact ? 11.5 : 13} fill="#E8EAEE">{C.start}</text>
-      <circle cx={f1(gx)} cy={f1(Y(33333))} r="7" fill="#E8EAEE" />
-      <circle cx={f1(gx)} cy={f1(Y(33333))} r="14" fill="none" stroke="rgba(232,234,238,.35)" />
-      <text x={f1(gx - 14)} y={f1(Y(33333) - (compact ? 10 : 4))} textAnchor="end" className={s.ui} fontSize={compact ? 11.5 : 13} fontWeight="600" fill="#E8EAEE">{C.grad}</text>
+      <circle cx={X(0)} cy={f1(Y(M0))} r="5" fill="#0B0C0E" stroke="#E8EAEE" strokeWidth="2" />
+      <text x={X(0) + 10} y={f1(Y(M0) - 10)} className={s.ui} fontSize={compact ? 11.5 : 13} fill="#E8EAEE">{C.start}</text>
+      <circle cx={f1(gx)} cy={f1(Y(M1))} r="7" fill="#E8EAEE" />
+      <circle cx={f1(gx)} cy={f1(Y(M1))} r="14" fill="none" stroke="rgba(232,234,238,.35)" />
+      <text x={f1(gx - 14)} y={f1(Y(M1) - (compact ? 10 : 4))} textAnchor="end" className={s.ui} fontSize={compact ? 11.5 : 13} fontWeight="600" fill="#E8EAEE">{C.grad}</text>
       {compact ? (
         <>
           <text x={L} y={12} className={s.mono} fontSize={9.5} letterSpacing="1.2" fill="#BCC0CA">{C.phase1}</text>
@@ -81,12 +84,13 @@ export function Spark({ id }: { id: keyof typeof SPARKS }) {
   );
 }
 
-/** Anti-snipe fee: 77.7% → 0% in 7 one-second steps. */
+/** Anti-snipe fee: 99% → 0% over 77 one-second steps (BondingCurve.currentSnipeFeeBps, linear per block second). */
 export function SnipeChart() {
   const C = HIW_FEES.snipeChart;
   const W = 300, H = 90;
   const pts: [number, number][] = [];
-  for (let t = 0; t < 8; t++) { const bps = 7770 - Math.floor((7770 * t) / 7); pts.push([(t / 7) * (W - 30) + 24, 8 + (H - 26) * (1 - bps / 7770)]); }
+  const START = 9900, DUR = 77;
+  for (let t = 0; t <= DUR; t++) { const bps = START - Math.floor((START * t) / DUR); pts.push([(t / DUR) * (W - 30) + 24, 8 + (H - 26) * (1 - bps / START)]); }
   const d = `M${f1(pts[0][0])},${f1(pts[0][1])} ` + pts.slice(1).map(([x, y]) => `H${f1(x)} V${f1(y)}`).join(" ") + ` H${W - 6}`;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className={s.snipe} role="img" aria-label={C.title}>

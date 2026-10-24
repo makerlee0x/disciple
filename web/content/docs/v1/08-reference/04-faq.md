@@ -33,7 +33,7 @@ Your rocket is priced and traded in its base. At graduation, the base is locked 
 ## Curve and graduation
 
 **When does a rocket graduate?**
-At a $33,333 market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
+At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
 
 **Is the liquidity really locked?**
 Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.
@@ -44,10 +44,10 @@ There's no further mint, the name and call sign are locked at launch, and gradua
 ## Fees
 
 **What are the fees?**
-1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 7 seconds. See [Trade fee](/docs/fees).
+1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 77 seconds. See [Trade fee](/docs/fees).
 
 **Why did my first-second BOOST cost so much?**
-The anti-snipe fee. It starts at 77.7% at launch and reaches 0% after 7 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
+The anti-snipe fee. It starts at 99% at launch and reaches 0% after 77 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
 
 **How do referrals work?**
 When a wallet opens your link and deposits $10+ in USDG, it's yours for life. You earn 1% of the protocol fee on its trades, plus 2% of the creator's share on rockets it launches. On testnet, referrals don't lock yet. See [Referrals](/docs/fees/referrals).

@@ -2,24 +2,26 @@
  * Paper-mode market for the flight engine (no wallet): the parameters engine.js prices paper buys/sells with.
  *
  * Handed to the engine as window.__PAPER_CURVE (plain numbers, so the worker render path can structured-clone it).
- * Derived from lib/config CURVE + lib/curveMath TRADE_FEE_BPS through the SIMULATOR's own Market (lib/sim/market.ts,
- * LAUNCH in lib/sim/config.ts), so paper, sim and the Launchpad curve (CurveMath.sol) share one parameter set:
- *   before graduation — the bonding curve: x = x0·y0 / (y0 − sold), y = y0 − sold, spot = x / y (exact fills,
- *     a buy never gets more than sCurve − sold tokens; a buy that completes the curve is refunded the rest);
+ * Derived from lib/curveMath (the bigint mirror of CurveMath.sol, launch params at a $1 quote) + lib/config CURVE, so
+ * paper and the Launchpad curve share one parameter set (steep curve #1):
+ *   before graduation — m(g) = M0/(1−a·g)² + T·g^30, g = sold / sCurve: the constant-product part x = x0·y0 / (y0 − sold),
+ *     y = y0 − sold (spot = x / y) plus the steep tail `tail`·g^30 ($ mcap at g = 1). A buy never gets more than
+ *     sCurve − sold tokens; a buy that completes the curve is refunded the rest.
  *   after graduation  — the v4-style full-range pool seeded at the curve-end price (Migration.sol), constant
- *     liquidity L = (S − sCurve)·√p_grad, exactly the sim's Pool(p·Y, Y) without range orders.
- * engine.js runs the same float formulas; `npm run test:audit` checks its fills against Market/Pool and against
- * curveMath.quoteBuy/quoteSell (the bigint mirror of CurveMath.sol).
+ *     liquidity L = (S − sCurve)·√p_grad.
+ * `npm run test:audit` checks engine fills against curveMath.quoteBuy/quoteSell. NOTE: engine.js (GAME) prices the CP part
+ * only until it adds the `tail` term; see the PR notes.
  */
 import { CURVE } from "../config";
-import { LAUNCH, SIM_CONFIG } from "../sim/config";
-import { Market } from "../sim/market";
+import { TRADE_FEE_BPS, paramsFromQuotePrice, WAD } from "../curveMath";
 
 export interface PaperCurve {
   /** total supply, tokens sold on the curve at graduation */
   S: number; sC: number;
-  /** curve virtual reserves at sold = 0 (quote, tokens) */
+  /** curve virtual reserves at sold = 0 (quote $, tokens): the constant-product part of m(g) */
   x0: number; y0: number;
+  /** steep tail: extra mcap ($) at g = 1, added as tail·g^30 (CurveMath.sol curveTail) */
+  tail: number;
   /** 1% protocol fee on the curve (buy: before the curve; sell: from the output) and in the pool (hook fee) */
   fee: number; poolFee: number;
   startMcap: number; gradMcap: number; quoteUsd: number;
@@ -28,11 +30,12 @@ export interface PaperCurve {
 }
 
 export function paperCurve(): PaperCurve {
-  const m = new Market(SIM_CONFIG);
-  const yEnd = m.y0 - m.sC, pGrad = (m.x0 * m.y0 / yEnd) / yEnd, Y = m.S - m.sC;
+  const p = paramsFromQuotePrice(WAD), n = (b: bigint) => Number(b) / 1e18;
+  const S = n(p.totalSupply), sC = n(p.sCurve), fee = Number(TRADE_FEE_BPS) / 10_000;
+  const pGrad = CURVE.graduationMcap / S, Y = S - sC;
   return {
-    S: m.S, sC: m.sC, x0: m.x0, y0: m.y0, fee: m.fee, poolFee: m.poolFee,
-    startMcap: CURVE.startMcap, gradMcap: CURVE.graduationMcap, quoteUsd: LAUNCH.quotePriceUsd,
+    S, sC, x0: n(p.x0), y0: n(p.y0), tail: n(p.tail), fee, poolFee: fee,
+    startMcap: CURVE.startMcap, gradMcap: CURVE.graduationMcap, quoteUsd: 1,
     L: Y * Math.sqrt(pGrad),
   };
 }

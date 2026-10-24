@@ -14,8 +14,8 @@ The chart is the sky. A rocket's market cap is its **altitude**. Buying is **BOO
 ## How a rocket's life works
 
 1. **Launch.** Anyone can launch a rocket. Pick a base, a name, a call sign and an image.
-2. **Climb the curve.** The rocket starts at a $7,777 market cap on a bonding curve. Every BOOST and DUMP trades against the curve.
-3. **Graduate.** When 72% of supply has sold, at $33,333, the rocket graduates. In the same transaction, its liquidity moves into a Uniswap v4 pool and is locked forever.
+2. **Climb the curve.** The rocket starts at a $3,333 market cap on a bonding curve. Every BOOST and DUMP trades against the curve.
+3. **Graduate.** When 84% of supply has sold, at $33,333, the rocket graduates. In the same transaction, its liquidity moves into a Uniswap v4 pool and is locked forever.
 4. **Keep flying.** After graduation the rocket trades on Uniswap v4. The climb continues through 18 altitude tiers, up to Seventh Heaven.
 
 ## What makes it different

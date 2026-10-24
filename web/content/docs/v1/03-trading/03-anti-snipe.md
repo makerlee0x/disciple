@@ -5,18 +5,18 @@ section: Trading
 ---
 # Anti-snipe
 
-For the first 7 seconds after launch, BOOSTs pay an extra fee. It starts at 77.7% and falls to 0%. After that, only the 1% fee remains.
+For the first 77 seconds after launch, BOOSTs pay an extra fee. It starts at 99% and falls to 0%. After that, only the 1% fee remains.
 
 | Seconds after launch | Anti-snipe fee on BOOSTs |
 |---|---|
-| 0 | 77.7% |
-| 1 | 66.6% |
-| 2 | 55.5% |
-| 3 | 44.4% |
-| 4 | 33.3% |
-| 5 | 22.2% |
-| 6 | 11.1% |
-| 7 and after | 0% |
+| 0 | 99% |
+| 11 | ≈ 84.9% |
+| 22 | ≈ 70.7% |
+| 33 | ≈ 56.6% |
+| 44 | ≈ 42.4% |
+| 55 | ≈ 28.3% |
+| 66 | ≈ 14.2% |
+| 77 and after | 0% |
 
 The fee falls in a straight line, in whole seconds. It's charged on top of the 1% trade fee. [CONFIRM: FLOW — confirm "on top of the 1%" vs the constitution's "portion above the 1% protocol fee" wording.]
 

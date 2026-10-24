@@ -72,7 +72,7 @@ test("portfolio: 24h price = last fill at/before now−24h, else launch price; t
   const now = 1_000 * 86_400_000;
   const fills = [{ ts: now - 30 * 3_600_000, priceUsd: 1e-6 }, { ts: now - 25 * 3_600_000, priceUsd: 2e-6 }, { ts: now - 3_600_000, priceUsd: 5e-6 }];
   assert.equal(price24hAgo(fills, now), 2e-6);
-  assert.equal(price24hAgo([{ ts: now - 1000, priceUsd: 9e-6 }], now), 7777 / 1e6);
+  assert.equal(price24hAgo([{ ts: now - 1000, priceUsd: 9e-6 }], now), 3333 / 1e6);
   const p = summarize(274.46, [{ coin: STRAT as never, tokens: 1e6, priceNow: 5e-6, price24h: 2e-6 }, { coin: USDG as never, tokens: 0, priceNow: 1, price24h: 1 }]);
   assert.equal(p.holdings.length, 1);
   assert.ok(Math.abs(p.totalUsd - 279.46) < 1e-9 && Math.abs(p.change24hUsd - 3) < 1e-9);
