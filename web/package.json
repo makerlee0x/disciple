@@ -57,7 +57,8 @@
     "test:holders": "tsx --test scripts/test-holders.mts",
     "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:paymaster-e2e": "tsx --conditions=react-server scripts/test-paymaster-e2e.mts",
-    "test:relayer-nonce": "tsx --test scripts/test-relayer-nonce.mts"
+    "test:relayer-nonce": "tsx --test scripts/test-relayer-nonce.mts",
+    "test:rapid-retry": "tsx --test scripts/test-rapid-retry.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

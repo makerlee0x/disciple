@@ -67,6 +67,7 @@ export async function getSigner(): Promise<Signer> {
 
 /* ---------------- smart account (one-tap) seam ---------------- */
 import type { Call } from "./aa/core";
+import type { SendOpts } from "./aa/fastPath";
 import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import type { Hex, LocalAccount } from "viem";
 
@@ -114,10 +115,10 @@ export async function activeAddress(): Promise<Address> {
  * Execute a call list. Smart account ⇒ ONE sponsored (or self-paid) userOp, no popup.
  * EOA ⇒ legacy: one tx per call, in order.
  */
-export async function execCalls(calls: Call[]): Promise<ExecResult> {
+export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecResult> {
   if (!isSmartMode() && !plainWallet) throw new SignInRequired();
   if (isSmartMode()) {
-    const r = await aaSend(calls);
+    const r = await aaSend(calls, o);
     return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };
   }
   const w = await getSigner();

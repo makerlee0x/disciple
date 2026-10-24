@@ -11,7 +11,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, type GasLimits, type Fees } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, type GasLimits, type Fees, type SendOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -240,8 +240,10 @@ export class Mav2Account {
    * No queue: each op takes its own nonce key, so rapid shots are in flight at once. Fast path (warm preset):
    * nonce/fees/gas are local, the op is signed in memory and sent with ONE round trip to /api/bundler
    * (disciple_sendUserOperationSync: the self-bundler relays handleOps immediately and answers with the receipt).
+   * `o.rebuild` (rapid taps): the ONE transient-error retry re-quotes via rebuild() (fresh minOut) instead of re-sending
+   * the stale calls; every attempt, retries included, takes a fresh 2D nonce key. The fee-floor retry keeps the calls.
    */
-  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true): Promise<SendResult> {
+  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true, o: SendOpts = {}): Promise<SendResult> {
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
@@ -303,7 +305,7 @@ export class Mav2Account {
         // `usdg: true` ⇒ session.ts skips the ETH refill (it can't cover a USDG shortfall).
         if (e instanceof PaymasterRpcError) {
           if (/not enough USDG/i.test(e.message)) throw new AAError("FundAccount", NOT_ENOUGH_USDG, { address: sender, data: e.data, usdg: true, detail: e.message });
-          if (feeRetry && /fee below relayer floor/i.test(e.message)) { FEES.invalidate(); return this.sendCalls(calls, as, false); }
+          if (feeRetry && /fee below relayer floor/i.test(e.message)) { FEES.invalidate(); return this.sendCalls(calls, as, false, o); }
           throw new AAError("Bundler", TRADING_UNAVAILABLE, { data: e.data, detail: `paymaster: ${e.message.split("\n")[0].slice(0, 300)}` });
         }
         // client-side paymasterData checks (paymaster.ts) — real reverts from estimation still go through fail()
@@ -315,7 +317,7 @@ export class Mav2Account {
       const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       if (this.syncOk !== false) {
-        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
+        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
         if (r) return r;
       }
       return this.sendRaw(wire, hash, kind, t0, fail, "usdg");
@@ -330,7 +332,7 @@ export class Mav2Account {
       const t2 = now();
       const wire = deepHexlify(signed) as UserOp;
       const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
-      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient });
+      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient });
       if (r) return r;
     }
     // ---- standard path (first trade of a preset, or Alchemy): estimate once, then cache the limits
@@ -340,7 +342,7 @@ export class Mav2Account {
       const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
       // self-bundler eth_sendUserOperation broadcasts, then waits ≤25 s for the receipt: a timeout is NOT a failed simulation
       if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.");
-      if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(calls, as, false); }
+      if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(await retryCalls(calls, o), as, false, o); }
       return fail(e);
     }
     const t1 = now();
@@ -367,7 +369,7 @@ export class Mav2Account {
 
   /** One round trip: disciple_sendUserOperationSync. null ⇒ the server doesn't support it (Alchemy): use the standard path. */
   private async relaySync(wire: UserOp, hash: Hex | undefined, c: {
-    sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; fail: (e: unknown) => Promise<never>;
+    sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; opts: SendOpts; fail: (e: unknown) => Promise<never>;
     t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
   }): Promise<SendResult | null> {
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
@@ -384,14 +386,14 @@ export class Mav2Account {
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
         await nextBlock();
-        return this.sendCalls(c.calls, c.as, false);
+        return this.sendCalls(await retryCalls(c.calls, c.opts), c.as, false, c.opts);
       }
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
       else if (j.error && c.feeRetry && /fee below relayer floor/i.test(j.error.message)) {
         // cached fees went stale (base fee rose): nothing was sent; refresh fees and re-sign once
         FEES.invalidate();
         await FEES.get(() => fetchFees(c.feeClient)).catch(() => undefined);
-        return this.sendCalls(c.calls, c.as, false);
+        return this.sendCalls(c.calls, c.as, false, c.opts);
       } else if (j.error) {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(c.kind);   // stale limits → re-estimate next time
         // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the

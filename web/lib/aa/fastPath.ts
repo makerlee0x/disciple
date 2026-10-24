@@ -83,3 +83,25 @@ export class FeeCache {
     }).finally(() => { this.inflight = undefined; }));
   }
 }
+
+/**
+ * Rapid taps: per-send options. `rebuild` re-quotes a trade (fresh quote ⇒ fresh minOut) for the ONE transient-error
+ * retry (lagging-node pre-flight, TRANSIENT_SIM) — the original calls were priced before the preceding in-flight ops
+ * moved the curve, so re-sending them verbatim would just revert on min-out. Fee-floor retries keep the same calls.
+ */
+export type SendOpts = { rebuild?: () => Promise<Call[]> };
+/**
+ * The calls to retry with: rebuild() when given and it keeps the same shape (same targets + selectors ⇒ same gas class
+ * and the same session-policy decision); otherwise (no rebuild, it threw, or the shape changed) the original calls.
+ */
+export async function retryCalls(calls: Call[], o: SendOpts = {}): Promise<Call[]> {
+  if (!o.rebuild) return calls;
+  try {
+    const next = await o.rebuild();
+    if (next.length && callsKind(next) === callsKind(calls)) return next;
+    console.warn("[aa] rebuild changed the call shape; retrying the original calls");
+  } catch (e) {
+    console.warn("[aa] rebuild failed; retrying the original calls:", (e as Error)?.message ?? e);
+  }
+  return calls;
+}
