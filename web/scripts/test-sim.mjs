@@ -1,6 +1,7 @@
 // SIMULATOR headless test (maker lee): runs each difficulty for N simulated minutes at fixed seeds through
 // lib/sim (market + bots) and lib/pnl, then asserts:
-//   curve mirrors CurveMath.sol ($7K at launch, $33K at graduation, no price jump into the pool),
+//   curve mirrors CurveMath.sol steep curve #1 ($3,333 at launch, $33,333 at graduation, no price jump into the pool),
+//   the graduation floor (16 locked USDG-only bands, LockedLP.floorBands shape) absorbs dumps and re-arms on buybacks,
 //   determinism (same seed → identical run), PnL invariants for every wallet,
 //   and the difficulty shape: PvE climbs most reliably, PvP is volatile but can go high, TRENCH is hardest with rugs.
 // Plus (feat/sim-parity): tramps/walls are real range liquidity (absorb trades, fill, keeper pull + tip, revert rule),
@@ -19,25 +20,27 @@ const { pointsFor, pointsEarned, computePreview } = mods["trampwalls/adapter"];
 const { TRAMP_WALL_POINTS_PER_USD } = mods["config"];
 const MIN = +(process.argv[2] || 10), N = +(process.argv[3] || 12);
 let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
+// the 99% → 0 sniper tax runs ANTI_SNIPE_DURATION (77 s): "after the tax" = AS + 1 s
+const AS = LAUNCH.antiSnipeDurationS, AFTER = AS + 1;
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e * Math.max(1, Math.abs(a), Math.abs(b));
 
 // ---- curve mirrors the contracts ----
 { const m = new Market(cloneConfig());
   if (!near(m.mcap(), LAUNCH.startMcapUsd)) bad(`launch mcap ${m.mcap()}`);
-  const pre = m.price(); let usd = 0; while (m.phase === "curve") { const f = m.buy(100, 60, 0); usd += f.usd; if (!f.ok) { m.sold = 0; break; } }
+  const pre = m.price(); let usd = 0; while (m.phase === "curve") { const f = m.buy(100, AFTER, 0); usd += f.usd; if (!f.ok) { m.sold = 0; break; } }
   if (m.phase !== "pool") bad("never graduated");
   if (!(Math.abs(m.mcap() / LAUNCH.graduationMcapUsd - 1) < 0.01)) bad(`graduation mcap ${m.mcap()}`);
   const raised = usd; console.log(`curve: $${LAUNCH.startMcapUsd} → graduation ${fmt(m.mcap())} after ${fmt(raised)} of buys (pool seeded at the curve-end price, ${fmt(m.X)} quote depth)`);
-  const q = new Market(cloneConfig()); const a = q.buy(50, 0, 0), b = new Market(cloneConfig()).buy(50, 8, 0);
+  const q = new Market(cloneConfig()); const a = q.buy(50, 0, 0), b = new Market(cloneConfig()).buy(50, AFTER, 0);
   if (!(a.tokens < b.tokens * 0.3)) bad("anti-snipe fee not applied at t=0");
   // NO wallet cap in the sim (live Launchpad default WALLET_CAP_BPS_DEFAULT = 0): one wallet can take > 7%
   if (LAUNCH.walletCapBps !== 0) bad(`sim walletCapBps should be 0 (live default), is ${LAUNCH.walletCapBps}`);
-  const c = new Market(cloneConfig()); const big = c.buy(3000, 60, 0);
+  const c = new Market(cloneConfig()); const big = c.buy(3000, AFTER, 0);
   if (!(big.ok && big.tokens > LAUNCH.totalSupply * 0.07)) bad(`no-cap: one $3K buy should exceed 7% of supply (got ${(big.tokens / LAUNCH.totalSupply * 100).toFixed(2)}%, ${big.reason || ""})`);
   else console.log(`no wallet cap: one wallet bought ${(big.tokens / LAUNCH.totalSupply * 100).toFixed(1)}% of supply in one $3K buy`);
-  { const r = new SimRun(cloneConfig(), "trench", 5, { balance: 1e5 }); while (r.t < 8) r.step(0.1); const f = r.playerTrade("buy", 3000);
+  { const r = new SimRun(cloneConfig(), "trench", 5, { balance: 1e5 }); while (r.t < AFTER) r.step(0.1); const f = r.playerTrade("buy", 3000);
     if (!(f.ok && r.player.pos.size > LAUNCH.totalSupply * 0.07)) bad("no-cap: SimRun player buy was capped"); }
-  const rt = new Market(cloneConfig()); const f1 = rt.buy(200, 60, 0), f2 = rt.sell(f1.tokens); if (!(f2.usd * 0.99 < 200 && f2.usd * 0.99 > 196)) bad(`round trip ${f2.usd}`); }
+  const rt = new Market(cloneConfig()); const f1 = rt.buy(200, AFTER, 0), f2 = rt.sell(f1.tokens); if (!(f2.usd * 0.99 < 200 && f2.usd * 0.99 > 196)) bad(`round trip ${f2.usd}`); }
 
 // ---- determinism ----
 // chart stats via a trade listener (r.trades is a capped ring): first trade, rate, buy share, ≥10% drawdowns (zigzag)
@@ -51,7 +54,7 @@ const runOnce = (d, seed, minutes = MIN, play, stats) => { const r = new SimRun(
   if (a !== b) bad("same seed produced a different run"); else console.log("determinism: trench seed 42 ×2 identical"); }
 
 // ---- PnL invariants on a played run ----
-{ const play = (r) => { r.playerTrade("buy", 100); }; play.tick = (r) => { if (Math.abs(r.t - 120) < 0.5) r.playerTrade("sell", 0, { frac: 0.4 }); };
+{ const play = () => {}; play.tick = (r) => { if (Math.abs(r.t - AFTER) < 0.5) r.playerTrade("buy", 100); if (Math.abs(r.t - AFTER - 43) < 0.5) r.playerTrade("sell", 0, { frac: 0.4 }); };   // buy after the sniper tax
   const r = runOnce("pvp", 7, 4, play);
   for (const w of [...r.bots, { pos: r.player.pos, name: "you" }]) { const p = w.pos; if (p.size > 0) { const v = r.pnlOf(p), avg = p.costBasis / p.size; if (!near(v.uPnl, p.size * (r.m.price() - avg), 1e-9)) bad(`uPnL rule broken for ${w.name}`); } }
   const before = r.pnlOf(r.player.pos), sz = r.player.pos.size, f = r.playerTrade("sell", 0, { frac: 0.5 }), after = r.pnlOf(r.player.pos);
@@ -61,7 +64,7 @@ const runOnce = (d, seed, minutes = MIN, play, stats) => { const r = new SimRun(
   console.log(`pnl: player ${JSON.stringify(r.summary().you)}`); }
 
 // ---- tramps & walls: pool math (TrampWallManager semantics) ----
-{ const S = LAUNCH.totalSupply, Y = S * 0.28, p0 = LAUNCH.graduationMcapUsd / S, s0 = Math.sqrt(p0), mk = () => new Pool(p0 * Y, Y);
+{ const S = LAUNCH.totalSupply, Y = S * (1 - LAUNCH.curveSoldBps / 1e4), p0 = LAUNCH.graduationMcapUsd / S, s0 = Math.sqrt(p0), mk = () => new Pool(p0 * Y, Y);
   const ord = (kind, lo, hi, deposit) => ({ id: 1, owner: "x", kind, a: s0 * Math.sqrt(lo), b: s0 * Math.sqrt(hi), deposit, sizeUsd: 0, basis: 0, placedT: 0, placedBlk: 0 });
   { const P = mk(); if (typeof P.place(ord("tramp", 1.01, 1.03, 100)) !== "string") bad("tramp above the price was accepted");
     if (typeof P.place(ord("wall", 0.97, 0.99, 1e6)) !== "string") bad("wall below the price was accepted"); }
@@ -82,8 +85,39 @@ const runOnce = (d, seed, minutes = MIN, play, stats) => { const r = new SimRun(
     B.buy(1e6); if (B.isFilled(o)) bad("tramp still 'filled' after the price came back (pull should revert)");
     console.log(`pool tramp: the same sell moves the price ${sA.toFixed(1)}% bare vs ${sB.toFixed(1)}% onto a tramp at −3…10% · filled → unfilled when the price returns (keeper pull would revert)`); } }
 
+// ---- graduation floor: 16 locked USDG-only bands (LockedLP._seedFloor / FloorBands.sol shape) ----
+{ const grad = () => { const m = new Market(cloneConfig()); while (m.phase === "curve") m.buy(500, AFTER, 0); return m; };
+  const g = grad(), P = g.pool, fs0 = P.floorState(), S = LAUNCH.totalSupply, top = LAUNCH.graduationMcapUsd;
+  const raise = g.reserveAt(1), pairing = P.X;
+  if (!(Math.abs(raise - 6454.554) < 0.01)) bad(`curve reserve at graduation $${raise.toFixed(3)} ≠ CurveMath $6,454.554`);
+  if (!(Math.abs(pairing - top * (1 - LAUNCH.curveSoldBps / 1e4)) < 0.01)) bad(`full-range pairing $${pairing.toFixed(2)} ≠ spot × (S − sCurve)`);
+  if (!(P.floor.length === 16 && Math.abs(fs0.seeded - (raise - pairing)) < 1e-6 && Math.abs(fs0.seeded - 1201.27) < 0.05)) bad(`floor: ${P.floor.length} bands, $${fs0.seeded.toFixed(2)} (want 16, ≈$1,201 = reserve − pairing)`);
+  const flat = P.floor.slice(0, 4), bot = P.floor.slice(4), lo = (o) => o.a * o.a * S, hi = (o) => o.b * o.b * S;
+  if (!flat.every((o) => Math.abs(o.deposit / fs0.seeded - 0.075) < 1e-9)) bad("floor layer A: 4 flat bands × 7.5%");
+  if (!(Math.abs(bot.reduce((t, o) => t + o.deposit, 0) / fs0.seeded - 0.7) < 1e-9 && Math.abs(bot[11].deposit / bot[0].deposit - 4) < 0.01)) bad("floor layer B: 70%, bottom band 4× the top band");
+  if (!(Math.abs(lo(flat[3]) / 25_000 - 1) < 0.01 && hi(flat[0]) <= top && hi(flat[0]) > top * 0.99)) bad(`floor layer A spans ${fmt(hi(flat[0]))} → ${fmt(lo(flat[3]))} (want $33.3K → $25K)`);
+  if (!(Math.abs(lo(bot[11]) / 3_326 - 1) < 0.01)) bad(`floor layer B bottom ${fmt(lo(bot[11]))} (want ≈ $3,326)`);
+  if (!P.floor.every((o) => P.amounts(o).tokens === 0)) bad("floor bands must start USDG-only (no tokens)");
+  // a dump into the floor lands higher than the same dump into the bare full-range pool (floor stripped)
+  const rows = [];
+  for (const fr of [0.05, 0.25, 1]) { const A = grad(), B = grad(); B.pool.floor = []; const tk = A.sC * fr; const oa = A.sell(tk).usd, ob = B.sell(tk).usd, st = A.pool.floorState();
+    if (!(A.mcap() > B.mcap() && oa > ob)) bad(`floor did not absorb a ${(fr * 100).toFixed(0)}% dump`);
+    rows.push(`${(fr * 100).toFixed(0)}% of curve supply → ${fmt(A.mcap())} (${((A.mcap() / top - 1) * 100).toFixed(1)}%; bare pool ${fmt(B.mcap())}) · bands absorbed $${st.absorbed.toFixed(0)}/$${st.seeded.toFixed(0)}`); }
+  // re-arm: sell into the bands, buy the price back to graduation → bands are USDG-only again (and never removable)
+  { const A = grad(), s0 = A.pool.s; A.sell(A.sC * 0.2); const mid = A.pool.floorState(); let k = 0; while (A.pool.s < s0 && k++ < 1000) A.buy(50, 1e4, 0);
+    const back = A.pool.s >= s0, after = A.pool.floorState();   // price back at/above graduation → every band is above-range: USDG-only again
+    if (!(mid.absorbed > 0 && back && after.tokens < 1e-9 * S && Math.abs(after.quote - after.seeded) < 1e-6)) bad(`floor bands did not re-arm after the buyback (absorbed $${mid.absorbed.toFixed(2)}, back ${back}, tokens left ${after.tokens})`);
+    if (A.pool.active.some((o) => o.owner === "FLOOR")) bad("floor bands must not be in the removable order book");
+    console.log(`floor re-arm: a 20% dump left $${mid.quote.toFixed(0)} in the bands (+${mid.tokens.toFixed(0)} tokens); buying back to ${fmt(A.mcap())} → $${after.quote.toFixed(2)} USDG, ${after.tokens.toFixed(6)} tokens`); }
+  console.log(`floor: 16 bands seeded with $${fs0.seeded.toFixed(2)} (reserve $${raise.toFixed(2)} − pairing $${pairing.toFixed(2)}) · layer A ${fmt(hi(flat[0]))} → ${fmt(lo(flat[3]))} · layer B → ${fmt(lo(bot[11]))}`);
+  for (const r of rows) console.log("  dump " + r); }
+
 // ---- tramps & walls in a SimRun: player orders are real liquidity, keeper pulls, per-run reset ----
-const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), d, seed, { balance: bal }); while (r.t < 8) r.step(0.1); r.playerTrade("buy", 20000); r.step(0.5); return r; };
+const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), d, seed, { balance: bal }); while (r.t < AFTER) r.step(0.1); r.playerTrade("buy", 20000); r.step(0.5); return r; };
+{ // the floor survives a TRENCH run (keeper pulls, cancels, rug): never removed, never in the order book
+  const r = graduated("trench", 31); for (let i = 0; i < 300; i++) r.step(1); const P2 = r.m.pool, st = P2.floorState();
+  if (!(P2.floor.length === 16 && !P2.orders.some((o) => o.owner === "FLOOR") && Math.abs(st.seeded - r.m.floorBudget) < 1e-6)) bad("floor bands were removed or entered the order book during a run");
+  else console.log(`floor in a TRENCH run (seed 31, 5 min after grad): ${fmt(r.m.mcap())} · bands hold $${st.quote.toFixed(0)} USDG + ${st.tokens.toFixed(0)} tokens (absorbed $${st.absorbed.toFixed(0)} net)`); }
 { // A/B at the same block: identical runs, one places a tramp first; the player's own big sell lands softer on it
   const A = graduated("pve", 77), B = graduated("pve", 77), m = B.m.mcap();
   const pl = B.playerPlace("tramp", m * 0.96, 4, 1500); if (!pl.ok) bad(`player tramp rejected: ${pl.reason}`);
@@ -95,7 +129,7 @@ const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), 
   if (!(B.tw.filled.you === 1 && B.keeper.pulls >= 1 && B.keeper.tips > 0)) bad(`keeper did not close the filled tramp (filled ${B.tw.filled.you}, pulls ${B.keeper.pulls})`);
   const o = B.m.pool.orders.find((x) => x.owner === YOU); if (!(o && o.status === "filled" && o.outTokens > 0 && o.closedBy === "KEEPER")) bad("filled tramp did not deliver tokens to the owner");
   if (!(B.summary().achievements.includes("LIMIT LEGEND") && B.tw.youPoints === Math.floor(1500 * TRAMP_WALL_POINTS_PER_USD))) bad(`filled $1.5K tramp: expected ${Math.floor(1500 * TRAMP_WALL_POINTS_PER_USD)} pts, got ${B.tw.youPoints}`);
-  console.log(`keeper pull after ${(o.closedT - o.crossedT).toFixed(1)} s: +${(o.outTokens / 1e6).toFixed(2)}M tokens to you, tip $${B.keeper.tips.toFixed(2)}`);
+  console.log(`keeper pull after ${(o.closedT - o.crossedT).toFixed(1)} s: +${(o.outTokens / 1e3).toFixed(2)}K tokens to you, tip $${B.keeper.tips.toFixed(2)}`);
   // wall absorbs the player's buy at the same block
   const C = graduated("pve", 78), D2 = graduated("pve", 78), mc = D2.m.mcap(); const wl = D2.playerPlace("wall", mc * 1.05, 4, 1500); if (!wl.ok) bad(`player wall rejected: ${wl.reason}`);
   C.playerTrade("buy", 5000); D2.playerTrade("buy", 5000); if (!(D2.m.mcap() < C.m.mcap())) bad("player wall did not absorb the buy");
@@ -170,11 +204,11 @@ const graduated = (d, seed, bal = 1e5) => { const r = new SimRun(cloneConfig(), 
 
 // ---- determinism: seed + player-input log (trades, tramp/wall place & cancel) ⇒ identical run, independent of step size ----
 { const play = (r) => { const t = Math.round(r.t * 10);
-    if (t === 80) r.playerTrade("buy", 20000);
-    if (t === 120) r.playerPlace("tramp", r.m.mcap() * 0.94, 3, 400);
-    if (t === 125) r.playerPlace("wall", r.m.mcap() * 1.08, 3, 300);
-    if (t === 600) { const o = r.m.pool?.active.find((x) => x.owner === YOU && x.kind === "wall"); if (o) r.playerCancel(o.id); }
-    if (t === 900) r.playerTrade("sell", 0, { frac: 0.3 }); };
+    if (t === AFTER * 10) r.playerTrade("buy", 20000);
+    if (t === AFTER * 10 + 40) r.playerPlace("tramp", r.m.mcap() * 0.94, 3, 400);
+    if (t === AFTER * 10 + 45) r.playerPlace("wall", r.m.mcap() * 1.08, 3, 300);
+    if (t === AFTER * 10 + 520) { const o = r.m.pool?.active.find((x) => x.owner === YOU && x.kind === "wall"); if (o) r.playerCancel(o.id); }
+    if (t === AFTER * 10 + 820) r.playerTrade("sell", 0, { frac: 0.3 }); };
   const live = new SimRun(cloneConfig(), "trench", 4242, { balance: 1e5 }); for (let i = 0; i < 1800; i++) { play(live); live.step(0.1); }
   const ops = live.inputs.map((x) => x.op).join(",");
   const rep = SimRun.replay(cloneConfig(), "trench", 4242, live.inputs, 180, { balance: 1e5 });
