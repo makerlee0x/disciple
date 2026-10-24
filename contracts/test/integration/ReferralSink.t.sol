@@ -76,6 +76,40 @@ contract ReferralSinkTest is IntegrationBase {
         assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1%");
     }
 
+    /// Audit r127 Low (FeeRouter.sol:193): a treasury-sink follows setTreasury; the old treasury never accrues as a referrer.
+    function test_treasury_sink_follows_setTreasury() public {
+        _bindReferral(referred, kol, 10 ether);
+        (BondingCurve c,) = _launch(0, 0);
+        _warpPastSnipe();
+        address oldT = feeRouter.treasury();
+        address newT = makeAddr("newTreasury");
+        _sink(oldT);
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false, address(feeRouter));
+        emit FeeRouter.ReferralSinkSet(oldT, newT);
+        feeRouter.setTreasury(newT);
+        assertEq(feeRouter.referralSink(), newT, "sink follows the treasury");
+        uint256 t0 = feeRouter.treasuryAccrued(address(quote));
+        _buy(c, referred, BUY, 0);
+        assertEq(feeRouter.referrerAccrued(oldT, address(quote)), 0, "old treasury is not a referrer");
+        assertEq(feeRouter.referrerAccrued(newT, address(quote)), 0, "new treasury not as a referrer either");
+        assertEq(feeRouter.referrerAccrued(kol, address(quote)), 0);
+        assertEq(feeRouter.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF, "33% + the 1% to the treasury bucket");
+    }
+
+    /// A sink at another address, or off, is untouched by setTreasury.
+    function test_setTreasury_leaves_other_sinks() public {
+        address newT = makeAddr("newTreasury");
+        _sink(sink);
+        vm.prank(owner);
+        feeRouter.setTreasury(newT);
+        assertEq(feeRouter.referralSink(), sink);
+        _sink(address(0));
+        vm.prank(owner);
+        feeRouter.setTreasury(makeAddr("t3"));
+        assertEq(feeRouter.referralSink(), address(0), "off stays off");
+    }
+
     function test_no_referrer_still_treasury() public {
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();

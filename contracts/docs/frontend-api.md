@@ -171,10 +171,10 @@ After every `Trade`, BondingCurve (pre-grad) and DiscipleHook (post-grad) emit:
 
 Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee(token, feeToken, trader, creator, feeAmount)` is called by the hook (the `donated` argument has been removed).
 
-## Anti-snipe tax routing (LOCKED #9 rev. 2026-10-15)
-- `snipeFee` in `Trade` / `quoteBuy` is split by `FeeRouter.routeSnipeFee`: `toRewards = snipeFee * 7000 / 10000` → `FeeRouter.rewardsVault()` (community `RewardsVault`), `snipeFee - toRewards` → treasury.
-- Event: `FeeRouter.SnipeFeeRouted(token indexed, quote indexed, toRewards, toTreasury)` (replaces `SnipeFeeRoutedToLP`). `RewardsVault.RewardAccrued(token indexed, asset indexed, amount)`; `RewardsVault.totalAccrued(asset)` = lifetime total; payouts emit `Distributed(asset, to, amount)`.
-- Anti-snipe tax is no longer added to LockedLP, so `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee (curve phase only).
+## Sniper tax routing (mode rules v2; supersedes LOCKED #9 rev. 2026-10-15)
+- 99% → 0 over 77 s, buys only, First BOOST exempt. `snipeFee` in `Trade` / `quoteBuy` is kept in `curve.snipeEscrow()` (outside reserves and price). At graduation it goes to LockedLP's locked compound bucket (`SnipeEscrowToLP`; excluded from the graduation floor). If not graduated within `snipeEscrowTimeout` (default 30 days), anyone can `releaseSnipeEscrow()` → `FeeRouter.rewardsVault()` (`SnipeEscrowReleased`).
+- Legacy only: `FeeRouter.routeSnipeFee` (70% vault / 30% treasury, event `FeeRouter.SnipeFeeRouted(token indexed, quote indexed, toRewards, toTreasury)`) still exists but v2 curves never call it. `RewardsVault.RewardAccrued(token indexed, asset indexed, amount)`; `RewardsVault.totalAccrued(asset)` = lifetime total; payouts emit `Distributed(asset, to, amount)`.
+- `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee (curve phase only); the sniper escrow is held by the curve, not LockedLP, until graduation.
 
 ## LP auto-compound (post-graduation)
 - The 33% LP share of the 1% hook fee is bucketed every trade and compounded in batches into the coin's locked full-range position. Pending amounts: `LockedLP.compoundBucket(token) → (tokenAmount, quoteAmount)` (buys add token, sells add quote).

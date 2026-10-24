@@ -23,10 +23,6 @@ interface IRewardsVault {
     function notifyReward(address token, address asset, uint256 amount) external;
 }
 
-interface ILaunchpadRouterCheck {
-    function isTrustedRouter(address r) external view returns (bool);
-}
-
 contract FeeRouter is IFeeRouter, Owned2Step {
     using SafeERC20 for IERC20;
 
@@ -42,14 +38,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     mapping(address => bool) public authorizedCallers; // curves / migration
 
-    /// @notice Treasury share (33% + unrouted 1% + 30% of anti-snipe) accrued per asset; anyone may push it to
+    /// @notice Treasury share (33% + unrouted 1% [+ 30% of a legacy routeSnipeFee call; v2 curves never make one]) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
     mapping(address => uint256) public treasuryAccrued;
     /// @notice Phase 3a (Maker lee 2026-10-24): when set, the 1% referral share that would go to a referrer (the
     ///         trader's referrer, or the coin's launch KOL — the same 1% share) goes here instead. treasury →
     ///         credited to treasuryAccrued; any other address → claimable via claimReferrerFees. address(0) = off
     ///         (today's routing). Future trades only; already-accrued referral fees stay claimable. The KOL's 2% of
-    ///         the creator share is NOT redirected.
+    ///         the creator share is NOT redirected. A sink equal to the treasury follows setTreasury (audit r127).
     address public referralSink;
     /// @notice Post-grad creator share charged in the LAUNCH TOKEN (hook fee on buys) — token => creator => amount.
     mapping(address => mapping(address => uint256)) public creatorTokenAccrued;
@@ -86,8 +82,16 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     event SnipeFeeRouted(address indexed token, address indexed quote, uint256 toRewards, uint256 toTreasury);
     event RewardsVaultUpdated(address indexed vault);
 
-    /// @notice Community rewards vault (70% of anti-snipe tax).
+    /// @notice Community rewards vault: receives v2 sniper escrows released by BondingCurve.releaseSnipeEscrow
+    ///         (not graduated after the timeout), and 70% of any legacy routeSnipeFee call.
     address public rewardsVault;
+
+    /// @notice Routers allowed to claim a creator's quote fees on the creator's behalf (claimCreatorFeesFor). Kept
+    ///         separate from Launchpad.isTrustedRouter: trusting a router for trades must not also hand it every
+    ///         creator's accrued fees. Owner-set; today only DiscipleRouter (claimCreatorFeesToUsdg).
+    mapping(address => bool) public isClaimRouter;
+
+    event ClaimRouterSet(address indexed router, bool allowed);
 
     constructor(address owner_, address treasury_, address referrals_) Owned2Step(owner_) {
         if (owner_ == address(0) || treasury_ == address(0) || referrals_ == address(0)) {
@@ -107,17 +111,33 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         lockedLP = ILockedLP(lockedLP_);
     }
 
+    /// @dev Audit r127 Low (FeeRouter.sol:193): routeTradeFee reads `referralSink == treasury` at trade time. A sink
+    ///      set to "the treasury" follows a treasury change, so the old treasury never starts accruing the 1% as a
+    ///      referrer (and the owner's "send it to treasury" choice isn't silently dropped back to referrers).
     function setTreasury(address treasury_) external {
         if (msg.sender != owner) revert OnlyOwner();
         if (treasury_ == address(0)) revert ZeroAddress();
+        address old = treasury;
         treasury = treasury_;
         emit TreasuryUpdated(treasury_);
+        if (old != treasury_ && referralSink == old) {
+            emit ReferralSinkSet(old, treasury_);
+            referralSink = treasury_;
+        }
     }
 
     function setReferralSink(address sink) external {
         if (msg.sender != owner) revert OnlyOwner();
         emit ReferralSinkSet(referralSink, sink);
         referralSink = sink;
+    }
+
+    /// @notice Allow / revoke a router for claimCreatorFeesFor (owner only).
+    function setClaimRouter(address router, bool allowed) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (router == address(0)) revert ZeroAddress();
+        isClaimRouter[router] = allowed;
+        emit ClaimRouterSet(router, allowed);
     }
 
     function setAuthorized(address caller, bool ok) external {
@@ -246,8 +266,10 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     }
 
     /// @inheritdoc IFeeRouter
-    /// @dev Anti-snipe fee above protocol 1% (§2 / LOCKED #9 rev. 2026-10-15): 70% → community RewardsVault,
-    ///      30% (incl. rounding remainder) → treasury. If no vault is set, 100% → treasury (never blocks buys).
+    /// @dev LEGACY (LOCKED #9 rev. 2026-10-15, superseded by mode rules v2): splits a snipe fee 70% → RewardsVault,
+    ///      30% (incl. rounding remainder) → treasury; 100% → treasury if no vault is set. Mode-rules-v2 curves never
+    ///      call this: their sniper tax stays in BondingCurve.snipeEscrow and goes to LockedLP's compound bucket at
+    ///      graduation (not the floor), or to RewardsVault via releaseSnipeEscrow after the timeout.
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external override {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
         if (snipeFeeAmount == 0) return;
@@ -268,7 +290,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         emit SnipeFeeRouted(token, quote, toRewards, toTreasury);
     }
 
-    /// @notice Owner sets the community rewards vault (70% of anti-snipe tax). address(0) = all to treasury.
+    /// @notice Owner sets the community rewards vault (target of releaseSnipeEscrow; 70% of a legacy routeSnipeFee).
+    ///         address(0): releaseSnipeEscrow reverts ZeroRecipient; a legacy routeSnipeFee sends all to treasury.
     function setRewardsVault(address vault) external {
         if (msg.sender != owner) revert OnlyOwner();
         rewardsVault = vault;
@@ -287,12 +310,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         emit CreatorFeesClaimed(token, msg.sender, amount);
     }
 
-    /// @notice Trusted-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
+    /// @notice Claim-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
     ///         side of `creator`'s accrued fees to the ROUTER, which swaps it to USDG for the creator in the same tx.
-    ///         Only Launchpad.isTrustedRouter(msg.sender); the router passes its own msg.sender as `creator`.
+    ///         Only isClaimRouter[msg.sender] (owner allowlist, separate from the trade-router trust); the router
+    ///         passes its own msg.sender as `creator`.
     function claimCreatorFeesFor(address token, address creator) external returns (uint256 amount) {
-        address lp = launchpad;
-        if (lp == address(0) || !ILaunchpadRouterCheck(lp).isTrustedRouter(msg.sender)) revert OnlyAuthorized();
+        if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
         amount = creatorAccrued[token][creator];
         if (amount == 0) revert NothingToClaim();
         creatorAccrued[token][creator] = 0;

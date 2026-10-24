@@ -9,7 +9,7 @@
  *   CP part: a = 1 − 1/√(MID/M0)  (M0 = $3,333 → MID = $15,000 at g = 1);  steep tail: T = M1 − MID ($18,333).
  *   → mcap(0) = $3,333, mcap(sCurve) = $33,333, 84.24% of supply sold. Reserve (cumulative net quote):
  *   R(g) = f·M0·g / (1 − a·g) + f·T·g³¹ / 31,  f = sCurve / S  (dR/dg = f·m(g));  R(1) ≈ $6,454.55.
- * Buys pay 1% + anti-snipe (99% → 0 over 77 s, buys only) before the curve; sells pay 1% from the output.
+ * Buys pay 1% + anti-snipe (99% → 0 over 77 s, buys only, from launch config) before the curve; sells pay 1% from the output.
  * Graduation (Migration + LockedLP.seedV4Position): full-range pairing = spot × (S − sCurve) ≈ $5,253 USDG with
  * 157,600 tokens; the curve reserve's leftover (R(1) − pairing ≈ $1,201) seeds the floor bands.
  * Wallet cap: launch.walletCapBps (0 = none — the live Launchpad default, Constants.WALLET_CAP_BPS_DEFAULT).

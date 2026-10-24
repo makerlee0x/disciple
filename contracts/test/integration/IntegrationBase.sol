@@ -149,6 +149,7 @@ abstract contract IntegrationBase is Test {
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
         launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);
@@ -248,7 +249,7 @@ abstract contract IntegrationBase is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
-    /// @dev mode rules v2: the sniper tax decays 99% → 0 over ANTI_SNIPE_DURATION (60 s).
+    /// @dev mode rules v2: the sniper tax decays 99% → 0 over ANTI_SNIPE_DURATION (77 s).
     function _warpPastSnipe() internal {
         vm.warp(block.timestamp + Constants.ANTI_SNIPE_DURATION + 1);
     }
