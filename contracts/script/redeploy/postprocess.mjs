@@ -61,7 +61,7 @@ delete next.addons; delete next.smoke;
 // Post-core deploys (runbook step 4): SESSION_POLICY=0x… PAYMASTER=0x… node postprocess.mjs <mode> records them as addons
 // (web/lib/aa/oneTap.ts reads addons.DiscipleSessionPolicy). Re-running postprocess is idempotent for the core stack.
 const addons = {};
-if (process.env.SESSION_POLICY) addons.DiscipleSessionPolicy = { address: process.env.SESSION_POLICY, version: process.env.SESSION_POLICY_VERSION ?? "1.4.0", constructor: { referralRegistry: contracts.ReferralRegistry, paymaster: process.env.PAYMASTER ?? null } };
+if (process.env.SESSION_POLICY) addons.DiscipleSessionPolicy = { address: process.env.SESSION_POLICY, version: process.env.SESSION_POLICY_VERSION ?? "1.4.1", constructor: { referralRegistry: contracts.ReferralRegistry, paymaster: process.env.PAYMASTER ?? null } };
 if (process.env.PAYMASTER) addons.DisciplePaymaster = { address: process.env.PAYMASTER, entryPoint: "0x0000000071727De22E5E9d8BAf0edAc6f37da032" };
 if (Object.keys(addons).length) next.addons = addons;
 const outDir = path.join(root, "deployments", mode === "fork" ? "fork" : "");
