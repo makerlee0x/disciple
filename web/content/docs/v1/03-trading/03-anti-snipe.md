@@ -5,7 +5,7 @@ section: Trading
 ---
 # Anti-snipe
 
-For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s. After that, only the 1% fee (plus any creator tax) remains.
+For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. After that, only the 1% fee (plus any creator tax) remains.
 
 | Seconds after launch | Sniper tax on BOOSTs |
 |---|---|

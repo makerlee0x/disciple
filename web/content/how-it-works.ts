@@ -188,10 +188,10 @@ export const HIW_FEES = {
   example: "On a $100 BOOST, the fee is $1: $0.33 creator · $0.33 locked liquidity · $0.33 treasury · $0.01 referrer.",
   cards: [
     { title: "Creator tax", body: "Optional, 0–7%, set at launch and fixed. Charged on top of the 1% fee on bonding-curve trades only. After graduation, trades pay just the 1% fee.", more: "Creators can hand off a rocket anytime. The fee claim and tax rights go with it." },
-    { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee is 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s. After that, only the 1% remains.", more: "Sniper tax is held in escrow, then goes into the pool when the rocket graduates, or to the rewards vault after 30 days if it never does. The creator’s launch buy is exempt.", openItem: "C5" },
+    { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee is 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. After that, only the 1% remains.", more: "Sniper tax is held in escrow, then goes into the pool when the rocket graduates, or to the rewards vault after 30 days if it never does. The creator’s launch buy is exempt.", openItem: "C5" },
     { title: "Referrals", body: "Share your link. When a wallet opens your link and deposits $10+ in USDG, it’s yours for life (first link wins).", more: "You earn 1% of the protocol fee on its trades, unless the rocket’s launcher has a referrer, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator’s fee share. You can’t refer your own wallet. On testnet, referrals don’t lock yet. Claiming from the app is coming soon." },
   ] as { title: string; body: string; more: string; openItem?: string }[],
-  snipeChart: { title: "Anti-snipe BOOST fee over the first 7 seconds: 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s", top: "99%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "7s" },
+  snipeChart: { title: "Anti-snipe BOOST fee over the first 7 seconds: 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s", top: "99%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "7s" },
 };
 
 /** 06 · FAQ (accordion) */

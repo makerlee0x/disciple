@@ -35,7 +35,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrer |
 | Graduated pool LP fee | 0% |
 | Creator tax | 0–7%, set at launch, curve trades only |
-| Sniper tax | 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s (one step per second), BOOSTs only, curve only |
+| Sniper tax | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s (one step per second), BOOSTs only, curve only |
 | Sniper tax destination | Locked liquidity at graduation (compound bucket) · rewards vault if not graduated in 30 days |
 | Creator launch buy | Exempt from anti-snipe |
 

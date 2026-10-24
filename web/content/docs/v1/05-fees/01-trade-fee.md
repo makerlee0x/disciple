@@ -37,7 +37,7 @@ A $100 BOOST pays a $1.00 fee:
 |---|---|---|---|
 | Trade fee | Every BOOST and DUMP, both phases | 1% | Split above |
 | Creator tax | BOOSTs and DUMPs on the curve only | 0–7%, set at launch | Creator |
-| Sniper tax | BOOSTs in the first 7 seconds (First BOOST exempt) | 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s | Locked liquidity at graduation; rewards vault if not graduated in 30 days |
+| Sniper tax | BOOSTs in the first 7 seconds (First BOOST exempt) | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s | Locked liquidity at graduation; rewards vault if not graduated in 30 days |
 | Profit tax (PvE, coming) | DUMPs above 1.77× your average cost | 0.777% of proceeds | Other holders |
 | Keeper tip | Closing a filled tramp or wall | 0.1% (max 1%) | Whoever closes it |
 | Gas | Every transaction | Network | Robinhood Chain |

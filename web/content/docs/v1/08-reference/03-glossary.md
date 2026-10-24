@@ -9,7 +9,7 @@ section: Reference
 |---|---|
 | **Altitude** | A rocket's market cap, shown as height. |
 | **Altitude tiers** | The 18 market-cap bands from Launch Pad ($3.3K) to Seventh Heaven ($7.77B). |
-| **Anti-snipe fee** | The sniper tax on BOOSTs in a rocket's first 7 seconds: 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s. |
+| **Anti-snipe fee** | The sniper tax on BOOSTs in a rocket's first 7 seconds: 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. |
 | **ATOM** | The largest bomb: 50%+ price impact. |
 | **Base** | The coin a rocket is paired with and priced in. STRATEGY by default. |
 | **Board** | To buy into a rocket. |
