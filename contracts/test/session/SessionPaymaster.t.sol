@@ -95,7 +95,7 @@ contract SessionPaymasterTest is Test {
     }
 
     function test_moduleId() public view {
-        assertEq(policy.moduleId(), "disciple.session-policy.1.4.0");
+        assertEq(policy.moduleId(), "disciple.session-policy.1.4.1");
         assertEq(policy.paymaster(), pm);
     }
 

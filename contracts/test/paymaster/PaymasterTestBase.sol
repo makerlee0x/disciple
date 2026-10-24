@@ -10,7 +10,6 @@ import {IEntryPoint} from "../vendor/aa-v07/interfaces/IEntryPoint.sol";
 import {IAccount} from "../vendor/aa-v07/interfaces/IAccount.sol";
 import {PackedUserOperation as EpOp} from "../vendor/aa-v07/interfaces/PackedUserOperation.sol";
 import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
-import {PackedUserOperation as PmOp} from "../../src/paymaster/IPaymasterV07.sol";
 
 contract MockUSDG is ERC20 {
     uint8 internal immutable _dec;
@@ -193,8 +192,7 @@ abstract contract PaymasterTestBase is Test {
         returns (EpOp memory)
     {
         op.paymasterAndData = abi.encodePacked(_pmPrefix(), until, afterTs, r, maxTok, new bytes(65));
-        PmOp memory po = abi.decode(abi.encode(op), (PmOp));
-        bytes32 h = MessageHashUtils.toEthSignedMessageHash(pm.getHash(po, until, afterTs, r, maxTok));
+        bytes32 h = MessageHashUtils.toEthSignedMessageHash(pm.getHash(op.sender, until, afterTs, r, maxTok));
         (uint8 v, bytes32 rr, bytes32 s) = vm.sign(pk, h);
         op.paymasterAndData = abi.encodePacked(_pmPrefix(), until, afterTs, r, maxTok, rr, s, v);
         return op;

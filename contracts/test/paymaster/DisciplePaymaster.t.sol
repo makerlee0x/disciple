@@ -97,14 +97,16 @@ contract DisciplePaymasterTest is PaymasterTestBase {
         _send(op);
     }
 
-    function test_revert_tamperedCallData() public {
+    /// @dev The allowance binds the sender, not the op: a different callData under the same signature is fine as
+    ///      long as every on-chain per-op check still holds (here the approve amount must still equal maxTokenCost).
+    function test_allowance_notBoundToCallData() public {
         uint256 maxTok = _maxTok();
         EpOp memory op = _op(_approveThen(maxTok, _transferCall(sink, 1)));
         op = _signPm(op, uint48(block.timestamp + 60), uint48(block.timestamp - 1), rate, maxTok, signerPk);
         op.callData = _approveThen(maxTok, _transferCall(sink, 2));
         op = _signAcct(op);
-        vm.expectRevert(abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA34 signature error"));
         _send(op);
+        assertEq(usdg.balanceOf(sink), 2);
     }
 
     function test_revert_expiredQuote() public {
