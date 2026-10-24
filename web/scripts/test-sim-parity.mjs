@@ -3,8 +3,10 @@
 //                                           anti-snipe, trade fee, tier ladder numbers in order)
 //   contracts/src/TrampWallManager.sol     (default keeper tip)
 //   lib/config.ts CURVE + TIERS, lib/curveMath.ts TRADE_FEE_BPS + quoteBuy/quoteSell, lib/flight/tiers.ts FLIGHT_TIERS,
-//   public/flight/engine.js (graduation mcap, paper wallet cap, generated tier block)
-//   vs lib/sim/config.ts LAUNCH + TIERS and lib/sim/market.ts (the curve itself, against curveMath's bigint mirror).
+//   contracts/src/libraries/FloorBands.sol (graduation floor band weights)
+//   public/flight/engine.js (start / floor / graduation mcap, curve %, paper wallet cap, generated tier block)
+//   vs lib/sim/config.ts LAUNCH + TIERS, lib/sim/pool.ts FLOOR and lib/sim/market.ts (the steep curve itself, against
+//   curveMath's bigint mirror incl. the g^30 tail).
 // Constants.sol tier NAMES are the legacy constitution names; only the numbers (lo/hi, in order) are compared.
 // Run: node scripts/test-sim-parity.mjs   (also part of `npm run test:flightdata`)
 import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
@@ -13,12 +15,12 @@ const web = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), re
 let bad = 0; const ok = (c, m) => { if (c) console.log("ok   " + m); else { bad++; console.error("FAIL " + m); } };
 const { mods, cleanup } = await loadLib(undefined, "parity-");
 const { CURVE, TIERS: CFG_TIERS } = mods["config"], CM = mods["curveMath"], { FLIGHT_TIERS, tierIndexAt } = mods["flight/tiers"];
-const { LAUNCH, TIERS: SIM_TIERS, tierOf, cloneConfig, mergeTune, SIM_STORAGE } = mods["sim/config"], { Market } = mods["sim/market"];
+const { LAUNCH, TIERS: SIM_TIERS, tierOf, cloneConfig, mergeTune, SIM_STORAGE } = mods["sim/config"], { Market } = mods["sim/market"], { FLOOR } = mods["sim/pool"];
 
 // ---- Constants.sol (parsed, numbers only; 1e18-scaled values are de-scaled) ----
 const sol = fs.readFileSync(path.join(repo, "contracts/src/libraries/Constants.sol"), "utf8");
 const C = {}; for (const m of sol.matchAll(/constant\s+(\w+)\s*=\s*([\d_]+)(\s*\*\s*1e18)?\s*;/g)) C[m[1]] = Number(m[2].replace(/_/g, ""));
-const need = ["TOTAL_SUPPLY", "CURVE_SOLD_BPS", "START_MCAP_USD", "GRADUATION_MCAP_USD", "WALLET_CAP_BPS", "WALLET_CAP_BPS_DEFAULT", "ANTI_SNIPE_START_BPS", "ANTI_SNIPE_END_BPS", "ANTI_SNIPE_DURATION", "TRADE_FEE_BPS"];
+const need = ["TOTAL_SUPPLY", "CURVE_SOLD_BPS", "START_MCAP_USD", "CURVE_MID_MCAP_USD", "GRADUATION_MCAP_USD", "MAX_FLOOR_BANDS", "FLOOR_FLAT_BANDS", "FLOOR_FLAT_SPACINGS", "FLOOR_BOTTOM_SPACINGS", "FLOOR_FLAT_BPS", "WALLET_CAP_BPS", "WALLET_CAP_BPS_DEFAULT", "ANTI_SNIPE_START_BPS", "ANTI_SNIPE_END_BPS", "ANTI_SNIPE_DURATION", "TRADE_FEE_BPS"];
 for (const k of need) ok(Number.isFinite(C[k]), `Constants.sol: ${k} = ${C[k]}`);
 const solTiers = []; for (const m of sol.matchAll(/constant\s+TIER_(\w+?)_LO_USD\s*=\s*([\d_]+)\s*;/g)) { const hi = sol.match(new RegExp(`constant\\s+TIER_${m[1]}_HI_USD\\s*=\\s*([\\d_]+)\\s*;`));
   solTiers.push({ key: m[1], lo: Number(m[2].replace(/_/g, "")), hi: hi ? Number(hi[1].replace(/_/g, "")) : NaN }); }
@@ -46,19 +48,27 @@ const nums = (a) => JSON.stringify(a.map((t) => [t.lo, t.hi]));
 ok(solTiers.length === FLIGHT_TIERS.length && nums(solTiers) === nums(FLIGHT_TIERS), `tier ladder numbers  FLIGHT_TIERS ⇄ Constants.sol (${solTiers.length} vs ${FLIGHT_TIERS.length} tiers)`);
 ok(JSON.stringify(CFG_TIERS.map((t) => [t.name, t.lo, t.hi])) === JSON.stringify(FLIGHT_TIERS.map((t) => [t.name, t.lo, t.hi])), "tier ladder  lib/config TIERS ⇄ FLIGHT_TIERS");
 ok(JSON.stringify(SIM_TIERS.map((t) => [t.name, t.lo])) === JSON.stringify(FLIGHT_TIERS.map((t) => [t.name, t.lo])), "tier ladder  sim TIERS ⇄ FLIGHT_TIERS");
-{ const probes = [0, 6999, 7000, 11999, 12000, 32999, 33000, 99_999, 1.2e6, 7.77e9, 1e11]; for (const t of FLIGHT_TIERS) probes.push(t.lo, t.lo - 1, t.hi - 1);
+ok(FLIGHT_TIERS[0].lo === C.START_MCAP_USD && C.TIER_LAUNCH_PAD_LO_USD === C.START_MCAP_USD, `tier ladder  Launch Pad low ${FLIGHT_TIERS[0].lo} = START_MCAP ${C.START_MCAP_USD} (Constants TIER_LAUNCH_PAD_LO_USD ${C.TIER_LAUNCH_PAD_LO_USD})`);
+{ const probes = [0, 3332, 3333, 6999, 7000, 11999, 12000, 32999, 33000, 99_999, 1.2e6, 7.77e9, 1e11]; for (const t of FLIGHT_TIERS) probes.push(t.lo, t.lo - 1, t.hi - 1);
   const off = probes.filter((m) => tierOf(m) !== tierIndexAt(m)); ok(!off.length, `sim tierOf ≡ flight tierIndexAt on ${probes.length} probes${off.length ? " (differs at " + off.join(", ") + ")" : ""}`); }
 ok(FLIGHT_TIERS[FLIGHT_TIERS.findIndex((t) => t.lo === CURVE.graduationMcap)] != null, "graduation mcap is a tier boundary (OUTER SPACE)");
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
 { const g = eng.match(/const GRADUATION_MCAP\s*=\s*([\d.e]+)/), ft = eng.match(/const FLIGHT_TIERS=(\[.*?\]);/);
   ok(g && +g[1] === C.GRADUATION_MCAP_USD, `engine.js GRADUATION_MCAP ${g && g[1]} ⇄ Constants`);
+  const en = (k) => { const m = eng.match(new RegExp(`const ${k}\\s*=\\s*([\\d.e]+)`)); return m ? +m[1] : NaN; };
+  eq(en("START_MCAP"), C.START_MCAP_USD, "engine.js START_MCAP  ⇄ Constants START_MCAP_USD");
+  eq(en("FLOOR_MCAP"), C.TIER_LAUNCH_PAD_LO_USD, "engine.js FLOOR_MCAP  ⇄ Constants TIER_LAUNCH_PAD_LO_USD");
+  eq(en("CURVE_MID_MCAP"), C.CURVE_MID_MCAP_USD, "engine.js CURVE_MID_MCAP  ⇄ Constants CURVE_MID_MCAP_USD");
+  eq(Math.round(en("CURVE_SOLD_PCT") * 100), C.CURVE_SOLD_BPS, "engine.js CURVE_SOLD_PCT  ⇄ Constants CURVE_SOLD_BPS");
   ok(C.WALLET_CAP_BPS_DEFAULT === 0 && !/WALLET_CAP_FRAC|paperCap|capFilledUsd/.test(eng), "engine.js: no paper wallet cap (Constants default 0)");
   ok(ft && nums(JSON.parse(ft[1])) === nums(FLIGHT_TIERS), "engine.js generated FLIGHT_TIERS ⇄ lib/flight/tiers"); }
 
 // ---- the sim curve ≡ curveMath (bigint mirror of CurveMath.sol) ----
 { const m = new Market(cloneConfig()), wei = (x) => BigInt(Math.round(x * 1e6)) * 10n ** 12n;
-  // tail 0 = curveMath's CP part: the sim is still a pure CPAMM (steep g^30 tail not ported to the GAME mirrors yet)
-  const p = { totalSupply: wei(m.S), sCurve: wei(m.sC), x0: wei(m.x0), y0: wei(m.y0), tail: 0n };
+  // the sim is a float port of the full steep curve #1 (CP part + g^30 tail): compare with the exact bigint mirror
+  const p = CM.paramsFromQuotePrice(10n ** 18n);
+  ok(Math.abs(Number(p.sCurve) / 1e18 - m.sC) < 1e-6 && Math.abs(Number(p.tail) / 1e18 - m.T) < 1e-6 * m.T, `sim curve params ≡ CurveMath.makeParams (sCurve ${m.sC}, tail $${m.T.toFixed(2)})`);
+  eq(LAUNCH.curveMidMcapUsd, C.CURVE_MID_MCAP_USD, "curve mid mcap  sim ⇄ Constants");
   ok(Math.abs(m.mcap() / LAUNCH.startMcapUsd - 1) < 1e-9, `sim curve starts at $${m.mcap().toFixed(2)}`);
   let worst = 0; for (const [soldFrac, usd] of [[0, 50], [0.1, 300], [0.4, 1000], [0.7, 2500], [0.95, 100]]) {
     const q = new Market(cloneConfig()); q.sold = q.sC * soldFrac; const f = q.buy(usd, 120, 0); // t past the 77s sniper window
@@ -67,7 +77,9 @@ const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
     const ref2 = Number(CM.quoteSell(p, wei(sold0), wei(tk), 0n)) / 1e18, es = Math.abs(fs2.usd * (1 - LAUNCH.tradeFeeBps / 1e4) / ref2 - 1);
     if (process.env.DEBUG) console.log(soldFrac, usd, f.tokens, ref, fs2.usd, ref2);
     worst = Math.max(worst, eb, es); }
-  ok(worst < 1e-6, `sim curve (CP) buys/sells ≡ curveMath CP part quoteBuy/quoteSell (worst rel. error ${worst.toExponential(1)})`);
+  ok(worst < 1e-6, `sim curve (steep) buys/sells ≡ curveMath quoteBuy/quoteSell (worst rel. error ${worst.toExponential(1)})`);
+  { const full = new Market(cloneConfig()), ref = Number(CM.curveCost(p, 0n, p.sCurve, true)) / 1e18;
+    ok(Math.abs(full.reserveAt(1) / ref - 1) < 1e-9, `sim curve reserve at graduation $${full.reserveAt(1).toFixed(4)} ≡ CurveMath $${ref.toFixed(4)}`); }
   const g = new Market(cloneConfig()); g.sold = g.sC * (1 - 1e-12); ok(Math.abs(g.mcap() / LAUNCH.graduationMcapUsd - 1) < 1e-6, `sim curve ends at $${g.mcap().toFixed(0)} (graduation)`); }
 
 // ---- steep curve #1: curveMath ≡ CurveMath.sol (exact bigints from forge test CurveMathSteep, 18-dec + 6-dec USDG) ----
@@ -81,6 +93,15 @@ const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
   let worst = 0n; for (const [s, u] of [[0n, 50n], [100_000n, 300n], [400_000n, 1000n], [700_000n, 2500n], [840_000n, 100n]]) {
     const sold = s * 10n ** 18n, q = u * 10n ** 18n, dt = CM.tokensOutForQuote(p18, sold, q), back = CM.quoteOutForTokens(p18, sold + dt, dt);
     ok(CM.curveCost(p18, sold, sold + dt, true) <= q && back <= q, `steep: $${u} @ ${s / 1000n}K sold → ${(Number(dt) / 1e18).toFixed(2)} tokens, never more than paid, sells back ≤ in`); } }
+
+// ---- graduation floor: sim FLOOR ⇄ Constants.sol + FloorBands.sol ----
+{ const fb = fs.readFileSync(path.join(repo, "contracts/src/libraries/FloorBands.sol"), "utf8"), pk = fb.match(/BOTTOM_BPS_PACKED\s*=\s*(0x[0-9a-fA-F]+)/), sp = fb.match(/SPACING\s*=\s*(\d+)/);
+  eq(FLOOR.maxBands, C.MAX_FLOOR_BANDS, "floor bands  sim ⇄ Constants MAX_FLOOR_BANDS"); eq(FLOOR.flatBands, C.FLOOR_FLAT_BANDS, "floor flat bands  sim ⇄ Constants");
+  eq(FLOOR.flatSpacings, C.FLOOR_FLAT_SPACINGS, "floor flat spacings  sim ⇄ Constants"); eq(FLOOR.bottomSpacings, C.FLOOR_BOTTOM_SPACINGS, "floor bottom spacings  sim ⇄ Constants");
+  eq(FLOOR.flatBps, C.FLOOR_FLAT_BPS, "floor flat bps  sim ⇄ Constants"); eq(FLOOR.tickSpacing, sp ? +sp[1] : NaN, "floor tick spacing  sim ⇄ FloorBands.SPACING");
+  const n = C.MAX_FLOOR_BANDS - C.FLOOR_FLAT_BANDS, w = pk ? Array.from({ length: n }, (_, j) => Number((BigInt(pk[1]) >> BigInt(16 * j)) & 0xffffn)) : [];
+  ok(JSON.stringify(w) === JSON.stringify(FLOOR.bottomBps), `floor bottom weights  sim ⇄ FloorBands.BOTTOM_BPS_PACKED (${w.join(" ")})`);
+  ok(w.reduce((a, b) => a + b, 0) + C.FLOOR_FLAT_BPS === 10_000, "floor weights sum to 100%"); }
 
 cleanup();
 if (bad) { console.error(bad + " FAILED"); process.exit(1); } console.log("PASS");
