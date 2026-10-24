@@ -56,3 +56,18 @@ test("cached session on an old policy (1.1.0) or without a policy is treated as 
   assert.equal(cachedSessionUsable({ ...s, validUntil: now / 1000 + 30 }, { account: A, policy: NEW, nowMs: now }), false);
   assert.equal(cachedSessionUsable(s, { account: A, policy: "", nowMs: now }), false);
 });
+
+test("AUDIT #148 M-1: app session TTL = 24h - 10 min, matches the SDK clamp (never the full on-chain 24h max)", async () => {
+  const { SESSION_TTL_MS, SESSION_TTL_SKEW_MARGIN_SEC } = await import("../lib/aa/policy");
+  const sk = await import("@disciple/session-keys");
+  assert.equal(SESSION_TTL_SKEW_MARGIN_SEC, 600);
+  assert.equal(SESSION_TTL_MS / 1000, 86400 - 600);
+  assert.equal(SESSION_TTL_MS / 1000, sk.SAFE_MAX_TTL_SEC);
+  assert.equal(SESSION_TTL_SKEW_MARGIN_SEC, sk.SESSION_TTL_SKEW_MARGIN_SEC);
+  assert.ok(SESSION_TTL_MS / 1000 < sk.MAX_TTL_SEC);
+  // client clock 10 min ahead of the chain: the install still satisfies validUntil - block.timestamp <= 24h
+  const chain = 1_800_000_000, client = chain + 600;
+  const s = sk.buildCreateSession({ modules: { policy: A, singleSigner: A }, targets: { router: A, launchpad: A, trampWallManager: A },
+    sessionSigner: A, caps: [{ token: A, cap: BigInt(1) }], ttlSec: SESSION_TTL_MS / 1000, now: client });
+  assert.ok(s.validUntil - chain <= sk.MAX_TTL_SEC);
+});

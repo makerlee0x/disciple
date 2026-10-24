@@ -37,9 +37,15 @@ export const disciplePaymasterAbi = parseAbi([
   "function maxCostCap() view returns (uint256)",
   "function postOpGas() view returns (uint256)",
   "function getDeposit() view returns (uint256)",
+  "function reservedOf(address) view returns (uint256)",
+  "function reservedBy(address) view returns (bytes32)",
+  "function rolledOf(address) view returns (uint256)",
+  "function owedOf(address) view returns (uint256)",
+  "function getHash(address sender, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
   "function deposit() payable",
   "event UserOperationCharged(bytes32 indexed userOpHash, address indexed sender, uint256 gasCostToken, uint256 debtRepaid, uint256 rate)",
   "event DebtRecorded(bytes32 indexed userOpHash, address indexed sender, uint256 amount, uint256 totalDebt)",
+  "event ReservationRolled(bytes32 indexed userOpHash, address indexed sender, uint256 amount, uint256 totalRolled)",
 ]);
 const erc20Abi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
 const execAbi = parseAbi([
@@ -89,7 +95,30 @@ export function decodePaymasterData(data: Hex): PaymasterQuote & { signature: He
   };
 }
 
-/** DisciplePaymaster.getHash — the signer personal_signs (EIP-191) this 32-byte hash. */
+/** keccak256("DisciplePaymaster.Allowance(v1)") — DisciplePaymaster.ALLOWANCE_TYPEHASH. */
+export const ALLOWANCE_TYPEHASH = keccak256(toHex("DisciplePaymaster.Allowance(v1)"));
+/** DisciplePaymaster.MIN_PM_POST_OP_GAS_LIMIT: the contract refuses an op whose paymasterPostOpGasLimit is lower. */
+export const MIN_PM_POST_OP_GAS_LIMIT = BigInt(60_000);
+
+/**
+ * DisciplePaymaster.getHash(sender, validUntil, validAfter, rate, maxTokenCost) — the per-sender ALLOWANCE the signer
+ * personal_signs (EIP-191). Not bound to one op: any op of `sender` inside [validAfter, validUntil] on this chain +
+ * paymaster may reuse it; every per-op rule is enforced on-chain in validatePaymasterUserOp.
+ */
+export function paymasterAllowanceHash(sender: Address, q: PaymasterQuote, chainId: number, paymaster: Address): Hex {
+  return keccak256(encodeAbiParameters(
+    parseAbiParameters("bytes32, address, uint256, address, uint48, uint48, uint256, uint256"),
+    [ALLOWANCE_TYPEHASH, sender, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
+  ));
+}
+/** keccak256("DisciplePaymaster.OpQuote(v1)") — DisciplePaymaster.OP_QUOTE_TYPEHASH. */
+export const OP_QUOTE_TYPEHASH = keccak256(toHex("DisciplePaymaster.OpQuote(v1)"));
+/**
+ * DisciplePaymaster.getOpHash(op, …) — the per-op quote (pm_getPaymasterData) is bound to ONE exact userOp: sender,
+ * nonce, initCode, callData (incl. the approve amount), account gas limits, the paymaster gas limits, PVG and fees.
+ * Single use (nonce), so a large per-op maxTokenCost (launch / graduating buy) can't be reused as an allowance
+ * (AUDIT #141 L-2). Only pm_getPaymasterAllowance issues the reusable, sender-bound hash above.
+ */
 export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: number, paymaster: Address): Hex {
   const initCode = op.factory ? concat([op.factory, op.factoryData || "0x"]) : "0x";
   const accountGasLimits = concat([p16(op.verificationGasLimit), p16(op.callGasLimit)]);
@@ -100,10 +129,19 @@ export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: numbe
     [op.sender, big(op.nonce), keccak256(initCode), keccak256(op.callData), accountGasLimits, pmGas, big(op.preVerificationGas), gasFees],
   ));
   return keccak256(encodeAbiParameters(
-    parseAbiParameters("bytes32, uint256, address, uint48, uint48, uint256, uint256"),
-    [opPart, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
+    parseAbiParameters("bytes32, bytes32, uint256, address, uint48, uint48, uint256, uint256"),
+    [OP_QUOTE_TYPEHASH, opPart, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
   ));
 }
+
+/**
+ * Gas envelope one pre-issued allowance covers: STATIC_GAS-sized trade (deployed account, session or owner) + the
+ * paymaster's own limits. Ops above it (launches, graduating buys, cold estimates) use the per-op pm_* flow.
+ */
+export const ALLOWANCE_GAS = {
+  callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000),
+  paymasterVerificationGasLimit: PAYMASTER_GAS.verificationGasLimit, paymasterPostOpGasLimit: PAYMASTER_GAS.postOpGasLimit,
+} as const;
 
 /** The exact-amount approve that must be the op's first inner call. */
 export function paymasterApproveCall(usdg: Address, paymaster: Address, maxTokenCost: bigint): Call {

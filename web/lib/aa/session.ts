@@ -346,7 +346,10 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
   const account = await sa.address();
   const caps = await sessionCaps(opts.spendLimitUsd !== undefined ? opts.spendLimitUsd : oneTapSpendLimitUsd());
+  // AUDIT #148 M-1: validUntil from the chain's clock (latest block), not the browser's; Date.now() only if the RPC fails.
+  const now = await sk.chainNow(publicClient());
   const s = sk.buildCreateSession({
+    now,
     modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
     targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
     sessionSigner: privateKeyToAccount(key).address,

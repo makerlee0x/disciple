@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import { decodeFunctionData, toFunctionSelector } from "viem";
 import { semiModularAccountBytecodeAbi } from "@account-kit/smart-contracts/experimental";
-import { encodeQuoteUsdgRouteFor, routerBuyWithUsdgCalls, routerSellToUsdgCalls, usdgRouterAbi, buildCreateSession, buildUninstallSession, EXEC_HOOK_FLAG, encodePolicyInstallData, TRADE_PERMS } from "../src/index.ts";
+import { encodeQuoteUsdgRouteFor, routerBuyWithUsdgCalls, routerSellToUsdgCalls, usdgRouterAbi, buildCreateSession, buildUninstallSession, chainNow, EXEC_HOOK_FLAG, MAX_TTL_SEC, SAFE_MAX_TTL_SEC, SESSION_TTL_SKEW_MARGIN_SEC, encodePolicyInstallData, TRADE_PERMS } from "../src/index.ts";
 
 const A = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as const;
 const targets = { router: A(1), launchpad: A(2), anonLauncher: A(3), trampWallManager: A(4) };
@@ -10,7 +10,7 @@ const modules = { policy: A(9), singleSigner: A(8), timeRange: A(7) };
 
 test("install calldata: non-global SingleSigner + policy validation & execution hooks + TimeRange", () => {
   const r = buildCreateSession({ modules, targets, sessionSigner: A(5), caps: [{ token: A(6), cap: 100n }], entityId: 8, now: 1_800_000_000 });
-  assert.equal(r.validUntil, 1_800_000_000 + 86400);
+  assert.equal(r.validUntil, 1_800_000_000 + 86400 - 600); // default = SAFE_MAX_TTL_SEC (AUDIT #148 M-1)
   const d = decodeFunctionData({ abi: semiModularAccountBytecodeAbi, data: r.data });
   assert.equal(d.functionName, "installValidation");
   const [vcfg, sels, , hooks] = d.args as [string, string[], string, string[]];
@@ -33,6 +33,30 @@ test("audit #7: limits match DiscipleSessionPolicy (ttl <= 24h, slippage 10..500
   assert.throws(() => buildCreateSession({ ...base, maxSlippageBps: 9 }));
   assert.doesNotThrow(() => buildCreateSession({ ...base, maxSlippageBps: 10 }));
   assert.throws(() => buildCreateSession({ ...base, maxSlippageBps: 5001 }));
+});
+
+test("AUDIT #148 M-1: ttl clamped to 24h - 10 min skew margin", () => {
+  const base = { modules, targets, sessionSigner: A(5), caps: [{ token: A(6), cap: 1n }] as [{ token: `0x${string}`; cap: bigint }], now: 1_800_000_000 };
+  assert.equal(SESSION_TTL_SKEW_MARGIN_SEC, 600);
+  assert.equal(SAFE_MAX_TTL_SEC, MAX_TTL_SEC - 600);
+  // default, the full on-chain max and anything in (SAFE, MAX] all encode SAFE_MAX_TTL_SEC
+  for (const ttlSec of [undefined, 86400, 86400 - 1, 86400 - 599, SAFE_MAX_TTL_SEC + 0.5])
+    assert.equal(buildCreateSession({ ...base, ttlSec }).validUntil - base.now, SAFE_MAX_TTL_SEC, String(ttlSec));
+  // at or below the safe max: unchanged
+  assert.equal(buildCreateSession({ ...base, ttlSec: SAFE_MAX_TTL_SEC }).validUntil - base.now, SAFE_MAX_TTL_SEC);
+  assert.equal(buildCreateSession({ ...base, ttlSec: 3600 }).validUntil - base.now, 3600);
+  // the on-chain check (validUntil - block.timestamp <= 24h) holds even if the chain is up to 10 min behind "now"
+  const v = buildCreateSession({ ...base, ttlSec: 86400 }).validUntil;
+  assert.ok(v - (base.now - 600) <= MAX_TTL_SEC);
+  // invalid inputs still throw
+  for (const ttlSec of [0, -1, 0.5, NaN, 86400 + 1]) assert.throws(() => buildCreateSession({ ...base, ttlSec }), String(ttlSec));
+});
+
+test("AUDIT #148 M-1: chainNow reads the latest block timestamp, undefined on RPC error", async () => {
+  let tag = "";
+  assert.equal(await chainNow({ getBlock: (async (a: { blockTag: string }) => { tag = a.blockTag; return { timestamp: 1_800_000_123n }; }) as never }), 1_800_000_123);
+  assert.equal(tag, "latest");
+  assert.equal(await chainNow({ getBlock: (async () => { throw new Error("rpc down"); }) as never }), undefined);
 });
 
 test("uninstall + fixture for forge", () => {

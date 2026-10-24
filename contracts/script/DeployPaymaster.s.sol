@@ -12,7 +12,8 @@ interface IDecimals {
 ///         NOT RUN in the PR — deploy happens after review.
 ///         env: USDG, PAYMASTER_OWNER, PAYMASTER_SIGNER (address only — never the key), PAYMASTER_TREASURY,
 ///              PAYMASTER_MIN_RATE / PAYMASTER_MAX_RATE (USDG raw units per 1 ETH),
-///              PAYMASTER_MAX_COST (USDG raw; default DEFAULT_MAX_COST_USDG whole USDG at the token's decimals),
+///              PAYMASTER_MAX_COST_USDG (WHOLE USDG, scaled by usdg.decimals(); default DEFAULT_MAX_COST_USDG;
+///              must be within [0.1, 100] USDG; the old raw-unit PAYMASTER_MAX_COST is rejected),
 ///              PAYMASTER_DEPOSIT_WEI, PAYMASTER_STAKE_WEI (owner-broadcast only), PAYMASTER_POST_OP_GAS (default 30k)
 ///         forge script script/DeployPaymaster.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast
 contract DeployPaymaster is Script {
@@ -26,7 +27,11 @@ contract DeployPaymaster is Script {
         require(block.chainid == 46630, "RH testnet only");
         address owner = vm.envAddress("PAYMASTER_OWNER");
         address usdg = vm.envAddress("USDG");
-        uint256 maxCost = vm.envOr("PAYMASTER_MAX_COST", DEFAULT_MAX_COST_USDG * 10 ** IDecimals(usdg).decimals());
+        // AUDIT (2026-10-24): the old PAYMASTER_MAX_COST took RAW units, so "2" meant 2 wei of USDG and every op reverted.
+        require(vm.envOr("PAYMASTER_MAX_COST", uint256(0)) == 0, "PAYMASTER_MAX_COST (raw) removed: use PAYMASTER_MAX_COST_USDG");
+        uint256 one = 10 ** IDecimals(usdg).decimals();
+        uint256 maxCost = vm.envOr("PAYMASTER_MAX_COST_USDG", DEFAULT_MAX_COST_USDG) * one;
+        require(maxCost >= one / 10 && maxCost <= 100 * one, "PAYMASTER_MAX_COST_USDG outside [0.1, 100] USDG");
         vm.startBroadcast();
         pm = new DisciplePaymaster(
             ENTRYPOINT_V07,
@@ -45,6 +50,6 @@ contract DeployPaymaster is Script {
         if (stake != 0 && msg.sender == owner) pm.addStake{value: stake}(1 days); // ERC-7562: context needs a staked paymaster
         vm.stopBroadcast();
         console2.log("DisciplePaymaster", address(pm));
-        console2.log("maxCostCap (USDG raw)", maxCost);
+        console2.log("maxCostCap (USDG raw, = PAYMASTER_MAX_COST_USDG * 10**decimals)", maxCost);
     }
 }

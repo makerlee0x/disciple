@@ -5,19 +5,21 @@
 //   PAYMASTER_PARITY_RPC=http://127.0.0.1:8545 PAYMASTER_PARITY_ADDR=0x… PAYMASTER_PARITY_USDG=0x… pnpm test:paymaster
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { concat, createPublicClient, encodeFunctionData, http, pad, parseAbi, recoverMessageAddress, toHex, type Address, type Hex } from "viem";
+import { concat, createPublicClient, keccak256 as viemKeccak, encodeFunctionData, http, pad, parseAbi, recoverMessageAddress, toHex, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
   decodePaymasterData, encodePaymasterData, entryPointMaxCost, firstCallApproveAmount, formatUsdg, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
-  paymasterApproveCall, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
+  ALLOWANCE_GAS, ALLOWANCE_TYPEHASH, OP_QUOTE_TYPEHASH, paymasterAllowanceHash, paymasterApproveCall, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
 } from "../lib/aa/paymaster";
-import { DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
+import { assertSignerMatches, paymasterSignerKey, ALLOWANCE_FEE_MULT, allowanceQuote, DEFAULT_ALLOWANCE_TTL_SEC, DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { checkPaymaster, clientFees, GAS_CAPS, GRAD_GAS_CAPS, INFRA_WORDING, LAUNCH_GAS_CAPS, maxPrefund, NOT_ENOUGH_USDG, RelayPolicyError, relayerPrice, TRADING_UNAVAILABLE } from "../lib/aa/gasPolicy";
 import { launchpadAbi } from "../lib/abi/Launchpad";
 import { toFunctionSelector, type AbiFunction } from "viem";
 import { STATIC_GAS } from "../lib/aa/fastPath";
 import { ENTRYPOINT_V07 } from "../lib/aa/constants";
 import type { UserOp } from "../lib/aa/core";
+import { ALLOWANCE_LIMITS, BUNDLER_LIMITS, hitLimit, memoryCounter, paymasterAllowanceLimits } from "../lib/server/limits";
+import { AllowanceCache, ALLOWANCE_REFRESH_AHEAD_SEC, fitsAllowance, payGasInUsdg, type Allowance } from "../lib/aa/paymasterClient";
 
 const hex = (n: bigint | number) => `0x${BigInt(n).toString(16)}` as Hex;
 const E18 = BigInt(10) ** BigInt(18);
@@ -147,6 +149,8 @@ for (const dec of [18, 6]) {
     assert.ok(q.validUntil > 1_790_000_000 && q.validAfter < 1_790_000_000 && q.validUntil - q.validAfter <= 3600);
     const h = paymasterQuoteHash({ ...op, ...f }, q, 46630, PM);
     assert.equal(await recoverMessageAddress({ message: { raw: h }, signature: q.signature }), signer.address);
+    // L-2: the per-op signature is NOT a reusable allowance (it doesn't verify over the sender-bound hash)
+    assert.notEqual(await recoverMessageAddress({ message: { raw: paymasterAllowanceHash(op.sender, q, 46630, PM) }, signature: q.signature }), signer.address);
     // the MAX (allowance / session-cap debit) at STATIC_GAS limits and 1.5x fee headroom stays well under $1 at
     // testnet fees; the actual charge is gas used × (base + tip), typically ~10x lower
     assert.ok(amt < BigInt(10) ** BigInt(dec), `max gas charge ${formatUsdg(amt, dec)} USDG`);
@@ -199,14 +203,129 @@ for (const dec of [18, 6]) {
   });
 }
 
+const rejectsA = (p: Promise<unknown>, code: PaymasterQuoteError["code"]) => assert.rejects(p, (e: unknown) => e instanceof PaymasterQuoteError && e.code === code);
+// ── per-sender allowance (feat/trade-latency) ──
+/** Fixed vector shared with contracts/test/paymaster/PaymasterAllowance.t.sol test_hashVector_matchesWeb. */
+test("allowance hash: fixed vector (byte parity with DisciplePaymaster.getHash, asserted in forge)", () => {
+
+  const h = paymasterAllowanceHash(SENDER, { validUntil: 1_790_000_600, validAfter: 1_789_999_970, rate: BigInt(3000) * E18, maxTokenCost: BigInt("123456789012345678") }, 46630, PM);
+  assert.equal(h, ALLOWANCE_VECTOR);
+});
+const ALLOWANCE_VECTOR = "0x2712d08f58bdadb5f8d8c71b6d3b07446639b9ae4a25af59e4fd25107429c065";
+
+// ── per-op quotes are op-bound (AUDIT #141 L-2) ──
+/** Fixed vector shared with contracts/test/paymaster/PaymasterOpQuote.t.sol test_opHashVector_matchesWeb. */
+const OP_VECTOR = "0x2d991e8c73ba211ee1c6e0239394b0ce120ebef3f72bc030d71abb2561fa309f";
+const vectorOp: UserOp = {
+  sender: SENDER, nonce: "0x7", callData: "0xdeadbeef", signature: "0x",
+  callGasLimit: hex(1_800_000), verificationGasLimit: hex(350_000), preVerificationGas: hex(60_000),
+  maxFeePerGas: hex(BigInt(2e9)), maxPriorityFeePerGas: hex(BigInt(1e9)),
+  paymaster: PM, paymasterVerificationGasLimit: hex(120_000), paymasterPostOpGasLimit: hex(80_000),
+};
+const vectorQ = { validUntil: 1_790_000_180, validAfter: 1_789_999_970, rate: BigInt(3000) * E18, maxTokenCost: BigInt("123456789012345678") };
+test("op quote hash: fixed vector (byte parity with DisciplePaymaster.getOpHash, asserted in forge)", () => {
+  assert.equal(OP_QUOTE_TYPEHASH, viemKeccak(toHex("DisciplePaymaster.OpQuote(v1)")));
+  assert.equal(paymasterQuoteHash(vectorOp, vectorQ, 46630, PM), OP_VECTOR);
+});
+test("op quote hash binds the op: nonce / callData / gas / pm gas / fees all change it; never equals the allowance hash", () => {
+  const h0 = paymasterQuoteHash(vectorOp, vectorQ, 46630, PM);
+  for (const d of [{ nonce: "0x8" }, { callData: "0xdeadbeee" }, { callGasLimit: hex(1_800_001) }, { paymasterPostOpGasLimit: hex(80_001) }, { maxFeePerGas: hex(BigInt(2e9) + BigInt(1)) }, { factory: TOKEN, factoryData: "0x01" }] as Partial<UserOp>[])
+    assert.notEqual(paymasterQuoteHash({ ...vectorOp, ...d }, vectorQ, 46630, PM), h0, JSON.stringify(d));
+  assert.notEqual(h0, paymasterAllowanceHash(SENDER, vectorQ, 46630, PM));
+});
+
+for (const dec of [18, 6]) {
+  const RATE = BigInt(3000) * BigInt(10) ** BigInt(dec);
+  const signer = privateKeyToAccount(generatePrivateKey());
+  const cfg: QuoteConfig = { paymaster: PM, usdg: USDG, usdgDecimals: dec, rate: RATE };
+  const deps = (o: Partial<QuoteDeps> = {}): QuoteDeps => ({
+    now: () => 1_790_000_000, debtOf: async () => BigInt(0), balanceOf: async () => BigInt(1_000_000) * BigInt(10) ** BigInt(dec),
+    bounds: async () => ({ minRate: RATE / BigInt(10), maxRate: RATE * BigInt(10), maxCostCap: BigInt(5) * BigInt(10) ** BigInt(dec) }),
+    baseFee: async () => BASE, sign: (h) => signer.signMessage({ message: { raw: h } }), ...o,
+  });
+  const fee = clientFees(BASE).maxFeePerGas * ALLOWANCE_FEE_MULT;
+  const envelope = Object.values(ALLOWANCE_GAS).reduce((a, b) => a + b, BigInt(0));
+
+  test(`[${dec}-dec] allowanceQuote: signed per-sender allowance for the trade envelope (+ debt), 10-min window`, async () => {
+    const debt = BigInt(7);
+    const a = await allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ debtOf: async () => debt }));
+    const q = decodePaymasterData(a.paymasterData);
+    assert.equal(q.maxTokenCost, tokenCost(envelope * fee, RATE) + debt);
+    assert.equal(BigInt(a.disciple.maxTokenCost), q.maxTokenCost);
+    assert.equal(q.validUntil, 1_790_000_000 + DEFAULT_ALLOWANCE_TTL_SEC);
+    assert.ok(q.validUntil - q.validAfter <= 3600);
+    assert.equal(await recoverMessageAddress({ message: { raw: paymasterAllowanceHash(SENDER, q, 46630, PM) }, signature: q.signature }), signer.address);
+    // NOT valid for another sender
+    assert.notEqual(await recoverMessageAddress({ message: { raw: paymasterAllowanceHash(TOKEN, q, 46630, PM) }, signature: q.signature }), signer.address);
+    assert.ok(q.maxTokenCost < BigInt(10) ** BigInt(dec), `allowance ${formatUsdg(q.maxTokenCost, dec)} USDG < $1`);
+  });
+
+  test(`[${dec}-dec] allowanceQuote refuses: balance, above cap, rate out of bounds, wrong chain / EP, bad sender`, async () => {
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ balanceOf: async () => BigInt(1) })), "balance");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: BigInt(1), maxRate: RATE * BigInt(10), maxCostCap: BigInt(1) }) })), "approve");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps({ bounds: async () => ({ minRate: RATE * BigInt(2), maxRate: RATE * BigInt(3), maxCostCap: E18 }) })), "rate");
+    await rejectsA(allowanceQuote(SENDER, ENTRYPOINT_V07, 4663, cfg, deps()), "chain");
+    await rejectsA(allowanceQuote(SENDER, "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789", 46630, cfg, deps()), "entrypoint");
+    await rejectsA(allowanceQuote("0x1234" as Address, ENTRYPOINT_V07, 46630, cfg, deps()), "op");
+  });
+
+  test(`[${dec}-dec] payGasInUsdg with a fitting allowance: 0 pm_* calls, exact approve first, allowance paymasterData`, async () => {
+    const a = (await allowanceQuote(SENDER, ENTRYPOINT_V07, 46630, cfg, deps())) as unknown as Allowance;
+    const fees = clientFees(BASE);
+    const g = globalThis.fetch; let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("no network in this test"); }) as typeof fetch;
+    try {
+      const r = await payGasInUsdg({
+        url: "http://x/api/paymaster", chainId: 46630, usdg: USDG, paymaster: PM, calls: [trade], allowance: a,
+        build: async (cs, pm) => ({ sender: SENDER, nonce: "0x1", callData: batch(cs), signature: "0x", callGasLimit: hex(STATIC_GAS.callGasLimit), verificationGasLimit: hex(STATIC_GAS.verificationGasLimit), preVerificationGas: hex(STATIC_GAS.preVerificationGas), maxFeePerGas: hex(fees.maxFeePerGas * BigInt(2)), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas), ...pm }),
+        sign: async () => "0xsig" as Hex,
+      });
+      assert.equal(r.pmCalls, 0); assert.equal(calls, 0);
+      assert.equal(r.op.paymasterData, a.paymasterData);
+      assert.equal(firstCallApproveAmount(r.op.callData, USDG, PM), BigInt(a.disciple.maxTokenCost));
+      assert.ok(fitsAllowance(r.op, a));
+      // an op above the envelope (fee spike ×3) does NOT fit ⇒ falls back to the per-op flow (here: the mocked network)
+      await assert.rejects(payGasInUsdg({
+        url: "http://x/api/paymaster", chainId: 46630, usdg: USDG, paymaster: PM, calls: [trade], allowance: a,
+        build: async (cs, pm) => ({ sender: SENDER, nonce: "0x1", callData: batch(cs), signature: "0x", callGasLimit: hex(STATIC_GAS.callGasLimit), verificationGasLimit: hex(STATIC_GAS.verificationGasLimit), preVerificationGas: hex(STATIC_GAS.preVerificationGas), maxFeePerGas: hex(fees.maxFeePerGas * BigInt(6)), maxPriorityFeePerGas: hex(fees.maxPriorityFeePerGas), ...pm }),
+        sign: async () => "0xsig" as Hex,
+      }), /no network/);
+      assert.equal(calls, 1);
+    } finally { globalThis.fetch = g; }
+  });
+}
+
+test("AllowanceCache: refreshes in the background before validUntil, never serves a nearly-expired one, dedupes", async () => {
+  let t = 1_000; let fetches = 0;
+  const g = globalThis.fetch;
+  globalThis.fetch = (async () => { fetches++; return new Response(JSON.stringify({ result: { paymaster: PM, paymasterVerificationGasLimit: "0x1", paymasterPostOpGasLimit: "0x1", paymasterData: "0x", disciple: { kind: "allowance", sender: SENDER, usdg: USDG, rate: "0x1", maxTokenCost: "0x1", debt: "0x0", validUntil: t + 600, validAfter: t - 30, maxFeePerGas: "0x1", usdgDecimals: 18 } } })); }) as typeof fetch;
+  try {
+    const c = new AllowanceCache({ url: "http://x", chainId: 46630 }, () => t);
+    assert.equal(c.peek(SENDER), undefined);       // cold: kicks one fetch
+    assert.equal(c.peek(SENDER), undefined);       // deduped
+    await c.refresh(SENDER);
+    assert.equal(fetches, 1);
+    assert.ok(c.peek(SENDER));
+    assert.equal(fetches, 1, "fresh: no refetch");
+    t += 600 - ALLOWANCE_REFRESH_AHEAD_SEC + 1;   // inside the refresh window: still served, refresh kicked
+    assert.ok(c.peek(SENDER));
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(fetches, 2);
+    t += 10_000;                                   // the refreshed one is also long expired now
+    assert.equal(c.peek(SENDER), undefined);
+    c.invalidate(SENDER); assert.equal(c.peek(SENDER), undefined);
+  } finally { globalThis.fetch = g; }
+});
+
 // ── optional on-chain parity (local anvil only) ──
 const RPC = process.env.PAYMASTER_PARITY_RPC, ADDR = process.env.PAYMASTER_PARITY_ADDR as Address | undefined, PUSDG = process.env.PAYMASTER_PARITY_USDG as Address | undefined;
-test("parity with DisciplePaymaster.sol (getHash, parse, firstCallApproves, tokenCost)", { skip: !(RPC && ADDR && PUSDG) && "set PAYMASTER_PARITY_RPC/ADDR/USDG" }, async () => {
+test("parity with DisciplePaymaster.sol (getHash, getOpHash, parse, firstCallApproves, tokenCost)", { skip: !(RPC && ADDR && PUSDG) && "set PAYMASTER_PARITY_RPC/ADDR/USDG" }, async () => {
   const pc = createPublicClient({ transport: http(RPC) });
   const chainId = await pc.getChainId();
   const abi = parseAbi([
     "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
-    "function getHash(P op, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
+    "function getHash(address sender, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
+    "function getOpHash(P op, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
     "function parsePaymasterAndData(bytes pmd) pure returns (uint48, uint48, uint256, uint256, bytes)",
     "function firstCallApproves(bytes cd, uint256 min) view returns (bool)",
     "function tokenCost(uint256 weiAmount, uint256 rate) pure returns (uint256)",
@@ -229,8 +348,10 @@ test("parity with DisciplePaymaster.sol (getHash, parse, firstCallApproves, toke
     accountGasLimits: concat([p16(op.verificationGasLimit!), p16(op.callGasLimit!)]), preVerificationGas: BigInt(op.preVerificationGas!),
     gasFees: concat([p16(op.maxPriorityFeePerGas!), p16(op.maxFeePerGas!)]), paymasterAndData: pmd, signature: "0x" as Hex,
   };
-  const onchain = await pc.readContract({ address: ADDR!, abi, functionName: "getHash", args: [packed, q.validUntil, q.validAfter, q.rate, q.maxTokenCost] });
-  assert.equal(onchain, paymasterQuoteHash(op, q, chainId, ADDR!));
+  const onchain = await pc.readContract({ address: ADDR!, abi, functionName: "getHash", args: [op.sender, q.validUntil, q.validAfter, q.rate, q.maxTokenCost] });
+  assert.equal(onchain, paymasterAllowanceHash(op.sender, q, chainId, ADDR!));
+  const onchainOp = await pc.readContract({ address: ADDR!, abi, functionName: "getOpHash", args: [packed, q.validUntil, q.validAfter, q.rate, q.maxTokenCost] });
+  assert.equal(onchainOp, paymasterQuoteHash(op, q, chainId, ADDR!));
   const parsed = await pc.readContract({ address: ADDR!, abi, functionName: "parsePaymasterAndData", args: [pmd] });
   assert.deepEqual([Number(parsed[0]), Number(parsed[1]), parsed[2], parsed[3], parsed[4]], [q.validUntil, q.validAfter, q.rate, q.maxTokenCost, sig]);
   assert.equal(await pc.readContract({ address: ADDR!, abi, functionName: "firstCallApproves", args: [op.callData, amt] }), true);
@@ -320,3 +441,44 @@ test("user-facing copy never mentions gas / ETH / paymaster / bundler / sponsors
   assert.throws(() => checkPaymaster({ paymaster: PM2 } as never, PM, BigInt(0), BASE), (e: unknown) => e instanceof RelayPolicyError && e.message === TRADING_UNAVAILABLE && /not accepted/.test(e.detail ?? ""));
 });
 
+
+// ── pm_getPaymasterAllowance rate limits (AUDIT #141 L-3) ──
+/** Same loop as app/api/paymaster/route.ts allowance(): every bucket must pass. */
+async function allowanceAllowed(ip: string, sender: string) {
+  for (const [k, limit, w] of paymasterAllowanceLimits(ip, sender)) if (!(await hitLimit(memoryCounter, k, limit, w)).ok) return false;
+  return true;
+}
+test("allowance limit: a third party can't exhaust a victim's per-sender bucket (keyed on IP + sender)", async () => {
+  const victim = `0x${"ab".repeat(20)}`, attacker = `198.51.100.${Math.floor(Math.random() * 200)}`, victimIp = `203.0.113.${Math.floor(Math.random() * 200)}`;
+  const n = ALLOWANCE_LIMITS.perIpSender.limit;
+  for (let i = 0; i < n; i++) assert.equal(await allowanceAllowed(attacker, victim), true);
+  assert.equal(await allowanceAllowed(attacker, victim), false, "attacker's own (ip, sender) bucket is exhausted");
+  assert.equal(await allowanceAllowed(victimIp, victim), true, "the victim (other IP) still gets allowances");
+  assert.equal(await allowanceAllowed(victimIp, victim.toUpperCase().replace("0X", "0x")), true, "sender key is case-insensitive");
+});
+test("allowance limit: rotating senders from one IP is still capped by the per-IP limit", async () => {
+  const ip = `192.0.2.${Math.floor(Math.random() * 200)}`;
+  let ok = 0;
+  for (let i = 0; i < BUNDLER_LIMITS.simPerIp.limit + 10; i++) if (await allowanceAllowed(ip, `0x${i.toString(16).padStart(40, "0")}`)) ok++;
+  assert.equal(ok, BUNDLER_LIMITS.simPerIp.limit);
+  assert.deepEqual(paymasterAllowanceLimits("1.2.3.4", "0xAbC").map((x) => x[0]), ["paymaster:ip:1.2.3.4", "paymaster:allow:1.2.3.4:0xabc"]);
+});
+
+// ── signer key selection (lee 2026-10-24 1:17 PM CT: reuse the login-attest key on testnet) ──
+test("paymasterSignerKey: PAYMASTER_SIGNER_KEY wins, falls back to PVE_ATTESTER_PRIVATE_KEY, never relayer/faucet", () => {
+  const own = generatePrivateKey(), att = generatePrivateKey(), rel = generatePrivateKey();
+  assert.deepEqual(paymasterSignerKey({ PAYMASTER_SIGNER_KEY: own, PVE_ATTESTER_PRIVATE_KEY: att }), { key: own, source: "PAYMASTER_SIGNER_KEY" });
+  assert.deepEqual(paymasterSignerKey({ PVE_ATTESTER_PRIVATE_KEY: att }), { key: att, source: "PVE_ATTESTER_PRIVATE_KEY" });
+  assert.deepEqual(paymasterSignerKey({ PAYMASTER_SIGNER_KEY: "  ", PVE_ATTESTER_PRIVATE_KEY: att }).source, "PVE_ATTESTER_PRIVATE_KEY");
+  const cfg = (f: () => unknown) => assert.throws(f, (e: unknown) => e instanceof PaymasterQuoteError && e.code === "config");
+  cfg(() => paymasterSignerKey({}));
+  cfg(() => paymasterSignerKey({ PAYMASTER_SIGNER_KEY: "0x1234", PVE_ATTESTER_PRIVATE_KEY: att })); // malformed own key: no silent fallback
+  cfg(() => paymasterSignerKey({ PVE_ATTESTER_PRIVATE_KEY: rel, RELAYER_PRIVATE_KEY: rel }));
+  cfg(() => paymasterSignerKey({ PVE_ATTESTER_PRIVATE_KEY: att, DRIP_FAUCET_KEY: att }));
+});
+
+test("assertSignerMatches: fail closed unless the key's address is DisciplePaymaster.signer()", () => {
+  const a = privateKeyToAccount(generatePrivateKey()).address, b = privateKeyToAccount(generatePrivateKey()).address;
+  assert.doesNotThrow(() => assertSignerMatches(a, a.toLowerCase() as Address));
+  assert.throws(() => assertSignerMatches(a, b), (e: unknown) => e instanceof PaymasterQuoteError && e.code === "config");
+});

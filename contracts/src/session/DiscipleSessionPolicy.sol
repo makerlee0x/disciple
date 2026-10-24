@@ -17,6 +17,9 @@ interface IQuoteSources {
         external
         returns (uint256 amountOut, uint256 maxHopImpactBps);
     function usdg() external view returns (address);
+    function quoteUsdgQuoteSwap(address quote, bool toQuote, uint256 amountIn)
+        external
+        returns (uint256 amountOut, uint256 impactBps);
 }
 
 interface ITokenOf {
@@ -49,14 +52,14 @@ interface IAnonFee {
 /// @dev Storage is keyed `[entityId][account]` (account innermost) so validation-phase reads are account-associated.
 contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     // ───────────────────────── permissions (bitmask) ─────────────────────────
-    uint256 public constant P_ROUTER_BUY = 1 << 0; // DiscipleRouter.buyExactIn + buyWithUsdg
-    uint256 public constant P_ROUTER_SELL = 1 << 1; // DiscipleRouter.sellExactIn + sellToUsdg
+    uint256 public constant P_ROUTER_BUY = 1 << 0; // DiscipleRouter.buyExactIn + buyWithUsdg + swapUsdgToQuote
+    uint256 public constant P_ROUTER_SELL = 1 << 1; // DiscipleRouter.sellExactIn + sellToUsdg + swapQuoteToUsdg
     uint256 public constant P_CURVE_BUY = 1 << 2; // BondingCurve.buy (3- and 4-arg)
     uint256 public constant P_CURVE_SELL = 1 << 3; // BondingCurve.sell (3- and 4-arg)
     uint256 public constant P_TRAMP = 1 << 4; // TrampWallManager.placeTramp
     uint256 public constant P_WALL = 1 << 5; // TrampWallManager.placeWall
     uint256 public constant P_CANCEL = 1 << 6; // TrampWallManager.cancel
-    uint256 public constant P_LAUNCH = 1 << 7; // Launchpad.launch / launchCoin
+    uint256 public constant P_LAUNCH = 1 << 7; // Launchpad.launch / launchCoin / launchWithMode + DiscipleRouter.launchWithUsdg
     uint256 public constant P_ANON_LAUNCH = 1 << 8; // AnonLauncher.launchAnon
     uint256 public constant P_APPROVE = 1 << 9; // ERC20.approve(spender ∈ DISCIPLE contracts | registered curve)
     uint256 public constant P_REFERRAL = 1 << 10; // ReferralRegistry.tryAttribute(wallet == account, referrer)
@@ -76,6 +79,17 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     bytes4 internal constant ROUTER_SELL = bytes4(keccak256("sellExactIn(address,uint256,uint256,address,uint256)"));
     bytes4 internal constant ROUTER_BUY_USDG = bytes4(keccak256("buyWithUsdg(address,uint256,uint256,uint256)"));
     bytes4 internal constant ROUTER_SELL_USDG = bytes4(keccak256("sellToUsdg(address,uint256,uint256,uint256)"));
+    // 1.4.1 (redeploy pack, lee 2026-10-24): dollar First BOOST + USDG<->pair-coin swaps. Claims are NOT session
+    // calls (claimCreatorFeesToUsdg, FeeRouter claims, crew tips, referral, transferCreator need a wallet confirm).
+    bytes4 internal constant ROUTER_LAUNCH_USDG = bytes4(
+        keccak256(
+            "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
+        )
+    );
+    bytes4 internal constant ROUTER_SWAP_TO_QUOTE =
+        bytes4(keccak256("swapUsdgToQuote(address,uint256,uint256,address,uint256)"));
+    bytes4 internal constant ROUTER_SWAP_TO_USDG =
+        bytes4(keccak256("swapQuoteToUsdg(address,uint256,uint256,address,uint256)"));
     bytes4 internal constant CURVE_BUY3 = bytes4(keccak256("buy(uint256,uint256,uint256)"));
     bytes4 internal constant CURVE_BUY4 = bytes4(keccak256("buy(uint256,uint256,uint256,address)"));
     bytes4 internal constant CURVE_SELL3 = bytes4(keccak256("sell(uint256,uint256,uint256)"));
@@ -215,7 +229,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     }
 
     function moduleId() external pure override returns (string memory) {
-        return "disciple.session-policy.1.4.0";
+        return "disciple.session-policy.1.4.1";
     }
 
     function supportsInterface(bytes4 id) external pure override returns (bool) {
@@ -413,6 +427,29 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             bool isBuy = sel == ROUTER_BUY_USDG;
             _checkMinOut(c, minOut, _usdgRouteQuote(k.target, account, token, isBuy, amountIn), k.target);
             if (isBuy) (add0, add1) = _spend(c, usdg, amountIn);
+        } else if (sel == ROUTER_SWAP_TO_QUOTE || sel == ROUTER_SWAP_TO_USDG) {
+            // swapUsdgToQuote / swapQuoteToUsdg(quote, amountIn, minOut, recipient, deadline): recipient pinned to the
+            // account, minOut checked against the router's live quote of the same USDG/quote pool, and the INPUT
+            // counts against its cap like buyWithUsdg (USDG in, or the pair coin in: must be a capped quote).
+            (address q, uint256 amountIn, uint256 minOut, address recipient,) =
+                abi.decode(args, (address, uint256, uint256, address, uint256));
+            if (recipient != account) revert RecipientNotAccount();
+            bool toQuote = sel == ROUTER_SWAP_TO_QUOTE;
+            _checkMinOut(c, minOut, _usdgQuoteSwapQuote(k.target, q, toQuote, amountIn), k.target);
+            (add0, add1) = _spend(c, toQuote ? usdg : q, amountIn);
+        } else if (sel == ROUTER_LAUNCH_USDG) {
+            // launchWithUsdg(LaunchParams, mode, usdgIn, minQuoteIn): the router launches AS msg.sender (= this
+            // account: creator + First BOOST recipient) and refunds in USDG to it. usdgIn counts against the USDG cap;
+            // on a non-USDG pair the USDG->pair leg's minQuoteIn is checked against the router's live quote.
+            uint256 usdgIn = uint256(bytes32(_wordRaw(args, 2)));
+            if (usdgIn != 0) {
+                address q = _launchQuote(c, args);
+                if (q != usdg) {
+                    uint256 minQuoteIn = uint256(bytes32(_wordRaw(args, 3)));
+                    _checkMinOut(c, minQuoteIn, _usdgQuoteSwapQuote(k.target, q, true, usdgIn), k.target);
+                }
+                (add0, add1) = _spend(c, usdg, usdgIn);
+            }
         } else if (p == P_ROUTER_BUY || p == P_ROUTER_SELL) {
             (address token, uint256 amountIn, uint256 minOut, address recipient,) =
                 abi.decode(args, (address, uint256, uint256, address, uint256));
@@ -488,9 +525,14 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             bytes4 sel = _sel(k.data);
             bytes memory args = _args(k.data);
             if (spender == c.router) {
-                if (sel == ROUTER_BUY_USDG) {
+                if (sel == ROUTER_BUY_USDG || sel == ROUTER_SWAP_TO_QUOTE) {
                     (, uint256 a) = abi.decode(args, (address, uint256));
                     need += a;
+                } else if (sel == ROUTER_SWAP_TO_USDG) {
+                    (address q, uint256 a) = abi.decode(args, (address, uint256));
+                    if (q == usdg) need += a; // reverts in the router (BadParam); counted for exactness
+                } else if (sel == ROUTER_LAUNCH_USDG) {
+                    need += uint256(bytes32(_wordRaw(args, 2)));
                 } else if (sel == ROUTER_BUY) {
                     (address t, uint256 a) = abi.decode(args, (address, uint256));
                     if (_quoteOfToken(c, t) == usdg) need += a;
@@ -542,6 +584,42 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
         uint256 creatorBuyQuoteIn;
         uint256 creatorBuyMinTokensOut;
         uint256 deadline;
+    }
+
+    function _usdgQuoteSwapQuote(address router, address q, bool toQuote, uint256 amountIn)
+        internal
+        returns (uint256 out)
+    {
+        try IQuoteSources(router).quoteUsdgQuoteSwap(q, toQuote, amountIn) returns (uint256 o, uint256) {
+            out = o;
+        } catch {
+            revert QuoteFailed(router);
+        }
+    }
+
+    /// @dev Pair coin of a launchWithUsdg call: LaunchParams.quote, or the Launchpad default when 0.
+    function _launchQuote(SessionConfig storage c, bytes memory args) internal view returns (address q) {
+        uint256 off;
+        assembly {
+            off := mload(add(args, 32))
+        }
+        // LaunchParams.quote is head word 5 of the tuple (after five string offsets)
+        if (off > args.length || args.length - off < 6 * 32) revert OnlyExecuteCalls();
+        uint256 w;
+        assembly {
+            w := mload(add(add(args, 32), add(off, 160)))
+        }
+        if (w >> 160 != 0) revert OnlyExecuteCalls();
+        q = address(uint160(w));
+        if (q == address(0)) q = IDefaultQuote(c.launchpad).defaultQuote();
+    }
+
+    /// @dev Head word `i` of abi-encoded args (bounds-checked).
+    function _wordRaw(bytes memory args, uint256 i) internal pure returns (bytes32 w) {
+        if (args.length < (i + 1) * 32) revert OnlyExecuteCalls();
+        assembly {
+            w := mload(add(args, add(32, mul(i, 32))))
+        }
     }
 
     /// @dev Decodes the leading LaunchParams tuple of launch/launchCoin/launchAnon args.
@@ -612,7 +690,10 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             if (sel == ROUTER_SELL) return P_ROUTER_SELL;
             if (sel == ROUTER_BUY_USDG) return P_ROUTER_BUY;
             if (sel == ROUTER_SELL_USDG) return P_ROUTER_SELL;
-            return 0;
+            if (sel == ROUTER_SWAP_TO_QUOTE) return P_ROUTER_BUY;
+            if (sel == ROUTER_SWAP_TO_USDG) return P_ROUTER_SELL;
+            if (sel == ROUTER_LAUNCH_USDG) return P_LAUNCH;
+            return 0; // claimCreatorFeesToUsdg and every other router call: wallet confirm
         }
         if (target == referralRegistry && target != address(0)) {
             if (sel == TRY_ATTRIBUTE) return P_REFERRAL;
