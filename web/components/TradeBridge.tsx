@@ -121,7 +121,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     const pc = publicClient();
     /** Fix 3: receipt → exact USDG / token amounts (UsdgTrade, else the venue Trade event) → 'disciple:fillreceipt' {txHash, side,
      *  usd, tokens, feeUsd}; components/PnlHud swaps its optimistic estimate for it (lib/pnl reconcileFill). Best effort. */
-    const bookReceipt = async (hash: string, side: "buy" | "sell") => {
+    const bookReceipt = async (hash: string, side: "buy" | "sell", bag?: number) => {
       try {
         const me = await activeAddress();
         const [rc, usdgDec] = await Promise.all([
@@ -132,7 +132,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const m = markRef.current;
         const x = decodeTradeFill(rc.logs as unknown as { address: string; topics: string[]; data: string }[],
           { token, trader: me, router: deployment().router, usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
-        if (x && x.side === side) dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source } }));
+        if (x && x.side === side) dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}) } }));
       } catch { /* the optimistic estimate stays booked */ }
     };
     window.__discipleTrade = async (side, usd, o) => {
@@ -144,10 +144,12 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         // % sells size from the (polled, ≤5 s) balance hint; $ shots from the cached launch quote price ⇒ no reads when warm
         let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await shotAmountIn(pc, token as Address, side, usd);
+        let bag: number | undefined;   // sells: the wallet balance this sell was sized from → PnL HUD splits tracked / untracked pro-rata
         if (side === "sell") {
           const me = await activeAddress();
           const bal = await freshSellBalance(() => tokenBalance(pc, token as Address, me), () => balanceHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
           if (bal === BigInt(0)) { setLast("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
+          bag = units(bal);
           if (o?.all || (o?.frac && o.frac > 0)) amountIn = sellAmountFor(bal, o);   // % of the real balance; DUMP ALL = all of it
           if (amountIn > bal) amountIn = bal;
         }
@@ -160,7 +162,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // exact new coin balance from the receipt (buy: + received; sell: already decremented optimistically) — no
         // immediate balanceOf: a lagging RPC node would clobber it; the 5 s hint TTL re-reads once nodes caught up
         lastOwnTradeAt.current = Date.now();
-        if (r.ok && r.txHash) void bookReceipt(r.txHash, side);   // Fix 3: exact fill from the receipt → PnL HUD reconciles
+        if (r.ok && r.txHash) void bookReceipt(r.txHash, side, bag);   // Fix 3: exact fill from the receipt → PnL HUD reconciles
         if (side === "buy" && r.amountOut) bumpBalance(token as Address, await activeAddress(), r.amountOut);
         else void new Promise((res) => setTimeout(res, 1200)).then(async () => tokenBalance(pc, token as Address, await activeAddress())).catch(() => undefined);
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
@@ -251,16 +253,28 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     return () => { removeEventListener("disciple:sellselect", c); removeEventListener("disciple:dump", d); };
   }, []);
   // SELL row labels/enabled → engine ammo panel
-  // live: the wallet's real token balance decides whether selling is possible (polled + after each trade) → engine guard
+  // live: the wallet's real token balance decides whether selling is possible (polled + after each trade) → engine guard.
+  // It is ALSO the PnL HUD's position (maker lee: "should be from actual wallet balance"): components/PnlHud shows this
+  // balance × the mark as HOLDINGS. Read with freshSellBalance, the exact same read DUMP % sizes from, so the HUD shows what
+  // DUMP sells. Refreshed on load, every 10 s, after each trade (disciple:livetrade) and when a fill's receipt lands.
+  // settled = no own trade in flight / within 15 s (RPC nodes may lag): only then may the HUD shrink a stale ledger to it.
   const [liveHas, setLiveHas] = useState<boolean | null>(null);
   useEffect(() => {
     if (!live) { setLiveHas(null); dispatchEvent(new CustomEvent("disciple:holdings", { detail: null })); return; }
     let alive = true; const pc = publicClient();
-    const poll = async () => { try { const me = await activeAddress(); if (!me) return; const b = await tokenBalance(pc, token as Address, me);
-      // tokens: the real balanceOf → engine S.liveBag (live % / DUMP ALL $ sizing at its mark)
-      if (alive) { liveTokens.current = units(b); setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0), tokens: liveTokens.current } })); } } catch { /* keep last */ } };
-    void poll(); const iv = setInterval(poll, 10_000); addEventListener("disciple:livetrade", poll);
-    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", poll); };
+    const poll = async () => { try { const me = await activeAddress(); if (!me) return;
+      const b = await freshSellBalance(() => tokenBalance(pc, token as Address, me), () => balanceHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
+      const inFlight = (window.__disciplePendingTrades?.buy || 0) + (window.__disciplePendingTrades?.sell || 0);
+      const settled = inFlight === 0 && Date.now() - lastOwnTradeAt.current > 15_000;
+      // tokens: the real balanceOf → engine S.liveBag (live % / DUMP ALL $ sizing at its mark) + PnL HUD holdings
+      if (alive) { liveTokens.current = units(b); setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0), tokens: liveTokens.current, settled } })); } } catch { /* keep last */ } };
+    const tos = new Set<ReturnType<typeof setTimeout>>();
+    const later = (ms: number) => { const id = setTimeout(() => { tos.delete(id); void poll(); }, ms); tos.add(id); };
+    const soon = () => later(300);   // receipt landed: bumpBalance already applied for buys
+    const afterTrade = () => { void poll(); later(16_000); };   // now + once settled
+    void poll(); const iv = setInterval(poll, 10_000);
+    addEventListener("disciple:livetrade", afterTrade); addEventListener("disciple:fillreceipt", soon);
+    return () => { alive = false; clearInterval(iv); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", afterTrade); removeEventListener("disciple:fillreceipt", soon); };
   }, [live, token]);
   // CASH for the BOOST check. Live: the trading account's USDG (the header's "cash"), polled + after each trade, also pushed
   // to the engine (disciple:cash) so SPACE is blocked the same way. Paper: the engine's paper balance (disciple:papercash).

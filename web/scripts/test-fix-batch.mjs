@@ -38,7 +38,7 @@ console.log("— 1. no phantom gas");
   ok(v.uPnl < 0 && near(fee, 100 * P.FEE), `flat price right after a buy: uPnL ${v.uPnl.toFixed(2)} red only from the buy fee → note ${fee.toFixed(2)}`);
   const v2 = P.view(pos, 0.5e-5, 7e9, Date.now());
   ok(P.redFromBuyFees(pos, v2) === 0, "price really down: no buy-fee note (the loss is not just fees)");
-  ok(/pnl-buy-fees/.test(hud) && /redFromBuyFees\(pos, v\)/.test(hud) && /"pnl\.inclBuyFees": "incl\. \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD labels it 'incl. $X buy fees'"); }
+  ok(/pnl-buy-fees/.test(hud) && /redFromBuyFees\((pos, v|\{ \.\.\.pos, costBasis: basis \}, \{ size: tracked \? v\.size : 0, uPnl: v\.uPnl \})\)/.test(hud) && /"pnl\.inclBuyFees": "incl\. \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD labels it 'incl. $X buy fees'"); }
 
 // ───────────── 2. BOOST vs cash ─────────────
 console.log("— 2. BOOST cash check");
