@@ -167,9 +167,6 @@ export default function PhoneHud() {
           justifyContent: "space-between", font: "11.5px ui-monospace,Menlo,monospace", letterSpacing: ".14em", color: "rgba(214,222,245,.56)" }}>
           <span><span style={{ color: "#2FD98A" }}>●</span> LIVE TRADES</span>
           <span style={{ letterSpacing: ".04em" }}>{pnlLine}</span></div>}
-        {sheet === "run" && <button type="button" data-testid="phone-settings" onClick={() => dispatchEvent(new Event("disciple:settings-open"))}
-          style={{ all: "unset", pointerEvents: "auto", position: "absolute", right: SIDE, top: bb - 88, height: 40, padding: "0 14px", borderRadius: 14, cursor: "pointer",
-            font: "700 13px system-ui,sans-serif", color: "#EEF1FA", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)" }}>⚙ Settings</button>}
       </section>}
       <style jsx global>{`
         /* ---- phone HUD v3 (html.ap-phone) ---- */
@@ -194,7 +191,7 @@ export default function PhoneHud() {
           background: rgba(255,255,255,.04) !important; border: 1px solid rgba(255,255,255,.08) !important; border-radius: 20px !important; box-shadow: none !important;
         }
         html.ap-phone[data-ph-sheet="chat"] [data-testid="chat-dock"] { display: flex !important; height: var(--ph-bh) !important; overflow: hidden; }
-        html.ap-phone[data-ph-sheet="run"] .pnl-hud { max-height: calc(var(--ph-bh) - 100px) !important; }
+        html.ap-phone[data-ph-sheet="run"] .pnl-hud { max-height: calc(var(--ph-bh) - 52px) !important; }   /* room for the T/W bar */
         html.ap-phone[data-ph-sheet="run"] .ap-bc:has(> [data-testid="tw-open"]) {
           display: flex !important; position: fixed !important; left: var(--ph-bx) !important; top: calc(var(--ph-by) + var(--ph-bh) - 40px) !important; bottom: auto !important;
           transform: none !important; z-index: 32 !important; height: 40px; align-items: center; gap: 6px;

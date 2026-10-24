@@ -33,7 +33,7 @@ ok(/dy < -18 \|\| Math\.abs\(dy\) < 8\) setSheet\(lastTab\.current\)/.test(hud),
 ok(/\[data-testid="phone-drawer"\]'\);/.test(sm), "Esc with the drawer open closes it (Settings does not open)");
 ok(/new URLSearchParams\(location\.search\)\.get\("clean"\) === "1"\) return/.test(hud) && /if \(!phone \|\| !L\) return null;/.test(hud), "?clean=1 / desktop render nothing");
 ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "drawer tint == engine body tint");
-ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && /data-testid="phone-settings"[^\n]*disciple:settings-open/.test(hud), "gear hidden on phone; Settings reachable from the Run tab");
+ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
 ok(/html\.ap-phone #exitX \{ top: 12px !important; right: var\(--ph-x-right\)/.test(hud), "one glass ✕ in the top row");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
 const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
@@ -145,9 +145,8 @@ ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet"
 ok(/No position yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
 ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="chat"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Chat / Run reuse the existing panels");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
-// Settings: the interim Run-tab button and SITE #149's Sidebar item both send a plain Event (no detail) → the listener must not need a CustomEvent
+// Settings: SITE's Sidebar item (#149) sends a plain Event (no detail) → the listener must not need a CustomEvent
 ok(/const o = \(\) => openMenu\(\); addEventListener\("disciple:settings-open", o\);/.test(sm), "SettingsMenu opens on a plain Event('disciple:settings-open') (no detail read)");
 { let opened = 0; const T = new EventTarget(); const o = () => { opened++; }; T.addEventListener("disciple:settings-open", o);
   T.dispatchEvent(new Event("disciple:settings-open")); T.dispatchEvent(new CustomEvent("disciple:settings-open")); ok(opened === 2, "plain Event and CustomEvent both open Settings"); }
-ok(/data-testid="phone-settings" onClick=\{\(\) => dispatchEvent\(new Event\("disciple:settings-open"\)\)\}/.test(hud), "interim Run-tab Settings button (pending removal once SITE #149 lands)");
 console.log(`phone-hud: ${n} checks passed`);
