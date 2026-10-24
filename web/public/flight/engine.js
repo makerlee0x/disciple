@@ -38,10 +38,11 @@ function drawIcon(name,x,y,h,color){ const sp=D_ICONS[name]; if(!sp||typeof Path
 const BOMB_ICON=['bomb-puff','bomb-grenade','bomb-bunker','bomb-cruise','bomb-nuke','bomb-atom'];
 
 const TIERS = FLIGHT_TIERS;   // source of truth: web/lib/flight/tiers.ts (generated block above)
-const FLOOR_MCAP = 7e3;          // log-scale floor for tier 0 (Launch Pad lo)
-const START_MCAP = 7777;         // constitution start mcap (Constants.START_MCAP_USD)
+const FLOOR_MCAP = 3333;         // log-scale floor for tier 0 (Launch Pad lo = Constants.TIER_LAUNCH_PAD_LO_USD)
+const START_MCAP = 3333;         // curve #1 start mcap (Constants.START_MCAP_USD)
+const CURVE_MID_MCAP = 15000;    // curve #1: CP part at the curve end; the g^30 tail adds the rest (Constants.CURVE_MID_MCAP_USD)
 const GRADUATION_MCAP = 33333;   // Outer Space = graduation (Constants.GRADUATION_MCAP_USD)
-const CURVE_SOLD_PCT = 72;       // % of supply sold on curve at graduation
+const CURVE_SOLD_PCT = 84.24;    // % of supply sold on curve at graduation (Constants.CURVE_SOLD_BPS)
 const EMPYREAN_SPAN = 2;         // prestige beyond Seventh Heaven cap: frac per 2× mcap
 
 // altitude: integer part = tier index, fractional = log position inside tier
@@ -2042,21 +2043,25 @@ var CLEAN=Q.get('clean')==='1';   // ?clean=1 (replay/share videos): no feed, st
 function HOOK(type,detail){ const h=window.__flightHook; if(h) try{ h(type,detail); }catch(_){} }
 
 /* ---- 1) tier progress: USD buy pressure to reach the next tier ----
-   Model (float copy of CurveMath.sol / lib/sim/market.ts):
-   - pre-grad (mcap < $33,333): virtual-reserve curve, spot = x/y and x·y = x0·y0  ⇒  x(M) = x0·√(M/M0).
-     Quote needed = [x(M1) − x(M)] / (1 − 1% fee)   (exact for the curve, ignores the 7 s anti-snipe tax).
-   - post-grad: constant-product pool seeded at the curve-end price with Y = 28% of supply
-     ⇒ X(M) = X_grad·√(M/33K); needed = [X(M1) − X(M)] / (1 − fee)  (CPAMM approximation, no other flow).
+   Model (float copy of CurveMath.sol steep curve #1 / lib/sim/market.ts):
+   - pre-grad (mcap < $33,333): m(g) = M0/(1 − a·g)² + T·g³⁰, g = sold/sCurve, a = 1 − √(M0/MID), T = M1 − MID.
+     Reserve R(g) = f·M0·g/(1 − a·g) + f·T·g³¹/31 (f = 84.24%); quote needed = [R(g(M1)) − R(g(M))] / (1 − 1% fee)
+     (exact for the curve, ignores the 77 s anti-snipe tax). The steep tail makes the last tiers before graduation dearer.
+   - post-grad: constant-product pool seeded at the curve-end price with Y = 15.76% of supply (~$5.25K USDG pairing)
+     ⇒ X(M) = X_grad·√(M/33,333); needed = [X(M1) − X(M)] / (1 − fee)  (CPAMM approximation, no other flow; the
+     locked floor bands sit below spot, so they slow sells, not buys).
    - crossing graduation: curve part to $33,333 + pool part beyond.
-   - /flight/sim: the depth comes from the sim's own market (source.impact inverts to the live quote depth d,
-     needed = d·(√(M1/M) − 1)/(1 − fee)) whenever start and target are in the same phase. */
-const TB_FEE=0.01, TB_M0=START_MCAP, TB_M1=GRADUATION_MCAP, TB_SR=Math.sqrt(TB_M1/TB_M0);
-const TB_X0=TB_M0*(CURVE_SOLD_PCT/100)*TB_SR/(TB_SR-1), TB_XG=TB_M1*(1-CURVE_SOLD_PCT/100);
-function curveQuote(M){ return TB_X0*Math.sqrt(Math.max(M,TB_M0)/TB_M0); }
+   - /flight/sim: in the pool phase the depth comes from the sim's own market (source.impact inverts to the live quote
+     depth d, needed = d·(√(M1/M) − 1)/(1 − fee)); on the curve the closed form above is exact. */
+const TB_FEE=0.01, TB_M0=START_MCAP, TB_M1=GRADUATION_MCAP, TB_F=CURVE_SOLD_PCT/100, TB_A=1-Math.sqrt(TB_M0/CURVE_MID_MCAP), TB_T=TB_M1-CURVE_MID_MCAP;
+const TB_XG=TB_M1*(1-TB_F);
+function curveMcapAt(g){ return TB_M0/((1-TB_A*g)*(1-TB_A*g))+TB_T*Math.pow(g,30); }
+function curveGAt(M){ if(!(M>TB_M0)) return 0; if(M>=TB_M1) return 1; let lo=0,hi=1; for(let i=0;i<48;i++){ const g=(lo+hi)/2; if(curveMcapAt(g)<M) lo=g; else hi=g; } return (lo+hi)/2; }
+function curveQuote(M){ const g=curveGAt(M); return TB_F*TB_M0*g/(1-TB_A*g)+TB_F*TB_T*Math.pow(g,31)/31; }
 function poolQuote(M){ return TB_XG*Math.sqrt(M/TB_M1); }
 function usdToReach(M,Mt){
   if (!(M>0)||!(Mt>M)) return 0;
-  if (source.isSim&&source.impact&&(Mt<=TB_M1||M>=TB_M1)){ const imp=source.impact(100,'buy');
+  if (source.isSim&&source.impact&&M>=TB_M1){ const imp=source.impact(100,'buy');
     if (imp>1){ const d=100*(1-TB_FEE)/(Math.sqrt(imp)-1); return d*(Math.sqrt(Mt/M)-1)/(1-TB_FEE); } }
   let q=0;
   if (M<TB_M1) q+=curveQuote(Math.min(Mt,TB_M1))-curveQuote(M);
