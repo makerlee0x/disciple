@@ -1,136 +1,102 @@
 /**
  * Rapid tap (GAME): several real trades in flight (≤ 3), each press its own reservation, all SYNC (no await before aaSend).
- * Pure helpers ⇒ unit-tested in scripts/test-rapid-tap.mjs. The registry is SITE's (#144; shimmed: ./reservationsShim),
- * the gas reserve FLOW's (adapted: ./gasReserve).
- * AUDIT (timeouts): a sync send that times out (20 s) can still land ⇒ a timeout is UNKNOWN, never a failure. The press
- * keeps its reservation and the rocket keeps hovering until the outcome is known (receipt lookup or SITE's resolution);
- * a late landing resolves as a normal fill, a definite failure (revert / rejected / error) eases back.
+ * Pure helpers ⇒ unit-tested in scripts/test-rapid-tap.mjs. The registry is SITE's (#144 af12a357; shimmed:
+ * ./reservationsShim): GAME reserves its press there (same id as TradeParams.reservationId) and reads spendable cash and
+ * unreserved tokens from it — no GAME-side ledger. The gas reserve is FLOW's (#145; adapted: ./gasReserve), wired in as
+ * SITE's gas reserve source (raw USDG base units).
+ * AUDIT (timeouts): a receipt / relay timeout is SITE's typed 'pending_unknown' (ProtocolError.code / TradeResult.errorCode),
+ * NEVER a failure: SITE keeps the hold (release() refuses it) and its background watcher (≤ 2 min, never resends) ends it
+ * with a "resolved" event (outcome filled | error, txHash, amountOut) and then its "release". GAME keeps hovering until then.
  */
-import { reserve, release, reservedTokens, type ReleaseReason, type ReservationEvent } from "./reservationsShim";
+import { deployment } from "@/lib/chains";
+import { usdToUsdgRaw, usdgDecimals, usdgRawToUsd } from "@/lib/usdg";
+import { RESERVATIONS, release, reserve, reservedTokens, setGasReserveSource, subscribe, type ReleaseReason, type ReservationEvent } from "./reservationsShim";
 import { gasReservePerOp } from "./gasReserve";
 
-/** PLACEHOLDER copy, for lee + BRAND to pick. */
+// FLOW's per-op gas reserve (raw USDG base units) is SITE's gas reserve source: every BOOST the trade layer reserves
+// (ours by press id, or an auto id) holds one op's gas. TODO(#144/#145): keep this line when both shims become re-exports.
+setGasReserveSource(() => gasReservePerOp());
+
+/** PLACEHOLDER copy, for lee + BRAND to pick. `confirming` = SITE's PENDING_UNKNOWN_MSG (lib/aa/relayOp, #144). */
 export const COPY = {
   inFlight: "3 IN FLIGHT", slowDown: "Slow down", spendLimit: "Spend limit reached", allSelling: "Already selling it all",
-  confirming: "Still confirming…", checkBalance: "Couldn't confirm yet. Check your balance in a moment.",
+  confirming: "Still confirming your last trade…",
 } as const;
 /** relayOp.ts REJECTED_MSG (#138/#140): the definite-failure line. */
 export const REJECTED = "That didn't go through. Try again.";
 
 export type GameSide = "buy" | "sell";
 const SIDE = { buy: "boost", sell: "dump" } as const;
-/** $ → raw USDG (USDG is $1; decimals from config — 18 on today's testnet, 6 after the redeploy). Exact to the µ$. */
-export const usdToRaw = (usd: number, usdgDecimals: number): bigint =>
-  usd > 0 && Number.isFinite(usd) ? BigInt(Math.round(usd * 1e6)) * BigInt(10) ** BigInt(usdgDecimals) / BigInt(1e6) : BigInt(0);
+/** $ → raw USDG (lib/usdg; decimals = the active USDG's, never hard-coded). */
+export const usdToRaw = (usd: number): bigint => usdToUsdgRaw(usd, usdgDecimals());
 /** raw USDG → $, for DISPLAY only (all reservation math stays in raw bigint). */
-export const rawToUsd = (raw: bigint, usdgDecimals: number) => Number(raw) / 10 ** usdgDecimals;
+export const rawToUsd = (raw: bigint): number => usdgRawToUsd(raw, usdgDecimals());
 
-/** One GAME press = one ledger entry (same id in SITE's registry and TradeParams.reservationId). */
-export interface Press { id: string; side: GameSide; coin: string; amountInUsd?: number; tokenAmt?: bigint; gasReserve: bigint; unknown?: true }
 let seq = 0;
 export const nextPressId = () => `press-${Date.now().toString(36)}-${++seq}`;
-const LEDGER = new Map<string, Press>();
-const toRegistry = (p: Press) => reserve(p.id, { side: SIDE[p.side], coin: p.coin, usd: p.amountInUsd, tokenAmt: p.tokenAmt, gasReserve: p.gasReserve });
-/** Reserve a press (sync). Buy: its $ + one op's gas. Sell: one op's gas now; its tokens once sized (reservePressTokens). */
-export function reservePress(id: string, side: GameSide, coin: string, usd?: number): Press {
-  const p: Press = { id, side, coin, ...(side === "buy" ? { amountInUsd: usd } : {}), gasReserve: gasReservePerOp() };   // raw USDG (FLOW)
-  LEDGER.set(id, p); toRegistry(p); return p;
-}
-export function reservePressTokens(id: string, tokenAmt: bigint) { const p = LEDGER.get(id); if (!p) return; p.tokenAmt = tokenAmt; toRegistry(p); }
-/** Outcome unknown (timeout): keep holding. Re-asserts the registry hold if SITE released it (its Timeout / 60 s TTL backstop). */
-export function holdPress(id: string) { const p = LEDGER.get(id); if (!p) return; p.unknown = true; toRegistry(p); }
-export function releasePress(id: string, reason: ReleaseReason) { LEDGER.delete(id); release(id, reason); }
-export const pendingPresses = () => [...LEDGER.values()];
-export const isHeld = (id: string) => LEDGER.has(id);
-
-/** Raw USDG held by GAME's pending presses: Σ buy spend + Σ gas reserve (every pending op). */
-export function pendingCashRaw(usdgDecimals: number): bigint {
-  let t = BigInt(0); for (const p of LEDGER.values()) t += (p.side === "buy" ? usdToRaw(p.amountInUsd ?? 0, usdgDecimals) : BigInt(0)) + p.gasReserve; return t;
-}
 /**
- * Raw USDG spendable now = raw cash − Σ pending (spend + gas reserve) − this op's own gas reserve (≥ 0 not clamped: < 0 = short).
- * GAME's own ledger, in raw bigint (SITE's reservedCash() is a $ number for display; see the PR body on its 6-dec assumption).
+ * Reserve a press in SITE's registry (sync). Buy: its $ + one op's gas. Sell: one op's gas (USDG-paid gas comes out of
+ * cash on a DUMP too) now; its tokens once sized (reservePressTokens). Idempotent per id; the trade layer merges into it.
  */
-export function spendableRaw(cashRaw: bigint, usdgDecimals: number, withOwnGas = true): bigint {
-  return cashRaw - pendingCashRaw(usdgDecimals) - (withOwnGas ? gasReservePerOp() : BigInt(0));
+export function reservePress(id: string, side: GameSide, coin: string, usd?: number) {
+  return reserve(id, { side: SIDE[side], coin, ...(side === "buy" && usd !== undefined ? { usd } : {}), gasReserve: gasReservePerOp() });
 }
-/** Can this BOOST go out on top of what is pending? (raw compare) */
-export const canSpend = (cashRaw: bigint, usd: number, usdgDecimals: number) => spendableRaw(cashRaw, usdgDecimals) >= usdToRaw(usd, usdgDecimals);
+export function reservePressTokens(id: string, coin: string, tokenAmt: bigint) { return reserve(id, { side: "dump", coin, tokenAmt }); }
+/** Release a press. SITE refuses (false) while it is pending_unknown: only its watcher ends that hold. */
+export function releasePress(id: string, reason: ReleaseReason): boolean { return release(id, reason); }
+
+const usdg = () => deployment().usdg;
+/** Raw USDG held by every pending trade (SITE: Σ BOOST $ / exact spend + Σ gas caps), optionally except one press. */
+export const pendingCashRaw = (exceptId?: string): bigint => RESERVATIONS.reservedRaw(usdg(), { usdg: usdg(), exceptId });
+/** Raw USDG spendable now = raw cash − everything pending − (a new press) its own gas reserve. < 0 = short. */
+export function spendableRaw(cashRaw: bigint, withOwnGas = true): bigint {
+  return cashRaw - pendingCashRaw() - (withOwnGas ? gasReservePerOp() : BigInt(0));
+}
+/** Can this BOOST go out on top of what is pending? (raw compare, before its own reservation) */
+export const canSpend = (cashRaw: bigint, usd: number) => spendableRaw(cashRaw) >= usdToRaw(usd);
 /** DUMP sizing base: wallet balance − tokens already being sold by pending DUMPs (≥ 0). 50 % + 50 % ⇒ 75 % total. */
 export function unreservedTokens(balance: bigint, coin: string): bigint { const r = balance - reservedTokens(coin); return r > BigInt(0) ? r : BigInt(0); }
 
 /** SITE's tradeErrorCode(e) (#144 protocol-viem), mirrored: thrown ProtocolError.code or TradeResult.errorCode. */
-export type TradeErrorCode = "rate_limited" | "spend_limit";
+export type TradeErrorCode = "rate_limited" | "spend_limit" | "pending_unknown";
 export function tradeErrorCode(e: unknown): TradeErrorCode | undefined {
   const c = (e as { code?: unknown; errorCode?: unknown } | null)?.code ?? (e as { errorCode?: unknown } | null)?.errorCode;
-  return c === "rate_limited" || c === "spend_limit" ? c : undefined;
+  return c === "rate_limited" || c === "spend_limit" || c === "pending_unknown" ? c : undefined;
 }
-/** Trade result / error → the player's error line. Typed codes first (SITE #144), else a string fallback. */
+/** SITE 'pending_unknown': sent, still confirming — NOT a failure (hold kept; resolves via the registry). */
+export const isPendingUnknown = (e: unknown) => tradeErrorCode(e) === "pending_unknown";
+/** Trade result / error → the player's line. Typed codes first (SITE #144), else a string fallback for 429 / spend cap. */
 export function tradeErrorCopy(r: { ok?: boolean; code?: string; errorCode?: string; reason?: string; message?: string; retryAfterMs?: number }): string | undefined {
   if (r.ok) return r.reason;
   const c = tradeErrorCode(r);
   if (c === "rate_limited") return COPY.slowDown;
   if (c === "spend_limit") return COPY.spendLimit;
+  if (c === "pending_unknown") return COPY.confirming;
   const m = r.reason ?? r.message ?? "";
   if (/rate.?limit|too many (requests|trades)|\b429\b|-32005/i.test(m)) return COPY.slowDown;
   if (/SpendCapExceeded|one-tap budget|spend (cap|limit)/i.test(m)) return COPY.spendLimit;
   return r.reason ?? r.message;
 }
 
-/** A send whose outcome is UNKNOWN (sync send timed out / lost answer): may still land. Never a failure. */
-export function isUnknownOutcome(e: unknown): boolean {
-  const x = e as { code?: unknown; reason?: unknown; message?: unknown; cause?: unknown } | null;
-  if (!x) return false;
-  if (x.code === "Timeout") return true;
-  const m = String(x.reason ?? x.message ?? "");
-  if (/expired/i.test(m)) return false;   // "The trade took too long and expired" = definite (deadline revert)
-  if (/still confirming|not confirmed|timed? ?out/i.test(m)) return true;
-  return x.cause ? isUnknownOutcome(x.cause) : false;
-}
-/** Op ids carried by an error (AAError.extra / ProtocolError fields / cause chain), when the trade layer keeps them. */
-export function opIds(e: unknown): { txHash?: string; userOpHash?: string } {
-  for (let x = e as Record<string, unknown> | undefined, i = 0; x && i < 4; x = x.cause as Record<string, unknown> | undefined, i++) {
-    const ex = (x.extra ?? {}) as Record<string, unknown>;
-    const txHash = (x.txHash ?? ex.txHash) as string | undefined, userOpHash = (x.userOpHash ?? ex.userOpHash) as string | undefined;
-    if (txHash || userOpHash) return { ...(txHash ? { txHash } : {}), ...(userOpHash ? { userOpHash } : {}) };
-  }
-  return {};
-}
-
-export type LateOutcome = { state: "landed"; txHash?: string } | { state: "failed"; reason: string } | { state: "unknown" };
-/** Poll schedule (ms after the timeout) for the receipt lookup; then give up as unknown (balance polls catch up). */
-export const LATE_POLL_MS = [1000, 2000, 3000, 5000, 8000, 13000, 21000, 30000, 40000];
 /**
- * Resolve a timed-out press. Sources, first wins: (1) the receipt of txHash (success ⇒ landed, reverted ⇒ failed);
- * (2) SITE's registry release of this press id ("filled" ⇒ landed, "error" ⇒ failed; "timeout"/"cancel" are SITE's
- * backstops, NOT an outcome ⇒ re-hold). Never throws; ends "unknown" after the schedule. No await before any send.
+ * How a pending_unknown press ended (SITE's watcher):
+ *  - filled: "resolved" outcome filled (txHash / amountOut when the watcher found the log), then "release" filled.
+ *    No amountOut (and maybe no txHash) = it executed but the log wasn't found after the nonce moved ⇒ book from a
+ *    balance re-read (pinned to the receipt block when a txHash is known).
+ *  - error: dropped / reverted / its nonce used by another op ⇒ definite failure.
+ *  - gone: the hold ended some other way (logout clear, or already gone when we looked) ⇒ calm, re-read balances.
  */
-export function watchOutcome(o: {
-  pressId: string; txHash?: string;
-  lookup?: (h: string) => Promise<{ status: "success" | "reverted" } | null>;
-  subscribe?: (cb: (e: ReservationEvent) => void) => () => void;
-  sleep?: (ms: number) => Promise<void>; schedule?: number[];
-}): Promise<LateOutcome> {
-  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  holdPress(o.pressId);
-  return new Promise<LateOutcome>((resolve) => {
-    let done = false; const fin = (x: LateOutcome) => { if (done) return; done = true; off?.(); resolve(x); };
-    const off = o.subscribe?.((e) => {
-      if (done || e.id !== o.pressId || e.type !== "release") return;
-      if (e.reason === "filled") fin({ state: "landed", txHash: o.txHash });
-      else if (e.reason === "error") fin({ state: "failed", reason: REJECTED });
-      else holdPress(o.pressId);   // SITE's timeout / TTL: only a backstop — keep holding until the outcome is known
+export type Resolution = { outcome: "filled"; txHash?: string; amountOut?: bigint } | { outcome: "error" } | { outcome: "gone" };
+export function awaitResolution(pressId: string, o: { subscribe?: (cb: (e: ReservationEvent) => void) => () => void; held?: (id: string) => boolean } = {}): Promise<Resolution> {
+  const sub = o.subscribe ?? subscribe, held = o.held ?? ((id: string) => RESERVATIONS.has(id));
+  return new Promise<Resolution>((resolve) => {
+    let done = false, seen: Resolution | undefined;
+    const fin = (x: Resolution) => { if (done) return; done = true; off(); resolve(x); };
+    const off = sub((e) => {
+      if (done || e.id !== pressId) return;
+      if (e.type === "resolved") seen = e.outcome === "filled" ? { outcome: "filled", ...(e.txHash ? { txHash: e.txHash } : {}), ...(e.amountOut !== undefined ? { amountOut: e.amountOut } : {}) } : { outcome: "error" };
+      else if (e.type === "release") fin(seen ?? (e.reason === "filled" ? { outcome: "filled" } : e.reason === "error" ? { outcome: "error" } : { outcome: "gone" }));
     });
-    void (async () => {
-      let t = 0;
-      for (const at of o.schedule ?? LATE_POLL_MS) {
-        await sleep(Math.max(0, at - t)); t = at; if (done) return;
-        if (!o.txHash || !o.lookup) continue;
-        const r = await o.lookup(o.txHash).catch(() => null); if (done) return;
-        if (r?.status === "success") return fin({ state: "landed", txHash: o.txHash });
-        if (r?.status === "reverted") return fin({ state: "failed", reason: REJECTED });
-      }
-      fin({ state: "unknown" });
-    })();
+    if (!held(pressId)) fin({ outcome: "gone" });
   });
 }

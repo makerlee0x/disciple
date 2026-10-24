@@ -749,9 +749,9 @@ function spendableCash(cash){ const g=window.__discipleTrade&&S.gasPerOpUsd>0?S.
   for(const p of S.pending||[]) if(p.state==='pending') held+=(p.side==='buy'?p.usd:0)+g; return cash-held; }
 function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // PLACEHOLDER copy (lee / BRAND)
   S.flashes.push({txt:'3 IN FLIGHT',life:0.7,inflight:1}); }
-/** outcome unknown (send timed out): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
-function stillConfirming(p,ba){ p.unknown=1; if(ba) ba.unk=1;
-  const f=S.flashes.find(x=>x.confirming); if(f) f.life=1.8; else S.flashes.push({txt:'Still confirming…',life:1.8,confirming:1}); }   // PLACEHOLDER copy (lee / BRAND)
+/** pending_unknown (SITE): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
+function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; txt=String(txt||'Still confirming your last trade…');   // SITE PENDING_UNKNOWN_MSG (PLACEHOLDER copy)
+  const f=S.flashes.find(x=>x.confirming); if(f){ f.life=1.8; f.txt=txt; } else S.flashes.push({txt,life:1.8,confirming:1}); }
 function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
 /* @rapidtap-end */
 function trade(side,opt){
@@ -845,9 +845,9 @@ function submit(side,usd,force,opt,pct){
   const paperSell=side==='sell'&&!isLive()&&!source.isSim&&S.hold.tokens>0;
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
   source.submitTrade(side,S.tradeUsd,o).then(function onResult(r){
-    // AUDIT: a timed-out send can still land ⇒ UNKNOWN, not failed: keep the ghost + its slot + the reservation, keep the
-    // rocket hovering (calm 'Still confirming…'), and resolve on the LATE outcome (TradeBridge: receipt / SITE) like any result
-    if(r&&r.pending&&r.late&&typeof r.late.then==='function'){ stillConfirming(p,ba); r.late.then(onResult,()=>onResult({ok:false,unknown:1,reason:'Still confirming'})); return; }
+    // AUDIT: SITE 'pending_unknown' (a timed-out send can still land) ⇒ NOT failed: keep the ghost + its slot, keep the rocket
+    // hovering (calm 'Still confirming your last trade…'), and resolve on the LATE outcome (SITE's watcher: resolved/release)
+    if(r&&r.pending&&r.late&&typeof r.late.then==='function'){ stillConfirming(p,ba,r.reason); r.late.then(onResult,()=>onResult({ok:false,unknown:1})); return; }
     p.state=r.ok?'confirmed':'failed';
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
@@ -868,7 +868,7 @@ function submit(side,usd,force,opt,pct){
     // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
-    if(!r.ok&&r.unknown){ S.flashes.push({txt:String(r.reason||'Check your balance in a moment.'),life:1.8}); }   // never confirmed either way: calm, no failure row (the balance poll shows the truth)   PLACEHOLDER copy
+    if(!r.ok&&r.unknown){ if(r.reason) S.flashes.push({txt:String(r.reason),life:1.8}); }   // hold ended without an outcome (logout): calm, no failure row (balances re-read)
     else if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // COPY REVIEW (lee): failure status; the reason stays in the TRADES row
     S.pending=S.pending.filter(q=>q!==p); pushInFlight();   // frees its slot NOW (was a 450 ms linger that still counted toward the 3)
