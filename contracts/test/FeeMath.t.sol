@@ -60,20 +60,21 @@ contract FeeMathTest is Test {
         assertEq(FeeMath.walletCap(), (Constants.TOTAL_SUPPLY * 700) / 10_000);
     }
 
-    function test_curveSold_72pct() public pure {
-        assertEq(FeeMath.curveSoldSupply(), (Constants.TOTAL_SUPPLY * 7200) / 10_000);
+    function test_curveSold_8424bps() public pure {
+        assertEq(FeeMath.curveSoldSupply(), (Constants.TOTAL_SUPPLY * 8424) / 10_000);
     }
 
     function test_outerSpace_33333() public pure {
         assertEq(Constants.GRADUATION_MCAP_USD, 33_333 * 1e18);
         assertEq(Constants.OUTER_SPACE_MCAP_USD, Constants.GRADUATION_MCAP_USD);
-        assertEq(Constants.START_MCAP_USD, 7_777 * 1e18);
+        assertEq(Constants.START_MCAP_USD, 3_333 * 1e18);
+        assertEq(Constants.CURVE_MID_MCAP_USD, 15_000 * 1e18);
     }
 
     function test_antiSnipe_constants() public pure {
         assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
-        assertEq(Constants.ANTI_SNIPE_DURATION, 60);
+        assertEq(Constants.ANTI_SNIPE_DURATION, 77);
         assertEq(Constants.SNIPE_ESCROW_TIMEOUT, 30 days);
     }
 

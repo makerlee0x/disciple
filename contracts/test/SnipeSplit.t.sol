@@ -5,7 +5,7 @@ import "./integration/IntegrationBase.sol";
 import {Owned2Step} from "../src/utils/Owned2Step.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-/// @notice Sniper tax (mode rules v2, replaces LOCKED #9 rev. 2026-10-15's 70/30 split): 99% → 0 over 60 s, held in
+/// @notice Sniper tax (mode rules v2, replaces LOCKED #9 rev. 2026-10-15's 70/30 split): 99% → 0 over 77 s, held in
 ///         the curve's `snipeEscrow` in the pair coin (outside reserves / price), added to the locked LP at
 ///         graduation, or — if not graduated SNIPE_ESCROW_TIMEOUT (30 days) after launch — releasable by anyone to
 ///         the RewardsVault.
@@ -15,11 +15,11 @@ contract SnipeSplitTest is IntegrationBase {
 
     function testFuzz_exact_escrow_on_curve(uint256 qIn, uint8 dt) public {
         qIn = bound(qIn, 1 ether, 300 ether);
-        uint256 wait = bound(uint256(dt), 0, 70);
+        uint256 wait = bound(uint256(dt), 0, 90);
         (BondingCurve curve, Token tok) = _launch(0, 0);
         vm.warp(block.timestamp + wait);
         uint256 bps = curve.currentSnipeFeeBps();
-        assertEq(bps, wait >= 60 ? 0 : 9900 - 9900 * wait / 60, "linear decay");
+        assertEq(bps, wait >= 77 ? 0 : 9900 - 9900 * wait / 77, "linear decay");
         uint256 snipe = (qIn * bps) / 10_000;
         uint256 t0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         (,,,, uint256 e0,,) = lockedLP.positions(address(tok));

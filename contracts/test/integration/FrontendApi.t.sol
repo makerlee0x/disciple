@@ -89,7 +89,7 @@ contract FrontendApiTest is FrontendApiBase {
         vm.warp(block.timestamp + 2); // inside anti-snipe window
         BondingCurve.BuyQuote memory q = curve.quoteBuy(100 ether);
         assertGt(q.snipeFee, 0, "snipe fee active");
-        assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS - (9900 * 2) / 60);
+        assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS - uint256(9900 * 2) / 77);
         uint256 pBefore = curve.priceNow();
 
         vm.recordLogs();
@@ -454,16 +454,16 @@ contract FrontendApiFollowupTest is FrontendApiBase {
         vm.stopPrank();
         (BondingCurve curve,) = _launchWithQuote(address(u6), 0, 0);
         assertEq(curve.quotePriceUsd(), 1e30);
-        // 7B supply made the WAD price single digits (the precision trap); at 1M supply it is ~7,777
+        // 7B supply made the WAD price single digits (the precision trap); at 1M supply it is ~3,333
         assertGt(curve.spotPriceWad(), 1_000);
         assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.0001e18);
-        assertApproxEqRel(curve.marketCapQuote(), 7_777e6, 0.0001e18);
+        assertApproxEqRel(curve.marketCapQuote(), 3_333e6, 0.0001e18);
     }
 
     function test_18dec_quote_marketCap_unchanged() public {
         (BondingCurve curve,) = _launch(0, 0);
         assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.0001e18);
-        assertApproxEqRel(curve.marketCapQuote(), 7_777e18, 0.0001e18);
+        assertApproxEqRel(curve.marketCapQuote(), 3_333e18, 0.0001e18);
         uint256 legacy = Math.mulDiv(curve.spotPriceWad(), Constants.TOTAL_SUPPLY, 1e18);
         assertApproxEqRel(curve.marketCapQuote(), legacy, 1e6); // identical to ~1e-12 for 18-dec
     }

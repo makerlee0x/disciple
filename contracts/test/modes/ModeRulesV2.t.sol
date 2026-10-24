@@ -19,7 +19,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Mode rules v2 matrix (contracts/docs/mode-rules-v2.md): Easy (PVE) / Hard (PVP) holding caps that grow
-///         with mcap, partial fill (direct + router USDG), sniper tax 99%→0 over 60 s into a per-curve escrow
+///         with mcap, partial fill (direct + router USDG), sniper tax 99%→0 over 77 s into a per-curve escrow
 ///         (→ locked LP at graduation / → RewardsVault after 30 days), Easy creator lock, Easy crew tip, rules off
 ///         after graduation, TRENCH unchanged except the sniper tax; plus DiscipleRouter.launchWithUsdg and
 ///         claimCreatorFeesToUsdg.
@@ -370,22 +370,22 @@ contract ModeRulesV2Test is IntegrationBase {
             assertEq(c.currentSnipeFeeBps(), 9900, "99% at launch");
             (uint256 bps, uint256 left) = lens.sniperTax(address(t));
             assertEq(bps, 9900);
-            assertEq(left, 60);
+            assertEq(left, 77);
             uint256 t0 = c.launchTime();
             uint256 e0 = c.snipeEscrow();
             _buyQ(c, bob, 1 ether);
             assertEq(c.snipeEscrow() - e0, 0.99 ether, "same block: 99%");
             vm.warp(t0 + 15);
-            assertEq(c.currentSnipeFeeBps(), 9900 - 9900 * 15 / 60);
-            vm.warp(t0 + 30);
-            assertEq(c.currentSnipeFeeBps(), 4950, "halfway");
+            assertEq(c.currentSnipeFeeBps(), 9900 - uint256(9900 * 15) / 77);
+            vm.warp(t0 + 38);
+            assertEq(c.currentSnipeFeeBps(), 9900 - uint256(9900 * 38) / 77, "~halfway"); // 5015
             e0 = c.snipeEscrow();
             _buyQ(c, carol, 1 ether);
-            assertEq(c.snipeEscrow() - e0, 0.495 ether);
-            vm.warp(t0 + 59);
-            assertEq(c.currentSnipeFeeBps(), 165);
-            vm.warp(t0 + 60);
-            assertEq(c.currentSnipeFeeBps(), 0, "0 after 60 s");
+            assertEq(c.snipeEscrow() - e0, 0.5015 ether);
+            vm.warp(t0 + 76);
+            assertEq(c.currentSnipeFeeBps(), 9900 - uint256(9900 * 76) / 77); // 129
+            vm.warp(t0 + 77);
+            assertEq(c.currentSnipeFeeBps(), 0, "0 after 77 s");
             (bps, left) = lens.sniperTax(address(t));
             assertEq(left, 0);
             e0 = c.snipeEscrow();

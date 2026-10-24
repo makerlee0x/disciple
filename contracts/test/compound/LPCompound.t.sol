@@ -132,7 +132,7 @@ contract LPCompoundTest is IntegrationBase {
         assertLt(bt, 1e16, "token side: only the reference observers' dust fees");
         assertGt(bq, 0, "leftover quote in bucket");
         assertEq(quote.balanceOf(address(lockedLP)), bq);
-        // ~15.6% of the ~$11K raise on the 18-dec mock quote at $1
+        // steep curve: ~$1.2K leftover (of the ~$6.45K net raise) on the 18-dec mock quote at $1
         assertGt(bq, 1_000 ether);
         assertLt(bq, 3_000 ether);
     }
@@ -145,7 +145,7 @@ contract LPCompoundTest is IntegrationBase {
         uint256 adds;
         // small buys (each moves price < the 3% deviation guard at graduation depth). Audit G-5: the 0.1% minimum
         // add batches fees, so it takes more buys than the old 0.005% before the first add.
-        for (uint256 i; i < 60; i++) {
+        for (uint256 i; i < 100; i++) {
             // "over time": a minute apart, with a dust trade in between (two EMA observations per minute, so the
             // speed-limited reference keeps up with the steady rise)
             vm.roll(vm.getBlockNumber() + 1);
@@ -153,7 +153,7 @@ contract LPCompoundTest is IntegrationBase {
             _swapExactInQuoteForToken(tok, makeAddr("obs"), 1e12);
             vm.roll(vm.getBlockNumber() + 1);
             vm.warp(vm.getBlockTimestamp() + 30);
-            _buy(tok, 50 ether);
+            _buy(tok, 25 ether); // steep curve: shallower pool (~$5.25K quote) → smaller steps so the EMA keeps up, more of them
             adds += _count(COMPOUNDED);
             vm.recordLogs();
             _assertInvariant(_one(tok));

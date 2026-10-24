@@ -96,9 +96,11 @@ contract DiscipleAuditTest is IntegrationBase {
         (c, tok) = _launch(0, 0);
         _graduate(c);
         _refReady(tok); // compound reference needs >= 3 observations over >= 60 s
+        // token-side fees + leftover quote → both buckets. The swap runs under the default min (no compound yet):
+        // the steep curve leaves ~$1.2K leftover quote, so a tiny-min compound here would drain the token bucket.
+        _swapExactInQuoteForToken(tok, trader1, 50 ether);
         vm.prank(owner);
         lockedLP.setCompoundParams(1, 0, 300); // tiny min, uncapped, 3% guard
-        _swapExactInQuoteForToken(tok, trader1, 50 ether); // token-side fees + leftover quote → both buckets
         (uint256 bt, uint256 bq) = lockedLP.compoundBucket(address(tok));
         require(bt >= 2 && bq >= 2, "buckets");
         vm.roll(vm.getBlockNumber() + 1); // later trades are in a fresh block (block-start anchor)
