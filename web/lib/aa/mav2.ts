@@ -16,7 +16,7 @@ import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type Us
 import { ENTRYPOINT_V07 } from "./constants";
 import type { TradeTiming } from "../trade/timing";
 import { withBlock } from "../trade/readFloor";
-import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
+import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, SLOW_DOWN_MSG, keptOpRef, logRelayOp, logTradeError, rateLimitFromError, rateLimitOf, relayOpRef } from "./relayOp";
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
 const uoRevertAbi = parseAbi(["event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)"]);
@@ -286,6 +286,13 @@ export class Mav2Account {
       const t3 = now();
       tt?.mark("response");
       tt?.note({ path: "fast", build: Math.round(t1 - t0), sign: Math.round(t2 - t1), roundTrip: Math.round(t3 - t2), server: j.result?.t });
+      // Rate limited (HTTP 429 / -32005, rapid-tap spec #10): nothing was sent. No retry (a retry would count against the
+      // same limit); the player sees the plain "slow down" line, the detail goes to the console.
+      const rl = rateLimitOf({ status: r.status, code: j.error?.code, message: j.error?.message, retryAfter: (r as Response).headers?.get?.("retry-after") });
+      if (rl && !(j.error && relayOpRef(j.error))) {
+        logTradeError("trade rate limited", { status: r.status, code: j.error?.code, retryAfterMs: rl.retryAfterMs });
+        throw new AAError("RateLimited", SLOW_DOWN_MSG, { retryAfterMs: rl.retryAfterMs, rpcCode: j.error?.code });
+      }
       // Post-broadcast relay error: the relay answers with the op's ids (error.data, lib/aa/relayOp). Keep OUR hash (the
       // op we signed); the relay's bundle tx hash only if it reports the same op.
       const ref = j.error ? relayOpRef(j.error) : undefined;
@@ -353,6 +360,8 @@ export class Mav2Account {
       // Any post-broadcast error (ref set) is pending unless the bundle reverted — its raw relay text never reaches players.
       const ref = relayOpRef(e);
       const ids = { userOpHash: ref?.userOpHash, txHash: ref?.txHash };
+      const rl = ref ? null : rateLimitFromError(e);   // 429 before anything was sent
+      if (rl) { logTradeError("trade rate limited", { path: "standard", retryAfterMs: rl.retryAfterMs }); throw new AAError("RateLimited", SLOW_DOWN_MSG, { retryAfterMs: rl.retryAfterMs }); }
       if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); logRelayOp("rejected", ids); throw new AAError("Reverted", REJECTED_MSG, ids); }
       if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, ids); }
       if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false, tt); }

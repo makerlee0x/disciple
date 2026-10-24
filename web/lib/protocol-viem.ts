@@ -7,7 +7,8 @@
  */
 import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
-import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
+import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, marginalQuote, key as ckey } from "./trade/hotCache";
+import { RESERVATIONS, autoReservationId, spendable } from "./trade/reservations";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
@@ -16,7 +17,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
-import { NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, logTradeError, plainText } from "./aa/relayOp";
+import { NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, SLOW_DOWN_MSG, SPEND_LIMIT_MSG, logTradeError, plainText, type TradeErrorCode } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -50,7 +51,14 @@ export const quoteRawToUsd = (raw: bigint, quotePriceUsd: bigint) => Number((raw
 const fmtUnits = (v: bigint, dec = 18) => { const d = Number(v) / 10 ** dec; return d >= 1e-4 || d === 0 ? d.toPrecision(4) : d.toExponential(2); };
 
 export class ProtocolError extends Error {
-  constructor(public code: string, msg: string) { super(msg); }
+  /** rate_limited: the relay's Retry-After in ms, when it sent one. */
+  retryAfterMs?: number;
+  constructor(public code: string, msg: string, extra?: { retryAfterMs?: number }) { super(msg); if (extra?.retryAfterMs !== undefined) this.retryAfterMs = extra.retryAfterMs; }
+}
+/** Typed code GAME maps to its copy ('Slow down' / 'Spend limit reached'); undefined for every other failure. */
+export function tradeErrorCode(e: unknown): TradeErrorCode | undefined {
+  const c = (e as { code?: unknown })?.code;
+  return c === "rate_limited" || c === "spend_limit" ? c : undefined;
 }
 
 /** Map contract custom errors to friendly copy. */
@@ -101,6 +109,9 @@ export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
   const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  // rapid-tap spec #10 / #9: typed codes + plain placeholder copy (detail already logged by lib/aa)
+  if (isAA && (e as AAError).code === "RateLimited") return new ProtocolError("rate_limited", SLOW_DOWN_MSG, { retryAfterMs: (e as AAError).extra?.retryAfterMs as number | undefined });
+  if (isAA && (e as AAError).code === "Policy" && (e as AAError).extra?.spendLimit) return new ProtocolError("spend_limit", SPEND_LIMIT_MSG);
   const est = isAA && (e as AAError).code === "Estimate" ? (e as AAError) : null;
   const rv = isAA && (e as AAError).code === "Reverted" ? (e as AAError) : null;
   if (est || rv) {
@@ -147,7 +158,7 @@ export function friendlyError(e: unknown): ProtocolError {
       LoginGateUnset: "PVE launches are paused: the login gate isn't configured.",
       BadMode: "Unknown game mode.",
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
-      SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
+      SpendCapExceeded: SPEND_LIMIT_MSG,   // code "spend_limit" (below); copy pending lee + BRAND
       MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
       QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
@@ -163,6 +174,7 @@ export function friendlyError(e: unknown): ProtocolError {
     if (name === "QuoteFailed") logTradeError("quote failed", { target: args?.[0] });
     if (name && (name === "QuoteRejected" || name === "FailedOp" || name === "Error" || !M[name])) logTradeError(M[name] ? `trade failed (${name})` : "trade failed (unmapped error)", { name, args: args?.map(String) });
     // unmapped contract error names never reach players
+    if (name === "SpendCapExceeded") return new ProtocolError("spend_limit", SPEND_LIMIT_MSG);
     if (name) return new ProtocolError(name, pre + (M[name] || REJECTED_MSG));
   }
   const code = (e as { code?: string })?.code;
@@ -467,9 +479,18 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
   return mcapWad > B(0) ? (usdMicro * B(1e12) * p.totalSupply) / mcapWad : B(0);
 }
 
+/**
+ * Fill epochs per balance key: bumped whenever a fill is booked from receipt logs. A balanceOf read that started before
+ * the fill and lands after it describes the pre-fill balance, so it is NOT cached (it would undo the booked fill and
+ * let the next tap spend money that's gone). Reservations themselves never live in BALANCES (lib/trade/reservations).
+ */
+const BAL_EPOCH = new Map<string, number>();
+const balEpoch = (k: string) => BAL_EPOCH.get(k) ?? 0;
 export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Address) {
+  const k = ckey(erc20, owner), e0 = balEpoch(k);
   const b = await pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] });
-  BALANCES.set(ckey(erc20, owner), b); return b;
+  if (balEpoch(k) === e0) { BALANCES.set(k, b); return b; }
+  return BALANCES.fresh(k, 60_000) ?? b;
 }
 /**
  * Apply a known delta (e.g. coin received, from the receipt logs) to the cached balance. Reading balanceOf right after
@@ -477,12 +498,17 @@ export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Addr
  */
 export function bumpBalance(erc20: Address, owner: Address, delta: bigint) {
   const k = ckey(erc20, owner), cur = BALANCES.fresh(k, 60_000);
+  BAL_EPOCH.set(k, balEpoch(k) + 1);
   if (cur !== undefined) BALANCES.set(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.set(k, delta);
 }
 /** Balance hint ≤ maxAge ms old (polled / refreshed after trades), else a live read. */
 export async function balanceHint(pc: PublicClient, erc20: Address, owner: Address, maxAge = 5000) {
-  return BALANCES.get(ckey(erc20, owner), () => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] }), maxAge);
+  const k = ckey(erc20, owner), e0 = balEpoch(k);
+  const v = await BALANCES.get(k, () => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner] }), maxAge, () => balEpoch(k) === e0);
+  return balEpoch(k) === e0 ? v : BALANCES.fresh(k, 60_000) ?? v;   // a fill was booked meanwhile ⇒ the booked value
 }
+/** Live balanceOf for the pre-send check (hint was short); cached unless a fill was booked while it was in flight. */
+async function liveBalance(pc: PublicClient, erc20: Address, owner: Address) { return tokenBalance(pc, erc20, owner); }
 
 /* ---------------- client ---------------- */
 
@@ -516,14 +542,16 @@ export function createViemProtocol(): ProtocolClient {
   }
   /**
    * Book a fill from its receipt logs (no balanceOf right after the receipt: the public RPC can lag ~0.7 s).
-   *  - spend asset: the optimistic `have − amountIn` set before the send is corrected by what the logs say actually
-   *    left the account (delta-based, so rapid shots' optimistic decrements stay intact);
+   *  - spend asset: what the logs say actually left the account is subtracted (delta-based, so concurrent fills and
+   *    polls compose; in-flight spend is held in lib/trade/reservations, never pre-subtracted here);
    *  - sell proceeds (quote / USDG) are added to the cached quote balance. Buys' coin side is booked by TradeBridge
    *    (bumpBalance(r.amountOut)) and lib/wallet noteReceipt (GAME #138) — not here, to avoid double counting.
    */
   function bookFill(logs: ExecResult["logs"], spend: Address, me: Address, amountIn: bigint, proceeds: Address | undefined, recipient: Address, out: bigint) {
+    // rapid-tap: nothing is decremented before the send any more (pending spend lives in lib/trade/reservations), so the
+    // receipt's own Transfer(from=me) is booked here (amountIn when the logs carry none: the op succeeded)
     const s = sent(logs, spend, me);
-    if (s > B(0) && s !== amountIn) bumpBalance(spend, me, amountIn - s);
+    bumpBalance(spend, me, -(s > B(0) ? s : amountIn));
     if (proceeds && out > B(0)) bumpBalance(proceeds, recipient, out);
   }
 
@@ -561,20 +589,49 @@ export function createViemProtocol(): ProtocolClient {
    */
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     const tt = startTradeTiming(side);   // console-only latency marks: `[disciple] trade timing`
+    // rapid-tap: one reservation per press (GAME's press id, else ours), kept across the minOut retry, released on fill
+    // (tradeOnce, right after the fill is booked) or here on error / timeout. release() is idempotent.
+    const rid = t.reservationId || autoReservationId();
     try {
       let r: TradeResult;
-      try { r = await tradeOnce(side, t, tt); }
+      try { r = await tradeOnce(side, t, rid, tt); }
       catch (e) {
         if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code)) throw e;
         tt.note({ minOutRetry: true });
         requoteRoute(t.token);   // fresh quotes (the retry joins the re-read; nothing landed ⇒ no floor to raise)
-        r = await tradeOnce(side, t, tt);
+        r = await tradeOnce(side, t, rid, tt);
       }
       tt.done("fill");
+      RESERVATIONS.release(rid, "filled");
       return r;
-    } catch (e) { tt.done("error", { code: (e as { code?: unknown }).code }); throw e; }
+    } catch (e) {
+      RESERVATIONS.release(rid, (e as { code?: unknown })?.code === "Timeout" ? "timeout" : "error");
+      tt.done("error", { code: (e as { code?: unknown }).code }); throw e;
+    }
   }
-  async function tradeOnce(side: "buy" | "sell", t: TradeParams, tt?: TradeTiming): Promise<TradeResult> {
+  /**
+   * Hold this trade's raw spend under `rid` BEFORE quoting (spec #6: an overlapping tap's quote sees it) and return what
+   * the other pending trades hold on the same route (marginal-quote base) and of the same asset (cash / holdings check).
+   * Synchronous: nothing awaits between the reservation and the quote call that reads it.
+   */
+  function holdSpend(rid: string, side: "buy" | "sell", token: Address, asset: Address, amountIn: bigint, route: string) {
+    const usdg = deployment().usdg;
+    const r = RESERVATIONS.reserve(rid, { side: side === "buy" ? "boost" : "dump", coin: token, spend: { asset, raw: amountIn, route } });
+    const ownGas = asset.toLowerCase() === usdg.toLowerCase() ? r.gasReserve ?? B(0) : B(0);
+    return {
+      routePending: RESERVATIONS.routePending(route, rid),
+      others: () => RESERVATIONS.reservedRaw(asset, { exceptId: rid, usdg }),
+      need: amountIn + ownGas,
+    };
+  }
+  /** Copy for a spend that only fails because other pending trades hold the money (plain words, no ids). */
+  function heldMsg(isCash: boolean, amountUsd?: number) {
+    const n = Math.max(0, RESERVATIONS.count() - 1);
+    return isCash
+      ? `Not enough cash${amountUsd !== undefined ? ` for $${amountUsd.toFixed(2)}` : ""} while ${n === 1 ? "your other trade finishes" : "your other trades finish"}. Try again in a moment.`
+      : `Not enough tokens while ${n === 1 ? "your other trade finishes" : "your other trades finish"}. Try again in a moment.`;
+  }
+  async function tradeOnce(side: "buy" | "sell", t: TradeParams, rid: string, tt?: TradeTiming): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
@@ -585,16 +642,18 @@ export function createViemProtocol(): ProtocolClient {
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const usdg = await usdgRouteFor(pc, t.token);
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE }, tt);
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE }, rid, tt);
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const smart = isSmartMode();
+      const route = ckey("coin", t.token, side);
+      const held = holdSpend(rid, side, t.token, spendAsset, t.amountIn, route);
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve(B(0))
           // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s
-          : !graduated && mode !== MODE.TRENCH ? marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age))
-          : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age)),
+          : !graduated && mode !== MODE.TRENCH ? marginalQuote(route, t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age), held.routePending)
+          : marginalQuote(route, t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age), held.routePending),
         balanceHint(pc, spendAsset, me),
         side === "buy" ? referralCallCached(me) : Promise.resolve([]),
         smart ? Promise.resolve(null) : approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn),
@@ -610,10 +669,14 @@ export function createViemProtocol(): ProtocolClient {
         data = encodeFunctionData({ abi: bondingCurveAbi, functionName: side, args: [t.amountIn, minOut, deadline, recipient] });
       }
       // Preflight: an underfunded spend otherwise surfaces only as an opaque estimate failure / on-chain revert.
-      if (have < t.amountIn) {
-        const live = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });   // hint may be stale-low
-        BALANCES.set(ckey(spendAsset, me), live);
-        if (live < t.amountIn) {
+      // rapid-tap: what other pending trades hold of this asset is not spendable (no extra read: `have` is the hint).
+      if (spendable(have, held.others()) < held.need) {
+        const live = await liveBalance(pc, spendAsset, me);   // hint may be stale-low (only off the hot path: already short)
+        if (live >= held.need && spendable(live, held.others()) < held.need) {
+          console.warn("[disciple] trade refused: balance held by trades in flight", { have: String(live), held: String(held.others()), need: String(held.need), inFlight: RESERVATIONS.count() });
+          throw new ProtocolError("InsufficientBalance", heldMsg(side === "buy"));
+        }
+        if (live < held.need) {
           const [sym, dec] = await Promise.all([
             pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "symbol" }).catch(() => "token"),
             decimalsOf(pc, spendAsset).catch(() => null),
@@ -625,16 +688,16 @@ export function createViemProtocol(): ProtocolClient {
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
       const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
       const calls = [...pveCalls, ...refCalls, ...approveCalls, { to: target, data }];
-      BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
-      const done = addInflight(ckey("coin", t.token, side), t.amountIn);
+      // no optimistic balance write: the displayed balance stays real; the pending spend is held in RESERVATIONS
       let logs: ExecResult["logs"] | undefined;
       try {
         const r = await asTrade(tt, () => execCalls(calls));
         logs = r.logs;
         const out = received(r.logs, outAsset, recipient);
         bookFill(r.logs, spendAsset, me, t.amountIn, side === "sell" ? outAsset : undefined, recipient, out);
+        RESERVATIONS.release(rid, "filled");   // same tick as the booked fill: never counted twice, never dropped early
         return { ok: true, txHash: r.txHash, amountOut: out || minOut };
-      } finally { done(); requoteRoute(t.token, logs); }
+      } finally { requoteRoute(t.token, logs); }
     } catch (e) {
       if (e instanceof ProtocolError) throw e;
       if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
@@ -648,20 +711,26 @@ export function createViemProtocol(): ProtocolClient {
    * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean }, tt?: TradeTiming): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean }, rid: string, tt?: TradeTiming): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
     const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
     // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
     if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
+    const route = ckey("usdgroute", t.token, side);
+    const held = holdSpend(rid, side, t.token, spend, t.amountIn, route);
     const [q, have] = await Promise.all([
-      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(ckey("usdgroute", t.token, side), t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me)),
+      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(route, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me), held.routePending),
       balanceHint(pc, spend, c.me),
     ]);
-    if (have < t.amountIn) {
-      const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
-      if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
+    if (spendable(have, held.others()) < held.need) {
+      const live = await liveBalance(pc, spend, c.me);   // hint may be stale-low (only when already short)
+      if (live >= held.need && spendable(live, held.others()) < held.need) {
+        console.warn("[disciple] trade refused: balance held by trades in flight", { have: String(live), held: String(held.others()), need: String(held.need), inFlight: RESERVATIONS.count() });
+        throw new ProtocolError("InsufficientBalance", heldMsg(isBuy, isBuy ? usdgRawToUsd(t.amountIn) : undefined));
+      }
+      if (live < held.need) throw new ProtocolError("InsufficientBalance", isBuy
         ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
         : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);
     }
@@ -670,16 +739,16 @@ export function createViemProtocol(): ProtocolClient {
     const calls: Call[] = isBuy
       ? [...pveCalls, ...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: minOut, deadline: c.deadline }));
-    BALANCES.set(ckey(spend, c.me), have - t.amountIn);
-    const done = addInflight(ckey("usdgroute", t.token, side), t.amountIn);
+    // no optimistic balance write (displayed balances stay real); the pending spend is held in RESERVATIONS
     let logs: ExecResult["logs"] | undefined;
     try {
       const r = await asTrade(tt, () => execCalls(calls));
       logs = r.logs;
       const out = received(r.logs, outAsset, c.me);
       bookFill(r.logs, spend, c.me, t.amountIn, isBuy ? undefined : outAsset, c.me, out);
+      RESERVATIONS.release(rid, "filled");
       return { ok: true, txHash: r.txHash, amountOut: out || minOut };
-    } finally { done(); requoteRoute(t.token, logs); }
+    } finally { requoteRoute(t.token, logs); }
   }
 
   return {

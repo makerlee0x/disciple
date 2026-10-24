@@ -41,7 +41,7 @@ export type UserOpReceipt = { success: boolean; actualGasCost?: Hex; paymaster?:
 
 export type GasMode = "self-pay";
 export class AAError extends Error {
-  constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted" | "Estimate", msg: string, public extra?: Record<string, unknown>) { super(msg); }
+  constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted" | "Estimate" | "RateLimited", msg: string, public extra?: Record<string, unknown>) { super(msg); }
 }
 
 /** Bundler/paymaster transport. Default is JSON-RPC to Alchemy; tests can inject a local EntryPoint.handleOps bundler. */

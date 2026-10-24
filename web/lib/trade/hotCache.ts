@@ -24,10 +24,11 @@ export class TtlCache<T> {
     return p;
   }
   /** Cached if fresh, else one shared in-flight read. */
-  async get(k: string, read: () => Promise<T>, maxAge = this.ttlMs): Promise<T> {
+  async get(k: string, read: () => Promise<T>, maxAge = this.ttlMs, accept?: () => boolean): Promise<T> {
     const f = this.fresh(k, maxAge); if (f !== undefined) return f;
     let p = this.inflight.get(k);
-    if (!p) { p = read().then((v) => { this.set(k, v); return v; }).finally(() => this.inflight.delete(k)); this.inflight.set(k, p); }
+    // accept(): checked when the read lands; false ⇒ the value isn't cached (e.g. a fill was booked while it was in flight)
+    if (!p) { p = read().then((v) => { if (!accept || accept()) this.set(k, v); return v; }).finally(() => this.inflight.delete(k)); this.inflight.set(k, p); }
     return p;
   }
 }
@@ -64,8 +65,14 @@ export function scaledQuote(last: { amountIn: bigint; amountOut: bigint; at: num
  */
 export const INFLIGHT = new Map<string, bigint>();
 export function addInflight(k: string, a: bigint) { INFLIGHT.set(k, (INFLIGHT.get(k) ?? BigInt(0)) + a); return () => { const v = (INFLIGHT.get(k) ?? BigInt(0)) - a; if (v > BigInt(0)) INFLIGHT.set(k, v); else INFLIGHT.delete(k); }; }
-export async function marginalQuote(k: string, amountIn: bigint, quote: (a: bigint, maxAge?: number) => Promise<bigint>): Promise<bigint> {
-  const p = INFLIGHT.get(k) ?? BigInt(0);
+/**
+ * Rapid-tap spec #6: `pending` = what other trades on this route still have in flight (lib/trade/reservations
+ * routePending, reserved BEFORE their quote so overlapping taps see each other). Worst case per side on purpose: a pending
+ * opposite-side trade only ever improves this trade's fill, so it is NOT netted in (netting would make minOut too tight
+ * when the other trade lands after this one).
+ */
+export async function marginalQuote(k: string, amountIn: bigint, quote: (a: bigint, maxAge?: number) => Promise<bigint>, pending = BigInt(0)): Promise<bigint> {
+  const p = (INFLIGHT.get(k) ?? BigInt(0)) + pending;
   if (p <= BigInt(0)) return quote(amountIn);
   const [all, base] = await Promise.all([quote(p + amountIn, 0), quote(p, 0)]);
   return all > base ? all - base : BigInt(0);
