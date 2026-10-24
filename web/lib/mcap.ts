@@ -82,14 +82,18 @@ export type CoinMcap = {
 };
 
 /** Live mcap of a coin from chain (see file header). `curve` skips the Launchpad.curveOf read. Throws on RPC failure. */
-export async function readCoinMcap(pc: PublicClient, token: Address, curve?: Address): Promise<CoinMcap> {
+export async function readCoinMcap(pc: PublicClient, token: Address, curve?: Address, blockNumber?: bigint): Promise<CoinMcap> {
   const cv = curve ?? (await pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "curveOf", args: [token] }) as Address);
   if (!cv || cv === ZERO) throw new Error("unknown coin");
   const c = { address: cv, abi: bondingCurveAbi } as const;
+  // blockNumber: the mutable reads are pinned to that block (events.reconcileMcap labels the mcap with it; a `latest`
+  // read served by a lagging node would carry a newer label than its data and roll the mcap back past our own fill)
+  const at = blockNumber !== undefined ? { blockNumber } : {};
+  // (a node without that block fails `graduated` ⇒ the whole read rejects; it never falls through to the lens path)
   const [b, graduated, mq] = await Promise.all([
     coinBasis(pc, token, cv),
-    pc.readContract({ ...c, functionName: "graduated" }) as Promise<boolean>,
-    pc.readContract({ ...c, functionName: "marketCapQuote" }).then((v) => v as bigint, () => null),
+    pc.readContract({ ...c, functionName: "graduated", ...at }) as Promise<boolean>,
+    pc.readContract({ ...c, functionName: "marketCapQuote", ...at }).then((v) => v as bigint, () => null),
   ]);
   if (mq !== null) {
     const mcapUsd = mcapUsdFromQuote(mq, b.launchQuoteUsd);
@@ -97,7 +101,7 @@ export async function readCoinMcap(pc: PublicClient, token: Address, curve?: Add
   }
   // pre-v4 curve (no marketCapQuote): its post-grad mcapNow froze ⇒ MarketLens (live pricer) is the only correct read.
   if (!hasLens()) throw new Error("no marketCapQuote and no MarketLens");
-  const [priceWad, m] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token] });
+  const [priceWad, m] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token], ...at });
   const mcapUsd = Number(m) / 1e18;
   return { mcapUsd, priceUsd: b.supplyTokens > 0 ? mcapUsd / b.supplyTokens : 0, priceWad, graduated, supplyTokens: b.supplyTokens, source: "lens" };
 }

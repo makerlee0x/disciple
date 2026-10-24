@@ -6,14 +6,15 @@
  * Trade.impactBps / mcapAfterUsd come straight from chain and drive bomb tiers + the chart.
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
-import type { Log, PublicClient } from "viem";
+import { decodeEventLog, type Log, type PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
 import { playerUsd, usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
 import { publishTraderName } from "./nameLookup";
 import { deployment } from "./chains";
-import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
-import { coinBasis, hookMcapUsd as hookSqrtMcapUsd } from "./mcap";
+import { curveOf, publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
+import { coinBasis, hookMcapUsd as hookSqrtMcapUsd, readCoinMcap } from "./mcap";
+import { blockOf, txBlock, type BlockLike } from "./fillBook";
 import type { Address, ProtocolEvent } from "./protocol";
 
 type Cb = (e: ProtocolEvent) => void;
@@ -143,17 +144,29 @@ const LIVE_RESCAN_BLOCKS = BigInt(120);
  * LIVE_RESCAN_BLOCKS and dedupes by tx:logIndex, and starts at `fromBlock` (the block the page read its state at), so no
  * trade between the state read and the first poll is skipped either. `kick()` polls now (own trade just landed).
  */
+export type LogPoller = {
+  stop: () => void; kick: () => void;
+  /** one poll now; resolves when it (or the one already running) finished */
+  tick: () => Promise<void>;
+  /** highest block this poller has scanned up to */
+  head: () => bigint;
+  /** was a log of this tx delivered? */
+  has: (txHash: string) => boolean;
+};
 export function pollLogs(o: {
   pc: PublicClient; fromBlock: bigint; fetch: (from: bigint, to: bigint) => Promise<L[]>; onLogs: (logs: L[]) => void;
   everyMs?: number; rescan?: bigint;
-}): { stop: () => void; kick: () => void } {
+}): LogPoller {
   const rescan = o.rescan ?? LIVE_RESCAN_BLOCKS;
-  let head = o.fromBlock - BigInt(1), alive = true, busy = false, again = false;
+  let head = o.fromBlock - BigInt(1), alive = true, again = false, inflight: Promise<void> | null = null;
   const seen = new Map<string, bigint>();
-  const tick = async () => {
-    if (!alive) return;
-    if (busy) { again = true; return; }
-    busy = true;
+  const tick = (): Promise<void> => {
+    if (!alive) return Promise.resolve();
+    if (inflight) { again = true; return inflight; }
+    inflight = run().finally(() => { inflight = null; if (again && alive) { again = false; void tick(); } });
+    return inflight;
+  };
+  const run = async () => {
     try {
       const h = await o.pc.getBlockNumber();
       if (h > head) head = h;
@@ -169,11 +182,87 @@ export function pollLogs(o: {
         if (alive && fresh.length) o.onLogs(fresh);
       }
     } catch { /* RPC hiccup: the rescan window covers it next poll */ }
-    finally { busy = false; if (again && alive) { again = false; void tick(); } }
   };
   const iv = setInterval(tick, o.everyMs ?? LIVE_POLL_MS);
   void tick();
-  return { stop: () => { alive = false; clearInterval(iv); }, kick: () => { void tick(); } };
+  return {
+    stop: () => { alive = false; clearInterval(iv); }, kick: () => { void tick(); }, tick, head: () => head,
+    has: (tx) => { const p = String(tx).toLowerCase() + ":"; for (const k of seen.keys()) if (k.toLowerCase().startsWith(p)) return true; return false; },
+  };
+}
+
+/**
+ * Own fill landed (relay receipt at `minBlock`, tx `txHash`): poll until every poller scanned ≥ minBlock and one of them
+ * delivered the tx, retrying briefly while the getLogs node is behind (SITE #137: the public RPC serves the block
+ * ~0.7 s after the relay's receipt). No block known ⇒ the old "now + 700 ms" pair of polls. Never synthesizes a row.
+ */
+export async function pollUntilFill(pollers: Pick<LogPoller, "tick" | "head" | "has">[], minBlock: bigint | undefined, txHash: string | undefined,
+  o: { tries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<boolean> {
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  if (minBlock === undefined) { await Promise.all(pollers.map((p) => p.tick())); await sleep(700); await Promise.all(pollers.map((p) => p.tick())); return false; }
+  const tries = o.tries ?? 16, delay = o.delayMs ?? 150;
+  let pastHead = 0;
+  for (let i = 0; i < tries; i++) {
+    await Promise.all(pollers.map((p) => p.tick()));
+    if (txHash && pollers.some((p) => p.has(txHash))) return true;
+    if (pollers.every((p) => p.head() >= minBlock) && (!txHash || ++pastHead >= 3)) return !txHash;   // not a trade of this coin
+    await sleep(delay);
+  }
+  return false;
+}
+
+/** Definitive per-tx answers (receipt found): UsdgTrade args or null (no router leg). Last 512 kept. */
+const RECEIPT_USDG = new Map<string, UsdgTradeArgs | null>();
+/**
+ * The router's UsdgTrade for (tx, token, side, trader) from the tx's receipt. A missing receipt means the node is behind
+ * ⇒ brief retry; still missing ⇒ undefined (the row keeps its quote value; nothing is guessed). Cached once definitive.
+ */
+export async function usdgFromReceipt(pc: Pick<PublicClient, "getTransactionReceipt">, router: Address, tx: `0x${string}`, token: string, isBuy: boolean, trader: string,
+  o: { tries?: number; delayMs?: number } = {}): Promise<UsdgTradeArgs | undefined> {
+  if (!router || /^0x0{40}$/i.test(router)) return undefined;
+  const k = `${tx.toLowerCase()}|${token.toLowerCase()}|${isBuy ? 1 : 0}|${trader.toLowerCase()}`;
+  if (RECEIPT_USDG.has(k)) return RECEIPT_USDG.get(k) ?? undefined;
+  const tries = o.tries ?? 4, delay = o.delayMs ?? 150;
+  for (let i = 0; i < tries; i++) {
+    const rc = await pc.getTransactionReceipt({ hash: tx }).catch(() => null);
+    if (rc) {
+      let hit: UsdgTradeArgs | null = null;
+      for (const l of rc.logs) {
+        if (l.address.toLowerCase() !== router.toLowerCase()) continue;
+        try {
+          const ev = decodeEventLog({ abi: discipleRouterAbi, data: l.data, topics: l.topics as [`0x${string}`, ...`0x${string}`[]] });
+          if (ev.eventName !== "UsdgTrade") continue;
+          const a = ev.args as unknown as UsdgTradeArgs;
+          if (String(a.token).toLowerCase() === token.toLowerCase() && Boolean(a.isBuy) === isBuy && String(a.trader).toLowerCase() === trader.toLowerCase()) { hit = a; break; }
+        } catch { /* another router event */ }
+      }
+      RECEIPT_USDG.set(k, hit); while (RECEIPT_USDG.size > 512) RECEIPT_USDG.delete(RECEIPT_USDG.keys().next().value as string);
+      return hit ?? undefined;
+    }
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, delay));
+  }
+  return undefined;
+}
+
+/**
+ * THE mcap (lib/mcap readCoinMcap) read AT block `b` — reconcileMcap labels the value with `b`, so a `latest` read served
+ * by a lagging node must not carry it (it rolled the HUD mcap / graduation progress back past our own fill). A node
+ * without `b` yet ⇒ brief retry, then null (this tick is skipped). Legacy curves (no marketCapQuote, no lens) keep the
+ * old curve-state read.
+ */
+export async function readMcapAt(pc: PublicClient, token: Address, b: bigint, o: { tries?: number; delayMs?: number } = {}): Promise<number | null> {
+  const tries = o.tries ?? 3, delay = o.delayMs ?? 150;
+  for (let i = 0; i < tries; i++) {
+    try { return (await readCoinMcap(pc, token, await curveOf(pc, token), b)).mcapUsd; }
+    catch (e) {
+      if (/unknown coin|no marketCapQuote/i.test(String((e as Error)?.message))) {
+        const { readCurveState } = await import("./protocol-viem");
+        return (await readCurveState(pc, token)).mcapUsd;
+      }
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  return null;
 }
 
 /**
@@ -189,7 +278,7 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
     pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }).catch(() => undefined),
   ]);
   const start = fromBlock ?? (await pc.getBlockNumber()) + BigInt(1);
-  const stops: (() => void)[] = [], kicks: (() => void)[] = [];
+  const stops: (() => void)[] = [], kicks: (() => void)[] = [], pollers: LogPoller[] = [];
   let chain: Promise<void> = Promise.resolve();
   const inOrder = (f: () => Promise<void> | void) => { chain = chain.then(f).catch(() => undefined); };
   // immutable per coin (lib/mcap): quote token + the coin's own supply
@@ -207,6 +296,13 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
     ]);
     const idx = usdgIndex(rl.map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })));
     for (const l of ls) if (l.eventName === "Trade") (l as L & { usdg?: UsdgTradeArgs }).usdg = idx.get(usdgKey(l.transactionHash ?? "", String(l.args.token), Boolean(l.args.isBuy)))?.shift();
+    // SITE #137: the UsdgTrade getLogs can land on a node that is behind the one that served the Trade (it answers []
+    // for blocks it doesn't have, no error) ⇒ the row showed the quote value instead of the USDG paid. For a Trade with
+    // no match, the tx's own receipt decides (a missing receipt = node behind ⇒ brief retry).
+    await Promise.all(ls.filter((l) => l.eventName === "Trade" && !usdgOf(l) && l.transactionHash).map(async (l) => {
+      const u = await usdgFromReceipt(pc, router, l.transactionHash as `0x${string}`, token, Boolean(l.args.isBuy), String(l.args.trader));
+      if (u) (l as L & { usdg?: UsdgTradeArgs }).usdg = u;
+    }));
     return ls;
   };
   const usdgOf = (l: L) => (l as L & { usdg?: UsdgTradeArgs }).usdg;
@@ -220,7 +316,7 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
       }
     }),
   });
-  stops.push(c.stop); kicks.push(c.kick);
+  stops.push(c.stop); kicks.push(c.kick); pollers.push(c);
 
   const hook = deployment().hook;
   if (hook !== "0x0000000000000000000000000000000000000000") {
@@ -229,29 +325,34 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
       fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
       onLogs: (logs) => inOrder(async () => { const k = await hookCtx; for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k, usdgOf(l))); }),
     });
-    stops.push(h.stop); kicks.push(h.kick);
+    stops.push(h.stop); kicks.push(h.kick); pollers.push(h);
   }
 
   if (typeof window !== "undefined") {
-    // own trade: poll right away and again shortly after (the receipt node can be ahead of the getLogs node)
+    // own trade: the relay's receipt block (disciple:op confirmed / the fillreceipt detail) ⇒ poll until the getLogs node
+    // has that block and the tx's row arrived (brief retries); the row itself always comes from the chain's logs
+    const busyTx = new Set<string>();
+    const ownFill = (txHash: string | undefined, b: BlockLike) => {
+      const k = String(txHash || "").toLowerCase();
+      if (k && busyTx.has(k)) return;
+      if (k) busyTx.add(k);
+      void pollUntilFill(pollers, blockOf(b) ?? txBlock(txHash), txHash).finally(() => { if (k) busyTx.delete(k); });
+    };
+    const onOp = (e: Event) => { const d = (e as CustomEvent<{ phase?: string; txHash?: string; blockNumber?: BlockLike }>).detail; if (d?.phase === "confirmed" && d.blockNumber !== undefined) ownFill(d.txHash, d.blockNumber); };
+    const onFill = (e: Event) => { const d = (e as CustomEvent<{ txHash?: string; blockNumber?: BlockLike }>).detail; ownFill(d?.txHash, d?.blockNumber); };
     const own = () => { kicks.forEach((k) => k()); setTimeout(() => kicks.forEach((k) => k()), 700); };
-    window.addEventListener("disciple:livetrade", own); window.addEventListener("disciple:fillreceipt", own);
-    stops.push(() => { window.removeEventListener("disciple:livetrade", own); window.removeEventListener("disciple:fillreceipt", own); });
+    window.addEventListener("disciple:livetrade", own); window.addEventListener("disciple:fillreceipt", onFill); window.addEventListener("disciple:op", onOp);
+    stops.push(() => { window.removeEventListener("disciple:livetrade", own); window.removeEventListener("disciple:fillreceipt", onFill); window.removeEventListener("disciple:op", onOp); });
   }
   return () => stops.forEach((s) => s());
 }
 
 /**
- * Self-heal for the engine's mcap: re-read the live market (lib/mcap.ts readCoinMcap via readMarket) every `everyMs`
+ * Self-heal for the engine's mcap: re-read the live market (lib/mcap.ts readCoinMcap, pinned at the block it is labelled with: readMcapAt) every `everyMs`
  * and right after the player's own trade (window "disciple:livetrade"), through the same orderer. Covers a
  * dropped event filter or a missed log — the HUD/rocket converge to chain state within one interval.
  */
-export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClient = publicClient(), everyMs = 8000, read: (b: bigint) => Promise<number | null> = async () => {
-  const m = await readMarket(pc, token);   // THE mcap (lib/mcap.ts), pre- and post-grad
-  if (m) return m.mcapUsd;
-  const { readCurveState } = await import("./protocol-viem");
-  return (await readCurveState(pc, token)).mcapUsd;
-}): () => void {
+export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClient = publicClient(), everyMs = 8000, read: (b: bigint) => Promise<number | null> = (b) => readMcapAt(pc, token, b)): () => void {
   let alive = true, busy = false;
   const tick = async () => {
     if (!alive || busy) return; busy = true;
