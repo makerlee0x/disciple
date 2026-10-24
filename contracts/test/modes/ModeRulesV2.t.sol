@@ -506,6 +506,45 @@ contract ModeRulesV2Test is IntegrationBase {
         }
     }
 
+    /// lee 2026-10-23: Easy's First BOOST lock can't be dodged through a spender (any router / approved wallet) or by
+    /// selling to another recipient — Token._update keys the check on `from == creator`, whoever moves the tokens.
+    function test_creatorLock_easy_noSpenderOrRecipientBypass() public {
+        (BondingCurve c, Token t, ILaunchpad.LaunchResult memory r) =
+            _launchM(Constants.MODE_PVE, address(quote), 200 ether);
+        uint256 locked = r.creatorTokensBought;
+        assertGt(locked, 0);
+        vm.prank(creator);
+        t.approve(bob, type(uint256).max);
+        vm.prank(bob);
+        vm.expectRevert(Token.CreatorLocked.selector);
+        t.transferFrom(creator, bob, 1);
+        vm.startPrank(creator);
+        t.approve(address(c), locked);
+        vm.expectRevert(Token.CreatorLocked.selector);
+        c.sell(locked, 0, vm.getBlockTimestamp() + 1, bob);
+        vm.stopPrank();
+        assertEq(t.balanceOf(creator), locked);
+        _grad(c);
+        vm.prank(bob);
+        t.transferFrom(creator, bob, locked); // unlocked after graduation, any path
+        assertEq(t.balanceOf(bob), locked);
+    }
+
+    /// lee 2026-10-23: Hard (PVP) First BOOST is free — the creator can sell it on the curve in the launch block.
+    function test_noCreatorLock_hard_sellFirstBoostImmediately() public {
+        (BondingCurve c, Token t, ILaunchpad.LaunchResult memory r) =
+            _launchM(Constants.MODE_PVP, address(quote), 200 ether);
+        uint256 bought = r.creatorTokensBought;
+        assertGt(bought, 0);
+        assertFalse(t.creatorLockActive());
+        assertEq(c.launchTime(), vm.getBlockTimestamp(), "same block as launch");
+        uint256 q0 = quote.balanceOf(creator);
+        uint256 out = _sellT(c, creator, bought);
+        assertGt(out, 0);
+        assertEq(t.balanceOf(creator), 0);
+        assertEq(quote.balanceOf(creator) - q0, out);
+    }
+
     function test_firstBoost_quotePerMode() public view {
         for (uint8 m; m < 3; ++m) {
             uint256 maxT = Constants.TOTAL_SUPPLY * launchpad.firstBoostMaxBps(m) / 10_000;
