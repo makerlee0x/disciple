@@ -2,23 +2,12 @@
 
 import { useMemo, useState } from "react";
 import {
-  ACHIEVEMENT_CATEGORIES, achievementIconPath, evaluateAchievements, rarityStyle,
-  type AchievementCategory, type AchievementView,
+  ACHIEVEMENT_CATEGORIES, evaluateAchievements, type AchievementCategory, type AchievementView,
 } from "@/lib/achievements";
+import AchievementCard from "./AchievementCard";
 import { rarityRank } from "@/lib/config";
 import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
 import { prestigeFromPoints } from "@/lib/prestige";
-import { withBase } from "@/lib/base-path";
-import Icon from "@/components/icons/Icon";
-
-function rewardPreview(a: AchievementView) {
-  const bits: string[] = [];
-  if (a.reward.points) bits.push(`+${a.reward.points} pts`);
-  if (a.reward.skin) bits.push(a.reward.skin);
-  if (a.reward.trail) bits.push(a.reward.trail);
-  if (a.reward.frame) bits.push(a.reward.frame);
-  return bits.join(" · ") || "—";
-}
 
 const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
 
@@ -30,29 +19,7 @@ export default function AchievementsGrid() {
   const [openLocked, setOpenLocked] = useState<Record<string, boolean>>({});
   const unlocked = views.filter((v) => v.state === "unlocked").length;
 
-  const card = (a: AchievementView) => {
-    const rarity = rarityStyle(a.rarity);
-    return (
-      <article key={a.id} className={`ach-card state-${a.state}`}
-        style={{ borderColor: rarity.border, boxShadow: a.state === "unlocked" ? `0 0 24px ${rarity.glow}` : undefined }}>
-        <div className="ach-frame" style={{ borderColor: rarity.border }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="ach-svg" src={withBase(achievementIconPath(a.id))} alt="" width={60} height={60} />
-          {a.state === "locked" && <span className="ach-lock" aria-label="locked"><Icon name="lock" size={16} /></span>}
-        </div>
-        <div className="ach-body">
-          <div className="ach-rarity" style={{ color: rarity.border }}>{rarity.label}</div>
-          <h3>{a.name}</h3>
-          <p>{a.description}</p>
-          <div className="ach-progress">
-            <div className="ach-bar"><div style={{ width: `${a.pct}%`, background: rarity.border }} /></div>
-            <span>{a.current}/{a.target}</span>
-          </div>
-          <div className="ach-reward">Reward: {rewardPreview(a)}</div>
-        </div>
-      </article>
-    );
-  };
+  const card = (a: AchievementView) => <AchievementCard key={a.id} a={a} />;
   const groups = ACHIEVEMENT_CATEGORIES
     .filter((c) => cat === "all" || c.id === cat)
     .map((c) => {

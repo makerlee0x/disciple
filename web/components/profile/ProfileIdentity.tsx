@@ -13,8 +13,11 @@ import { refLabel } from "@/lib/referral";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-/** Private-profile identity strip: unique username (referral handle), X connect, wallet address. */
-export default function ProfileIdentity() {
+/**
+ * Private-profile identity strip: unique username (referral handle), X connect, wallet address.
+ * `hideUsername`: the Settings modal on /profile, where the username is edited in Edit profile instead.
+ */
+export default function ProfileIdentity({ hideUsername = false }: { hideUsername?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [username, setUsername] = useState("");
   const [draft, setDraft] = useState("");
@@ -52,7 +55,7 @@ export default function ProfileIdentity() {
   return (
     <section className="chart-card profile-identity" aria-label="Identity">
       <div className="pid-row">
-        <div className="pid-block">
+        {!hideUsername && <div className="pid-block">
           <span className="pid-label">USERNAME</span>
           {editing ? (
             <div className="pid-edit">
@@ -70,7 +73,7 @@ export default function ProfileIdentity() {
             </div>
           )}
           {status && <span className={`pid-status ${status.ok ? "ok" : "bad"}`} role="status">{status.text}</span>}
-        </div>
+        </div>}
 
         <div className="pid-block">
           <span className="pid-label">WALLET</span>

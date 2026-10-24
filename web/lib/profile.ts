@@ -28,6 +28,10 @@ export const setLocalXHandle = (h: string) => set(K.x, h.replace(/^@/, "").trim(
 export const rememberReferrer = (u: string) => { if (!get(K.ref)) set(K.ref, normalizeUsername(u)); };
 export const referrer = () => get(K.ref);
 
+/** Fired after the user saves their username / picture / bio / flag, so the profile header re-reads them. */
+export const PROFILE_CHANGED_EVENT = "disciple:profile-changed";
+export function notifyProfileChanged() { try { window.dispatchEvent(new Event(PROFILE_CHANGED_EVENT)); } catch { /* ssr */ } }
+
 export function profileUrl(username: string) { return `/u/${encodeURIComponent(normalizeUsername(username))}`; }
 /** Ref link: /r/<username> (wallet fallback). Legacy /u/<name>?ref=1 links still record the referrer. */
 export function referralUrl(username: string | null, wallet?: string | null) {
@@ -66,12 +70,17 @@ export async function claimUsername(u: string, address: string | null): Promise<
     } catch { return { ok: false, reason: "Could not reach username service." }; }
   }
   set(K.username, n);
+  notifyProfileChanged();
   return { ok: true };
 }
 
-/** Sign the claim with the connected wallet: DISCIPLE smart account → owner signs keccak(msg) raw; else signMessage. */
+/** Sign the claim with the connected wallet (see signWalletMessage). */
 async function signClaim(username: string, address: string, nonce: string): Promise<{ signature: string; owner?: string } | null> {
-  const msg = claimMessage(username, address, nonce);
+  return signWalletMessage(claimMessage(username, address, nonce), address);
+}
+/** Sign a plain message with the connected wallet: DISCIPLE smart account → owner signs keccak(msg) raw; else signMessage. */
+export async function signWalletMessage(msg: string, address: string): Promise<{ signature: string; owner?: string } | null> {
+  address = address.toLowerCase();
   try {
     const s = await import("./aa/session");
     const smart = await s.aaAddress().catch(() => null);
