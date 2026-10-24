@@ -10,7 +10,16 @@
  *  - Reservations live here, never in BALANCES: a balance poll can't wipe them, and displayed balances stay real
  *    (no optimistic or fake fills: the balance changes only from a receipt or a fresh read).
  * Pure and synchronous: no RPC, no sleeps. A forgotten reservation expires after `ttlMs` (released as "timeout").
+ *
+ * AUDIT (#141 review) — 'pending_unknown': a receipt / relay timeout does NOT release the press. The trade layer marks it
+ * unknown (markUnknown: event "unknown"), the hold stays counted, the TTL never expires it and release() refuses it;
+ * only the background watcher ends it (resolveUnknown: event "resolved" with outcome "filled" | "error", then "release").
+ *
+ * USDG decimals (18 on today's testnet, 6 after the redeploy) are never hard-coded: $ ⇄ raw USDG conversions here use
+ * `usdgDecimals()` (lib/usdg: the chain's decimals() once read, else config) or the constructor's `decimals` source.
  */
+import { usdgDecimals as activeUsdgDecimals, usdToUsdgRaw, usdgRawToUsd } from "../usdg";
+
 export type ReserveSide = "boost" | "dump";
 export type ReleaseReason = "filled" | "error" | "timeout" | "cancel";
 export type ReserveInput = {
@@ -26,8 +35,18 @@ export type ReserveInput = {
 };
 /** Trade-layer detail on a reservation (exact raw spend, quote route). Not needed by GAME. */
 export type ReserveSpend = { asset: string; raw: bigint; route?: string };
-export type Reservation = ReserveInput & { id: string; at: number; spend?: ReserveSpend };
-export type ReservationEvent = { type: "reserve" | "release"; id: string; reason?: ReleaseReason; r: Reservation };
+/** A press whose op was sent but whose fate is unknown (receipt / relay timeout): ids the watcher looks up. */
+export type UnknownInfo = { userOpHash?: string; txHash?: string; nonce?: bigint; since: number };
+export type Reservation = ReserveInput & { id: string; at: number; spend?: ReserveSpend; unknown?: UnknownInfo };
+/**
+ * "reserve" / "release" as before; "unknown" when a press goes pending_unknown (ids on `unknown`); "resolved" when the
+ * watcher settles it (outcome "filled" ⇒ booked from the receipt logs, txHash / amountOut set; "error" ⇒ dropped or
+ * reverted), always followed by its "release" (reason = outcome).
+ */
+export type ReservationEvent = {
+  type: "reserve" | "release" | "unknown" | "resolved"; id: string; reason?: ReleaseReason; r: Reservation;
+  unknown?: UnknownInfo; outcome?: "filled" | "error"; txHash?: string; amountOut?: bigint;
+};
 
 const B0 = BigInt(0);
 const lc = (s: string) => s.toLowerCase();
@@ -37,7 +56,9 @@ export class Reservations {
   private subs = new Set<(e: ReservationEvent) => void>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private gasSource: () => bigint | undefined = () => undefined;
-  constructor(private clock: () => number = Date.now, public ttlMs = 60_000, private useTimers = true) {}
+  constructor(private clock: () => number = Date.now, public ttlMs = 60_000, private useTimers = true, private decimals: () => number = () => activeUsdgDecimals()) {}
+  /** USDG decimals used for $ ⇄ raw (tests inject 18 / 6; the app uses lib/usdg usdgDecimals()). */
+  usdgDec(): number { return this.decimals(); }
 
   /** Reserve (or merge into) `id`. Returns the stored reservation. */
   reserve(id: string, r: ReserveInput & { spend?: ReserveSpend }): Reservation {
@@ -53,24 +74,53 @@ export class Reservations {
     this.emit({ type: "reserve", id, r: next });
     return next;
   }
-  /** Release `id` (idempotent). true when something was released. */
-  release(id: string, reason: ReleaseReason): boolean {
+  /**
+   * Release `id` (idempotent). true when something was released. A pending_unknown press is NOT released here (GAME's
+   * backstop or the TTL must not free money that may still be spent): only resolveUnknown ends it; `force` = logout.
+   */
+  release(id: string, reason: ReleaseReason, o: { force?: boolean } = {}): boolean {
     const r = this.m.get(id); if (!r) return false;
+    if (r.unknown && !o.force) {
+      if (typeof console !== "undefined") console.warn("[disciple] release ignored: trade still confirming", { id, reason, userOpHash: r.unknown.userOpHash, nonce: r.unknown.nonce?.toString() });
+      return false;
+    }
     this.m.delete(id);
     const t = this.timers.get(id); if (t) { clearTimeout(t); this.timers.delete(id); }
     this.emit({ type: "release", id, reason, r });
     return true;
   }
+  /**
+   * The press's op was sent but its fate is unknown: keep it held (TTL off) until resolveUnknown. Emits "unknown".
+   * false when `id` isn't held (nothing to keep).
+   */
+  markUnknown(id: string, info: Omit<UnknownInfo, "since">): boolean {
+    const cur = this.m.get(id); if (!cur) return false;
+    const t = this.timers.get(id); if (t) { clearTimeout(t); this.timers.delete(id); }
+    const unknown: UnknownInfo = { ...stripUndef(info), since: cur.unknown?.since ?? this.clock() } as UnknownInfo;
+    const next = { ...cur, unknown };
+    this.m.set(id, next);
+    this.emit({ type: "unknown", id, r: next, unknown });
+    return true;
+  }
+  /** The watcher settled an unknown press: emits "resolved" then "release" (reason = outcome). */
+  resolveUnknown(id: string, outcome: "filled" | "error", d: { txHash?: string; amountOut?: bigint } = {}): boolean {
+    const r = this.m.get(id); if (!r) return false;
+    this.emit({ type: "resolved", id, r, unknown: r.unknown, outcome, ...stripUndef(d) });
+    return this.release(id, outcome, { force: true });
+  }
+  isUnknown(id: string): boolean { return !!this.m.get(id)?.unknown; }
+  unknownCount(): number { let n = 0; for (const r of this.m.values()) if (r.unknown) n++; return n; }
   has(id: string) { this.sweep(); return this.m.has(id); }
   get(id: string): Reservation | undefined { this.sweep(); return this.m.get(id); }
   list(): Reservation[] { this.sweep(); return [...this.m.values()]; }
   /** Pending presses (optionally one side). */
   count(side?: ReserveSide): number { return this.list().filter((r) => !side || r.side === side).length; }
-  /** Cash held by pending BOOSTs in $ (USDG 1:1): Σ usd + Σ gas caps (raw USDG → $, 6 dec). */
+  /** Cash held by pending BOOSTs in $ (USDG 1:1): Σ usd + Σ gas caps (raw USDG → $ at the chain's USDG decimals). */
   reservedCash(): number {
+    const dec = this.decimals();
     let usd = 0, gas = B0;
-    for (const r of this.list()) { if (r.side === "boost") usd += r.usd ?? (r.spend && isUsdgRaw(r) ? Number(r.spend.raw) / 1e6 : 0); if (r.gasReserve) gas += r.gasReserve; }
-    return usd + Number(gas) / 1e6;
+    for (const r of this.list()) { if (r.side === "boost") usd += r.usd ?? (r.spend && isUsdgRaw(r) ? usdgRawToUsd(r.spend.raw, dec) : 0); if (r.gasReserve) gas += r.gasReserve; }
+    return usd + usdgRawToUsd(gas, dec);
   }
   /** Raw coin held by pending DUMPs of `coin`. */
   reservedTokens(coin: string): bigint {
@@ -83,11 +133,11 @@ export class Reservations {
    * GAME reserved in $ before the trade layer saw them count as USDG, and every gas cap counts as USDG.
    */
   reservedRaw(asset: string, o: { exceptId?: string; usdg?: string } = {}): bigint {
-    const a = lc(asset), usdg = o.usdg ? lc(o.usdg) : undefined; let t = B0;
+    const a = lc(asset), usdg = o.usdg ? lc(o.usdg) : undefined, dec = this.decimals(); let t = B0;
     for (const r of this.list()) {
       if (r.id === o.exceptId) continue;
       if (r.spend) { if (r.spend.asset === a) t += r.spend.raw; }
-      else if (r.side === "boost" && usdg === a && r.usd) t += BigInt(Math.round(r.usd * 1e6));
+      else if (r.side === "boost" && usdg === a && r.usd) t += usdToUsdgRaw(r.usd, dec);
       else if (r.side === "dump" && r.coin === a && r.tokenAmt) t += r.tokenAmt;
       if (usdg === a && r.gasReserve) t += r.gasReserve;
     }
@@ -111,16 +161,16 @@ export class Reservations {
   subscribe(cb: (e: ReservationEvent) => void): () => void { this.subs.add(cb); return () => { this.subs.delete(cb); }; }
   /** FLOW (#141): per-op gas cap in raw USDG (wallet.gasReservePerOp / DisciplePaymaster maxTokenCost); 0 / undefined when gas isn't paid in USDG. */
   setGasReserveSource(f: () => bigint | undefined) { this.gasSource = f; }
-  clear() { for (const id of [...this.m.keys()]) this.release(id, "cancel"); }
+  clear() { for (const id of [...this.m.keys()]) this.release(id, "cancel", { force: true }); }
 
   private arm(id: string) {
     if (!this.useTimers || typeof setTimeout === "undefined") return;
-    const t = setTimeout(() => { this.timers.delete(id); this.release(id, "timeout"); }, this.ttlMs);
+    const t = setTimeout(() => { this.timers.delete(id); if (!this.m.get(id)?.unknown) this.release(id, "timeout"); }, this.ttlMs);
     (t as { unref?: () => void }).unref?.();
     this.timers.set(id, t);
   }
   /** Lazy expiry (also covers a test clock / suspended tab). */
-  private sweep() { const now = this.clock(); for (const [id, r] of this.m) if (now - r.at > this.ttlMs) this.release(id, "timeout"); }
+  private sweep() { const now = this.clock(); for (const [id, r] of this.m) if (!r.unknown && now - r.at > this.ttlMs) this.release(id, "timeout"); }
   private emit(e: ReservationEvent) { for (const f of [...this.subs]) { try { f(e); } catch (err) { if (typeof console !== "undefined") console.warn("[disciple] reservation listener failed", err); } } }
 }
 function stripUndef<T extends object>(o: T): Partial<T> { return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>; }
@@ -137,7 +187,11 @@ export const reservedTokens = (coin: string): bigint => RESERVATIONS.reservedTok
 export const inflightCount = (side?: ReserveSide): number => RESERVATIONS.count(side);
 export const pendingNet = (coin: string) => RESERVATIONS.pendingNet(coin);
 export const subscribe = (cb: (e: ReservationEvent) => void): (() => void) => RESERVATIONS.subscribe(cb);
+/** FLOW: per-op gas cap in RAW USDG base units (whatever the chain's USDG decimals are: 18 today, 6 after the redeploy). */
 export const setGasReserveSource = (f: () => bigint | undefined) => RESERVATIONS.setGasReserveSource(f);
+/** GAME: is this press pending_unknown (sent, still confirming)? Don't resend it; wait for its "resolved" event. */
+export const isPendingUnknown = (id: string): boolean => RESERVATIONS.isUnknown(id);
+export const unknownCount = (): number => RESERVATIONS.unknownCount();
 
 let auto = 0;
 /** Trade-layer id when the caller passed no reservationId. */

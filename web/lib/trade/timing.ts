@@ -25,7 +25,8 @@ export type TradeTiming = {
   /** Extra fields for the log line (e.g. server stages, fast/standard path). */
   note(extra: Record<string, unknown>): void;
   /** Log once: `[disciple] trade timing` { label, click→fill ms, per-stage deltas, …notes }. */
-  done(outcome: "fill" | "error", extra?: Record<string, unknown>): Record<string, unknown> | undefined;
+  /** "pending": the press went pending_unknown (AUDIT) — its fill, if any, is booked later by the watcher. */
+  done(outcome: "fill" | "error" | "pending", extra?: Record<string, unknown>): Record<string, unknown> | undefined;
 };
 
 export function startTradeTiming(label: string, clock: () => number = nowMs, log: (o: Record<string, unknown>) => void = defaultLog): TradeTiming {

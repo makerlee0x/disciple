@@ -180,6 +180,7 @@ export class LightSmartAccount {
       }
     }
     logRelayOp("pending", { userOpHash: uoh });
-    throw new AAError("Timeout", PENDING_MSG, { userOpHash: uoh });
+    // AUDIT: still unknown, not failed (the trade layer watches userOpHash / nonce until it lands or is dropped)
+    throw new AAError("Timeout", PENDING_MSG, { userOpHash: uoh, nonce: BigInt(op.nonce), sender: op.sender });
   }
 }

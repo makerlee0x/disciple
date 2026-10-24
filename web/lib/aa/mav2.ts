@@ -38,6 +38,9 @@ export function opRevertReason(logs: { address: string; data: Hex; topics: Hex[]
  * the first send went through. Now we look the op up on-chain first.
  */
 export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|502|503|504|FUNCTION_INVOCATION/i;
+/** The request provably never reached the relay (DNS / connection refused / TLS): nothing was sent, so an ambiguous-looking
+ *  relay error with no relay ids is a plain failure, not an unknown op. Anything else ambiguous is unknown (AUDIT). */
+export const RELAY_NOT_SENT = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|getaddrinfo|certificate|CERT_|ERR_TLS/i;
 /** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
 /** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
  * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
@@ -304,10 +307,13 @@ export class Mav2Account {
       }
       // Ambiguous failure (lost response, receipt timeout, nonce already used, or sent but unconfirmed): the op may have
       // landed — check before failing.
+      // AUDIT (#141 review): not found in the short lookup ⇒ the op's fate is UNKNOWN, not failed (the relay's 20 s receipt
+      // poll / a lost answer can precede a late landing). Timeout + its ids and nonce: the trade layer keeps the press held
+      // and watches the op in the background (lib/trade/pendingOps); nothing here re-sends it.
       if (j.error && ids.userOpHash && j.error.code !== -32601 && (ref || AMBIGUOUS_RELAY.test(j.error.message))) {
         const got = await this.findOp(ids.userOpHash, sender);
         if (got) j = { result: got };
-        else if (ref) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash }); }
+        else if (ref || !RELAY_NOT_SENT.test(j.error.message)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash, nonce, sender }); }
       }
       if (j.error && feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
@@ -363,7 +369,7 @@ export class Mav2Account {
       const rl = ref ? null : rateLimitFromError(e);   // 429 before anything was sent
       if (rl) { logTradeError("trade rate limited", { path: "standard", retryAfterMs: rl.retryAfterMs }); throw new AAError("RateLimited", SLOW_DOWN_MSG, { retryAfterMs: rl.retryAfterMs }); }
       if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); logRelayOp("rejected", ids); throw new AAError("Reverted", REJECTED_MSG, ids); }
-      if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, ids); }
+      if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { ...ids, nonce, sender }); }
       if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false, tt); }
       return fail(e);
     }
@@ -375,7 +381,7 @@ export class Mav2Account {
     opPhase({ phase: "submitted", userOpHash: req.hash });
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
-    catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: req.hash }); }
+    catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: req.hash, nonce, sender }); }   // unknown, not failed (AUDIT)
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
       success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; blockNumber?: bigint | Hex; logs: { address: Address; data: Hex; topics: Hex[]; blockNumber?: bigint | Hex }[] };
     } | null;

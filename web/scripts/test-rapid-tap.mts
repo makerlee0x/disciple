@@ -40,7 +40,7 @@ test("registry: reserve / release are idempotent per id, events fire once per ch
 });
 
 test("registry: GAME's $ reservation and the trade layer's raw spend merge under one press id (no double count)", () => {
-  const reg = new Reservations(() => 0, 60_000, false);
+  const reg = new Reservations(() => 0, 60_000, false, () => 6);   // 6-dec USDG (18 vs 6: see the decimals tests)
   reg.reserve("press-1", { side: "boost", coin: COIN, usd: 10 });
   assert.equal(reg.reservedRaw(USDG, { usdg: USDG }), B(10_000_000), "GAME-only $ counts as USDG raw");
   reg.reserve("press-1", { side: "boost", coin: COIN, spend: { asset: USDG, raw: B(10_000_000), route: "r" } } as never);
@@ -61,7 +61,7 @@ test("registry: dumps hold coin, pendingNet reports both sides (display only)", 
 });
 
 test("registry: gas cap from FLOW's source is held per BOOST, counted as USDG and in reservedCash", () => {
-  const reg = new Reservations(() => 0, 60_000, false);
+  const reg = new Reservations(() => 0, 60_000, false, () => 6);   // 6-dec USDG
   reg.setGasReserveSource(() => B(250_000));   // $0.25 cap per op
   reg.reserve("b", { side: "boost", coin: COIN, usd: 1 });
   reg.reserve("s", { side: "dump", coin: COIN, tokenAmt: B(1) });
@@ -181,4 +181,160 @@ test("typed codes: AA RateLimited → rate_limited + retryAfterMs; spend limit �
   assert.equal(dec.code, "spend_limit"); assert.equal(dec.message, SPEND_LIMIT_MSG);
   assert.equal(tradeErrorCode(new Error("x")), undefined);
   for (const e of [rl, sl, dec]) { const m = playerError(e); assert.ok(!JARGON.test(m), m); assert.ok(m === SLOW_DOWN_MSG || m === SPEND_LIMIT_MSG); }
+});
+
+/* ---------- AUDIT (#141 review): receipt / relay timeout ⇒ pending_unknown, not failed ---------- */
+const PO = await import("../lib/trade/pendingOps");
+const { unknownOpOf, PENDING_UNKNOWN_MSG, PENDING_MSG } = await import("../lib/aa/relayOp");
+const { createViemProtocol } = await import("../lib/protocol-viem");
+const U = await import("../lib/usdg");
+const { deployment } = await import("../lib/chains");
+const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
+const OTHER = ("0x" + "cd".repeat(32)) as `0x${string}`;
+const TX = ("0x" + "ef".repeat(32)) as `0x${string}`;
+const NONCE = (B(12345) << B(64));
+/** Fake clock + sleep: each sleep advances the clock, so a 2-min watch runs instantly. */
+function fakeTime() { let t = 0; const sleeps: number[] = []; return { clock: () => t, sleep: async (ms: number) => { sleeps.push(ms); t += ms; }, sleeps, set: (v: number) => { t = v; } }; }
+function events(reg: InstanceType<typeof Reservations>) {
+  const ev: { type: string; reason?: string; outcome?: string; amountOut?: bigint; txHash?: string }[] = [];
+  reg.subscribe((e) => ev.push({ type: e.type, reason: e.reason, outcome: e.outcome, amountOut: e.amountOut, txHash: e.txHash }));
+  return ev;
+}
+
+test("pending_unknown: a Timeout AAError carries the op's ids + nonce; typed code + plain copy", () => {
+  const op = unknownOpOf(new AAError("Timeout", PENDING_MSG, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG }));
+  assert.deepEqual(op, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG });
+  assert.equal(unknownOpOf(new AAError("Bundler", "x", { userOpHash: HASH })), null, "only timeouts are unknown");
+  assert.equal(unknownOpOf(new ProtocolError("Timeout", PENDING_MSG)), null, "a mapped ProtocolError is not an AA send error");
+  const pe = new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: { reservationId: "p", userOpHash: HASH, nonce: NONCE } });
+  assert.equal(tradeErrorCode(pe), "pending_unknown"); assert.equal(pe.op?.userOpHash, HASH);
+  assert.equal(PENDING_UNKNOWN_MSG, "Still confirming your last trade…");
+  assert.ok(!JARGON.test(playerError(pe)), playerError(pe)); assert.equal(playerError(pe), PENDING_UNKNOWN_MSG);
+});
+
+test("pending_unknown: timeout then the op fills later ⇒ booked from the receipt logs, released 'filled', no failure event", async () => {
+  const reg = new Reservations(() => 0, 60_000, false); const ev = events(reg); const ft = fakeTime();
+  reg.reserve("press", { side: "boost", coin: COIN, spend: { asset: USDG, raw: B(5_000_000), route: "r" } } as never);
+  const logs = [{ address: COIN as `0x${string}`, data: "0x" as `0x${string}`, topics: [] }];
+  let calls = 0, booked: unknown = null, settled: boolean | undefined;
+  const deps = { clock: ft.clock, sleep: ft.sleep,
+    byHash: async () => (++calls < 4 ? null : { userOpHash: HASH, txHash: TX, success: true, logs }),
+    nonceUsed: async () => false };
+  const w = PO.holdUnknown(reg, "press", { userOpHash: HASH, nonce: NONCE }, deps, { book: (l) => { booked = l.logs; return B(777); }, settle: (x) => { settled = x; } });
+  assert.equal(reg.isUnknown("press"), true); assert.equal(reg.reservedRaw(USDG, { usdg: USDG }), B(5_000_000), "still held");
+  assert.equal(reg.release("press", "error"), false, "GAME's / the layer's backstop can't free an unknown press");
+  const out = await w;
+  assert.equal(out.state, "filled"); assert.equal(booked, logs); assert.equal(settled, true);
+  assert.deepEqual(ev.map((e) => e.type + ":" + (e.reason ?? e.outcome ?? "")), ["reserve:", "unknown:", "resolved:filled", "release:filled"]);
+  assert.equal(ev[2].amountOut, B(777)); assert.equal(ev[2].txHash, TX);
+  assert.ok(!ev.some((e) => e.reason === "error" || e.reason === "timeout" || e.outcome === "error"), "never a failure");
+  assert.equal(reg.count(), 0);
+  assert.ok(ft.sleeps.length === 3 && ft.sleeps[1] > ft.sleeps[0], "backoff between lookups");
+});
+
+test("pending_unknown: timeout then dropped (cap passed, nonce not advanced) ⇒ released 'error'", async () => {
+  const reg = new Reservations(() => 0, 60_000, false); const ev = events(reg); const ft = fakeTime();
+  reg.reserve("p2", { side: "dump", coin: COIN, tokenAmt: B(10) });
+  let booked = false, settled: boolean | undefined;
+  const out = await PO.holdUnknown(reg, "p2", { userOpHash: HASH, nonce: NONCE }, { clock: ft.clock, sleep: ft.sleep, byHash: async () => null, nonceUsed: async () => false },
+    { book: () => { booked = true; return B(0); }, settle: (x) => { settled = x; } });
+  assert.deepEqual(out, { state: "dropped", why: "cap passed, nonce not advanced" });
+  assert.ok(ft.clock() >= PO.WATCH_CAP_MS && ft.clock() < PO.WATCH_CAP_MS + 1, "watched for the 2 min cap, not past it");
+  assert.ok(Math.max(...ft.sleeps) <= 15_000, "backoff capped");
+  assert.equal(booked, false); assert.equal(settled, false);
+  assert.deepEqual(ev.slice(-2).map((e) => e.type + ":" + (e.reason ?? e.outcome)), ["resolved:error", "release:error"]);
+  assert.equal(reg.count(), 0);
+});
+
+test("pending_unknown: nonce used by ANOTHER op ⇒ dropped at once; our op reverted ⇒ 'error'", async () => {
+  const ft = fakeTime();
+  const other = await PO.watchUnknownOp({ userOpHash: HASH, nonce: NONCE }, { clock: ft.clock, sleep: ft.sleep, byHash: async () => null, nonceUsed: async () => true,
+    byNonce: async () => ({ userOpHash: OTHER, txHash: TX, success: true, logs: [] }) });
+  assert.deepEqual(other, { state: "dropped", why: "nonce used by another op" }); assert.equal(ft.sleeps.length, 0);
+  const reg = new Reservations(() => 0, 60_000, false); const ev = events(reg);
+  reg.reserve("p3", { side: "boost", coin: COIN, usd: 1 });
+  const rv = await PO.holdUnknown(reg, "p3", { userOpHash: HASH }, { clock: ft.clock, sleep: ft.sleep, byHash: async () => ({ userOpHash: HASH, txHash: TX, success: false, logs: [] }), nonceUsed: async () => undefined }, { book: () => B(1) });
+  assert.equal(rv.state, "reverted"); assert.equal(ev.at(-1)?.reason, "error");
+  // nonce advanced, event outside the log window ⇒ it executed: 'filled' (balances re-read), never a failure
+  const reg2 = new Reservations(() => 0, 60_000, false); const ev2 = events(reg2); const ft2 = fakeTime(); let reread = false;
+  reg2.reserve("p4", { side: "boost", coin: COIN, usd: 1 });
+  const ld = await PO.holdUnknown(reg2, "p4", { nonce: NONCE }, { clock: ft2.clock, sleep: ft2.sleep, byHash: async () => null, nonceUsed: async () => true, byNonce: async () => null }, { book: () => B(0), landedUnbooked: () => { reread = true; } });
+  assert.equal(ld.state, "landed"); assert.equal(reread, true); assert.equal(ev2.at(-1)?.reason, "filled");
+});
+
+test("pending_unknown: the hold is NOT expired at 60 s (TTL sweep and timer) while unknown; it ends only when resolved", async () => {
+  let t = 0; const reg = new Reservations(() => t, 60_000, false); const ev = events(reg);
+  reg.reserve("u", { side: "boost", coin: COIN, usd: 4 }); reg.reserve("k", { side: "boost", coin: COIN, usd: 1 });
+  assert.equal(reg.markUnknown("u", { userOpHash: HASH, nonce: NONCE }), true);
+  t = 61_000;
+  assert.equal(reg.reservedCash(), 4, "known hold expired, unknown hold kept");
+  assert.equal(reg.has("u"), true); assert.equal(reg.has("k"), false);
+  t = 600_000; assert.equal(reg.count(), 1);
+  assert.equal(reg.release("u", "timeout"), false);
+  assert.equal(reg.resolveUnknown("u", "filled"), true); assert.equal(reg.count(), 0);
+  assert.deepEqual(ev.filter((e) => e.type === "release").map((e) => e.reason), ["timeout", "filled"]);
+  const timed = new Reservations(Date.now, 5, true);
+  timed.reserve("y", { side: "dump", coin: COIN, tokenAmt: B(1) }); timed.markUnknown("y", { nonce: NONCE });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(timed.count(), 1, "the TTL timer doesn't release an unknown hold");
+  timed.clear(); assert.equal(timed.count(), 0, "logout still clears");
+});
+
+test("pending_unknown: no resend while unknown — the same press is refused before any build / send; other presses use the normal math", async () => {
+  const id = "press-unknown";
+  R.reserve(id, { side: "boost", coin: COIN, usd: 2 });
+  R.RESERVATIONS.markUnknown(id, { userOpHash: HASH, nonce: NONCE });
+  const ev: string[] = []; const off = R.subscribe((e) => ev.push(e.type));
+  const p = createViemProtocol();
+  await assert.rejects(p.buy({ token: COIN as `0x${string}`, amountIn: B(1), minAmountOut: B(1), reservationId: id }),
+    (e: unknown) => e instanceof ProtocolError && e.code === "pending_unknown" && e.op?.userOpHash === HASH && e.message === PENDING_UNKNOWN_MSG);
+  assert.deepEqual(ev, [], "nothing reserved / released / re-sent for that press");
+  assert.equal(R.isPendingUnknown(id), true); assert.equal(R.unknownCount(), 1);
+  // another press: the unknown hold still counts against cash (normal reservation math), nothing else is blocked
+  const have = B(3_000_000) * B(10) ** B(U.usdgDecimals() - 6);
+  const usdg = deployment().usdg;
+  R.RESERVATIONS.reserve("other", { side: "boost", coin: COIN, spend: { asset: usdg, raw: U.usdToUsdgRaw(1) } } as never);
+  assert.equal(spendable(have, R.RESERVATIONS.reservedRaw(usdg, { exceptId: "other", usdg })) >= U.usdToUsdgRaw(1), true, "$3 − $2 held ≥ $1");
+  R.RESERVATIONS.reserve("big", { side: "boost", coin: COIN, spend: { asset: usdg, raw: U.usdToUsdgRaw(2) } } as never);
+  assert.equal(spendable(have, R.RESERVATIONS.reservedRaw(usdg, { exceptId: "big", usdg })) >= U.usdToUsdgRaw(2), false, "would need the held funds ⇒ refused");
+  off(); R.RESERVATIONS.clear();
+});
+
+/* ---------- gas reserve units: USDG 18 vs 6 decimals ---------- */
+test("decimals: reservations convert $ ⇄ raw USDG at 18 and at 6 decimals (gas reserve is raw base units)", () => {
+  for (const dec of [18, 6]) {
+    const reg = new Reservations(() => 0, 60_000, false, () => dec);
+    const one = B(10) ** B(dec);
+    reg.setGasReserveSource(() => one / B(4));   // $0.25 per op in raw base units
+    reg.reserve("g", { side: "boost", coin: COIN, usd: 10 });
+    assert.equal(reg.reservedRaw(USDG, { usdg: USDG }), B(10) * one + one / B(4), `dec ${dec}: $10 + gas cap in raw`);
+    assert.equal(reg.reservedCash(), 10.25, `dec ${dec}: reservedCash in $`);
+    reg.reserve("h", { side: "boost", coin: COIN, spend: { asset: USDG, raw: B(3) * one, route: "usdgroute|x|buy" } } as never);
+    assert.equal(reg.reservedCash(), 13.5, `dec ${dec}: raw USDG spend → $`);
+    assert.equal(reg.usdgDec(), dec);
+  }
+});
+
+test("decimals: USDG decimals are read from the chain ONCE (cached) and used by usdgDecimals() / conversions", async () => {
+  const d = deployment();
+  if (/^0x0{40}$/i.test(d.usdg)) return;   // chain without USDG: config only
+  U.resetUsdgDecimals();
+  const cfg = U.usdgDecimals(), chainDec = cfg === 18 ? 6 : 18;
+  let reads = 0;
+  const pc = { readContract: async () => { reads++; return chainDec; } } as never;
+  assert.equal(await U.readUsdgDecimals(pc), chainDec);
+  assert.equal(await U.readUsdgDecimals(pc), chainDec); assert.equal(reads, 1, "one read, then cached");
+  assert.equal(U.usdgDecimals(), chainDec); assert.equal(U.usdToUsdgRaw(1), B(10) ** B(chainDec));
+  assert.equal(U.usdgDecimals(d), cfg, "an explicit deployment still means its config");
+  assert.equal(new Reservations(() => 0, 60_000, false).usdgDec(), chainDec, "the app registry follows the chain value");
+  U.resetUsdgDecimals();
+  const bad = { readContract: async () => { throw new Error("rpc down"); } } as never;
+  await assert.rejects(U.readUsdgDecimals(bad)); assert.equal(U.usdgDecimals(), cfg, "a failed read falls back to config");
+  assert.equal(await U.readUsdgDecimals(pc), chainDec, "and is retried"); U.resetUsdgDecimals();
+});
+
+/* ---------- press id to the relay (FLOW #145) ---------- */
+test("pressId: asTrade accepts the press id (carried to aaSend; TODO FLOW #145: sendCalls options slot)", async () => {
+  const { asTrade } = await import("../lib/aa/session");
+  let ran = false; await asTrade(undefined, async () => { ran = true; }, { pressId: "press-9" }); assert.ok(ran);
 });

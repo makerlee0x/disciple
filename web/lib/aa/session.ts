@@ -22,7 +22,7 @@ import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./po
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 import type { TradeTiming } from "../trade/timing";
 import { SESSION_PENDING } from "../trade/reservations";
-import { SPEND_LIMIT_MSG } from "./relayOp";
+import { SPEND_LIMIT_MSG, unknownOpOf } from "./relayOp";
 import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -252,7 +252,10 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
  * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
  * fresh nonce key. No refill available ⇒ the original FundAccount error.
  */
-async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, timing?: TradeTiming) {
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, timing?: TradeTiming, pressId?: string) {
+  // TODO(FLOW #145): pass `pressId` here (sendCalls(calls, { as, feeRetry: true, pressId })) — no slot on this branch
+  // (4th positional arg is TradeTiming); plumbed to here so the swap is one line once #145 lands.
+  void pressId;
   try { return await sa!.sendCalls(calls, as, true, timing); }
   catch (e) {
     if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
@@ -547,11 +550,17 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  * synchronously, and clears it before returning; execCalls → aaSend runs synchronously up to aaSend's first line,
  * which takes it. Anything that isn't a trade (withdraw, claims, one-tap install, mints) never sees it.
  */
-type TradeCtx = { trade?: boolean; timing?: TradeTiming };
+/**
+ * pressId (rapid-tap, FLOW #145): the press's reservation id. FLOW's sendCalls takes { pressId } and sends it as
+ * params[2].pressId (first send of a press counts toward the per-sender limit, its next 2 retries are free).
+ * TODO(FLOW #145): this branch's Mav2Account.sendCalls(calls, as, feeRetry, tt) has no options slot yet, so the id is
+ * carried to the send call site below and stops there. Once #145 lands: sa.sendCalls(calls, { as, feeRetry: true, pressId }).
+ */
+type TradeCtx = { trade?: boolean; timing?: TradeTiming; pressId?: string };
 let tradeCtx: TradeCtx | undefined;
 function takeTradeCtx() { const c = tradeCtx; tradeCtx = undefined; return c; }
-export function asTrade<T>(timing: TradeTiming | undefined, fn: () => Promise<T>): Promise<T> {
-  tradeCtx = { trade: true, timing };
+export function asTrade<T>(timing: TradeTiming | undefined, fn: () => Promise<T>, o: { pressId?: string } = {}): Promise<T> {
+  tradeCtx = { trade: true, timing, ...(o.pressId ? { pressId: o.pressId } : {}) };
   try { return fn(); } finally { tradeCtx = undefined; }
 }
 
@@ -603,10 +612,23 @@ export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {
   if (opts.trade && !asSession) console.info("[disciple] trade signed by the owner", { why: pick.why, strict: mode.strict });
   let r;
   const hold = asSession ? SESSION_PENDING.hold(spend) : undefined;
-  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, opts.timing); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, opts.timing, opts.pressId); }
   catch (e) {
-    if (hold) SESSION_PENDING.drop(hold);   // refund: nothing was spent (or it's unknown ⇒ the chain sync corrects it)
     const ae = e as AAError;
+    if (unknownOpOf(e)) {
+      // AUDIT: sent, fate unknown ⇒ the in-flight session spend stays held until the trade layer's watcher settles it
+      // (extra.settleSession(landed): landed ⇒ counted as spent, else refunded). Never re-sent from here.
+      let done = false;
+      const settle = (landed: boolean) => {
+        if (done) return; done = true;
+        if (hold) SESSION_PENDING.drop(hold);
+        if (landed) { if (state) { state = { ...state, ...recordSpend(state, delta) }; save(); } if (asSession && onchain) { onchain = addSpent(onchain, spend); saveSessionKey(); } }
+        else if (asSession) void syncSessionFromChain();
+      };
+      ae.extra = { ...(ae.extra ?? {}), settleSession: settle };
+      throw e;
+    }
+    if (hold) SESSION_PENDING.drop(hold);   // refund: nothing was spent
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
