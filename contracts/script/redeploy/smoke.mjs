@@ -87,6 +87,20 @@ const fmt = (x) => formatUnits(x, qDec);
 const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? zeroAddress);
 const sink = await rd(B.FeeRouter, frAbi, "referralSink");
 check("FeeRouter.referralSink default", sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
+// redeploy pack (lee 2026-10-24): no legacy AntiSnipe; owner-settable KOL creator-share cut; launchAnon maxFee; Token.burn
+check("Launchpad.antiSnipe() == 0 (legacy AntiSnipe not deployed)", (await rd(B.Launchpad, lpAbi, "antiSnipe")) === zeroAddress, "pack item 8");
+check("no AntiSnipe in the bundle", !("AntiSnipe" in B), Object.keys(B).length + " contracts");
+check("no stale AntiSnipe ABI in the bundle", !fs.existsSync(path.join(BUNDLE, "abi", "AntiSnipe.json")), "AUDIT stale ABIs");
+const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? 200);
+const kolBps = BigInt(await rd(B.FeeRouter, frAbi, "kolCreatorShareBps"));
+check("FeeRouter.kolCreatorShareBps default", kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
+check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6 && x.inputs[5].name === "maxFee"), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee)");
+const mmWant = Number(process.env.EXPECT_MAX_MODE ?? 2);
+const mm = Number(await rd(B.Launchpad, lpAbi, "maxMode"));
+check("Launchpad.maxMode default == Hard", mm === mmWant, `${mm} (want ${mmWant}; owner-settable, bounds [2,15])`);
+const rtAbiNames = new Set(abi("DiscipleRouter").filter((x) => x.type === "function").map((x) => x.name));
+check("DiscipleRouter has swapUsdgToQuote / swapQuoteToUsdg / quoteUsdgQuoteSwap", ["swapUsdgToQuote", "swapQuoteToUsdg", "quoteUsdgQuoteSwap", "launchWithUsdg"].every((n) => rtAbiNames.has(n)), "pack item 2");
+check("Token ABI has burn / burnFrom", fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? ["burn", "burnFrom"].every((n) => abi("Token").some((x) => x.type === "function" && x.name === n)) : true, fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? "pack item 5" : "Token ABI not in bundle (skipped)");
 const rv = await rd(B.FeeRouter, frAbi, "rewardsVault");
 check("FeeRouter.rewardsVault set", rv !== zeroAddress && (!B.RewardsVault || rv === getAddress(B.RewardsVault)), rv);
 // AUDIT fixes (contracts/docs/redeploy-runbook.md §11)

@@ -10,7 +10,7 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.
 const rec = path.join(root, "broadcast/Deploy.s.sol/46630", mode === "dry-run" ? "dry-run" : "", "run-latest.json");
 const run = JSON.parse(fs.readFileSync(rec, "utf8"));
 const NAMES = ["ReferralRegistry", "LockedLP", "FeeRouter", "DiscipleHook", "Migration", "DiscipleRouter", "TrampWallManager",
-  "AntiSnipe", "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens", "UsdgDepositNotifier", "LoginGate"];
+  "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens", "UsdgDepositNotifier", "LoginGate"];
 const contracts = {};
 let gas = 0n;
 const devTokens = {}; // DevToken creates: mock USDG (6-dec) and test STRATEGY, identified by symbol
@@ -83,6 +83,10 @@ for (const n of abiNames) {
   fs.writeFileSync(path.join(bdir, "abi", `${n}.json`), JSON.stringify(abi, null, 2));
   ts += `export const ${n[0].toLowerCase() + n.slice(1)}Abi = ${JSON.stringify(abi)} as const;\n`;
 }
+// AUDIT (stale ABIs): drop bundle ABIs of contracts this stack no longer deploys (e.g. the legacy AntiSnipe, dropped by
+// the redeploy pack), so the regenerated web-bundle can't reference a dropped contract. Older addresses stay only under
+// previous / PREVIOUS_ADDRESSES (history).
+for (const f of fs.readdirSync(path.join(bdir, "abi"))) if (f.endsWith(".json") && !abiNames.includes(f.slice(0, -5))) { fs.rmSync(path.join(bdir, "abi", f)); console.log(`removed stale ${path.relative(root, path.join(bdir, "abi", f))}`); }
 fs.writeFileSync(path.join(bdir, "addresses.json"), JSON.stringify({ chainId: 46630, mode, startBlock: next.startBlock, contracts: next.contracts, previous: cur.contracts, uniswapV4: cur.uniswapV4, tokens: next.tokens }, null, 2) + "\n");
 fs.writeFileSync(path.join(bdir, "index.ts"), ts);
 console.log(`wrote ${path.relative(root, outJson)} + ${path.relative(root, bdir)} (${Object.keys(next.contracts).length} contracts, est gas ${gas}${mode === "dry-run" ? "" : `, gas used ${gasUsed}`})`);

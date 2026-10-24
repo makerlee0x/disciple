@@ -50,7 +50,13 @@ alone: the AnonLauncher cap fix (2f55717a) and the 6-dec `Trade.fee` fix (06d46f
 5. Simulation against the live RPC, no broadcast: `./script/redeploy/redeploy.sh` (writes `deployments/rh-testnet-46630.dry-run.json`).
 6. Deployer `0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5` balance ≥ 0.05 ETH (0.27 ETH on 2026-10-24; core deploy ≈ 40.2M gas,
    at 0.01 gwei ≈ 0.0004 ETH + L1 data; paymaster deposit/stake extra).
-7. Confirm env with lee: `TREASURY`, `REWARDS_VAULT_OWNER`, `PVE_ATTESTER` (must match the key SITE signs logins with), `REFERRAL_SINK` (default 0).
+7. **LEE DECISION 2026-10-24 1:17 PM CT (testnet env; lee signs no transactions).** `TREASURY` unset (defaults to deployer),
+   `REWARDS_VAULT_OWNER` unset (deployer stays owner; **skip step 5a**), `REFERRAL_SINK` unset/0 (referrer/KOL routing),
+   `PVE_ATTESTER` = SITE's login-signer address (SITE supplies it; the only required input). Paymaster: `PAYMASTER_OWNER` =
+   `PAYMASTER_TREASURY` = deployer, `PAYMASTER_SIGNER` = **same address as `PVE_ATTESTER`** (lee: "Reuse the site's existing
+   login-signer key as the paymaster signer on testnet"), so Vercel `PAYMASTER_SIGNER_KEY` = SITE's existing login-signer key,
+   no new secret. `PAYMASTER_MAX_COST_USDG=2`, no stake (item 12 (a)). All changeable later by the deployer (owner) on lee's OK:
+   `setTreasury`, `setReferralSink`, paymaster `setSigner`/`setTreasury`/`setBounds`, `transferOwnership`.
 8. `cfg` lines in the deploy log must read: USDG decimals 6, CURVE_SOLD_BPS 8424, START 3333, GRADUATION 33333,
    ANTI_SNIPE 9900 / 7 s (table 9900·2500·300·100·30·10·3, 0 from 7 s), MAX_FLOOR_BANDS 16, referralSink 0x0.
 9. **Deploy tree has #131's AUDIT fixes** (AUDIT round 2 on #127): `git merge-base --is-ancestor 2f55717a HEAD && git merge-base --is-ancestor 06d46f16 HEAD`
@@ -71,7 +77,7 @@ alone: the AnonLauncher cap fix (2f55717a) and the 6-dec `Trade.fee` fix (06d46f
    only accepts it if the paymaster is **staked**. We self-relay (`selfBundler` / `fastRelay` call `handleOps` directly; no public
    bundler), and the EntryPoint itself never checks stake, so **stake is not needed for our path**. Options: (a) leave
    `PAYMASTER_STAKE_WEI` unset — `DeployPaymaster.s.sol` then skips `addStake` (default; recommended while we self-relay); (b) set
-   it (owner broadcast, 1-day unstake delay) only if we ever route ops through a public bundler. lee: ☐ (a) no stake ☐ (b) stake ___ ETH.
+   it (owner broadcast, 1-day unstake delay) only if we ever route ops through a public bundler. lee: ☑ (a) no stake (PM-relayed, to confirm with the deploy GO) ☐ (b) stake ___ ETH.
 
 ## 3. Core deploy
 
@@ -97,8 +103,9 @@ From merged main (`contracts/`), with the new addresses:
 
 ```bash
 set -a; . /workspace/anypair/.secrets/testnet-deployer.env; set +a
-USDG=<new USDG> PAYMASTER_OWNER=<lee/ops> PAYMASTER_SIGNER=<address of PAYMASTER_SIGNER_KEY> PAYMASTER_TREASURY=<treasury> \
+USDG=<new USDG> PAYMASTER_OWNER=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5 PAYMASTER_SIGNER=$PVE_ATTESTER PAYMASTER_TREASURY=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5 \   # testnet deployer (public addr); LEE DECISION 1:17 PM CT
 PAYMASTER_MIN_RATE=1000000000 PAYMASTER_MAX_RATE=10000000000 \   # USDG raw (6 dec) per ETH: $1,000–$10,000
+PAYMASTER_MAX_COST_USDG=2 \   # WHOLE USDG -> maxCostCap = 2 * 10**decimals (2000000 at 6 dec), LEE DECISION 2026-10-24 11:28 CT
 PAYMASTER_DEPOSIT_WEI=<≥ 348000000000000 per 11M-gas launch> \
 forge script script/DeployPaymaster.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --private-key "$PRIVATE_KEY" --broadcast --slow
 REFERRAL_REGISTRY=<new ReferralRegistry> PAYMASTER=<DisciplePaymaster> \
@@ -106,10 +113,21 @@ forge script script/DeploySessionPolicy.s.sol --rpc-url https://rpc.testnet.chai
 SESSION_POLICY=<policy> PAYMASTER=<paymaster> node script/redeploy/postprocess.mjs broadcast   # records addons; idempotent
 ```
 
-The session policy must be redeployed in any case: its constructor takes the ReferralRegistry, which is new. Users reinstall sessions (policy 1.4.0).
+The session policy must be redeployed in any case: its constructor takes the ReferralRegistry, which is new. Users reinstall sessions (policy 1.4.1, from feat/policy-pack).
 No `PAYMASTER_STAKE_WEI` by default (pre-flight item 12, LEE DECISION: stake only matters for a public 7562 bundler; we self-relay).
 If lee picks (b), add `PAYMASTER_STAKE_WEI=<stake>` to the first command (owner broadcast only; 1-day unstake delay).
-`PAYMASTER_MAX_COST` defaults to 10 USDG at the token's decimals; `PAYMASTER_POST_OP_GAS` 30000.
+`PAYMASTER_MAX_COST_USDG` is in WHOLE USDG (scaled by `decimals()`), defaults to 10, and the script fails fast outside [0.1, 100] USDG.
+The old raw-unit `PAYMASTER_MAX_COST` is rejected (feat/policy-pack, AUDIT 2026-10-24). The contract also refuses `maxCostCap` above
+`maxCostCapLimit` (100 USDG) in the constructor and `setBounds`. `PAYMASTER_POST_OP_GAS` 30000.
+
+**Testnet paymaster cap (LEE DECISION 2026-10-24 11:28 CT: "$2 on testnet").** Deploy with `PAYMASTER_MAX_COST_USDG=2`
+(whole USDG; the script scales it to 2 * 10**decimals = 2000000 at 6 decimals), as in the command above. This env is set only on deploy day, with lee's OK. Verify right after deploy:
+
+```bash
+cast call <DisciplePaymaster> 'maxCostCap()(uint256)' --rpc-url https://rpc.testnet.chain.robinhood.com   # must print 2 * 10**decimals = 2000000 (2e6) with the 6-dec mock USDG
+```
+
+If it prints 10000000 (the 10 USDG script default), the env was not set: stop and tell lee before wiring the paymaster into the site.
 Paymaster keeper (server): `PAYMASTER_KEEPER_KEY`, `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI`; run `pnpm paymaster:keeper --send --loop`.
 Fork e2e before going live: `pnpm test:paymaster-e2e`.
 
@@ -170,7 +188,6 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 | `NEXT_PUBLIC_RHT_QUOTE_PRICER` | QuotePricer |
 | `NEXT_PUBLIC_RHT_QUOTE_PROBE` | QuoteProbe |
 | `NEXT_PUBLIC_RHT_MIGRATION` | Migration |
-| `NEXT_PUBLIC_RHT_ANTI_SNIPE` | AntiSnipe |
 | `NEXT_PUBLIC_RHT_TRAMP_WALL_MANAGER` | TrampWallManager |
 | `NEXT_PUBLIC_RHT_MARKET_LENS` | MarketLens |
 | `NEXT_PUBLIC_RHT_LOGIN_GATE` | LoginGate |
@@ -180,11 +197,11 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 | `NEXT_PUBLIC_RHT_USDG_DECIMALS` | `6` |
 | `NEXT_PUBLIC_RHT_FROM_BLOCK` | `startBlock` from the new deployments json |
 | `NEXT_PUBLIC_SESSION_POLICY` | new DiscipleSessionPolicy |
-| `NEXT_PUBLIC_SESSION_POLICY_VERSION` | `1.4.0` |
+| `NEXT_PUBLIC_SESSION_POLICY_VERSION` | `1.4.1` |
 | `NEXT_PUBLIC_RHT_PAYMASTER` | DisciplePaymaster |
 | `NEXT_PUBLIC_PAYMASTER_URL` | paymaster quote endpoint (see `docs/usdg-paymaster.md`) |
 | `PAYMASTER_ADDRESS` (server) | DisciplePaymaster |
-| `PAYMASTER_SIGNER_KEY` (server, secret) | key whose address is `PAYMASTER_SIGNER` |
+| `PAYMASTER_SIGNER_KEY` (server, secret) | key whose address is `PAYMASTER_SIGNER`; testnet = SITE's existing login-signer key (same as `PVE_ATTESTER`) |
 | `PAYMASTER_USD_PER_ETH` or `PAYMASTER_RATE`, `PAYMASTER_QUOTE_TTL_SEC`, `PAYMASTER_MAX_SLACK_BPS` (server) | per #106 docs |
 | `PAYMASTER_KEEPER_KEY`, `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI` (keeper) | per #106 docs |
 | `NEXT_PUBLIC_INDEXER_URL` | unchanged unless the indexer moves |
@@ -247,6 +264,8 @@ FORK=1 node script/redeploy/smoke.mjs                                           
 FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                   # optional STRATEGY coin + router swaps
 ```
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
+Redeploy pack: after `fixtures.mjs grad`, run `FORK=1 node script/redeploy/fixtures.mjs pack`. It covers router `swapUsdgToQuote` and
+`swapQuoteToUsdg` (output == live `quoteUsdgQuoteSwap`), `launchWithUsdg` on STRATEGY, `Token.burn`, and `maxMode` == 2 (a mode 3 launch reverts `BadMode`).
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
 
 Result 2026-10-24 ~10:55 AM CDT (fork of the live head, block 141962528, port 8546; feat/redeploy-prep with the AUDIT round 3 fail-fast
@@ -334,3 +353,23 @@ Open items for AUDIT / lee:
 - Old testnet tokens (mUSDG, STRATEGY) are 18-dec and are replaced, not migrated: user balances on the old mUSDG don't carry over.
 - The session policy must be redeployed (new ReferralRegistry), with or without #106; users reinstall sessions.
 - Launch costs about 6.7–6.8M gas (`fixtures.mjs` uses an 8M cap); check the AA/relay launch caps (#106 assumes 11M).
+
+## 12. Mainnet launch checklist (paymaster cap)
+
+LEE DECISION 2026-10-24 11:28 CT: "$3-5 to start on mainnet".
+
+1. `script/DeployPaymaster.s.sol` is **46630-only** (`require(block.chainid == 46630)`), so mainnet needs its own deploy path
+   (a mainnet script, or a chain-gated variant, built and reviewed before launch). Start with `PAYMASTER_MAX_COST_USDG` = 3–5
+   (WHOLE USDG, same [0.1, 100] guard; 3000000–5000000 raw at 6 decimals). Lee picks the exact value on deploy day. Do not
+   rely on the 10 USDG default.
+2. Verify with `cast call <DisciplePaymaster> 'maxCostCap()(uint256)' --rpc-url <mainnet rpc>`; it must equal the chosen value × 10**decimals.
+3. Measure real per-op gas for about a week. Use the paymaster `UserOperationCharged` (and `DebtRecorded`) events and the per-op `actualGasCost`, split
+   by op type (buy, sell, launch, First BOOST launch, session install).
+4. Then tighten the cap, and the rate band if needed, with
+   `DisciplePaymaster.setBounds(minRate, maxRate, maxCostCap)` (owner only; emits `BoundsSet`). Set `maxCostCap` to about the
+   measured worst real op × the rate headroom. `setBounds` refuses anything above `maxCostCapLimit` (100 USDG).
+   **Before lowering the cap, check debts:** a sender whose outstanding debt (`owedOf`) is above the new cap is blocked until
+   they repay or the owner calls `forgiveDebt`. List senders from `DebtRecorded` events, read `owedOf` for each, and settle or
+   forgive (with lee's OK) before tightening.
+5. **Any `setBounds` broadcast needs lee's explicit OK** (value and timing). Never as part of a script run.
+
