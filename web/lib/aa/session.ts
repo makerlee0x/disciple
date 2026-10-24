@@ -20,6 +20,8 @@ import { quotePricerAbi } from "../abi";
 import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
+import type { TradeTiming } from "../trade/timing";
+import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
 export const BUNDLER_URL = process.env.NEXT_PUBLIC_AA_BUNDLER_URL || "/api/bundler";
@@ -81,7 +83,7 @@ const gasListeners = new Set<(m: GasMode, r?: string) => void>();
 export function onGasMode(f: (m: GasMode, r?: string) => void) { gasListeners.add(f); f("self-pay"); return () => { gasListeners.delete(f); }; }
 const sessListeners = new Set<() => void>();
 export function onSessionChange(f: () => void) { sessListeners.add(f); return () => { sessListeners.delete(f); }; }
-const changed = () => sessListeners.forEach((f) => f());
+const changed = () => { sessListeners.forEach((f) => f()); scheduleRenewal(); };
 
 function save() { try { if (state) localStorage.setItem(LS, JSON.stringify(state)); else localStorage.removeItem(LS); } catch {} }
 function load(): Stored | null { try { const s = JSON.parse(localStorage.getItem(LS) || "null"); return s && s.expiresAt > Date.now() ? s : null; } catch { return null; } }
@@ -105,10 +107,14 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
   save();
   const a = await sa.address();
+  curAccount = a;
+  userEndedOneTap = isOneTapOff(lsStore(), a);   // the player's own "one-tap off" survives reloads
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
-  else void maybeAutoOneTap("login");
-  drip(a);
+  void dripOnce(a);
+  // decision 3: deploy + one-tap (new account) or renew (deployed) at sign-in, in the background — never awaited here
+  void maybeAutoOneTap("login");
+  watchSetupTriggers();
   changed();
   return a;
 }
@@ -126,7 +132,7 @@ export async function syncSessionFromChain() {
     // Sessions installed against AnonLauncher v1 (before v2 became the default): drop the cached key and reinstall in
     // the background (owner signs silently). Trades keep working meanwhile: no session ⇒ the owner signs them.
     const al = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
-    if (al && r.cfg.anonLauncher.toLowerCase() !== al.toLowerCase()) { onchain = null; sa?.clearSession(); saveSessionKey(); autoTried = false; changed(); void maybeAutoOneTap("anon-launcher-v2"); return; }
+    if (al && r.cfg.anonLauncher.toLowerCase() !== al.toLowerCase()) { onchain = null; sa?.clearSession(); saveSessionKey(); changed(); void maybeAutoOneTap("anon-launcher-v2"); return; }
     const caps: Record<string, string> = {}, spent: Record<string, string> = {};
     if (!/^0x0{40}$/i.test(r.cfg.quote0)) { caps[r.cfg.quote0.toLowerCase()] = r.cfg.cap0.toString(); spent[r.cfg.quote0.toLowerCase()] = r.spent0.toString(); }
     if (!/^0x0{40}$/i.test(r.cfg.quote1)) { caps[r.cfg.quote1.toLowerCase()] = r.cfg.cap1.toString(); spent[r.cfg.quote1.toLowerCase()] = r.spent1.toString(); }
@@ -134,30 +140,109 @@ export async function syncSessionFromChain() {
   } catch { /* RPC hiccup: keep the cache; headroom without caps ⇒ owner signs */ }
 }
 
-/* ---------- automatic one-tap (bug #5) ---------- */
-let autoBusy: Promise<unknown> | null = null;
-let autoTried = false;
-let autoError = "";
-/**
- * Privy (and local) owners sign silently anyway, so the "Enable one-tap" step is just a gas-paying install: do it for the
- * user in the background once the account exists (login with a deployed account, or right after the first owner-signed
- * trade, which deploys it). Until it lands, trades keep going through the owner signer — no prompt either way.
+/* ---------- automatic one-tap: set up at sign-in (bug #5, lee's decision 3) ----------
+ * lib/aa/loginSetup does the deciding (dedupe per account, cross-tab lease, failure backoff, cool-down); this wires
+ * it to the account: not deployed ⇒ ONE owner-signed op = deploy + install session (enableOneTap → sendCalls("owner")
+ * carries the factory while undeployed, same relay path as every one-tap install); deployed ⇒ renew a session that is
+ * missing / expired / expiring / inactive / installed on another policy address. Logs only via console.warn.
  */
-export function maybeAutoOneTap(why: string) {
-  if (!ONE_TAP_AUTO || !oneTapAvailable() || onchain || autoBusy || autoTried || !sa || !state || state.kind === "eoa") return;
+let curAccount: Address | null = null;
+const lsStore = () => { try { return typeof localStorage === "undefined" ? undefined : localStorage; } catch { return undefined; } };
+const TAB_ID = Math.random().toString(36).slice(2);
+/** One gas top-up per account per page (self-pay): the deploy op waits for it; the plain login drip shares it. */
+const dripping = new Map<string, Promise<boolean>>();
+function dripOnce(a: Address): Promise<boolean> {
+  const k = a.toLowerCase();
+  let p = dripping.get(k);
+  if (!p) { p = refillGas(a); dripping.set(k, p); }
+  return p;
+}
+/** Session health for a deployed account: cached key (policy address + expiry), then sessionOf on the CONFIGURED policy. */
+async function sessionHealthFor(a: Address): Promise<SessionHealth> {
+  if (!sa) return "missing";
+  if (!onchain) {
+    // another tab may have installed one meanwhile (shared localStorage): adopt it instead of installing a second
+    let raw: StoredSessionKey | null = null;
+    try { raw = JSON.parse(localStorage.getItem(SK) || "null"); } catch { /* */ }
+    const h = cachedHealth(raw, { account: a, policy: SESSION_POLICY });
+    if (h !== "live" && h !== "expiring") {
+      if (raw) console.warn("[disciple] one-tap: cached session not usable", { health: h, cachedPolicy: raw.policy, policy: SESSION_POLICY });
+      return h;
+    }
+    const k = loadSessionKey(a);
+    if (k) { onchain = k; await sa.useSession(k.entityId, privateKeyToAccount(k.key)); changed(); }
+    else return "missing";
+  }
+  const s0 = onchain!;
+  const cached = cachedHealth(s0, { account: a, policy: SESSION_POLICY });
+  let chain: { active: boolean; validUntil?: number } | undefined;
+  if (cached === "live" || cached === "expiring") {
+    try {
+      const r = await publicClient().readContract({ address: SESSION_POLICY as Address, abi: sessionOfAbi, functionName: "sessionOf", args: [s0.account, s0.entityId] });
+      chain = { active: r.active, validUntil: Number(r.cfg.validUntil) || undefined };
+    } catch { chain = undefined; }
+  }
+  const h = onchainHealth(cached, chain, { policy: SESSION_POLICY });
+  if (h !== "live" && h !== "expiring" && onchain === s0) {
+    // dead key (expired / inactive / other policy): drop it so the UI and the trade path don't use it meanwhile
+    console.warn("[disciple] one-tap: session needs renewing", { health: h, cachedPolicy: s0.policy, policy: SESSION_POLICY });
+    onchain = null; sa?.clearSession(); saveSessionKey(); changed();
+  }
+  return h;
+}
+const loginSetup = createLoginSetup({
+  now: () => Date.now(),
+  enabled: () => ONE_TAP_AUTO && oneTapAvailable() && !!sa && !!state && state.kind !== "eoa",
+  oneTapOff: (a) => userEndedOneTap || isOneTapOff(lsStore(), a),
+  deployed: async (a) => {
+    if (!sa) return undefined;
+    if (sa.deployed === true) return true;   // set by our own landed op: no public-RPC read right after it (may lag)
+    const code = await publicClient().getCode({ address: a as Address }).catch(() => undefined);
+    if (code === undefined) return undefined;
+    sa.deployed = code !== "0x";
+    return sa.deployed;
+  },
+  health: (a) => sessionHealthFor(a as Address),
+  prepare: (a) => dripOnce(a as Address),
+  install: async (a, o) => {
+    const acct = sa;
+    if (!acct || (await acct.address()).toLowerCase() !== a.toLowerCase()) throw new Error("signed out meanwhile");
+    console.warn("[disciple] one-tap setup at sign-in", { why: o.why, deploy: o.deploy, health: o.health ?? "undeployed" });
+    // renew keeps the player's slippage when we still know it; spend limit comes from their saved setting (unchanged)
+    await enableOneTap(onchain ? { maxSlippageBps: onchain.maxSlippageBps } : {});
+  },
+  lease: storageLease(lsStore(), TAB_ID),
+  warn: (m, d) => console.warn(m, d),
+  schedule: (ms, run) => { if (typeof window !== "undefined") setTimeout(run, Math.min(ms, 2 ** 31 - 1)); },
+  onChange: () => changed(),
+});
+/** Background one-tap setup / renewal for the signed-in account. Idempotent, deduped, never throws. */
+export function maybeAutoOneTap(why: string, opt: { urgent?: boolean } = {}) {
   const acct = sa;
-  autoBusy = (async () => {
-    const a = await acct.address();
-    const code = await publicClient().getCode({ address: a }).catch(() => undefined);
-    if (!code || code === "0x") return;   // not deployed yet: the first trade deploys it, then we retry
-    autoTried = true;
-    try { await enableOneTap(); autoError = ""; } catch (e) { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn(`[one-tap] auto setup (${why}) failed:`, autoError); }
-  })().finally(() => { autoBusy = null; changed(); });
-  changed();
+  if (!acct) return;
+  void acct.address().then((a) => (sa === acct ? loginSetup.ensure(a, why, opt) : undefined)).catch(() => undefined);
+}
+/** Re-check on tab refocus (deduped) and renew ahead of expiry while the tab stays open (FLOW's scheduleRenewal shape). */
+let triggersOn = false;
+function watchSetupTriggers() {
+  if (triggersOn || typeof document === "undefined") return;
+  triggersOn = true;
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") maybeAutoOneTap("refocus"); });
+}
+let renewTimer: ReturnType<typeof setTimeout> | undefined;
+let renewFor = 0;
+function scheduleRenewal() {
+  if (typeof window === "undefined") return;
+  const vu = onchain?.validUntil ?? 0;
+  if (vu === renewFor) return;
+  if (renewTimer) clearTimeout(renewTimer);
+  renewTimer = undefined; renewFor = vu;
+  if (!vu || !ONE_TAP_AUTO || userEndedOneTap) return;
+  renewTimer = setTimeout(() => { if (onchain?.validUntil === vu) maybeAutoOneTap("renew-ahead"); }, Math.min(renewalDelayMs(vu), 2 ** 31 - 1));
 }
 /** One-tap state for the UI: on (session key signs), setting-up (auto install in flight), or off (owner signs, silently). */
 export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
-  return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
+  return { on: !!onchain, settingUp: loginSetup.busy(curAccount), error: loginSetup.lastError(curAccount) };
 }
 /**
  * AA21 fix: the account pays every op's gas PREFUND (gas × maxFee ≈ 0.00011 ETH per trade) from its balance + EntryPoint
@@ -165,11 +250,11 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
  * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
  * fresh nonce key. No refill available ⇒ the original FundAccount error.
  */
-async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address) {
-  try { return await sa!.sendCalls(calls, as); }
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, timing?: TradeTiming) {
+  try { return await sa!.sendCalls(calls, as, true, timing); }
   catch (e) {
     if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
-    return sa!.sendCalls(calls, as);
+    return sa!.sendCalls(calls, as, true, timing);
   }
 }
 /** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
@@ -186,7 +271,7 @@ export async function refillGas(a: Address): Promise<boolean> {
 /** One-time server top-up of test ETH for gas (self-pay, existing drip faucet). Fire-and-forget. */
 export function drip(a: Address) {
   if (ACTIVE_CHAIN.id !== 46630) return;
-  fetch("/api/drip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) }).catch(() => {});
+  void dripOnce(a);   // shared with the sign-in deploy (one top-up request per account per page)
 }
 
 /* ---------- Privy embedded wallet owner ---------- */
@@ -258,7 +343,7 @@ export function aaSession() {
 }
 export async function aaLogout() {
   const kind = state?.kind;
-  state = null; sa = null; ownerAcct = null; onchain = null; autoTried = false; autoError = ""; save(); changed();
+  state = null; sa = null; ownerAcct = null; onchain = null; loginSetup.reset(); curAccount = null; save(); changed();
   if (kind === "privy") { try { await privyHooks?.logout(); } catch {} }
 }
 /** Owner signs a raw hash (chat login / username proof). Null when no smart session. */
@@ -343,7 +428,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
   onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY,
     caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
-  saveSessionKey();
+  saveSessionKey(); userEndedOneTap = false; setOneTapOff(lsStore(), account, false);
   await sa.useSession(s.entityId, privateKeyToAccount(key));
   changed();
   return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
@@ -386,7 +471,8 @@ export async function endOneTap() {
   const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
   const data = sk.buildUninstallSession(onchain.entityId, { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) });
   const r = await sa.sendCalls([{ to: await sa.address(), data }], "owner");
-  onchain = null; sa.clearSession(); autoTried = true;   // the user ended it on purpose: don't auto-reinstall this page
+  onchain = null; sa.clearSession(); userEndedOneTap = true;   // the user ended it on purpose: no auto-reinstall, on this page or after a reload
+  setOneTapOff(lsStore(), await sa.address(), true);
   saveSessionKey();
   changed();
   return r;
@@ -401,9 +487,48 @@ export async function aaWarm() {
   ]);
 }
 
-async function canUseSessionKey(calls: Call[]) {
-  if (!sa?.hasSession || !onchain || onchain.validUntil * 1000 < Date.now() + 30_000) return false;
+/** The cached session key is installed, unexpired (30 s margin) and loaded in the account client. */
+function sessionLive() {
+  return !!(sa?.hasSession && onchain && onchain.validUntil * 1000 >= Date.now() + 30_000);
+}
+/** The session policy (client mirror) would accept these calls — independent of whether a session exists right now. */
+async function sessionCallsEligible(calls: Call[]) {
   return sessionEligible(calls, { referral: referralAttributionOn(), registry: deployment().referralRegistry, usdg: policyHasUsdg() ? deployment().usdg : undefined, router: deployment().router });
+}
+
+/* ---------- session-only trades (latency plan #6) ----------
+ * Trades sign with the one-tap session key only: no silent fallback to the Privy owner (an extra signing hop, and
+ * after a rejected session pre-flight a whole second send). When the session is missing / expired / inactive the
+ * trade is refused with a plain line, one-tap is (re)installed in the background (owner-signed install, same policy,
+ * same caps — nothing widens), and the next tap goes through. A brand-new account no longer owner-signs its first
+ * (deploying) trade: one-tap is set up at sign-in (deploy + session in one op, lee's decision 3), and a tap that beats
+ * that setup gets the same "getting ready" line instead of an owner-signed trade. Kept on the owner (lee's decision 4):
+ *  - a player who turned one-tap off themselves (endOneTap; persisted per account);
+ *  - calls the session policy doesn't cover at all, and a player-chosen spend limit that's used up (bug #1: never
+ *    refuse for the spend limit) — both logged to the console;
+ *  - NEXT_PUBLIC_TRADE_OWNER_FALLBACK=1 (escape hatch: the old behaviour), no session policy on this chain,
+ *    NEXT_PUBLIC_ONE_TAP_AUTO=0, or a deployment status we can't read (RPC hiccup: never block on it).
+ * The decision itself is lib/aa/loginSetup tradeSigner (unit-tested).
+ */
+// Approved copy (lee, decision 2)
+export const ONE_TAP_SETTING_UP_MSG = "One-tap trading is getting ready. Try again in a few seconds.";
+// Copy approved by lee 2026-10-24
+export const ONE_TAP_REFRESH_MSG = "Refreshing one-tap trading. Try again in a few seconds.";
+const TRADE_OWNER_FALLBACK = process.env.NEXT_PUBLIC_TRADE_OWNER_FALLBACK === "1";
+let userEndedOneTap = false;
+/** Session-only mode for this signer, and the account's deployment status (undefined = can't tell right now). */
+async function strictSessionTrades(me: Address): Promise<{ strict: boolean; deployed: boolean | undefined }> {
+  if (TRADE_OWNER_FALLBACK || !ONE_TAP_AUTO || !oneTapAvailable() || !sa || !state || state.kind === "eoa" || userEndedOneTap) return { strict: false, deployed: sa?.deployed };
+  if (sa.deployed === undefined) {
+    const code = await publicClient().getCode({ address: me }).catch(() => undefined);
+    if (code !== undefined) sa.deployed = code !== "0x";
+  }
+  return { strict: true, deployed: sa.deployed };
+}
+/** Drop a dead session (expired / inactive) and start (or join) the background setup — urgent: a player is waiting. */
+function renewOneTap(why: string) {
+  if (onchain && onchain.validUntil * 1000 < Date.now() + 30_000) { onchain = null; sa?.clearSession(); saveSessionKey(); changed(); }
+  maybeAutoOneTap(why, { urgent: true });
 }
 /** Quote the batch moves out of the account (capped quotes only), from its exact approvals (raw, lowercase token). */
 function quoteSpend(delta: Record<string, bigint>): Record<string, bigint> {
@@ -414,11 +539,25 @@ function quoteSpend(delta: Record<string, bigint>): Record<string, bigint> {
 const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCapExceeded|SessionInactive|SessionExpired|PreExecHookReverted|AA2[234]/i;
 
 /**
+ * Trade context without touching lib/wallet.execCalls (GAME #138 hooks those lines): asTrade() sets it, calls fn
+ * synchronously, and clears it before returning; execCalls → aaSend runs synchronously up to aaSend's first line,
+ * which takes it. Anything that isn't a trade (withdraw, claims, one-tap install, mints) never sees it.
+ */
+type TradeCtx = { trade?: boolean; timing?: TradeTiming };
+let tradeCtx: TradeCtx | undefined;
+function takeTradeCtx() { const c = tradeCtx; tradeCtx = undefined; return c; }
+export function asTrade<T>(timing: TradeTiming | undefined, fn: () => Promise<T>): Promise<T> {
+  tradeCtx = { trade: true, timing };
+  try { return fn(); } finally { tradeCtx = undefined; }
+}
+
+/**
  * One userOp for the whole call list. Signer: the one-tap session key when the policy allows the calls AND the session
  * budget has headroom; otherwise the owner (Privy embedded wallet, signs silently). Never refuses for "spend limit":
- * an exhausted session just means the owner signs (bug #1).
+ * an exhausted session just means the owner signs (bug #1). Trades (`opts.trade`) are session-only once the account is
+ * deployed — see "session-only trades" above.
  */
-export async function aaSend(calls: Call[]) {
+export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {}) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
   const me = await sa.address();
@@ -434,15 +573,35 @@ export async function aaSend(calls: Call[]) {
     referralRegistry: /^0x0{40}$/i.test(d.referralRegistry) ? undefined : d.referralRegistry,
   }, state, calls, me).catch((e) => { if ((e as { code?: string }).code !== "SessionPolicy") throw e; policyOk = false; return {} as Record<string, bigint>; });
   const spend = quoteSpend(delta);
-  const asSession = policyOk && (await canUseSessionKey(calls)) && sessionHasHeadroom(onchain, spend);
+  const eligible = policyOk && (await sessionCallsEligible(calls));
+  const live = sessionLive();
+  const headroom = sessionHasHeadroom(onchain, spend);
+  const mode = opts.trade && eligible ? await strictSessionTrades(me) : { strict: false, deployed: sa.deployed };
+  const strict = !!opts.trade && eligible && mode.strict && mode.deployed !== undefined;
+  const pick = tradeSigner({ trade: !!opts.trade, eligible, live, headroom, strictMode: mode.strict, deployed: mode.deployed });
+  const asSession = pick.as === "session";
+  if (pick.as === "refuse") {
+    const settingUp = loginSetup.busy(me), failed = !!loginSetup.lastError(me);
+    console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed });
+    // a brand-new account (setup not finished) or a first install ⇒ "getting ready"; a dead or failed session ⇒ "refreshing"
+    const msg = mode.deployed && (onchain || failed) ? ONE_TAP_REFRESH_MSG : ONE_TAP_SETTING_UP_MSG;
+    renewOneTap("trade");
+    throw new AAError("Policy", msg, { sessionRequired: true });
+  }
+  if (opts.trade && !asSession) console.info("[disciple] trade signed by the owner", { why: pick.why, strict: mode.strict });
   let r;
-  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, opts.timing); }
   catch (e) {
     const ae = e as AAError;
-    // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once
+    // session pre-flight rejected (stale/inactive session, cap race): nothing landed
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
-      r = await sa.sendCalls(calls, "owner");
+      if (strict) {
+        // session-only trades: no second, owner-signed send — refresh the session and let the player tap again
+        console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { revertData: ae.extra?.revertData });
+        throw new AAError("Policy", ONE_TAP_REFRESH_MSG, { sessionRequired: true, revertData: ae.extra?.revertData });
+      }
+      r = await sa.sendCalls(calls, "owner", true, opts.timing);   // owner signs the same calls once
     } else throw e;
   }
   gasListeners.forEach((f) => f("self-pay"));

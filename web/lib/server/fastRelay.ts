@@ -10,7 +10,7 @@ import "server-only";
  *    sendRawTransaction + 50 ms receipt polling.
  * Ops from different users/keys run concurrently: only nonce assignment is serialized (synchronous).
  */
-import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
+import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, toHex, type Hex, type TransactionReceipt } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -107,7 +107,8 @@ export async function warmRelay(sender?: string) {
   await Promise.all([nextNonce === undefined ? syncNonce() : 0, baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
 }
 
-type RpcReceipt = { status: Hex; transactionHash: Hex; logs: { address: Hex; data: Hex; topics: Hex[] }[] };
+// blockNumber (hex): rides on the receipt + each log to the client, which pins its post-trade reads to it (lib/trade/readFloor)
+type RpcReceipt = { status: Hex; transactionHash: Hex; blockNumber?: Hex; logs: { address: Hex; data: Hex; topics: Hex[]; blockNumber?: Hex }[] };
 async function sendSync(raw: Hex): Promise<{ rc: RpcReceipt; mode: "sync" | "poll"; sendMs: number; minedMs: number }> {
   const t0 = Date.now();
   if (syncSupported !== false) {
@@ -123,7 +124,9 @@ async function sendSync(raw: Hex): Promise<{ rc: RpcReceipt; mode: "sync" | "pol
   const t1 = Date.now();
   for (;;) {
     const rc = await pc.getTransactionReceipt({ hash }).catch(() => null) as TransactionReceipt | null;
-    if (rc) return { rc: { status: rc.status === "success" ? "0x1" : "0x0", transactionHash: rc.transactionHash, logs: rc.logs as never }, mode: "poll", sendMs: t1 - t0, minedMs: Date.now() - t1 };
+    // poll fallback: viem's receipt has bigint fields (not JSON-safe) ⇒ keep the wire shape: hex block, plain logs
+    if (rc) return { rc: { status: rc.status === "success" ? "0x1" : "0x0", transactionHash: rc.transactionHash, blockNumber: toHex(rc.blockNumber),
+      logs: rc.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[], blockNumber: toHex(rc.blockNumber) })) }, mode: "poll", sendMs: t1 - t0, minedMs: Date.now() - t1 };
     if (Date.now() - t1 > 20_000) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -132,8 +135,13 @@ async function sendSync(raw: Hex): Promise<{ rc: RpcReceipt; mode: "sync" | "pol
 export async function sendUserOperationSync(op: UserOp) {
   const T0 = Date.now(), t: Record<string, number> = {};
   const me = account();
+  // latency: a cold lambda has neither the base fee nor the relayer nonce — fetch both at once (was two serial RPCs).
+  // The nonce read is only cached (nextNonce) — nothing is signed or sent before checkOpGas below passes.
+  const cold = !base.at || nextNonce === undefined;
+  if (nextNonce === undefined) void syncNonce().catch(() => undefined);
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
+  t.baseFee = Date.now() - T0; t.cold = cold ? 1 : 0;
   checkOpGas(op, fee, capsForOp(op, launchTargets(robinhoodTestnet.id)));
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
@@ -167,7 +175,7 @@ export async function sendUserOperationSync(op: UserOp) {
       if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
       else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, maxPrefund(op, relayerPrice(base.fee))); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
       if (r.rc.status !== "0x1") throw new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`);
-      return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
+      return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, blockNumber: r.rc.blockNumber ?? r.rc.logs[0]?.blockNumber, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
     } catch (e) {
       if (attempt < 2 && isNonceError(e)) { nextNonce = undefined; await syncNonce(); continue; }
       // signed + (maybe) sent: the op may still land ⇒ never answer without its ids (/api/bundler → error.data)
