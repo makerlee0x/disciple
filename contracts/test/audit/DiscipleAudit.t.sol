@@ -98,6 +98,8 @@ contract DiscipleAuditTest is IntegrationBase {
         _refReady(tok); // compound reference needs >= 3 observations over >= 60 s
         // token-side fees + leftover quote → both buckets. The swap runs under the default min (no compound yet):
         // the steep curve leaves ~$1.2K leftover quote, so a tiny-min compound here would drain the token bucket.
+        vm.prank(owner);
+        lockedLP.setCompoundParams(1_000, 5_000, 300); // defaults (a looped test may have changed them)
         _swapExactInQuoteForToken(tok, trader1, 50 ether);
         vm.prank(owner);
         lockedLP.setCompoundParams(1, 0, 300); // tiny min, uncapped, 3% guard
@@ -142,10 +144,12 @@ contract DiscipleAuditTest is IntegrationBase {
         _swapExactInTokenForQuote(tok, trader2, tok.balanceOf(trader2)); // tx3 dump
         assertEq(_count(COMPOUNDED), 0, "no compound against the block-start price");
         assertEq(_liq(tok), l0);
-        // next block, honest swap compounds again
+        // next block, honest swap compounds again. Steep curve: the ~$5.25K graduation pool is shallow enough that
+        // the setup buys (50 + 20 USDG) and the fee-skewed pump/dump leave spot ~4% above the (unwarped) EMA, so the
+        // honest trade is a sell back toward the reference.
         vm.roll(vm.getBlockNumber() + 1);
         vm.recordLogs();
-        _swapExactInQuoteForToken(tok, trader1, 20 ether);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1));
         assertEq(_count(COMPOUNDED), 1, "honest swap in a fresh block compounds");
     }
 

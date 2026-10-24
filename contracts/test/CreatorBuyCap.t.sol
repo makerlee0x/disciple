@@ -32,9 +32,10 @@ contract CreatorBuyCapTest is IntegrationBase {
         emit CreatorBuyMaxSet(500);
         vm.prank(owner);
         launchpad.setCreatorBuyMaxBps(500);
-        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 200 ether, 0);
+        // steep curve ($3,333 start): 100 USDG buys ~2.8% — above the 0.77% default, inside the 5% cap
+        (uint256 out,,,, bool ex) = launchpad.quoteCreatorBuy(address(quote), 100 ether, 0);
         assertFalse(ex);
-        (, Token t) = _launch(0, 200 ether);
+        (, Token t) = _launch(0, 100 ether);
         assertEq(t.balanceOf(creator), out);
         assertGt(out, FeeMath.creatorBuyMax());
         assertEq(launchpad.creatorBuyMaxBpsOf(address(t)), 500);

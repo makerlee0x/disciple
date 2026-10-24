@@ -323,6 +323,7 @@ contract ModeRulesV2Test is IntegrationBase {
         (BondingCurve c,) = _launchM(m);
         vm.warp(vm.getBlockTimestamp() + bound(dt, 0, 90)); // inside or after the sniper window
         pre = bound(pre, 0, 400 ether);
+        if (pre < 1e9) pre = 0; // dust pre-buys under the 99% sniper tax round to 0 tokens (ZeroAmount)
         if (pre != 0) _buyQ(c, alice, pre);
         qIn = bound(qIn, 1e9, 20_000 ether);
         uint256 room = c.capRoom(alice);
@@ -339,7 +340,9 @@ contract ModeRulesV2Test is IntegrationBase {
         BondingCurve.BuyQuote memory bq = c.quoteBuyFor(alice, qIn);
         if (bq.refund > 0) {
             uint256 sp = qIn - bq.refund;
-            assertGe(c.quoteBuy(sp).tokensOut, bq.tokensOut, "the spend fills the room");
+            // steep curve: the uncapped Newton inverse may stop a few quote-wei short (dust, pool-favoured); the capped
+            // fill lands exactly on the room. Tolerance 1e-12 relative + 1e3 wei.
+            assertGe(c.quoteBuy(sp).tokensOut + bq.tokensOut / 1e12 + 1e3, bq.tokensOut, "the spend fills the room");
             if (sp > 1e9) {
                 assertLt(c.quoteBuy(sp - sp / 1e9 - 2).tokensOut, bq.tokensOut, "minimal spend (1e-9 rel)");
             }
