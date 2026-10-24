@@ -15,7 +15,7 @@ import { KEEPER_TIP_BPS } from "./pool";
 export interface LaunchParams {
   totalSupply: number; curveSoldBps: number; startMcapUsd: number; graduationMcapUsd: number; tradeFeeBps: number; creatorTaxBps: number;
   /** 0 = no wallet cap (live Launchpad default, Constants.WALLET_CAP_BPS_DEFAULT) */
-  walletCapBps: number; antiSnipeStartBps: number; antiSnipeDurationS: number; quotePriceUsd: number;
+  walletCapBps: number; antiSnipeStartBps: number; antiSnipeDurationS: number; antiSnipeBpsBySec: readonly number[]; quotePriceUsd: number;
   /** post-grad pool: the same 1% DISCIPLE fee (hook) */
   poolFeeBps: number;
   /** TrampWallManager.keeperTipBps (0.1%): paid to whoever pulls a filled tramp/wall */
@@ -30,7 +30,8 @@ export const LAUNCH: LaunchParams = {
   creatorTaxBps: 0,                                       // CREATOR_TAX_DEFAULT_BPS
   walletCapBps: CURVE.walletCapDefaultBps,                // WALLET_CAP_BPS_DEFAULT (0 = no cap)
   antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 99% at t=0 …
-  antiSnipeDurationS: CURVE.antiSnipeWindowSec,           // … linearly to 0 over ANTI_SNIPE_DURATION (buys only)
+  antiSnipeDurationS: CURVE.antiSnipeWindowSec,           // … 0 from ANTI_SNIPE_DURATION = 7s (buys only)
+  antiSnipeBpsBySec: [...CURVE.antiSnipeBpsBySec],       // ANTI_SNIPE_TABLE: 99 · 25 · 3 · 1 · 0.3 · 0.1 · 0.03 % per second
   quotePriceUsd: 1,                                       // quote = USD stable in the sim
   poolFeeBps: Number(TRADE_FEE_BPS),
   keeperTipBps: KEEPER_TIP_BPS,
