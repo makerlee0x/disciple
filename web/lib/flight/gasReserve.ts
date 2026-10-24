@@ -12,8 +12,9 @@
  *   the first read) × CLIENT_FEE_HEADROOM 1.5 × ETH/USD (config GAS.ethUsd) → USDG raw, rounded up.
  *   ≈ $0.21 at today's testnet gas (0.0207 gwei, $2372 ETH). This is the most the op can be charged at that price
  *   (all limits × maxFee), so a $1 BOOST is never blocked when cash covers it plus the op's real gas.
- * Warm: min(FLOW's cached maxTokenCost, the derived value) — the per-sender allowance can be the paymaster's 10 USDG
- * maxCostCap, which is a ceiling, not what one op costs.
+ * Warm (FLOW's corrected rule): FLOW's cached REAL maxTokenCost, as-is — never min(cached, derived): on a gas spike the
+ * derived value can sit below the real maxTokenCost and under-reserve ⇒ the paymaster fails the op with AA33. The
+ * derived value is used ONLY while cold. A stale warm value (e.g. a 10 USDG maxCostCap) is FLOW's real cap and is honoured.
  */
 import { GAS } from "@/lib/config";
 import { usdgDecimals } from "@/lib/usdg";
@@ -44,12 +45,12 @@ export function derivedGasReserve(dec: number = usdgDecimals(), gasPriceWei: big
   const num = wei * ethUsdMicro * BigInt(10) ** BigInt(dec), den = GWEI * GWEI * BigInt(1e6);   // wei/1e18 · $ · 10^dec
   return (num + den - BigInt(1)) / den;
 }
-/** FLOW's cached maxTokenCost (capped by the derived value), null when nothing is warm; 0n outside smart mode. */
+/** FLOW's cached real maxTokenCost (as-is, never capped), null when nothing is warm; 0n outside smart mode. */
 export function peekGasReservePerOp(): bigint | null {
   if (!smart()) return B0;
-  try { const v = peekHook?.(); return typeof v === "bigint" && v >= B0 ? (v < derivedGasReserve() ? v : derivedGasReserve()) : null; } catch { return null; }
+  try { const v = peekHook?.(); return typeof v === "bigint" && v >= B0 ? v : null; } catch { return null; }
 }
-/** Per-op gas reserve (raw USDG): peek, else the derived cold value; 0n outside smart mode. Sync, never throws. */
+/** Per-op gas reserve (raw USDG): warm ⇒ the cached maxTokenCost; cold ⇒ the derived value; 0n outside smart mode. Sync, never throws. */
 export function gasReservePerOp(): bigint {
   if (!smart()) return B0;
   try { return peekGasReservePerOp() ?? derivedGasReserve(); } catch { return B0; }

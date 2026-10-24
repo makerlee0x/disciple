@@ -112,15 +112,19 @@ GR.setGasPrice(null);
 { let n = 0; await GR.warmGasPrice({ getGasPrice: async () => { n++; return BigInt(20_700_000); } }); ok(n === 1 && GR.gasReservePerOp() === derived(18), "warmGasPrice reads eth_gasPrice in the background"); }
 { await GR.warmGasPrice({ getGasPrice: async () => { throw new Error("rpc"); } }); ok(GR.gasReservePerOp() === derived(18), "warmGasPrice never throws (keeps the last price)"); }
 WL.W.smart = false; ok(GR.gasReservePerOp() === BigInt(0) && GR.peekGasReservePerOp() === BigInt(0), "outside smart mode: 0n (both)"); WL.W.smart = true;
-GR.setGasReservePeek(() => E18 / BigInt(20)); ok(GR.peekGasReservePerOp() === E18 / BigInt(20) && GR.gasReservePerOp() === E18 / BigInt(20), "warm: FLOW's cached maxTokenCost ($0.05) when below the derived bound");
-GR.setGasReservePeek(() => BigInt(10) * E18); ok(GR.gasReservePerOp() === derived(18), "warm cap = 10 USDG maxCostCap ⇒ capped at the derived per-op bound (never 10 USDG)");
+GR.setGasReservePeek(() => E18 / BigInt(20)); ok(GR.peekGasReservePerOp() === E18 / BigInt(20) && GR.gasReservePerOp() === E18 / BigInt(20), "warm: FLOW's cached maxTokenCost ($0.05) is used as-is");
+{ const spike = derived(18) * BigInt(3); GR.setGasPrice(BigInt(20_700_000));   // gas spike: real maxTokenCost > derived (config/stale price)
+  GR.setGasReservePeek(() => spike); ok(GR.gasReservePerOp() === spike && GR.gasReservePerOp() > GR.derivedGasReserve(), "warm, gas spike: the cached REAL maxTokenCost wins even above the derived value (no min ⇒ no under-reserve / AA33)");
+  GR.setGasPrice(null); }
+GR.setGasReservePeek(() => BigInt(10) * E18); ok(GR.gasReservePerOp() === BigInt(10) * E18, "warm stale 10 USDG (FLOW's real maxCostCap) is honoured as-is");
+ok(!RT.canSpend(BigInt(125) * E18 / BigInt(100), 1), "…so with a stale 10 USDG cached a $1 BOOST on $1.25 cash is short (FLOW's real cap; accepted, noted in the PR)");
 GR.setGasReservePeek(null);
 ok(typeof GR.gasReservePerOp() === "bigint", "gasReservePerOp(): bigint, sync");
-const G = GR.gasReservePerOp();
+const G = GR.gasReservePerOp(); ok(GR.peekGasReservePerOp() === null && G === derived(18), "cold again: derived value");
 // $1 BOOST: never blocked when cash covers the trade + the op's real (max chargeable) gas
 { const cash = E18 + G;
   ok(RT.canSpend(cash, 1) && !RT.canSpend(cash - BigInt(1), 1), `$1 BOOST with $1 + one op's gas (${(Number(G) / 1e18).toFixed(4)}) passes; 1 wei less is short`);
-  ok(RT.canSpend(BigInt(125) * E18 / BigInt(100), 1), "$1 BOOST with $1.25 cash goes out (a flat 10 USDG reserve blocked it)");
+  ok(RT.canSpend(BigInt(125) * E18 / BigInt(100), 1), "$1 BOOST with $1.25 cash goes out on a COLD cache (derived reserve; a flat 10 USDG cold value blocked it)");
   ok(!(BigInt(125) * E18 / BigInt(100) >= E18 + BigInt(10) * E18), "…(the old 10 USDG cold cap would have needed $11)");
   CH.D.dec = 6; const G6 = GR.gasReservePerOp(); ok(RT.canSpend(E6 + G6, 1) && !RT.canSpend(E6 + G6 - BigInt(1), 1), "same at 6 dec"); CH.D.dec = 18; }
 // GAME presses in SITE's registry (af12a357): cash math in raw bigint via RESERVATIONS.reservedRaw (decimals from lib/usdg)
