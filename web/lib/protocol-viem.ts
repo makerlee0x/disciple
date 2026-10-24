@@ -11,9 +11,11 @@ import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQ
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
-import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
+import { readCoinMcap } from "./mcap";
+import { NO_PRICE_MSG, logTradeError } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
-import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
+import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
 import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi } from "./launchAbi";
 
@@ -89,6 +91,7 @@ function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[
 /** Revert names meaning "price moved past minOut" (curve, router, v4, session policy): retried once with a fresh quote. */
 export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMuchRequested)$/;
 
+const pickIds = (x?: Record<string, unknown>) => ({ userOpHash: x?.userOpHash, txHash: x?.txHash });
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
@@ -101,7 +104,8 @@ export function friendlyError(e: unknown): ProtocolError {
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
     // FLOW 2: unknown revert ⇒ keep the real payload (selector) instead of a bare "simulation failed"
     else if (est) return new ProtocolError("Estimate", raw && raw.length >= 10 && !est.message.includes(raw.slice(0, 10)) ? `${est.message} (revert ${raw.slice(0, 10)})` : est.message);
-    else return new ProtocolError("Reverted", raw && raw.length >= 10 ? `${rv!.message} — revert ${raw.slice(0, 10)}` : rv!.message);
+    // Reverted: players see the plain line only; the unknown selector goes to the console (never hex in copy)
+    else { if (raw && raw.length >= 10) logTradeError("trade reverted (unknown reason)", { selector: raw.slice(0, 10), revertData: raw, ...pickIds(rv!.extra) }); return new ProtocolError("Reverted", rv!.message); }
   }
   if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
@@ -136,7 +140,7 @@ export function friendlyError(e: unknown): ProtocolError {
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
       SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
       MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
-      QuoteFailed: "Couldn't price that trade on-chain (too large for the curve or this rocket's per-buy cap). Try a smaller shot.",
+      QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
       SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
@@ -146,6 +150,7 @@ export function friendlyError(e: unknown): ProtocolError {
       Error: args?.[0] ? String(args[0]) : "reverted",
     };
     const pre = "";   // the decoded reason is the message; no "simulation:" prefix (FLOW 2)
+    if (name === "QuoteFailed") logTradeError("quote failed", { target: args?.[0] });
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
@@ -159,19 +164,16 @@ export function publicClient(): PublicClient {
 /* ---------------- reads ---------------- */
 
 /**
- * Live market for a coin. Curve mcapNow()/priceNow() and Trade.mcapAfterUsd FREEZE after graduation (FLOW bug,
- * fixed on-chain later), so graduated coins read MarketLens.market(token) (v4 slot0 × live QuotePricer).
- * Returns null when no lens is configured or the call fails (callers fall back to the curve).
- * `priceWad` is the lens's floored quote-raw price (single-digit at 6-dec USDG): use `mcapUsd` (full precision) for $.
+ * Live market for a coin — THE mcap (lib/mcap.ts readCoinMcap: curve.marketCapQuote() × the launch quote price, the coin's
+ * own supply), pre- and post-grad, so the header, cards, HUD self-heal, quotes and portfolio match the chart/fills.
+ * Returns null when the read fails (callers fall back to the curve).
  */
-export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; graduated: boolean } | null> {
-  if (!hasLens()) return null;
+export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; priceUsd: number; graduated: boolean } | null> {
   try {
-    const [priceWad, mcap, graduated] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token] });
-    return { priceWad, mcapUsd: wadToNum(mcap), graduated };
+    const m = await readCoinMcap(pc, token, await curveOf(pc, token));
+    return { priceWad: m.priceWad, mcapUsd: m.mcapUsd, priceUsd: m.priceUsd, graduated: m.graduated };
   } catch { return null; }
 }
-
 
 const paramsCache = new Map<string, CurveParams>();
 export async function curveParams(pc: PublicClient, curve: Address): Promise<CurveParams> {
@@ -228,7 +230,7 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
     pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }),
   ]);
   const quoteDecimals = await decimalsOf(pc, quote);
-  const live = graduated ? await readMarket(pc, token) : null;
+  const live = await readMarket(pc, token);   // THE mcap (lib/mcap.ts); marketCapUsd only if that read fails
   const mcapUsd = live ? live.mcapUsd : wadToNum(mcapWad);
   const soldPct = (Number(tokensSold) / Number(p.totalSupply)) * 100;
   const progressBps = Number(progress);

@@ -14,6 +14,7 @@ import { launchTargets } from "../aa/launchTargets";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
+import { RelayBroadcastError } from "../aa/relayOp";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -111,9 +112,11 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
       if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
-      if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
-      if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
-      return userOpHash(op, robinhoodTestnet.id);
+      // broadcast: a timeout / reverted bundle still answers with the op's ids (error.data), the client looks the op up
+      const uoh = userOpHash(op, robinhoodTestnet.id);
+      if (!receipt) throw new RelayBroadcastError(`relayer tx ${hash} not confirmed (timeout)`, uoh, hash);
+      if (receipt.status !== "success") throw new RelayBroadcastError(`relayer tx ${hash} reverted`, uoh, hash);
+      return uoh;
     }
     case "eth_getUserOperationReceipt": {
       const h = params[0] as Hex;

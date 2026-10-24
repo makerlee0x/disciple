@@ -25,11 +25,12 @@ test("relay pre-flight FailedOpWithRevert(inner) shows the inner reason", () => 
   const pe = friendlyError(new AAError("Estimate", "simulation failed: x", { revertData: fo }));
   assert.equal(pe.code, "V4TooLittleReceived"); assert.ok(MINOUT_RETRY.test(pe.code));
 });
-test("unknown revert keeps the selector instead of a bare 'simulation failed'", () => {
+test("unknown revert: Estimate keeps the selector; a Reverted op shows the plain line", () => {
   const pe = friendlyError(new AAError("Estimate", "simulation failed: execution reverted", { revertData: "0xdeadbeef00" }));
   assert.match(pe.message, /0xdeadbeef/);
-  const rv = friendlyError(new AAError("Reverted", "UserOp reverted (tx 0x1)", { revertData: "0xcafebabe" }));
-  assert.equal(rv.code, "Reverted"); assert.match(rv.message, /0xcafebabe/);
+  // a Reverted op (approved copy, lee 2026-10-24): plain line only; the selector goes to the console (test:relay-op)
+  const rv = friendlyError(new AAError("Reverted", "That didn't go through. Try again.", { revertData: "0xcafebabe" }));
+  assert.equal(rv.code, "Reverted"); assert.equal(rv.message, "That didn't go through. Try again."); assert.doesNotMatch(rv.message, /0x/);
 });
 test("balance lag is transient (retried once by mav2)", () => {
   const bal = encodeErrorResult({ abi: E, errorName: "ERC20InsufficientBalance", args: ["0x0000000000000000000000000000000000000001", BigInt(0), BigInt(1)] });

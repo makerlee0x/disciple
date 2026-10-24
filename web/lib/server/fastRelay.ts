@@ -10,7 +10,7 @@ import "server-only";
  *    sendRawTransaction + 50 ms receipt polling.
  * Ops from different users/keys run concurrently: only nonce assignment is serialized (synchronous).
  */
-import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
+import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -20,6 +20,7 @@ import { capsForOp, checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGa
 import { launchTargets } from "../aa/launchTargets";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
+import { broadcastError } from "../aa/relayOp";
 import { SenderTrust } from "./relayTrust";
 import { kvTrustStore } from "./relayTrustStore";
 
@@ -148,15 +149,16 @@ export async function sendUserOperationSync(op: UserOp) {
   } else t.simulate = 0;
   const gas = totalGas(op) + BigInt(120_000);
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
+  const hash = userOpHash(op, robinhoodTestnet.id);   // fixed by the signed op: returned on success AND on post-broadcast errors
   for (let attempt = 0; ; attempt++) {
     const s = Date.now();
     const nonce = await takeNonce();
     const raw = await me.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", nonce, to: ENTRYPOINT_V07, data, gas, ...txFees });
+    const txHash = keccak256(raw);   // the bundle tx hash is known before the send (lost answer / timeout still has it)
     t.signTx = Date.now() - s;
     try {
       const r = await sendSync(raw);
       t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
-      const hash = userOpHash(op, robinhoodTestnet.id);
       let success = false;
       for (const l of r.rc.logs) {
         if (l.address.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) continue;
@@ -168,7 +170,8 @@ export async function sendUserOperationSync(op: UserOp) {
       return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
     } catch (e) {
       if (attempt < 2 && isNonceError(e)) { nextNonce = undefined; await syncNonce(); continue; }
-      throw e;
+      // signed + (maybe) sent: the op may still land ⇒ never answer without its ids (/api/bundler → error.data)
+      throw broadcastError(e, hash, txHash);
     }
   }
 }

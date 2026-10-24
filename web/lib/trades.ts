@@ -62,15 +62,18 @@ export function fillUsd(a: {
   tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint;
   /** hook Trade: pool sqrtPriceX96 after the swap + the coin/quote addresses (currency order) */
   sqrtPriceAfter?: bigint; token?: string; quote?: string;
+  /** the coin's own total supply in whole tokens (lib/mcap coinBasis); default = the 7B legacy constant */
+  supplyTokens?: number;
 }) {
   const tokens = Number(a.tokenAmt) / 1e18;
   const qp = a.quotePriceUsd ?? BigInt(0);
+  const supply = a.supplyTokens && a.supplyTokens > 0 ? a.supplyTokens : TOTAL_SUPPLY_TOKENS;
   const mcapUsd = a.mcapAfterUsd !== undefined
     ? Number(a.mcapAfterUsd) / 1e18
     : a.sqrtPriceAfter !== undefined && a.sqrtPriceAfter > BigInt(0) && a.token && a.quote
-      ? mcapUsdFromSqrt(a.sqrtPriceAfter, tokenIsCurrency0(a.token, a.quote), qp)
-      : (Number(a.priceAfterX18) / 1e18) * (Number(qp) / 1e18) * TOTAL_SUPPLY_TOKENS;
-  const priceUsd = mcapUsd / TOTAL_SUPPLY_TOKENS;
+      ? mcapUsdFromSqrt(a.sqrtPriceAfter, tokenIsCurrency0(a.token, a.quote), qp, supply)
+      : (Number(a.priceAfterX18) / 1e18) * (Number(qp) / 1e18) * supply;
+  const priceUsd = mcapUsd / supply;
   const pa = Number(a.priceAfterX18), pb = Number(a.priceBeforeX18);
   const mid = preciseX18(pa) && preciseX18(pb) ? priceUsd * ((pa + pb) / 2 / pa) : priceUsd;
   return { tokens, usd: tokens * mid, priceUsd, mcapUsd };

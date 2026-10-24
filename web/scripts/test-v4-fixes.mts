@@ -67,7 +67,7 @@ test("#6 friendlyError unwraps PreExecHookReverted → policy error", () => {
   assert.equal(outer.slice(0, 10), "0x74a1a72c");
   const e = friendlyError(new AAError("Estimate", "sim", { revertData: outer }));
   assert.equal(e.code, "QuoteFailed", e.message);
-  assert.match(e.message, /Couldn.t price that trade/);
+  assert.equal(e.message, "Couldn't get a price right now. Try again.");
 });
 test("portfolio: 24h price = last fill at/before now−24h, else launch price; totals", () => {
   const now = 1_000 * 86_400_000;

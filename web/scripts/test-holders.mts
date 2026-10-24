@@ -45,3 +45,20 @@ test("limit clamp 1–100 (default 50) and address validation", () => {
   assert.equal(clampHoldersLimit("7"), 7); assert.equal(clampHoldersLimit("1e9"), 100); assert.equal(clampHoldersLimit("abc"), 50);
   assert.ok(isAddr(A(1))); assert.ok(!isAddr("0x12")); assert.ok(!isAddr(null)); assert.ok(!isAddr(`${A(1)}00`));
 });
+
+test("protocolLabels: FeeRouter + RewardsVault + AnonLaunchers are 'locker' (data retest #3); pool / curve as before; zero skipped", async () => {
+  const { protocolLabels } = await import("../lib/holders");
+  const { DEPLOYMENTS } = await import("../lib/chains");
+  const d = DEPLOYMENTS[46630];
+  const vault = "0x1f42909f1dea0f6bd0dbd19e05f2e9505d748b9e", curve = A(7);
+  const l = protocolLabels(d, { curve: curve.toUpperCase().replace("0X", "0x"), lockers: [vault, undefined, Z] });
+  assert.equal(l["0xe7ab694edcf1c91c34be23baf493d45e83f752d9"], "locker");   // FeeRouter (RPGD holder 0xe7ab…52d9)
+  assert.equal(l[vault], "locker");
+  assert.equal(l[d.lockedLP.toLowerCase()], "locker");
+  assert.equal(l[d.poolManager.toLowerCase()], "pool");
+  assert.equal(l[d.hook.toLowerCase()], "pool");
+  assert.equal(l[curve], "curve");
+  assert.equal(l[Z], undefined);
+  const h = rankHolders({ [A(2)]: "5", "0xe7ab694edcf1c91c34be23baf493d45e83f752d9": "1" }, { totalSupply: BigInt(6), mcapUsd: 6, labels: l, limit: 5 });
+  assert.equal(h.find((x) => x.address === "0xe7ab694edcf1c91c34be23baf493d45e83f752d9")!.label, "locker");
+});
