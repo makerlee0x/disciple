@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
 import Icon, { type IconName } from "@/components/icons/Icon";
+import { SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, walletCtaLabel } from "@/lib/walletCta";
 
 const NAV = [
   { href: "/", key: "home", label: "Launchpad", icon: "home" },
@@ -79,6 +80,14 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
   const [open, setOpen] = useState(!isGame);
   const [ready, setReady] = useState(false);
   const [logoutNote, setLogoutNote] = useState(false);
+  // Phones: the wallet pill's signed-out action ("Play") lives here instead of the top bar (see lib/walletCta.ts).
+  const [cta, setCta] = useState<string | null>(null);
+  useEffect(() => {
+    setCta(walletCtaLabel());
+    const f = (e: Event) => setCta((e as CustomEvent<{ label: string | null }>).detail?.label ?? null);
+    window.addEventListener(WALLET_CTA_EVENT, f);
+    return () => window.removeEventListener(WALLET_CTA_EVENT, f);
+  }, []);
 
   useEffect(() => {
     let saved: string | null = null;
@@ -198,6 +207,40 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           </Link>
         </div>
         <div className="ap-foot">
+          {cta && (
+            <button
+              type="button"
+              className="ap-side-cta"
+              title={cta}
+              data-testid="side-wallet-cta"
+              onClick={() => {
+                setOpen(false);
+                window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT));
+              }}
+            >
+              <span className="ic">
+                <NavIcon name={cta === "Play" ? "play" : "wallet"} />
+              </span>
+              <span className="lb">{cta}</span>
+            </button>
+          )}
+          {isGame && (
+            <button
+              type="button"
+              title="Settings"
+              data-testid="side-settings"
+              aria-haspopup="dialog"
+              onClick={() => {
+                if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
+                window.dispatchEvent(new Event(SETTINGS_OPEN_EVENT));
+              }}
+            >
+              <span className="ic">
+                <NavIcon name="settings" />
+              </span>
+              <span className="lb">Settings</span>
+            </button>
+          )}
           <button
             type="button"
             title="Help"
@@ -234,7 +277,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
       </button>
       {logoutNote && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 backdrop-blur-sm"
           onClick={() => setLogoutNote(false)}
           role="presentation"
         >
