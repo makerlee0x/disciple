@@ -8,9 +8,8 @@ import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, type LimitResult } from "@/lib/server/limits";
-import { RELAY_METHOD, RELAY_STREAM_ACCEPT, type RelayFrame } from "@/lib/aa/relayTypes";
-import type { UserOp } from "@/lib/aa/core";
-import { robinhoodTestnet } from "@/lib/chains";
+import { RELAY_METHOD, RELAY_STREAM_ACCEPT } from "@/lib/aa/relayTypes";
+import { streamRelay } from "@/lib/server/relayStream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +65,7 @@ export async function POST(req: Request) {
   // Receipt push (lib/aa/relayTypes): streaming clients get NDJSON frames on THIS response — normally one RelayConfirmed;
   // if the sync send timed out, a RelayPending (txHash) first and the RelayConfirmed when the receipt lands.
   if (body.method === RELAY_METHOD && (req.headers.get("accept") || "").includes(RELAY_STREAM_ACCEPT))
-    return streamRelay(body.params || [], flushTrust);
+    return streamRelay(body.params || [], flushTrust);   // on #140: pass its finish()/afterResponse instead of flushTrust
   try {
     const result = await selfBundle(body.method, body.params || []);
     await flushTrust();
@@ -82,30 +81,4 @@ export async function POST(req: Request) {
     const data = (e as { data?: string }).data ?? (txHash ? { txHash, userOpHash: (e as { userOpHash?: string }).userOpHash } : undefined);
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data } });
   }
-}
-
-function streamRelay(params: unknown[], flushTrust: () => Promise<void>): Response {
-  const enc = new TextEncoder();
-  const body = new ReadableStream<Uint8Array>({
-    async start(ctl) {
-      const push = (f: RelayFrame) => ctl.enqueue(enc.encode(JSON.stringify(f) + "\n"));
-      try {
-        const { sendUserOperationSync } = await import("@/lib/server/fastRelay");
-        const op = params[0] as UserOp;
-        let userOpHash: `0x${string}` | undefined;
-        try { userOpHash = (await import("@/lib/aa/core")).userOpHash(op, robinhoodTestnet.id); } catch { /* malformed op: fastRelay rejects it */ }
-        const r = await sendUserOperationSync(op, (p) => { if (userOpHash) push({ kind: "pending", pending: true, userOpHash, txHash: p.txHash, reason: p.reason }); });
-        await flushTrust();
-        push(r);
-      } catch (e) {
-        await flushTrust();
-        const x = e as { shortMessage?: string; message?: string; data?: string; txHash?: `0x${string}`; userOpHash?: `0x${string}` };
-        const m = x.shortMessage || x.message || String(e);
-        const code = isRelayerNotConfigured(e) ? -32003 : -32000;
-        push({ kind: "error", code, message: `${RELAY_METHOD}: ${isRelayerNotConfigured(e) ? "relayer not configured" : m.split("\n")[0].slice(0, 300)}`, data: { txHash: x.txHash, userOpHash: x.userOpHash, revert: typeof x.data === "string" ? (x.data as `0x${string}`) : undefined } });
-      }
-      ctl.close();
-    },
-  });
-  return new Response(body, { status: 200, headers: { "content-type": `${RELAY_STREAM_ACCEPT}; charset=utf-8`, "cache-control": "no-store", "x-accel-buffering": "no" } });
 }

@@ -13,7 +13,7 @@ import "server-only";
  */
 import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
-import { DEFAULT_SYNC_TIMEOUT_MS, isNonceErr, jsonRpc, syncSend, type Endpoint, type RpcErr, type TimeoutFormat } from "./syncSend";
+import { isNonceErr, jsonRpc, syncSend, type PendingReason, type RpcErr } from "./syncSend";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -114,23 +114,30 @@ const senderPrefund = (op: UserOp) => (op.paymaster ? BigInt(0) : maxPrefund(op,
 /** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
 export async function warmRelay(sender?: string) {
   account(); // fail closed (production, no dedicated relayer key) before any RPC
+  warmSequencer();
   await Promise.all([nextNonce === undefined ? syncNonce() : 0, baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
 }
 
 /**
- * Item 1 (feat/trade-latency): RHT_SEQUENCER_URL (server env, e.g. https://sequencer.testnet.chain.robinhood.com) ⇒
- * send-only endpoint for eth_sendRawTransactionSync ([raw] by default; optional timeout param, see lib/server/syncSend);
- * public-RPC fallback on any sequencer error. Unset ⇒ the public RPC exactly as before ([raw], no timeout param).
+ * Item 1 (feat/trade-latency): RHT_SEQUENCER_URL (server env, e.g. https://sequencer.testnet.chain.robinhood.com,
+ * send-only) ⇒ eth_sendRawTransactionSync [raw] goes there (live: full receipt in ~161 ms warm; the public RPC sees
+ * the tx 0.64–0.75 s later). Unset ⇒ the public RPC exactly as before. RHT_RECEIPT_RPC_URL (optional fast node)
+ * serves the slow-path receipt wait before the public RPC. Rules: lib/server/syncSend.
  */
 const RPC_URL = robinhoodTestnet.rpcUrls.default.http[0];
-/** RHT_SYNC_TIMEOUT_FORMAT=none (default: [raw] only) | number | hex — unverified on RH until a live tx lands. */
-const TIMEOUT_FORMAT: TimeoutFormat = process.env.RHT_SYNC_TIMEOUT_FORMAT === "number" || process.env.RHT_SYNC_TIMEOUT_FORMAT === "hex" ? process.env.RHT_SYNC_TIMEOUT_FORMAT : "none";
-const SYNC_TIMEOUT_MS = Number(process.env.RHT_SYNC_TIMEOUT_MS) > 0 ? Number(process.env.RHT_SYNC_TIMEOUT_MS) : DEFAULT_SYNC_TIMEOUT_MS;
-const SEQ: Endpoint | undefined = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "")
-  ? { name: "sequencer", rpc: jsonRpc(process.env.RHT_SEQUENCER_URL!, 25_000), timeoutFormat: TIMEOUT_FORMAT } : undefined;
-const RPC: Endpoint = { name: "rpc", rpc: jsonRpc(RPC_URL, 25_000), timeoutFormat: "none" };   // today's call: [raw]
+const SEQ_URL = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "") ? process.env.RHT_SEQUENCER_URL! : undefined;
+const SEND = SEQ_URL ? { name: "sequencer" as const, rpc: jsonRpc(SEQ_URL) } : { name: "rpc" as const, rpc: jsonRpc(RPC_URL) };
+const FAST_READ = /^https?:\/\//.test(process.env.RHT_RECEIPT_RPC_URL || "") ? jsonRpc(process.env.RHT_RECEIPT_RPC_URL!, 3_000) : undefined;
+let seqWarmAt = 0;
+/** Keep the TLS connection to the sequencer warm (cold TLS = +260–660 ms). Any request works; the answer is ignored. */
+export function warmSequencer() {
+  if (!SEQ_URL || Date.now() - seqWarmAt < 20_000) return;
+  seqWarmAt = Date.now();
+  void SEND.rpc("web3_clientVersion", []).catch(() => undefined);
+}
 const hx = (v: bigint | number | undefined) => (v === undefined ? undefined : (`0x${BigInt(v).toString(16)}` as Hex));
 async function receiptOf(hash: Hex): Promise<RelayReceipt | null> {
+  if (FAST_READ) { const r = await FAST_READ("eth_getTransactionReceipt", [hash]).catch(() => null) as RelayReceipt | null; if (r) return r; }
   const rc = await pc.getTransactionReceipt({ hash }).catch(() => null) as TransactionReceipt | null;
   if (!rc) return null;
   return {
@@ -140,9 +147,10 @@ async function receiptOf(hash: Hex): Promise<RelayReceipt | null> {
   };
 }
 async function sendSync(raw: Hex, onPending?: OnPending) {
-  return syncSend(raw, keccak256(raw), { sequencer: SEQ, rpc: RPC, timeoutMs: SYNC_TIMEOUT_MS, getReceipt: receiptOf, onPending });
+  warmSequencer();
+  return syncSend(raw, keccak256(raw), { send: SEND, getReceipt: receiptOf, onPending });
 }
-export type OnPending = (p: { txHash: Hex; reason: "sync-timeout" | "sync-error" | "sync-unsupported" }) => void;
+export type OnPending = (p: { txHash: Hex; reason: PendingReason }) => void;
 
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};

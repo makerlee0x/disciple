@@ -2,113 +2,83 @@
  * Relayer tx send with the receipt on the same call (EIP-7966 eth_sendRawTransactionSync). Pure: transports and the
  * receipt reader are injected, so scripts/test-sync-send.mts covers every branch without RPC.
  *
- * Order: RHT_SEQUENCER_URL (send-only endpoint, ≈0.6 s p50 ahead of the public RPC's view) → public RPC.
- *  - unset sequencer ⇒ exactly today's call: eth_sendRawTransactionSync [raw] on the public RPC (no timeout param).
- *  - timeout PARAM: UNVERIFIED until a live tx lands. Two real tests on RH's sequencer got OPPOSITE -32602 parse
- *    rejections (hex "0x7d0" → "cannot unmarshal string into … uint64"; number 2000 → "cannot unmarshal non-string
- *    into hexutil.Uint64") — inconsistent backends. Default is therefore [raw] only (no timeout param, the node's
- *    default wait). RHT_SYNC_TIMEOUT_FORMAT=number|hex opts in; a -32602 parse rejection that mentions the timeout
- *    means the tx was NOT accepted, so we retry once in the other format, then fall back to [raw], then to
- *    eth_sendRawTransaction + server-side receipt wait (pushed to the client). The working format is memoized.
- *  - sequencer network / 5xx / unknown error ⇒ resend the SAME signed tx to the public RPC (idempotent: "already
- *    known" ⇒ it's in, wait for it).
- *  - timeout (EIP-7966 code 4, or "timeout"/"timed out") or "already known" ⇒ onPending({ txHash }) and wait for the
- *    receipt server-side (pollMs, default 50 ms ≈ ⅓ block). The client never polls.
- *  - nonce errors are rethrown (fastRelay resyncs its cursor and re-signs); every thrown error carries `txHash`.
+ * Measured live (10:06 CT, warm connection): eth_sendRawTransactionSync [rawTx] to the RH sequencer endpoint returned
+ * the full receipt (status, blockNumber, logs) in 160.88 ms; the public RPC showed the tx 643–745 ms later. Cold TLS
+ * adds 260–660 ms ⇒ keep the connection warm (fastRelay.warmSequencer + fetch keep-alive).
+ *
+ * Rules:
+ *  1. eth_sendRawTransactionSync with [rawTx] ONLY. Never a timeout param (two live tests got opposite -32602 parse
+ *     errors for a hex vs a number timeout).
+ *  2. -32602 / -32601 ⇒ the tx was NOT accepted: eth_sendRawTransaction with the SAME signed bytes on the same
+ *     endpoint, then wait for the receipt.
+ *  3. Never re-sign after an unclear failure: only a definitive node rejection (nonce / funds / fee / malformed) is
+ *     rethrown for the caller to resync + re-sign.
+ *  4. Timeout / network error / unreadable response ⇒ possibly accepted: onPending({ txHash }) and poll the receipt
+ *     for the precomputed hash (fast node first when RHT_RECEIPT_RPC_URL is set; public RPC last).
+ *  5. The sync receipt IS the confirmation the UI books from (RelayConfirmed.receipt).
+ * Sequencer unset ⇒ exactly today's call on the public RPC ([raw]).
  */
 import type { Hex } from "viem";
 import type { RelayReceipt, RelayVia } from "../aa/relayTypes";
 
 export type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
-export type TimeoutFormat = "number" | "hex" | "none";
-export type Endpoint = { name: "sequencer" | "rpc"; rpc: RpcFn; timeoutFormat: TimeoutFormat; syncSupported?: boolean };
 export type RpcErr = Error & { code?: number; data?: unknown; txHash?: Hex };
+export type PendingReason = "sync-timeout" | "sync-error" | "sync-unsupported";
 
-export const DEFAULT_SYNC_TIMEOUT_MS = 2000;
-
-/** -32602 parse rejection of the params (the tx was not accepted ⇒ resending is safe). */
-export const isUnmarshalErr = (e: RpcErr) => e.code === -32602 && /unmarshal|uint64|hexutil|invalid argument|timeout/i.test(e.message);
-export const isNotSupported = (e: RpcErr) => e.code === -32601 || /method not found|not supported|does not exist/i.test(e.message);
-export const isTimeoutErr = (e: RpcErr) => e.code === 4 || /timed? ?out|timeout|deadline/i.test(e.message);
+/** -32602 (params rejected at parse) / -32601 (method missing): nothing was accepted ⇒ a plain send is safe. */
+export const isNotAccepted = (e: RpcErr) => e.code === -32602 || e.code === -32601;
+const TIMEOUT = /timed? ?out|timeout|deadline/i;
+/** No (readable) answer, or the node gave up waiting: the tx may be in. */
+export const isUnclear = (e: RpcErr) => e.code === undefined || e.code === -32099 || e.code === -32098 || e.code === 4
+  || TIMEOUT.test(e.message) || /network|socket|ECONN|fetch failed|aborted|\b50[234]\b/i.test(e.message);
 export const isAlreadyKnown = (e: RpcErr) => /already known|known transaction|already imported/i.test(e.message);
-export const isNonceErr = (e: RpcErr) => /nonce too low|nonce too high|invalid nonce|nonce gap/i.test(e.message) || e.code === 6;
-/** Definitive rejections from the node (the tx is NOT in): don't resend elsewhere, surface them. */
-export const isRejected = (e: RpcErr) => isNonceErr(e) || /insufficient funds|intrinsic gas|fee cap|underpriced|max fee per gas less than block base fee|rlp|typed transaction/i.test(e.message);
-
-function params(raw: Hex, fmt: TimeoutFormat, timeoutMs: number): unknown[] {
-  return fmt === "number" ? [raw, timeoutMs] : fmt === "hex" ? [raw, `0x${timeoutMs.toString(16)}`] : [raw];
-}
-
-/** eth_sendRawTransactionSync with the endpoint's format; on a param-parse rejection: other format once, then [raw]. */
-async function callSync(ep: Endpoint, raw: Hex, timeoutMs: number): Promise<RelayReceipt> {
-  const order: TimeoutFormat[] = ep.timeoutFormat === "none" ? ["none"]
-    : [ep.timeoutFormat, ep.timeoutFormat === "number" ? "hex" : "number", "none"];
-  let last: unknown;
-  for (const fmt of order) {
-    try {
-      const rc = (await ep.rpc("eth_sendRawTransactionSync", params(raw, fmt, timeoutMs))) as RelayReceipt;
-      ep.timeoutFormat = fmt;   // memoize what this backend accepted
-      return rc;
-    } catch (e) { if (!isUnmarshalErr(e as RpcErr)) throw e; last = e; }
-  }
-  throw Object.assign(last as RpcErr, { paramsRejected: true });
-}
+export const isNonceErr = (e: RpcErr) => e.code === 6 || /nonce too low|nonce too high|invalid nonce|nonce gap/i.test(e.message);
 
 export type SyncSendResult = { rc: RelayReceipt; via: RelayVia; sendMs: number; minedMs: number; pending: boolean };
 export type SyncSendOpts = {
-  sequencer?: Endpoint; rpc: Endpoint; timeoutMs?: number;
+  /** send endpoint: RHT_SEQUENCER_URL when set, else the public RPC */
+  send: { name: "sequencer" | "rpc"; rpc: RpcFn };
+  /** receipt reader for the slow-path wait (fast node first, public RPC last) */
   getReceipt: (h: Hex) => Promise<RelayReceipt | null>;
-  onPending?: (p: { txHash: Hex; reason: "sync-timeout" | "sync-error" | "sync-unsupported" }) => void;
+  onPending?: (p: { txHash: Hex; reason: PendingReason }) => void;
   pollMs?: number; maxWaitMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void>;
 };
 
 export async function syncSend(raw: Hex, txHash: Hex, o: SyncSendOpts): Promise<SyncSendResult> {
   const now = o.now ?? Date.now, sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const timeoutMs = o.timeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS;
   const t0 = now();
   const tag = (e: unknown) => Object.assign(e as RpcErr, { txHash });
-  let reason: "sync-timeout" | "sync-error" | "sync-unsupported" | undefined;
-  for (const ep of [o.sequencer, o.rpc]) {
-    if (!ep) continue;
-    if (ep.syncSupported === false) {
-      if (ep === o.rpc) {   // plain send, then wait (old -32601 fallback)
-        try { await ep.rpc("eth_sendRawTransaction", [raw]); } catch (e) { if (!isAlreadyKnown(e as RpcErr)) throw tag(e); }
-        reason = "sync-unsupported"; break;
+  let reason: PendingReason;
+  try {
+    const rc = (await o.send.rpc("eth_sendRawTransactionSync", [raw])) as RelayReceipt;
+    return { rc, via: o.send.name === "sequencer" ? "sequencer-sync" : "rpc-sync", sendMs: now() - t0, minedMs: 0, pending: false };
+  } catch (e) {
+    const err = e as RpcErr;
+    if (isNotAccepted(err)) {
+      try { await o.send.rpc("eth_sendRawTransaction", [raw]); reason = "sync-unsupported"; }   // SAME signed bytes
+      catch (e2) {
+        const er2 = e2 as RpcErr;
+        if (isAlreadyKnown(er2)) reason = "sync-unsupported";
+        else if (isUnclear(er2)) reason = "sync-error";
+        else throw tag(er2);   // definitive rejection of the plain send
       }
-      continue;
-    }
-    try {
-      const rc = await callSync(ep, raw, timeoutMs);
-      ep.syncSupported = true;
-      return { rc, via: ep.name === "sequencer" ? "sequencer-sync" : "rpc-sync", sendMs: now() - t0, minedMs: 0, pending: false };
-    } catch (e) {
-      const err = e as RpcErr;
-      if (ep === o.sequencer && (err.code === -32099 || err.code === -32098)) continue;   // transport: resend via the RPC
-      if ((err as { paramsRejected?: boolean }).paramsRejected) {
-        // every param form rejected at parse time (nothing accepted): plain send on this endpoint, receipt pushed later
-        try { await ep.rpc("eth_sendRawTransaction", [raw]); } catch (e2) { if (!isAlreadyKnown(e2 as RpcErr)) { if (ep === o.sequencer) continue; throw tag(e2); } }
-        ep.syncSupported = false; reason = "sync-unsupported"; break;
-      }
-      if (isTimeoutErr(err) || isAlreadyKnown(err)) { reason = "sync-timeout"; break; }
-      if (isNotSupported(err)) { ep.syncSupported = false; if (ep === o.rpc) { try { await ep.rpc("eth_sendRawTransaction", [raw]); } catch (e2) { if (!isAlreadyKnown(e2 as RpcErr)) throw tag(e2); } reason = "sync-unsupported"; break; } continue; }
-      if (isRejected(err)) throw tag(err);
-      if (ep === o.sequencer) continue;   // network / 5xx / unknown on the sequencer ⇒ same raw tx via the public RPC
-      throw tag(err);
-    }
+    } else if (isAlreadyKnown(err)) reason = "sync-timeout";
+    else if (isUnclear(err)) reason = err.code === 4 || TIMEOUT.test(err.message) ? "sync-timeout" : "sync-error";
+    else throw tag(err);       // definitive node rejection: the caller may resync its nonce and re-sign
   }
   const t1 = now();
-  o.onPending?.({ txHash, reason: reason ?? "sync-error" });
+  o.onPending?.({ txHash, reason });
   const deadline = t1 + (o.maxWaitMs ?? 20_000);
   for (;;) {
     const rc = await o.getReceipt(txHash).catch(() => null);
     if (rc) return { rc, via: "rpc-wait", sendMs: t1 - t0, minedMs: now() - t1, pending: true };
-    if (now() > deadline) throw tag(Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000 }));
+    if (now() > deadline) throw tag(Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true }));
     await sleep(o.pollMs ?? 50);
   }
 }
 
-/** JSON-RPC over fetch (keep-alive), errors as RpcErr { code, message, data }. */
-export function jsonRpc(url: string, abortMs = 10_000): RpcFn {
+/** JSON-RPC over fetch with keep-alive (Node's fetch pools the TLS connection); errors as RpcErr { code, message, data }. */
+export function jsonRpc(url: string, abortMs = 25_000): RpcFn {
   let id = 0;
   return async (method, p) => {
     let r: Response;
