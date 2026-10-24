@@ -25,7 +25,8 @@ import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
-import { playerError } from "@/lib/playerError";
+import { CANCELLED_MSG, playerError } from "@/lib/playerError";
+import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -167,17 +168,24 @@ export default function LaunchRocketPage() {
       setMsg("Enter a website like mysite.com");
       return;
     }
-    // Moderated at center; launch with the user's chosen square crop of the same approved image.
-    const imageUri = iconSrc ? cropSquare(iconSrc, crop) : mod.uri;
-    // Moderate the EXACT imageURI that goes on-chain: on allow the server stores it and adds it to the render
-    // allowlist (coin images only render from the moderated store). Explicit block stops the launch; an outage
-    // (review/network) keeps the testnet fail-open launch, the image just shows the placeholder until re-checked.
-    let imageNote = "";
-    if (!IS_STATIC_PREVIEW && imageUri.startsWith("data:")) {
-      const fd = new FormData(); fd.append("uri", imageUri);
-      const v = await fetch("/api/moderate-image", { method: "POST", body: fd }).then((r) => r.json()).catch(() => null) as { verdict?: string } | null;
-      if (v?.verdict === "block") { setMsg("This image can't be used. Please pick a different one."); return; }
-      if (v?.verdict !== "allow") imageNote = " (icon pending review; it shows once approved)";
+    // Moderated at center; launch with the user's chosen square crop of the same approved image. The crop is moderated
+    // and stored FIRST; the launch writes only the absolute, content-addressed URL of that stored copy on-chain
+    // (lib/launchImage), never the data: URI (gas: a real 256px crop pushed launches over the 10M cap). If the crop is
+    // blocked, held for review, or not stored, the launch stops here, before any wallet step.
+    const crop256 = iconSrc ? cropSquare(iconSrc, crop) : mod.uri;
+    let imageUri = crop256;
+    if (!IS_STATIC_PREVIEW) {
+      const fd = new FormData(); fd.append("uri", crop256);
+      const v = await fetch("/api/moderate-image", { method: "POST", body: fd })
+        .then(async (r) => (await r.json().catch(() => null)) as ModerateResponse)
+        .catch((err) => { console.warn("[disciple] launch image upload failed", { message: String((err as Error)?.message ?? err).slice(0, 300) }); return null; });
+      const li = launchImageFrom(v);
+      if (!li.ok) {
+        console.warn("[disciple] launch image not usable", { reason: li.reason, detail: li.detail, verdict: v?.verdict });
+        setMsg(IMAGE_COPY[li.reason]);
+        return;
+      }
+      imageUri = li.uri;
     }
     if (boostState.error) { setMsg(boostState.error); return; }
     if (!boostState.ready) { setMsg("Still reading the First BOOST cap. Try again in a moment."); return; }
@@ -187,7 +195,7 @@ export default function LaunchRocketPage() {
       const res = await client.launchCoin({
         name: name.trim(),
         ticker: callSign.trim().toUpperCase(),
-        imageUri, // square crop of the moderated upload
+        imageUri, // absolute https URL of the moderated, stored square crop (lib/launchImage)
         quoteToken: quoteAddr,
         creatorTaxPct: effTax,
         creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
@@ -208,10 +216,13 @@ export default function LaunchRocketPage() {
           }
         }
       }
-      setLaunched(`Launched!${imageNote} Taking you to your rocket…`);
+      setLaunched("Launched! Taking you to your rocket…");
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
-      setMsg(isDeployed() ? playerError(err) : "Launches aren't open on this network yet.");
+      if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
+      const shown = playerError(err);
+      console.warn("[disciple] launch failed", { private: privateLaunch, imageUri, message: String((err as Error)?.message ?? err).slice(0, 500), code: (err as { code?: unknown })?.code });
+      setMsg(shown === CANCELLED_MSG ? shown : LAUNCH_FAILED_MSG);
     }
   }
 
