@@ -132,8 +132,12 @@ export function startWorkerRender(o: {
     post({ k: "key", type: k.type, code: k.code, key: k.key, repeat: k.repeat, ctrlKey: k.ctrlKey, metaKey: k.metaKey, shiftKey: k.shiftKey }); };
   on(window, "keydown", key); on(window, "keyup", key);
   on(window, "blur", () => post({ k: "blur" }));
-  const ptr = (e: Event) => { const p = e as PointerEvent; if (p.type === "pointerdown") { p.preventDefault(); const a = document.activeElement as HTMLElement | null; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur(); } post({ k: "ptr", type: p.type, x: p.clientX, y: p.clientY }); };
-  for (const t of ["pointermove", "pointerleave", "pointerdown"]) on(o.canvas, t, ptr);
+  // pointerup / pointercancel + pointerId / pointerType: the engine's touch drag-to-steer (phones) needs the whole gesture; a touch / pen
+  // pointerdown is captured on the real canvas so the moves keep arriving while the finger is held
+  const ptr = (e: Event) => { const p = e as PointerEvent; if (p.type === "pointerdown") { p.preventDefault(); const a = document.activeElement as HTMLElement | null; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur();
+      if (p.pointerType === "touch" || p.pointerType === "pen") try { o.canvas.setPointerCapture(p.pointerId); } catch { /* not capturable */ } }
+    post({ k: "ptr", type: p.type, x: p.clientX, y: p.clientY, id: p.pointerId, pt: p.pointerType }); };
+  for (const t of ["pointermove", "pointerleave", "pointerdown", "pointerup", "pointercancel"]) on(o.canvas, t, ptr);
   on(document, "visibilitychange", () => post({ k: "vis", hidden: document.hidden }));
   const orb = document.getElementById("orbBtn");
   if (orb) on(orb, "click", () => { post({ k: "orbClick" }); (orb as HTMLElement).blur(); });

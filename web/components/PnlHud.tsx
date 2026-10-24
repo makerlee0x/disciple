@@ -152,8 +152,10 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   }, [v.size, v.valueUsd, pos.costBasis]);
   // the engine's rocket position tag reads the SAME view() (P toggles it)
   useEffect(() => {
-    dispatchEvent(new CustomEvent("disciple:pnlview", { detail: v.size > 0 ? { size: v.size, valueUsd: v.valueUsd, entryMcap: v.entryMcap, uPnl: v.uPnl, pnlPct: v.pnlPct, realized: v.realized,
-      txt: { pnl: fmtPnl(v.uPnl), pct: fmtPct(v.pnlPct), pos: fmtMoney(v.valueUsd), realized: fmtPnl(v.realized) } } : null }));
+    const detail = v.size > 0 ? { size: v.size, valueUsd: v.valueUsd, entryMcap: v.entryMcap, uPnl: v.uPnl, pnlPct: v.pnlPct, realized: v.realized,
+      txt: { pnl: fmtPnl(v.uPnl), pct: fmtPct(v.pnlPct), pos: fmtMoney(v.valueUsd), realized: fmtPnl(v.realized) } } : null;
+    (window as unknown as { __pnlView?: unknown }).__pnlView = detail;   // late listeners (phone HUD PnL line) read the current view
+    dispatchEvent(new CustomEvent("disciple:pnlview", { detail }));
   }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
 
   const holding = v.size > 0;
