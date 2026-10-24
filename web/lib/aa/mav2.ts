@@ -14,6 +14,7 @@ import { clientFees, isLaunchCalls } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
+import type { TradeTiming } from "../trade/timing";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
@@ -203,12 +204,38 @@ export class Mav2Account {
   }
 
   /**
+   * Op templates (latency plan #6): after the SDK has built one op of a kind (owner|session × call shape) for a deployed
+   * account, later ops of that kind copy its struct and replace only nonce, callData, gas and fees — the fields the SDK
+   * would fill from our overrides anyway (aa-sdk _initUserOperation: callData = account.encodeExecute/encodeBatchExecute,
+   * nonce = overrides.nonce, factory only while undeployed; our fee/gas middlewares just apply the overrides). A template
+   * is kept only if rebuilding the op it came from gives the identical struct; ops with factory/paymaster fields never
+   * template. The op is still signed by client.signUserOperation (same key, same hash) — nothing about the policy changes.
+   */
+  private tpl = new Map<string, Record<string, unknown>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async buildOp(client: any, kind: string, uo: Tx | Tx[], overrides: Record<string, unknown>): Promise<any> {
+    const key = `${kind}|${client.account.address}`;
+    const encode = () => (Array.isArray(uo) ? client.account.encodeBatchExecute(uo) : client.account.encodeExecute(uo));
+    const t = this.tpl.get(key);
+    if (t) return { ...t, ...overrides, callData: await encode() };
+    const struct = await client.buildUserOperation({ uo, overrides: overrides as never });
+    const s = struct as unknown as Record<string, unknown>;
+    if (s && !s.factory && !s.factoryData && !s.paymaster && !s.paymasterAndData && typeof client.account?.encodeExecute === "function") {
+      try {
+        const re = { ...s, ...overrides, callData: await encode() };
+        if (JSON.stringify(deepHexlify(re)) === JSON.stringify(deepHexlify(s))) this.tpl.set(key, s);
+      } catch { /* no template: keep building with the SDK */ }
+    }
+    return struct;
+  }
+
+  /**
    * Send calls as ONE userOp. `as: "session"` signs with the session key (no Privy prompt); default owner.
    * No queue: each op takes its own nonce key, so rapid shots are in flight at once. Fast path (warm preset):
    * nonce/fees/gas are local, the op is signed in memory and sent with ONE round trip to /api/bundler
    * (disciple_sendUserOperationSync: the self-bundler relays handleOps immediately and answers with the receipt).
    */
-  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true): Promise<SendResult> {
+  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true, tt?: TradeTiming): Promise<SendResult> {
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
@@ -221,7 +248,10 @@ export class Mav2Account {
     const launch = isLaunchCalls(calls, launchTargets(this.o.chain.id));
     // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
     const gas = launch ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
-    const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined) : FEES.peek(() => fetchFees(client as unknown as FeeClient));
+    // latency: cold fee cache on the fast path ⇒ wait for ONE fee read (~0.1 s) instead of dropping to the multi-second
+    // standard flow (estimate + eth_sendUserOperation + receipt polling). Launches keep their fresh un-doubled fees.
+    const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
+      : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas && this.syncOk !== false ? await FEES.get(() => fetchFees(client as unknown as FeeClient)).catch(() => undefined) : undefined);
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
       const m = (e as { details?: string; shortMessage?: string; message?: string });
@@ -241,17 +271,20 @@ export class Mav2Account {
     // ---- fast path: warm preset + self-bundler sync method
     if (gas && fees && this.syncOk !== false) {
       let struct, signed;
-      try { struct = await client.buildUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides }); } catch (e) { return fail(e); }
+      try { struct = await this.buildOp(client, kind, uo.length === 1 ? uo[0] : uo, overrides); } catch (e) { return fail(e); }
       const t1 = now();
       try { signed = await client.signUserOperation({ uoStruct: struct }); } catch (e) { return fail(e); }
       const t2 = now();
       const wire = deepHexlify(signed) as UserOp;
       const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
+      tt?.mark("send");
       type SyncRes = { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
       const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" }, keepalive: true,
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_sendUserOperationSync", params: [wire, client.account.getEntryPoint().address] }) }).catch((e) => ({ status: 0, json: async () => ({ error: { code: -32099, message: `network: ${(e as Error).message}` } }) }) as unknown as Response);
       let j = await r.json().catch(() => ({ error: { code: -32098, message: `relay response unreadable (HTTP ${r.status})` } })) as SyncRes;
       const t3 = now();
+      tt?.mark("response");
+      tt?.note({ path: "fast", build: Math.round(t1 - t0), sign: Math.round(t2 - t1), roundTrip: Math.round(t3 - t2), server: j.result?.t });
       // Post-broadcast relay error: the relay answers with the op's ids (error.data, lib/aa/relayOp). Keep OUR hash (the
       // op we signed); the relay's bundle tx hash only if it reports the same op.
       const ref = j.error ? relayOpRef(j.error) : undefined;
@@ -271,14 +304,14 @@ export class Mav2Account {
       if (j.error && feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
         await new Promise((res) => setTimeout(res, 700));
-        return this.sendCalls(calls, as, false);
+        return this.sendCalls(calls, as, false, tt);
       }
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
       else if (j.error && feeRetry && /fee below relayer floor/i.test(j.error.message)) {
         // cached fees went stale (base fee rose): nothing was sent; refresh fees and re-sign once
         FEES.invalidate();
         await FEES.get(() => fetchFees(client as unknown as FeeClient)).catch(() => undefined);
-        return this.sendCalls(calls, as, false);
+        return this.sendCalls(calls, as, false, tt);
       } else if (j.error) {
         if (/AA2[0-9]|AA3[0-9]|out of gas|gas/i.test(j.error.message)) this.gas.drop(kind);   // stale limits → re-estimate next time
         // Never fall through to the standard path here: a second send of the same nonce can only fail (AA25) after the
@@ -309,6 +342,7 @@ export class Mav2Account {
 
     // ---- standard path (first trade of a preset, or Alchemy): estimate once, then cache the limits
     let req;
+    tt?.mark("send"); tt?.note({ path: launch ? "standard (launch)" : !gas ? "standard (no gas preset)" : !fees ? "standard (no fees)" : "standard (relay unavailable)" });
     try { req = await client.sendUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides }); }
     catch (e) {
       const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
@@ -319,10 +353,11 @@ export class Mav2Account {
       const ids = { userOpHash: ref?.userOpHash, txHash: ref?.txHash };
       if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); logRelayOp("rejected", ids); throw new AAError("Reverted", REJECTED_MSG, ids); }
       if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, ids); }
-      if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false); }
+      if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false, tt); }
       return fail(e);
     }
     const t1 = now();
+    tt?.mark("response");
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
     if (!gas && !launch && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
       this.gas.set(kind, { callGasLimit: BigInt(rq.callGasLimit), verificationGasLimit: BigInt(rq.verificationGasLimit), preVerificationGas: BigInt(rq.preVerificationGas) });

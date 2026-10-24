@@ -132,8 +132,13 @@ async function sendSync(raw: Hex): Promise<{ rc: RpcReceipt; mode: "sync" | "pol
 export async function sendUserOperationSync(op: UserOp) {
   const T0 = Date.now(), t: Record<string, number> = {};
   const me = account();
+  // latency: a cold lambda has neither the base fee nor the relayer nonce — fetch both at once (was two serial RPCs).
+  // The nonce read is only cached (nextNonce) — nothing is signed or sent before checkOpGas below passes.
+  const cold = !base.at || nextNonce === undefined;
+  if (nextNonce === undefined) void syncNonce().catch(() => undefined);
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
+  t.baseFee = Date.now() - T0; t.cold = cold ? 1 : 0;
   checkOpGas(op, fee, capsForOp(op, launchTargets(robinhoodTestnet.id)));
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);

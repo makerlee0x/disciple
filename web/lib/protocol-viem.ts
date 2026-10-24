@@ -7,7 +7,9 @@
  */
 import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
-import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
+import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
+import { startTradeTiming, type TradeTiming } from "./trade/timing";
+import { asTrade } from "./aa/session";
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
@@ -321,9 +323,23 @@ async function curveSellQuote(pc: PublicClient, curve: Address, mode: number, to
 /** amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote. */
 export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500): Promise<bigint> {
   const k = ckey(token, side, amountIn), lk = ckey(token, side);
+  const read = async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) });
+  REQUOTE.remember(k, read, { lk, amountIn });
   const exact = QUOTES.fresh(k, maxAge); if (exact) return exact.amountOut;
   const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; // e.g. sell % after balance shrank
-  return (await QUOTES.get(k, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) }), maxAge)).amountOut;
+  return (await QUOTES.get(k, read, maxAge)).amountOut;
+}
+/**
+ * PVE/PVP pre-grad quote for one trader (latency plan #5): was a live eth_call on every tap. Exact (trader, side,
+ * amount) key, ≤ maxAge (1.5 s) old, never down-scaled; warmed by warmQuote for the connected trader, re-read right
+ * after our own trade. The contract still enforces minOut (= quote − slippage) on-chain.
+ */
+export async function traderQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, trader?: Address | null, maxAge = 1500): Promise<bigint> {
+  const who = quoteTrader(trader);
+  const k = ckey("pvq", token, side, who ?? "-", amountIn);
+  const read = async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn, who) });
+  REQUOTE.remember(k, read, undefined, TRADER_QUOTES);
+  return (await TRADER_QUOTES.get(k, read, maxAge)).amountOut;
 }
 /** amountOut only — ONE eth_call (router quoteExactIn post-grad, curve quoteBuy/quoteSell pre-grad); readQuote also
  * reads the lens for the mcap preview, which a trade doesn't need. */
@@ -335,11 +351,14 @@ export async function readAmountOut(pc: PublicClient, token: Address, side: "buy
   }
   return side === "buy" ? (await curveBuyQuote(pc, curve, mode, amountIn, trader)).tokensOut : (await curveSellQuote(pc, curve, mode, amountIn, trader)).quoteOut;
 }
-/** Background refresh of a preset quote (TradeBridge calls this ~1 s). */
-/** After a trade lands, quotes on its route are stale: drop them (the 1 s warm loop re-fills them). */
-function dropRouteQuotes(token: Address) {
-  for (const sd of ["buy", "sell"]) { LAST_QUOTE.delete(ckey(token, sd)); LAST_QUOTE.delete(ckey("usdg", token, sd)); }
-  QUOTES.dropWhere((k) => k.startsWith(ckey(token)) || k.startsWith(ckey("usdg", token)));
+/**
+ * After a trade lands, quotes on its route describe the pre-trade state. Latency plan #5: re-read the few quotes taps
+ * actually use (presets, the last custom amounts, the trader quote) right away instead of wiping them all and making
+ * the next tap pay a live read. Nothing from before the trade is served after it (lib/trade/hotCache Requoter).
+ */
+function requoteRoute(token: Address) {
+  const pre = [ckey(token), ckey("usdg", token), ckey("pvq", token)];
+  REQUOTE.requote((k) => pre.some((p) => k.startsWith(p)), ["buy", "sell"].flatMap((sd) => [ckey(token, sd), ckey("usdg", token, sd)]));
 }
 /** amountIn for a $ shot: USDG mode buys spend USDG 1:1 ($1 = 1 USDG, config usdgDecimals); otherwise quote/coin via usdToAmountIn. */
 /**
@@ -366,8 +385,18 @@ export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | 
 }
 export async function warmQuote(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
-  const amountOut = await readAmountOut(pc, token, side, amountIn);
-  QUOTES.set(ckey(token, side, amountIn), { amountOut }); LAST_QUOTE.set(ckey(token, side), { amountIn, amountOut, at: Date.now() });
+  const k = ckey(token, side, amountIn), lk = ckey(token, side);
+  REQUOTE.remember(k, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) }), { lk, amountIn });
+  const who = connectedAddress();
+  const amountOut = await readAmountOut(pc, token, side, amountIn);   // trader = connected account (quoteTrader)
+  QUOTES.set(k, { amountOut }); LAST_QUOTE.set(lk, { amountIn, amountOut, at: Date.now() });
+  // PVE/PVP pre-grad: the same read IS the connected trader's quote ⇒ also serves traderQuote (no second read on tap)
+  const { graduated, mode } = await coinFacts(pc, token);
+  if (!graduated && mode !== MODE.TRENCH && who && who === connectedAddress()) {
+    const tk = ckey("pvq", token, side, who, amountIn);
+    TRADER_QUOTES.set(tk, { amountOut });
+    REQUOTE.remember(tk, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn, who) }), undefined, TRADER_QUOTES);
+  }
 }
 
 /** Exact preview for the current block. Curve views pre-grad, router eth_call post-grad. */
@@ -500,14 +529,21 @@ export function createViemProtocol(): ProtocolClient {
    * pinned minAmountOut is never retried (that is the user's explicit limit).
    */
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
-    try { return await tradeOnce(side, t); }
-    catch (e) {
-      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code)) throw e;
-      dropRouteQuotes(t.token);
-      return tradeOnce(side, t);
-    }
+    const tt = startTradeTiming(side);   // console-only latency marks: `[disciple] trade timing`
+    try {
+      let r: TradeResult;
+      try { r = await tradeOnce(side, t, tt); }
+      catch (e) {
+        if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code)) throw e;
+        tt.note({ minOutRetry: true });
+        requoteRoute(t.token);   // fresh quotes (the retry joins the re-read)
+        r = await tradeOnce(side, t, tt);
+      }
+      tt.done("fill");
+      return r;
+    } catch (e) { tt.done("error", { code: (e as { code?: unknown }).code }); throw e; }
   }
-  async function tradeOnce(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
+  async function tradeOnce(side: "buy" | "sell", t: TradeParams, tt?: TradeTiming): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
@@ -518,15 +554,15 @@ export function createViemProtocol(): ProtocolClient {
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const usdg = await usdgRouteFor(pc, t.token);
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE });
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE }, tt);
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const smart = isSmartMode();
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve(B(0))
-          // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
-          : !graduated && mode !== MODE.TRENCH ? readAmountOut(pc, t.token, side, t.amountIn, side === "buy" ? recipient : me)
+          // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s
+          : !graduated && mode !== MODE.TRENCH ? marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age))
           : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age)),
         balanceHint(pc, spendAsset, me),
         side === "buy" ? referralCallCached(me) : Promise.resolve([]),
@@ -561,9 +597,9 @@ export function createViemProtocol(): ProtocolClient {
       BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
       const done = addInflight(ckey("coin", t.token, side), t.amountIn);
       try {
-        const r = await execCalls(calls);
+        const r = await asTrade(tt, () => execCalls(calls));
         return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut };
-      } finally { done(); dropRouteQuotes(t.token); }
+      } finally { done(); requoteRoute(t.token); }
     } catch (e) {
       if (e instanceof ProtocolError) throw e;
       if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
@@ -577,7 +613,7 @@ export function createViemProtocol(): ProtocolClient {
    * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean }): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean }, tt?: TradeTiming): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
     const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
@@ -602,9 +638,9 @@ export function createViemProtocol(): ProtocolClient {
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     const done = addInflight(ckey("usdgroute", t.token, side), t.amountIn);
     try {
-      const r = await execCalls(calls);
+      const r = await asTrade(tt, () => execCalls(calls));
       return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut };
-    } finally { done(); dropRouteQuotes(t.token); }
+    } finally { done(); requoteRoute(t.token); }
   }
 
   return {
