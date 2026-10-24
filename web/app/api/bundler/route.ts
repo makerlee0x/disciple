@@ -80,7 +80,7 @@ export async function POST(req: Request) {
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
     const txHash = (e as { txHash?: string }).txHash;
     // data: the revert payload (string) as before; when the relayer tx was signed but no receipt came back, { txHash }
-    const data = (e as { data?: string }).data ?? (txHash ? { txHash, userOpHash: (e as { userOpHash?: string }).userOpHash } : undefined);
+    const data = (e as { data?: string }).data ?? (txHash ? { txHash, userOpHash: (e as { userOpHash?: string }).userOpHash, notSent: (e as { notSent?: boolean }).notSent === true } : undefined);
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data } });
   }
 }

@@ -144,3 +144,96 @@ test("relayer.isNonceError / withRelayer: 'already known' is not retried (no re-
   await assert.rejects(withRelayer(async () => { tries++; throw new Error("already known"); }), /already known/);
   assert.equal(tries, 1);
 });
+
+// ---- AUDIT L2: "definitive" is an ALLOWLIST; everything else is unclear (never released, never re-signed) ----
+test("classify (L2 allowlist): each known rejection ⇒ its class; unknown / internal / canceled ⇒ unclear", () => {
+  const cases: [Error, string][] = [
+    [err(-32000, "nonce too low: next nonce 5, tx nonce 4"), "nonce"],
+    [err(-32000, "nonce too high"), "nonce"],
+    [err(-32000, "replacement transaction underpriced"), "nonce"],
+    [err(-32000, "insufficient funds for gas * price + value"), "definitive"],
+    [err(-32000, "intrinsic gas too low"), "definitive"],
+    [err(-32000, "max fee per gas less than block base fee"), "definitive"],
+    [err(-32000, "transaction underpriced"), "definitive"],
+    [err(-32000, "exceeds block gas limit"), "definitive"],
+    [err(-32000, "invalid sender"), "definitive"],
+    [err(-32602, "invalid params"), "definitive"],
+    [err(-32601, "the method eth_sendRawTransactionSync does not exist"), "definitive"],
+    [err(-32603, "internal error"), "unclear"],
+    [err(-32000, "context canceled"), "unclear"],
+    [err(-32000, "something new the node never said before"), "unclear"],
+    [err(-32010, "rate limited by upstream"), "unclear"],
+    [err(undefined, "socket hang up"), "unclear"],
+    [err(-32099, "network: fetch failed"), "unclear"],
+    [err(-32098, "HTTP 502 unreadable"), "unclear"],
+    [err(4, "timeout"), "unclear"],
+    [err(-32000, "already known"), "unclear"],
+    [err(-32603, "internal error", { definitive: true }), "definitive"],   // local signing failure (signRelayerTx) / allowlisted by syncSend
+    [err(-32000, "nonce too low", { unclear: true }), "unclear"],          // an explicit unclear flag wins (receipt wait timed out)
+  ];
+  for (const [e, want] of cases) assert.equal(classifySendError(e), want, e.message);
+  // viem wraps the node text on the cause chain: still found
+  assert.equal(classifySendError(Object.assign(new Error("Transaction creation failed."), { cause: err(-32000, "insufficient funds for transfer") })), "definitive");
+  assert.equal(classifySendError(Object.assign(new Error("An internal error was received."), { cause: err(-32603, "internal error") })), "unclear");
+});
+
+test("L2 fast path: -32603 / -32000 context canceled AFTER acceptance ⇒ ONE signature, nonce NOT released, waits on the same hash", async () => {
+  for (const e of [err(-32603, "internal error"), err(-32000, "context canceled"), err(-32000, "unknown upstream failure")]) {
+    const c = new RelayerNonceCursor(async () => 90), n = node([() => { throw e; }]);
+    const signed: number[] = [], waited: Hex[] = [];
+    const r = await sendWithCursor(c, async (nonce) => {
+      signed.push(nonce); const raw = fakeSign(nonce);
+      return syncSend(raw, hashOf(raw), { send: { name: "sequencer", rpc: n.rpc }, getReceipt: async (h) => { waited.push(h); return RC; }, ...noWait });
+    });
+    assert.deepEqual(signed, [90], e.message); assert.equal(r.pending, true);
+    assert.deepEqual(waited, [hashOf(fakeSign(90))]); assert.equal(c.peek, 91, "nonce stays reserved (not rolled back)");
+    assert.equal(c.stats.rollbacks + c.stats.releasesBehind, 0);
+  }
+});
+
+test("L2 fast path: unclear error and the receipt never comes ⇒ unclear thrown with txHash, NOT released, never re-signed", async () => {
+  let t = 0;
+  const c = new RelayerNonceCursor(async () => 95), n = node([() => { throw err(-32603, "internal error"); }]);
+  const signed: number[] = [];
+  await assert.rejects(sendWithCursor(c, async (nonce) => {
+    signed.push(nonce); const raw = fakeSign(nonce);
+    return syncSend(raw, hashOf(raw), { send: { name: "sequencer", rpc: n.rpc }, getReceipt: async () => null, now: () => (t += 1000), maxWaitMs: 3000, ...noWait });
+  }), (e: { unclear?: boolean; txHash?: Hex }) => e.unclear === true && e.txHash === hashOf(fakeSign(95)));
+  assert.deepEqual(signed, [95]); assert.equal(c.peek, 96);
+  assert.equal(classifySendError(Object.assign(new Error("x"), { unclear: true })), "unclear");
+});
+
+test("L2 sync-unsupported (-32602/-32601) ⇒ plain send of the SAME bytes; then -32603 ⇒ wait, not rethrown", async () => {
+  for (const code of [-32602, -32601]) {
+    const c = new RelayerNonceCursor(async () => 100);
+    const n = node([() => { throw err(code, "bad"); }, () => { throw err(-32603, "internal error"); }]);
+    const r = await sendWithCursor(c, async (nonce) => { const raw = fakeSign(nonce); return syncSend(raw, hashOf(raw), { send: { name: "sequencer", rpc: n.rpc }, getReceipt: async () => RC, ...noWait }); });
+    assert.equal(r.pending, true);
+    assert.deepEqual(n.calls.map((x) => x.m), ["eth_sendRawTransactionSync", "eth_sendRawTransaction"]);
+    assert.equal(n.calls[0].p[0], n.calls[1].p[0], "same signed bytes");
+    assert.equal(c.peek, 101);
+  }
+});
+
+test("L2 standard path: plainSend -32603 / unknown ⇒ hash returned (pending), ONE signature, nonce kept", async () => {
+  for (const e of [err(-32603, "internal error"), err(-32000, "context canceled"), err(-32001, "whatever")]) {
+    const c = new RelayerNonceCursor(async () => 110), n = node([() => { throw e; }]);
+    const signed: number[] = [];
+    const r = await sendWithCursor(c, async (nonce) => { signed.push(nonce); const raw = fakeSign(nonce); return plainSend(raw, hashOf(raw), n.rpc); });
+    assert.deepEqual(signed, [110]); assert.equal(r.pending, "sync-error"); assert.equal(c.peek, 111);
+  }
+  // allowlisted rejections still release
+  for (const m of ["insufficient funds for gas * price + value", "intrinsic gas too low", "max fee per gas less than block base fee"]) {
+    const c = new RelayerNonceCursor(async () => 120);
+    await assert.rejects(sendWithCursor(c, async (nonce) => { const raw = fakeSign(nonce); return plainSend(raw, hashOf(raw), node([() => { throw err(-32000, m); }]).rpc); }));
+    assert.equal(c.peek, 120, `${m}: rolled back`);
+  }
+});
+
+test("L2 withRelayer (drip / poke-pricer / attest): -32603 / unknown errors are NOT retried (one send)", async () => {
+  for (const e of [err(-32603, "internal error"), err(-32000, "context canceled")]) {
+    let sends = 0;
+    await assert.rejects(withRelayer(async () => { sends++; throw e; }));
+    assert.equal(sends, 1, e.message);
+  }
+});

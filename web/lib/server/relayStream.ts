@@ -29,10 +29,10 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>): 
         push(r);
       } catch (e) {
         await settle().catch(() => undefined);
-        const x = e as { shortMessage?: string; message?: string; data?: unknown; txHash?: `0x${string}` };
+        const x = e as { shortMessage?: string; message?: string; data?: unknown; txHash?: `0x${string}`; notSent?: boolean };
         const nc = isRelayerNotConfigured(e);
         const m = nc ? "relayer not configured" : (x.shortMessage || x.message || String(e)).split("\n")[0].slice(0, 300);
-        push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: { txHash: x.txHash, userOpHash: hash, revert: typeof x.data === "string" ? (x.data as `0x${string}`) : undefined } });
+        push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: { txHash: x.txHash, userOpHash: hash, revert: typeof x.data === "string" ? (x.data as `0x${string}`) : undefined, notSent: x.notSent === true } });
       }
       ctl.close();
     },

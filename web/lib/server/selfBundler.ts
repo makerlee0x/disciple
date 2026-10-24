@@ -110,13 +110,14 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       // wait on the SAME hash (never re-sign: a second handleOps of a landed op reverts AA25 at the relayer's cost);
       // only a definite nonce rejection re-signs. withRelayer keeps per-instance ordering and retries ONLY definite
       // nonce errors (lib/server/relayer.isNonceError no longer matches "already known").
-      const hash = await withRelayer(() => relayer.send(data, gas, fees));
+      // retries = 0: relayer.send's cursor already retries definite nonce errors (no nested 3×3 re-signs; AUDIT Info)
+      const hash = await withRelayer(() => relayer.send(data, gas, fees), 0);
       const receipt = await waitRelayReceipt(hash, 25_000);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "0x1") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
-      if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
+      if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), unclear: true });
       if (receipt.status !== "0x1") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);
     }

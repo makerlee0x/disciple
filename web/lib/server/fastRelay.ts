@@ -17,7 +17,7 @@ import "server-only";
 import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
 import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type RpcErr } from "./syncSend";
-import { RelayerNonceCursor, sendWithCursor } from "./relayerNonce";
+import { RelayerNonceCursor, sendWithCursor, classifySendError } from "./relayerNonce";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -260,7 +260,8 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
       return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h })));
     });
   } catch (e) {
-    throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash });
+    // AUDIT L2: notSent only for a definite rejection; anything else (unclear) leaves the client to look the tx up
+    throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, notSent: classifySendError(e) !== "unclear" });
   }
   t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
   if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));

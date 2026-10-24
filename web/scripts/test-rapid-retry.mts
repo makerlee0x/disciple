@@ -35,7 +35,7 @@ function fakeAccount(opts: { deployed: boolean }) {
     account: { address: SENDER },
     request: async () => "0x1",
     estimateFeesPerGas: async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }),
-    buildUserOperation: async ({ uo, overrides }: { uo: { data: Hex }; overrides: { nonce: bigint } }) => { sent.push({ calls: datas(uo), nonce: overrides.nonce }); return { sender: SENDER, nonce: overrides.nonce, callData: "0x" }; },
+    buildUserOperation: async ({ uo, overrides }: { uo: { data: Hex }; overrides: { nonce: bigint } }) => { sent.push({ calls: datas(uo), nonce: overrides.nonce }); return { sender: SENDER, callData: "0x", ...overrides }; },   // full fields ⇒ userOpHash computable
     signUserOperation: async ({ uoStruct }: { uoStruct: object }) => ({ ...uoStruct, signature: "0x01" }),
     sendUserOperation: async ({ uo, overrides }: { uo: { data: Hex }; overrides: { nonce: bigint } }) => {
       sent.push({ calls: datas(uo), nonce: overrides.nonce });
@@ -122,4 +122,65 @@ test("SITE shape sendCalls(calls, { rebuild }) + the retry carries the SAME pres
   assert.deepEqual(sent[1].calls, [approve.data, buy(9).data]);
   const ids = bodies.map((b) => (b.params[2] as { pressId: string }).pressId);
   assert.equal(ids.length, 2); assert.match(ids[0], /^[0-9a-f]{24}$/); assert.equal(ids[0], ids[1]);
+});
+
+// ---- AUDIT L2 (client): an unclear relay error ⇒ lookup by txHash / userOpHash, never a resend ----
+import { relayErrorUnclear } from "../lib/aa/mav2";
+
+test("relayErrorUnclear: txHash without notSent ⇒ unclear; notSent / sim failure / rate limit ⇒ not", () => {
+  const h = "0x" + "55".repeat(32);
+  assert.equal(relayErrorUnclear({ code: -32000, message: "disciple_sendUserOperationSync: internal error", data: { txHash: h } }), true);
+  assert.equal(relayErrorUnclear({ code: -32000, message: "whatever new", data: { txHash: h, notSent: false } }), true);
+  assert.equal(relayErrorUnclear({ code: -32000, message: "insufficient funds", data: { txHash: h, notSent: true } }), false);
+  assert.equal(relayErrorUnclear({ code: -32000, message: "x: internal error" }), true);
+  assert.equal(relayErrorUnclear({ code: -32098, message: "relay response unreadable (HTTP 504)" }), true);
+  assert.equal(relayErrorUnclear({ code: -32099, message: "network: Failed to fetch" }), true);
+  assert.equal(relayErrorUnclear({ code: -32000, message: "simulation failed: network glitch", data: "0x1234" }), false);
+  assert.equal(relayErrorUnclear({ code: -32005, message: "rate limited, retry in 3s" }), false);
+  assert.equal(relayErrorUnclear({ code: -32601, message: "not supported" }), false);
+});
+
+function stubRelayOnce(answer: object) {
+  const orig = globalThis.fetch; let n = 0;
+  globalThis.fetch = (async () => { n++; return Response.json({ jsonrpc: "2.0", id: 1, ...answer }); }) as typeof fetch;
+  return { restore: () => { globalThis.fetch = orig; }, posts: () => n };
+}
+test("L2 client: -32603 with txHash after acceptance ⇒ receipt lookup by txHash; found ⇒ success, ONE POST", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  const { a, sent } = fakeAccount({ deployed: true });
+  const tx = ("0x" + "66".repeat(32)) as Hex, looked: Hex[] = [];
+  (a as unknown as { receiptFor: (t: Hex, h: Hex) => Promise<unknown> }).receiptFor = async (t, h) => { looked.push(t); return { userOpHash: h, txHash: t, success: true, logs: [] }; };
+  const s = stubRelayOnce({ error: { code: -32000, message: "disciple_sendUserOperationSync: internal error", data: { txHash: tx, notSent: false } } });
+  let r;
+  try { r = await a.sendCalls(CALLS, { rebuild: async () => [approve, buy(1)] }); } finally { s.restore(); }
+  assert.equal(r.txHash, tx); assert.deepEqual(looked, [tx]); assert.equal(s.posts(), 1); assert.equal(sent.length, 1, "built/signed once");
+});
+test("L2 client: unclear and NOT found (txHash or userOpHash) ⇒ Timeout 'still confirming', never resent / rebuilt", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  for (const error of [
+    { code: -32000, message: "x: context canceled", data: { txHash: "0x" + "77".repeat(32) } },
+    { code: -32099, message: "network: relay stream lost (aborted)" },
+    { code: -32098, message: "relay response unreadable (HTTP 504)" },
+    // an AA23-looking message WITH a txHash and no notSent: still a lookup, not the TRANSIENT_SIM resend
+    { code: -32000, message: "relayer tx reverted: AA23", data: { txHash: "0x" + "78".repeat(32) } },
+  ]) {
+    const { a, sent } = fakeAccount({ deployed: true });
+    let scans = 0, rebuilds = 0;
+    (a as unknown as { receiptFor: () => Promise<null> }).receiptFor = async () => null;
+    (a as unknown as { findOp: () => Promise<null> }).findOp = async () => { scans++; return null; };
+    const s = stubRelayOnce({ error });
+    try {
+      await assert.rejects(a.sendCalls(CALLS, { rebuild: async () => { rebuilds++; return [approve, buy(1)]; } }), (e: { code?: string; message: string }) => e.code === "Timeout" && /still confirming/.test(e.message));
+    } finally { s.restore(); }
+    assert.equal(s.posts(), 1, error.message); assert.equal(sent.length, 1); assert.equal(rebuilds, 0); assert.equal(scans, 1);
+  }
+});
+test("L2 client: notSent:true (definite) ⇒ no lookup, normal error (fee floor still re-signs once)", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  const { a, sent } = fakeAccount({ deployed: true });
+  let looked = 0;
+  (a as unknown as { receiptFor: () => Promise<null> }).receiptFor = async () => { looked++; return null; };
+  const s = stubRelay({ code: -32000, message: "fee below relayer floor" });
+  try { await a.sendCalls(CALLS, "owner"); } finally { s.restore(); }
+  assert.equal(looked, 0); assert.equal(s.posts(), 2); assert.equal(sent.length, 2);
 });

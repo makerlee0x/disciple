@@ -11,8 +11,9 @@
  *     errors for a hex vs a number timeout).
  *  2. -32602 / -32601 ⇒ the tx was NOT accepted: eth_sendRawTransaction with the SAME signed bytes on the same
  *     endpoint, then wait for the receipt.
- *  3. Never re-sign after an unclear failure: only a definitive node rejection (nonce / funds / fee / malformed) is
- *     rethrown for the caller to resync + re-sign.
+ *  3. Never re-sign after an unclear failure: only an ALLOWLISTED node rejection (nonce / funds / intrinsic gas / fee
+ *     cap / malformed / -32602 / -32601; lib/server/relayerNonce) is rethrown for the caller to resync + re-sign.
+ *     Every other error (incl. -32603 / -32000 after acceptance) is unclear: wait on the same txHash.
  *  4. Timeout / network error / unreadable response ⇒ possibly accepted: onPending({ txHash }) and poll the receipt
  *     for the precomputed hash (fast node first when RHT_RECEIPT_RPC_URL is set; public RPC last).
  *  5. The sync receipt IS the confirmation the UI books from (RelayConfirmed.receipt).
@@ -20,6 +21,7 @@
  */
 import type { Hex } from "viem";
 import type { RelayReceipt, RelayVia } from "../aa/relayTypes";
+import { classifySendError } from "./relayerNonce";
 
 export type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
 export type RpcErr = Error & { code?: number; data?: unknown; txHash?: Hex; definitive?: boolean; unclear?: boolean };
@@ -28,9 +30,12 @@ export type PendingReason = "sync-timeout" | "sync-error" | "sync-unsupported";
 /** -32602 (params rejected at parse) / -32601 (method missing): nothing was accepted ⇒ a plain send is safe. */
 export const isNotAccepted = (e: RpcErr) => e.code === -32602 || e.code === -32601;
 const TIMEOUT = /timed? ?out|timeout|deadline/i;
-/** No (readable) answer, or the node gave up waiting: the tx may be in. */
-export const isUnclear = (e: RpcErr) => e.code === undefined || e.code === -32099 || e.code === -32098 || e.code === 4
-  || TIMEOUT.test(e.message) || /network|socket|ECONN|fetch failed|aborted|\b50[234]\b/i.test(e.message);
+/**
+ * AUDIT L2: "may be in" is the DEFAULT. Only an allowlisted rejection (lib/server/relayerNonce DEFINITE_REJECT /
+ * DEFINITE_NONCE / -32602 / -32601) is definite; -32603 internal error, -32000 context canceled, unknown codes,
+ * timeouts and network errors are all unclear ⇒ wait on the precomputed txHash, never re-sign.
+ */
+export const isUnclear = (e: RpcErr) => classifySendError(Object.assign(new Error(e.message), { code: e.code })) === "unclear";
 export const isAlreadyKnown = (e: RpcErr) => /already known|known transaction|already imported/i.test(e.message);
 export const isNonceErr = (e: RpcErr) => e.code === 6 || /nonce too low|nonce too high|invalid nonce|nonce gap/i.test(e.message);
 

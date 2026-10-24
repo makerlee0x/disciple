@@ -79,6 +79,12 @@ export type RelayErrorData = {
   userOpHash?: Hex;
   /** revert payload (FailedOp / FailedOpWithRevert …) when the pre-flight simulation rejected the op */
   revert?: Hex;
+  /**
+   * AUDIT L2: true ONLY when the relayer tx was definitively NOT accepted (allowlisted node rejection, nonce retries
+   * exhausted, local signing failure). txHash present and notSent !== true ⇒ the tx MAY be in: the client looks it up
+   * (receipt by txHash / userOpHash) and never resends.
+   */
+  notSent?: boolean;
 };
 
 export type RelayFailed = { kind: "error"; code: number; message: string; data?: RelayErrorData };

@@ -42,7 +42,20 @@ export function opRevertReason(logs: { address: string; data: Hex; topics: Hex[]
  * "simulation failed" — and the standard-path fallback re-sent the same nonce (AA25 ⇒ "simulation failed") — while
  * the first send went through. Now we look the op up on-chain first.
  */
-export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|502|503|504|FUNCTION_INVOCATION/i;
+export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid account nonce|nonce too low|already known|fetch failed|network|unreadable|internal error|context canceled|socket|ECONN|502|503|504|FUNCTION_INVOCATION/i;
+/**
+ * AUDIT L2 (client side): the relay error MAY mean the op is in ⇒ look it up (receipt by txHash, else a userOpHash log
+ * scan) and, if not found, report "still confirming" — NEVER resend / re-sign / retry. True when the relay reported a
+ * txHash without notSent (it signed and can't prove the node refused), or the message / transport is ambiguous.
+ */
+export function relayErrorUnclear(err: { code?: number; message: string; data?: unknown }): boolean {
+  if (err.code === -32601 || err.code === -32005 || err.code === -32003) return false;   // method missing / rate limited / relayer off: nothing sent
+  const d = err.data as { txHash?: unknown; notSent?: unknown } | undefined;
+  if (d && typeof d === "object" && typeof d.txHash === "string") return d.notSent !== true;
+  if (/simulation failed/i.test(err.message)) return false;   // the relay's pre-flight: rejected before signing (no txHash)
+  return AMBIGUOUS_RELAY.test(err.message);
+}
+const STILL_CONFIRMING = "Trade sent — still confirming on-chain. Check your balance in a moment.";
 /** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
 /** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
  * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
@@ -353,7 +366,9 @@ export class Mav2Account {
     catch (e) {
       const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
       // self-bundler eth_sendUserOperation broadcasts, then waits ≤25 s for the receipt: a timeout is NOT a failed simulation
-      if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.");
+      if (/not confirmed|timeout/i.test(m)) throw new AAError("Timeout", STILL_CONFIRMING);
+      // AUDIT L2: a transport / internal error may follow a broadcast ⇒ "still confirming", never a retry
+      if (/fetch failed|failed to fetch|network|socket|ECONN|unreadable|internal error|context canceled|\b50[234]\b|FUNCTION_INVOCATION/i.test(m)) throw new AAError("Timeout", STILL_CONFIRMING, { detail: m.split("\n")[0].slice(0, 300) });
       if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(await retryCalls(calls, o), as, false, o); }
       return fail(e);
     }
@@ -408,12 +423,14 @@ export class Mav2Account {
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
       let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash }), fetch, { pressId: c.opts.pressId });
       const t3 = now();
-      // Ambiguous failure (lost response, receipt timeout, nonce already used): the op may have landed — check before failing.
-      if (j.error && hash && j.error.code !== -32601 && AMBIGUOUS_RELAY.test(j.error.message)) {
-        // the relay always reports the tx hash once it signed: ONE receipt read for it; log scan only without a hash
+      // Ambiguous failure (lost response, receipt timeout, -32603 after acceptance, nonce already used): the op may have
+      // landed — look it up; not found ⇒ "still confirming", never a resend (AUDIT L2: a resend can trade twice).
+      if (j.error && relayErrorUnclear(j.error)) {
+        // the relay always reports the tx hash once it signed: ONE receipt read for it, then the userOpHash log scan
         const txh = (j.error.data as { txHash?: Hex } | undefined)?.txHash;
-        const got = txh ? await this.receiptFor(txh, hash) : await this.findOp(hash, c.sender);
+        const got = hash ? (txh ? await this.receiptFor(txh, hash) : null) ?? await this.findOp(hash, c.sender) : null;
         if (got) j = { result: { kind: "confirmed", via: "rpc-wait", t: { simulate: 0, signTx: 0, send: 0, mined: 0, total: 0 }, receipt: { transactionHash: got.txHash, blockHash: "0x", blockNumber: "0x0", status: "0x1", gasUsed: "0x0", logs: got.logs }, ...got } };
+        else throw new AAError("Timeout", STILL_CONFIRMING, { userOpHash: hash, txHash: txh, detail: j.error.message.split("\n")[0].slice(0, 300) });
       }
       if (j.error && c.gasMode === "usdg" && /AA3[0-9]|MaxCostTooLow|signature error/i.test(`${j.error.message} ${String(j.error.data ?? "")}`)) this.allowances?.invalidate(c.sender);
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
@@ -456,7 +473,16 @@ export class Mav2Account {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
     if (j.error) {
-      if (/not confirmed|timeout/i.test(j.error.message)) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.");
+      if (/not confirmed|timeout/i.test(j.error.message)) throw new AAError("Timeout", STILL_CONFIRMING);
+      // AUDIT L2: unreadable answer / internal error after the POST — the op may be in: look it up, never resend
+      if (j.error.unreadable || relayErrorUnclear(j.error)) {
+        const got = await this.findOp(hash, wire.sender);
+        if (!got) throw new AAError("Timeout", STILL_CONFIRMING, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
+        if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
+        opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash });
+        this.deployed = true;
+        return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } } };
+      }
       // unreadable response / relay policy (gas caps, paymaster deposit): plain copy; real reverts still decode via fail()
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });

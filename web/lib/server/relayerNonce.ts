@@ -7,13 +7,15 @@
  *  - definite NONCE rejection (too low / too high / already used / replacement underpriced): the tx was not accepted
  *    ⇒ resync from the pending count and re-sign (bounded retries). "nonce too high" is a resync trigger: it means a
  *    lower nonce we handed out never landed (a gap).
- *  - definitive NON-nonce rejection (funds, fee cap, intrinsic gas, malformed, signing failed before any send): the tx
- *    was not accepted ⇒ RELEASE the nonce: roll the cursor back when no later nonce was handed out (next === n + 1),
- *    else resync from the pending count on the next take (the later nonces are now above a gap; the sequencer holds
- *    them ≤ 1 s, the resynced send of n fills it).
- *  - UNCLEAR (already known, timeout, network error, unreadable answer, receipt wait timed out): the tx may be in ⇒
- *    never re-sign, never release; the caller waits on the SAME txHash. The cursor stays advanced: if the tx really was
- *    lost, the next send sees "nonce too high" and resyncs.
+ *  - definitive NON-nonce rejection — an ALLOWLIST only (AUDIT L2): insufficient funds, intrinsic gas too low, fee cap
+ *    below base fee / underpriced, exceeds block gas limit, oversized / malformed / bad signature / unsupported tx
+ *    type, JSON-RPC -32602 / -32601 (params / method rejected at parse), or a local signing failure before any send.
+ *    The tx was not accepted ⇒ RELEASE the nonce: roll the cursor back when no later nonce was handed out
+ *    (next === n + 1), else resync from the pending count on the next take.
+ *  - UNCLEAR = EVERYTHING ELSE (already known, timeout, network, unreadable, -32603 internal error, -32000 context
+ *    canceled, any unknown code or message, receipt wait timed out): the tx may be in ⇒ never re-sign, never release;
+ *    the caller waits on / looks up the SAME txHash. The cursor stays advanced (the nonce stays reserved): if the tx
+ *    really was lost, the next send sees "nonce too high" and resyncs.
  */
 
 export type SendClass = "nonce" | "unclear" | "definitive";
@@ -34,20 +36,24 @@ const codeOf = (e: unknown): number | undefined => {
 /** Node said "this nonce is wrong" ⇒ not accepted, safe to resync + re-sign. Never matches "already known". */
 export const DEFINITE_NONCE = /nonce (provided for the transaction is lower|too low|too high|has already been used)|invalid nonce|nonce gap|replacement transaction underpriced/i;
 export const ALREADY_KNOWN = /already known|known transaction|already imported/i;
-const UNCLEAR = /timed? ?out|timeout|deadline|network|socket|ECONN|fetch failed|aborted|unreadable|not confirmed|request failed|\b50[234]\b/i;
+/**
+ * AUDIT L2: the ONLY non-nonce node answers that mean "this tx was never accepted". Anything not listed is UNCLEAR.
+ * (geth / op-geth / reth wording; viem keeps the node text in `details` / the cause chain, which msgOf reads.)
+ */
+export const DEFINITE_REJECT = /insufficient funds|intrinsic gas too low|fee cap (less than|lower than|too low)|max fee per gas less than block base fee|maxFeePerGas less than|transaction underpriced|exceeds block gas limit|oversized data|invalid sender|invalid signature|transaction type not supported|tx type not supported|rlp: |invalid transaction v, r, s/i;
+/** JSON-RPC: params rejected at parse / method missing — nothing was accepted. */
+export const NOT_ACCEPTED_CODES = new Set([-32602, -32601]);
 
 export function classifySendError(e: unknown): SendClass {
   const m = msgOf(e), code = codeOf(e);
   const flags = e as { unclear?: unknown; pending?: unknown; definitive?: unknown } | undefined;
   if (ALREADY_KNOWN.test(m)) return "unclear";          // checked first: "already known" is NOT a nonce error
-  if (code === 6 || DEFINITE_NONCE.test(m)) return "nonce";
   if (flags?.unclear || flags?.pending) return "unclear";
+  if (code === 6 || DEFINITE_NONCE.test(m)) return "nonce";
+  // `definitive` is only ever set for an allowlisted rejection (syncSend / plainSend) or a local signing failure
   if (flags?.definitive) return "definitive";
-  if (code === -32099 || code === -32098 || code === 4 || UNCLEAR.test(m)) return "unclear";
-  // No code at all on a raw transport error = no readable answer. A node rejection always carries a code (viem keeps
-  // it on the cause) — except viem's own pre-send validation, which is local and therefore definitive.
-  if (code === undefined && !/insufficient funds|intrinsic gas|fee cap|max fee per gas|exceeds|invalid|malformed|signature/i.test(m)) return "unclear";
-  return "definitive";
+  if ((code !== undefined && NOT_ACCEPTED_CODES.has(code)) || DEFINITE_REJECT.test(m)) return "definitive";
+  return "unclear";   // allowlist: -32603 / -32000 / unknown code / timeout / network / no answer ⇒ may be in
 }
 
 export class RelayerNonceCursor {
