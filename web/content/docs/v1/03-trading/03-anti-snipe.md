@@ -31,4 +31,4 @@ The tax is held by the curve, outside the price. At graduation it goes into the 
 
 ## Why it exists
 
-Bots that buy in the first block take supply before people can react. The anti-snipe fee makes that expensive, and what it collects stays locked in the rocket's liquidity.
+Bots that buy in the first block take supply before people can react. The anti-snipe fee makes that expensive, and puts what it collects back into the rocket's pool or the community rewards vault.

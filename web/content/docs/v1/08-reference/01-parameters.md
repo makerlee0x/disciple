@@ -68,7 +68,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
 | First BOOST max | 1.2%, locked to graduation | 3.33% | 0.77% |
 | Login to BOOST | Yes | No | No |
-| Sniper tax | 99% → 0 over 77 s, to locked liquidity | same | same |
+| Sniper tax | 99% → 0 over 77 s, escrowed: locked LP at graduation, RewardsVault after 30 days if not | same | same |
 
 ## Altitude
 
