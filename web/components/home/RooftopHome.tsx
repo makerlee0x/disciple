@@ -16,7 +16,6 @@ import { brandedRocketOn } from "@/lib/decal";
 import hs from "@/components/home/hero.module.css";
 import { isDeployed } from "@/lib/chains";
 import { listLaunches, watchLaunchpad } from "@/lib/events";
-import { pctFromBps } from "@/lib/mcap";
 import { withBase } from "@/lib/base-path";
 import { recommendedPairs } from "@/lib/pairs";
 import { sampleRockets, type Rocket } from "@/lib/launchpad";
@@ -198,7 +197,7 @@ export default function RooftopHome() {
         const live: Rocket[] = list.map((x) => ({
           id: x.token, name: x.name, tk: x.ticker, live: true, mcap: x.mcapUsd, chg: null, c: "#E8EAEE",
           icon: /^https?:|^data:|^\//.test(x.imageURI) ? x.imageURI : undefined,
-          pair: pairOf(x.quote), pairSym: pairSymOf(x.quote), creator: short(x.creator), graduated: x.graduated, gradPct: pctFromBps(x.progressBps), born: Number(x.block),
+          pair: pairOf(x.quote), pairSym: pairSymOf(x.quote), creator: short(x.creator), graduated: x.graduated, progressBps: x.progressBps, born: Number(x.block),
           stats: { volume24hUsd: 0, ageHours: 0, holders: 1, liquidityUsd: 0 }, // TODO: indexer stats
         }));
         setCoins((cs) => [...live, ...cs.filter((c) => !live.some((l) => l.id.toLowerCase() === c.id.toLowerCase()))]);

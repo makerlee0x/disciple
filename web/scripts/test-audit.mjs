@@ -74,9 +74,9 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /▼ \{t\("tb\.dump"\)\} \{dumpLabel\}/.test(tb), "custom sell field + %/$ toggle; DUMP shows the exact amount");
   ok(/Math\.min\(sellCustomN, pos\.valueUsd\)/.test(tb) && /Math\.min\(100, sellCustomN\)/.test(tb), "custom sell: $ capped at position value, % capped at 100");
   ok(!/i===am/.test(eng), "no auto-ammo suggestion outline on buy tiles"); }
-// 5) PnL regression: a $60K paper buy at $7K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards.
+// 5) PnL regression: a $60K paper buy at $3.3K–$50K mcap → uPnL ≥ −fee right after, and it tracks the mark afterwards.
 //    Paper (mock + DISCIPLE, no wallet) fills EXACTLY on the bonding curve (pre-grad) / full-range pool (post-grad):
-//    engine paperFill on lib/flight/paperCurve params (= sim Market + CURVE/curveMath), never a linear mark booking.
+//    engine paperFill on lib/flight/paperCurve params (= curveMath steep curve + CURVE), never a linear mark booking.
 { const { loadLib, SIM_MODULES } = await import("./lib/load-ts.mjs"); const { mods, cleanup } = await loadLib([...SIM_MODULES, "flight/paperCurve"], "pnl2-");
   const P = mods["pnl"], { cloneConfig, SIM_CONFIG } = mods["sim/config"], { SimRun } = mods["sim/run"], { Market } = mods["sim/market"], { Pool } = mods["sim/pool"], CM = mods["curveMath"];
   const PCv = mods["flight/paperCurve"].paperCurve();
@@ -94,40 +94,48 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(pm.length > 0 && /__PAPER_CURVE: paperCurve\(\)/.test(fs.readFileSync(path.join(dir, "../components/FlightCanvas.tsx"), "utf8")), "FlightCanvas hands the engine window.__PAPER_CURVE (lib/flight/paperCurve)");
   ok(/else if\(r\.ok&&r\.exact\)/.test(eng) && /mcap:r\.fillMcap\*/.test(eng) && !/usd\/\(m\*0\.25\)/.test(cls("DiscipleSource", "\n/* SIMULATOR bridge")) && !/this\.applyTrade\(side,usd,true/.test(eng),
     "engine: mock + DISCIPLE paper book the exact curve/pool fill (no linear usd/(mcap·0.25) impact, no mock pseudo-liquidity for your shots)");
-  // curve state at a mcap (for the "curve left" bound)
-  const soldAt = (M) => PCv.y0 - Math.min(PCv.y0, Math.sqrt(PCv.x0 * PCv.y0 / (M / SUP)));
+  // curve state at a mcap (for the "curve left" bound): steep curve m(g) = CP(x0, y0) + tail·g^30, inverted (curveMath)
+  const soldAt = (M) => CM.curveFracAtMcap(M) * PCv.sC;
   const W18 = (x) => BigInt(Math.round(x * 1e18)), N18 = (b) => Number(b) / 1e18;
-  // tail 0 = curveMath's CP part: the paper curve (GAME mirror) is still a pure CPAMM; steep g^30 tail not ported yet
-  const CP = { totalSupply: W18(PCv.S), sCurve: W18(PCv.sC), x0: W18(PCv.x0), y0: W18(PCv.y0), tail: 0n };
+  // the full steep curve (curveMath launch params at a $1 quote = lib/flight/paperCurve); engine.js must price the tail too
+  const CP = CM.paramsFromQuotePrice(10n ** 18n);
   const rel = (a, b) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
-  // 5a) $60K at $7K: completes the curve (72% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
+  ok(PCv.tail > 0 && rel(PCv.x0, N18(CP.x0)) < 1e-12 && rel(PCv.y0, N18(CP.y0)) < 1e-12 && rel(PCv.tail, N18(CP.tail)) < 1e-12, `paperCurve = curveMath launch params (x0, y0, tail $${PCv.tail.toFixed(0)})`);
+  const engineSteep = /PC\.tail/.test(pm);
+  ok(engineSteep, "engine.js paperFill prices the steep tail (PC.tail·g^30)");
+  if (!engineSteep) console.log("SKIP 5a–5d + mock/DISCIPLE paper fills: engine.js paperFill is still CP-only (ends at $15K, not $33,333); they run once GAME ports the tail");
+  if (engineSteep) {
+  // 5a) $60K at $3.3K: completes the curve (84% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
   { const f = paperFill("buy", PCv.startMcap, USD, null, false); // launch-price fill ($3,333 start)
-    ok(f.ok && f.tokens < SUP && f.tokens <= PCv.sC + 1e-3 && rel(f.tokens, PCv.sC) < 1e-9, `paper $60K @ $7K: ${(f.tokens / SUP * 100).toFixed(2)}% of supply = the whole curve (< 100%; was 142.9% with the linear paper model)`);
-    ok(rel(f.usd + f.refund, USD) < 1e-12 && f.usd < USD && rel(f.post, PCv.gradMcap) < 1e-9 && f.graduated, `paper $60K @ $7K: spends $${f.usd.toFixed(2)} to finish the curve at $${Math.round(f.post).toLocaleString()}, $${f.refund.toFixed(2)} refunded`);
-    const cm = N18(CM.quoteBuy(CP, 0n, W18(f.usd), 0n)); ok(rel(cm, f.tokens) < 1e-9, `paper $60K @ $7K = curveMath.quoteBuy(spent) within 1e-9 (${cm.toExponential(9)} vs ${f.tokens.toExponential(9)})`);
+    ok(f.ok && f.tokens < SUP && f.tokens <= PCv.sC + 1e-3 && rel(f.tokens, PCv.sC) < 1e-9, `paper $60K @ $3.3K: ${(f.tokens / SUP * 100).toFixed(2)}% of supply = the whole curve (< 100%; was 142.9% with the linear paper model)`);
+    ok(rel(f.usd + f.refund, USD) < 1e-12 && f.usd < USD && rel(f.post, PCv.gradMcap) < 1e-9 && f.graduated, `paper $60K @ $3.3K: spends $${f.usd.toFixed(2)} to finish the curve at $${Math.round(f.post).toLocaleString()}, $${f.refund.toFixed(2)} refunded`);
+    const cm = N18(CM.quoteBuy(CP, 0n, W18(f.usd), 0n)); ok(rel(cm, f.tokens) < 1e-9, `paper $60K @ $3.3K = curveMath.quoteBuy(spent) within 1e-9 (${cm.toExponential(9)} vs ${f.tokens.toExponential(9)})`);
     ok(N18(CM.quoteBuy(CP, 0n, W18(f.usd * (1 - 1e-6)), 0n)) < PCv.sC * (1 - 1e-7), "…and the spent $ is the minimum that finishes the curve (1 ppm less does not)");
-    const mk = new Market(SIM_CONFIG), mf = mk.buy(USD, 1e9, 0); ok(rel(mf.tokens, f.tokens) < 1e-9 && rel(mf.usd, f.usd) < 1e-9, "paper $60K @ $7K = sim Market.buy (tokens + spent)");
-    for (const [M, u] of [[7_777, 5_000], [12_000, 2_500], [20_000, 800], [30_000, 1_000]]) { const g = paperFill("buy", M, u, null, false), sold = soldAt(M);
+    const mk = new Market(SIM_CONFIG), mf = mk.buy(USD, 1e9, 0); ok(rel(mf.tokens, f.tokens) < 1e-9 && rel(mf.usd, f.usd) < 1e-9, "paper $60K @ $3.3K = sim Market.buy (tokens + spent) on the steep curve");
+    for (const [M, u] of [[3_333, 5_000], [12_000, 2_500], [20_000, 800], [30_000, 1_000]]) { const g = paperFill("buy", M, u, null, false), sold = soldAt(M);
+      if (!(Number.isFinite(g.tokens) && g.tokens > 0)) { ok(false, `paper $${u} @ $${M / 1e3}K: engine paperFill returned ${g.tokens} tokens (past its CP-only curve end)`); continue; }
       const q = N18(CM.quoteBuy(CP, W18(sold), W18(u), 0n)), qs = N18(CM.quoteSell(CP, W18(sold + g.tokens), W18(g.tokens), 0n)), back = paperFill("sell", g.post, 0, { tokens: g.tokens }, false);
       ok(rel(g.tokens, q) < 1e-6 && rel(back.net, qs) < 1e-6, `paper $${u} @ $${M / 1e3}K = curveMath quoteBuy/quoteSell within 1e-6 (${(g.tokens / SUP * 100).toFixed(3)}% of supply, sell back $${back.net.toFixed(2)})`); } }
   // 5b) a buy never gets more tokens than the curve has left
-  { let worst = -Infinity, n = 0; for (const M of [7_777, 8_000, 12_000, 20_000, 30_000, 33_200, 33_332]) for (const u of [10, 1_000, 5_000, 20_000, 60_000, 1e6, 1e9]) {
+  { let worst = -Infinity, n = 0; for (const M of [3_333, 8_000, 12_000, 20_000, 30_000, 33_200, 33_332]) for (const u of [10, 1_000, 5_000, 20_000, 60_000, 1e6, 1e9]) {
       const f = paperFill("buy", M, u, null, false); n++; worst = Math.max(worst, f.tokens - (PCv.sC - soldAt(M))); if (!(f.tokens < SUP)) worst = Infinity; }
-    ok(worst <= 1e-3, `curve cap: ${n} buys ($10…$1B at $7,777…$33,332) never exceed sCurve − sold (worst ${worst.toExponential(2)} tokens) or 100% of supply`); }
+    ok(worst <= 1e-3, `curve cap: ${n} buys ($10…$1B at $3,333…$33,332) never exceed sCurve − sold (worst ${worst.toExponential(2)} tokens) or 100% of supply`); }
   // 5c) post-grad pool = sim Pool (full range, curve-end liquidity), and graduation is continuous
   { const pg = PCv.gradMcap / SUP, L = PCv.L; ok(rel(Math.sqrt(new Pool(pg * (PCv.S - PCv.sC), PCv.S - PCv.sC).L0 ** 2), L) < 1e-9, "paper pool liquidity = the sim's Pool seeded at the curve-end price (Migration.sol)");
     for (const M of [33_333, 50_000, 250_000]) { const s0 = Math.sqrt(M / SUP), pool = new Pool(L * s0, L / s0), f = paperFill("buy", M, USD, null, true), t = pool.buy(USD * (1 - PCv.poolFee));
       ok(rel(f.tokens, t) < 1e-9 && rel(f.post, pool.price() * SUP) < 1e-9, `paper pool $60K @ $${M / 1e3}K = sim Pool.buy (${(f.tokens / SUP * 100).toFixed(2)}% of supply, → $${Math.round(f.post).toLocaleString()})`); } }
   // 5d) buy-then-sell round trips lose only the fees (curve and pool are path-reversible: gross back = net in)
-  for (const [M, u, g] of [[7_777, 5_000, false], [15_000, 20_000, false], [7_777, USD, false], [30_000, 1_000, false], [50_000, USD, true], [250_000, 5_000, true]]) {
+  for (const [M, u, g] of [[3_333, 5_000, false], [15_000, 20_000, false], [3_333, USD, false], [30_000, 1_000, false], [50_000, USD, true], [250_000, 5_000, true]]) {
     const b = paperFill("buy", M, u, null, g), s2 = paperFill("sell", b.post, 0, { tokens: b.tokens }, g), fee = g ? PCv.poolFee : FEE;   // a curve-completing buy sells back down the curve
     const lost = b.usd - s2.net, feesPaid = b.usd * fee + s2.usd * fee;
     ok(Math.abs(lost - feesPaid) < 1e-6 * b.usd && rel(s2.post, b.pre) < 1e-9, `round trip $${b.usd.toFixed(2)} @ $${M / 1e3}K${g ? " (pool)" : ""}: lost $${lost.toFixed(4)} = fees $${feesPaid.toFixed(4)}, price back to $${Math.round(s2.post).toLocaleString()}`); }
+  }
   const check = (tag, pos, mark, usd) => { const v = P.view(pos, mark / SUP, SUP); const floor = -(usd * P.FEE + GAS) - 1e-6;
     ok(v.uPnl >= floor, `${tag}: uPnL right after ${v.uPnl >= 0 ? "+" : ""}$${v.uPnl.toFixed(2)} ≥ −fee $${(-floor).toFixed(2)} (filled $${usd.toFixed(2)})`); return v; };
   const tracks = (tag, pos, marks) => { const errs = marks.map((m) => { const v = P.view(pos, m / SUP, SUP); return Math.abs(v.uPnl - (pos.size * m / SUP - pos.costBasis)); });
     ok(Math.max(...errs) < 1e-6 && new Set(marks.map((m) => Math.round(m))).size > 1, `${tag}: uPnL tracks the mark afterwards (= holdings × mark − cost over ${marks.length} marks)`); };
-  for (const M of [7_777, 15_000, 30_000, 50_000]) {
+  if (engineSteep)
+  for (const M of [3_333, 15_000, 30_000, 50_000]) {
     // MOCK (coin page ?source=mock, paper): your shot is an exact curve/pool fill
     { const m = new Mock(); m.mcap = M; m.graduated = M >= PCv.gradMcap; m.emit = () => {}; m.seedDepth();
       const f = m.paperTrade("buy", USD, null, "h"), left = M < PCv.gradMcap ? PCv.sC - soldAt(M) : Infinity;
@@ -140,7 +148,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
       const pos = P.applyFill(P.emptyPosition(), "buy", r.usd, r.fillMcap / SUP, GAS); check(`disciple paper $${M / 1e3}K`, pos, d.shown(), r.usd);
       ok(r.exact && pos.size < SUP && (M >= PCv.gradMcap || pos.size <= PCv.sC - soldAt(M) + 1e-3), `disciple paper $${M / 1e3}K: ${(pos.size / SUP * 100).toFixed(2)}% of supply for $${r.usd.toFixed(2)}${r.refund > 0 ? ` ($${r.refund.toFixed(2)} refunded at the curve end)` : ""}`);
       const old = P.view(P.applyFill(P.emptyPosition(), "buy", USD, M * Math.sqrt(1 + USD / (M * 0.25)) / SUP, GAS), M / SUP, SUP).uPnl;
-      if (M === 7_777) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
+      if (M === 3_333) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
       // ...and a 100% sell right after returns the cash minus the two fees (+ gas)
       const before = d.shown(), sr = await d.submitTrade("sell", 0, { tokens: pos.size }), after = P.applyFill(pos, "sell", sr.usd, sr.fillMcap / SUP, GAS, Date.now(), 1);
       ok(after.size === 0 && Math.abs((r.usd - sr.net) - (r.usd * FEE + sr.usd * FEE)) < 1e-6 * r.usd && rel(d.shown(), M) < 1e-9 && before > M, `disciple paper $${M / 1e3}K: buy → sell 100% loses only fees ($${(r.usd - sr.net).toFixed(2)}), price back to $${Math.round(d.shown()).toLocaleString()}`);

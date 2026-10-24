@@ -157,3 +157,28 @@ export function maxLaunchBuyQuoteIn(p: CurveParams, capTokens: bigint, creatorTa
   while (gross > B(0) && launchBuyTokensOut(p, gross, creatorTaxBps) > capTokens) gross -= B(1);
   return gross;
 }
+
+/* ---- Float view of the launch curve in USD (charts, card progress, paper fills): derived from the bigint params above
+ *      at a $1 quote, so it is the same m(g) = M0/(1−a·g)² + T·g^30 as CurveMath.sol; g = sold / sCurve ∈ [0, 1]. ---- */
+const USD_PARAMS = paramsFromQuotePrice(WAD);
+/** a = sCurve / y0 (CP part's curvature). */
+export const CURVE_A = Number(USD_PARAMS.sCurve) / Number(USD_PARAMS.y0);
+export const CURVE_START_USD = Number(START_MCAP_USD / WAD);
+export const CURVE_GRAD_USD = Number(GRADUATION_MCAP_USD / WAD);
+/** T: steep-tail mcap at g = 1 ($), GRADUATION − CURVE_MID. */
+export const CURVE_TAIL_USD = Number(USD_PARAMS.tail) / 1e18;
+/** Fraction of TOTAL supply sold on the curve at graduation (0.8424). */
+export const CURVE_SOLD_FRAC = Number(CURVE_SOLD_BPS) / 10_000;
+/** Curve mcap ($) at g = sold / sCurve. */
+export const curveMcapAtFrac = (g: number) => {
+  const x = Math.max(0, Math.min(1, g));
+  return CURVE_START_USD / (1 - CURVE_A * x) ** 2 + CURVE_TAIL_USD * x ** 30;
+};
+/** Inverse of curveMcapAtFrac: g = sold / sCurve at a curve mcap ($), clamped to [0, 1] (bisection; m(g) is strictly increasing). */
+export function curveFracAtMcap(mcapUsd: number): number {
+  if (!(mcapUsd > CURVE_START_USD)) return 0;
+  if (mcapUsd >= CURVE_GRAD_USD) return 1;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (curveMcapAtFrac(mid) < mcapUsd) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}

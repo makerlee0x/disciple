@@ -23,8 +23,8 @@ export type Rocket = {
   pairSym?: string;
   creator?: string;
   graduated?: boolean;
-  /** 0–100 graduation progress from the curve's progressBps() when known (else derived from mcap, lib/mcap graduationPct). */
-  gradPct?: number | null;
+  /** Live curve progressBps (tokensSold·1e4/sCurve, 10000 once graduated); drives the card progress bar. */
+  progressBps?: number;
   /** Deterministic sparkline seed (SAMPLE) — live rockets without history render flat. */
   seed?: number;
   /** Launch order (higher = newer). */

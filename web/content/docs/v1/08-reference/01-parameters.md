@@ -20,12 +20,12 @@ Every number in one place. Values are for the current testnet deploy unless mark
 
 | Parameter | Value |
 |---|---|
-| Curve type | Constant product, virtual reserves |
-| Start market cap | $7,777 |
+| Curve type | Constant product, virtual reserves, steep finish |
+| Start market cap | $3,333 |
 | Graduation market cap | $33,333 (Outer Space) |
-| Sold on the curve | 72% (5.04B) |
-| Locked forever in the Uniswap v4 LP | 28% (1.96B) + base raised |
-| Base raised at graduation (USDG base) | ≈ $10,943, net of fees |
+| Sold on the curve | 84.24% (842,400) |
+| Locked forever in the Uniswap v4 LP | 15.76% (157,600) + base raised (pool ≈ $5.25K) |
+| Base raised at graduation (USDG base) | ≈ $6,455, net of fees |
 
 ## Fees
 
@@ -35,7 +35,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrer |
 | Graduated pool LP fee | 0% |
 | Creator tax | 0–7%, set at launch, curve trades only |
-| Sniper tax | 99% → 0% over 77 seconds, BOOSTs only, curve only |
+| Sniper tax | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s (one step per second), BOOSTs only, curve only |
 | Sniper tax destination | Locked liquidity at graduation (compound bucket) · rewards vault if not graduated in 30 days |
 | Creator launch buy | Exempt from anti-snipe |
 
@@ -68,11 +68,11 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
 | First BOOST max | 1.2%, locked to graduation | 3.33% | 0.77% |
 | Login to BOOST | Yes | No | No |
-| Sniper tax | 99% → 0 over 77 s, to locked liquidity | same | same |
+| Sniper tax | 99% → 0 over 7 s (per-second table), escrowed: locked LP at graduation, RewardsVault after 30 days if not | same | same |
 
 ## Altitude
 
-18 tiers from $7K to $7.77B. See [Altitude and tiers](/docs/game/tiers).
+18 tiers from $3.3K to $7.77B. See [Altitude and tiers](/docs/game/tiers).
 
 ## Bombs
 

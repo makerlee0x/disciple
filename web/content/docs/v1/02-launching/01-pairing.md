@@ -31,7 +31,7 @@ Pick a supported base: STRATEGY by default, USDG always. Other coins work once t
 
 ## How the dollar price is set
 
-Rocket targets are in dollars ($7,777 start, $33,333 graduation). Your base may not be a dollar coin, so DISCIPLE converts once, at launch:
+Rocket targets are in dollars ($3,333 start, $33,333 graduation). Your base may not be a dollar coin, so DISCIPLE converts once, at launch:
 
 - It reads the base's USD price from its registered base/USDG pool, using a time-weighted average so a single-block price spike can't skew it. [CONFIRM: FLOW — the TWAP pricer is fixed in source (PR #44); confirm it's live on the current testnet deploy.]
 - That price is fixed into your rocket's curve. The curve then works in base units.
