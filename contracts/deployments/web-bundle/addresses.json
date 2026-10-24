@@ -1,8 +1,26 @@
 {
   "chainId": 46630,
   "mode": "broadcast",
-  "startBlock": 137540728,
+  "startBlock": 142064001,
   "contracts": {
+    "ReferralRegistry": "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
+    "LockedLP": "0x61efff9f0dbdd818317858074bcf80e4dcc39646",
+    "FeeRouter": "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c",
+    "DiscipleHook": "0x2ac264a620edd05ba78381c51539650c40e2e8c4",
+    "Migration": "0x32790b0a28871984300f3bc75e1b3a8ea7b8bb1a",
+    "DiscipleRouter": "0x688160633b22012717661545df6299d3d3174ad2",
+    "TrampWallManager": "0xe9e98e149b43ff20dc7db665eefc387a8926e618",
+    "Launchpad": "0x8a92e51940909424b3aacefff99b4834588c0988",
+    "QuotePricer": "0xbb757b8270a3fff15db2ff7694508a4ea4488078",
+    "QuoteProbe": "0xf7a91d5d32cccb053dfbd8a56ddacc6fab7a96c9",
+    "CurveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+    "RewardsVault": "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0",
+    "AnonLauncher": "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509",
+    "MarketLens": "0xd89da17e3aee9a7b1cba359666f0feb5382421fa",
+    "UsdgDepositNotifier": "0xf7b3c09cae8c914530424c5882a24a4160013e9c",
+    "LoginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"
+  },
+  "previous": {
     "ReferralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
     "LockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
     "FeeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
@@ -21,23 +39,6 @@
     "UsdgDepositNotifier": "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9",
     "LoginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f"
   },
-  "previous": {
-    "ReferralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac",
-    "LockedLP": "0x09cdfa29e3a25c91c7807ef779b0e376d5f1fd11",
-    "FeeRouter": "0xf04f7d3b54f86cc5333e7e2302850b023c796e69",
-    "DiscipleHook": "0xbc13b0bb1b18f479872f52dcddc840b8041300c4",
-    "Migration": "0x67830dba366f2ae12cb7285d50cb22a721549285",
-    "DiscipleRouter": "0xcfb16275fcbcf124dde54f3dbc36ddc684111564",
-    "TrampWallManager": "0xccd9c94d7d4877fb487b01960c77917f6df2f3fe",
-    "AntiSnipe": "0x44afe78fc0ef4578d1d1d461b2eb23585615209a",
-    "Launchpad": "0xf5c09182091e527f0445ce065f7fc59d4b55cede",
-    "QuotePricer": "0x37427357b6d0db92137872d6b7d17c9cede72c40",
-    "QuoteProbe": "0xeec226531767a8da505af01f11399ebb3dc9ca36",
-    "CurveDeployer": "0x451cc3b2f94fcc6a0f657d20ec998c46c35a2482",
-    "RewardsVault": "0x3b23a99acc22ced35882b5c96af42836e2595a5a",
-    "AnonLauncher": "0xd38e9db3790e4587f97d0541943cf5a0239f1870",
-    "MarketLens": "0x4683f586ad2f70443f74f40751d202494ec9d0ed"
-  },
   "uniswapV4": {
     "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
     "V4Quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
@@ -47,17 +48,16 @@
   },
   "tokens": {
     "USDG": {
-      "address": "0x25030Bff74764aD72b912276a603717DB1C00644",
-      "symbol": "mUSDG",
-      "decimals": 18,
-      "usdPrice": "1 (QuotePricer USDG)"
+      "address": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",
+      "symbol": "USDG",
+      "decimals": 6,
+      "note": "mintable mock USDG (DevToken), 6 decimals like mainnet"
     },
     "STRATEGY": {
-      "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+      "address": "0xf5eb226f7f0890c36a06cbd0ff843292b7b1a88c",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
-      "defaultQuote": true
+      "note": "test STRATEGY; STRATEGY/USDG pricer pool fee 3000 / tickSpacing 60 / no hooks"
     }
   }
 }
