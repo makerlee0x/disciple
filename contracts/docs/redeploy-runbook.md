@@ -99,6 +99,7 @@ From merged main (`contracts/`), with the new addresses:
 set -a; . /workspace/anypair/.secrets/testnet-deployer.env; set +a
 USDG=<new USDG> PAYMASTER_OWNER=<lee/ops> PAYMASTER_SIGNER=<address of PAYMASTER_SIGNER_KEY> PAYMASTER_TREASURY=<treasury> \
 PAYMASTER_MIN_RATE=1000000000 PAYMASTER_MAX_RATE=10000000000 \   # USDG raw (6 dec) per ETH: $1,000–$10,000
+PAYMASTER_MAX_COST=2000000 \   # testnet maxCostCap = 2 USDG (6 dec), LEE DECISION 2026-10-24 11:28 CT
 PAYMASTER_DEPOSIT_WEI=<≥ 348000000000000 per 11M-gas launch> \
 forge script script/DeployPaymaster.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --private-key "$PRIVATE_KEY" --broadcast --slow
 REFERRAL_REGISTRY=<new ReferralRegistry> PAYMASTER=<DisciplePaymaster> \
@@ -106,10 +107,19 @@ forge script script/DeploySessionPolicy.s.sol --rpc-url https://rpc.testnet.chai
 SESSION_POLICY=<policy> PAYMASTER=<paymaster> node script/redeploy/postprocess.mjs broadcast   # records addons; idempotent
 ```
 
-The session policy must be redeployed in any case: its constructor takes the ReferralRegistry, which is new. Users reinstall sessions (policy 1.4.0).
+The session policy must be redeployed in any case: its constructor takes the ReferralRegistry, which is new. Users reinstall sessions (policy 1.4.1, from feat/policy-pack).
 No `PAYMASTER_STAKE_WEI` by default (pre-flight item 12, LEE DECISION: stake only matters for a public 7562 bundler; we self-relay).
 If lee picks (b), add `PAYMASTER_STAKE_WEI=<stake>` to the first command (owner broadcast only; 1-day unstake delay).
-`PAYMASTER_MAX_COST` defaults to 10 USDG at the token's decimals; `PAYMASTER_POST_OP_GAS` 30000.
+`PAYMASTER_MAX_COST` defaults to 10 USDG at the token's decimals (script default unchanged); `PAYMASTER_POST_OP_GAS` 30000.
+
+**Testnet paymaster cap (LEE DECISION 2026-10-24 11:28 CT: "$2 on testnet").** Deploy with `PAYMASTER_MAX_COST=2000000`
+(2 USDG at 6 decimals), as in the command above. This env is set only on deploy day, with lee's OK. Verify right after deploy:
+
+```bash
+cast call <DisciplePaymaster> 'maxCostCap()(uint256)' --rpc-url https://rpc.testnet.chain.robinhood.com   # must print 2000000 (2e6)
+```
+
+If it prints 10000000 (the 10 USDG script default), the env was not set: stop and tell lee before wiring the paymaster into the site.
 Paymaster keeper (server): `PAYMASTER_KEEPER_KEY`, `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI`; run `pnpm paymaster:keeper --send --loop`.
 Fork e2e before going live: `pnpm test:paymaster-e2e`.
 
@@ -334,3 +344,18 @@ Open items for AUDIT / lee:
 - Old testnet tokens (mUSDG, STRATEGY) are 18-dec and are replaced, not migrated: user balances on the old mUSDG don't carry over.
 - The session policy must be redeployed (new ReferralRegistry), with or without #106; users reinstall sessions.
 - Launch costs about 6.7–6.8M gas (`fixtures.mjs` uses an 8M cap); check the AA/relay launch caps (#106 assumes 11M).
+
+## 12. Mainnet launch checklist (paymaster cap)
+
+LEE DECISION 2026-10-24 11:28 CT: "$3-5 to start on mainnet".
+
+1. Deploy `DisciplePaymaster` with `PAYMASTER_MAX_COST` between `3000000` and `5000000` (3–5 USDG at 6 decimals). Lee picks
+   the exact value on deploy day. Do not rely on the 10 USDG script default.
+2. Verify with `cast call <DisciplePaymaster> 'maxCostCap()(uint256)' --rpc-url <mainnet rpc>`; it must equal the chosen value.
+3. Measure real per-op gas for about a week. Use the paymaster `UserOperationCharged` (and `DebtRecorded`) events and the per-op `actualGasCost`, split
+   by op type (buy, sell, launch, First BOOST launch, session install).
+4. Then tighten the cap, and the rate band if needed, with
+   `DisciplePaymaster.setBounds(minRate, maxRate, maxCostCap)` (owner only; emits `BoundsSet`). Set `maxCostCap` to about the
+   measured worst real op × the rate headroom.
+5. **Any `setBounds` broadcast needs lee's explicit OK** (value and timing). Never as part of a script run.
+
