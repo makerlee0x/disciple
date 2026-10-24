@@ -1,7 +1,7 @@
 // Testnet replay fixtures (fresh / near-graduation / graduated / PVE coins) on the redeployed stack.
 // usage: PRIVATE_KEY=.. [FORK=1] [BUNDLE=deployments/web-bundle] node script/redeploy/fixtures.mjs fresh|near|grad|pve|pack
 // Addresses come from the web bundle (postprocess.mjs). Quote = test STRATEGY (18 dec); USDG legs use USDG's decimals (6).
-import { createPublicClient, createWalletClient, http, parseAbi, parseEther, parseUnits, formatEther, maxUint256, decodeEventLog } from "viem";
+import { createPublicClient, createWalletClient, http, parseAbi, parseEther, parseUnits, formatEther, formatUnits, maxUint256, decodeEventLog } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import fs from "node:fs";
 import path from "node:path";
