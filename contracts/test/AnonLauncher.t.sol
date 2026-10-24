@@ -6,6 +6,7 @@ import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {Owned2Step} from "../src/utils/Owned2Step.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {McapMath} from "../src/libraries/McapMath.sol";
+import {CurveMath} from "../src/libraries/CurveMath.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -492,10 +493,8 @@ contract McapNowGraduatedTest is IntegrationBase {
 library CurveMathView {
     function mcap(BondingCurve c) internal view returns (uint256) {
         (uint256 ts, uint256 sC, uint256 x0, uint256 y0) = c.curveParams();
-        sC;
-        uint256 y = y0 - c.tokensSold();
-        uint256 x = Math.mulDiv(x0, y0, y);
-        return Math.mulDiv(Math.mulDiv(x, ts, y), c.quotePriceUsd(), 1e18);
+        CurveMath.Params memory p = CurveMath.Params(ts, sC, x0, y0, c.quotePriceUsd(), c.curveTail());
+        return CurveMath.marketCapUsd(p, c.tokensSold());
     }
 }
 

@@ -29,7 +29,7 @@ contract FeeClaimsTest is IntegrationBase {
     function test_snipeTreasuryShareAccrues() public {
         (BondingCurve c,) = _launch(0, 0);
         uint256 t0 = quote.balanceOf(treasury);
-        _buy(c, sniper, 10 ether, 0); // inside the 7s anti-snipe window
+        _buy(c, sniper, 10 ether, 0); // inside the 7s sniper-tax window
         assertEq(quote.balanceOf(treasury), t0);
         assertGt(feeRouter.treasuryAccrued(address(quote)), 0);
     }

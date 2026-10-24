@@ -19,7 +19,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Mode rules v2 matrix (contracts/docs/mode-rules-v2.md): Easy (PVE) / Hard (PVP) holding caps that grow
-///         with mcap, partial fill (direct + router USDG), sniper tax 99%→0 over 60 s into a per-curve escrow
+///         with mcap, partial fill (direct + router USDG), sniper tax 99%→0 over 7 s (per-second table) into a per-curve escrow
 ///         (→ locked LP at graduation / → RewardsVault after 30 days), Easy creator lock, Easy crew tip, rules off
 ///         after graduation, TRENCH unchanged except the sniper tax; plus DiscipleRouter.launchWithUsdg and
 ///         claimCreatorFeesToUsdg.
@@ -172,7 +172,7 @@ contract ModeRulesV2Test is IntegrationBase {
     function test_curveDeployer_runtimeIdenticalToNew() public {
         (BondingCurve c, Token t) = _launchM(Constants.MODE_PVE);
         (uint256 ts, uint256 sc, uint256 x0, uint256 y0) = c.curveParams();
-        CurveMath.Params memory p = CurveMath.Params(ts, sc, x0, y0, c.quotePriceUsd());
+        CurveMath.Params memory p = CurveMath.Params(ts, sc, x0, y0, c.quotePriceUsd(), c.curveTail());
         vm.prank(address(launchpad));
         BondingCurve ref = new BondingCurve(
             address(t),
@@ -323,6 +323,7 @@ contract ModeRulesV2Test is IntegrationBase {
         (BondingCurve c,) = _launchM(m);
         vm.warp(vm.getBlockTimestamp() + bound(dt, 0, 90)); // inside or after the sniper window
         pre = bound(pre, 0, 400 ether);
+        if (pre < 1e9) pre = 0; // dust pre-buys under the 99% sniper tax round to 0 tokens (ZeroAmount)
         if (pre != 0) _buyQ(c, alice, pre);
         qIn = bound(qIn, 1e9, 20_000 ether);
         uint256 room = c.capRoom(alice);
@@ -339,7 +340,9 @@ contract ModeRulesV2Test is IntegrationBase {
         BondingCurve.BuyQuote memory bq = c.quoteBuyFor(alice, qIn);
         if (bq.refund > 0) {
             uint256 sp = qIn - bq.refund;
-            assertGe(c.quoteBuy(sp).tokensOut, bq.tokensOut, "the spend fills the room");
+            // steep curve: the uncapped Newton inverse may stop a few quote-wei short (dust, pool-favoured); the capped
+            // fill lands exactly on the room. Tolerance 1e-12 relative + 1e3 wei.
+            assertGe(c.quoteBuy(sp).tokensOut + bq.tokensOut / 1e12 + 1e3, bq.tokensOut, "the spend fills the room");
             if (sp > 1e9) {
                 assertLt(c.quoteBuy(sp - sp / 1e9 - 2).tokensOut, bq.tokensOut, "minimal spend (1e-9 rel)");
             }
@@ -370,22 +373,22 @@ contract ModeRulesV2Test is IntegrationBase {
             assertEq(c.currentSnipeFeeBps(), 9900, "99% at launch");
             (uint256 bps, uint256 left) = lens.sniperTax(address(t));
             assertEq(bps, 9900);
-            assertEq(left, 60);
+            assertEq(left, 7);
             uint256 t0 = c.launchTime();
             uint256 e0 = c.snipeEscrow();
             _buyQ(c, bob, 1 ether);
             assertEq(c.snipeEscrow() - e0, 0.99 ether, "same block: 99%");
-            vm.warp(t0 + 15);
-            assertEq(c.currentSnipeFeeBps(), 9900 - 9900 * 15 / 60);
-            vm.warp(t0 + 30);
-            assertEq(c.currentSnipeFeeBps(), 4950, "halfway");
+            vm.warp(t0 + 1);
+            assertEq(c.currentSnipeFeeBps(), 2500, "25% at 1s");
             e0 = c.snipeEscrow();
             _buyQ(c, carol, 1 ether);
-            assertEq(c.snipeEscrow() - e0, 0.495 ether);
-            vm.warp(t0 + 59);
-            assertEq(c.currentSnipeFeeBps(), 165);
-            vm.warp(t0 + 60);
-            assertEq(c.currentSnipeFeeBps(), 0, "0 after 60 s");
+            assertEq(c.snipeEscrow() - e0, 0.25 ether);
+            vm.warp(t0 + 2);
+            assertEq(c.currentSnipeFeeBps(), 300, "3% at 2s");
+            vm.warp(t0 + 6);
+            assertEq(c.currentSnipeFeeBps(), 3, "0.03% at 6s");
+            vm.warp(t0 + 7);
+            assertEq(c.currentSnipeFeeBps(), 0, "0 from 7 s");
             (bps, left) = lens.sniperTax(address(t));
             assertEq(left, 0);
             e0 = c.snipeEscrow();
@@ -501,6 +504,45 @@ contract ModeRulesV2Test is IntegrationBase {
             vm.prank(creator);
             t.transfer(bob, r.creatorTokensBought); // freely transferable
         }
+    }
+
+    /// lee 2026-10-23: Easy's First BOOST lock can't be dodged through a spender (any router / approved wallet) or by
+    /// selling to another recipient — Token._update keys the check on `from == creator`, whoever moves the tokens.
+    function test_creatorLock_easy_noSpenderOrRecipientBypass() public {
+        (BondingCurve c, Token t, ILaunchpad.LaunchResult memory r) =
+            _launchM(Constants.MODE_PVE, address(quote), 200 ether);
+        uint256 locked = r.creatorTokensBought;
+        assertGt(locked, 0);
+        vm.prank(creator);
+        t.approve(bob, type(uint256).max);
+        vm.prank(bob);
+        vm.expectRevert(Token.CreatorLocked.selector);
+        t.transferFrom(creator, bob, 1);
+        vm.startPrank(creator);
+        t.approve(address(c), locked);
+        vm.expectRevert(Token.CreatorLocked.selector);
+        c.sell(locked, 0, vm.getBlockTimestamp() + 1, bob);
+        vm.stopPrank();
+        assertEq(t.balanceOf(creator), locked);
+        _grad(c);
+        vm.prank(bob);
+        t.transferFrom(creator, bob, locked); // unlocked after graduation, any path
+        assertEq(t.balanceOf(bob), locked);
+    }
+
+    /// lee 2026-10-23: Hard (PVP) First BOOST is free — the creator can sell it on the curve in the launch block.
+    function test_noCreatorLock_hard_sellFirstBoostImmediately() public {
+        (BondingCurve c, Token t, ILaunchpad.LaunchResult memory r) =
+            _launchM(Constants.MODE_PVP, address(quote), 200 ether);
+        uint256 bought = r.creatorTokensBought;
+        assertGt(bought, 0);
+        assertFalse(t.creatorLockActive());
+        assertEq(c.launchTime(), vm.getBlockTimestamp(), "same block as launch");
+        uint256 q0 = quote.balanceOf(creator);
+        uint256 out = _sellT(c, creator, bought);
+        assertGt(out, 0);
+        assertEq(t.balanceOf(creator), 0);
+        assertEq(quote.balanceOf(creator) - q0, out);
     }
 
     function test_firstBoost_quotePerMode() public view {

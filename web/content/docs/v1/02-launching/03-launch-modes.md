@@ -17,13 +17,13 @@ A launch mode sets the rules on the bonding curve. The creator picks it at launc
 | Sign-in required to BOOST | Yes | No | No |
 | Crew tip | 0.777% of a DUMP's proceeds, only when your profit on it is above 0.5% of the market cap; goes to the other holders | None | None |
 | Creator's First BOOST | Up to 1.2% of supply, locked until graduation | Up to 3.33% | Up to 0.77% |
-| Sniper tax (all modes) | 99% falling to 0 over the first 60 seconds | Same | Same |
+| Sniper tax (all modes) | 99% falling to 0 over the first 77 seconds | Same | Same |
 
 Launches without a mode are Trench Warfare.
 
 ## Sniper tax: every mode
 
-For the first 60 seconds after launch, BOOSTs pay a sniper tax that starts at 99% and falls to 0 in a straight line. The creator's First BOOST is exempt. The tax is held by the curve, outside the price. At graduation it goes into the rocket's locked liquidity. If the rocket hasn't graduated after 30 days, anyone can send it to the community rewards vault.
+For the first 77 seconds after launch, BOOSTs pay a sniper tax that starts at 99% and falls to 0 in a straight line. The creator's First BOOST is exempt. The tax is held by the curve, outside the price. At graduation it goes into the rocket's locked liquidity (the compound bucket, not the graduation floor). If the rocket hasn't graduated after 30 days, anyone can send it to the community rewards vault.
 
 ## Easy: crew first
 

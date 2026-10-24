@@ -427,6 +427,19 @@ export const bondingCurveAbi = [
   },
   {
     "type": "function",
+    "name": "curveTail",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "feeRouter",
     "inputs": [],
     "outputs": [

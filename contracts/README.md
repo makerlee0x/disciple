@@ -50,7 +50,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `docs/curve.md` | Curve formula, worked table, rounding | §2 |
 | `src/Launchpad.sol` | Permissionless factory; metadata; optional creator buy ≤0.77% | §5; LOCKED #23–#27 |
 | `src/FeeRouter.sol` | Fee split routing; creator/referrer accrue; treasury push; LP auto-add | §3; LOCKED #11–#15, #20–#22 |
-| `src/AntiSnipe.sol` | Buy fee 77.7%→0% over 7s | §2; LOCKED #9 |
+| `src/AntiSnipe.sol` | LEGACY fee schedule (FeeMath.snipeBps: 99%→0% over 7s); unused by v2 curves | §2; LOCKED #9 |
 | `src/ReferralRegistry.sol` | First-touch; $10 USDG gate hooks | §4; LOCKED #18–#19 |
 | `src/Migration.sol` | Real same-tx v4 migrate (no-jump sqrtPrice, full-range → LockedLP) | §2; LOCKED #5, #17 |
 | `src/DiscipleHook.sol` | Post-grad 1% swap fee → FeeRouter 33/33/33/1 (**pool LP fee = 0**) | §3; LOCKED #11,#16 |
@@ -78,7 +78,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `TRADE_FEE_BPS` | 100 (1%) |
 | Fee shares | 33 / 33 / 33 / 1 |
 | `CREATOR_TAX_MAX_BPS` | 700 (≤7%, immutable) |
-| Anti-snipe | 7770 → 0 BPS over 7s; excess → 70% RewardsVault / 30% treasury |
+| Sniper tax | 9900 → 0 BPS over 7s, per-second table 9900/2500/300/100/30/10/3, 0 from 7s (buys, First BOOST exempt); curve `snipeEscrow` → LockedLP compound bucket at graduation, or RewardsVault after `snipeEscrowTimeout` |
 | `CREATOR_BUY_MAX_BPS` | 77 (0.77%) |
 | `REFERRAL_USDG_GATE` | 10e18 USDG |
 

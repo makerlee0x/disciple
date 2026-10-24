@@ -224,7 +224,7 @@ contract Deploy is Script {
         launchpad.setDefaultQuote(o.defaultQuote);
 
         // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
-        // LOCKED #9 rev.: anti-snipe tax 70% community RewardsVault / 30% treasury.
+        // Mode rules v2: sniper tax → curve snipeEscrow → LockedLP compound bucket at graduation (RewardsVault after timeout).
         _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg);
 
         vm.stopBroadcast();

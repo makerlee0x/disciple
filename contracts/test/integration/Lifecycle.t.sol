@@ -60,7 +60,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertGt(feeRouter.creatorAccrued(address(curve.token()), creator), before);
     }
 
-    /// mode rules v2: sniper tax 99% → 0 over 60 s, held in the curve's snipeEscrow (not routed to vault/treasury).
+    /// mode rules v2: sniper tax 99% → 0 over 7 s (per-second table), held in the curve's snipeEscrow (not routed to vault/treasury).
     function test_antiSnipe_decay_and_escrow() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         assertEq(curve.currentSnipeFeeBps(), 9900);
@@ -87,9 +87,9 @@ contract LifecycleIntegrationTest is IntegrationBase {
         // Creator only gets protocol-fee slice, not snipe
         assertEq(feeRouter.creatorAccrued(address(tok), creator) - creator0, (proto * 33) / 100);
 
-        // Mid decay (linear)
-        vm.warp(block.timestamp + 30);
-        assertEq(curve.currentSnipeFeeBps(), 9900 - 9900 * 30 / 60);
+        // Mid decay (per-second table): 3% at 2s
+        vm.warp(block.timestamp + 2);
+        assertEq(curve.currentSnipeFeeBps(), 300);
 
         _warpPastSnipe();
         assertEq(curve.currentSnipeFeeBps(), 0);
