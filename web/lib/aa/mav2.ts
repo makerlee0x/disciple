@@ -18,7 +18,7 @@ import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type Us
 import { ENTRYPOINT_V07 } from "./constants";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend } from "./relayClient";
-import { PaymasterCapCache, fallbackUsdgDecimals, peekReserve, reserveOrFallback } from "./gasReserve";
+import { PaymasterCapCache, fallbackUsdgDecimals, peekReserve, reserveOrDerived, type GasOpKind, type WarmAllowance } from "./gasReserve";
 /** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
 export const NEXT_BLOCK_MS = 170;
 const nextBlock = () => new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
@@ -411,24 +411,40 @@ export class Mav2Account {
   }
 
   /**
-   * Rapid taps (GAME): USDG base units one pending op may still take for gas — SYNC, never awaits.
-   * 0n when gas isn't paid in USDG; else the warm allowance's maxTokenCost ?? the paymaster's maxCostCap ?? null (cold).
+   * Rapid taps (GAME): USDG base units one pending op may still take for gas — SYNC, never awaits (lib/aa/gasReserve).
+   * 0n when gas isn't paid in USDG; WARM (fresh allowance): its real maxTokenCost (trade) / the grad per-op bound;
+   * null when cold. `kind`: "trade" (buy/sell, default) | "gradBuy".
    * USDG gas configured ⇒ reserved whichever key signs (a session op may fall back to the owner, which pays in USDG).
    */
-  peekGasReservePerOp(): bigint | null {
+  peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
     const pm = this.o.usdgGas;
     const a = pm && this.senderAddr ? this.allowances?.peek(this.senderAddr) : undefined;
-    return peekReserve({ usdgGas: !!pm, allowanceMaxTokenCost: a ? BigInt(a.disciple.maxTokenCost) : undefined, cap: this.caps.peek()?.cap });
+    let allowance: WarmAllowance | undefined;
+    if (a) {
+      const d = a.disciple;
+      allowance = { maxTokenCost: BigInt(d.maxTokenCost), rate: BigInt(d.rate), debt: BigInt(d.debt), maxFeePerGas: BigInt(d.maxFeePerGas) };
+      this.lastRate = allowance.rate;
+    }
+    return peekReserve({ usdgGas: !!pm, kind, allowance, opMaxFee: FEES.peek()?.maxFeePerGas, cap: this.caps.peek()?.cap });
   }
-  /** peekGasReservePerOp, or (cold) FALLBACK_MAX_COST_USDG at the cached / chain-default USDG decimals. */
-  gasReservePerOp(): bigint {
-    return reserveOrFallback(this.peekGasReservePerOp(), this.caps.peek()?.decimals ?? fallbackUsdgDecimals(this.o.chain.id));
+  /** The paymaster's signed rate from the last fresh allowance (cold derivation prefers it over the config ETH/USD). */
+  private lastRate?: bigint;
+  /** peekGasReservePerOp, or (cold) the derived value: gas limit × allowance-formula maxFee(live gas price) × rate. */
+  gasReservePerOp(kind: GasOpKind = "trade"): bigint {
+    return reserveOrDerived(this.peekGasReservePerOp(kind), {
+      kind, gasPriceWei: this.caps.gasPrice(), rate: this.lastRate, cap: this.caps.peek()?.cap,
+      decimals: this.caps.peek()?.decimals ?? fallbackUsdgDecimals(this.o.chain.id),
+    });
   }
-  /** Warm both reserve tiers (maxCostCap + decimals, the allowance) off the trade path: session start + warm(). */
+  /** Warm every reserve input off the trade path (session start + warm()): gas price, maxCostCap + decimals, the
+   * allowance (its maxTokenCost is the real warm value). */
   async warmGasReserve() {
     const pm = this.o.usdgGas; if (!pm) return;
     const me = this.senderAddr ?? (this.senderAddr = await this.address().catch(() => undefined));
-    await Promise.all([this.caps.warm(this.o.pc, pm.paymaster, pm.usdg), me ? this.allowances?.refresh(me).catch(() => undefined) : undefined]);
+    await Promise.all([
+      this.caps.warmGasPrice(this.o.pc), this.caps.warm(this.o.pc, pm.paymaster, pm.usdg),
+      me ? this.allowances?.refresh(me).catch(() => undefined) : undefined,
+    ]);
   }
 
   private usdgGasFor(as: "owner" | "session") { const u = this.o.usdgGas; return !!u && (as === "owner" || u.session); }

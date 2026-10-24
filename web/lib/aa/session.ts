@@ -16,7 +16,7 @@ import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
 import { newPressId, tagPress, type SendOpts } from "./fastPath";
-import { fallbackGasReserve, fallbackUsdgDecimals } from "./gasReserve";
+import { derivedGasReserve, fallbackUsdgDecimals, type GasOpKind } from "./gasReserve";
 import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
@@ -412,16 +412,17 @@ export async function endOneTap() {
 /**
  * Rapid taps (GAME cash reservation), SYNC, USDG base units: what one pending op may still take for gas.
  *   reserve = liveCash − Σ pending (amountIn + aaGasReservePerOp())
- * peek: null only while cold (no allowance, maxCostCap not read yet); 0n when gas isn't paid in USDG.
+ * peek: the WARM value (fresh allowance: its real maxTokenCost; grad buys: the per-op bound) or null while cold;
+ * 0n when gas isn't paid in USDG. kind: "trade" (buy / sell, default) | "gradBuy". See lib/aa/gasReserve.
  */
-export function aaPeekGasReservePerOp(): bigint | null {
-  if (sa) return sa.peekGasReservePerOp();
+export function aaPeekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
+  if (sa) return sa.peekGasReservePerOp(kind);
   return usdgGasConfig() ? null : BigInt(0);
 }
-/** Never null: cold ⇒ FALLBACK_MAX_COST_USDG (10 USDG, the paymaster's deploy-default maxCostCap). */
-export function aaGasReservePerOp(): bigint {
-  if (sa) return sa.gasReservePerOp();
-  return usdgGasConfig() ? fallbackGasReserve(fallbackUsdgDecimals(ACTIVE_CHAIN.id)) : BigInt(0);
+/** Never null: warm value, else derived from gas limit × allowance-formula maxFee(gas price) × rate (config before any RPC). */
+export function aaGasReservePerOp(kind: GasOpKind = "trade"): bigint {
+  if (sa) return sa.gasReservePerOp(kind);
+  return usdgGasConfig() ? derivedGasReserve({ kind, decimals: fallbackUsdgDecimals(ACTIVE_CHAIN.id) }) : BigInt(0);
 }
 
 /** Keep the smart account hot: clients + deployment status + fee cache (client) and relayer nonce/fees (server). */
