@@ -46,7 +46,8 @@ export const quoteRawToUsd = (raw: bigint, quotePriceUsd: bigint) => Number((raw
 const fmtUnits = (v: bigint, dec = 18) => { const d = Number(v) / 10 ** dec; return d >= 1e-4 || d === 0 ? d.toPrecision(4) : d.toExponential(2); };
 
 export class ProtocolError extends Error {
-  constructor(public code: string, msg: string) { super(msg); }
+  /** extra: for code "Timeout" the RelayUnclearInfo { unclear: true, reason, userOpHash, txHash?, nonce? } (outcome UNKNOWN) */
+  constructor(public code: string, msg: string, public extra?: Record<string, unknown>) { super(msg); }
 }
 
 /** Map contract custom errors to friendly copy. */
@@ -150,7 +151,9 @@ export function friendlyError(e: unknown): ProtocolError {
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
-  return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e));
+  // unclear relay outcome (receipt timeout / lost stream): keep userOpHash / txHash / nonce so the UI can watch the op
+  const extra = isAA && code === "Timeout" ? (e as AAError).extra : undefined;
+  return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e), extra);
 }
 
 export function publicClient(): PublicClient {

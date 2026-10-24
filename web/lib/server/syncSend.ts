@@ -14,7 +14,8 @@
  *  3. Never re-sign after an unclear failure: only a definitive node rejection (nonce / funds / fee / malformed) is
  *     rethrown for the caller to resync + re-sign.
  *  4. Timeout / network error / unreadable response ⇒ possibly accepted: onPending({ txHash }) and poll the receipt
- *     for the precomputed hash (fast node first when RHT_RECEIPT_RPC_URL is set; public RPC last).
+ *     for the precomputed hash (fast node first when RHT_RECEIPT_RPC_URL is set; public RPC last). Giving up after
+ *     maxWaitMs throws { unclear: true, reason: "receipt-timeout", txHash } — an UNKNOWN outcome, never a failure.
  *  5. The sync receipt IS the confirmation the UI books from (RelayConfirmed.receipt).
  * Sequencer unset ⇒ exactly today's call on the public RPC ([raw]).
  */
@@ -72,7 +73,7 @@ export async function syncSend(raw: Hex, txHash: Hex, o: SyncSendOpts): Promise<
   for (;;) {
     const rc = await o.getReceipt(txHash).catch(() => null);
     if (rc) return { rc, via: "rpc-wait", sendMs: t1 - t0, minedMs: now() - t1, pending: true };
-    if (now() > deadline) throw tag(Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true }));
+    if (now() > deadline) throw tag(Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true, reason: "receipt-timeout" as const }));
     await sleep(o.pollMs ?? 50);
   }
 }

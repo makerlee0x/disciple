@@ -45,3 +45,9 @@ test("opRevertReason reads the EntryPoint UserOperationRevertReason log", () => 
   assert.equal(opRevertReason([{ address: ENTRYPOINT_V07, data, topics: [topic0, h, sender] }], h), hook);
   assert.equal(opRevertReason([{ address: ENTRYPOINT_V07, data, topics: [topic0, h, sender] }], ("0x" + "cd".repeat(32)) as Hex), undefined);
 });
+
+test("SITE: unclear relay timeout keeps code 'Timeout' and its userOpHash / txHash / nonce through friendlyError", () => {
+  const extra = { unclear: true, reason: "receipt-timeout", userOpHash: `0x${"ef".repeat(32)}`, txHash: `0x${"ab".repeat(32)}`, nonce: 4 };
+  const pe = friendlyError(new AAError("Timeout", "Trade sent — still confirming on-chain.", extra));
+  assert.equal(pe.code, "Timeout"); assert.deepEqual(pe.extra, extra); assert.ok(!MINOUT_RETRY.test(pe.code));
+});

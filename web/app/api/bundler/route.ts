@@ -8,7 +8,7 @@ import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, type LimitResult } from "@/lib/server/limits";
-import { RELAY_METHOD, RELAY_STREAM_ACCEPT } from "@/lib/aa/relayTypes";
+import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
 
 export const runtime = "nodejs";
@@ -76,9 +76,11 @@ export async function POST(req: Request) {
     if (isRelayerNotConfigured(e))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
-    const txHash = (e as { txHash?: string }).txHash;
-    // data: the revert payload (string) as before; when the relayer tx was signed but no receipt came back, { txHash }
-    const data = (e as { data?: string }).data ?? (txHash ? { txHash, userOpHash: (e as { userOpHash?: string }).userOpHash } : undefined);
+    // data: the revert payload (string) as before for definite rejections; once the relayer tx was signed, RelayErrorData
+    // { txHash, userOpHash, nonce } — plus unclear/reason when the outcome is unknown (receipt timeout: never a failure)
+    const d = relayErrorData(e);
+    const rev = (e as { data?: unknown }).data;
+    const data = d?.unclear || d?.txHash ? d : typeof rev === "string" ? rev : undefined;
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data } });
   }
 }
