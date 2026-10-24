@@ -31,7 +31,7 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | **QuotePricer** | Prices a base in dollars at launch. |
 | **QuoteProbe** | Checks a base before launch. |
 | **TrampWallManager** | Tramps and walls on graduated pools. |
-| **AntiSnipe** | Legacy launch fee schedule. The curve now applies the 77-second sniper tax itself. |
+| **AntiSnipe** | Legacy launch fee schedule. The curve now applies the 7-second sniper tax itself. |
 | **AnonLauncher** | Pseudonymous launches. |
 | **MarketLens** | Read-only market data. |
 

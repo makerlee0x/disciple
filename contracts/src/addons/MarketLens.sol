@@ -127,7 +127,7 @@ contract MarketLens {
         if (capTokens != type(uint256).max) capBps = (capTokens * Constants.BPS_DENOM) / Constants.TOTAL_SUPPLY;
     }
 
-    /// @notice Sniper tax right now (bps of a buy's input) and seconds until it reaches 0 (99% → 0 over 77s).
+    /// @notice Sniper tax right now (bps of a buy's input) and seconds until it reaches 0 (99% → 0 over 7s, per-second table).
     function sniperTax(address token) external view returns (uint256 bps, uint256 secondsLeft) {
         ILensCurveV2 c = _v2(token);
         if (ILensCurve(address(c)).graduated()) return (0, 0);

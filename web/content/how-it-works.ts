@@ -188,10 +188,10 @@ export const HIW_FEES = {
   example: "On a $100 BOOST, the fee is $1: $0.33 creator · $0.33 locked liquidity · $0.33 treasury · $0.01 referrer.",
   cards: [
     { title: "Creator tax", body: "Optional, 0–7%, set at launch and fixed. Charged on top of the 1% fee on bonding-curve trades only. After graduation, trades pay just the 1% fee.", more: "Creators can hand off a rocket anytime. The fee claim and tax rights go with it." },
-    { title: "Anti-snipe", body: "For the first 77 seconds, the BOOST fee starts at 99% and drops to 0%. After that, only the 1% remains.", more: "Sniper tax is held in escrow, then goes into the pool when the rocket graduates, or to the rewards vault after 30 days if it never does. The creator’s launch buy is exempt.", openItem: "C5" },
+    { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee is 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s. After that, only the 1% remains.", more: "Sniper tax is held in escrow, then goes into the pool when the rocket graduates, or to the rewards vault after 30 days if it never does. The creator’s launch buy is exempt.", openItem: "C5" },
     { title: "Referrals", body: "Share your link. When a wallet opens your link and deposits $10+ in USDG, it’s yours for life (first link wins).", more: "You earn 1% of the protocol fee on its trades, unless the rocket’s launcher has a referrer, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator’s fee share. You can’t refer your own wallet. On testnet, referrals don’t lock yet. Claiming from the app is coming soon." },
   ] as { title: string; body: string; more: string; openItem?: string }[],
-  snipeChart: { title: "Anti-snipe BOOST fee over the first 77 seconds, stepping down from 99% to 0%", top: "99%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "77s" },
+  snipeChart: { title: "Anti-snipe BOOST fee over the first 7 seconds: 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s", top: "99%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "7s" },
 };
 
 /** 06 · FAQ (accordion) */
@@ -204,7 +204,7 @@ export const HIW_FAQ = {
     { q: "What coins can I pair with?", a: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
     { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket’s Uniswap v4 LP." },
     { q: "When does a rocket graduate?", a: "At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
-    { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 77 seconds." },
+    { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 7 seconds." },
     { q: "Can a creator rug?", a: "There’s no further mint, the name and ticker are set at launch, and graduated liquidity has no withdraw function. Creators can still sell their own coins, like anyone else.", openItem: "C11" },
     { q: "What is the Simulator?", a: "Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare.", openItem: "C12" },
     { q: "Is DISCIPLE audited?", a: "Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet." },

@@ -34,6 +34,12 @@ eq(CURVE.walletCapDefaultBps, C.WALLET_CAP_BPS_DEFAULT, "wallet cap default bps 
 eq(Math.round(CURVE.antiSnipeStartPct * 100), C.ANTI_SNIPE_START_BPS, "anti-snipe start  config ⇄ Constants"); eq(LAUNCH.antiSnipeStartBps, C.ANTI_SNIPE_START_BPS, "anti-snipe start  sim ⇄ Constants");
 eq(CURVE.antiSnipeWindowSec, C.ANTI_SNIPE_DURATION, "anti-snipe window  config ⇄ Constants"); eq(LAUNCH.antiSnipeDurationS, C.ANTI_SNIPE_DURATION, "anti-snipe window  sim ⇄ Constants");
 eq(C.ANTI_SNIPE_END_BPS, 0, "anti-snipe ends at 0 (sim decays to 0)");
+{ const h = sol.match(/constant\s+ANTI_SNIPE_TABLE\s*=\s*(0x[0-9a-fA-F]+)\s*;/); ok(!!h, "Constants.sol: ANTI_SNIPE_TABLE found");
+  const tbl = h ? Array.from({ length: C.ANTI_SNIPE_DURATION }, (_, e) => Number((BigInt(h[1]) >> BigInt(16 * e)) & 0xffffn)) : [];
+  eq(JSON.stringify(CURVE.antiSnipeBpsBySec), JSON.stringify(tbl), "anti-snipe per-second table  config ⇄ Constants");
+  eq(JSON.stringify(LAUNCH.antiSnipeBpsBySec), JSON.stringify(tbl), "anti-snipe per-second table  sim ⇄ Constants");
+  eq(tbl[0], C.ANTI_SNIPE_START_BPS, "anti-snipe table[0] = START_BPS");
+  const mk = new Market(cloneConfig()); eq([0, 1, 2, 3, 5, 6.9, 7, 77].map(t => Math.round(mk.antiSnipe(t) * 1e4)).join(","), "9900,2500,300,100,10,3,0,0", "sim antiSnipe(t) = FeeMath.snipeBps(floor t)"); }
 eq(Number(CM.TRADE_FEE_BPS), C.TRADE_FEE_BPS, "trade fee  curveMath ⇄ Constants");  eq(LAUNCH.tradeFeeBps, C.TRADE_FEE_BPS, "trade fee  sim ⇄ Constants");
 ok(!!twm, "TrampWallManager.sol: keeperTipBps default found"); if (twm) eq(LAUNCH.keeperTipBps, +twm[1], "keeper tip  sim ⇄ TrampWallManager default");
 // a stale saved tuning can never override launch params
@@ -61,7 +67,7 @@ const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
   const p = { totalSupply: wei(m.S), sCurve: wei(m.sC), x0: wei(m.x0), y0: wei(m.y0), tail: 0n };
   ok(Math.abs(m.mcap() / LAUNCH.startMcapUsd - 1) < 1e-9, `sim curve starts at $${m.mcap().toFixed(2)}`);
   let worst = 0; for (const [soldFrac, usd] of [[0, 50], [0.1, 300], [0.4, 1000], [0.7, 2500], [0.95, 100]]) {
-    const q = new Market(cloneConfig()); q.sold = q.sC * soldFrac; const f = q.buy(usd, 120, 0); // t past the 77s sniper window
+    const q = new Market(cloneConfig()); q.sold = q.sC * soldFrac; const f = q.buy(usd, 120, 0); // t past the 7s sniper window
     const ref = Number(CM.quoteBuy(p, wei(q.sC * soldFrac), wei(usd), 0n)) / 1e18, eb = Math.abs(f.tokens / ref - 1);
     const s = new Market(cloneConfig()); s.sold = s.sC * Math.max(soldFrac, 0.2); const tk = s.sold * 0.05, sold0 = s.sold, fs2 = s.sell(tk);
     const ref2 = Number(CM.quoteSell(p, wei(sold0), wei(tk), 0n)) / 1e18, es = Math.abs(fs2.usd * (1 - LAUNCH.tradeFeeBps / 1e4) / ref2 - 1);
