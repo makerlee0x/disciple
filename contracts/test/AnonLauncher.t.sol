@@ -513,3 +513,57 @@ contract MarketLensTest is IntegrationBase {
         assertEq(m, curve.mcapNow());
     }
 }
+
+contract FeeCapToken is ERC20 {
+    uint8 internal immutable dec;
+
+    constructor(uint8 d) ERC20("USDG", "USDG") {
+        dec = d;
+    }
+
+    function decimals() public view override returns (uint8) {
+        return dec;
+    }
+}
+
+/// @notice Audit r127/r121 Medium (AnonLauncher.sol:50/:111/:124): the $5 launch-fee cap is scaled to the fee token's
+///         decimals (cherry-pick of #115 b6a9117). The old `5 ether` cap was $5 trillion with 6-dec USDG.
+contract AnonLauncherFeeCapTest is Test {
+    address internal o = makeAddr("o");
+
+    function _deploy(address feeToken, uint256 fee) internal returns (AnonLauncher) {
+        return new AnonLauncher(o, address(1), address(2), feeToken, address(3), address(0), fee);
+    }
+
+    function test_cap_is_5_usd_at_6_dec() public {
+        FeeCapToken t = new FeeCapToken(6);
+        AnonLauncher al = _deploy(address(t), 5e6);
+        assertEq(al.MAX_LAUNCH_FEE(), 5 * 10 ** 6);
+        assertEq(al.MAX_LAUNCH_FEE(), al.MAX_LAUNCH_FEE_USD() * 10 ** t.decimals());
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        _deploy(address(t), 5e6 + 1);
+        vm.startPrank(o);
+        al.setLaunchFee(5e6);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        al.setLaunchFee(5e6 + 1);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        al.setLaunchFee(5 ether); // the old 18-dec cap is now rejected at 6 dec
+        vm.stopPrank();
+    }
+
+    function test_cap_is_5_usd_at_18_dec() public {
+        FeeCapToken t = new FeeCapToken(18);
+        AnonLauncher al = _deploy(address(t), 5 ether);
+        assertEq(al.MAX_LAUNCH_FEE(), 5 ether);
+        vm.prank(o);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        al.setLaunchFee(5 ether + 1);
+    }
+
+    function test_no_fee_token_means_zero_cap() public {
+        AnonLauncher al = _deploy(address(0), 0);
+        assertEq(al.MAX_LAUNCH_FEE(), 0);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        _deploy(address(0), 1);
+    }
+}
