@@ -17,7 +17,7 @@ import "server-only";
  * price required within ±2% of the TWAP and the result clamped to the contract's [minRate, maxRate]; see
  * contracts/docs/usdg-paymaster.md §Pricing.
  */
-import { createPublicClient, http, parseAbi, type Address, type Hex } from "viem";
+import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
