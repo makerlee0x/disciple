@@ -94,10 +94,10 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const lb = run && phase !== "select" ? run.leaderboard() : [];
   const me = lb.findIndex((r) => r.arch === "you");
   const D = cfg.difficulties[difficulty];
-  // SNIPER TAX chip: sim launch = run t 0 (SIM_LAUNCH_TS epoch: snipeState needs launchTs > 0); params = the run's launch config (lib/config CURVE.antiSnipe* via lib/sim/config), so it
-  // matches what SimMarket.antiSnipe() charges; run.t follows speed / pause. Curve phase only (buys after graduation pay none).
+  // SNIPER TAX chip: sim launch = run t 0 (SIM_LAUNCH_TS epoch: snipeState needs launchTs > 0); params = the run's launch config (lib/config CURVE.antiSnipe* via lib/sim/config), incl. the
+  // per-second table bpsBySec (0 from 7s), so it matches what SimMarket.antiSnipe() charges; run.t follows speed / pause. Curve phase only (buys after graduation pay none).
   const snipe = run && phase === "run" && run.m.phase === "curve"
-    ? snipeState({ launchTs: SIM_LAUNCH_TS, nowSec: SIM_LAUNCH_TS + run.t, startPct: run.cfg.launch.antiSnipeStartBps / 100, windowSec: run.cfg.launch.antiSnipeDurationS })
+    ? snipeState({ launchTs: SIM_LAUNCH_TS, nowSec: SIM_LAUNCH_TS + run.t, startPct: run.cfg.launch.antiSnipeStartBps / 100, windowSec: run.cfg.launch.antiSnipeDurationS, bpsBySec: run.cfg.launch.antiSnipeBpsBySec })
     : null;
 
   return (
