@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {DiscipleSessionPolicy} from "../../src/session/DiscipleSessionPolicy.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {TrampWallManager} from "../../src/TrampWallManager.sol";
-import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 
 contract SelectorHarness is DiscipleSessionPolicy {
@@ -31,7 +30,16 @@ contract SessionSelectorsTest is Test {
         assertEq(s[4], TrampWallManager.cancel.selector);
         assertEq(s[5], ILaunchpad.launch.selector);
         assertEq(s[6], ILaunchpad.launchCoin.selector);
-        assertEq(s[7], AnonLauncher.launchAnon.selector);
+        // AnonLauncher v2 launchAnon(..., maxFee): the contract change is on feat/redeploy-pack (combined tree checks
+        // AnonLauncher.launchAnon.selector there); this branch pins the v2 signature.
+        assertEq(
+            s[7],
+            bytes4(
+                keccak256(
+                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+                )
+            )
+        );
         assertEq(s[8], bytes4(keccak256("buy(uint256,uint256,uint256,address)")));
         (bytes4 b, bytes4 sl) = new SelectorHarness().usdgSels();
         assertEq(b, DiscipleRouter.buyWithUsdg.selector);

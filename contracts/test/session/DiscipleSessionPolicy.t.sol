@@ -220,6 +220,14 @@ contract MockMAv2 {
     }
 }
 
+/// @dev AnonLauncher v2 (redeploy pack): launchAnon(..., uint256 maxFee). The AnonLauncher contract change lives on
+///      feat/redeploy-pack; this branch pins the policy to the v2 selector.
+bytes4 constant ANON_LAUNCH_V2 = bytes4(
+    keccak256(
+        "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+    )
+);
+
 contract DiscipleSessionPolicyTest is Test {
     P policy;
     ReferralRegistry registry;
@@ -706,7 +714,7 @@ contract DiscipleSessionPolicyTest is Test {
         lpp.quote = address(usdg);
         lpp.deadline = block.timestamp + 1 hours;
         return abi.encodeWithSelector(
-            AnonLauncher.launchAnon.selector, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0)
+            ANON_LAUNCH_V2, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0), uint256(5e6)
         );
     }
 
