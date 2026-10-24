@@ -772,7 +772,8 @@ function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({
 function srcImpact(usd,side){ return source.paperImpact&&!isLive()?source.paperImpact(usd,side):source.impact?source.impact(usd,side):1; }
 /* @trade (sliced by scripts/test-live-fixes.mjs) */
 function trade(side,opt){
-  if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
+  // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
+  // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
   if (side==='sell' && !hasTokens()){ noTokens(); return; }          // nothing to sell: no trade, no bomb visual
   if (opt&&opt.usd>0) md={...md,usd:+opt.usd};   // custom amount / % sells from the ammo bar
@@ -796,12 +797,19 @@ function trade(side,opt){
   // back as "✕ not enough cash: need $100.00, have …" rows stacking in TRADES.)
   if (side==='buy' && !source.isSim){ const cash=window.__discipleTrade?S.liveCash:S.balance;
     if (typeof cash==='number' && Number.isFinite(cash) && cash+1e-9<md.usd){ S.flashes.push({txt:`NOT ENOUGH CASH · ${fmtShot(md.usd)} BOOST, you have ${fmtShot(Math.max(0,cash))}`,life:1.6}); return; } }
-  // Immediate local aim for the player's shot; mine swaps skip queue to avoid double-apply.
-  applyThrust(side, md.usd, source.impact&&S.confirmed.mcap?Math.abs(srcImpact(md.usd,side)-1)*100:undefined);
-  submit(side, md.usd, false, opt);
+  // impact at the click's (pre-trade) mark, kept for the thrust applied on the confirmed fill; own feed swaps skip the queue
+  const pct=source.impact&&S.confirmed.mcap?Math.abs(srcImpact(md.usd,side)-1)*100:undefined;
+  submit(side, md.usd, false, opt, pct);
 }
 /* @trade-end */
-function submit(side,usd,force,opt){
+/* @fillthrust — the player's shot moves the rocket only once it really filled (r.ok): buy = turbo flare (S.buyBoost) + thrust,
+   sell = thrust. $ = the decoded fill when the bridge returned one (r.fillUsd), else the shot $. Never on a failed trade. */
+function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
+  const u=+r.fillUsd>0&&Number.isFinite(+r.fillUsd)?+r.fillUsd:usd;
+  if (side==='buy') S.buyBoost=1;   // turbo: big flare + climb burst (the trade itself moves the price)
+  applyThrust(side, u, pct); }
+/* @fillthrust-end */
+function submit(side,usd,force,opt,pct){
   S.tradeUsd=usd;
   const now=performance.now();
   if ((!force&&now<S.cooldownUntil) || S.pending.length>=MAX_PENDING || S.confirmed.mcap===null) return;
@@ -818,6 +826,7 @@ function submit(side,usd,force,opt){
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
   source.submitTrade(side,S.tradeUsd,o).then(r=>{
     p.state=r.ok?'confirmed':'failed';
+    fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
     if(r.ok&&r.sim){ S.balance=r.balance; pushPaperCash(); dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
     else if(r.ok&&r.exact){   // PAPER (mock / DISCIPLE, no wallet): exact curve/pool fill — spent $ (a curve-completing buy is refunded the rest), sell proceeds net of the fee
       S.balance+=(side==='buy'?-r.usd:r.net); pushPaperCash();
@@ -2336,17 +2345,23 @@ function chartMine(side,m,tx){ const C=chartState(), k=tx?String(tx).toLowerCase
    · feed swap first → drawn from the swap; its $ is the receipt's when the swap carried none.
    Sells are never filtered by $ size (MIN_SHOT is a buy-side minimum only). */
 S.rcpt=new Map(); S.rcptDrawn=new Set();
-function ownSellSwap(e){ if(!e||e.side!=='sell'||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
-  if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,'sell'); }catch(_){} return null; }
+function ownSellSwap(e){ if(!e||(e.side!=='sell'&&e.side!=='buy')||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
+  if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,e.side); }catch(_){} return null; }
   const r=S.rcpt.get(k); if(!(e.usd>0)&&r&&r.usd>0) e={...e,usd:r.usd};
   S.rcptDrawn.add(k); return e; }
-function onFillReceipt(d){ if(!d||!d.txHash||d.side!=='sell') return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
+function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
   S.rcpt.set(k,{usd}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
   if(S.rcptDrawn.has(k)) return;   // the feed swap already drew it
   S.rcptDrawn.add(k); if(S.rcptDrawn.size>400) S.rcptDrawn=new Set(Array.from(S.rcptDrawn).slice(-200));
+  if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
   if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:d.impactPct,trader:null,mine:true,fullStack:fs}); }
   S.feed.unshift({txt:`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#ffb0c8'}); S.feed.length=Math.min(S.feed.length,7); }
+/* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
+   (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
+function ownBuyReceipt(usd,k){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
+  if(!(usd>0)) return; S.fuelers.you=(S.fuelers.you||0)+usd; award('first','FIRST FLAME','first confirmed thrust'); momNote('buy',usd); S.volEma+=usd; S.buyEma+=usd;
+  S.feed.unshift({txt:`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#9ff3c8'}); S.feed.length=Math.min(S.feed.length,7); }
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */

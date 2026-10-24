@@ -170,7 +170,7 @@ ok(/disciple:fillreceipt/.test(hud) && /disciple:fillreceipt/.test(tb) && /txHas
   ok(b2 === 700n && reads === 2, "lagging node right after our own buy: re-read once, then trust the receipt-bumped cache");
   const b3 = await LS.freshSellBalance(async () => 700n, async () => { throw new Error("x"); }, 0, 1e9, async () => {});
   ok(b3 === 700n, "no cache → fresh balanceOf"); }
-ok(/freshSellBalance\(\(\) => tokenBalance\(/.test(tb), "TradeBridge: sells size from a fresh tokenBalance (balanceOf) read");
+ok(/freshSellBalance\(\(\) => ownBalance\(pc, token as Address, me, \(\) => tokenBalance\(/.test(tb), "TradeBridge: sells size from a fresh tokenBalance (balanceOf) read (through the own-balance ledger: never a stale pre-fill value)");
 { // engine trade(): live DUMP ALL → frac 1 to the bridge, not blocked by the fuelers stack / MIN_SHOT
   function tradeEnv({ live, liveTokens = 0, hold = { tokens: 0, valueUsd: 0 }, fuel = 0 }) {
     const E = { submits: [], flashes: [] };
