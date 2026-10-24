@@ -85,7 +85,7 @@ function cashEnv({ live = false, balance = 100, sim = false, usd = 10 } = {}) {
   const tb = rd("components/TradeBridge.tsx");
   const boostBtn = tb.slice(tb.indexOf('data-testid="buy-btn"'), tb.indexOf('data-testid="sell-btn"'));
   ok(/aria-disabled=\{short( \|\| full)?\} disabled=\{short( \|\| full)?\}/.test(boostBtn) && /opacity: short( \|\| full)? \? 0\.4 : 1/.test(boostBtn) && /cursor: short( \|\| full)? \? "not-allowed"/.test(boostBtn), "BOOST button greys out + disables when short (same pattern as DUMP; rapid-tap: also when 3 are in flight)");
-  ok(/const short = (rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd(, dec)?\) : )?(cashUsd|spendable) != null && (cashUsd|spendable) \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance; live: minus pending reservations + gas) < the active BOOST amount (custom $ wins)");
+  ok(/const short = (rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd(, dec|, gasKindFor\("buy", shotUsd, gradRef\.current, markRef\.current\.mcap\))?\) : )?(cashUsd|spendable) != null && (cashUsd|spendable) \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance; live: minus pending reservations + gas) < the active BOOST amount (custom $ wins)");
   ok(/ownBalance\(pc, usdg, me, \(\) => balanceHint\(pc, usdg, me, 4000\)\), decimalsOf\(pc, usdg\)/.test(tb) && /new CustomEvent\("disciple:cash"/.test(tb), "live cash = the account's USDG, pushed to the engine (disciple:cash)");
   ok(/setLast\(\(l\) => \(l\.startsWith\("✕"\) \? "" : l\)\); setHint\(""\); \}, \[amtKey\]\)/.test(tb), "trade bar drops a stale ✕ line when the amount changes");
   const wb = rd("lib/flight/workerBridge.ts");
@@ -118,7 +118,7 @@ console.log("— 4. jargon");
   ok(lits.length > 50 && jar.length === 0, `engine HUD text (${lits.length} strings) is jargon-free${jar.length ? ": " + jar.join(" | ") : ""}`);
   ok(/fuelers:\{'you':0\}/.test(eng) && /e\.trader\?short\(e\.trader\):null; if\(who\)/.test(eng), "no made-up wallets seeded or credited for unknown traders");
   const tb = rd("components/TradeBridge.tsx");
-  ok(!/b\.venue/.test(tb) && !/✓ \$\{r\.txHash/.test(tb), "trade bar: no venue name / tx hash in the status line");
+  ok(!/(setLast|setPreview)\([^;]*b\.venue/.test(tb) && !/✓ \$\{r\.txHash/.test(tb), "trade bar: no venue name / tx hash in the status line");
   const i18n = rd("lib/game/i18n.ts"), pctTitles = [...i18n.matchAll(/"pnl\.pctTitle": "([^"]*)"/g)].map((m) => m[1]);
   ok(pctTitles.length >= 5 && pctTitles.every((s) => !/gas|ガス|가스/i.test(s)), "PnL % tooltip (all languages) no longer mentions gas");
   ok(!/sell gas/.test(rd("components/PnlHud.tsx")), "PnL HUD exit-fee tooltip has no 'sell gas'");

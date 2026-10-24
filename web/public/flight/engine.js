@@ -747,10 +747,10 @@ function pendingCount(){ let n=0; for(const p of S.pending||[]) if(p.state==='pe
 /** cash − Σ pending buys' $ − a gas reserve per pending op − this op's own gas reserve (S.gasPerOpUsd: live only). */
 function spendableCash(cash){ const g=window.__discipleTrade&&S.gasPerOpUsd>0?S.gasPerOpUsd:0; let held=g;
   for(const p of S.pending||[]) if(p.state==='pending') held+=(p.side==='buy'?p.usd:0)+g; return cash-held; }
-function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // PLACEHOLDER copy (lee / BRAND)
+function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // final copy (lee, 11:25 CT)
   S.flashes.push({txt:'3 IN FLIGHT',life:0.7,inflight:1}); }
 /** pending_unknown (SITE): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
-function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; txt=String(txt||'Still confirming your last trade…');   // SITE PENDING_UNKNOWN_MSG (PLACEHOLDER copy)
+function stillConfirming(p,ba,txt){ p.unknown=1; if(ba) ba.unk=1; txt=String(txt||'Still confirming your last trade…');   // SITE PENDING_UNKNOWN_MSG (final copy, lee 11:25 CT)
   const f=S.flashes.find(x=>x.confirming); if(f){ f.life=1.8; f.txt=txt; } else S.flashes.push({txt,life:1.8,confirming:1}); }
 function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
 /* @rapidtap-end */

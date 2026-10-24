@@ -23,7 +23,7 @@ import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettin
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 import { readCoinRules } from "@/lib/flight/coinRules";
-import { COPY, REJECTED, awaitResolution, isPendingUnknown, nextPressId, releasePress, reservePress, reservePressTokens, canSpend, rawToUsd, spendableRaw, tradeErrorCopy, unreservedTokens } from "@/lib/flight/rapidTap";
+import { COPY, REJECTED, awaitResolution, gasKindFor, isPendingUnknown, nextPressId, type GradHint, releasePress, reservePress, reservePressTokens, canSpend, rawToUsd, spendableRaw, tradeErrorCopy, unreservedTokens } from "@/lib/flight/rapidTap";
 import { reservedTokens, subscribe as onReservations } from "@/lib/flight/reservationsShim";
 import { gasReservePerOp, warmGasPrice } from "@/lib/flight/gasReserve";
 /** per-op gas reserve in $ (FLOW's accessor, adapted) — pushed to the engine with disciple:cash for its reservation check */
@@ -111,6 +111,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ mcap: number; supply?: number }>).detail; if (d?.mcap > 0) markRef.current = { mcap: d.mcap, supply: d.supply || DEFAULT_SUPPLY }; };
     addEventListener("disciple:mark", h); return () => removeEventListener("disciple:mark", h); }, []);
   const lastOwnTradeAt = useRef(0);
+  // gas kind (FLOW GasOpKind): the warm buy preview for the selected amount (graduates / mcapAfter / venue) → gasKindFor
+  const gradRef = useRef<GradHint | null>(null);
+  // the press whose "· sending…" line is showing: disciple:op events update it only when their pressId matches (no heuristic)
+  const linePress = useRef<string | null>(null);
   const warmRef = useRef<() => Promise<void>>(async () => {});   // HOT PATH warm tick (below); re-run right after our own trade
   const liveTokens = useRef(0);   // last real balanceOf (whole tokens) of the trading account
   // Swap settings, per scope (sim / paper / live)
@@ -168,7 +172,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (ch.length) dispatchEvent(new CustomEvent("disciple:ownbalance", { detail: { txHash: hash, tokens: ch.map((c) => c.token) } }));
       } catch { /* the reconcile poll catches up */ }
     };
-    const bookReceipt = async (hash: string, side: "buy" | "sell", bag?: number, logs?: LogLike[]) => {
+    const bookReceipt = async (hash: string, side: "buy" | "sell", pressId?: string, bag?: number, logs?: LogLike[]) => {
       try {
         const me = await activeAddress();
         let rl = logs;
@@ -192,7 +196,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const m = markRef.current;
         const x = decodeTradeFill(rl as unknown as { address: string; topics: string[]; data: string }[],
           { token, trader: me, router: deployment().router, usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
-        if (x && x.side === side) { dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}), blockNumber: rcpt.blockNumber, trader: me, token, logs: rl } })); return x; }
+        if (x && x.side === side) { dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, ...(pressId ? { pressId } : {}), usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}), blockNumber: rcpt.blockNumber, trader: me, token, logs: rl } })); return x; }
         return null;
       } catch { return null; /* the estimate stays booked */ }
     };
@@ -200,13 +204,15 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       const t0 = performance.now(); let quoteAt: number | undefined;
       tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
       // RAPID TAP cash check, raw bigint (sync): this BOOST on top of every pending press' spend + gas reserves
-      if (side === "buy" && CASH_RAW.v !== null && !canSpend(CASH_RAW.v, usd)) {
-        const avail = rawToUsd(spendableRaw(CASH_RAW.v));
+      // gas kind: "gradBuy" (6M-gas reserve) when this BOOST could graduate the curve, else "trade" (sync, from the preview)
+      const kind = gasKindFor(side, usd, gradRef.current, markRef.current.mcap);
+      if (side === "buy" && CASH_RAW.v !== null && !canSpend(CASH_RAW.v, usd, kind)) {
+        const avail = rawToUsd(spendableRaw(CASH_RAW.v, true, kind));
         const m = `Not enough cash: ${fmtMoney(usd)} BOOST, you have ${fmtMoney(Math.max(0, avail))}`; setLast(`✕ ${m}`); return { ok: false, reason: m };
       }
       // RAPID TAP: this press's reservation, SYNC at entry (no await): buy $ + one op's gas now; a sell's tokens once sized.
       // Released on the result (slow path: once its receipt is booked) ⇒ the next press sizes from what is really left.
-      const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined);
+      const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined, kind);
       let releaseAfter: Promise<unknown> | undefined, keep = false, bag: number | undefined, rel: "filled" | "error" | "cancel" = "error";
       // AUDIT: SITE 'pending_unknown' (receipt / relay timeout) = sent, still confirming — NOT failed. SITE keeps the hold
       // (release() refuses it) and its watcher (≤ 2 min, never resends) ends it: "resolved" (filled | error) then "release".
@@ -219,10 +225,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
             lastOwnTradeAt.current = Date.now();
             // txHash ⇒ booked from its receipt (balances pinned at the receipt block); no amountOut / no txHash (the watcher
             // saw the nonce move but not the log) ⇒ the balances are re-read (below) and the done line uses the press $.
-            const fill = out.txHash ? await bookReceipt(out.txHash, side, bag) : null;
+            const fill = out.txHash ? await bookReceipt(out.txHash, side, pressId, bag) : null;
             setLast(doneLine(side, usd, { ok: true }, fill, fmtMoney));
             dispatchEvent(new Event("disciple:livetrade"));   // re-read cash / bag (pinned where the receipt block is known)
-            dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, txHash: out.txHash, ok: true, late: true, usd: fill ? fill.usd : usd, at: performance.now() } }));
+            dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, pressId, txHash: out.txHash, ok: true, late: true, usd: fill ? fill.usd : usd, at: performance.now() } }));
             return { ok: true, txHash: out.txHash, lateFill: true, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}) };
           }
           if (out.outcome === "error") { setLast(`✕ ${REJECTED}`); return { ok: false, reason: REJECTED }; }   // dropped / reverted: definite
@@ -236,6 +242,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       const bump = (d: number) => { pt[side] = Math.max(0, pt[side] + d); dispatchEvent(new CustomEvent(TRADE_PENDING_EVENT, { detail: { ...pt } })); };
       bump(1);
       try {
+        linePress.current = pressId;
         setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         // % sells size from the (polled, ≤5 s) balance hint; $ shots from the cached launch quote price ⇒ no reads when warm
         let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await shotAmountIn(pc, token as Address, side, usd);
@@ -259,9 +266,12 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const slip = clampSlippage(slippageBps(cfgRef.current), sessionMaxSlippageBps());
         if (slip.capped) dispatchEvent(new CustomEvent("disciple:slippagecap", { detail: { maxBps: slip.sessionMaxBps, requestedBps: slip.requestedBps, suggestBps: suggestedSessionMax(slip) } }));
         // reservationId = this press id (SITE #144 TradeParams.reservationId): the trade layer merges into OUR reservation
-        // instead of adding its own (else the press is counted twice). TODO(#144): plain field once TradeParams has it.
-        const params = { token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps, reservationId: pressId };
-        const r = await (side === "buy" ? client.buy : client.sell)(params);
+        // instead of adding its own (else the press is counted twice). pressId = the same id (FLOW #145 TradeParams.pressId):
+        // the AA layer tags its disciple:op events / errors / result with it. Both optional + ignored by a stack without them.
+        // TODO(#144/#145): plain fields once TradeParams has them.
+        const params = { token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps, reservationId: pressId, pressId };
+        const r: Awaited<ReturnType<typeof client.buy>> & { pressId?: string } = await (side === "buy" ? client.buy : client.sell)(params);
+        const rp = r.pressId ?? pressId;
         const resultAt = performance.now(); if (r.ok) rel = "filled";
         if (!r.ok && isPendingUnknown(r)) return pendingUnknown();   // TradeResult.errorCode "pending_unknown": still confirming, not failed
         if (!r.ok) r.reason = tradeErrorCopy(r as typeof r & { code?: string; errorCode?: string; retryAfterMs?: number });   // rate_limited → "Slow down", spend_limit → "Spend limit reached"
@@ -269,11 +279,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // Fill from the logs the send returned, right now (no 2nd waitForTransactionReceipt); slow path without logs: polled below
         const logs = r.ok ? takeReceipt(r.txHash) : undefined;
         if (r.ok && r.txHash && logs) await applyOwn(r.txHash, logs);   // position / cash from the receipt, before fillreceipt
-        const fill = r.ok && r.txHash && logs ? await bookReceipt(r.txHash, side, bag, logs) : null;
+        const fill = r.ok && r.txHash && logs ? await bookReceipt(r.txHash, side, rp, bag, logs) : null;
         const fillAt = fill ? performance.now() : undefined;
         // "✓ done" shows the FILLED $ from the decoded logs (was: the pre-trade estimate, e.g. $208.25 vs a $245 fill)
         setLast(doneLine(side, usd, r, fill, fmtMoney));
-        if (r.ok && r.txHash && !logs) releaseAfter = bookReceipt(r.txHash, side, bag).then((x) => { if (x) setLast(doneLine(side, usd, r, x, fmtMoney)); });
+        if (r.ok && r.txHash && !logs) releaseAfter = bookReceipt(r.txHash, side, rp, bag).then((x) => { if (x) setLast(doneLine(side, usd, r, x, fmtMoney)); });
         // balances: applied from the receipt logs above (applyOwn; slow path: from the polled receipt). No post-trade balanceOf
         // here (was: buy bumpBalance(amountOut) / sell tokenBalance after 1.2 s, which a lagging RPC could roll back).
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
@@ -281,9 +291,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // TODO(#140): REMOVE this immediate post-trade re-warm once SITE #140 lands: protocol-viem then re-reads the quotes
         // itself after our own trade. KEEP the 150 ms custom-$ debounce re-warm below (useEffect on customUsd).
         setTimeout(() => void warmRef.current(), 0);
-        const ms = tradeMs(t0, { quoteAt, op: marks.byTx(r.txHash), resultAt, fillAt });
+        const ms = tradeMs(t0, { quoteAt, op: (marks.byPress(rp) ?? marks.byTx(r.txHash)), resultAt, fillAt });
         // timing instrumentation (no UI): addEventListener('disciple:op', e => e.detail.phase === 'filled' && console.log(e.detail))
-        dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, txHash: r.txHash, ok: r.ok, usd: fill ? fill.usd : usd, logs: logs ? "returned" : "polled", ms, clickToConfirmMs: ms.confirm, hoverMs: boostHoverMs(performance.now() - t0),   /* rocket waited at the 70 % cap (engine @boostanim) */ op: marks.byTx(r.txHash)?.timings, at: performance.now() } }));
+        dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, pressId: rp, txHash: r.txHash, ok: r.ok, usd: fill ? fill.usd : usd, logs: logs ? "returned" : "polled", ms, clickToConfirmMs: ms.confirm, hoverMs: boostHoverMs(performance.now() - t0),   /* rocket waited at the 70 % cap (engine @boostanim) */ op: (marks.byPress(rp) ?? marks.byTx(r.txHash))?.timings, at: performance.now() } }));
         return { ok: r.ok, txHash: r.txHash, reason: r.reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
       } catch (e) {
         if (isPendingUnknown(e)) return pendingUnknown();   // ProtocolError("pending_unknown"): SITE holds + watches it
@@ -325,8 +335,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     // keep the relayer's trust entry for this sender fresh (server TTL 60 s) + fees/deploy state warm
     const iw = setInterval(() => { if (!document.hidden) void aaWarm().catch(() => undefined); }, 20_000);
     const sub = (e: Event) => {
-      const d = (e as CustomEvent<{ phase: string; txHash?: string }>).detail;
-      if (d?.phase === "submitted") setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· sent ⚡"));
+      const d = (e as CustomEvent<{ phase: string; txHash?: string; pressId?: string }>).detail;
+      // FLOW #145 tags disciple:op with the press id ⇒ only THAT press's line flips to "sent"; an untagged event (stack
+      // without pressId) keeps the old behaviour. "error" (FLOW's terminal phase): the trade result paints the ✕ line.
+      const mine = !d?.pressId || d.pressId === linePress.current;
+      if (d?.phase === "submitted" && mine) setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· sent ⚡"));
       // the trade moved the price: its route quotes were dropped — re-warm right away (after the drop runs)
       if (d?.phase === "confirmed") setTimeout(() => void tick(), 0);
     };
@@ -337,12 +350,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // Preview for the selected ammo from on-chain views (curve quoteBuy/quoteSell, router quoteExactIn).
   useEffect(() => {
     if (!valid) return;
-    let alive = true;
+    let alive = true; gradRef.current = null;
     const usd = ammo.usd[mode] ?? MODES[mode].usd;
     (async () => {
       try {
         const pc = publicClient();
         const b = await readQuote(pc, token as Address, "buy", await usdToAmountIn(pc, token as Address, "buy", usd));
+        if (alive) gradRef.current = { usd, graduates: b.graduates, mcapAfterUsd: b.mcapAfterUsd, venue: b.venue };   // gas kind
         const s = await readQuote(pc, token as Address, "sell", await usdToAmountIn(pc, token as Address, "sell", usd));
         if (alive) setPreview(`price move: buy ▲${b.impactPct.toFixed(2)}% · sell ▼${Math.abs(s.impactPct).toFixed(2)}%${b.snipeFee > BigInt(0) ? " · anti-snipe fee" : ""}`);
       } catch { if (alive) setPreview(""); }
@@ -503,7 +517,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // spendable = cash − Σ pending (spend + gas reserve) − this op's gas (live: the reservation registry; paper: the engine checks)
   const rawLive = live && CASH_RAW.v !== null;   // live: raw bigint compare (decimals from config); $ only for the label
   const spendable = rawLive ? rawToUsd(spendableRaw(CASH_RAW.v!)) : cashUsd;
-  const short = rawLive ? !canSpend(CASH_RAW.v!, shotUsd) : spendable != null && spendable + 1e-9 < shotUsd;   // BOOST greyed out: the amount is more than the spendable cash
+  const short = rawLive ? !canSpend(CASH_RAW.v!, shotUsd, gasKindFor("buy", shotUsd, gradRef.current, markRef.current.mcap)) : spendable != null && spendable + 1e-9 < shotUsd;   // BOOST greyed out: the amount is more than the spendable cash
   const shortMsg = short ? `Not enough cash: ${fmtShot(shotUsd)} BOOST, you have ${fmtShot(Math.max(0, spendable ?? 0))}${inFlight.n ? ` (${inFlight.n} pending)` : ""}` : "";
   const full = inFlight.n >= inFlight.max;   // 3 in flight: BOOST + DUMP greyed until one resolves
   return (

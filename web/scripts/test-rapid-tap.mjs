@@ -6,7 +6,7 @@
 //   4. DUMP % from unreserved tokens: 50 % then 50 % = 75 %
 //   5. stacked ghosts: a failed middle press rolls back only its own step
 //   6. no await before aaSend (execCalls, and the reservation path is sync); typed error codes → copy
-//   7. AUDIT: SITE 'pending_unknown' (#144 af12a357) is NOT a failure: hover + SITE keeps the hold (GAME can't release it);
+//   7. AUDIT: SITE 'pending_unknown' (#144 01b27d97) is NOT a failure: hover + SITE keeps the hold (GAME can't release it);
 //      resolved filled = a normal fill, resolved error = ease back + "That didn't go through.", release with no amountOut
 //      = filled, booked from a balance re-read
 //   gas reserve: derived cold value (op gas limit × gas price × 1.5 × ETH/USD), never a flat 10 USDG; a $1 BOOST is never
@@ -25,12 +25,15 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rapidtap-"));
 const USDG = "0x25030Bff74764aD72b912276a603717DB1C00644";
 fs.writeFileSync(path.join(tmp, "chains.mjs"), `export const D = { dec: 18 }; export const deployment = () => ({ usdgDecimals: D.dec, usdg: "${USDG}", defaultQuote: "0x0000000000000000000000000000000000000001" });`);
 fs.writeFileSync(path.join(tmp, "wallet.mjs"), "export const W = { smart: true }; export const isSmartMode = () => W.smart;");
-fs.writeFileSync(path.join(tmp, "config.mjs"), `export const GAS = ${JSON.stringify({ execGas: 200000, ethUsd: 2372, robinhoodGwei: 0.0207, maxOverhead: 0.05 })}; export const CURVE = { decimals: 18 }; export const STRATEGY_TOKEN = { address: "0x0000000000000000000000000000000000000002", decimals: 18 };`);
+fs.writeFileSync(path.join(tmp, "config.mjs"), `export const GAS = ${JSON.stringify({ execGas: 200000, ethUsd: 2372, robinhoodGwei: 0.0207, maxOverhead: 0.05 })}; export const CURVE = { decimals: 18, graduationMcap: 33000 }; export const STRATEGY_TOKEN = { address: "0x0000000000000000000000000000000000000002", decimals: 18 };`);
 fs.writeFileSync(path.join(tmp, "abi.mjs"), "export const tokenAbi = [];");
+{ const g = rd("lib/aa/gasPolicy.ts"), pick = (re) => { const m = g.match(re); if (!m) throw new Error("gasPolicy " + re); return m[0]; };
+  // the REAL clientFees + its constants, sliced out of lib/aa/gasPolicy (its abi imports aren't needed for this)
+  fs.writeFileSync(path.join(tmp, "gasPolicy.ts"), [pick(/export const RELAYER_TIP = [^\n]+/), pick(/export const CLIENT_FEE_HEADROOM_PCT = [^\n]+/), pick(/export function clientFees\([\s\S]*?\n\}/)].join("\n")); }
 const viemUrl = import.meta.resolve("viem");
 ok(/robinhoodGwei: 0\.0207/.test(rd("lib/config.ts")) && /ethUsd: 2372/.test(rd("lib/config.ts")), "config stub = lib/config GAS (gwei / ETH-USD)");
-const rew = (src) => src.replace(/from "@\/lib\/(chains|wallet|config|usdg)"/g, 'from "./$1"').replace(/from "\.\.\/usdg"/g, 'from "./usdg"').replace(/from "viem"/g, `from "${viemUrl}"`).replace(/from "(\.\/[^"]+)"/g, 'from "$1.mjs"');
-for (const [m, f] of [["rapidTap", "lib/flight/rapidTap.ts"], ["reservationsShim", "lib/flight/reservationsShim.ts"], ["gasReserve", "lib/flight/gasReserve.ts"], ["usdg", "lib/usdg.ts"]])
+const rew = (src) => src.replace(/from "@\/lib\/(chains|wallet|config|usdg)"/g, 'from "./$1"').replace(/from "@\/lib\/aa\/gasPolicy"/g, 'from "./gasPolicy"').replace(/from "\.\.\/usdg"/g, 'from "./usdg"').replace(/from "viem"/g, `from "${viemUrl}"`).replace(/from "(\.\/[^"]+)"/g, 'from "$1.mjs"');
+for (const [m, f] of [["gasPolicy", path.relative(web, path.join(tmp, "gasPolicy.ts"))], ["rapidTap", "lib/flight/rapidTap.ts"], ["reservationsShim", "lib/flight/reservationsShim.ts"], ["gasReserve", "lib/flight/gasReserve.ts"], ["usdg", "lib/usdg.ts"]])
   fs.writeFileSync(path.join(tmp, m + ".mjs"), ts.transpileModule(rew(rd(f)), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 const imp = (m) => import(pathToFileURL(path.join(tmp, m + ".mjs")).href);
 const RT = await imp("rapidTap"), RS = await imp("reservationsShim"), GR = await imp("gasReserve"), CH = await imp("chains"), WL = await imp("wallet");
@@ -95,44 +98,63 @@ console.log("— 3. cash reservation incl. gas");
   ok(E.sent.length === 1, "live: 5 ¢ short of the gas reserve ⇒ the 2nd BOOST is blocked"); }
 { const E = engine({ live: false, cash: 25, gas: 0.1 }); E.trade("buy"); E.at(300); E.trade("buy"); E.at(600); E.trade("buy");
   ok(E.sent.length === 2, "paper: Σ pending $ reserved too (no gas in paper): $25 ⇒ 2 × $10"); }
-// gas reserve (FLOW #145 adapter): DERIVED cold value — op gas limit × gas price × 1.5 × ETH/USD — never a flat 10 USDG
-const OPG = BigInt(1_800_000 + 350_000 + 60_000 + 300_000 + 300_000);
-{ const fp = rd("lib/aa/fastPath.ts"), gp = rd("lib/aa/gasPolicy.ts");
-  ok(/callGasLimit: BigInt\(1_800_000\), verificationGasLimit: BigInt\(350_000\), preVerificationGas: BigInt\(60_000\)/.test(fp) && /paymasterVerificationGasLimit: BigInt\(300_000\),\s*paymasterPostOpGasLimit: BigInt\(300_000\)/.test(gp) && GR.OP_GAS_LIMIT === OPG,
-    "OP_GAS_LIMIT = STATIC_GAS (1.8M + 350k + 60k) + paymaster limits (300k + 300k) = 2.81M");
-  ok(/CLIENT_FEE_HEADROOM_PCT = BigInt\(150\)/.test(gp) && GR.GAS_HEADROOM_PCT === BigInt(150), "headroom = the client's fee headroom (1.5x)"); }
-const derived = (dec, gwei = 0.0207, eth = 2372) => { const wei = OPG * BigInt(Math.ceil(gwei * 1e9)) * BigInt(150) / BigInt(100), num = wei * BigInt(eth * 1e6) * BigInt(10) ** BigInt(dec), den = BigInt(10) ** BigInt(24); return (num + den - BigInt(1)) / den; };
-CH.D.dec = 18; WL.W.smart = true; GR.setGasPrice(null);
-const cold18 = GR.gasReservePerOp(), coldUsd = Number(cold18) / 1e18;
-ok(GR.peekGasReservePerOp() === null && cold18 === derived(18), `cold (18 dec, config 0.0207 gwei, $2372 ETH): derived = ${coldUsd.toFixed(4)} USDG (not 10)`);
-ok(coldUsd > 0.15 && coldUsd < 0.3, `cold reserve ≈ $0.21 per op (${coldUsd.toFixed(4)})`);
-CH.D.dec = 6; ok(GR.gasReservePerOp() === derived(6) && Math.abs(Number(derived(6)) / 1e6 - coldUsd) < 2e-6, "6 dec after the redeploy: same $, raw at 6 dec (decimals from lib/usdg, not hard-coded)");
-CH.D.dec = 18; GR.setGasPrice(BigInt(41_400_000)); ok(GR.gasReservePerOp() === derived(18, 0.0414), "live gas price (warmGasPrice → eth_gasPrice) replaces the config gwei: 2× price ⇒ 2× reserve");
-GR.setGasPrice(null);
-{ let n = 0; await GR.warmGasPrice({ getGasPrice: async () => { n++; return BigInt(20_700_000); } }); ok(n === 1 && GR.gasReservePerOp() === derived(18), "warmGasPrice reads eth_gasPrice in the background"); }
-{ await GR.warmGasPrice({ getGasPrice: async () => { throw new Error("rpc"); } }); ok(GR.gasReservePerOp() === derived(18), "warmGasPrice never throws (keeps the last price)"); }
-WL.W.smart = false; ok(GR.gasReservePerOp() === BigInt(0) && GR.peekGasReservePerOp() === BigInt(0), "outside smart mode: 0n (both)"); WL.W.smart = true;
-GR.setGasReservePeek(() => E18 / BigInt(20)); ok(GR.peekGasReservePerOp() === E18 / BigInt(20) && GR.gasReservePerOp() === E18 / BigInt(20), "warm: FLOW's cached maxTokenCost ($0.05) is used as-is");
-{ const spike = derived(18) * BigInt(3); GR.setGasPrice(BigInt(20_700_000));   // gas spike: real maxTokenCost > derived (config/stale price)
-  GR.setGasReservePeek(() => spike); ok(GR.gasReservePerOp() === spike && GR.gasReservePerOp() > GR.derivedGasReserve(), "warm, gas spike: the cached REAL maxTokenCost wins even above the derived value (no min ⇒ no under-reserve / AA33)");
-  GR.setGasPrice(null); }
-GR.setGasReservePeek(() => BigInt(10) * E18); ok(GR.gasReservePerOp() === BigInt(10) * E18, "warm stale 10 USDG (FLOW's real maxCostCap) is honoured as-is");
-ok(!RT.canSpend(BigInt(125) * E18 / BigInt(100), 1), "…so with a stale 10 USDG cached a $1 BOOST on $1.25 cash is short (FLOW's real cap; accepted, noted in the PR)");
-GR.setGasReservePeek(null);
-ok(typeof GR.gasReservePerOp() === "bigint", "gasReservePerOp(): bigint, sync");
-const G = GR.gasReservePerOp(); ok(GR.peekGasReservePerOp() === null && G === derived(18), "cold again: derived value");
-// $1 BOOST: never blocked when cash covers the trade + the op's real (max chargeable) gas
-{ const cash = E18 + G;
-  ok(RT.canSpend(cash, 1) && !RT.canSpend(cash - BigInt(1), 1), `$1 BOOST with $1 + one op's gas (${(Number(G) / 1e18).toFixed(4)}) passes; 1 wei less is short`);
-  ok(RT.canSpend(BigInt(125) * E18 / BigInt(100), 1), "$1 BOOST with $1.25 cash goes out on a COLD cache (derived reserve; a flat 10 USDG cold value blocked it)");
-  ok(!(BigInt(125) * E18 / BigInt(100) >= E18 + BigInt(10) * E18), "…(the old 10 USDG cold cap would have needed $11)");
+// gas reserve (FLOW #145 @e693cb5c adapter): gasReservePerOp(kind) — warm = the signed allowance's real maxTokenCost (as is),
+// cold = gas limit(kind) × allowance maxFee formula × rate, capped at maxCostCap. FLOW's math, same numbers.
+const usdOf = (raw, dec = 18) => Number(raw) / 10 ** dec;
+{ const g = rd("lib/aa/gasPolicy.ts");
+  ok(/maxFeePerGas = \(\(baseFee \* BigInt\(2\) \+ maxPriorityFeePerGas\) \* headroomPct\) \/ BigInt\(100\)/.test(g) && /maxPriorityFeePerGas = \(t \* BigInt\(110\)\) \/ BigInt\(100\)/.test(g),
+    "clientFees (lib/aa/gasPolicy, the real one is used): maxFee = (2·base + tip·1.1) × 1.5 — FLOW's allowance formula input");
+  ok(GR.TRADE_GAS_LIMIT === BigInt(2_410_000) && GR.GRAD_GAS_LIMIT === BigInt(6_000_000) && GR.ALLOWANCE_FEE_MULT === BigInt(2), "gas limits = FLOW: trade 2.41M (ALLOWANCE_GAS), gradBuy 6M (GRAD_GAS_CAPS.total); fee ×2 (ALLOWANCE_FEE_MULT)");
+  const fp = rd("lib/aa/fastPath.ts");
+  ok(/callGasLimit: BigInt\(1_800_000\), verificationGasLimit: BigInt\(350_000\), preVerificationGas: BigInt\(60_000\)/.test(fp), "trade limit's STATIC_GAS part matches lib/aa/fastPath"); }
+CH.D.dec = 18; WL.W.smart = true; GR.setGasPrice(null); GR.setWarmAllowance(null); GR.setPaymasterCap(undefined); GR.setOpMaxFee(undefined);
+{ const t = GR.gasReservePerOp(), gb = GR.gasReservePerOp("gradBuy");
+  ok(GR.peekGasReservePerOp() === null && Math.abs(usdOf(t) - 0.7289) < 0.001 && Math.abs(usdOf(gb) - 1.8147) < 0.002, `cold, config constants (0.0207 gwei, $2372): trade ${usdOf(t).toFixed(4)}, gradBuy ${usdOf(gb).toFixed(4)} (FLOW: 0.73 / 1.81)`); }
+GR.setGasPrice(BigInt(10_000_000));   // today's live eth_gasPrice 0.01 gwei
+const COLD = GR.gasReservePerOp();
+ok(Math.abs(usdOf(COLD) - 0.3619) < 0.001 && Math.abs(usdOf(GR.gasReservePerOp("gradBuy")) - 0.9009) < 0.002, `cold, live 0.01 gwei: trade ${usdOf(COLD).toFixed(4)} (≈ 0.36), gradBuy ${usdOf(GR.gasReservePerOp("gradBuy")).toFixed(4)} (≈ 0.90)`);
+ok(COLD === GR.derivedGasReserve({ kind: "trade", gasPriceWei: BigInt(10_000_000), decimals: 18 }), "= FLOW derivedGasReserve (tokenCost(limit × allowanceMaxFee(gp), rate), rounded up)");
+CH.D.dec = 6; ok(Math.abs(usdOf(GR.gasReservePerOp(), 6) - usdOf(COLD)) < 2e-6, "6 dec after the redeploy: same $, raw at 6 dec (lib/usdg decimals)"); CH.D.dec = 18;
+GR.setPaymasterCap(E18 / BigInt(2)); ok(GR.gasReservePerOp("gradBuy") === E18 / BigInt(2) && GR.gasReservePerOp() === COLD, "cold value clamped at the paymaster's maxCostCap (contract refuses more)"); GR.setPaymasterCap(undefined);
+{ let n = 0; const pc = { getGasPrice: async () => { n++; return BigInt(10_000_000); } };
+  GR.setGasPrice(null); await GR.warmGasPrice(pc); await GR.warmGasPrice(pc); ok(n === 1 && GR.gasReservePerOp() === COLD, "warmGasPrice reads eth_gasPrice in the background, 30 s TTL (one read)");
+  await GR.warmGasPrice({ getGasPrice: async () => { throw new Error("rpc"); } }); ok(GR.gasReservePerOp() === COLD, "warmGasPrice never throws (keeps the last price)"); }
+WL.W.smart = false; ok(GR.gasReservePerOp() === BigInt(0) && GR.peekGasReservePerOp("gradBuy") === BigInt(0), "outside smart mode (gas not paid in USDG): 0n (both, both kinds)"); WL.W.smart = true;
+{ const rate = BigInt(2400) * E18, fee = BigInt(63_300_000);
+  const A = (mtc) => ({ maxTokenCost: mtc, rate, debt: BigInt(0), maxFeePerGas: fee });
+  GR.setWarmAllowance(() => A(E18 / BigInt(20))); ok(GR.peekGasReservePerOp() === E18 / BigInt(20) && GR.gasReservePerOp() === E18 / BigInt(20), "warm trade: the allowance's real maxTokenCost ($0.05) as is");
+  const spike = COLD * BigInt(3); GR.setWarmAllowance(() => A(spike)); ok(GR.gasReservePerOp() === spike && spike > COLD, "warm, gas spike: cached maxTokenCost above the derived value wins (no min ⇒ no AA33)");
+  GR.setWarmAllowance(() => ({ ...A(E18), debt: BigInt(7) })); ok(GR.gasReservePerOp("gradBuy") === GR.tokenCost(GR.GRAD_GAS_LIMIT * fee, rate) + BigInt(7), "warm gradBuy: tokenCost(6M × allowance maxFee, allowance rate) + debt (FLOW peekReserve)");
+  GR.setOpMaxFee(fee * BigInt(2)); ok(GR.gasReservePerOp("gradBuy") === GR.tokenCost(GR.GRAD_GAS_LIMIT * fee * BigInt(2), rate) + BigInt(7), "warm gradBuy: the higher cached op maxFee wins"); GR.setOpMaxFee(undefined);
+  GR.setWarmAllowance(null); ok(GR.gasReservePerOp() === GR.derivedGasReserve({ gasPriceWei: BigInt(10_000_000), rate, decimals: 18 }), "allowance gone stale ⇒ cold again, at the last signed rate (FLOW lastRate)");
+  GR.setWarmAllowance(() => A(BigInt(10) * E18)); ok(GR.gasReservePerOp() === BigInt(10) * E18, "warm stale 10 USDG (FLOW's real cap) is honoured as is");
+  ok(!RT.canSpend(BigInt(140) * E18 / BigInt(100), 1), "…so a $1 BOOST on $1.40 is short while that is cached (FLOW's real cap; accepted, noted in the PR)");
+  // FLOW's lastRate is module state: a last fresh allowance at the config rate puts the rest back on config numbers
+  GR.setWarmAllowance(() => ({ ...A(E18), rate: GR.configRate(18) })); GR.peekGasReservePerOp(); GR.setWarmAllowance(null); }
+GR.setGasPrice(BigInt(10_000_000));
+const G = GR.gasReservePerOp();
+// $1 BOOST: never blocked when cash covers the trade + the op's real (paymaster) gas — realistic cold reserve ≈ 0.36 USDG
+{ ok(GR.peekGasReservePerOp() === null, "cold cache for the $1 BOOST case");
+  const cash = E18 + G;
+  ok(RT.canSpend(cash, 1) && !RT.canSpend(cash - BigInt(1), 1), `$1 BOOST with $1 + one op's gas (${usdOf(G).toFixed(4)}) passes; 1 wei less is short`);
+  ok(RT.canSpend(BigInt(140) * E18 / BigInt(100), 1), "$1 BOOST with $1.40 cash goes out on a COLD cache at today's gas (reserve ≈ $0.36; a flat 10 USDG blocked it)");
   CH.D.dec = 6; const G6 = GR.gasReservePerOp(); ok(RT.canSpend(E6 + G6, 1) && !RT.canSpend(E6 + G6 - BigInt(1), 1), "same at 6 dec"); CH.D.dec = 18; }
-// GAME presses in SITE's registry (af12a357): cash math in raw bigint via RESERVATIONS.reservedRaw (decimals from lib/usdg)
+// gas kind: "gradBuy" when this BOOST could graduate the curve (FLOW GasOpKind)
+{ const H = (usd, graduates, mcapAfterUsd, venue = "curve") => ({ usd, graduates, mcapAfterUsd, venue });
+  ok(RT.gasKindFor("sell", 50, H(10, true, 34000), 32000) === "trade", "DUMP ⇒ trade");
+  ok(RT.gasKindFor("buy", 50, H(10, false, 20000, "router"), 40000) === "trade", "graduated (router venue) ⇒ trade");
+  ok(RT.gasKindFor("buy", 10, H(10, true, 33500), 32800) === "gradBuy", "preview says this amount graduates ⇒ gradBuy");
+  ok(RT.gasKindFor("buy", 5, H(10, false, 12000), 11000) === "trade", "smaller than a previewed amount that doesn't cross ⇒ trade");
+  ok(RT.gasKindFor("buy", 200, H(10, false, 31000), 30500) === "gradBuy" && RT.gasKindFor("buy", 20, H(10, false, 12000), 11000) === "trade", "bigger than previewed: scaled mcap estimate (×1.25 margin) decides");
+  ok(RT.gasKindFor("buy", 10, null, 31000) === "gradBuy" && RT.gasKindFor("buy", 10, null, 12000) === "trade" && RT.gasKindFor("buy", 10, null, 0) === "trade", "no preview: gradBuy only within 10 % of the grad mcap");
+  RT.reservePress("gk", "buy", "0xc", 10, "gradBuy"); ok(RS.RESERVATIONS.get("gk").gasReserve === GR.gasReservePerOp("gradBuy"), "a gradBuy BOOST holds the grad gas cap"); RT.releasePress("gk", "cancel");
+  ok(!RT.canSpend(E18 * BigInt(10) + G, 10, "gradBuy") && RT.canSpend(E18 * BigInt(10) + G, 10), "canSpend uses the kind's reserve"); }
+// GAME presses in SITE's registry (01b27d97): cash math in raw bigint via RESERVATIONS.reservedRaw (decimals from lib/usdg)
 { const evs = []; const off = RS.subscribe((e) => evs.push(e));
   RT.reservePress("a", "buy", "0xC0in", 10); RT.reservePress("b", "buy", "0xC0in", 5);
   const pend = RT.pendingCashRaw();
   ok(pend === BigInt(15) * E18 + BigInt(2) * G, `pending (raw, 18 dec) = Σ usd + Σ gas = 15 USDG + 2 × gas: ${pend}`);
-  ok(Math.abs(RS.reservedCash() - (15 + 2 * Number(G) / 1e18)) < 1e-9, "SITE reservedCash() ($) agrees at 18 dec (af12a357 fixed the 6-dec assumption)");
+  ok(Math.abs(RS.reservedCash() - (15 + 2 * Number(G) / 1e18)) < 1e-9, "SITE reservedCash() ($) agrees at 18 dec (01b27d97 fixed the 6-dec assumption)");
   const cash = BigInt(20) * E18;
   ok(RT.spendableRaw(cash) === cash - pend - G, "spendableRaw = raw cash − pending − own gas (bigint, no float)");
   const left = RT.rawToUsd(cash - pend - G);
@@ -149,12 +171,23 @@ const G = GR.gasReservePerOp(); ok(GR.peekGasReservePerOp() === null && G === de
   off(); const n = evs.length; RT.reservePress("z", "buy", "0xc0in", 1); ok(evs.length === n, "unsubscribe works"); RT.releasePress("z", "cancel"); }
 { CH.D.dec = 6; const G6 = GR.gasReservePerOp(); RT.reservePress("d6", "buy", "0xc", 10);
   ok(RT.pendingCashRaw() === BigInt(10) * E6 + G6 && Math.abs(RS.reservedCash() - (10 + Number(G6) / 1e6)) < 1e-9, "6 dec: raw pending + SITE reservedCash() both right"); RT.releasePress("d6", "cancel"); CH.D.dec = 18; }
-ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd\)/.test(tb) && /CASH_RAW\.v = raw;/.test(tb) && !/usdgDecimals \?\? (6|18)/.test(tb),
+ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, gasKindFor\("buy", shotUsd, gradRef\.current, markRef\.current\.mcap\)\)/.test(tb) && /CASH_RAW\.v = raw;/.test(tb) && !/usdgDecimals \?\? (6|18)/.test(tb),
   "TradeBridge short check: raw bigint vs the raw balance (decimals from lib/usdg, none hard-coded)");
-{ const i = tb.indexOf("window.__discipleTrade = async"), c = tb.indexOf("!canSpend(CASH_RAW.v, usd)", i), a = tb.indexOf("await ", i);
+{ const i = tb.indexOf("window.__discipleTrade = async"), c = tb.indexOf("!canSpend(CASH_RAW.v, usd, kind)", i), a = tb.indexOf("await ", i);
   ok(c > i && c < a, "TradeBridge: raw cash check on top of pending presses at entry, before any await"); }
 ok(/detail: \{ usd, gasPerOpUsd: gasUsd\(\) \}/.test(tb), "TradeBridge pushes the per-op gas reserve to the engine with disciple:cash");
 ok(/void warmGasPrice\(pc\);/.test(tb) && tb.indexOf("void warmGasPrice(pc)") > tb.indexOf("const poll = async"), "TradeBridge warms the live gas price in the cash poll (off the trade path)");
+{ RT.reservePress("dg", "sell", "0xc"); ok(RS.RESERVATIONS.get("dg").gasReserve === GR.gasReservePerOp("trade"), "DUMP: no explicit gasReserve passed — SITE's gasSource() (01b27d97: both sides) holds one trade op's gas"); RT.releasePress("dg", "cancel");
+  const rp = rd("lib/flight/rapidTap.ts"); const fn = rp.slice(rp.indexOf("export function reservePress"), rp.indexOf("export function reservePressTokens"));
+  ok(/kind === "gradBuy" \? \{ gasReserve: gasReservePerOp\("gradBuy"\) \} : \{\}/.test(fn) && !/gasReservePerOp\(\)/.test(fn), "reservePress passes gasReserve only for a gradBuy BOOST (never for DUMPs)");
+  ok(/const kind = gasKindFor\(side, usd, gradRef\.current, markRef\.current\.mcap\);/.test(tb) && /reservePress\(pressId, side, token, side === "buy" \? usd : undefined, kind\)/.test(tb), "TradeBridge: gas kind from the preview at entry (sync) → canSpend + reservePress");
+  ok(/gradRef\.current = \{ usd, graduates: b\.graduates, mcapAfterUsd: b\.mcapAfterUsd, venue: b\.venue \}/.test(tb), "gas-kind hint = the warm buy preview (graduates / mcapAfter / venue)"); }
+console.log("— pressId (FLOW #145)");
+ok(/reservationId: pressId, pressId \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
+ok(/bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb) && /bookReceipt\(r\.txHash, side, rp, bag\)/.test(tb) && /const rp = r\.pressId \?\? pressId;/.test(tb), "bookReceipt(r.txHash, side, r.pressId) (press id fallback when the stack doesn't return it)");
+ok(/"disciple:fillreceipt", \{ detail: \{ txHash: hash, side, \.\.\.\(pressId \? \{ pressId \} : \{\}\)/.test(tb), "disciple:fillreceipt detail carries pressId");
+ok(/const mine = !d\?\.pressId \|\| d\.pressId === linePress\.current;/.test(tb) && /d\?\.phase === "submitted" && mine/.test(tb) && /linePress\.current = pressId;/.test(tb), "disciple:op → press by pressId (untagged = legacy)");
+ok(/marks\.byPress\(rp\) \?\? marks\.byTx\(r\.txHash\)/.test(tb), "timing marks by pressId, txHash fallback");
 ok(!/GAS_RESERVE_COLD|\b10 \* |BigInt\(10\) \* BigInt\(10\) \*\* /.test(rd("lib/flight/gasReserve.ts")), "gasReserve.ts: no flat 10 USDG cold constant");
 
 console.log("— 4. DUMP % sizes from unreserved tokens");
@@ -201,7 +234,7 @@ ok(RT.tradeErrorCode({ code: "rate_limited", retryAfterMs: 500 }) === "rate_limi
 ok(RT.tradeErrorCopy({ ok: false, errorCode: "spend_limit", reason: "x" }) === "Spend limit reached", "TradeResult.errorCode → copy");
 ok(/reservationId: pressId/.test(tb), "TradeParams.reservationId = the press id (SITE #144: else counted twice)");
 
-console.log("— 7. AUDIT: pending_unknown (SITE #144 af12a357) is not a failure");
+console.log("— 7. AUDIT: pending_unknown (SITE #144 01b27d97) is not a failure");
 ok(RT.isPendingUnknown({ code: "pending_unknown" }) && RT.isPendingUnknown({ ok: false, errorCode: "pending_unknown" }), "ProtocolError.code / TradeResult.errorCode 'pending_unknown' = still confirming");
 ok(!RT.isPendingUnknown({ code: "Timeout", message: "Still confirming. Check back in a moment." }) && !RT.isPendingUnknown({ ok: false, reason: "timed out" }), "no 'Timeout' / string matching: only SITE's typed code");
 ok(RT.tradeErrorCopy({ ok: false, errorCode: "pending_unknown", reason: "x" }) === "Still confirming your last trade…" && RT.COPY.confirming === "Still confirming your last trade…", "copy = SITE's placeholder \"Still confirming your last trade…\"");
@@ -245,7 +278,7 @@ for (const lateOk of [true, false]) { const E = engine({ live: true, cash: 1000 
   const L = []; const e = BA.baStart(L, 0, 1, 0); e.unk = 1;
   ok(BA.baOffset(L, 0, 45000) > 0.69 && e.st !== "fail", "@boostanim: a pending_unknown send keeps hovering past the 30 s stale guard (SITE watches ≤ 2 min)"); }
 ok(/if \(isPendingUnknown\(e\)\) return pendingUnknown\(\);/.test(tb) && /if \(!r\.ok && isPendingUnknown\(r\)\) return pendingUnknown\(\);/.test(tb), "TradeBridge: a thrown / returned pending_unknown goes to the hover path, not the failure copy");
-ok(/awaitResolution\(pressId\)/.test(tb) && /if \(!keep\) \{/.test(tb) && /out\.outcome === "filled"[\s\S]{0,600}bookReceipt\(out\.txHash, side, bag\)/.test(tb) && /out\.outcome === "error"\) \{ setLast\(`✕ \$\{REJECTED\}`\)/.test(tb),
+ok(/awaitResolution\(pressId\)/.test(tb) && /if \(!keep\) \{/.test(tb) && /out\.outcome === "filled"[\s\S]{0,600}bookReceipt\(out\.txHash, side, pressId, bag\)/.test(tb) && /out\.outcome === "error"\) \{ setLast\(`✕ \$\{REJECTED\}`\)/.test(tb),
   "TradeBridge: no release on pending_unknown; resolved fill booked from its receipt, resolved error = REJECTED");
 ok(/disciple:livetrade/.test(tb.slice(tb.indexOf("const pendingUnknown"), tb.indexOf("// pending-trade state"))), "TradeBridge: a late fill re-reads balances (no amountOut ⇒ booked from the re-read)");
 { const src = [rd("lib/flight/rapidTap.ts"), tb, block("/* @rapidtap —", "/* @rapidtap-end */")].map((x) => x.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")).join("\n");
