@@ -95,11 +95,13 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/else if\(r\.ok&&r\.exact\)/.test(eng) && /mcap:r\.fillMcap\*/.test(eng) && !/usd\/\(m\*0\.25\)/.test(cls("DiscipleSource", "\n/* SIMULATOR bridge")) && !/this\.applyTrade\(side,usd,true/.test(eng),
     "engine: mock + DISCIPLE paper book the exact curve/pool fill (no linear usd/(mcap·0.25) impact, no mock pseudo-liquidity for your shots)");
   // curve state at a mcap (for the "curve left" bound)
-  const soldAt = (M) => PCv.y0 - Math.min(PCv.y0, Math.sqrt(PCv.x0 * PCv.y0 / (M / SUP)));
+  const mAt = (g) => PCv.M0 / (1 - PCv.a * g) ** 2 + (g > 0 ? PCv.T * g ** 30 : 0);   // steep curve #1 (quote units)
+  const soldAt = (M) => { const m = M / PCv.quoteUsd; if (!(m > mAt(0))) return 0; let lo = 0, hi = 1; for (let i = 0; i < 200 && hi - lo > 1e-16; i++) { const g = (lo + hi) / 2; if (mAt(g) < m) lo = g; else hi = g; } return Math.min(1, (lo + hi) / 2) * PCv.sC; };
   const W18 = (x) => BigInt(Math.round(x * 1e18)), N18 = (b) => Number(b) / 1e18;
-  // tail 0 = curveMath's CP part: the paper curve (GAME mirror) is still a pure CPAMM; steep g^30 tail not ported yet
-  const CP = { totalSupply: W18(PCv.S), sCurve: W18(PCv.sC), x0: W18(PCv.x0), y0: W18(PCv.y0), tail: 0n };
+  // the paper curve is the full steep curve #1 (CP part + g^30 tail) = curveMath.makeParams at $1 USDG
+  const CP = CM.paramsFromQuotePrice(10n ** 18n);
   const rel = (a, b) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
+  ok(rel(N18(CP.sCurve), PCv.sC) < 1e-12 && rel(N18(CP.tail), PCv.T) < 1e-9, `paper curve params = curveMath (sCurve ${PCv.sC}, tail $${PCv.T.toFixed(2)})`);
   // 5a) $60K at $7K: completes the curve (72% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
   { const f = paperFill("buy", PCv.startMcap, USD, null, false); // launch-price fill ($3,333 start)
     ok(f.ok && f.tokens < SUP && f.tokens <= PCv.sC + 1e-3 && rel(f.tokens, PCv.sC) < 1e-9, `paper $60K @ $7K: ${(f.tokens / SUP * 100).toFixed(2)}% of supply = the whole curve (< 100%; was 142.9% with the linear paper model)`);

@@ -134,6 +134,11 @@ function randn(){return Math.sqrt(-2*Math.log(Math.random()+1e-9))*Math.cos(6.28
    fillMcap (= PnL applyFill price × supply), graduated, refund}.  o: {tokens} sells exactly that many (a % sell),
    {maxTokens} caps a $ sell at the holdings. */
 const PC=window.__PAPER_CURVE||null;
+/* steep curve #1 in g = sold/sCurve (quote units): m(g) = M0/(1 − a·g)² + T·g³⁰, reserve R(g) = f·M0·g/(1 − a·g) + f·T·g³¹/31
+   (= lib/sim/market.ts mcapAt/reserveAt; CurveMath.sol). The inverses are bisections (both are increasing in g). */
+const pcM=g=>PC.M0/((1-PC.a*g)*(1-PC.a*g))+(g>0?PC.T*Math.pow(g,30):0);
+const pcR=g=>PC.f*PC.M0*g/(1-PC.a*g)+(g>0?PC.f*PC.T*Math.pow(g,31)/31:0);
+function pcInv(fn,v,lo,hi){ if(!(v>fn(lo))) return lo; if(v>=fn(hi)) return hi; for(let i=0;i<200&&hi-lo>1e-16;i++){ const m=(lo+hi)/2; if(fn(m)<v) lo=m; else hi=m; } return (lo+hi)/2; }
 function paperFill(side,mcap,usd,o,graduated){
   if(!PC) return {ok:false,reason:'paper market not loaded'};
   if(!(mcap>0)) return {ok:false,reason:'no price yet'};
@@ -142,16 +147,16 @@ function paperFill(side,mcap,usd,o,graduated){
   if(!(usd>0)&&!wantT) return {ok:false,reason:'zero'};
   // the curve spans start…graduation mcap: a buy AT the curve end goes into the pool, a sell there goes back down the curve
   if(!graduated&&(side==='buy'?mcap<PC.gradMcap*(1-1e-9):mcap<=PC.gradMcap*(1+1e-9))){   // ---- bonding curve (CurveMath.sol / Market curve phase)
-    const k=PC.x0*PC.y0; let y=Math.min(PC.y0,Math.sqrt(k/p)); const sold=PC.y0-y, x=k/y, pre=toM(x/y);
-    if(side==='buy'){ let net=usd*(1-PC.fee), tokens=y*net/(x+net), spent=usd, grad=false; const rem=PC.sC-sold;
-      if(tokens>=rem){ const need=x*rem/(y-rem); spent=need/(1-PC.fee); tokens=rem; grad=true; }
+    const g0=pcInv(pcM,mcap/q,0,1), sold=g0*PC.sC, r0=pcR(g0), pre=pcM(g0)*q;
+    if(side==='buy'){ let net=usd*(1-PC.fee), spent=usd, grad=false, g1; const rEnd=pcR(1);
+      if(r0+net>=rEnd){ net=rEnd-r0; spent=net/(1-PC.fee); g1=1; grad=true; } else g1=pcInv(pcR,r0+net,g0,1);
+      const tokens=grad?PC.sC-sold:(g1-g0)*PC.sC;
       if(!(tokens>0)) return {ok:false,reason:'curve complete'};
-      const y1=y-tokens, post=toM(k/y1/y1);
-      return {ok:true,usd:spent,net:spent*(1-PC.fee),tokens,pre,post,fillMcap:toM(spent*(1-PC.fee)/tokens),graduated:grad,refund:usd-spent}; }
-    let t=wantT||(usd<x?usd*y/(x-usd):Infinity); t=Math.min(t,maxT,sold);
+      return {ok:true,usd:spent,net:spent*(1-PC.fee),tokens,pre,post:pcM(g1)*q,fillMcap:toM(spent*(1-PC.fee)/tokens),graduated:grad,refund:usd-spent}; }
+    let t=wantT||(usd<r0?(g0-pcInv(pcR,r0-usd,0,g0))*PC.sC:Infinity); t=Math.min(t,maxT,sold);
     if(!(t>0)) return {ok:false,reason:'nothing to sell on the curve'};
-    const gross=x*t/(y+t), y1=y+t;
-    return {ok:true,usd:gross,net:gross*(1-PC.fee),tokens:t,pre,post:toM(k/y1/y1),fillMcap:toM(gross/t),graduated:false,refund:0}; }
+    const g1=Math.max(0,(sold-t)/PC.sC), gross=r0-pcR(g1);
+    return {ok:true,usd:gross,net:gross*(1-PC.fee),tokens:t,pre,post:pcM(g1)*q,fillMcap:toM(gross/t),graduated:false,refund:0}; }
   // ---- after graduation: full-range constant-liquidity pool (sim Pool without range orders)
   const L=PC.L, s=Math.sqrt(p), pre=toM(p);
   if(side==='buy'){ const net=usd*(1-PC.poolFee), s1=s+net/L, tokens=L*(1/s-1/s1);
