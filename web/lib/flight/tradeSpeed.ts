@@ -11,11 +11,14 @@ import type { DecodedFill, LogLike } from "./fills";
 
 /* ---------------- receipt logs from the send response ---------------- */
 const RECEIPTS = new Map<string, LogLike[]>();
-/** Called by lib/wallet.execCalls with the receipt logs the send already returned (keyed by tx hash, last 32 kept). */
+/** Called by lib/wallet.execCalls with the receipt logs the send already returned (keyed by tx hash, last 32 kept). Synchronous, never throws. */
 export function noteReceipt(txHash: string | undefined, logs: readonly LogLike[] | undefined) {
-  if (!txHash || !Array.isArray(logs)) return;
-  RECEIPTS.set(txHash.toLowerCase(), logs.slice());
-  while (RECEIPTS.size > 32) RECEIPTS.delete(RECEIPTS.keys().next().value as string);
+  // sync + no-throw: on the trade hot path (lib/wallet.execCalls); logs stored as returned, no RPC.
+  try {
+    if (typeof txHash !== "string" || !txHash || !Array.isArray(logs)) return;
+    RECEIPTS.set(txHash.toLowerCase(), logs.slice());
+    while (RECEIPTS.size > 32) RECEIPTS.delete(RECEIPTS.keys().next().value as string);
+  } catch { /* the caller's trade result never depends on this */ }
 }
 /** The returned logs for this tx (once: removed on read). undefined ⇒ none came back ⇒ caller falls back to polling. */
 export function takeReceipt(txHash: string | undefined): LogLike[] | undefined {

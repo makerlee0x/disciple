@@ -45,7 +45,7 @@ ok(TS.doneLine("buy", 1.98, { ok: true }, null, fmtMoney) === "▲ $1.98 ✓ don
 ok(TS.doneLine("buy", 5, { ok: true }, { side: "sell", usd: 9 }, fmtMoney) === "▲ $5.00 ✓ done", "a fill for the other side is never shown");
 ok(TS.doneLine("sell", 5, { ok: false, reason: "Price moved" }, sellFill, fmtMoney) === "▼ $5.00 ✕ Price moved", "failure keeps its reason (no fill $)");
 // wiring
-ok(/noteReceipt\(r\.txHash, r\.receipt\.receipt\.logs\)/.test(wl) && /noteReceipt\(hash, last\.logs\)/.test(wl), "lib/wallet.execCalls hands the returned logs over (smart account + EOA paths)");
+ok(/handOffLogs\(r\.txHash, r\.receipt\?\.receipt\?\.logs\)/.test(wl) && /handOffLogs\(hash, last\.logs\)/.test(wl), "lib/wallet.execCalls hands the returned logs over (smart account + EOA paths)");
 ok(/takeReceipt\(r\.txHash\)/.test(tb) && /await bookReceipt\(r\.txHash, side, bag, logs\)/.test(tb), "TradeBridge decodes the fill from the returned logs BEFORE the result returns (fillreceipt at ✓ done)");
 ok(!/pollingInterval: 700/.test(tb), "TradeBridge: the 700 ms waitForTransactionReceipt poll is gone");
 ok(/if \(!rl\) \{[^}]*waitForTransactionReceipt/.test(tb) && /&& !logs\) void bookReceipt\(r\.txHash, side, bag\)/.test(tb), "receipt polling kept only as the fallback when no logs came back");
@@ -120,6 +120,56 @@ console.log("— 5. click → confirm → fill ms");
   ok(TS.tradeMs(0, { resultAt: 900 }).confirm === 900 && TS.tradeMs(0, { resultAt: 900 }).fill === undefined, "no op marks / no fill: confirm = result time, fill undefined"); }
 ok(/new CustomEvent\("disciple:op", \{ detail: \{ phase: "filled"/.test(tb) && /logs: logs \? "returned" : "polled", ms/.test(tb), "TradeBridge emits disciple:op {phase:'filled', ms, logs:'returned'|'polled'} (no UI)");
 ok(/if \(d\?\.phase === "submitted"\)/.test(tb) && /if \(d\?\.phase === "confirmed"\)/.test(tb), "existing disciple:op consumers only act on submitted / confirmed (filled is instrumentation only)");
+
+// ───────────── SITE conditions on the lib/wallet.ts hand-off: no-throw, sync, logs as returned (no RPC) ─────────────
+console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra RPC");
+{ const hb = wl.slice(wl.indexOf("function handOffLogs("), wl.indexOf("export async function execCalls("));
+  ok(/try \{ noteReceipt\(txHash, logs\); \} catch/.test(hb) && !/await|async|Promise|import\(|createPublicClient|getTransactionReceipt|waitForTransactionReceipt/.test(hb), "handOffLogs: try/catch, no await/async, no RPC");
+  const nr = rd("lib/flight/tradeSpeed.ts"); const nb = nr.slice(nr.indexOf("export function noteReceipt("), nr.indexOf("export function takeReceipt("));
+  ok(/try \{/.test(nb) && !/await|async|Promise|fetch|viem/.test(nb), "noteReceipt itself: synchronous, no-throw, no I/O");
+  for (const bad2 of [undefined, null, 42, { length: 1 }]) { let threw = false; try { TS.noteReceipt(bad2, bad2); TS.noteReceipt("0x1", bad2); } catch { threw = true; } ok(!threw, "noteReceipt(" + JSON.stringify(bad2 ?? String(bad2)) + ") never throws"); }
+  { const hostile = new Proxy([], { get(t, k) { if (k === "slice") throw new Error("boom"); return Reflect.get(t, k); } }); let threw = false;
+    try { TS.noteReceipt("0x2", hostile); } catch { threw = true; } ok(!threw, "noteReceipt with logs that throw on copy never throws"); }
+
+  // run the REAL lib/wallet.ts execCalls with stub deps and a noteReceipt that THROWS
+  const os = await import("node:os"), ts = (await import("typescript")).default, { pathToFileURL } = await import("node:url");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wallet-handoff-"));
+  const src = wl.replace(/from "viem"/g, 'from "./stub-viem.mjs"').replace(/import\("viem"\)/g, 'import("./stub-viem.mjs")').replace(/from "\.\/chains"/, 'from "./stub-chains.mjs"').replace(/from "\.\/aa\/relayOp"/, 'from "./stub-relayOp.mjs"')
+    .replace(/from "\.\/flight\/tradeSpeed"/, 'from "./stub-tradeSpeed.mjs"').replace(/from "\.\/aa\/session"/, 'from "./stub-session.mjs"');
+  fs.writeFileSync(path.join(tmp, "wallet.mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
+  const RC_LOGS = [{ address: ROUTER, topics: ["0x01"], data: "0x" }];
+  fs.writeFileSync(path.join(tmp, "stub-viem.mjs"), `export const custom = (e) => e;
+    export const http = () => ({});
+    export const createWalletClient = () => ({ requestAddresses: async () => ["${ME}"], getChainId: async () => 1, sendTransaction: async () => "0x" + "ee".repeat(32) });
+    export const createPublicClient = () => ({ waitForTransactionReceipt: async () => { globalThis.__rpc = (globalThis.__rpc || 0) + 1; return { status: "success", logs: ${JSON.stringify(RC_LOGS)} }; } });`);
+  fs.writeFileSync(path.join(tmp, "stub-chains.mjs"), `export const ACTIVE_CHAIN = { id: 1 };`);
+  fs.writeFileSync(path.join(tmp, "stub-relayOp.mjs"), `export const REJECTED_MSG = "rejected";`);
+  fs.writeFileSync(path.join(tmp, "stub-tradeSpeed.mjs"), `export function noteReceipt(h, l) { globalThis.__calls = (globalThis.__calls || []); globalThis.__calls.push([h, l]); if (globalThis.__throw) throw new Error("noteReceipt exploded"); }`);
+  fs.writeFileSync(path.join(tmp, "stub-session.mjs"), `export const aaSession = () => globalThis.__sa;
+    export const aaSend = async () => globalThis.__send;
+    export const aaAddress = async () => null; export const aaAvailable = () => true; export const aaLogout = async () => {}; export const eoaLogin = async () => null;
+    export const localImport = async () => null; export const localReset = async () => {}; export const localStart = async () => null; export const privyLogin = () => {}; export const restore = async () => null; export const setPrivyOwner = async () => null;`);
+  const W = await import(pathToFileURL(path.join(tmp, "wallet.mjs")).href);
+  const SA_LOGS = [{ address: ROUTER, topics: ["0x02"], data: "0x" }];
+  globalThis.__throw = true; globalThis.__sa = { a: 1 }; globalThis.__rpc = 0;
+  globalThis.__send = { txHash: TX1, userOpHash: "0xop", gasMode: "sponsored", receipt: { receipt: { logs: SA_LOGS } } };
+  let r = null, err = null; try { r = await W.execCalls([{ to: ROUTER, data: "0x" }]); } catch (e) { err = e; }
+  ok(!err && r && r.txHash === TX1 && r.logs === SA_LOGS && r.userOp === "0xop" && r.gasMode === "sponsored", "smart account: noteReceipt THROWS ⇒ execCalls still returns the normal trade result" + (err ? " (" + err.message + ")" : ""));
+  ok(globalThis.__calls.length === 1 && globalThis.__calls[0][0] === TX1 && globalThis.__calls[0][1] === SA_LOGS && globalThis.__rpc === 0, "smart account: the returned logs are passed as-is (same array), zero extra RPC reads");
+  globalThis.__send = { txHash: TX2, userOpHash: "0xop2", receipt: { receipt: {} } }; err = null; r = null;
+  try { r = await W.execCalls([{ to: ROUTER, data: "0x" }]); } catch (e) { err = e; }
+  ok(!err && r && r.txHash === TX2 && r.logs === undefined, "smart account: a response with no receipt logs still returns (hand-off skipped, TradeBridge falls back to polling)");
+  globalThis.__sa = null; globalThis.__calls = []; globalThis.__rpc = 0; W.setWalletProvider({}); await W.connectWallet(); err = null; r = null;
+  try { r = await W.execCalls([{ to: ROUTER, data: "0x" }, { to: ROUTER, data: "0x" }]); } catch (e) { err = e; }
+  ok(!err && r && r.txHash === "0x" + "ee".repeat(32) && JSON.stringify(r.logs) === JSON.stringify(RC_LOGS), "EOA: noteReceipt THROWS ⇒ execCalls still returns the normal trade result" + (err ? " (" + err.message + ")" : ""));
+  ok(globalThis.__calls.length === 2 && globalThis.__rpc === 2 && globalThis.__calls[1][1] === r.logs, "EOA: logs handed over as-is from the receipt the path already waits for (no extra RPC: 1 receipt read per call, as before)");
+  // the hand-off adds no await: execCalls resolves in the same number of microtask turns with a throwing vs a clean noteReceipt
+  const ticks = async (thr) => { globalThis.__throw = thr; globalThis.__sa = { a: 1 }; globalThis.__send = { txHash: TX1, receipt: { receipt: { logs: SA_LOGS } } };
+    let done = false, n = 0; W.execCalls([]).then(() => { done = true; }); while (!done && n < 100) { await null; n++; } return n; };
+  const tClean = await ticks(false), tThrow = await ticks(true);
+  ok(tClean === tThrow && tClean < 100, "a throwing noteReceipt doesn't delay the return (" + tThrow + " vs " + tClean + " microtask turns)");
+  delete globalThis.__throw; delete globalThis.__sa; delete globalThis.__send; delete globalThis.__calls; delete globalThis.__rpc;
+  fs.rmSync(tmp, { recursive: true, force: true }); }
 
 cleanup();
 console.log(bad ? `\n${bad} FAILED` : "\nall trade-speed checks passed");

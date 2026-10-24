@@ -116,12 +116,17 @@ export async function activeAddress(): Promise<Address> {
  * Execute a call list. Smart account ⇒ ONE sponsored (or self-paid) userOp, no popup.
  * EOA ⇒ legacy: one tx per call, in order.
  */
+/** GAME trade speed hand-off (SITE conditions): synchronous, no await, no RPC (logs passed as returned), NEVER throws, so a
+ *  failing hand-off can't break or delay the trade return (TradeBridge then just falls back to polling the receipt). */
+function handOffLogs(txHash: Hex | undefined, logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[] | undefined) {
+  try { noteReceipt(txHash, logs); } catch { /* never break the trade */ }
+}
 export async function execCalls(calls: Call[]): Promise<ExecResult> {
   if (!isSmartMode() && !plainWallet) throw new SignInRequired();
   if (isSmartMode()) {
     const r = await aaSend(calls);
     // GAME trade speed: the send already returned the receipt logs ⇒ TradeBridge decodes the fill from them (no 2nd receipt poll)
-    noteReceipt(r.txHash, r.receipt.receipt.logs);
+    handOffLogs(r.txHash, r.receipt?.receipt?.logs);
     return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };
   }
   const w = await getSigner();
@@ -137,7 +142,7 @@ export async function execCalls(calls: Call[]): Promise<ExecResult> {
       throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
     }
     last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
-    noteReceipt(hash, last.logs);
+    handOffLogs(hash, last.logs);
   }
   return last!;
 }
