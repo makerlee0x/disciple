@@ -257,6 +257,8 @@ FORK=1 node script/redeploy/smoke.mjs                                           
 FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                   # optional STRATEGY coin + router swaps
 ```
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
+Redeploy pack: after `fixtures.mjs grad`, run `FORK=1 node script/redeploy/fixtures.mjs pack`. It covers router `swapUsdgToQuote` and
+`swapQuoteToUsdg` (output == live `quoteUsdgQuoteSwap`), `launchWithUsdg` on STRATEGY, `Token.burn`, and `maxMode` == 2 (a mode 3 launch reverts `BadMode`).
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
 
 Result 2026-10-24 ~10:55 AM CDT (fork of the live head, block 141962528, port 8546; feat/redeploy-prep with the AUDIT round 3 fail-fast

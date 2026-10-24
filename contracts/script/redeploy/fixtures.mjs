@@ -1,5 +1,5 @@
 // Testnet replay fixtures (fresh / near-graduation / graduated / PVE coins) on the redeployed stack.
-// usage: PRIVATE_KEY=.. [FORK=1] [BUNDLE=deployments/web-bundle] node script/redeploy/fixtures.mjs fresh|near|grad|pve
+// usage: PRIVATE_KEY=.. [FORK=1] [BUNDLE=deployments/web-bundle] node script/redeploy/fixtures.mjs fresh|near|grad|pve|pack
 // Addresses come from the web bundle (postprocess.mjs). Quote = test STRATEGY (18 dec); USDG legs use USDG's decimals (6).
 import { createPublicClient, createWalletClient, http, parseAbi, parseEther, parseUnits, formatEther, maxUint256, decodeEventLog } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
@@ -29,7 +29,13 @@ const cv = parseAbi([
   "function graduated() view returns (bool)", "function progressBps() view returns (uint256)", "function mcapNow() view returns (uint256)", "function tokensSold() view returns (uint256)", "function walletCapBps() view returns (uint256)", "function netCapNow() view returns (uint256)", "function currentSnipeFeeBps() view returns (uint256)",
   "event GraduatedToV4(address indexed token, bytes32 poolId, uint256 tokenLiq, uint256 quoteLiq)"]);
 const rt = parseAbi(["function buyExactIn(address,uint256,uint256,address,uint256) returns (uint256)", "function sellExactIn(address,uint256,uint256,address,uint256) returns (uint256)",
-  "function buyWithUsdg(address,uint256,uint256,uint256) returns (uint256)", "function sellToUsdg(address,uint256,uint256,uint256) returns (uint256)"]);
+  "function buyWithUsdg(address,uint256,uint256,uint256) returns (uint256)", "function sellToUsdg(address,uint256,uint256,uint256) returns (uint256)",
+  // redeploy pack: USDG <-> pair-coin swaps + dollar First BOOST launch
+  "function swapUsdgToQuote(address,uint256,uint256,address,uint256) returns (uint256)", "function swapQuoteToUsdg(address,uint256,uint256,address,uint256) returns (uint256)",
+  "function quoteUsdgQuoteSwap(address,bool,uint256) returns (uint256,uint256)",
+  "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
+  "struct R { address token; address curve; uint256 creatorTokensBought; }",
+  "function launchWithUsdg(P,uint8,uint256,uint256) returns (R,uint256)"]);
 const send = async (tag, p) => { const h = await wc.writeContract(p); const r = await pc.waitForTransactionReceipt({ hash: h }); console.log(tag, r.status, h, "gas", r.gasUsed); if (r.status !== "success") throw new Error(tag + " reverted " + h); return r; };
 const dl = () => BigInt(Math.floor(Date.now() / 1000) + 3600);
 const rd = (a, f, args = []) => pc.readContract({ address: a, abi: cv, functionName: f, args });
@@ -70,6 +76,43 @@ async function buyTo(c, targetBps, allowGrad) {
   }
 }
 const which = process.argv[2];
+// usage: ... fixtures.mjs pack — redeploy-pack checks (router USDG<->STRATEGY swaps, launchWithUsdg, Token.burn, maxMode)
+if (which === "pack") {
+  const bU = (a) => pc.readContract({ address: U, abi: erc20, functionName: "balanceOf", args: [a] });
+  const bS = (a) => pc.readContract({ address: S, abi: erc20, functionName: "balanceOf", args: [a] });
+  const out = {};
+  const usdgIn = parseUnits("5", UD);
+  const q1 = await pc.simulateContract({ account: me, address: ROUTER, abi: rt, functionName: "quoteUsdgQuoteSwap", args: [S, true, usdgIn] });
+  const s0 = await bS(me.address);
+  const r1 = await send("router swapUsdgToQuote", { address: ROUTER, abi: rt, functionName: "swapUsdgToQuote", args: [S, usdgIn, q1.result[0] * 95n / 100n, me.address, dl()], gas: 1_500_000n });
+  const sGot = (await bS(me.address)) - s0;
+  if (sGot !== q1.result[0]) throw new Error(`swapUsdgToQuote out ${sGot} != quote ${q1.result[0]}`);
+  const q2 = await pc.simulateContract({ account: me, address: ROUTER, abi: rt, functionName: "quoteUsdgQuoteSwap", args: [S, false, sGot] });
+  const u0 = await bU(me.address);
+  const r2 = await send("router swapQuoteToUsdg", { address: ROUTER, abi: rt, functionName: "swapQuoteToUsdg", args: [S, sGot, q2.result[0] * 95n / 100n, me.address, dl()], gas: 1_500_000n });
+  const uGot = (await bU(me.address)) - u0;
+  if (uGot !== q2.result[0]) throw new Error(`swapQuoteToUsdg out ${uGot} != quote ${q2.result[0]}`);
+  const P = { name: "Pack Usdg Launch", ticker: "PKUL", imageURI: "ipfs://replay-fixture", description: "launchWithUsdg fixture", socialsURI: "", quote: S, creatorTaxBps: 0n, creatorBuyQuoteIn: 0n, creatorBuyMinTokensOut: 0n, deadline: dl() };
+  const lu = parseUnits("20", UD);
+  const q3 = await pc.simulateContract({ account: me, address: ROUTER, abi: rt, functionName: "quoteUsdgQuoteSwap", args: [S, true, lu] });
+  const sim = await pc.simulateContract({ account: me, address: ROUTER, abi: rt, functionName: "launchWithUsdg", args: [P, 0, lu, q3.result[0] * 95n / 100n], gas: 9_000_000n });
+  const r3 = await send("router launchWithUsdg", { ...sim.request, gas: 9_000_000n });
+  const [lr, refund] = sim.result;
+  const tok = lr.token;
+  const burnAbi = parseAbi(["function burn(uint256)", "function totalSupply() view returns (uint256)", "function balanceOf(address) view returns (uint256)"]);
+  const ts0 = await pc.readContract({ address: tok, abi: burnAbi, functionName: "totalSupply" });
+  const r4 = await send("Token.burn", { address: tok, abi: burnAbi, functionName: "burn", args: [parseEther("1")] });
+  const ts1 = await pc.readContract({ address: tok, abi: burnAbi, functionName: "totalSupply" });
+  if (ts0 - ts1 !== parseEther("1")) throw new Error("burn did not reduce totalSupply");
+  const mm = await pc.readContract({ address: LP, abi: parseAbi(["function maxMode() view returns (uint8)"]), functionName: "maxMode" });
+  let mode3 = "allowed?!";
+  try { await pc.simulateContract({ account: me, address: LP, abi: lp, functionName: "launchWithMode", args: [{ ...P, ticker: "PKM3" }, 3], gas: 8_000_000n }); } catch (e) { mode3 = e.cause?.data?.errorName ?? e.shortMessage; }
+  if (mm !== 2 || mode3 !== "BadMode") throw new Error(`maxMode ${mm}, mode 3 -> ${mode3}`);
+  Object.assign(out, { swapUsdgToQuote: { usdgIn: formatUnits(usdgIn, UD), strategyOut: formatEther(sGot), gas: r1.gasUsed }, swapQuoteToUsdg: { strategyIn: formatEther(sGot), usdgOut: formatUnits(uGot, UD), gas: r2.gasUsed },
+    launchWithUsdg: { token: tok, curve: lr.curve, usdgIn: formatUnits(lu, UD), creatorTokens: formatEther(lr.creatorTokensBought), usdgRefund: formatUnits(refund, UD), gas: r3.gasUsed },
+    burn: { amount: "1", totalSupplyAfter: formatEther(ts1), gas: r4.gasUsed }, maxMode: mm, mode3Launch: mode3 });
+  st.pack = out; save(); console.log("PACK OK", JSON.stringify(out, (k, v) => (typeof v === "bigint" ? v.toString() : v)));
+}
 if (which === "pve") { await launch("pve", "Replay Easy", "RPEZ", 0n, 1); }
 if (which === "fresh") { const c = await launch("fresh", "Replay Fresh", "RPFR", parseEther("1000")); }
 if (which === "near") { const c = await launch("near", "Replay Near", "RPNR", parseEther("1000")); await buyTo(c, 9000, false); }
