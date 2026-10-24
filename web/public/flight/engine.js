@@ -736,7 +736,7 @@ addEventListener('disciple:pnltag',e=>setPnlTag(e.detail&&e.detail.on));
    AMM execution across the trade's own impact).
    LIVE (wallet bridge present): the REAL pool price, no sim/paper offsets. */
 /* Ephemeral markets (mock replay restarts at its start mcap on every load) get a per-boot SESSION id: the PnL ledger
-   drops a position booked in another session instead of marking an old $50K entry against a fresh $7K mock. */
+   drops a position booked in another session instead of marking an old $50K entry against a fresh $3,333 mock. */
 const SESSION=source instanceof MockReplaySource?'mock-'+Math.random().toString(36).slice(2,9):null;
 const isLive=()=>!!window.__discipleTrade;
 function shownMcap(){ const m=S.confirmed.mcap; return m>0 ? m*(isLive()?1:(S.simF||1)) : m; }
@@ -744,7 +744,7 @@ function markMcap(){ if(isLive()){ const r=source&&source.realMcap?source.realMc
 /* PnL fill price estimate (pool/live branch of submit): the marked mcap × √(price ratio of this trade's own impact) = the
    constant-product AVERAGE execution price (curve x·y=k pre-grad, full-range pool post-grad). PAPER prices the shot with
    paperImpact on the shown scale, LIVE with the source's real curve/pool impact. (Was: LIVE booked at the PRE-trade mark, so
-   a buy was credited usd/pre-price tokens: more than the curve gives, e.g. +10.6% tokens on $1K at $7K ⇒ uPnL +22% vs +9.5%.) */
+   a buy was credited usd/pre-price tokens: more than the curve gives, e.g. on the steep curve +18.6% tokens on $1K at $3,333 ⇒ uPnL +39% vs +17.5% (1% fee in, marked at the post-trade $4.69K).) */
 function fillMcapEst(usd,side){ const live=isLive(), r=source&&source.paperImpact&&!live?source.paperImpact(usd,side):source&&source.impact?source.impact(usd,side):1;
   return markMcap()*(r>0&&Number.isFinite(r)?Math.sqrt(r):1); }
 function pushMark(){ const m=markMcap(); if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
