@@ -10,11 +10,14 @@
  * playstyle stats yet. The server check therefore proves "earned on the profile as shown", not real play; swap
  * profileStatsFor() for real stats and both sides follow.
  *
+ * Hidden for now: see REAL_PROGRESS_ENABLED in lib/features (default off). Off = no title is earned.
+ *
  * Default (no pick yet, or the pick is no longer earned): the highest-weight earned title, i.e. the same title the
  * header showed first before titles were pickable. Titles have no rarity or earned-at time, so weight is the rule.
  */
 import { IDENTITIES, identityRuleText, type IdentityDef, type IdentityId } from "./identity";
 import { PROFILE_COPY } from "./copy/profile";
+import { REAL_PROGRESS_ENABLED } from "./features";
 import { PERSONAS, buildPersonaStats, type PersonaBundle, type PersonaId } from "./mock/sample-trades";
 
 export const TITLE_IDS: readonly IdentityId[] = IDENTITIES.map((d) => d.id);
@@ -42,7 +45,13 @@ export const profileStatsFor = (seed: string): PersonaBundle => buildPersonaStat
 export function earnedTitleIds(matched: readonly IdentityDef[]): IdentityId[] {
   return [...matched].sort((a, b) => b.weight - a.weight).map((d) => d.id);
 }
-export const earnedTitlesFor = (seed: string): IdentityId[] => earnedTitleIds(profileStatsFor(seed).identity.matched);
+/**
+ * Earned titles for a profile. While REAL_PROGRESS_ENABLED is off (lib/features) the stats are sample, so NOTHING is
+ * earned: the header shows NO_TITLE ("Normie"), the picker shows its empty state and the server rejects every pick.
+ * `real` exists for tests.
+ */
+export const earnedTitlesFor = (seed: string, real: boolean = REAL_PROGRESS_ENABLED): IdentityId[] =>
+  real ? earnedTitleIds(profileStatsFor(seed).identity.matched) : [];
 
 export const defaultTitle = (earned: readonly IdentityId[]): IdentityId | null => earned[0] ?? null;
 /** What the header shows: the pick if it's still earned, else the default. null = no title earned. */

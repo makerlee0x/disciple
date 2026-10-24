@@ -7,6 +7,24 @@ import { PERSONAS, buildPersonaStats, type PersonaId } from "../lib/mock/sample-
 import { TITLE_ERRORS, TITLE_IDS, defaultTitle, earnedTitleIds, earnedTitlesFor, profileStatsSeed, shownTitle, validateTitle } from "../lib/titles.ts";
 import { placeTooltip } from "../lib/tooltipPlace.ts";
 import { profileMetaMessage, validateMeta } from "../lib/profileMeta.ts";
+import { REAL_PROGRESS_ENABLED } from "../lib/features.ts";
+import { NO_TITLE, deriveIdentity } from "../lib/identity.ts";
+
+test("hidden until real progress exists: flag is off by default and nothing counts as earned", () => {
+  assert.equal(REAL_PROGRESS_ENABLED, false, "REAL_PROGRESS_ENABLED defaults to off");
+  for (const seed of ["maker", "0x00000000000000000000000000000000000000aa", ...Object.keys(PERSONAS)]) {
+    assert.deepEqual(earnedTitlesFor(seed), [], `${seed}: no earned titles while hidden`);
+    assert.equal(shownTitle("believer", earnedTitlesFor(seed)), null, "a saved pick isn't shown either");
+  }
+  assert.ok(earnedTitlesFor("believer", true).length > 0, "flag on: the sample stats would earn titles");
+});
+
+test("no title = Normie (label only; id stays the sigil key)", () => {
+  assert.equal(NO_TITLE.label, "Normie");
+  const none = deriveIdentity({} as Parameters<typeof deriveIdentity>[0]);
+  if (!none.matched.length) assert.equal(none.primary.label, "Normie");
+  assert.ok(!(TITLE_IDS as readonly string[]).includes("normie"), "Normie isn't pickable");
+});
 
 test("default title = highest-weight earned title (= the header's old first tag)", () => {
   for (const p of Object.keys(PERSONAS) as PersonaId[]) {
@@ -37,16 +55,16 @@ test("validation: earned ok, locked and unknown refused, empty = default", () =>
   for (const t of earned) assert.equal(validateTitle(t, earned), null);
   assert.equal(validateTitle(locked, earned), TITLE_ERRORS.locked);
   assert.equal(validateTitle("emperor", earned), TITLE_ERRORS.unknown);
-  assert.equal(validateMeta({ pfp: "", bio: "", flag: "", title: "Bad Title!" }), "Invalid title.");
+  assert.equal(validateMeta({ pfp: "", bio: "", flag: "", title: "Bad Title!" }), "That title doesn't exist.");
 });
 
 test("server and page compute the same earned set for an address (seed = username, else wallet)", () => {
   const w = "0x00000000000000000000000000000000000000aa";
   assert.equal(profileStatsSeed("@Maker", w), "maker");
   assert.equal(profileStatsSeed(null, w.toUpperCase().replace("0X", "0x")), w);
-  assert.deepEqual(earnedTitlesFor(profileStatsSeed("maker", w)), earnedTitlesFor("maker"));
+  assert.deepEqual(earnedTitlesFor(profileStatsSeed("maker", w), true), earnedTitlesFor("maker", true));
   // Different wallets without names can earn different sets; each is stable.
-  assert.deepEqual(earnedTitlesFor(w), earnedTitlesFor(w));
+  assert.deepEqual(earnedTitlesFor(w, true), earnedTitlesFor(w, true));
 });
 
 test("signed message covers the title, and is unchanged when there is none", () => {
@@ -69,30 +87,30 @@ test("tooltip placement: above by default, flips below at the top edge, shifts i
   assert.ok(Math.abs(p.x + p.arrow - 380) <= 1 || p.arrow === 188, "arrow points at the trigger");
 });
 
-test("server: /api/profile/meta saves an earned title and refuses one this address hasn't earned (400, plain words)", async () => {
+test("server (hidden): /api/profile/meta refuses every title pick, even one the sample stats would earn (400, plain words)", async () => {
   process.env.KV_LOCAL_FILE = `/tmp/disciple-kv-titles-${process.pid}.json`;
   const { privateKeyToAccount, generatePrivateKey } = await import("viem/accounts");
   const { GET, POST } = await import("../app/api/profile/meta/route.ts");
   const acct = privateKeyToAccount(generatePrivateKey()), a = acct.address.toLowerCase();
-  const earned = earnedTitlesFor(profileStatsSeed(null, a)); // no username claimed → seed = address
-  const locked = TITLE_IDS.find((t) => !earned.includes(t))!;
+  assert.deepEqual(earnedTitlesFor(profileStatsSeed(null, a)), [], "hidden: nothing earned");
   const nonce = async () => (await (await GET(new Request(`http://x/api/profile/meta?nonce=1&address=${a}`))).json()).nonce as string;
   const save = async (title: string) => {
     const m = { pfp: "", bio: "", flag: "", title }, n = await nonce();
     return POST(new Request("http://x/api/profile/meta", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.9" },
       body: JSON.stringify({ address: a, ...m, nonce: n, signature: await acct.signMessage({ message: profileMetaMessage(a, m, n) }) }) }));
   };
-  let r = await save(locked);
-  assert.equal(r.status, 400); assert.deepEqual(await r.json(), { ok: false, reason: TITLE_ERRORS.locked });
-  r = await save("emperor");
-  assert.equal(r.status, 400); assert.deepEqual(await r.json(), { ok: false, reason: TITLE_ERRORS.unknown });
-  if (earned.length) {
-    const pick = earned[earned.length - 1];
-    r = await save(pick);
-    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
-    const g = await (await GET(new Request(`http://x/api/profile/meta?address=${a}`))).json();
-    assert.equal(g.title, pick);
+  let r: Response;
+  // One the sample stats would earn for this address, plus one they wouldn't (the route rate-limits, so not all 19).
+  const wouldEarn = earnedTitlesFor(profileStatsSeed(null, a), true);
+  const picks = [...new Set([wouldEarn[0] ?? TITLE_IDS[0], TITLE_IDS.find((t) => !wouldEarn.includes(t)) ?? TITLE_IDS[1]])];
+  for (const t of picks) {
+    r = await save(t);
+    assert.equal(r.status, 400, t); assert.deepEqual(await r.json(), { ok: false, reason: "You haven't earned that title yet." });
   }
+  r = await save("emperor");
+  assert.equal(r.status, 400); assert.deepEqual(await r.json(), { ok: false, reason: "That title doesn't exist." });
+  const g = await (await GET(new Request(`http://x/api/profile/meta?address=${a}`))).json();
+  assert.ok(!g.title, "nothing saved");
   r = await save("");
   assert.equal(r.status, 200, "no pick (default) always saves");
 });

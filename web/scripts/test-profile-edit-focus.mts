@@ -99,21 +99,13 @@ test("username under 3 characters: inline message and Save disabled", async () =
   await act(async () => { root.unmount(); });
 });
 
-test("title picker lists earned titles only; picking one enables Save", async () => {
-  const { earnedTitlesFor, profileStatsSeed, TITLE_IDS } = await import("../lib/titles.ts");
-  const earned = earnedTitlesFor(profileStatsSeed("", "0x" + "1".repeat(40)));
+test("title picker while progress is hidden: empty state, no radios, Save stays off", async () => {
   const { root, host } = await mount();
-  const radios = [...host.querySelectorAll<HTMLInputElement>('[data-testid="title-picker"] input[type="radio"]')];
-  assert.deepEqual(radios.map((r) => r.value), earned, "exactly the earned titles, best first");
-  for (const t of TITLE_IDS.filter((t) => !earned.includes(t))) assert.ok(!radios.some((r) => r.value === t), `locked ${t} not offered`);
-  if (earned.length) assert.equal(radios[0].checked, true, "default (best) title preselected");
-  const save = host.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  assert.equal(save.disabled, true);
-  if (earned.length > 1) {
-    await act(async () => { radios[1].click(); await tick(); });
-    assert.equal(radios[1].checked, true);
-    assert.equal(save.disabled, false, "a different title is a change to save");
-  }
+  const picker = host.querySelector('[data-testid="title-picker"]');
+  assert.ok(picker, "picker rendered");
+  assert.equal(picker!.querySelectorAll('input[type="radio"]').length, 0, "no titles offered");
+  assert.match(picker!.textContent ?? "", /No titles yet\. Fly a few rockets to earn one\./);
+  assert.equal(host.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled, true);
   await act(async () => { root.unmount(); });
 });
 

@@ -58,7 +58,7 @@ Your profile shows your season rank. Season length and reset rules are TBD and w
 
 ## Level and prestige
 
-You also earn XP. Levels run from 1 to 50, then you prestige. Prestige 0 is **Pilgrim**.
+You also earn XP. Levels run from 1 to 50, then you prestige. Prestige 0 is **Normie**.
 
 ## Fair play
 
