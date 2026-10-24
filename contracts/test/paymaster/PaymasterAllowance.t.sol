@@ -256,4 +256,16 @@ contract PaymasterAllowanceTest is PaymasterTestBase {
         pm.forgiveDebt(address(acct));
         assertEq(pm.reservedOf(address(acct)), 0);
     }
+
+    /// @dev Byte parity with web/lib/aa/paymaster.ts paymasterAllowanceHash (same vector in scripts/test-paymaster.mts).
+    function test_hashVector_matchesWeb() public {
+        assertEq(pm.ALLOWANCE_TYPEHASH(), 0x8faf4adbeca2994e3e15d84d2784553f8bde4856d7a67536eb2e03e4a702e8ae);
+        address at = 0x1111111111111111111111111111111111111111;
+        vm.etch(at, address(pm).code);
+        vm.chainId(46630);
+        bytes32 h = DisciplePaymaster(at).getHash(
+            0x3333333333333333333333333333333333333333, 1_790_000_600, 1_789_999_970, 3000e18, 123456789012345678
+        );
+        assertEq(h, 0x2712d08f58bdadb5f8d8c71b6d3b07446639b9ae4a25af59e4fd25107429c065);
+    }
 }

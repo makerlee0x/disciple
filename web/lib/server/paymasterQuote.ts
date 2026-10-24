@@ -11,6 +11,7 @@ import "server-only";
  *   PAYMASTER_USD_PER_ETH  e.g. "3000" — scaled by USDG's on-chain decimals (18 on testnet, 6 on mainnet)
  *   PAYMASTER_QUOTE_TTL_SEC  optional, default 180 (contract max window 1h)
  *   PAYMASTER_MAX_SLACK_BPS  optional, default 5000 (approve may exceed the required amount by ≤ 50%)
+ *   PAYMASTER_ALLOWANCE_TTL_SEC  optional, default 600: lifetime of a pre-issued per-sender allowance (pm_getPaymasterAllowance)
  * Mainnet (design only, not implemented): rate = 30-min TWAP of the USDG/WETH v3 pool via observe(), with the spot
  * price required within ±2% of the TWAP and the result clamped to the contract's [minRate, maxRate]; see
  * contracts/docs/usdg-paymaster.md §Pricing.
@@ -59,10 +60,12 @@ export async function quoteConfig(): Promise<QuoteConfig> {
   if (!decimals || decimals.usdg !== usdg) decimals = { usdg, d: Number(await pc.readContract({ address: usdg, abi: erc20, functionName: "decimals" })) };
   const ttl = Number(process.env.PAYMASTER_QUOTE_TTL_SEC || "");
   const slack = process.env.PAYMASTER_MAX_SLACK_BPS;
+  const allowTtl = Number(process.env.PAYMASTER_ALLOWANCE_TTL_SEC || "");
   return {
     paymaster, usdg, usdgDecimals: decimals.d, rate: rateFromEnv({ PAYMASTER_RATE: process.env.PAYMASTER_RATE, PAYMASTER_USD_PER_ETH: process.env.PAYMASTER_USD_PER_ETH }, decimals.d),
     ttlSec: Number.isFinite(ttl) && ttl > 0 ? ttl : undefined,
     maxSlackBps: slack && /^\d+$/.test(slack) ? BigInt(slack) : undefined,
+    allowanceTtlSec: Number.isFinite(allowTtl) && allowTtl > 0 ? allowTtl : undefined,
     launchers: launchTargets(PAYMASTER_CHAIN_ID),
   };
 }
