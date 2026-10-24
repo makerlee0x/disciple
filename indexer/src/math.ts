@@ -19,6 +19,21 @@ export function mcapUsdFromSqrt(sqrtP: bigint, tokenIsC0: boolean, quoteUsdWad: 
   return (mcapQuote * quoteUsdWad) / WAD;
 }
 
+/**
+ * Graduation progress 0–100 from a USD mcap — the SAME formula as web/lib/mcap.ts graduationPct (live retest #4), equal to
+ * the curve's progressBps() (tokensSold / sCurve): x·y = x0·y0, mcap ∝ 1/(y0 − sold)² ⇒
+ * progress = (1 − √(M0/M)) / (1 − √(M0/Mgrad)). M0/Mgrad = the coin's LaunchTierContext startMcapUsd/graduationMcapUsd
+ * (default $7K/$33K for coins indexed before that event existed). null when unknown.
+ */
+export function graduationPct(mcapUsd: number | null | undefined, startMcapUsd = 7_000, graduationMcapUsd = 33_000): number | null {
+  if (mcapUsd == null || !Number.isFinite(mcapUsd)) return null;
+  if (!(startMcapUsd > 0) || !(graduationMcapUsd > startMcapUsd)) return null;
+  if (mcapUsd >= graduationMcapUsd) return 100;
+  if (mcapUsd <= startMcapUsd) return 0;
+  const p = (1 - Math.sqrt(startMcapUsd / mcapUsd)) / (1 - Math.sqrt(startMcapUsd / graduationMcapUsd));
+  return Math.max(0, Math.min(100, p * 100));
+}
+
 export function mcapUsdWad(priceWad: bigint, quoteUsdWad: bigint): bigint {
   return (((priceWad * TOTAL_SUPPLY) / WAD) * quoteUsdWad) / WAD;
 }
