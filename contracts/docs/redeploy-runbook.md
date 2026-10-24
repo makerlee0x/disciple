@@ -16,8 +16,10 @@ Stack base is main@38e8802e. main has moved 8 commits since (b904b011 at time of
 | # | PR | Branch → base | Depends on | Notes |
 |---|----|---------------|------------|-------|
 | 1 | #121 mode rules v2 | feat/mode-rules-v2 → main | – | contracts + web; biggest overlap with new main |
-| 2 | #127 steep curve + floor | feat/steep-curve-floor → #121 | #121 | AUDIT reviewing; retarget to main after #121 merges |
-| 3 | this PR (redeploy prep) | feat/redeploy-prep → #127 | #127 | scripts + runbook only; AUDIT fixes land in section 11 |
+| 2 | #127 steep curve + floor | feat/steep-curve-floor → #121 | #121 | AUDIT: SHIP; retarget to main after #121 merges |
+| 3 | this PR (redeploy prep) | feat/redeploy-prep → #127 | #127 | scripts + runbook + the two #115 cherry-picks below; AUDIT fixes in section 11 |
+| 3a | #115 6-dec USDG (b6a91177, 80b06f22 only) | cherry-picked into this PR as 2f55717a, 06d46f16 | – | **required before the redeploy** (AUDIT Medium: `5 ether` launch-fee cap = $5T at 6 dec). Src only; tests rewritten for this stack's 18-dec harness |
+| 3b | #115 rest (96a2ec13 harness, fdc8b837 deploy, 421e7a9e, test commits) | test/usdg-6dec → main | after this stack | optional, not needed to deploy. On conflict take this stack's `Deploy.s.sol` / `script/redeploy/*` (fdc8b837 overlaps); AnonLauncher/DiscipleHook src is identical to the cherry-picks |
 | 4 | #129 SITE steep curve web | site/steep-curve-web → #127 | #127 | one known FAIL until engine.js is regenerated (GAME) |
 | 5 | #128 GAME sim retune | game/sim-retune-steep-curve → #127 | #127, land with/after #129 | regenerates `web/public/flight/engine.js` |
 | 6 | #106 USDG paymaster | feat/usdg-paymaster → main | – (deploy needs the new USDG + ReferralRegistry) | rebase on main after #128 |
@@ -91,9 +93,14 @@ Fork e2e before going live: `pnpm test:paymaster-e2e`.
 ## 5. Wiring and ownership
 
 All done inside `Deploy.s.sol`; verify with `cast call`:
-- `FeeRouter.rewardsVault()` = RewardsVault; `RewardsVault.feeRouter()` = FeeRouter; RewardsVault owner = `REWARDS_VAULT_OWNER`.
+- `FeeRouter.rewardsVault()` = RewardsVault; `RewardsVault.feeRouter()` = FeeRouter. RewardsVault is now **Owned2Step**: the deploy only
+  nominates `REWARDS_VAULT_OWNER` (`pendingOwner`); that wallet must then call `cast send <RewardsVault> "acceptOwnership()"`.
+  Until it does, the deployer stays owner.
+- `FeeRouter.isClaimRouter(DiscipleRouter)` = true (set in Deploy.s.sol). `claimCreatorFeesFor` no longer trusts every
+  `Launchpad.isTrustedRouter`; add/revoke with `setClaimRouter(address,bool)` (owner).
 - `FeeRouter.referralSink()` = 0x0 (today's routing). **lee's rule:** when set, the sink takes the WHOLE referral 1%, including the
   launch-KOL 1%. Owner call, any time: `cast send <FeeRouter> "setReferralSink(address)" <sink>` (0x0 restores today's routing).
+  A sink equal to the treasury follows `setTreasury` (it moves to the new treasury), so the old treasury never accrues it as a referrer.
 - Hook: trusted router = DiscipleRouter only (UniversalRouter is not trusted, SEC-05); `hook.pricer` = QuotePricer.
 - Launchpad: `defaultQuote` = STRATEGY; LoginGate set; CurveDeployer set.
 - Owners: everything except RewardsVault stays with the deployer. Hand over with `transferOwnership` if lee wants a multisig on testnet.
@@ -156,11 +163,13 @@ GRADUATE=1 node script/redeploy/smoke.mjs     # waits out the 77s window in real
 ```
 
 Checks (each prints PASS/FAIL, exit 1 on any FAIL, writes `deployments/rh-testnet-46630.smoke.json`):
-USDG decimals 6 · `referralSink` = 0 (or `EXPECT_REFERRAL_SINK`) · RewardsVault wired · SEC-01 (`addLockedLiquidity` from an EOA reverts) ·
+USDG decimals 6 · `referralSink` = 0 (or `EXPECT_REFERRAL_SINK`) · RewardsVault wired · `AnonLauncher.MAX_LAUNCH_FEE() == 5 * 10**usdg.decimals()`
+and `launchFee` ≤ it · `FeeRouter.isClaimRouter(DiscipleRouter)` · SEC-01 (`addLockedLiquidity` from an EOA reverts) ·
 sniper buy inside 77s is taxed into `snipeEscrow`, no `SnipeFeeRouted`, RewardsVault delta 0 · tax 0 after 77s ·
 graduation: `quoteBuy.graduates`, `GraduatedToV4`, tokens sold = 84.24%, mcap = $33,333 (±0.1%) ·
 floor: `FloorSeeded` with 16 bands, ≈ $1,201.27 seeded (±1%), all bands quote-only (tokenAmount 0) and summing to `quoteSeeded` ·
-`SnipeEscrowToLP` = escrow and compound bucket ≥ escrow · progress 10000.
+`SnipeEscrowToLP` = escrow and compound bucket ≥ escrow · progress 10000 · graduating-buy tx gas ≤ 3.0M (AUDIT measured ≈ 2.764M
+execution at 6-dec USDG in #115's forge harness; forge `FloorSeedGas` keeps the 3.0M cap on the 18-dec harness, ≈ 2.56M).
 Optional: `node script/redeploy/fixtures.mjs fresh|near|grad|pve` for replay coins plus post-graduation router buy/sell (STRATEGY and USDG legs).
 
 ## 9. Fork dry run (no live broadcast)
@@ -207,9 +216,21 @@ users reinstall the old session policy. Coins launched on the new stack keep tra
 | SESSION_POLICY | 0x3d3667e8880c6b633b424d645b8004788b1d6e27 |
 (Also CurveDeployer 0x5f64…1550, RewardsVault 0x1f42…8b9e, AnonLauncher 0x06f3…a527.)
 
-## 11. AUDIT fixes (reserved)
+## 11. AUDIT fixes (reviews of 2026-10-24 on #121 #127 #106 #131; no critical/high)
 
-Fill in as #127's review lands: each fix, its commit, and whether it changes any script, env var, ABI, or smoke check.
+| Finding | Fix | Where | Script / env / ABI / smoke impact |
+|---------|-----|-------|-----------------------------------|
+| Medium: `MAX_LAUNCH_FEE = 5 ether` (AnonLauncher.sol:50/:111/:124) | cap = `5 * 10**feeToken.decimals()` (immutable, same getter) | #115 b6a91177 → here 2f55717a | smoke check added; no env change |
+| Medium: token-side `Trade.fee` floored WAD price at 6 dec | value from sqrtPriceX96 | #115 80b06f22 → here 06d46f16 | indexer `fee` values become exact; no ABI change |
+| Low: FeeRouter.sol:193 sink vs treasury | sink equal to the treasury follows `setTreasury` | #127 98fac352 | none (no ABI change; `ReferralSinkSet` emitted on the move) |
+| Low: RewardsVault.sol:41 one-step owner | Owned2Step | #121 69117a5d | **REWARDS_VAULT_OWNER must `acceptOwnership()`** (section 5); ABI: `pendingOwner`, `acceptOwnership`, Owned2Step events |
+| Low: FeeRouter.sol:276 any trusted router claims creator fees | owner-set `isClaimRouter` allowlist | #121 957a463b | Deploy.s.sol wires DiscipleRouter; ABI adds `setClaimRouter`, `isClaimRouter`, `ClaimRouterSet`; smoke check added |
+| Low (#106) gradBuy.ts:28/:40, gasPolicy.ts:132 | relay-side only | #106 16376682 | none for the deploy |
+| Info: grad gas ≈ 2.76M at 6 dec | numbers refreshed, 3.0M cap kept | #106 3128ad31, smoke | smoke asserts ≤ 3.0M |
+
+Not taken (Info, no behaviour risk today): optional payer `maxFee` on `launchAnon` (ABI change + session-policy decoding; owner fee is
+now capped at $5); LockedLP.sol:581 best-effort floor seeding at extreme prices and :595 unreachable `FloorOverspend` (would change
+graduation semantics in a SHIP'd PR); Migration.sol:151 require success for v2 curves; `releaseSnipeEscrow` event.
 The scripts read ABIs from the forge artifacts and take params from env, so contract-internal fixes need no script change.
 
 Open items for AUDIT / lee:
