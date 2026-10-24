@@ -34,6 +34,7 @@
     "test:loadout-fx": "node scripts/test-loadout-fx.mjs",
     "test:hotkeys": "node scripts/test-hotkeys.mjs",
     "test:live-fixes": "node scripts/test-live-fixes.mjs",
+    "test:wallet-position": "node scripts/test-wallet-position.mjs",
     "test:trade-ui": "node scripts/test-trade-ui.mjs",
     "test:fix-batch": "node scripts/test-fix-batch.mjs",
     "test:exit-confirm": "node scripts/test-exit-confirm.mjs",
