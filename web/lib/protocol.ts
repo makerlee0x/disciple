@@ -90,7 +90,7 @@ export interface TradeResult {
    */
   errorCode?: "rate_limited" | "spend_limit" | "pending_unknown";
   /** errorCode "pending_unknown": the op being watched (ids for the console / support, never shown to players). */
-  pendingOp?: { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint };
+  pendingOp?: { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint; relayNonce?: number };
   /** errorCode "rate_limited": the relay's Retry-After in ms, when it sent one. */
   retryAfterMs?: number;
 }

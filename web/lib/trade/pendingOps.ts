@@ -106,8 +106,10 @@ export function holdUnknown(reg: Reservations, id: string, op: UnknownOpRef, dep
 // mirrors RelayErrorData from FLOW #141 (lib/aa/relayTypes.ts); swap to import at rebase
 export type RelayUnclearReasonLike = "receipt-timeout" | "stream-lost" | "network";
 // mirrors RelayErrorData from FLOW #141 (lib/aa/relayTypes.ts); swap to import at rebase
-// (`nonce` there is the RELAYER EOA nonce of the handleOps tx, not the op's EntryPoint nonce)
-export type RelayErrorDataLike = { txHash?: Hex; userOpHash?: Hex; revert?: Hex; nonce?: number; unclear?: true; reason?: RelayUnclearReasonLike };
+// relayNonce = the RELAYER EOA nonce of the handleOps tx; `nonce` (bigint) is only on RelayTimeoutExtra: the op's EntryPoint nonce
+export type RelayErrorDataLike = { txHash?: Hex; userOpHash?: Hex; revert?: Hex; relayNonce?: number; unclear?: true; reason?: RelayUnclearReasonLike };
+// mirrors RelayTimeoutExtra from FLOW #141 (= RelayUnclearInfo & { userOpHash, sender, nonce?: bigint }); swap to import at rebase
+export type RelayTimeoutExtraLike = RelayErrorDataLike & { sender?: string; nonce?: bigint };
 export type RelayUnclear = { reason: RelayUnclearReasonLike; userOpHash?: Hex; txHash?: Hex; relayNonce?: number };
 const HASH32 = /^0x[0-9a-fA-F]{64}$/;
 const hash32 = (v: unknown) => (typeof v === "string" && HASH32.test(v) ? (v as Hex) : undefined);
@@ -120,10 +122,10 @@ const hash32 = (v: unknown) => (typeof v === "string" && HASH32.test(v) ? (v as 
 export function relayUnclearOf(e: unknown): RelayUnclear | null {
   const x = e as { code?: unknown; extra?: unknown } | null;
   if (!x || typeof x !== "object" || x.code !== "Timeout") return null;
-  const ex = x.extra as (RelayErrorDataLike & Record<string, unknown>) | undefined;
+  const ex = x.extra as (RelayTimeoutExtraLike & Record<string, unknown>) | undefined;
   if (!ex || typeof ex !== "object" || ex.unclear !== true) return null;
   const reason: RelayUnclearReasonLike = ex.reason === "stream-lost" || ex.reason === "network" ? ex.reason : "receipt-timeout";
-  const relayNonce = typeof ex.nonce === "number" && Number.isSafeInteger(ex.nonce) && ex.nonce >= 0 ? ex.nonce : undefined;
+  const relayNonce = typeof ex.relayNonce === "number" && Number.isSafeInteger(ex.relayNonce) && ex.relayNonce >= 0 ? ex.relayNonce : undefined;
   return { reason, userOpHash: hash32(ex.userOpHash), txHash: hash32(ex.txHash), ...(relayNonce !== undefined ? { relayNonce } : {}) };
 }
 
@@ -150,16 +152,45 @@ export type PendingOpIds = { reservationId: string; userOpHash?: string; txHash?
  * to console.warn("[disciple] …") only, never into player copy.
  */
 export function startPendingOp(reg: Reservations, id: string, e: unknown, deps: (sender?: string) => WatchDeps, hooks: UnknownHooks,
-  known: { userOpHash?: Hex; txHash?: Hex; nonce?: bigint } = {}, o?: WatchOpts): { op: PendingOpIds; watch: Promise<WatchOutcome> } | null {
+  known: { userOpHash?: Hex; txHash?: Hex; nonce?: bigint } = {}, o?: WatchOpts): { op: PendingOpIds; watch: Promise<WatchOutcome> | null; unclear?: PendingSend } | null {
   const p = pendingOpOf(e);
   if (!p) return null;
   const ref: UnknownOpRef = { userOpHash: p.userOpHash ?? known.userOpHash, txHash: p.txHash ?? known.txHash, nonce: p.nonce ?? known.nonce, sender: p.sender };
   if (p.unclear) warn(`trade pending (unclear relay outcome: ${p.reason})`, { id, reason: p.reason, userOpHash: ref.userOpHash, txHash: ref.txHash, relayNonce: p.relayNonce, nonce: ref.nonce?.toString() });
-  const watch = holdUnknown(reg, id, ref, deps(p.sender), hooks, o);
-  return { op: { reservationId: id, userOpHash: ref.userOpHash, txHash: ref.txHash, nonce: ref.nonce, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }, watch };
+  const op: PendingOpIds = { reservationId: id, userOpHash: ref.userOpHash, txHash: ref.txHash, nonce: ref.nonce, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) };
+  const res = { op, ...(p.unclear ? { unclear: p } : {}) };
+  return { ...res, watch: watchOrKeep(reg, id, ref, deps(p.sender), hooks, o) };
 }
-/** Release reason for a press whose trade threw a normal (not pending_unknown) error: a definite revert is 'error'. */
-export const releaseReasonOf = (e: unknown): "timeout" | "error" => ((e as { code?: unknown })?.code === "Timeout" ? "timeout" : "error");
+/** Nothing to look up on-chain? */
+const noIds = (op: { userOpHash?: string; txHash?: string; nonce?: bigint }) => !op.userOpHash && !op.txHash && op.nonce === undefined;
+/**
+ * Mark unknown + watch, or, when the op has NO ids (e.g. mav2's standard-path sendUserOperation timeout), keep the normal
+ * hold: nothing to watch, so it is not marked unknown and the 60 s TTL ends it; the session-spend hold is re-synced from
+ * the chain when the TTL passes (settle(false) ⇒ re-read, never resend). Returns the watch, or null when only held.
+ */
+function watchOrKeep(reg: Reservations, id: string, ref: UnknownOpRef, deps: WatchDeps, hooks: UnknownHooks, o?: WatchOpts): Promise<WatchOutcome> | null {
+  if (!noIds(ref)) return holdUnknown(reg, id, ref, deps, hooks, o);
+  warn("trade pending (no op ids): held until the reservation TTL, not watched", { id });
+  if (hooks.settle && typeof setTimeout !== "undefined") { const t = setTimeout(() => { try { hooks.settle!(false); } catch { /* */ } }, reg.ttlMs); (t as { unref?: () => void }).unref?.(); }
+  return null;
+}
+/**
+ * Backstop for a press that came back pending_unknown WITHOUT being marked (the error was mapped outside sendTrade, e.g.
+ * by friendlyError): mark it unknown and watch it, so it is never released as 'timeout' and still gets its "resolved"
+ * event. No-op (null) when the press isn't held or is already unknown (sendTrade's watcher owns it).
+ */
+export function holdLate(reg: Reservations, id: string, op: { userOpHash?: string; txHash?: string; nonce?: bigint } | undefined, deps: WatchDeps, hooks: UnknownHooks, o?: WatchOpts): Promise<WatchOutcome> | null {
+  if (!reg.has(id) || reg.isUnknown(id)) return null;
+  return watchOrKeep(reg, id, { userOpHash: hash32(op?.userOpHash), txHash: hash32(op?.txHash), nonce: op?.nonce }, deps, hooks, o);
+}
+/** WatchDeps whose sender is resolved later (the trade layer's catch has no account in scope). */
+export function lazyWatchDeps(make: Promise<WatchDeps | null>): WatchDeps {
+  return {
+    byHash: async (op) => (await make)?.byHash(op) ?? null,
+    nonceUsed: async (op) => (await make)?.nonceUsed(op),
+    byNonce: async (op) => (await make)?.byNonce?.(op) ?? null,
+  };
+}
 
 function warn(what: string, d: Record<string, unknown>) { if (typeof console !== "undefined") console.warn(`[disciple] ${what}`, d); }
 

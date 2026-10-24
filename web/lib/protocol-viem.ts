@@ -9,7 +9,7 @@ import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSell
 import { COIN_DECIMALS, knownDecimals, readUsdgDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
 import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, marginalQuote, key as ckey } from "./trade/hotCache";
 import { RESERVATIONS, autoReservationId, spendable } from "./trade/reservations";
-import { chainWatchDeps, relayUnclearOf, releaseReasonOf, startPendingOp, type OpLanding } from "./trade/pendingOps";
+import { chainWatchDeps, holdLate, lazyWatchDeps, pendingOpOf, startPendingOp, type OpLanding, type PendingSend } from "./trade/pendingOps";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
@@ -18,7 +18,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
-import { NO_PRICE_MSG, PENDING_MSG, PENDING_UNKNOWN_MSG, REJECTED_MSG, SLOW_DOWN_MSG, SPEND_LIMIT_MSG, logTradeError, plainText, unknownOpOf, type TradeErrorCode } from "./aa/relayOp";
+import { NO_PRICE_MSG, PENDING_MSG, PENDING_UNKNOWN_MSG, REJECTED_MSG, SLOW_DOWN_MSG, SPEND_LIMIT_MSG, logTradeError, plainText, type TradeErrorCode } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -53,16 +53,24 @@ const fmtUnits = (v: bigint, dec = 18) => { const d = Number(v) / 10 ** dec; ret
 
 /** pending_unknown: the op the press sent (watched in the background until it lands or is dropped). */
 // nonce = the op's EntryPoint v0.7 nonce (SITE mav2); relayNonce = FLOW #141's relayer EOA nonce of the handleOps tx
-export type PendingOpRef = { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint; relayNonce?: number };
+// reservationId: the press; absent when there is none (launch: no hold, no watcher)
+export type PendingOpRef = { reservationId?: string; userOpHash?: string; txHash?: string; nonce?: bigint; relayNonce?: number };
 export class ProtocolError extends Error {
   /** rate_limited: the relay's Retry-After in ms, when it sent one. */
   retryAfterMs?: number;
   /** pending_unknown: the op's ids / nonce and the press (reservation) id; its outcome arrives as a "resolved" event. */
   op?: PendingOpRef;
-  constructor(public code: string, msg: string, extra?: { retryAfterMs?: number; op?: PendingOpRef }) {
+  /**
+   * FLOW #141 (RelayUnclearInfo): set ONLY when mapping an unclear relay Timeout ({ unclear, reason, userOpHash?,
+   * txHash?, relayNonce? }); console / support detail, never player copy. `declare`: no own field unless set (lib/aa/relayOp
+   * unknownOpOf tells AA send errors by an own `extra`).
+   */
+  declare extra?: Record<string, unknown>;
+  constructor(public code: string, msg: string, o?: { retryAfterMs?: number; op?: PendingOpRef; extra?: Record<string, unknown> }) {
     super(msg);
-    if (extra?.retryAfterMs !== undefined) this.retryAfterMs = extra.retryAfterMs;
-    if (extra?.op) this.op = extra.op;
+    if (o?.retryAfterMs !== undefined) this.retryAfterMs = o.retryAfterMs;
+    if (o?.op) this.op = o.op;
+    if (o?.extra) this.extra = o.extra;
   }
 }
 /**
@@ -117,22 +125,38 @@ export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMu
 
 /** Launch-buy cap copy; pct = the cap in % of supply when the caller knows it. */
 export const CREATOR_BUY_MSG = (pct?: number) => `Your launch buy is over the max for this rocket${pct ? ` (${pct}% of supply)` : ""}. Try a smaller amount.`;
+/** ProtocolError.extra for an unclear relay Timeout (FLOW #141 RelayUnclearInfo shape). */
+const unclearExtra = (p: PendingSend) => ({ unclear: true as const, reason: p.reason, ...(p.userOpHash ? { userOpHash: p.userOpHash } : {}), ...(p.txHash ? { txHash: p.txHash } : {}), ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) });
 const pickIds = (x?: Record<string, unknown>) => ({ userOpHash: x?.userOpHash, txHash: x?.txHash });
 /**
- * `rid` = the press (reservation) id on the trade path. FLOW #141: an 'unclear' relay timeout (code "Timeout" +
- * extra.unclear, on AAError or ProtocolError.extra) is pending_unknown for a press (sendTrade normally catches it first
- * and starts the watcher); without a press (launch: no hold to keep or watch) it stays the plain Timeout line.
+ * `rid` = the press (reservation) id on the trade path. Any AA / relay "Timeout" whose outcome is unknown (today's
+ * plain mav2 timeout, or FLOW #141's `extra.unclear` on AAError / ProtocolError.extra) is code "pending_unknown", never
+ * a definite failure, with the op ids that are known. With a press, sendTrade / trade() normally map it first and start
+ * the watcher (hold kept); without one (launch) there is no hold or watcher, just the code + PENDING_MSG copy. Only a
+ * definite relay answer (a pre-send revert payload, no unclear flag: nothing was sent) keeps a definite code.
  */
 export function friendlyError(e: unknown, rid?: string): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
+  if (e instanceof ProtocolError && e.code === "pending_unknown") return e;   // already mapped (playerError re-maps)
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
   const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
-  const unclear = relayUnclearOf(e);
-  if (unclear) {
-    const nonce = unknownOpOf(e)?.nonce;
-    logTradeError(`trade pending (unclear relay outcome: ${unclear.reason})`, { id: rid, reason: unclear.reason, userOpHash: unclear.userOpHash, txHash: unclear.txHash, relayNonce: unclear.relayNonce, nonce: nonce?.toString() });
-    if (rid) return new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: { reservationId: rid, userOpHash: unclear.userOpHash, txHash: unclear.txHash, nonce, ...(unclear.relayNonce !== undefined ? { relayNonce: unclear.relayNonce } : {}) } });
-    return new ProtocolError("Timeout", PENDING_MSG);
+  let relayRevert: Hex | undefined;
+  if ((e as { code?: unknown })?.code === "Timeout" && (isAA || e instanceof ProtocolError || (!!e && typeof e === "object" && "extra" in e))) {
+    const ex = (e as { extra?: Record<string, unknown> }).extra ?? {};
+    // definite (same test as lib/aa/relayOp unknownOpOf): decoded below
+    if (ex.unclear !== true && ex.revert !== undefined && ex.revert !== null) relayRevert = (typeof ex.revert === "string" ? ex.revert : "0x") as Hex;
+    else {
+      const p: PendingSend = pendingOpOf(e) ?? {};   // a ProtocolError("Timeout") with no extra: unknown, no ids
+      const op: PendingOpRef = { ...(rid ? { reservationId: rid } : {}), userOpHash: p.userOpHash, txHash: p.txHash, nonce: p.nonce, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) };
+      logTradeError(p.unclear ? `trade pending (unclear relay outcome: ${p.reason})` : "trade pending (outcome unknown)", {
+        id: rid, reason: p.reason, message: ((e as Error)?.message ?? "").slice(0, 300), userOpHash: op.userOpHash, txHash: op.txHash, relayNonce: op.relayNonce, nonce: op.nonce?.toString() });
+      return new ProtocolError("pending_unknown", rid ? PENDING_UNKNOWN_MSG : PENDING_MSG, { op, ...(p.unclear ? { extra: unclearExtra(p) } : {}) });
+    }
+  }
+  if (relayRevert) {
+    const d = relayRevert.length >= 10 ? decodeRevert(relayRevert) : null;
+    if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
+    else { logTradeError("trade pre-check failed (relay)", { selector: relayRevert.slice(0, 10), revertData: relayRevert }); return new ProtocolError("Estimate", REJECTED_MSG); }
   }
   // rapid-tap spec #10 / #9: typed codes + plain placeholder copy (detail already logged by lib/aa)
   if (isAA && (e as AAError).code === "RateLimited") return new ProtocolError("rate_limited", SLOW_DOWN_MSG, { retryAfterMs: (e as AAError).extra?.retryAfterMs as number | undefined });
@@ -206,7 +230,6 @@ export function friendlyError(e: unknown, rid?: string): ProtocolError {
   const msg = (e as Error)?.message || String(e);
   // relay / RPC transport errors ("eth_sendUserOperation: …") and unplain timeouts: plain line, raw text to console
   if (isAA && code === "Bundler") { logTradeError("trade failed (send error)", { message: msg.slice(0, 300), rpcError: (e as AAError).extra?.rpcError }); return new ProtocolError("Bundler", REJECTED_MSG); }
-  if (isAA && code === "Timeout" && msg !== PENDING_MSG) { logTradeError("trade pending", { message: msg.slice(0, 300), ...pickIds((e as AAError).extra) }); return new ProtocolError("Timeout", PENDING_MSG); }
   // a raw pre-send failure that arrived as a plain error (not an AAError "Estimate"): same plain line, detail to console
   if (/simulation failed|execution reverted in simulation/i.test(msg)) {
     logTradeError("trade pre-check failed", { message: msg.split("\n")[0].slice(0, 300), code });
@@ -637,11 +660,22 @@ export function createViemProtocol(): ProtocolClient {
       tt.done("fill");
       RESERVATIONS.release(rid, "filled");
       return r;
-    } catch (e) {
+    } catch (e0) {
+      // any timeout still unmapped here (e.g. a #141 ProtocolError("Timeout") that skipped sendTrade) is unknown, never a
+      // 'timeout' release: friendlyError maps it to pending_unknown (a definite relay revert keeps its definite code)
+      const e = (e0 as { code?: unknown })?.code === "Timeout" ? friendlyError(e0, rid) : e0;
       // pending_unknown: the hold stays (the watcher releases it 'filled' / 'error'); not a failure
-      if ((e as { code?: unknown })?.code === "pending_unknown") { tt.done("pending", { code: "pending_unknown" }); throw e; }
-      // a definite revert (no unclear flag) is a normal error: released 'error'
-      RESERVATIONS.release(rid, releaseReasonOf(e));
+      if ((e as { code?: unknown })?.code === "pending_unknown") {
+        const settle = (e0 as { extra?: { settleSession?: (landed: boolean) => void } }).extra?.settleSession;
+        const dropBal = () => { BALANCES.dropWhere(() => true); };   // no receipt-log booking here: re-read balances
+        // not marked by sendTrade ⇒ mark + watch now (never resends; 'resolved' event as usual)
+        void holdLate(RESERVATIONS, rid, (e as ProtocolError).op,
+          lazyWatchDeps(activeAddress().then((me) => chainWatchDeps(pc, me), () => null)),
+          { book: () => { dropBal(); return undefined; }, landedUnbooked: dropBal, settle });
+        tt.done("pending", { code: "pending_unknown" }); throw e;
+      }
+      // a definite error (incl. a revert with no unclear flag) releases the press as 'error'
+      RESERVATIONS.release(rid, "error");
       tt.done("error", { code: (e as { code?: unknown }).code }); throw e;
     }
   }
@@ -653,12 +687,34 @@ export function createViemProtocol(): ProtocolClient {
   function holdSpend(rid: string, side: "buy" | "sell", token: Address, asset: Address, amountIn: bigint, route: string) {
     const usdg = deployment().usdg;
     const r = RESERVATIONS.reserve(rid, { side: side === "buy" ? "boost" : "dump", coin: token, spend: { asset, raw: amountIn, route } });
-    const ownGas = asset.toLowerCase() === usdg.toLowerCase() ? r.gasReserve ?? B(0) : B(0);
+    const spendsUsdg = asset.toLowerCase() === usdg.toLowerCase();
+    const ownGas = spendsUsdg ? r.gasReserve ?? B(0) : B(0);
     return {
       routePending: RESERVATIONS.routePending(route, rid),
       others: () => RESERVATIONS.reservedRaw(asset, { exceptId: rid, usdg }),
       need: amountIn + ownGas,
+      /** gas cap held from CASH when the spend isn't USDG (a DUMP of a coin): checked by dumpGasCheck, not against tokens */
+      cashGas: spendsUsdg ? B(0) : r.gasReserve ?? B(0),
     };
+  }
+  /**
+   * A DUMP's gas cap is held from cash (USDG), not from tokens: refuse before sending only when that cash is held by
+   * other trades in flight (same rule + copy as the BOOST cash check). Resolves to the refusal (never rejects), so it
+   * can start alongside the hot-path reads and be awaited at the pre-send check.
+   */
+  function dumpGasCheck(rid: string, cashGas: bigint, me: Address): Promise<ProtocolError | null> {
+    if (cashGas <= B(0)) return Promise.resolve(null);
+    const usdg = deployment().usdg;
+    const others = () => RESERVATIONS.reservedRaw(usdg, { exceptId: rid, usdg });
+    return (async () => {
+      if (spendable(await balanceHint(pc, usdg, me), others()) >= cashGas) return null;
+      const live = await liveBalance(pc, usdg, me);
+      if (live >= cashGas && spendable(live, others()) < cashGas) {
+        console.warn("[disciple] trade refused: cash for the dump's gas is held by trades in flight", { have: String(live), held: String(others()), gas: String(cashGas), inFlight: RESERVATIONS.count() });
+        return new ProtocolError("InsufficientBalance", heldMsg(true));
+      }
+      return null;   // short of cash outright: unchanged (the paymaster / relay answers as before)
+    })().catch(() => null);
   }
   /** Copy for a spend that only fails because other pending trades hold the money (plain words, no ids). */
   function heldMsg(isCash: boolean, amountUsd?: number) {
@@ -687,7 +743,7 @@ export function createViemProtocol(): ProtocolClient {
           settle, after: (l) => requoteRoute(token, l?.logs as ExecResult["logs"] | undefined),
         });
         if (!pending) throw e;
-        throw new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: pending.op });
+        throw new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: pending.op, ...(pending.unclear ? { extra: unclearExtra(pending.unclear) } : {}) });
       }
       logs = r.logs;
       const amountOut = book(r.logs);
@@ -714,6 +770,7 @@ export function createViemProtocol(): ProtocolClient {
       const smart = isSmartMode();
       const route = ckey("coin", t.token, side);
       const held = holdSpend(rid, side, t.token, spendAsset, t.amountIn, route);
+      const gasCheck = dumpGasCheck(rid, held.cashGas, me);
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve(B(0))
           // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s
@@ -750,6 +807,7 @@ export function createViemProtocol(): ProtocolClient {
             : `not enough ${sym}: need ${fmtUnits(t.amountIn, dec)} have ${fmtUnits(live, dec)}`);
         }
       }
+      { const g = await gasCheck; if (g) throw g; }
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
       const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
       const calls = [...pveCalls, ...refCalls, ...approveCalls, { to: target, data }];
@@ -782,6 +840,7 @@ export function createViemProtocol(): ProtocolClient {
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const route = ckey("usdgroute", t.token, side);
     const held = holdSpend(rid, side, t.token, spend, t.amountIn, route);
+    const gasCheck = dumpGasCheck(rid, held.cashGas, c.me);
     const [q, have] = await Promise.all([
       t.minAmountOut > B(0) ? Promise.resolve(B(0)) : marginalQuote(route, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me), held.routePending),
       balanceHint(pc, spend, c.me),
@@ -798,6 +857,7 @@ export function createViemProtocol(): ProtocolClient {
     }
     const minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
+    { const g = await gasCheck; if (g) throw g; }
     const calls: Call[] = isBuy
       ? [...pveCalls, ...(await referralCallCached(c.me)), ...toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: minOut, deadline: c.deadline }))]
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: minOut, deadline: c.deadline }));

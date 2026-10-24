@@ -60,14 +60,42 @@ test("registry: dumps hold coin, pendingNet reports both sides (display only)", 
   assert.equal(reg.count("dump"), 2); assert.equal(reg.count("boost"), 1);
 });
 
-test("registry: gas cap from FLOW's source is held per BOOST, counted as USDG and in reservedCash", () => {
+test("registry: gas cap from FLOW's source is held per BOOST AND per DUMP, always counted as cash (USDG), never as tokens", () => {
   const reg = new Reservations(() => 0, 60_000, false, () => 6);   // 6-dec USDG
   reg.setGasReserveSource(() => B(250_000));   // $0.25 cap per op
   reg.reserve("b", { side: "boost", coin: COIN, usd: 1 });
   reg.reserve("s", { side: "dump", coin: COIN, tokenAmt: B(1) });
-  assert.equal(reg.get("b")!.gasReserve, B(250_000)); assert.equal(reg.get("s")!.gasReserve, undefined);
-  assert.equal(reg.reservedCash(), 1.25);
-  assert.equal(reg.reservedRaw(USDG, { usdg: USDG }), B(1_250_000));
+  assert.equal(reg.get("b")!.gasReserve, B(250_000)); assert.equal(reg.get("s")!.gasReserve, B(250_000), "a DUMP pays gas too");
+  assert.equal(reg.reservedCash(), 1.5, "$1 boost + two $0.25 gas caps");
+  assert.equal(reg.reservedRaw(USDG, { usdg: USDG }), B(1_500_000));
+  assert.equal(reg.reservedTokens(COIN), B(1), "the dump's gas is not held from tokens");
+  assert.equal(reg.reservedRaw(COIN, { usdg: USDG }), B(1), "coin holds: sell amount only");
+  // merge keeps the cap; an explicit cap wins; a 0 / undefined source (gas not paid in USDG) holds nothing
+  reg.reserve("s", { side: "dump", coin: COIN, spend: { asset: COIN, raw: B(1), route: "coin|x|sell" } } as never);
+  assert.equal(reg.get("s")!.gasReserve, B(250_000)); assert.equal(reg.reservedCash(), 1.5, "re-reserve: no double count");
+  reg.reserve("t", { side: "dump", coin: COIN, tokenAmt: B(2), gasReserve: B(100_000) }); assert.equal(reg.get("t")!.gasReserve, B(100_000));
+  const off = new Reservations(() => 0, 60_000, false, () => 6); off.setGasReserveSource(() => B(0));
+  off.reserve("d", { side: "dump", coin: COIN, tokenAmt: B(1) }); assert.equal(off.get("d")!.gasReserve, undefined); assert.equal(off.reservedCash(), 0);
+});
+
+test("dump cash-check: a DUMP's gas counts against cash for the next trade (and against the dump's own cash check), not tokens", () => {
+  const reg = new Reservations(() => 0, 60_000, false, () => 6);
+  reg.setGasReserveSource(() => B(250_000));
+  const cash = B(1_200_000);   // $1.20 USDG
+  reg.reserve("d1", { side: "dump", coin: COIN, spend: { asset: COIN, raw: B(5), route: "coin|x|sell" } } as never);
+  // a $1 BOOST after it: its own cap $0.25 + the dump's $0.25 held ⇒ $1.50 > $1.20 ⇒ refused before sending
+  reg.reserve("b1", { side: "boost", coin: COIN, spend: { asset: USDG, raw: B(1_000_000), route: "usdgroute|x|buy" } } as never);
+  const need = B(1_000_000) + reg.get("b1")!.gasReserve!;
+  assert.equal(spendable(cash, reg.reservedRaw(USDG, { exceptId: "b1", usdg: USDG })) >= need, false, "dump gas held from cash");
+  // a second DUMP's own gas check (dumpGasCheck: cash − others ≥ its cap) sees d1's gas + b1's spend + gas
+  reg.reserve("d2", { side: "dump", coin: COIN, spend: { asset: COIN, raw: B(1), route: "coin|x|sell" } } as never);
+  const othersCash = reg.reservedRaw(USDG, { exceptId: "d2", usdg: USDG });
+  assert.equal(othersCash, B(250_000) + B(1_000_000) + B(250_000));
+  assert.equal(spendable(cash, othersCash) >= reg.get("d2")!.gasReserve!, false, "no cash left for d2's gas ⇒ refused (held by trades in flight)");
+  // tokens: d2's check only counts d1's sell amount (no gas)
+  assert.equal(reg.reservedRaw(COIN, { exceptId: "d2", usdg: USDG }), B(5));
+  reg.release("b1", "error");
+  assert.equal(spendable(cash, reg.reservedRaw(USDG, { exceptId: "d2", usdg: USDG })) >= reg.get("d2")!.gasReserve!, true, "after b1 releases: $1.20 − $0.25 ≥ $0.25");
 });
 
 test("reservation race: two overlapping taps can't both spend the same cash (no fake fill, balance untouched)", () => {
@@ -205,7 +233,15 @@ test("pending_unknown: a Timeout AAError carries the op's ids + nonce; typed cod
   const op = unknownOpOf(new AAError("Timeout", PENDING_MSG, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG }));
   assert.deepEqual(op, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG });
   assert.equal(unknownOpOf(new AAError("Bundler", "x", { userOpHash: HASH })), null, "only timeouts are unknown");
-  assert.equal(unknownOpOf(new ProtocolError("Timeout", PENDING_MSG)), null, "a mapped ProtocolError is not an AA send error");
+  assert.equal(unknownOpOf(new ProtocolError("Timeout", PENDING_MSG)), null, "a ProtocolError with no extra is not an AA send error");
+  // item 2: a mapped AA Timeout is pending_unknown (never 'Timeout'), with its ids; it is not re-watched as a send error,
+  // and carries .extra only for an unclear relay Timeout
+  const mapped = friendlyError(new AAError("Timeout", PENDING_MSG, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG }));
+  assert.equal(mapped.code, "pending_unknown"); assert.equal(mapped.message, PENDING_MSG);
+  assert.deepEqual(mapped.op, { userOpHash: HASH, txHash: TX, nonce: NONCE });
+  assert.equal("extra" in mapped, false, "no extra unless the timeout was flagged unclear");
+  assert.equal(unknownOpOf(mapped), null);
+  assert.equal(friendlyError(mapped), mapped, "re-mapping (playerError) keeps it");
   const pe = new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: { reservationId: "p", userOpHash: HASH, nonce: NONCE } });
   assert.equal(tradeErrorCode(pe), "pending_unknown"); assert.equal(pe.op?.userOpHash, HASH);
   assert.equal(PENDING_UNKNOWN_MSG, "Still confirming your last trade…");
@@ -340,9 +376,9 @@ test("pressId: asTrade accepts the press id (carried to aaSend; TODO FLOW #145: 
 });
 
 /* ---------- FLOW #141: 'unclear' relay errors (code Timeout + extra.unclear) ⇒ pending_unknown ---------- */
-// FLOW's ProtocolError gains .extra in #141; ours has none yet, so the #141 shape is built by hand here
-const flowProtocolError = (extra: Record<string, unknown>) => Object.assign(new ProtocolError("Timeout", PENDING_MSG), { extra });
-const RELAY_NONCE = 41;   // FLOW's `nonce`: the relayer EOA nonce of the handleOps tx (a number)
+// a #141-style ProtocolError("Timeout") carrying extra (our ProtocolError accepts { extra } since this round)
+const flowProtocolError = (extra: Record<string, unknown>) => new ProtocolError("Timeout", PENDING_MSG, { extra });
+const RELAY_NONCE = 41;   // FLOW's `relayNonce` (#141 @ 20718322): the relayer EOA nonce of the handleOps tx (a number)
 function startWith(e: unknown, id: string) {
   const reg = new Reservations(() => 0, 60_000, false); const ev = events(reg); const ft = fakeTime();
   reg.reserve(id, { side: "boost", coin: COIN, spend: { asset: USDG, raw: B(2_000_000), route: "r" } } as never);
@@ -353,9 +389,9 @@ function startWith(e: unknown, id: string) {
 }
 
 for (const [reason, mk] of [
-  ["receipt-timeout", () => new AAError("Timeout", "UserOp not mined yet", { unclear: true, reason: "receipt-timeout", userOpHash: HASH, txHash: TX, nonce: RELAY_NONCE })],
-  ["stream-lost", () => flowProtocolError({ unclear: true, reason: "stream-lost", userOpHash: HASH, txHash: TX, nonce: RELAY_NONCE })],
-  ["network", () => new AAError("Timeout", PENDING_MSG, { unclear: true, reason: "network", userOpHash: HASH, txHash: TX, nonce: RELAY_NONCE })],
+  ["receipt-timeout", () => new AAError("Timeout", "UserOp not mined yet", { unclear: true, reason: "receipt-timeout", userOpHash: HASH, txHash: TX, relayNonce: RELAY_NONCE })],
+  ["stream-lost", () => flowProtocolError({ unclear: true, reason: "stream-lost", userOpHash: HASH, txHash: TX, relayNonce: RELAY_NONCE })],
+  ["network", () => new AAError("Timeout", PENDING_MSG, { unclear: true, reason: "network", userOpHash: HASH, txHash: TX, relayNonce: RELAY_NONCE })],
 ] as const) {
   test(`unclear ${reason} ⇒ pending_unknown: hold kept, watcher started, hashes + relayer nonce kept, never resent`, async () => {
     const e = mk();
@@ -370,7 +406,7 @@ for (const [reason, mk] of [
     assert.deepEqual(s.r!.op, { reservationId: `u-${reason}`, userOpHash: HASH, txHash: TX, nonce: undefined, relayNonce: RELAY_NONCE });
     assert.equal(s.reg.isUnknown(`u-${reason}`), true, "hold kept (unknown: no TTL, release() refused)");
     assert.equal(s.reg.release(`u-${reason}`, "error"), false);
-    const w = await s.r!.watch;
+    const w = await s.r!.watch!;
     assert.equal(w.state, "dropped"); assert.ok(s.lookups() > 1, "watched by hash in the background");
     assert.equal(s.sends(), 0, "never re-signed / resent");
     assert.deepEqual(s.ev.slice(-2).map((x) => x.type + ":" + (x.reason ?? x.outcome)), ["resolved:error", "release:error"]);
@@ -383,15 +419,18 @@ for (const [reason, mk] of [
     assert.deepEqual(fe.op, { reservationId: "press-x", userOpHash: HASH, txHash: TX, nonce: undefined, relayNonce: RELAY_NONCE });
     assert.equal(tradeErrorCode(fe), "pending_unknown");
     assert.ok(!JARGON.test(playerError(fe)) && !playerError(fe).includes(reason), playerError(fe));
-    // no press (launch): no hold to keep or watch ⇒ the existing plain Timeout line, unchanged
+    assert.deepEqual(fe.extra, { unclear: true, reason, userOpHash: HASH, txHash: TX, relayNonce: RELAY_NONCE }, "extra set on an unclear Timeout");
+    // no press (launch): no hold or watcher, but still pending_unknown (never 'Timeout'), PENDING_MSG copy, ids kept
     const fl = friendlyError(e);
-    assert.equal(fl.code, "Timeout"); assert.equal(fl.message, PENDING_MSG);
+    assert.equal(fl.code, "pending_unknown"); assert.equal(fl.message, PENDING_MSG);
+    assert.deepEqual(fl.op, { userOpHash: HASH, txHash: TX, nonce: undefined, relayNonce: RELAY_NONCE });
   });
 }
 
-test("unclear: SITE mav2's bigint EntryPoint nonce + sender survive alongside FLOW's flag; missing ids fall back to what we know", () => {
-  const e = new AAError("Timeout", PENDING_MSG, { unclear: true, reason: "receipt-timeout", userOpHash: HASH, nonce: NONCE, sender: USDG });
-  assert.deepEqual(PO.pendingOpOf(e), { userOpHash: HASH, txHash: undefined, nonce: NONCE, sender: USDG, unclear: true, reason: "receipt-timeout" });
+test("unclear: RelayTimeoutExtra — bigint EntryPoint nonce + sender + relayNonce side by side; missing ids fall back to what we know", () => {
+  const e = new AAError("Timeout", PENDING_MSG, { unclear: true, reason: "receipt-timeout", userOpHash: HASH, nonce: NONCE, sender: USDG, relayNonce: RELAY_NONCE });
+  assert.deepEqual(PO.pendingOpOf(e), { userOpHash: HASH, txHash: undefined, nonce: NONCE, sender: USDG, unclear: true, reason: "receipt-timeout", relayNonce: RELAY_NONCE });
+  assert.equal(PO.relayUnclearOf(new AAError("Timeout", PENDING_MSG, { unclear: true, nonce: 7 }))?.relayNonce, undefined, "a number `nonce` is not the relayer nonce any more");
   let seenSender: string | undefined;
   const reg = new Reservations(() => 0, 60_000, false); reg.reserve("k", { side: "boost", coin: COIN, usd: 1 });
   const ft = fakeTime();
@@ -401,42 +440,80 @@ test("unclear: SITE mav2's bigint EntryPoint nonce + sender survive alongside FL
   assert.deepEqual(r?.op, { reservationId: "k", userOpHash: OTHER, txHash: undefined, nonce: NONCE }, "ids the caller already had");
   assert.equal(seenSender, undefined, "no sender in the error ⇒ the caller's account (sendTrade passes `me`)");
   assert.equal(PO.relayUnclearOf(new AAError("Timeout", PENDING_MSG, { unclear: true, reason: "bogus" }))?.reason, "receipt-timeout", "unknown reason ⇒ FLOW's default");
-  assert.equal(PO.relayUnclearOf(new AAError("Timeout", PENDING_MSG, { unclear: true, nonce: 2 ** 60 }))?.relayNonce, undefined, "unsafe number nonce dropped");
+  assert.equal(PO.relayUnclearOf(new AAError("Timeout", PENDING_MSG, { unclear: true, relayNonce: 2 ** 60 }))?.relayNonce, undefined, "unsafe number relayNonce dropped");
 });
 
 test("definite revert (txHash + nonce, no unclear flag) stays Reverted: not pending, hold released 'error'", () => {
   const rd = encodeErrorResult({ abi: parseAbi(["error Foo(uint256)"]), errorName: "Foo", args: [B(1)] });
-  const rv = new AAError("Reverted", "That didn't go through. Try again.", { txHash: TX, userOpHash: HASH, nonce: RELAY_NONCE, revertData: rd });
+  const rv = new AAError("Reverted", "That didn't go through. Try again.", { txHash: TX, userOpHash: HASH, relayNonce: RELAY_NONCE, revertData: rd });
   assert.equal(PO.relayUnclearOf(rv), null); assert.equal(PO.pendingOpOf(rv), null); assert.equal(unknownOpOf(rv), null);
   assert.equal(friendlyError(rv, "p").code, "Reverted");
   const s = startWith(rv, "rv");
   assert.equal(s.r, null, "no watcher, no unknown mark: the caller rethrows");
   assert.equal(s.reg.isUnknown("rv"), false);
-  assert.equal(PO.releaseReasonOf(rv), "error");
-  assert.equal(s.reg.release("rv", PO.releaseReasonOf(rv)), true); assert.equal(s.ev.at(-1)?.reason, "error");
+  assert.equal(s.reg.release("rv", "error"), true); assert.equal(s.ev.at(-1)?.reason, "error", "trade() releases a definite error as 'error'");
   // a #141 ProtocolError carrying a definite relay answer (revert payload, no flag) is not unknown either, even as "Timeout"
-  const pe = flowProtocolError({ txHash: TX, nonce: RELAY_NONCE, revert: rd });
+  const pe = flowProtocolError({ txHash: TX, relayNonce: RELAY_NONCE, revert: rd });
   assert.equal(PO.relayUnclearOf(pe), null); assert.equal(PO.pendingOpOf(pe), null);
-  const pr = Object.assign(new ProtocolError("Reverted", "x"), { extra: { txHash: TX, nonce: RELAY_NONCE } });
-  assert.equal(PO.pendingOpOf(pr), null); assert.equal(PO.releaseReasonOf(pr), "error");
+  const fpe = friendlyError(pe, "p");
+  assert.notEqual(fpe.code, "pending_unknown"); assert.notEqual(fpe.code, "Timeout"); assert.equal(fpe.message, "That didn't go through. Try again.", "definite pre-send answer: plain line");
+  assert.equal(friendlyError(new AAError("Timeout", "x", { revert: "0x" })).code, "Estimate", "undecodable definite answer ⇒ pre-send failure code");
+  const pr = new ProtocolError("Reverted", "x", { extra: { txHash: TX, relayNonce: RELAY_NONCE } });
+  assert.equal(PO.pendingOpOf(pr), null);
   // unclear: false / absent with a revert is definite
   assert.equal(PO.pendingOpOf(new AAError("Timeout", "x", { unclear: false, revert: rd, txHash: TX })), null);
 });
 
-test("plain Timeout, no extra (before #141): still pending_unknown as today", async () => {
+test("plain Timeout with NO ids (mav2 standard-path sendUserOperation timeout): pending_unknown, hold kept until the 60 s TTL, no watcher", async () => {
   const bare = new AAError("Timeout", "Trade sent — still confirming on-chain.");
   assert.equal(PO.relayUnclearOf(bare), null, "no unclear flag");
   assert.deepEqual(PO.pendingOpOf(bare), { userOpHash: undefined, txHash: undefined, nonce: undefined, sender: undefined });
   warned.length = 0;
-  const s = startWith(bare, "plain");
-  assert.deepEqual(s.r?.op, { reservationId: "plain", userOpHash: undefined, txHash: undefined, nonce: undefined });
-  assert.equal(s.reg.isUnknown("plain"), true);
+  let t = 0, settled: boolean | undefined;
+  const reg = new Reservations(() => t, 60_000, false); const ev = events(reg);
+  reg.reserve("plain", { side: "boost", coin: COIN, usd: 2 });
+  let lookups = 0;
+  const r = PO.startPendingOp(reg, "plain", bare, () => ({ byHash: async () => { lookups++; return null; }, nonceUsed: async () => { lookups++; return undefined; } }), { book: () => B(0), settle: (x) => { settled = x; } });
+  assert.deepEqual(r?.op, { reservationId: "plain", userOpHash: undefined, txHash: undefined, nonce: undefined }, "still pending_unknown");
+  assert.equal(r?.watch, null, "nothing to look up ⇒ no watcher");
+  assert.equal(lookups, 0);
+  assert.equal(reg.isUnknown("plain"), false, "not marked unknown (the TTL must be able to end it)");
+  assert.equal(reg.reservedCash(), 2, "hold kept");
   assert.ok(!warned.some((a) => String(a[0]).includes("unclear relay outcome")), "no unclear reason logged");
-  await s.r!.watch;
+  assert.ok(warned.some((a) => String(a[0]).includes("no op ids")), "logged");
+  t = 59_000; assert.equal(reg.has("plain"), true, "held before the TTL");
+  t = 61_000; assert.equal(reg.has("plain"), false, "the 60 s TTL ends it");
+  assert.equal(settled, undefined, "session spend is re-synced only when the (timer) TTL passes");
+  assert.deepEqual(ev.map((x) => x.type), ["reserve", "release"]);
+  // friendlyError: pending_unknown (never 'Timeout'), no ids, plain copy
+  const fb = friendlyError(bare, "plain");
+  assert.equal(fb.code, "pending_unknown"); assert.equal(fb.message, PENDING_UNKNOWN_MSG); assert.equal(fb.op?.reservationId, "plain");
+  assert.equal(friendlyError(bare).message, PENDING_MSG, "no press (launch): PENDING_MSG");
+  // trade()'s backstop (holdLate) on a no-ids pending press: keeps the plain hold too, never marks / watches it
+  const reg2 = new Reservations(() => 0, 60_000, false); reg2.reserve("late", { side: "dump", coin: COIN, tokenAmt: B(1) });
+  assert.equal(PO.holdLate(reg2, "late", fb.op, { byHash: async () => null, nonceUsed: async () => undefined }, { book: () => B(0) }), null);
+  assert.equal(reg2.isUnknown("late"), false); assert.equal(reg2.has("late"), true);
   // today's mav2 shape (ids + EntryPoint nonce, no flag) keeps mapping too
   const today = PO.pendingOpOf(new AAError("Timeout", PENDING_MSG, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG }));
   assert.deepEqual(today, { userOpHash: HASH, txHash: TX, nonce: NONCE, sender: USDG });
-  // friendlyError with no flag is unchanged (sendTrade maps these before it is reached)
-  assert.equal(friendlyError(new AAError("Timeout", "UserOp not mined yet", { userOpHash: HASH }), "p").code, "Timeout");
-  assert.equal(PO.releaseReasonOf(new ProtocolError("Timeout", PENDING_MSG)), "timeout");
+  // item 2: friendlyError maps every unknown-outcome Timeout to pending_unknown, with whatever ids are known
+  const fu = friendlyError(new AAError("Timeout", "UserOp not mined yet", { userOpHash: HASH }), "p");
+  assert.equal(fu.code, "pending_unknown"); assert.equal(fu.op?.userOpHash, HASH);
+  assert.equal(friendlyError(new ProtocolError("Timeout", PENDING_MSG)).code, "pending_unknown", "a bare ProtocolError Timeout too");
+});
+
+test("trade() backstop: a pending press that skipped sendTrade is marked + watched once (holdLate), never released 'timeout'", async () => {
+  const ft = fakeTime();
+  const reg = new Reservations(() => 0, 60_000, false); const ev = events(reg);
+  reg.reserve("bk", { side: "boost", coin: COIN, usd: 1 });
+  const w = PO.holdLate(reg, "bk", { reservationId: "bk", userOpHash: HASH } as never, { clock: ft.clock, sleep: ft.sleep, byHash: async () => null, nonceUsed: async () => undefined }, { book: () => B(0) });
+  assert.ok(w); assert.equal(reg.isUnknown("bk"), true);
+  assert.equal(PO.holdLate(reg, "bk", { userOpHash: HASH }, { byHash: async () => null, nonceUsed: async () => undefined }, { book: () => B(0) }), null, "already unknown ⇒ not watched twice");
+  assert.equal(PO.holdLate(reg, "nope", { userOpHash: HASH }, { byHash: async () => null, nonceUsed: async () => undefined }, { book: () => B(0) }), null, "not held ⇒ nothing");
+  await w;
+  assert.ok(!ev.some((x) => x.reason === "timeout"), "never released as 'timeout'");
+  assert.equal(ev.at(-1)?.reason, "error");
+  // lazy deps: sender resolved later; a failed account lookup just reads as 'not found'
+  const lz = PO.lazyWatchDeps(Promise.resolve(null));
+  assert.equal(await lz.byHash({ userOpHash: HASH }), null); assert.equal(await lz.nonceUsed({ nonce: NONCE }), undefined);
 });

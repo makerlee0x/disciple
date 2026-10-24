@@ -30,7 +30,7 @@ export type ReserveInput = {
   usd?: number;
   /** DUMP: raw coin amount (18 dec) this press sells. */
   tokenAmt?: bigint;
-  /** Gas cap for this op in raw USDG (USDG gas, #141 maxTokenCost); counted as cash. Default: the gas reserve source. */
+  /** Gas cap for this op (BOOST or DUMP) in raw USDG (USDG gas, #141 maxTokenCost); counted as cash. Default: the gas reserve source. */
   gasReserve?: bigint;
 };
 /** Trade-layer detail on a reservation (exact raw spend, quote route). Not needed by GAME. */
@@ -63,7 +63,8 @@ export class Reservations {
   /** Reserve (or merge into) `id`. Returns the stored reservation. */
   reserve(id: string, r: ReserveInput & { spend?: ReserveSpend }): Reservation {
     const cur = this.m.get(id);
-    const gas = r.gasReserve ?? cur?.gasReserve ?? (r.side === "boost" ? this.gasSource() : undefined);
+    // BOOSTs and DUMPs both pay gas (USDG gas): every op holds its gas cap, always from CASH (USDG), never from tokens
+    const gas = r.gasReserve ?? cur?.gasReserve ?? this.gasSource();
     const next: Reservation = {
       ...(cur ?? {}), ...stripUndef(r), side: r.side ?? cur?.side, coin: lc(r.coin ?? cur?.coin ?? ""), id, at: cur?.at ?? this.clock(),
       ...(gas !== undefined && gas > B0 ? { gasReserve: gas } : {}),
@@ -115,14 +116,14 @@ export class Reservations {
   list(): Reservation[] { this.sweep(); return [...this.m.values()]; }
   /** Pending presses (optionally one side). */
   count(side?: ReserveSide): number { return this.list().filter((r) => !side || r.side === side).length; }
-  /** Cash held by pending BOOSTs in $ (USDG 1:1): Σ usd + Σ gas caps (raw USDG → $ at the chain's USDG decimals). */
+  /** Cash held by pending trades in $ (USDG 1:1): Σ BOOST usd + Σ gas caps of BOOSTs AND DUMPs (raw USDG → $ at the chain's USDG decimals). */
   reservedCash(): number {
     const dec = this.decimals();
     let usd = 0, gas = B0;
     for (const r of this.list()) { if (r.side === "boost") usd += r.usd ?? (r.spend && isUsdgRaw(r) ? usdgRawToUsd(r.spend.raw, dec) : 0); if (r.gasReserve) gas += r.gasReserve; }
     return usd + usdgRawToUsd(gas, dec);
   }
-  /** Raw coin held by pending DUMPs of `coin`. */
+  /** Raw coin held by pending DUMPs of `coin` (their gas caps are cash: reservedCash / reservedRaw(usdg), not here). */
   reservedTokens(coin: string): bigint {
     const c = lc(coin); let t = B0;
     for (const r of this.list()) if (r.side === "dump" && r.coin === c) t += r.spend?.raw ?? r.tokenAmt ?? B0;
