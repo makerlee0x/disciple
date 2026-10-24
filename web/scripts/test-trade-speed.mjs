@@ -146,6 +146,7 @@ console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra
   fs.writeFileSync(path.join(tmp, "stub-relayOp.mjs"), `export const REJECTED_MSG = "rejected";`);
   fs.writeFileSync(path.join(tmp, "stub-tradeSpeed.mjs"), `export function noteReceipt(h, l) { globalThis.__calls = (globalThis.__calls || []); globalThis.__calls.push([h, l]); if (globalThis.__throw) throw new Error("noteReceipt exploded"); }`);
   fs.writeFileSync(path.join(tmp, "stub-session.mjs"), `export const aaSession = () => globalThis.__sa;
+    export const aaGasReservePerOp = () => 0n; export const aaPeekGasReservePerOp = () => 0n;
     export const aaSend = async () => globalThis.__send;
     export const aaAddress = async () => null; export const aaAvailable = () => true; export const aaLogout = async () => {}; export const eoaLogin = async () => null;
     export const localImport = async () => null; export const localReset = async () => {}; export const localStart = async () => null; export const privyLogin = () => {}; export const restore = async () => null; export const setPrivyOwner = async () => null;`);

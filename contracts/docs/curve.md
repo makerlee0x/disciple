@@ -1,7 +1,7 @@
 # DISCIPLE Bonding Curve (Pump-style CPAMM)
 
 **Status:** `src/libraries/CurveMath.sol` + `src/BondingCurve.sol`  
-**Constitution:** §2 / LOCKED #5–#7 (revised 2026-10-15) — single steep CPAMM, $7K → $33K at exactly 72% sold
+**Constitution:** §2 / LOCKED #5–#7 (revised 2026-10-15; endpoints + 1M supply rev. 2026-10-23) — single steep CPAMM, $7,777 → $33,333 at exactly `CURVE_SOLD_BPS` sold (72% today, pending)
 
 ## Formula
 
@@ -22,11 +22,11 @@ x_0=\frac{M_0}{S}\,y_0
 
 | Parameter | Value |
 |-----------|-------|
-| \(S\) | 7B (18 decimals) |
+| \(S\) | 1,000,000 (18 decimals; no burn) |
 | \(s_{\mathrm{curve}}\) | 72% of \(S\) |
-| \(M_0\) | $7,000 (Launch Pad) |
-| \(M_1\) | $33,000 (graduation, Outer Space) |
-| \(r\) | \(33/7 \approx 4.714\) |
+| \(M_0\) | $7,777 (Launch Pad) |
+| \(M_1\) | $33,333 (graduation, Outer Space) |
+| \(r\) | \(33{,}333/7{,}777 \approx 4.286\) |
 
 ### Trades (round against user)
 
@@ -49,18 +49,18 @@ The price is never caller-supplied and 0 never means $1: launch reverts if the q
 
 | % of supply sold | Market cap | Cum. quote raised (net of fees on curve) |
 |------------------|------------|------------------------------------------|
-| 0% | $7,000 | $0 |
-| 10% | ≈ $8,180 | ≈ $757 |
-| 25% | ≈ $10,598 | ≈ $2,153 |
-| 50% | ≈ $17,897 | ≈ $5,596 |
-| 72% | $33,000 | ≈ **$10,943** |
+| 0% | $7,777 | $0 |
+| 10% | ≈ $9,027 | ≈ $838 |
+| 25% | ≈ $11,552 | ≈ $2,370 |
+| 50% | ≈ $18,928 | ≈ $6,066 |
+| 72% | $33,333 | ≈ **$11,592** |
 
 Gross buys to graduate are higher once the 1% trade fee (+ anti-snipe) is included.
 
 ## Invariants kept
 
 - 1% trade fee (33/33/33/1), optional creator tax ≤7%
-- Anti-snipe 77.7% → 0% over 7s
+- Sniper tax 99% → 0% over 7s (per-second: 99/25/3/1/0.3/0.1/0.03%, 0 from 7s) (mode rules v2; escrowed → LockedLP compound bucket at graduation)
 - Per-wallet curve cap is configurable (`Launchpad.walletCapBps`), default 0 = no cap
 - Optional creator buy ≤0.77% at launch
 - Atomic graduate → locked v4 (stub)
@@ -72,7 +72,7 @@ The prior Pump-early / raise-late piecewise curve ($12K→$77K) was replaced 202
 
 ## Graduation (Uniswap v4)
 
-At graduation (Outer Space, $33K) the graduating buy atomically:
+At graduation (Outer Space, $33,333) the graduating buy atomically:
 
 1. Initializes a v4 pool at the curve-end `sqrtPriceX96` (no price jump).
 2. Seeds a **full-range** position with remaining tokens + curve quote (+ fee escrow), owned by **LockedLP**.

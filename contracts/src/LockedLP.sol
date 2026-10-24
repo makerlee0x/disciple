@@ -12,12 +12,15 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TransientStateLibrary} from "@uniswap/v4-core/src/libraries/TransientStateLibrary.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Constants} from "./libraries/Constants.sol";
+import {FloorBands} from "./libraries/FloorBands.sol";
 
 /// @dev Hook-side view used by flush() to refuse adds in a tx that already swapped this pool (atomic sandwich).
 interface ISwapInTx {
@@ -83,6 +86,25 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     mapping(address => Bucket) internal _buckets;
 
+    /// @notice Graduation floor (phase 3a): `bands` USDG-only locked positions at FloorBands offsets from `base`.
+    ///         Liquidity is read back from the PoolManager (positions never change: no remove path, never compounded).
+    struct Floor {
+        int24 base;
+        uint8 bands;
+        uint128 seeded; // USDG actually deposited into the bands
+    }
+
+    mapping(address => Floor) internal _floors;
+
+    /// @notice One floor band for the SITE bins chart: ticks, liquidity, and what it holds at the current price.
+    struct FloorBand {
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 quoteAmount; // USDG still resting in the band
+        uint256 tokenAmount; // tokens it has bought (USDG converts to tokens as price falls through it)
+    }
+
     /// @notice DiscipleHook (only caller of compoundFromHook; also the swappedInTx oracle for flush).
     address public hook;
     /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.1%
@@ -115,6 +137,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     error SwappedInTx();
     error CompoundOverspend();
     error CompoundCredit();
+    error FloorNotSingleSided();
+    error FloorOverspend();
 
     event LiquidityLocked(address indexed token, address indexed quote, uint256 tokenAmount, uint256 quoteAmount);
     event QuoteEscrowed(address indexed token, address indexed quote, uint256 amount);
@@ -123,6 +147,11 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         into the coin's compound quote bucket (pairs with incoming token fees over time); token dust
     ///         (rounding only) → burn address. Emitted once per graduation. Same signature as before.
     event GraduationLeftover(address indexed token, uint256 quoteToCompoundBucket, uint256 tokenBurned);
+    /// @notice Graduation floor seeded in the graduation tx. quoteSeeded = USDG in the bands; dustToBucket = the
+    ///         budget's rounding remainder, added to the compound quote bucket.
+    event FloorSeeded(
+        address indexed token, PoolId poolId, int24 baseTick, uint8 bands, uint256 quoteSeeded, uint256 dustToBucket
+    );
     event V4PositionSeeded(
         address indexed token, PoolId poolId, uint128 liquidity, int24 tickLower, int24 tickUpper, uint160 sqrtPriceX96
     );
@@ -252,9 +281,23 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 amount0;
         uint256 amount1;
         bytes32 salt;
+        uint256 nonFloorQuote; // quote that must NOT seed the floor (sniper escrow + curve-phase fee escrow)
     }
 
-    /// @notice Initialize pool (if needed) and seed full-range liquidity owned by this contract.
+    struct SeedResult {
+        uint128 liquidity;
+        uint256 used0;
+        uint256 used1;
+        uint256 floorBudget;
+        uint256 floorUsed;
+        int24 floorBase;
+        uint8 floorBands;
+    }
+
+    /// @notice Initialize pool, seed the full-range position, then the graduation floor bands (same unlock).
+    /// @param nonFloorQuote quote inside the desired amounts that stays out of the floor (Migration passes the
+    ///        sniper escrow + the curve-phase fee LP escrow): floor budget = unabsorbed quote − nonFloorQuote, i.e.
+    ///        exactly the curve reserve's leftover after pairing. The excluded quote → compound bucket as before.
     function seedV4Position(
         address token,
         address quote,
@@ -262,7 +305,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint160 sqrtPriceX96,
         uint256 amount0Desired,
         uint256 amount1Desired,
-        bytes32 salt
+        bytes32 salt,
+        uint256 nonFloorQuote
     ) external returns (uint128 liquidity) {
         if (msg.sender != migration) revert OnlyMigration();
         if (address(poolManager) == address(0)) revert ZeroLiquidity();
@@ -292,14 +336,20 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
             sqrtPriceX96: sqrtPriceX96,
             amount0: amount0Desired,
             amount1: amount1Desired,
-            salt: salt
+            salt: salt,
+            nonFloorQuote: nonFloorQuote
         });
 
-        bytes memory result = poolManager.unlock(abi.encode(CB_SEED, abi.encode(sp)));
-        uint256 used0;
-        uint256 used1;
-        (liquidity, used0, used1) = abi.decode(result, (uint128, uint256, uint256));
+        SeedResult memory r = abi.decode(poolManager.unlock(abi.encode(CB_SEED, abi.encode(sp))), (SeedResult));
+        liquidity = r.liquidity;
+        (uint256 used0, uint256 used1) = (r.used0, r.used1);
         p.liquidity = liquidity;
+        if (r.floorBands != 0) {
+            _floors[token] = Floor({base: r.floorBase, bands: r.floorBands, seeded: SafeCast.toUint128(r.floorUsed)});
+            emit FloorSeeded(
+                token, p.poolId, r.floorBase, r.floorBands, r.floorUsed, r.floorBudget - r.floorUsed
+            );
+        }
 
         // Audit #4: liquidity is the max matched amount at the curve-end price; whatever one side could not
         // be paired with is swept explicitly so LockedLP's per-token accounting equals real balances.
@@ -307,7 +357,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         (uint256 tokenUsed, uint256 quoteUsed) = tokenIsC0 ? (used0, used1) : (used1, used0);
         (uint256 tokenDesired, uint256 quoteDesired) =
             tokenIsC0 ? (amount0Desired, amount1Desired) : (amount1Desired, amount0Desired);
-        uint256 quoteLeft = quoteDesired - quoteUsed;
+        uint256 quoteLeft = quoteDesired - quoteUsed - r.floorUsed; // incl. floor rounding dust
         uint256 tokenLeft = tokenDesired - tokenUsed;
         if (quoteLeft > 0) _graduationQuoteLeftover(token, quote, quoteLeft);
         if (tokenLeft > 0) IERC20(token).safeTransfer(BURN, tokenLeft);
@@ -491,9 +541,60 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
             sp.key.currency1.settle(poolManager, address(this), uint256(int256(-delta.amount1())), false);
         }
         // Adding liquidity never yields credits (pool fee 0, fresh position)
-        uint256 used0 = delta.amount0() < 0 ? uint256(int256(-delta.amount0())) : 0;
-        uint256 used1 = delta.amount1() < 0 ? uint256(int256(-delta.amount1())) : 0;
-        return abi.encode(liq, used0, used1);
+        SeedResult memory r;
+        r.liquidity = liq;
+        r.used0 = delta.amount0() < 0 ? uint256(int256(-delta.amount0())) : 0;
+        r.used1 = delta.amount1() < 0 ? uint256(int256(-delta.amount1())) : 0;
+        bool tokenIsC0 = Currency.unwrap(sp.key.currency0) == sp.token;
+        (uint256 qDesired, uint256 qUsed) = tokenIsC0 ? (sp.amount1, r.used1) : (sp.amount0, r.used0);
+        uint256 left = qDesired - qUsed;
+        if (left > sp.nonFloorQuote) {
+            r.floorBudget = left - sp.nonFloorQuote;
+            (r.floorUsed, r.floorBase, r.floorBands) = _seedFloor(sp.key, sp.token, tokenIsC0, r.floorBudget);
+        }
+        return abi.encode(r);
+    }
+
+    /// @dev USDG-only bands strictly on the USDG side of spot, one salt each, settled once. A band whose share
+    ///      rounds to 0 liquidity is skipped (its USDG stays in the dust → bucket). If the bands would leave the
+    ///      usable tick range (absurd quote prices) the floor is skipped and the whole budget goes to the bucket.
+    function _seedFloor(PoolKey memory key, address token, bool tokenIsC0, uint256 budget)
+        internal
+        returns (uint256 used, int24 base, uint8 nb)
+    {
+        if (budget == 0) return (0, 0, 0);
+        (, int24 cur,,) = poolManager.getSlot0(key.toId());
+        base = FloorBands.baseTick(cur, tokenIsC0);
+        int24 span = int24(uint24(Constants.FLOOR_BOTTOM_SPACINGS)) * FloorBands.SPACING;
+        if (tokenIsC0 ? base - span < TickMath.minUsableTick(TICK_SPACING) : base + span > TickMath.maxUsableTick(TICK_SPACING)) {
+            return (0, 0, 0);
+        }
+        int256 owed;
+        for (uint256 i; i < Constants.MAX_FLOOR_BANDS; ++i) {
+            (,, uint256 bps) = FloorBands.band(i);
+            uint256 amt = budget * bps / Constants.BPS_DENOM;
+            (int24 tl, int24 tu) = FloorBands.ticks(base, tokenIsC0, i);
+            uint160 sa = TickMath.getSqrtPriceAtTick(tl);
+            uint160 sb = TickMath.getSqrtPriceAtTick(tu);
+            uint128 l = tokenIsC0
+                ? LiquidityAmounts.getLiquidityForAmount1(sa, sb, amt)
+                : LiquidityAmounts.getLiquidityForAmount0(sa, sb, amt);
+            if (l == 0) continue;
+            (BalanceDelta d,) = poolManager.modifyLiquidity(
+                key,
+                IPoolManager.ModifyLiquidityParams({
+                    tickLower: tl, tickUpper: tu, liquidityDelta: int256(uint256(l)), salt: FloorBands.salt(token, i)
+                }),
+                ""
+            );
+            // USDG only: the token side is untouched (band strictly beyond spot)
+            if ((tokenIsC0 ? d.amount0() : d.amount1()) != 0) revert FloorNotSingleSided();
+            owed += tokenIsC0 ? d.amount1() : d.amount0();
+        }
+        used = uint256(-owed);
+        if (used > budget) revert FloorOverspend();
+        if (used != 0) (tokenIsC0 ? key.currency1 : key.currency0).settle(poolManager, address(this), used, false);
+        nb = uint8(Constants.MAX_FLOOR_BANDS);
     }
 
     /// @inheritdoc ILockedLP
@@ -535,6 +636,51 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     function isGraduated(address token) external view returns (bool) {
         return _positions[token].graduated;
+    }
+
+    /// @notice Graduation floor summary (bands = 0 → no floor).
+    function floorInfo(address token) external view returns (int24 baseTick, uint8 bands, uint128 quoteSeeded) {
+        Floor memory f = _floors[token];
+        return (f.base, f.bands, f.seeded);
+    }
+
+    /// @notice Every floor band (SITE bins chart): ticks, liquidity, USDG still resting in it and tokens it holds at
+    ///         the current pool price. Band i's salt is FloorBands.salt(token, i); owner is this contract.
+    function floorBands(address token) external view returns (FloorBand[] memory out) {
+        Floor memory f = _floors[token];
+        out = new FloorBand[](f.bands);
+        if (f.bands == 0) return out;
+        Position storage p = _positions[token];
+        (uint160 sp,,,) = poolManager.getSlot0(p.poolId);
+        bool c0 = p.tokenIsC0;
+        for (uint256 i; i < f.bands; ++i) {
+            (int24 tl, int24 tu) = FloorBands.ticks(f.base, c0, i);
+            (uint128 l,,) = poolManager.getPositionInfo(p.poolId, address(this), tl, tu, FloorBands.salt(token, i));
+            (uint256 a0, uint256 a1) =
+                _amountsForLiquidity(sp, TickMath.getSqrtPriceAtTick(tl), TickMath.getSqrtPriceAtTick(tu), l);
+            out[i] = FloorBand({
+                tickLower: tl,
+                tickUpper: tu,
+                liquidity: l,
+                quoteAmount: c0 ? a1 : a0,
+                tokenAmount: c0 ? a0 : a1
+            });
+        }
+    }
+
+    function _amountsForLiquidity(uint160 sp, uint160 sa, uint160 sb, uint128 l)
+        internal
+        pure
+        returns (uint256 a0, uint256 a1)
+    {
+        if (sp <= sa) {
+            a0 = SqrtPriceMath.getAmount0Delta(sa, sb, l, false);
+        } else if (sp < sb) {
+            a0 = SqrtPriceMath.getAmount0Delta(sp, sb, l, false);
+            a1 = SqrtPriceMath.getAmount1Delta(sa, sp, l, false);
+        } else {
+            a1 = SqrtPriceMath.getAmount1Delta(sa, sb, l, false);
+        }
     }
 
     /// @notice Position identity for off-chain / tests (owner is always this contract).

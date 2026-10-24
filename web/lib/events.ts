@@ -42,10 +42,10 @@ export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () =>
   });
 }
 
-/** 7B × 1e18 (Constants.TOTAL_SUPPLY). */
-const SUPPLY_TOKENS = 7_000_000_000;
-/** LEGACY (18-dec quotes only): USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw, floored on-chain — a
- *  single-digit integer at 6-dec USDG) and quotePriceUsd (USD WAD per 1e18 quote raw). Hook Trades use sqrtPriceAfter. */
+/** 1M × 1e18 (Constants.TOTAL_SUPPLY, redeploy pack). */
+const SUPPLY_TOKENS = 1_000_000;
+/** LEGACY (18-dec quotes only): USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw, floored on-chain — coarse
+ *  at 6-dec USDG) and quotePriceUsd (USD WAD per 1e18 quote raw). Hook Trades use sqrtPriceAfter. */
 export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bigint) =>
   priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;
 

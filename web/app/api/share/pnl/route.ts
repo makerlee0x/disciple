@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const wallet = u.searchParams.get("wallet"), coin = u.searchParams.get("coin");
   if (u.searchParams.get("demo") === "1") {
     const w = isAddr(wallet) ? wallet.toLowerCase() : "0x000000000000000000000000000000000000dead", c = isAddr(coin) ? coin.toLowerCase() : "0x0";
-    const dm = Math.min(5e9, Math.max(7e3, Number(u.searchParams.get("demoMcap")) || DEMO_MCAP)), now = Number(u.searchParams.get("at")) || Date.now();
+    const dm = Math.min(5e9, Math.max(3333, Number(u.searchParams.get("demoMcap")) || DEMO_MCAP)), now = Number(u.searchParams.get("at")) || Date.now();
     return NextResponse.json({ ...pnlFromFills(w, c, demoFills(w, c, now, dm), dm, now), sample: true });
   }
   if (!isAddr(wallet) || !isAddr(coin)) return NextResponse.json({ error: "wallet and coin required" }, { status: 400 });

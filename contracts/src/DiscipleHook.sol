@@ -458,7 +458,9 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
         }
         (sqrtAfter,,,) = poolManager.getSlot0(key.toId());
         uint256 pAfter = priceX18FromSqrt(sqrtAfter, tokenIsC0);
-        uint256 feeQuote = feeInToken ? Math.mulDiv(feeAmount, pAfter, 1e18) : feeAmount;
+        // Token-side fee valued in quote straight from sqrtPriceX96: via the floored WAD price (`pAfter`, a
+        // single-digit integer for 6-dec USDG quotes) the event under/over-stated it by up to ~25%.
+        uint256 feeQuote = feeInToken ? _quoteValueAtSqrt(feeAmount, sqrtAfter, tokenIsC0) : feeAmount;
 
         emit Trade(
             m.token,
@@ -496,6 +498,14 @@ contract DiscipleHook is IHooks, IHookTradeEvents, IAltitudeEvents {
         if (sqrtP == 0) return 0;
         uint256 pX128 = Math.mulDiv(sqrtP, sqrtP, 1 << 64); // c1 per c0, X128
         return tokenIsC0 ? Math.mulDiv(pX128, 1e18, 1 << 128) : Math.mulDiv(1 << 128, 1e18, pX128);
+    }
+
+    /// @dev `tokenAmt` token raw valued in quote raw at sqrtPriceX96 (full precision, any decimals).
+    function _quoteValueAtSqrt(uint256 tokenAmt, uint160 sqrtP, bool tokenIsC0) internal pure returns (uint256) {
+        if (sqrtP == 0) return 0;
+        return tokenIsC0
+            ? Math.mulDiv(Math.mulDiv(tokenAmt, sqrtP, 1 << 96), sqrtP, 1 << 96)
+            : Math.mulDiv(Math.mulDiv(tokenAmt, 1 << 96, sqrtP), 1 << 96, sqrtP);
     }
 
     /// @notice |Δprice|/price in bps, price = quote per token, from sqrt prices (full precision).

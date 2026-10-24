@@ -21,9 +21,9 @@ function mk(name: string, args: Record<string, any>, address: Hex, block = 1n): 
   return { address, topics: topics as any, data, blockNumber: block, transactionHash: `0x${(++li).toString(16).padStart(64, "0")}` as Hex, logIndex: li };
 }
 const E18 = 10n ** 18n;
-// mcapAfterUsd consistent with the price ($/token × 7B supply): the indexer prices from mcap / supply (FLOW #115).
+// mcapAfterUsd consistent with the price ($/token × 1M supply, the v5 default): the indexer prices from mcap / supply (FLOW #115).
 const trade = (token: Hex, src: Hex, trader: Hex, quote: bigint, price: bigint, block: bigint) =>
-  mk("Trade", { token, trader, isBuy: true, quoteAmt: quote * E18, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: price * E18, impactBps: 0n, mcapAfterUsd: price * 7_000_000_000n * E18 }, src, block);
+  mk("Trade", { token, trader, isBuy: true, quoteAmt: quote * E18, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: price * E18, impactBps: 0n, mcapAfterUsd: price * 1_000_000n * E18 }, src, block);
 const ts = (b: bigint) => 1_000_000 + Number(b) * 60;
 const bkt = (b: bigint) => Math.floor(ts(b) / 60) * 60;
 const launches = () => [
@@ -57,7 +57,7 @@ describe("coin_stats aggregates (listCoins)", () => {
       for (const r of now) expect(r.graduation_pct).toBe(coinGraduationPct(r, r.last_mcap));
     }
     const one = (await get(api, "/coins?sort=volume")).find((c: any) => c.ticker === "ONE");
-    expect(one).toMatchObject({ volume_usd: 157, trades: 3, last_mcap: 28_000_000_000 });
+    expect(one).toMatchObject({ volume_usd: 157, trades: 3, last_mcap: 4_000_000 });   // $4 × 1M (v5 default supply)
     const quiet = (await get(api, "/coins")).find((c: any) => c.ticker === "QQ");
     expect(quiet).toMatchObject({ volume_usd: 0, trades: 0, last_mcap: null });
     expect(Object.keys(one).slice(-4, -1)).toEqual(["volume_usd", "trades", "last_mcap"]);
@@ -91,9 +91,9 @@ describe("coin_stats aggregates (listCoins)", () => {
     expect(plan).toMatch(/trades_trader_ts/);
   });
   it("USD math lives in one function (swap point for #75)", () => {
-    // price = mcap / supply (7e10 / 7e9 = $10), never the floored priceAfterX18 (here deliberately inconsistent: 1)
-    expect(tradeUsd({ quotePriceUsdWad: (2n * E18).toString(), quoteAmt: 3n * E18, priceAfterX18: 1n, mcapAfterUsd: 70_000_000_000n * E18 }))
-      .toEqual({ priceUsd: 10, volumeUsd: 6, mcapUsdWad: (70_000_000_000n * E18).toString() });
+    // price = mcap / supply (1e7 / 1e6 = $10, v5 1M supply), never the floored priceAfterX18 (here deliberately inconsistent: 1)
+    expect(tradeUsd({ quotePriceUsdWad: (2n * E18).toString(), quoteAmt: 3n * E18, priceAfterX18: 1n, mcapAfterUsd: 10_000_000n * E18 }))
+      .toEqual({ priceUsd: 10, volumeUsd: 6, mcapUsdWad: (10_000_000n * E18).toString() });
     // no mcap source at all ⇒ legacy priceAfterX18 × quote price
     expect(tradeUsd({ quotePriceUsdWad: (2n * E18).toString(), quoteAmt: 3n * E18, priceAfterX18: 5n * E18 }).priceUsd).toBe(10);
   });

@@ -50,7 +50,7 @@ ok(/\{ id: "run", label: "Run" \}/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:h
 // 3b) @tier-label: "X% to NEXT_TIER" from the same log progress as the bar (phone pill + desktop tier bar)
 {
   const tiersSrc = rd("lib/flight/tiers.ts");
-  const TIERS = [...tiersSrc.matchAll(/\{ name: "([^"]+)", lo: ([\d.e]+), hi: ([\d.e]+)/g)].map((m) => ({ name: m[1], lo: +m[2], hi: +m[3] }));
+  const TIERS = [...tiersSrc.matchAll(/\{ name: "([^"]+)", lo: ([\d._e]+), hi: ([\d._e]+)/g)].map((m) => ({ name: m[1], lo: +m[2].replace(/_/g, ""), hi: +m[3].replace(/_/g, "") }));
   ok(TIERS.length >= 18 && TIERS[4].name === "OUTER SPACE", "tiers parsed");
   const blk = eng.slice(eng.indexOf("/* @tier-label ("), eng.indexOf("/* @tier-label-end */"));
   // monospace stub: 0.6em per glyph
