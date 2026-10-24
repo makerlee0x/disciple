@@ -56,7 +56,7 @@ contract MockPackRouter {
         return address(0xBEEF);
     }
 
-    function claimCreatorFeesToUsdg(address, uint256, uint256) external {}
+    function claimCreatorFeesToUsdg(address, uint256) external {}
 }
 
 /// @notice Policy 1.4.1 (redeploy pack, scope locked by lee 2026-10-24): one-tap covers launchWithUsdg,
@@ -336,7 +336,7 @@ contract SessionPackTest is Test {
     function test_claimSelectors_rejected() public {
         address coin = address(0xC0FFEE);
         // router: claimCreatorFeesToUsdg (removed from 1.4.x)
-        _rejects(address(router), abi.encodeWithSignature("claimCreatorFeesToUsdg(address,uint256,uint256)", coin, 0, 0));
+        _rejects(address(router), abi.encodeWithSignature("claimCreatorFeesToUsdg(address,uint256)", coin, 0));
         // FeeRouter: creator / creator-token / referral / treasury claims
         _rejects(feeRouter, abi.encodeWithSignature("claimCreatorFees(address)", coin));
         _rejects(feeRouter, abi.encodeWithSignature("claimCreatorTokenFees(address)", coin));
