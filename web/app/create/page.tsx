@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
+import { playerError } from "@/lib/playerError";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -76,7 +77,7 @@ export default function LaunchRocketPage() {
   const signIn = () => {
     setMsg(null);
     if (aaAvailable()) connectPrivy();
-    else connectWallet().catch((err) => setMsg(String((err as Error).message)));
+    else connectWallet().catch((err) => setMsg(playerError(err)));
   };
 
   const blocked = mod.state === "block";
@@ -197,19 +198,20 @@ export default function LaunchRocketPage() {
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
-          setLaunched(`Launched ${res.token}. Assigning fee receiver ${fr.slice(0, 8)}… (one more confirmation)`);
+          setLaunched("Launched. Assigning the fee receiver (one more confirmation)…");
           try {
             await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
           } catch (err) {
-            setLaunched(`Launched ${res.token}, but setting the fee receiver failed: ${String((err as Error).message).split("\n")[0]}. You can retry from the rocket page later.`);
+            console.warn("[disciple] fee receiver assignment failed", { token: res.token, feeReceiver: fr, message: String((err as Error)?.message ?? err).slice(0, 300) });
+            setLaunched(`Launched, but setting the fee receiver didn't go through. You can retry from the rocket page later.`);
             return;
           }
         }
       }
-      setLaunched(`Launched! Rocket ${res.token}${imageNote} — taking you to it…`);
+      setLaunched(`Launched!${imageNote} Taking you to your rocket…`);
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
-      setMsg(isDeployed() ? String((err as Error).message) : "Launches aren't open on this network yet.");
+      setMsg(isDeployed() ? playerError(err) : "Launches aren't open on this network yet.");
     }
   }
 

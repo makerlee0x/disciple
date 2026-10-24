@@ -13,6 +13,7 @@ import {
 
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY } from "./constants";
 import { clientFees } from "./gasPolicy";
+import { PENDING_MSG, REJECTED_MSG, logRelayOp, logTradeError } from "./relayOp";
 export { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY };
 
 export const factoryAbi = parseAbi([
@@ -174,10 +175,11 @@ export class LightSmartAccount {
       await new Promise((r) => setTimeout(r, i < 5 ? 400 : 1200));
       const rc: UserOpReceipt | null = await this.o.bundler.rpc("eth_getUserOperationReceipt", [uoh]);
       if (rc) {
-        if (!rc.success) throw new AAError("Reverted", `UserOp reverted (tx ${rc.receipt.transactionHash})`, { rc });
+        if (!rc.success) { logTradeError("trade reverted", { userOpHash: uoh, txHash: rc.receipt.transactionHash }); throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: uoh, txHash: rc.receipt.transactionHash }); }
         return { userOpHash: uoh, txHash: rc.receipt.transactionHash, receipt: rc, gasMode: mode };
       }
     }
-    throw new AAError("Timeout", `UserOp ${uoh} not mined yet`);
+    logRelayOp("pending", { userOpHash: uoh });
+    throw new AAError("Timeout", PENDING_MSG, { userOpHash: uoh });
   }
 }

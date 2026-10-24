@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminDo, adminRows, loginPrivy, NeedLogin, type AdminRow } from "@/lib/claims/verifyClient";
 import { onPrivy } from "@/lib/aa/session";
+import { plainText } from "@/lib/aa/relayOp";
 import { invalidateVerified } from "@/lib/verifiedClient";
 import { demoEnabled } from "@/lib/claims/demo";
 import { SampleTag, shortA } from "./ui";
@@ -41,7 +42,7 @@ export default function AdminVerify({ configured = false }: { configured?: boole
       if (e instanceof NeedLogin || s === 401) setGate("login");
       else if (s === 403) setGate("denied");
       else if (s === 503) setGate("off");
-      else setErr((e as Error).message);
+      else setErr(plainText((e as Error).message, "admin verify"));
     }
   }, [tab, demo, configured]);
   useEffect(() => { void load(); if (!demo && configured) return onPrivy(() => void load()); }, [load, demo, configured]);
@@ -52,7 +53,7 @@ export default function AdminVerify({ configured = false }: { configured?: boole
       if (demo) { await new Promise((x) => setTimeout(x, 300)); }
       else { await adminDo(r.token, action, reason[r.token] || undefined); invalidateVerified(r.token); }
       setRows((xs) => (xs ?? []).filter((x) => x.token !== r.token));
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+    } catch (e) { setErr(plainText((e as Error).message, "admin verify")); } finally { setBusy(null); }
   };
 
   return (

@@ -21,6 +21,7 @@ import { pct } from "@/lib/aa/slippage";
 import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
+import { playerError } from "@/lib/playerError";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -117,10 +118,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
     addEventListener("disciple:livetrade", t); return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fail = (e: unknown) => {
-    const m = (e as Error).message.split("\n")[0];
-    setErr(m.slice(0, 160));
-  };
+  const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
