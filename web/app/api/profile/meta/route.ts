@@ -4,7 +4,8 @@ export const runtime = "nodejs";
  * (/api/profile/username): single-use server nonce + wallet signature over profileMetaMessage, which covers every field.
  * GET  ?address=0x…          → { pfp, pfpUrl, bio, flag }
  * GET  ?nonce=1&address=0x…  → { nonce, ttlSec }
- * POST { address, pfp, bio, flag, nonce, signature, owner? } → { ok, reason? }
+ * POST { address, pfp, bio, flag, title?, nonce, signature, owner? } → { ok, reason? }
+ *   title = "" (default) or an id from lib/titles that this address has earned (checked here, server-side).
  *   pfp = id of an image that passed /api/moderate-image (must exist in the moderated image store) or "".
  *   bio must already be canonical (sanitizeBio) and ≤ BIO_MAX grapheme clusters (emoji = 1; links allowed, stored as text);
  *   flag = "" (no flag), an ISO 3166-1 alpha-2 code, or a community flag id from lib/flags/community.
@@ -17,6 +18,8 @@ import { verifyWalletSignature } from "@/lib/server/chat/identity";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { getImage } from "@/lib/server/imageStore";
 import { metaOf, setMeta } from "@/lib/server/profileMeta";
+import { usernameOf } from "@/lib/server/usernames";
+import { earnedTitlesFor, profileStatsSeed, validateTitle } from "@/lib/titles";
 import { BIO_MAX, BIO_RAW_MAX, normalizeFlag, pfpUrl, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "@/lib/profileMeta";
 
 const NONCE_TTL = 600;
@@ -37,14 +40,14 @@ export async function GET(req: Request) {
     const nonce = await issueNonce(kv(), NONCE_PREFIX, address, NONCE_TTL);
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
-  const m = await metaOf(address).catch(() => ({ pfp: "", bio: "", flag: "" }));
+  const m = await metaOf(address).catch(() => ({ pfp: "", bio: "", flag: "", title: "" }));
   return NextResponse.json({ ...m, pfpUrl: pfpUrl(m.pfp) || null }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function POST(req: Request) {
   const rl = await hitLimit(kv(), `meta:ip:${clientIp(req.headers)}`, 20, 60);
   if (!rl.ok) return tooMany(rl.retryAfterSec);
-  let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
+  let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; title?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   if (!body || typeof body !== "object") return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 });
   const addr = String(body.address ?? "").toLowerCase();
@@ -58,11 +61,15 @@ export async function POST(req: Request) {
     pfp: typeof body.pfp === "string" ? body.pfp.trim().toLowerCase() : "",
     bio: sanitizeBio(rawBio),
     flag: normalizeFlag(typeof body.flag === "string" ? body.flag : ""),
+    title: typeof body.title === "string" ? body.title.trim().toLowerCase() : "",
   };
   // The signed message covers the exact posted bio, so it must already be canonical (no silent rewrite after signing).
   if (m.bio !== rawBio) return NextResponse.json({ ok: false, reason: "Invalid bio." }, { status: 400 });
   const bad = validateMeta(m);
   if (bad) return NextResponse.json({ ok: false, reason: bad }, { status: 400 });
+  // Title must be earned by THIS address (lib/titles, same computation as the profile page; never the client's word).
+  const titleBad = validateTitle(m.title ?? "", earnedTitlesFor(profileStatsSeed(await usernameOf(addr).catch(() => null), addr)));
+  if (titleBad) return NextResponse.json({ ok: false, reason: titleBad }, { status: 400 });
 
   const nonce = String(body.nonce ?? "");
   if (!(await nonceValid(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
