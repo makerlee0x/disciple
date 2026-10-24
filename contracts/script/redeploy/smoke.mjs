@@ -1,6 +1,7 @@
 // Post-redeploy smoke for the single DISCIPLE redeploy (RH testnet 46630 or a local anvil fork of it).
 // Checks: 6-dec USDG, referralSink default, SEC-01, 77s sniper tax → snipeEscrow (no 70/30 routing), graduation at
-// $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket.
+// $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket; AUDIT fixes (launch-fee
+// cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M).
 // Env:
 //   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed)
 //   RPC_URL       default https://rpc.testnet.chain.robinhood.com (FORK=1 → http://127.0.0.1:8545)
@@ -58,6 +59,15 @@ const sink = await rd(B.FeeRouter, frAbi, "referralSink");
 check("FeeRouter.referralSink default", sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
 const rv = await rd(B.FeeRouter, frAbi, "rewardsVault");
 check("FeeRouter.rewardsVault set", rv !== zeroAddress && (!B.RewardsVault || rv === getAddress(B.RewardsVault)), rv);
+// AUDIT fixes (contracts/docs/redeploy-runbook.md §11)
+const alAbi = abi("AnonLauncher");
+const maxFee = await rd(B.AnonLauncher, alAbi, "MAX_LAUNCH_FEE");
+check("AnonLauncher.MAX_LAUNCH_FEE == 5 * 10**usdg.decimals()", maxFee === 5n * 10n ** BigInt(dec), `${maxFee} (want ${5n * 10n ** BigInt(dec)}; #115 b6a9117)`);
+const lf = await rd(B.AnonLauncher, alAbi, "launchFee");
+check("AnonLauncher.launchFee <= MAX_LAUNCH_FEE", lf <= maxFee, `${formatUnits(lf, dec)} USDG`);
+check("FeeRouter.isClaimRouter(DiscipleRouter)", (await rd(B.FeeRouter, frAbi, "isClaimRouter", [B.DiscipleRouter])) === true, B.DiscipleRouter);
+const rvAbi = abi("RewardsVault");
+info("RewardsVault owner / pendingOwner", `${await rd(rv, rvAbi, "owner")} / ${await rd(rv, rvAbi, "pendingOwner")} (Owned2Step: REWARDS_VAULT_OWNER must acceptOwnership)`);
 
 // 2. launch (TRENCH; 10-quote creator buy, which is sniper-exempt)
 const ensure = async (amt) => { if ((await rd(Q, erc20, "balanceOf", [me.address])) < amt) await send("mint", { address: Q, abi: erc20, functionName: "mint", args: [me.address, amt * 2n] }); };
@@ -106,6 +116,8 @@ if (GRADUATE) {
   await ensure(amt);
   const r3 = await send("graduationBuy", { address: curve, abi: curveAbi, functionName: "buy", args: [amt, 0n, dl] });
   res.info.graduationGas = r3.gasUsed.toString();
+  // tx gasUsed (execution + 21k intrinsic + calldata); AUDIT measured ≈ 2.764M execution at 6-dec USDG. Same 3.0M ceiling as forge FloorSeedGas.
+  check("graduating buy gas <= 3.0M (6-dec USDG, ≈2.76M expected)", r3.gasUsed <= 3_000_000n, r3.gasUsed.toString());
   const ev = decodeAll(r3.logs, [curveAbi, llAbi]);
   const g = ev.find((e) => e.eventName === "GraduatedToV4");
   check("graduated (GraduatedToV4 + graduated())", !!g && (await rd(curve, curveAbi, "graduated")), g ? `poolId ${g.args.poolId} tokenLiq ${formatUnits(g.args.tokenLiq, 18)} quoteLiq ${fmt(g.args.quoteLiq)}` : "no event");
