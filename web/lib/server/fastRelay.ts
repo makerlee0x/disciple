@@ -226,7 +226,12 @@ export async function waitRelayReceipt(txHash: Hex, maxWaitMs = 25_000): Promise
 }
 export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: number }) => void;
 
-export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): Promise<RelayConfirmed> {
+/**
+ * `beforeSend` (AUDIT Low, sender lockout): awaited once the op passed validation — gas/paymaster policy and the
+ * simulation (or the trusted fast-path decision) — and BEFORE the relayer signs anything. The route charges the
+ * per-sender limit there (lib/server/limits.sendLimiter); a throw aborts with nothing sent.
+ */
+export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
   const st = await ready(), me = st.account;
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
@@ -252,6 +257,7 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
     });
     t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
+  await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
   const gas = totalGas(op) + BigInt(120_000);
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   let txHash: Hex | undefined, relayNonce: number | undefined;

@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
-import { BUNDLER_LIMITS, bundlerSendPerSender, clientIp, hitLimit, hitSenderSend, notePressRejected, rejectedBeforeSend, type LimitResult } from "@/lib/server/limits";
+import { BUNDLER_LIMITS, clientIp, hitLimit, isSendLimitError, sendLimiter, type LimitResult, type SendLimiter } from "@/lib/server/limits";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
 
@@ -29,24 +29,22 @@ const SEND = new Set(["eth_sendUserOperation", "disciple_sendUserOperationSync"]
 const SIM = new Set(["eth_estimateUserOperationGas", "disciple_warm"]);
 const senderOf = (params: unknown[]) => String((params[0] as { sender?: unknown } | undefined)?.sender ?? "").toLowerCase();
 const pressOf = (params: unknown[]) => (params[2] as { pressId?: unknown } | undefined)?.pressId;
-/** AUDIT L1: a send the relay rejected BEFORE submitting anything grants that press ONE free retry (lib/server/limits). */
-async function notePreSendRejection(method: string, params: unknown[], e: unknown) {
-  const sender = senderOf(params);
-  if (SEND.has(method) && /^0x[0-9a-f]{40}$/.test(sender) && rejectedBeforeSend(e)) await notePressRejected(kv(), sender, pressOf(params), bundlerSendPerSender()).catch(() => false);
+/**
+ * W-1 + AUDIT Low (sender lockout), lib/server/limits.sendLimiter. Sends: pre-validation per IP + per IP+sender here;
+ * the per-SENDER limit (and a press's free retry, params[2].pressId) is charged only after the op passed validation
+ * (beforeSend, inside fastRelay / selfBundler, before the relayer signs). A send the relay rejected BEFORE submitting
+ * anything grants that press ONE free retry (AUDIT L1). Sims: per IP. Shared Upstash store (in-memory without KV env).
+ */
+function senderLimiter(req: Request, method: string, params: unknown[]): SendLimiter | null {
+  return SEND.has(method) ? sendLimiter(kv(), { ip: clientIp(req.headers), sender: senderOf(params), pressId: pressOf(params) }) : null;
 }
-/** W-1: per-sender + per-IP limits in the shared Upstash store (in-memory only without KV env). null = allowed. */
-async function limited(req: Request, method: string, params: unknown[]): Promise<LimitResult | null> {
-  const ip = clientIp(req.headers), s = kv();
-  if (SEND.has(method)) {
-    const sender = senderOf(params);
-    const checks = [hitLimit(s, `bundler:send:ip:${ip}`, BUNDLER_LIMITS.sendPerIp.limit, BUNDLER_LIMITS.sendPerIp.windowSec)];
-    // rapid taps: a retry of a press the relay rejected pre-send (params[2].pressId, lib/aa/relayClient) is free
-    if (/^0x[0-9a-f]{40}$/.test(sender)) checks.push(hitSenderSend(s, sender, pressOf(params), bundlerSendPerSender()));
-    return (await Promise.all(checks)).find((r) => !r.ok) ?? null;
-  }
-  if (SIM.has(method)) { const r = await hitLimit(s, `bundler:sim:ip:${ip}`, BUNDLER_LIMITS.simPerIp.limit, BUNDLER_LIMITS.simPerIp.windowSec); return r.ok ? null : r; }
+async function limited(req: Request, method: string, sl: SendLimiter | null): Promise<LimitResult | null> {
+  if (sl) return sl.pre();
+  if (SIM.has(method)) { const r = await hitLimit(kv(), `bundler:sim:ip:${clientIp(req.headers)}`, BUNDLER_LIMITS.simPerIp.limit, BUNDLER_LIMITS.simPerIp.windowSec); return r.ok ? null : r; }
   return null;
 }
+const limitedResponse = (id: unknown, method: string, retryAfterSec: number) =>
+  NextResponse.json({ jsonrpc: "2.0", id: id ?? null, error: { code: -32005, message: `${method}: rate limited, retry in ${retryAfterSec}s` } }, { status: 429, headers: { "retry-after": String(retryAfterSec) } });
 const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
 export async function POST(req: Request) {
@@ -60,27 +58,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: self-bundler only` } });
   if (Array.isArray(body) || !body.method || (!ALLOWED.has(body.method) && !selfOnly))
     return NextResponse.json({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32601, message: "method not allowed" } }, { status: 400 });
-  const rl = await limited(req, body.method, body.params || []);
-  if (rl) return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32005, message: `${body.method}: rate limited, retry in ${rl.retryAfterSec}s` } }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
+  const sl = senderLimiter(req, body.method, body.params || []);
+  const rl = await limited(req, body.method, sl);
+  if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
   if (key && process.env.AA_SELF_BUNDLER !== "1" && !selfOnly) {
+    // forwarded to Alchemy (it validates; we can't hook before its submission): refuse when the sender's validated-sends
+    // bucket is already full (read-only — junk ops never fill it), and count the send only once Alchemy accepted it
+    const full = sl ? await sl.peek() : null;
+    if (full) return limitedResponse(body.id, body.method, full.retryAfterSec);
     const r = await fetch(`https://robinhood-testnet.g.alchemy.com/v2/${key}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const text = await r.text();
     // Alchemy key rejected (401 "Must be authenticated!") ⇒ fall back to the built-in self-bundler.
-    if (r.status !== 401 && !/must be authenticated/i.test(text)) return new NextResponse(text, { status: r.status, headers: { "content-type": "application/json" } });
+    if (r.status !== 401 && !/must be authenticated/i.test(text)) {
+      // Alchemy validated + accepted the op (a result) ⇒ only then does it count toward the per-sender limit
+      if (sl && r.ok && /"result"/.test(text)) await sl.beforeSend().catch(() => undefined);
+      return new NextResponse(text, { status: r.status, headers: { "content-type": "application/json" } });
+    }
   }
   // AUDIT Low: a strike / verification recorded while relaying must reach the shared store before the lambda freezes
   const flushTrust = async () => { if (SEND.has(body.method!) || SIM.has(body.method!)) await (await import("@/lib/server/fastRelay")).flushRelayTrust().catch(() => undefined); };
   // Receipt push (lib/aa/relayTypes): streaming clients get NDJSON frames on THIS response — normally one RelayConfirmed;
   // if the sync send timed out, a RelayPending (txHash) first and the RelayConfirmed when the receipt lands.
   if (body.method === RELAY_METHOD && (req.headers.get("accept") || "").includes(RELAY_STREAM_ACCEPT))
-    return streamRelay(body.params || [], flushTrust, (e) => notePreSendRejection(body.method!, body.params || [], e));   // on #140: pass its finish()/afterResponse instead of flushTrust
+    return streamRelay(body.params || [], flushTrust, async (e) => sl?.rejected(e), sl ? () => sl.beforeSend() : undefined);   // on #140: pass its finish()/afterResponse instead of flushTrust
   try {
-    const result = await selfBundle(body.method, body.params || []);
+    const result = await selfBundle(body.method, body.params || [], { beforeSend: sl ? () => sl.beforeSend() : undefined });
     await flushTrust();
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, result });
   } catch (e) {
     await flushTrust();
-    await notePreSendRejection(body.method, body.params || [], e);
+    await sl?.rejected(e);
+    // validated, but the sender's per-sender send limit is full: nothing was signed or sent
+    if (isSendLimitError(e)) return limitedResponse(body.id, body.method, e.retryAfterSec);
     // production without a dedicated RELAYER_PRIVATE_KEY (or set to the faucet key): fail closed, never sign with the faucet
     if (isRelayerNotConfigured(e))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });

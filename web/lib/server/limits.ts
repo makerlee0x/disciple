@@ -95,14 +95,82 @@ export function rejectedBeforeSend(e: unknown): boolean {
   return /simulation failed|execution reverted|fee below relayer floor|above cap|\bAA[0-9]{2}\b/i.test(String(x.message ?? ""));
 }
 
-/** AUDIT L1: record a pre-send rejection of sender + pressId ⇒ grants ONE free retry (bounded per press and per sender). */
-export async function notePressRejected(store: CounterStore, sender: string, pressId: unknown, lim: PressLim & { grantsPerSender?: number }): Promise<boolean> {
+/**
+ * AUDIT L1: record a pre-send rejection of sender + pressId ⇒ grants ONE free retry (bounded per press and per sender).
+ * AUDIT Low (sender lockout): the rejected op may be anyone's (the sender is only CLAIMED — the op failed validation),
+ * so the per-sender grant cap is keyed on caller IP + sender when `lim.ip` is given: an attacker spamming invalid ops for
+ * a victim's sender only exhausts its own (ip, sender) grant budget, never the victim's. The grant itself stays keyed on
+ * sender + pressId (a random per-press id), so the victim's retry is free from any IP.
+ */
+export async function notePressRejected(store: CounterStore, sender: string, pressId: unknown, lim: PressLim & { grantsPerSender?: number; ip?: string }): Promise<boolean> {
   if (!pressOk(pressId) || lim.pressFreeRetries <= 0) return false;
   try {
-    const perSender = await store.incrEx(`rl:bundler:press:grants:${sender}`, lim.windowSec);
+    const perSender = await store.incrEx(lim.ip ? `rl:bundler:press:grants:${lim.ip}:${sender}` : `rl:bundler:press:grants:${sender}`, lim.windowSec);
     if (perSender > (lim.grantsPerSender ?? BUNDLER_LIMITS.pressFreeGrantsPerSender)) return false;
     return (await store.incrEx(grantKey(sender, pressId), lim.windowSec)) <= lim.pressFreeRetries;
   } catch { return false; }
+}
+
+/**
+ * AUDIT Low (pre-existing, sender lockout): the per-SENDER send limit used to be charged on the CLAIMED sender before
+ * the op was validated, so one IP could post junk ops (bad signatures) naming a victim's sender, exhaust the victim's
+ * sendPerSender bucket for its window and burn their free press retries. Now the send path is limited in two stages:
+ *  1. pre-validation (route, before anything else): per IP (sendPerIp) + per IP+SENDER (`sendPerIpSender`, the
+ *     paymaster L-3 pattern) — cheap spam stays bounded, and a third party only fills its OWN (ip, sender) bucket;
+ *  2. post-validation (`beforeSend`, called by fastRelay / selfBundler after the gas/paymaster checks and the
+ *     simulation — or the trusted fast-path decision — and BEFORE the relayer signs anything): the per-sender limit
+ *     (hitSenderSend), which is also where a press's free retry is consumed.
+ * The pre-validation (ip, sender) cap is the per-sender limit plus the per-window free-retry grant cap, so an honest
+ * client that stays inside its post-validation budget (free retries included) can never hit it first.
+ */
+export class SendLimitError extends Error {
+  readonly code = -32005;
+  constructor(public retryAfterSec: number) { super(`rate limited, retry in ${retryAfterSec}s`); }
+}
+export const isSendLimitError = (e: unknown): e is SendLimitError =>
+  e instanceof SendLimitError || ((e as { code?: unknown } | null)?.code === -32005 && /rate limited/.test(String((e as Error)?.message)));
+export function sendPerIpSender(lim: { limit: number; windowSec: number } = bundlerSendPerSender()) {
+  return { limit: lim.limit + BUNDLER_LIMITS.pressFreeGrantsPerSender, windowSec: lim.windowSec };
+}
+export type SendLimiter = {
+  /** stage 1, before validation: per IP + per IP+sender. null = allowed. */
+  pre(): Promise<LimitResult | null>;
+  /** stage 2, after validation, before signing: per sender (+ free press retry). Throws SendLimitError when over. */
+  beforeSend(): Promise<void>;
+  /** a send failed: a pre-send rejection grants the press ONE free retry (grant cap keyed on ip + sender). */
+  rejected(e: unknown): Promise<void>;
+  /** read-only: is the sender's (validated-sends) bucket already full? For forwards we can't hook before signing. */
+  peek(): Promise<LimitResult | null>;
+};
+export function sendLimiter(store: CounterStore, o: { ip: string; sender: string; pressId?: unknown; env?: Record<string, string | undefined> }): SendLimiter {
+  const lim = bundlerSendPerSender(o.env);
+  const sender = o.sender.toLowerCase(), okSender = /^0x[0-9a-f]{40}$/.test(sender);
+  let charged = false;
+  return {
+    async pre() {
+      const ipSender = sendPerIpSender(lim);
+      const checks = [hitLimit(store, `bundler:send:ip:${o.ip}`, BUNDLER_LIMITS.sendPerIp.limit, BUNDLER_LIMITS.sendPerIp.windowSec)];
+      if (okSender) checks.push(hitLimit(store, `bundler:send:ipsender:${o.ip}:${sender}`, ipSender.limit, ipSender.windowSec));
+      return (await Promise.all(checks)).find((r) => !r.ok) ?? null;
+    },
+    async beforeSend() {
+      if (!okSender || charged) return;   // once per request (a nonce re-sign inside one send is not a new send)
+      charged = true;
+      const r = await hitSenderSend(store, sender, o.pressId, lim);
+      if (!r.ok) throw new SendLimitError(r.retryAfterSec);
+    },
+    async peek() {
+      if (!okSender || !store.get) return null;
+      const k = `rl:bundler:send:sender:${sender}`;
+      const n = Number(await store.get(k).catch(() => null)) || 0;
+      if (n < lim.limit) return null;
+      const t = await store.ttl(k).catch(() => lim.windowSec);
+      return { ok: false, count: n, limit: lim.limit, retryAfterSec: t > 0 ? t : lim.windowSec };
+    },
+    async rejected(e) {
+      if (okSender && !isSendLimitError(e) && rejectedBeforeSend(e)) await notePressRejected(store, sender, o.pressId, { ...lim, ip: o.ip }).catch(() => false);
+    },
+  };
 }
 
 /**

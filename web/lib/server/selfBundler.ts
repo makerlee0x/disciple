@@ -55,10 +55,11 @@ function estimateError(e: unknown): BundlerRpcError {
   return new BundlerRpcError(`execution reverted in simulation${data ? ` (${data.slice(0, 10)})` : ""}: ${m.split("\n")[0].slice(0, 200)}`, data);
 }
 
-export async function selfBundle(method: string, params: unknown[]): Promise<unknown> {
+/** `o.beforeSend`: see fastRelay.sendUserOperationSync — awaited after validation (policy + simulation), before signing. */
+export async function selfBundle(method: string, params: unknown[], o: { beforeSend?: () => Promise<void> } = {}): Promise<unknown> {
   switch (method) {
     case "eth_chainId": return numberToHex(robinhoodTestnet.id);
-    case "disciple_sendUserOperationSync": { const { sendUserOperationSync } = await import("./fastRelay"); return sendUserOperationSync(params[0] as UserOp); }
+    case "disciple_sendUserOperationSync": { const { sendUserOperationSync } = await import("./fastRelay"); return sendUserOperationSync(params[0] as UserOp, undefined, o.beforeSend); }
     case "disciple_warm": { const { warmRelay } = await import("./fastRelay"); await warmRelay(typeof params[0] === "string" ? params[0] : undefined); return true; }
     case "eth_supportedEntryPoints": return [ENTRYPOINT_V07];
     case "rundler_maxPriorityFeePerGas": return "0xf4240"; // 0.001 gwei
@@ -104,6 +105,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       await pc.call({ account: me, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: me, to: ENTRYPOINT_V07, data });
       const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
+      await o.beforeSend?.();   // validated (simulation + estimate passed) ⇒ charge the per-sender limit, then sign
       // never above the op's own fees ⇒ the EntryPoint refund (at the op's price) covers the relayer's cost per gas
       const fees = relayerTxFees(op, base);
       // feat/rapid-tap: the syncSend rules on this path too. Sign once per nonce; "already known" / timeout / network ⇒

@@ -317,3 +317,73 @@ test("merge: unclear relay error, not found ⇒ AAError Timeout extra = RelayTim
   const pe = friendlyError(err);
   assert.equal(pe.code, "Timeout"); assert.equal(pe.extra?.relayNonce, 9); assert.equal(pe.extra?.pressId, "ab".repeat(12));
 });
+
+// ---- AUDIT Low (sender lockout): the per-sender limit is charged only AFTER validation; pre-validation is IP+sender ----
+import { sendLimiter, sendPerIpSender, SendLimitError, type CounterStore } from "../lib/server/limits";
+
+function freshStore(): CounterStore {
+  const m = new Map<string, number>();
+  return { async incrEx(k) { const n = (m.get(k) ?? 0) + 1; m.set(k, n); return n; }, async ttl() { return 60; }, async get(k) { return m.has(k) ? String(m.get(k)) : null; } };
+}
+const SIM_FAIL = () => Object.assign(new Error("simulation failed: AA24 signature error"), { data: "0x08c379a0" });
+/** The route's send flow (app/api/bundler/route.ts): pre() → validation (fastRelay / selfBundler) → beforeSend() → sign. */
+async function routeSend(store: CounterStore, ip: string, sender: string, valid: boolean, pressId?: string): Promise<"sent" | "pre-429" | "post-429" | "rejected"> {
+  const sl = sendLimiter(store, { ip, sender, pressId, env: {} });
+  if (await sl.pre()) return "pre-429";
+  try {
+    if (!valid) throw SIM_FAIL();   // bad signature: the simulation rejects it before beforeSend
+    await sl.beforeSend();
+    return "sent";
+  } catch (e) {
+    await sl.rejected(e);
+    if (e instanceof SendLimitError) return "post-429";
+    return "rejected";
+  }
+}
+const VICTIM = "0x00000000000000000000000000000000000000vv".replace(/v/g, "7");
+
+test("sender lockout: an attacker IP spamming the victim's sender with bad signatures never touches the victim's limit", async () => {
+  const st = freshStore();
+  const out: string[] = [];
+  for (let i = 0; i < 200; i++) out.push(await routeSend(st, "6.6.6.6", VICTIM, false, newPressId()));
+  // cheap spam stays bounded per IP+sender (then per IP): nothing past the pre-validation cap reaches validation
+  const cap = sendPerIpSender(bundlerSendPerSender({})).limit;
+  assert.equal(out.filter((x) => x === "rejected").length, cap); assert.ok(out.slice(cap).every((x) => x === "pre-429"));
+  assert.equal(await st.get!(`rl:bundler:send:sender:${VICTIM}`), null, "victim's per-sender bucket untouched");
+  // the victim (another IP) still gets its FULL per-sender budget of valid sends
+  const lim = bundlerSendPerSender({}).limit, v: string[] = [];
+  for (let i = 0; i < lim; i++) v.push(await routeSend(st, "1.2.3.4", VICTIM, true, newPressId()));
+  assert.ok(v.every((x) => x === "sent"), v.join(","));
+});
+test("sender lockout: the attacker can't burn the victim's free retries (grants consumed only after validation)", async () => {
+  const st = freshStore(), press = newPressId();
+  // attacker exhausts ITS OWN (ip, sender) grant budget with junk presses
+  for (let i = 0; i < 30; i++) await routeSend(st, "6.6.6.6", VICTIM, false, newPressId());
+  // victim's press: rejected pre-send (e.g. a lagging node) ⇒ ONE free retry still granted from the victim's IP
+  assert.equal(await routeSend(st, "1.2.3.4", VICTIM, true, press), "sent");          // counts 1
+  assert.equal(await routeSend(st, "1.2.3.4", VICTIM, false, press), "rejected");     // grant
+  // the attacker learns the pressId and spams invalid ops with it: validation fails ⇒ the grant is NOT consumed
+  for (let i = 0; i < 5; i++) assert.equal(await routeSend(st, "6.6.6.6", VICTIM, false, press), "rejected");
+  // victim's retry (any IP) is free: the per-sender count stays at 1
+  assert.equal(await routeSend(st, "5.5.5.5", VICTIM, true, press), "sent");
+  assert.equal(await st.get!(`rl:bundler:send:sender:${VICTIM}`), "1");
+  // a SendLimitError is never a pre-send rejection (no grant for hitting the limit)
+  const sl = sendLimiter(st, { ip: "1.2.3.4", sender: VICTIM, pressId: press, env: {} });
+  await sl.rejected(new SendLimitError(9));
+  assert.equal(await st.get!(`rl:bundler:press:grants:1.2.3.4:${VICTIM}`), "1");
+});
+test("sender lockout: VALID ops are still limited per sender (across IPs), once per request", async () => {
+  const st = freshStore(), lim = bundlerSendPerSender({ BUNDLER_SEND_PER_SENDER: "5" }).limit;
+  assert.equal(lim, 5);
+  const ips = ["1.1.1.1", "2.2.2.2", "3.3.3.3"], out: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const sl = sendLimiter(st, { ip: ips[i % 3], sender: VICTIM, env: { BUNDLER_SEND_PER_SENDER: "5" } });
+    assert.equal(await sl.pre(), null);
+    try { await sl.beforeSend(); await sl.beforeSend(); out.push("sent"); } catch (e) { out.push(e instanceof SendLimitError ? "post-429" : "?"); }   // 2nd call (nonce re-sign) not double-charged
+  }
+  assert.deepEqual(out, ["sent", "sent", "sent", "sent", "sent", "post-429", "post-429"]);
+  // read-only peek (Alchemy forward): full bucket ⇒ refused, and peeking never adds to it
+  const sl = sendLimiter(st, { ip: "9.9.9.9", sender: VICTIM, env: { BUNDLER_SEND_PER_SENDER: "5" } });
+  assert.equal((await sl.peek())?.ok, false); const before = await st.get!(`rl:bundler:send:sender:${VICTIM}`); await sl.peek();
+  assert.equal(await st.get!(`rl:bundler:send:sender:${VICTIM}`), before);
+});

@@ -13,8 +13,9 @@ import { userOpHash } from "../aa/core";
 import { robinhoodTestnet } from "../chains";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData, type RelayFrame } from "../aa/relayTypes";
 import { isRelayerNotConfigured } from "./relayer";
+import { isSendLimitError } from "./limits";
 
-export function streamRelay(params: unknown[], settle: () => Promise<unknown>, onError?: (e: unknown) => Promise<unknown>): Response {
+export function streamRelay(params: unknown[], settle: () => Promise<unknown>, onError?: (e: unknown) => Promise<unknown>, beforeSend?: () => Promise<void>): Response {
   const enc = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(ctl) {
@@ -26,13 +27,14 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>, o
       try { hash = userOpHash(op, robinhoodTestnet.id); } catch { /* malformed op: fastRelay rejects it */ }
       try {
         const { sendUserOperationSync } = await import("./fastRelay");
-        const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }); });
+        const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }); }, beforeSend);
         await settle().catch(() => undefined);
         push(r);
       } catch (e) {
         await settle().catch(() => undefined);
         await onError?.(e).catch(() => undefined);   // AUDIT L1: route records pre-send rejections (free retry grant)
         const x = e as { shortMessage?: string; message?: string };
+        if (isSendLimitError(e)) { push({ kind: "error", code: -32005, message: `${RELAY_METHOD}: ${e.message}` }); ctl.close(); return; }   // validated, per-sender limit hit: nothing sent
         const nc = isRelayerNotConfigured(e);
         const m = nc ? "relayer not configured" : (x.shortMessage || x.message || String(e)).split("\n")[0].slice(0, 300);
         // terminal frame: txHash / userOpHash / relayNonce / notSent (AUDIT L2: true only for a definite rejection); on a
