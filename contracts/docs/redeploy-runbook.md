@@ -146,7 +146,7 @@ that hold testnet addresses come from the web bundle.
 The indexer reads `contracts/deployments/rh-testnet-46630.json` (`DEPLOYMENT_JSON`) and walks `previous`, so the new stack (id v5) is
 indexed from its `startBlock` and the old stacks keep indexing. After the deployments json is on the indexer host:
 restart it; if the json lacks `startBlock`, set `START_BLOCK=<first deploy block>`. `STACKS=v5` restricts to the new stack.
-Check `/health` (or the cursor table) reaches head and that the smoke coin appears.
+Check the indexer catches up to head and that the smoke coin appears.
 
 ## 8. Smoke (live testnet, after deploy)
 
@@ -175,7 +175,7 @@ For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `h
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
 
 Result 2026-10-24 (fork of block 141892136, branch feat/redeploy-prep): core deploy 51 txs, 40,180,273 gas used (forge estimate 50.8M; largest tx CurveDeployer
-5.74M); smoke 20/20 PASS; launch 6.68M gas; graduation buy 2,365,864 gas; floor 1,201.27337 USDG in 16 bands; graduation mcap $33,332.999999;
+5.74M); smoke 18/18 PASS; launch 6.68M gas; graduation buy 2,365,864 gas; floor 1,201.27337 USDG in 16 bands; graduation mcap $33,332.999999;
 fixtures `grad` (STRATEGY quote) graduated in a 2.40M-gas buy, floor 490,315.66 STRATEGY (≈ $1,201), router buyExactIn / sellExactIn / buyWithUsdg / sellToUsdg OK;
 DisciplePaymaster (est. 2.41M gas, 0.000348 ETH deposit) and DiscipleSessionPolicy 1.4.0 (est. 4.19M gas) deployed on the fork.
 
