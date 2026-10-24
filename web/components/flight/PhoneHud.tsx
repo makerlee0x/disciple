@@ -27,6 +27,8 @@ export const PHONE_TABS: Tab[] = [
   { id: "tw", label: "T/W", title: "Tramp / Wall", react: true },
 ];
 const SEL: Partial<Record<PhoneSheet, string>> = { crew: '[data-testid="crew-panel"]', run: ".pnl-hud", chat: '[data-testid="chat-open"],[data-testid="chat-dock"]', tw: '[data-testid="tw-open"]' };
+const ENGINE_H: Partial<Record<PhoneSheet, number>> = { status: 132, holders: 96, feed: 140 };   // engine panel heights (+ the SIM pill under status)
+const REACT_SEL: Partial<Record<PhoneSheet, string>> = { crew: '[data-testid="crew-panel"]', run: ".pnl-hud", chat: '[data-testid="chat-dock"]', tw: '[data-testid="tw-open"],[data-testid="tw-mine"],[data-testid="tw-list"]' };
 export const TAB_W = 44, EDGE = 6, GAP = 4, STRIP_H = 60, PNL_H = 32, PRESETS_H = 56;
 
 /** Pure layout (tested in scripts/test-phone-hud.mjs): viewport + top-button row + trade-bar top → every phone rect. */
@@ -98,6 +100,20 @@ export default function PhoneHud() {
   }, [setSheet]);
   useEffect(() => { if (!phone && sheetRef.current) setSheet(null); }, [phone, setSheet]);
 
+  // height of what the open sheet actually shows: a tap below a short card (inside the reserved rect) still closes it
+  const [ch, setCh] = useState(0);
+  useEffect(() => {
+    if (!sheet || !L) return;
+    const tick = () => {
+      let h = ENGINE_H[sheet] ?? 0;
+      if (sheet === "chart") h = Math.min(196, Math.max(132, L.sh));
+      const sel = REACT_SEL[sheet];
+      if (sel) for (const el of document.querySelectorAll(sel)) { const r = (el as HTMLElement).getBoundingClientRect(); if (r.height) h = Math.max(h, Math.ceil(r.bottom - L.sy)); }
+      h = Math.max(40, Math.min(L.sh, h || L.sh)); setCh((o) => (o === h ? o : h));
+    };
+    tick(); const id = window.setInterval(tick, 250); return () => window.clearInterval(id);
+  }, [sheet, L]);
+
   if (!phone || !L) return null;
   const tabs = PHONE_TABS.filter((t) => !t.react || avail[t.id]);
   const th = Math.max(30, Math.min(40, Math.floor((L.sh + 5) / tabs.length) - 5));
@@ -107,9 +123,9 @@ export default function PhoneHud() {
     <>
       {sheet && <div data-testid="phone-backdrop">
         {shield({ left: 0, right: 0, top: 0, height: L.sy })}
-        {shield({ left: 0, right: 0, top: L.sy + L.sh, bottom: 0 })}
-        {shield({ left: 0, width: L.sx, top: L.sy, height: L.sh })}
-        {shield({ left: L.sx + L.sw, right: 0, top: L.sy, height: L.sh })}
+        {shield({ left: 0, right: 0, top: L.sy + (ch || L.sh), bottom: 0 })}
+        {shield({ left: 0, width: L.sx, top: L.sy, height: ch || L.sh })}
+        {shield({ left: L.sx + L.sw, right: 0, top: L.sy, height: ch || L.sh })}
       </div>}
       <nav aria-label="HUD panels" data-testid="phone-tabs" style={{ position: "fixed", left: L.tabX, top: L.sy, zIndex: 45, display: "flex", flexDirection: "column", gap: 5 }}>
         {tabs.map((t) => <button key={t.id} type="button" data-testid={`phone-tab-${t.id}`} aria-pressed={sheet === t.id} title={t.title}
