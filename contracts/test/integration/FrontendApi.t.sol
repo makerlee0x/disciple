@@ -12,6 +12,7 @@ import {QuotePricer} from "../../src/QuotePricer.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
+import {CurveMath} from "../../src/libraries/CurveMath.sol";
 import {SqrtPrice} from "../../src/libraries/SqrtPrice.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -224,7 +225,7 @@ contract FrontendApiTest is FrontendApiBase {
         assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.001e18);
         // in STRATEGY terms the start mcap is ~ 7000 / 0.0018 = 3.89M STRATEGY
         (,, uint256 x0, uint256 y0) = curve.curveParams();
-        assertApproxEqRel(Math.mulDiv(x0, Constants.TOTAL_SUPPLY, y0), uint256(7777e18) * 1e18 / p, 0.001e18);
+        assertApproxEqRel(Math.mulDiv(x0, Constants.TOTAL_SUPPLY, y0), Constants.START_MCAP_USD * 1e18 / p, 0.001e18);
     }
 
     function test_custom_quote_without_pool_reverts() public {
@@ -351,10 +352,10 @@ contract FrontendApiTest is FrontendApiBase {
         _graduate(curve);
         PoolKey memory key = _poolKey(tok);
         (uint160 sp,,,) = manager.getSlot0(key.toId());
-        (,, uint256 x0, uint256 y0) = curve.curveParams();
-        uint256 y = y0 - curve.tokensSold();
-        uint256 x = Math.mulDiv(x0, y0, y);
-        assertEq(sp, SqrtPrice.fromReserves(x, y, uint160(address(tok)) < uint160(address(quote))));
+        (uint256 ts, uint256 sC, uint256 x0, uint256 y0) = curve.curveParams();
+        CurveMath.Params memory cp = CurveMath.Params(ts, sC, x0, y0, curve.quotePriceUsd(), curve.curveTail());
+        uint256 mq = CurveMath.marketCapQuote(cp, curve.tokensSold());
+        assertEq(sp, SqrtPrice.fromReserves(mq, ts, uint160(address(tok)) < uint160(address(quote))));
     }
 }
 

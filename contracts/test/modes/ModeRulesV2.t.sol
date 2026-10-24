@@ -172,7 +172,7 @@ contract ModeRulesV2Test is IntegrationBase {
     function test_curveDeployer_runtimeIdenticalToNew() public {
         (BondingCurve c, Token t) = _launchM(Constants.MODE_PVE);
         (uint256 ts, uint256 sc, uint256 x0, uint256 y0) = c.curveParams();
-        CurveMath.Params memory p = CurveMath.Params(ts, sc, x0, y0, c.quotePriceUsd());
+        CurveMath.Params memory p = CurveMath.Params(ts, sc, x0, y0, c.quotePriceUsd(), c.curveTail());
         vm.prank(address(launchpad));
         BondingCurve ref = new BondingCurve(
             address(t),

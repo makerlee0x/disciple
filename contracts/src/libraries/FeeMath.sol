@@ -43,7 +43,7 @@ library FeeMath {
         return (Constants.TOTAL_SUPPLY * bps) / Constants.BPS_DENOM;
     }
 
-    /// @notice Tokens sold on curve before graduation (~72%).
+    /// @notice Tokens sold on curve before graduation (CURVE_SOLD_BPS, 84.24%).
     function curveSoldSupply() internal pure returns (uint256) {
         return (Constants.TOTAL_SUPPLY * Constants.CURVE_SOLD_BPS) / Constants.BPS_DENOM;
     }

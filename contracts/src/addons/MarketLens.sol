@@ -119,7 +119,7 @@ contract MarketLens {
     }
 
     /// @notice Current holding cap: `capBps` (bps of supply, floored; 0 = no cap) and `capTokens` (token wei,
-    ///         type(uint256).max = none). Easy 1%→3.33%, Hard 3.33%→7.77% linear in mcap $7,777→$33,333.
+    ///         type(uint256).max = none). Easy 1%→3.33%, Hard 3.33%→7.77% linear in mcap $3,333→$33,333.
     function capNow(address token) external view returns (uint256 capBps, uint256 capTokens) {
         ILensCurveV2 c = _v2(token);
         if (ILensCurve(address(c)).graduated()) return (0, type(uint256).max);
@@ -127,7 +127,7 @@ contract MarketLens {
         if (capTokens != type(uint256).max) capBps = (capTokens * Constants.BPS_DENOM) / Constants.TOTAL_SUPPLY;
     }
 
-    /// @notice Sniper tax right now (bps of a buy's input) and seconds until it reaches 0 (99% → 0 over 60s).
+    /// @notice Sniper tax right now (bps of a buy's input) and seconds until it reaches 0 (99% → 0 over 77s).
     function sniperTax(address token) external view returns (uint256 bps, uint256 secondsLeft) {
         ILensCurveV2 c = _v2(token);
         if (ILensCurve(address(c)).graduated()) return (0, 0);

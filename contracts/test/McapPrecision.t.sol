@@ -48,9 +48,8 @@ contract McapPrecisionTest is Test {
 
     function _sqrtMcapCase(uint256 quoteUsd, uint256 decScale, bool tokenIsC0) internal pure {
         CurveMath.Params memory p = CurveMath.makeParams(quoteUsd);
-        uint256 x = CurveMath.virtualQuote(p, p.sCurve);
-        uint256 y = CurveMath.virtualToken(p, p.sCurve);
-        uint160 sp = SqrtPrice.fromReserves(x, y, tokenIsC0);
+        // BondingCurve._graduate: pool opens at curve mcap / supply
+        uint160 sp = SqrtPrice.fromReserves(CurveMath.marketCapQuote(p, p.sCurve), p.totalSupply, tokenIsC0);
         uint256 mq = McapMath.mcapQuoteFromSqrt(sp, tokenIsC0, Constants.TOTAL_SUPPLY);
         _assertNear(mq, 33_333 * decScale, 1);
         _assertNear(McapMath.mcapUsdFromSqrt(sp, tokenIsC0, Constants.TOTAL_SUPPLY, quoteUsd), 33_333e18, 1);
@@ -69,7 +68,7 @@ contract McapPrecisionTest is Test {
     function testFuzz_sqrt_mcap_matches_reserves(uint256 s, bool c0) public pure {
         CurveMath.Params memory p = CurveMath.makeParams(USD6);
         s = bound(s, 0, p.sCurve);
-        uint160 sp = SqrtPrice.fromReserves(CurveMath.virtualQuote(p, s), CurveMath.virtualToken(p, s), c0);
+        uint160 sp = SqrtPrice.fromReserves(CurveMath.marketCapQuote(p, s), p.totalSupply, c0);
         _assertNear(McapMath.mcapQuoteFromSqrt(sp, c0, p.totalSupply), CurveMath.marketCapQuote(p, s), 1);
     }
 }
