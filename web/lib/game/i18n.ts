@@ -92,12 +92,11 @@ const en = {
   "exit": "Back to Launchpad",
   // EXIT CONFIRM (components/flight/ExitConfirm.tsx): BRAND copy, swap here only. English only for now; the other locales
   // fall back to English (NEEDS_REVIEW: add zh / ko / ja / es once BRAND locks the line). No exclamation marks.
-  // BRAND alternative (not shipped): "Abandon the mission?" / "The mission goes on, with or without you." / "Hold the line" / "Abandon".
   "exitc.title": "Leave the mission?",
   "exitc.body": "The mission continues, with or without you.",
   "exitc.stay": "Stay",
   "exitc.leave": "Leave",
-  // secondary line (BRAND, pending lee's pick): smaller + quieter, below the body
+  // secondary lines (BRAND): built but OFF (exitGuard SHOW_EXIT_NOTES = false) until lee OKs them
   "exitc.note.live": "Your coins stay. This run's orb points and streak don't.",
   "exitc.note.sim": "This practice run will end.",
   "exitc.note.boost": "Your BOOST still lands on-chain.",

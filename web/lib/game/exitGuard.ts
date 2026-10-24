@@ -52,11 +52,14 @@ export function guardState(state: unknown): Record<string, unknown> {
 export function nextFocus(i: number, shift: boolean, n = 2): number { return ((shift ? i - 1 : i + 1) % n + n) % n; }
 
 /** pending on-chain trades (live TradeBridge): window.__disciplePendingTrades = {buy, sell} in-flight counts, and this event fires on each change */
+/** BRAND's secondary lines (exitc.note.*) are built but OFF until lee OKs them: flip to true to show them */
+export const SHOW_EXIT_NOTES = false;
 export const TRADE_PENDING_EVENT = "disciple:tradepending";
 export type PendingTrades = { buy: number; sell: number };
 export type ExitMode = "live" | "sim";
 /** the dialog's smaller secondary lines (i18n keys): sim → practice line; live → coins line + one per pending side */
-export function secondaryKeys(mode: ExitMode, pending?: Partial<PendingTrades> | null): ("exitc.note.live" | "exitc.note.sim" | "exitc.note.boost" | "exitc.note.dump")[] {
+export function secondaryKeys(mode: ExitMode, pending?: Partial<PendingTrades> | null, show: boolean = SHOW_EXIT_NOTES): ("exitc.note.live" | "exitc.note.sim" | "exitc.note.boost" | "exitc.note.dump")[] {
+  if (!show) return [];
   if (mode === "sim") return ["exitc.note.sim"];
   const out: ("exitc.note.live" | "exitc.note.boost" | "exitc.note.dump")[] = ["exitc.note.live"];
   if ((pending?.buy ?? 0) > 0) out.push("exitc.note.boost");

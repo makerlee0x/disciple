@@ -110,6 +110,7 @@ export default function ExitConfirm({ active, mode = "live" }: { active: boolean
   }, [open]);
 
   if (!pending) return null;
+  const notes = secondaryKeys(mode, trades);   // [] while SHOW_EXIT_NOTES is false (lee has not OK'd the lines)
   const card: React.CSSProperties = { position: "relative", width: 380, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 14, padding: "20px 20px 18px", borderRadius: 16, outline: "none",
     background: "linear-gradient(180deg,rgba(16,14,40,.96),rgba(8,10,26,.95))", border: "1px solid rgba(255,231,163,.5)", boxShadow: "0 0 0 1px rgba(0,0,0,.4), 0 24px 70px rgba(0,0,0,.65), 0 0 30px rgba(255,220,150,.12)",
     color: INK, font: "12px ui-monospace,monospace" };
@@ -117,15 +118,15 @@ export default function ExitConfirm({ active, mode = "live" }: { active: boolean
   const primary: React.CSSProperties = { ...base, background: GOLD, color: "#151830", border: "1px solid rgba(255,231,163,.95)", boxShadow: "0 0 18px rgba(255,220,150,.35)" };
   const ghost: React.CSSProperties = { ...base, fontWeight: 600, background: "transparent", color: DIM, border: "1px solid rgba(255,255,255,.16)" };
   return (
-    <div data-testid="exit-confirm" role="dialog" aria-modal="true" aria-labelledby="exitc-title" aria-describedby="exitc-body exitc-note"
+    <div data-testid="exit-confirm" role="dialog" aria-modal="true" aria-labelledby="exitc-title" aria-describedby={notes.length ? "exitc-body exitc-note" : "exitc-body"}
       onPointerDown={(e) => { if (e.target === e.currentTarget) stay(); }}
       style={{ position: "fixed", inset: 0, zIndex: 80, display: "grid", placeItems: "center", background: "rgba(4,5,14,.55)", backdropFilter: "blur(3px)" }}>
       <div ref={boxRef} tabIndex={-1} style={card} onKeyDown={(e) => e.stopPropagation()} onKeyUp={(e) => e.stopPropagation()}>
         <div id="exitc-title" style={{ color: GOLD, fontWeight: 800, letterSpacing: ".08em", fontSize: 14 }}>{t("exitc.title")}</div>
         <div id="exitc-body" style={{ color: DIM, fontSize: 12, lineHeight: 1.5 }}>{t("exitc.body")}</div>
-        <div id="exitc-note" data-testid="exit-confirm-note" style={{ color: DIM, opacity: .8, fontSize: 11, lineHeight: 1.45, marginTop: -6 }}>
-          {secondaryKeys(mode, trades).map((k) => <div key={k}>{t(k)}</div>)}
-        </div>
+        {notes.length > 0 && <div id="exitc-note" data-testid="exit-confirm-note" style={{ color: DIM, opacity: .8, fontSize: 11, lineHeight: 1.45, marginTop: -6 }}>
+          {notes.map((k) => <div key={k}>{t(k)}</div>)}
+        </div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
           <button ref={leaveRef} type="button" data-testid="exit-confirm-leave" onClick={leave} style={ghost}>{t("exitc.leave")}</button>
           <button ref={stayRef} type="button" data-testid="exit-confirm-stay" onClick={stay} autoFocus style={primary}>{t("exitc.stay")}</button>

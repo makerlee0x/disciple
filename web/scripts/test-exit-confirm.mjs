@@ -40,13 +40,16 @@ ok(s.__NA === true && Array.isArray(s.__PRIVATE_NEXTJS_INTERNALS_TREE) && s[G.GU
 ok(G.guardState(null)[G.GUARD_KEY] === 1, "guard entry from an empty state");
 ok(G.nextFocus(0, false) === 1 && G.nextFocus(1, false) === 0 && G.nextFocus(0, true) === 1 && G.nextFocus(1, true) === 0, "Tab / Shift+Tab wrap Stay ↔ Leave");
 console.log("— 1b. secondary line variants");
-const K = (m, p) => G.secondaryKeys(m, p).join(",");
-ok(K("live") === "exitc.note.live" && K("live", { buy: 0, sell: 0 }) === "exitc.note.live", "live, nothing pending → coins line only");
-ok(K("sim") === "exitc.note.sim" && K("sim", { buy: 2, sell: 1 }) === "exitc.note.sim", "sim / practice → practice line only (no on-chain line)");
-ok(K("live", { buy: 1, sell: 0 }) === "exitc.note.live,exitc.note.boost", "live + pending BOOST → + BOOST line");
-ok(K("live", { buy: 0, sell: 1 }) === "exitc.note.live,exitc.note.dump", "live + pending DUMP → + DUMP line");
-ok(K("live", { buy: 1, sell: 1 }) === "exitc.note.live,exitc.note.boost,exitc.note.dump", "both pending → both lines");
-ok(K("live", null) === "exitc.note.live", "pending side unknown → no on-chain line");
+ok(G.SHOW_EXIT_NOTES === false, "SHOW_EXIT_NOTES is false (lee has not OK'd the secondary lines)");
+for (const [m, p] of [["live"], ["sim"], ["live", { buy: 1, sell: 0 }], ["live", { buy: 0, sell: 1 }], ["live", { buy: 1, sell: 1 }], ["sim", { buy: 1, sell: 1 }]])
+  ok(G.secondaryKeys(m, p).length === 0, `flag off: no secondary line (${m}${p ? " " + JSON.stringify(p) : ""})`);
+const K = (m, p) => G.secondaryKeys(m, p, true).join(",");   // flag on: the variant logic
+ok(K("live") === "exitc.note.live" && K("live", { buy: 0, sell: 0 }) === "exitc.note.live", "flag on: live, nothing pending → coins line only");
+ok(K("sim") === "exitc.note.sim" && K("sim", { buy: 2, sell: 1 }) === "exitc.note.sim", "flag on: sim / practice → practice line only (no on-chain line)");
+ok(K("live", { buy: 1, sell: 0 }) === "exitc.note.live,exitc.note.boost", "flag on: live + pending BOOST → + BOOST line");
+ok(K("live", { buy: 0, sell: 1 }) === "exitc.note.live,exitc.note.dump", "flag on: live + pending DUMP → + DUMP line");
+ok(K("live", { buy: 1, sell: 1 }) === "exitc.note.live,exitc.note.boost,exitc.note.dump", "flag on: both pending → both lines");
+ok(K("live", null) === "exitc.note.live", "flag on: pending side unknown → no on-chain line");
 cleanup();
 
 console.log("— 2. copy (lib/game/i18n)");
@@ -72,7 +75,7 @@ ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"].every((k) => comp.
 console.log("— 3. wiring");
 const fc = rd("components/FlightCanvas.tsx");
 ok(/<ExitConfirm active=\{flightActive\} mode=\{isSimulator \? "sim" : "live"\} \/>/.test(fc), "FlightCanvas mounts <ExitConfirm active={flightActive} mode={sim|live} /> (sim = ?source=sim)");
-ok(/secondaryKeys\(mode, trades\)/.test(comp) && /data-testid="exit-confirm-note"/.test(comp) && /fontSize: 11/.test(comp), "component renders the smaller secondary line(s) from secondaryKeys(mode, pending)");
+ok(/const notes = secondaryKeys\(mode, trades\)/.test(comp) && /\{notes\.length > 0 && <div id="exitc-note"/.test(comp) && !/secondaryKeys\([^)]*true/.test(comp) && /data-testid="exit-confirm-note"/.test(comp) && /fontSize: 11/.test(comp), "component renders the note block only when secondaryKeys returns lines (none while SHOW_EXIT_NOTES is false)");
 const tb = rd("components/TradeBridge.tsx");
 ok(/__disciplePendingTrades/.test(tb) && /TRADE_PENDING_EVENT/.test(tb) && /finally \{ bump\(-1\); \}/.test(tb), "TradeBridge counts in-flight trades per side (+1 on tap, −1 in finally) and fires the pending event");
 ok(/addEventListener\(TRADE_PENDING_EVENT/.test(comp) && /window\.__disciplePendingTrades/.test(comp), "ExitConfirm reads pending trades on open and follows the event");
