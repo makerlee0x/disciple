@@ -5,19 +5,20 @@ section: Trading
 ---
 # Anti-snipe
 
-For the first 77 seconds after launch, BOOSTs pay a sniper tax. It starts at 99% and falls to 0%. After that, only the 1% fee (plus any creator tax) remains.
+For the first 7 seconds after launch, BOOSTs pay a sniper tax: 99% at launch, 25% at 1s, 3% at 2s, 0 after 7s. After that, only the 1% fee (plus any creator tax) remains.
 
 | Seconds after launch | Sniper tax on BOOSTs |
 |---|---|
 | 0 | 99% |
-| 15 | 79.72% |
-| 30 | 60.43% |
-| 45 | 41.15% |
-| 60 | 21.86% |
-| 76 | 1.29% |
-| 77 and after | 0% |
+| 1 | 25% |
+| 2 | 3% |
+| 3 | 1% |
+| 4 | 0.3% |
+| 5 | 0.1% |
+| 6 | 0.03% |
+| 7 and after | 0% |
 
-The tax falls in a straight line, in whole seconds (`99% × (1 − t/77)`). It's charged on top of the 1% trade fee. [CONFIRM: FLOW — confirm "on top of the 1%" vs the constitution's "portion above the 1% protocol fee" wording.]
+The tax steps down once per second, counted in whole seconds from the launch block: a BOOST 1.5 seconds after launch pays 25%. It's taken off the BOOST first; the 1% trade fee (plus any creator tax) is charged on the rest.
 
 ## What it applies to
 

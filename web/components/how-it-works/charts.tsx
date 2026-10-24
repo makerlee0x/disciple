@@ -4,6 +4,8 @@
  */
 import { HIW_FEES, HIW_PHASES } from "@/content/how-it-works";
 import { CURVE_GRAD_USD, CURVE_SOLD_FRAC, CURVE_START_USD, curveMcapAtFrac } from "@/lib/curveMath";
+import { CURVE } from "@/lib/config";
+import { snipeFeeBpsAt } from "@/lib/snipe";
 import { POOL_WANDER, SPARKS } from "./chartData";
 import s from "./charts.module.css";
 
@@ -84,13 +86,14 @@ export function Spark({ id }: { id: keyof typeof SPARKS }) {
   );
 }
 
-/** Anti-snipe fee: 99% → 0% over 77 one-second steps (BondingCurve.currentSnipeFeeBps, linear per block second). */
+/** Anti-snipe fee step chart: one step per block second from the per-second table (CURVE.antiSnipeBpsBySec =
+ *  Constants.ANTI_SNIPE_TABLE, via snipeFeeBpsAt = FeeMath.snipeBps): 99% · 25% · 3% · 1% · 0.3% · 0.1% · 0.03%, 0 from 7s. */
 export function SnipeChart() {
   const C = HIW_FEES.snipeChart;
   const W = 300, H = 90;
   const pts: [number, number][] = [];
-  const START = 9900, DUR = 77;
-  for (let t = 0; t <= DUR; t++) { const bps = START - Math.floor((START * t) / DUR); pts.push([(t / DUR) * (W - 30) + 24, 8 + (H - 26) * (1 - bps / START)]); }
+  const TABLE = CURVE.antiSnipeBpsBySec, DUR = CURVE.antiSnipeWindowSec, START = Math.max(1, snipeFeeBpsAt(0, TABLE, DUR));
+  for (let t = 0; t <= DUR; t++) { const bps = snipeFeeBpsAt(t, TABLE, DUR); pts.push([(t / DUR) * (W - 30) + 24, 8 + (H - 26) * (1 - bps / START)]); }
   const d = `M${f1(pts[0][0])},${f1(pts[0][1])} ` + pts.slice(1).map(([x, y]) => `H${f1(x)} V${f1(y)}`).join(" ") + ` H${W - 6}`;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className={s.snipe} role="img" aria-label={C.title}>
