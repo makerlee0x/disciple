@@ -208,3 +208,14 @@ test("copy: Rewards strings are plain words, dollars only (static scan of Profil
   // raw error text never reaches the player: errors go through claimErrorText
   assert.ok(!/\{(?:e|err)\.message\}/.test(src));
 });
+
+test("referral deposit: dollars only, neutral dash when the coin has no live price", async () => {
+  const { usdLabel, NO_PRICE } = await import("../lib/claims/rewards");
+  assert.equal(usdLabel(BigInt(10) * E6, { decimals: 6, usd: 1 }), "$10.00");
+  assert.equal(usdLabel(ZERO, { decimals: 6, usd: 1 }), "$0");
+  assert.equal(usdLabel(BigInt(10) * E6, { decimals: 6, usd: null }), NO_PRICE);
+  assert.equal(NO_PRICE, "—");
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../components/claims/ProfileClaims.tsx", import.meta.url), "utf8");
+  assert.ok(!/<Money\b|ConfirmSheet|fmtAmount/.test(src), "no token amounts in the Rewards section");
+});
