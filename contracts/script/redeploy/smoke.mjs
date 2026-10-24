@@ -1,7 +1,8 @@
 // Post-redeploy smoke for the single DISCIPLE redeploy (RH testnet 46630 or a local anvil fork of it).
 // Checks: 6-dec USDG, referralSink default, SEC-01, 7s per-second sniper tax → snipeEscrow (no 70/30 routing), graduation at
 // $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket; AUDIT fixes (launch-fee
-// cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M).
+// cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M); AUDIT round 2 run items (canonical Multicall3 has
+// code on 46630 — #106's relay batches its graduating-buy reads through it; RewardsVault Owned2Step acceptance).
 // Env:
 //   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed)
 //   RPC_URL       default https://rpc.testnet.chain.robinhood.com (FORK=1 → http://127.0.0.1:8545)
@@ -10,6 +11,8 @@
 //   QUOTE         quote token for the smoke coin (default the bundle's USDG; the floor is USDG-only)
 //   GRADUATE=1    buy through graduation (default on with FORK=1)
 //   EXPECT_REFERRAL_SINK  default 0x000…000 (today's routing)
+//   EXPECT_REWARDS_VAULT_OWNER  set after REWARDS_VAULT_OWNER ran acceptOwnership() (runbook §5): checks owner() == it and
+//                 pendingOwner() == 0. Unset ⇒ owner / pendingOwner are printed only (the acceptance may not have happened yet).
 // ABIs come from the bundle (forge artifacts), so AUDIT's contract fixes need no change here unless an API changes.
 import { createPublicClient, createWalletClient, http, parseAbi, formatUnits, decodeEventLog, maxUint256, zeroAddress, getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -67,7 +70,18 @@ const lf = await rd(B.AnonLauncher, alAbi, "launchFee");
 check("AnonLauncher.launchFee <= MAX_LAUNCH_FEE", lf <= maxFee, `${formatUnits(lf, dec)} USDG`);
 check("FeeRouter.isClaimRouter(DiscipleRouter)", (await rd(B.FeeRouter, frAbi, "isClaimRouter", [B.DiscipleRouter])) === true, B.DiscipleRouter);
 const rvAbi = abi("RewardsVault");
-info("RewardsVault owner / pendingOwner", `${await rd(rv, rvAbi, "owner")} / ${await rd(rv, rvAbi, "pendingOwner")} (Owned2Step: REWARDS_VAULT_OWNER must acceptOwnership)`);
+const [rvOwner, rvPending] = [await rd(rv, rvAbi, "owner"), await rd(rv, rvAbi, "pendingOwner")];
+info("RewardsVault owner / pendingOwner", `${rvOwner} / ${rvPending} (Owned2Step: REWARDS_VAULT_OWNER must acceptOwnership)`);
+if (process.env.EXPECT_REWARDS_VAULT_OWNER) {
+  const want = getAddress(process.env.EXPECT_REWARDS_VAULT_OWNER);
+  check("RewardsVault.owner() == REWARDS_VAULT_OWNER, pendingOwner 0 (acceptOwnership done)", rvOwner === want && rvPending === zeroAddress, `owner ${rvOwner}, pendingOwner ${rvPending} (want ${want})`);
+}
+// Multicall3 at the canonical address (AUDIT r2 on #106/#131): read-only eth_getCode. #106's relay (web/lib/server/gradBuy.ts
+// chainGradReads) batches its graduating-buy reads through it with allowFailure=false; no code ⇒ every graduating buy falls
+// back to normal gas caps. On FORK=1 anvil serves the code from the forked live chain, so the check is meaningful there too.
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const mc3 = await pc.getCode({ address: MULTICALL3 });
+check("Multicall3 has code at 0xcA11…CA11 (eth_getCode)", !!mc3 && mc3 !== "0x", `${MULTICALL3}: ${mc3 && mc3 !== "0x" ? (mc3.length - 2) / 2 : 0} bytes`);
 
 // 2. launch (TRENCH; 10-quote creator buy, which is sniper-exempt)
 const ensure = async (amt) => { if ((await rd(Q, erc20, "balanceOf", [me.address])) < amt) await send("mint", { address: Q, abi: erc20, functionName: "mint", args: [me.address, amt * 2n] }); };
