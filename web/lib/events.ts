@@ -7,11 +7,12 @@
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
 import type { Log, PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi, quotePricerAbi } from "./abi";
-import { mcapUsdFromSqrt, tokenIsCurrency0, usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
+import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
+import { usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
-import { deployment, ZERO } from "./chains";
+import { deployment } from "./chains";
 import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
+import { coinBasis, hookMcapUsd as hookSqrtMcapUsd } from "./mcap";
 import type { Address, ProtocolEvent } from "./protocol";
 
 type Cb = (e: ProtocolEvent) => void;
@@ -46,15 +47,15 @@ const SUPPLY_TOKENS = 7_000_000_000;
 export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bigint) =>
   priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;
 
-/** Hook-Trade context: the coin's quote token (v4 currency order) and the LIVE quote price (QuotePricer, USD WAD per 1e18 raw). */
-export type HookCtx = { quote?: string; liveQuoteUsd?: bigint };
+/** Hook-Trade context: the coin's quote token (v4 currency order) and its own total supply (whole tokens, lib/mcap coinBasis). */
+export type HookCtx = { quote?: string; supplyTokens?: number };
 
-/** v4 hook Trade → $ mcap: sqrtPriceAfter × live (else launch) quote price, full precision. Legacy priceAfterX18 fallback. */
+/** v4 hook Trade → $ mcap: lib/mcap (sqrtPriceAfter × the LAUNCH quote price × the coin's own supply) — the same basis as
+ *  the header/cards, the hook's altitude events and /api/trades. Legacy priceAfterX18 fallback. */
 export function hookTradeMcapUsd(a: { token: string; sqrtPriceAfter?: bigint; priceAfterX18?: bigint }, quotePriceUsd: bigint, ctx?: HookCtx): number {
-  const q = ctx?.liveQuoteUsd && ctx.liveQuoteUsd > BigInt(0) ? ctx.liveQuoteUsd : quotePriceUsd;
   if (a.sqrtPriceAfter !== undefined && a.sqrtPriceAfter > BigInt(0) && ctx?.quote)
-    return mcapUsdFromSqrt(a.sqrtPriceAfter, tokenIsCurrency0(a.token, ctx.quote), q, SUPPLY_TOKENS);
-  return hookMcapUsd(a.priceAfterX18, q);
+    return hookSqrtMcapUsd(a.sqrtPriceAfter, a.token, ctx.quote, quotePriceUsd, ctx.supplyTokens ?? SUPPLY_TOKENS);
+  return hookMcapUsd(a.priceAfterX18, quotePriceUsd);
 }
 
 /** Normalize an on-chain Trade (curve or hook) into the engine's TradeEvent. */
@@ -71,21 +72,13 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
     ...usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined, usdgDecimals()),
     impactBps: bps, impactPct: bps / 100,
     // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = sqrtPriceAfter × the
-    // live quote price (QuotePricer; else the coin's launch quote price) — never the floored priceAfterX18 (6-dec USDG,
-    // FLOW #115). Curve Trades still carry mcapAfterUsd.
+    // coin's launch quote price (lib/mcap) — never the floored priceAfterX18 (6-dec USDG, FLOW #115). Curve Trades
+    // still carry mcapAfterUsd.
     mcapUsd: venue === "hook"
       ? hookTradeMcapUsd({ token: String(a.token), sqrtPriceAfter: a.sqrtPriceAfter as bigint | undefined, priceAfterX18: a.priceAfterX18 as bigint }, quotePriceUsd, hook)
       : wad(a.mcapAfterUsd as bigint),
     txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0), logIndex: l.logIndex ?? 0,
   };
-}
-
-/** Live quote price (QuotePricer.quotePriceUsd: USD WAD per 1e18 raw quote, decimal-agnostic). undefined if no pricer / 0. */
-export async function liveQuoteUsd(quote: Address, pc: PublicClient = publicClient()): Promise<bigint | undefined> {
-  const qp = deployment().quotePricer;
-  if (qp === ZERO) return undefined;
-  const v = await pc.readContract({ address: qp, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [quote] }).catch(() => BigInt(0));
-  return (v as bigint) > BigInt(0) ? (v as bigint) : undefined;
 }
 
 /** Chain-order key of a Trade (block, logIndex). */
@@ -193,12 +186,8 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   const stops: (() => void)[] = [], kicks: (() => void)[] = [];
   let chain: Promise<void> = Promise.resolve();
   const inOrder = (f: () => Promise<void> | void) => { chain = chain.then(f).catch(() => undefined); };
-  let scale: { k: HookCtx; at: number } | null = null;
-  const scaleNow = async (): Promise<HookCtx> => {
-    if (!scale || Date.now() - scale.at > 15_000)
-      scale = { k: { quote, liveQuoteUsd: quote ? await liveQuoteUsd(quote, pc).catch(() => scale?.k.liveQuoteUsd) : undefined }, at: Date.now() };
-    return scale.k;
-  };
+  // immutable per coin (lib/mcap): quote token + the coin's own supply
+  const hookCtx: Promise<HookCtx> = coinBasis(pc, token, curve).then((b) => ({ quote: b.quote, supplyTokens: b.supplyTokens }), () => ({ quote }));
 
   const c = pollLogs({
     pc, fromBlock: start,
@@ -217,7 +206,7 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
     const h = pollLogs({
       pc, fromBlock: start,
       fetch: (from, to) => pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>,
-      onLogs: (logs) => inOrder(async () => { const k = await scaleNow(); for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k)); }),
+      onLogs: (logs) => inOrder(async () => { const k = await hookCtx; for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k)); }),
     });
     stops.push(h.stop); kicks.push(h.kick);
   }
@@ -232,13 +221,13 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
 }
 
 /**
- * Self-heal for the engine's mcap: re-read the live market (MarketLens post-grad, curve pre-grad) every `everyMs`
+ * Self-heal for the engine's mcap: re-read the live market (lib/mcap.ts readCoinMcap via readMarket) every `everyMs`
  * and right after the player's own trade (window "disciple:livetrade"), through the same orderer. Covers a
  * dropped event filter or a missed log — the HUD/rocket converge to chain state within one interval.
  */
 export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClient = publicClient(), everyMs = 8000, read: (b: bigint) => Promise<number | null> = async () => {
-  const m = await readMarket(pc, token);
-  if (m && m.graduated) return m.mcapUsd;
+  const m = await readMarket(pc, token);   // THE mcap (lib/mcap.ts), pre- and post-grad
+  if (m) return m.mcapUsd;
   const { readCurveState } = await import("./protocol-viem");
   return (await readCurveState(pc, token)).mcapUsd;
 }): () => void {
@@ -311,7 +300,9 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
     if (l.eventName === "Trade") out.push({ k: key(l), e: tradeFromLog(l, qp, "curve", undefined, take(l)) });
     else if (l.eventName === "GraduatedToV4") out.push({ k: key(l), e: { type: "Graduate", token, poolId: l.args.poolId as `0x${string}` } });
   }
-  const scale: HookCtx | undefined = hookLogs.length ? { quote, liveQuoteUsd: quote ? await liveQuoteUsd(quote, pc) : undefined } : undefined;
+  const scale: HookCtx | undefined = hookLogs.length
+    ? await coinBasis(pc, token, curve).then((b) => ({ quote: b.quote, supplyTokens: b.supplyTokens }), () => ({ quote }))
+    : undefined;
   for (const l of hookLogs as unknown as L[]) out.push({ k: key(l), e: tradeFromLog(l, qp, "hook", scale, take(l)) });
   out.sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
   return out.map((x) => x.e);

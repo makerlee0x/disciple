@@ -53,7 +53,7 @@ test("knownDecimals: USDG from config (no RPC), STRATEGY 18, unknown ⇒ undefin
 
 // FLOW #115: at 6-dec USDG the 1e18-scaled price fields (priceAfterX18, spotPriceWad, MarketLens priceWad) floor to
 // single digits — the site prices from mcapAfterUsd / sqrtPriceAfter / mcapNow instead.
-test("6-dec: hook Trade mcap from sqrtPriceAfter (live quote price), not the floored priceAfterX18", async () => {
+test("6-dec: hook Trade mcap from sqrtPriceAfter (launch quote price, lib/mcap), not the floored priceAfterX18", async () => {
   const { hookTradeMcapUsd } = await import("../lib/events");
   const { mcapUsdFromSqrt } = await import("../lib/trades");
   const px = 33_000 * 1e6 / 7e27;                                   // quote raw per token raw at $33K mcap, 6-dec USDG
@@ -63,8 +63,8 @@ test("6-dec: hook Trade mcap from sqrtPriceAfter (live quote price), not the flo
   const near = (a: number, b: number) => assert.ok(Math.abs(a / b - 1) < 1e-6, `${a} ≈ ${b}`);
   near(mcapUsdFromSqrt(s0, true, q), 33_000);
   near(mcapUsdFromSqrt(s1, false, q), 33_000);
-  near(hookTradeMcapUsd({ token: lo, sqrtPriceAfter: s0, priceAfterX18: B(4) }, B(1), { quote: hi, liveQuoteUsd: q }), 33_000);
-  near(hookTradeMcapUsd({ token: hi, sqrtPriceAfter: s1, priceAfterX18: B(4) }, q, { quote: lo }), 33_000);   // launch price fallback
+  near(hookTradeMcapUsd({ token: lo, sqrtPriceAfter: s0, priceAfterX18: B(4) }, q, { quote: hi }), 33_000);
+  near(hookTradeMcapUsd({ token: hi, sqrtPriceAfter: s1, priceAfterX18: B(4) }, q, { quote: lo, supplyTokens: 7e9 }), 33_000);
 });
 test("6-dec: curve impact from token reserves, not floored spotPriceWad", async () => {
   const { impactPctBetween, spotPriceWad } = await import("../lib/curveMath");

@@ -11,9 +11,10 @@ import { BALANCES, COIN, QUOTES, LAST_QUOTE, scaledQuote, addInflight, marginalQ
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
-import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
+import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
+import { readCoinMcap } from "./mcap";
 import { ANON_ADDONS } from "./anon";
-import { ACTIVE_CHAIN, deployment, hasLens, hasRouter, isDeployed } from "./chains";
+import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
 import { DEFAULT_LAUNCH_MODE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapBps, encodeLaunchCall, modesActive, modesErrorsAbi } from "./launchAbi";
 
@@ -159,19 +160,16 @@ export function publicClient(): PublicClient {
 /* ---------------- reads ---------------- */
 
 /**
- * Live market for a coin. Curve mcapNow()/priceNow() and Trade.mcapAfterUsd FREEZE after graduation (FLOW bug,
- * fixed on-chain later), so graduated coins read MarketLens.market(token) (v4 slot0 × live QuotePricer).
- * Returns null when no lens is configured or the call fails (callers fall back to the curve).
- * `priceWad` is the lens's floored quote-raw price (single-digit at 6-dec USDG): use `mcapUsd` (full precision) for $.
+ * Live market for a coin — THE mcap (lib/mcap.ts readCoinMcap: curve.marketCapQuote() × the launch quote price, the coin's
+ * own supply), pre- and post-grad, so the header, cards, HUD self-heal, quotes and portfolio match the chart/fills.
+ * Returns null when the read fails (callers fall back to the curve).
  */
-export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; graduated: boolean } | null> {
-  if (!hasLens()) return null;
+export async function readMarket(pc: PublicClient, token: Address): Promise<{ priceWad: bigint; mcapUsd: number; priceUsd: number; graduated: boolean } | null> {
   try {
-    const [priceWad, mcap, graduated] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token] });
-    return { priceWad, mcapUsd: wadToNum(mcap), graduated };
+    const m = await readCoinMcap(pc, token, await curveOf(pc, token));
+    return { priceWad: m.priceWad, mcapUsd: m.mcapUsd, priceUsd: m.priceUsd, graduated: m.graduated };
   } catch { return null; }
 }
-
 
 const paramsCache = new Map<string, CurveParams>();
 export async function curveParams(pc: PublicClient, curve: Address): Promise<CurveParams> {
@@ -228,7 +226,7 @@ export async function readCurveState(pc: PublicClient, token: Address): Promise<
     pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }),
   ]);
   const quoteDecimals = await decimalsOf(pc, quote);
-  const live = graduated ? await readMarket(pc, token) : null;
+  const live = await readMarket(pc, token);   // THE mcap (lib/mcap.ts); marketCapUsd only if that read fails
   const mcapUsd = live ? live.mcapUsd : wadToNum(mcapWad);
   const soldPct = (Number(tokensSold) / Number(p.totalSupply)) * 100;
   const progressBps = Number(progress);

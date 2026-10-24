@@ -45,7 +45,8 @@ function cachedPrice24h(coin: Address): Promise<number> {
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 async function priceNow(pc: PublicClient, coin: Address): Promise<number> {
   const f = await coinFacts(pc, coin);
-  if (f.graduated) { const m = await readMarket(pc, coin); if (m && m.mcapUsd > 0) return m.mcapUsd / TOTAL_SUPPLY_TOKENS; }
+  const m = await readMarket(pc, coin);   // THE mcap / the coin's own supply (lib/mcap.ts)
+  if (m && m.priceUsd > 0) return m.priceUsd;
   const mcap = await pc.readContract({ address: f.curve, abi: bondingCurveAbi, functionName: "marketCapUsd" }) as bigint;
   return Number(mcap) / 1e18 / TOTAL_SUPPLY_TOKENS;
 }
