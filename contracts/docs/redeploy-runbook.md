@@ -184,7 +184,7 @@ FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                  
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
 
-Result 2026-10-24 ~9:52 AM CDT (fork of block 141938895, branch feat/redeploy-prep after the AUDIT fixes + 7s sniper tax): core deploy
+Result 2026-10-24 ~9:44 AM CDT (fork of block 141938895, branch feat/redeploy-prep after the AUDIT fixes + 7s sniper tax): core deploy
 40,428,718 gas used (forge estimate 51.1M); smoke 23/23 PASS; launch 6.71M gas; First BOOST snipeEscrow 0; snipe at launch+1s taxed exactly
 25% (2.5 of 10 USDG) → escrow → compound bucket at graduation; tax 0 from 7s; graduation buy 2,365,962 gas (≤ 3.0M); floor 1,201.27337 USDG
 in 16 bands; graduation mcap $33,332.999999.
