@@ -39,7 +39,8 @@ const sim = await pc.simulateContract({ account: me, address: B.Launchpad, abi: 
 const r1 = await send("launchTx", sim.request);
 const { token, curve, creatorTokensBought } = sim.result;
 ok("token", token); ok("curve", curve);
-const cap = (7_000_000_000n * 10n ** 18n * (await pc.readContract({ address: B.Launchpad, abi: lp, functionName: "creatorBuyMaxBpsOf", args: [token] }))) / 10000n;
+const SUPPLY = await pc.readContract({ address: token, abi: [{ type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }], functionName: "totalSupply" }); // 1M × 1e18 since 2026-10-23 (was 7B)
+const cap = (SUPPLY * (await pc.readContract({ address: B.Launchpad, abi: lp, functionName: "creatorBuyMaxBpsOf", args: [token] }))) / 10000n;
 ok("creatorBuy", `${formatEther(inCap)} STRATEGY -> ${formatEther(creatorTokensBought)} tokens (cap ${formatEther(cap)}) withinCap=${creatorTokensBought <= cap}`);
 // snipe buy inside the 7s window
 await send("approveCurveTx", { address: Q, abi: erc20, functionName: "approve", args: [curve, maxUint256] });
@@ -60,7 +61,7 @@ catch (e) { ok("SEC-01 addLockedLiquidity from EOA", "rejected: " + (e.cause?.da
 // mcapNow
 const mcheck = async (tag) => {
   const [m, p, q, lens] = await Promise.all(["mcapNow", "priceNow", "quotePriceUsd"].map((f) => pc.readContract({ address: curve, abi: curveAbi, functionName: f })).concat(pc.readContract({ address: B.MarketLens, abi: lensAbi, functionName: "mcapNow", args: [token] })));
-  const exp = (((p * 7_000_000_000n * 10n ** 18n) / 10n ** 18n) * q) / 10n ** 18n;
+  const exp = (((p * SUPPLY) / 10n ** 18n) * q) / 10n ** 18n;
   ok("mcapNow " + tag, `curve $${formatEther(m)} expected(price*supply*quoteUsd) $${formatEther(exp)} lens $${formatEther(lens)} match=${m === exp}`);
 };
 await mcheck("pre-grad");

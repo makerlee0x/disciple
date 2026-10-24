@@ -11,7 +11,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 
 | Parameter | Value |
 |---|---|
-| Total supply | 7,000,000,000, fixed, 18 decimals |
+| Total supply | 1,000,000, fixed, 18 decimals |
 | Mint after launch | None |
 | Name and call sign | Locked at launch |
 | Address | Standard (no vanity) |
@@ -21,8 +21,8 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Parameter | Value |
 |---|---|
 | Curve type | Constant product, virtual reserves |
-| Start market cap | $7,000 |
-| Graduation market cap | $33,000 (Outer Space) |
+| Start market cap | $7,777 |
+| Graduation market cap | $33,333 (Outer Space) |
 | Sold on the curve | 72% (5.04B) |
 | Locked forever in the Uniswap v4 LP | 28% (1.96B) + base raised |
 | Base raised at graduation (USDG base) | ≈ $10,943, net of fees |

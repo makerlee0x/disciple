@@ -5,7 +5,7 @@
  * No chain, no RPC.
  *
  * Curve: virtual reserves x (quote), y (tokens): x = x0·y0 / (y0 − sold), y = y0 − sold, spot = x / y.
- *   y0 = sCurve·√r / (√r − 1), r = M1/M0; x0 = (M0/S)·y0  → mcap(0) = $7K, mcap(sCurve) = $33K.
+ *   y0 = sCurve·√r / (√r − 1), r = M1/M0; x0 = (M0/S)·y0  → mcap(0) = $7,777, mcap(sCurve) = $33,333.
  * Buys pay 1% + anti-snipe (77.7% → 0 over 7 s) before the curve; sells pay 1% from the output.
  * Wallet cap: launch.walletCapBps (0 = none — the live Launchpad default, Constants.WALLET_CAP_BPS_DEFAULT).
  */

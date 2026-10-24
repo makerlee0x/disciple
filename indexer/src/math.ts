@@ -1,6 +1,7 @@
 const WAD = 10n ** 18n;
 const Q96 = 1n << 96n;
-export const TOTAL_SUPPLY = 7_000_000_000n * WAD;
+/** Fallback only — Constants.TOTAL_SUPPLY (1M × 1e18, LOCKED #7 rev. 2026-10-23); per-coin supply from LaunchTierContext wins. */
+export const TOTAL_SUPPLY = 1_000_000n * WAD;
 
 /** wad bigint → float */
 export const wad = (x: bigint | string | null | undefined) => (x == null ? 0 : Number(BigInt(x)) / 1e18);
@@ -19,8 +20,8 @@ export function mcapUsdFromSqrt(sqrtP: bigint, tokenIsC0: boolean, quoteUsdWad: 
   return (mcapQuote * quoteUsdWad) / WAD;
 }
 
-export function mcapUsdWad(priceWad: bigint, quoteUsdWad: bigint): bigint {
-  return (((priceWad * TOTAL_SUPPLY) / WAD) * quoteUsdWad) / WAD;
+export function mcapUsdWad(priceWad: bigint, quoteUsdWad: bigint, supply = TOTAL_SUPPLY): bigint {
+  return (((priceWad * supply) / WAD) * quoteUsdWad) / WAD;
 }
 
 /** Virtual in-range quote reserve of a v4 pool (quote raw). */

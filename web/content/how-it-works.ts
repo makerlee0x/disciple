@@ -58,7 +58,7 @@ export const HIW_PAIR = {
   ],
   diagram: {
     base: { title: "Base coin", desc: "A supported coin you believe in", value: "$USDG", coin: "G" },
-    rocket: { title: "Rocket", desc: "A new coin, 7B supply, fixed", value: "$HALO", coin: "H", baseCoin: "G" },
+    rocket: { title: "Rocket", desc: "A new coin, 1M supply, fixed", value: "$HALO", coin: "H", baseCoin: "G" },
     lp: { title: "Locked LP", desc: "Rocket + base, Uniswap v4, forever", value: "$HALO + $USDG" },
     arrows: ["priced & traded in", "at graduation, locked forever in"],
     foot: [
@@ -131,17 +131,17 @@ export const HIW_PHASES = {
   rows: [
     ["Price", "Set by the curve’s formula", "Set by the pool’s reserves"],
     ["You trade with", "The bonding curve", "The Uniswap v4 pool"],
-    ["Market cap", "$7K → $33K", "$33K and up"],
+    ["Market cap", "$7,777 → $33,333", "$33,333 and up"],
     ["Supply", "72% sells on the curve", "The remaining 28% is locked forever in the Uniswap v4 LP"],
     ["Liquidity", "Base builds up in the curve", "Full-range, owned by LockedLP, locked forever"],
     ["Fee", "1% (+ optional creator tax)", "1%, via the DISCIPLE hook"],
   ] as [string, string, string][],
-  grad: "Graduation: at 72% sold and $33K, the same BOOST that crosses the line opens the pool.",
+  grad: "Graduation: at 72% sold and $33,333, the same BOOST that crosses the line opens the pool.",
   after: "After graduation, 33% of every fee still goes to the locked liquidity, added to the position as it builds up.",
   chart: {
     title: "Bonding curve, then Uniswap v4: market cap against % of supply sold",
-    start: "Start · $7K",
-    grad: "Graduation · $33K · 72% sold",
+    start: "Start · $7,777",
+    grad: "Graduation · $33,333 · 72% sold",
     phase1: "PHASE 1 · BONDING CURVE",
     phase2: "PHASE 2 · UNISWAP V4 · LOCKED LP",
     phase2Note: "price set by the pool (illustrative)",
@@ -156,7 +156,7 @@ export const HIW_MODES = {
   eyebrow: "Game difficulties",
   h2: "Practice in the Simulator. Pick your war.",
   body: [
-    "The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($7K → $33K) and bots trade it with you. You choose how hostile they are.",
+    "The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($7,777 → $33,333) and bots trade it with you. You choose how hostile they are.",
   ],
   openItem: "C12",
   cards: [
@@ -203,7 +203,7 @@ export const HIW_FAQ = {
     { q: "Is the liquidity really locked?", a: "Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet." },
     { q: "What coins can I pair with?", a: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
     { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket’s Uniswap v4 LP." },
-    { q: "When does a rocket graduate?", a: "At a $33K market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
+    { q: "When does a rocket graduate?", a: "At a $33,333 market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
     { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 7 seconds." },
     { q: "Can a creator rug?", a: "There’s no further mint, the name and ticker are set at launch, and graduated liquidity has no withdraw function. Creators can still sell their own coins, like anyone else.", openItem: "C11" },
     { q: "What is the Simulator?", a: "Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare.", openItem: "C12" },

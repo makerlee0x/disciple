@@ -47,7 +47,7 @@ contract JitTwapTest is IntegrationBase {
         address[3] memory us = [alice, whale, jit];
         for (uint256 i; i < 3; i++) {
             quote.mint(us[i], 10_000_000 ether);
-            deal(address(tok), us[i], 1_000_000_000 ether);
+            deal(address(tok), us[i], 150_000 ether); // 1M supply (was 1B of 7B)
             vm.startPrank(us[i]);
             quote.approve(address(twm), type(uint256).max);
             tok.approve(address(twm), type(uint256).max);
@@ -117,7 +117,7 @@ contract JitTwapTest is IntegrationBase {
         vm.prank(lp);
         (id,) = twm.placeTramp(address(tok), lo, hi, 50_000 ether, 0, block.timestamp + 1);
         for (uint256 i; i < 6; i++) {
-            _sell(whale, 2_000_000 ether);
+            _sell(whale, 300 ether);
         }
         require(!twm.isFilled(id), "filled");
     }
@@ -168,7 +168,7 @@ contract JitTwapTest is IntegrationBase {
 
     function test_hook_fee_full_lp_share_to_lockedLP() public {
         vm.recordLogs();
-        _sell(whale, 2_000_000 ether); // fee in quote
+        _sell(whale, 300 ether); // fee in quote
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,bool,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)");
         uint256 cs;
@@ -286,7 +286,7 @@ contract JitTwapTest is IntegrationBase {
     function _placeAndFillWall() internal returns (uint256 id) {
         (int24 lo, int24 hi) = _sideRange(_tIs0(), 4); // wall = token side, above price
         vm.prank(alice);
-        (id,) = twm.placeWall(address(tok), lo, hi, 5_000_000 ether, 0, block.timestamp + 1);
+        (id,) = twm.placeWall(address(tok), lo, hi, 750 ether, 0, block.timestamp + 1);
         for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
             _buy(whale, 20_000 ether);
         }
@@ -325,7 +325,7 @@ contract JitTwapTest is IntegrationBase {
         vm.prank(alice);
         (uint256 id,) = twm.placeTramp(address(tok), lo, hi, 2_000 ether, 0, block.timestamp + 1);
         for (uint256 i; i < 200 && !twm.isFilled(id); i++) {
-            _sell(whale, 5_000_000 ether);
+            _sell(whale, 750 ether);
         }
         assertTrue(twm.isFilled(id), "tramp not filled");
         uint256 t0 = tok.balanceOf(alice);
@@ -415,7 +415,8 @@ contract JitTwapTest is IntegrationBase {
         assertEq(Altitude.tierOf(0), 0);
         assertEq(Altitude.tierOf(11_999 ether), 0);
         assertEq(Altitude.tierOf(12_000 ether), 1);
-        assertEq(Altitude.tierOf(33_000 ether), 4);
+        assertEq(Altitude.tierOf(33_332 ether), 3);
+        assertEq(Altitude.tierOf(33_333 ether), 4); // OUTER SPACE = graduation
         assertEq(Altitude.tierOf(100_000 ether), 6);
         assertEq(Altitude.tierOf(3_300_000_000 ether), 17);
         assertEq(Altitude.tierOf(1e40), 17);

@@ -54,14 +54,14 @@ contract CurveTest is Test {
     CurveMath.Params internal params;
 
     // Worked-table bands (USDG @$1)
-    uint256 internal constant MCAP_0 = 7_000 ether;
-    uint256 internal constant MCAP_10_MIN = 7_800 ether;
-    uint256 internal constant MCAP_10_MAX = 8_600 ether;
-    uint256 internal constant MCAP_25_MIN = 10_000 ether;
-    uint256 internal constant MCAP_25_MAX = 11_200 ether;
-    uint256 internal constant MCAP_50_MIN = 17_000 ether;
-    uint256 internal constant MCAP_50_MAX = 19_000 ether;
-    uint256 internal constant MCAP_72 = 33_000 ether;
+    uint256 internal constant MCAP_0 = 7_777 ether;
+    uint256 internal constant MCAP_10_MIN = 8_600 ether; // ≈ $9,027
+    uint256 internal constant MCAP_10_MAX = 9_400 ether;
+    uint256 internal constant MCAP_25_MIN = 11_000 ether; // ≈ $11,552
+    uint256 internal constant MCAP_25_MAX = 12_100 ether;
+    uint256 internal constant MCAP_50_MIN = 18_000 ether; // ≈ $18,928
+    uint256 internal constant MCAP_50_MAX = 19_900 ether;
+    uint256 internal constant MCAP_72 = 33_333 ether;
 
     DiscipleHook internal hook;
 
@@ -171,7 +171,7 @@ contract CurveTest is Test {
 
         // Total quote raised at graduation ≈ $10,943
         uint256 raise = CurveMath.quoteInForTokens(params, 0, params.sCurve);
-        assertApproxEqRel(raise, 10_943 ether, 0.02e18);
+        assertApproxEqRel(raise, 11_592 ether, 0.02e18); // $7,777→$33,333 at 72% sold
     }
 
     function test_price_monotonic_across_curve() public view {

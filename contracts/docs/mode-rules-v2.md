@@ -6,14 +6,14 @@ It ships in **one combined testnet redeploy** together with the paymaster (#106)
 Mode ids are unchanged: `TRENCH = 0`, `PVE = 1` (**Easy**), `PVP = 2` (**Hard**). The creator picks the mode at launch
 (`Launchpad.launchWithMode`, or `DiscipleRouter.launchWithUsdg`). Every rule below applies **on the bonding curve
 only** and switches off at graduation (the hook, the v4 pool, LockedLP and the router's v4 paths contain no mode logic).
-Curve facts: 7B supply, 72% sold on the curve, $7K → $33K mcap.
+Curve facts: 1M supply (no burn, LOCKED #7 rev. 2026-10-23), 72% sold on the curve (pending lee's pick: 72% / 67.4% / 50%), $7,777 → $33,333 mcap.
 
 ## Rules at a glance
 
 | | Easy (PVE, 1) | Hard (PVP, 2) | TRENCH (0) |
 |---|---|---|---|
 | Login | LoginGate attestation required to **buy** (sells never) | none | none |
-| Holding cap (NET curve position) | **1% → 3.33%** linear in mcap $7K → $33K | **3.33% → 7.77%** linear in mcap $7K → $33K | legacy owner `walletCapBps` (default 0 = none) |
+| Holding cap (NET curve position) | **1% → 3.33%** linear in mcap $7,777 → $33,333 | **3.33% → 7.77%** linear in mcap $7,777 → $33,333 | legacy owner `walletCapBps` (default 0 = none) |
 | Over-cap buy | **partial fill** + refund | **partial fill** + refund | partial fill + refund (if a legacy cap is set) |
 | Max single buy / sell | none | none | none |
 | 7-min window / launch-block rule | **removed** | — | — |
@@ -29,7 +29,7 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
 
 ## Holding cap (Easy and Hard)
 
-* `cap(mcap) = start + (end − start) × clamp(mcap − $7K, 0, $26K) / $26K`, in bps of total supply, applied to the
+* `cap(mcap) = start + (end − start) × clamp(mcap − $7,777, 0, $25,556) / $25,556`, in bps of total supply, applied to the
   wallet's NET curve position (`balanceOnCurve`: bought − sold, transfers follow it in Easy, see bonding-modes.md).
 * `mcap` is the curve's mcap **before** the trade (`marketCapUsd()`, quote/USD price fixed at launch).
 * Views: `curve.netCapNow()` (tokens), `curve.capRoom(wallet)` = `min(cap − NET, curve supply left)`,
@@ -131,7 +131,7 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
       "Filled to your cap: got N tokens, refunded R USDG". Router path: read the USDG refund from `UsdgRefund`.
 - [ ] **Room-0 state**: if `capRoom == 0`, disable Buy with "You're at your cap. Cap grows with market cap, or sell
       to free room." (the tx would revert `WalletCap`).
-- [ ] **Cap meter**: NET position vs `MarketLens.capNow(token)` (bps + tokens), with the next step (cap at $33K:
+- [ ] **Cap meter**: NET position vs `MarketLens.capNow(token)` (bps + tokens), with the next step (cap at $33,333:
       Easy 3.33%, Hard 7.77%). Hide for TRENCH unless a legacy cap is set.
 - [ ] **Sniper countdown**: `MarketLens.sniperTax(token) → (bps, secondsLeft)` for the first 60 s: "Sniper tax 74% —
       45 s left"; warn before a buy. Show the escrow (`MarketLens.snipeEscrow`) as "goes to locked LP at graduation".

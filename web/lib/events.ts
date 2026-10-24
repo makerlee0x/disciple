@@ -38,8 +38,8 @@ export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () =>
   });
 }
 
-/** 7B × 1e18 (Constants.TOTAL_SUPPLY). */
-const SUPPLY_TOKENS = 7_000_000_000;
+/** 1M × 1e18 (Constants.TOTAL_SUPPLY). */
+const SUPPLY_TOKENS = 1_000_000;
 /** USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw) and quotePriceUsd (USD WAD per 1e18 quote raw). */
 export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bigint) =>
   priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;

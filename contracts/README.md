@@ -37,9 +37,9 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 
 | Path | Role | Constitution |
 |------|------|----------------|
-| `src/libraries/Constants.sol` | Named protocol constants (7B, $12K→$77K, fees, anti-snipe, caps) | LOCKED #6–#12, #18, #27; §2, §3, §4, §9 |
+| `src/libraries/Constants.sol` | Named protocol constants (1M supply, $7,777→$33,333, fees, anti-snipe, caps) | LOCKED #6–#12, #18, #27; §2, §3, §4, §9 |
 | `src/libraries/FeeMath.sol` | 33/33/33/1 split, tax, wallet/curve caps | §3 Fees; LOCKED #11–#12 |
-| `src/Token.sol` | ERC-20, 18 dec, 7B fixed, no further mint, CREATE | §2; LOCKED #7, #10 |
+| `src/Token.sol` | ERC-20, 18 dec, 1M fixed, no further mint, CREATE | §2; LOCKED #7, #10 |
 | `src/BondingCurve.sol` | Pump-style CPAMM curve; optional per-wallet cap (`Launchpad.walletCapBps`, default 0 = off); graduate trigger | §2 Option B; LOCKED #5–#8 |
 | `src/libraries/CurveMath.sol` | Single CPAMM buy/sell math; quotePriceUsd scaling | §2; LOCKED #5–#7 |
 | `src/QuotePricer.sol` | Launch-time quote/USD oracle (USDG=$1, else quote/USDG v4 spot) | §2 |
@@ -70,9 +70,9 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 
 | Constant | Value |
 |----------|-------|
-| `TOTAL_SUPPLY` | 7_000_000_000e18 |
-| `START_MCAP_USD` | $7,000 (Launch Pad) |
-| `OUTER_SPACE_MCAP_USD` | $33,000 (graduation, opens Outer Space) |
+| `TOTAL_SUPPLY` | 1_000_000e18 |
+| `START_MCAP_USD` | $7,777 (Launch Pad) |
+| `OUTER_SPACE_MCAP_USD` | $33,333 (graduation, opens Outer Space) |
 | `CURVE_SOLD_BPS` | 7200 (72% exactly at grad) |
 | `WALLET_CAP_BPS_DEFAULT` | 0 (no cap; owner-settable via `Launchpad.setWalletCapBps`, snapshotted per coin) |
 | `TRADE_FEE_BPS` | 100 (1%) |
@@ -87,12 +87,12 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 See [`docs/curve.md`](docs/curve.md).
 
 - **Single** constant-product virtual-reserve curve (steep / Pump-like).
-- Start **$7K** → graduation (Outer Space) **$33K** exactly at **72%** supply sold.
+- Start **$7,777** → graduation (Outer Space) **$33,333** exactly at **72%** supply sold.
 - **Quote:** any ERC-20 with a registered quote/USDG pool; USD targets scaled by the on-chain `QuotePricer` price at launch (see docs/frontend-api.md).
 - **Rounding:** floor against user on buy and sell (fuzzed no round-trip profit).
-- Raise to grad (net of fees on curve) ≈ **$10,943**.
+- Raise to grad (net of fees on curve) ≈ **$11,592**.
 
-Worked mcaps at 0 / 10 / 25 / 50 / 72% sold: **$7K / ~$8.2K / ~$10.6K / ~$17.9K / $33K**.
+Worked mcaps at 0 / 10 / 25 / 50 / 72% sold: **$7,777 / ~$9.0K / ~$11.6K / ~$18.9K / $33,333**.
 
 ## Explicit stubs / TODOs
 

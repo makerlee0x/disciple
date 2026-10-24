@@ -12,7 +12,7 @@ default Maker lee can change before the redeploy (it is a constant, so changing 
   `Launchpad` emits `LaunchMode(token, curve, mode)` at launch.
 * Applies **only on the bonding curve**. Nothing changes after graduation: the hook, the v4 pool, LockedLP and the
   router's v4 paths contain no mode logic.
-* Curve facts: 7B supply, 72% (5.04B) sold on the curve, $7K → $33K mcap at graduation.
+* Curve facts: 1M supply, 72% (720K) sold on the curve, $7,777 → $33,333 mcap at graduation.
 
 | id | mode | difficulty |
 |----|------|-----------|
@@ -32,7 +32,7 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 
 | rule | value | notes |
 |------|-------|-------|
-| holding cap (NET) | **1% → 3.33%** of supply, linear in mcap $7K → $33K (pre-trade mcap) | `PVE_CAP_START_BPS = 100`, `PVE_CAP_END_BPS = 333` |
+| holding cap (NET) | **1% → 3.33%** of supply, linear in mcap $7,777 → $33,333 (pre-trade mcap) | `PVE_CAP_START_BPS = 100`, `PVE_CAP_END_BPS = 333` |
 | over-cap buy | partial fill to the cap, rest refunded (`BuyRefunded`); room 0 → `WalletCap` | |
 | login | verified Privy login required to **buy** | EIP-712 attestation, see below |
 | launch block / 7-min window / 0.25% per buy / 0.5% max sell | **removed** in v2 | `maxBuyNow`/`maxSellNow` return max (compat) |
@@ -83,7 +83,7 @@ partial fill, sniper escrow, creator lock, crew tip). Summary:
 
 | rule | value |
 |------|-------|
-| holding cap (NET) | **3.33% → 7.77%** linear in mcap $7K → $33K (pre-trade), partial fill |
+| holding cap (NET) | **3.33% → 7.77%** linear in mcap $7,777 → $33,333 (pre-trade), partial fill |
 | max single buy | none (v2) |
 | login | none |
 | First BOOST | max **3.33%**; no lock; no crew tip |

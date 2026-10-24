@@ -19,9 +19,9 @@ This document is the source of truth for locked product and protocol decisions. 
 | 3 | Product surface | Spot launchpad + gamified chart; rocket game on **disciple.vip** (GAME) | LOCKED |
 | 4 | Deferrals | Papertrade / leverage deferred; **no native protocol coin** at launch; external ERC-20 quotes only | LOCKED |
 | 5 | Architecture | **Option B:** external bonding curve (**single steep Pump-style CPAMM**) + **same-tx** Uniswap v4 migrate (init at curve-end sqrtPriceX96 — **no price jump**; full-range LP owned forever by LockedLP); **no migration pause/gap** | LOCKED 2026-10-15 |
-| 6 | Curve levels | Start mcap **$7K** → graduation **$33K** (Outer Space); single CPAMM hits grad exactly at 72% sold | LOCKED 2026-10-15 |
-| 7 | Supply on curve | **~72%** sold on curve; **7B** total supply; fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
-| 8 | Wallet cap | Bonding curve only (not post-grad). **Easy (PVE):** NET holding cap **1% → 3.33%** of supply, linear in mcap $7K → $33K. **Hard (PVP):** **3.33% → 7.77%**. Measured at the pre-trade mcap. **TRENCH:** legacy `Launchpad.walletCapBps` (default 0 = no cap, owner-settable, snapshotted per coin). Over-cap buys **partial-fill** to the cap and refund the rest (no revert; room 0 reverts `WalletCap`). No max buy / max sell. **No wallet exemptions** except the First BOOST for its own buy (#27). See mode-rules-v2.md | LOCKED 2026-10-23 (rev., was walletCapBps-only / 7%) |
+| 6 | Curve levels | Start mcap **$7,777** → graduation **$33,333** (Outer Space); single CPAMM hits grad at the curve sold %. **Sold % pending lee's pick:** 72% (current, `CURVE_SOLD_BPS = 7200`) / 67.4% (CP, no leftover) / 50% (rest → 0xdEaD) | LOCKED 2026-10-15; endpoints rev. 2026-10-23 (sold % open) |
+| 7 | Supply on curve | **~72%** sold on curve (sold % pending, see #6); **1,000,000** total supply (lee sign-off 2026-10-23; no burn); fixed at launch, no further mint; **18 decimals** ERC-20 | LOCKED |
+| 8 | Wallet cap | Bonding curve only (not post-grad). **Easy (PVE):** NET holding cap **1% → 3.33%** of supply, linear in mcap $7,777 → $33,333. **Hard (PVP):** **3.33% → 7.77%**. Measured at the pre-trade mcap. **TRENCH:** legacy `Launchpad.walletCapBps` (default 0 = no cap, owner-settable, snapshotted per coin). Over-cap buys **partial-fill** to the cap and refund the rest (no revert; room 0 reverts `WalletCap`). No max buy / max sell. **No wallet exemptions** except the First BOOST for its own buy (#27). See mode-rules-v2.md | LOCKED 2026-10-23 (rev., was walletCapBps-only / 7%) |
 | 9 | Anti-snipe (sniper tax) | **All modes, curve only:** buy-side tax **99% → 0% linearly over 60 s** after launch (then only the protocol 1% + creator tax). Held in the curve's **`snipeEscrow`**, outside reserves and price; **added to the locked LP at graduation**; if the coin has not graduated **30 days** after launch (owner-tunable for future launches, 1–365 days, snapshotted), **anyone** can send it to the community RewardsVault. **First BOOST exempt.** The 70/30 vault/treasury routing and the launch-block rule are removed | LOCKED 2026-10-23 (rev., was 77.7%→0 over 7 s, 70/30) |
 | 10 | Token address | Standard **CREATE**; no vanity | LOCKED |
 | 11 | Trade fee | **1%** trade fee → **33%** creator / **33%** LP share / **33%** treasury / **1%** leftover. **Leftover priority:** (1) the coin's launch KOL (referrer of the creating wallet, #21) if set, else (2) the trader's referrer, else (3) treasury. Curve phase: the LP share is escrowed in LockedLP and folded into the graduation seed. Post-grad: the LP share goes to LockedLP and is **auto-compounded in batches** into the locked full-range position (#16: added once the matched amount reaches **0.1%** of the position's liquidity, capped at **0.5%** per 60 s window and one add per block) | LOCKED |
@@ -54,7 +54,7 @@ This document is the source of truth for locked product and protocol decisions. 
 | 38 | Withdraw | USDG on **Robinhood Chain only** | LOCKED |
 | 39 | Data / chart | Own RH indexer for trades, mcap, impact; DexScreener optional share link | LOCKED |
 | 40 | Nuke tiers | By sell price impact (GAME owns art): &lt;2% puff; 2–5% grenade; 5–12% bunker buster; 12–25% cruise missile; 25–50% nuke; ≥50% atom bomb | LOCKED |
-| 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K) through Seventh Heaven ($3.3B–$7.77B); Outer Space = $33K graduation — see detailed section. Names per disciple-brand/LEXICON.md §4 (renamed 2026-10-17, ranges unchanged) | LOCKED 2026-10-15 |
+| 41 | Tier ladder | Biblically ascending mcap **ranges** from Launch Pad ($7K–$12K; coins start at $7,777) through Seventh Heaven ($3.3B–$7.77B); Outer Space = $33,333 graduation — see detailed section. Names per disciple-brand/LEXICON.md §4 (renamed 2026-10-17, ranges unchanged) | LOCKED 2026-10-15 |
 | 42 | Tramps & walls | Graduated coins only. Users place **single-sided concentrated v4 LP ranges** via the `TrampWallManager` periphery: **tramp** = quote-only range strictly below price (support), **wall** = token-only range strictly above (resistance). **Pure limit orders, no yield** (pool LP fee 0, no donation). Owner can cancel anytime (no hold); anyone can `pull` a fully crossed range immediately (proceeds to owner minus a keeper tip, default 0.1%, owner-settable max 1%). Only LockedLP and TrampWallManager may add liquidity (hook gate). | LOCKED 2026-10-16 |
 | 43 | Launch modes (v2) | Creator picks at launch: **TRENCH (0)**, **Easy = PVE (1)**: LoginGate login to buy, cap 1%→3.33%, partial fill, **crew tip** 0.777% of sell proceeds only when realized profit > tunable threshold (default **0.5% of mcap** at sale; owner-settable 0.1%–5%, snapshotted) → holders claim pool (replaces the 77% profit tax; 7-min window, 0.25% per-buy and 0.5% sell caps removed), First BOOST ≤1.2% locked to graduation; **Hard = PVP (2)**: no login, cap 3.33%→7.77%, partial fill, no max buy, First BOOST ≤3.33%, no crew tip / lock. All rules off at graduation | LOCKED 2026-10-23 |
 
@@ -85,7 +85,7 @@ This document is the source of truth for locked product and protocol decisions. 
 
 ### Chosen: Option B
 - **External bonding curve**: single **steep Pump-style CPAMM** (constant-product virtual reserves).
-- At graduation (**Outer Space $33K / 72% sold**): **same-transaction** Uniswap v4 migrate:
+- At graduation (**Outer Space $33,333 / 72% sold**, sold % pending): **same-transaction** Uniswap v4 migrate:
   - Initialize pool at curve-end **sqrtPriceX96** (**no price jump**).
   - Seed **full-range** liquidity with remaining **~28%** tokens + curve quote reserves (plus fee-escrowed quote).
   - Position owned forever by **LockedLP** (removeLiquidity disabled).
@@ -100,16 +100,16 @@ This document is the source of truth for locked product and protocol decisions. 
 | Parameter | Value |
 |-----------|--------|
 | Curve shape | **Single CPAMM** (Pump-style virtual reserves) |
-| Start market cap | **$7,000** |
-| Graduation market cap | **$33,000** (Outer Space) |
+| Start market cap | **$7,777** |
+| Graduation market cap | **$33,333** (Outer Space) |
 | Sold on curve | **72%** of supply (exact at graduation) |
-| Total supply | **7,000,000,000** |
+| Total supply | **1,000,000** (no burn) |
 | Mint policy | Fixed supply at launch; **no further mint** |
 | Decimals | **18** (standard ERC-20) |
 | Quote pricing | Any ERC-20; USD start/grad converted via quote price at launch |
 
 ### Wallet limits (bonding curve only)
-- **Easy (PVE):** NET holding cap 1% → 3.33% of supply, linear in curve mcap $7K → $33K (pre-trade mcap).
+- **Easy (PVE):** NET holding cap 1% → 3.33% of supply, linear in curve mcap $7,777 → $33,333 (pre-trade mcap).
 - **Hard (PVP):** 3.33% → 7.77%, same formula.
 - **TRENCH:** `walletCapBps` of total supply, snapshotted at launch. **Default 0 = no cap.** The protocol owner sets it with `Launchpad.setWalletCapBps(bps)` (0–10000, emits `WalletCapSet`). Coins launched before a change keep their snapshot (v1–v3 testnet coins keep the old fixed 7%).
 - **Partial fill:** a buy over the cap fills up to the cap and refunds the rest (`BuyRefunded`); on the router USDG path the refund is swapped back to USDG. Room 0 reverts `WalletCap`. No max buy or max sell in any mode.
@@ -293,8 +293,8 @@ Re-priced 2026-10-15 so **graduation = $33K** (the open of **Outer Space**; tier
 | **Launch Pad** | **$7K–$12K** |
 | **Ozone** | **$12K–$18K** |
 | **Stratosphere** | **$18K–$25K** |
-| **Kármán Line** | **$25K–$33K** |
-| **Outer Space** *(graduation at $33K)* | **$33K–$55K** |
+| **Kármán Line** | **$25K–$33,333** |
+| **Outer Space** *(graduation at $33,333)* | **$33,333–$55K** |
 | **Firmament** | **$55K–$100K** |
 | **Morning Stars** | **$100K–$333K** |
 | **Heavenly Host** | **$333K–$777K** |
@@ -309,7 +309,7 @@ Re-priced 2026-10-15 so **graduation = $33K** (the open of **Outer Space**; tier
 | **Empyrean** | **$1.2B–$3.3B** |
 | **Seventh Heaven** | **$3.3B–$7.77B** |
 
-Graduation occurs at the open of **Outer Space ($33K)**.
+Graduation occurs at the open of **Outer Space ($33,333)**.
 
 ---
 
@@ -343,6 +343,7 @@ The following are explicitly **out of scope** for v0. Do not implement against t
 ## Document control
 
 - **Locked as of:** 2026-10-15  
+- **2026-10-23:** LOCKED #7 supply 7B → **1,000,000** (lee sign-off; no burn). LOCKED #6 endpoints $7K→$33K → **$7,777→$33,333**; Kármán Line / Outer Space boundary moved to $33,333 so Outer Space = graduation. Sold % still open.
 - **Revisions this date:** LOCKED #5–#6, #9, #17, #41 — curve $7K→$33K CPAMM; anti-snipe 77.7%→0% (snipe destination later revised to 70% RewardsVault / 30% treasury, see #9); real v4 same-tx migrate (no-jump, LockedLP owns LP); re-priced tier ladder.  
 - **Scope label:** v0 / Robinhood Chain  
 - **Revisions 2026-10-15 (tramps & walls):** LOCKED #9/#27 creator launch buy anti-snipe exempt; #16 LP share split 1/3 donate to in-range LPs + 2/3 LockedLP (superseded 2026-10-16: no donation); new #42 tramps & walls.  

@@ -7,15 +7,15 @@ section: Game
 
 A rocket's **altitude** is its market cap. As it climbs, it passes through 18 tiers, from Launch Pad to Seventh Heaven. Each tier has its own sky.
 
-Graduation happens at **Outer Space**, $33K.
+Graduation happens at **Outer Space**, $33,333.
 
 | # | Tier | Market cap from | Up to |
 |---|---|---|---|
 | 1 | **Launch Pad** | $7K | $12K |
 | 2 | **Ozone** | $12K | $18K |
 | 3 | **Stratosphere** | $18K | $25K |
-| 4 | **Kármán Line** | $25K | $33K |
-| 5 | **Outer Space** · graduation | $33K | $55K |
+| 4 | **Kármán Line** | $25K | $33,333 |
+| 5 | **Outer Space** · graduation | $33,333 | $55K |
 | 6 | **Firmament** | $55K | $100K |
 | 7 | **Morning Stars** | $100K | $333K |
 | 8 | **Heavenly Host** | $333K | $777K |
@@ -34,7 +34,7 @@ Each tier starts at its "from" value and runs up to, not including, the next tie
 
 ## How altitude is measured
 
-- **Spot market cap:** price after the latest trade × 7B supply, in dollars.
+- **Spot market cap:** price after the latest trade × 1M supply, in dollars.
 - On the curve, the dollar value uses the base's price fixed at launch.
 - Every trade updates the altitude on-chain. A tier change is recorded on-chain too, in either direction.
 

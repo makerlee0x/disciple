@@ -5,7 +5,7 @@ section: Bonding curve and graduation
 ---
 # Graduation
 
-A rocket graduates when 72% of supply has sold on the curve and its market cap reaches $33K. That's the Outer Space tier.
+A rocket graduates when 72% of supply has sold on the curve and its market cap reaches $33,333. That's the Outer Space tier.
 
 ## What happens
 
@@ -22,7 +22,7 @@ The BOOST that crosses the line triggers graduation in the same transaction. The
 |---|---|---|
 | Price | Set by the curve's formula | Set by the pool's reserves |
 | You trade with | The bonding curve | The Uniswap v4 pool |
-| Market cap | $7K → $33K | $33K and up |
+| Market cap | $7,777 → $33,333 | $33,333 and up |
 | Supply | 72% sells on the curve | The remaining 28% is locked forever in the Uniswap v4 LP |
 | Liquidity | Base builds up in the curve | Full-range, owned by LockedLP, locked forever |
 | Fee | 1% + optional creator tax | 1%, via the DISCIPLE hook |

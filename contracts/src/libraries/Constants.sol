@@ -7,20 +7,23 @@ pragma solidity ^0.8.26;
 library Constants {
     // ── Supply (§2 Curve parameters / LOCKED #7) ─────────────────────────────
     uint8 internal constant TOKEN_DECIMALS = 18;
-    uint256 internal constant TOTAL_SUPPLY = 7_000_000_000 * 1e18; // 7B fixed
-    /// @dev ~72% of supply sold on the bonding curve before graduation (Outer Space, $33K).
-    uint256 internal constant CURVE_SOLD_BPS = 7200; // 72.00%
+    uint256 internal constant TOTAL_SUPPLY = 1_000_000 * 1e18; // 1M fixed, no burn (LOCKED #7 rev. 2026-10-23, lee sign-off)
+    /// @dev Share of supply sold on the bonding curve before graduation (Outer Space, $33,333).
+    ///      OPEN (lee to pick, 2026-10-23): the curve (x0, y0) is derived from this one constant, so switching is a
+    ///      one-line change. 7200 = current (pool pairs ~80% of the raise; the leftover quote goes to the locked compound bucket);
+    ///      6740 = constant product with no leftover; 5000 = 50% sold, unpaired tokens → 0xdEaD at graduation.
+    uint256 internal constant CURVE_SOLD_BPS = 7200; // 72.00% (pending)
 
-    // ── Curve market caps (§2 / LOCKED #6, §9 Tier Ladder) — LOCKED 2026-10-15 ─
+    // ── Curve market caps (§2 / LOCKED #6, §9 Tier Ladder) — LOCKED 2026-10-15, endpoints rev. 2026-10-23 ─
     /// @dev Launch Pad start market cap (USD, 18-dec fixed-point for quote pricing).
-    uint256 internal constant START_MCAP_USD = 7_000 * 1e18; // $7K
+    uint256 internal constant START_MCAP_USD = 7_777 * 1e18; // $7,777 (rev. 2026-10-23)
     /// @dev Graduation market cap (opens the Outer Space tier).
-    uint256 internal constant GRADUATION_MCAP_USD = 33_000 * 1e18; // $33K
+    uint256 internal constant GRADUATION_MCAP_USD = 33_333 * 1e18; // $33,333 (rev. 2026-10-23)
     /// @dev Alias for GRADUATION_MCAP_USD.
     uint256 internal constant OUTER_SPACE_MCAP_USD = GRADUATION_MCAP_USD;
 
     // Tier ladder ranges (USD, whole dollars). Official ladder (disciple-brand/LEXICON.md §4, web/lib/flight/tiers.ts),
-    // renamed 2026-10-17; ranges unchanged since LOCKED 2026-10-15. Pre-grad evenly spaced $7K→$33K (OUTER SPACE =
+    // renamed 2026-10-17; ranges unchanged since LOCKED 2026-10-15. Pre-grad $7,777→$33,333 (OUTER SPACE =
     // graduation); post-grad roughly geometric to Seventh Heaven. Altitude.tierOf uses the same lows (index 0..17).
     uint256 internal constant TIER_LAUNCH_PAD_LO_USD = 7_000;
     uint256 internal constant TIER_LAUNCH_PAD_HI_USD = 12_000;
@@ -29,8 +32,8 @@ library Constants {
     uint256 internal constant TIER_STRATOSPHERE_LO_USD = 18_000;
     uint256 internal constant TIER_STRATOSPHERE_HI_USD = 25_000;
     uint256 internal constant TIER_KARMAN_LINE_LO_USD = 25_000;
-    uint256 internal constant TIER_KARMAN_LINE_HI_USD = 33_000;
-    uint256 internal constant TIER_OUTER_SPACE_LO_USD = 33_000;
+    uint256 internal constant TIER_KARMAN_LINE_HI_USD = 33_333;
+    uint256 internal constant TIER_OUTER_SPACE_LO_USD = 33_333; // = GRADUATION_MCAP_USD (rev. 2026-10-23)
     uint256 internal constant TIER_OUTER_SPACE_HI_USD = 55_000;
     uint256 internal constant TIER_FIRMAMENT_LO_USD = 55_000;
     uint256 internal constant TIER_FIRMAMENT_HI_USD = 100_000;
@@ -140,12 +143,12 @@ library Constants {
     uint8 internal constant MODE_PVE = 1; // Easy
     uint8 internal constant MODE_PVP = 2; // Hard
     // Mode rules v2 (Maker lee 2026-10-23). All curve-only; everything switches off at graduation.
-    // Holding cap = NET curve position, linear in mcap progress START_MCAP_USD ($7K) → GRADUATION_MCAP_USD ($33K).
+    // Holding cap = NET curve position, linear in mcap progress START_MCAP_USD ($7,777) → GRADUATION_MCAP_USD ($33,333).
     // A buy above the wallet's room partially fills (unused input refunded); no max buy, no max sell, no window.
-    uint256 internal constant PVE_CAP_START_BPS = 100; // Easy: 1% at $7K
-    uint256 internal constant PVE_CAP_END_BPS = 333; // Easy: 3.33% at $33K
-    uint256 internal constant PVP_CAP_START_BPS = 333; // Hard: 3.33% at $7K
-    uint256 internal constant PVP_CAP_END_BPS = 777; // Hard: 7.77% at $33K
+    uint256 internal constant PVE_CAP_START_BPS = 100; // Easy: 1% at $7,777
+    uint256 internal constant PVE_CAP_END_BPS = 333; // Easy: 3.33% at $33,333
+    uint256 internal constant PVP_CAP_START_BPS = 333; // Hard: 3.33% at $7,777
+    uint256 internal constant PVP_CAP_END_BPS = 777; // Hard: 7.77% at $33,333
     /// @dev First BOOST (creator launch buy) max per mode. TRENCH keeps Launchpad.creatorBuyMaxBps (owner-settable).
     ///      The First BOOST is exempt from the holding cap for that buy only (it still counts in NET afterwards).
     uint256 internal constant FIRST_BOOST_MAX_BPS_PVE = 120; // 1.2%

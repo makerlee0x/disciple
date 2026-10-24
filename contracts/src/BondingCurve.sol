@@ -51,7 +51,7 @@ interface IFeeRouterCurve {
 }
 
 /// @title External bonding curve — Pump-style CPAMM (§2 / LOCKED #5–#8)
-/// @notice Start mcap $7K → graduation (Outer Space) $33K at exactly 72% supply sold; 7% wallet cap.
+/// @notice Start mcap $7,777 → graduation (Outer Space) $33,333 at exactly CURVE_SOLD_BPS (72%) supply sold; 7% wallet cap.
 /// @dev Single constant-product virtual reserves; quotePriceUsd scales USD targets into quote units.
 /// @dev Altitude: after each Trade the SPOT mcap (Trade.mcapAfterUsd) is streamed as AltitudeUpdate, plus
 ///      TierBreak when the spot tier changes.
@@ -385,7 +385,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     // ───────────────────────────── mode views ─────────────────────────────
 
     /// @notice Current NET-position holding cap for a wallet in token wei (type(uint256).max = none).
-    ///         Easy 1% → 3.33%, Hard 3.33% → 7.77% of supply, linear in mcap progress $7K → $33K (curve mcap now).
+    ///         Easy 1% → 3.33%, Hard 3.33% → 7.77% of supply, linear in mcap progress $7,777 → $33,333 (curve mcap now).
     ///         TRENCH: the legacy Launchpad walletCapBps (0 = none).
     function netCapNow() public view returns (uint256) {
         uint8 m = mode;

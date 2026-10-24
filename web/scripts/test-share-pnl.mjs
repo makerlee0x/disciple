@@ -61,17 +61,17 @@ const T = 1_700_000_000_000;
 { const p = pnlFromFills("0xw", "0xc", [], 1, T); ok(p.kind === "none" && p.gainUsd === 0, "empty"); }
 // 6) fillUsd: mcapAfterUsd WAD → $; mid price between before/after
 {
-  const u = fillUsd({ tokenAmt: 7_000_000n * 10n ** 18n, priceBeforeX18: 100n, priceAfterX18: 100n, mcapAfterUsd: 70_000n * 10n ** 18n });
-  ok(near(u.mcapUsd, 70_000) && near(u.priceUsd, 1e-5) && near(u.usd, 70), `fillUsd flat ${JSON.stringify(u)}`);
-  const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50n, priceAfterX18: 100n, mcapAfterUsd: 7_000_000_000n * 10n ** 18n });
+  const u = fillUsd({ tokenAmt: 1_000n * 10n ** 18n, priceBeforeX18: 100n, priceAfterX18: 100n, mcapAfterUsd: 70_000n * 10n ** 18n });
+  ok(near(u.mcapUsd, 70_000) && near(u.priceUsd, 0.07) && near(u.usd, 70), `fillUsd flat ${JSON.stringify(u)}`);
+  const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50n, priceAfterX18: 100n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
   ok(near(v.usd, 0.75), `fillUsd mid ${v.usd}`);
 }
-// 7) v4 hook fill (no mcapAfterUsd): mcap = priceAfterX18 × supply × quotePriceUsd. 1 token raw = 1e-5 quote raw·1e18
-//    ⇒ price 1e13 (x18), quote $2 ⇒ token $2e-5, mcap 7e9 × 2e-5 = $140k; must match the curve formula for the same mcap.
+// 7) v4 hook fill (no mcapAfterUsd): mcap = priceAfterX18 × supply × quotePriceUsd. 1 token raw = 0.07 quote raw·1e18
+//    ⇒ price 7e16 (x18), quote $2 ⇒ token $0.14, mcap 1e6 × 0.14 = $140k; must match the curve formula for the same mcap.
 {
-  const h = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 10n ** 13n, priceAfterX18: 10n ** 13n, quotePriceUsd: 2n * 10n ** 18n });
-  ok(near(h.mcapUsd, 140_000) && near(h.priceUsd, 2e-5), `fillUsd hook ${JSON.stringify(h)}`);
-  const c = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 10n ** 13n, priceAfterX18: 10n ** 13n, mcapAfterUsd: 140_000n * 10n ** 18n });
+  const h = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 7n * 10n ** 16n, priceAfterX18: 7n * 10n ** 16n, quotePriceUsd: 2n * 10n ** 18n });
+  ok(near(h.mcapUsd, 140_000) && near(h.priceUsd, 0.14), `fillUsd hook ${JSON.stringify(h)}`);
+  const c = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 7n * 10n ** 16n, priceAfterX18: 7n * 10n ** 16n, mcapAfterUsd: 140_000n * 10n ** 18n });
   ok(near(c.usd, h.usd), "hook fill USD == curve fill USD at the same mcap");
   const z = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 1n, priceAfterX18: 1n });
   ok(z.mcapUsd === 0 && z.usd === 0, "hook fill without a quote price ⇒ 0, never NaN");

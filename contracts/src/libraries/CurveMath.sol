@@ -7,7 +7,7 @@ import {FeeMath} from "./FeeMath.sol";
 
 /// @title Pump-style CPAMM bonding curve math (§2 / LOCKED #5–#7)
 /// @notice Single constant-product virtual-reserve curve.
-///         Start mcap $7K → graduation (Outer Space) $33K exactly when tokensSold == 72% of supply.
+///         Start mcap $7,777 → graduation (Outer Space) $33,333 exactly when tokensSold == CURVE_SOLD_BPS of supply (72% today).
 /// @dev Quote amounts are raw quote wei. USD targets convert via `quotePriceUsd`
 ///      (USD WAD per 1 full quote token) at launch. Every trade rounds against the user.
 library CurveMath {

@@ -23,7 +23,7 @@ section: Reference
 | **Crew** | Everyone who holds a rocket. Everyone aboard flies together. |
 | **CRUISE** | A bomb with 12–25% price impact. |
 | **DUMP** | Sell. It drops a bomb. |
-| **Graduation** | Reaching $33K with 72% sold. The rocket moves to Uniswap v4 and its liquidity is locked forever. |
+| **Graduation** | Reaching $33,333 with 72% sold. The rocket moves to Uniswap v4 and its liquidity is locked forever. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Hold bonus** | A points multiplier, up to ×2.5, for holding a rocket in profit. Points only, never money. Coming soon: not yet applied to points. |
 | **Identity** | A playstyle tag earned from your trades, like Believer or Trencher. |
@@ -34,7 +34,7 @@ section: Reference
 | **LockedLP** | The contract that owns every graduated liquidity position. It has no remove function. |
 | **Near orbit** | A Launchpad filter for rockets close to graduation. |
 | **NUKE** | A bomb with 25–50% price impact. |
-| **Outer Space** | The graduation tier, from $33K. |
+| **Outer Space** | The graduation tier, from $33,333. |
 | **Pair** | A rocket and its base. |
 | **Pilgrim** | A pilot with no identity yet, and the prestige-0 label. |
 | **Pilot** | A trader. |

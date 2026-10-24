@@ -19,10 +19,10 @@ export const DEMO_POOL = {
 };
 
 export const CURVE = {
-  startMcap: 7_000,
-  graduationMcap: 33_000,
+  startMcap: 7_777,
+  graduationMcap: 33_333,
   soldPctAtGrad: 72,
-  totalSupply: 7_000_000_000,
+  totalSupply: 1_000_000,
   decimals: 18,
   /** wallet cap = Launchpad default Constants.WALLET_CAP_BPS_DEFAULT = 0 (no cap): live, paper and SIMULATOR alike */
   walletCapDefaultBps: 0,
@@ -37,8 +37,8 @@ export const TIERS = [
   { name: "LAUNCH PAD", lo: 7e3, hi: 12e3, bg: "tier0" },
   { name: "OZONE", lo: 12e3, hi: 18e3, bg: "tier1" },
   { name: "STRATOSPHERE", lo: 18e3, hi: 25e3, bg: "tier2" },
-  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33e3, bg: "tier3" },
-  { name: "OUTER SPACE", lo: 33e3, hi: 55e3, bg: "tier4" },
+  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33_333, bg: "tier3" },
+  { name: "OUTER SPACE", lo: 33_333, hi: 55e3, bg: "tier4" },
   { name: "FIRMAMENT", lo: 55e3, hi: 100e3, bg: "tier5" },
   { name: "MORNING STARS", lo: 100e3, hi: 333e3, bg: "tier6" },
   { name: "HEAVENLY HOST", lo: 333e3, hi: 777e3, bg: "tier7" },

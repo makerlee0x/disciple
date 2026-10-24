@@ -51,8 +51,8 @@ contract FeeMathTest is Test {
         return FeeMath.creatorTax(n, bps);
     }
 
-    function test_totalSupply_7B() public pure {
-        assertEq(Constants.TOTAL_SUPPLY, 7_000_000_000 * 1e18);
+    function test_totalSupply_1M() public pure {
+        assertEq(Constants.TOTAL_SUPPLY, 1_000_000 * 1e18);
         assertEq(Constants.TOKEN_DECIMALS, 18);
     }
 
@@ -64,10 +64,10 @@ contract FeeMathTest is Test {
         assertEq(FeeMath.curveSoldSupply(), (Constants.TOTAL_SUPPLY * 7200) / 10_000);
     }
 
-    function test_outerSpace_33k() public pure {
-        assertEq(Constants.GRADUATION_MCAP_USD, 33_000 * 1e18);
+    function test_outerSpace_33333() public pure {
+        assertEq(Constants.GRADUATION_MCAP_USD, 33_333 * 1e18);
         assertEq(Constants.OUTER_SPACE_MCAP_USD, Constants.GRADUATION_MCAP_USD);
-        assertEq(Constants.START_MCAP_USD, 7_000 * 1e18);
+        assertEq(Constants.START_MCAP_USD, 7_777 * 1e18);
     }
 
     function test_antiSnipe_constants() public pure {

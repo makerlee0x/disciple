@@ -28,8 +28,8 @@ export interface Fill {
   /** $ mcap after the fill */
   mcapUsd: number;
 }
-/** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 7B × 1e18). */
-export const TOTAL_SUPPLY_TOKENS = 7_000_000_000;
+/** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 1M × 1e18). */
+export const TOTAL_SUPPLY_TOKENS = 1_000_000;
 
 /**
  * Pure: raw Trade args → USD numbers (exported for tests). Units-agnostic.

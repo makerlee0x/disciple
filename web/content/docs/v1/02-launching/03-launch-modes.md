@@ -11,7 +11,7 @@ A launch mode sets the rules on the bonding curve. The creator picks it at launc
 
 | | **Easy** (PvE) | **Hard** (PvP) | **Trench Warfare** |
 |---|---|---|---|
-| Per-wallet holding cap | 1% of supply at $7K, rising with market cap to 3.33% at $33K | 3.33% at $7K, rising to 7.77% at $33K | None by default |
+| Per-wallet holding cap | 1% of supply at $7,777, rising with market cap to 3.33% at $33,333 | 3.33% at $7,777, rising to 7.77% at $33,333 | None by default |
 | BOOST over your cap | Fills up to your cap, the rest is refunded | Same | Same (if a cap is set) |
 | Max single BOOST / DUMP | No limit | No limit | No limit |
 | Sign-in required to BOOST | Yes | No | No |
@@ -27,7 +27,7 @@ For the first 60 seconds after launch, BOOSTs pay a sniper tax that starts at 99
 
 ## Easy: crew first
 
-- **Holding cap that grows.** A wallet can hold 1% of supply from the curve at launch, rising to 3.33% as the market cap climbs to $33K. The cap follows transfers, so moving coins to a fresh wallet doesn't get around it. A BOOST over your cap fills up to the cap and refunds the rest.
+- **Holding cap that grows.** A wallet can hold 1% of supply from the curve at launch, rising to 3.33% as the market cap climbs to $33,333. The cap follows transfers, so moving coins to a fresh wallet doesn't get around it. A BOOST over your cap fills up to the cap and refunds the rest.
 - **Signed-in buyers only.** To BOOST, a wallet needs a verified login. Selling never needs one, so holders can always exit.
 - **Crew tip.** When you DUMP at a profit above 0.5% of the market cap, 0.777% of the proceeds goes to the other holders on the curve. You don't share in your own tip. Holders can claim their share, also after graduation.
 - **Creator lock.** The creator's First BOOST (max 1.2%) stays locked until graduation. Anything the creator buys later is free to sell.

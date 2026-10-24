@@ -12,7 +12,7 @@ interface IPveCurveHook {
 }
 
 /// @title DISCIPLE ERC-20 launch token
-/// @notice Fixed 7B supply, 18 decimals, no further mint (§2 / LOCKED #7, #10).
+/// @notice Fixed 1M supply, 18 decimals, no further mint (§2 / LOCKED #7, #10).
 /// @dev EIP-2612 permit enabled (single-tx sells via BondingCurve.sellWithPermit).
 ///      Standard CREATE deployment (no vanity). Entire supply minted once to `recipient` (the curve).
 contract Token is ERC20, ERC20Permit, IToken {

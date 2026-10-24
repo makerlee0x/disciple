@@ -33,7 +33,7 @@ export interface Position {
 }
 
 /** DISCIPLE total supply (lib/sim/config TOTAL_SUPPLY); every source defaults to it. */
-export const DEFAULT_SUPPLY = 7_000_000_000;
+export const DEFAULT_SUPPLY = 1_000_000;
 
 /** Re-express a stored position under the mark's supply (same $ cost basis and same entry MCAP). */
 export function rebase(p: Position, supply: number): Position {

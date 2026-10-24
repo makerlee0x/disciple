@@ -1,4 +1,4 @@
-// Gameplay audit guards (maker lee, 2026-10): mock mcap stays plausible (no runaway to $90M), mock supply = 7B,
+// Gameplay audit guards (maker lee, 2026-10): mock mcap stays plausible (no runaway to $90M), mock supply = 1M,
 // sell presets default 10/25/50/100 (INITIALS removed) with migration of old defaults / "init" slots (custom values kept),
 // engine refuses sells with no tokens.   Run: node scripts/test-audit.mjs
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { fileURLToPath, pathToFileURL } from "node:url";
@@ -22,7 +22,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   const cls = eng.slice(eng.indexOf("class MockReplaySource {"), eng.indexOf("\n  emitDepth()")) + "\n emitDepth(){} }";
   let T = 0; const M = new Function("Q", "randn", "performance", "Math", cls + ";return MockReplaySource;")(
     new URLSearchParams(""), () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(6.2831853 * rnd()), { now: () => T }, Object.assign(Object.create(Math), { random: rnd }));
-  ok(new M().supply === 7e9, "mock supply is 7B (was commented out ⇒ undefined)");
+  ok(new M().supply === 1e6, "mock supply is 1M (was commented out ⇒ undefined)");
   const run = (turbo, mins) => { const xs = []; for (let r = 0; r < 12; r++) { const m = new M(); m.emit = () => {}; m.turbo = turbo; m.seedDepth(); T = 0; for (let i = 0; i < mins * 600; i++) { T += 100; m.onBlock(); } xs.push(m.mcap); } xs.sort((a, b) => a - b); return xs; };
   const n = run(false, 120), t = run(true, 60);
   ok(n[11] < 400_000, `mock 2 h: max $${Math.round(n[11]).toLocaleString()} (< $400K; was median ≈$200K and unbounded)`);
@@ -80,7 +80,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
 { const { loadLib, SIM_MODULES } = await import("./lib/load-ts.mjs"); const { mods, cleanup } = await loadLib([...SIM_MODULES, "flight/paperCurve"], "pnl2-");
   const P = mods["pnl"], { cloneConfig, SIM_CONFIG } = mods["sim/config"], { SimRun } = mods["sim/run"], { Market } = mods["sim/market"], { Pool } = mods["sim/pool"], CM = mods["curveMath"];
   const PCv = mods["flight/paperCurve"].paperCurve();
-  const SUP = 7e9, USD = 60_000, GAS = 0.01, FEE = PCv.fee;
+  const SUP = 1e6, USD = 60_000, GAS = 0.01, FEE = PCv.fee;
   let seed = 11; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }; const randn = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(6.2831853 * rnd());
   const Mth = Object.assign(Object.create(Math), { random: rnd });
   const cls = (name, end) => eng.slice(eng.indexOf("class " + name + " {"), eng.indexOf(end, eng.indexOf("class " + name + " {")));
@@ -100,25 +100,25 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   const CP = { totalSupply: W18(PCv.S), sCurve: W18(PCv.sC), x0: W18(PCv.x0), y0: W18(PCv.y0) };
   const rel = (a, b) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
   // 5a) $60K at $7K: completes the curve (72% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
-  { const f = paperFill("buy", 7_000, USD, null, false);
+  { const f = paperFill("buy", 7_777, USD, null, false);
     ok(f.ok && f.tokens < SUP && f.tokens <= PCv.sC + 1e-3 && rel(f.tokens, PCv.sC) < 1e-9, `paper $60K @ $7K: ${(f.tokens / SUP * 100).toFixed(2)}% of supply = the whole curve (< 100%; was 142.9% with the linear paper model)`);
     ok(rel(f.usd + f.refund, USD) < 1e-12 && f.usd < USD && rel(f.post, PCv.gradMcap) < 1e-9 && f.graduated, `paper $60K @ $7K: spends $${f.usd.toFixed(2)} to finish the curve at $${Math.round(f.post).toLocaleString()}, $${f.refund.toFixed(2)} refunded`);
     const cm = N18(CM.quoteBuy(CP, 0n, W18(f.usd), 0n)); ok(rel(cm, f.tokens) < 1e-9, `paper $60K @ $7K = curveMath.quoteBuy(spent) within 1e-9 (${cm.toExponential(9)} vs ${f.tokens.toExponential(9)})`);
     ok(N18(CM.quoteBuy(CP, 0n, W18(f.usd * (1 - 1e-6)), 0n)) < PCv.sC * (1 - 1e-7), "…and the spent $ is the minimum that finishes the curve (1 ppm less does not)");
     const mk = new Market(SIM_CONFIG), mf = mk.buy(USD, 1e9, 0); ok(rel(mf.tokens, f.tokens) < 1e-9 && rel(mf.usd, f.usd) < 1e-9, "paper $60K @ $7K = sim Market.buy (tokens + spent)");
-    for (const [M, u] of [[7_000, 5_000], [12_000, 2_500], [20_000, 800], [30_000, 1_000]]) { const g = paperFill("buy", M, u, null, false), sold = soldAt(M);
+    for (const [M, u] of [[7_777, 5_000], [12_000, 2_500], [20_000, 800], [30_000, 1_000]]) { const g = paperFill("buy", M, u, null, false), sold = soldAt(M);
       const q = N18(CM.quoteBuy(CP, W18(sold), W18(u), 0n)), qs = N18(CM.quoteSell(CP, W18(sold + g.tokens), W18(g.tokens), 0n)), back = paperFill("sell", g.post, 0, { tokens: g.tokens }, false);
       ok(rel(g.tokens, q) < 1e-6 && rel(back.net, qs) < 1e-6, `paper $${u} @ $${M / 1e3}K = curveMath quoteBuy/quoteSell within 1e-6 (${(g.tokens / SUP * 100).toFixed(3)}% of supply, sell back $${back.net.toFixed(2)})`); } }
   // 5b) a buy never gets more tokens than the curve has left
-  { let worst = -Infinity, n = 0; for (const M of [7_000, 7_500, 12_000, 20_000, 30_000, 32_900, 32_999]) for (const u of [10, 1_000, 5_000, 20_000, 60_000, 1e6, 1e9]) {
+  { let worst = -Infinity, n = 0; for (const M of [7_777, 8_000, 12_000, 20_000, 30_000, 33_200, 33_332]) for (const u of [10, 1_000, 5_000, 20_000, 60_000, 1e6, 1e9]) {
       const f = paperFill("buy", M, u, null, false); n++; worst = Math.max(worst, f.tokens - (PCv.sC - soldAt(M))); if (!(f.tokens < SUP)) worst = Infinity; }
-    ok(worst <= 1e-3, `curve cap: ${n} buys ($10…$1B at $7K…$32,999) never exceed sCurve − sold (worst ${worst.toExponential(2)} tokens) or 100% of supply`); }
+    ok(worst <= 1e-3, `curve cap: ${n} buys ($10…$1B at $7,777…$33,332) never exceed sCurve − sold (worst ${worst.toExponential(2)} tokens) or 100% of supply`); }
   // 5c) post-grad pool = sim Pool (full range, curve-end liquidity), and graduation is continuous
   { const pg = PCv.gradMcap / SUP, L = PCv.L; ok(rel(Math.sqrt(new Pool(pg * (PCv.S - PCv.sC), PCv.S - PCv.sC).L0 ** 2), L) < 1e-9, "paper pool liquidity = the sim's Pool seeded at the curve-end price (Migration.sol)");
-    for (const M of [33_000, 50_000, 250_000]) { const s0 = Math.sqrt(M / SUP), pool = new Pool(L * s0, L / s0), f = paperFill("buy", M, USD, null, true), t = pool.buy(USD * (1 - PCv.poolFee));
+    for (const M of [33_333, 50_000, 250_000]) { const s0 = Math.sqrt(M / SUP), pool = new Pool(L * s0, L / s0), f = paperFill("buy", M, USD, null, true), t = pool.buy(USD * (1 - PCv.poolFee));
       ok(rel(f.tokens, t) < 1e-9 && rel(f.post, pool.price() * SUP) < 1e-9, `paper pool $60K @ $${M / 1e3}K = sim Pool.buy (${(f.tokens / SUP * 100).toFixed(2)}% of supply, → $${Math.round(f.post).toLocaleString()})`); } }
   // 5d) buy-then-sell round trips lose only the fees (curve and pool are path-reversible: gross back = net in)
-  for (const [M, u, g] of [[7_000, 5_000, false], [15_000, 20_000, false], [7_000, USD, false], [30_000, 1_000, false], [50_000, USD, true], [250_000, 5_000, true]]) {
+  for (const [M, u, g] of [[7_777, 5_000, false], [15_000, 20_000, false], [7_777, USD, false], [30_000, 1_000, false], [50_000, USD, true], [250_000, 5_000, true]]) {
     const b = paperFill("buy", M, u, null, g), s2 = paperFill("sell", b.post, 0, { tokens: b.tokens }, g), fee = g ? PCv.poolFee : FEE;   // a curve-completing buy sells back down the curve
     const lost = b.usd - s2.net, feesPaid = b.usd * fee + s2.usd * fee;
     ok(Math.abs(lost - feesPaid) < 1e-6 * b.usd && rel(s2.post, b.pre) < 1e-9, `round trip $${b.usd.toFixed(2)} @ $${M / 1e3}K${g ? " (pool)" : ""}: lost $${lost.toFixed(4)} = fees $${feesPaid.toFixed(4)}, price back to $${Math.round(s2.post).toLocaleString()}`); }
@@ -126,7 +126,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
     ok(v.uPnl >= floor, `${tag}: uPnL right after ${v.uPnl >= 0 ? "+" : ""}$${v.uPnl.toFixed(2)} ≥ −fee $${(-floor).toFixed(2)} (filled $${usd.toFixed(2)})`); return v; };
   const tracks = (tag, pos, marks) => { const errs = marks.map((m) => { const v = P.view(pos, m / SUP, SUP); return Math.abs(v.uPnl - (pos.size * m / SUP - pos.costBasis)); });
     ok(Math.max(...errs) < 1e-6 && new Set(marks.map((m) => Math.round(m))).size > 1, `${tag}: uPnL tracks the mark afterwards (= holdings × mark − cost over ${marks.length} marks)`); };
-  for (const M of [7_000, 15_000, 30_000, 50_000]) {
+  for (const M of [7_777, 15_000, 30_000, 50_000]) {
     // MOCK (coin page ?source=mock, paper): your shot is an exact curve/pool fill
     { const m = new Mock(); m.mcap = M; m.graduated = M >= PCv.gradMcap; m.emit = () => {}; m.seedDepth();
       const f = m.paperTrade("buy", USD, null, "h"), left = M < PCv.gradMcap ? PCv.sC - soldAt(M) : Infinity;
@@ -139,7 +139,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
       const pos = P.applyFill(P.emptyPosition(), "buy", r.usd, r.fillMcap / SUP, GAS); check(`disciple paper $${M / 1e3}K`, pos, d.shown(), r.usd);
       ok(r.exact && pos.size < SUP && (M >= PCv.gradMcap || pos.size <= PCv.sC - soldAt(M) + 1e-3), `disciple paper $${M / 1e3}K: ${(pos.size / SUP * 100).toFixed(2)}% of supply for $${r.usd.toFixed(2)}${r.refund > 0 ? ` ($${r.refund.toFixed(2)} refunded at the curve end)` : ""}`);
       const old = P.view(P.applyFill(P.emptyPosition(), "buy", USD, M * Math.sqrt(1 + USD / (M * 0.25)) / SUP, GAS), M / SUP, SUP).uPnl;
-      if (M === 7_000) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
+      if (M === 7_777) ok(old < -USD * 0.5, `(old booking would show uPnL $${Math.round(old).toLocaleString()} right after a $60K buy — the bug)`);
       // ...and a 100% sell right after returns the cash minus the two fees (+ gas)
       const before = d.shown(), sr = await d.submitTrade("sell", 0, { tokens: pos.size }), after = P.applyFill(pos, "sell", sr.usd, sr.fillMcap / SUP, GAS, Date.now(), 1);
       ok(after.size === 0 && Math.abs((r.usd - sr.net) - (r.usd * FEE + sr.usd * FEE)) < 1e-6 * r.usd && rel(d.shown(), M) < 1e-9 && before > M, `disciple paper $${M / 1e3}K: buy → sell 100% loses only fees ($${(r.usd - sr.net).toFixed(2)}), price back to $${Math.round(d.shown()).toLocaleString()}`);
@@ -150,7 +150,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   // filled up to the curve end and the unspent quote refunded. After the 7 s anti-snipe window (that tax is a real cost).
   for (const T of [10, 40, 90]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
     const pre = r.m.mcap(), wasCurve = r.m.phase === "curve"; const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
-    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 7e7).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);
+    ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 1e4).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);
     const curveEnd = wasCurve && r.m.phase === "pool" && f.tokens <= 0.07 * r.m.S;
     ok(f.tokens > 0.07 * r.m.S || curveEnd, curveEnd ? `sim t=${T}s: the buy was limited only by the curve end (${(f.tokens / r.m.S * 100).toFixed(1)}% left), not by a cap` : `sim t=${T}s: no wallet cap — one wallet holds ${(f.tokens / r.m.S * 100).toFixed(1)}% of supply (> 7%)`);
     const pos = P.applyFill(P.emptyPosition(), "buy", f.usd, f.mcap / r.m.S, 0); const v = P.view(pos, r.m.mcap() / r.m.S, r.m.S);
