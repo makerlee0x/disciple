@@ -13,7 +13,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
-import { NO_PRICE_MSG, logTradeError } from "./aa/relayOp";
+import { NO_PRICE_MSG, REJECTED_MSG, logTradeError } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -102,8 +102,12 @@ export function friendlyError(e: unknown): ProtocolError {
     const raw = (est ?? rv)!.extra?.revertData as Hex | undefined;
     const d = decodeRevert(raw);
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
-    // FLOW 2: unknown revert ⇒ keep the real payload (selector) instead of a bare "simulation failed"
-    else if (est) return new ProtocolError("Estimate", raw && raw.length >= 10 && !est.message.includes(raw.slice(0, 10)) ? `${est.message} (revert ${raw.slice(0, 10)})` : est.message);
+    // Pre-send check failed with no friendly mapping (approved by lee 2026-10-24): players see the plain line; the raw
+    // "simulation failed: …" text and the selector go to the console (AAError keeps message + extra for retry logic)
+    else if (est) {
+      logTradeError("trade pre-check failed", { message: est.message, ...(raw && raw.length >= 10 ? { selector: raw.slice(0, 10), revertData: raw } : {}) });
+      return new ProtocolError("Estimate", REJECTED_MSG);
+    }
     // Reverted: players see the plain line only; the unknown selector goes to the console (never hex in copy)
     else { if (raw && raw.length >= 10) logTradeError("trade reverted (unknown reason)", { selector: raw.slice(0, 10), revertData: raw, ...pickIds(rv!.extra) }); return new ProtocolError("Reverted", rv!.message); }
   }
@@ -154,7 +158,13 @@ export function friendlyError(e: unknown): ProtocolError {
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
-  return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e));
+  const msg = (e as Error)?.message || String(e);
+  // a raw pre-send failure that arrived as a plain error (not an AAError "Estimate"): same plain line, detail to console
+  if (/simulation failed|execution reverted in simulation/i.test(msg)) {
+    logTradeError("trade pre-check failed", { message: msg.split("\n")[0].slice(0, 300), code });
+    return new ProtocolError(typeof code === "string" ? code : "Estimate", REJECTED_MSG);
+  }
+  return new ProtocolError(typeof code === "string" ? code : "Unknown", msg);
 }
 
 export function publicClient(): PublicClient {

@@ -25,9 +25,10 @@ test("relay pre-flight FailedOpWithRevert(inner) shows the inner reason", () => 
   const pe = friendlyError(new AAError("Estimate", "simulation failed: x", { revertData: fo }));
   assert.equal(pe.code, "V4TooLittleReceived"); assert.ok(MINOUT_RETRY.test(pe.code));
 });
-test("unknown revert: Estimate keeps the selector; a Reverted op shows the plain line", () => {
+test("unknown revert (Estimate or Reverted) shows the plain line, no selector", () => {
+  // approved by lee 2026-10-24: unknown pre-send failure → plain line; the selector goes to the console (test:relay-op)
   const pe = friendlyError(new AAError("Estimate", "simulation failed: execution reverted", { revertData: "0xdeadbeef00" }));
-  assert.match(pe.message, /0xdeadbeef/);
+  assert.equal(pe.code, "Estimate"); assert.equal(pe.message, "That didn't go through. Try again."); assert.doesNotMatch(pe.message, /0x|simulation/);
   // a Reverted op (approved copy, lee 2026-10-24): plain line only; the selector goes to the console (test:relay-op)
   const rv = friendlyError(new AAError("Reverted", "That didn't go through. Try again.", { revertData: "0xcafebabe" }));
   assert.equal(rv.code, "Reverted"); assert.equal(rv.message, "That didn't go through. Try again."); assert.doesNotMatch(rv.message, /0x/);
