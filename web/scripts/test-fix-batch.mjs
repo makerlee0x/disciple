@@ -86,7 +86,7 @@ function cashEnv({ live = false, balance = 100, sim = false, usd = 10 } = {}) {
   const boostBtn = tb.slice(tb.indexOf('data-testid="buy-btn"'), tb.indexOf('data-testid="sell-btn"'));
   ok(/aria-disabled=\{short\} disabled=\{short\}/.test(boostBtn) && /opacity: short \? 0\.4 : 1/.test(boostBtn) && /cursor: short \? "not-allowed"/.test(boostBtn), "BOOST button greys out + disables when short (same pattern as DUMP)");
   ok(/const short = cashUsd != null && cashUsd \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance) < the active BOOST amount (custom $ wins)");
-  ok(/balanceHint\(pc, usdg, me, 4000\), decimalsOf\(pc, usdg\)/.test(tb) && /new CustomEvent\("disciple:cash"/.test(tb), "live cash = the account's USDG, pushed to the engine (disciple:cash)");
+  ok(/ownBalance\(pc, usdg, me, \(\) => balanceHint\(pc, usdg, me, 4000\)\), decimalsOf\(pc, usdg\)/.test(tb) && /new CustomEvent\("disciple:cash"/.test(tb), "live cash = the account's USDG, pushed to the engine (disciple:cash)");
   ok(/setLast\(\(l\) => \(l\.startsWith\("✕"\) \? "" : l\)\); setHint\(""\); \}, \[amtKey\]\)/.test(tb), "trade bar drops a stale ✕ line when the amount changes");
   const wb = rd("lib/flight/workerBridge.ts");
   ok(['"disciple:cash"', '"disciple:coinrules"'].every((e) => wb.includes(e)), "worker render path forwards disciple:cash + disciple:coinrules to the engine"); }

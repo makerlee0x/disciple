@@ -11,6 +11,7 @@ import { OpMarks, doneLine, takeReceipt, tradeClick, tradeMs, tradeStart, type T
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
 //   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);   (setTradeClickMark from tradeSpeed)
 import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
+import { OWN, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
@@ -50,6 +51,20 @@ const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: String(v), l
 const DEFAULT_SELL_SEL = 1;   // 25%
 
 /** Bottom bar = custom $ + BOOST (buy) / DUMP (sell) + position/paper badge. storagePrefix scopes Swap settings (sim has its own). */
+/* own balances from the sync receipt (lib/flight/ownLedger): the public RPC lags the sequencer ~0.7 s, so the HUD / cash /
+   sell sizing read through the ledger; protocol-viem's balance cache is kept in step (its hint is what trades check). */
+type PcLike = ReturnType<typeof publicClient>;
+async function syncCache(pc: PcLike, erc20: Address, me: Address, v: bigint) {
+  try { const cur = await balanceHint(pc, erc20, me, 60_000); if (cur !== v) bumpBalance(erc20, me, v - cur); } catch { /* next poll */ }
+}
+async function ownBalance(pc: PcLike, erc20: Address, me: Address, plain: () => Promise<bigint>) {
+  const wasPending = OWN.pending(erc20, me);
+  const v = await ownRead(OWN, pc as unknown as Parameters<typeof ownRead>[1], erc20 as `0x${string}`, me as `0x${string}`, plain);
+  if (wasPending || OWN.pending(erc20, me)) await syncCache(pc, erc20, me, v);   // pinned / rejected read: keep protocol-viem's cache on the ledger value
+  return v;
+}
+const ownHint = async (pc: PcLike, erc20: Address, me: Address, maxAge: number) => OWN.get(erc20, me) ?? balanceHint(pc, erc20, me, maxAge);
+
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
   const [mode, setMode] = useState(0);
   const [custom, setCustom] = useState("");
@@ -131,6 +146,19 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
      *  side, usd, tokens, feeUsd}; components/PnlHud swaps its estimate for it (lib/pnl reconcileFill), the engine draws the
      *  own sell (@sellfill). Trade speed: the logs come back WITH the send (sync relay / userOp receipt, lib/wallet.execCalls →
      *  takeReceipt) ⇒ decoded at "✓ done", no 2nd receipt poll. Only when none came back (slow path) poll for the receipt. */
+    /** At confirm: the fill's token + USDG Transfer deltas → the own-balance ledger (no balanceOf: the public RPC is ~0.7 s
+     *  behind and would show the pre-trade balance), protocol-viem's cache kept in step, then 'disciple:ownbalance' → the HUD
+     *  position / uPnL and cash update NOW. The public RPC only reconciles ≥ 1 s later, pinned at a block ≥ the fill's. */
+    const applyOwn = async (hash: string, logs: LogLike[], block?: bigint) => {
+      try {
+        const me = await activeAddress(), usdg = deployment().usdg, t = token as Address;
+        if (block !== undefined) OWN.noteTxBlock(hash, block);
+        const [bt, bu] = await Promise.all([ownHint(pc, t, me, 60_000).catch(() => undefined), ownHint(pc, usdg, me, 60_000).catch(() => undefined)]);
+        const ch = OWN.applyFill(me, [t, usdg], logs, hash, (x) => (x.toLowerCase() === t.toLowerCase() ? bt : x.toLowerCase() === usdg.toLowerCase() ? bu : undefined), Date.now());
+        await Promise.all(ch.map((c) => syncCache(pc, c.token as Address, me, c.value)));
+        if (ch.length) dispatchEvent(new CustomEvent("disciple:ownbalance", { detail: { txHash: hash, tokens: ch.map((c) => c.token) } }));
+      } catch { /* the reconcile poll catches up */ }
+    };
     const bookReceipt = async (hash: string, side: "buy" | "sell", bag?: number, logs?: LogLike[]) => {
       try {
         const me = await activeAddress();
@@ -140,6 +168,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           const rc = await pc.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 60_000, pollingInterval: 250 });
           if (rc.status !== "success") return null;
           rl = rc.logs as unknown as LogLike[];
+          await applyOwn(hash, rl, rc.blockNumber);   // slow path: balances from the polled receipt (block known)
         }
         const usdgDec = await usdgDecP;
         const m = markRef.current;
@@ -163,7 +192,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         let bag: number | undefined;   // sells: the wallet balance this sell was sized from → PnL HUD splits tracked / untracked pro-rata
         if (side === "sell") {
           const me = await activeAddress();
-          const bal = await freshSellBalance(() => tokenBalance(pc, token as Address, me), () => balanceHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
+          const bal = await freshSellBalance(() => ownBalance(pc, token as Address, me, () => tokenBalance(pc, token as Address, me)), () => ownHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
           if (bal === BigInt(0)) { setLast("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
           bag = units(bal);
           if (o?.all || (o?.frac && o.frac > 0)) amountIn = sellAmountFor(bal, o);   // % of the real balance; DUMP ALL = all of it
@@ -179,15 +208,14 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         lastOwnTradeAt.current = Date.now();
         // Fill from the logs the send returned, right now (no 2nd waitForTransactionReceipt); slow path without logs: polled below
         const logs = r.ok ? takeReceipt(r.txHash) : undefined;
+        if (r.ok && r.txHash && logs) await applyOwn(r.txHash, logs);   // position / cash from the receipt, before fillreceipt
         const fill = r.ok && r.txHash && logs ? await bookReceipt(r.txHash, side, bag, logs) : null;
         const fillAt = fill ? performance.now() : undefined;
         // "✓ done" shows the FILLED $ from the decoded logs (was: the pre-trade estimate, e.g. $208.25 vs a $245 fill)
         setLast(doneLine(side, usd, r, fill, fmtMoney));
         if (r.ok && r.txHash && !logs) void bookReceipt(r.txHash, side, bag).then((x) => { if (x) setLast(doneLine(side, usd, r, x, fmtMoney)); });
-        // exact new coin balance from the receipt (buy: + received; sell: already decremented optimistically) — no
-        // immediate balanceOf: a lagging RPC node would clobber it; the 5 s hint TTL re-reads once nodes caught up
-        if (side === "buy" && r.amountOut) bumpBalance(token as Address, await activeAddress(), r.amountOut);
-        else void new Promise((res) => setTimeout(res, 1200)).then(async () => tokenBalance(pc, token as Address, await activeAddress())).catch(() => undefined);
+        // balances: applied from the receipt logs above (applyOwn; slow path: from the polled receipt). No post-trade balanceOf
+        // here (was: buy bumpBalance(amountOut) / sell tokenBalance after 1.2 s, which a lagging RPC could roll back).
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
         // our own trade moved the price: re-warm the active amount's quote now (protocol-viem dropped the route quotes)
         // TODO(#140): REMOVE this immediate post-trade re-warm once SITE #140 lands: protocol-viem then re-reads the quotes
@@ -217,7 +245,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // the ACTIVE amount: the custom $ when filled (what BOOST / SPACE spends), else the selected preset
         const usd = customRef.current || (ammo.usd[mode] ?? MODES[mode].usd);
         const me = await activeAddress();
-        const bal = me ? await balanceHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
+        const bal = me ? await ownHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
         const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
         await Promise.all([
           shotAmountIn(pc, token as Address, "buy", usd).then((a) => warmRoute(pc, token as Address, "buy", a)),
@@ -295,18 +323,21 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (!live) { setLiveHas(null); dispatchEvent(new CustomEvent("disciple:holdings", { detail: null })); return; }
     let alive = true; const pc = publicClient();
     const poll = async () => { try { const me = await activeAddress(); if (!me) return;
-      const b = await freshSellBalance(() => tokenBalance(pc, token as Address, me), () => balanceHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
+      const b = await freshSellBalance(() => ownBalance(pc, token as Address, me, () => tokenBalance(pc, token as Address, me)), () => ownHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
       const inFlight = (window.__disciplePendingTrades?.buy || 0) + (window.__disciplePendingTrades?.sell || 0);
       const settled = inFlight === 0 && Date.now() - lastOwnTradeAt.current > 15_000;
       // tokens: the real balanceOf → engine S.liveBag (live % / DUMP ALL $ sizing at its mark) + PnL HUD holdings
       if (alive) { liveTokens.current = units(b); setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0), tokens: liveTokens.current, settled } })); } } catch { /* keep last */ } };
     const tos = new Set<ReturnType<typeof setTimeout>>();
     const later = (ms: number) => { const id = setTimeout(() => { tos.delete(id); void poll(); }, ms); tos.add(id); };
-    const soon = () => later(300);   // receipt landed: bumpBalance already applied for buys
+    // receipt landed: the ledger already holds the fill (applyOwn) ⇒ push it now (no RPC), reconcile ≥ 1 s later (block-checked)
+    const fromLedger = async () => { try { const me = await activeAddress(); const b = me ? OWN.get(token as Address, me) : undefined;
+      if (alive && b !== undefined) { liveTokens.current = units(b); setLiveHas(b > BigInt(0)); dispatchEvent(new CustomEvent("disciple:holdings", { detail: { has: b > BigInt(0), tokens: liveTokens.current, settled: false } })); } } catch { /* poll */ } };
+    const soon = () => { void fromLedger(); later(1100); };
     const afterTrade = () => { void poll(); later(16_000); };   // now + once settled
     void poll(); const iv = setInterval(poll, 10_000);
-    addEventListener("disciple:livetrade", afterTrade); addEventListener("disciple:fillreceipt", soon);
-    return () => { alive = false; clearInterval(iv); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", afterTrade); removeEventListener("disciple:fillreceipt", soon); };
+    addEventListener("disciple:livetrade", afterTrade); addEventListener("disciple:ownbalance", soon);
+    return () => { alive = false; clearInterval(iv); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", afterTrade); removeEventListener("disciple:ownbalance", soon); };
   }, [live, token]);
   // CASH for the BOOST check. Live: the trading account's USDG (the header's "cash"), polled + after each trade, also pushed
   // to the engine (disciple:cash) so SPACE is blocked the same way. Paper: the engine's paper balance (disciple:papercash).
@@ -315,12 +346,18 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (!live) { setLiveCash(null); dispatchEvent(new CustomEvent("disciple:cash", { detail: { usd: null } })); return; }
     let alive = true; const pc = publicClient();
     const poll = async () => { try { const me = await activeAddress(); if (!me) return; const usdg = deployment().usdg;
-      const [raw, dec] = await Promise.all([balanceHint(pc, usdg, me, 4000), decimalsOf(pc, usdg)]);
+      const [raw, dec] = await Promise.all([ownBalance(pc, usdg, me, () => balanceHint(pc, usdg, me, 4000)), decimalsOf(pc, usdg)]);
       const usd = Number(raw) / 10 ** dec;
       if (alive && Number.isFinite(usd)) { setLiveCash(usd); dispatchEvent(new CustomEvent("disciple:cash", { detail: { usd } })); } } catch { /* keep last */ } };
-    void poll(); const iv = setInterval(poll, 5_000); const later = () => setTimeout(() => void poll(), 2500);
-    addEventListener("disciple:livetrade", later);
-    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", later); };
+    // cash at confirm from the receipt's USDG Transfer (ledger, no RPC); reconcile ≥ 1 s later (block-checked)
+    const fromLedger = async () => { try { const me = await activeAddress(); const usdg = deployment().usdg; const raw = me ? OWN.get(usdg, me) : undefined; if (raw === undefined) return;
+      const usd = Number(raw) / 10 ** (await decimalsOf(pc, usdg)); if (alive && Number.isFinite(usd)) { setLiveCash(usd); dispatchEvent(new CustomEvent("disciple:cash", { detail: { usd } })); } } catch { /* poll */ } };
+    const tos = new Set<ReturnType<typeof setTimeout>>();
+    const at = (ms: number) => { const id = setTimeout(() => { tos.delete(id); void poll(); }, ms); tos.add(id); };
+    const own = () => { void fromLedger(); at(1100); };
+    void poll(); const iv = setInterval(poll, 5_000); const later = () => at(2500);
+    addEventListener("disciple:livetrade", later); addEventListener("disciple:ownbalance", own);
+    return () => { alive = false; clearInterval(iv); tos.forEach(clearTimeout); removeEventListener("disciple:livetrade", later); removeEventListener("disciple:ownbalance", own); };
   }, [live]);
   const [paperCash, setPaperCash] = useState<number | null>(null);
   useEffect(() => { const h = (e: Event) => { const u = (e as CustomEvent<{ usd: number | null }>).detail?.usd; setPaperCash(typeof u === "number" && Number.isFinite(u) ? u : null); };

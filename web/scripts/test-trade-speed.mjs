@@ -16,7 +16,7 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
 const rd = (f) => fs.readFileSync(path.join(web, f), "utf8");
 const eng = rd("public/flight/engine.js"), tb = rd("components/TradeBridge.tsx"), wl = rd("lib/wallet.ts");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "abi/DiscipleRouter"], "tradespeed-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "abi/DiscipleRouter"], "tradespeed-");
 const TS = mods["flight/tradeSpeed"], fills = mods["flight/fills"], { fmtMoney } = mods.pnl, { discipleRouterAbi } = mods["abi/DiscipleRouter"];
 
 // ───────────── 1 + 6. fill from the returned logs, status shows the fill $ ─────────────
@@ -189,6 +189,79 @@ console.log("— #140 click-mark hook point (guarded, no-throw)");
   const wi = tb.indexOf("setTimeout(() => void warmRef.current(), 0)"); const pre = tb.slice(Math.max(0, wi - 400), wi);
   ok(wi > 0 && /TODO\(#140\): REMOVE this immediate post-trade re-warm/.test(pre) && /KEEP the 150 ms custom-\$ debounce/.test(pre), "TODO(#140) marks the immediate post-trade re-warm for removal (still present today)");
   ok(/setTimeout\(\(\) => void warmRef\.current\(\), 150\)/.test(tb), "the 150 ms custom-$ debounce re-warm stays"); }
+
+// ───────────── balances / position / cash from the SYNC RECEIPT at confirm; public RPC only reconciles (block-checked) ─────────────
+console.log("— own balances from the receipt logs at confirm; stale reads never roll back");
+{ const OL = mods["flight/ownLedger"], USDG = "0x" + "44".repeat(20), POOL = "0x" + "55".repeat(20);
+  const pad = (a) => "0x" + "0".repeat(24) + a.slice(2).toLowerCase(), word = (v) => "0x" + v.toString(16).padStart(64, "0");
+  const xfer = (tok, from, to, v) => ({ address: tok, topics: [OL.TRANSFER_TOPIC, pad(from), pad(to)], data: word(v) });
+  const E = (x) => BigInt(Math.round(x * 1e6)) * 10n ** 12n;
+  // a BOOST: $1.95 USDG out of the account (to the router), 16 800 tokens in (from the pool), plus noise
+  const buy = [xfer(USDG, ME, ROUTER, E(1.95)), xfer(TOKEN, POOL, ME, E(16800)), xfer(TOKEN, POOL, ROUTER, E(5)), { address: TOKEN, topics: ["0x01"], data: "0x" }];
+  const d = OL.transferDeltas(buy, ME, [TOKEN, USDG]);
+  ok(d.get(TOKEN.toLowerCase()) === E(16800) && d.get(USDG.toLowerCase()) === -E(1.95), "Transfer deltas for the account: +tokens, −USDG (other parties' transfers / non-Transfer logs ignored)");
+  const L = new OL.OwnLedger(), now0 = 1_000_000;
+  L.offerRead(TOKEN, ME, E(1000), 100n, now0 - 5000); L.offerRead(USDG, ME, E(50), 100n, now0 - 5000);
+  const ch = L.applyFill(ME, [TOKEN, USDG], buy, TX2, () => undefined, now0);
+  ok(ch.length === 2 && L.get(TOKEN, ME) === E(17800) && L.get(USDG, ME) === E(48.05), "at confirm: token balance 1 000 → 17 800 and cash $50 → $48.05 straight from the logs (no RPC)");
+  ok(L.pending(TOKEN, ME) && L.tooSoon(TOKEN, ME, now0 + 999) && !L.tooSoon(TOKEN, ME, now0 + 1000), "fill pending; no reconcile read before 1 s");
+  ok(!L.offerRead(TOKEN, ME, E(1000), 105n, now0 + 300) && L.get(TOKEN, ME) === E(17800), "stale PRE-fill read (RPC ~0.7 s behind, fill block unknown yet) does NOT overwrite the fill");
+  ok(!L.offerRead(TOKEN, ME, E(1000), undefined, now0 + 300) && L.get(TOKEN, ME) === E(17800), "unpinned read (no block) while a fill is pending is rejected");
+  L.noteTxBlock(TX2, 110n);
+  ok(!L.offerRead(TOKEN, ME, E(1000), 109n, now0 + 1500) && L.get(TOKEN, ME) === E(17800), "read at block 109 < fill block 110 is rejected (no roll-back)");
+  ok(L.offerRead(TOKEN, ME, E(17800) + 7n, 110n, now0 + 1600) && L.get(TOKEN, ME) === E(17800) + 7n && !L.pending(TOKEN, ME), "read at block ≥ the fill block reconciles (overwrites) and clears the pending fill");
+  ok(!L.offerRead(TOKEN, ME, E(1), 108n, now0 + 2000) && L.get(TOKEN, ME) === E(17800) + 7n, "an out-of-order older read never overwrites a newer one");
+  // a DUMP from the receipt: −tokens, +USDG, applied on top of the ledger
+  const sell = [xfer(TOKEN, ME, POOL, E(800)), xfer(USDG, ROUTER, ME, E(245))];
+  L.applyFill(ME, [TOKEN, USDG], sell, TX1, () => undefined, now0 + 3000);
+  ok(L.get(TOKEN, ME) === E(17000) + 7n && L.get(USDG, ME) === E(293.05), "DUMP at confirm: tokens down, cash up by the real $245 received");
+  const L2 = new OL.OwnLedger();
+  ok(L2.applyFill(ME, [TOKEN], sell, TX1, () => undefined, 0).length === 0 && L2.get(TOKEN, ME) === undefined, "unknown base for a debit ⇒ untouched (left to the reconcile read), never a made-up value");
+  ok(L2.applyFill(ME, [TOKEN], buy, TX2, (t) => (t === TOKEN ? E(10) : undefined), 0)[0].value === E(16810), "no ledger entry yet ⇒ the cached balance is the base");
+  // ownRead: the read path the HUD / cash / sell sizing use
+  { const Lr = new OL.OwnLedger(); let t = 0, calls = [];
+    const pc = { head: 105n, rc: null, bal: E(1000),
+      getBlockNumber: async (a) => { calls.push("block:" + (a && a.cacheTime)); return pc.head; },
+      getTransactionReceipt: async () => { calls.push("rc"); if (!pc.rc) throw new Error("not found"); return pc.rc; },
+      readContract: async (a) => { calls.push("bal@" + a.blockNumber); return pc.bal; } };
+    const plain = async () => { calls.push("plain"); return E(1000); };
+    ok(await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t) === E(1000) && calls.join() === "plain", "no fill pending ⇒ the normal (cached / hinted) read");
+    Lr.applyFill(ME, [TOKEN], buy, TX2, () => undefined, 0); calls = [];
+    t = 500; ok(await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t) === E(17800) && calls.length === 0, "< 1 s after the fill ⇒ the fill-derived balance, ZERO RPC");
+    t = 1200; ok(await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t) === E(17800) && calls.join() === "rc", "≥ 1 s, RPC hasn't seen the fill tx yet ⇒ keep the fill value (no balanceOf)");
+    pc.rc = { blockNumber: 110n }; pc.head = 109n; calls = [];
+    t = 1800; ok(await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t) === E(17800) && calls.join() === "rc,block:0,bal@109", "load-balanced RPC: head 109 < fill block 110 ⇒ pinned read rejected, HUD keeps the fill");
+    pc.head = 111n; pc.bal = E(17800) + 3n; calls = [];
+    t = 2400; ok(await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t) === E(17800) + 3n && calls.join() === "block:0,bal@111" && !Lr.pending(TOKEN, ME), "head ≥ fill block ⇒ the pinned read reconciles (fill block looked up once, getBlockNumber uncached)");
+    pc.getBlockNumber = async () => { throw new Error("rpc down"); }; Lr.applyFill(ME, [TOKEN], sell, TX1, () => undefined, 3000); Lr.noteTxBlock(TX1, 120n);
+    t = 4500; let thr = false; let v; try { v = await OL.ownRead(Lr, pc, TOKEN, ME, plain, () => t); } catch { thr = true; }
+    ok(!thr && v === E(17000) + 3n, "RPC error during reconcile ⇒ keeps the fill value, never throws"); }
+  // wiring
+  const ai = tb.indexOf("if (r.ok && r.txHash && logs) await applyOwn(r.txHash, logs)"), bi = tb.indexOf("await bookReceipt(r.txHash, side, bag, logs)");
+  ok(ai > 0 && bi > ai, "TradeBridge: the ledger is updated from the logs BEFORE fillreceipt (HUD / PnL / engine see the same fill)");
+  ok(/await applyOwn\(hash, rl, rc\.blockNumber\)/.test(tb), "slow path: balances from the polled receipt (its block noted)");
+  ok(!/setTimeout\(res, 1200\)\)\.then\(async \(\) => tokenBalance/.test(tb) && !/bumpBalance\(token as Address, await activeAddress\(\), r\.amountOut\)/.test(tb), "no post-trade balanceOf (1.2 s sell re-read) and no amountOut bump (both replaced by the logs)");
+  ok(/addEventListener\("disciple:ownbalance", soon\)/.test(tb) && /const soon = \(\) => \{ void fromLedger\(\); later\(1100\); \}/.test(tb), "HUD position: pushed from the ledger at confirm, reconciled ≥ 1 s later");
+  ok(/addEventListener\("disciple:ownbalance", own\)/.test(tb) && /const own = \(\) => \{ void fromLedger\(\); at\(1100\); \}/.test(tb), "cash: pushed from the ledger at confirm, reconciled ≥ 1 s later");
+  ok((tb.match(/ownBalance\(pc, /g) || []).length >= 3 && /ownHint\(pc, token as Address, me, 4000\)/.test(tb), "sell sizing, holdings and cash reads all go through the ledger (warm tick too)"); }
+
+// engine: the own BUY's feed row / marker come from the decoded receipt at confirm (feed swap later only moves the price)
+console.log("— engine: own BUY drawn from the receipt at confirm");
+{ const blk = block("/* @sellfill", "/* @sellfill-end */");
+  const S = { feed: [], fuelers: { you: 0 }, volEma: 0, buyEma: 0, sellEma: 0, confirmed: {}, fullStackNext: false };
+  const ticks = [], mine = [], awards = [];
+  const f = new Function("S", "markMcap", "chartTick", "chartMine", "chartState", "momNote", "noteSell", "award", "fmtShot", "fmtUsd", "isLive", "addEventListener",
+    blk + "\nreturn { onFillReceipt, ownSellSwap };");
+  const H = f(S, () => 5e5, (m, u, side) => ticks.push([m, u, side]), (side, m, k) => mine.push([side, k]), () => ({ seen: new Set() }), () => {}, () => {},
+    (id) => awards.push(id), (u) => "$" + u.toFixed(2), (u) => "$" + u.toFixed(0), () => true, () => {});
+  H.onFillReceipt({ txHash: TX2, side: "buy", usd: 1.95 });
+  ok(S.feed[0] && /▲ BOOST\s+\$1\.95 {2}\(you\)/.test(S.feed[0].txt) && S.fuelers.you === 1.95 && mine.length === 1 && ticks[0][2] === "buy" && awards[0] === "first", "own BOOST receipt ⇒ TRADES row with the decoded $1.95, marker, fueler credit at confirm");
+  const swap = { t: "swap", side: "buy", mine: true, txHash: TX2.toUpperCase(), usd: 1.98, mcap: 5.1e5 };
+  ok(H.ownSellSwap(swap) === null && S.feed.length === 1 && S.confirmed.mcap === 5.1e5, "the lagging feed swap for that tx only moves the price (no 2nd row / marker)");
+  const other = { t: "swap", side: "buy", mine: false, txHash: TX1, usd: 3 };
+  ok(H.ownSellSwap(other) === other, "other traders' swaps pass through unchanged");
+  const first = { t: "swap", side: "buy", mine: true, txHash: "0x" + "9".repeat(64), usd: 2 };
+  ok(H.ownSellSwap(first) === first && (H.onFillReceipt({ txHash: first.txHash, side: "buy", usd: 2 }), S.feed.length === 1), "swap first ⇒ drawn from the swap; the later receipt adds nothing"); }
 
 cleanup();
 console.log(bad ? `\n${bad} FAILED` : "\nall trade-speed checks passed");

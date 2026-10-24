@@ -2194,17 +2194,23 @@ function chartMine(side,m,tx){ const C=chartState(), k=tx?String(tx).toLowerCase
    · feed swap first → drawn from the swap; its $ is the receipt's when the swap carried none.
    Sells are never filtered by $ size (MIN_SHOT is a buy-side minimum only). */
 S.rcpt=new Map(); S.rcptDrawn=new Set();
-function ownSellSwap(e){ if(!e||e.side!=='sell'||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
-  if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,'sell'); }catch(_){} return null; }
+function ownSellSwap(e){ if(!e||(e.side!=='sell'&&e.side!=='buy')||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
+  if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,e.side); }catch(_){} return null; }
   const r=S.rcpt.get(k); if(!(e.usd>0)&&r&&r.usd>0) e={...e,usd:r.usd};
   S.rcptDrawn.add(k); return e; }
-function onFillReceipt(d){ if(!d||!d.txHash||d.side!=='sell') return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
+function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
   S.rcpt.set(k,{usd}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
   if(S.rcptDrawn.has(k)) return;   // the feed swap already drew it
   S.rcptDrawn.add(k); if(S.rcptDrawn.size>400) S.rcptDrawn=new Set(Array.from(S.rcptDrawn).slice(-200));
+  if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
   if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:d.impactPct,trader:null,mine:true,fullStack:fs}); }
   S.feed.unshift({txt:`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#ffb0c8'}); S.feed.length=Math.min(S.feed.length,7); }
+/* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
+   (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
+function ownBuyReceipt(usd,k){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
+  if(!(usd>0)) return; S.fuelers.you=(S.fuelers.you||0)+usd; award('first','FIRST FLAME','first confirmed thrust'); momNote('buy',usd); S.volEma+=usd; S.buyEma+=usd;
+  S.feed.unshift({txt:`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#9ff3c8'}); S.feed.length=Math.min(S.feed.length,7); }
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */
