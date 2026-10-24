@@ -93,8 +93,8 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
     case "eth_sendUserOperation": {
       relayerKey(); // production: throws RelayerNotConfiguredError (→ 503) unless a dedicated relayer key is set
       const op = params[0] as UserOp;
-      const { relayerAddress, relaySendStandard, waitRelayReceipt } = await import("./fastRelay");
-      const me = await relayerAddress();   // the EOA that signs below (same cursor as the fast path)
+      const { standardRelayer, waitRelayReceipt } = await import("./fastRelay");
+      const relayer = await standardRelayer(), me = relayer.address;   // the EOA that signs below (same cursor as the fast path)
       // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)
       const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
       try { checkOpGas(op, base, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id))); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
@@ -110,7 +110,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       // wait on the SAME hash (never re-sign: a second handleOps of a landed op reverts AA25 at the relayer's cost);
       // only a definite nonce rejection re-signs. withRelayer keeps per-instance ordering and retries ONLY definite
       // nonce errors (lib/server/relayer.isNonceError no longer matches "already known").
-      const hash = await withRelayer(() => relaySendStandard(data, gas, fees));
+      const hash = await withRelayer(() => relayer.send(data, gas, fees));
       const receipt = await waitRelayReceipt(hash, 25_000);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)

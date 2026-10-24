@@ -12,7 +12,7 @@ import "server-only";
  * Ops from different users/keys run concurrently: only nonce assignment is serialized (synchronous).
  * Relayer nonce rules (feat/rapid-tap): lib/server/relayerNonce — definitive non-nonce rejection ⇒ roll back / resync,
  * nonce rejection (incl. "nonce too high") ⇒ resync + re-sign, "already known" / unclear ⇒ wait on the SAME txHash,
- * never re-sign. Both the fast path and the standard eth_sendUserOperation path (relaySendStandard) follow them.
+ * never re-sign. Both the fast path and the standard eth_sendUserOperation path (standardRelayer) follow them.
  */
 import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
@@ -22,7 +22,9 @@ import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
-import { relayerKey } from "./relayer";
+import { relayerIsFaucet, relayerKey } from "./relayer";
+import { RelayerKeyPool, poolKey, poolNames } from "./relayerPool";
+import { kv } from "./kv";
 import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, relayCaps } from "./gradBuy";
@@ -43,25 +45,57 @@ const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefin
 /** One relayer EOA + its nonce cursor (one per key per process). */
 type RelayerState = { account: PrivateKeyAccount; nonces: RelayerNonceCursor };
 let single: RelayerState | undefined;
+/** Pool keys this process has signed with (by address): an in-flight send keeps its state across a lease change. */
+const pooled = new Map<string, RelayerState>();
 let base = { fee: BigInt(0), at: 0 }, baseInflight: Promise<void> | undefined;
 
 function stateOf(account: PrivateKeyAccount): RelayerState {
   return { account, nonces: new RelayerNonceCursor(() => pc.getTransactionCount({ address: account.address, blockTag: "pending" })) };
 }
-/** The relayer this process signs with (sync; production: RelayerNotConfiguredError → 503, never the faucet key). */
-function active(): RelayerState {
+/** The single RELAYER_PRIVATE_KEY state (the faucet-shared cursor when relayerIsFaucet). Fails closed in production. */
+function singleState(): RelayerState {
   return (single ??= stateOf(privateKeyToAccount(relayerKey())));
 }
+/**
+ * Relayer key pool (lib/server/relayerPool), OFF unless RELAYER_KEY_POOL is set; never while the relayer is the faucet
+ * (they must share ONE cursor). The single key must still resolve (fail-closed check + fallback when no lease).
+ */
+let pool: RelayerKeyPool | null | undefined;
+const INSTANCE_ID = `${process.env.VERCEL_REGION ?? "local"}:${globalThis.crypto.randomUUID()}`;
+function poolOf(): RelayerKeyPool | null {
+  if (pool !== undefined) return pool;
+  const names = poolNames(process.env);
+  if (!names.length) return (pool = null);
+  if (relayerIsFaucet()) { console.warn("[relayer-pool] RELAYER_KEY_POOL ignored: the relayer is the faucet key"); return (pool = null); }
+  return (pool = new RelayerKeyPool({ names, store: kv(), id: INSTANCE_ID, resolve: (n) => poolKey(process.env, n) }));
+}
+/** The relayer this process signs with (sync; production: RelayerNotConfiguredError → 503, never the faucet key). */
+function active(): RelayerState {
+  const fallback = singleState();   // always resolved first: fail closed exactly as before
+  const p = poolOf();
+  if (!p) return fallback;
+  p.maybeRenew();   // off the hot path (not awaited)
+  const l = p.current();
+  if (!l) return fallback;
+  let st = pooled.get(l.address);
+  if (!st) { st = stateOf(privateKeyToAccount(l.key)); pooled.set(l.address, st); }
+  return st;
+}
+/** active(), after (re-)acquiring a pool lease when the pool is on and this instance holds none (no-op when off). */
+async function ready(): Promise<RelayerState> {
+  singleState();
+  const p = poolOf();
+  if (p && !p.current()) await p.ensure().catch(() => undefined);
+  return active();
+}
 function account() { return active().account; }
-/** Relayer address for the standard path's simulation + beneficiary (the same EOA that will sign the tx). */
-export async function relayerAddress(): Promise<Hex> { return account().address; }
 /**
  * The SAME cursor for every send from the relayer EOA in this process (the standard eth_sendUserOperation path, the
  * fast path, and /api/drip while the faucet and relayer are one key — see relayerIsFaucet) — otherwise a drip leaves the cursor stale and the next fast op pays a nonce error + resync
  * (~180 ms, seen on the first trade after "Get test funds"). Rules: lib/server/relayerNonce.sendWithCursor.
  */
 export async function sendWithRelayerNonce<T>(send: (nonce: number) => Promise<T>): Promise<T> {
-  return sendWithCursor(active().nonces, send);
+  return sendWithCursor(singleState().nonces, send);   // the faucet-shared key, never a pool key
 }
 function refreshBase() {
   return (baseInflight ??= pc.getBlock().then((b) => { base = { fee: b.baseFeePerGas ?? BigInt(0), at: Date.now() }; }).finally(() => { baseInflight = undefined; }));
@@ -118,7 +152,8 @@ const senderPrefund = (op: UserOp) => (op.paymaster ? BigInt(0) : maxPrefund(op,
 export async function warmRelay(sender?: string) {
   account(); // fail closed (production, no dedicated relayer key) before any RPC
   warmSequencer();
-  await Promise.all([active().nonces.warm(), baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
+  const st = await ready();   // pool on ⇒ lease a key at warm
+  await Promise.all([st.nonces.warm(), baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
 }
 
 /**
@@ -165,14 +200,20 @@ async function signRelayerTx(me: PrivateKeyAccount, tx: { nonce: number; data: H
  * node accepted it OR it may have ("already known", timeout, network): the caller waits on that hash
  * (waitRelayReceipt) and NEVER re-signs. Only a definite nonce rejection re-signs (fresh nonce, bounded).
  */
-export async function relaySendStandard(data: Hex, gas: bigint, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex> {
-  const st = active();
-  const r = await sendWithCursor(st.nonces, async (nonce) => {
-    const raw = await signRelayerTx(st.account, { nonce, data, gas, ...fees });
-    return plainSend(raw, keccak256(raw), PLAIN);
-  });
-  if (r.pending) console.warn(`[relay] standard send ${r.txHash}: ${r.pending} — waiting on the same hash (no re-sign)`);
-  return r.txHash;
+export type StandardRelayer = { address: Hex; send(data: Hex, gas: bigint, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex> };
+export async function standardRelayer(): Promise<StandardRelayer> {
+  const st = await ready();   // ONE EOA for simulation, beneficiary and signature, even if the lease changes meanwhile
+  return {
+    address: st.account.address,
+    async send(data, gas, fees) {
+      const r = await sendWithCursor(st.nonces, async (nonce) => {
+        const raw = await signRelayerTx(st.account, { nonce, data, gas, ...fees });
+        return plainSend(raw, keccak256(raw), PLAIN);
+      });
+      if (r.pending) console.warn(`[relay] standard send ${r.txHash}: ${r.pending} — waiting on the same hash (no re-sign)`);
+      return r.txHash;
+    },
+  };
 }
 /** Receipt of ONE relayer tx (fast node first when RHT_RECEIPT_RPC_URL is set, public RPC last); null at the deadline. */
 export async function waitRelayReceipt(txHash: Hex, maxWaitMs = 25_000): Promise<RelayReceipt | null> {
@@ -182,7 +223,7 @@ export type OnPending = (p: { txHash: Hex; reason: PendingReason }) => void;
 
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
-  const st = active(), me = st.account;
+  const st = await ready(), me = st.account;
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
   // launches ⇒ LAUNCH_GAS_CAPS; above GAS_CAPS + verified graduating buy ⇒ GRAD_GAS_CAPS (on-chain check, lib/server/gradBuy)
