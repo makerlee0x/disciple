@@ -44,7 +44,12 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
     if (!open) return;
     let alive = true;
     setNextNameAt(null);
-    void fetchUsernameStatus(wallet).then((s) => { if (alive) setNextNameAt(s.nextAllowedAt); });
+    void fetchUsernameStatus(wallet).then((s) => {
+      if (!alive) return;
+      setNextNameAt(s.nextAllowedAt);
+      // This browser may not know the claimed name yet (other device / cleared storage): prefill it from the registry.
+      if (s.username && !localUsername()) { setMe(s.username); setName(s.username); }
+    });
     return () => { alive = false; };
   }, [open, wallet]);
   const nameLocked = nextNameAt != null && nextNameAt > Date.now();

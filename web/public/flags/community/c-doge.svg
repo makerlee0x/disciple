@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" width="60" height="40" role="img" aria-label="DOGE (placeholder)">
-  <!-- PLACEHOLDER community flag (DOGE); BRAND will replace. Brand tokens: --dsc-surface-2 / --dsc-border / --dsc-primary. -->
+  <!-- PLACEHOLDER community flag (DOGE); BRAND will replace. Brand tokens: dsc-surface-2, dsc-border, dsc-primary. -->
   <rect width="60" height="40" fill="#1F2228"/>
   <rect x="0.5" y="0.5" width="59" height="39" fill="none" stroke="#2E323A"/>
   <rect x="0" y="34" width="60" height="6" fill="#C9CED6" opacity="0.18"/>

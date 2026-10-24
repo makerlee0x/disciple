@@ -1338,6 +1338,8 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .pf-flag-current { gap: 8px; }
 .pf-flag-current-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-flag-panel { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--dsc-border); border-radius: 10px; padding: 8px; background: var(--dsc-surface); }
+.pf-flag-search { height: 40px; padding: 0 12px; border: 1px solid var(--dsc-border); border-radius: 8px; background: var(--dsc-surface-2); -webkit-appearance: none; appearance: none; }
+.pf-flag-search:focus-visible { border-color: var(--dsc-primary); }
 .pf-flag-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }
 .pf-flag-section { padding: 8px 6px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dsc-muted); }
 .pf-flag-opt { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: var(--dsc-text); font: inherit; text-align: left; cursor: pointer; }
