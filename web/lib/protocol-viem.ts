@@ -301,7 +301,7 @@ async function curveBuyQuoteRaw(pc: PublicClient, curve: Address, mode: number, 
 const GRAD = new GradHint();
 /**
  * Pre-grad buy of `quoteIn` that may graduate the curve? Warm taps answer from GRAD (no RPC); else one quoteBuy.
- * true ⇒ the op is flagged (markGradBuy) so mav2 estimates its gas fresh (Migration + 16 floor bands ≈ 2.6M).
+ * true ⇒ the op is flagged (markGradBuy) so mav2 estimates its gas fresh (Migration + 16 floor bands ≈ 2.76M).
  * Unreadable ⇒ false (normal path, as before).
  */
 async function buyMayGraduate(pc: PublicClient, curve: Address, mode: number, quoteIn: bigint, trader?: Address | null): Promise<boolean> {

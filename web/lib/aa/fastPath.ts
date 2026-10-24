@@ -36,7 +36,7 @@ export const callsKind = (calls: Call[]) => calls.map((c) => `${c.to.toLowerCase
  */
 export const STATIC_GAS: GasLimits = { callGasLimit: BigInt(1_800_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
 /**
- * Graduating buys (quote ≥ remaining to graduation): Migration + 16 floor bands ≈ 2.6M execution gas, above
+ * Graduating buys (quote ≥ remaining to graduation): Migration + 16 floor bands ≈ 2.76M execution gas (6-dec USDG), above
  * STATIC_GAS and above what a cached normal-buy estimate allows. The trade layer flags their call data
  * (markGradBuy); lib/aa/mav2 then skips STATIC_GAS and the GasCache, always estimates fresh, and never caches the
  * result (the relay accepts it under GRAD_GAS_CAPS, 5M call / 6M total, after its own on-chain check).
@@ -49,7 +49,7 @@ export function markGradBuy(data: string) {
 export const isGradBuyCalls = (calls: { data: string }[]) => calls.some((c) => GRAD_HINTS.has(c.data.toLowerCase()));
 /**
  * Session + USDG-gas graduating buy: a session op can't be estimated before its signed paymasterData (see mav2), so it
- * gets these static limits instead of STATIC_GAS: 2.56M measured graduating buy + approve/hook/referral ≈ 1.5x headroom.
+ * gets these static limits instead of STATIC_GAS: 2.76M measured graduating buy (6-dec USDG; 2.56M at 18-dec) + approve/hook/referral ≈ 1.45x headroom.
  * Sum with session verification + PVG + paymaster gas stays under GRAD_GAS_CAPS.total (6M).
  */
 export const GRAD_STATIC_GAS: GasLimits = { callGasLimit: BigInt(4_000_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };

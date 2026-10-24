@@ -227,7 +227,7 @@ export class Mav2Account {
     // launch cap. Fees are fresh and un-doubled so the prefund (gas × maxFee) stays small (~0.0002 ETH at 8M gas).
     const launch = isLaunchCalls(calls, launchTargets(this.o.chain.id));
     // Graduating buys (flagged by the trade layer: quote ≥ remaining to graduation) ALSO always estimate: Migration +
-    // 16 floor bands ≈ 2.6M execution > STATIC_GAS, and the estimate is never cached for the preset (GRAD_GAS_CAPS server-side).
+    // 16 floor bands ≈ 2.76M execution > STATIC_GAS, and the estimate is never cached for the preset (GRAD_GAS_CAPS server-side).
     const grad = !launch && isGradBuyCalls(calls);
     // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
     const gas = launch || grad ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
