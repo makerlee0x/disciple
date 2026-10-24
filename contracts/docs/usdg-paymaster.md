@@ -104,6 +104,43 @@ outside the contract's `[minRate, maxRate]`.
 6. Fallback: if the pool read fails or a sanity check trips, answer `-32003` (paymaster unavailable) — never fall back
    to a stale fixed rate on mainnet.
 
+## Allowance (per-sender, reused across ops) — feat/trade-latency
+
+`getHash(sender, validUntil, validAfter, rate, maxTokenCost)` =
+`keccak256(abi.encode(ALLOWANCE_TYPEHASH, sender, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost))`,
+EIP-191 personal_sign by `signer`. It no longer binds nonce / initCode / callData / gas limits / gas fees, so one signature
+serves every op of `sender` inside `[validAfter, validUntil]` (window ≤ `MAX_QUOTE_WINDOW` = 1 h; the server issues 10 min).
+The 193-byte `paymasterAndData` layout is unchanged, so DiscipleSessionPolicy 1.4.0's `_paymasterMaxCost` parser and
+its "first call = `approve(paymaster, exactly maxTokenCost)`" rule still apply.
+
+Per-op checks, all still in `validatePaymasterUserOp`:
+quote window · `rate ∈ [minRate, maxRate]` · `maxTokenCost ≤ maxCostCap` · `maxTokenCost ≥ tokenCost(maxCost, rate) + debtOf[sender]`
+(maxCost is the EntryPoint's worst case from the op's OWN gas limits × maxFeePerGas, so inflating gas or fees is refused) ·
+USDG balance ≥ maxTokenCost · first call approves exactly enough, else standing allowance ≥ maxTokenCost ·
+**new:** `paymasterPostOpGasLimit ≥ MIN_PM_POST_OP_GAS_LIMIT (60k)` (gas limits are no longer signed, and a starved postOp
+would make the EntryPoint bill our deposit with no pull) · **new:** reservation (below).
+
+**Reservation.** Validation sets `reservedOf[sender] = maxTokenCost − debt` (the op's gas cap); postOp deletes it. If a
+reservation is still set when the sender's next op validates — a second op of the same sender in the same bundle (all
+validations run before any postOp in v0.7), or a postOp that reverted — it is rolled into `debtOf[sender]` first.
+
+**Exposure bound.** The paymaster's unrecovered USDG for one sender is, at any moment,
+`debtOf[sender] ≤ maxTokenCost of that sender's last validated op ≤ maxCostCap`, independent of the number of ops,
+bundles or allowances. Proof sketch: an op validates only if `tokenCost(maxCost) + debt ≤ maxTokenCost`; its charge is
+capped at `gasMaxToken = maxTokenCost − debt`; a failed pull (or an unreleased reservation) adds at most `gasMaxToken`,
+so the new debt ≤ `maxTokenCost`. A second same-sender op in one bundle sees `debt ≥ gasMaxToken₁` and needs
+`maxTokenCost₂ ≥ cost₂ + gasMaxToken₁`; under the same allowance that is impossible, so the bundle reverts. In ETH terms:
+≤ `maxCostCap / minRate` per abandoned sender. Ops whose pull succeeds are fully paid (no sponsorship).
+Across senders the bound is `maxCostCap × (distinct senders that default)`; each needs (a) an allowance from
+`/api/paymaster` (per-IP rate limit, sender must hold ≥ maxTokenCost USDG at issue and at validation) and (b) to sacrifice
+its own USDG-holding account. Knobs: `setBounds(maxCostCap)` on-chain; `PAYMASTER_ALLOWANCE_TTL_SEC` and the per-IP limit
+off-chain; `forgiveDebt` clears debt + reservation.
+
+Trade-offs: a user who double-submits in one bundle gets one gas cap recorded as debt (forgivable, collected by the next
+allowance); our relay sends one op per `handleOps`, so it never happens on the DISCIPLE path. Reservation SSTOREs add
+≈ 22k verification gas (net ≈ 5k after the postOp refund); `PAYMASTER_GAS.verificationGasLimit` (120k) covers it.
+Needs redeploy (contract not yet deployed on 46630 — the broadcast address has no code).
+
 ## Risks
 1. **Absorbed gas on reverted ops** — mitigated by validation balance/allowance checks, signer-gated quotes after
    simulation, debt carry-forward; residual: one op per abandoned account. Monitor `DebtRecorded` events.
