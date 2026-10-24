@@ -156,7 +156,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     blurb: "Pump-and-dump traders maximise their own PnL: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high mcap is still possible.",
     initial: { momentum: 5, scalper: 5, paperhand: 4, whale: 1, crew: 3 }, arrivalsPerMin: 6,
     mix: { momentum: 0.26, scalper: 0.22, paperhand: 0.2, whale: 0.07, diamond: 0.13, crew: 0.12 },
-    activity: 2.4, size: 0.8, maxBots: 100, hypeSigma: 0.7,
+    activity: 2.4, size: 0.55, maxBots: 100, hypeSigma: 0.7,
     startS: [0.3, 1.5], tradeScale: 0.55, takeProfit: 0.06,
     adapt: { reactS: [1.2, 2.4], windowS: 20, pumpFrac: 0.025, dumpFrac: 0.02, ride: 0.35, dumpOn: 0.35, pile: 0.3, tpRide: 0.14, dipBuy: 0.2, budgetPerMin: 0.14, maxReactors: 5 },
     orders: { rate: 0.06, maxPerBot: 1, maxTotal: 14, sizeFrac: [0.08, 0.25], undercut: 0.35, stack: 0.1, exitInto: 0.3, keeperS: [1, 3] },
