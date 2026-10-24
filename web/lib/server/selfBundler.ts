@@ -17,6 +17,7 @@ import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "../aa/constants";
 import { RelayBroadcastError } from "../aa/relayOp";
+import { MAX_RELAY_TX_GAS } from "../aa/bundleGas";
 
 const epAbi = parseAbi([
   "struct P { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
@@ -95,7 +96,7 @@ export async function selfBundle(method: string, params: unknown[], o: { beforeS
     case "eth_sendUserOperation": {
       relayerKey(); // production: throws RelayerNotConfiguredError (→ 503) unless a dedicated relayer key is set
       const op = params[0] as UserOp;
-      const { standardRelayer, waitRelayReceipt } = await import("./fastRelay");
+      const { standardRelayer, waitRelayReceipt, relayGas } = await import("./fastRelay");
       const relayer = await standardRelayer(), me = relayer.address;   // the EOA that signs below (same cursor as the fast path)
       // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)
       const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
@@ -103,9 +104,13 @@ export async function selfBundle(method: string, params: unknown[], o: { beforeS
       // USDG-gas op: the prefund comes from OUR paymaster's deposit (the sender holds no ETH; launches up to 11M gas)
       if (op.paymaster) { try { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); } catch (e) { if (e instanceof RelayPolicyError) { console.warn("[selfBundler] paymaster check:", e.detail ?? e.message); throw new BundlerRpcError(e.message); } throw e; } }
       const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], me] });
+      // floor for EntryPoint v0.7's 63/64 check (lib/aa/bundleGas), checked against the relay max before simulating
+      let floor: bigint;
+      try { floor = relayGas(op, data); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
       await pc.call({ account: me, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
       const estimated = await pc.estimateGas({ account: me, to: ENTRYPOINT_V07, data });
-      const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
+      const padded = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
+      const gas = padded > floor ? (padded > MAX_RELAY_TX_GAS ? MAX_RELAY_TX_GAS : padded) : floor;
       await o.beforeSend?.();   // validated (simulation + estimate passed) ⇒ charge the per-sender limit, then sign
       // never above the op's own fees ⇒ the EntryPoint refund (at the op's price) covers the relayer's cost per gas
       const fees = relayerTxFees(op, base);
