@@ -159,6 +159,23 @@ contract AnonLauncherTest is IntegrationBase {
         anon.launchAnon(p, stealthA, stealthA, "", 0x00, maxFee);
     }
 
+    // ── pack scope (lee 2026-10-24): anon launches are TRENCH-only ──
+    function test_launchAnon_is_trench_only() public {
+        (BondingCurve c, Token t,) = _anonLaunch(stealthA, stealthA, 10 ether);
+        assertEq(launchpad.modeOf(address(t)), Constants.MODE_TRENCH, "TRENCH");
+        assertFalse(t.pveHooks(), "no PVE hooks");
+        assertEq(c.mode(), Constants.MODE_TRENCH, "curve mode TRENCH");
+        // the launchAnon ABI has no mode parameter: (LaunchParams, stealthOwner, buyRecipient, eph, viewTag, maxFee)
+        assertEq(
+            AnonLauncher.launchAnon.selector,
+            bytes4(
+                keccak256(
+                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+                )
+            )
+        );
+    }
+
     function test_launch_fee_capped_and_owner_only() public {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         anon.setLaunchFee(1);
