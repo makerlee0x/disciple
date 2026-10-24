@@ -19,6 +19,8 @@ const usd = fmtPnl;
 const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
 const amt = (v: number) => (v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "K" : v.toFixed(0));
 const GREEN = "#8ff0c0", RED = "#ff9fb8", FLAT = "#e8ecff";
+/** phone-first HUD active (components/flight/PhoneHud.tsx sets html.ap-phone below 740px) */
+const isPhone = () => typeof document !== "undefined" && document.documentElement.classList.contains("ap-phone");
 const col = (x: number) => (x > 0.005 ? GREEN : x < -0.005 ? RED : FLAT);
 
 /** Smoothly tweened number: animates text in place via rAF (no React re-render per frame). */
@@ -78,10 +80,13 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   useEffect(() => {
     try { const s = localStorage.getItem(KEY + coin); if (s) setPos(JSON.parse(s)); } catch { /* ignore */ }
     if (window.matchMedia?.("(max-width: 760px)").matches) setOpen(false);
+    // phone HUD (components/flight/PhoneHud.tsx): the full card only while the RUN sheet is open, else the one-line strip
+    const onSheet = (e: Event) => { if (isPhone()) setOpen(((e as CustomEvent).detail || {}).id === "run"); };
+    addEventListener("disciple:phonesheet", onSheet);
     setSession(sessionRealized(coin, KEY));
     const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin, KEY)); };
     addEventListener("storage", onStorage);
-    return () => removeEventListener("storage", onStorage);
+    return () => { removeEventListener("storage", onStorage); removeEventListener("disciple:phonesheet", onSheet); };
   }, [coin, KEY]);
 
   useEffect(() => {
@@ -164,7 +169,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         borderRadius: 14, background: "linear-gradient(180deg,rgba(16,14,40,.88),rgba(8,10,26,.84))", backdropFilter: "blur(6px)",
         border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
         transition: "border-color .4s" }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
+      <button type="button" className="pnl-head" onClick={() => (isPhone() ? dispatchEvent(new CustomEvent("disciple:phonesheet-req", { detail: { req: "run" } })) : setOpen((o) => !o))} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>{t("pnl.yourRun")} <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || t("pnl.paper")}</span></span>
         <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>
@@ -172,12 +177,12 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
       {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it depends on how far the
           mcap moved since YOUR entry, not on the share of supply held. E.g. holdings $1.35K at $8.8K MCAP with avg entry MC
           ≈$7.27K (curve starts at $7K) ⇒ +21%; see docs in lib/pnl.ts. */}
-      <div style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
+      <div className="pnl-hero" style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
         <Num value={v.uPnl} fmt={usd} style={{ fontSize: 22, fontWeight: 800, color: col(v.uPnl), textShadow: glow(col(v.uPnl)), letterSpacing: "-.02em" }} />
         <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
           background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
       </div>
-      <div style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
+      <div className="pnl-sub" style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
 
       {open && (
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>

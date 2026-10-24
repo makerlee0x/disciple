@@ -25,6 +25,7 @@
     "test:replay": "node scripts/test-replay.mjs",
     "test:chartseed": "node scripts/test-chartseed.mjs",
     "test:feed-names": "node scripts/test-feed-names.mjs",
+    "test:phone-hud": "node scripts/test-phone-hud.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",

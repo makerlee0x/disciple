@@ -340,6 +340,10 @@ function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).leng
    --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
 const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
 function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+/* @phone-hud: phones (<HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
+   {on, sheet, top, sx, sy, sw, sh, py}: compact MCAP strip at `top`, preset chips ending at `py`, and the one open
+   sheet's rect. Status / holders / feed / chart panels are drawn only inside that sheet; everything else stays off the game. */
+function phoneHud(w,clean){ const p=typeof window!=='undefined'?window.__phoneHud:null; return !clean&&w<HUD_NARROW_W&&p&&p.on?p:null; }
 /* @feed-names:end */
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {
@@ -1423,9 +1427,40 @@ const GLOW_STEPS=[1.6,1.0,0.5];
 function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.strokeStyle='rgba(220,230,255,.18)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,y,w,h,10) : ctx.rect(x,y,w,h); ctx.fill(); ctx.stroke(); ctx.restore(); }
 
+/* @phone-hud: compact full-width MCAP strip (phones) — same numbers as the desktop MCAP panel, one strip under the top buttons */
+function drawPhoneMcap(m,ti,P){
+  const t=TIERS[ti], nx=TIERS[ti+1], x=Math.round(P.sx), y=Math.round(P.top), w=Math.round(W-2*P.sx), lo=t.lo, hi=nx?nx.lo:t.hi, f=clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1);
+  panel(x,y,w,60);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='10px ui-monospace,monospace';
+  ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}`:(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP',x+10,y+15);
+  ctx.fillStyle='#fff'; ctx.font='bold 26px ui-monospace,monospace'; glowText(fmtUsd(m),x+9,y+42,'rgb(180,200,255)',6,0.3);
+  ctx.textAlign='right'; ctx.fillStyle='#ffe7a3'; ctx.font='bold 11px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`.slice(0,22),x+w-10,y+16);
+  ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(220,228,255,.75)'; ctx.fillText(nx?`${(f*100).toFixed(0)}% → ${nx.name}`.slice(0,22):'TOP TIER',x+w-10,y+38); ctx.textAlign='left';
+  const bx=x+10, bw=w-20, by=y+49; ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(bx,by,bw,4);
+  const g=ctx.createLinearGradient(bx,0,bx+bw,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(bx,by,Math.max(2,bw*f),4);
+}
+/* @phone-hud: BUY + SELL preset chips in two thin rows ending at P.py (just above the PnL line + trade bar); same AMMO_HIT taps as desktop */
+function drawPhonePresets(P){
+  AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; });
+  const x0=Math.round(P.sx), w=Math.round(W-2*P.sx), lw=40, gap=4, n=4, cw=Math.floor((w-lw-gap*(n-1))/n), rh=26, y1=Math.round(P.py-2*rh-gap), y2=y1+rh+gap;
+  ctx.save(); ctx.font='bold 10px ui-monospace,monospace';
+  ctx.fillStyle='rgba(8,10,28,.55)'; ctx.fillRect(x0,y1,lw-4,rh); ctx.fillRect(x0,y2,lw-4,rh);
+  ctx.fillStyle='rgba(159,243,200,.85)'; ctx.fillText('BUY',x0+6,y1+17); ctx.fillStyle='rgba(255,176,200,.85)'; ctx.fillText('SELL',x0+6,y2+17);
+  MODES.slice(0,n).forEach((q,i)=>{ const bx=x0+lw+i*(cw+gap), sel=i===S.mode, below=q.usd<MIN_SHOT&&!source.isSim, R=AMMO_HIT[i]; R.x=bx; R.y=y1; R.w=cw; R.h=rh;
+    ctx.fillStyle=sel?'rgba(255,231,163,.92)':'rgba(8,10,28,.7)'; ctx.fillRect(bx,y1,cw,rh); ctx.strokeStyle=sel?'#fff':'rgba(255,231,163,.35)'; ctx.strokeRect(bx+.5,y1+.5,cw-1,rh-1);
+    { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,y1,cw,rh); ctx.globalAlpha=1; } }
+    ctx.fillStyle=sel?'#1a1630':below?'rgba(232,236,255,.5)':'#e8ecff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+cw/2,y1+17); ctx.textAlign='left'; });
+  S.sellPresets.slice(0,n).forEach((p,k)=>{ const bx=x0+lw+k*(cw+gap), R=AMMO_HIT[6+k]; R.x=bx; R.y=y2; R.w=cw; R.h=rh;
+    ctx.globalAlpha=p.on?1:0.45; ctx.fillStyle=p.sel?'rgba(255,176,200,.92)':'rgba(122,34,54,.7)'; ctx.fillRect(bx,y2,cw,rh); ctx.strokeStyle=p.sel?'#fff':'rgba(255,176,200,.35)'; ctx.strokeRect(bx+.5,y2+.5,cw-1,rh-1);
+    { const f=S.pressFx; if(f&&f.i===6+k&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#ffd0dc'; ctx.fillRect(bx,y2,cw,rh); ctx.globalAlpha=p.on?1:0.45; } }
+    ctx.fillStyle=p.sel?'#3a0f1c':'#ffd0dc'; ctx.font='bold 11px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(String(p.label).slice(0,8),bx+cw/2,y2+17); ctx.textAlign='left'; ctx.globalAlpha=1; });
+  ctx.restore();
+}
 function drawHud(){
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
   ctx.save(); ctx.textBaseline='alphabetic';
+  const PH=phoneHud(W,CLEAN);
+  if (PH) drawPhoneMcap(m,ti,PH); else {
   // top-left: MCAP + tier
   panel(20,18,380,130);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed',36,42);
@@ -1434,34 +1469,40 @@ function drawHud(){
   { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
   // progress to next tier
   drawTierBar(m,ti);   /* HUD+ block */
+  }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
-  S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); const RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330;   // eased: no HUD jump when the wallet strip changes height
-  panel(RX,RT,310,92);
+  S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
+  if (PH){ RX=PH.sx; CW=Math.min(310,PH.sw); RT=PH.sheet==='holders'?PH.sy-100:PH.sy; }   // phone: drawn inside the open sheet only
+  if (!PH||PH.sheet==='status'){
+  panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(String(S.status.msg).slice(0,40),RX+16,RT+42);
   if (SIM.on){ ctx.fillStyle='#c9b8ff'; ctx.font='bold 11px ui-monospace,monospace'; const d=(S.simF-1)*100;
     ctx.fillText(`◆ SIMULATED MARKET · ${SIM_REG[SIM.regime].n}  ${d>=0?'+':''}${d.toFixed(1)}%`,RX+16,RT+60); }
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
-  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78);
+  ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78); }
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
-  else { panel(RX,RT+100,310,96);
+  if (PH?PH.sheet==='holders':!S.kothDocked){ panel(RX,RT+100,CW,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+140+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
   // bottom-left: trade feed (compact)
-  panel(20,H-160,310,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',36,H-138);
-  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=H-116+i*17;
-    if(r.ic){ drawIcon(r.ic,36,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),36+18,fy); } else ctx.fillText(r.txt.slice(0,38),36,fy); }); ctx.globalAlpha=1;
+  if (!PH||PH.sheet==='feed'){ const FX=PH?PH.sx:20, FY=PH?PH.sy+160:H, FW=PH?Math.min(310,PH.sw):310;
+  panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
+  S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
+    if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; }
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
-  if (S.controlsDocked) pushControls(); else { panel(RX,H-104,310,84);
+  if (S.controlsDocked) pushControls(); else if (!PH) { panel(RX,H-104,310,84);
   const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · ${MODES[0].key}-${MODES[MODES.length-1].key} select / click`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
+  let TOX=Math.round((W-300)/2), TOY=PH?PH.top+72:136;   // achievement toasts: phone = under the MCAP strip
+  if (PH) drawPhonePresets(PH); else {
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
@@ -1488,7 +1529,8 @@ function drawHud(){
     const gx=ax+AW-12-62, R=AMMO_HIT[10], hov=S.ammoHover===10; R.x=gx; R.y=sy; R.w=62; R.h=sh;
     ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
     ctx.fillStyle='#ffe7a3'; drawIcon('gear',gx+10,sy+4,12,'#ffe7a3'); ctx.fillText('ADV',gx+10+15,sy+14); }
-  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=ay+118+i*58, tx=Math.round(ax+(AW-300)/2); ctx.globalAlpha=a; panel(tx,y,300,50);
+  TOX=Math.round(ax+(AW-300)/2); TOY=ay+118; }
+  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=TOY+i*58, tx=TOX; ctx.globalAlpha=a; panel(tx,y,300,50);
     ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; drawIcon('star',tx+14,y+9,14,'#ffe7a3'); ctx.fillText('ACHIEVEMENT · '+t.title,tx+14+18,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,tx+14,y+39); ctx.globalAlpha=1; });
   }   /* end !CLEAN */
   // tier banner
@@ -2236,10 +2278,11 @@ const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*864
 const GRID_COLS='ABCDEFGH';
 const CHART_PNL_BOTTOM=456;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
+  { const P=phoneHud(W,CLEAN); if(P) return P.sheet==='chart'?{x:P.sx,y:P.sy,h:Math.round(clamp(P.sh,132,st.h))}:{x:-1e4,y:-1e4,h:st.h}; }   /* @phone-hud: chart only inside its sheet */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
-function chartBtnAt(e){ const C=CH; if(!C||!C.on||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
+function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
   for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }
 function redrawChart(dt){
   const st=CHART_STYLE, C=chartState(), h=chartRect().h, w=st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.height!==h) C.cv.height=h;
@@ -2324,7 +2367,7 @@ function redrawChart(dt){
   g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
 }
 function drawChartMap(){
-  const C=chartState(); chartSample(); if(!C.on) return;
+  const C=chartState(); chartSample(); { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
   const r=chartRect(); ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
