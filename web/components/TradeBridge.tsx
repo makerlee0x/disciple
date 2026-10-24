@@ -6,7 +6,8 @@ import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
-import { decodeTradeFill, units } from "@/lib/flight/fills";
+import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
+import { OpMarks, doneLine, takeReceipt, tradeMs, type TradeMs } from "@/lib/flight/tradeSpeed";
 import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
@@ -22,7 +23,7 @@ import { readCoinRules } from "@/lib/flight/coinRules";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
-type Bridge = (side: "buy" | "sell", usd: number, o?: { frac?: number; all?: boolean }) => Promise<{ ok: boolean; reason?: string; txHash?: string }>;
+type Bridge = (side: "buy" | "sell", usd: number, o?: { frac?: number; all?: boolean }) => Promise<{ ok: boolean; reason?: string; txHash?: string; fillUsd?: number; fillTokens?: number; ms?: TradeMs }>;
 declare global {
   interface Window {
     __discipleTrade?: Bridge;
@@ -84,6 +85,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ mcap: number; supply?: number }>).detail; if (d?.mcap > 0) markRef.current = { mcap: d.mcap, supply: d.supply || DEFAULT_SUPPLY }; };
     addEventListener("disciple:mark", h); return () => removeEventListener("disciple:mark", h); }, []);
   const lastOwnTradeAt = useRef(0);
+  const warmRef = useRef<() => Promise<void>>(async () => {});   // HOT PATH warm tick (below); re-run right after our own trade
   const liveTokens = useRef(0);   // last real balanceOf (whole tokens) of the trading account
   // Swap settings, per scope (sim / paper / live)
   const scope = storagePrefix + (live ? "live" : "paper");
@@ -119,23 +121,34 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     if (!live) return;
     const client = createViemProtocol();
     const pc = publicClient();
-    /** Fix 3: receipt → exact USDG / token amounts (UsdgTrade, else the venue Trade event) → 'disciple:fillreceipt' {txHash, side,
-     *  usd, tokens, feeUsd}; components/PnlHud swaps its optimistic estimate for it (lib/pnl reconcileFill). Best effort. */
-    const bookReceipt = async (hash: string, side: "buy" | "sell", bag?: number) => {
+    // click → confirm → fill timing: the AA layer's disciple:op submitted/confirmed marks, by op (lib/flight/tradeSpeed)
+    const marks = new OpMarks();
+    const onOp = (e: Event) => marks.note((e as CustomEvent).detail);
+    addEventListener("disciple:op", onOp);
+    /** Fix 3: receipt logs → exact USDG / token amounts (UsdgTrade, else the venue Trade event) → 'disciple:fillreceipt' {txHash,
+     *  side, usd, tokens, feeUsd}; components/PnlHud swaps its estimate for it (lib/pnl reconcileFill), the engine draws the
+     *  own sell (@sellfill). Trade speed: the logs come back WITH the send (sync relay / userOp receipt, lib/wallet.execCalls →
+     *  takeReceipt) ⇒ decoded at "✓ done", no 2nd receipt poll. Only when none came back (slow path) poll for the receipt. */
+    const bookReceipt = async (hash: string, side: "buy" | "sell", bag?: number, logs?: LogLike[]) => {
       try {
         const me = await activeAddress();
-        const [rc, usdgDec] = await Promise.all([
-          pc.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 60_000, pollingInterval: 700 }),
-          decimalsOf(pc, deployment().usdg).catch(() => 18),
-        ]);
-        if (rc.status !== "success") return;
+        let rl = logs;
+        const usdgDecP = decimalsOf(pc, deployment().usdg).catch(() => 18);   // config-known USDG ⇒ no RPC
+        if (!rl) {   // fallback (no logs returned): poll the receipt
+          const rc = await pc.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 60_000, pollingInterval: 250 });
+          if (rc.status !== "success") return null;
+          rl = rc.logs as unknown as LogLike[];
+        }
+        const usdgDec = await usdgDecP;
         const m = markRef.current;
-        const x = decodeTradeFill(rc.logs as unknown as { address: string; topics: string[]; data: string }[],
+        const x = decodeTradeFill(rl as unknown as { address: string; topics: string[]; data: string }[],
           { token, trader: me, router: deployment().router, usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
-        if (x && x.side === side) dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}) } }));
-      } catch { /* the optimistic estimate stays booked */ }
+        if (x && x.side === side) { dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}) } })); return x; }
+        return null;
+      } catch { return null; /* the estimate stays booked */ }
     };
     window.__discipleTrade = async (side, usd, o) => {
+      const t0 = performance.now(); let quoteAt: number | undefined;
       // pending-trade state for the exit confirm ("Your BOOST / DUMP still lands on-chain."): in-flight count per side
       const pt = (window.__disciplePendingTrades ||= { buy: 0, sell: 0 });
       const bump = (d: number) => { pt[side] = Math.max(0, pt[side] + d); dispatchEvent(new CustomEvent(TRADE_PENDING_EVENT, { detail: { ...pt } })); };
@@ -153,27 +166,39 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           if (o?.all || (o?.frac && o.frac > 0)) amountIn = sellAmountFor(bal, o);   // % of the real balance; DUMP ALL = all of it
           if (amountIn > bal) amountIn = bal;
         }
+        quoteAt = performance.now();
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
         // One-tap session active ⇒ never exceed its on-chain max slippage (the policy would revert the trade).
         const slip = clampSlippage(slippageBps(cfgRef.current), sessionMaxSlippageBps());
         if (slip.capped) dispatchEvent(new CustomEvent("disciple:slippagecap", { detail: { maxBps: slip.sessionMaxBps, requestedBps: slip.requestedBps, suggestBps: suggestedSessionMax(slip) } }));
         const r = await (side === "buy" ? client.buy : client.sell)({ token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps });
-        setLast(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${r.ok ? "✓ done" : "✕ " + (r.reason || "failed")}`);
+        const resultAt = performance.now();
+        lastOwnTradeAt.current = Date.now();
+        // Fill from the logs the send returned, right now (no 2nd waitForTransactionReceipt); slow path without logs: polled below
+        const logs = r.ok ? takeReceipt(r.txHash) : undefined;
+        const fill = r.ok && r.txHash && logs ? await bookReceipt(r.txHash, side, bag, logs) : null;
+        const fillAt = fill ? performance.now() : undefined;
+        // "✓ done" shows the FILLED $ from the decoded logs (was: the pre-trade estimate, e.g. $208.25 vs a $245 fill)
+        setLast(doneLine(side, usd, r, fill, fmtMoney));
+        if (r.ok && r.txHash && !logs) void bookReceipt(r.txHash, side, bag).then((x) => { if (x) setLast(doneLine(side, usd, r, x, fmtMoney)); });
         // exact new coin balance from the receipt (buy: + received; sell: already decremented optimistically) — no
         // immediate balanceOf: a lagging RPC node would clobber it; the 5 s hint TTL re-reads once nodes caught up
-        lastOwnTradeAt.current = Date.now();
-        if (r.ok && r.txHash) void bookReceipt(r.txHash, side, bag);   // Fix 3: exact fill from the receipt → PnL HUD reconciles
         if (side === "buy" && r.amountOut) bumpBalance(token as Address, await activeAddress(), r.amountOut);
         else void new Promise((res) => setTimeout(res, 1200)).then(async () => tokenBalance(pc, token as Address, await activeAddress())).catch(() => undefined);
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
-        return { ok: r.ok, txHash: r.txHash, reason: r.reason };
+        // our own trade moved the price: re-warm the active amount's quote now (protocol-viem dropped the route quotes)
+        setTimeout(() => void warmRef.current(), 0);
+        const ms = tradeMs(t0, { quoteAt, op: marks.byTx(r.txHash), resultAt, fillAt });
+        // timing instrumentation (no UI): addEventListener('disciple:op', e => e.detail.phase === 'filled' && console.log(e.detail))
+        dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, txHash: r.txHash, ok: r.ok, usd: fill ? fill.usd : usd, logs: logs ? "returned" : "polled", ms, op: marks.byTx(r.txHash)?.timings, at: performance.now() } }));
+        return { ok: r.ok, txHash: r.txHash, reason: r.reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
       } catch (e) {
         const m = (e as Error).message.split("\n")[0].slice(0, 90);
         setLast(`✕ ${m}`);
         return { ok: false, reason: m };
       } finally { bump(-1); }
     };
-    return () => { delete window.__discipleTrade; };
+    return () => { delete window.__discipleTrade; removeEventListener("disciple:op", onOp); };
   }, [token, live]);
 
   // HOT PATH warm-up (live only): smart account clients/fees/relay + the selected presets' quotes every ~1 s, so a tap
@@ -184,7 +209,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     const tick = async () => {
       if (!alive || document.hidden) return;
       try {
-        const usd = ammo.usd[mode] ?? MODES[mode].usd;
+        // the ACTIVE amount: the custom $ when filled (what BOOST / SPACE spends), else the selected preset
+        const usd = customRef.current || (ammo.usd[mode] ?? MODES[mode].usd);
         const me = await activeAddress();
         const bal = me ? await balanceHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
         const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
@@ -194,6 +220,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         ]);
       } catch { /* next tick */ }
     };
+    warmRef.current = tick;
     void aaWarm().catch(() => undefined); void tick();
     const iv = setInterval(tick, 1000);
     // keep the relayer's trust entry for this sender fresh (server TTL 60 s) + fees/deploy state warm
@@ -205,7 +232,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       if (d?.phase === "confirmed") setTimeout(() => void tick(), 0);
     };
     addEventListener("disciple:op", sub);
-    return () => { alive = false; clearInterval(iv); clearInterval(iw); removeEventListener("disciple:op", sub); };
+    return () => { alive = false; warmRef.current = async () => {}; clearInterval(iv); clearInterval(iw); removeEventListener("disciple:op", sub); };
   }, [live, token, mode, ammo.usd]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Preview for the selected ammo from on-chain views (curve quoteBuy/quoteSell, router quoteExactIn).
@@ -316,6 +343,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // SPACE (engine) = BOOST with the ACTIVE amount: the custom $ when filled, else the selected preset (was: always the preset)
   const customRef = useRef(customUsd); customRef.current = customUsd;
   useEffect(() => { dispatchEvent(new CustomEvent("disciple:custombuy", { detail: { usd: customUsd } })); }, [customUsd]);
+  // a new custom $ is warmed right away (debounced while typing), not only on the next 1 s tick
+  useEffect(() => { if (!customUsd) return; const id = setTimeout(() => void warmRef.current(), 150); return () => clearTimeout(id); }, [customUsd]);
   // a new BOOST amount makes an earlier failure line ("✕ not enough cash…") stale: drop it (the engine drops its ✕ rows too)
   const amtKey = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
   useEffect(() => { setLast((l) => (l.startsWith("✕") ? "" : l)); setHint(""); }, [amtKey]);
@@ -365,7 +394,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
         <input aria-label="custom amount" inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
           onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
-          onKeyDown={(e) => { if (e.key === "Enter" && customUsd) { e.preventDefault(); shoot("buy"); } e.stopPropagation(); }}
+          onKeyDown={(e) => { if ((e.key === "Enter" || (e.key === " " && !e.repeat)) && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
+            else if (e.key === " ") e.preventDefault();   // no custom $ / held: never type a space into the amount
+            e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
         <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} title={short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short} disabled={short} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short ? 0.4 : 1, cursor: short ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
         <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has} disabled={!has} onClick={() => dumpRef.current?.()}

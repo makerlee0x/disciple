@@ -6,6 +6,7 @@
 import { createWalletClient, custom, type Address, type WalletClient } from "viem";
 import { ACTIVE_CHAIN } from "./chains";
 import { REJECTED_MSG } from "./aa/relayOp";
+import { noteReceipt } from "./flight/tradeSpeed";
 
 type Eip1193 = Parameters<typeof custom>[0];
 let provider: Eip1193 | null = null;
@@ -119,6 +120,8 @@ export async function execCalls(calls: Call[]): Promise<ExecResult> {
   if (!isSmartMode() && !plainWallet) throw new SignInRequired();
   if (isSmartMode()) {
     const r = await aaSend(calls);
+    // GAME trade speed: the send already returned the receipt logs ⇒ TradeBridge decodes the fill from them (no 2nd receipt poll)
+    noteReceipt(r.txHash, r.receipt.receipt.logs);
     return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };
   }
   const w = await getSigner();
@@ -134,6 +137,7 @@ export async function execCalls(calls: Call[]): Promise<ExecResult> {
       throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
     }
     last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
+    noteReceipt(hash, last.logs);
   }
   return last!;
 }
