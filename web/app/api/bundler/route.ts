@@ -8,6 +8,8 @@ import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, type LimitResult } from "@/lib/server/limits";
+import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
+import { streamRelay } from "@/lib/server/relayStream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +18,11 @@ const ALLOWED = new Set([
   "eth_chainId", "eth_supportedEntryPoints", "eth_sendUserOperation", "eth_estimateUserOperationGas",
   "eth_getUserOperationReceipt", "eth_getUserOperationByHash", "rundler_maxPriorityFeePerGas",
 ]);
-/** One-round-trip trade path (lib/server/fastRelay): self-bundler only. With Alchemy these answer -32601 → standard flow. */
+/**
+ * One-round-trip trade path (lib/server/fastRelay). Item 2 (feat/trade-latency): self-relay is THE trade path — these
+ * are always served by the self-bundler, even when an Alchemy key is set (the Alchemy proxy only serves the standard
+ * eth_* methods, e.g. deploy / launch ops). AA_TRADE_SELF_RELAY=0 restores the old gate (-32601 unless AA_SELF_BUNDLER=1).
+ */
 const SELF_ONLY = new Set(["disciple_sendUserOperationSync", "disciple_warm"]);
 /** Self-pay only: no gas policy / paymaster. Rejected explicitly so clients see why, not "method not allowed". */
 const SEND = new Set(["eth_sendUserOperation", "disciple_sendUserOperationSync"]);
@@ -42,7 +48,7 @@ export async function POST(req: Request) {
   if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: not supported` } }, { status: 400 });
   const selfOnly = !!body?.method && SELF_ONLY.has(body.method);
-  if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1")
+  if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1" && process.env.AA_TRADE_SELF_RELAY === "0")
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: self-bundler only` } });
   if (Array.isArray(body) || !body.method || (!ALLOWED.has(body.method) && !selfOnly))
     return NextResponse.json({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32601, message: "method not allowed" } }, { status: 400 });
@@ -56,6 +62,10 @@ export async function POST(req: Request) {
   }
   // AUDIT Low: a strike / verification recorded while relaying must reach the shared store before the lambda freezes
   const flushTrust = async () => { if (SEND.has(body.method!) || SIM.has(body.method!)) await (await import("@/lib/server/fastRelay")).flushRelayTrust().catch(() => undefined); };
+  // Receipt push (lib/aa/relayTypes): streaming clients get NDJSON frames on THIS response — normally one RelayConfirmed;
+  // if the sync send timed out, a RelayPending (txHash) first and the RelayConfirmed when the receipt lands.
+  if (body.method === RELAY_METHOD && (req.headers.get("accept") || "").includes(RELAY_STREAM_ACCEPT))
+    return streamRelay(body.params || [], flushTrust);   // on #140: pass its finish()/afterResponse instead of flushTrust
   try {
     const result = await selfBundle(body.method, body.params || []);
     await flushTrust();
@@ -66,6 +76,11 @@ export async function POST(req: Request) {
     if (isRelayerNotConfigured(e))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
-    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data: (e as { data?: string }).data } });
+    // data: the revert payload (string) as before for definite rejections; once the relayer tx was signed, RelayErrorData
+    // { txHash, userOpHash, relayNonce } — plus unclear/reason when the outcome is unknown (receipt timeout: never a failure)
+    const d = relayErrorData(e);
+    const rev = (e as { data?: unknown }).data;
+    const data = d?.unclear || d?.txHash ? d : typeof rev === "string" ? rev : undefined;
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data } });
   }
 }

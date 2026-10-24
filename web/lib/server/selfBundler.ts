@@ -105,19 +105,21 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
       const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
       // one relayer send at a time (+ nonce retry): concurrent ops otherwise reuse the relayer's pending nonce
+      let relayerNonce: number | undefined;
       const hash = await withRelayer(async () => {
         const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
         // never above the op's own fees ⇒ the EntryPoint refund (at the op's price) covers the relayer's cost per gas
         const fees = relayerTxFees(op, base);
         const { sendWithRelayerNonce } = await import("./fastRelay");
-        return sendWithRelayerNonce((nonce) => wc.sendTransaction({ to: ENTRYPOINT_V07, data, gas, nonce, ...fees }));
+        return sendWithRelayerNonce((nonce) => { relayerNonce = nonce; return wc.sendTransaction({ to: ENTRYPOINT_V07, data, gas, nonce, ...fees }); });
       });
       const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
-      if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
+      // unclear, never a failure: the tx may still land (relayTypes RelayErrorData.unclear)
+      if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), relayNonce: relayerNonce, unclear: true, reason: "receipt-timeout" });
       if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);
     }
