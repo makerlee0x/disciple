@@ -19,6 +19,7 @@
 import type { Address, PublicClient } from "viem";
 import { bondingCurveAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { deployment, hasLens, ZERO } from "./chains";
+import { CURVE } from "./config";
 import { mcapUsdFromSqrt, tokenIsCurrency0 } from "./trades";
 
 const WAD = BigInt(10) ** BigInt(18);
@@ -28,6 +29,24 @@ export function mcapUsdFromQuote(mcapQuoteRaw: bigint, launchQuoteUsdWad: bigint
   if (mcapQuoteRaw <= BigInt(0) || launchQuoteUsdWad <= BigInt(0)) return 0;
   return Number((mcapQuoteRaw * launchQuoteUsdWad) / WAD) / 1e18;
 }
+
+/**
+ * Pure: graduation progress 0–100 from the mcap on the same basis (live retest #4). Matches the curve's progressBps()
+ * (tokensSold / sCurve) exactly: CurveMath is x·y = x0·y0 with y = y0 − sold and mcap = x·S/y ∝ 1/(y0 − sold)², so
+ * sold/y0 = 1 − √(M0/M) and progress = (1 − √(M0/M)) / (1 − √(M0/Mgrad)). M0 / Mgrad = the coin's LaunchTierContext
+ * startMcapUsd / graduationMcapUsd (default $7K / $33K). It was mcap-linear ((M − M0)/(Mgrad − M0)): 79% on RPNR
+ * where the curve says 91.8%. `null` when the mcap is unknown.
+ */
+export function graduationPct(mcapUsd: number | null | undefined, startMcapUsd: number = CURVE.startMcap, graduationMcapUsd: number = CURVE.graduationMcap): number | null {
+  if (mcapUsd == null || !Number.isFinite(mcapUsd)) return null;
+  if (!(startMcapUsd > 0) || !(graduationMcapUsd > startMcapUsd)) return null;
+  if (mcapUsd >= graduationMcapUsd) return 100;
+  if (mcapUsd <= startMcapUsd) return 0;
+  const p = (1 - Math.sqrt(startMcapUsd / mcapUsd)) / (1 - Math.sqrt(startMcapUsd / graduationMcapUsd));
+  return Math.max(0, Math.min(100, p * 100));
+}
+/** The curve's own progressBps() → 0–100 (exact; 10000 once graduated). */
+export const pctFromBps = (bps: number | null | undefined): number | null => (bps == null || !Number.isFinite(bps) ? null : Math.max(0, Math.min(100, bps / 100)));
 
 /** Pure: a hook Trade's sqrtPriceAfter → $ mcap on the same basis (launch quote price × the coin's own supply). */
 export function hookMcapUsd(sqrtPriceAfter: bigint, token: string, quote: string, launchQuoteUsdWad: bigint, supplyTokens: number): number {

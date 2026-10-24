@@ -4,7 +4,7 @@ import fs from "node:fs"; import os from "node:os"; import path from "node:path"
 import { EVENTS } from "../src/abi";
 import { openDb, rebuildCoinStats, wipeStack, dataVersion } from "../src/db";
 import { applyLogs, type RawLog } from "../src/ingest";
-import { Api, intParam, CANDLE_MAX_BARS } from "../src/api";
+import { Api, coinGraduationPct, intParam, CANDLE_MAX_BARS } from "../src/api";
 import { tradeUsd } from "../src/usd";
 import type { Config, Stack } from "../src/config";
 
@@ -52,13 +52,15 @@ describe("coin_stats aggregates (listCoins)", () => {
     const db = seeded(); const api = new Api(db, null, cfg);
     for (const [sort, order] of [["new", "c.launched_block DESC"], ["volume", "volume_usd DESC"], ["mcap", "last_mcap DESC"]]) {
       const now = await get(api, `/coins?sort=${sort}`);
-      expect(now).toEqual(legacy(db, order));
+      // + graduation_pct (live retest #4), derived from last_mcap — the aggregate columns themselves are unchanged
+      expect(now.map(({ graduation_pct, ...r }: any) => r)).toEqual(legacy(db, order));
+      for (const r of now) expect(r.graduation_pct).toBe(coinGraduationPct(r, r.last_mcap));
     }
     const one = (await get(api, "/coins?sort=volume")).find((c: any) => c.ticker === "ONE");
     expect(one).toMatchObject({ volume_usd: 157, trades: 3, last_mcap: 28_000_000_000 });
     const quiet = (await get(api, "/coins")).find((c: any) => c.ticker === "QQ");
     expect(quiet).toMatchObject({ volume_usd: 0, trades: 0, last_mcap: null });
-    expect(Object.keys(one).slice(-3)).toEqual(["volume_usd", "trades", "last_mcap"]);
+    expect(Object.keys(one).slice(-4, -1)).toEqual(["volume_usd", "trades", "last_mcap"]);
   });
   it("re-applying the same logs (idempotent re-sync) doesn't double count", () => {
     const db = openDb(":memory:"); applyLogs(db, stack, launches(), ts);
