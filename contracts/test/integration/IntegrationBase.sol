@@ -12,7 +12,6 @@ import {FeeMath} from "../../src/libraries/FeeMath.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
-import {AntiSnipe} from "../../src/AntiSnipe.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
@@ -80,7 +79,6 @@ abstract contract IntegrationBase is Test {
     DepositHookMock internal depositHook;
     LockedLP internal lockedLP;
     FeeRouter internal feeRouter;
-    AntiSnipe internal antiSnipe;
     Migration internal migration;
     Launchpad internal launchpad;
     DiscipleHook internal hook;
@@ -117,11 +115,8 @@ abstract contract IntegrationBase is Test {
         referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
 
-        uint64 n = uint64(vm.getNonce(address(this)));
-        address launchpadAddr = vm.computeCreateAddress(address(this), n + 1);
-        antiSnipe = new AntiSnipe(launchpadAddr);
-        launchpad = new Launchpad(owner, address(feeRouter), address(antiSnipe), address(migration));
-        require(address(launchpad) == launchpadAddr, "predict");
+        // redeploy pack item 8: no legacy AntiSnipe (v2 curves compute the sniper tax inline), as in Deploy.s.sol
+        launchpad = new Launchpad(owner, address(feeRouter), address(0), address(migration));
 
         strategy = new MockUSDG(); // treat as STRATEGY
         // Rename via nothing — MockUSDG is fine as STRATEGY stand-in

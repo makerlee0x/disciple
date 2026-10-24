@@ -87,6 +87,13 @@ const fmt = (x) => formatUnits(x, qDec);
 const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? zeroAddress);
 const sink = await rd(B.FeeRouter, frAbi, "referralSink");
 check("FeeRouter.referralSink default", sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
+// redeploy pack (lee 2026-10-24): no legacy AntiSnipe; owner-settable KOL creator-share cut; launchAnon maxFee; Token.burn
+check("Launchpad.antiSnipe() == 0 (legacy AntiSnipe not deployed)", (await rd(B.Launchpad, lpAbi, "antiSnipe")) === zeroAddress, "pack item 8");
+check("no AntiSnipe in the bundle", !("AntiSnipe" in B), Object.keys(B).length + " contracts");
+const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? 200);
+const kolBps = BigInt(await rd(B.FeeRouter, frAbi, "kolCreatorShareBps"));
+check("FeeRouter.kolCreatorShareBps default", kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
+check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6 && x.inputs[5].name === "maxFee"), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee)");
 const rv = await rd(B.FeeRouter, frAbi, "rewardsVault");
 check("FeeRouter.rewardsVault set", rv !== zeroAddress && (!B.RewardsVault || rv === getAddress(B.RewardsVault)), rv);
 // AUDIT fixes (contracts/docs/redeploy-runbook.md §11)
