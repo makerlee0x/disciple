@@ -104,7 +104,7 @@ export default function ExitConfirm({ active }: { active: boolean }) {
   const primary: React.CSSProperties = { ...base, background: GOLD, color: "#151830", border: "1px solid rgba(255,231,163,.95)", boxShadow: "0 0 18px rgba(255,220,150,.35)" };
   const ghost: React.CSSProperties = { ...base, fontWeight: 600, background: "transparent", color: DIM, border: "1px solid rgba(255,255,255,.16)" };
   return (
-    <div data-testid="exit-confirm" role="alertdialog" aria-modal="true" aria-labelledby="exitc-title" aria-describedby="exitc-body"
+    <div data-testid="exit-confirm" role="dialog" aria-modal="true" aria-labelledby="exitc-title" aria-describedby="exitc-body"
       onPointerDown={(e) => { if (e.target === e.currentTarget) stay(); }}
       style={{ position: "fixed", inset: 0, zIndex: 80, display: "grid", placeItems: "center", background: "rgba(4,5,14,.55)", backdropFilter: "blur(3px)" }}>
       <div ref={boxRef} tabIndex={-1} style={card} onKeyDown={(e) => e.stopPropagation()} onKeyUp={(e) => e.stopPropagation()}>
