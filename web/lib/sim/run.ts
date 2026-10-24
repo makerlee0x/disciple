@@ -240,7 +240,7 @@ export class SimRun {
   // ── bots ─────────────────────────────────────────────────────────────────────────────────────────────
   inWave() { return this.t < this.waveUntil; }
   private botBuy(b: Bot, frac: number, react?: ReactKind) {
-    // non-launch bots don't pay the anti-snipe tax: they nibble during the first 7 s, full size after
+    // launch bots wait out the anti-snipe tax (buys only, 99% → 0 over 77 s); everyone else nibbles through it, full size after
     const as = b.arch === "sniper" || b.arch === "bundler" || b.arch === "rugger" ? 0 : this.m.antiSnipe(this.t);
     if (as > 0) frac *= Math.max(0.04, 1 - as) ** 2;
     const usd = Math.min(b.cash, b.cash * frac); if (usd >= 1) this.exec("buy", b, usd, react); }
@@ -336,7 +336,7 @@ export class SimRun {
         return;
       }
       case "sniper": {
-        if (!b.buys && age < 30) return this.botBuy(b, bf());
+        if (!b.buys && age < this.cfg.launch.antiSnipeDurationS + 30) return this.botBuy(b, bf());   // first block after the 99% → 0 tax (77 s), not into it
         if (this.adapt(b, F, u)) return;
         if (has && (u > A.tp * this.r(0.8, 1.6) || u < A.sl || (age > 120 && R() < 0.15))) return this.botSell(b, sf());
         if (!has && F.mom > 0.05 && R() < 0.15) return this.botBuy(b, 0.3);

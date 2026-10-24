@@ -6,7 +6,7 @@
  */
 
 import { CURVE } from "../config";
-import { TRADE_FEE_BPS } from "../curveMath";
+import { TRADE_FEE_BPS, CURVE_MID_MCAP_USD, WAD } from "../curveMath";
 import { FLIGHT_TIERS } from "../flight/tiers";
 import { KEEPER_TIP_BPS } from "./pool";
 
@@ -14,6 +14,8 @@ import { KEEPER_TIP_BPS } from "./pool";
 // Constants.sol; `npm run test:sim-parity` fails if Constants.sol, lib/config, curveMath or this block drift apart.
 export interface LaunchParams {
   totalSupply: number; curveSoldBps: number; startMcapUsd: number; graduationMcapUsd: number; tradeFeeBps: number; creatorTaxBps: number;
+  /** steep curve #1: the CP part reaches this mcap at the curve end; the g^30 tail adds the rest (Constants.CURVE_MID_MCAP_USD) */
+  curveMidMcapUsd: number;
   /** 0 = no wallet cap (live Launchpad default, Constants.WALLET_CAP_BPS_DEFAULT) */
   walletCapBps: number; antiSnipeStartBps: number; antiSnipeDurationS: number; quotePriceUsd: number;
   /** post-grad pool: the same 1% DISCIPLE fee (hook) */
@@ -26,10 +28,11 @@ export const LAUNCH: LaunchParams = {
   curveSoldBps: Math.round(CURVE.soldPctAtGrad * 100),    // CURVE_SOLD_BPS — sold on the curve before graduation
   startMcapUsd: CURVE.startMcap,                          // START_MCAP_USD
   graduationMcapUsd: CURVE.graduationMcap,                // GRADUATION_MCAP_USD (Outer Space)
+  curveMidMcapUsd: Number(CURVE_MID_MCAP_USD / WAD),      // CURVE_MID_MCAP_USD ($15,000: CP part at g = 1; tail = grad − mid)
   tradeFeeBps: Number(TRADE_FEE_BPS),                     // TRADE_FEE_BPS (1%)
   creatorTaxBps: 0,                                       // CREATOR_TAX_DEFAULT_BPS
   walletCapBps: CURVE.walletCapDefaultBps,                // WALLET_CAP_BPS_DEFAULT (0 = no cap)
-  antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 77.7% at t=0 …
+  antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 99% at t=0 …
   antiSnipeDurationS: CURVE.antiSnipeWindowSec,           // … linearly to 0 over ANTI_SNIPE_DURATION (buys only)
   quotePriceUsd: 1,                                       // quote = USD stable in the sim
   poolFeeBps: Number(TRADE_FEE_BPS),
@@ -165,7 +168,9 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
     activity: 2.4, size: 0.55, maxBots: 100, hypeSigma: 0.7,
     startS: [0.3, 1.5], tradeScale: 0.65, takeProfit: 0.05,
-    rug: { chance: 0.85, earliestS: 40, latestS: 300, minMcap: 2.2, ctoChance: 0.6, ctoDelayS: [20, 70], ctoArrivalBoost: 2.5 },
+    // dev buys the first block after the 77 s sniper tax, so the rug window opens ~30 s after that; it is tempted at ~$15K
+    // (4.6× the $3,333 launch: the same $ level as the old 2.2× of $7K, now ~46% of the way to $33,333)
+    rug: { chance: 0.85, earliestS: 110, latestS: 370, minMcap: 4.6, ctoChance: 0.6, ctoDelayS: [20, 70], ctoArrivalBoost: 2.5 },
     adapt: { reactS: [0.6, 1.4], windowS: 20, pumpFrac: 0.02, dumpFrac: 0.015, ride: 0.55, dumpOn: 0.6, pile: 0.5, tpRide: 0.1, dipBuy: 0.08, budgetPerMin: 0.22, maxReactors: 8 },
     orders: { rate: 0.07, maxPerBot: 2, maxTotal: 18, sizeFrac: [0.1, 0.3], undercut: 0.6, stack: 0, exitInto: 0.55, keeperS: [0.6, 2] },
   },
