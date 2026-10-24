@@ -9,6 +9,7 @@
  *  - flag: optional. ISO 3166-1 alpha-2 country code, or a coin-community flag id from lib/flags/community.
  */
 import { isCommunityFlag } from "./flags/community";
+import { PROFILE_COPY } from "./copy/profile";
 
 export const BIO_MAX = 160;
 /** Hard cap on the raw posted bio (UTF-16 units) before any counting: 160 of the longest emoji sequences fit easily. */
@@ -64,7 +65,7 @@ export function validateMeta(m: ProfileMeta): string | null {
   if (m.bio.length > BIO_RAW_MAX || bioLength(m.bio) > BIO_MAX) return `Bio: max ${BIO_MAX} characters.`;
   if (!isFlag(m.flag)) return "Unknown flag.";
   if (!isPfpId(m.pfp)) return "Invalid picture.";
-  if (m.title && !/^[a-z_]{1,32}$/.test(m.title)) return "Invalid title.";
+  if (m.title && !/^[a-z_]{1,32}$/.test(m.title)) return PROFILE_COPY["edit.title.error.unknown"];
   return null;
 }
 

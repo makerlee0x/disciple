@@ -26,7 +26,7 @@ export const SIGIL: Record<IdentityId, { color: string; glyph: string }> = {
 };
 
 export function identityLabel(id: IdentityId): string {
-  return IDENTITIES.find((d) => d.id === id)?.label ?? "Pilgrim";
+  return IDENTITIES.find((d) => d.id === id)?.label ?? "Normie";
 }
 
 function Glyph({ g, c }: { g: string; c: string }) {

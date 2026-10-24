@@ -9,12 +9,12 @@ import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { evaluateAchievements } from "@/lib/achievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
 import { useProfileUrlState } from "@/lib/profileUrlState";
-import { LOOT_ENABLED } from "@/lib/features";
+import { LOOT_ENABLED, REAL_PROGRESS_ENABLED } from "@/lib/features";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
-import { earnedTitleIds, profileStatsFor, profileStatsSeed, shownTitle, titleDef, titleTooltip } from "@/lib/titles";
+import { earnedTitlesFor, profileStatsFor, profileStatsSeed, shownTitle, titleDef, titleTooltip } from "@/lib/titles";
 import { fmtUsd } from "@/lib/config";
-import { PERSONA_BADGES, personaBadge } from "@/lib/identity";
+import { NO_IDENTITY, PERSONA_BADGES, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
@@ -122,8 +122,11 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // Same seed as the server's title check (/api/profile/meta): claimed username, else the wallet.
   const seed = profileStatsSeed(owner, isPrivate ? wallet : slugAddr ?? wallet);
   const data = useMemo(() => profileStatsFor(seed), [seed]);
-  const { identity } = data;
-  const earned = useMemo(() => earnedTitleIds(identity.matched), [identity]);
+  // REAL_PROGRESS_ENABLED off (lib/features): the stats are sample, so the header hides them, the season tier and
+  // the level, and shows no earned title ("Normie"). The sample data below still feeds the labeled SAMPLE sections.
+  const real = REAL_PROGRESS_ENABLED;
+  const identity = real ? data.identity : NO_IDENTITY;
+  const earned = useMemo(() => earnedTitlesFor(seed), [seed]);
   const title = shownTitle(meta.title, earned);
   const prestige = prestigeFromPoints(data.points);
   const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
@@ -213,9 +216,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // No username: the wallet's space-themed default call sign (never with an "@"); public /u/<0x…> slugs likewise.
   const handle = isPrivate ? (me ? `@${me}` : defaultUsername(wallet)) : publicName;
   const img = pfpUrl(meta.pfp);
-  const ring = data.rank.border;
+  const ring = real ? data.rank.border : undefined;
   const badge = PERSONA_BADGES[personaBadge(identity)];
-  // Nothing earned: the old "Pilgrim" placeholder (not a title, not pickable).
+  // Nothing earned: "Normie" (NO_TITLE; not a title, not pickable).
   const titleD = title ? titleDef(title) : identity.primary;
   const titleTip = title ? titleTooltip(title) : identity.primary.blurb;
   const rpnl = kpi("rpnl");
@@ -240,10 +243,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
         <div className="pf-id">
           <h1 className="pf-name"><span>{handle}</span>{meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
-          <div className="pf-rankrow">
+          {real && <div className="pf-rankrow" data-testid="profile-rankrow">
             <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
             <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>
-          </div>
+          </div>}
           {titleD && (
             <div className="pf-tags">
               <Tooltip content={<><strong>{titleD.label}</strong>{titleTip}</>}>
@@ -269,11 +272,11 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
               <button type="button" className="ds-btn pf-btn-secondary pf-share-wide" onClick={shareProfile}><Icon name="share" size={16} /> {C["profile.action.share"]}</button>
             )}
           </div>
-          <div className="pf-stats" title={SAMPLE_DATA_LABEL}>
+          {real && <div className="pf-stats" title={SAMPLE_DATA_LABEL} data-testid="profile-stats">
             <div className={`pf-stat ${rpnl >= 0 ? "pos" : "neg"}`}><span>Realized PnL</span><strong>{signedUsd(rpnl)}</strong></div>
             <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{Math.round(kpi("wr"))}%</strong></div>
             <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{data.metrics.bombCount}</strong></div>
-          </div>
+          </div>}
         </div>
       </header>
 

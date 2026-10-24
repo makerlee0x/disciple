@@ -198,7 +198,7 @@ export default function LeaderboardView() {
         </div>
       </div>
       <p className="lb-footnote">
-        Prestige tier = your rank on the heaven ladder: earn points, climb tiers (Pilgrim → Angels → Seraphim…), like
+        Prestige tier = your rank on the heaven ladder: earn points, climb tiers (Normie → Angels → Seraphim…), like
         CoD prestige. Hold = cumulative time held across positions. Click any row to open their public profile. Scores
         are SAMPLE until the indexer wires Trade events.
       </p>
