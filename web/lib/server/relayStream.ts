@@ -11,7 +11,7 @@ import "server-only";
 import type { UserOp } from "../aa/core";
 import { userOpHash } from "../aa/core";
 import { robinhoodTestnet } from "../chains";
-import { RELAY_METHOD, RELAY_STREAM_ACCEPT, type RelayFrame } from "../aa/relayTypes";
+import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData, type RelayFrame } from "../aa/relayTypes";
 import { isRelayerNotConfigured } from "./relayer";
 
 export function streamRelay(params: unknown[], settle: () => Promise<unknown>, onError?: (e: unknown) => Promise<unknown>): Response {
@@ -26,16 +26,18 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>, o
       try { hash = userOpHash(op, robinhoodTestnet.id); } catch { /* malformed op: fastRelay rejects it */ }
       try {
         const { sendUserOperationSync } = await import("./fastRelay");
-        const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason }); });
+        const r = await sendUserOperationSync(op, (p) => { if (hash) push({ kind: "pending", pending: true, userOpHash: hash, txHash: p.txHash, reason: p.reason, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }); });
         await settle().catch(() => undefined);
         push(r);
       } catch (e) {
         await settle().catch(() => undefined);
         await onError?.(e).catch(() => undefined);   // AUDIT L1: route records pre-send rejections (free retry grant)
-        const x = e as { shortMessage?: string; message?: string; data?: unknown; txHash?: `0x${string}`; notSent?: boolean };
+        const x = e as { shortMessage?: string; message?: string };
         const nc = isRelayerNotConfigured(e);
         const m = nc ? "relayer not configured" : (x.shortMessage || x.message || String(e)).split("\n")[0].slice(0, 300);
-        push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: { txHash: x.txHash, userOpHash: hash, revert: typeof x.data === "string" ? (x.data as `0x${string}`) : undefined, notSent: x.notSent === true } });
+        // terminal frame: txHash / userOpHash / relayNonce / notSent (AUDIT L2: true only for a definite rejection); on a
+        // receipt timeout also unclear + reason (never a failure, never notSent)
+        push({ kind: "error", code: nc ? -32003 : -32000, message: `${RELAY_METHOD}: ${m}`, data: relayErrorData(e, hash) });
       }
       ctl.close();
     },

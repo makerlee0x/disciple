@@ -280,3 +280,40 @@ test("GAME pressId: generated when absent (24 hex) and still echoed", async () =
   let r; try { r = await a.sendCalls(CALLS, "owner"); } finally { s.restore(); cap.restore(); }
   assert.match(r.pressId!, /^[0-9a-f]{24}$/); assert.ok(cap.evs.length >= 1 && cap.evs.every((e) => e.pressId === r.pressId));
 });
+
+// ---- #145 × #141 merge: one error-data shape carries notSent (L2) AND unclear / reason / relayNonce / userOpHash ----
+import { relayErrorData } from "../lib/aa/relayTypes";
+import { relayUnclear } from "../lib/aa/relayClient";
+import { friendlyError } from "../lib/protocol-viem";
+
+test("merge: relayErrorData keeps notSent beside relayNonce/userOpHash; unclear is never notSent", () => {
+  const tx = ("0x" + "81".repeat(32)) as Hex, uoh = ("0x" + "82".repeat(32)) as Hex;
+  // definite rejection after signing (fastRelay: notSent true) ⇒ txHash + relayNonce + notSent, no unclear
+  assert.deepEqual(relayErrorData(Object.assign(new Error("insufficient funds"), { txHash: tx, userOpHash: uoh, relayNonce: 4, notSent: true })),
+    { txHash: tx, userOpHash: uoh, relayNonce: 4, notSent: true });
+  // unclear (receipt timeout) ⇒ unclear + reason, notSent forced false even if a caller set it
+  assert.deepEqual(relayErrorData(Object.assign(new Error("not confirmed (timeout)"), { txHash: tx, relayNonce: 5, unclear: true, reason: "receipt-timeout", notSent: true }), uoh),
+    { txHash: tx, userOpHash: uoh, relayNonce: 5, unclear: true, reason: "receipt-timeout", notSent: false });
+  // client: a definite notSent never reads as unclear; relayErrorUnclear agrees
+  const definite = { code: -32000, message: "x: network-ish failure", data: { txHash: tx, userOpHash: uoh, relayNonce: 4, notSent: true } };
+  assert.equal(relayUnclear(definite, uoh), null); assert.equal(relayErrorUnclear(definite), false);
+  const unclear = { code: -32000, message: "x: not confirmed", data: { txHash: tx, userOpHash: uoh, relayNonce: 5, unclear: true, reason: "receipt-timeout", notSent: false } };
+  assert.deepEqual(relayUnclear(unclear, uoh), { unclear: true, reason: "receipt-timeout", userOpHash: uoh, txHash: tx, relayNonce: 5 });
+  assert.equal(relayErrorUnclear(unclear), true);
+});
+test("merge: unclear relay error, not found ⇒ AAError Timeout extra = RelayTimeoutExtra + pressId; ProtocolError keeps it", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  const { a } = fakeAccount({ deployed: true });
+  (a as unknown as { receiptFor: () => Promise<null> }).receiptFor = async () => null;
+  (a as unknown as { findOp: () => Promise<null> }).findOp = async () => null;
+  const tx = ("0x" + "83".repeat(32)) as Hex;
+  const s = stubRelayOnce({ error: { code: -32000, message: "x: internal error", data: { txHash: tx, relayNonce: 9, notSent: false } } });
+  let err: { code?: string; extra?: Record<string, unknown> } | undefined;
+  try { await a.sendCalls(CALLS, { pressId: "ab".repeat(12) }); } catch (e) { err = e as typeof err; } finally { s.restore(); }
+  assert.equal(err?.code, "Timeout");
+  const x = err!.extra!;
+  assert.equal(x.unclear, true); assert.equal(x.txHash, tx); assert.equal(x.relayNonce, 9); assert.equal(x.sender, SENDER);
+  assert.match(String(x.userOpHash), /^0x[0-9a-f]{64}$/); assert.equal(typeof x.nonce, "bigint"); assert.equal(x.pressId, "ab".repeat(12));
+  const pe = friendlyError(err);
+  assert.equal(pe.code, "Timeout"); assert.equal(pe.extra?.relayNonce, 9); assert.equal(pe.extra?.pressId, "ab".repeat(12));
+});

@@ -104,3 +104,18 @@ export async function notePressRejected(store: CounterStore, sender: string, pre
     return (await store.incrEx(grantKey(sender, pressId), lim.windowSec)) <= lim.pressFreeRetries;
   } catch { return false; }
 }
+
+/**
+ * pm_getPaymasterAllowance limits (AUDIT #141 L-3). The endpoint is unauthenticated (an allowance is harmless to hand
+ * out: sender-bound, every rule re-checked on-chain), so a per-SENDER bucket keyed on the sender alone let anyone
+ * exhaust a victim's 30 / 10 min and push them onto the slower per-op path. The per-sender bucket is therefore keyed on
+ * caller IP + sender: a third party only burns its own (ip, sender) bucket, and its total issuance stays bounded by the
+ * shared per-IP limit. Same numbers as before for the real user (their client asks ~once per 8 min).
+ */
+export const ALLOWANCE_LIMITS = { perIpSender: { limit: 30, windowSec: 600 } } as const;
+export function paymasterAllowanceLimits(ip: string, sender: string): [key: string, limit: number, windowSec: number][] {
+  return [
+    [`paymaster:ip:${ip}`, BUNDLER_LIMITS.simPerIp.limit, BUNDLER_LIMITS.simPerIp.windowSec],
+    [`paymaster:allow:${ip}:${sender.toLowerCase()}`, ALLOWANCE_LIMITS.perIpSender.limit, ALLOWANCE_LIMITS.perIpSender.windowSec],
+  ];
+}

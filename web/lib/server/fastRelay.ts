@@ -203,14 +203,16 @@ async function signRelayerTx(me: PrivateKeyAccount, tx: { nonce: number; data: H
  * node accepted it OR it may have ("already known", timeout, network): the caller waits on that hash
  * (waitRelayReceipt) and NEVER re-signs. Only a definite nonce rejection re-signs (fresh nonce, bounded).
  */
-export type StandardRelayer = { address: Hex; send(data: Hex, gas: bigint, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex> };
+/** `onSigned(relayNonce)`: the relayer EOA nonce of the signed handleOps tx (reported per signature; the last one wins). */
+export type StandardRelayer = { address: Hex; send(data: Hex, gas: bigint, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }, onSigned?: (relayNonce: number) => void): Promise<Hex> };
 export async function standardRelayer(): Promise<StandardRelayer> {
   const st = await ready();   // ONE EOA for simulation, beneficiary and signature, even if the lease changes meanwhile
   return {
     address: st.account.address,
-    async send(data, gas, fees) {
+    async send(data, gas, fees, onSigned) {
       const r = await sendWithCursor(st.nonces, async (nonce) => {
         const raw = await signRelayerTx(st.account, { nonce, data, gas, ...fees });
+        onSigned?.(nonce);
         return plainSend(raw, keccak256(raw), PLAIN);
       }, 2, st.canSign);
       if (r.pending) console.warn(`[relay] standard send ${r.txHash}: ${r.pending} — waiting on the same hash (no re-sign)`);
@@ -222,7 +224,7 @@ export async function standardRelayer(): Promise<StandardRelayer> {
 export async function waitRelayReceipt(txHash: Hex, maxWaitMs = 25_000): Promise<RelayReceipt | null> {
   return waitReceipt(txHash, { getReceipt: receiptOf, maxWaitMs, pollMs: 250 }).catch(() => null);
 }
-export type OnPending = (p: { txHash: Hex; reason: PendingReason }) => void;
+export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: number }) => void;
 
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
@@ -252,19 +254,22 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
   } else t.simulate = 0;
   const gas = totalGas(op) + BigInt(120_000);
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
-  let txHash: Hex | undefined;
+  let txHash: Hex | undefined, relayNonce: number | undefined;
   let r: Awaited<ReturnType<typeof sendSync>>;
   try {
     r = await sendWithCursor(st.nonces, async (nonce) => {
       const s = Date.now();
       const raw = await signRelayerTx(me, { nonce, data, gas, ...txFees });
       t.signTx = Date.now() - s;
-      const h = (txHash = keccak256(raw));
-      return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h })));
+      const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
+      return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h, relayNonce: n })));
     }, 2, st.canSign);
   } catch (e) {
-    // AUDIT L2: notSent only for a definite rejection; anything else (unclear) leaves the client to look the tx up
-    throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, notSent: classifySendError(e) !== "unclear" });
+    // AUDIT L2: notSent only for a definite rejection; anything else (unclear) leaves the client to look the tx up.
+    // #141: once signed, txHash + the relayer nonce ride on the error; syncSend's receipt timeout keeps unclear/reason
+    // (an unclear error is never notSent, whatever the classifier says).
+    const unclear = (e as { unclear?: unknown }).unclear === true;
+    throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, notSent: !unclear && classifySendError(e) !== "unclear", ...(relayNonce !== undefined ? { relayNonce } : {}) });
   }
   t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
   if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));
@@ -275,7 +280,7 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
   }
   if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
   else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, senderPrefund(op)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
-  if (r.rc.status !== "0x1") throw Object.assign(new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`), { txHash: r.rc.transactionHash, userOpHash: hash });
+  if (r.rc.status !== "0x1") throw Object.assign(new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`), { txHash: r.rc.transactionHash, userOpHash: hash, ...(relayNonce !== undefined ? { relayNonce } : {}) });
   const receipt = normalizeReceipt(r.rc);
   return { kind: "confirmed", userOpHash: hash, txHash: receipt.transactionHash, success, receipt, logs: receipt.logs, via: r.via, t: { simulate: t.simulate, signTx: t.signTx, send: t.send, mined: t.mined, total: t.total, mode: r.via === "rpc-wait" ? 0 : 1 } };
 }

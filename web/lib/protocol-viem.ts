@@ -32,6 +32,7 @@ import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResul
 import { ensurePveLogin, PveError } from "./pve";
 import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
+import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, boundRebuiltMinOut, newPressId, tagPress } from "./aa/fastPath";
 import { GradHint } from "./trade/gradHint";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
@@ -46,7 +47,17 @@ export const quoteRawToUsd = (raw: bigint, quotePriceUsd: bigint) => Number((raw
 const fmtUnits = (v: bigint, dec = 18) => { const d = Number(v) / 10 ** dec; return d >= 1e-4 || d === 0 ? d.toPrecision(4) : d.toExponential(2); };
 
 export class ProtocolError extends Error {
-  constructor(public code: string, msg: string) { super(msg); }
+  /**
+   * Set ONLY for code "Timeout" on an UNCLEAR relay outcome (outcome UNKNOWN, the op may still land): RelayTimeoutExtra
+   * { unclear: true, reason, userOpHash, sender, txHash?, relayNonce? (relayer EOA), nonce? (the op's EntryPoint nonce),
+   * pressId? (#145 GAME reservation id) }.
+   * Absent otherwise — not even an own `undefined` key (`declare`), so `"extra" in e` stays false for a plain Timeout.
+   */
+  declare extra?: RelayTimeoutExtra;
+  constructor(public code: string, msg: string, o?: { extra?: RelayTimeoutExtra }) {
+    super(msg);
+    if (o?.extra) this.extra = o.extra;
+  }
 }
 
 /** Map contract custom errors to friendly copy. */
@@ -150,7 +161,11 @@ export function friendlyError(e: unknown): ProtocolError {
     if (name) return new ProtocolError(name, pre + (M[name] || name));
   }
   const code = (e as { code?: string })?.code;
-  return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e));
+  // unclear relay outcome (receipt timeout / lost stream / network) only: keep userOpHash / txHash / relayNonce / sender /
+  // nonce so the UI can watch the op. Any other Timeout (or code) gets NO extra.
+  const ex = isAA && code === "Timeout" ? (e as AAError).extra : undefined;
+  const extra = ex?.unclear === true ? (ex as RelayTimeoutExtra) : undefined;
+  return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e), extra ? { extra } : undefined);
 }
 
 export function publicClient(): PublicClient {

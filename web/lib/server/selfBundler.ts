@@ -111,13 +111,15 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       // only a definite nonce rejection re-signs. withRelayer keeps per-instance ordering and retries ONLY definite
       // nonce errors (lib/server/relayer.isNonceError no longer matches "already known").
       // retries = 0: relayer.send's cursor already retries definite nonce errors (no nested 3×3 re-signs; AUDIT Info)
-      const hash = await withRelayer(() => relayer.send(data, gas, fees), 0);
+      let relayerNonce: number | undefined;   // #141: the relayer EOA nonce of the signed handleOps (on the timeout error)
+      const hash = await withRelayer(() => relayer.send(data, gas, fees, (n) => { relayerNonce = n; }), 0);
       const receipt = await waitRelayReceipt(hash, 25_000);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "0x1") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
-      if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), unclear: true });
+      // unclear, never a failure: the tx may still land (relayTypes RelayErrorData.unclear)
+      if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), relayNonce: relayerNonce, unclear: true, reason: "receipt-timeout" as const });
       if (receipt.status !== "0x1") throw Object.assign(new Error(`relayer tx ${hash} reverted`), { txHash: hash });   // submitted: never a pre-send rejection
       return userOpHash(op, robinhoodTestnet.id);
     }

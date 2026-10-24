@@ -13,8 +13,17 @@
  *     exists — a RelayConfirmed line (or a RelayFailed line). Exactly one terminal line (confirmed | error) ends it.
  *   - Plain JSON clients (no accept header) get one JSON-RPC envelope: result = RelayConfirmed (the server waited for
  *     the receipt), or error = { code, message, data: RelayErrorData } (txHash included whenever it is known).
+ *
+ * UNCLEAR OUTCOME (the ~20 s receipt wait gave up, or anything else after the relayer tx was signed where we can't tell
+ * whether it landed): the error carries `unclear: true` + `reason` + userOpHash + txHash + the relayer `relayNonce`. It
+ * is NEVER a definite failure: the tx may still be mined. SITE #144 maps it to 'pending_unknown' (keep the hold, watch
+ * the op by userOpHash / txHash in the background). Client side the same fields ride on AAError("Timeout").extra
+ * (RelayTimeoutExtra = RelayUnclearInfo + sender + the op's EntryPoint `nonce`).
+ *
+ * NONCES: `relayNonce` is always the RELAYER EOA nonce of the handleOps tx (a number). `nonce` is only ever the user
+ * op's EntryPoint v0.7 nonce (a bigint, on RelayTimeoutExtra) — SITE's watcher checks it to tell landed from dropped.
  */
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
 
 export const RELAY_METHOD = "disciple_sendUserOperationSync";
 /** Request header value that selects the NDJSON stream (server push of the receipt on the slow path). */
@@ -71,7 +80,15 @@ export type RelayPending = {
   txHash: Hex;
   /** why the receipt didn't come with the send */
   reason: "sync-timeout" | "sync-error" | "sync-unsupported";
+  /** relayer EOA nonce the handleOps tx was signed with (NOT the op's EntryPoint nonce) */
+  relayNonce?: number;
 };
+
+/** Why an outcome is unclear (the tx may still land). */
+export type RelayUnclearReason =
+  | "receipt-timeout" // server: signed + sent, receipt wait (~20 s) gave up
+  | "stream-lost"     // client: NDJSON stream cut before a terminal frame
+  | "network";        // client: no / unreadable answer from the relay (it may have sent)
 
 export type RelayErrorData = {
   /** known whenever the relayer tx was signed (even if the send failed or timed out) */
@@ -79,6 +96,11 @@ export type RelayErrorData = {
   userOpHash?: Hex;
   /** revert payload (FailedOp / FailedOpWithRevert …) when the pre-flight simulation rejected the op */
   revert?: Hex;
+  /** relayer EOA nonce of the signed handleOps tx, when known (NOT the op's EntryPoint nonce) */
+  relayNonce?: number;
+  /** outcome UNKNOWN: the tx may still be mined. Never treat as a definite failure. */
+  unclear?: true;
+  reason?: RelayUnclearReason;
   /**
    * AUDIT L2: true ONLY when the relayer tx was definitively NOT accepted (allowlisted node rejection, nonce retries
    * exhausted, local signing failure). txHash present and notSent !== true ⇒ the tx MAY be in: the client looks it up
@@ -86,6 +108,41 @@ export type RelayErrorData = {
    */
   notSent?: boolean;
 };
+
+/** Client-side unclear outcome (relayUnclear(); same fields as RelayErrorData, unclear always set). */
+export type RelayUnclearInfo = { unclear: true; reason: RelayUnclearReason; userOpHash?: Hex; txHash?: Hex; relayNonce?: number };
+/**
+ * AAError("Timeout").extra (mav2) and ProtocolError.extra (protocol-viem) on an UNCLEAR outcome: the relay fields plus
+ * the smart account `sender` and the op's own EntryPoint v0.7 `nonce` (bigint) when known — never the relayer's — and
+ * the press id (`pressId`) when the op was sent for a press.
+ */
+export type RelayTimeoutExtra = RelayUnclearInfo & {
+  userOpHash: Hex; sender: Address; nonce?: bigint;
+  /** GAME (#145): the press / reservation id (SendOpts.pressId), set by mav2.sendCalls (tagPress) on every thrown error */
+  pressId?: string;
+};
+
+/** Messages that mean "no definite answer" (lost response, receipt timeout, gateway / function timeout). */
+export const UNCLEAR_RELAY = /not confirmed|timeout|timed out|fetch failed|network|stream lost|\b50[234]\b|FUNCTION_INVOCATION/i;
+
+/**
+ * Server error → RelayErrorData (pure). `e` is what fastRelay / syncSend threw (txHash, userOpHash, relayNonce,
+ * unclear, reason, notSent, data = revert payload). Fields that are unknown are left out.
+ */
+export function relayErrorData(e: unknown, userOpHash?: Hex): RelayErrorData | undefined {
+  const x = (e ?? {}) as { data?: unknown; txHash?: Hex; userOpHash?: Hex; relayNonce?: unknown; unclear?: unknown; reason?: unknown; notSent?: unknown };
+  const d: RelayErrorData = {};
+  if (x.txHash) d.txHash = x.txHash;
+  const uoh = x.userOpHash ?? userOpHash;
+  if (uoh) d.userOpHash = uoh;
+  if (typeof x.data === "string" && /^0x[0-9a-fA-F]*$/.test(x.data)) d.revert = x.data as Hex;
+  if (typeof x.relayNonce === "number" && Number.isSafeInteger(x.relayNonce) && x.relayNonce >= 0) d.relayNonce = x.relayNonce;
+  if (x.unclear === true) { d.unclear = true; d.reason = (x.reason as RelayUnclearReason) ?? "receipt-timeout"; }
+  // AUDIT L2 (#145): notSent rides along whenever the server decided it (fastRelay sets it on every signed-tx error).
+  // true ONLY for a definite rejection; an unclear outcome is never notSent (it never rolls back or re-signs).
+  if (typeof x.notSent === "boolean") d.notSent = x.notSent && d.unclear !== true;
+  return Object.keys(d).length ? d : undefined;
+}
 
 export type RelayFailed = { kind: "error"; code: number; message: string; data?: RelayErrorData };
 

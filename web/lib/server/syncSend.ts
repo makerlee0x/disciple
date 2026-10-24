@@ -15,7 +15,8 @@
  *     cap / malformed / -32602 / -32601; lib/server/relayerNonce) is rethrown for the caller to resync + re-sign.
  *     Every other error (incl. -32603 / -32000 after acceptance) is unclear: wait on the same txHash.
  *  4. Timeout / network error / unreadable response ⇒ possibly accepted: onPending({ txHash }) and poll the receipt
- *     for the precomputed hash (fast node first when RHT_RECEIPT_RPC_URL is set; public RPC last).
+ *     for the precomputed hash (fast node first when RHT_RECEIPT_RPC_URL is set; public RPC last). Giving up after
+ *     maxWaitMs throws { unclear: true, reason: "receipt-timeout", txHash } — an UNKNOWN outcome, never a failure.
  *  5. The sync receipt IS the confirmation the UI books from (RelayConfirmed.receipt).
  * Sequencer unset ⇒ exactly today's call on the public RPC ([raw]).
  */
@@ -84,7 +85,7 @@ export async function waitReceipt(txHash: Hex, o: Pick<SyncSendOpts, "getReceipt
   for (;;) {
     const rc = await o.getReceipt(txHash).catch(() => null);
     if (rc) return rc;
-    if (now() > deadline) throw Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true, txHash }) as RpcErr;
+    if (now() > deadline) throw Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true, reason: "receipt-timeout" as const, txHash }) as RpcErr;
     await sleep(o.pollMs ?? 50);
   }
 }
