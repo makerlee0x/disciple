@@ -19,7 +19,7 @@ import type { Call } from "../aa/core";
 import type { Caps } from "./capabilities";
 import { crewClaimCall } from "./crew";
 import { creatorClaimCalls, referralClaimCalls, type CreatorRocket, type ReferralBalance } from "./creatorFees";
-import { lc } from "./common";
+import { fmtUsd, lc } from "./common";
 
 export type RewardKind = "referral" | "creator" | "crew";
 export const REWARD_KINDS: RewardKind[] = ["referral", "creator", "crew"];
@@ -148,4 +148,12 @@ export function selectClaimCalls<T extends Call>(calls: T[], ok: boolean[], max 
 export async function sendClaimAll<R>(calls: Call[], exec: (calls: Call[]) => Promise<R>): Promise<R> {
   if (!calls.length) throw new Error("Nothing to claim yet.");
   return exec(calls.map(({ to, data, value }) => ({ to, data, ...(value != null ? { value } : {}) })));
+}
+
+/** Dollars-only amount label (referral deposit card): "$x.xx", or a neutral dash when the coin has no live price. Never a token amount. */
+export const NO_PRICE = "—";
+export function usdLabel(raw: bigint, a: { decimals: number; usd: number | null }): string {
+  if (a.usd == null || !Number.isFinite(a.usd)) return NO_PRICE;
+  const d = BigInt(10) ** BigInt(a.decimals);
+  return fmtUsd((Number(raw / d) + Number(raw % d) / Number(d)) * a.usd) || NO_PRICE;
 }

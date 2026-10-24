@@ -15,13 +15,13 @@ import { useCallback, useEffect, useState } from "react";
 import type { Hex } from "viem";
 import { deposit, depositNeeded, gateState, unlockLabel, unlocked, withdraw, withdrawCall, type GateState } from "@/lib/claims/referralGate";
 import { claimErrorText, fmtUsd, preflight } from "@/lib/claims/common";
-import { REWARD_KINDS, REWARD_LABEL, type HistoryRow, type RewardKind } from "@/lib/claims/rewards";
+import { REWARD_KINDS, REWARD_LABEL, usdLabel, type HistoryRow, type RewardKind } from "@/lib/claims/rewards";
 import { claimEverything, hasClaimable, loadRewards, type RewardsData } from "@/lib/claims/rewardsData";
 import { demoGate, demoRewards } from "@/lib/claims/demo";
 import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
 import { fetchUsernameStatus, localUsername, referralUrl } from "@/lib/profile";
 import { refLabel } from "@/lib/referral";
-import { ConfirmSheet, Money, SampleTag, pc, useCaps, useWalletAddr, type ConfirmLine } from "./ui";
+import { SampleTag, pc, useCaps, useWalletAddr } from "./ui";
 
 /* Copy (new strings are listed verbatim in the PR body under "Copy pending lee approval"). */
 const T = {
@@ -39,7 +39,8 @@ const T = {
   depositNote: "This is your own deposit, not earnings.",
 } as const;
 
-type Sheet = { title: string; lines: ConfirmLine[]; run: () => Promise<Hex>; note?: string; label?: string } | null;
+/** Referral deposit confirm: dollar lines only (no token amounts, no address). */
+type Sheet = { title: string; lines: { label: string; usd: string }[]; run: () => Promise<Hex>; note?: string; label?: string } | null;
 
 function dayLabel(r: HistoryRow, nowSec: number) {
   const d = new Date(r.to * 1000), y = new Date(nowSec * 1000).getFullYear();
@@ -113,7 +114,7 @@ export default function ProfileClaims() {
   const confirmDeposit = async () => {
     if (!sheet) return;
     setSBusy(true); setSErr(null);
-    try { setSDone(demo ? (await new Promise((r) => setTimeout(r, 500)), `0x${"cd".repeat(32)}` as Hex) : await sheet.run()); if (!demo) void load(); }
+    try { const h = demo ? (await new Promise((r) => setTimeout(r, 500)), `0x${"cd".repeat(32)}` as Hex) : await sheet.run(); console.warn("[disciple] referral deposit: sent", { txHash: h }); setSDone(h); if (!demo) void load(); }
     catch (e) { setSErr(claimErrorText(e)); } finally { setSBusy(false); }
   };
 
@@ -181,7 +182,7 @@ export default function ProfileClaims() {
           {gate.escrows.length ? (
             <ul className="cl-escrows">
               {gate.escrows.map((e) => (
-                <li key={e.id}><Money raw={e.amount} asset={gate.usdg} /><span className={unlocked(e, nowSec) ? "cl-ok" : "muted"}>{unlockLabel(e.unlockAt, nowSec)}</span></li>
+                <li key={e.id}><span className="cl-rw-usd" data-testid="deposit-usd">{usdLabel(e.amount, gate.usdg)}</span><span className={unlocked(e, nowSec) ? "cl-ok" : "muted"}>{unlockLabel(e.unlockAt, nowSec)}</span></li>
               ))}
             </ul>
           ) : <p className="muted">No deposits held.</p>}
@@ -190,14 +191,14 @@ export default function ProfileClaims() {
               const need = depositNeeded(gate)!;
               return (
                 <button type="button" className="cl-btn primary" disabled={gate.balance < need} data-testid="deposit-btn"
-                  onClick={() => openDeposit({ title: "Lock your referrer", label: "Approve & deposit", lines: [{ label: "Deposit", raw: need, asset: gate.usdg }],
+                  onClick={() => openDeposit({ title: "Lock your referrer", label: "Approve & deposit", lines: [{ label: "Deposit", usd: usdLabel(need, gate.usdg) }],
                     note: `Held ${Math.round(gate.lockSec / 86400)} days in escrow, then withdraw it here.`, run: async () => (await deposit(pc(), me!, need)).txHash })}>
                   {gate.balance < need ? `Need ${gate.usdg.symbol} to deposit` : "Deposit to qualify"}
                 </button>
               );
             })()}
             <button type="button" className="cl-btn ghost" disabled={!gate.escrows.some((e) => unlocked(e, nowSec))}
-              onClick={() => { const ok = gate.escrows.filter((e) => unlocked(e, nowSec)); openDeposit({ title: "Withdraw deposit", label: "Withdraw", lines: ok.map((e) => ({ label: `Deposit #${e.id}`, raw: e.amount, asset: gate.usdg })), run: async () => { await preflight(pc(), [withdrawCall(ok.map((e) => e.id))], me!); return (await withdraw(ok)).txHash; }, note: "Only unlocked deposits are withdrawn." }); }}>
+              onClick={() => { const ok = gate.escrows.filter((e) => unlocked(e, nowSec)); openDeposit({ title: "Withdraw deposit", label: "Withdraw", lines: ok.map((e) => ({ label: `Deposit #${e.id}`, usd: usdLabel(e.amount, gate.usdg) })), run: async () => { await preflight(pc(), [withdrawCall(ok.map((e) => e.id))], me!); return (await withdraw(ok)).txHash; }, note: "Only unlocked deposits are withdrawn." }); }}>
               Withdraw unlocked
             </button>
           </div>
@@ -224,7 +225,23 @@ export default function ProfileClaims() {
           </div>
         </div>
       )}
-      {sheet && <ConfirmSheet title={sheet.title} lines={sheet.lines} to={me ?? null} note={sheet.note} busy={sBusy} error={sErr} done={sDone} confirmLabel={sheet.label ?? "Confirm claim"} onConfirm={confirmDeposit} onClose={() => setSheet(null)} />}
+      {sheet && (
+        <div className="cl-sheet-wrap" role="dialog" aria-modal="true" aria-label={sheet.title} data-testid="deposit-confirm">
+          <div className="cl-sheet">
+            <div className="cl-eyebrow">{sDone ? "Done" : "Confirm"}</div>
+            <h3 className="cl-display">{sheet.title}</h3>
+            <ul className="cl-lines">
+              {sheet.lines.map((l, i) => <li key={i}><span className="muted">{l.label}</span><span className="cl-rw-usd">{l.usd}</span></li>)}
+            </ul>
+            {sheet.note && !sDone && <p className="cl-note">{sheet.note}</p>}
+            {sErr && <p className="cl-err" role="alert">{sErr}</p>}
+            <div className="cl-actions">
+              <button type="button" className="cl-btn ghost" onClick={() => setSheet(null)}>{sDone ? "Close" : "Cancel"}</button>
+              {!sDone && <button type="button" className="cl-btn primary" disabled={sBusy} onClick={confirmDeposit}>{sBusy ? "Sending…" : sheet.label ?? "Confirm"}</button>}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

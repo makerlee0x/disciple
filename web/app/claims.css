@@ -183,3 +183,4 @@
 .cl-rw-deposit { margin-top: 14px; }
 @media (max-width: 860px) { .cl-rw { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .cl-rw-total .cl-btn { align-self: stretch; } }
+.cl-rw-usd { font-weight: 700; font-variant-numeric: tabular-nums; }
