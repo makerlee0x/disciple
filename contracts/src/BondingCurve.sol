@@ -285,11 +285,10 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         return (tokensSold * Constants.BPS_DENOM) / _params.sCurve;
     }
 
-    /// @notice Current sniper tax in bps (99% → 0 linearly over 77s after launch; all modes; First BOOST exempt).
+    /// @notice Current sniper tax in bps (99% at launch → 25% at 1s → 3% at 2s → … → 0 from 7s; per-second table
+    ///         FeeMath.snipeBps; all modes; First BOOST exempt).
     function currentSnipeFeeBps() public view returns (uint256) {
-        uint256 e = block.timestamp - launchTime;
-        if (e >= Constants.ANTI_SNIPE_DURATION) return 0;
-        return Constants.ANTI_SNIPE_START_BPS - (Constants.ANTI_SNIPE_START_BPS * e) / Constants.ANTI_SNIPE_DURATION;
+        return FeeMath.snipeBps(block.timestamp - launchTime);
     }
 
     /// @notice Exact preview of `buy(quoteIn, ...)` at the current block (incl. 1% fee, creator tax, sniper tax).
@@ -336,7 +335,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     function _quoteBuyRaw(uint256 quoteIn, bool snipeExempt, uint256 cap) internal view returns (BuyQuote memory q) {
-        // Sniper tax (mode rules v2): inline, no external call; 0 after 77s.
+        // Sniper tax (mode rules v2): inline, no external call; 0 from 7s.
         if (!snipeExempt) q.snipeFee = (quoteIn * currentSnipeFeeBps()) / Constants.BPS_DENOM;
         uint256 afterSnipe = quoteIn - q.snipeFee;
         uint256 protoFee = FeeMath.protocolFee(afterSnipe);
