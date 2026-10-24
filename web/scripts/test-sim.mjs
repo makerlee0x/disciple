@@ -20,8 +20,9 @@ const { pointsFor, pointsEarned, computePreview } = mods["trampwalls/adapter"];
 const { TRAMP_WALL_POINTS_PER_USD } = mods["config"];
 const MIN = +(process.argv[2] || 10), N = +(process.argv[3] || 12);
 let fail = 0; const bad = (m) => { fail++; console.error("FAIL " + m); };
-// the 99% → 0 sniper tax runs ANTI_SNIPE_DURATION (77 s): "after the tax" = AS + 1 s
+// the sniper tax is a per-second table (99% in second 0 … 0.03% in second 6), 0 from 7s (ANTI_SNIPE_DURATION): "after the tax" = AS + 1 = 8 s
 const AS = LAUNCH.antiSnipeDurationS, AFTER = AS + 1;
+if (AFTER !== 8 || LAUNCH.antiSnipeBpsBySec.length !== AS) bad(`sniper tax window ${AS} s / table ${LAUNCH.antiSnipeBpsBySec.length} entries (want 7 / 7: AFTER = 8 s)`);
 const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e * Math.max(1, Math.abs(a), Math.abs(b));
 
 // ---- curve mirrors the contracts ----

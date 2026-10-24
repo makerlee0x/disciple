@@ -2054,7 +2054,7 @@ function HOOK(type,detail){ const h=window.__flightHook; if(h) try{ h(type,detai
    Model (float copy of CurveMath.sol steep curve #1 / lib/sim/market.ts):
    - pre-grad (mcap < $33,333): m(g) = M0/(1 − a·g)² + T·g³⁰, g = sold/sCurve, a = 1 − √(M0/MID), T = M1 − MID.
      Reserve R(g) = f·M0·g/(1 − a·g) + f·T·g³¹/31 (f = 84.24%); quote needed = [R(g(M1)) − R(g(M))] / (1 − 1% fee)
-     (exact for the curve, ignores the 77 s anti-snipe tax). The steep tail makes the last tiers before graduation dearer.
+     (exact for the curve, ignores the sniper tax: buys only, 99% in second 0, stepping down, 0 from 7s, so it is gone before anyone reads the bar). The steep tail makes the last tiers before graduation dearer.
    - post-grad: constant-product pool seeded at the curve-end price with Y = 15.76% of supply (~$5.25K USDG pairing)
      ⇒ X(M) = X_grad·√(M/33,333); needed = [X(M1) − X(M)] / (1 − fee)  (CPAMM approximation, no other flow; the
      locked floor bands sit below spot, so they slow sells, not buys).

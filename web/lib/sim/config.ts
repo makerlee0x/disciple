@@ -17,7 +17,11 @@ export interface LaunchParams {
   /** steep curve #1: the CP part reaches this mcap at the curve end; the g^30 tail adds the rest (Constants.CURVE_MID_MCAP_USD) */
   curveMidMcapUsd: number;
   /** 0 = no wallet cap (live Launchpad default, Constants.WALLET_CAP_BPS_DEFAULT) */
-  walletCapBps: number; antiSnipeStartBps: number; antiSnipeDurationS: number; antiSnipeBpsBySec: readonly number[]; quotePriceUsd: number;
+  walletCapBps: number;
+  /** sniper tax (buys only, curve only) = FeeMath.snipeBps: antiSnipeBpsBySec[floor(t)] for t < antiSnipeDurationS (7 s), 0 after.
+   *  antiSnipeStartBps = table[0] (99%); the table is Constants.ANTI_SNIPE_TABLE (99 · 25 · 3 · 1 · 0.3 · 0.1 · 0.03 %). */
+  antiSnipeStartBps: number; antiSnipeDurationS: number; antiSnipeBpsBySec: readonly number[];
+  quotePriceUsd: number;
   /** post-grad pool: the same 1% DISCIPLE fee (hook) */
   poolFeeBps: number;
   /** TrampWallManager.keeperTipBps (0.1%): paid to whoever pulls a filled tramp/wall */
@@ -32,8 +36,8 @@ export const LAUNCH: LaunchParams = {
   tradeFeeBps: Number(TRADE_FEE_BPS),                     // TRADE_FEE_BPS (1%)
   creatorTaxBps: 0,                                       // CREATOR_TAX_DEFAULT_BPS
   walletCapBps: CURVE.walletCapDefaultBps,                // WALLET_CAP_BPS_DEFAULT (0 = no cap)
-  antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 99% at t=0 …
-  antiSnipeDurationS: CURVE.antiSnipeWindowSec,           // … 0 from ANTI_SNIPE_DURATION = 7s (buys only)
+  antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 99% in second 0 (= table[0]) …
+  antiSnipeDurationS: CURVE.antiSnipeWindowSec,           // … stepping down each second, 0 from 7s (ANTI_SNIPE_DURATION) (buys only; was 77 s linear)
   antiSnipeBpsBySec: [...CURVE.antiSnipeBpsBySec],       // ANTI_SNIPE_TABLE: 99 · 25 · 3 · 1 · 0.3 · 0.1 · 0.03 % per second
   quotePriceUsd: 1,                                       // quote = USD stable in the sim
   poolFeeBps: Number(TRADE_FEE_BPS),
@@ -146,7 +150,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     label: "PvE", tag: "CREW", color: "#8ff0c0",
     blurb: "Your crew helps the rocket climb. Bots buy dips at support and take modest profits at resistance. Low volatility, steady growth, an occasional small sell.",
     initial: { crew: 20, diamond: 5, scalper: 4, paperhand: 3 }, arrivalsPerMin: 10, mix: { crew: 0.55, diamond: 0.2, paperhand: 0.13, scalper: 0.12 },
-    activity: 5.5, size: 1.37, maxBots: 90, hypeSigma: 0.12,   // size: pre-#127 1.9 × ~0.72, calibrated on steep curve #1 to the #127-base PvE graduation (12/12, ~166 s)
+    activity: 5.5, size: 1.2, maxBots: 90, hypeSigma: 0.12,   // size: pre-#127 1.9 × ~0.63; 1.37 under the 77 s tax, recalibrated for the 7 s table (bots trade full size from ~7 s, not 77 s): 12/12, ~145 s, best p10
     startS: [0.3, 1.4], tradeScale: 0.25, takeProfit: 0.055,
     waves: { everyS: [12, 28], durS: [4, 9], sellBoost: 0.42, buyCut: 0.1 },
     adapt: { reactS: [2.5, 4.5], windowS: 20, pumpFrac: 0.03, dumpFrac: 0.02, ride: 0.06, dumpOn: 0.03, pile: 0, tpRide: 0.3, dipBuy: 0.5, budgetPerMin: 0.05, maxReactors: 2 },
@@ -157,7 +161,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     blurb: "Pump-and-dump traders maximise their own PnL: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high mcap is still possible.",
     initial: { momentum: 5, scalper: 5, paperhand: 4, whale: 1, crew: 3 }, arrivalsPerMin: 6,
     mix: { momentum: 0.26, scalper: 0.22, paperhand: 0.2, whale: 0.07, diamond: 0.13, crew: 0.12 },
-    activity: 2.4, size: 0.58, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.8 × ~0.73, calibrated to the #127-base PvP graduation (12/12, ~218 s)
+    activity: 2.4, size: 0.5, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.8 × ~0.63; 0.58 under the 77 s tax, recalibrated for the 7 s table to the #127-base PvP graduation (12/12, ~196–218 s)
     startS: [0.3, 1.5], tradeScale: 0.55, takeProfit: 0.06,
     adapt: { reactS: [1.2, 2.4], windowS: 20, pumpFrac: 0.025, dumpFrac: 0.02, ride: 0.35, dumpOn: 0.35, pile: 0.3, tpRide: 0.14, dipBuy: 0.2, budgetPerMin: 0.14, maxReactors: 5 },
     orders: { rate: 0.06, maxPerBot: 1, maxTotal: 14, sizeFrac: [0.08, 0.25], undercut: 0.35, stack: 0.1, exitInto: 0.3, keeperS: [1, 3] },
@@ -167,11 +171,13 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: altitude is possible, but hard.",
     initial: { sniper: 4, bundler: 6, rugger: 1, cto: 1, momentum: 2, scalper: 2, paperhand: 3, whale: 1 }, arrivalsPerMin: 4,
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
-    activity: 2.4, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76, calibrated to the #127-base TRENCH graduation (10/12, ~264 s)
+    activity: 2.4, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76 (unchanged for the 7 s table: graduation rate holds, 32/48 seeds either way; the launch
+    // wallets now buy at ~7 s instead of ~77 s, so TRENCH graduates/rugs ~70 s earlier by design)
     startS: [0.3, 1.5], tradeScale: 0.65, takeProfit: 0.05,
-    // dev buys the first block after the 77 s sniper tax, so the rug window opens ~30 s after that; it is tempted at ~$15K
+    // dev buys the first block after the 7 s sniper tax (~7.5 s), so the rug window opens ~30 s after that, at 40 s, and closes
+    // 70 s earlier than under the old 77 s tax (300 s, was 110–370 s); it is tempted at ~$15K
     // (4.6× the $3,333 launch: the same $ level as the old 2.2× of $7K, now ~46% of the way to $33,333)
-    rug: { chance: 0.85, earliestS: 110, latestS: 370, minMcap: 4.6, ctoChance: 0.6, ctoDelayS: [20, 70], ctoArrivalBoost: 2.5 },
+    rug: { chance: 0.85, earliestS: 40, latestS: 300, minMcap: 4.6, ctoChance: 0.6, ctoDelayS: [20, 70], ctoArrivalBoost: 2.5 },
     adapt: { reactS: [0.6, 1.4], windowS: 20, pumpFrac: 0.02, dumpFrac: 0.015, ride: 0.55, dumpOn: 0.6, pile: 0.5, tpRide: 0.1, dipBuy: 0.08, budgetPerMin: 0.22, maxReactors: 8 },
     orders: { rate: 0.07, maxPerBot: 2, maxTotal: 18, sizeFrac: [0.1, 0.3], undercut: 0.6, stack: 0, exitInto: 0.55, keeperS: [0.6, 2] },
   },
