@@ -106,7 +106,7 @@ const I = await import(pathToFileURL(path.join(tmp, "i18n.mjs")).href);
   ok(dup.sfx.on === false && dup.sfx.vol === 1 && dup.lang === "en", "sanitize: volume clamped 0..1, unknown language → en");
   ok(G.audioLevel("sfx", dup) === 0 && G.audioLevel("music", d) === 0.5, "audioLevel: 0 when muted, else the volume");
   ok(["Digit1", "KeyZ", "Numpad3"].map(G.keyLabel).join() === "1,Z,Num3", "keyLabel"); }
-{ const en = Object.keys(I.DICTS.en);
+{ const en = Object.keys(I.DICTS.en).filter((k) => !(I.ENGLISH_ONLY || []).includes(k));   // ENGLISH_ONLY: copy pending BRAND (falls back to English)
   ok(I.LOCALES.map((l) => l.id).join() === "en,zh,ko,ja,es" && I.LOCALES.map((l) => l.label).join() === "English,中文,한국어,日本語,Español", "locales: English, 中文, 한국어, 日本語, Español");
   for (const id of ["zh", "ko", "ja", "es"]) { const k = Object.keys(I.DICTS[id]); ok(k.every((x) => en.includes(x)) && k.length >= en.length - 3, `${id}: ${k.length}/${en.length} HUD strings drafted, no unknown keys, marked ${I.REVIEW_STATUS[id]}`); }
   ok(I.translate("zh", "pnl.mcap") === "市值" && I.translate("es", "tb.boost") === "BOOST" && I.translate("ja", "ctl.shot", { shot: "$5" }).includes("$5"), "translate: locale string, English fallback, {vars}");

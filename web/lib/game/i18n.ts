@@ -99,6 +99,8 @@ const en = {
   "exitc.leave": "Leave",
 } as const;
 export type I18nKey = keyof typeof en;
+/** Keys that ship English-only on purpose (copy pending BRAND, then native review): other locales fall back to English. */
+export const ENGLISH_ONLY: readonly I18nKey[] = ["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"];
 type Dict = Partial<Record<I18nKey, string>>;
 
 // NEEDS_REVIEW (BRAND + native speaker): draft translations below.

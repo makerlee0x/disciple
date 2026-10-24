@@ -52,6 +52,7 @@ ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"].every((k) => !/!/.
 const rest = i18n.slice(i18n.indexOf("} as const;"));
 ok(!/"exitc\./.test(rest), "zh / ko / ja / es carry no exitc.* yet (fall back to English via translate())");
 ok((rest.match(/NEEDS_REVIEW: exitc\.\*/g) || []).length === 4, "each non-English locale is marked NEEDS_REVIEW for exitc.*");
+ok(/ENGLISH_ONLY: readonly I18nKey\[\] = \["exitc\.title", "exitc\.body", "exitc\.stay", "exitc\.leave"\]/.test(i18n), "exitc.* listed in ENGLISH_ONLY (translation-coverage check in test:hotkeys skips them)");
 ok(/DICTS\[lang\]\?\.\[key\] \?\? en\[key\]/.test(i18n), "translate() falls back to English per key");
 const comp = rd("components/flight/ExitConfirm.tsx");
 ok(!/(Leave the mission|mission continues|"Stay"|"Leave")/.test(comp.replace(/^\s*\*.*$/gm, "")), "component has no hardcoded copy (one-line swap in i18n)");
