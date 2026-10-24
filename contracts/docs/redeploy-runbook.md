@@ -50,7 +50,13 @@ alone: the AnonLauncher cap fix (2f55717a) and the 6-dec `Trade.fee` fix (06d46f
 5. Simulation against the live RPC, no broadcast: `./script/redeploy/redeploy.sh` (writes `deployments/rh-testnet-46630.dry-run.json`).
 6. Deployer `0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5` balance ≥ 0.05 ETH (0.27 ETH on 2026-10-24; core deploy ≈ 40.2M gas,
    at 0.01 gwei ≈ 0.0004 ETH + L1 data; paymaster deposit/stake extra).
-7. Confirm env with lee: `TREASURY`, `REWARDS_VAULT_OWNER`, `PVE_ATTESTER` (must match the key SITE signs logins with), `REFERRAL_SINK` (default 0).
+7. **LEE DECISION 2026-10-24 1:17 PM CT (testnet env; lee signs no transactions).** `TREASURY` unset (defaults to deployer),
+   `REWARDS_VAULT_OWNER` unset (deployer stays owner; **skip step 5a**), `REFERRAL_SINK` unset/0 (referrer/KOL routing),
+   `PVE_ATTESTER` = SITE's login-signer address (SITE supplies it; the only required input). Paymaster: `PAYMASTER_OWNER` =
+   `PAYMASTER_TREASURY` = deployer, `PAYMASTER_SIGNER` = **same address as `PVE_ATTESTER`** (lee: "Reuse the site's existing
+   login-signer key as the paymaster signer on testnet"), so Vercel `PAYMASTER_SIGNER_KEY` = SITE's existing login-signer key,
+   no new secret. `PAYMASTER_MAX_COST_USDG=2`, no stake (item 12 (a)). All changeable later by the deployer (owner) on lee's OK:
+   `setTreasury`, `setReferralSink`, paymaster `setSigner`/`setTreasury`/`setBounds`, `transferOwnership`.
 8. `cfg` lines in the deploy log must read: USDG decimals 6, CURVE_SOLD_BPS 8424, START 3333, GRADUATION 33333,
    ANTI_SNIPE 9900 / 7 s (table 9900·2500·300·100·30·10·3, 0 from 7 s), MAX_FLOOR_BANDS 16, referralSink 0x0.
 9. **Deploy tree has #131's AUDIT fixes** (AUDIT round 2 on #127): `git merge-base --is-ancestor 2f55717a HEAD && git merge-base --is-ancestor 06d46f16 HEAD`
@@ -71,7 +77,7 @@ alone: the AnonLauncher cap fix (2f55717a) and the 6-dec `Trade.fee` fix (06d46f
    only accepts it if the paymaster is **staked**. We self-relay (`selfBundler` / `fastRelay` call `handleOps` directly; no public
    bundler), and the EntryPoint itself never checks stake, so **stake is not needed for our path**. Options: (a) leave
    `PAYMASTER_STAKE_WEI` unset — `DeployPaymaster.s.sol` then skips `addStake` (default; recommended while we self-relay); (b) set
-   it (owner broadcast, 1-day unstake delay) only if we ever route ops through a public bundler. lee: ☐ (a) no stake ☐ (b) stake ___ ETH.
+   it (owner broadcast, 1-day unstake delay) only if we ever route ops through a public bundler. lee: ☑ (a) no stake (PM-relayed, to confirm with the deploy GO) ☐ (b) stake ___ ETH.
 
 ## 3. Core deploy
 
@@ -97,7 +103,7 @@ From merged main (`contracts/`), with the new addresses:
 
 ```bash
 set -a; . /workspace/anypair/.secrets/testnet-deployer.env; set +a
-USDG=<new USDG> PAYMASTER_OWNER=<lee/ops> PAYMASTER_SIGNER=<address of PAYMASTER_SIGNER_KEY> PAYMASTER_TREASURY=<treasury> \
+USDG=<new USDG> PAYMASTER_OWNER=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5 PAYMASTER_SIGNER=$PVE_ATTESTER PAYMASTER_TREASURY=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5 \   # testnet deployer (public addr); LEE DECISION 1:17 PM CT
 PAYMASTER_MIN_RATE=1000000000 PAYMASTER_MAX_RATE=10000000000 \   # USDG raw (6 dec) per ETH: $1,000–$10,000
 PAYMASTER_MAX_COST_USDG=2 \   # WHOLE USDG -> maxCostCap = 2 * 10**decimals (2000000 at 6 dec), LEE DECISION 2026-10-24 11:28 CT
 PAYMASTER_DEPOSIT_WEI=<≥ 348000000000000 per 11M-gas launch> \
@@ -195,7 +201,7 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 | `NEXT_PUBLIC_RHT_PAYMASTER` | DisciplePaymaster |
 | `NEXT_PUBLIC_PAYMASTER_URL` | paymaster quote endpoint (see `docs/usdg-paymaster.md`) |
 | `PAYMASTER_ADDRESS` (server) | DisciplePaymaster |
-| `PAYMASTER_SIGNER_KEY` (server, secret) | key whose address is `PAYMASTER_SIGNER` |
+| `PAYMASTER_SIGNER_KEY` (server, secret) | key whose address is `PAYMASTER_SIGNER`; testnet = SITE's existing login-signer key (same as `PVE_ATTESTER`) |
 | `PAYMASTER_USD_PER_ETH` or `PAYMASTER_RATE`, `PAYMASTER_QUOTE_TTL_SEC`, `PAYMASTER_MAX_SLACK_BPS` (server) | per #106 docs |
 | `PAYMASTER_KEEPER_KEY`, `PAYMASTER_MIN_DEPOSIT_WEI`, `PAYMASTER_TARGET_DEPOSIT_WEI` (keeper) | per #106 docs |
 | `NEXT_PUBLIC_INDEXER_URL` | unchanged unless the indexer moves |
