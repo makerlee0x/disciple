@@ -363,8 +363,10 @@ contract DiscipleSessionPolicyTest is Test {
         acct.execute(address(router), 0, abi.encodeCall(MockRouter.sweep, (attacker)));
     }
 
-    /// Mode rules v2 add-on: launchWithUsdg / claimCreatorFeesToUsdg are deliberately NOT session-key selectors
-    /// (launches and creator-fee claims stay an owner wallet confirm).
+    /// Mode rules v2 add-on (#121), re-scoped by policy 1.4.1 (#146/#148, lee 2026-10-24): claimCreatorFeesToUsdg is
+    /// still NOT a session-key selector (creator-fee claims stay an owner wallet confirm). launchWithUsdg became a
+    /// P_LAUNCH session selector in 1.4.1 (dollar First BOOST; positive cases in SessionPack.t.sol), so a session
+    /// without P_LAUNCH must still be refused.
     function test_v2_usdgLaunchAndCreatorClaimNotSessionSelectors() public {
         bytes4 lw = bytes4(
             keccak256(
@@ -372,6 +374,14 @@ contract DiscipleSessionPolicyTest is Test {
             )
         );
         bytes4 cc = bytes4(keccak256("claimCreatorFeesToUsdg(address,uint256)"));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), cc));
+        acct.execute(address(router), 0, abi.encodeWithSelector(cc, address(rocket), uint256(1)));
+
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 1 hours));
+        c.permissions = ((1 << 10) - 1) & ~policy.P_LAUNCH();
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), lw));
         acct.execute(address(router), 0, abi.encodePacked(lw, new bytes(32 * 8)));
