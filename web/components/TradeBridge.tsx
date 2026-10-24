@@ -9,7 +9,7 @@ import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
-import { OpMarks, blockOfLogs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
+import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
 //   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);   (setTradeClickMark from tradeSpeed)
 import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
@@ -235,7 +235,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         setTimeout(() => void warmRef.current(), 0);
         const ms = tradeMs(t0, { quoteAt, op: marks.byTx(r.txHash), resultAt, fillAt });
         // timing instrumentation (no UI): addEventListener('disciple:op', e => e.detail.phase === 'filled' && console.log(e.detail))
-        dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, txHash: r.txHash, ok: r.ok, usd: fill ? fill.usd : usd, logs: logs ? "returned" : "polled", ms, op: marks.byTx(r.txHash)?.timings, at: performance.now() } }));
+        dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, txHash: r.txHash, ok: r.ok, usd: fill ? fill.usd : usd, logs: logs ? "returned" : "polled", ms, clickToConfirmMs: ms.confirm, hoverMs: boostHoverMs(performance.now() - t0),   /* rocket waited at the 70 % cap (engine @boostanim) */ op: marks.byTx(r.txHash)?.timings, at: performance.now() } }));
         return { ok: r.ok, txHash: r.txHash, reason: r.reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
       } catch (e) {
         const m = (e as Error).message.split("\n")[0].slice(0, 90);
