@@ -25,10 +25,11 @@ import { ENTRYPOINT_V07 } from "../aa/constants";
 import { relayerIsFaucet, relayerKey } from "./relayer";
 import { RelayerKeyPool, poolKey, poolNames, uniquePoolNames } from "./relayerPool";
 import { kv } from "./kv";
-import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
+import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees } from "../aa/gasPolicy";
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, relayCaps } from "./gradBuy";
 import { checkPaymaster, RelayPolicyError } from "../aa/gasPolicy";
+import { bundleGas, BundleGasError } from "../aa/bundleGas";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
@@ -195,6 +196,11 @@ async function sendSync(raw: Hex, onPending?: OnPending) {
   return syncSend(raw, keccak256(raw), { send: SEND, getReceipt: receiptOf, onPending });
 }
 const PLAIN = jsonRpc(RPC_URL);
+/** bundleGas, or a RelayPolicyError (before anything is signed / charged) when the op cannot fit one relay tx. */
+export function relayGas(op: UserOp, data: Hex): bigint {
+  try { return bundleGas(op, data); }
+  catch (e) { if (e instanceof BundleGasError) throw new RelayPolicyError("operation too large to relay", "gas", e.message); throw e; }
+}
 /** Sign a relayer tx; a local signing failure happened before any send ⇒ definitive (the nonce is released). */
 async function signRelayerTx(me: PrivateKeyAccount, tx: { nonce: number; data: Hex; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }): Promise<Hex> {
   try { return await me.signTransaction({ chainId: robinhoodTestnet.id, type: "eip1559", to: ENTRYPOINT_V07, ...tx }); }
@@ -254,6 +260,8 @@ async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, 
   }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const hash = userOpHash(op, robinhoodTestnet.id);   // fixed by the signed op: returned on success AND on post-broadcast errors
+  // outer gas sized for EntryPoint v0.7's 63/64 check (lib/aa/bundleGas; was totalGas + 120k ⇒ AA95 on launches)
+  const gas = relayGas(op, data);
   const fast = allowFast && trusted(op);
   if (!fast) {
     const s = Date.now();
@@ -266,7 +274,6 @@ async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, 
     t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
   await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
-  const gas = totalGas(op) + BigInt(120_000);
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   let txHash: Hex | undefined, relayNonce: number | undefined;
   let r: Awaited<ReturnType<typeof sendSync>>;
