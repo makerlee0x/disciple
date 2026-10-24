@@ -32,16 +32,6 @@ export const CURVE = {
   antiSnipeWindowSec: 77,
 } as const;
 
-/** Sniper tax schedule per curve generation (BUYS only, linear startPct → 0 over windowSec from the curve's launchTime).
- *  steep = steep-curve contracts (Constants.sol ANTI_SNIPE_START_BPS 9900 / ANTI_SNIPE_DURATION 77) = CURVE.antiSnipe*;
- *  v4 = the pre-steep v4 testnet curves (main-branch Constants.sol: 7770 bps / 7 s). Detected per coin: steep curves
- *  expose curveTail(), v4 curves don't (lib/protocol-viem curveParams → tail). Never hardcode the window elsewhere. */
-export const ANTI_SNIPE_SCHEDULES = {
-  steep: { startPct: CURVE.antiSnipeStartPct, windowSec: CURVE.antiSnipeWindowSec },
-  v4: { startPct: 77.7, windowSec: 7 },
-} as const;
-export type CurveGeneration = keyof typeof ANTI_SNIPE_SCHEDULES;
-
 /** 18-tier biblically ascending ladder (constitution LOCKED 2026-10-15) */
 export const TIERS = [
   { name: "LAUNCH PAD", lo: 3_333, hi: 12e3, bg: "tier0" },

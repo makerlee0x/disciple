@@ -7,14 +7,16 @@ import { bondingCurveAbi } from "@/lib/abi";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL } from "@/lib/config";
 import { SHOW_SNIPE_COUNTDOWN } from "@/lib/game/snipeCountdown";
-import { curveOf, publicClient } from "@/lib/protocol-viem";
+import { curveOf, curveParams, publicClient, readCurveState } from "@/lib/protocol-viem";
 import { snipeParamsFor, snipeState, type SnipeState } from "@/lib/snipe";
 
 /**
- * Live coin: SNIPER TAX countdown. One read on mount: the coin's curve → launchTime(), curveTail() (present ⇒ steep
- * schedule, absent ⇒ old v4 schedule; params from lib/config via snipeParamsFor), graduated(), currentSnipeFeeBps()
- * and the latest block time (chain-clock offset). Then a 1 s local tick; while the tax is active currentSnipeFeeBps()
- * (= readCurveState().snipeFeeBps) is re-read every 2 s and wins for the % shown. Nothing is polled once it is over.
+ * Live coin: SNIPER TAX countdown (all math in SITE's lib/snipe.ts).
+ * On mount: the coin's curve → launchTime(), curveParams() (totalSupply / tail → snipeParamsFor: old v4 coins 77.7%/7 s,
+ * steep coins 99%/77 s, from lib/snipe + lib/config, never hardcoded here), the readCurveState() snapshot (graduated,
+ * snipeFeeBps) and the latest block time (chain-clock offset). Then a 1 s local tick for the countdown; while the tax is
+ * active the snapshot is re-read every 2 s and snapshot.snipeFeeBps is passed as liveFeeBps (wins for the %).
+ * Nothing is polled once the tax is over, after graduation, or for non-curve coins.
  */
 export default function SnipeCountdown({ token }: { token: string }) {
   const [state, setState] = useState<SnipeState | null>(null);
@@ -24,26 +26,29 @@ export default function SnipeCountdown({ token }: { token: string }) {
     const stop = () => { window.clearInterval(tick); window.clearInterval(poll); };
     (async () => {
       const pc = publicClient();
-      const curve = await curveOf(pc, token as Address);
-      const c = { address: curve, abi: bondingCurveAbi } as const;
-      const [launch, tail, graduated, fee, block] = await Promise.all([
-        pc.readContract({ ...c, functionName: "launchTime" }),
-        pc.readContract({ ...c, functionName: "curveTail" }).catch(() => null),   // pre-steep (v4) curves have no curveTail()
-        pc.readContract({ ...c, functionName: "graduated" }),
-        pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }).catch(() => null),
+      const coin = token as Address;
+      const curve = await curveOf(pc, coin);
+      const [launch, params, snap, block] = await Promise.all([
+        pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "launchTime" }),
+        curveParams(pc, curve),
+        readCurveState(pc, coin),
         pc.getBlock({ blockTag: "latest" }),
       ]);
-      if (!alive || graduated) return;   // the tax applies to curve buys only
-      const params = snipeParamsFor({ curveTail: tail == null ? 0 : tail });
+      if (!alive || snap.graduated) return;   // the tax applies to curve buys only
+      const sched = snipeParamsFor(params);
       const launchTs = Number(launch);
       const offset = Number(block.timestamp) - Date.now() / 1000;   // follow the chain clock, not the device clock
-      let liveFeeBps: number | null = fee == null ? null : Number(fee);
-      const now = () => Date.now() / 1000 + offset;
-      const step = () => { const s = snipeState({ launchTs, nowSec: now(), ...params, liveFeeBps }); if (alive) setState(s); if (!s.active) stop(); return s.active; };
+      let liveFeeBps: number | null = snap.snipeFeeBps ?? null;
+      const step = () => {
+        const s = snipeState({ launchTs, nowSec: Date.now() / 1000 + offset, ...sched, liveFeeBps });
+        if (alive) setState(s);
+        if (!s.active) stop();
+        return s.active;
+      };
       if (!step()) return;
       tick = window.setInterval(step, 1000);
       poll = window.setInterval(() => {
-        pc.readContract({ ...c, functionName: "currentSnipeFeeBps" }).then((v) => { liveFeeBps = Number(v); step(); }).catch(() => { /* keep the last value */ });
+        readCurveState(pc, coin).then((st) => { if (st.graduated) liveFeeBps = 0; else liveFeeBps = st.snipeFeeBps ?? liveFeeBps; step(); }).catch(() => { /* keep the last value */ });
       }, 2000);
     })().catch(() => { /* not a DISCIPLE curve / RPC down: no chip */ });
     return () => { alive = false; stop(); };
