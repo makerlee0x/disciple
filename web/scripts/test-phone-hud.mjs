@@ -43,7 +43,7 @@ ok(/R\.x=bx; R\.y=y1; R\.w=cw; R\.h=rh;/.test(eng) && /AMMO_HIT\[6\+k\]; R\.x=bx
 // 4) wiring
 ok(/const GLOBALS = \[[^\]]*"__phoneHud"/.test(wb), "worker renderer mirrors window.__phoneHud");
 ok(/<PhoneHud \/>/.test(fc) && /data-testid="flight-pills"/.test(fc), "FlightCanvas mounts PhoneHud + tags the pill row");
-ok(/addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl) && /const setOpen = \(f[^\n]*isPhone\(\)[^\n]*disciple:phonesheet-req/.test(pnl) && /className="pnl-sub"/.test(pnl), "PnlHud: strip ↔ RUN sheet");
+ok(/addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl) && /const setOpen = \(f[^\n]*isPhone\(\)[^\n]*disciple:phonesheet-req/.test(pnl) && /\.pnl-hud > button \+ div \+ div \{ display: none/.test(hud), "PnlHud: strip ↔ RUN sheet");
 ok(/html\.ap-phone \[data-testid="trade-bar"\]/.test(hud) && !/trade-bar[^\n]*display: none/.test(hud), "trade bar: layout-only CSS, never hidden");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
 console.log(`phone-hud: ${n} checks passed`);

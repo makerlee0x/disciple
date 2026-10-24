@@ -179,12 +179,12 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
       {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it depends on how far the
           mcap moved since YOUR entry, not on the share of supply held. E.g. holdings $1.35K at $8.8K MCAP with avg entry MC
           ≈$7.27K (curve starts at $7K) ⇒ +21%; see docs in lib/pnl.ts. */}
-      <div className="pnl-hero" style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
+      <div style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
         <Num value={v.uPnl} fmt={usd} style={{ fontSize: 22, fontWeight: 800, color: col(v.uPnl), textShadow: glow(col(v.uPnl)), letterSpacing: "-.02em" }} />
         <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
           background: v.pnlPct > 0.005 ? "rgba(143,240,192,.13)" : v.pnlPct < -0.005 ? "rgba(255,159,184,.13)" : "rgba(255,255,255,.07)" }} />
       </div>
-      <div className="pnl-sub" style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
+      <div style={label}>{t("pnl.unrealized")}{feeNote > 0 && <span data-testid="pnl-buy-fees" style={{ opacity: 0.8 }}> · {t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</span>}</div>
 
       {open && (
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>

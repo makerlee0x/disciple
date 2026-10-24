@@ -146,13 +146,13 @@ export default function PhoneHud() {
         html.ap-phone[data-ph-sheet="status"] [data-testid="flight-pills"] {
           display: flex !important; left: calc(var(--ph-sx) + 8px) !important; top: calc(var(--ph-sy) + 100px) !important; bottom: auto !important; transform: none !important;
         }
-        /* YOUR RUN: one-line strip above the trade bar; the RUN sheet shows the full card */
+        /* YOUR RUN (PnlHud: header button, hero row, UNREALIZED label, details): one-line strip above the trade bar; the RUN sheet shows the full card */
         html.ap-phone .pnl-hud { left: var(--ph-sx) !important; right: var(--ph-sx) !important; width: auto !important; top: auto !important; bottom: var(--ph-pnl-bottom) !important; }
         html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud { display: flex; align-items: center; gap: 8px; height: ${PNL_H}px; box-sizing: border-box; padding: 0 10px !important; overflow: hidden; }
         html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud > button:first-of-type { width: auto !important; flex: 1 1 auto; min-width: 0; font-size: 10px; }
-        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-hero { margin-top: 0 !important; gap: 6px !important; }
-        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-hero > span:first-child { font-size: 15px !important; }
-        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-sub { display: none !important; }
+        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud > button + div { margin-top: 0 !important; gap: 6px !important; }
+        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud > button + div > span:first-child { font-size: 15px !important; }
+        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud > button + div + div { display: none !important; }
         html.ap-phone[data-ph-sheet="run"] .pnl-hud { top: var(--ph-sy) !important; bottom: auto !important; right: auto !important; width: var(--ph-sw) !important; max-height: var(--ph-sh); overflow: auto; z-index: 32 !important; }
         /* trade bar: layout only (TradeBridge.tsx untouched) — full width, BOOST / DUMP on their own row, inputs + LIVE/pos below */
         html.ap-phone [data-testid="trade-bar"] { left: var(--ph-sx) !important; right: var(--ph-sx) !important; transform: none !important; bottom: 8px !important; }
