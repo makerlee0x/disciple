@@ -63,7 +63,7 @@ const T = 1_700_000_000_000;
 {
   const u = fillUsd({ tokenAmt: 1_000n * 10n ** 18n, priceBeforeX18: 100n, priceAfterX18: 100n, mcapAfterUsd: 70_000n * 10n ** 18n });
   ok(near(u.mcapUsd, 70_000) && near(u.priceUsd, 0.07) && near(u.usd, 70), `fillUsd flat ${JSON.stringify(u)}`);
-  const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50n, priceAfterX18: 100n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
+  const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50_000_000n, priceAfterX18: 100_000_000n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
   ok(near(v.usd, 0.75), `fillUsd mid ${v.usd}`);
   // 6-dec USDG: priceX18 floored to single digits ⇒ the mid factor is noise and is NOT applied (FLOW #115)
   const w = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 1n, priceAfterX18: 2n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
