@@ -61,6 +61,8 @@
     "test:player-errors": "tsx --conditions=react-server --test scripts/test-player-errors.mts",
     "test:relay-op": "tsx --conditions=react-server --test scripts/test-relay-op.mts",
     "test:mcap": "tsx --conditions=react-server --test scripts/test-mcap.mts",
+    "test:live-retest": "tsx --conditions=react-server --test scripts/test-live-retest.mts",
+    "test:fill-book": "tsx --conditions=react-server --test scripts/test-fill-book.mts",
     "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:usdg-decimals": "tsx --test scripts/test-usdg-decimals.mts",
     "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts"

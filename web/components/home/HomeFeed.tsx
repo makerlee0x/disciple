@@ -116,7 +116,7 @@ function liveRocket(x: HomeCoin): Rocket {
   return {
     id: x.token, name: x.name, tk: x.ticker, live: true, mcap: x.mcapUsd, chg: s?.chg24 ?? null, c: "#E8EAEE",
     icon: /^https?:|^data:|^\//.test(x.icon) ? x.icon : undefined,
-    pair: x.pair, pairSym: x.pairSym, creator: x.creator, graduated: x.graduated, born: x.block,
+    pair: x.pair, pairSym: x.pairSym, creator: x.creator, graduated: x.graduated, gradPct: x.gradPct ?? null, born: x.block,
     stats: {
       volume24hUsd: s?.vol24 ?? 0,
       ageHours: x.launchedAt ? Math.max(0, (Date.now() - x.launchedAt) / 36e5) : 0,

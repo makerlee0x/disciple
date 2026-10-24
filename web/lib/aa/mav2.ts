@@ -54,7 +54,15 @@ const BUNDLER_METHODS = [
  * minimum via rundler_maxPriorityFeePerGas (+10% headroom, the precheck floor moves with the base fee).
  */
 /** UserOp lifecycle → window "disciple:op" (optimistic UI + latency marks). No-op outside the browser. */
-export type OpPhase = { phase: "submitted" | "confirmed"; userOpHash: Hex; txHash?: Hex; timings?: unknown };
+/** confirmed.blockNumber: the receipt's block as the relay returned it (lib/fillBook pins post-fill reads at ≥ it; SITE #137). */
+export type OpPhase = { phase: "submitted" | "confirmed"; userOpHash: Hex; txHash?: Hex; timings?: unknown; blockNumber?: string };
+/** The receipt block from a returned receipt / its logs (hex, decimal or bigint) as a decimal string; undefined if absent. */
+function blockStr(...vs: unknown[]): string | undefined {
+  for (const v of vs) {
+    try { if (typeof v === "bigint") return v.toString(); if (typeof v === "number" && Number.isFinite(v)) return String(Math.floor(v)); if (typeof v === "string" && /^(0x[0-9a-fA-F]+|[0-9]+)$/.test(v)) return BigInt(v).toString(); } catch { /* next */ }
+  }
+  return undefined;
+}
 function opPhase(d: OpPhase) { if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("disciple:op", { detail: { ...d, at: performance.now() } })); }
 
 type FeeClient = { request: (a: { method: string; params?: unknown[] }) => Promise<Hex>; estimateFeesPerGas: () => Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint }> };
@@ -301,7 +309,7 @@ export class Mav2Account {
           logTradeError("trade reverted", { userOpHash, txHash, revertData });
           throw new AAError("Reverted", REJECTED_MSG, { userOpHash, txHash, revertData });
         }
-        opPhase({ phase: "confirmed", userOpHash, txHash, timings });
+        opPhase({ phase: "confirmed", userOpHash, txHash, timings, blockNumber: blockStr(...logs.map((l) => (l as { blockNumber?: unknown }).blockNumber)) });
         this.deployed = true;
         return { userOpHash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
       }
@@ -342,7 +350,7 @@ export class Mav2Account {
     const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
-    opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings });
+    opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings, blockNumber: blockStr((rc?.receipt as { blockNumber?: unknown } | undefined)?.blockNumber) });
     this.deployed = true;
     return { userOpHash: req.hash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
   }

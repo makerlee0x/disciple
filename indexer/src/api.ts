@@ -3,7 +3,7 @@ import type { Address, PublicClient } from "viem";
 import { READS } from "./abi.js";
 import type { Config, Stack } from "./config.js";
 import { dataVersion, type DB } from "./db.js";
-import { candles, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
+import { candles, graduationPct, mcapUsdFromSqrt, mcapUsdWad, priceWadFromSqrt, TOTAL_SUPPLY, virtualQuoteReserve, wad } from "./math.js";
 
 /**
  * Quote-amount sums are scaled by each coin's coins.quote_decimals (USDG 6 / 18), never a blanket 1e18; coin-token
@@ -34,7 +34,17 @@ type Live = {
   /** $ per token = mcapUsd / total supply (full precision at any quote decimals). */
   priceUsd: number;
   mcapUsd: number; quoteUsd: number; mcapSource: string; liquidityUsd: number; curveMcapNowUsd?: number;
+  /** 0–100 to graduation (math.graduationPct = curve progressBps), 100 once graduated */
+  graduationPct?: number | null;
 };
+
+/** A coin's graduation % from an mcap on the web/lib/mcap.ts basis, with its own LaunchTierContext start/graduation mcaps. */
+export function coinGraduationPct(coin: any, mcapUsd: number | null | undefined): number | null {
+  if (coin?.graduated) return 100;
+  const m0 = coin?.start_mcap_usd ? wad(BigInt(coin.start_mcap_usd)) : undefined;
+  const m1 = coin?.graduation_mcap_usd ? wad(BigInt(coin.graduation_mcap_usd)) : undefined;
+  return graduationPct(mcapUsd, m0 || undefined, m1 || undefined);
+}
 
 /** A coin's total supply (raw) — coins.total_supply when indexed, else the fixed 7B × 1e18. */
 const supplyOf = (coin: any): bigint => (coin?.total_supply ? BigInt(coin.total_supply) : TOTAL_SUPPLY);
@@ -77,9 +87,11 @@ export class Api {
           const tokenIsC0 = BigInt(coin.token) < BigInt(coin.quote);
           const p = priceWadFromSqrt(sqrtP, tokenIsC0);
           const curveM = (await client.readContract({ address: coin.curve, abi: READS, functionName: "mcapNow" }).catch(() => 0n)) as bigint;
-          const m = wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, qUsd, supplyOf(coin)));
+          // THE mcap (web/lib/mcap.ts): pool sqrtPrice × the coin's LAUNCH quote price × its own supply — the basis of
+          // the site header/cards and the hook's altitude events (was the live QuotePricer ⇒ drifted from them post-grad).
+          const m = wad(mcapUsdFromSqrt(sqrtP, tokenIsC0, launchQ > 0n ? launchQ : qUsd, supplyOf(coin)));
           return {
-            priceWad: p.toString(), priceUsd: m / supplyTokens(coin), mcapUsd: m, quoteUsd: wad(qUsd), mcapSource: "v4-pool",
+            priceWad: p.toString(), priceUsd: m / supplyTokens(coin), mcapUsd: m, quoteUsd: wad(qUsd), mcapSource: "v4-pool", graduationPct: 100,
             liquidityUsd: 2 * wad(virtualQuoteReserve(L, sqrtP, tokenIsC0)) * wad(qUsd),
             curveMcapNowUsd: wad(curveM),
           };
@@ -96,7 +108,7 @@ export class Api {
         client.readContract({ address: coin.curve, abi: READS, functionName: "priceNow" }) as Promise<bigint>,
         client.readContract({ address: coin.curve, abi: READS, functionName: "quoteReserve" }) as Promise<bigint>,
       ]);
-      return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ) };
+      return { priceWad: p.toString(), priceUsd: wad(m) / supplyTokens(coin), mcapUsd: wad(m), quoteUsd: wad(launchQ), mcapSource: "curve", liquidityUsd: 2 * wad(r) * wad(launchQ), graduationPct: coinGraduationPct(coin, wad(m)) };
     });
   }
 
@@ -153,11 +165,13 @@ export class Api {
     if (q.get("creator")) { where.push("c.creator=?"); args.push(q.get("creator")!.toLowerCase()); }
     const order = sort === "volume" ? "volume_usd DESC" : sort === "mcap" ? "last_mcap DESC" : sort === "tier" ? "COALESCE(c.tier,-1) DESC, last_mcap DESC" : "c.launched_block DESC";
     // per-coin aggregates maintained on ingest (coin_stats): no scan over trades per call. Same columns as before.
-    return this.db.prepare(
+    const rows = this.db.prepare(
       `SELECT c.*, COALESCE(s.volume_usd,0) volume_usd, COALESCE(s.trades,0) trades, s.last_mcap last_mcap
        FROM coins c LEFT JOIN coin_stats s ON s.token=c.token ${where.length ? "WHERE " + where.join(" AND ") : ""}
        ORDER BY ${order} LIMIT ?`,
-    ).all(...args, limit);
+    ).all(...args, limit) as any[];
+    // graduation % from the last indexed mcap (same formula as the site cards / curve progressBps)
+    return rows.map((r) => ({ ...r, graduation_pct: coinGraduationPct(r, r.last_mcap == null ? null : Number(r.last_mcap)) }));
   }
 
   trades(where: string, arg: string, q: URLSearchParams) {
