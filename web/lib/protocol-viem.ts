@@ -32,7 +32,7 @@ import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResul
 import { ensurePveLogin, PveError } from "./pve";
 import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
-import { markGradBuy, boundRebuiltMinOut } from "./aa/fastPath";
+import { markGradBuy, boundRebuiltMinOut, newPressId, tagPress } from "./aa/fastPath";
 import { GradHint } from "./trade/gradHint";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
@@ -558,6 +558,7 @@ export function createViemProtocol(): ProtocolClient {
       BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
+      const pressId = t.pressId ?? newPressId();   // GAME reservation id: same on every retry of this press
       const minOut0 = minOut;   // the press's bound: a rebuild never accepts less (boundRebuiltMinOut)
       // Rapid taps: the ONE transient-error retry in mav2.sendCalls re-quotes (fresh minOut) instead of re-sending a
       // quote taken before the preceding in-flight shots moved the curve. Same amountIn/approvals ⇒ same spend + shape.
@@ -572,13 +573,15 @@ export function createViemProtocol(): ProtocolClient {
         } finally { done = addInflight(ik, t.amountIn); }
       };
       try {
-        const r = await execCalls(calls, { rebuild });
-        return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut };
+        const r = await execCalls(calls, { rebuild, pressId });
+        return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut, pressId: r.pressId ?? pressId };
       } finally { done(); dropRouteQuotes(t.token); }
     } catch (e) {
-      if (e instanceof ProtocolError) throw e;
-      if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
-      throw friendlyError(e);
+      // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
+      const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
+      const out = e instanceof ProtocolError ? e : e instanceof PveError ? new ProtocolError(e.code, e.message) : friendlyError(e);
+      if (pid) tagPress(out, pid);
+      throw out;
     }
   }
 
@@ -620,6 +623,7 @@ export function createViemProtocol(): ProtocolClient {
     if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); }
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     let done = addInflight(ik, t.amountIn);
+    const pressId = t.pressId ?? newPressId();   // GAME reservation id
     const minOut0 = minOut;   // the press's bound (boundRebuiltMinOut)
     // Rapid taps: transient-error retry re-quotes (see tradeOnce). Same usdgIn/tokensIn ⇒ same exact approve + shape.
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
@@ -634,8 +638,8 @@ export function createViemProtocol(): ProtocolClient {
       } finally { done = addInflight(ik, t.amountIn); }
     };
     try {
-      const r = await execCalls(calls, { rebuild });
-      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut };
+      const r = await execCalls(calls, { rebuild, pressId });
+      return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut, pressId: r.pressId ?? pressId };
     } finally { done(); dropRouteQuotes(t.token); }
   }
 
