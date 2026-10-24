@@ -4,8 +4,12 @@ pragma solidity ^0.8.26;
 import {Constants} from "./libraries/Constants.sol";
 import {IAntiSnipe} from "./interfaces/IAntiSnipe.sol";
 
-/// @title Buy-side anti-snipe fee: 77.7% → 0% over 7 seconds (§2 / LOCKED #9)
-/// @dev Snipe fee destination: 70% community RewardsVault / 30% treasury (FeeRouter.routeSnipeFee, LOCKED #9 rev.).
+/// @title LEGACY standalone anti-snipe fee schedule (pre-mode-rules-v2). Reads Constants, so it now reports
+///        99% → 0% over 77 seconds (ANTI_SNIPE_START_BPS → ANTI_SNIPE_END_BPS over ANTI_SNIPE_DURATION).
+/// @dev Still deployed by Deploy.s.sol, but v2 BondingCurves never call it: they compute the sniper tax inline
+///      (BondingCurve.currentSnipeFeeBps) and hold it in `snipeEscrow`. At graduation that escrow goes to LockedLP's
+///      locked compound bucket (excluded from the graduation floor); if not graduated within `snipeEscrowTimeout`
+///      (default 30 days) anyone can release it to RewardsVault. Nothing here routes a fee.
 contract AntiSnipe is IAntiSnipe {
     mapping(address => uint256) public override launchTimestamp;
 
@@ -18,7 +22,7 @@ contract AntiSnipe is IAntiSnipe {
         launchpad = launchpad_;
     }
 
-    /// @notice Called once at token launch to start the 7s decay window.
+    /// @notice Called once at token launch to start the 77s decay window (legacy; unused by v2 curves).
     function registerLaunch(address token) external {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
         if (launchTimestamp[token] != 0) revert AlreadyRegistered();

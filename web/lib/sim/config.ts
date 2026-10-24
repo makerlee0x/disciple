@@ -29,7 +29,7 @@ export const LAUNCH: LaunchParams = {
   tradeFeeBps: Number(TRADE_FEE_BPS),                     // TRADE_FEE_BPS (1%)
   creatorTaxBps: 0,                                       // CREATOR_TAX_DEFAULT_BPS
   walletCapBps: CURVE.walletCapDefaultBps,                // WALLET_CAP_BPS_DEFAULT (0 = no cap)
-  antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 77.7% at t=0 …
+  antiSnipeStartBps: Math.round(CURVE.antiSnipeStartPct * 100),   // ANTI_SNIPE_START_BPS: 99% at t=0 …
   antiSnipeDurationS: CURVE.antiSnipeWindowSec,           // … linearly to 0 over ANTI_SNIPE_DURATION (buys only)
   quotePriceUsd: 1,                                       // quote = USD stable in the sim
   poolFeeBps: Number(TRADE_FEE_BPS),

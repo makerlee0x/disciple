@@ -2044,7 +2044,7 @@ function HOOK(type,detail){ const h=window.__flightHook; if(h) try{ h(type,detai
 /* ---- 1) tier progress: USD buy pressure to reach the next tier ----
    Model (float copy of CurveMath.sol / lib/sim/market.ts):
    - pre-grad (mcap < $33,333): virtual-reserve curve, spot = x/y and x·y = x0·y0  ⇒  x(M) = x0·√(M/M0).
-     Quote needed = [x(M1) − x(M)] / (1 − 1% fee)   (exact for the curve, ignores the 7 s anti-snipe tax).
+     Quote needed = [x(M1) − x(M)] / (1 − 1% fee)   (exact for the curve, ignores the 77 s sniper tax).
    - post-grad: constant-product pool seeded at the curve-end price with Y = 28% of supply
      ⇒ X(M) = X_grad·√(M/33K); needed = [X(M1) − X(M)] / (1 − fee)  (CPAMM approximation, no other flow).
    - crossing graduation: curve part to $33,333 + pool part beyond.

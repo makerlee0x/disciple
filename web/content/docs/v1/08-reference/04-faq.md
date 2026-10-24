@@ -44,10 +44,10 @@ There's no further mint, the name and call sign are locked at launch, and gradua
 ## Fees
 
 **What are the fees?**
-1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 77 seconds. See [Trade fee](/docs/fees).
+1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. A sniper tax applies only in the first 77 seconds. See [Trade fee](/docs/fees).
 
 **Why did my first-second BOOST cost so much?**
-The anti-snipe fee. It starts at 99% at launch and reaches 0% after 77 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
+The sniper tax. It starts at 99% at launch and reaches 0% after 77 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
 
 **How do referrals work?**
 When a wallet opens your link and deposits $10+ in USDG, it's yours for life. You earn 1% of the protocol fee on its trades, plus 2% of the creator's share on rockets it launches. On testnet, referrals don't lock yet. See [Referrals](/docs/fees/referrals).

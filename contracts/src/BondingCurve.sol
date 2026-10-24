@@ -89,7 +89,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     CurveMath.Params private _params;
 
     /// @notice Sniper tax (mode rules v2, all modes) held in the pair coin. NOT part of quoteReserve / price math and
-    ///         not withdrawable: added to the locked LP at graduation, or (if not graduated `snipeEscrowTimeout`
+    ///         not withdrawable: at graduation it goes to LockedLP's locked compound bucket (excluded from the floor), or (if not graduated `snipeEscrowTimeout`
     ///         after launch) sent to RewardsVault by anyone via releaseSnipeEscrow().
     uint256 public snipeEscrow;
 
@@ -907,8 +907,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         graduated = true;
 
         uint256 tokenLiq = IERC20(token).balanceOf(address(this));
-        // mode rules v2: the sniper escrow joins the locked LP (any excess over the pool ratio goes to LockedLP's
-        // compound bucket, which is locked too)
+        // mode rules v2: the sniper escrow is passed to migration with the reserve; Migration marks it non-floor, so
+        // LockedLP credits it to the coin's locked compound bucket (never the graduation floor)
         uint256 esc = snipeEscrow;
         uint256 quoteLiq = quoteReserve + esc;
         // Pool opens at the curve-end spot price: price = curve mcap / supply (quote wei per token wei, full precision).

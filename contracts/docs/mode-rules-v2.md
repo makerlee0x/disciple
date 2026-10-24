@@ -20,11 +20,11 @@ Curve facts: 1M supply (no burn, LOCKED #7 rev. 2026-10-23), 72% sold on the cur
 | Profit tax | **crew tip**: 0.777% of sell proceeds, only if realized profit > threshold (default 0.5% of mcap) → holders claim pool | none | none |
 | First BOOST (creator launch buy) max | **1.2%** of supply | **3.33%** | `creatorBuyMaxBps` (default 0.77%) |
 | Creator lock | First BOOST tokens locked until graduation (later buys free) | none | none |
-| Sniper tax | 99% → 0 over 60 s, First BOOST exempt, escrowed | same | same |
+| Sniper tax | 99% → 0 over 77 s, First BOOST exempt, escrowed | same | same |
 
 Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_BPS=333`, `PVP_CAP_START_BPS=333`,
 `PVP_CAP_END_BPS=777`, `FIRST_BOOST_MAX_BPS_PVE=120`, `FIRST_BOOST_MAX_BPS_PVP=333`, `PVE_CREW_TIP_PPM=7770`,
-`CREW_TIP_THRESHOLD_BPS_DEFAULT=50` (bounds 10–500), `ANTI_SNIPE_START_BPS=9900`, `ANTI_SNIPE_DURATION=60`,
+`CREW_TIP_THRESHOLD_BPS_DEFAULT=50` (bounds 10–500), `ANTI_SNIPE_START_BPS=9900`, `ANTI_SNIPE_DURATION=77`,
 `SNIPE_ESCROW_TIMEOUT=30 days` (bounds 1–365 days)).
 
 ## Holding cap (Easy and Hard)
@@ -78,11 +78,12 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
 
 ## Sniper tax (all modes)
 
-* Buy-side fee `99% × (1 − t/60s)`, linear, 0 from second 60 (`curve.currentSnipeFeeBps()`), on top of the 1%
+* Buy-side fee `99% × (1 − t/77s)`, linear, 0 from second 77 (`curve.currentSnipeFeeBps()`), on top of the 1%
   protocol fee and creator tax. First BOOST exempt. `MarketLens.sniperTax(token) → (bps, secondsLeft)`.
 * Taken in the pair coin and held in `curve.snipeEscrow()`, **outside** `quoteReserve` and the price math.
-* At graduation it is passed to migration and added to the **locked LP** (event `SnipeEscrowToLP`; anything the
-  full-range add cannot pair goes to the locked compound bucket, as with other graduation leftovers).
+* At graduation it is passed to migration (event `SnipeEscrowToLP`). Migration marks it non-floor, so it is **not**
+  used for the graduation floor: LockedLP credits it to the coin's locked **compound bucket** (as with the curve-phase
+  fee LP escrow), which compounds into the locked full-range position over time.
 * If the coin has not graduated `curve.snipeEscrowTimeout()` (default 30 days) after launch, **anyone** can call
   `releaseSnipeEscrow()` to send it to `FeeRouter.rewardsVault()` (event `SnipeEscrowReleased`). It reverts
   `EscrowLocked` before the timeout, `Graduated` after graduation, `ZeroRecipient` if no vault is set. Graduation
@@ -133,15 +134,15 @@ Constants: `src/libraries/Constants.sol` (`PVE_CAP_START_BPS=100`, `PVE_CAP_END_
       to free room." (the tx would revert `WalletCap`).
 - [ ] **Cap meter**: NET position vs `MarketLens.capNow(token)` (bps + tokens), with the next step (cap at $33,333:
       Easy 3.33%, Hard 7.77%). Hide for TRENCH unless a legacy cap is set.
-- [ ] **Sniper countdown**: `MarketLens.sniperTax(token) → (bps, secondsLeft)` for the first 60 s: "Sniper tax 74% —
-      45 s left"; warn before a buy. Show the escrow (`MarketLens.snipeEscrow`) as "goes to locked LP at graduation".
+- [ ] **Sniper countdown**: `MarketLens.sniperTax(token) → (bps, secondsLeft)` for the first 77 s: "Sniper tax 74% —
+      45 s left"; warn before a buy. Show the escrow (`MarketLens.snipeEscrow`) as "goes to locked liquidity at graduation" (compound bucket).
 - [ ] **Crew-tip estimate** (Easy sells): `MarketLens.crewTipEstimate(token, wallet, tokensIn)`; show "Crew tip 0.777%
       (X USDG) to holders" only when `tip > 0`, plus the threshold in plain words ("profit above 0.5% of mcap").
 - [ ] **Creator-lock badge** (Easy): `MarketLens.creatorLock(token)` → "Creator's First BOOST locked until
       graduation (N tokens)"; on the creator's own sell form, cap the sellable amount at balance − locked.
 - [ ] **Create-mode descriptions**: Easy — "Login to buy · cap 1%→3.33% · crew tip on big profits · First BOOST ≤1.2%,
       locked until graduation". Hard — "No login · cap 3.33%→7.77% · First BOOST ≤3.33%". TRENCH — "No caps ·
-      sniper tax only". All: "99% sniper tax decays to 0 in 60 s (your First BOOST is exempt)". First BOOST field
+      sniper tax only". All: "99% sniper tax decays to 0 in 77 s (your First BOOST is exempt)". First BOOST field
       max from `Launchpad.firstBoostMaxBps(mode)` and `quoteCreatorBuy(quote, in, tax, mode)`.
 - [ ] **USDG launch**: create flow can call `DiscipleRouter.launchWithUsdg` (wallet confirm, not a session key).
       Creator fee claim button: `claimCreatorFeesToUsdg`.

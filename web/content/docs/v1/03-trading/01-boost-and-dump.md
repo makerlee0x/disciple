@@ -43,7 +43,7 @@ With no coins in your wallet, DUMP is disabled.
 
 ## What you pay
 
-Every BOOST and DUMP pays a 1% trade fee. On the curve, a creator tax of 0–7% may apply. In the first 77 seconds after launch, BOOSTs pay an anti-snipe fee. See [Trade fee](/docs/fees).
+Every BOOST and DUMP pays a 1% trade fee. On the curve, a creator tax of 0–7% may apply. In the first 77 seconds after launch, BOOSTs pay a sniper tax. See [Trade fee](/docs/fees).
 
 ## Your position
 
