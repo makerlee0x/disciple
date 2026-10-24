@@ -94,3 +94,67 @@ export function plainText(m: string | undefined | null, what = "error", detail: 
 export function logTradeError(what: string, detail: Record<string, unknown>) {
   if (typeof console !== "undefined") console.warn(`[disciple] ${what}`, detail);
 }
+
+/* ---------- rapid-tap (SITE): rate limit + spend limit ---------- */
+/** Copy approved by lee 2026-10-24. Plain words only: details go to console.warn("[disciple] …"). */
+export const SLOW_DOWN_MSG = "Slow down";
+export const SPEND_LIMIT_MSG = "Spend limit reached";
+/** Typed trade error codes GAME maps to its own copy (ProtocolError.code / TradeResult.errorCode). */
+export type TradeErrorCode = "rate_limited" | "spend_limit" | "pending_unknown";
+/**
+ * AUDIT (#141 review): a receipt / relay timeout does NOT mean the trade failed: it may still land. The trade layer
+ * answers 'pending_unknown', keeps the reservation held and watches the op until it lands or is definitely dropped.
+ * Copy approved by lee 2026-10-24. Plain words only: ids / nonce go to console.warn("[disciple] …").
+ */
+export const PENDING_UNKNOWN_MSG = "Still confirming your last trade…";
+/** The op ids an ambiguous send keeps (AAError("Timeout").extra): what the background watcher looks up. */
+export type UnknownOpRef = { userOpHash?: Hex; txHash?: Hex; nonce?: bigint; sender?: string };
+/**
+ * Is this send error an op whose fate is unknown (receipt wait timed out, relay timed out, lost answer after
+ * broadcast)? Duck-typed (AAError can come from a second module instance). Returns the ids to watch, else null.
+ */
+export function unknownOpOf(e: unknown): UnknownOpRef | null {
+  const x = e as { code?: unknown; constructor?: { name?: string }; extra?: Record<string, unknown> } | null;
+  // AAError("Timeout", …, extra) — `extra` is an own field of AAError (ProtocolError("Timeout") has none); class names
+  // can be minified in production, so the name is only a second signal
+  if (!x || typeof x !== "object" || x.code !== "Timeout" || !("extra" in x || x.constructor?.name === "AAError")) return null;
+  const ex = x.extra ?? {};
+  // FLOW #141: a definite relay answer (revert payload, no `unclear` flag) is never unknown, whatever the code says
+  if (ex.unclear !== true && ex.revert !== undefined && ex.revert !== null) return null;
+  const h = (v: unknown) => (typeof v === "string" && HASH.test(v) ? (v as Hex) : undefined);
+  // only a bigint is the EntryPoint v0.7 op nonce (SITE mav2; FLOW #141 RelayTimeoutExtra.nonce). The relayer EOA nonce
+  // of the handleOps tx is FLOW's `relayNonce` (a number): never the op's nonce (lib/trade/pendingOps keeps it apart)
+  const nonce = typeof ex.nonce === "bigint" ? ex.nonce : undefined;
+  return { userOpHash: h(ex.userOpHash), txHash: h(ex.txHash), nonce, sender: typeof ex.sender === "string" ? ex.sender : undefined };
+}
+/** JSON-RPC code /api/bundler returns with HTTP 429 (lib/server/limits via app/api/bundler/route.ts). */
+export const RATE_LIMIT_RPC_CODE = -32005;
+/**
+ * Is this relay answer a rate limit? HTTP 429, or JSON-RPC error -32005 (some proxies drop the status), or a viem
+ * HttpRequestError with status 429 (standard path). retryAfterMs: the Retry-After header (seconds or an HTTP date),
+ * else the "retry in Ns" hint in the message; undefined when neither is there.
+ */
+export function rateLimitOf(a: { status?: number; code?: number; message?: string; retryAfter?: string | null; now?: number }): { retryAfterMs?: number } | null {
+  const hit = a.status === 429 || a.code === RATE_LIMIT_RPC_CODE || /\b429\b|rate[ -]?limit/i.test(a.message ?? "");
+  if (!hit) return null;
+  return { retryAfterMs: retryAfterMs(a.retryAfter, a.message, a.now) };
+}
+export function retryAfterMs(header?: string | null, message?: string, now = Date.now()): number | undefined {
+  const h = (header ?? "").trim();
+  if (h) {
+    if (/^\d+(\.\d+)?$/.test(h)) return Math.round(Number(h) * 1000);
+    const t = Date.parse(h); if (Number.isFinite(t)) return Math.max(0, t - now);
+  }
+  const m = /retry in (\d+(?:\.\d+)?)\s*s/i.exec(message ?? "");
+  return m ? Math.round(Number(m[1]) * 1000) : undefined;
+}
+/** Find a 429 anywhere in a thrown error chain (viem HttpRequestError .status / .headers, RpcRequestError .code). */
+export function rateLimitFromError(e: unknown): { retryAfterMs?: number } | null {
+  for (let x = e as Record<string, unknown> | undefined, i = 0; x && i < 10; x = x.cause as Record<string, unknown> | undefined, i++) {
+    const hdr = x.headers as { get?: (k: string) => string | null } | undefined;
+    const r = rateLimitOf({ status: typeof x.status === "number" ? x.status : undefined, code: typeof x.code === "number" ? x.code : undefined,
+      message: [x.details, x.shortMessage, x.message].filter((s) => typeof s === "string").join(" "), retryAfter: typeof hdr?.get === "function" ? hdr.get("retry-after") : undefined });
+    if (r) return r;
+  }
+  return null;
+}

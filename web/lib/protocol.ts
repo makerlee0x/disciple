@@ -51,6 +51,11 @@ export interface TradeParams {
   slippageBps?: number;
   /** Who receives the output. Defaults to the signing (Privy embedded) wallet. */
   recipient?: Address;
+  /**
+   * Rapid-tap: the caller's press id from lib/trade/reservations reserve(). The trade layer adds its exact raw spend to
+   * THAT reservation (no double count) and releases it on fill / error / timeout. Omitted ⇒ the trade layer uses its own.
+   */
+  reservationId?: string;
 }
 
 /** Pre-trade preview from on-chain views (curve quoteBuy/quoteSell, or router quoteExactIn post-grad). */
@@ -78,6 +83,16 @@ export interface TradeResult {
   txHash: string;
   amountOut?: bigint;
   reason?: string;
+  /**
+   * Typed code (ok=false results; thrown ProtocolErrors carry the same value in .code). "pending_unknown" is NOT a
+   * failure: the op was sent and is still confirming; the press stays reserved and its outcome arrives as a
+   * lib/trade/reservations subscribe() "resolved" event (outcome "filled" | "error"), then its "release".
+   */
+  errorCode?: "rate_limited" | "spend_limit" | "pending_unknown";
+  /** errorCode "pending_unknown": the op being watched (ids for the console / support, never shown to players). */
+  pendingOp?: { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint; relayNonce?: number };
+  /** errorCode "rate_limited": the relay's Retry-After in ms, when it sent one. */
+  retryAfterMs?: number;
 }
 
 export interface CurveState {

@@ -137,6 +137,8 @@ test("core.ts: 'UserOp 0x… not mined yet' → the approved pending line; id on
   assert.ok(logged(new RegExp(H.slice(2))));
   // an older/unplain Timeout text still maps to the pending line
   assert.equal(friendlyError(new AAError("Timeout", `UserOp ${H} not mined yet`)).message, PENDING);
+  // the AA error keeps code Timeout; the player-facing mapping is pending_unknown (outcome unknown, not a failure)
+  assert.equal(friendlyError(e).code, "pending_unknown"); assert.equal(friendlyError(e).op?.userOpHash, H);
 });
 
 test("wallet.ts (EOA): 'Transaction reverted (0x…)' replaced by the plain line, hash on .txHash + console", () => {

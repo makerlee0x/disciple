@@ -21,6 +21,8 @@ import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 import type { TradeTiming } from "../trade/timing";
+import { SESSION_PENDING } from "../trade/reservations";
+import { SPEND_LIMIT_MSG, unknownOpOf } from "./relayOp";
 import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -250,7 +252,10 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
  * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
  * fresh nonce key. No refill available ⇒ the original FundAccount error.
  */
-async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, timing?: TradeTiming) {
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, timing?: TradeTiming, pressId?: string) {
+  // TODO(FLOW #145): pass `pressId` here (sendCalls(calls, { as, feeRetry: true, pressId })) — no slot on this branch
+  // (4th positional arg is TradeTiming); plumbed to here so the swap is one line once #145 lands.
+  void pressId;
   try { return await sa!.sendCalls(calls, as, true, timing); }
   catch (e) {
     if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
@@ -536,6 +541,8 @@ function quoteSpend(delta: Record<string, bigint>): Record<string, bigint> {
   return Object.fromEntries(Object.entries(delta).filter(([t]) => q.has(t.toLowerCase())));
 }
 /** Policy reverts we can recover from by letting the owner sign instead (nothing landed: pre-flight/simulation). */
+/** SpendCapExceeded(address,uint256,uint256) by name or selector (0xb92251e1, also inside a hook-wrapped revert). */
+const SPEND_CAP_REVERT = /SpendCapExceeded|b92251e1/i;
 const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCapExceeded|SessionInactive|SessionExpired|PreExecHookReverted|AA2[234]/i;
 
 /**
@@ -543,11 +550,17 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  * synchronously, and clears it before returning; execCalls → aaSend runs synchronously up to aaSend's first line,
  * which takes it. Anything that isn't a trade (withdraw, claims, one-tap install, mints) never sees it.
  */
-type TradeCtx = { trade?: boolean; timing?: TradeTiming };
+/**
+ * pressId (rapid-tap, FLOW #145): the press's reservation id. FLOW's sendCalls takes { pressId } and sends it as
+ * params[2].pressId (first send of a press counts toward the per-sender limit, its next 2 retries are free).
+ * TODO(FLOW #145): this branch's Mav2Account.sendCalls(calls, as, feeRetry, tt) has no options slot yet, so the id is
+ * carried to the send call site below and stops there. Once #145 lands: sa.sendCalls(calls, { as, feeRetry: true, pressId }).
+ */
+type TradeCtx = { trade?: boolean; timing?: TradeTiming; pressId?: string };
 let tradeCtx: TradeCtx | undefined;
 function takeTradeCtx() { const c = tradeCtx; tradeCtx = undefined; return c; }
-export function asTrade<T>(timing: TradeTiming | undefined, fn: () => Promise<T>): Promise<T> {
-  tradeCtx = { trade: true, timing };
+export function asTrade<T>(timing: TradeTiming | undefined, fn: () => Promise<T>, o: { pressId?: string } = {}): Promise<T> {
+  tradeCtx = { trade: true, timing, ...(o.pressId ? { pressId: o.pressId } : {}) };
   try { return fn(); } finally { tradeCtx = undefined; }
 }
 
@@ -575,11 +588,19 @@ export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {
   const spend = quoteSpend(delta);
   const eligible = policyOk && (await sessionCallsEligible(calls));
   const live = sessionLive();
-  const headroom = sessionHasHeadroom(onchain, spend);
   const mode = opts.trade && eligible ? await strictSessionTrades(me) : { strict: false, deployed: sa.deployed };
   const strict = !!opts.trade && eligible && mode.strict && mode.deployed !== undefined;
-  const pick = tradeSigner({ trade: !!opts.trade, eligible, live, headroom, strictMode: mode.strict, deployed: mode.deployed });
+  // Rapid-tap spec #9: session spend still in flight counts against the cap. Headroom check → pick → hold run with NO
+  // await in between, so two concurrent taps can't both pass on the same headroom.
+  const pendingSpend = SESSION_PENDING.total();
+  const headroom = sessionHasHeadroom(onchain, spend, pendingSpend);
+  const capRace = !headroom && SESSION_PENDING.size > 0 && sessionHasHeadroom(onchain, spend);
+  const pick = tradeSigner({ trade: !!opts.trade, eligible, live, headroom, strictMode: mode.strict, deployed: mode.deployed, capRace });
   const asSession = pick.as === "session";
+  if (pick.as === "refuse" && capRace) {
+    console.warn("[disciple] trade refused: session spend limit reached with trades in flight", { inFlight: SESSION_PENDING.size, why: pick.why });
+    throw new AAError("Policy", SPEND_LIMIT_MSG, { spendLimit: true, tradeError: "spend_limit" });
+  }
   if (pick.as === "refuse") {
     const settingUp = loginSetup.busy(me), failed = !!loginSetup.lastError(me);
     console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed });
@@ -590,12 +611,32 @@ export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {
   }
   if (opts.trade && !asSession) console.info("[disciple] trade signed by the owner", { why: pick.why, strict: mode.strict });
   let r;
-  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, opts.timing); }
+  const hold = asSession ? SESSION_PENDING.hold(spend) : undefined;
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, opts.timing, opts.pressId); }
   catch (e) {
     const ae = e as AAError;
+    if (unknownOpOf(e)) {
+      // AUDIT: sent, fate unknown ⇒ the in-flight session spend stays held until the trade layer's watcher settles it
+      // (extra.settleSession(landed): landed ⇒ counted as spent, else refunded). Never re-sent from here.
+      let done = false;
+      const settle = (landed: boolean) => {
+        if (done) return; done = true;
+        if (hold) SESSION_PENDING.drop(hold);
+        if (landed) { if (state) { state = { ...state, ...recordSpend(state, delta) }; save(); } if (asSession && onchain) { onchain = addSpent(onchain, spend); saveSessionKey(); } }
+        else if (asSession) void syncSessionFromChain();
+      };
+      ae.extra = { ...(ae.extra ?? {}), settleSession: settle };
+      throw e;
+    }
+    if (hold) SESSION_PENDING.drop(hold);   // refund: nothing was spent
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
+      if (strict && SPEND_CAP_REVERT.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
+        // the policy's own cap check (a race with another device / tab, or a stale cached `spent`): plain spend-limit line
+        console.warn("[disciple] trade refused: session spend limit reached (policy pre-flight)", { revertData: ae.extra?.revertData });
+        throw new AAError("Policy", SPEND_LIMIT_MSG, { spendLimit: true, tradeError: "spend_limit", revertData: ae.extra?.revertData });
+      }
       if (strict) {
         // session-only trades: no second, owner-signed send — refresh the session and let the player tap again
         console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { revertData: ae.extra?.revertData });
@@ -604,6 +645,7 @@ export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {
       r = await sa.sendCalls(calls, "owner", true, opts.timing);   // owner signs the same calls once
     } else throw e;
   }
+  if (hold) SESSION_PENDING.drop(hold);   // landed: moves into `spent` below
   gasListeners.forEach((f) => f("self-pay"));
   state = { ...state, ...recordSpend(state, delta) }; save();
   if (asSession && onchain) { onchain = addSpent(onchain, spend); saveSessionKey(); }
