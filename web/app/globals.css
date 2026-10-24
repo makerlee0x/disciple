@@ -1563,6 +1563,26 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 @keyframes ds-tip-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ds-tip { animation: none; } }
 
+/* Profile one page (lee 2026-10-24): main column (achievements card, activity) + side column (rocket holdings). */
+.pf-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--dsc-space-6); align-items: start; }
+.pf-main { display: flex; flex-direction: column; gap: var(--dsc-space-6); min-width: 0; }
+.pf-aside { min-width: 0; display: flex; flex-direction: column; gap: var(--dsc-space-4); }
+.pf-section { display: flex; flex-direction: column; gap: var(--dsc-space-3); scroll-margin-top: calc(var(--ap-topbar-h) + 8px); min-width: 0; }
+.pf-section-h { margin: 0; font: 600 var(--dsc-font-size-sm) var(--dsc-font-ui); letter-spacing: var(--dsc-tracking-eyebrow); text-transform: uppercase; color: var(--dsc-muted); }
+.pf-aside .pf-rocket-grid { grid-template-columns: 1fr; }
+.pf-ach-card { display: flex; flex-direction: column; gap: 8px; padding: var(--dsc-space-4); background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-xl); color: var(--dsc-text); text-decoration: none; font-size: 14px; transition: border-color .15s; }
+.pf-ach-card:hover, .pf-ach-card:focus-visible { border-color: var(--dsc-border-color-strong); }
+.pf-ach-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.pf-ach-card-cta { font-size: 13px; color: var(--dsc-primary); }
+.pf-ach-card .pf-xp { margin: 0; height: 8px; }
+.pf-tags .pf-tag { cursor: default; }
+@media (max-width: 1100px) { .pf-body { grid-template-columns: minmax(0, 1fr) 300px; } }
+/* Mobile order: header → achievements card → holdings (short, the live part) → activity (long feed). */
+@media (max-width: 860px) {
+  .pf-body { display: flex; flex-direction: column; gap: var(--dsc-space-5); }
+  .pf-main { display: contents; }
+  .pf-ach-card { order: 1; } .pf-aside { order: 2; } .pf-activity { order: 3; } .pf-main > .pf-section:not(.pf-activity) { order: 4; }
+}
 /* Title picker (edit profile). */
 .pf-title-pick { border: 0; padding: 0; margin: 0; }
 .pf-title-opts { display: flex; flex-direction: column; gap: 6px; }
