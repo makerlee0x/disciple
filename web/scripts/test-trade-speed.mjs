@@ -65,7 +65,7 @@ function engine({ live = true, result, sell = false }) {
   const env = { S, MODES: [{ usd: 10 }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, MIN_SHOT: 0.2, fmtShot: String,
     window: live ? { __discipleTrade() {} } : {}, applyThrust: (side, usd, pct) => E.thrust.push({ side, usd, pct, boost: S.buyBoost }),
     source: { supply: 7e9, impact: () => 1.02, submitTrade: () => pend }, srcImpact: () => 1.02, fillMcapEst: () => 7e4, MAX_PENDING: 4, COOLDOWN_MS: 0,
-    performance: { now: () => 1 }, pushPaperCash() {}, dispatchEvent: (e) => E.events.push(e), CustomEvent: CE, SESSION: null, isOnchainRevert: () => true, setTimeout: () => 0 };
+    performance: { now: () => 1 }, mcapToAlt: (m) => Math.log10(m), shownMcap: () => S.confirmed.mcap, clamp: (x, a, b) => Math.max(a, Math.min(b, x)), pushPaperCash() {}, dispatchEvent: (e) => E.events.push(e), CustomEvent: CE, SESSION: null, isOnchainRevert: () => true, setTimeout: () => 0 };
   E.trade = new Function(...Object.keys(env), trBlock + "\nreturn trade;")(...Object.values(env));
   E.S = S; E.fill = async (r) => { resolve(r); await pend; await new Promise((x) => setImmediate(x)); };
   return E; }

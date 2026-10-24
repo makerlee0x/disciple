@@ -86,3 +86,13 @@ export function tradeMs(t0: number, m: { quoteAt?: number; op?: OpMark; resultAt
   const confirm = d(m.op?.confirmedAt) ?? d(m.resultAt);
   return { quote: d(m.quoteAt), submit: d(m.op?.submittedAt), confirm, fill: d(m.fillAt), total: d(m.fillAt ?? m.resultAt) ?? 0 };
 }
+
+/* ---------------- boost anim (engine.js @boostanim) ---------------- */
+/** Same curve as public/flight/engine.js @boostanim (BA_CAP / BA_TAU_UP; test-boost-anim checks they match). Before the
+ *  receipt the rocket covers g = CAP·(1−e^(−t/τ)) of its segment; it counts as hovering at the cap once g ≥ 97 % of CAP. */
+export const BOOST_ANIM = { cap: 0.7, tauUpMs: 140, hoverAt: 0.97 } as const;
+export const BOOST_HOVER_FROM_MS = BOOST_ANIM.tauUpMs * Math.log(1 / (1 - BOOST_ANIM.hoverAt));   // ≈ 491 ms
+/** ms the rocket spent waiting at the cap for this press's receipt (0 when the receipt beat the climb). */
+export function boostHoverMs(clickToResultMs: number | undefined): number {
+  return typeof clickToResultMs === "number" && Number.isFinite(clickToResultMs) ? Math.max(0, Math.round(clickToResultMs - BOOST_HOVER_FROM_MS)) : 0;
+}

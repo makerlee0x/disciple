@@ -773,6 +773,31 @@ function trade(side,opt){
   submit(side, md.usd, false, opt, pct);
 }
 /* @trade-end */
+/* @boostanim — the rocket starts toward the ghost at the CLICK (visual only), capped at BA_CAP of the way until the receipt.
+   Each pending trade owns one entry: its own segment d (alt units: this ghost − the previous pending ghost, or the mark) × progress g. Closed-form in ms
+   (no integration ⇒ frame-rate / slow-mo independent, and TradeBridge's hoverMs uses the same curve: lib/flight/tradeSpeed
+   BOOST_ANIM). pending: g = CAP·(1−e^(−t/τ)) ≤ CAP (a slow receipt = a short hover near CAP, never land-then-snap);
+   ok: g eases on to 1 and the entry hands over to the real price as it catches up (c = share the mark already moved);
+   fail: g eases back to 0 (only THIS trade's share). Adds to the spring TARGET only — PnL / HUD / ledger mark shownMcap,
+   never this; nothing here books, dispatches or broadcasts. */
+const BA_CAP=0.7, BA_TAU_UP=140, BA_TAU_DONE=90, BA_TAU_BACK=220, BA_HOLD=2500, BA_FADE=400, BA_STALE=30000;
+function baStart(list,base,projAlt,now){ const d=projAlt-base; if(!Number.isFinite(d)||d===0) return null;
+  const e={d,base,t0:now,st:'pending',tr:0,gr:0}; list.push(e); return e; }
+function baG(e,now){ if(e.st==='pending') return BA_CAP*(1-Math.exp(-Math.max(0,now-e.t0)/BA_TAU_UP));
+  const dt=Math.max(0,now-e.tr); return e.st==='ok' ? 1-(1-e.gr)*Math.exp(-dt/BA_TAU_DONE) : e.gr*Math.exp(-dt/BA_TAU_BACK); }
+function baResolve(e,ok,now,list){ if(!e||e.st!=='pending') return; e.gr=baG(e,now); e.st=ok?'ok':'fail'; e.tr=now;
+  // a failed segment never happens: the later segments (stacked on it) start where it started
+  if(!ok&&list){ const i=list.indexOf(e); if(i>=0) for(let k=i+1;k<list.length;k++) list[k].base-=e.d; } }
+function pendingTip(){ for(let i=S.pending.length-1;i>=0;i--) if(S.pending[i].state==='pending') return S.pending[i]; return null; }
+function baOffset(list,realAlt,now){ let off=0;
+  for (let i=list.length-1;i>=0;i--){ const e=list[i], g=baG(e,now); let o;
+    if (e.st==='ok'){ const dt=now-e.tr, c=Math.max(clamp((realAlt-e.base)/e.d,0,1), clamp((dt-BA_HOLD)/BA_FADE,0,1));
+      o=e.d*Math.max(0,g-c); if(c>=1){ list.splice(i,1); continue; } }
+    else if (e.st==='fail'){ o=e.d*g; if(g<0.004){ list.splice(i,1); continue; } }
+    else { if(now-e.t0>BA_STALE){ baResolve(e,false,now,list); continue; } o=e.d*Math.min(g,BA_CAP); }   // a send that never answers: ease back (visual only)
+    off+=o; }
+  return off; }
+/* @boostanim-end */
 /* @fillthrust — the player's shot moves the rocket only once it really filled (r.ok): buy = turbo flare (S.buyBoost) + thrust,
    sell = thrust. $ = the decoded fill when the bridge returned one (r.fillUsd), else the shot $. Never on a failed trade. */
 function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
@@ -787,8 +812,13 @@ function submit(side,usd,force,opt,pct){
   S.cooldownUntil=now+COOLDOWN_MS;
   if (!source.submitTrade){ S.flashes.push({txt:'READ-ONLY SOURCE — trading disabled',life:1.5}); return; }
   // optimistic ghost: projected (NOT applied) price after our trade, from local impact estimate
-  const proj = source.impact? S.confirmed.mcap*srcImpact(S.tradeUsd,side) : S.confirmed.mcap;
-  const p={id:Math.random(),side,usd:S.tradeUsd,proj,t0:now,state:'pending'}; S.pending.push(p);
+  // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps
+  const prevP=pendingTip(), from=prevP?prevP.proj:S.confirmed.mcap;
+  const proj = source.impact? from*srcImpact(S.tradeUsd,side) : from;
+  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending'}; S.pending.push(p);
+  // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
+  const sf=isLive()?1:(S.simF||1);
+  const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
   // no-signing model (fomo-style): ONE token approval at deposit, then shots run without per-trade signatures.
   // PnL ledger: fill at the marked price (paper: shown price; live: real) × average AMM execution √(impact)
   const fillMark=fillMcapEst(S.tradeUsd,side);
@@ -797,6 +827,8 @@ function submit(side,usd,force,opt,pct){
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
   source.submitTrade(side,S.tradeUsd,o).then(r=>{
     p.state=r.ok?'confirmed':'failed';
+    baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim);
+    if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
     if(r.ok&&r.sim){ S.balance=r.balance; pushPaperCash(); dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||7e9,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
     else if(r.ok&&r.exact){   // PAPER (mock / DISCIPLE, no wallet): exact curve/pool fill — spent $ (a curve-completing buy is refunded the rest), sell proceeds net of the fee
@@ -815,7 +847,7 @@ function submit(side,usd,force,opt,pct){
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
     if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
-      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:'TRADE FAILED · '+why,life:1.6}); }
+      { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // COPY REVIEW (lee): failure status; the reason stays in the TRADES row
     setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
   });
 }
@@ -1929,7 +1961,8 @@ function simStep(stepDt){
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
   const SPRING_W=10, SPRING_Z=1.0;   // critically damped (~0.35 s): no overshoot bounce, no screen snap
   simMarketStep(dt);
-  const target=mcapToAlt(shownMcap());   // = the price the HUD shows and PnL marks (paper: × sim offset; live: real)
+  const realAlt=mcapToAlt(shownMcap());   // = the price the HUD shows and PnL marks (paper: × sim offset; live: real)
+  const target=realAlt+(S.boostAnim&&S.boostAnim.length?baOffset(S.boostAnim,realAlt,performance.now()):0);   // + pending shots' visual lead (@boostanim)
   const altErr=target-S.displayAlt;
   S.altVel=(S.altVel||0)+ (SPRING_W*SPRING_W*altErr - 2*SPRING_Z*SPRING_W*(S.altVel||0))*dt;
   S.displayAlt+=(S.altVel||0)*dt;
