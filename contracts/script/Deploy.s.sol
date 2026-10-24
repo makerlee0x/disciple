@@ -9,7 +9,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReferralRegistry} from "../src/ReferralRegistry.sol";
 import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
-import {AntiSnipe} from "../src/AntiSnipe.sol";
 import {Migration} from "../src/Migration.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
@@ -97,7 +96,6 @@ contract Deploy is Script {
         address lockedLP;
         address feeRouter;
         address referrals;
-        address antiSnipe;
         address migration;
         address launchpad;
         address probe;
@@ -169,11 +167,9 @@ contract Deploy is Script {
         hook.setTrustedRouter(address(router), true);
         // Audit #10 (SEC-05): only our DiscipleRouter is trusted for hookData trader attribution.
 
-        uint64 n = uint64(vm.getNonce(deployer));
-        address launchpadAddr = vm.computeCreateAddress(deployer, n + 1);
-        AntiSnipe antiSnipe = new AntiSnipe(launchpadAddr);
-        Launchpad launchpad = new Launchpad(deployer, address(feeRouter), address(antiSnipe), address(migration));
-        require(address(launchpad) == launchpadAddr, "Deploy: launchpad address mismatch");
+        // Redeploy pack item 8: the legacy AntiSnipe is no longer deployed. Launchpad.antiSnipe is a never-read
+        // immutable (v2 curves compute the sniper tax inline via FeeMath.snipeBps), so it is address(0).
+        Launchpad launchpad = new Launchpad(deployer, address(feeRouter), address(0), address(migration));
         migration.setLaunchpad(address(launchpad)); // audit #1: migrate() only from launchpad.curveOf(token)
 
         feeRouter.setLaunchpad(address(launchpad));
@@ -264,7 +260,6 @@ contract Deploy is Script {
         o.lockedLP = address(lockedLP);
         o.feeRouter = address(feeRouter);
         o.referrals = address(referrals);
-        o.antiSnipe = address(antiSnipe);
         o.migration = address(migration);
         o.launchpad = address(launchpad);
         o.probe = address(probe);
@@ -279,7 +274,6 @@ contract Deploy is Script {
         console2.log("ReferralRegistry", o.referrals);
         console2.log("LockedLP", o.lockedLP);
         console2.log("FeeRouter", o.feeRouter);
-        console2.log("AntiSnipe", o.antiSnipe);
         console2.log("Migration", o.migration);
         console2.log("Launchpad", o.launchpad);
         console2.log("QuoteProbe", o.probe);

@@ -723,7 +723,7 @@ contract DiscipleSessionPolicyTest is Test {
         lpp.quote = address(usdg);
         lpp.deadline = block.timestamp + 1 hours;
         return abi.encodeWithSelector(
-            AnonLauncher.launchAnon.selector, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0)
+            AnonLauncher.launchAnon.selector, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0), uint256(5e6)
         );
     }
 

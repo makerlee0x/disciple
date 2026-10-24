@@ -47,11 +47,17 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ///         (today's routing). Future trades only; already-accrued referral fees stay claimable. The KOL's 2% of
     ///         the creator share is NOT redirected. A sink equal to the treasury follows setTreasury (audit r127).
     address public referralSink;
+    /// @notice Launch KOL's cut of the creator share, in bps of that share (redeploy pack, lee 2026-10-24). Default
+    ///         200 (= the old KOL_CREATOR_FEE_SHARE_BPS), owner-settable in [0, MAX_KOL_CREATOR_SHARE_BPS]; future
+    ///         trades only. Packed with referralSink (one slot). The 1% referral / referralSink routing is unchanged.
+    uint16 public kolCreatorShareBps = uint16(Constants.KOL_CREATOR_FEE_SHARE_BPS);
+    uint256 public constant MAX_KOL_CREATOR_SHARE_BPS = 500;
     /// @notice Post-grad creator share charged in the LAUNCH TOKEN (hook fee on buys) — token => creator => amount.
     mapping(address => mapping(address => uint256)) public creatorTokenAccrued;
     error OnlyAuthorized();
     error ZeroAddress();
     error NothingToClaim();
+    error KolShareTooHigh();
 
     /// @notice Audit #11: full fee breakdown with payees. Amounts are in `feeToken` units: the curve quote
     ///         pre-graduation, and post-graduation whichever pool side the hook charged (quote OR launch token —
@@ -75,6 +81,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     );
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount);
     event ReferralSinkSet(address indexed previous, address indexed sink);
+    event KolCreatorShareSet(uint256 previousBps, uint256 bps);
     event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount);
     event TreasuryFeesClaimed(address indexed asset, address indexed treasury, uint256 amount);
     event CreatorTokenFeesClaimed(address indexed token, address indexed creator, uint256 amount);
@@ -130,6 +137,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (msg.sender != owner) revert OnlyOwner();
         emit ReferralSinkSet(referralSink, sink);
         referralSink = sink;
+    }
+
+    /// @notice Set the launch KOL's cut of the creator share (bps of that share, 0–500). Future trades only.
+    function setKolCreatorShareBps(uint256 bps) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (bps > MAX_KOL_CREATOR_SHARE_BPS) revert KolShareTooHigh();
+        emit KolCreatorShareSet(kolCreatorShareBps, bps);
+        kolCreatorShareBps = uint16(bps);
     }
 
     /// @notice Allow / revoke a router for claimCreatorFeesFor (owner only).
@@ -218,10 +233,10 @@ contract FeeRouter is IFeeRouter, Owned2Step {
             leftoverTo = address(0);
         }
 
-        // 2% of creator's 33% share → launch KOL (LOCKED #21)
+        // kolCreatorShareBps (default 2%) of creator's 33% share → launch KOL (LOCKED #21; owner-settable 0–5%)
         uint256 kolFromCreator;
         if (launchKol != address(0) && creatorShare > 0) {
-            kolFromCreator = (creatorShare * Constants.KOL_CREATOR_FEE_SHARE_BPS) / Constants.BPS_DENOM;
+            kolFromCreator = (creatorShare * kolCreatorShareBps) / Constants.BPS_DENOM;
             creatorShare -= kolFromCreator;
         }
 

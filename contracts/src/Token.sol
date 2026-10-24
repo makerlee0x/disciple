@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {IToken} from "./interfaces/IToken.sol";
 
@@ -12,10 +13,12 @@ interface IPveCurveHook {
 }
 
 /// @title DISCIPLE ERC-20 launch token
-/// @notice Fixed 1M supply, 18 decimals, no further mint (§2 / LOCKED #7, #10).
+/// @notice Fixed 1M supply at launch, 18 decimals, no further mint (§2 / LOCKED #7, #10). Holders may burn their own
+///         tokens (`burn`) or an approved holder's (`burnFrom`): `totalSupply()` really drops (redeploy pack, lee
+///         2026-10-24). PVE coins block burns until graduation so the curve's NET positions stay exact.
 /// @dev EIP-2612 permit enabled (single-tx sells via BondingCurve.sellWithPermit).
 ///      Standard CREATE deployment (no vanity). Entire supply minted once to `recipient` (the curve).
-contract Token is ERC20, ERC20Permit, IToken {
+contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     address public immutable override creator;
     address public immutable override launchpad;
     /// @notice True for PVE coins: pre-graduation wallet→wallet transfers notify the curve. Immutable, so TRENCH /
@@ -35,6 +38,7 @@ contract Token is ERC20, ERC20Permit, IToken {
     error OnlyCurve();
     error AlreadySet();
     error CreatorLocked();
+    error BurnLocked();
 
     constructor(
         string memory name_,
@@ -87,6 +91,8 @@ contract Token is ERC20, ERC20Permit, IToken {
     function _update(address from, address to, uint256 value) internal override {
         super._update(from, to, value);
         if (pveHooks && pveLive) {
+            // burns wait for graduation on PVE coins: the curve books NET positions per wallet (rewards, caps)
+            if (to == address(0)) revert BurnLocked();
             // creator lock (mode rules v2): the creator's balance may not drop below the First BOOST pre-graduation
             if (from == creator) {
                 uint256 l = creatorLocked;
