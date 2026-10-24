@@ -89,8 +89,9 @@ export type RelayErrorData = {
 
 export type RelayFailed = { kind: "error"; code: number; message: string; data?: RelayErrorData };
 
-/** One NDJSON line of the streamed response. Terminal: confirmed | error. */
-export type RelayFrame = RelayPending | RelayConfirmed | RelayFailed;
+/** One NDJSON line of the streamed response. Terminal: confirmed | error. `pressId`: echoed on EVERY frame when the
+ * request carried params[2].pressId (GAME: correlate frames with the caller's reservation). */
+export type RelayFrame = (RelayPending | RelayConfirmed | RelayFailed) & { pressId?: string };
 
 /** Plain-JSON response envelope (non-streaming clients). */
 export type RelayJsonResponse =

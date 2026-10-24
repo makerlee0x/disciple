@@ -15,7 +15,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { newPressId, type SendOpts } from "./fastPath";
+import { newPressId, tagPress, type SendOpts } from "./fastPath";
 import { fallbackGasReserve, fallbackUsdgDecimals } from "./gasReserve";
 import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
@@ -450,9 +450,17 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  * budget has headroom; otherwise the owner (Privy embedded wallet, signs silently). Never refuses for "spend limit":
  * an exhausted session just means the owner signs (bug #1).
  */
+/**
+ * GAME: `o0.pressId` is the caller's reservation id (optional; generated when absent). It is reused on every retry
+ * (fee floor, TRANSIENT_SIM rebuild, gas refill, owner fallback) and echoed on every "disciple:op" event
+ * (submitted/confirmed/error), on SendResult.pressId, and on every thrown error (AAError.extra.pressId / err.pressId).
+ */
 export async function aaSend(calls: Call[], o0: SendOpts = {}) {
-  if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const o: SendOpts = { ...o0, pressId: o0.pressId ?? newPressId() };   // one press: refill retry + owner fallback share it
+  try { return await aaSend1(calls, o); } catch (e) { tagPress(e, o.pressId!); throw e; }
+}
+async function aaSend1(calls: Call[], o: SendOpts) {
+  if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
   const me = await sa.address();
   // Client mirror of the session policy: decides whether the SESSION KEY may sign. A call outside it (withdraw transfer,

@@ -11,7 +11,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -74,7 +74,10 @@ const BUNDLER_METHODS = [
  * minimum via rundler_maxPriorityFeePerGas (+10% headroom, the precheck floor moves with the base fee).
  */
 /** UserOp lifecycle → window "disciple:op" (optimistic UI + latency marks). No-op outside the browser. */
-export type OpPhase = { phase: "submitted" | "confirmed"; userOpHash: Hex; txHash?: Hex; timings?: unknown };
+/** `pressId` (GAME reservation id = SendOpts.pressId, caller-supplied or generated) is on EVERY event of the press, all
+ * retries included. "submitted" = pending (op handed to the relay / tx known). "error" = the press failed (terminal);
+ * `code` is the AAError code when known. */
+export type OpPhase = { phase: "submitted" | "confirmed" | "error"; userOpHash?: Hex; txHash?: Hex; timings?: unknown; pressId?: string; code?: string; message?: string };
 function opPhase(d: OpPhase) { if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("disciple:op", { detail: { ...d, at: performance.now() } })); }
 
 type FeeClient = { request: (a: { method: string; params?: unknown[] }) => Promise<Hex>; estimateFeesPerGas: () => Promise<{ maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint }> };
@@ -145,7 +148,7 @@ export type Mav2Opts = { chain: Chain; pc: PublicClient; bundlerUrl: string; sal
 /** Per-stage latency (ms) of one op. build = calldata+nonce+fees+gas, sign = signature, rpc = client→server→client,
  * server = self-bundler stages (sign tx, send, mined/receipt) when the sync method is used. */
 export type OpTimings = { build: number; sign: number; rpc: number; total: number; fast: boolean; server?: Record<string, number> };
-export type SendResult = { userOpHash: Hex; txHash: Hex; receipt: UserOpReceipt; gasMode: GasMode; timings?: OpTimings };
+export type SendResult = { userOpHash: Hex; txHash: Hex; receipt: UserOpReceipt; gasMode: GasMode; timings?: OpTimings; /** GAME: the press/reservation id (SendOpts.pressId) */ pressId?: string };
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 function absUrl(u: string) {
@@ -266,8 +269,23 @@ export class Mav2Account {
    */
   async sendCalls(calls: Call[], asOrOpts: "owner" | "session" | SendCallsOpts = "owner", feeRetry0 = true, o0: SendOpts = {}): Promise<SendResult> {
     const so: SendCallsOpts = typeof asOrOpts === "string" ? { ...o0, as: asOrOpts, feeRetry: feeRetry0 } : asOrOpts;
+    const pressId = so.pressId ?? newPressId();   // same press id on every retry (GAME: the caller's reservation id)
+    const top = !this.pressDepth.has(pressId);    // retries re-enter sendCalls with the same id: ONE error event per press
+    if (top) this.pressDepth.add(pressId);
+    try {
+      const r = await this.sendCalls1(calls, { ...so, pressId });
+      return { ...r, pressId };
+    } catch (e) {
+      tagPress(e, pressId);
+      if (top) { const ae = e as AAError; opPhase({ phase: "error", pressId, code: ae?.code, message: (ae as Error)?.message?.slice(0, 200), userOpHash: ae?.extra?.userOpHash as Hex | undefined, txHash: ae?.extra?.txHash as Hex | undefined }); }
+      throw e;
+    } finally { if (top) this.pressDepth.delete(pressId); }
+  }
+  private readonly pressDepth = new Set<string>();
+
+  private async sendCalls1(calls: Call[], so: SendCallsOpts & { pressId: string }): Promise<SendResult> {
     const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
-    const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId ?? newPressId() };   // same press id on every retry
+    const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId };
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
@@ -345,7 +363,7 @@ export class Mav2Account {
         const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
         if (r) return r;
       }
-      return this.sendRaw(wire, hash, kind, t0, fail, "usdg");
+      return this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);
     }
 
     // ---- fast path: warm preset + self-bundler sync method
@@ -376,7 +394,7 @@ export class Mav2Account {
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
     if (!gas && !launch && !grad && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
       this.gas.set(kind, { callGasLimit: BigInt(rq.callGasLimit), verificationGasLimit: BigInt(rq.verificationGasLimit), preVerificationGas: BigInt(rq.preVerificationGas) });
-    opPhase({ phase: "submitted", userOpHash: req.hash });
+    opPhase({ phase: "submitted", userOpHash: req.hash, pressId: o.pressId });
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
     catch { throw new AAError("Timeout", `UserOp ${req.hash} not mined yet`); }
@@ -387,7 +405,7 @@ export class Mav2Account {
     const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
-    opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings });
+    opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings, pressId: o.pressId });
     this.deployed = true;
     return { userOpHash: req.hash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
   }
@@ -421,7 +439,7 @@ export class Mav2Account {
     t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
   }): Promise<SendResult | null> {
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
-      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash }), fetch, { pressId: c.opts.pressId });
+      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash, pressId: c.opts.pressId }), fetch, { pressId: c.opts.pressId });
       const t3 = now();
       // Ambiguous failure (lost response, receipt timeout, -32603 after acceptance, nonce already used): the op may have
       // landed — look it up; not found ⇒ "still confirming", never a resend (AUDIT L2: a resend can trade twice).
@@ -457,10 +475,10 @@ export class Mav2Account {
       } else if (j.result) {
         this.syncOk = true;
         const { userOpHash, txHash, success, logs } = j.result;
-        opPhase({ phase: "submitted", userOpHash, txHash });
+        opPhase({ phase: "submitted", userOpHash, txHash, pressId: c.opts.pressId });
         const timings: OpTimings = { build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), rpc: Math.round(t3 - c.t2), total: Math.round(t3 - c.t0), fast: true, server: j.result.t as Record<string, number> };
         if (!success) { this.gas.drop(c.kind); throw new AAError("Reverted", `UserOp reverted (tx ${txHash})`, { txHash, revertData: opRevertReason(logs, userOpHash) }); }
-        opPhase({ phase: "confirmed", userOpHash, txHash, timings });
+        opPhase({ phase: "confirmed", userOpHash, txHash, timings, pressId: c.opts.pressId });
         this.deployed = true;
         return { userOpHash, txHash, gasMode: c.gasMode, receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
       }
@@ -468,7 +486,7 @@ export class Mav2Account {
   }
 
   /** Standard eth_sendUserOperation for an already-signed op (USDG-gas ops on a bundler without the sync method). */
-  private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode): Promise<SendResult> {
+  private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string): Promise<SendResult> {
     const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
@@ -479,7 +497,7 @@ export class Mav2Account {
         const got = await this.findOp(hash, wire.sender);
         if (!got) throw new AAError("Timeout", STILL_CONFIRMING, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
         if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
-        opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash });
+        opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, pressId });
         this.deployed = true;
         return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } } };
       }
@@ -488,12 +506,12 @@ export class Mav2Account {
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
       return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
     }
-    opPhase({ phase: "submitted", userOpHash: hash });
+    opPhase({ phase: "submitted", userOpHash: hash, pressId });
     const got = await this.findOp(hash, wire.sender, 30_000);
     if (!got) throw new AAError("Timeout", "Trade sent — still confirming on-chain. Check your balance in a moment.", { userOpHash: hash });
     if (!got.success) { this.gas.drop(kind); throw new AAError("Reverted", `UserOp reverted (tx ${got.txHash})`, { txHash: got.txHash, revertData: opRevertReason(got.logs, hash) }); }
     const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: false };
-    opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings });
+    opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings, pressId });
     this.deployed = true;
     return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } }, timings };
   }

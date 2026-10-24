@@ -101,3 +101,15 @@ test("AUDIT Info: lease epoch bumps on every re-acquisition; holds(epoch) false 
   const b = await p.ensure(); assert.ok(b); assert.notEqual(b!.epoch, a!.epoch);
   assert.equal(p.holds(a!.epoch), false, "an in-flight send from the old epoch may not sign"); assert.equal(p.holds(b!.epoch), true);
 });
+
+test("GAME: streamRelay echoes params[2].pressId on every NDJSON frame (error frame here: no relayer configured)", async () => {
+  const { streamRelay } = await import("../lib/server/relayStream");
+  const saved = process.env.RELAYER_PRIVATE_KEY; delete process.env.RELAYER_PRIVATE_KEY;
+  try {
+    const res = streamRelay([{ sender: "0x" + "00".repeat(20) }, "0x", { pressId: "res-9" }], async () => undefined);
+    const frames = (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
+    assert.ok(frames.length >= 1); assert.ok(frames.every((f) => f.pressId === "res-9"));
+    const none = (await streamRelay([{}, "0x"], async () => undefined).text()).trim().split("\n").map((l) => JSON.parse(l));
+    assert.ok(none.every((f) => !("pressId" in f)));
+  } finally { if (saved !== undefined) process.env.RELAYER_PRIVATE_KEY = saved; }
+});

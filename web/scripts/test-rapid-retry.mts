@@ -233,3 +233,50 @@ test("boundRebuiltMinOut: fresh ≥ original ⇒ fresh; fresh < original ⇒ thr
   const got = await retryCalls(CALLS, { rebuild: async () => [approve, buy(Number(boundRebuiltMinOut(BigInt(100), BigInt(90))))] });
   assert.equal(got, CALLS, "worse re-quote ⇒ original calls (original minOut 100 still enforced on-chain)");
 });
+
+// ---- GAME: the caller's reservation id (SendOpts.pressId) is echoed on every event / result / error of the press ----
+function captureOps() {
+  const evs: Record<string, unknown>[] = [], g = globalThis as unknown as { window?: unknown };
+  const had = "window" in g, prev = g.window;
+  g.window = { dispatchEvent: (e: CustomEvent) => { evs.push(e.detail as Record<string, unknown>); return true; } };
+  return { evs, restore: () => { if (had) g.window = prev; else delete g.window; } };
+}
+test("GAME pressId: caller id reused across the TRANSIENT_SIM retry; on relay meta, every submitted/confirmed event and the result", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  const { a } = fakeAccount({ deployed: true });
+  const cap = captureOps(), orig = globalThis.fetch, bodies: { params: unknown[] }[] = [];
+  globalThis.fetch = (async (_u: unknown, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return bodies.length === 1 ? Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32500, message: "AA23 reverted" } }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF }); }) as unknown as typeof fetch;
+  let r;
+  try { r = await a.sendCalls(CALLS, { rebuild: async () => [approve, buy(9)], pressId: "game-res-1" }); } finally { globalThis.fetch = orig; cap.restore(); }
+  assert.equal(r.pressId, "game-res-1");
+  assert.deepEqual(bodies.map((b) => (b.params[2] as { pressId: string }).pressId), ["game-res-1", "game-res-1"]);
+  assert.deepEqual(cap.evs.map((e) => e.phase), ["submitted", "confirmed"]);
+  assert.ok(cap.evs.every((e) => e.pressId === "game-res-1"));
+});
+test("GAME pressId: failure after a retry ⇒ ONE terminal 'error' event + AAError.extra.pressId (standard path too)", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  {
+    const { a } = fakeAccount({ deployed: true });
+    (a as unknown as { receiptFor: () => Promise<null> }).receiptFor = async () => null;
+    (a as unknown as { findOp: () => Promise<null> }).findOp = async () => null;
+    const cap = captureOps(), s = stubRelayOnce({ error: { code: -32099, message: "network: relay stream lost" } });
+    try {
+      await assert.rejects(a.sendCalls(CALLS, { pressId: "res-2" }), (e: { code?: string; extra?: { pressId?: string } }) => e.code === "Timeout" && e.extra?.pressId === "res-2");
+    } finally { s.restore(); cap.restore(); }
+    assert.deepEqual(cap.evs.map((e) => [e.phase, e.pressId, e.code]), [["error", "res-2", "Timeout"]]);
+  }
+  {
+    const { a } = fakeAccount({ deployed: false });   // standard path: 1st send TRANSIENT_SIM ⇒ retry, then a wait timeout
+    const cl = await (a as unknown as { owned: () => Promise<{ waitForUserOperationTransaction: () => Promise<never> }> }).owned();
+    cl.waitForUserOperationTransaction = async () => { throw new Error("timeout"); };
+    const cap = captureOps();
+    try { await assert.rejects(a.sendCalls(CALLS, "owner", true, { pressId: "res-3" }), (e: { extra?: { pressId?: string } }) => e.extra?.pressId === "res-3"); } finally { cap.restore(); }
+    assert.deepEqual(cap.evs.map((e) => e.phase), ["submitted", "error"]); assert.ok(cap.evs.every((e) => e.pressId === "res-3"));
+  }
+});
+test("GAME pressId: generated when absent (24 hex) and still echoed", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  const { a } = fakeAccount({ deployed: true }), cap = captureOps(), s = stubRelayOnce({ result: CONF });
+  let r; try { r = await a.sendCalls(CALLS, "owner"); } finally { s.restore(); cap.restore(); }
+  assert.match(r.pressId!, /^[0-9a-f]{24}$/); assert.ok(cap.evs.length >= 1 && cap.evs.every((e) => e.pressId === r.pressId));
+});

@@ -18,7 +18,9 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>, o
   const enc = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(ctl) {
-      const push = (f: RelayFrame) => ctl.enqueue(enc.encode(JSON.stringify(f) + "\n"));
+      const meta = params[2] as { pressId?: unknown } | undefined;
+      const pressId = typeof meta?.pressId === "string" && meta.pressId.length <= 128 ? meta.pressId : undefined;
+      const push = (f: RelayFrame) => ctl.enqueue(enc.encode(JSON.stringify(pressId ? { ...f, pressId } : f) + "\n"));   // echo on every frame
       const op = params[0] as UserOp;
       let hash: `0x${string}` | undefined;
       try { hash = userOpHash(op, robinhoodTestnet.id); } catch { /* malformed op: fastRelay rejects it */ }

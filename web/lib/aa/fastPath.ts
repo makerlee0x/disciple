@@ -97,6 +97,16 @@ export type SendOpts = {
 };
 /** SITE's shape (#144): sendCalls(calls, { rebuild }) — plus the signer / fee-retry switches as options. */
 export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean };
+/** GAME: every error a press throws carries its pressId: AAError ⇒ extra.pressId; any object error ⇒ .pressId too.
+ * Duck-typed (no AAError import) so this module stays light. */
+export function tagPress(e: unknown, pressId: string) {
+  if (!e || typeof e !== "object") return;
+  const x = e as { extra?: Record<string, unknown>; code?: unknown; pressId?: string };
+  try {
+    if ("extra" in x && "code" in x) x.extra = { ...(x.extra ?? {}), pressId };
+    x.pressId = pressId;
+  } catch { /* frozen */ }
+}
 export function newPressId(): string {
   const a = new Uint8Array(12); (globalThis.crypto as Crypto).getRandomValues(a);
   return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
