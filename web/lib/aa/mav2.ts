@@ -517,10 +517,12 @@ export class Mav2Account {
           const u: RelayUnclearInfo = ids.userOpHash ? { ...u0, userOpHash: ids.userOpHash } : u0;
           if (ids.userOpHash && u0.userOpHash && u0.userOpHash.toLowerCase() !== ids.userOpHash.toLowerCase()) delete u.txHash;
           const detail = j.error.message.split("\n")[0].slice(0, 300);
-          // main #130: the raw relay text goes to the console + extra.relayError only (player sees PENDING_MSG)
-          const relayError = detail.slice(0, 200);
+          // main #130: when the relay never answered with this op's ids (network failure / unreadable response), the raw
+          // relay text goes to the console + extra.relayError only (player sees PENDING_MSG); otherwise ids only
+          const relayError = ref ? undefined : detail.slice(0, 200);
           logRelayOp("pending", { userOpHash: u.userOpHash, txHash: u.txHash }, relayError);
-          throw new AAError("Timeout", PENDING_MSG, u.userOpHash ? { ...unclearExtra(u, u.userOpHash, { sender: c.sender, nonce: wire.nonce }), detail, relayError } : { ...u, sender: c.sender, detail, relayError });
+          const rx = relayError ? { relayError } : {};
+          throw new AAError("Timeout", PENDING_MSG, u.userOpHash ? { ...unclearExtra(u, u.userOpHash, { sender: c.sender, nonce: wire.nonce }), detail, ...rx } : { ...u, sender: c.sender, detail, ...rx });
         }
       }
       // Still no answer and the outcome is unclear (receipt timeout, lost stream, network): NEVER a definite failure and
@@ -534,9 +536,8 @@ export class Mav2Account {
       if (unclear) {
         const uoh = unclear.userOpHash;
         if (uoh) opPhase({ phase: "submitted", userOpHash: uoh, txHash: unclear.txHash, pressId: c.opts.pressId });
-        const relayError = j.error ? j.error.message.split("\n")[0].slice(0, 200) : undefined;
-        logRelayOp("pending", { userOpHash: uoh, txHash: unclear.txHash }, relayError);
-        throw new AAError("Timeout", PENDING_MSG, { ...(uoh ? unclearExtra(unclear, uoh, { sender: c.sender, nonce: wire.nonce }) : { ...unclear, sender: c.sender }), ...(relayError ? { relayError } : {}) });
+        logRelayOp("pending", { userOpHash: uoh, txHash: unclear.txHash });
+        throw new AAError("Timeout", PENDING_MSG, uoh ? unclearExtra(unclear, uoh, { sender: c.sender, nonce: wire.nonce }) : { ...unclear, sender: c.sender });
       }
       if (j.error && c.gasMode === "usdg" && /AA3[0-9]|MaxCostTooLow|signature error/i.test(`${j.error.message} ${String(j.error.data ?? "")}`)) this.allowances?.invalidate(c.sender);
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
