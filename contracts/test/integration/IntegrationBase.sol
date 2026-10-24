@@ -249,7 +249,7 @@ abstract contract IntegrationBase is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
-    /// @dev mode rules v2: the sniper tax decays 99% → 0 over ANTI_SNIPE_DURATION (77 s).
+    /// @dev mode rules v2: the sniper tax decays 99% → 0 over ANTI_SNIPE_DURATION (7 s, per-second table).
     function _warpPastSnipe() internal {
         vm.warp(block.timestamp + Constants.ANTI_SNIPE_DURATION + 1);
     }

@@ -5,6 +5,13 @@ import {Constants} from "./Constants.sol";
 
 /// @title Fee split helpers for DISCIPLE 1% trade fee (§3 / LOCKED #11–#12)
 library FeeMath {
+    /// @notice Sniper tax in bps `elapsed` seconds after launch: Constants.ANTI_SNIPE_TABLE[elapsed], 0 from
+    ///         ANTI_SNIPE_DURATION (7s). 99% · 25% · 3% · 1% · 0.3% · 0.1% · 0.03% · 0.
+    function snipeBps(uint256 elapsed) internal pure returns (uint256) {
+        if (elapsed >= Constants.ANTI_SNIPE_DURATION) return Constants.ANTI_SNIPE_END_BPS;
+        return (Constants.ANTI_SNIPE_TABLE >> (elapsed << 4)) & 0xffff;
+    }
+
     /// @notice Split a protocol fee amount into creator / LP / treasury / referral shares.
     /// @param feeAmount Absolute fee taken from the trade (already TRADE_FEE_BPS of notional).
     /// @return creator FEE_SHARE_CREATOR / 100 of feeAmount

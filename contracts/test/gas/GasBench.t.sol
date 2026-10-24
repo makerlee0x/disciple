@@ -291,7 +291,7 @@ contract GasBenchModes is IntegrationBase {
     function test_bench_steep_curve() public {
         (BondingCurve c, Token t) = _coin(0); // TRENCH: no holding cap
         vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 8 minutes); // past the 77s sniper window
+        vm.warp(block.timestamp + 8 minutes); // past the 7s sniper window
         address w = _w("steepWhale", c, t);
         address a = _w("steepA", c, t);
         uint256[3] memory targets = [uint256(5_000e18), 15_000e18, 28_000e18];

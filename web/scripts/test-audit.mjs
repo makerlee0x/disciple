@@ -156,7 +156,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
       const marks = []; for (let i = 0; i < 40; i++) { d2.paper = 1 + (d2.paper - 1) * Math.exp(-0.25 / 20); marks.push(d2.shown()); } tracks(`disciple paper $${M / 1e3}K`, pos2, marks); }
   }
   // SIMULATOR: exact fills, NO wallet cap (live Launchpad default walletCapBps = 0). A buy that completes the curve is
-  // filled up to the curve end and the unspent quote refunded. After the 77 s anti-snipe window (that tax is a real cost).
+  // filled up to the curve end and the unspent quote refunded. After the 7 s anti-snipe window (that tax is a real cost).
   for (const T of [80, 120, 170]) { const r = new SimRun(cloneConfig(), "pve", 1000, { balance: 1e6 }); while (r.t < T) r.step(0.1);
     const pre = r.m.mcap(), wasCurve = r.m.phase === "curve"; const f = r.playerTrade("buy", USD); const spent = 1e6 - r.player.cash;
     ok(f.ok && Math.abs(spent - f.usd - r.cfg.player.gasUsd) < 1e-6, `sim t=${T}s @ $${Math.round(pre).toLocaleString()}: only the filled $${f.usd.toFixed(2)} is charged (${(f.tokens / 1e4).toFixed(2)}% of supply${wasCurve && f.usd < USD ? ", curve completed, rest refunded" : ""})`);

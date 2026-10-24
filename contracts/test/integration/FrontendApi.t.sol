@@ -89,7 +89,7 @@ contract FrontendApiTest is FrontendApiBase {
         vm.warp(block.timestamp + 2); // inside anti-snipe window
         BondingCurve.BuyQuote memory q = curve.quoteBuy(100 ether);
         assertGt(q.snipeFee, 0, "snipe fee active");
-        assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS - uint256(9900 * 2) / 77);
+        assertEq(curve.currentSnipeFeeBps(), 300); // 3% at 2s
         uint256 pBefore = curve.priceNow();
 
         vm.recordLogs();

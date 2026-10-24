@@ -73,7 +73,7 @@ contract GraduationFloorTest is IntegrationBase {
     // ── seeding: sums, budget, escrow exclusion ──────────────────────────────
 
     function _checkSeed(bool c0) internal {
-        Grad memory g = _grad(c0, 50 ether); // a sniper buy inside the 77 s window → snipeEscrow > 0
+        Grad memory g = _grad(c0, 50 ether); // a sniper buy inside the 7 s window → snipeEscrow > 0
         assertGt(g.snipe, 0, "sniper escrow present");
         (,,, uint256 pairing,,,) = lockedLP.positions(address(g.tok)); // main position's quote
         // floor budget = curve reserve − full-range pairing (sniper escrow excluded)
