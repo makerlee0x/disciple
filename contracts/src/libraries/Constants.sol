@@ -7,7 +7,7 @@ pragma solidity ^0.8.26;
 library Constants {
     // ── Supply (§2 Curve parameters / LOCKED #7) ─────────────────────────────
     uint8 internal constant TOKEN_DECIMALS = 18;
-    uint256 internal constant TOTAL_SUPPLY = 1_000_000 * 1e18; // 1M fixed, no burn (LOCKED #7 rev. 2026-10-23, lee sign-off)
+    uint256 internal constant TOTAL_SUPPLY = 1_000_000 * 1e18; // 1M minted once, no mint after; holders may burn (Token.burn, lee 2026-10-24). Mcap math keeps this constant.
     /// @dev Share of supply sold on the bonding curve before graduation (Outer Space, $33,333). Curve #1 (lee,
     ///      2026-10-23): 84.24% sold / 15.76% to the pool, sized so the graduation raise (~$6,520 net of the 1% fee)
     ///      pairs the pool at the curve-end price and leaves ~$1,201 USDG over for the locked floor.
