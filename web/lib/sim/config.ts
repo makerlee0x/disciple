@@ -145,7 +145,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     label: "PvE", tag: "CREW", color: "#8ff0c0",
     blurb: "Your crew helps the rocket climb. Bots buy dips at support and take modest profits at resistance. Low volatility, steady growth, an occasional small sell.",
     initial: { crew: 20, diamond: 5, scalper: 4, paperhand: 3 }, arrivalsPerMin: 10, mix: { crew: 0.55, diamond: 0.2, paperhand: 0.13, scalper: 0.12 },
-    activity: 5.5, size: 1.9, maxBots: 90, hypeSigma: 0.12,
+    activity: 5.5, size: 1.37, maxBots: 90, hypeSigma: 0.12,   // size: pre-#127 1.9 × ~0.72, calibrated on steep curve #1 to the #127-base PvE graduation (12/12, ~166 s)
     startS: [0.3, 1.4], tradeScale: 0.25, takeProfit: 0.055,
     waves: { everyS: [12, 28], durS: [4, 9], sellBoost: 0.42, buyCut: 0.1 },
     adapt: { reactS: [2.5, 4.5], windowS: 20, pumpFrac: 0.03, dumpFrac: 0.02, ride: 0.06, dumpOn: 0.03, pile: 0, tpRide: 0.3, dipBuy: 0.5, budgetPerMin: 0.05, maxReactors: 2 },
@@ -156,7 +156,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     blurb: "Pump-and-dump traders maximise their own PnL: momentum chasers, profit takers and whales. Bigger buys, bigger dumps. A high mcap is still possible.",
     initial: { momentum: 5, scalper: 5, paperhand: 4, whale: 1, crew: 3 }, arrivalsPerMin: 6,
     mix: { momentum: 0.26, scalper: 0.22, paperhand: 0.2, whale: 0.07, diamond: 0.13, crew: 0.12 },
-    activity: 2.4, size: 0.55, maxBots: 100, hypeSigma: 0.7,
+    activity: 2.4, size: 0.58, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.8 × ~0.73, calibrated to the #127-base PvP graduation (12/12, ~218 s)
     startS: [0.3, 1.5], tradeScale: 0.55, takeProfit: 0.06,
     adapt: { reactS: [1.2, 2.4], windowS: 20, pumpFrac: 0.025, dumpFrac: 0.02, ride: 0.35, dumpOn: 0.35, pile: 0.3, tpRide: 0.14, dipBuy: 0.2, budgetPerMin: 0.14, maxReactors: 5 },
     orders: { rate: 0.06, maxPerBot: 1, maxTotal: 14, sizeFrac: [0.08, 0.25], undercut: 0.35, stack: 0.1, exitInto: 0.3, keeperS: [1, 3] },
@@ -166,7 +166,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: altitude is possible, but hard.",
     initial: { sniper: 4, bundler: 6, rugger: 1, cto: 1, momentum: 2, scalper: 2, paperhand: 3, whale: 1 }, arrivalsPerMin: 4,
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
-    activity: 2.4, size: 0.55, maxBots: 100, hypeSigma: 0.7,
+    activity: 2.4, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76, calibrated to the #127-base TRENCH graduation (10/12, ~264 s)
     startS: [0.3, 1.5], tradeScale: 0.65, takeProfit: 0.05,
     // dev buys the first block after the 77 s sniper tax, so the rug window opens ~30 s after that; it is tempted at ~$15K
     // (4.6× the $3,333 launch: the same $ level as the old 2.2× of $7K, now ~46% of the way to $33,333)
