@@ -22,6 +22,8 @@ import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
+import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
+import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -116,7 +118,23 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     loadPortfolio(publicClient(), a, coin ? [coin] : []).then(setPf).catch(() => { /* keep last */ });
   }
   useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
-    addEventListener("disciple:livetrade", t); return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
+    // live retest (minor): the fill's receipt is final ⇒ one read right away instead of waiting for the 1.5 s / 15 s ones
+    const r = () => refresh(addr);
+    addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r);
+    return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // live retest #5: the chip shows the claimed @name (the account's, else its owner's), not only the short address
+  const [uname, setUname] = useState<string | null>(null);
+  const ownerAddr = addr ? aaSession()?.owner : undefined;
+  useEffect(() => {
+    if (!addr) { setUname(null); return; }
+    let alive = true;
+    const load = () => { lookupFirstName([addr, ownerAddr]).then((n) => { if (alive) setUname(n); }); };
+    const changed = () => { clearNameCache(); load(); };
+    load();
+    addEventListener(PROFILE_CHANGED_EVENT, changed);
+    return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
+  }, [addr, ownerAddr]);
 
   const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
   async function run(label: string, f: () => Promise<unknown>) {
@@ -190,7 +208,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : `${addr.slice(0, 6)}…${addr.slice(-4)}`}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}
               </button>
               {smart && SIGNER_MODE !== "local" && <button type="button" onClick={() => run("", disconnect)} style={{ ...pill, background: "rgba(255,255,255,.08)" }} aria-label="Disconnect"><Icon name="close" size={16} /></button>}
             </>

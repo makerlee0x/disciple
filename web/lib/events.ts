@@ -8,8 +8,9 @@
  */
 import type { Log, PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
-import { usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
+import { playerUsd, usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
+import { publishTraderName } from "./nameLookup";
 import { deployment } from "./chains";
 import { publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import { coinBasis, hookMcapUsd as hookSqrtMcapUsd } from "./mcap";
@@ -64,12 +65,17 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
   const isBuy = a.isBuy as boolean;
   const quoteAmt = a.quoteAmt as bigint, tokenAmt = a.tokenAmt as bigint;
   const bps = Number(a.impactBps as bigint) * (isBuy ? 1 : -1);
+  const real = usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined, usdgDecimals());
+  const side = isBuy ? "buy" as const : "sell" as const;
+  // usd = what the player paid / got (router USDG) when known — the trade status line and the feed agree (live retest #3).
+  // Without a UsdgTrade (direct curve/pool trade) it stays the quote value at the launch quote price.
+  const quoteUsd = quoteRawToUsd(quoteAmt, quotePriceUsd);
   return {
-    type: "Trade", token: a.token as Address, trader: a.trader as Address, side: isBuy ? "buy" : "sell", venue,
+    type: "Trade", token: a.token as Address, trader: a.trader as Address, side, venue,
     amountIn: isBuy ? quoteAmt : tokenAmt, amountOut: isBuy ? tokenAmt : quoteAmt,
     quoteAmt, tokenAmt, fee: a.fee as bigint, snipeFee: a.snipeFee as bigint,
-    usd: quoteRawToUsd(quoteAmt, quotePriceUsd),
-    ...usdgAmounts(usdg && usdg.trader.toLowerCase() === String(a.trader).toLowerCase() ? usdg : undefined, usdgDecimals()),
+    usd: playerUsd({ side, usd: quoteUsd, ...real }) || quoteUsd,
+    ...real,
     impactBps: bps, impactPct: bps / 100,
     // v4 hook Trade has NO mcapAfterUsd (gas G-1: last field is sqrtPriceAfter). Post-grad mcap = sqrtPriceAfter × the
     // coin's launch quote price (lib/mcap) — never the floored priceAfterX18 (6-dec USDG, FLOW #115). Curve Trades
@@ -189,13 +195,28 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   // immutable per coin (lib/mcap): quote token + the coin's own supply
   const hookCtx: Promise<HookCtx> = coinBasis(pc, token, curve).then((b) => ({ quote: b.quote, supplyTokens: b.supplyTokens }), () => ({ quote }));
 
+  // Live retest #3: live Trades carry the router's real USDG too (was history-only), so the feed shows what the player
+  // paid/got — the same $ as the trade status line — instead of the quote value at the launch price ($8.18 for a $10 buy).
+  const router = deployment().router;
+  const withUsdg = async (from: bigint, to: bigint, logs: Promise<L[]>): Promise<L[]> => {
+    const [ls, rl] = await Promise.all([
+      logs,
+      router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([] as L[])
+        : (pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>)
+          .catch((e) => { console.warn("[disciple] live UsdgTrade read failed; feed falls back to quote value", e); return [] as L[]; }),
+    ]);
+    const idx = usdgIndex(rl.map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })));
+    for (const l of ls) if (l.eventName === "Trade") (l as L & { usdg?: UsdgTradeArgs }).usdg = idx.get(usdgKey(l.transactionHash ?? "", String(l.args.token), Boolean(l.args.isBuy)))?.shift();
+    return ls;
+  };
+  const usdgOf = (l: L) => (l as L & { usdg?: UsdgTradeArgs }).usdg;
   const c = pollLogs({
     pc, fromBlock: start,
-    fetch: (from, to) => pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>,
+    fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
     onLogs: (logs) => inOrder(() => {
       for (const l of logs) {
         if (l.eventName === "GraduatedToV4") order.trade({ type: "Graduate", token, poolId: l.args.poolId as `0x${string}` });
-        else if (l.eventName === "Trade") order.trade(tradeFromLog(l, qp, "curve"));
+        else if (l.eventName === "Trade") order.trade(tradeFromLog(l, qp, "curve", undefined, usdgOf(l)));
       }
     }),
   });
@@ -205,8 +226,8 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   if (hook !== "0x0000000000000000000000000000000000000000") {
     const h = pollLogs({
       pc, fromBlock: start,
-      fetch: (from, to) => pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>,
-      onLogs: (logs) => inOrder(async () => { const k = await hookCtx; for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k)); }),
+      fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
+      onLogs: (logs) => inOrder(async () => { const k = await hookCtx; for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k, usdgOf(l))); }),
     });
     stops.push(h.stop); kicks.push(h.kick);
   }
@@ -245,7 +266,9 @@ export function reconcileMcap(token: Address, order: McapOrderer, pc: PublicClie
 export interface LaunchedCoin {
   token: Address; curve: Address; creator: Address; quote: Address; name: string; ticker: string;
   /** moderated-store URL of the coin image (/api/image/<id>), "" if the on-chain imageURI isn't moderated */
-  imageURI: string; mcapUsd: number; graduated: boolean; progressBps: number; block: bigint;
+  imageURI: string; mcapUsd: number; graduated: boolean;
+  /** curve.progressBps() (0–10000, 10000 once graduated); null when the read failed */
+  progressBps: number | null; block: bigint;
 }
 
 /** All launches since the deployment start block, newest first, with live mcap/progress (launchpad home list).
@@ -261,13 +284,13 @@ export async function listLaunches(pc: PublicClient = publicClient(), resolveIma
     const [mcap, grad, prog, meta] = await Promise.all([
       readMarket(pc, a.token as Address).then((m) => (m ? BigInt(Math.round(m.mcapUsd * 1e6)) * BigInt(1e12) : pc.readContract({ ...c, functionName: "mcapNow" }))).catch(() => BigInt(0)),
       pc.readContract({ ...c, functionName: "graduated" }).catch(() => false),
-      pc.readContract({ ...c, functionName: "progressBps" }).catch(() => BigInt(0)),
+      pc.readContract({ ...c, functionName: "progressBps" }).catch(() => null),
       pc.readContract({ address: lp, abi: launchpadAbi, functionName: "metaOf", args: [a.token as Address] }).catch(() => null),
     ]);
     return {
       token: a.token as Address, curve, creator: a.creator as Address, quote: a.quote as Address, name: a.name, ticker: a.ticker,
       imageURI: meta ? String((meta as readonly unknown[])[2] ?? "") : "",
-      mcapUsd: wad(mcap as bigint), graduated: grad as boolean, progressBps: Number(prog), block: l.blockNumber ?? BigInt(0),
+      mcapUsd: wad(mcap as bigint), graduated: grad as boolean, progressBps: prog == null ? null : Number(prog), block: l.blockNumber ?? BigInt(0),
     };
   }));
   // W-3e: render only moderated images. imageURI is replaced by its moderated-store URL (/api/image/<id>), or "" when
@@ -311,6 +334,7 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
 /** Bridge to the flight engine: dispatches window "disciple:event" CustomEvents. */
 export function toEngine(e: ProtocolEvent) {
   if (typeof window === "undefined") return;
+  if (e.type === "Trade") publishTraderName(e.trader);   // live retest #5: feed names (window.__discipleNames, cached lookup)
   window.dispatchEvent(new CustomEvent("disciple:event", {
     detail: JSON.parse(JSON.stringify(e, (_, v) => (typeof v === "bigint" ? v.toString() : v))),
   }));
