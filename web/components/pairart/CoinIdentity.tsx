@@ -36,12 +36,16 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
   if (!icon && !tk) return null;
   const bp = basePair(pair);
+  // Dollars-only rule (no ETH / gas wording on player surfaces): an ETH / WETH pair gets no pair badge or pair label;
+  // the chip is the coin's own art + name. Other pairs keep their badge.
+  const ethPair = bp?.tk === "eth" || /^w?eth$/i.test(pair);
+  const pairSym = ethPair ? "" : bp?.sym ?? pair;
   return (
-    <div className="coin-id" data-testid="coin-name" title={`${name} · $${tk} · ${bp?.sym ?? pair}`} aria-label={`${name} paired with ${bp?.sym ?? pair}`}>
-      <PairArt src={icon} pair={pair} tk={tk} size="list" px={38} eager />
+    <div className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
+      <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>
-        <span>${tk} · {bp?.sym ?? pair}</span>
+        <span>${tk}{pairSym ? ` · ${pairSym}` : ""}</span>
       </div>
     </div>
   );

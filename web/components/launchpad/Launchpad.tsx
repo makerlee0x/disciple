@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { CURVE, fmtUsd, gradProgress } from "@/lib/config";
+import { CURVE, fmtUsd } from "@/lib/config";
+import { graduationPct } from "@/lib/mcap";
 import { isRocketVerified } from "@/lib/verified";
 import { useVerifiedMany } from "@/lib/verifiedClient";
 import VerifiedBadge from "@/components/VerifiedBadge";
@@ -106,8 +107,11 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
   );
 }
 
+/** % to orbit: the curve's own progressBps when the list has it, else the same curve formula from the mcap. */
+const gradOf = (c: Rocket) => c.gradPct ?? graduationPct(c.mcap);
+
 const Row = memo(function Row({ c, rank, starred, onStar, onPick }: { c: Rocket; rank: number; starred: boolean; onStar: (id: string) => void; onPick: (c: Rocket) => void }) {
-  const p = gradProgress(c.mcap);
+  const p = gradOf(c);
   return (
     <div role="link" tabIndex={0} className="lp-row" onClick={() => onPick(c)} onKeyDown={(e) => { if (e.key === "Enter") onPick(c); }}>
       <span className="lp-c-rank"><Star on={starred} onClick={() => onStar(c.id)} />{rank}</span>
@@ -131,7 +135,7 @@ const Row = memo(function Row({ c, rank, starred, onStar, onPick }: { c: Rocket;
 });
 
 const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; starred: boolean; onStar: (id: string) => void; onPick: (c: Rocket) => void }) {
-  const p = gradProgress(c.mcap);
+  const p = gradOf(c);
   const grad = isGrad(c);
   return (
     <div role="link" tabIndex={0} className="rocket-card lp-card" onClick={() => onPick(c)} onKeyDown={(e) => { if (e.key === "Enter") onPick(c); }}
@@ -211,7 +215,7 @@ export default function Launchpad({ coins, onPick, defaultVerified, defaultTab =
       if (needle && !(c.name.toLowerCase().includes(needle) || c.tk.toLowerCase().includes(needle) || c.id.toLowerCase().includes(needle))) return false;
       if (verified === "verified" && !verOf(c) && !vset.has(c.id.toLowerCase())) return false;
       if (tab === "graduated") return isGrad(c);
-      if (tab === "near") { const p = gradProgress(c.mcap); return !isGrad(c) && p != null && p >= 60; }
+      if (tab === "near") { const p = gradOf(c); return !isGrad(c) && p != null && p >= 60; }
       return true;
     });
     const mc = (c: Rocket) => c.mcap ?? 0;

@@ -107,18 +107,7 @@ export function fmtUsd(v: number): string {
   return "$" + v.toFixed(0);
 }
 
-export function gradProgress(mcap: number | null): number | null {
-  if (mcap == null) return null;
-  if (mcap >= CURVE.graduationMcap) return 100;
-  return Math.max(
-    0,
-    Math.min(
-      100,
-      ((mcap - CURVE.startMcap) / (CURVE.graduationMcap - CURVE.startMcap)) *
-        100,
-    ),
-  );
-}
+/* gradProgress (mcap-linear) moved to lib/mcap.ts graduationPct (the curve formula, live retest #4). */
 
 export const SETTINGS_KEYS = {
   orbs: "disciple.orbs",

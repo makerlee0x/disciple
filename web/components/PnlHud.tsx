@@ -20,6 +20,8 @@ const DEFAULT_KEY = "disciple.pnl.";
 const usd = fmtPnl;
 const pct = (v: number) => (v > 0 ? "▲ " : v < 0 ? "▼ " : "") + Math.abs(v).toFixed(1) + "%";
 const GREEN = "#8ff0c0", RED = "#ff9fb8", FLAT = "#e8ecff";
+/** phone-first HUD active (components/flight/PhoneHud.tsx sets html.ap-phone below 740px) */
+const isPhone = () => typeof document !== "undefined" && document.documentElement.classList.contains("ap-phone");
 const col = (x: number) => (x > 0.005 ? GREEN : x < -0.005 ? RED : FLAT);
 
 /** Smoothly tweened number: animates text in place via rAF (no React re-render per frame). */
@@ -71,7 +73,9 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const t = useT();
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
-  const [open, setOpen] = useState(true);
+  const [open, setOpenS] = useState(true);
+  // phone HUD (components/flight/PhoneHud.tsx): the header asks for the RUN sheet instead of expanding in place
+  const setOpen = (f: boolean | ((o: boolean) => boolean)) => (isPhone() && typeof f === "function" ? dispatchEvent(new CustomEvent("disciple:phonesheet-req", { detail: { req: "run" } })) : setOpenS(f));
   const [session, setSession] = useState(0);
   const posRef = useRef(pos);
   posRef.current = pos;
@@ -82,11 +86,14 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
 
   useEffect(() => {
     try { const s = localStorage.getItem(KEY + coin); if (s) setPos(JSON.parse(s)); } catch { /* ignore */ }
-    if (window.matchMedia?.("(max-width: 760px)").matches) setOpen(false);
+    if (window.matchMedia?.("(max-width: 760px)").matches) setOpenS(false);
+    // phone HUD: the full card only while the RUN sheet is open, else the one-line strip
+    const onSheet = (e: Event) => { if (isPhone()) setOpenS(((e as CustomEvent).detail || {}).id === "run"); };
+    addEventListener("disciple:phonesheet", onSheet);
     setSession(sessionRealized(coin, KEY));
     const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin, KEY)); };
     addEventListener("storage", onStorage);
-    return () => removeEventListener("storage", onStorage);
+    return () => { removeEventListener("storage", onStorage); removeEventListener("disciple:phonesheet", onSheet); };
   }, [coin, KEY]);
 
   useEffect(() => {
@@ -165,8 +172,10 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   }, [v.size, v.valueUsd, basis]);
   // the engine's rocket position tag reads the SAME view() (P toggles it)
   useEffect(() => {
-    dispatchEvent(new CustomEvent("disciple:pnlview", { detail: v.size > 0 ? { size: v.size, valueUsd: v.valueUsd, entryMcap: v.entryMcap, uPnl: v.uPnl, pnlPct: v.pnlPct, realized: v.realized,
-      txt: { pnl: fmtPnl(v.uPnl), pct: fmtPct(v.pnlPct), pos: fmtMoney(v.valueUsd), realized: fmtPnl(v.realized) } } : null }));
+    const detail = v.size > 0 ? { size: v.size, valueUsd: v.valueUsd, entryMcap: v.entryMcap, uPnl: v.uPnl, pnlPct: v.pnlPct, realized: v.realized,
+      txt: { pnl: fmtPnl(v.uPnl), pct: fmtPct(v.pnlPct), pos: fmtMoney(v.valueUsd), realized: fmtPnl(v.realized) } } : null;
+    (window as unknown as { __pnlView?: unknown }).__pnlView = detail;   // late listeners (phone HUD PnL line) read the current view
+    dispatchEvent(new CustomEvent("disciple:pnlview", { detail }));
   }, [v.size, v.valueUsd, v.entryMcap, v.uPnl, v.pnlPct, v.realized]);
 
   const holding = v.size > 0;

@@ -24,6 +24,8 @@
     "test:profile-meta-api": "node scripts/test-profile-meta-api.mjs",
     "test:replay": "node scripts/test-replay.mjs",
     "test:chartseed": "node scripts/test-chartseed.mjs",
+    "test:feed-names": "node scripts/test-feed-names.mjs",
+    "test:phone-hud": "node scripts/test-phone-hud.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",
@@ -64,6 +66,8 @@
     "test:player-errors": "tsx --conditions=react-server --test scripts/test-player-errors.mts",
     "test:relay-op": "tsx --conditions=react-server --test scripts/test-relay-op.mts",
     "test:mcap": "tsx --conditions=react-server --test scripts/test-mcap.mts",
+    "test:live-retest": "tsx --conditions=react-server --test scripts/test-live-retest.mts",
+    "test:fill-book": "tsx --conditions=react-server --test scripts/test-fill-book.mts",
     "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:usdg-decimals": "tsx --test scripts/test-usdg-decimals.mts",
     "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts"

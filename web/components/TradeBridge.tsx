@@ -2,6 +2,8 @@
 
 import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
 import { useEffect, useRef, useState } from "react";
+import PhoneTradeBar, { chipUsd } from "./flight/PhoneTradeBar";
+import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
@@ -67,6 +69,7 @@ const ownHint = async (pc: PcLike, erc20: Address, me: Address, maxAge: number) 
 
 export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
   const [mode, setMode] = useState(0);
+  const phone = useIsPhoneHud();
   const [custom, setCustom] = useState("");
   const gs = useGameSettings();
   const t = useT();
@@ -438,6 +441,26 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const cashUsd = live ? liveCash : paperCash;
   const short = cashUsd != null && cashUsd + 1e-9 < shotUsd;   // BOOST greyed out: the amount is more than the cash
   const shortMsg = short ? `Not enough cash: ${fmtShot(shotUsd)} BOOST, you have ${fmtShot(Math.max(0, cashUsd ?? 0))}` : "";
+  const boostTitle = short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`;
+  const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
+  // phones (html.ap-phone, PhoneHud): the v3 bar — same amount state + trade calls as the desktop bar below, layout only
+  if (phone) return (
+    <>
+    <AmmoTierNotice />
+    <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+      onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short} dumpDisabled={!has} boostTitle={boostTitle} dumpTitle={dumpTitle}
+      buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
+      onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
+      onSetBuy={(v) => setCustom(v)}
+      sellOpts={SELLS.slice(0, 4).map((x) => x.label)} sellSel={sellCustomN ? -1 : sellSel}
+      onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
+      onSetSell={(v) => { pickUnit("%"); setSellCustom(v); }}
+      hint={hint || shortMsg} keyGuard={noKeyActivate} />
+    {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
+      onClose={() => setShowCfg(false)}
+      onSave={(n) => { setCfg(n); saveSettings(scope, n); setShowCfg(false); }} />}
+    </>
+  );
   return (
     <>
     <AmmoTierNotice />
