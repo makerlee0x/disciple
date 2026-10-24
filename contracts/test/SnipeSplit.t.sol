@@ -142,7 +142,7 @@ contract SnipeSplitTest is IntegrationBase {
         to[0] = trader2;
         uint256[] memory amt = new uint256[](1);
         amt[0] = bal;
-        vm.expectRevert(RewardsVault.OnlyOwner.selector);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         rewardsVault.distribute(address(quote), to, amt);
         uint256 b0 = quote.balanceOf(trader2);
         vm.prank(owner);
