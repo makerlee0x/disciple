@@ -11,3 +11,4 @@ lib/
 # Coverage / gas
 lcov.info
 gas-report.txt
+deployments/fork/
