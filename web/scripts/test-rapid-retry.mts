@@ -387,3 +387,36 @@ test("sender lockout: VALID ops are still limited per sender (across IPs), once 
   assert.equal((await sl.peek())?.ok, false); const before = await st.get!(`rl:bundler:send:sender:${VICTIM}`); await sl.peek();
   assert.equal(await st.get!(`rl:bundler:send:sender:${VICTIM}`), before);
 });
+
+// ---- AUDIT #145 Low A: a NODE -32005 after signing is never "nothing sent" ----
+import { isSendLimitError } from "../lib/server/limits";
+import { classifySendError } from "../lib/server/relayerNonce";
+
+test("Low A: isSendLimitError matches only our own pre-send SendLimitError (no txHash)", () => {
+  const h = "0x" + "77".repeat(32);
+  assert.equal(isSendLimitError(new SendLimitError(3)), true);
+  // node / sequencer -32005 (same wording as ours), with or without the signed txHash attached: not ours
+  assert.equal(isSendLimitError(Object.assign(new Error("request rate limited"), { code: -32005 })), false);
+  assert.equal(isSendLimitError(Object.assign(new Error("rate limited, retry in 3s"), { code: -32005 })), false);
+  assert.equal(isSendLimitError(Object.assign(new Error("rate limited"), { code: -32005, txHash: h, relayNonce: 7 })), false);
+  // a SendLimitError that somehow carries a txHash (signed) is not treated as nothing-sent either
+  assert.equal(isSendLimitError(Object.assign(new SendLimitError(3), { txHash: h })), false);
+  assert.equal(isSendLimitError({ code: -32005, message: "rate limited" }), false);
+  assert.equal(isSendLimitError(null), false);
+});
+
+test("Low A: node -32005 after signing ⇒ route/stream data carries txHash without notSent ⇒ client treats it as UNCLEAR", () => {
+  const h = "0x" + "78".repeat(32), uoh = "0x" + "79".repeat(32);
+  const node = Object.assign(new Error("request rate limited"), { code: -32005 });
+  assert.equal(classifySendError(node), "unclear");   // the nonce classifier already calls it unclear
+  // what fastRelay throws once signed (txHash + relayNonce, notSent only for a definite rejection)
+  const thrown = Object.assign(node, { txHash: h, userOpHash: uoh, relayNonce: 3, notSent: classifySendError(node) !== "unclear" });
+  assert.equal(isSendLimitError(thrown), false);   // route.ts / relayStream.ts no longer short-circuit to -32005
+  const data = relayErrorData(thrown, uoh)!;
+  assert.equal(data.txHash, h);
+  assert.notEqual(data.notSent, true);
+  // the -32000 error the route/stream now returns is unclear to the client (lookup, never a resend) ...
+  assert.equal(relayErrorUnclear({ code: -32000, message: "disciple_sendUserOperationSync: request rate limited", data }), true);
+  // ... whereas our own limiter (-32005, nothing signed) stays a definite "rate limited"
+  assert.equal(relayErrorUnclear({ code: -32005, message: "disciple_sendUserOperationSync: rate limited, retry in 3s" }), false);
+});

@@ -127,8 +127,14 @@ export class SendLimitError extends Error {
   readonly code = -32005;
   constructor(public retryAfterSec: number) { super(`rate limited, retry in ${retryAfterSec}s`); }
 }
+/**
+ * AUDIT #145 Low A: ONLY our own pre-send limiter (beforeSend ⇒ SendLimitError, thrown before anything is signed) means
+ * "nothing sent". A node / sequencer -32005 "rate limited" (e.g. on eth_sendRawTransaction, after the relayer signed) is
+ * NOT ours: it must keep the unclear path (txHash / relayNonce, never notSent) so the client looks the op up instead of
+ * retrying it (a retry uses a fresh nonce key ⇒ the trade could happen twice). A txHash on the error = signed ⇒ never ours.
+ */
 export const isSendLimitError = (e: unknown): e is SendLimitError =>
-  e instanceof SendLimitError || ((e as { code?: unknown } | null)?.code === -32005 && /rate limited/.test(String((e as Error)?.message)));
+  e instanceof SendLimitError && (e as { txHash?: unknown }).txHash === undefined;
 export function sendPerIpSender(lim: { limit: number; windowSec: number } = bundlerSendPerSender()) {
   return { limit: lim.limit + BUNDLER_LIMITS.pressFreeGrantsPerSender, windowSec: lim.windowSec };
 }
