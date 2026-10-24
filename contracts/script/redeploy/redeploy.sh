@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single DISCIPLE redeploy on RH testnet 46630 (steep curve #1, 16-band floor, referralSink, 77s sniper escrow,
+# Single DISCIPLE redeploy on RH testnet 46630 (steep curve #1, 16-band floor, referralSink, 7s sniper escrow,
 # 6-dec mock USDG, AnonLauncher v2). See contracts/docs/redeploy-runbook.md.
 #   Simulation only (default):      ./script/redeploy/redeploy.sh
 #   Local fork dry run (anvil):     FORK=1 ./script/redeploy/redeploy.sh   (RPC_URL=http://127.0.0.1:8545, anvil key 0)

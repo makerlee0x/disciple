@@ -1,11 +1,11 @@
 // Post-redeploy smoke for the single DISCIPLE redeploy (RH testnet 46630 or a local anvil fork of it).
-// Checks: 6-dec USDG, referralSink default, SEC-01, 77s sniper tax → snipeEscrow (no 70/30 routing), graduation at
+// Checks: 6-dec USDG, referralSink default, SEC-01, 7s per-second sniper tax → snipeEscrow (no 70/30 routing), graduation at
 // $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket; AUDIT fixes (launch-fee
 // cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M).
 // Env:
 //   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed)
 //   RPC_URL       default https://rpc.testnet.chain.robinhood.com (FORK=1 → http://127.0.0.1:8545)
-//   FORK=1        local anvil fork: reads deployments/fork/web-bundle, uses evm_increaseTime to skip the 77s window
+//   FORK=1        local anvil fork: reads deployments/fork/web-bundle, pins the snipe buy to launch+1s (25%) and uses evm_increaseTime to skip the 7s window
 //   BUNDLE        web-bundle dir (default deployments/web-bundle, or deployments/fork/web-bundle with FORK=1)
 //   QUOTE         quote token for the smoke coin (default the bundle's USDG; the floor is USDG-only)
 //   GRADUATE=1    buy through graduation (default on with FORK=1)
@@ -85,25 +85,33 @@ const SUPPLY = await rd(token, erc20, "totalSupply");
 try { await pc.simulateContract({ account: me, address: B.LockedLP, abi: llAbi, functionName: "addLockedLiquidity", args: [token, Q, 1n, 1n] }); check("SEC-01 addLockedLiquidity from EOA rejected", false, "UNEXPECTEDLY ALLOWED"); }
 catch (e) { check("SEC-01 addLockedLiquidity from EOA rejected", true, e.cause?.data?.errorName ?? e.shortMessage); }
 
-// 4. sniper tax inside the 77s window → snipeEscrow (replaces the old 70/30 SnipeFeeRouted split check)
-await send("approveCurve", { address: Q, abi: erc20, functionName: "approve", args: [curve, maxUint256] });
+// 4. sniper tax inside the 7s window → snipeEscrow (replaces the old 70/30 SnipeFeeRouted split check).
+//    Per-second table (Constants.ANTI_SNIPE_TABLE / FeeMath.snipeBps): 99% · 25% · 3% · 1% · 0.3% · 0.1% · 0.03%, 0 from 7s.
+const SNIPE_BPS = [9900n, 2500n, 300n, 100n, 30n, 10n, 3n];
+const launchTime = await rd(curve, curveAbi, "launchTime");
 const bq = (a) => rd(Q, erc20, "balanceOf", [a]);
 const [rv0, esc0] = [await bq(rv), await rd(curve, curveAbi, "snipeEscrow")];
+check("First BOOST (creator launch buy) is sniper-exempt", esc0 === 0n, `snipeEscrow after launch ${fmt(esc0)}`);
+await send("approveCurve", { address: Q, abi: erc20, functionName: "approve", args: [curve, maxUint256] });
 const snipeIn = U(10);
-const sq = await rd(curve, curveAbi, "quoteBuy", [snipeIn]);
-info("snipe quote feeBps (this block)", await rd(curve, curveAbi, "currentSnipeFeeBps"));
+let pinned = false;
+if (FORK && (await now()) <= launchTime + 1n) { await pc.request({ method: "evm_setNextBlockTimestamp", params: [Number(launchTime + 1n)] }); pinned = true; }
 const r2 = await send("snipeBuy", { address: curve, abi: curveAbi, functionName: "buy", args: [snipeIn, 0n, dl] });
+const snipeAt = (await pc.getBlock({ blockNumber: r2.blockNumber })).timestamp - launchTime;
 const esc1 = await rd(curve, curveAbi, "snipeEscrow");
 const snipeTaken = esc1 - esc0;
-check("sniper tax charged inside 77s (≥90% of the gross at the snipe block)", snipeTaken * 10000n >= snipeIn * 9000n && snipeTaken <= snipeIn, `${fmt(snipeTaken)} of ${fmt(snipeIn)} (quote-time estimate ${fmt(sq.snipeFee)})`);
+const wantBps = snipeAt < 7n ? SNIPE_BPS[Number(snipeAt)] : 0n;
+info("snipe buy elapsed since launch (s) / table bps", `${snipeAt} / ${wantBps}${pinned ? " (fork: pinned to launch+1s)" : ""}`);
+check("sniper tax inside 7s = table value at the buy's second (mid-window)", snipeAt < 7n && snipeTaken === (snipeIn * wantBps) / 10000n && (!pinned || wantBps === 2500n),
+  `${fmt(snipeTaken)} of ${fmt(snipeIn)} at t=${snipeAt}s (want ${wantBps} bps = ${fmt((snipeIn * wantBps) / 10000n)})`);
 const routed = decodeAll(r2.logs, [frAbi]).filter((e) => e.eventName === "SnipeFeeRouted");
 check("no 70/30 SnipeFeeRouted on a v2 curve", routed.length === 0, `${routed.length} events`);
 check("RewardsVault gets nothing at buy time", (await bq(rv)) === rv0, `delta ${fmt((await bq(rv)) - rv0)}`);
 
-// 5. after 77s: tax 0
-if (FORK) { await pc.request({ method: "evm_increaseTime", params: [78] }); await pc.request({ method: "evm_mine", params: [] }); }
-else { for (let i = 0; i < 20 && (await rd(curve, curveAbi, "currentSnipeFeeBps")) > 0n; i++) await new Promise((r) => setTimeout(r, 5000)); }
-check("sniper tax 0 after 77s", (await rd(curve, curveAbi, "currentSnipeFeeBps")) === 0n);
+// 5. from 7s: tax 0
+if (FORK) { await pc.request({ method: "evm_increaseTime", params: [8] }); await pc.request({ method: "evm_mine", params: [] }); }
+else { for (let i = 0; i < 6 && (await now()) < launchTime + 7n; i++) await new Promise((r) => setTimeout(r, 2000)); }
+check("sniper tax 0 from 7s", (await now()) >= launchTime + 7n && (await rd(curve, curveAbi, "currentSnipeFeeBps")) === 0n, `t=${(await now()) - launchTime}s`);
 
 // 6. graduation
 const mcap = async () => rd(curve, curveAbi, "mcapNow");
