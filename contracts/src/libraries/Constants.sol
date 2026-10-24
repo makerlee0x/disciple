@@ -132,7 +132,7 @@ library Constants {
     /// @dev Leftover 1% of trade fee → referrer (already FEE_SHARE_REFERRAL).
     /// @dev On coins created by referred wallet: 3% of creator fees =
     ///      leftover 1% of fee + 2% of creator's 33% share.
-    uint256 internal constant KOL_CREATOR_FEE_SHARE_BPS = 200; // 2% of creator's 33% share
+    uint256 internal constant KOL_CREATOR_FEE_SHARE_BPS = 200; // DEFAULT 2% of creator's 33% share (FeeRouter.kolCreatorShareBps, owner-settable 0–500)
     uint256 internal constant KOL_OF_CREATOR_FEES_BPS = 300; // 3% of creator fees (composed)
 
     // ── Referral gate (§4 / LOCKED #18) ───────────────────────────────────────
