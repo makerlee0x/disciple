@@ -1,3 +1,4 @@
+import Tooltip from "@/components/ui/Tooltip";
 import type { IdentityId } from "@/lib/identity";
 import { IDENTITIES } from "@/lib/identity";
 
@@ -68,12 +69,11 @@ function Glyph({ g, c }: { g: string; c: string }) {
 }
 
 /** Round avatar sigil for a CT identity. */
-export default function IdentitySigil({ id, size = 36 }: { id: IdentityId; size?: number }) {
+export default function IdentitySigil({ id, size = 36, tip = true }: { id: IdentityId; size?: number; tip?: boolean }) {
   const s = SIGIL[id] ?? SIGIL.believer;
-  return (
+  const el = (
     <span
       className="id-sigil"
-      title={identityLabel(id)}
       style={{
         width: size,
         height: size,
@@ -86,4 +86,5 @@ export default function IdentitySigil({ id, size = 36 }: { id: IdentityId; size?
       </svg>
     </span>
   );
+  return tip ? <Tooltip content={identityLabel(id)}>{el}</Tooltip> : el;
 }

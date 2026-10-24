@@ -277,7 +277,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                       <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)}</span>
                       <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
                     </span>
-                    <span className="wb-sigil"><IdentitySigil id="believer" size={26} /></span>
+                    <span className="wb-sigil"><IdentitySigil id="believer" size={26} tip={false} /></span>
                   </a>
                 </div>
               )}
