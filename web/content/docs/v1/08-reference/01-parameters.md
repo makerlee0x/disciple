@@ -35,8 +35,8 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrer |
 | Graduated pool LP fee | 0% |
 | Creator tax | 0–7%, set at launch, curve trades only |
-| Anti-snipe fee | 77.7% → 0% over 7 seconds, BOOSTs only, curve only |
-| Anti-snipe split | 70% rewards vault · 30% treasury |
+| Sniper tax | 99% → 0% over 77 seconds, BOOSTs only, curve only |
+| Sniper tax destination | Locked liquidity at graduation (compound bucket) · rewards vault if not graduated in 30 days |
 | Creator launch buy | Exempt from anti-snipe |
 
 ## Limits
@@ -68,7 +68,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
 | First BOOST max | 1.2%, locked to graduation | 3.33% | 0.77% |
 | Login to BOOST | Yes | No | No |
-| Sniper tax | 99% → 0 over 60 s, to locked liquidity | same | same |
+| Sniper tax | 99% → 0 over 77 s, to locked liquidity | same | same |
 
 ## Altitude
 

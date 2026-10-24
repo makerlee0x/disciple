@@ -42,7 +42,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     mapping(address => bool) public authorizedCallers; // curves / migration
 
-    /// @notice Treasury share (33% + unrouted 1% + 30% of anti-snipe) accrued per asset; anyone may push it to
+    /// @notice Treasury share (33% + unrouted 1% [+ 30% of a legacy routeSnipeFee call; v2 curves never make one]) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
     mapping(address => uint256) public treasuryAccrued;
     /// @notice Phase 3a (Maker lee 2026-10-24): when set, the 1% referral share that would go to a referrer (the
@@ -86,7 +86,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     event SnipeFeeRouted(address indexed token, address indexed quote, uint256 toRewards, uint256 toTreasury);
     event RewardsVaultUpdated(address indexed vault);
 
-    /// @notice Community rewards vault (70% of anti-snipe tax).
+    /// @notice Community rewards vault: receives v2 sniper escrows released by BondingCurve.releaseSnipeEscrow
+    ///         (not graduated after the timeout), and 70% of any legacy routeSnipeFee call.
     address public rewardsVault;
 
     constructor(address owner_, address treasury_, address referrals_) Owned2Step(owner_) {
@@ -246,8 +247,10 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     }
 
     /// @inheritdoc IFeeRouter
-    /// @dev Anti-snipe fee above protocol 1% (§2 / LOCKED #9 rev. 2026-10-15): 70% → community RewardsVault,
-    ///      30% (incl. rounding remainder) → treasury. If no vault is set, 100% → treasury (never blocks buys).
+    /// @dev LEGACY (LOCKED #9 rev. 2026-10-15, superseded by mode rules v2): splits a snipe fee 70% → RewardsVault,
+    ///      30% (incl. rounding remainder) → treasury; 100% → treasury if no vault is set. Mode-rules-v2 curves never
+    ///      call this: their sniper tax stays in BondingCurve.snipeEscrow and goes to LockedLP's compound bucket at
+    ///      graduation (not the floor), or to RewardsVault via releaseSnipeEscrow after the timeout.
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external override {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
         if (snipeFeeAmount == 0) return;
@@ -268,7 +271,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         emit SnipeFeeRouted(token, quote, toRewards, toTreasury);
     }
 
-    /// @notice Owner sets the community rewards vault (70% of anti-snipe tax). address(0) = all to treasury.
+    /// @notice Owner sets the community rewards vault (target of releaseSnipeEscrow; 70% of a legacy routeSnipeFee).
+    ///         address(0): releaseSnipeEscrow reverts ZeroRecipient; a legacy routeSnipeFee sends all to treasury.
     function setRewardsVault(address vault) external {
         if (msg.sender != owner) revert OnlyOwner();
         rewardsVault = vault;

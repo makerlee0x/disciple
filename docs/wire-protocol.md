@@ -23,5 +23,5 @@ These are wired against `flow/contracts-v0` (PR #1). `/contracts` is used read-o
 3. **No custody/vault**: `buyFor` is Launchpad-only, there's no `sellFor` or operator role, and there's no deposit contract. The "approve once, platform executes" flow can't be built on-chain yet.
 4. **No v4 router/quoter** for post-graduation swaps (pool fee 0, hook 1%).
 5. **`quotePriceUsd` is caller-supplied** with no oracle, and `0` silently defaults to $1. With STRATEGY at about $0.0018 that would misprice the curve. We need a price source or an on-chain oracle.
-6. **No view quote functions** (`getAmountOut`), so the client mirrors CurveMath. Anti-snipe fees aren't modelled, so slippage has to cover the first 7 s.
+6. **No view quote functions** (`getAmountOut`), so the client mirrors CurveMath. Anti-snipe fees aren't modelled, so slippage has to cover the first 77 s (sniper tax 99% → 0).
 7. **Deploy.s.sol hook salt**: it's mined with `deployer` while the script deploys through the CREATE2 factory, which reverts with `HookAddressNotValid`. It also never sets `defaultQuote` or `quoteProbe`.

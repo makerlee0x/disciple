@@ -4,8 +4,9 @@ pragma solidity ^0.8.26;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @title Community rewards vault (LOCKED #9 rev. 2026-10-15: 70% of anti-snipe tax)
-/// @notice Accrues anti-snipe tax (any quote asset) for later USDG/rewards distribution.
+/// @title Community rewards vault (mode rules v2: receives sniper escrows of coins not graduated within
+///        snipeEscrowTimeout, via BondingCurve.releaseSnipeEscrow; also 70% of any legacy FeeRouter.routeSnipeFee)
+/// @notice Accrues sniper tax (any quote asset) for later USDG/rewards distribution.
 ///         v0: owner (multisig) distributes; per-token accounting is event-based (`RewardAccrued`).
 contract RewardsVault {
     using SafeERC20 for IERC20;

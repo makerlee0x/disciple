@@ -240,7 +240,7 @@ export class SimRun {
   // ── bots ─────────────────────────────────────────────────────────────────────────────────────────────
   inWave() { return this.t < this.waveUntil; }
   private botBuy(b: Bot, frac: number, react?: ReactKind) {
-    // non-launch bots don't pay the anti-snipe tax: they nibble during the first 7 s, full size after
+    // non-launch bots don't pay the anti-snipe tax: they nibble during the first 77 s, full size after
     const as = b.arch === "sniper" || b.arch === "bundler" || b.arch === "rugger" ? 0 : this.m.antiSnipe(this.t);
     if (as > 0) frac *= Math.max(0.04, 1 - as) ** 2;
     const usd = Math.min(b.cash, b.cash * frac); if (usd >= 1) this.exec("buy", b, usd, react); }
