@@ -13,7 +13,11 @@
  *       - first inner call approves EXACTLY the signed maxTokenCost, which covers tokenCost(maxCost, rate) + debt and
  *         is at most MAX_SLACK above it and ≤ the on-chain maxCostCap;
  *       - the sender holds that much USDG; the rate is inside the contract's [minRate, maxRate].
- *     The signed hash binds callData (⇒ the approve amount), all gas limits and fees, chain and paymaster.
+ *     The signed hash is the per-sender allowance (sender, chain, paymaster, window, rate, maxTokenCost); the
+ *     contract re-checks every per-op rule on-chain, so these server checks are defence in depth.
+ *  3. pm_getPaymasterAllowance(sender) (feat/trade-latency): issues that allowance AHEAD of time for the standard trade
+ *     envelope (ALLOWANCE_GAS × a fee ceiling), so a warm trade makes 0 pm_* calls. Exposure per sender stays
+ *     ≤ maxTokenCost ≤ maxCostCap on-chain (contracts/docs/usdg-paymaster.md §Allowance).
  * We never sponsor: the user's own USDG pays every op's gas (and any carried debt).
  */
 import { size, type Address, type Hex } from "viem";
@@ -21,12 +25,16 @@ import { capsForOp, checkOpGas, clientFees, exceedsCaps, GAS_CAPS, RelayPolicyEr
 import type { UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import {
-  encodePaymasterData, firstCallApproveAmount, formatUsdg, MAX_QUOTE_WINDOW_SEC, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
-  paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, type PaymasterQuote,
+  ALLOWANCE_GAS, encodePaymasterData, entryPointMaxCost, tokenCost, firstCallApproveAmount, formatUsdg, MAX_QUOTE_WINDOW_SEC, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
+  paymasterAllowanceHash, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, type PaymasterQuote,
 } from "../aa/paymaster";
 
 export const PAYMASTER_CHAIN_ID = 46630; // RH testnet only
 export const DEFAULT_QUOTE_TTL_SEC = 180;
+/** Pre-issued allowance lifetime (PAYMASTER_ALLOWANCE_TTL_SEC); the client refreshes ALLOWANCE_REFRESH_AHEAD_SEC before. */
+export const DEFAULT_ALLOWANCE_TTL_SEC = 600;
+/** Fee ceiling of an allowance = clientFees(baseFee) × this (FeeCache doubles the client's maxFee the same way). */
+export const ALLOWANCE_FEE_MULT = BigInt(2);
 /** Back-date validAfter a little so a quote is usable on a node whose clock is slightly behind ours. */
 export const VALID_AFTER_SKEW_SEC = 30;
 /** Max the client may approve above the required amount (basis points). The charge is actual gas either way. */
@@ -38,7 +46,7 @@ export class PaymasterQuoteError extends Error {
 
 export type QuoteConfig = {
   paymaster: Address; usdg: Address; usdgDecimals: number; rate: bigint;
-  ttlSec?: number; maxSlackBps?: bigint;
+  ttlSec?: number; maxSlackBps?: bigint; allowanceTtlSec?: number;
   /** Launchpad / AnonLauncher(s) (lib/aa/launchTargets): their launch ops get LAUNCH_GAS_CAPS (10M call / 11M total), as in the relay. */
   launchers?: string[];
 };
@@ -135,6 +143,47 @@ export async function finalQuote(op: UserOp, entryPoint: string, chainId: string
   const paymasterData = encodePaymasterData(q, sig);
   if (size(paymasterData) !== PAYMASTER_DATA_LENGTH) throw new Error("paymasterData length mismatch");
   return { paymaster: cfg.paymaster, paymasterVerificationGasLimit: o.paymasterVerificationGasLimit!, paymasterPostOpGasLimit: o.paymasterPostOpGasLimit!, paymasterData };
+}
+
+export type AllowanceResult = PaymasterFields & {
+  isFinal: true;
+  disciple: {
+    kind: "allowance"; sender: Address; usdg: Address; usdgDecimals: number; rate: Hex; maxTokenCost: Hex; debt: Hex;
+    validUntil: number; validAfter: number;
+    /** the envelope maxTokenCost was sized for: an op fits iff tokenCost(its maxCost) + debt ≤ maxTokenCost */
+    maxFeePerGas: Hex; gas: Record<keyof typeof ALLOWANCE_GAS, Hex>;
+  };
+};
+
+/**
+ * pm_getPaymasterAllowance [sender, entryPoint, chainId] → signed per-sender allowance for the standard trade
+ * envelope. Refuses (like the per-op flow) when the rate is out of bounds, the amount is above maxCostCap or the sender
+ * can't hold it. Carried debt is added so the first op under the allowance repays it.
+ */
+export async function allowanceQuote(sender: Address, entryPoint: string, chainId: string | number, cfg: QuoteConfig, deps: QuoteDeps): Promise<AllowanceResult> {
+  checkTarget(entryPoint, chainId);
+  if (!/^0x[0-9a-fA-F]{40}$/.test(String(sender))) throw new PaymasterQuoteError("op", "sender must be an address");
+  const b = await rateInBounds(cfg, deps);
+  const maxFeePerGas = clientFees(await deps.baseFee()).maxFeePerGas * ALLOWANCE_FEE_MULT;
+  const [debt, bal] = await Promise.all([deps.debtOf(sender), deps.balanceOf(sender)]);
+  const maxTokenCost = tokenCost(entryPointMaxCost({ ...hexGas(), maxFeePerGas: hex(maxFeePerGas) }), cfg.rate) + debt;
+  const d = (x: bigint) => formatUsdg(x, cfg.usdgDecimals);
+  if (maxTokenCost > b.maxCostCap) throw new PaymasterQuoteError("approve", `allowance ${d(maxTokenCost)} above the paymaster cap ${d(b.maxCostCap)}`, { required: hex(maxTokenCost) });
+  if (bal < maxTokenCost) throw new PaymasterQuoteError("balance", `not enough USDG: need ${d(maxTokenCost)}, have ${d(bal)}`, { required: hex(maxTokenCost), balance: hex(bal) });
+  const now = deps.now();
+  const life = Math.max(60, Math.min(cfg.allowanceTtlSec ?? DEFAULT_ALLOWANCE_TTL_SEC, MAX_QUOTE_WINDOW_SEC - VALID_AFTER_SKEW_SEC - 1));
+  const q: PaymasterQuote = { validUntil: now + life, validAfter: now - VALID_AFTER_SKEW_SEC, rate: cfg.rate, maxTokenCost };
+  const sig = await deps.sign(paymasterAllowanceHash(sender, q, PAYMASTER_CHAIN_ID, cfg.paymaster));
+  const paymasterData = encodePaymasterData(q, sig);
+  if (size(paymasterData) !== PAYMASTER_DATA_LENGTH) throw new Error("paymasterData length mismatch");
+  return {
+    paymaster: cfg.paymaster, paymasterVerificationGasLimit: hex(PAYMASTER_GAS.verificationGasLimit), paymasterPostOpGasLimit: hex(PAYMASTER_GAS.postOpGasLimit),
+    paymasterData, isFinal: true,
+    disciple: { kind: "allowance", sender, usdg: cfg.usdg, usdgDecimals: cfg.usdgDecimals, rate: hex(cfg.rate), maxTokenCost: hex(maxTokenCost), debt: hex(debt), validUntil: q.validUntil, validAfter: q.validAfter, maxFeePerGas: hex(maxFeePerGas), gas: hexGas() },
+  };
+}
+function hexGas() {
+  return Object.fromEntries(Object.entries(ALLOWANCE_GAS).map(([k, v]) => [k, hex(v)])) as Record<keyof typeof ALLOWANCE_GAS, Hex>;
 }
 
 function ttl(cfg: QuoteConfig) {
