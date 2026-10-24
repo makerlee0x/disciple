@@ -77,3 +77,24 @@ test("slow path gives up after maxWaitMs with an 'unclear' error carrying txHash
     (e: { txHash?: string; unclear?: boolean }) => e.txHash === HASH && e.unclear === true);
   assert.equal(s.calls.length, 1);
 });
+
+// ---- client: lib/aa/relayClient (NDJSON push, no polling) ----
+import { relaySend } from "../lib/aa/relayClient";
+const ndjson = (lines: unknown[], cut = false) => (async () => new Response(new ReadableStream({ pull(c) { const l = lines.shift(); if (l) c.enqueue(new TextEncoder().encode(JSON.stringify(l) + "\n")); else if (cut) c.error(new Error("reset")); else c.close(); } }), { headers: { "content-type": "application/x-ndjson" } })) as unknown as typeof fetch;
+const CONF = { kind: "confirmed", userOpHash: HASH, txHash: HASH, success: true, receipt: RC, logs: RC.logs, via: "rpc-wait", t: { simulate: 1, signTx: 1, send: 1, mined: 1, total: 4 } };
+
+test("client: pending frame pushed, then the confirmed frame with the full receipt", async () => {
+  const seen: unknown[] = [];
+  const a = await relaySend("http://x", {}, HASH, (p) => seen.push(p.txHash), ndjson([{ kind: "pending", pending: true, userOpHash: HASH, txHash: HASH, reason: "sync-timeout" }, CONF]));
+  assert.deepEqual(seen, [HASH]); assert.deepEqual(a.result?.receipt.logs, RC.logs);
+});
+test("client: stream cut after pending ⇒ ambiguous network error that keeps the txHash", async () => {
+  const a = await relaySend("http://x", {}, HASH, undefined, ndjson([{ kind: "pending", pending: true, userOpHash: HASH, txHash: HASH, reason: "sync-error" }], true));
+  assert.match(a.error!.message, /^network:/); assert.equal((a.error!.data as { txHash: string }).txHash, HASH);
+});
+test("client: error frame / plain-JSON server passthrough", async () => {
+  const e = await relaySend("http://x", {}, HASH, undefined, ndjson([{ kind: "error", code: -32500, message: "AA33 reverted", data: { revert: "0x08c379a0" } }]));
+  assert.equal(e.error!.code, -32500); assert.equal(e.error!.data, "0x08c379a0");
+  const p = await relaySend("http://x", {}, HASH, undefined, (async () => Response.json({ jsonrpc: "2.0", id: 1, result: CONF })) as unknown as typeof fetch);
+  assert.equal(p.result?.txHash, HASH);
+});
