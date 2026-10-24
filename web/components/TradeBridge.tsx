@@ -7,11 +7,11 @@ import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
-import { OpMarks, doneLine, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
+import { OpMarks, blockOfLogs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
 //   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);   (setTradeClickMark from tradeSpeed)
 import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
-import { OWN, ownRead } from "@/lib/flight/ownLedger";
+import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
@@ -164,17 +164,26 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const me = await activeAddress();
         let rl = logs;
         const usdgDecP = decimalsOf(pc, deployment().usdg).catch(() => 18);   // config-known USDG ⇒ no RPC
-        if (!rl) {   // fallback (no logs returned): poll the receipt
+        let block: bigint | number | undefined = blockOfLogs(logs) ?? OWN.txBlockOf(hash);
+        if (!rl) {   // FALLBACK ONLY (the send returned no logs): poll the receipt. Never on the normal path (logs come with the send).
           const rc = await pc.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 60_000, pollingInterval: 250 });
           if (rc.status !== "success") return null;
-          rl = rc.logs as unknown as LogLike[];
+          rl = rc.logs as unknown as LogLike[]; block = rc.blockNumber;
           await applyOwn(hash, rl, rc.blockNumber);   // slow path: balances from the polled receipt (block known)
         }
+        // SITE (#137): raw own receipt, non-consuming — WalletButton / profile holdings book from it (no balanceOf at latest)
+        const rcpt = ownReceipt(hash, rl, me, token, block);
+        dispatchEvent(new CustomEvent("disciple:receipt", { detail: rcpt }));
+        if (rcpt.blockNumber === null) setTimeout(() => void pc.getTransactionReceipt({ hash: hash as `0x${string}` }).then((x) => {
+          if (typeof x?.blockNumber !== "bigint") return;
+          OWN.noteTxBlock(hash, x.blockNumber);   // the reconcile then skips its own lookup
+          dispatchEvent(new CustomEvent("disciple:receipt", { detail: { ...ownReceipt(hash, rl!, me, token, x.blockNumber), update: true } }));
+        }).catch(() => undefined), RECONCILE_MIN_MS);   // off the critical path, ≥ 1 s (the public RPC lags ~0.7 s)
         const usdgDec = await usdgDecP;
         const m = markRef.current;
         const x = decodeTradeFill(rl as unknown as { address: string; topics: string[]; data: string }[],
           { token, trader: me, router: deployment().router, usdgDecimals: usdgDec, markPriceUsd: m.mcap > 0 ? m.mcap / m.supply : undefined, supply: m.supply });
-        if (x && x.side === side) { dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}) } })); return x; }
+        if (x && x.side === side) { dispatchEvent(new CustomEvent("disciple:fillreceipt", { detail: { txHash: hash, side, usd: x.usd, tokens: x.tokens, feeUsd: x.feeUsd, source: x.source, ...(bag !== undefined ? { bag } : {}), blockNumber: rcpt.blockNumber, trader: me, token, logs: rl } })); return x; }
         return null;
       } catch { return null; /* the estimate stays booked */ }
     };

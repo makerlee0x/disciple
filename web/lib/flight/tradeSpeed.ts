@@ -86,3 +86,21 @@ export function tradeMs(t0: number, m: { quoteAt?: number; op?: OpMark; resultAt
   const confirm = d(m.op?.confirmedAt) ?? d(m.resultAt);
   return { quote: d(m.quoteAt), submit: d(m.op?.submittedAt), confirm, fill: d(m.fillAt), total: d(m.fillAt ?? m.resultAt) ?? 0 };
 }
+
+/* ---------------- own receipt events for SITE (#137 books WalletButton / profile holdings from them) ---------------- */
+/** Block number carried by the logs (viem bigint, hex or number), else undefined. The sync relay's logs usually have none. */
+export function blockOfLogs(logs: readonly unknown[] | undefined): number | undefined {
+  for (const l of logs || []) {
+    const b = (l as { blockNumber?: unknown } | null)?.blockNumber;
+    const n = typeof b === "bigint" ? Number(b) : typeof b === "number" ? b : typeof b === "string" && b ? Number(b) : NaN;
+    if (Number.isSafeInteger(n) && n > 0) return n;
+  }
+  return undefined;
+}
+/** 'disciple:receipt' detail (non-consuming: listeners only read it). blockNumber null = not known yet ⇒ re-emitted once with
+ *  `update: true` when it is (receipt lookup ≥ 1 s later, off the critical path). Idempotent by txHash. */
+export interface OwnReceipt { txHash: string; logs: readonly unknown[]; blockNumber: number | null; trader: string; token: string; update?: true }
+export function ownReceipt(txHash: string, logs: readonly unknown[], trader: string, token: string, block?: bigint | number | null): OwnReceipt {
+  const b = typeof block === "bigint" ? Number(block) : typeof block === "number" ? block : blockOfLogs(logs);
+  return { txHash, logs, blockNumber: Number.isSafeInteger(b) && (b as number) > 0 ? (b as number) : null, trader, token };
+}

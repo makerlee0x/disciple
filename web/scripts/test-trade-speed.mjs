@@ -16,7 +16,7 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
 const rd = (f) => fs.readFileSync(path.join(web, f), "utf8");
 const eng = rd("public/flight/engine.js"), tb = rd("components/TradeBridge.tsx"), wl = rd("lib/wallet.ts");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "abi/DiscipleRouter"], "tradespeed-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "flight/holders", "abi/DiscipleRouter"], "tradespeed-");
 const TS = mods["flight/tradeSpeed"], fills = mods["flight/fills"], { fmtMoney } = mods.pnl, { discipleRouterAbi } = mods["abi/DiscipleRouter"];
 
 // ───────────── 1 + 6. fill from the returned logs, status shows the fill $ ─────────────
@@ -262,6 +262,33 @@ console.log("— engine: own BUY drawn from the receipt at confirm");
   ok(H.ownSellSwap(other) === other, "other traders' swaps pass through unchanged");
   const first = { t: "swap", side: "buy", mine: true, txHash: "0x" + "9".repeat(64), usd: 2 };
   ok(H.ownSellSwap(first) === first && (H.onFillReceipt({ txHash: first.txHash, side: "buy", usd: 2 }), S.feed.length === 1), "swap first ⇒ drawn from the swap; the later receipt adds nothing"); }
+
+console.log("— SITE #137: own receipt events + holders from the receipt");
+{ const tb = fs.readFileSync(path.join(web, "components/TradeBridge.tsx"), "utf8");
+  const L1 = [{ address: "0x1", topics: [], data: "0x" }], L2 = [{ address: "0x1", topics: [], data: "0x", blockNumber: 1234n }];
+  ok(TS.blockOfLogs(L1) === undefined && TS.blockOfLogs(L2) === 1234 && TS.blockOfLogs([{ blockNumber: "0x10" }]) === 16, "blockOfLogs: bigint / hex / none (sync relay logs carry none)");
+  const R = TS.ownReceipt("0xabc", L1, "0xme", "0xcoin");
+  ok(R.blockNumber === null && R.logs === L1 && R.trader === "0xme" && R.token === "0xcoin" && R.txHash === "0xabc", "ownReceipt: {txHash, logs (as-is), blockNumber null until known, trader, token}");
+  ok(TS.ownReceipt("0xabc", L1, "0xme", "0xcoin", 99n).blockNumber === 99 && TS.ownReceipt("0xabc", L2, "0xme", "0xcoin").blockNumber === 1234, "ownReceipt: block from the polled receipt, else from the logs");
+  const fr = tb.match(/disciple:fillreceipt", \{ detail: \{([^\n]*)\} \}\)\)/);
+  ok(!!fr && /blockNumber: rcpt\.blockNumber/.test(fr[1]) && /trader: me/.test(fr[1]) && /\btoken\b/.test(fr[1]) && /logs: rl/.test(fr[1]), "fillreceipt detail adds blockNumber, trader, token, raw logs");
+  ok(/dispatchEvent\(new CustomEvent\("disciple:receipt", \{ detail: rcpt \}\)\)/.test(tb) && /disciple:receipt", \{ detail: \{ \.\.\.ownReceipt\([^)]*\), update: true \} \}/.test(tb) && /RECONCILE_MIN_MS\);/.test(tb), "disciple:receipt emitted at confirm; block unknown ⇒ re-emitted once (update:true) after ≥ 1 s");
+  const br = tb.slice(tb.indexOf("const bookReceipt"), tb.indexOf("window.__discipleTrade = "));
+  ok((br.match(/waitForTransactionReceipt/g) || []).length === 1 && /if \(!rl\) \{[^\n]*FALLBACK ONLY[^\n]*\n\s*const rc = await pc\.waitForTransactionReceipt/.test(br), "waitForTransactionReceipt only on the no-logs fallback (never on the normal path)");
+  ok((tb.match(/waitForTransactionReceipt/g) || []).length === 2, "TradeBridge: no other waitForTransactionReceipt (1 call + 1 comment)");
+  const HL = mods["flight/holders"], ME = "0x" + "aa".repeat(20), BIG = "0x" + "bb".repeat(20), POOL = "0x" + "cc".repeat(20);
+  const o = { me: ME, labels: { [POOL]: "pool" }, totalSupplyRaw: 1000n * 10n ** 18n, priceUsd: 2, limit: 50 };
+  const lag = { rows: HL.buildHolders([{ address: BIG, balance: 50n * 10n ** 18n }, { address: POOL, balance: 900n * 10n ** 18n }, { address: ME, balance: 0n }], o), asOfBlock: null, source: "balances", at: 1 };
+  ok(!lag.rows.some((r) => r.mine), "lagging node: our row missing (0 holdings) before the overlay");
+  const ov = HL.overlayOwn(lag, o, 80n * 10n ** 18n), mine = ov.rows.find((r) => r.mine);
+  ok(mine && mine.tokens === 80 && near(mine.usd, 160) && near(mine.pct, 8) && ov.rows[0].mine && ov.rows[ov.rows.length - 1].label === "pool", "overlayOwn: our row from the receipt ledger (80 tokens), re-ranked, pool row kept last");
+  ok(HL.overlayOwn(lag, o, undefined) === lag && HL.overlayOwn(lag, { ...o, me: null }, 5n) === lag, "overlayOwn: no ledger value / no wallet ⇒ snapshot unchanged");
+  const api = { rows: [{ address: POOL, balance: (900n * 10n ** 18n).toString(), tokens: 900, pct: 90, usd: 1800, label: "curve", mine: false }], asOfBlock: 7, source: "api", at: 1 };
+  const ova = HL.overlayOwn(api, { ...o, labels: {} }, 10n ** 18n);
+  ok(ova.rows.some((r) => r.mine && r.tokens === 1) && ova.rows.find((r) => r.address === POOL).label === "curve" && ova.asOfBlock === 7, "overlayOwn on /api/holders: API labels + asOfBlock kept");
+  const hb = fs.readFileSync(path.join(web, "components/flight/HoldersBridge.tsx"), "utf8");
+  ok(/OWN\.entry\(coin, me\) \? await ownRead\(OWN/.test(hb) && /overlayOwn\(raw, o, mine\)/.test(hb) && /addEventListener\("disciple:ownbalance", onOwn\)/.test(hb) && /removeEventListener\("disciple:ownbalance", onOwn\)/.test(hb),
+    "HoldersBridge: own row from the ledger (pinned reconcile, never older), redrawn at confirm on disciple:ownbalance with no RPC"); }
 
 cleanup();
 console.log(bad ? `\n${bad} FAILED` : "\nall trade-speed checks passed");
