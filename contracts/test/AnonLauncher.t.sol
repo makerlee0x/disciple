@@ -66,7 +66,7 @@ contract AnonLauncherTest is IntegrationBase {
         returns (BondingCurve c, Token t, uint256 bought)
     {
         vm.prank(payer);
-        ILaunchpad.LaunchResult memory r = anon.launchAnon(_params(buy), stealth, recipient, "", 0x00);
+        ILaunchpad.LaunchResult memory r = anon.launchAnon(_params(buy), stealth, recipient, "", 0x00, FEE);
         return (BondingCurve(r.curve), Token(r.token), r.creatorTokensBought);
     }
 
@@ -116,6 +116,47 @@ contract AnonLauncherTest is IntegrationBase {
     function test_zero_recipient_defaults_to_stealth() public {
         (, Token t, uint256 bought) = _anonLaunch(stealthA, address(0), 10 ether);
         assertEq(t.balanceOf(stealthA), bought);
+    }
+
+    // ── redeploy pack item 6: payer maxFee on launchAnon ──
+    function test_launchAnon_maxFee_exact_ok() public {
+        uint256 t0 = quote.balanceOf(treasury);
+        vm.prank(payer);
+        anon.launchAnon(_params(0), stealthA, stealthA, "", 0x00, FEE);
+        assertEq(quote.balanceOf(treasury) - t0, FEE);
+    }
+
+    function test_launchAnon_fee_above_maxFee_reverts() public {
+        ILaunchpad.LaunchParams memory p = _params(0);
+        vm.prank(payer);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.launchAnon(p, stealthA, stealthA, "", 0x00, FEE - 1);
+    }
+
+    function test_launchAnon_owner_raises_fee_after_quote_reverts() public {
+        // payer quoted FEE, owner front-runs with a higher (still <= $5) fee: the launch must not pay it
+        vm.prank(owner);
+        anon.setLaunchFee(FEE * 2);
+        ILaunchpad.LaunchParams memory p = _params(0);
+        vm.prank(payer);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.launchAnon(p, stealthA, stealthA, "", 0x00, FEE);
+    }
+
+    function test_launchAnon_zero_fee_zero_maxFee_ok() public {
+        vm.prank(owner);
+        anon.setLaunchFee(0);
+        vm.prank(payer);
+        ILaunchpad.LaunchResult memory r = anon.launchAnon(_params(0), stealthA, stealthA, "", 0x00, 0);
+        assertTrue(r.token != address(0));
+    }
+
+    function testFuzz_launchAnon_maxFee(uint256 maxFee) public {
+        maxFee = bound(maxFee, 0, 2 * FEE);
+        ILaunchpad.LaunchParams memory p = _params(0);
+        vm.prank(payer);
+        if (maxFee < FEE) vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.launchAnon(p, stealthA, stealthA, "", 0x00, maxFee);
     }
 
     function test_launch_fee_capped_and_owner_only() public {

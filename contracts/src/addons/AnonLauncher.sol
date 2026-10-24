@@ -148,17 +148,21 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     ///         USDG `launchFee` and the optional creator buy; tokens bought go to `buyRecipient`.
     /// @param ephemeralPubKey ERC-5564 ephemeral pubkey (empty = no announcement).
     /// @param viewTag ERC-5564 view tag (first metadata byte).
+    /// @param maxFee Payer's ceiling on `launchFee` in `feeToken` raw units (decimals-aware; the owner cap is
+    ///        MAX_LAUNCH_FEE = $5). Reverts FeeTooHigh if the owner raised the fee above it after the payer signed.
     function launchAnon(
         ILaunchpad.LaunchParams calldata p,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
-        bytes1 viewTag
+        bytes1 viewTag,
+        uint256 maxFee
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r) {
         if (stealthOwner == address(0)) revert ZeroAddress();
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
 
         uint256 fee = launchFee;
+        if (fee > maxFee) revert FeeTooHigh();
         if (fee > 0) feeToken.safeTransferFrom(msg.sender, treasury, fee);
 
         address q;

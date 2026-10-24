@@ -92,7 +92,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
     );
     bytes4 internal constant ANON_LAUNCH = bytes4(
         keccak256(
-            "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1)"
+            "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
         )
     );
     bytes4 internal constant APPROVE = bytes4(keccak256("approve(address,uint256)"));
@@ -375,7 +375,7 @@ contract DiscipleSessionPolicy is IValidationHookModule, IExecutionHookModule {
             _checkMinOut(c, minOut, _curveQuote(k.target, account, p == P_CURVE_BUY, amountIn), k.target);
             if (p == P_CURVE_BUY) (add0, add1) = _spend(c, IQuoteOf(k.target).quote(), amountIn);
         } else if (p == P_ANON_LAUNCH) {
-            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag): head word 1 =
+            // launchAnon(LaunchParams, stealthOwner, buyRecipient, ephemeralPubKey, viewTag, maxFee): head word 1 =
             // stealthOwner, word 2 = buyRecipient. Audit R-2: a leaked key must not launch with ITS stealth owner
             // (the creator role + fees): only the account or the stealth address registered at install.
             address so = _word(args, 1);
