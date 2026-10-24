@@ -222,11 +222,12 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
             <div className={s.minis} ref={stripRef}>
               {next.map((c, i) => (
                 <Link key={c.token} href={heroHref(c)} prefetch={false} className={s.mini}>
-                  {/* the coin's own (moderated store) image, the same ?icon= its coin page renders; none ⇒ the plain thumb tile */}
+                  {/* the coin's own (moderated store) image, the same ?icon= its coin page renders; none ⇒ the
+                      two-letter ticker badge (PairArt's monogram, as the hero and Rising list show) in the same 64x40 box */}
                   {isStoreSrc(c.icon)
                     // eslint-disable-next-line @next/next/no-img-element
                     ? <img className={s.miniTh} src={c.icon} alt="" width={64} height={40} loading="lazy" decoding="async" />
-                    : <span className={s.miniTh} aria-hidden />}
+                    : <span className={s.miniTh} aria-hidden><PairArt tk={c.ticker} tint="#E8EAEE" size="list" className={s.miniBadge} /></span>}
                   <span className={s.miniTx}>
                     <span className={s.miniR}><span className={s.miniN}>#{i + 2}</span><b>${c.ticker}</b></span>
                     <span className={s.miniR2}><span className={s.num}>{fmtUsd(c.mcapUsd)}</span><Chg v={c.stats?.chg24} /></span>
