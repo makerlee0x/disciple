@@ -5,6 +5,7 @@ import { encodeFunctionData, formatUnits, isAddress, parseAbi, parseUnits } from
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
 import { execCalls, onWallet } from "@/lib/wallet";
+import { playerError } from "@/lib/playerError";
 import type { Address } from "@/lib/protocol";
 import DsSelect from "@/components/ui/DsSelect";
 
@@ -54,7 +55,7 @@ export default function CashPanel() {
       await execCalls([{ to: sel.address, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [to as Address, amount] }) }]);
       setMsg({ ok: true, text: `Sent ${amt} ${sel.symbol}.` }); setAmt("");
       await refresh(addr);
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message.split("\n")[0].slice(0, 160) }); }
+    } catch (e) { setMsg({ ok: false, text: playerError(e) }); }
     finally { setBusy(false); }
   }
 

@@ -66,7 +66,7 @@ const REJECTED = "That didn't go through. Try again.";
 /** player-visible text must carry no ids and no chain/relay jargon */
 const plain = (m: string, ids: (string | undefined)[]) => {
   for (const id of ids) if (id) { assert.ok(!m.toLowerCase().includes(id.toLowerCase()), `id leaked: ${m}`); assert.ok(!m.includes(`${id.slice(0, 6)}…`), `short id leaked: ${m}`); }
-  assert.doesNotMatch(m, /0x[0-9a-f]{4}|op|userop|tx|relay|on-?chain|bundle|simulation/i);
+  assert.doesNotMatch(m, /0x[0-9a-f]{4}|\bop\b|userop|\btx\b|relay|on-?chain|bundle|simulation/i);
 };
 /** console.warn capture: the ids go to the console log instead */
 const warned: unknown[][] = [];
@@ -245,6 +245,53 @@ test("unknown revert selector on a Reverted op stays out of the copy (console on
   assert.equal(pe.message, REJECTED);
   plain(pe.message, ["0xcafebabe"]);
   assert.ok(warned.some((w) => /cafebabe/.test(JSON.stringify(w[1]))), "selector logged");
+});
+
+test("pre-send check failed (simulation) with an unknown revert payload → plain line, selector + raw text to console only", () => {
+  warned.length = 0;
+  const e = new AAError("Estimate", "simulation failed: execution reverted (0xdeadbeef)", { revertData: "0xdeadbeef00" });
+  const pe = friendlyError(e);
+  assert.equal(pe.code, "Estimate");
+  assert.equal(pe.message, REJECTED);
+  plain(pe.message, ["0xdeadbeef"]);
+  assert.equal(e.message, "simulation failed: execution reverted (0xdeadbeef)", "AAError message kept (session/transient retry logic reads it)");
+  assert.equal(e.extra?.revertData, "0xdeadbeef00", "attached data kept");
+  const log = warned.find((w) => String(w[0]) === "[disciple] trade pre-check failed");
+  assert.ok(log, "logged"); assert.equal((log![1] as { selector: string }).selector, "0xdeadbeef");
+});
+
+test("pre-send check failed (simulation) with NO revert data → plain line, raw text to console only", () => {
+  warned.length = 0;
+  const e = new AAError("Estimate", "simulation failed: AA23 reverted: 0x1234abcd relayer tx userOp", {});
+  const pe = friendlyError(e);
+  assert.equal(pe.code, "Estimate");
+  assert.equal(pe.message, REJECTED);
+  plain(pe.message, ["0x1234abcd"]);
+  assert.ok(warned.some((w) => String(w[0]) === "[disciple] trade pre-check failed" && /AA23 reverted/.test(JSON.stringify(w[1]))), "raw text logged");
+  // same for a raw (non-AAError) pre-send error that reaches friendlyError
+  for (const raw of ["simulation failed: execution reverted", "execution reverted in simulation (0xdeadbeef): boom"]) {
+    const p2 = friendlyError(new Error(raw));
+    assert.equal(p2.message, REJECTED); plain(p2.message, ["0xdeadbeef"]);
+  }
+});
+
+test("pre-send failures that already map to a specific message keep it (balance, slippage, wallet cap)", () => {
+  const E2 = parseAbi(["error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)", "error MinOutTooLow(uint256 minOut, uint256 required)", "error WalletCap()", "error PreExecHookReverted(bytes24 moduleFunction, bytes revertReason)"]);
+  const bal = encodeErrorResult({ abi: E2, errorName: "ERC20InsufficientBalance", args: ["0x0000000000000000000000000000000000000001", BigInt(0), BigInt(1)] });
+  const mo = encodeErrorResult({ abi: E2, errorName: "MinOutTooLow", args: [BigInt(1), BigInt(2)] });
+  const wrapped = encodeErrorResult({ abi: E2, errorName: "PreExecHookReverted", args: [`0x${"11".repeat(24)}`, mo] });
+  const cases: [Hex, string][] = [
+    [bal, "Not enough balance for that shot size — deposit more or pick a smaller ammo."],
+    [mo, "Price moved past your one-tap max slippage. Try again or raise slippage."],
+    [wrapped, "Price moved past your one-tap max slippage. Try again or raise slippage."],
+  ];
+  cases.push([encodeErrorResult({ abi: E2, errorName: "WalletCap" }), "Wallet cap reached: one wallet can hold at most 7% before orbit."]);
+  cases.push([encodeErrorResult({ abi: parseAbi(["error Slippage()"]), errorName: "Slippage" }), "Price moved too much. Try again or raise slippage."]);
+  for (const [rd, want] of cases) {
+    const pe = friendlyError(new AAError("Estimate", "simulation failed: execution reverted", { revertData: rd }));
+    assert.equal(pe.message, want);
+    assert.doesNotMatch(pe.message, /simulation|0x/);
+  }
 });
 
 test.after(() => { globalThis.fetch = realFetch; console.warn = realWarn; });

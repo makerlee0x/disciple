@@ -77,6 +77,19 @@ export const NO_PRICE_MSG = "Couldn't get a price right now. Try again.";
 export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: string; txHash?: string }) {
   if (typeof console !== "undefined") console.warn(`[disciple] trade ${state}`, { userOpHash: ids.userOpHash, txHash: ids.txHash });
 }
+/**
+ * Player-copy guard: text that carries ids/hex, a function or contract error name, or chain/relay plumbing words.
+ * Display layers (friendlyError fallback, lib/playerError) swap such text for REJECTED_MSG and log the raw text.
+ */
+export const JARGON = /0x[0-9a-fA-F]{3,}|\b(?:user ?op(?:eration)?s?|txs?|transaction reverted|relay(?:er|ed)?|on-?chain|simulat\w*|bundl\w*|AA\d{2}|v4|rpc|eth_\w+|entry ?point|paymaster|nonce|reverted|execution reverted|calldata|selector|abi)\b|\w+\.\w+\(\)|\b[a-z]+[A-Z]\w*\(/i;
+const RAW_NAME = /^\s*[A-Za-z][A-Za-z0-9_]*[a-z0-9][A-Z][A-Za-z0-9_]*\s*$/;   // one camel-case token: "WalletCap", "ERC20InsufficientBalance"
+/** The text players may see: `m` when it is plain, else REJECTED_MSG (raw text → console). */
+export function plainText(m: string | undefined | null, what = "error", detail: Record<string, unknown> = {}): string {
+  const t = String(m ?? "").split("\n")[0].trim();
+  if (t && !JARGON.test(t) && !RAW_NAME.test(t)) return t;
+  logTradeError(`${what} (reworded for players)`, { message: String(m ?? "").slice(0, 300), ...detail });
+  return REJECTED_MSG;
+}
 /** Console-only detail for a plain-worded trade error (ids, raw relay text, revert selector); never shown to players. */
 export function logTradeError(what: string, detail: Record<string, unknown>) {
   if (typeof console !== "undefined") console.warn(`[disciple] ${what}`, detail);

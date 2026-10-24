@@ -5,6 +5,7 @@
  */
 import { createWalletClient, custom, type Address, type WalletClient } from "viem";
 import { ACTIVE_CHAIN } from "./chains";
+import { REJECTED_MSG } from "./aa/relayOp";
 
 type Eip1193 = Parameters<typeof custom>[0];
 let provider: Eip1193 | null = null;
@@ -127,7 +128,11 @@ export async function execCalls(calls: Call[]): Promise<ExecResult> {
   for (const c of calls) {
     const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: w.account.address, to: c.to, data: c.data, value: c.value });
     const rc = await pc.waitForTransactionReceipt({ hash });
-    if (rc.status !== "success") throw new Error(`Transaction reverted (${hash})`);
+    if (rc.status !== "success") {
+      // players see the plain line; the hash stays on the error (txHash) and in the console
+      console.warn("[disciple] trade reverted", { txHash: hash });
+      throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
+    }
     last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
   }
   return last!;

@@ -3,6 +3,7 @@ import { BaseError, ContractFunctionRevertedError, decodeErrorResult, formatUnit
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, referralRegistryAbi, tokenAbi, usdgDepositNotifierAbi } from "../abi";
 import { deployment } from "../chains";
 import { tokenDecimals } from "../usdg";
+import { plainText } from "../aa/relayOp";
 
 const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)"]);
 export type Asset = { address: Address; symbol: string; decimals: number; /** USD per 1 whole unit (live QuotePricer, else null) */ usd: number | null };
@@ -81,11 +82,12 @@ export function claimErrorText(e: unknown): string {
     case "ERC20InsufficientBalance": return "Not enough balance.";
     case "ERC20InsufficientAllowance": return "Approval missing. Try again.";
     case "Panic": return "Nothing to withdraw yet.";
-    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "Approval missing. Try again." : /BAL/i.test(String(r.args[0])) ? "Not enough balance." : String(r.args[0]).slice(0, 120);
+    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "Approval missing. Try again." : /BAL/i.test(String(r.args[0])) ? "Not enough balance." : plainText(String(r.args[0]).slice(0, 120), "claim error");
   }
   const m = (e as Error)?.message ?? String(e);
   if (/user rejected|denied/i.test(m)) return "Cancelled.";
-  return m.split("\n")[0].slice(0, 120);
+  // unmapped: plain text passes; ids / hex / raw contract or relay text → the plain line (detail to console)
+  return plainText(m.split("\n")[0].slice(0, 120), "claim error", r ? { name: r.name } : {});
 }
 
 /**

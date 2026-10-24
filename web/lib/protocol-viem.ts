@@ -13,7 +13,7 @@ import {
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
-import { NO_PRICE_MSG, logTradeError } from "./aa/relayOp";
+import { NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, logTradeError, plainText } from "./aa/relayOp";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -91,6 +91,8 @@ function decodeRevert(data?: Hex): { errorName: string; args?: readonly unknown[
 /** Revert names meaning "price moved past minOut" (curve, router, v4, session policy): retried once with a fresh quote. */
 export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMuchRequested)$/;
 
+/** Launch-buy cap copy; pct = the cap in % of supply when the caller knows it. */
+export const CREATOR_BUY_MSG = (pct?: number) => `Your launch buy is over the max for this rocket${pct ? ` (${pct}% of supply)` : ""}. Try a smaller amount.`;
 const pickIds = (x?: Record<string, unknown>) => ({ userOpHash: x?.userOpHash, txHash: x?.txHash });
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
@@ -102,8 +104,12 @@ export function friendlyError(e: unknown): ProtocolError {
     const raw = (est ?? rv)!.extra?.revertData as Hex | undefined;
     const d = decodeRevert(raw);
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
-    // FLOW 2: unknown revert ⇒ keep the real payload (selector) instead of a bare "simulation failed"
-    else if (est) return new ProtocolError("Estimate", raw && raw.length >= 10 && !est.message.includes(raw.slice(0, 10)) ? `${est.message} (revert ${raw.slice(0, 10)})` : est.message);
+    // Pre-send check failed with no friendly mapping (approved by lee 2026-10-24): players see the plain line; the raw
+    // "simulation failed: …" text and the selector go to the console (AAError keeps message + extra for retry logic)
+    else if (est) {
+      logTradeError("trade pre-check failed", { message: est.message, ...(raw && raw.length >= 10 ? { selector: raw.slice(0, 10), revertData: raw } : {}) });
+      return new ProtocolError("Estimate", REJECTED_MSG);
+    }
     // Reverted: players see the plain line only; the unknown selector goes to the console (never hex in copy)
     else { if (raw && raw.length >= 10) logTradeError("trade reverted (unknown reason)", { selector: raw.slice(0, 10), revertData: raw, ...pickIds(rv!.extra) }); return new ProtocolError("Reverted", rv!.message); }
   }
@@ -114,17 +120,17 @@ export function friendlyError(e: unknown): ProtocolError {
   }
   {
     const M: Record<string, string> = {
-      QuoteRejected: `That pair token can't be used${args?.[0] ? ` (${String(args[0])})` : ""}. Pick another quote token.`,
+      QuoteRejected: "That pair token can't be used. Pick another quote token.",   // token address → console (below)
       DefaultQuoteUnset: "Launches are paused: the default pair isn't configured yet.",
       PricerUnset: "Launches are paused: the quote price feed isn't configured yet.",
       NoPricePool: "That pair has no USD price pool registered, so it can't be used yet.",
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
-      CreatorBuyTooLarge: "Creator buy is above Launchpad.creatorBuyMaxBps() (and/or the 7% wallet cap).",
+      CreatorBuyTooLarge: CREATOR_BUY_MSG(),
       Slippage: "Price moved too much. Try again or raise slippage.",
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
-      Graduated: "This rocket reached orbit; trading moved to the v4 pool.",
+      Graduated: "This rocket has graduated, so trading moved to its pool.",
       NotGraduated: "This rocket is still on the curve.",
       InsufficientLiquidity: "Not enough left on the curve for that size.",
       ZeroAmount: "Amount is too small.",
@@ -146,15 +152,27 @@ export function friendlyError(e: unknown): ProtocolError {
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
       V4TooLittleReceived: "Price moved too much. Try again or raise slippage.",
       V4TooMuchRequested: "Price moved too much. Try again or raise slippage.",
-      FailedOp: `Couldn't validate the trade${args?.[0] ? ` (${String(args[0])})` : ""}. Try again.`,
-      Error: args?.[0] ? String(args[0]) : "reverted",
+      // raw reasons ("AA23 reverted", revert strings) → console only (below)
+      FailedOp: REJECTED_MSG,
+      Error: REJECTED_MSG,
     };
     const pre = "";   // the decoded reason is the message; no "simulation:" prefix (FLOW 2)
     if (name === "QuoteFailed") logTradeError("quote failed", { target: args?.[0] });
-    if (name) return new ProtocolError(name, pre + (M[name] || name));
+    if (name && (name === "QuoteRejected" || name === "FailedOp" || name === "Error" || !M[name])) logTradeError(M[name] ? `trade failed (${name})` : "trade failed (unmapped error)", { name, args: args?.map(String) });
+    // unmapped contract error names never reach players
+    if (name) return new ProtocolError(name, pre + (M[name] || REJECTED_MSG));
   }
   const code = (e as { code?: string })?.code;
-  return new ProtocolError(typeof code === "string" ? code : "Unknown", (e as Error)?.message || String(e));
+  const msg = (e as Error)?.message || String(e);
+  // relay / RPC transport errors ("eth_sendUserOperation: …") and unplain timeouts: plain line, raw text to console
+  if (isAA && code === "Bundler") { logTradeError("trade failed (send error)", { message: msg.slice(0, 300), rpcError: (e as AAError).extra?.rpcError }); return new ProtocolError("Bundler", REJECTED_MSG); }
+  if (isAA && code === "Timeout" && msg !== PENDING_MSG) { logTradeError("trade pending", { message: msg.slice(0, 300), ...pickIds((e as AAError).extra) }); return new ProtocolError("Timeout", PENDING_MSG); }
+  // a raw pre-send failure that arrived as a plain error (not an AAError "Estimate"): same plain line, detail to console
+  if (/simulation failed|execution reverted in simulation/i.test(msg)) {
+    logTradeError("trade pre-check failed", { message: msg.split("\n")[0].slice(0, 300), code });
+    return new ProtocolError(typeof code === "string" ? code : "Estimate", REJECTED_MSG);
+  }
+  return new ProtocolError(typeof code === "string" ? code : "Unknown", plainText(msg, "trade error", { code }));
 }
 
 export function publicClient(): PublicClient {
@@ -614,9 +632,13 @@ export function createViemProtocol(): ProtocolClient {
           const [cq, launchpadCapBps] = await Promise.all([
             readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps)), readCreatorBuyMaxBps(pc),
           ]);
-          if (cq.exceedsCap) throw new ProtocolError("CreatorBuyTooLarge", "Creator buy exceeds Launchpad.creatorBuyMaxBps() / wallet cap. Lower it.");
           // Mode caps stack on top of creatorBuyMaxBps (PVE 0.25% per buy in its launch window); quoteCreatorBuy can't see them.
           const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
+          if (cq.exceedsCap) {
+            const pct = Math.min(launchpadCapBps, eff.bps, 700) / 100;   // 700 bps = the 7% wallet cap
+            logTradeError("launch buy over cap", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
+            throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
+          }
           if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
             throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow at most ${eff.bps / 100}% of supply per buy. Lower the First BOOST.`);
           }
@@ -670,7 +692,7 @@ export function createViemProtocol(): ProtocolClient {
             else if (ev.eventName === "LaunchTierContext") supply = Number(ev.args.totalSupply as bigint) / 1e18;
           } catch { /* other event */ }
         }
-        if (!launched) throw new ProtocolError("NoLaunchEvent", `Launch tx ${r.txHash} had no Launched event.`);
+        if (!launched) { logTradeError("launch had no Launched event", { txHash: r.txHash }); throw new ProtocolError("NoLaunchEvent", REJECTED_MSG); }
         // First BOOST: the curve's Trade event in the SAME tx (emitted before Launched). trader = msg.sender = the signed-in
         // smart account (the only signer allowed now, lib/wallet) ⇒ tokens land in the account the HUD/balances read.
         for (const l of r.logs) {
