@@ -68,7 +68,7 @@ export async function getSigner(): Promise<Signer> {
 /* ---------------- smart account (one-tap) seam ---------------- */
 import type { Call } from "./aa/core";
 import type { SendOpts } from "./aa/fastPath";
-import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaPeekGasReservePerOp, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import type { Hex, LocalAccount } from "viem";
 
 export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string };
@@ -110,6 +110,15 @@ export async function activeAddress(): Promise<Address> {
   if (plainWallet) return (await getSigner()).account.address;
   throw new SignInRequired();
 }
+
+/**
+ * Rapid taps (GAME): USDG base units one pending trade may still take for network fees — SYNC, never awaits.
+ *   reserve = liveCash − Σ pending (amountIn + gasReservePerOp())
+ * Warm allowance maxTokenCost ?? paymaster maxCostCap ?? (cold) 10 USDG; 0n when gas isn't paid in USDG (EOA / ETH).
+ */
+export function gasReservePerOp(): bigint { return isSmartMode() ? aaGasReservePerOp() : BigInt(0); }
+/** Same, but null while cold (nothing cached yet) instead of the fallback constant. */
+export function peekGasReservePerOp(): bigint | null { return isSmartMode() ? aaPeekGasReservePerOp() : BigInt(0); }
 
 /**
  * Execute a call list. Smart account ⇒ ONE sponsored (or self-paid) userOp, no popup.

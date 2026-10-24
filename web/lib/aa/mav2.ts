@@ -18,6 +18,7 @@ import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type Us
 import { ENTRYPOINT_V07 } from "./constants";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend } from "./relayClient";
+import { PaymasterCapCache, fallbackUsdgDecimals, peekReserve, reserveOrFallback } from "./gasReserve";
 /** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
 export const NEXT_BLOCK_MS = 170;
 const nextBlock = () => new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
@@ -150,6 +151,10 @@ export class Mav2Account {
   private sessionClient?: { entityId: number; c: Promise<any> };
   /** Pre-issued per-sender paymaster allowance (item 5): 0 pm_* calls on a warm USDG-gas trade. */
   readonly allowances?: AllowanceCache;
+  /** paymaster.maxCostCap() + USDG decimals, read at warm (gasReservePerOp's second tier). */
+  readonly caps = new PaymasterCapCache();
+  /** The account address once known (warm / first send): lets the SYNC gas-reserve read peek the allowance. */
+  private senderAddr?: Address;
   constructor(private o: Mav2Opts, private owner: LocalAccount) {
     this.gasMode = o.usdgGas ? "usdg" : "self-pay";
     if (o.usdgGas) this.allowances = new AllowanceCache({ url: absUrl(o.usdgGas.url), chainId: o.chain.id });
@@ -226,7 +231,9 @@ export class Mav2Account {
   deployed?: boolean;
   async warm() {
     const c = await (this.sessionClient ? this.sessionClient.c : this.owned());
+    this.senderAddr = c.account.address as Address;
     await Promise.all([
+      this.warmGasReserve(),
       this.deployed ? 0 : c.account.isAccountDeployed?.().then((d: boolean) => { this.deployed = d; }),
       FEES.get(() => fetchFees(c as unknown as FeeClient)),
       this.allowances?.refresh(c.account.address as Address),
@@ -249,6 +256,7 @@ export class Mav2Account {
     const client = session ? await this.sessionClient!.c : await this.owned();
     const uo = calls.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
     const sender: Address = client.account.address;
+    this.senderAddr = sender;
     const nonce = this.nonces.next(session ? this.sessionClient!.entityId : 0, !session);
     const kind = `${as}|${callsKind(calls)}`;
     // Launches (≈ 6M+ execution gas) ALWAYS estimate: STATIC_GAS (1.8M) runs out and a cached 1.5x would exceed the
@@ -363,6 +371,27 @@ export class Mav2Account {
     opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings });
     this.deployed = true;
     return { userOpHash: req.hash, txHash, gasMode: "self-pay", receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
+  }
+
+  /**
+   * Rapid taps (GAME): USDG base units one pending op may still take for gas — SYNC, never awaits.
+   * 0n when gas isn't paid in USDG; else the warm allowance's maxTokenCost ?? the paymaster's maxCostCap ?? null (cold).
+   * USDG gas configured ⇒ reserved whichever key signs (a session op may fall back to the owner, which pays in USDG).
+   */
+  peekGasReservePerOp(): bigint | null {
+    const pm = this.o.usdgGas;
+    const a = pm && this.senderAddr ? this.allowances?.peek(this.senderAddr) : undefined;
+    return peekReserve({ usdgGas: !!pm, allowanceMaxTokenCost: a ? BigInt(a.disciple.maxTokenCost) : undefined, cap: this.caps.peek()?.cap });
+  }
+  /** peekGasReservePerOp, or (cold) FALLBACK_MAX_COST_USDG at the cached / chain-default USDG decimals. */
+  gasReservePerOp(): bigint {
+    return reserveOrFallback(this.peekGasReservePerOp(), this.caps.peek()?.decimals ?? fallbackUsdgDecimals(this.o.chain.id));
+  }
+  /** Warm both reserve tiers (maxCostCap + decimals, the allowance) off the trade path: session start + warm(). */
+  async warmGasReserve() {
+    const pm = this.o.usdgGas; if (!pm) return;
+    const me = this.senderAddr ?? (this.senderAddr = await this.address().catch(() => undefined));
+    await Promise.all([this.caps.warm(this.o.pc, pm.paymaster, pm.usdg), me ? this.allowances?.refresh(me).catch(() => undefined) : undefined]);
   }
 
   private usdgGasFor(as: "owner" | "session") { const u = this.o.usdgGas; return !!u && (as === "owner" || u.session); }

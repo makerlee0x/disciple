@@ -16,6 +16,7 @@ import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
 import type { SendOpts } from "./fastPath";
+import { fallbackGasReserve, fallbackUsdgDecimals } from "./gasReserve";
 import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
@@ -118,6 +119,7 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
   save();
   const a = await sa.address();
+  void sa.warmGasReserve().catch(() => undefined);   // rapid taps: gasReservePerOp is warm before the first tap
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
   else void maybeAutoOneTap("login");
@@ -405,6 +407,21 @@ export async function endOneTap() {
   saveSessionKey();
   changed();
   return r;
+}
+
+/**
+ * Rapid taps (GAME cash reservation), SYNC, USDG base units: what one pending op may still take for gas.
+ *   reserve = liveCash − Σ pending (amountIn + aaGasReservePerOp())
+ * peek: null only while cold (no allowance, maxCostCap not read yet); 0n when gas isn't paid in USDG.
+ */
+export function aaPeekGasReservePerOp(): bigint | null {
+  if (sa) return sa.peekGasReservePerOp();
+  return usdgGasConfig() ? null : BigInt(0);
+}
+/** Never null: cold ⇒ FALLBACK_MAX_COST_USDG (10 USDG, the paymaster's deploy-default maxCostCap). */
+export function aaGasReservePerOp(): bigint {
+  if (sa) return sa.gasReservePerOp();
+  return usdgGasConfig() ? fallbackGasReserve(fallbackUsdgDecimals(ACTIVE_CHAIN.id)) : BigInt(0);
 }
 
 /** Keep the smart account hot: clients + deployment status + fee cache (client) and relayer nonce/fees (server). */
