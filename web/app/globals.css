@@ -1578,3 +1578,5 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .ach-title { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: var(--dsc-radius-full); font: 13px var(--dsc-font-ui); color: var(--dsc-text); border: 1px solid var(--dsc-border-color-strong); background: var(--dsc-surface); }
 .ach-title.locked { color: var(--dsc-muted); border-style: dashed; border-color: var(--dsc-border); opacity: .7; }
 .ach-title.shown { background: var(--dsc-surface-2); font-weight: 600; }
+.pf-ach-card { box-sizing: border-box; width: 100%; align-self: stretch; }
+.ach-titles { margin-bottom: var(--dsc-space-4); }
