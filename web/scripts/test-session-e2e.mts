@@ -1,4 +1,5 @@
 /**
+ * LEGACY v4 stack (policy 1.3.0, 18-dec mUSDG): for the v5 stack use test-session-e2e-v5.mts.
  * One-tap session e2e on RH testnet (DiscipleSessionPolicy v1.3.0, v4) against a running app (/api/drip, /api/bundler).
  * A fresh local key stands in for the Privy embedded EOA (same viem LocalAccount interface as toViemAccount).
  *   1. drip → owner op: mint test STRATEGY (deploys the MAv2)

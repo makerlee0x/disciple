@@ -754,7 +754,8 @@ export function createViemProtocol(): ProtocolClient {
         }
         if (anonL && lp.private) {
           // AnonLauncher pulls launchFee (feeToken = USDG) + creatorBuyQuoteIn (quote) from this account: exact approvals
-          // (summed when the pair IS the fee token), then launchAnon(params, stealthOwner, buyRecipient = me, eph, viewTag).
+          // (summed when the pair IS the fee token), then launchAnon(params, stealthOwner, buyRecipient = me, eph, viewTag, maxFee = the fee just read: the exact
+          // approve above already caps it; v5 AnonLauncher reverts FeeTooHigh if the owner raises it before inclusion).
           const [feeToken, fee] = await Promise.all([
             pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "feeToken" }) as Promise<Address>,
             pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "launchFee" }) as Promise<bigint>,
@@ -769,7 +770,7 @@ export function createViemProtocol(): ProtocolClient {
             calls.push({ to: tok as Address, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [anonL, amt] }) });
           }
           const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
-          calls.push({ to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag] }) });
+          calls.push({ to: anonL, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "launchAnon", args: [params, stealthOwner, me, ephemeralPubKey, viewTag, fee] }) });
         } else {
           // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
           calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
