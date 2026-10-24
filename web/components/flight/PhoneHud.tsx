@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export const PHONE_W = 740;   // = engine.js HUD_NARROW_W
 export type PhoneSheet = "feed" | "holders" | "chart" | "crew" | "chat" | "run";
 type Tab = { id: PhoneSheet; label: string; engine?: boolean };
-// tab copy from the approved phone-v3 mockup (frame3)
+// tab labels are final (lee 11:29 CT): Feed / Holders / Chart / Crew / Chat / Run; tramps & walls live under Run (no T/W tab)
 export const DRAWER_TABS: Tab[] = [
   { id: "feed", label: "Feed", engine: true },
   { id: "holders", label: "Holders", engine: true },
@@ -167,7 +167,7 @@ export default function PhoneHud() {
           justifyContent: "space-between", font: "11.5px ui-monospace,Menlo,monospace", letterSpacing: ".14em", color: "rgba(214,222,245,.56)" }}>
           <span><span style={{ color: "#2FD98A" }}>●</span> LIVE TRADES</span>
           <span style={{ letterSpacing: ".04em" }}>{pnlLine}</span></div>}
-        {sheet === "run" && <button type="button" data-testid="phone-settings" onClick={() => dispatchEvent(new CustomEvent("disciple:settings-open"))}
+        {sheet === "run" && <button type="button" data-testid="phone-settings" onClick={() => dispatchEvent(new Event("disciple:settings-open"))}
           style={{ all: "unset", pointerEvents: "auto", position: "absolute", right: SIDE, top: bb - 88, height: 40, padding: "0 14px", borderRadius: 14, cursor: "pointer",
             font: "700 13px system-ui,sans-serif", color: "#EEF1FA", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.1)" }}>⚙ Settings</button>}
       </section>}

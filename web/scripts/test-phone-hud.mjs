@@ -1,5 +1,5 @@
 // Phone HUD v3 (<740px, lee 10:36 CT): layout math, engine gating, drag-to-steer (unit + handler harness), worker forwarding,
-// trade-bar / amount-sheet wiring. Desktop paths must stay untouched.
+// trade-bar / amount-sheet wiring, tier label. Desktop paths must stay untouched.
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 const rd = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
@@ -45,7 +45,44 @@ for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left:
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
-ok(/'SIM' tag \(paper \/ simulated market\) is a PLACEHOLDER/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng), "SIM tag (placeholder) on paper / sim");
+ok(/a 'SIM' tag in paper \/ simulated market \(final/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng) && !/PLACEHOLDER/.test(eng), "SIM tag (final) on paper / sim; no placeholder comments left");
+ok(/\{ id: "run", label: "Run" \}/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "tramps & walls live under Run (no T/W tab)");
+// 3b) @tier-label: "X% to NEXT_TIER" from the same log progress as the bar (phone pill + desktop tier bar)
+{
+  const tiersSrc = rd("lib/flight/tiers.ts");
+  const TIERS = [...tiersSrc.matchAll(/\{ name: "([^"]+)", lo: ([\d.e]+), hi: ([\d.e]+)/g)].map((m) => ({ name: m[1], lo: +m[2], hi: +m[3] }));
+  ok(TIERS.length >= 18 && TIERS[4].name === "OUTER SPACE", "tiers parsed");
+  const blk = eng.slice(eng.indexOf("/* @tier-label ("), eng.indexOf("/* @tier-label-end */"));
+  // monospace stub: 0.6em per glyph
+  const ctx = { font: "", save() {}, restore() {}, measureText: (t) => ({ width: String(t).length * 0.6 * +(ctx.font.match(/(\d+)px/) || [0, 10])[1] }) };
+  let rules = "";
+  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules);
+  const lab = (m, ti) => { const p = TL.tierProgress(m, ti); return TL.tierLabel(p.f, p.next); };
+  // 34% of the KÁRMÁN LINE band (log) → "34% to OUTER SPACE"
+  const k = TIERS[3], m34 = k.lo * Math.pow(TIERS[4].lo / k.lo, 0.345);
+  ok(lab(m34, 3) === "34% to OUTER SPACE", `example label (${lab(m34, 3)})`);
+  ok(lab(TIERS[13].lo, 13) === "0% to SERAPHIM", "start of a tier → 0%");
+  ok(lab(TIERS[14].lo * 0.9999, 13) === "99% to SERAPHIM", "whole percent rounded down: never 100% before the tier is reached");
+  ok(lab(94.19e6, 13) === `${Math.floor((Math.log(94.19e6 / 77e6) / Math.log(120e6 / 77e6)) * 100)}% to SERAPHIM`, "same log progress as the bar fill");
+  ok(lab(1e3, 0) === "0% to OZONE", "below the floor clamps to 0%");
+  const top = TIERS.length - 1; ok(lab(TIERS[top].lo * 1.5, top) === "", "top tier: no label (desktop keeps ★ TOP TIER)");
+  for (let i = 0; i < top; i++) { const L = lab(TIERS[i].lo * 1.01, i); ok(L.endsWith(" to " + TIERS[i + 1].name) && TIERS[i + 1].name === TIERS[i + 1].name.toUpperCase(), `tier ${i}: names the next tier in caps`); }
+  // desktop: right-aligned at 384 on the TIER line, never over the TIER text / rules text
+  ok(/function drawTierBar\(m,ti,leftEnd\)\{\n  const t=TIERS\[ti\], \{f,next:nx\}=tierProgress\(m,ti\);/.test(eng), "desktop bar uses tierProgress");
+  ok(/let lb=tierLabel\(f,nx\); if\(lb&&\(leftEnd\|\|0\)\+12>384-ctx\.measureText\(lb\)\.width\) lb=lb\.slice\(0,lb\.indexOf\(' to '\)\);[^\n]*\n    if\(lb\) ctx\.fillText\(lb,384,108\);/.test(eng), "desktop: label at the bar's right end, falls back to the bare % if the TIER line is long");
+  ok(/const tierEnd=tierLineEnd\(ti,t\);[^\n]*\n  drawTierBar\(m,ti,tierEnd\);/.test(eng), "desktop passes the TIER line end");
+  rules = ""; const e0 = TL.tierLineEnd(13, TIERS[13]); ctx.font = "10px"; const w0 = ctx.measureText("39% to SERAPHIM").width;
+  ok(e0 + 12 <= 384 - w0, "desktop: CHERUBIM line + label fit side by side");
+  let worst = 0; for (let i = 0; i < top; i++) { ctx.font = "10px"; const w = ctx.measureText("99% to " + TIERS[i + 1].name).width; worst = Math.max(worst, TL.tierLineEnd(i, TIERS[i]) + 12 + w); }
+  ok(worst <= 384, `desktop: every tier's line + label fits without rules text (worst ${worst.toFixed(0)} ≤ 384)`);
+  rules = "EASY · cap 1% of supply per wallet".slice(0, 28); ok(TL.tierLineEnd(16, TIERS[16]) > 384 - 12 - 6 * "99% to SEVENTH HEAVEN".length, "long rules text triggers the bare-% fallback");
+  // phone: one quiet caption centred under the pill; toasts move down to make room; fits 360/390 and the rocket room
+  ok(/const lb=P\.drawer\?'':tierLabel\(f,nx\); S\.phoneTierLabel=lb;/.test(eng) && /ctx\.fillText\(phFit\(lb,W-48\),x\+w\/2,y\+h\+13\)/.test(eng), "phone: caption under the pill, fitted to the width, hidden while the drawer is open");
+  ok(/TOY=PH\?PH\.pillTop\+\(S\.phoneTierLabel\?76:58\):136/.test(eng), "phone: toasts sit below the caption");
+  for (const [w, h] of [[390, 844], [360, 780]]) { const L = phoneLayout({ w, h, topBottom: 60 }); const capB = L.pillTop + 46 + 13 + 4;
+    ok(capB + 60 < L.dTop && capB < L.hudTop - 200, `${w}x${h}: caption clear of the drawer and the bottom HUD`);
+    ok(0.6 * 11 * "99% to SEVENTH HEAVEN".length <= w - 48, `${w}: longest label fits without truncation`); }
+}
 ok(/r=\{txt:[^\n]*at:Date\.now\(\)\}/.test(eng), "feed rows carry a time for the phone 'ago' column");
 // 4) drag-to-steer: pure controller (STEER block)
 const steer = eng.slice(eng.indexOf("/*STEER-BEGIN*/"), eng.indexOf("/*STEER-END*/"));
@@ -108,4 +145,9 @@ ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet"
 ok(/No position yet/.test(hud) && /disciple:pnlview/.test(hud), "quiet PnL line");
 ok(/html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud/.test(hud) && /html\.ap-phone\[data-ph-sheet="chat"\] \[data-testid="chat-dock"\]/.test(hud), "Crew / Chat / Run reuse the existing panels");
 ok(/snipe-chip/.test(hud), "anti-snipe chip kept visible");
+// Settings: the interim Run-tab button and SITE #149's Sidebar item both send a plain Event (no detail) → the listener must not need a CustomEvent
+ok(/const o = \(\) => openMenu\(\); addEventListener\("disciple:settings-open", o\);/.test(sm), "SettingsMenu opens on a plain Event('disciple:settings-open') (no detail read)");
+{ let opened = 0; const T = new EventTarget(); const o = () => { opened++; }; T.addEventListener("disciple:settings-open", o);
+  T.dispatchEvent(new Event("disciple:settings-open")); T.dispatchEvent(new CustomEvent("disciple:settings-open")); ok(opened === 2, "plain Event and CustomEvent both open Settings"); }
+ok(/data-testid="phone-settings" onClick=\{\(\) => dispatchEvent\(new Event\("disciple:settings-open"\)\)\}/.test(hud), "interim Run-tab Settings button (pending removal once SITE #149 lands)");
 console.log(`phone-hud: ${n} checks passed`);

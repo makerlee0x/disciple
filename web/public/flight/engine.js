@@ -1451,13 +1451,13 @@ const GLOW_STEPS=[1.6,1.0,0.5];
 function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.strokeStyle='rgba(220,230,255,.18)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.roundRect? ctx.roundRect(x,y,w,h,10) : ctx.rect(x,y,w,h); ctx.fill(); ctx.stroke(); ctx.restore(); }
 
-/* @phone-hud v3: one floating glass pill under the top buttons — `$94.19M · CHERUBIM` + a thin progress line to the next tier.
-   'SIM' tag (paper / simulated market) is a PLACEHOLDER — not picked by lee yet. */
+/* @phone-hud v3: one floating glass pill under the top buttons — `$94.19M · CHERUBIM` + a thin progress line to the next tier,
+   a 'SIM' tag in paper / simulated market (final, lee 11:29 CT), and the tier label (`34% to OUTER SPACE`) just under the pill. */
 const PH_FONT='ui-monospace,Menlo,"DejaVu Sans Mono",monospace';
 function rrect(x,y,w,h,r){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
 function drawPhonePill(m,ti,P){
-  const t=TIERS[ti], nx=TIERS[ti+1], lo=t.lo, hi=nx?nx.lo:t.hi, f=clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1);
-  const sim=source.isSim||!isLive();   // PLACEHOLDER tag: paper / sim mode
+  const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
+  const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
   ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=t.name, wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
@@ -1475,6 +1475,9 @@ function drawPhonePill(m,ti,P){
   const bx=x+20, bw=w-40, by=y+h-10; ctx.fillStyle='rgba(255,255,255,.12)'; rrect(bx,by,bw,2,1); ctx.fill();
   const g=ctx.createLinearGradient(bx,0,bx+bw*Math.max(f,.02),0); g.addColorStop(0,'#FFB547'); g.addColorStop(1,'#FFD873');
   ctx.save(); ctx.shadowColor='rgba(255,216,115,.7)'; ctx.shadowBlur=6; ctx.fillStyle=g; rrect(bx,by,Math.max(2,bw*f),2,1); ctx.fill(); ctx.restore();
+  const lb=P.drawer?'':tierLabel(f,nx); S.phoneTierLabel=lb;   // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
+  if(lb){ ctx.font=`600 11px ${PH_FONT}`; ctx.textAlign='center'; ctx.shadowColor='rgba(0,0,0,.85)'; ctx.shadowBlur=6;
+    ctx.fillStyle='rgba(226,232,250,.72)'; ctx.fillText(phFit(lb,W-48),x+w/2,y+h+13); ctx.textAlign='left'; }
   ctx.restore();
 }
 /* drawer body background (same tint as the DOM drawer chrome; the DOM leaves this band transparent for the canvas tabs) */
@@ -1526,7 +1529,8 @@ function drawHud(){
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
   { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
   // progress to next tier
-  drawTierBar(m,ti);   /* HUD+ block */
+  const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
+  drawTierBar(m,ti,tierEnd);   /* HUD+ block */
   }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
@@ -1561,7 +1565,7 @@ function drawHud(){
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
   if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
-  let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+58:136;   // achievement toasts: phone = under the MCAP pill
+  let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
@@ -2220,15 +2224,26 @@ function usdToReach(M,Mt){
   if (Mt>TB_M1) q+=poolQuote(Mt)-poolQuote(Math.max(M,TB_M1));
   return q/(1-TB_FEE);
 }
+/* @tier-label (maker lee 11:29 CT): "X% to NEXT_TIER" on the tier bar, phone + desktop. Same log progress as the bar fill;
+   whole percent rounded DOWN (never claims 100% before the tier is reached); next tier name as TIERS spells it (caps).
+   Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone pill already names the tier. */
+function tierProgress(m,ti){ const t=TIERS[ti], nx=TIERS[ti+1]||null, lo=t.lo, hi=nx?nx.lo:t.hi;
+  return { f:clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1), next:nx }; }
+function tierLineEnd(ti,t){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width;
+  const rl=tierRulesText(); if(rl){ ctx.font='bold 12px ui-monospace,monospace'; e+=ctx.measureText('  ·  '+rl).width; } ctx.restore(); return e; }
+function tierLabel(f,nx){ return nx ? `${Math.min(99,Math.max(0,Math.floor(f*100)))}% to ${nx.name}` : ''; }
+/* @tier-label-end */
 /* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = log progress inside the tier band */
-function drawTierBar(m,ti){
-  const t=TIERS[ti], nx=TIERS[ti+1], lo=t.lo, hi=nx?nx.lo:t.hi, f=clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1);
+function drawTierBar(m,ti,leftEnd){
+  const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
   const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
-  ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillText(`${(f*100).toFixed(0)}%`,384,108);
+  ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
+  { let lb=tierLabel(f,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
+    if(lb) ctx.fillText(lb,384,108); }
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
     const need=usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8'; ctx.fillText(`≈${fmtUsd(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
