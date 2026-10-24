@@ -45,9 +45,8 @@ export type SyncSendOpts = {
 };
 
 export async function syncSend(raw: Hex, txHash: Hex, o: SyncSendOpts): Promise<SyncSendResult> {
-  const now = o.now ?? Date.now, sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = o.now ?? Date.now;
   const t0 = now();
-  const tag = (e: unknown) => Object.assign(e as RpcErr, { txHash });
   const reject = (e: unknown) => Object.assign(e as RpcErr, { txHash, definitive: true });   // NOT accepted (lib/server/relayerNonce)
   let reason: PendingReason;
   try {
