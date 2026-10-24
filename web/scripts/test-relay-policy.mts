@@ -144,7 +144,7 @@ test("non-launch ops keep W-1 caps: wrong target, extra non-approve call, single
 });
 
 // ---- FLOW 2 (#106 + steep-curve floor): graduating buys get GRAD_GAS_CAPS (5M call / 6M total) after an on-chain check
-import { buyIntents, exceedsCaps, GRAD_GAS_CAPS, isGradBuy } from "../lib/aa/gasPolicy";
+import { buyIntents, exceedsCaps, GRAD_GAS_CAPS, gradBuyCandidate, isGradBuy, MAX_GRAD_BUY_INTENTS } from "../lib/aa/gasPolicy";
 import { isGradBuyOp, relayCaps, type GradReads } from "../lib/server/gradBuy";
 import { GRAD_STATIC_GAS, isGradBuyCalls, markGradBuy } from "../lib/aa/fastPath";
 import { GradHint } from "../lib/trade/gradHint";
@@ -155,18 +155,29 @@ const REMAINING = BigInt(2_000) * BigInt(10) ** BigInt(18);   // quote left to g
 const D = BigInt(1_900_000_000);
 const curveBuy = (q: bigint, to = CURVE) => ({ to, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: "buy", args: [q, BigInt(1), D, OTHER as Hex] }) });
 const routerBuy = (q: bigint, to = ROUTER) => ({ to, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "buyWithUsdg", args: [TOK as Hex, q, BigInt(1), D] }) });
-const reads = (o: Partial<GradReads> = {}): GradReads & { calls: number } => {
+const SENDER = "0x8888888888888888888888888888888888888888", Z = "0x0000000000000000000000000000000000000000";
+const BIG = BigInt(10) ** BigInt(30);
+type Funds = { balance?: bigint; allowance?: bigint; quote?: string; graduated?: boolean };
+// batched reads: `calls` counts RPC round trips (each GradReads method = one eth_call / multicall); `seen` logs check() args
+const reads = (o: Partial<GradReads> = {}, f: Funds = {}): GradReads & { calls: number; seen: { payToken: string; spender: string; quoteIn: bigint }[] } => {
   const r = {
-    calls: 0, router: ROUTER,
-    async curveOf(t: string) { r.calls++; return t.toLowerCase() === TOK ? CURVE : "0x0000000000000000000000000000000000000000"; },
-    async tokenOf(c: string) { r.calls++; return c.toLowerCase() === CURVE || c.toLowerCase() === FAKE ? TOK : "0x0000000000000000000000000000000000000000"; },
-    async graduated() { r.calls++; return false; },
-    async graduates(_c: string, q: bigint) { r.calls++; return isGradBuy(q, REMAINING); },
+    calls: 0, router: ROUTER, usdg: USDG, seen: [] as { payToken: string; spender: string; quoteIn: bigint }[],
+    async curveOf(t: string) { r.calls++; return t.toLowerCase() === TOK ? CURVE : Z; },
+    async curveInfo(c: string) {
+      r.calls++;
+      const known = c.toLowerCase() === CURVE || c.toLowerCase() === FAKE;
+      return { token: known ? TOK : Z, quote: f.quote ?? USDG, graduated: f.graduated ?? false };
+    },
+    async check(a: { token: string; curve: string; quoteIn: bigint; payToken: string; owner: string; spender: string }) {
+      r.calls++; r.seen.push({ payToken: a.payToken, spender: a.spender, quoteIn: a.quoteIn });
+      return { curveOf: a.token.toLowerCase() === TOK ? CURVE : Z, graduates: isGradBuy(a.quoteIn, REMAINING), balance: f.balance ?? BIG, allowance: f.allowance ?? BIG };
+    },
     ...o,
   };
   return r;
 };
-const gradOp = (calls: { to: string; data: Hex }[], g: Record<string, number> = {}) => ({ ...op({ callGasLimit: 3_400_000, verificationGasLimit: 350_000, preVerificationGas: 60_000, ...g }), callData: batch(calls) });
+const gradOp = (calls: { to: string; data: Hex }[], g: Record<string, number> = {}) => ({ ...op({ callGasLimit: 3_400_000, verificationGasLimit: 350_000, preVerificationGas: 60_000, ...g }), sender: SENDER, callData: batch(calls) });
+const approveTo = (token: string, spender: string, amt: bigint) => ({ to: token, data: encodeFunctionData({ abi: parseAbi(["function approve(address,uint256)"]), args: [spender as Hex, amt] }) });
 
 test("GRAD_GAS_CAPS: 5M call / 6M total, everything else as GAS_CAPS; isGradBuy = quote >= remaining (> 0)", () => {
   assert.equal(GRAD_GAS_CAPS.callGasLimit, BigInt(5_000_000));
@@ -176,9 +187,14 @@ test("GRAD_GAS_CAPS: 5M call / 6M total, everything else as GAS_CAPS; isGradBuy 
   assert.equal(isGradBuy(REMAINING, REMAINING), true);
   assert.equal(isGradBuy(REMAINING - BigInt(1), REMAINING), false);
   assert.equal(isGradBuy(REMAINING, BigInt(0)), false);   // graduated / unknown
-  // 16-band graduating buy ≈ 2.56M execution (forge FloorSeedGas) ⇒ 1.3x + 20k self-bundler estimate fits 5M, not 3M
-  const est = BigInt(2_560_000) * BigInt(13) / BigInt(10) + BigInt(20_000);
-  assert.ok(est > GAS_CAPS.callGasLimit && est < GRAD_GAS_CAPS.callGasLimit);
+  // 16-band graduating buy ≈ 2.764M execution at 6-dec USDG (forge FloorSeedGas, audit r127: 2,763,988 C0 / 2,763,533 C1;
+  // the forge cap stays 3.0M) ⇒ 1.3x + 20k self-bundler estimate fits 5M, not 3M — also at the 3.0M forge ceiling
+  for (const exec of [BigInt(2_764_000), BigInt(3_000_000)]) {
+    const est = exec * BigInt(13) / BigInt(10) + BigInt(20_000);
+    assert.ok(est > GAS_CAPS.callGasLimit && est < GRAD_GAS_CAPS.callGasLimit);
+  }
+  // client static grad call gas (fastPath) covers the measured 6-dec buy
+  assert.ok(GRAD_STATIC_GAS.callGasLimit >= BigInt(2_764_000));
   // session + USDG gas static grad limits fit the grad total with paymaster gas
   assert.ok(GRAD_STATIC_GAS.callGasLimit + GRAD_STATIC_GAS.verificationGasLimit + GRAD_STATIC_GAS.preVerificationGas + BigInt(300_000) <= GRAD_GAS_CAPS.total);
 });
@@ -187,9 +203,9 @@ test("buyIntents decodes curve buy / buyFor and router buyWithUsdg / buyExactIn;
   const exact = { to: ROUTER, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "buyExactIn", args: [TOK as Hex, BigInt(9), BigInt(1), OTHER as Hex, D] }) };
   const b = buyIntents(batch([{ to: USDG, data: approve }, curveBuy(BigInt(7)), sell, routerBuy(BigInt(8)), exact]));
   assert.deepEqual(b, [
-    { kind: "curve", to: CURVE, quoteIn: BigInt(7) },
-    { kind: "router", to: ROUTER, token: TOK, quoteIn: BigInt(8) },
-    { kind: "router", to: ROUTER, token: TOK, quoteIn: BigInt(9) },
+    { kind: "curve", to: CURVE, quoteIn: BigInt(7), unit: "quote" },
+    { kind: "router", to: ROUTER, token: TOK, quoteIn: BigInt(8), unit: "usdg" },
+    { kind: "router", to: ROUTER, token: TOK, quoteIn: BigInt(9), unit: "quote" },
   ]);
   assert.deepEqual(buyIntents("0x1234"), []);
   assert.deepEqual(buyIntents([{ to: CURVE, data: "0xdeadbeef" }]), []);
@@ -210,10 +226,60 @@ test("relayCaps: GAS_CAPS for non-graduating buy, fake curve, wrong router, grad
   assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING - BigInt(1))]), [LP], reads()), GAS_CAPS);
   assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING, FAKE)]), [LP], reads()), GAS_CAPS);   // token() points at a token whose curve isn't FAKE
   assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING, OTHER)]), [LP], reads()), GAS_CAPS);
-  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], reads({ graduated: async () => true })), GAS_CAPS);
-  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], reads({ graduates: async () => { throw new Error("rpc"); } })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], reads({}, { graduated: true })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], reads({ check: async () => { throw new Error("rpc"); } })), GAS_CAPS);
   assert.deepEqual(await relayCaps(gradOp([{ to: TOK, data: approve }]), [LP], reads()), GAS_CAPS);
-  assert.equal(await isGradBuyOp("0x1234", reads()), false);
+  assert.equal(await isGradBuyOp("0x1234", SENDER, reads()), false);
+  assert.equal(await isGradBuyOp(gradOp([curveBuy(REMAINING)]).callData, undefined, reads()), false);   // no sender ⇒ can't check funds
+});
+test("audit r106 (gradBuy.ts:40): only the single / last non-approve call counts, and only if the sender can pay", async () => {
+  const g = curveBuy(REMAINING);
+  // last call after approves ⇒ ok; a trailing non-approve call (sell / anything) ⇒ GAS_CAPS
+  assert.deepEqual(await relayCaps(gradOp([{ to: USDG, data: approve }, g, { to: USDG, data: approve }]), [LP], reads()), GRAD_GAS_CAPS);
+  const sell = { to: CURVE, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: "sell", args: [BigInt(5), BigInt(1), D] }) };
+  assert.deepEqual(await relayCaps(gradOp([g, sell]), [LP], reads()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([g, curveBuy(BigInt(1))]), [LP], reads()), GAS_CAPS);   // grad buy not last
+  assert.deepEqual(gradBuyCandidate(batch([g, sell])), null);
+  // balance / allowance < quoteIn ⇒ GAS_CAPS (the buy would revert)
+  assert.deepEqual(await relayCaps(gradOp([g]), [LP], reads({}, { balance: REMAINING - BigInt(1) })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([g]), [LP], reads({}, { allowance: REMAINING - BigInt(1) })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([g]), [LP], reads({}, { balance: REMAINING, allowance: REMAINING })), GRAD_GAS_CAPS);
+  // an approve earlier in the same op to the right spender counts (on-chain allowance 0); wrong spender / token doesn't
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, REMAINING), g]), [LP], reads({}, { allowance: BigInt(0) })), GRAD_GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, ROUTER, REMAINING), g]), [LP], reads({}, { allowance: BigInt(0) })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([approveTo(TOK, CURVE, REMAINING), g]), [LP], reads({}, { allowance: BigInt(0) })), GAS_CAPS);
+  // later approve overrides an earlier one (approve(0) after approve(max) ⇒ allowance 0)
+  assert.deepEqual(await relayCaps(gradOp([approveTo(USDG, CURVE, BIG), approveTo(USDG, CURVE, BigInt(0)), g]), [LP], reads({}, { allowance: BigInt(0) })), GAS_CAPS);
+  // spender: curve for a direct buy, router for buyWithUsdg; pay token = the curve's quote
+  const r1 = reads(); await relayCaps(gradOp([g]), [LP], r1);
+  assert.deepEqual(r1.seen, [{ payToken: USDG, spender: CURVE, quoteIn: REMAINING }]);
+  const r2 = reads(); await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], r2);
+  assert.deepEqual(r2.seen, [{ payToken: USDG, spender: ROUTER, quoteIn: REMAINING }]);
+});
+test("audit r106 (gradBuy.ts:28): bounded + batched — ≤ MAX_GRAD_BUY_INTENTS buys, one intent checked, ≤ 3 round trips", async () => {
+  assert.equal(MAX_GRAD_BUY_INTENTS, 2);
+  const many = gradOp([curveBuy(BigInt(1)), curveBuy(BigInt(2)), curveBuy(REMAINING)]);
+  const r = reads();
+  assert.deepEqual(await relayCaps(many, [LP], r), GAS_CAPS);
+  assert.equal(r.calls, 0);   // rejected before any RPC
+  const two = reads();
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(BigInt(1)), curveBuy(REMAINING)]), [LP], two), GRAD_GAS_CAPS);
+  assert.equal(two.calls, 2);   // curve path: curveInfo batch + check batch
+  const rt = reads();
+  assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], rt), GRAD_GAS_CAPS);
+  assert.equal(rt.calls, 3);    // router path: curveOf + curveInfo batch + check batch
+});
+test("audit r106 (gasPolicy.ts:132): buyWithUsdg (USDG units) on a non-USDG curve is skipped; buyExactIn (quote units) is checked", async () => {
+  const STRAT = "0x9999999999999999999999999999999999999999";
+  const r = reads({}, { quote: STRAT });
+  assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], r), GAS_CAPS);
+  assert.equal(r.seen.length, 0);   // no quoteBuy with a USDG amount on a STRATEGY curve
+  const exact = { to: ROUTER, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "buyExactIn", args: [TOK as Hex, REMAINING, BigInt(1), OTHER as Hex, D] }) };
+  const r2 = reads({}, { quote: STRAT });
+  assert.deepEqual(await relayCaps(gradOp([exact]), [LP], r2), GRAD_GAS_CAPS);
+  assert.deepEqual(r2.seen, [{ payToken: STRAT, spender: ROUTER, quoteIn: REMAINING }]);
+  // no USDG configured ⇒ buyWithUsdg never upgraded
+  assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], reads({ usdg: undefined })), GAS_CAPS);
 });
 test("relayCaps: ops within GAS_CAPS never touch the chain; launches keep LAUNCH_GAS_CAPS", async () => {
   const r = reads();

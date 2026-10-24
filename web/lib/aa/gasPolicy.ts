@@ -52,7 +52,7 @@ export const LAUNCH_GAS_CAPS = {
 } as const;
 /**
  * Buys that may GRADUATE the curve (steep curve #1 + 16-band floor, feat/steep-curve-floor): the graduating buy runs
- * Migration + the full-range seed + 16 floor positions in one tx ≈ 2.56M execution gas (forge FloorSeedGas, cap 3.0M),
+ * Migration + the full-range seed + 16 floor positions in one tx ≈ 2.76M execution gas at 6-dec USDG (forge FloorSeedGas, cap 3.0M),
  * ≈ 3.4M after the self-bundler's 1.3x + 20k padding ⇒ above GAS_CAPS (3M / 4M). Only buys whose quote reaches the
  * remaining USDG to graduation (curve.quoteBuy(q).graduates) get these; the client always estimates them fresh.
  */
@@ -126,8 +126,12 @@ const buyAbi = parseAbi([
   "function buyExactIn(address token, uint256 quoteIn, uint256 minTokensOut, address recipient, uint256 deadline)",
 ]);
 const BUY_SELECTORS = new Set(buyAbi.map((f) => toFunctionSelector(f).toLowerCase()));
-/** One buy inside a call list: `curve` = called on a curve (to = curve); `router` = called on a router (to = router, token named). */
-export type BuyIntent = { kind: "curve" | "router"; to: string; token?: string; quoteIn: bigint };
+/**
+ * One buy inside a call list: `curve` = called on a curve (to = curve); `router` = called on a router (to = router, token
+ * named). `unit` = what quoteIn is denominated in: "quote" (the curve's own quote: curve buy / buyFor, router
+ * buyExactIn) or "usdg" (router buyWithUsdg — only comparable with curve.quoteBuy when the curve's quote IS USDG).
+ */
+export type BuyIntent = { kind: "curve" | "router"; to: string; token?: string; quoteIn: bigint; unit: "quote" | "usdg" };
 /** Every curve / router buy in a call list (or an account callData). Undecodable or no buys ⇒ []. Pure. */
 export function buyIntents(callsOrCallData: string | { to: string; data: string }[]): BuyIntent[] {
   const calls = typeof callsOrCallData === "string" ? accountCalls(callsOrCallData) : callsOrCallData;
@@ -138,12 +142,41 @@ export function buyIntents(callsOrCallData: string | { to: string; data: string 
       const d = decodeFunctionData({ abi: buyAbi, data: c.data as Hex });
       const a = d.args as readonly unknown[];
       const to = c.to.toLowerCase();
-      if (d.functionName === "buy") out.push({ kind: "curve", to, quoteIn: a[0] as bigint });
-      else if (d.functionName === "buyFor") out.push({ kind: "curve", to, quoteIn: a[1] as bigint });
-      else out.push({ kind: "router", to, token: (a[0] as string).toLowerCase(), quoteIn: a[1] as bigint });
+      if (d.functionName === "buy") out.push({ kind: "curve", to, quoteIn: a[0] as bigint, unit: "quote" });
+      else if (d.functionName === "buyFor") out.push({ kind: "curve", to, quoteIn: a[1] as bigint, unit: "quote" });
+      else out.push({ kind: "router", to, token: (a[0] as string).toLowerCase(), quoteIn: a[1] as bigint, unit: d.functionName === "buyWithUsdg" ? "usdg" : "quote" });
     } catch { /* not a buy after all */ }
   }
   return out;
+}
+const APPROVE_SEL = toFunctionSelector("function approve(address,uint256)").toLowerCase();
+const approveAbi = parseAbi(["function approve(address spender, uint256 amount)"]);
+/** Ops with more buys than this never get GRAD_GAS_CAPS (bounds the relay's on-chain work per op). */
+export const MAX_GRAD_BUY_INTENTS = 2;
+/** An approve that runs inside the op before the buy: token = the approve's target. */
+export type InOpApproval = { token: string; spender: string; amount: bigint };
+/**
+ * The only buy that may earn GRAD_GAS_CAPS (audit r106 Low, gradBuy.ts:40/:28): the LAST non-approve call of the op
+ * must be the buy (a lone buy, or approve(s) + buy); anything after it, or more than MAX_GRAD_BUY_INTENTS buys in the
+ * op ⇒ null. Also returns the approves that run before it (they raise the allowance the buy will see). Pure.
+ */
+export function gradBuyCandidate(callData: string): { intent: BuyIntent; approvals: InOpApproval[] } | null {
+  const calls = accountCalls(callData);
+  if (!calls?.length) return null;
+  if (buyIntents(calls).length > MAX_GRAD_BUY_INTENTS) return null;
+  let last = -1;
+  for (let i = calls.length - 1; i >= 0; i--) if (calls[i].data.slice(0, 10).toLowerCase() !== APPROVE_SEL) { last = i; break; }
+  if (last < 0) return null;
+  const [intent] = buyIntents([calls[last]]);
+  if (!intent) return null;
+  const approvals: InOpApproval[] = [];
+  for (const c of calls.slice(0, last)) {
+    try {
+      const d = decodeFunctionData({ abi: approveAbi, data: c.data as Hex });
+      approvals.push({ token: c.to.toLowerCase(), spender: (d.args[0] as string).toLowerCase(), amount: d.args[1] as bigint });
+    } catch { /* not an approve */ }
+  }
+  return { intent, approvals };
 }
 /** A buy may graduate the curve when its quote reaches the remaining quote to graduation (> 0: not yet graduated). */
 export const isGradBuy = (quoteIn: bigint, remainingToGrad: bigint) => remainingToGrad > BigInt(0) && quoteIn >= remainingToGrad;

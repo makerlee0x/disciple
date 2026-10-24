@@ -87,14 +87,15 @@ for (const dec of [18, 6]) {
 
   test(`[${dec}-dec] graduating buy (3.4M call gas) quotes under GRAD_GAS_CAPS only when deps.isGradBuy confirms it`, async () => {
     const gop = (callData: Hex): UserOp => ({ ...baseOp(callData), callGasLimit: hex(3_400_000) });
-    let asked = 0;
-    const yes = deps({ isGradBuy: async () => { asked++; return true; } }), no = deps({ isGradBuy: async () => false });
+    let asked = 0; const senders = new Set<string>();
+    const yes = deps({ isGradBuy: async (_cd: string, sender: string) => { asked++; senders.add(sender); return true; } }), no = deps({ isGradBuy: async () => false });
     const stub = await stubQuote(gop(batch([trade])), ENTRYPOINT_V07, 46630, cfg, yes);
     const amt = BigInt(stub.disciple.maxTokenCost);
     const op: UserOp = { ...gop(batch([paymasterApproveCall(USDG, PM, amt), trade])), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
     const f = await finalQuote(op, ENTRYPOINT_V07, 46630, cfg, yes);
     assert.ok(f.paymasterData.length > 2);
     assert.ok(asked >= 2);
+    assert.deepEqual([...senders], [op.sender]);   // the checker gets the op's sender (balance / allowance check, audit r106)
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, no), "gas");
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps()), "gas");   // no checker ⇒ W-1 caps
     await rejects(finalQuote({ ...op, callGasLimit: hex(GRAD_GAS_CAPS.callGasLimit + BigInt(1)) }, ENTRYPOINT_V07, 46630, cfg, yes), "gas");

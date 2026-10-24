@@ -85,7 +85,7 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
       return fee;
     },
     sign: (hash) => signerAccount().signMessage({ message: { raw: hash } }),
-    isGradBuy: (callData) => isGradBuyOp(callData, chainGradReads(pc as never, PAYMASTER_CHAIN_ID)),
+    isGradBuy: (callData, sender) => isGradBuyOp(callData, sender, chainGradReads(pc as never, PAYMASTER_CHAIN_ID)),
   };
 }
 

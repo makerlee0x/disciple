@@ -49,7 +49,7 @@ export type QuoteConfig = {
 export async function quoteCaps(op: UserOp, cfg: QuoteConfig, deps?: Pick<QuoteDeps, "isGradBuy">): Promise<GasCaps> {
   const caps = capsForOp(op, cfg.launchers ?? []);
   if (caps !== GAS_CAPS || !deps?.isGradBuy || !op.callData || !exceedsCaps(op, GAS_CAPS)) return caps;
-  return capsForOp(op, cfg.launchers ?? [], { gradBuy: await deps.isGradBuy(op.callData) });
+  return capsForOp(op, cfg.launchers ?? [], { gradBuy: await deps.isGradBuy(op.callData, op.sender) });
 }
 export type QuoteDeps = {
   now(): number; // unix seconds
@@ -59,8 +59,8 @@ export type QuoteDeps = {
   baseFee(): Promise<bigint>;
   /** EIP-191 personal_sign of the raw 32-byte hash with PAYMASTER_SIGNER_KEY. */
   sign(hash: Hex): Promise<Hex>;
-  /** On-chain graduating-buy check (lib/server/gradBuy isGradBuyOp); absent ⇒ never GRAD_GAS_CAPS. */
-  isGradBuy?(callData: string): Promise<boolean>;
+  /** On-chain graduating-buy check (lib/server/gradBuy isGradBuyOp: last call, sender balance + allowance); absent ⇒ never GRAD_GAS_CAPS. */
+  isGradBuy?(callData: string, sender: string): Promise<boolean>;
 };
 export type PaymasterFields = {
   paymaster: Address; paymasterVerificationGasLimit: Hex; paymasterPostOpGasLimit: Hex; paymasterData: Hex;
