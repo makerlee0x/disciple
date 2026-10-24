@@ -7,6 +7,7 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import { drawShareScene, composeRocket, tierAt, FONT, type SceneData, type MakeCanvas, type Loadout } from "./scene";
 import type { Fill } from "../trades";
+import { CURVE } from "../config";
 import type { LoadoutIds } from "./loadout";
 import type { PositionPnl } from "../sharePnl";
 
@@ -39,7 +40,7 @@ export function buildReplayTrades(coinFills: Fill[], wallet: string, pnl: Pick<P
   const sorted = [...coinFills].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
   const t0 = pnl.startTs, t1 = Math.max(pnl.endTs, t0 + 1);
   const before = sorted.filter((f) => f.ts < t0);
-  const startMcap = before.length ? before[before.length - 1].mcapUsd : sorted[0]?.mcapUsd ?? 7777;
+  const startMcap = before.length ? before[before.length - 1].mcapUsd : sorted[0]?.mcapUsd ?? CURVE.startMcap;
   let prev = startMcap;
   const trades: ReplayTrade[] = sorted.filter((f) => f.ts >= t0 && f.ts <= t1).map((f) => {
     const impactBps = prev > 0 ? Math.round(Math.abs(f.mcapUsd / prev - 1) * 10_000) : 0; prev = f.mcapUsd;

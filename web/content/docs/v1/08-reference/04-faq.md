@@ -33,7 +33,7 @@ Your rocket is priced and traded in its base. At graduation, the base is locked 
 ## Curve and graduation
 
 **When does a rocket graduate?**
-At a $33,333 market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
+At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
 
 **Is the liquidity really locked?**
 Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.

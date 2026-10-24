@@ -11,7 +11,7 @@ A launch mode sets the rules on the bonding curve. The creator picks it at launc
 
 | | **Easy** (PvE) | **Hard** (PvP) | **Trench Warfare** |
 |---|---|---|---|
-| Per-wallet holding cap | 1% of supply at $7,777, rising with market cap to 3.33% at $33,333 | 3.33% at $7,777, rising to 7.77% at $33,333 | None by default |
+| Per-wallet holding cap | 1% of supply at $3,333, rising with market cap to 3.33% at $33,333 | 3.33% at $3,333, rising to 7.77% at $33,333 | None by default |
 | BOOST over your cap | Fills up to your cap, the rest is refunded | Same | Same (if a cap is set) |
 | Max single BOOST / DUMP | No limit | No limit | No limit |
 | Sign-in required to BOOST | Yes | No | No |

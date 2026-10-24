@@ -8,7 +8,7 @@ section: Reference
 | Term | Meaning |
 |---|---|
 | **Altitude** | A rocket's market cap, shown as height. |
-| **Altitude tiers** | The 18 market-cap bands from Launch Pad ($7K) to Seventh Heaven ($7.77B). |
+| **Altitude tiers** | The 18 market-cap bands from Launch Pad ($3.3K) to Seventh Heaven ($7.77B). |
 | **Anti-snipe fee** | The sniper tax on BOOSTs in a rocket's first 77 seconds: 99% falling to 0%. |
 | **ATOM** | The largest bomb: 50%+ price impact. |
 | **Base** | The coin a rocket is paired with and priced in. STRATEGY by default. |
@@ -23,12 +23,12 @@ section: Reference
 | **Crew** | Everyone who holds a rocket. Everyone aboard flies together. |
 | **CRUISE** | A bomb with 12–25% price impact. |
 | **DUMP** | Sell. It drops a bomb. |
-| **Graduation** | Reaching $33,333 with 72% sold. The rocket moves to Uniswap v4 and its liquidity is locked forever. |
+| **Graduation** | Reaching $33,333 with 84% sold. The rocket moves to Uniswap v4 and its liquidity is locked forever. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Hold bonus** | A points multiplier, up to ×2.5, for holding a rocket in profit. Points only, never money. Coming soon: not yet applied to points. |
 | **Identity** | A playstyle tag earned from your trades, like Believer or Trencher. |
 | **King of the Hill** | A rocket's top boosters, ranked by total BOOST volume. |
-| **Launch Pad** | The first altitude tier ($7K–$12K). Not to be confused with the Launchpad page. |
+| **Launch Pad** | The first altitude tier ($3K–$12K). Not to be confused with the Launchpad page. |
 | **Launchpad** | The home page that lists rockets. |
 | **Launch mode** | PvE, PvP or Trench Warfare: a rocket's curve rules, picked at launch. Coming. |
 | **LockedLP** | The contract that owns every graduated liquidity position. It has no remove function. |

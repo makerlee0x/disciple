@@ -1,9 +1,10 @@
 import type { Fill } from "@/lib/trades";
+import { CURVE } from "@/lib/config";
 /** Deterministic sample position (sample-mode profiles / previews), scaled so it ends at `endMcap`. Stamped SAMPLE. */
 export function demoFills(wallet: string, coin: string, now = Date.now(), endMcap = DEMO_MCAP): Fill[] {
   const t0 = now - 3 * 86400_000, k = endMcap / DEMO_MCAP;
   const mk = (i: number, side: "buy" | "sell", usd: number, mcap: number, dt: number): Fill => {
-    const m = Math.max(7777, mcap * k);
+    const m = Math.max(CURVE.startMcap, mcap * k);
     return { id: `demo:${i}`, tx: "0xdemo", logIndex: i, block: i, ts: t0 + dt, coin, trader: wallet, side, venue: "curve",
       tokens: (side === "buy" ? usd * 0.99 : usd) / (m / 1e6), usd, priceUsd: m / 1e6, mcapUsd: m };
   };

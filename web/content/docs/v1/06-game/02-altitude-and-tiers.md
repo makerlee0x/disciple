@@ -11,7 +11,7 @@ Graduation happens at **Outer Space**, $33,333.
 
 | # | Tier | Market cap from | Up to |
 |---|---|---|---|
-| 1 | **Launch Pad** | $7K | $12K |
+| 1 | **Launch Pad** | $3,333 | $12K |
 | 2 | **Ozone** | $12K | $18K |
 | 3 | **Stratosphere** | $18K | $25K |
 | 4 | **Kármán Line** | $25K | $33,333 |

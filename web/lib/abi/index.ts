@@ -12,3 +12,4 @@ export { loginGateAbi } from "./LoginGate";
 export { referralRegistryAbi } from "./ReferralRegistry";
 export { usdgDepositNotifierAbi } from "./UsdgDepositNotifier";
 export { quotePricerAbi } from "./QuotePricer";
+export { lockedLPAbi } from "./LockedLP";

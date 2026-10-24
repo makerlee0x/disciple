@@ -38,7 +38,7 @@ export async function GET(req: Request) {
   const sample = !pnl || pnl.kind === "none";
   const w = isAddr(wallet) ? wallet.toLowerCase() : "0x000000000000000000000000000000000000dead";
   if (sample) {
-    const dm = Math.min(5e9, Math.max(7e3, Number(q.get("demoMcap")) || DEMO_MCAP));
+    const dm = Math.min(5e9, Math.max(3333, Number(q.get("demoMcap")) || DEMO_MCAP));
     pnl = pnlFromFills(w, coin, demoFills(w, coin, at, dm), dm, at);
   }
   const host = u.host.startsWith("localhost") || u.host.endsWith(".vercel.app") ? u.host : "disciple.vip";

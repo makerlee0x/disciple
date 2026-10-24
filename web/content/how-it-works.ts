@@ -131,17 +131,17 @@ export const HIW_PHASES = {
   rows: [
     ["Price", "Set by the curve’s formula", "Set by the pool’s reserves"],
     ["You trade with", "The bonding curve", "The Uniswap v4 pool"],
-    ["Market cap", "$7,777 → $33,333", "$33,333 and up"],
-    ["Supply", "72% sells on the curve", "The remaining 28% is locked forever in the Uniswap v4 LP"],
+    ["Market cap", "$3,333 → $33,333", "$33,333 and up"],
+    ["Supply", "84% sells on the curve", "The remaining 15.76% is locked forever in the Uniswap v4 LP"],
     ["Liquidity", "Base builds up in the curve", "Full-range, owned by LockedLP, locked forever"],
     ["Fee", "1% (+ optional creator tax)", "1%, via the DISCIPLE hook"],
   ] as [string, string, string][],
-  grad: "Graduation: at 72% sold and $33,333, the same BOOST that crosses the line opens the pool.",
+  grad: "Graduation: at 84% sold and $33,333, the same BOOST that crosses the line opens the pool.",
   after: "After graduation, 33% of every fee still goes to the locked liquidity, added to the position as it builds up.",
   chart: {
     title: "Bonding curve, then Uniswap v4: market cap against % of supply sold",
-    start: "Start · $7,777",
-    grad: "Graduation · $33,333 · 72% sold",
+    start: "Start · $3,333",
+    grad: "Graduation · $33,333 · 84% sold",
     phase1: "PHASE 1 · BONDING CURVE",
     phase2: "PHASE 2 · UNISWAP V4 · LOCKED LP",
     phase2Note: "price set by the pool (illustrative)",
@@ -156,7 +156,7 @@ export const HIW_MODES = {
   eyebrow: "Game difficulties",
   h2: "Practice in the Simulator. Pick your war.",
   body: [
-    "The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($7,777 → $33,333) and bots trade it with you. You choose how hostile they are.",
+    "The Simulator is free paper trading on a private market. A fresh coin launches on the real curve ($3,333 → $33,333) and bots trade it with you. You choose how hostile they are.",
   ],
   openItem: "C12",
   cards: [
@@ -188,10 +188,10 @@ export const HIW_FEES = {
   example: "On a $100 BOOST, the fee is $1: $0.33 creator · $0.33 locked liquidity · $0.33 treasury · $0.01 referrer.",
   cards: [
     { title: "Creator tax", body: "Optional, 0–7%, set at launch and fixed. Charged on top of the 1% fee on bonding-curve trades only. After graduation, trades pay just the 1% fee.", more: "Creators can hand off a rocket anytime. The fee claim and tax rights go with it." },
-    { title: "Anti-snipe", body: "For the first 7 seconds, the BOOST fee starts at 77.7% and drops to 0%. After that, only the 1% remains.", more: "70% of the snipe fee goes to a community rewards vault, to be shared out later (how is still being decided). 30% goes to the treasury. The creator’s launch buy is exempt.", openItem: "C5" },
+    { title: "Anti-snipe", body: "For the first 77 seconds, the BOOST fee starts at 99% and drops to 0%. After that, only the 1% remains.", more: "Sniper tax is held in escrow, then goes into the pool when the rocket graduates, or to the rewards vault after 30 days if it never does. The creator’s launch buy is exempt.", openItem: "C5" },
     { title: "Referrals", body: "Share your link. When a wallet opens your link and deposits $10+ in USDG, it’s yours for life (first link wins).", more: "You earn 1% of the protocol fee on its trades, unless the rocket’s launcher has a referrer, and on rockets it launches after that, 1% of the protocol fee on every trade plus 2% of the creator’s fee share. You can’t refer your own wallet. On testnet, referrals don’t lock yet. Claiming from the app is coming soon." },
   ] as { title: string; body: string; more: string; openItem?: string }[],
-  snipeChart: { title: "Anti-snipe BOOST fee over the first 7 seconds, stepping down from 77.7% to 0%", top: "77.7%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "7s" },
+  snipeChart: { title: "Anti-snipe BOOST fee over the first 77 seconds, stepping down from 99% to 0%", top: "99%", bottom: "0%", axis: "0s · anti-snipe fee, on top of the 1%", end: "77s" },
 };
 
 /** 06 · FAQ (accordion) */
@@ -203,8 +203,8 @@ export const HIW_FAQ = {
     { q: "Is the liquidity really locked?", a: "Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet." },
     { q: "What coins can I pair with?", a: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
     { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket’s Uniswap v4 LP." },
-    { q: "When does a rocket graduate?", a: "At a $33,333 market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
-    { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 7 seconds." },
+    { q: "When does a rocket graduate?", a: "At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
+    { q: "What are the fees?", a: "1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 77 seconds." },
     { q: "Can a creator rug?", a: "There’s no further mint, the name and ticker are set at launch, and graduated liquidity has no withdraw function. Creators can still sell their own coins, like anyone else.", openItem: "C11" },
     { q: "What is the Simulator?", a: "Free paper trading against bots on a private market, with no wallet and no transactions. Pick PvE, PvP or Trench Warfare.", openItem: "C12" },
     { q: "Is DISCIPLE audited?", a: "Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet." },
