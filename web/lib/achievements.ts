@@ -185,3 +185,13 @@ export function achievementIconPath(id: string): string {
 export function achievementDisplay(id: string): { icon: string; color: string } {
   return ACHIEVEMENT_DISPLAY[id] ?? { icon: "⭐", color: "#DE9A73" };
 }
+
+/** "+250 pts · Pearly Frame" (achievement cards, loot popup). */
+export function rewardPreview(a: Pick<AchievementDef, "reward">): string {
+  const bits: string[] = [];
+  if (a.reward.points) bits.push(`+${a.reward.points} pts`);
+  if (a.reward.skin) bits.push(a.reward.skin);
+  if (a.reward.trail) bits.push(a.reward.trail);
+  if (a.reward.frame) bits.push(a.reward.frame);
+  return bits.join(" · ") || "—";
+}

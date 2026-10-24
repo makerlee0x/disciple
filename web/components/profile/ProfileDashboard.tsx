@@ -1,46 +1,57 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { localUsername } from "@/lib/profile";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PROFILE_CHANGED_EVENT, localUsername, profileUrl } from "@/lib/profile";
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
-import BrandedRocket from "@/components/BrandedRocket";
-import PairArt from "@/components/pairart/PairArt";
-import { sampleArtFor } from "@/lib/pairArt";
-import {
-  CrosshairChart, RangeToggle, sliceRange, type RangeKey, Donut, Gauge, Heatmap, Histogram, 
-  PlaystyleMeter, RadarChart, Sparkline, StatRing,
-} from "./Charts";
+import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
+import { fetchProfileMeta } from "@/lib/profileMetaClient";
+import { evaluateAchievements } from "@/lib/achievements";
+import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
+import { PROFILE_TABS, useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
+import { LOOT_ENABLED } from "@/lib/features";
+import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
-import { fmtUsd, normalizeRarity } from "@/lib/config";
+import { fmtUsd } from "@/lib/config";
 import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
+import { onWallet } from "@/lib/wallet";
 import SettingsModal from "./SettingsModal";
+import EditProfileSheet from "./EditProfileSheet";
+import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
+import IdentitySigil from "./IdentitySigil";
+import Flag from "./Flag";
+import BioText from "./BioText";
+import { pageCount, pageSlice } from "./Pager";
+import { useLiveHoldings } from "./LiveHoldings";
+import type { RocketCardRow } from "./tabs/RocketsTab";
 import ProfileClaims from "@/components/claims/ProfileClaims";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
-import { onWallet } from "@/lib/wallet";
-import Icon, { OrbMeter, type BombTier } from "@/components/icons/Icon";
-import { BOMB_ICON } from "@/components/ui/Icon";
+import Icon from "@/components/icons/Icon";
 
-function fmtKpi(v: number, format: string) {
-  if (format === "usd") return (v >= 0 ? "" : "-") + fmtUsd(Math.abs(v));
-  if (format === "pct") return `${v.toFixed(1)}%`;
-  if (format === "hours") {
-    if (v < 1) return `${Math.round(v * 60)}m`;
-    if (v < 48) return `${v.toFixed(1)}h`;
-    return `${(v / 24).toFixed(1)}d`;
-  }
-  return v.toFixed(0);
+// Only the open tab mounts; each tab is its own chunk, prefetched on hover / touchstart of its tab button.
+const TAB_LOADERS = {
+  rockets: () => import("./tabs/RocketsTab"),
+  loot: () => import("./tabs/LootTab"),
+  achievements: () => import("./tabs/AchievementsTab"),
+  activity: () => import("./tabs/ActivityTab"),
+} as const;
+const Skeleton = () => <div className="pf-skeleton" aria-hidden />;
+const RocketsTab = dynamic(TAB_LOADERS.rockets, { loading: Skeleton });
+const LootTab = dynamic(TAB_LOADERS.loot, { loading: Skeleton });
+const AchievementsTab = dynamic(TAB_LOADERS.achievements, { loading: Skeleton });
+const ActivityTab = dynamic(TAB_LOADERS.activity, { loading: Skeleton });
+
+const PAGE = { rockets: 12, loot: 12, achievements: 12, activity: 20 } as const;
+const MAX_TAGS = 4;
+
+function fmtHours(v: number) {
+  if (v < 1) return `${Math.round(v * 60)}m`;
+  if (v < 48) return `${v.toFixed(1)}h`;
+  return `${(v / 24).toFixed(1)}d`;
 }
-
-function fmtRing(v: number, format: string) {
-  if (format === "usd") return fmtUsd(v);
-  if (format === "multiple") return `${v.toFixed(1)}x`;
-  if (format === "rank") return `#${Math.round(v)}`;
-  return Math.round(v).toLocaleString();
-}
-
-type SortKey = "ticker" | "tier" | "entries" | "pnl" | "winRate" | "avgHold" | "bombs";
+const signedUsd = (v: number) => `${v >= 0 ? "+" : "-"}${fmtUsd(Math.abs(v))}`;
 
 /** Deterministic sample stats for a username (until the indexer serves real history). */
 function samplePersonaFor(username?: string): PersonaId {
@@ -51,13 +62,22 @@ function samplePersonaFor(username?: string): PersonaId {
   return ids[h % ids.length];
 }
 
+/**
+ * /profile (private) and /u/[username] (public). Header (picture, @username, flag, rank + level, identity tags, bio,
+ * 3 headline stats, actions) then four bounded tabs: Rockets · Loot · Achievements · Activity, paged, state in the URL.
+ * Stats are SAMPLE until the indexer is live; live on-chain holdings replace the sample rockets when the wallet has any.
+ */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
   const isPrivate = mode === "private";
-  const persona = samplePersonaFor(username);
   const [me, setMe] = useState("");
-  useEffect(() => { if (isPrivate) setMe(localUsername()); }, [isPrivate]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [share, setShare] = useState<ShareTarget | null>(null);
+  useEffect(() => {
+    if (!isPrivate) return;
+    const read = () => setMe(localUsername());
+    read();
+    window.addEventListener(PROFILE_CHANGED_EVENT, read);
+    return () => window.removeEventListener(PROFILE_CHANGED_EVENT, read);
+  }, [isPrivate]);
+
   const [wallet, setWallet] = useState<string | null>(null);
   // Public /u/<0x…> (leaderboard rows without a username link here): the slug IS the wallet; its claimed username,
   // if any, is looked up below, else the page shows the wallet's space-themed default call sign.
@@ -90,236 +110,231 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // Public name: claimed @username, else (address slug without one) the default call sign. Defaults never get an "@".
   const publicName = slugAddr ? (slugName ? `@${slugName}` : defaultUsername(slugAddr)) : `@${username}`;
   const publicUsername = slugAddr ? slugName : username;
-  const [pnlRange, setPnlRange] = useState<RangeKey>("30d");
-  const [volRange, setVolRange] = useState<RangeKey>("30d");
-  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "pnl", dir: "desc" });
+
+  // Picture / bio / flag for the profile's wallet (/api/profile/meta); re-read after a save.
+  const [meta, setMeta] = useState<ProfileMeta>(EMPTY_META);
+  useEffect(() => {
+    let alive = true;
+    const read = () => { fetchProfileMeta(wallet).then((m) => { if (alive) setMeta(m); }); };
+    if (!wallet) { setMeta(EMPTY_META); return; }
+    read();
+    window.addEventListener(PROFILE_CHANGED_EVENT, read);
+    return () => { alive = false; window.removeEventListener(PROFILE_CHANGED_EVENT, read); };
+  }, [wallet]);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [edit, setEdit] = useState<{ focus: "bio" | null } | null>(null);
+  const [share, setShare] = useState<ShareTarget | null>(null);
+  const [toast, setToast] = useState("");
+  const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
+  useEffect(() => { if (isPrivate && window.location.hash === "#settings") setSettingsOpen(true); }, [isPrivate]);
+
+  const persona = samplePersonaFor(username);
   const data = useMemo(() => buildPersonaStats(persona), [persona]);
   const { identity } = data;
-
-  const rockets = useMemo(() => {
-    const rows = [...data.rockets];
-    const dir = sort.dir === "asc" ? 1 : -1;
-    rows.sort((a, b) => {
-      switch (sort.key) {
-        case "ticker": return a.ticker.localeCompare(b.ticker) * dir;
-        case "tier": return (a.tierIndex - b.tierIndex) * dir;
-        case "entries": return (a.entries - b.entries) * dir;
-        case "pnl": return (a.pnl - b.pnl) * dir;
-        case "winRate": return (a.winRate - b.winRate) * dir;
-        case "avgHold": return (a.avgHoldHours - b.avgHoldHours) * dir;
-        case "bombs": return (a.bombs - b.bombs) * dir;
-        default: return 0;
-      }
-    });
-    return rows;
-  }, [data.rockets, sort]);
-
-  const toggleSort = (key: SortKey) =>
-    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
-
-  const volSeries = useMemo(
-    () => data.volumeByDay.map((d) => ({ t: Date.parse(d.day + "T12:00:00Z"), v: d.volume })),
-    [data.volumeByDay],
-  );
-  const pnlPts = useMemo(() => sliceRange(data.cumulativePnl, pnlRange, "level"), [data.cumulativePnl, pnlRange]);
-  const volPts = useMemo(() => sliceRange(volSeries, volRange, "flow"), [volSeries, volRange]);
-
-  const border = data.rank.border;
-  const badge = PERSONA_BADGES[personaBadge(identity)];
   const prestige = prestigeFromPoints(data.points);
+  const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
+
+  const [url, setUrl] = useProfileUrlState();
+  const tabBar = useRef<HTMLDivElement>(null);
+  const goPage = (p: number) => {
+    setUrl({ page: p, loot: null });
+    const el = tabBar.current;
+    if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
+  };
+  const goTab = (t: ProfileTab) => setUrl({ tab: t, page: 1, loot: null, filter: null });
+
+  // Rockets: live holdings when the wallet has any, otherwise the sample rows. Both capped at a page of 12.
+  const live = useLiveHoldings(wallet);
+  const owner = (isPrivate ? me : publicUsername) || "";
+  // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
+  const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
+  const rocketRows: RocketCardRow[] = useMemo(() => {
+    if (live && live.length) {
+      return live.map((h) => {
+        const ch = h.tokens * (h.priceNow - h.price24h);
+        const tk = h.symbol || h.coin.slice(2, 6).toUpperCase();
+        return { key: h.coin, href: `/coin/${h.coin}`, ticker: tk, name: h.coin.slice(0, 6) + "…" + h.coin.slice(-4), amount: h.usd, signed: false, sub: C["rockets.live.change"](signedUsd(ch)),
+          share: () => setShare({ coin: h.coin, ticker: tk, wallet, username: owner || null }) };
+      });
+    }
+    return [...data.rockets].sort((a, b) => b.pnl - a.pnl).map((r) => ({
+      key: r.token, href: `/coin/${r.token}`, ticker: r.ticker, name: r.name, tier: r.tierName, amount: r.pnl, signed: true,
+      share: () => setShare({ coin: r.token, ticker: r.ticker, wallet, username: owner || null }),
+    }));
+  }, [live, data.rockets, wallet, owner]);
+  const rocketsSample = !(live && live.length);
+
+  // Achievements (unlocked → in progress → locked) and the loot they grant.
+  const achievements = useMemo(() => {
+    const order = { unlocked: 0, in_progress: 1, locked: 2 } as const;
+    return evaluateAchievements(data).sort((x, y) => order[x.state] - order[y.state]);
+  }, [data]);
+  const unlocked = achievements.filter((a) => a.state === "unlocked").length;
+  const loot = useMemo(() => lootFromAchievements(achievements), [achievements]);
+  const lootFilter = (LOOT_SLOTS as readonly string[]).includes(url.filter ?? "") ? (url.filter as LootSlot) : null;
+  const lootShown = useMemo(() => (lootFilter ? loot.filter((p) => p.slot === lootFilter) : loot), [loot, lootFilter]);
+  const lootCounts = useMemo(() => {
+    const c = { all: loot.length, skin: 0, trail: 0, frame: 0 };
+    for (const p of loot) c[p.slot]++;
+    return c;
+  }, [loot]);
+
+  const total = { rockets: rocketRows.length, loot: lootShown.length, achievements: achievements.length, activity: data.activity.length }[url.tab];
+  const pages = pageCount(total, PAGE[url.tab]);
+  const page = Math.min(url.page, pages);
+
+  // Popup items = the open page of Loot / Achievements; ?loot=<id> deep-links one (and jumps to its page).
+  const popupItems: LootItem[] = useMemo(() => {
+    if (url.tab === "loot") return pageSlice(lootShown, page, PAGE.loot).map((part) => ({ kind: "part", part }));
+    if (url.tab === "achievements") return pageSlice(achievements, page, PAGE.achievements).map((a) => ({ kind: "ach", a }));
+    return [];
+  }, [url.tab, lootShown, achievements, page]);
+  useEffect(() => {
+    if (!url.loot) return;
+    const list = url.tab === "loot" ? lootShown.map((p) => p.id) : url.tab === "achievements" ? achievements.map((a) => a.id) : [];
+    const i = list.indexOf(url.loot);
+    if (i < 0) return;
+    const want = Math.floor(i / PAGE.loot) + 1;
+    if (want !== page) setUrl({ page: want }, "replace");
+  }, [url.loot, url.tab, lootShown, achievements, page, setUrl]);
+  const popupIndex = url.loot ? popupItems.findIndex((it) => lootItemId(it) === url.loot) : -1;
+  const openPopup = (i: number) => setUrl({ loot: lootItemId(popupItems[i]) });
+  const stepPopup = useCallback((i: number) => setUrl({ loot: lootItemId(popupItems[i]) }, "replace"), [popupItems, setUrl]);
+  const closePopup = useCallback(() => setUrl({ loot: null }), [setUrl]);
+
+  const shareProfile = () => {
+    const path = owner ? profileUrl(owner) : window.location.pathname;
+    try { navigator.clipboard?.writeText(`${window.location.origin}${withBase(path)}`); flash(C["profile.share.copied"]); } catch { /* no clipboard */ }
+  };
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [tagInfo, setTagInfo] = useState<string | null>(null);
+
+  // /profile signed out: no sample pilot pretending to be you (existing copy only).
+  if (isPrivate && !wallet) {
+    return (
+      <div className="profile-page pf-v3">
+        <header className="pf-head pf-signedout" data-testid="profile-identity">
+          <h1 className="pf-name">Your Profile</h1>
+          <p className="muted">Sign in (top right)</p>
+        </header>
+      </div>
+    );
+  }
+
+  // No username: the wallet's space-themed default call sign (never with an "@"); public /u/<0x…> slugs likewise.
+  const handle = isPrivate ? (me ? `@${me}` : defaultUsername(wallet)) : publicName;
+  const img = pfpUrl(meta.pfp);
+  const ring = data.rank.border;
+  const badge = PERSONA_BADGES[personaBadge(identity)];
+  const tags = [{ id: identity.primary.id, label: identity.primary.label, primary: true, rule: `${identityRuleText(identity.primary.id)}. ${badge.blurb}` },
+    ...identity.secondary.map((t) => ({ id: t.id, label: t.label, primary: false, rule: identityRuleText(t.id) }))];
+  const shownTags = tagsOpen ? tags : tags.slice(0, MAX_TAGS);
+  const rpnl = kpi("rpnl");
+  const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: `${unlocked}/${achievements.length}`, activity: "" };
+  const prefetch = (t: ProfileTab) => { void TAB_LOADERS[t](); };
 
   return (
-    <div className="profile-page">
-      <header className="profile-head">
-        <div>
-          <h1>{isPrivate ? "Your Profile" : publicName}</h1>
-          <div className="sub">{isPrivate ? "PILOT OVERVIEW · CASH & ACCOUNT LIVE IN SETTINGS" : "PUBLIC PILOT PROFILE"}</div>
-        </div>
-        {isPrivate && (
-          <button type="button" className="ds-btn gold profile-settings-btn" onClick={() => setSettingsOpen(true)}><Icon name="gear" size={16} /> Settings</button>
-        )}
-      </header>
+    <div className="profile-page pf-v3">
       {share && <ShareModal target={share} onClose={() => setShare(null)} />}
       {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
+      {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
+        onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
+      <LootPopup items={popupItems} index={popupIndex >= 0 ? popupIndex : null} onIndex={stepPopup} onClose={closePopup} />
+      {toast && <div className="pf-toast" role="status">{toast}</div>}
+
+      <header className="pf-head" data-testid="profile-identity">
+        <button type="button" className="pf-avatar" style={{ ["--pf-ring" as string]: ring }} disabled={!isPrivate}
+          onClick={isPrivate ? () => setEdit({ focus: null }) : undefined} aria-label={isPrivate ? C["profile.action.edit"] : undefined} tabIndex={isPrivate ? 0 : -1}>
+          {img
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={withBase(img)} alt="" width={112} height={112} fetchPriority="high" />
+            : <IdentitySigil id={identity.primary.id} size={64} />}
+        </button>
+
+        <div className="pf-id">
+          <h1 className="pf-name"><span>{handle}</span>{meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
+          <div className="pf-rankrow">
+            <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
+            <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>
+          </div>
+          <ul className="pf-tags" aria-label={C["profile.tags.aria"]}>
+            {shownTags.map((t) => (
+              <li key={t.id}>
+                <button type="button" className={`pf-tag ${t.primary ? "primary" : ""}`} title={t.rule} aria-expanded={tagInfo === t.id}
+                  onClick={() => setTagInfo((x) => (x === t.id ? null : t.id))}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {t.primary && <img src={withBase(badge.icon)} alt="" width={14} height={14} />}
+                  {t.label}
+                </button>
+              </li>
+            ))}
+            {!tagsOpen && tags.length > MAX_TAGS && (
+              <li><button type="button" className="pf-tag" onClick={() => setTagsOpen(true)}>{C["profile.tags.more"](tags.length - MAX_TAGS)}</button></li>
+            )}
+          </ul>
+          {tagInfo && <p className="pf-taginfo muted" role="status">{tags.find((t) => t.id === tagInfo)?.rule}</p>}
+          {meta.bio ? <p className="pf-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
+            : isPrivate ? <button type="button" className="pf-btn-text pf-addbio" onClick={() => setEdit({ focus: "bio" })}>{C["profile.bio.empty.own"]}</button> : null}
+        </div>
+
+        <div className="pf-side">
+          <div className="pf-actions">
+            {isPrivate ? <>
+              <button type="button" className="ds-btn pf-btn-secondary" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
+              <button type="button" className="ds-btn pf-icon-btn" aria-label={C["profile.action.share"]} onClick={shareProfile}><Icon name="share" size={16} /></button>
+              <button type="button" className="ds-btn pf-icon-btn" aria-label="Settings" onClick={() => setSettingsOpen(true)}><Icon name="gear" size={16} /></button>
+            </> : (
+              <button type="button" className="ds-btn pf-btn-secondary pf-share-wide" onClick={shareProfile}><Icon name="share" size={16} /> {C["profile.action.share"]}</button>
+            )}
+          </div>
+          <div className="pf-stats" title={SAMPLE_DATA_LABEL}>
+            <div className={`pf-stat ${rpnl >= 0 ? "pos" : "neg"}`}><span>Realized PnL</span><strong>{signedUsd(rpnl)}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{Math.round(kpi("wr"))}%</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{data.metrics.bombCount}</strong></div>
+          </div>
+        </div>
+      </header>
+
       {isPrivate && <ProfileClaims />}
-      <span className="tag mock">{SAMPLE_DATA_LABEL} · stats below are SAMPLE until the indexer is live</span>
 
-      <section className="profile-banner" style={{ boxShadow: `0 0 0 1px ${border}, 0 0 40px rgba(201,206,214,0.12)` }}>
-        <div className="banner-frame" style={{ borderColor: border }}>
-          <div className="banner-rocket"><BrandedRocket height={160} icon={data.showcaseIcon} /></div>
-          <div className="banner-meta">
-            <div className="banner-handle">{isPrivate ? (me ? `@${me}` : wallet ? defaultUsername(wallet) : data.handle) : publicName}</div>
-            <div className="persona-badge" title={`${badge.label} — earned from your playstyle. ${badge.blurb}`}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={withBase(badge.icon)} alt="" width={28} height={28} />
-              <span>{badge.label}</span>
-            </div>
-            <div className="banner-title" title={identityRuleText(identity.primary.id)}>{identity.primary.label}</div>
-            <div className="banner-tags">
-              {identity.secondary.map((t) => (
-                <span key={t.id} className="id-tag" title={identityRuleText(t.id)}>{t.label}</span>
-              ))}
-            </div>
-            <p className="banner-blurb">{identity.primary.blurb}</p>
-            <div className="banner-rank">
-              <span className="rank-pill" style={{ borderColor: border, color: border }}>{data.rank.label}</span>
-              <span className="muted">Rank tier · {data.points.toLocaleString()} pts</span>
-            </div>
-          </div>
-          <div className="banner-level">
-            <div className="level-badge" style={{ borderColor: border }} title={`Prestige ${prestige.prestige} · ${prestige.prestigeName}`}>
-              <span className="lvl">P{prestige.prestige} · LVL</span><span className="num">{prestige.level}</span>
-            </div>
-            <div className="prestige-name">{prestige.prestigeName} prestige</div>
-            <div className="xp-bar" title={`Next: ${prestige.nextLabel}`}>
-              <div className="xp-fill" style={{ width: `${prestige.progress * 100}%` }} />
-              <span>{prestige.into.toLocaleString()} / {prestige.need.toLocaleString()} pts → {prestige.nextLabel}</span>
-            </div>
-            <div className="top-badges">
-              {data.topBadges.length === 0 ? <span className="muted">No badges unlocked yet</span> : data.topBadges.map((b) => (
-                <div key={b.id} className={`mini-badge r-${normalizeRarity(b.rarity).toLowerCase()}`} title={b.name}><Icon name="achievement" size={16} /><span>{b.name}</span></div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="chart-card rockets-card">
-        <div className="table-head"><h3>Holdings · Rockets</h3><span className="muted">current positions · sortable</span></div>
-        <div className="rockets-table-wrap">
-          <table className="rockets-table">
-            <thead><tr>
-              {([["ticker","Rocket"],["tier","Tier"],["entries","Entries"],["pnl","PnL"],["winRate","Win"],["avgHold","Avg hold"],["bombs","Bombs"]] as [SortKey,string][]).map(([k,label]) => (
-                <th key={k}><button type="button" onClick={() => toggleSort(k)}>{label}{sort.key === k ? (sort.dir === "asc" ? " ^" : " v") : ""}</button></th>
-              ))}
-              <th>Badges</th>
-              <th aria-label="Share" />
-            </tr></thead>
-            <tbody>
-              {rockets.map((r) => (
-                <tr key={r.token}>
-                  <td><div className="hold-tok"><PairArt {...sampleArtFor(r.ticker)} tk={r.ticker} size="list" px={36} /><div><strong>{r.ticker}</strong><div className="muted tiny">{r.name}</div></div></div></td>
-                  <td><span className="tier-chip">{r.tierName}</span></td>
-                  <td>{r.entries}</td>
-                  <td className={r.pnl >= 0 ? "pos" : "neg"}>{fmtUsd(r.pnl)}</td>
-                  <td><Donut value={r.winRate} /></td>
-                  <td>{fmtKpi(r.avgHoldHours, "hours")}</td>
-                  <td>{r.bombs}</td>
-                  <td><div className="row-badges">{r.badges.map((b) => <span key={b} className="id-tag">{b}</span>)}</div></td>
-                  <td>
-                    {/* Rows are still sample data; the modal checks the wallet's indexed fills and stamps SAMPLE when there are none. */}
-                    <button type="button" className="ds-btn share-btn" aria-label={`Share this ${r.ticker} trade`}
-                      onClick={() => setShare({ coin: r.token, ticker: r.ticker, wallet, username: (isPrivate ? me : publicUsername) || null })}>
-                      Share this trade
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="kpi-grid">
-        {data.kpis.map((k) => (
-          <div key={k.key} className="kpi-card">
-            <div className="kpi-label">{k.label}</div>
-            <div className="kpi-value">{fmtKpi(k.total, k.format)}</div>
-            <div className="kpi-sub">30d {fmtKpi(k.d30, k.format)}</div>
-            <Sparkline a={k.sparkTotal} b={k.spark30} />
-          </div>
-        ))}
-      </section>
-
-      <section className="rings-gauges">
-        <div className="rings-row">
-          {data.rings.map((r, i) => (
-            <StatRing key={r.key} value={fmtRing(r.value, r.format)} label={r.label} sub={r.sub}
-              progress={Math.min(0.95, Math.abs(r.value) / Math.max(1, r.max))}
-              color={i % 2 === 0 ? "#C9CED6" : "#c9b6f2"} />
+      <div className="pf-tabbar" ref={tabBar}>
+        <div className="pf-tabs" role="tablist">
+          {PROFILE_TABS.map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={url.tab === t} className={url.tab === t ? "on" : ""} data-testid={`tab-btn-${t}`}
+              onClick={() => goTab(t)} onMouseEnter={() => prefetch(t)} onTouchStart={() => prefetch(t)}>
+              {C[`profile.tab.${t}`]}{tabCount[t] && <span className={`pf-count ${t === "achievements" ? "pf-count-desk" : ""}`}>{tabCount[t]}</span>}
+            </button>
           ))}
         </div>
-        <div className="gauges-row">
-          <Gauge value={data.pointsBehindFirst} label="Points behind #1" max={Math.max(data.pointsBehindFirst * 1.2, 100)} color="#ff7eb9" />
-          <Gauge value={data.pointsToNextRank} label="To next rank" max={Math.max(data.pointsToNextRank * 1.4, 100)} color="#7ec8ff" />
-        </div>
-      </section>
+      </div>
 
-      <section className="charts-grid">
-        <div className="chart-card">
-          <div className="chart-head"><h3>Cumulative PnL</h3><RangeToggle value={pnlRange} onChange={setPnlRange} /></div>
-          <CrosshairChart points={pnlPts} hourly={pnlRange === "1d"} formatY={(v) => (v < 0 ? "-" : "") + fmtUsd(Math.abs(v))} color="#c9b6f2" />
-        </div>
-        <div className="chart-card">
-          <div className="chart-head"><h3>{volRange === "1d" ? "Volume by hour" : "Volume by day"}</h3><RangeToggle value={volRange} onChange={setVolRange} /></div>
-          <CrosshairChart kind="bar" points={volPts} hourly={volRange === "1d"} formatY={(v) => fmtUsd(v)} color="#C9CED6" />
-        </div>
-        <div className="chart-card"><h3>Hold-time distribution</h3><Histogram items={data.holdHist} /></div>
-        <div className="chart-card"><h3>PnL calendar</h3><Heatmap days={data.pnlCalendar} /></div>
-      </section>
-
-      <section className="style-grid">
-        <div className="chart-card">
-          <h3>Playstyle · PvE vs PvP</h3>
-          <PlaystyleMeter pve={data.pveScore} pvp={data.pvpScore} />
-          <div className="playstyle-detail">
-            <div><strong>Crew climb</strong><ul>
-              <li>Boosting {data.playstyle.fueling}</li><li>Holding {data.playstyle.holding}</li>
-              <li>Crews {data.playstyle.crewJoins}</li><li>Grads {data.playstyle.graduations}</li>
-            </ul></div>
-            <div><strong>Bomb bay</strong><ul>
-              <li>Bombs {data.playstyle.bombs}</li><li>Impact {data.playstyle.impact}</li>
-              <li>Dumps {data.playstyle.dumpsIntoPumps}</li><li>Flips {data.playstyle.quickFlips}</li>
-            </ul></div>
-          </div>
-        </div>
-        <div className="chart-card">
-          <h3>Trait radar</h3>
-          <div className="radar-wrap">
-            <RadarChart axes={[
-              { label: "Conviction", value: data.traits.conviction },
-              { label: "Aggression", value: data.traits.aggression },
-              { label: "Timing", value: data.traits.timing },
-              { label: "Sniping", value: data.traits.sniping },
-              { label: "Diamond", value: data.traits.diamondHands },
-              { label: "Crew", value: data.traits.crewSpirit },
-            ]} />
-          </div>
-        </div>
-      </section>
-
-      <section className="ct-grid">
-        <div className="ct-card"><span>Rugged count</span><strong>{data.ct.ruggedCount}</strong></div>
-        <div className="ct-card"><span>Rounds tripped</span><strong>{data.ct.roundsTripped}</strong></div>
-        <div className="ct-card win"><span>Biggest W</span><strong>{fmtUsd(data.ct.biggestW)}</strong></div>
-        <div className="ct-card loss"><span>Biggest L</span><strong>{fmtUsd(data.ct.biggestL)}</strong></div>
-        <div className="ct-card"><span>Fumbled bag</span><strong>{fmtUsd(data.ct.fumbledBag)}</strong></div>
-        <div className="ct-card"><span>Time in trenches</span><strong>{(data.ct.timeInTrenchesHours / 24).toFixed(1)}d</strong></div>
-        <div className="ct-card"><span>Ape score</span><strong>{data.ct.apeScore}</strong></div>
-        <div className="ct-card"><span>Graduations witnessed</span><strong>{data.ct.graduationsWitnessed}</strong></div>
-      </section>
-
-
-      <section className="chart-card">
-        <h3>Recent activity</h3>
-        <ul className="activity-feed">
-          {data.activity.slice(0, 18).map((a) => (
-            <li key={a.id}>
-              <span className={`act-kind ${a.kind}${a.bomb ? " dsc-bomb" : ""}`} data-bomb={a.bomb?.k}>{a.kind}</span>
-              <span className="act-text">
-                {a.bomb ? (
-                  <span className="act-bomb dsc-bomb" data-bomb={a.bomb.k} aria-hidden>
-                    <Icon name={BOMB_ICON[a.bomb.tier]} size={14} />
-                    <OrbMeter tier={(a.bomb.tier + 1) as BombTier} size={14} label="" />
-                  </span>
-                ) : null}
-                {a.text}
-              </span>
-              {a.usd != null ? <span className="act-usd">{fmtUsd(a.usd)}</span> : null}
-              <span className="act-time muted">{new Date(a.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-            </li>
-          ))}
-        </ul>
+      <section className="pf-panel" role="tabpanel">
+        {url.tab === "rockets" && (
+          <RocketsTab rows={pageSlice(rocketRows, page, PAGE.rockets)} total={rocketRows.length} page={page} pages={pages} onPage={goPage}
+            isPrivate={isPrivate} owner={ownerName} sample={rocketsSample} />
+        )}
+        {LOOT_ENABLED && url.tab === "loot" && (
+          <LootTab rows={pageSlice(lootShown, page, PAGE.loot)} total={lootShown.length} counts={lootCounts} filter={lootFilter}
+            onFilter={(f) => setUrl({ filter: f, page: 1, loot: null })} page={page} pages={pages} onPage={goPage} onOpen={openPopup}
+            isPrivate={isPrivate} owner={ownerName} onSeeAchievements={() => goTab("achievements")} />
+        )}
+        {url.tab === "achievements" && (
+          <AchievementsTab rows={pageSlice(achievements, page, PAGE.achievements)} unlocked={unlocked} total={achievements.length}
+            prestige={prestige} nextRank={data.rank.next.tier !== data.rank.tier ? { points: data.pointsToNextRank, label: data.rank.next.label } : null}
+            leaderboardRank={data.leaderboardRank} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
+        )}
+        {url.tab === "activity" && (
+          <ActivityTab record={[
+            { label: "Volume", value: fmtUsd(kpi("vol")) },
+            { label: "Avg hold", value: fmtHours(kpi("hold")) },
+            { label: "Biggest W", value: fmtUsd(data.ct.biggestW), tone: "pos" },
+            { label: "Biggest L", value: fmtUsd(data.ct.biggestL), tone: "neg" },
+            { label: C["activity.record.grads"], value: String(data.ct.graduationsWitnessed) },
+            { label: "Rugged count", value: String(data.ct.ruggedCount) },
+          ]} pnl={data.cumulativePnl} rows={pageSlice(data.activity, page, PAGE.activity)} total={data.activity.length} page={page} pages={pages} onPage={goPage}
+            isPrivate={isPrivate} owner={ownerName} />
+        )}
       </section>
     </div>
   );
