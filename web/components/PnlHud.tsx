@@ -72,16 +72,18 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const t = useT();
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
-  const [open, setOpen] = useState(true);
+  const [open, setOpenS] = useState(true);
+  // phone HUD (components/flight/PhoneHud.tsx): the header asks for the RUN sheet instead of expanding in place
+  const setOpen = (f: boolean | ((o: boolean) => boolean)) => (isPhone() && typeof f === "function" ? dispatchEvent(new CustomEvent("disciple:phonesheet-req", { detail: { req: "run" } })) : setOpenS(f));
   const [session, setSession] = useState(0);
   const posRef = useRef(pos);
   posRef.current = pos;
 
   useEffect(() => {
     try { const s = localStorage.getItem(KEY + coin); if (s) setPos(JSON.parse(s)); } catch { /* ignore */ }
-    if (window.matchMedia?.("(max-width: 760px)").matches) setOpen(false);
-    // phone HUD (components/flight/PhoneHud.tsx): the full card only while the RUN sheet is open, else the one-line strip
-    const onSheet = (e: Event) => { if (isPhone()) setOpen(((e as CustomEvent).detail || {}).id === "run"); };
+    if (window.matchMedia?.("(max-width: 760px)").matches) setOpenS(false);
+    // phone HUD: the full card only while the RUN sheet is open, else the one-line strip
+    const onSheet = (e: Event) => { if (isPhone()) setOpenS(((e as CustomEvent).detail || {}).id === "run"); };
     addEventListener("disciple:phonesheet", onSheet);
     setSession(sessionRealized(coin, KEY));
     const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin, KEY)); };
@@ -169,7 +171,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
         borderRadius: 14, background: "linear-gradient(180deg,rgba(16,14,40,.88),rgba(8,10,26,.84))", backdropFilter: "blur(6px)",
         border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
         transition: "border-color .4s" }}>
-      <button type="button" className="pnl-head" onClick={() => (isPhone() ? dispatchEvent(new CustomEvent("disciple:phonesheet-req", { detail: { req: "run" } })) : setOpen((o) => !o))} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
         <span>{t("pnl.yourRun")} <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || t("pnl.paper")}</span></span>
         <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>

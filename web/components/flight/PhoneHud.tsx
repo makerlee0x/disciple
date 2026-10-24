@@ -149,7 +149,7 @@ export default function PhoneHud() {
         /* YOUR RUN: one-line strip above the trade bar; the RUN sheet shows the full card */
         html.ap-phone .pnl-hud { left: var(--ph-sx) !important; right: var(--ph-sx) !important; width: auto !important; top: auto !important; bottom: var(--ph-pnl-bottom) !important; }
         html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud { display: flex; align-items: center; gap: 8px; height: ${PNL_H}px; box-sizing: border-box; padding: 0 10px !important; overflow: hidden; }
-        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-head { width: auto !important; flex: 1 1 auto; min-width: 0; font-size: 10px; }
+        html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud > button:first-of-type { width: auto !important; flex: 1 1 auto; min-width: 0; font-size: 10px; }
         html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-hero { margin-top: 0 !important; gap: 6px !important; }
         html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-hero > span:first-child { font-size: 15px !important; }
         html.ap-phone:not([data-ph-sheet="run"]) .pnl-hud .pnl-sub { display: none !important; }
