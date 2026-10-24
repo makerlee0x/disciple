@@ -32,7 +32,7 @@ import { checkPaymaster, RelayPolicyError } from "../aa/gasPolicy";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
-import { SenderTrust } from "./relayTrust";
+import { FastInflight, SenderTrust } from "./relayTrust";
 import { kvTrustStore } from "./relayTrustStore";
 
 const epAbi = parseAbi([
@@ -111,6 +111,8 @@ async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); e
  * passing simulation is required before the fast path returns).
  */
 const TRUST = new SenderTrust(Date.now, kvTrustStore());   // AUDIT Low: strikes / verification shared + durable (KV)
+// AUDIT #145 L-B: one unsimulated op in flight per sender (shared SET NX lease, kv() resolved lazily)
+const FAST_INFLIGHT = new FastInflight({ setNX: (k, v, t) => kv().setNX(k, v, t), del: (...k) => kv().del(...k) });
 async function primeSender(sender: string) {
   await TRUST.primeShared(sender, await pc.getBalance({ address: sender as Hex }));
 }
@@ -232,6 +234,11 @@ export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: n
  * per-sender limit there (lib/server/limits.sendLimiter); a throw aborts with nothing sent.
  */
 export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
+  // AUDIT #145 L-B: the fast (unsimulated) path needs this sender's single in-flight lease; a 2nd concurrent op simulates
+  const lease = process.env.FAST_RELAY_SIM !== "1" && trusted(op) ? await FAST_INFLIGHT.acquire(op.sender) : null;
+  try { return await relayOnce(op, !!lease, onPending, beforeSend); } finally { if (lease) await lease(); }
+}
+async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, beforeSend?: () => Promise<void>): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
   const st = await ready(), me = st.account;
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
@@ -246,7 +253,7 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending, b
   }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const hash = userOpHash(op, robinhoodTestnet.id);
-  const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
+  const fast = allowFast && trusted(op);
   if (!fast) {
     const s = Date.now();
     await pc.call({ account: me.address, to: ENTRYPOINT_V07, data }).catch((e) => {
