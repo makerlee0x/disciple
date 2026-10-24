@@ -512,7 +512,7 @@ async function sessionCallsEligible(calls: Call[]) {
  */
 // Approved copy (lee, decision 2)
 export const ONE_TAP_SETTING_UP_MSG = "One-tap trading is getting ready. Try again in a few seconds.";
-// Copy pending lee approval
+// Copy approved by lee 2026-10-24
 export const ONE_TAP_REFRESH_MSG = "Refreshing one-tap trading. Try again in a few seconds.";
 const TRADE_OWNER_FALLBACK = process.env.NEXT_PUBLIC_TRADE_OWNER_FALLBACK === "1";
 let userEndedOneTap = false;
