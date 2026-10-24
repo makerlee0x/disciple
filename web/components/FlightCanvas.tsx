@@ -2,6 +2,7 @@
 
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
+import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import Icon from "@/components/ui/Icon";
@@ -221,6 +222,9 @@ export default function FlightCanvas({ search }: Props) {
     if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
     return coin || "0x000000000000000000000000000000000000c0de"; })();
   const q0 = new URLSearchParams(search);
+  // EXIT CONFIRM is armed only while a flight is actually running (engine booted, no error) and not on a replay
+  const isReplay = q0.get("replay") === "1" || q0.get("source") === "replay";
+  const flightActive = status === "Live" && !err && !isReplay;
 
   return (
     <>
@@ -263,6 +267,8 @@ export default function FlightCanvas({ search }: Props) {
       >
         <Icon name="close" size={16} />
       </Link>
+      {/* ✕ above, rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
+      <ExitConfirm active={flightActive} />
       <TouchGrass />
       {/* ESC settings menu + its gear button (top-right, left of the exit X): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
