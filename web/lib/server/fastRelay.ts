@@ -113,7 +113,7 @@ async function baseFee(): Promise<bigint> { if (!base.at) await refreshBase(); e
  */
 const TRUST = new SenderTrust(Date.now, kvTrustStore());   // AUDIT Low: strikes / verification shared + durable (KV)
 // AUDIT #145 L-B: one unsimulated op in flight per sender (shared SET NX lease, kv() resolved lazily)
-const FAST_INFLIGHT = new FastInflight({ setNX: (k, v, t) => kv().setNX(k, v, t), del: (...k) => kv().del(...k) });
+const FAST_INFLIGHT = new FastInflight({ setNX: (k, v, t) => kv().setNX(k, v, t), delIfEq: (k, v) => kv().delIfEq(k, v) });
 async function primeSender(sender: string) {
   await TRUST.primeShared(sender, await pc.getBalance({ address: sender as Hex }));
 }
