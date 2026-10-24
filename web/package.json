@@ -66,7 +66,8 @@
     "test:mcap": "tsx --conditions=react-server --test scripts/test-mcap.mts",
     "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:usdg-decimals": "tsx --test scripts/test-usdg-decimals.mts",
-    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts"
+    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts",
+    "test:rapid-tap": "node scripts/test-rapid-tap.mjs"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

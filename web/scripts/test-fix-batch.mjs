@@ -45,7 +45,7 @@ console.log("— 2. BOOST cash check");
 function tradeEnv({ live = false, balance = 100, liveCash = null, usd = 10, sim = false } = {}) {
   const E = { submits: [], flashes: [] };
   const S = { fuelers: { you: 0 }, hold: { tokens: 1e3, valueUsd: 5 }, liveBag: live ? { tokens: 100 } : null, flashes: E.flashes, mode: 0, balance, liveCash, confirmed: { mcap: 7e4 }, promoLeft: 0 };
-  const env = { S, MODES: [{ usd }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9, isSim: sim },
+  const env = { S, MAX_PENDING: 3, MODES: [{ usd }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9, isSim: sim },
     MIN_SHOT: 0.2, PROMO_GAS: false, GAS_USD: 0, applyThrust() {}, srcImpact: () => 1, fmtShot: fmt, window: live ? { __discipleTrade() {} } : {},
     submit: (side, u, force, opt) => E.submits.push({ side, usd: u, opt }) };
   E.trade = new Function(...Object.keys(env), block("/* @trade", "/* @trade-end */") + "\nreturn trade;")(...Object.values(env));
@@ -63,7 +63,7 @@ function tradeEnv({ live = false, balance = 100, liveCash = null, usd = 10, sim 
 function cashEnv({ live = false, balance = 100, sim = false, usd = 10 } = {}) {
   const L = {}, out = [];
   const S = { feed: [], balance, mode: 0, customBuyUsd: 0 };
-  const env = { S, MODES: [{ usd }, { usd: 25 }], source: { isSim: sim }, window: live ? { __discipleTrade() {} } : {}, MIN_SHOT: 0.2, fmtMoney: fmt, fmtShot: fmt,
+  const env = { S, MAX_PENDING: 3, MODES: [{ usd }, { usd: 25 }], source: { isSim: sim }, window: live ? { __discipleTrade() {} } : {}, MIN_SHOT: 0.2, fmtMoney: fmt, fmtShot: fmt,
     keepIf: (arr, pred) => { const k = arr.filter(pred); arr.length = 0; arr.push(...k); return arr; },
     addEventListener: (t, f) => { (L[t] = L[t] || []).push(f); }, dispatchEvent: (e) => out.push(e), CustomEvent: class { constructor(type, o) { this.type = type; this.detail = o && o.detail; } } };
   const C = new Function(...Object.keys(env), block("/* @cash", "/* @cash-end */") + block("/* @rules", "/* @rules-end */") + "\nreturn {activeBuyUsd,cashNow,boostShort,noteBuyAmount,cashLineText,pushPaperCash,tierRulesText};")(...Object.values(env));
@@ -84,8 +84,8 @@ function cashEnv({ live = false, balance = 100, sim = false, usd = 10 } = {}) {
   ok(/noteBuyAmount\(\); pushPaperCash\(\);/.test(block("function pushAmmo", "function setAmmoTier")), "preset / tier changes run the amount check (pushAmmo)");
   const tb = rd("components/TradeBridge.tsx");
   const boostBtn = tb.slice(tb.indexOf('data-testid="buy-btn"'), tb.indexOf('data-testid="sell-btn"'));
-  ok(/aria-disabled=\{short\} disabled=\{short\}/.test(boostBtn) && /opacity: short \? 0\.4 : 1/.test(boostBtn) && /cursor: short \? "not-allowed"/.test(boostBtn), "BOOST button greys out + disables when short (same pattern as DUMP)");
-  ok(/const short = cashUsd != null && cashUsd \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance) < the active BOOST amount (custom $ wins)");
+  ok(/aria-disabled=\{short( \|\| full)?\} disabled=\{short( \|\| full)?\}/.test(boostBtn) && /opacity: short( \|\| full)? \? 0\.4 : 1/.test(boostBtn) && /cursor: short( \|\| full)? \? "not-allowed"/.test(boostBtn), "BOOST button greys out + disables when short (same pattern as DUMP; rapid-tap: also when 3 are in flight)");
+  ok(/const short = (rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, dec\) : )?(cashUsd|spendable) != null && (cashUsd|spendable) \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance; live: minus pending reservations + gas) < the active BOOST amount (custom $ wins)");
   ok(/ownBalance\(pc, usdg, me, \(\) => balanceHint\(pc, usdg, me, 4000\)\), decimalsOf\(pc, usdg\)/.test(tb) && /new CustomEvent\("disciple:cash"/.test(tb), "live cash = the account's USDG, pushed to the engine (disciple:cash)");
   ok(/setLast\(\(l\) => \(l\.startsWith\("✕"\) \? "" : l\)\); setHint\(""\); \}, \[amtKey\]\)/.test(tb), "trade bar drops a stale ✕ line when the amount changes");
   const wb = rd("lib/flight/workerBridge.ts");

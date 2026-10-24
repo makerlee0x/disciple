@@ -175,7 +175,7 @@ ok(/freshSellBalance\(\(\) => ownBalance\(pc, token as Address, me, \(\) => toke
   function tradeEnv({ live, liveTokens = 0, hold = { tokens: 0, valueUsd: 0 }, fuel = 0 }) {
     const E = { submits: [], flashes: [] };
     const S = { fuelers: { you: fuel }, hold, liveBag: live ? { tokens: liveTokens } : null, flashes: E.flashes, mode: 2, balance: 0, confirmed: { mcap: 7e4 }, promoLeft: 0 };
-    const env = { S, MODES: [1, 2, 3].map((u) => ({ usd: u })), hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9 },
+    const env = { S, MAX_PENDING: 3, MODES: [1, 2, 3].map((u) => ({ usd: u })), hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9 },
       MIN_SHOT: 0.5, PROMO_GAS: false, GAS_USD: 0.01, applyThrust() {}, srcImpact: () => 1, fmtShot: String, window: live ? { __discipleTrade() {} } : {},
       submit: (side, usd, force, opt) => E.submits.push({ side, usd, opt }) };
     E.trade = new Function(...Object.keys(env), block("/* @trade", "/* @trade-end */") + "\nreturn trade;")(...Object.values(env));

@@ -48,7 +48,7 @@ ok(TS.doneLine("sell", 5, { ok: false, reason: "Price moved" }, sellFill, fmtMon
 ok(/handOffLogs\(r\.txHash, r\.receipt\?\.receipt\?\.logs\)/.test(wl) && /handOffLogs\(hash, last\.logs\)/.test(wl), "lib/wallet.execCalls hands the returned logs over (smart account + EOA paths)");
 ok(/takeReceipt\(r\.txHash\)/.test(tb) && /await bookReceipt\(r\.txHash, side, bag, logs\)/.test(tb), "TradeBridge decodes the fill from the returned logs BEFORE the result returns (fillreceipt at ✓ done)");
 ok(!/pollingInterval: 700/.test(tb), "TradeBridge: the 700 ms waitForTransactionReceipt poll is gone");
-ok(/if \(!rl\) \{[^}]*waitForTransactionReceipt/.test(tb) && /&& !logs\) void bookReceipt\(r\.txHash, side, bag\)/.test(tb), "receipt polling kept only as the fallback when no logs came back");
+ok(/if \(!rl\) \{[^}]*waitForTransactionReceipt/.test(tb) && /&& !logs\) (void|releaseAfter =) bookReceipt\(r\.txHash, side, bag\)/.test(tb), "receipt polling kept only as the fallback when no logs came back");
 ok(/setLast\(doneLine\(side, usd, r, fill, fmtMoney\)\)/.test(tb) && /if \(x\) setLast\(doneLine\(side, usd, r, x, fmtMoney\)\)/.test(tb), "TradeBridge ✓ done line = doneLine (fill $), also once a polled receipt lands");
 ok(/fillUsd: fill\.usd/.test(tb), "bridge result carries the fill $ (fillUsd) to the engine");
 
@@ -76,7 +76,7 @@ function engine({ live = true, result, sell = false }) {
   ok(E.S.buyBoost === 1 && E.thrust.length === 1 && E.thrust[0].side === "buy" && near(E.thrust[0].usd, 9.7) && near(E.thrust[0].pct, 2), "confirmed buy: turbo flare + thrust, sized from the real fill ($9.70) at the click's impact");
   ok(E.events.some((e) => e.type === "disciple:paperfill" && e.detail.live && e.detail.txHash === "0x1"), "the confirmed fill still books the PnL ledger (paperfill → receipt reconcile)"); }
 { const E = engine({}); E.trade("buy"); await E.fill({ ok: false, reason: "Price moved" });
-  ok(E.S.buyBoost === 0 && E.thrust.length === 0 && E.S.pending[0].state === "failed", "failed buy: no flare, no thrust"); }
+  ok(E.S.buyBoost === 0 && E.thrust.length === 0 && E.S.pending.length === 0, "failed buy: no flare, no thrust, its ghost dropped at once (rapid-tap: no 450 ms linger)"); }
 { const E = engine({}); E.trade("sell", { usd: 5, frac: 0.25 });
   ok(E.thrust.length === 0, "sell click: the rocket doesn't move before the fill");
   await E.fill({ ok: true, txHash: "0x2" });

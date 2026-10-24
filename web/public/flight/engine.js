@@ -742,9 +742,24 @@ function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({
 /* paper sources price the player's shot on the curve/pool (paperImpact); bots and live use source.impact */
 function srcImpact(usd,side){ return source.paperImpact&&!isLive()?source.paperImpact(usd,side):source.impact?source.impact(usd,side):1; }
 /* @trade (sliced by scripts/test-live-fixes.mjs) */
+/* @rapidtap — in-flight cap + cash reservation (sliced by scripts/test-rapid-tap.mjs) */
+function pendingCount(){ let n=0; for(const p of S.pending||[]) if(p.state==='pending') n++; return n; }
+/** cash − Σ pending buys' $ − a gas reserve per pending op − this op's own gas reserve (S.gasPerOpUsd: live only). */
+function spendableCash(cash){ const g=window.__discipleTrade&&S.gasPerOpUsd>0?S.gasPerOpUsd:0; let held=g;
+  for(const p of S.pending||[]) if(p.state==='pending') held+=(p.side==='buy'?p.usd:0)+g; return cash-held; }
+function inFlightPulse(){ const f=S.flashes.find(x=>x.inflight); if(f){ f.life=0.7; return; }   // PLACEHOLDER copy (lee / BRAND)
+  S.flashes.push({txt:'3 IN FLIGHT',life:0.7,inflight:1}); }
+/** outcome unknown (send timed out): this press stays pending (cap + reservation), its rocket keeps hovering, calm status */
+function stillConfirming(p,ba){ p.unknown=1; if(ba) ba.unk=1;
+  const f=S.flashes.find(x=>x.confirming); if(f) f.life=1.8; else S.flashes.push({txt:'Still confirming…',life:1.8,confirming:1}); }   // PLACEHOLDER copy (lee / BRAND)
+function pushInFlight(){ try{ dispatchEvent(new CustomEvent('disciple:inflight',{detail:{n:pendingCount(),max:MAX_PENDING}})); }catch(_){} }
+/* @rapidtap-end */
 function trade(side,opt){
   // REAL FILL ONLY (maker lee 2026-10-24): no turbo flare / thrust at the click. The pending ghost (submit) shows where the
   // shot will go; the rocket reacts in submit() when the trade result comes back ok (fillThrust). Failed trades: no thrust.
+  // RAPID TAP: ≤ MAX_PENDING real trades in flight (only state 'pending' counts; no 450 ms linger). A press over the cap is
+  // NO trade and NO thrust: just a short HUD pulse (TradeBridge greys BOOST / DUMP from disciple:inflight meanwhile).
+  if (pendingCount()>=MAX_PENDING){ inFlightPulse(); return; }
   let md=MODES[S.mode]; const stack=S.fuelers.you||0;
   if (side==='sell' && !hasTokens()){ noTokens(); return; }          // nothing to sell: no trade, no bomb visual
   if (opt&&opt.usd>0) md={...md,usd:+opt.usd};   // custom amount / % sells from the ammo bar
@@ -766,8 +781,11 @@ function trade(side,opt){
   // BOOST cash check (paper: the paper balance; live: the account's cash pushed by TradeBridge as disciple:cash). Blocked
   // here, before anything is sent, so a too-big BOOST never becomes a failed trade row. (Was: live buys went out and came
   // back as "✕ not enough cash: need $100.00, have …" rows stacking in TRADES.)
+  // RESERVED: spendable = cash − Σ pending (buy $ + gas reserve per op), and this op's gas too (live: TradeBridge pushes the
+  // per-op gas reserve with disciple:cash; paper: 0). So 3 quick BOOSTs can never together spend more than the cash.
   if (side==='buy' && !source.isSim){ const cash=window.__discipleTrade?S.liveCash:S.balance;
-    if (typeof cash==='number' && Number.isFinite(cash) && cash+1e-9<md.usd){ S.flashes.push({txt:`NOT ENOUGH CASH · ${fmtShot(md.usd)} BOOST, you have ${fmtShot(Math.max(0,cash))}`,life:1.6}); return; } }
+    if (typeof cash==='number' && Number.isFinite(cash)){ const n=pendingCount(), avail=spendableCash(cash);
+      if (avail+1e-9<md.usd){ S.flashes.push({txt:`NOT ENOUGH CASH · ${fmtShot(md.usd)} BOOST, you have ${fmtShot(Math.max(0,avail))}${n?` (${n} pending)`:''}`,life:1.6}); return; } } }
   // impact at the click's (pre-trade) mark, kept for the thrust applied on the confirmed fill; own feed swaps skip the queue
   const pct=source.impact&&S.confirmed.mcap?Math.abs(srcImpact(md.usd,side)-1)*100:undefined;
   submit(side, md.usd, false, opt, pct);
@@ -794,7 +812,7 @@ function baOffset(list,realAlt,now){ let off=0;
     if (e.st==='ok'){ const dt=now-e.tr, c=Math.max(clamp((realAlt-e.base)/e.d,0,1), clamp((dt-BA_HOLD)/BA_FADE,0,1));
       o=e.d*Math.max(0,g-c); if(c>=1){ list.splice(i,1); continue; } }
     else if (e.st==='fail'){ o=e.d*g; if(g<0.004){ list.splice(i,1); continue; } }
-    else { if(now-e.t0>BA_STALE){ baResolve(e,false,now,list); continue; } o=e.d*Math.min(g,BA_CAP); }   // a send that never answers: ease back (visual only)
+    else { if(!e.unk&&now-e.t0>BA_STALE){ baResolve(e,false,now,list); continue; } o=e.d*Math.min(g,BA_CAP); }   // a send that never answers: ease back (visual only)
     off+=o; }
   return off; }
 /* @boostanim-end */
@@ -808,14 +826,15 @@ function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
 function submit(side,usd,force,opt,pct){
   S.tradeUsd=usd;
   const now=performance.now();
-  if ((!force&&now<S.cooldownUntil) || S.pending.length>=MAX_PENDING || S.confirmed.mcap===null) return;
+  if ((!force&&now<S.cooldownUntil) || S.confirmed.mcap===null) return;
+  if (pendingCount()>=MAX_PENDING){ inFlightPulse(); return; }   // only real in-flight trades count (no linger)
   S.cooldownUntil=now+COOLDOWN_MS;
   if (!source.submitTrade){ S.flashes.push({txt:'READ-ONLY SOURCE — trading disabled',life:1.5}); return; }
   // optimistic ghost: projected (NOT applied) price after our trade, from local impact estimate
   // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps
   const prevP=pendingTip(), from=prevP?prevP.proj:S.confirmed.mcap;
   const proj = source.impact? from*srcImpact(S.tradeUsd,side) : from;
-  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending'}; S.pending.push(p);
+  const p={id:Math.random(),side,usd:S.tradeUsd,proj,from,t0:now,state:'pending'}; S.pending.push(p); pushInFlight();
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
   const ba=baStart(S.boostAnim||(S.boostAnim=[]), mcapToAlt(from*sf), mcapToAlt(proj*sf), now); p.ba=ba;
@@ -825,7 +844,10 @@ function submit(side,usd,force,opt,pct){
   // paper sells (no wallet, not the sim): a % sell sells exactly that share of the ledger's tokens; a $ sell never more than held
   const paperSell=side==='sell'&&!isLive()&&!source.isSim&&S.hold.tokens>0;
   const o=paperSell?{frac:opt&&opt.frac,tokens:opt&&opt.frac>0?S.hold.tokens*Math.min(1,opt.frac):undefined,maxTokens:S.hold.tokens}:opt&&opt.frac?{frac:opt.frac}:undefined;
-  source.submitTrade(side,S.tradeUsd,o).then(r=>{
+  source.submitTrade(side,S.tradeUsd,o).then(function onResult(r){
+    // AUDIT: a timed-out send can still land ⇒ UNKNOWN, not failed: keep the ghost + its slot + the reservation, keep the
+    // rocket hovering (calm 'Still confirming…'), and resolve on the LATE outcome (TradeBridge: receipt / SITE) like any result
+    if(r&&r.pending&&r.late&&typeof r.late.then==='function'){ stillConfirming(p,ba); r.late.then(onResult,()=>onResult({ok:false,unknown:1,reason:'Still confirming'})); return; }
     p.state=r.ok?'confirmed':'failed';
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
@@ -846,9 +868,10 @@ function submit(side,usd,force,opt,pct){
     // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||7e9,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
-    if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
+    if(!r.ok&&r.unknown){ S.flashes.push({txt:String(r.reason||'Check your balance in a moment.'),life:1.8}); }   // never confirmed either way: calm, no failure row (the balance poll shows the truth)   PLACEHOLDER copy
+    else if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // COPY REVIEW (lee): failure status; the reason stays in the TRADES row
-    setTimeout(()=>{ S.pending=S.pending.filter(q=>q!==p); }, 450);
+    S.pending=S.pending.filter(q=>q!==p); pushInFlight();   // frees its slot NOW (was a 450 ms linger that still counted toward the 3)
   });
 }
 // Pre-flight failures (gas estimate / simulation / balance) are not reverts — show the reason as-is.
@@ -903,7 +926,8 @@ function onHotkey(e){
    paper: S.balance. activeBuyUsd() is what BOOST / SPACE would spend (custom $ wins over the selected preset).
    When that amount changes, stale "✕ …" error rows (e.g. an earlier not-enough-cash failure) leave the TRADES feed. */
 S.liveCash=null;
-addEventListener('disciple:cash',e=>{ const u=e.detail&&e.detail.usd; S.liveCash=typeof u==='number'&&Number.isFinite(u)?u:null; });
+addEventListener('disciple:cash',e=>{ const d=e.detail||{}, u=d.usd; S.liveCash=typeof u==='number'&&Number.isFinite(u)?u:null;
+  if(typeof d.gasPerOpUsd==='number'&&Number.isFinite(d.gasPerOpUsd)&&d.gasPerOpUsd>=0) S.gasPerOpUsd=d.gasPerOpUsd; });   // per-op gas reserve (rapid tap)
 addEventListener('disciple:custombuy',()=>noteBuyAmount());   // after @hotkeys' listener set S.customBuyUsd
 function activeBuyUsd(){ return S.customBuyUsd>0?S.customBuyUsd:(MODES[S.mode]||MODES[0]).usd; }
 function cashNow(){ return source.isSim?null:window.__discipleTrade?S.liveCash:S.balance; }
