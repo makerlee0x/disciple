@@ -38,6 +38,8 @@ Conflict hotspots (files changed on main since 38e8802e that the stack also chan
 | `contracts/test/integration/UsdgRouter.t.sol`, `contracts/test/session/DiscipleSessionPolicy.t.sol` | #106 vs #121 |
 
 #129 and #128 touch no common files. Deploy from main HEAD after all merges (and the AUDIT fixes).
+**AUDIT round 2 (#127):** the redeploy must be cut from a tree that contains this PR (#131 head 78f2dac1 or later), not from #127
+alone: the AnonLauncher cap fix (2f55717a) and the 6-dec `Trade.fee` fix (06d46f16) exist only here. Check it in pre-flight (section 2, item 9).
 
 ## 2. Pre-flight (on merged main)
 
@@ -51,6 +53,15 @@ Conflict hotspots (files changed on main since 38e8802e that the stack also chan
 7. Confirm env with lee: `TREASURY`, `REWARDS_VAULT_OWNER`, `PVE_ATTESTER` (must match the key SITE signs logins with), `REFERRAL_SINK` (default 0).
 8. `cfg` lines in the deploy log must read: USDG decimals 6, CURVE_SOLD_BPS 8424, START 3333, GRADUATION 33333,
    ANTI_SNIPE 9900 / 7 s (table 9900·2500·300·100·30·10·3, 0 from 7 s), MAX_FLOOR_BANDS 16, referralSink 0x0.
+9. **Deploy tree has #131's AUDIT fixes** (AUDIT round 2 on #127): `git merge-base --is-ancestor 2f55717a HEAD && git merge-base --is-ancestor 06d46f16 HEAD`
+   (after a squash merge, check the source instead: `AnonLauncher.MAX_LAUNCH_FEE` is an `immutable` set from `feeToken.decimals()`).
+   Smoke's `MAX_LAUNCH_FEE == 5 * 10**usdg.decimals()` check is the backstop after the deploy.
+10. **Multicall3 on 46630** (AUDIT round 2 on #106/#131; #106's relay batches its graduating-buy reads through the canonical
+   Multicall3 with `allowFailure=false`, so without it every graduating buy silently falls back to normal gas caps). Read-only:
+   ```bash
+   cast code 0xcA11bde05977b3631167028862bE2a173976CA11 --rpc-url https://rpc.testnet.chain.robinhood.com | wc -c   # must be > 3 (not "0x")
+   ```
+   `smoke.mjs` repeats this as a PASS/FAIL check (eth_getCode). Fork dry run 2026-10-24: 3,808 bytes of code served from the forked live chain.
 
 ## 3. Core deploy
 
@@ -94,8 +105,29 @@ Fork e2e before going live: `pnpm test:paymaster-e2e`.
 
 All done inside `Deploy.s.sol`; verify with `cast call`:
 - `FeeRouter.rewardsVault()` = RewardsVault; `RewardsVault.feeRouter()` = FeeRouter. RewardsVault is now **Owned2Step**: the deploy only
-  nominates `REWARDS_VAULT_OWNER` (`pendingOwner`); that wallet must then call `cast send <RewardsVault> "acceptOwnership()"`.
-  Until it does, the deployer stays owner.
+  nominates `REWARDS_VAULT_OWNER` (`pendingOwner`); that wallet must then accept (step 5a). Until it does, the deployer stays owner.
+
+### 5a. RewardsVault ownership acceptance (AUDIT round 2 on #121/#127/#131)
+
+Only when `REWARDS_VAULT_OWNER` ≠ deployer (if unset, Deploy.s.sol nominates nobody and `owner()` stays the deployer: skip to the verify read).
+Sent by the `REWARDS_VAULT_OWNER` wallet itself (lee/ops signs; never with the deployer key), on lee's GO like every live tx:
+
+```bash
+RV=<RewardsVault from deployments/rh-testnet-46630.json>; RPC=https://rpc.testnet.chain.robinhood.com
+cast call $RV "pendingOwner()(address)" --rpc-url $RPC   # before: must equal REWARDS_VAULT_OWNER
+# REWARDS_VAULT_OWNER wallet:
+cast send $RV "acceptOwnership()" --rpc-url $RPC         # signed by REWARDS_VAULT_OWNER (hardware wallet / its own signer)
+# verify (read-only):
+cast call $RV "owner()(address)" --rpc-url $RPC          # must equal REWARDS_VAULT_OWNER
+cast call $RV "pendingOwner()(address)" --rpc-url $RPC   # must be 0x0000000000000000000000000000000000000000
+EXPECT_REWARDS_VAULT_OWNER=<REWARDS_VAULT_OWNER> GRADUATE=0 node script/redeploy/smoke.mjs   # adds the owner()/pendingOwner PASS check
+```
+
+Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 2026-10-24 (anvil only, public anvil keys #0 → #1):
+`transferOwnership` → `pendingOwner` = #1 → `acceptOwnership` from #1 → `owner()` = #1, `pendingOwner()` = 0; smoke with
+`EXPECT_REWARDS_VAULT_OWNER` = #1 PASS 25/25, and with a wrong expected owner it FAILs (exit 1) as intended.
+
+### 5b. Other wiring
 - `FeeRouter.isClaimRouter(DiscipleRouter)` = true (set in Deploy.s.sol). `claimCreatorFeesFor` no longer trusts every
   `Launchpad.isTrustedRouter`; add/revoke with `setClaimRouter(address,bool)` (owner).
 - `FeeRouter.referralSink()` = 0x0 (today's routing). **lee's rule:** when set, the sink takes the WHOLE referral 1%, including the
@@ -145,6 +177,11 @@ All done inside `Deploy.s.sol`; verify with `cast call`:
 `web/lib/anon.ts` `ANON_ADDONS[46630]` (`anonLauncher` = new AnonLauncher, `anonLauncherLegacy` = old `0x06f3…a527` if old anon coins
 should still resolve, `marketLens`, `announcer`, `v2DeployBlock` = new startBlock), ABIs (`gen-abi.mjs` / the web bundle),
 `scripts/check-usdg-decimals.mts` must pass against the new USDG, and the USDG faucet/mint UX now mints 6-dec units.
+AUDIT round 2 copy/config items for SITE:
+- **Easy First BOOST lock has no time-based unlock** (AUDIT #121 r2 Info): on an Easy coin the creator's First BOOST stays locked
+  until graduation, forever if it never graduates (also past the 30-day sniper-escrow timeout). The launch flow / coin page / docs must say so.
+- **New MarketLens only for v5 curves** (AUDIT #127 r2 Info): its `secondsLeft` / `sniperTax` assume the 7 s window for every curve;
+  legacy (v4) curves used 77 s. Don't point the new MarketLens at old coins (keep `anonLauncherLegacy` resolution on the old lens/reads).
 **GAME updates:** regenerate `web/public/flight/engine.js` after #128/#129 land; bot sizing assumes the steep curve; any sim fixtures
 that hold testnet addresses come from the web bundle.
 
@@ -154,6 +191,8 @@ The indexer reads `contracts/deployments/rh-testnet-46630.json` (`DEPLOYMENT_JSO
 indexed from its `startBlock` and the old stacks keep indexing. After the deployments json is on the indexer host:
 restart it; if the json lacks `startBlock`, set `START_BLOCK=<first deploy block>`. `STACKS=v5` restricts to the new stack.
 Check the indexer catches up to head and that the smoke coin appears.
+RewardsVault inflows from un-graduated coins (`releaseSnipeEscrow()` after 30 days) emit no vault-side event: attribute them from the
+curve's `SnipeEscrowReleased` (AUDIT #127 r2 ruling; a vault accrual event is a later nice-to-have).
 
 ## 8. Smoke (live testnet, after deploy)
 
@@ -170,7 +209,10 @@ value for its second (fork: pinned to launch+1s = 25%), no `SnipeFeeRouted`, Rew
 graduation: `quoteBuy.graduates`, `GraduatedToV4`, tokens sold = 84.24%, mcap = $33,333 (±0.1%) ·
 floor: `FloorSeeded` with 16 bands, ≈ $1,201.27 seeded (±1%), all bands quote-only (tokenAmount 0) and summing to `quoteSeeded` ·
 `SnipeEscrowToLP` = escrow and compound bucket ≥ escrow · progress 10000 · graduating-buy tx gas ≤ 3.0M (AUDIT measured ≈ 2.764M
-execution at 6-dec USDG in #115's forge harness; forge `FloorSeedGas` keeps the 3.0M cap on the 18-dec harness, ≈ 2.56M).
+execution at 6-dec USDG in #115's forge harness; forge `FloorSeedGas` keeps the 3.0M cap on the 18-dec harness, ≈ 2.56M) ·
+**Multicall3** has code at `0xcA11bde05977b3631167028862bE2a173976CA11` (eth_getCode; AUDIT r2 #106/#131) ·
+with `EXPECT_REWARDS_VAULT_OWNER` set (after step 5a): `RewardsVault.owner()` = it and `pendingOwner()` = 0.
+Without `EXPECT_REWARDS_VAULT_OWNER` smoke only prints owner / pendingOwner, so run it once more after the acceptance (`GRADUATE=0` is enough).
 Optional: `node script/redeploy/fixtures.mjs fresh|near|grad|pve` for replay coins plus post-graduation router buy/sell (STRATEGY and USDG legs).
 
 ## 9. Fork dry run (no live broadcast)
@@ -183,6 +225,11 @@ FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                  
 ```
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
+
+Result 2026-10-24 ~10:28 AM CDT (fork of the live head, block 141953628; feat/redeploy-prep with the AUDIT round 2 smoke checks): deploy
+addresses **identical** to the 9:44 AM run (all 17 contracts + tokens; the smoke/runbook changes don't touch Deploy.s.sol, env or
+redeploy.sh), 40,428,718 gas used; smoke **24/24 PASS** (23 + Multicall3, 3,808 bytes); after the step 5a rehearsal smoke with
+`EXPECT_REWARDS_VAULT_OWNER` **25/25 PASS**; launch 6,712,430 gas; graduation buy 2,365,962 gas; floor 1,201.27337 USDG; mcap $33,332.999999.
 
 Result 2026-10-24 ~9:44 AM CDT (fork of block 141938895, branch feat/redeploy-prep after the AUDIT fixes + 7s sniper tax): core deploy
 40,428,718 gas used (forge estimate 51.1M); smoke 23/23 PASS; launch 6.71M gas; First BOOST snipeEscrow 0; snipe at launch+1s taxed exactly
@@ -231,12 +278,20 @@ users reinstall the old session policy. Coins launched on the new stack keep tra
 | Low: FeeRouter.sol:276 any trusted router claims creator fees | owner-set `isClaimRouter` allowlist | #121 957a463b | Deploy.s.sol wires DiscipleRouter; ABI adds `setClaimRouter`, `isClaimRouter`, `ClaimRouterSet`; smoke check added |
 | Low (#106) gradBuy.ts:28/:40, gasPolicy.ts:132 | relay-side only | #106 16376682 | none for the deploy |
 | Info: grad gas ≈ 2.76M at 6 dec | numbers refreshed, 3.0M cap kept | #106 3128ad31, smoke | smoke asserts ≤ 3.0M |
+| Round 2 Low (#106) gasPolicy.ts:168/:177: `[anyCall, gradBuy]` / trailing approve-selector call still got grad caps | grad caps only for the exact `[approve(quote, curve\|router)*, buy]` shape (plus our paymaster's leading USDG approve), funding checked post-approve | #106 5d7bc665, c6e5812d, ec6cb2bc | relay-side only; none for the deploy |
+| Round 2 run item (#106/#131): Multicall3 on 46630 unverified | pre-flight item 10 + smoke check (eth_getCode) | this PR | read-only; fork: 3,808 bytes |
+| Round 2 run item (#121/#127/#131): RewardsVault `acceptOwnership` | step 5a + smoke `EXPECT_REWARDS_VAULT_OWNER` check | this PR | one tx by REWARDS_VAULT_OWNER after the deploy |
+| Round 2 (#127): cut the redeploy from #131, not #127 | merge-order note + pre-flight item 9 | this PR | none |
+| Round 2 Info (#121): Easy First BOOST never unlocks without graduation | SITE copy item (section 6) | SITE | none |
+| Round 2 Info (#127): MarketLens 7 s for legacy curves; `SnipeEscrowReleased` attribution | section 6 / section 7 notes | SITE / indexer | none |
 | lee 2026-10-24: sniper tax 77 s linear → 7 s | per-second table 99/25/3/1/0.3/0.1/0.03 %, 0 from 7 s (`FeeMath.snipeBps`) | #127 01afead5 | smoke checks the table value at the snipe's second and 0 from 7 s; `MarketLens.sniperTax` window 7; SITE/GAME copy + sim |
 | lee 2026-10-23 check: Easy First BOOST lock | already enforced (Token.sol `_update`, keyed on `from == creator`); tests for spender / recipient bypass and Hard same-block sell | #127 f2514cb6 | none |
 
 Not taken (Info, no behaviour risk today): optional payer `maxFee` on `launchAnon` (ABI change + session-policy decoding; owner fee is
 now capped at $5); LockedLP.sol:581 best-effort floor seeding at extreme prices and :595 unreachable `FloorOverspend` (would change
 graduation semantics in a SHIP'd PR); Migration.sol:151 require success for v2 curves; `releaseSnipeEscrow` event.
+Round 2 rulings: all four accepted for the testnet. Also not taken now: dropping the legacy `AntiSnipe` from Deploy.s.sol (AUDIT #127 r2
+Info) — it would shift every later CREATE address (and the pre-computed Launchpad); revisit with the next redeploy.
 The scripts read ABIs from the forge artifacts and take params from env, so contract-internal fixes need no script change.
 
 Open items for AUDIT / lee:
