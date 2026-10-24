@@ -8,6 +8,9 @@ import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, type LimitResult } from "@/lib/server/limits";
+import { RELAY_METHOD, RELAY_STREAM_ACCEPT, type RelayFrame } from "@/lib/aa/relayTypes";
+import type { UserOp } from "@/lib/aa/core";
+import { robinhoodTestnet } from "@/lib/chains";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +19,11 @@ const ALLOWED = new Set([
   "eth_chainId", "eth_supportedEntryPoints", "eth_sendUserOperation", "eth_estimateUserOperationGas",
   "eth_getUserOperationReceipt", "eth_getUserOperationByHash", "rundler_maxPriorityFeePerGas",
 ]);
-/** One-round-trip trade path (lib/server/fastRelay): self-bundler only. With Alchemy these answer -32601 → standard flow. */
+/**
+ * One-round-trip trade path (lib/server/fastRelay). Item 2 (feat/trade-latency): self-relay is THE trade path — these
+ * are always served by the self-bundler, even when an Alchemy key is set (the Alchemy proxy only serves the standard
+ * eth_* methods, e.g. deploy / launch ops). AA_TRADE_SELF_RELAY=0 restores the old gate (-32601 unless AA_SELF_BUNDLER=1).
+ */
 const SELF_ONLY = new Set(["disciple_sendUserOperationSync", "disciple_warm"]);
 /** Self-pay only: no gas policy / paymaster. Rejected explicitly so clients see why, not "method not allowed". */
 const SEND = new Set(["eth_sendUserOperation", "disciple_sendUserOperationSync"]);
@@ -42,7 +49,7 @@ export async function POST(req: Request) {
   if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: not supported` } }, { status: 400 });
   const selfOnly = !!body?.method && SELF_ONLY.has(body.method);
-  if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1")
+  if (selfOnly && key && process.env.AA_SELF_BUNDLER !== "1" && process.env.AA_TRADE_SELF_RELAY === "0")
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: `${body.method}: self-bundler only` } });
   if (Array.isArray(body) || !body.method || (!ALLOWED.has(body.method) && !selfOnly))
     return NextResponse.json({ jsonrpc: "2.0", id: body?.id ?? null, error: { code: -32601, message: "method not allowed" } }, { status: 400 });
@@ -56,6 +63,10 @@ export async function POST(req: Request) {
   }
   // AUDIT Low: a strike / verification recorded while relaying must reach the shared store before the lambda freezes
   const flushTrust = async () => { if (SEND.has(body.method!) || SIM.has(body.method!)) await (await import("@/lib/server/fastRelay")).flushRelayTrust().catch(() => undefined); };
+  // Receipt push (lib/aa/relayTypes): streaming clients get NDJSON frames on THIS response — normally one RelayConfirmed;
+  // if the sync send timed out, a RelayPending (txHash) first and the RelayConfirmed when the receipt lands.
+  if (body.method === RELAY_METHOD && (req.headers.get("accept") || "").includes(RELAY_STREAM_ACCEPT))
+    return streamRelay(body.params || [], flushTrust);
   try {
     const result = await selfBundle(body.method, body.params || []);
     await flushTrust();
@@ -66,6 +77,35 @@ export async function POST(req: Request) {
     if (isRelayerNotConfigured(e))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });
     const m = (e as { shortMessage?: string }).shortMessage || (e as Error).message;
-    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data: (e as { data?: string }).data } });
+    const txHash = (e as { txHash?: string }).txHash;
+    // data: the revert payload (string) as before; when the relayer tx was signed but no receipt came back, { txHash }
+    const data = (e as { data?: string }).data ?? (txHash ? { txHash, userOpHash: (e as { userOpHash?: string }).userOpHash } : undefined);
+    return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32000, message: `${body.method}: ${m.split("\n")[0].slice(0, 300)}`, data } });
   }
+}
+
+function streamRelay(params: unknown[], flushTrust: () => Promise<void>): Response {
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(ctl) {
+      const push = (f: RelayFrame) => ctl.enqueue(enc.encode(JSON.stringify(f) + "\n"));
+      try {
+        const { sendUserOperationSync } = await import("@/lib/server/fastRelay");
+        const op = params[0] as UserOp;
+        let userOpHash: `0x${string}` | undefined;
+        try { userOpHash = (await import("@/lib/aa/core")).userOpHash(op, robinhoodTestnet.id); } catch { /* malformed op: fastRelay rejects it */ }
+        const r = await sendUserOperationSync(op, (p) => { if (userOpHash) push({ kind: "pending", pending: true, userOpHash, txHash: p.txHash, reason: p.reason }); });
+        await flushTrust();
+        push(r);
+      } catch (e) {
+        await flushTrust();
+        const x = e as { shortMessage?: string; message?: string; data?: string; txHash?: `0x${string}`; userOpHash?: `0x${string}` };
+        const m = x.shortMessage || x.message || String(e);
+        const code = isRelayerNotConfigured(e) ? -32003 : -32000;
+        push({ kind: "error", code, message: `${RELAY_METHOD}: ${isRelayerNotConfigured(e) ? "relayer not configured" : m.split("\n")[0].slice(0, 300)}`, data: { txHash: x.txHash, userOpHash: x.userOpHash, revert: typeof x.data === "string" ? (x.data as `0x${string}`) : undefined } });
+      }
+      ctl.close();
+    },
+  });
+  return new Response(body, { status: 200, headers: { "content-type": `${RELAY_STREAM_ACCEPT}; charset=utf-8`, "cache-control": "no-store", "x-accel-buffering": "no" } });
 }
