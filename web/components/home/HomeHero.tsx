@@ -13,10 +13,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtUsd } from "@/lib/config";
 import { withBase } from "@/lib/base-path";
+import { isStoreSrc } from "@/lib/coinImages";
 import PairArt from "@/components/pairart/PairArt";
 import Icon from "@/components/icons/Icon";
 import {
-  ROCKET_SRC, fmtAgeShort, rankTrending, thumbSrc, tierProgress,
+  ROCKET_SRC, fmtAgeShort, rankTrending, tierProgress,
   type HomeCoin, type HomeData,
 } from "@/lib/home/trending";
 import { afterPaint, prefersReducedMotion } from "./idle";
@@ -221,8 +222,11 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
             <div className={s.minis} ref={stripRef}>
               {next.map((c, i) => (
                 <Link key={c.token} href={heroHref(c)} prefetch={false} className={s.mini}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className={s.miniTh} src={withBase(thumbSrc(tierProgress(c.mcapUsd).index))} alt="" width={64} height={40} loading="lazy" decoding="async" />
+                  {/* the coin's own (moderated store) image, the same ?icon= its coin page renders; none ⇒ the plain thumb tile */}
+                  {isStoreSrc(c.icon)
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img className={s.miniTh} src={c.icon} alt="" width={64} height={40} loading="lazy" decoding="async" />
+                    : <span className={s.miniTh} aria-hidden />}
                   <span className={s.miniTx}>
                     <span className={s.miniR}><span className={s.miniN}>#{i + 2}</span><b>${c.ticker}</b></span>
                     <span className={s.miniR2}><span className={s.num}>{fmtUsd(c.mcapUsd)}</span><Chg v={c.stats?.chg24} /></span>
