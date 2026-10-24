@@ -73,7 +73,7 @@ export async function quoteConfig(): Promise<QuoteConfig> {
 export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
   return {
     now: () => Math.floor(Date.now() / 1000),
-    debtOf: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "debtOf", args: [s] }),
+    debtOf: (s) => pc.readContract({ address: cfg.paymaster, abi: disciplePaymasterAbi, functionName: "owedOf", args: [s] }),
     balanceOf: (s) => pc.readContract({ address: cfg.usdg, abi: erc20, functionName: "balanceOf", args: [s] }),
     async bounds() {
       if (boundsCache && Date.now() - boundsCache.at < 60_000) return boundsCache.v;

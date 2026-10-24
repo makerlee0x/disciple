@@ -38,10 +38,14 @@ export const disciplePaymasterAbi = parseAbi([
   "function postOpGas() view returns (uint256)",
   "function getDeposit() view returns (uint256)",
   "function reservedOf(address) view returns (uint256)",
+  "function reservedBy(address) view returns (bytes32)",
+  "function rolledOf(address) view returns (uint256)",
+  "function owedOf(address) view returns (uint256)",
   "function getHash(address sender, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost) view returns (bytes32)",
   "function deposit() payable",
   "event UserOperationCharged(bytes32 indexed userOpHash, address indexed sender, uint256 gasCostToken, uint256 debtRepaid, uint256 rate)",
   "event DebtRecorded(bytes32 indexed userOpHash, address indexed sender, uint256 amount, uint256 totalDebt)",
+  "event ReservationRolled(bytes32 indexed userOpHash, address indexed sender, uint256 amount, uint256 totalRolled)",
 ]);
 const erc20Abi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
 const execAbi = parseAbi([
@@ -107,9 +111,27 @@ export function paymasterAllowanceHash(sender: Address, q: PaymasterQuote, chain
     [ALLOWANCE_TYPEHASH, sender, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
   ));
 }
-/** Same hash for an op (only op.sender is bound). Kept for the per-op pm_getPaymasterData path. */
-export function paymasterQuoteHash(op: Pick<UserOp, "sender">, q: PaymasterQuote, chainId: number, paymaster: Address): Hex {
-  return paymasterAllowanceHash(op.sender, q, chainId, paymaster);
+/** keccak256("DisciplePaymaster.OpQuote(v1)") — DisciplePaymaster.OP_QUOTE_TYPEHASH. */
+export const OP_QUOTE_TYPEHASH = keccak256(toHex("DisciplePaymaster.OpQuote(v1)"));
+/**
+ * DisciplePaymaster.getOpHash(op, …) — the per-op quote (pm_getPaymasterData) is bound to ONE exact userOp: sender,
+ * nonce, initCode, callData (incl. the approve amount), account gas limits, the paymaster gas limits, PVG and fees.
+ * Single use (nonce), so a large per-op maxTokenCost (launch / graduating buy) can't be reused as an allowance
+ * (AUDIT #141 L-2). Only pm_getPaymasterAllowance issues the reusable, sender-bound hash above.
+ */
+export function paymasterQuoteHash(op: UserOp, q: PaymasterQuote, chainId: number, paymaster: Address): Hex {
+  const initCode = op.factory ? concat([op.factory, op.factoryData || "0x"]) : "0x";
+  const accountGasLimits = concat([p16(op.verificationGasLimit), p16(op.callGasLimit)]);
+  const pmGas = concat([p16(op.paymasterVerificationGasLimit), p16(op.paymasterPostOpGasLimit)]);
+  const gasFees = concat([p16(op.maxPriorityFeePerGas), p16(op.maxFeePerGas)]);
+  const opPart = keccak256(encodeAbiParameters(
+    parseAbiParameters("address, uint256, bytes32, bytes32, bytes32, bytes32, uint256, bytes32"),
+    [op.sender, big(op.nonce), keccak256(initCode), keccak256(op.callData), accountGasLimits, pmGas, big(op.preVerificationGas), gasFees],
+  ));
+  return keccak256(encodeAbiParameters(
+    parseAbiParameters("bytes32, bytes32, uint256, address, uint48, uint48, uint256, uint256"),
+    [OP_QUOTE_TYPEHASH, opPart, BigInt(chainId), paymaster, q.validUntil, q.validAfter, q.rate, q.maxTokenCost],
+  ));
 }
 
 /**

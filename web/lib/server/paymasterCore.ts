@@ -13,8 +13,9 @@
  *       - first inner call approves EXACTLY the signed maxTokenCost, which covers tokenCost(maxCost, rate) + debt and
  *         is at most MAX_SLACK above it and ≤ the on-chain maxCostCap;
  *       - the sender holds that much USDG; the rate is inside the contract's [minRate, maxRate].
- *     The signed hash is the per-sender allowance (sender, chain, paymaster, window, rate, maxTokenCost); the
- *     contract re-checks every per-op rule on-chain, so these server checks are defence in depth.
+ *     The signed hash is the OP-BOUND quote hash (DisciplePaymaster.getOpHash: nonce, callData, gas, fees, window,
+ *     rate, maxTokenCost), so the quote — often a larger launch / graduating-buy maxTokenCost — is single-use and these
+ *     per-op checks are binding (AUDIT #141 L-2). The contract also re-checks every per-op rule on-chain.
  *  3. pm_getPaymasterAllowance(sender) (feat/trade-latency): issues that allowance AHEAD of time for the standard trade
  *     envelope (ALLOWANCE_GAS × a fee ceiling), so a warm trade makes 0 pm_* calls. Exposure per sender stays
  *     ≤ maxTokenCost ≤ maxCostCap on-chain (contracts/docs/usdg-paymaster.md §Allowance).
@@ -61,6 +62,7 @@ export async function quoteCaps(op: UserOp, cfg: QuoteConfig, deps?: Pick<QuoteD
 }
 export type QuoteDeps = {
   now(): number; // unix seconds
+  /** What the sender's next op must cover besides its gas: DisciplePaymaster.owedOf (debt + rolled + unsettled reservation). */
   debtOf(sender: Address): Promise<bigint>;
   balanceOf(sender: Address): Promise<bigint>;
   bounds(): Promise<{ minRate: bigint; maxRate: bigint; maxCostCap: bigint }>;
