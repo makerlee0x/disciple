@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
-import { BUNDLER_LIMITS, bundlerSendPerSender, clientIp, hitLimit, hitSenderSend, type LimitResult } from "@/lib/server/limits";
+import { BUNDLER_LIMITS, bundlerSendPerSender, clientIp, hitLimit, hitSenderSend, notePressRejected, rejectedBeforeSend, type LimitResult } from "@/lib/server/limits";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
 
@@ -27,15 +27,21 @@ const SELF_ONLY = new Set(["disciple_sendUserOperationSync", "disciple_warm"]);
 /** Self-pay only: no gas policy / paymaster. Rejected explicitly so clients see why, not "method not allowed". */
 const SEND = new Set(["eth_sendUserOperation", "disciple_sendUserOperationSync"]);
 const SIM = new Set(["eth_estimateUserOperationGas", "disciple_warm"]);
+const senderOf = (params: unknown[]) => String((params[0] as { sender?: unknown } | undefined)?.sender ?? "").toLowerCase();
+const pressOf = (params: unknown[]) => (params[2] as { pressId?: unknown } | undefined)?.pressId;
+/** AUDIT L1: a send the relay rejected BEFORE submitting anything grants that press ONE free retry (lib/server/limits). */
+async function notePreSendRejection(method: string, params: unknown[], e: unknown) {
+  const sender = senderOf(params);
+  if (SEND.has(method) && /^0x[0-9a-f]{40}$/.test(sender) && rejectedBeforeSend(e)) await notePressRejected(kv(), sender, pressOf(params), bundlerSendPerSender()).catch(() => false);
+}
 /** W-1: per-sender + per-IP limits in the shared Upstash store (in-memory only without KV env). null = allowed. */
 async function limited(req: Request, method: string, params: unknown[]): Promise<LimitResult | null> {
   const ip = clientIp(req.headers), s = kv();
   if (SEND.has(method)) {
-    const sender = String((params[0] as { sender?: unknown } | undefined)?.sender ?? "").toLowerCase();
+    const sender = senderOf(params);
     const checks = [hitLimit(s, `bundler:send:ip:${ip}`, BUNDLER_LIMITS.sendPerIp.limit, BUNDLER_LIMITS.sendPerIp.windowSec)];
-    // rapid taps: retries of the same press (params[2].pressId, lib/aa/relayClient) don't count toward the sender limit
-    const pressId = (params[2] as { pressId?: unknown } | undefined)?.pressId;
-    if (/^0x[0-9a-f]{40}$/.test(sender)) checks.push(hitSenderSend(s, sender, pressId, bundlerSendPerSender()));
+    // rapid taps: a retry of a press the relay rejected pre-send (params[2].pressId, lib/aa/relayClient) is free
+    if (/^0x[0-9a-f]{40}$/.test(sender)) checks.push(hitSenderSend(s, sender, pressOf(params), bundlerSendPerSender()));
     return (await Promise.all(checks)).find((r) => !r.ok) ?? null;
   }
   if (SIM.has(method)) { const r = await hitLimit(s, `bundler:sim:ip:${ip}`, BUNDLER_LIMITS.simPerIp.limit, BUNDLER_LIMITS.simPerIp.windowSec); return r.ok ? null : r; }
@@ -67,13 +73,14 @@ export async function POST(req: Request) {
   // Receipt push (lib/aa/relayTypes): streaming clients get NDJSON frames on THIS response — normally one RelayConfirmed;
   // if the sync send timed out, a RelayPending (txHash) first and the RelayConfirmed when the receipt lands.
   if (body.method === RELAY_METHOD && (req.headers.get("accept") || "").includes(RELAY_STREAM_ACCEPT))
-    return streamRelay(body.params || [], flushTrust);   // on #140: pass its finish()/afterResponse instead of flushTrust
+    return streamRelay(body.params || [], flushTrust, (e) => notePreSendRejection(body.method!, body.params || [], e));   // on #140: pass its finish()/afterResponse instead of flushTrust
   try {
     const result = await selfBundle(body.method, body.params || []);
     await flushTrust();
     return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, result });
   } catch (e) {
     await flushTrust();
+    await notePreSendRejection(body.method, body.params || [], e);
     // production without a dedicated RELAYER_PRIVATE_KEY (or set to the faucet key): fail closed, never sign with the faucet
     if (isRelayerNotConfigured(e))
       return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: `${body.method}: relayer not configured` } }, { status: 503, headers: { "retry-after": "300" } });

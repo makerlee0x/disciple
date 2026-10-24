@@ -4,7 +4,7 @@
  * errors at runtime, a per-process memory counter is used for that call (degraded, never unlimited).
  * Pure (no server-only): unit-tested by scripts/test-relay-policy.mts.
  */
-export type CounterStore = { incrEx(k: string, ttlSec: number): Promise<number>; ttl(k: string): Promise<number> };
+export type CounterStore = { incrEx(k: string, ttlSec: number): Promise<number>; ttl(k: string): Promise<number>; get?(k: string): Promise<string | null> };
 export type LimitResult = { ok: boolean; count: number; limit: number; retryAfterSec: number };
 
 const mem = new Map<string, { n: number; exp: number }>();
@@ -15,6 +15,7 @@ export const memoryCounter: CounterStore = {
     return ++e.n;
   },
   async ttl(k) { const e = mem.get(k); return e ? Math.max(0, Math.ceil((e.exp - Date.now()) / 1000)) : -2; },
+  async get(k) { const e = mem.get(k); return e && e.exp > Date.now() ? String(e.n) : null; },
 };
 
 export async function hitLimit(store: CounterStore, key: string, limit: number, windowSec: number): Promise<LimitResult> {
@@ -35,8 +36,13 @@ export function clientIp(h: { get(name: string): string | null }): string {
 export const BUNDLER_LIMITS = {
   /** default 60/60 s; override with BUNDLER_SEND_PER_SENDER (see bundlerSendPerSender) — raising it is lee's call */
   sendPerSender: { limit: 60, windowSec: 60 },
-  /** retries of the SAME press (same sender + pressId) that don't count toward sendPerSender (BUNDLER_PRESS_FREE_RETRIES) */
+  /**
+   * AUDIT L1: retries of the SAME press (sender + pressId) that don't count toward sendPerSender — earned ONLY by a
+   * server-side rejection of that press BEFORE anything was submitted (BUNDLER_PRESS_FREE_RETRIES).
+   */
   pressFreeRetries: 2,
+  /** AUDIT L1: cap on free-retry grants per sender per sendPerSender window (all presses together). */
+  pressFreeGrantsPerSender: 10,
   sendPerIp: { limit: 120, windowSec: 60 },
   /** eth_estimateUserOperationGas + disciple_warm (RPC simulation / balance reads) */
   simPerIp: { limit: 120, windowSec: 60 },
@@ -53,17 +59,48 @@ export function bundlerSendPerSender(env: Record<string, string | undefined> = p
   };
 }
 export const PRESS_ID = /^[0-9a-f]{16,64}$/;
+type PressLim = { limit: number; windowSec: number; pressFreeRetries: number };
+const pressOk = (id: unknown): id is string => typeof id === "string" && PRESS_ID.test(id);
+const grantKey = (sender: string, id: string) => `rl:bundler:press:grant:${sender}:${id}`;
+const usedKey = (sender: string, id: string, i: number) => `rl:bundler:press:used:${sender}:${id}:${i}`;
+
 /**
- * Rapid taps (spec item 10, server side): a press's FIRST send counts toward the per-sender limit; its next
- * `pressFreeRetries` sends with the same pressId (client retries after a transient error, rebuilt with a fresh quote)
- * don't. Beyond that — or without a well-formed pressId — every send counts, so a reused id can't bypass the limit.
- * The per-IP limit always counts (checked separately by the route).
+ * Rapid taps (spec item 10, server side) — AUDIT L1. Every send counts toward the per-sender limit EXCEPT a retry of a
+ * press the server itself rejected BEFORE submitting anything (notePressRejected: simulation / validation / fee-floor
+ * failure, no relayer tx signed). Each such rejection grants ONE free retry for that sender + pressId (at most
+ * `pressFreeRetries` per press, `pressFreeGrantsPerSender` per sender per window). A press that reached submission
+ * earns nothing, so a fresh client-chosen id buys nothing. No / malformed id, store errors ⇒ counted. The per-IP limit
+ * always counts (checked separately by the route).
  */
-export async function hitSenderSend(store: CounterStore, sender: string, pressId: unknown, lim: { limit: number; windowSec: number; pressFreeRetries: number }): Promise<LimitResult> {
-  if (typeof pressId === "string" && PRESS_ID.test(pressId) && lim.pressFreeRetries > 0) {
-    let n = 1;
-    try { n = await store.incrEx(`rl:bundler:press:${sender}:${pressId}`, lim.windowSec); } catch { /* unknown ⇒ counted */ }
-    if (n > 1 && n <= 1 + lim.pressFreeRetries) return { ok: true, count: 0, limit: lim.limit, retryAfterSec: 0 };
+export async function hitSenderSend(store: CounterStore, sender: string, pressId: unknown, lim: PressLim): Promise<LimitResult> {
+  if (pressOk(pressId) && lim.pressFreeRetries > 0 && store.get) {
+    try {
+      const g = Math.min(Number(await store.get(grantKey(sender, pressId))) || 0, lim.pressFreeRetries);
+      // grant i is consumed by the first send that claims its own counter (atomic INCR === 1): one free send per grant
+      for (let i = 1; i <= g; i++) if ((await store.incrEx(usedKey(sender, pressId, i), lim.windowSec)) === 1) return { ok: true, count: 0, limit: lim.limit, retryAfterSec: 0 };
+    } catch { /* unknown ⇒ counted */ }
   }
   return hitLimit(store, `bundler:send:sender:${sender}`, lim.limit, lim.windowSec);
+}
+
+/**
+ * AUDIT L1: the relay failed this send BEFORE submitting anything — no relayer tx was signed (no txHash) and the
+ * reason is a pre-flight simulation / validation / fee-floor / policy rejection. Anything that may have reached the
+ * node (txHash known, timeouts, network, relayer not configured, unknown) is NOT a pre-send rejection.
+ */
+export function rejectedBeforeSend(e: unknown): boolean {
+  const x = e as { txHash?: unknown; code?: unknown; message?: unknown } | undefined;
+  if (!x || x.txHash || x.code === "relayer_not_configured") return false;
+  if (x.code === "fee" || x.code === "gas" || x.code === "paymaster") return true;   // RelayPolicyError (lib/aa/gasPolicy)
+  return /simulation failed|execution reverted|fee below relayer floor|above cap|\bAA[0-9]{2}\b/i.test(String(x.message ?? ""));
+}
+
+/** AUDIT L1: record a pre-send rejection of sender + pressId ⇒ grants ONE free retry (bounded per press and per sender). */
+export async function notePressRejected(store: CounterStore, sender: string, pressId: unknown, lim: PressLim & { grantsPerSender?: number }): Promise<boolean> {
+  if (!pressOk(pressId) || lim.pressFreeRetries <= 0) return false;
+  try {
+    const perSender = await store.incrEx(`rl:bundler:press:grants:${sender}`, lim.windowSec);
+    if (perSender > (lim.grantsPerSender ?? BUNDLER_LIMITS.pressFreeGrantsPerSender)) return false;
+    return (await store.incrEx(grantKey(sender, pressId), lim.windowSec)) <= lim.pressFreeRetries;
+  } catch { return false; }
 }

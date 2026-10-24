@@ -14,7 +14,7 @@ import { robinhoodTestnet } from "../chains";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, type RelayFrame } from "../aa/relayTypes";
 import { isRelayerNotConfigured } from "./relayer";
 
-export function streamRelay(params: unknown[], settle: () => Promise<unknown>): Response {
+export function streamRelay(params: unknown[], settle: () => Promise<unknown>, onError?: (e: unknown) => Promise<unknown>): Response {
   const enc = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(ctl) {
@@ -29,6 +29,7 @@ export function streamRelay(params: unknown[], settle: () => Promise<unknown>): 
         push(r);
       } catch (e) {
         await settle().catch(() => undefined);
+        await onError?.(e).catch(() => undefined);   // AUDIT L1: route records pre-send rejections (free retry grant)
         const x = e as { shortMessage?: string; message?: string; data?: unknown; txHash?: `0x${string}`; notSent?: boolean };
         const nc = isRelayerNotConfigured(e);
         const m = nc ? "relayer not configured" : (x.shortMessage || x.message || String(e)).split("\n")[0].slice(0, 300);

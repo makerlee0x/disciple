@@ -118,7 +118,7 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
       if (receipt?.status === "0x1") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
       if (!receipt) throw Object.assign(new Error(`relayer tx ${hash} not confirmed (timeout)`), { txHash: hash, userOpHash: userOpHash(op, robinhoodTestnet.id), unclear: true });
-      if (receipt.status !== "0x1") throw new Error(`relayer tx ${hash} reverted`);
+      if (receipt.status !== "0x1") throw Object.assign(new Error(`relayer tx ${hash} reverted`), { txHash: hash });   // submitted: never a pre-send rejection
       return userOpHash(op, robinhoodTestnet.id);
     }
     case "eth_getUserOperationReceipt": {

@@ -91,17 +91,56 @@ test("fast path (sync relay): TRANSIENT_SIM pre-flight ⇒ rebuild + fresh nonce
 });
 
 // ---- spec item 10 (server): retries of the same press don't count toward the per-sender limit ----
-import { hitSenderSend, bundlerSendPerSender, memoryCounter, BUNDLER_LIMITS } from "../lib/server/limits";
+import { hitSenderSend, notePressRejected, rejectedBeforeSend, bundlerSendPerSender, memoryCounter, BUNDLER_LIMITS } from "../lib/server/limits";
 import { newPressId } from "../lib/aa/fastPath";
 
-test("hitSenderSend: first send of a press counts, its next 2 retries don't, the 4th does; no/bad pressId always counts", async () => {
-  const lim = { limit: 2, windowSec: 60, pressFreeRetries: 2 }, sender = `0x${"ab".repeat(20)}-${Date.now()}`, press = newPressId();
+test("L1 hitSenderSend: WITHOUT a server pre-send rejection every send of a press counts (fresh ids buy nothing)", async () => {
+  const lim = { limit: 2, windowSec: 60, pressFreeRetries: 2 }, sender = `0x${"ab".repeat(20)}-${Date.now()}`;
   const r = [];
-  for (let i = 0; i < 4; i++) r.push(await hitSenderSend(memoryCounter, sender, press, lim));
-  assert.deepEqual(r.map((x) => x.ok), [true, true, true, true]);
-  assert.deepEqual(r.map((x) => x.count), [1, 0, 0, 2], "4th attempt of the same press counts");
-  assert.equal((await hitSenderSend(memoryCounter, sender, "not-a-press", lim)).ok, false, "malformed id counts ⇒ over the limit");
-  assert.equal((await hitSenderSend(memoryCounter, sender, undefined, lim)).ok, false);
+  for (let i = 0; i < 4; i++) r.push(await hitSenderSend(memoryCounter, sender, newPressId(), lim));   // fresh id each time
+  assert.deepEqual(r.map((x) => x.ok), [true, true, false, false], "limit 2 holds against fresh press ids");
+  const s2 = `${sender}-same`, p = newPressId(), r2 = [];
+  for (let i = 0; i < 3; i++) r2.push(await hitSenderSend(memoryCounter, s2, p, lim));                  // same id, never rejected
+  assert.deepEqual(r2.map((x) => x.count), [1, 2, 3]);
+});
+
+test("L1 hitSenderSend: a pre-send rejection grants ONE free retry per rejection, ≤ pressFreeRetries per press", async () => {
+  const lim = { limit: 100, windowSec: 60, pressFreeRetries: 2 }, sender = `0x${"cd".repeat(20)}-${Date.now()}`, p = newPressId();
+  assert.equal((await hitSenderSend(memoryCounter, sender, p, lim)).count, 1, "first send counts");
+  assert.equal(await notePressRejected(memoryCounter, sender, p, lim), true);
+  assert.equal((await hitSenderSend(memoryCounter, sender, p, lim)).count, 0, "retry after the rejection is free");
+  assert.equal((await hitSenderSend(memoryCounter, sender, p, lim)).count, 2, "no second rejection ⇒ next send counts");
+  assert.equal(await notePressRejected(memoryCounter, sender, p, lim), true);
+  assert.equal((await hitSenderSend(memoryCounter, sender, p, lim)).count, 0);
+  assert.equal(await notePressRejected(memoryCounter, sender, p, lim), false, "3rd grant > pressFreeRetries");
+  assert.equal((await hitSenderSend(memoryCounter, sender, p, lim)).count, 3);
+  // other sender, same id: nothing granted
+  assert.equal((await hitSenderSend(memoryCounter, `${sender}-other`, p, lim)).count, 1);
+  // malformed id never earns anything
+  assert.equal(await notePressRejected(memoryCounter, sender, "nope", lim), false);
+});
+
+test("L1 notePressRejected: capped per sender per window across presses; store without get ⇒ counted", async () => {
+  const lim = { limit: 100, windowSec: 60, pressFreeRetries: 2, grantsPerSender: 3 }, sender = `0x${"ef".repeat(20)}-${Date.now()}`;
+  const g = [];
+  for (let i = 0; i < 5; i++) g.push(await notePressRejected(memoryCounter, sender, newPressId(), lim));
+  assert.deepEqual(g, [true, true, true, false, false]);
+  const noGet = { incrEx: memoryCounter.incrEx, ttl: memoryCounter.ttl }, p = newPressId(), s2 = `${sender}-ng`;
+  await notePressRejected(noGet, s2, p, lim);
+  assert.equal((await hitSenderSend(noGet, s2, p, lim)).count, 1);
+});
+
+test("L1 rejectedBeforeSend: only pre-flight rejections with no tx signed", () => {
+  const E = (m: string, x: object = {}) => Object.assign(new Error(m), x);
+  assert.equal(rejectedBeforeSend(E("simulation failed: AA23 reverted")), true);
+  assert.equal(rejectedBeforeSend(E("fee below relayer floor: maxFeePerGas 1 < 2", { code: "fee" })), true);
+  assert.equal(rejectedBeforeSend(E("total gas 9 above cap 8", { code: "gas" })), true);
+  assert.equal(rejectedBeforeSend(E("Execution reverted with reason: AA25 invalid account nonce")), true);
+  assert.equal(rejectedBeforeSend(E("simulation failed: x", { txHash: "0x01" })), false, "signed ⇒ reached submission");
+  assert.equal(rejectedBeforeSend(E("relayer tx 0xab reverted", { txHash: "0xab" })), false);
+  assert.equal(rejectedBeforeSend(E("internal error", { code: -32603 })), false);
+  assert.equal(rejectedBeforeSend(E("relayer not configured", { code: "relayer_not_configured" })), false);
+  assert.equal(rejectedBeforeSend(E("network: fetch failed")), false);
 });
 
 test("bundlerSendPerSender: default unchanged (60/60 s, 2 free retries); env override validated", () => {
