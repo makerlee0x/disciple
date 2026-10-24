@@ -89,6 +89,9 @@ const en = {
   "sim.off": "◇ SIMULATED MARKET · OFF",
   "sim.auto": "(auto)",
   "exit": "Back to Launchpad",
+  /** SNIPER TAX countdown chip (lib/game/snipeCountdown.ts SNIPE_CHIP_KEY). Copy picked by lee 2026-10-24. {clock} = m:ss, {pct} = whole number.
+   *  Other locales fall back to this English string until BRAND/native translations land. */
+  "snipe.chip": "ANTI-SNIPE {clock} · {pct}%",
 } as const;
 export type I18nKey = keyof typeof en;
 type Dict = Partial<Record<I18nKey, string>>;

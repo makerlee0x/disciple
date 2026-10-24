@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
 import PnlHud from "@/components/PnlHud";
 import TradeBridge from "@/components/TradeBridge";
+import SnipeChip from "@/components/flight/SnipeChip";
+import { snipeState } from "@/lib/snipe";
 import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import { ARCHETYPES, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
@@ -91,6 +93,11 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const lb = run && phase !== "select" ? run.leaderboard() : [];
   const me = lb.findIndex((r) => r.arch === "you");
   const D = cfg.difficulties[difficulty];
+  // SNIPER TAX chip: sim launch = run t 0; params = the run's launch config (lib/config CURVE.antiSnipe* via lib/sim/config), so it
+  // matches what SimMarket.antiSnipe() charges; run.t follows speed / pause. Curve phase only (buys after graduation pay none).
+  const snipe = run && phase === "run" && run.m.phase === "curve"
+    ? snipeState({ launchTs: 0, nowSec: run.t, startPct: run.cfg.launch.antiSnipeStartBps / 100, windowSec: run.cfg.launch.antiSnipeDurationS })
+    : null;
 
   return (
     <>
@@ -100,6 +107,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" syncEvent={SIM_POS_EVENT} />
           <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
+          <SnipeChip state={snipe} />
         </>
       )}
       {phase === "run" && run && (
