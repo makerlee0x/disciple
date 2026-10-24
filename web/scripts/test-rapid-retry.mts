@@ -89,3 +89,37 @@ test("fast path (sync relay): TRANSIENT_SIM pre-flight ⇒ rebuild + fresh nonce
     assert.equal(rebuilds, 0); assert.deepEqual(sent[1].calls, sent[0].calls); assert.notEqual(sent[0].nonce, sent[1].nonce);
   }
 });
+
+// ---- spec item 10 (server): retries of the same press don't count toward the per-sender limit ----
+import { hitSenderSend, bundlerSendPerSender, memoryCounter, BUNDLER_LIMITS } from "../lib/server/limits";
+import { newPressId } from "../lib/aa/fastPath";
+
+test("hitSenderSend: first send of a press counts, its next 2 retries don't, the 4th does; no/bad pressId always counts", async () => {
+  const lim = { limit: 2, windowSec: 60, pressFreeRetries: 2 }, sender = `0x${"ab".repeat(20)}-${Date.now()}`, press = newPressId();
+  const r = [];
+  for (let i = 0; i < 4; i++) r.push(await hitSenderSend(memoryCounter, sender, press, lim));
+  assert.deepEqual(r.map((x) => x.ok), [true, true, true, true]);
+  assert.deepEqual(r.map((x) => x.count), [1, 0, 0, 2], "4th attempt of the same press counts");
+  assert.equal((await hitSenderSend(memoryCounter, sender, "not-a-press", lim)).ok, false, "malformed id counts ⇒ over the limit");
+  assert.equal((await hitSenderSend(memoryCounter, sender, undefined, lim)).ok, false);
+});
+
+test("bundlerSendPerSender: default unchanged (60/60 s, 2 free retries); env override validated", () => {
+  assert.deepEqual(bundlerSendPerSender({}), { limit: BUNDLER_LIMITS.sendPerSender.limit, windowSec: 60, pressFreeRetries: 2 });
+  assert.equal(BUNDLER_LIMITS.sendPerSender.limit, 60);
+  assert.equal(bundlerSendPerSender({ BUNDLER_SEND_PER_SENDER: "120" }).limit, 120);
+  assert.equal(bundlerSendPerSender({ BUNDLER_SEND_PER_SENDER: "-1" }).limit, 60);
+  assert.equal(bundlerSendPerSender({ BUNDLER_PRESS_FREE_RETRIES: "0" }).pressFreeRetries, 0);
+  assert.equal(bundlerSendPerSender({ BUNDLER_PRESS_FREE_RETRIES: "x" }).pressFreeRetries, 2);
+});
+
+test("SITE shape sendCalls(calls, { rebuild }) + the retry carries the SAME pressId to the relay", async () => {
+  await FEES.get(async () => ({ maxFeePerGas: BigInt(2), maxPriorityFeePerGas: BigInt(1) }));
+  const { a, sent } = fakeAccount({ deployed: true });
+  const orig = globalThis.fetch, bodies: { params: unknown[] }[] = [];
+  globalThis.fetch = (async (_u: unknown, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return bodies.length === 1 ? Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32500, message: "AA23 reverted" } }) : Response.json({ jsonrpc: "2.0", id: 1, result: CONF }); }) as unknown as typeof fetch;
+  try { await a.sendCalls(CALLS, { rebuild: async () => [approve, buy(9)] }); } finally { globalThis.fetch = orig; }
+  assert.deepEqual(sent[1].calls, [approve.data, buy(9).data]);
+  const ids = bodies.map((b) => (b.params[2] as { pressId: string }).pressId);
+  assert.equal(ids.length, 2); assert.match(ids[0], /^[0-9a-f]{24}$/); assert.equal(ids[0], ids[1]);
+});

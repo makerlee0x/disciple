@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
-import { BUNDLER_LIMITS, clientIp, hitLimit, type LimitResult } from "@/lib/server/limits";
+import { BUNDLER_LIMITS, bundlerSendPerSender, clientIp, hitLimit, hitSenderSend, type LimitResult } from "@/lib/server/limits";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
 
@@ -33,7 +33,9 @@ async function limited(req: Request, method: string, params: unknown[]): Promise
   if (SEND.has(method)) {
     const sender = String((params[0] as { sender?: unknown } | undefined)?.sender ?? "").toLowerCase();
     const checks = [hitLimit(s, `bundler:send:ip:${ip}`, BUNDLER_LIMITS.sendPerIp.limit, BUNDLER_LIMITS.sendPerIp.windowSec)];
-    if (/^0x[0-9a-f]{40}$/.test(sender)) checks.push(hitLimit(s, `bundler:send:sender:${sender}`, BUNDLER_LIMITS.sendPerSender.limit, BUNDLER_LIMITS.sendPerSender.windowSec));
+    // rapid taps: retries of the same press (params[2].pressId, lib/aa/relayClient) don't count toward the sender limit
+    const pressId = (params[2] as { pressId?: unknown } | undefined)?.pressId;
+    if (/^0x[0-9a-f]{40}$/.test(sender)) checks.push(hitSenderSend(s, sender, pressId, bundlerSendPerSender()));
     return (await Promise.all(checks)).find((r) => !r.ok) ?? null;
   }
   if (SIM.has(method)) { const r = await hitLimit(s, `bundler:sim:ip:${ip}`, BUNDLER_LIMITS.simPerIp.limit, BUNDLER_LIMITS.simPerIp.windowSec); return r.ok ? null : r; }

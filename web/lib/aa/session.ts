@@ -15,7 +15,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
 import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import type { SendOpts } from "./fastPath";
+import { newPressId, type SendOpts } from "./fastPath";
 import { fallbackGasReserve, fallbackUsdgDecimals } from "./gasReserve";
 import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
@@ -181,11 +181,11 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
  * fresh nonce key. No refill available ⇒ the original FundAccount error.
  */
 async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, o: SendOpts = {}) {
-  try { return await sa!.sendCalls(calls, as, true, o); }
+  try { return await sa!.sendCalls(calls, { ...o, as }); }
   catch (e) {
     // a USDG shortfall (USDG-paid network cost) can't be fixed by an ETH refill: surface "Not enough USDG" as is
     if ((e as AAError).code !== "FundAccount" || (e as AAError).extra?.usdg || !(await refillGas(me))) throw e;
-    return sa!.sendCalls(calls, as, true, o);
+    return sa!.sendCalls(calls, { ...o, as });
   }
 }
 /** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
@@ -450,8 +450,9 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  * budget has headroom; otherwise the owner (Privy embedded wallet, signs silently). Never refuses for "spend limit":
  * an exhausted session just means the owner signs (bug #1).
  */
-export async function aaSend(calls: Call[], o: SendOpts = {}) {
+export async function aaSend(calls: Call[], o0: SendOpts = {}) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
+  const o: SendOpts = { ...o0, pressId: o0.pressId ?? newPressId() };   // one press: refill retry + owner fallback share it
   const d = deployment();
   const me = await sa.address();
   // Client mirror of the session policy: decides whether the SESSION KEY may sign. A call outside it (withdraw transfer,
@@ -474,7 +475,7 @@ export async function aaSend(calls: Call[], o: SendOpts = {}) {
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
-      r = await sa.sendCalls(calls, "owner", true, o);
+      r = await sa.sendCalls(calls, { ...o, as: "owner" });
     } else throw e;
   }
   gasListeners.forEach((f) => f("self-pay"));

@@ -117,6 +117,9 @@ export async function activeAddress(): Promise<Address> {
  * Warm allowance maxTokenCost ?? paymaster maxCostCap ?? (cold) 10 USDG; 0n when gas isn't paid in USDG (EOA / ETH).
  */
 export function gasReservePerOp(): bigint { return isSmartMode() ? aaGasReservePerOp() : BigInt(0); }
+// SITE #144 (lib/trade/reservations, not in this base yet) — at rebase add, once at module scope here:
+//   import { setGasReserveSource } from "@/lib/trade/reservations";
+//   setGasReserveSource(() => gasReservePerOp());   // raw USDG base units (18 dec testnet mUSDG, 6 mainnet); 0n ⇒ ETH gas
 /** Same, but null while cold (nothing cached yet) instead of the fallback constant. */
 export function peekGasReservePerOp(): bigint | null { return isSmartMode() ? aaPeekGasReservePerOp() : BigInt(0); }
 

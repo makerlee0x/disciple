@@ -9,11 +9,13 @@ import { RELAY_METHOD, RELAY_STREAM_ACCEPT, type RelayConfirmed, type RelayFrame
 
 export type RelayAnswer = { result?: RelayConfirmed; error?: { code: number; message: string; data?: unknown } };
 
-export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onPending?: (p: RelayPending) => void, fetchImpl: typeof fetch = fetch): Promise<RelayAnswer> {
+/** `meta.pressId` (rapid taps): the same id on every retry of ONE press ⇒ the relay doesn't count those retries toward
+ * the per-sender send limit (lib/server/limits.hitSenderSend). Sent as an optional 3rd param; absent ⇒ wire unchanged. */
+export async function relaySend(url: string, wire: unknown, entryPoint: Hex, onPending?: (p: RelayPending) => void, fetchImpl: typeof fetch = fetch, meta?: { pressId?: string }): Promise<RelayAnswer> {
   let r: Response;
   try {
     r = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json", accept: `${RELAY_STREAM_ACCEPT}, application/json` }, keepalive: true,
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: RELAY_METHOD, params: [wire, entryPoint] }) });
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: RELAY_METHOD, params: meta?.pressId ? [wire, entryPoint, { pressId: meta.pressId }] : [wire, entryPoint] }) });
   } catch (e) { return { error: { code: -32099, message: `network: ${(e as Error).message}` } }; }
   if (!(r.headers.get("content-type") || "").includes(RELAY_STREAM_ACCEPT) || !r.body)
     return (await r.json().catch(() => ({ error: { code: -32098, message: `relay response unreadable (HTTP ${r.status})` } }))) as RelayAnswer;

@@ -11,7 +11,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, type GasLimits, type Fees, type SendOpts } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -249,8 +249,12 @@ export class Mav2Account {
    * (disciple_sendUserOperationSync: the self-bundler relays handleOps immediately and answers with the receipt).
    * `o.rebuild` (rapid taps): the ONE transient-error retry re-quotes via rebuild() (fresh minOut) instead of re-sending
    * the stale calls; every attempt, retries included, takes a fresh 2D nonce key. The fee-floor retry keeps the calls.
+   * Shapes: sendCalls(calls, { rebuild, as, feeRetry, pressId }) (SITE #144) or the positional (calls, as, feeRetry, o).
    */
-  async sendCalls(calls: Call[], as: "owner" | "session" = "owner", feeRetry = true, o: SendOpts = {}): Promise<SendResult> {
+  async sendCalls(calls: Call[], asOrOpts: "owner" | "session" | SendCallsOpts = "owner", feeRetry0 = true, o0: SendOpts = {}): Promise<SendResult> {
+    const so: SendCallsOpts = typeof asOrOpts === "string" ? { ...o0, as: asOrOpts, feeRetry: feeRetry0 } : asOrOpts;
+    const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
+    const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId ?? newPressId() };   // same press id on every retry
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
@@ -402,7 +406,7 @@ export class Mav2Account {
     t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
   }): Promise<SendResult | null> {
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
-      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash }));
+      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash }), fetch, { pressId: c.opts.pressId });
       const t3 = now();
       // Ambiguous failure (lost response, receipt timeout, nonce already used): the op may have landed — check before failing.
       if (j.error && hash && j.error.code !== -32601 && AMBIGUOUS_RELAY.test(j.error.message)) {

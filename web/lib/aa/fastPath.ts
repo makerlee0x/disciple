@@ -89,7 +89,18 @@ export class FeeCache {
  * retry (lagging-node pre-flight, TRANSIENT_SIM) — the original calls were priced before the preceding in-flight ops
  * moved the curve, so re-sending them verbatim would just revert on min-out. Fee-floor retries keep the same calls.
  */
-export type SendOpts = { rebuild?: () => Promise<Call[]> };
+export type SendOpts = {
+  rebuild?: () => Promise<Call[]>;
+  /** One id per PRESS, kept across its retries (set by sendCalls when absent): the relay doesn't count retries of the
+   * same press toward the per-sender limit (spec item 10, lib/server/limits.hitSenderSend). */
+  pressId?: string;
+};
+/** SITE's shape (#144): sendCalls(calls, { rebuild }) — plus the signer / fee-retry switches as options. */
+export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean };
+export function newPressId(): string {
+  const a = new Uint8Array(12); (globalThis.crypto as Crypto).getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 /**
  * The calls to retry with: rebuild() when given and it keeps the same shape (same targets + selectors ⇒ same gas class
  * and the same session-policy decision); otherwise (no rebuild, it threw, or the shape changed) the original calls.
