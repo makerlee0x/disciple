@@ -318,6 +318,29 @@ class RpcSource {
 const POOL={addr:'0xc4a21f9d6485fc5893dd4a491b320a83daf4da1d', http:RH.http, dec0:18, dec1:18, spacing:200,
   topic:'0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'};  // v3 Swap(address,address,int256,int256,uint160,uint128,int24)
 const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4) : String(a).slice(0,16);   // sim bots pass names
+/* @feed-names:start — TRADES feed names + history seed + narrow HUD column (test: scripts/test-feed-names.mjs).
+   Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
+   event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
+   that arrives after the row was drawn relabels it. */
+const NAMES={};
+function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
+  return n?'@'+String(n).replace(/^@/,'').slice(0,11):short(a); }
+function feedTradeRow(side,usd,who,trader){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
+  const r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1}; if(who==null&&trader){ r.tr=String(trader).toLowerCase(); r.pre=pre; } return r; }
+function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null) r.txt=r.pre+nameOf(r.tr); }
+/* after a reload the feed is empty (since #113 it lists live swaps only): seed it from the newest indexed fills (/api/trades,
+   newest first), below any live rows already there, deduped by tx[:logIndex]; dollars only (fillUsd = USDG paid/received). */
+function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
+  for(const f of fills){ if(n>=max) break; if(!f||(seen&&(seen.has(f.tx+':'+f.logIndex)||seen.has(f.tx)))) continue;
+    const u=fillUsd(f); if(!(u>0)) continue; const mine=!!me&&String(f.trader||'').toLowerCase()===me;
+    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader); r.hist=1; feed.push(r); out.push(r); n++; }
+  feed.length=Math.min(feed.length,7); return out; }
+/* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
+   (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
+   --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
+const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
+function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+/* @feed-names:end */
 const i256=h=>BigInt.asIntN(256,BigInt('0x'+h));
 class PoolV3Base {
   constructor(){ this.paper=1; this.real=null; this.L=null; this.levels=[]; this.supply=(window.REPLAY&&REPLAY.totalSupply)||null; this.ethUsd=(window.REPLAY&&REPLAY.ethUsd)||null; }
@@ -515,6 +538,7 @@ if (source instanceof DiscipleSource) S.fuelers={'you':0};   // live coin: no fa
 S.holders=null; S.wallet='';
 addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
 addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address; S.wallet=typeof a==='string'?a.toLowerCase():''; });
+addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m) if(typeof m[k]==='string'&&m[k]) NAMES[k.toLowerCase()]=m[k]; feedRelabel(S.feed); });
 function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
 function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
 if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
@@ -532,8 +556,8 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift({txt:`${e.side==='buy'?'▲ BOOST':'▼ DUMP'} ${(e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)).padStart(7)}  ${e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?short(e.trader):'#'+e.block}`, c:e.side==='buy'?'#9ff3c8':'#ffb0c8'}); }
-    if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${short(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
+      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
+    if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
@@ -1412,7 +1436,7 @@ function drawHud(){
   drawTierBar(m,ti);   /* HUD+ block */
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
-  S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); const RT=Math.round(S.hudRT), RX=W-330;   // eased: no HUD jump when the wallet strip changes height
+  S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); const RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330;   // eased: no HUD jump when the wallet strip changes height
   panel(RX,RT,310,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
@@ -2149,11 +2173,14 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
    when the page exposes the wallet (window.__flightWallet or ?wallet=). */
 /* real USDG of an indexed fill (/api/trades, SITE #113): sells usdOut (received), buys usdIn (paid); older fills lack them ⇒ usd */
 function fillUsd(f){ const v=f&&(f.side==='sell'?(f.usdOut??f.usd):(f.usdIn??f.usd)); return +v>0?+v:0; }
+function feedHistNames(rows){ const want=[...new Set(rows.filter(r=>r.tr&&/^0x[0-9a-f]{40}$/.test(r.tr)&&!NAMES[r.tr]&&!(window.__discipleNames&&window.__discipleNames[r.tr])).map(r=>r.tr))];
+  for(const a of want) fetch('/api/profile/username?address='+a,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ const n=j&&typeof j.username==='string'&&j.username.trim(); if(n){ NAMES[a]=n; feedRelabel(S.feed); } }).catch(()=>{}); }
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
   fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
     const fs=fills.filter(f=>!(C.seen.has(f.tx+':'+f.logIndex)||C.seen.has(f.tx))).map(f=>({t:f.ts/1000,m:+f.mcapUsd,usd:fillUsd(f),side:f.side,mine:!!me&&String(f.trader).toLowerCase()===me}));
     chartSeedK(C.k,fs,keep); C.hist=2;
+    feedHistNames(feedSeedFills(S.feed,fills,myWallet()||me,C.seen));   // TRADES after a reload: newest indexed fills (+ their names)
     /* no live swap yet → seed the confirmed mcap from the latest indexed fill so the game (and the chart) render right away */
     if(S.confirmed.mcap===null){ const lf=fills.reduce((a,f)=>!a||f.block>a.block||(f.block===a.block&&f.logIndex>a.logIndex)?f:a,null), lm=lf&&+lf.mcapUsd;
       if(lm>0){ if(source&&'mcap' in source&&source.mcap==null) source.mcap=lm; S.confirmed.mcap=lm; if(S.displayAlt===null) S.displayAlt=mcapToAlt(lm); } }
@@ -2209,7 +2236,7 @@ const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*864
 const GRID_COLS='ABCDEFGH';
 const CHART_PNL_BOTTOM=456;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
-  if (source.isSim){ const y=Math.round((S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
+  if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
 function chartBtnAt(e){ const C=CH; if(!C||!C.on||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();

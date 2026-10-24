@@ -26,6 +26,9 @@ declare global {
   }
 }
 
+/** = engine.js HUD_NARROW_W / HUD_NARROW_TOP (narrow screens: right HUD column below the MARKET CAP panel). */
+const HUD_NARROW_W = 740, HUD_NARROW_TOP = 158;
+
 type Props = {
   /** Query string without leading ? (replay, speed, zoom, source, launched, …) */
   search: string;
@@ -185,14 +188,17 @@ export default function FlightCanvas({ search }: Props) {
   // Top-right stacking: the site's wallet strip (top-right, height varies with its state) comes first,
   // then the Settings(gear)/Exit row, then the in-canvas status column + crew panel. Measured, not hardcoded.
   useEffect(() => {
-    let last = -1;
+    let last = "";
     const tick = () => {
       const w = document.querySelector('[aria-label="wallet"]') as HTMLElement | null;
       const b = w ? Math.ceil(w.getBoundingClientRect().bottom) : 0;
-      if (b === last) return;
-      last = b;
+      const vw = Math.round(wrapRef.current?.clientWidth || innerWidth);
+      if (`${b}:${vw}` === last) return;
+      last = `${b}:${vw}`;
       const row = Math.max(12, b + 8);
-      const hudRT = row + 38 + 10;
+      // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
+      // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
+      const hudRT = vw < HUD_NARROW_W ? Math.max(row + 38 + 10, HUD_NARROW_TOP) : row + 38 + 10;
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
       st.setProperty("--ap-hud-rt", hudRT + "px");
