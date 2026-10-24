@@ -13,7 +13,7 @@ import "server-only";
  */
 import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
-import { DEFAULT_SYNC_TIMEOUT_MS, isNonceErr, jsonRpc, syncSend, type Endpoint, type RpcErr } from "./syncSend";
+import { DEFAULT_SYNC_TIMEOUT_MS, isNonceErr, jsonRpc, syncSend, type Endpoint, type RpcErr, type TimeoutFormat } from "./syncSend";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -119,14 +119,16 @@ export async function warmRelay(sender?: string) {
 
 /**
  * Item 1 (feat/trade-latency): RHT_SEQUENCER_URL (server env, e.g. https://sequencer.testnet.chain.robinhood.com) ⇒
- * send-only endpoint for eth_sendRawTransactionSync with a NUMERIC timeout (RHT_SYNC_TIMEOUT_MS, default 2000);
+ * send-only endpoint for eth_sendRawTransactionSync ([raw] by default; optional timeout param, see lib/server/syncSend);
  * public-RPC fallback on any sequencer error. Unset ⇒ the public RPC exactly as before ([raw], no timeout param).
  */
 const RPC_URL = robinhoodTestnet.rpcUrls.default.http[0];
+/** RHT_SYNC_TIMEOUT_FORMAT=none (default: [raw] only) | number | hex — unverified on RH until a live tx lands. */
+const TIMEOUT_FORMAT: TimeoutFormat = process.env.RHT_SYNC_TIMEOUT_FORMAT === "number" || process.env.RHT_SYNC_TIMEOUT_FORMAT === "hex" ? process.env.RHT_SYNC_TIMEOUT_FORMAT : "none";
 const SYNC_TIMEOUT_MS = Number(process.env.RHT_SYNC_TIMEOUT_MS) > 0 ? Number(process.env.RHT_SYNC_TIMEOUT_MS) : DEFAULT_SYNC_TIMEOUT_MS;
 const SEQ: Endpoint | undefined = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "")
-  ? { name: "sequencer", rpc: jsonRpc(process.env.RHT_SEQUENCER_URL!, SYNC_TIMEOUT_MS + 1500), timeoutFormat: "number" } : undefined;
-const RPC: Endpoint = { name: "rpc", rpc: jsonRpc(RPC_URL, 25_000), timeoutFormat: "none" };
+  ? { name: "sequencer", rpc: jsonRpc(process.env.RHT_SEQUENCER_URL!, 25_000), timeoutFormat: TIMEOUT_FORMAT } : undefined;
+const RPC: Endpoint = { name: "rpc", rpc: jsonRpc(RPC_URL, 25_000), timeoutFormat: "none" };   // today's call: [raw]
 const hx = (v: bigint | number | undefined) => (v === undefined ? undefined : (`0x${BigInt(v).toString(16)}` as Hex));
 async function receiptOf(hash: Hex): Promise<RelayReceipt | null> {
   const rc = await pc.getTransactionReceipt({ hash }).catch(() => null) as TransactionReceipt | null;

@@ -4,10 +4,12 @@
  *
  * Order: RHT_SEQUENCER_URL (send-only endpoint, ≈0.6 s p50 ahead of the public RPC's view) → public RPC.
  *  - unset sequencer ⇒ exactly today's call: eth_sendRawTransactionSync [raw] on the public RPC (no timeout param).
- *  - timeout PARAM FORMAT differs per endpoint: RH's sequencer rejects a hex string (-32602 "cannot unmarshal string
- *    into Go value of type uint64") and needs a JSON number ([raw, 2000]); the public RPC was seen rejecting the
- *    number. Each endpoint starts with its configured format and flips number⇄hex once on a -32602 unmarshal error
- *    (memoized on the Endpoint object).
+ *  - timeout PARAM: UNVERIFIED until a live tx lands. Two real tests on RH's sequencer got OPPOSITE -32602 parse
+ *    rejections (hex "0x7d0" → "cannot unmarshal string into … uint64"; number 2000 → "cannot unmarshal non-string
+ *    into hexutil.Uint64") — inconsistent backends. Default is therefore [raw] only (no timeout param, the node's
+ *    default wait). RHT_SYNC_TIMEOUT_FORMAT=number|hex opts in; a -32602 parse rejection that mentions the timeout
+ *    means the tx was NOT accepted, so we retry once in the other format, then fall back to [raw], then to
+ *    eth_sendRawTransaction + server-side receipt wait (pushed to the client). The working format is memoized.
  *  - sequencer network / 5xx / unknown error ⇒ resend the SAME signed tx to the public RPC (idempotent: "already
  *    known" ⇒ it's in, wait for it).
  *  - timeout (EIP-7966 code 4, or "timeout"/"timed out") or "already known" ⇒ onPending({ txHash }) and wait for the
@@ -24,7 +26,8 @@ export type RpcErr = Error & { code?: number; data?: unknown; txHash?: Hex };
 
 export const DEFAULT_SYNC_TIMEOUT_MS = 2000;
 
-export const isUnmarshalErr = (e: RpcErr) => e.code === -32602 && /unmarshal|invalid argument|cannot|uint64|hex/i.test(e.message);
+/** -32602 parse rejection of the params (the tx was not accepted ⇒ resending is safe). */
+export const isUnmarshalErr = (e: RpcErr) => e.code === -32602 && /unmarshal|uint64|hexutil|invalid argument|timeout/i.test(e.message);
 export const isNotSupported = (e: RpcErr) => e.code === -32601 || /method not found|not supported|does not exist/i.test(e.message);
 export const isTimeoutErr = (e: RpcErr) => e.code === 4 || /timed? ?out|timeout|deadline/i.test(e.message);
 export const isAlreadyKnown = (e: RpcErr) => /already known|known transaction|already imported/i.test(e.message);
@@ -36,13 +39,19 @@ function params(raw: Hex, fmt: TimeoutFormat, timeoutMs: number): unknown[] {
   return fmt === "number" ? [raw, timeoutMs] : fmt === "hex" ? [raw, `0x${timeoutMs.toString(16)}`] : [raw];
 }
 
+/** eth_sendRawTransactionSync with the endpoint's format; on a param-parse rejection: other format once, then [raw]. */
 async function callSync(ep: Endpoint, raw: Hex, timeoutMs: number): Promise<RelayReceipt> {
-  try { return (await ep.rpc("eth_sendRawTransactionSync", params(raw, ep.timeoutFormat, timeoutMs))) as RelayReceipt; }
-  catch (e) {
-    if (!isUnmarshalErr(e as RpcErr) || ep.timeoutFormat === "none") throw e;
-    ep.timeoutFormat = ep.timeoutFormat === "number" ? "hex" : "number";   // memoized for the next send
-    return (await ep.rpc("eth_sendRawTransactionSync", params(raw, ep.timeoutFormat, timeoutMs))) as RelayReceipt;
+  const order: TimeoutFormat[] = ep.timeoutFormat === "none" ? ["none"]
+    : [ep.timeoutFormat, ep.timeoutFormat === "number" ? "hex" : "number", "none"];
+  let last: unknown;
+  for (const fmt of order) {
+    try {
+      const rc = (await ep.rpc("eth_sendRawTransactionSync", params(raw, fmt, timeoutMs))) as RelayReceipt;
+      ep.timeoutFormat = fmt;   // memoize what this backend accepted
+      return rc;
+    } catch (e) { if (!isUnmarshalErr(e as RpcErr)) throw e; last = e; }
   }
+  throw Object.assign(last as RpcErr, { paramsRejected: true });
 }
 
 export type SyncSendResult = { rc: RelayReceipt; via: RelayVia; sendMs: number; minedMs: number; pending: boolean };
@@ -75,6 +84,11 @@ export async function syncSend(raw: Hex, txHash: Hex, o: SyncSendOpts): Promise<
     } catch (e) {
       const err = e as RpcErr;
       if (ep === o.sequencer && (err.code === -32099 || err.code === -32098)) continue;   // transport: resend via the RPC
+      if ((err as { paramsRejected?: boolean }).paramsRejected) {
+        // every param form rejected at parse time (nothing accepted): plain send on this endpoint, receipt pushed later
+        try { await ep.rpc("eth_sendRawTransaction", [raw]); } catch (e2) { if (!isAlreadyKnown(e2 as RpcErr)) { if (ep === o.sequencer) continue; throw tag(e2); } }
+        ep.syncSupported = false; reason = "sync-unsupported"; break;
+      }
       if (isTimeoutErr(err) || isAlreadyKnown(err)) { reason = "sync-timeout"; break; }
       if (isNotSupported(err)) { ep.syncSupported = false; if (ep === o.rpc) { try { await ep.rpc("eth_sendRawTransaction", [raw]); } catch (e2) { if (!isAlreadyKnown(e2 as RpcErr)) throw tag(e2); } reason = "sync-unsupported"; break; } continue; }
       if (isRejected(err)) throw tag(err);

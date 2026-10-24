@@ -80,7 +80,7 @@ const gasListeners = new Set<(m: GasMode, r?: string) => void>();
 export function onGasMode(f: (m: GasMode, r?: string) => void) { gasListeners.add(f); f("self-pay"); return () => { gasListeners.delete(f); }; }
 const sessListeners = new Set<() => void>();
 export function onSessionChange(f: () => void) { sessListeners.add(f); return () => { sessListeners.delete(f); }; }
-const changed = () => sessListeners.forEach((f) => f());
+const changed = () => { sessListeners.forEach((f) => f()); scheduleRenewal(); };
 
 function save() { try { if (state) localStorage.setItem(LS, JSON.stringify(state)); else localStorage.removeItem(LS); } catch {} }
 function load(): Stored | null { try { const s = JSON.parse(localStorage.getItem(LS) || "null"); return s && s.expiresAt > Date.now() ? s : null; } catch { return null; } }
@@ -161,12 +161,53 @@ export function maybeAutoOneTap(why: string) {
   autoBusy = (async () => {
     const a = await acct.address();
     const code = await publicClient().getCode({ address: a }).catch(() => undefined);
-    if (!code || code === "0x") return;   // not deployed yet: the first trade deploys it, then we retry
+    if (code === undefined) return;       // RPC hiccup: retry on the next trigger
+    if (code === "0x") {
+      // item 4: install the session TOGETHER with the account deploy (one owner op: factory + installValidation), so the
+      // very first trade already signs with the session key. Needs gas: wait for the login drip (self-pay) first.
+      if (!SESSION_AT_DEPLOY || why !== "login") return;   // else: the first trade deploys it, then we retry
+      if (acct.gasMode !== "usdg") await refillGas(a);
+      try { await enableOneTap(); autoTried = true; autoError = ""; } catch (e) { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn("[one-tap] install-at-deploy failed (first trade deploys instead):", autoError); }
+      return;
+    }
     autoTried = true;
     try { await enableOneTap(); autoError = ""; } catch (e) { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn(`[one-tap] auto setup (${why}) failed:`, autoError); }
   })().finally(() => { autoBusy = null; changed(); });
   changed();
 }
+/* ---------- item 4 (feat/trade-latency): session at deploy + background renewal ----------
+ * NEXT_PUBLIC_SESSION_AT_DEPLOY=0 restores "install after the first (owner-signed) trade deploys the account".
+ * Renewal: SESSION_RENEW_AHEAD_MS before validUntil a fresh session (same policy, same slippage, same spend-limit
+ * setting — nothing widens beyond what an expiry + auto re-install already does) is installed by the owner in the
+ * background; the old one simply expires. Trades never wait for it and never see an expired key. */
+const SESSION_AT_DEPLOY = process.env.NEXT_PUBLIC_SESSION_AT_DEPLOY !== "0";
+export const SESSION_RENEW_AHEAD_MS = 10 * 60_000;
+/** ms until the background renewal of a session valid until `validUntilSec` (≥ 5 s, so a stale one renews soon). */
+export function renewalDelayMs(validUntilSec: number, nowMs = Date.now()): number {
+  return Math.max(5_000, validUntilSec * 1000 - SESSION_RENEW_AHEAD_MS - nowMs);
+}
+let renewTimer: ReturnType<typeof setTimeout> | undefined;
+let renewFor = 0;
+function scheduleRenewal() {
+  if (typeof window === "undefined") return;
+  const vu = onchain?.validUntil ?? 0;
+  if (vu === renewFor) return;
+  if (renewTimer) clearTimeout(renewTimer);
+  renewTimer = undefined; renewFor = vu;
+  if (!vu || !ONE_TAP_AUTO || userStoppedOneTap) return;
+  const slip = onchain!.maxSlippageBps;
+  renewTimer = setTimeout(() => {
+    if (!onchain || onchain.validUntil !== vu || autoBusy || userStoppedOneTap) return;
+    autoBusy = enableOneTap({ maxSlippageBps: slip })
+      .then(() => { autoError = ""; })
+      .catch((e) => { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn("[one-tap] background renewal failed:", autoError); renewFor = 0; })
+      .finally(() => { autoBusy = null; changed(); });
+    changed();
+  }, Math.min(renewalDelayMs(vu), 2 ** 31 - 1));
+}
+/** endOneTap sets this: no auto renewal of a session the user turned off. */
+let userStoppedOneTap = false;
+
 /** One-tap state for the UI: on (session key signs), setting-up (auto install in flight), or off (owner signs, silently). */
 export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
   return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
@@ -356,7 +397,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const r = await sa.sendCalls([{ to: account, data: s.data }], "owner");
   onchain = { account, entityId: s.entityId, key, validUntil: s.validUntil, maxSlippageBps, policy: SESSION_POLICY,
     caps: Object.fromEntries(caps.map((c) => [c.token.toLowerCase(), c.cap.toString()])), spent: {} };
-  saveSessionKey();
+  saveSessionKey(); userStoppedOneTap = false;
   await sa.useSession(s.entityId, privateKeyToAccount(key));
   changed();
   return { ...r, entityId: s.entityId, validUntil: s.validUntil, maxSlippageBps };
@@ -400,7 +441,7 @@ export async function endOneTap() {
   const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
   const data = sk.buildUninstallSession(onchain.entityId, { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) });
   const r = await sa.sendCalls([{ to: await sa.address(), data }], "owner");
-  onchain = null; sa.clearSession(); autoTried = true;   // the user ended it on purpose: don't auto-reinstall this page
+  onchain = null; sa.clearSession(); autoTried = true; userStoppedOneTap = true;   // the user ended it on purpose: don't auto-reinstall this page
   saveSessionKey();
   changed();
   return r;
