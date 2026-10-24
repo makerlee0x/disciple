@@ -43,8 +43,8 @@ test("#1 sessionHasHeadroom: session key only while under cap; unknown caps ⇒ 
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(500) * E18 }), false);
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(400) * E18 }), true);
 });
-test("v4 wiring: session policy defaults to the v4 deployment on 46630", () => {
-  assert.equal(sessionPolicyFor(46630, ""), "0x3d3667e8880c6b633b424d645b8004788b1d6e27");
+test("v5 wiring: session policy defaults to the v5 deployment (1.4.1) on 46630", () => {
+  assert.equal(sessionPolicyFor(46630, ""), "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac");
   assert.equal(sessionPolicyFor(1, ""), "");
   assert.equal(sessionPolicyFor(46630, "0x0000000000000000000000000000000000000001"), "0x0000000000000000000000000000000000000001");
 });
