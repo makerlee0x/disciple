@@ -11,7 +11,7 @@ import {
   decodePaymasterData, encodePaymasterData, entryPointMaxCost, firstCallApproveAmount, formatUsdg, PAYMASTER_DATA_LENGTH, PAYMASTER_GAS,
   ALLOWANCE_GAS, ALLOWANCE_TYPEHASH, OP_QUOTE_TYPEHASH, paymasterAllowanceHash, paymasterApproveCall, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
 } from "../lib/aa/paymaster";
-import { ALLOWANCE_FEE_MULT, allowanceQuote, DEFAULT_ALLOWANCE_TTL_SEC, DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
+import { assertSignerMatches, paymasterSignerKey, ALLOWANCE_FEE_MULT, allowanceQuote, DEFAULT_ALLOWANCE_TTL_SEC, DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
 import { checkPaymaster, clientFees, GAS_CAPS, GRAD_GAS_CAPS, INFRA_WORDING, LAUNCH_GAS_CAPS, maxPrefund, NOT_ENOUGH_USDG, RelayPolicyError, relayerPrice, TRADING_UNAVAILABLE } from "../lib/aa/gasPolicy";
 import { launchpadAbi } from "../lib/abi/Launchpad";
 import { toFunctionSelector, type AbiFunction } from "viem";
@@ -462,4 +462,23 @@ test("allowance limit: rotating senders from one IP is still capped by the per-I
   for (let i = 0; i < BUNDLER_LIMITS.simPerIp.limit + 10; i++) if (await allowanceAllowed(ip, `0x${i.toString(16).padStart(40, "0")}`)) ok++;
   assert.equal(ok, BUNDLER_LIMITS.simPerIp.limit);
   assert.deepEqual(paymasterAllowanceLimits("1.2.3.4", "0xAbC").map((x) => x[0]), ["paymaster:ip:1.2.3.4", "paymaster:allow:1.2.3.4:0xabc"]);
+});
+
+// ── signer key selection (lee 2026-10-24 1:17 PM CT: reuse the login-attest key on testnet) ──
+test("paymasterSignerKey: PAYMASTER_SIGNER_KEY wins, falls back to PVE_ATTESTER_PRIVATE_KEY, never relayer/faucet", () => {
+  const own = generatePrivateKey(), att = generatePrivateKey(), rel = generatePrivateKey();
+  assert.deepEqual(paymasterSignerKey({ PAYMASTER_SIGNER_KEY: own, PVE_ATTESTER_PRIVATE_KEY: att }), { key: own, source: "PAYMASTER_SIGNER_KEY" });
+  assert.deepEqual(paymasterSignerKey({ PVE_ATTESTER_PRIVATE_KEY: att }), { key: att, source: "PVE_ATTESTER_PRIVATE_KEY" });
+  assert.deepEqual(paymasterSignerKey({ PAYMASTER_SIGNER_KEY: "  ", PVE_ATTESTER_PRIVATE_KEY: att }).source, "PVE_ATTESTER_PRIVATE_KEY");
+  const cfg = (f: () => unknown) => assert.throws(f, (e: unknown) => e instanceof PaymasterQuoteError && e.code === "config");
+  cfg(() => paymasterSignerKey({}));
+  cfg(() => paymasterSignerKey({ PAYMASTER_SIGNER_KEY: "0x1234", PVE_ATTESTER_PRIVATE_KEY: att })); // malformed own key: no silent fallback
+  cfg(() => paymasterSignerKey({ PVE_ATTESTER_PRIVATE_KEY: rel, RELAYER_PRIVATE_KEY: rel }));
+  cfg(() => paymasterSignerKey({ PVE_ATTESTER_PRIVATE_KEY: att, DRIP_FAUCET_KEY: att }));
+});
+
+test("assertSignerMatches: fail closed unless the key's address is DisciplePaymaster.signer()", () => {
+  const a = privateKeyToAccount(generatePrivateKey()).address, b = privateKeyToAccount(generatePrivateKey()).address;
+  assert.doesNotThrow(() => assertSignerMatches(a, a.toLowerCase() as Address));
+  assert.throws(() => assertSignerMatches(a, b), (e: unknown) => e instanceof PaymasterQuoteError && e.code === "config");
 });

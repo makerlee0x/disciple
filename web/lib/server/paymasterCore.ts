@@ -22,6 +22,9 @@
  * We never sponsor: the user's own USDG pays every op's gas (and any carried debt).
  */
 import { size, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+const KEY32 = /^0x[0-9a-fA-F]{64}$/;
 import { capsForOp, checkOpGas, clientFees, exceedsCaps, GAS_CAPS, RelayPolicyError, type GasCaps } from "../aa/gasPolicy";
 import type { UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
@@ -197,6 +200,34 @@ function ttl(cfg: QuoteConfig) {
  * Testnet rate from env: PAYMASTER_RATE (USDG base units per 1 ETH, integer) wins; else PAYMASTER_USD_PER_ETH
  * (decimal string, e.g. "3000" or "2950.5") scaled by the token's on-chain decimals. Never assumes 18 decimals.
  */
+/**
+ * Lee 2026-10-24 1:17 PM CT (testnet): "Reuse the site's existing login-signer key as the paymaster signer on testnet".
+ * PAYMASTER_SIGNER_KEY wins when set (a malformed value fails closed; no silent fallback); when it is unset/empty the
+ * login-attest key PVE_ATTESTER_PRIVATE_KEY is used, so the sensitive value never has to be copied between env vars.
+ * Never the relayer or faucet key. Returns the key only to the in-process signer; never logged, never returned to clients.
+ */
+export function paymasterSignerKey(env: {
+  PAYMASTER_SIGNER_KEY?: string; PVE_ATTESTER_PRIVATE_KEY?: string; RELAYER_PRIVATE_KEY?: string; DRIP_FAUCET_KEY?: string;
+}): { key: Hex; source: "PAYMASTER_SIGNER_KEY" | "PVE_ATTESTER_PRIVATE_KEY" } {
+  const own = (env.PAYMASTER_SIGNER_KEY || "").trim();
+  const source = own ? "PAYMASTER_SIGNER_KEY" : "PVE_ATTESTER_PRIVATE_KEY";
+  const k = own || (env.PVE_ATTESTER_PRIVATE_KEY || "").trim();
+  if (!KEY32.test(k)) throw new PaymasterQuoteError("config", "paymaster signer not configured");
+  const a = privateKeyToAccount(k as Hex).address;
+  for (const other of [env.RELAYER_PRIVATE_KEY, env.DRIP_FAUCET_KEY]) {
+    const o = (other || "").trim();
+    if (KEY32.test(o) && privateKeyToAccount(o as Hex).address === a)
+      throw new PaymasterQuoteError("config", "paymaster signer must be a dedicated key (not the relayer / faucet key)");
+  }
+  return { key: k as Hex, source };
+}
+
+/** Fail closed unless the local signer is DisciplePaymaster.signer() on chain (else every quote would revert on-chain). */
+export function assertSignerMatches(local: Address, onchain: Address): void {
+  if (local.toLowerCase() !== onchain.toLowerCase())
+    throw new PaymasterQuoteError("config", "paymaster signer key does not match DisciplePaymaster.signer()");
+}
+
 export function rateFromEnv(env: { PAYMASTER_RATE?: string; PAYMASTER_USD_PER_ETH?: string }, usdgDecimals: number): bigint {
   if (env.PAYMASTER_RATE) {
     if (!/^\d+$/.test(env.PAYMASTER_RATE)) throw new PaymasterQuoteError("config", "PAYMASTER_RATE must be an integer (USDG base units per 1 ETH)");

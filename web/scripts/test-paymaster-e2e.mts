@@ -1,10 +1,10 @@
 /**
  * USDG-gas e2e on an anvil FORK of RH testnet (chain 46630; nothing is sent to the real testnet):
- *   - deploys DisciplePaymaster + DiscipleSessionPolicy 1.4.0 on the fork (forge artifacts in contracts/out)
+ *   - deploys DisciplePaymaster + DiscipleSessionPolicy 1.4.1 on the fork (forge artifacts in contracts/out)
  *   - serves /api/bundler and /api/paymaster IN-PROCESS (the real Next route handlers) on a local port
  *   - fresh MAv2 account with ZERO ETH, only mUSDG:
  *       1. owner op deploys the account + mints STRATEGY; gas paid in USDG (ETH balance stays 0)
- *       2. owner installs a session on policy 1.4.0
+ *       2. owner installs a session on policy 1.4.1
  *       3. session key: approve + buy via the router, gas paid in USDG (exact paymaster approve, counted on the cap)
  *       4. with the paymaster unset the same account falls back to ETH prefund ⇒ FundAccount (it holds no ETH)
  * Keys: random per run (signer, owner, session) + anvil's public dev accounts; nothing is printed.
@@ -38,7 +38,7 @@ for (let i = 0; ; i++) {
 
 // env BEFORE the app modules load (chains.ts reads the RPC + paymaster at import time)
 process.env.NEXT_PUBLIC_RHT_RPC_URL = RPC;
-process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION = "1.4.0";
+process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION = "1.4.1";
 process.env.RELAYER_PRIVATE_KEY = DEV1;
 process.env.PAYMASTER_SIGNER_KEY = generatePrivateKey();
 process.env.KV_LOCAL_FILE = `/tmp/disciple-kv-e2e-${process.pid}.json`;
@@ -67,7 +67,7 @@ ok("paymaster deployed (fork)", !!pm, pm);
 const pmAbi = parseAbi(["function deposit() payable", "event GasPaid(address indexed sender, uint256 actualTokenCost, uint256 charged, uint256 debt)"]);
 await pc.waitForTransactionReceipt({ hash: await dev.writeContract({ address: pm, abi: pmAbi, functionName: "deposit", value: parseEther("1") }) });
 const policy = await deploy("DiscipleSessionPolicy.sol", "DiscipleSessionPolicy", [d.referralRegistry, pm]);
-ok("session policy 1.4.0 deployed (fork)", !!policy, policy);
+ok("session policy 1.4.1 deployed (fork)", !!policy, policy);
 
 process.env.NEXT_PUBLIC_RHT_PAYMASTER = pm;
 process.env.PAYMASTER_ADDRESS = pm;
@@ -91,7 +91,7 @@ const { TRADE_PERMS, buildCreateSession, readSession } = await import("@disciple
 const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
 const { sessionPermissions, SESSION_POLICY_MODULE_ID, moduleIdAbi } = await import("../lib/aa/oneTap");
 const { applySlippage } = await import("../lib/curveMath");
-ok("policy moduleId 1.4.0", (await pc.readContract({ address: policy, abi: moduleIdAbi, functionName: "moduleId" })) === SESSION_POLICY_MODULE_ID);
+ok("policy moduleId 1.4.1", (await pc.readContract({ address: policy, abi: moduleIdAbi, functionName: "moduleId" })) === SESSION_POLICY_MODULE_ID);
 
 const erc20 = parseAbi(["function mint(address,uint256)", "function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)"]);
 const router = parseAbi([
@@ -118,7 +118,7 @@ try {
   ok("paymaster allowance spent down (≤ dust)", (await pc.readContract({ address: d.usdg, abi: erc20, functionName: "allowance", args: [me, pm] })) < one);
 } catch (e) { ok("owner op (deploy + mint) paid in USDG", false, (e as Error).message.slice(0, 300)); }
 
-// 2. install session on policy 1.4.0 (owner op, USDG gas)
+// 2. install session on policy 1.4.1 (owner op, USDG gas)
 const key = generatePrivateKey();
 const s = buildCreateSession({
   modules: { policy, singleSigner: getDefaultSingleSignerValidationModuleAddress(robinhoodTestnet), timeRange: getDefaultTimeRangeModuleAddress(robinhoodTestnet) },

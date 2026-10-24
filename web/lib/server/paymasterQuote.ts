@@ -5,7 +5,8 @@ import "server-only";
  *
  * Env (server only — never NEXT_PUBLIC):
  *   PAYMASTER_SIGNER_KEY   0x-prefixed 32-byte key of DisciplePaymaster.signer. Never logged, never returned.
- *                          Must not be the relayer or faucet key.
+ *                          Must not be the relayer or faucet key. Unset ⇒ PVE_ATTESTER_PRIVATE_KEY (testnet: lee
+ *                          2026-10-24, one key for login attest + paymaster). Must equal on-chain signer() (fail closed).
  *   PAYMASTER_ADDRESS      optional override of DEPLOYMENTS[46630].paymaster (NEXT_PUBLIC_RHT_PAYMASTER)
  *   PAYMASTER_RATE         USDG base units per 1 ETH (integer), or
  *   PAYMASTER_USD_PER_ETH  e.g. "3000" — scaled by USDG's on-chain decimals (18 on testnet, 6 on mainnet)
@@ -22,7 +23,7 @@ import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, isGradBuyOp } from "./gradBuy";
-import { PAYMASTER_CHAIN_ID, PaymasterQuoteError, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
+import { assertSignerMatches, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"]);
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true } }) });
@@ -36,14 +37,19 @@ let baseCache: { at: number; fee: bigint } | undefined;
 
 function signerAccount(): PrivateKeyAccount {
   if (signer) return signer;
-  const k = process.env.PAYMASTER_SIGNER_KEY || "";
-  if (!/^0x[0-9a-fA-F]{64}$/.test(k)) throw new PaymasterQuoteError("config", "paymaster signer not configured");
-  const a = privateKeyToAccount(k as Hex);
-  for (const other of [process.env.RELAYER_PRIVATE_KEY, process.env.DRIP_FAUCET_KEY]) {
-    if (other && /^0x[0-9a-fA-F]{64}$/.test(other) && privateKeyToAccount(other as Hex).address === a.address)
-      throw new PaymasterQuoteError("config", "paymaster signer must be a dedicated key (not the relayer / faucet key)");
-  }
-  return (signer = a);
+  return (signer = privateKeyToAccount(paymasterSignerKey({
+    PAYMASTER_SIGNER_KEY: process.env.PAYMASTER_SIGNER_KEY, PVE_ATTESTER_PRIVATE_KEY: process.env.PVE_ATTESTER_PRIVATE_KEY,
+    RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY, DRIP_FAUCET_KEY: process.env.DRIP_FAUCET_KEY,
+  }).key));
+}
+
+/** Checked once per paymaster address (cached only on success): local signer == DisciplePaymaster.signer(). */
+let signerOk: Address | undefined;
+async function checkSignerOnChain(paymaster: Address): Promise<void> {
+  if (signerOk === paymaster) return;
+  const onchain = await pc.readContract({ address: paymaster, abi: disciplePaymasterAbi, functionName: "signer" });
+  assertSignerMatches(signerAccount().address, onchain);
+  signerOk = paymaster;
 }
 
 export function paymasterAddress(): Address {
@@ -56,6 +62,7 @@ export function paymasterAddress(): Address {
 export async function quoteConfig(): Promise<QuoteConfig> {
   const paymaster = paymasterAddress();
   signerAccount(); // fail closed before any RPC
+  await checkSignerOnChain(paymaster);
   const usdg = DEPLOYMENTS[PAYMASTER_CHAIN_ID].usdg;
   if (!decimals || decimals.usdg !== usdg) decimals = { usdg, d: Number(await pc.readContract({ address: usdg, abi: erc20, functionName: "decimals" })) };
   const ttl = Number(process.env.PAYMASTER_QUOTE_TTL_SEC || "");
