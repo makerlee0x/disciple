@@ -384,3 +384,70 @@ test("GradHint: warm answers without RPC (no ⇒ smaller amounts no, yes ⇒ lar
   h.record(CURVE, BigInt(100), false); h.drop(CURVE);
   assert.equal(h.known(CURVE, BigInt(50)), undefined);
 });
+test("audit r106 round 3: grad buy may carry LoginGate.attest / ReferralRegistry.tryAttribute prefixes (protocol-viem order), exactly", async () => {
+  const REG = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", GATE = "0xcccccccccccccccccccccccccccccccccccccccc", PM = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const refAbi = parseAbi(["function tryAttribute(address wallet, address referrer)", "function setAttestor(address a, bool ok)"]);
+  const gateAbi = parseAbi(["function attest(address wallet, uint64 expiry, address coin, bytes sig)", "function setAttester(address a)"]);
+  const tryAttr = (to = REG, wallet = SENDER) => ({ to, data: encodeFunctionData({ abi: refAbi, functionName: "tryAttribute", args: [wallet as Hex, OTHER as Hex] }) });
+  const attest = (to = GATE) => ({ to, data: encodeFunctionData({ abi: gateAbi, functionName: "attest", args: [SENDER as Hex, BigInt(1_900_000_000), Z as Hex, ("0x" + "11".repeat(65)) as Hex] }) });
+  const g = curveBuy(REMAINING), rb = routerBuy(REMAINING);
+  const aC = approveTo(USDG, CURVE, REMAINING), aR = approveTo(USDG, ROUTER, REMAINING), pmA = approveTo(USDG, PM, BigInt(1_000_000));
+  const cfg = { referralRegistry: REG, loginGate: GATE };
+  const rr = (o: Partial<GradReads> = {}) => reads({ ...cfg, ...o }, { allowance: BigInt(0) });   // funding only via the in-op approve
+  const withValue = (calls: { to: string; data: Hex; value?: bigint }[]) => encodeFunctionData({ abi: acct, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to as Hex, value: c.value ?? BigInt(0), data: c.data }))] });
+  // accepted: the orders protocol-viem emits — tradeOnce [attest?, tryAttribute?, approve, buy], tradeViaUsdg
+  // [tryAttribute?, approve, buyWithUsdg], plus paymasterClient's leading usdg.approve(paymaster) on USDG-gas ops
+  const ok: [string, { to: string; data: Hex }[], string?][] = [
+    ["[tryAttribute, approve, buy]", [tryAttr(), aC, g]],
+    ["[attest, approve, buy]", [attest(), aC, g]],
+    ["[attest, tryAttribute, approve, buy]", [attest(), tryAttr(), aC, g]],
+    ["[tryAttribute, approve, buyWithUsdg]", [tryAttr(), aR, rb]],
+    ["[pmApprove, tryAttribute, approve, buyWithUsdg]", [pmA, tryAttr(), aR, rb], PM],
+    ["[pmApprove, attest, tryAttribute, approve, buy]", [pmA, attest(), tryAttr(), aC, g], PM],
+  ];
+  for (const [name, calls, pm] of ok) {
+    const o = { ...gradOp(calls), ...(pm ? { paymaster: pm } : {}) };
+    assert.deepEqual(await relayCaps(o, [LP], rr({ paymaster: PM })), GRAD_GAS_CAPS, name);
+    const c = gradBuyCandidate(batch(calls), { ...cfg, sender: SENDER, ...(pm ? { usdg: USDG, paymaster: PM } : {}) });
+    assert.equal(c?.approvals.length, 1, name); assert.equal(c?.quoteToken, USDG, name);   // prefix never counts as an approval
+  }
+  // funding still on the post-approve state: prefix + short approve / short balance ⇒ GAS_CAPS
+  assert.deepEqual(await relayCaps(gradOp([attest(), tryAttr(), approveTo(USDG, CURVE, REMAINING - BigInt(1)), g]), [LP], rr()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([attest(), tryAttr(), aC, g]), [LP], reads(cfg, { allowance: BigInt(0), balance: REMAINING - BigInt(1) })), GAS_CAPS);
+  // rejected before any RPC
+  const rejected: [string, { to: string; data: Hex }[]][] = [
+    ["tryAttribute on the wrong target", [tryAttr(OTHER), aC, g]],
+    ["tryAttribute on the LoginGate", [tryAttr(GATE), aC, g]],
+    ["attest on the wrong target", [attest(OTHER), aC, g]],
+    ["attest on the ReferralRegistry", [attest(REG), aC, g]],
+    ["tryAttribute for another wallet", [tryAttr(REG, OTHER), aC, g]],
+    ["duplicate tryAttribute", [tryAttr(), tryAttr(), aC, g]],
+    ["duplicate attest", [attest(), attest(), aC, g]],
+    ["wrong order [tryAttribute, attest]", [tryAttr(), attest(), aC, g]],
+    ["prefix after an approve", [aC, tryAttr(), g]],
+    ["prefix after the buy", [aC, g, tryAttr()]],
+    ["attest after the buy", [aC, g, attest()]],
+    ["unknown selector on the registry", [{ to: REG, data: encodeFunctionData({ abi: refAbi, functionName: "setAttestor", args: [OTHER as Hex, true] }) }, aC, g]],
+    ["unknown selector on the gate", [{ to: GATE, data: encodeFunctionData({ abi: gateAbi, functionName: "setAttester", args: [OTHER as Hex] }) }, aC, g]],
+    ["garbage on the registry", [{ to: REG, data: "0xdeadbeef" }, aC, g]],
+    ["tryAttribute with trailing bytes", [{ to: REG, data: (tryAttr().data + "00".repeat(32)) as Hex }, aC, g]],
+    ["tryAttribute selector, truncated args", [{ to: REG, data: tryAttr().data.slice(0, 74) as Hex }, aC, g]],
+  ];
+  for (const [name, calls] of rejected) {
+    assert.equal(gradBuyCandidate(batch(calls), { ...cfg, sender: SENDER }), null, name);
+    const r = rr();
+    assert.deepEqual(await relayCaps(gradOp(calls), [LP], r), GAS_CAPS, name);
+    assert.equal(r.calls, 0, name);
+  }
+  // prefix with value (either one) ⇒ rejected
+  for (const pre of [{ ...tryAttr(), value: BigInt(1) }, { ...attest(), value: BigInt(1) }]) {
+    assert.equal(gradBuyCandidate(withValue([pre, aC, g]), { ...cfg, sender: SENDER }), null);
+    assert.deepEqual(await relayCaps({ ...gradOp([aC, g]), callData: withValue([pre, aC, g]) }, [LP], rr()), GAS_CAPS);
+  }
+  // nothing configured (zero / missing registry or gate) ⇒ no prefix allowed; no sender ⇒ tryAttribute refused
+  assert.deepEqual(await relayCaps(gradOp([tryAttr(), aC, g]), [LP], reads({}, { allowance: BigInt(0) })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([attest(), aC, g]), [LP], reads({ loginGate: Z }, { allowance: BigInt(0) })), GAS_CAPS);
+  assert.equal(gradBuyCandidate(batch([tryAttr(), aC, g]), cfg), null);
+  // pm approve must stay FIRST (before the prefix)
+  assert.deepEqual(await relayCaps({ ...gradOp([attest(), pmA, aC, g]), paymaster: PM }, [LP], rr({ paymaster: PM })), GAS_CAPS);
+});
