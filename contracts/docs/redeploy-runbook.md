@@ -184,8 +184,11 @@ FORK=1 OUT=/tmp/fx.json node script/redeploy/fixtures.mjs grad                  
 For #106, run `DeployPaymaster.s.sol` and `DeploySessionPolicy.s.sol` against `http://127.0.0.1:8545` with the anvil key, as in section 4.
 `FORK=1` writes `broadcast/Deploy.s.sol/46630/run-latest.json` (gitignored), the same path a real broadcast uses; the real broadcast overwrites it.
 
-Result 2026-10-24 (fork of block 141892136, branch feat/redeploy-prep): core deploy 51 txs, 40,180,273 gas used (forge estimate 50.8M; largest tx CurveDeployer
-5.74M); smoke 18/18 PASS; launch 6.68M gas; graduation buy 2,365,864 gas; floor 1,201.27337 USDG in 16 bands; graduation mcap $33,332.999999;
+Result 2026-10-24 09:5x CDT (fork of block 141938895, branch feat/redeploy-prep after the AUDIT fixes + 7s sniper tax): core deploy
+40,428,718 gas used (forge estimate 51.1M); smoke 23/23 PASS; launch 6.71M gas; First BOOST snipeEscrow 0; snipe at launch+1s taxed exactly
+25% (2.5 of 10 USDG) → escrow → compound bucket at graduation; tax 0 from 7s; graduation buy 2,365,962 gas (≤ 3.0M); floor 1,201.27337 USDG
+in 16 bands; graduation mcap $33,332.999999.
+Earlier run (block 141892136, before the AUDIT fixes): smoke 18/18; graduation buy 2,365,864 gas;
 fixtures `grad` (STRATEGY quote) graduated in a 2.40M-gas buy, floor 490,315.66 STRATEGY (≈ $1,201), router buyExactIn / sellExactIn / buyWithUsdg / sellToUsdg OK;
 DisciplePaymaster (est. 2.41M gas, 0.000348 ETH deposit) and DiscipleSessionPolicy 1.4.0 (est. 4.19M gas) deployed on the fork.
 
@@ -228,6 +231,8 @@ users reinstall the old session policy. Coins launched on the new stack keep tra
 | Low: FeeRouter.sol:276 any trusted router claims creator fees | owner-set `isClaimRouter` allowlist | #121 957a463b | Deploy.s.sol wires DiscipleRouter; ABI adds `setClaimRouter`, `isClaimRouter`, `ClaimRouterSet`; smoke check added |
 | Low (#106) gradBuy.ts:28/:40, gasPolicy.ts:132 | relay-side only | #106 16376682 | none for the deploy |
 | Info: grad gas ≈ 2.76M at 6 dec | numbers refreshed, 3.0M cap kept | #106 3128ad31, smoke | smoke asserts ≤ 3.0M |
+| lee 2026-10-24: sniper tax 77 s linear → 7 s | per-second table 99/25/3/1/0.3/0.1/0.03 %, 0 from 7 s (`FeeMath.snipeBps`) | #127 01afead5 | smoke checks the table value at the snipe's second and 0 from 7 s; `MarketLens.sniperTax` window 7; SITE/GAME copy + sim |
+| lee 2026-10-23 check: Easy First BOOST lock | already enforced (Token.sol `_update`, keyed on `from == creator`); tests for spender / recipient bypass and Hard same-block sell | #127 f2514cb6 | none |
 
 Not taken (Info, no behaviour risk today): optional payer `maxFee` on `launchAnon` (ABI change + session-policy decoding; owner fee is
 now capped at $5); LockedLP.sol:581 best-effort floor seeding at extreme prices and :595 unreachable `FloorOverspend` (would change
@@ -235,8 +240,7 @@ graduation semantics in a SHIP'd PR); Migration.sol:151 require success for v2 c
 The scripts read ABIs from the forge artifacts and take params from env, so contract-internal fixes need no script change.
 
 Open items for AUDIT / lee:
-- `AnonLauncher.MAX_LAUNCH_FEE = 5 ether` is an 18-decimal cap. With 6-dec USDG it allows up to 5e12 USDG, so the cap does nothing.
-  Our 0.25 USDG (250000 raw) is fine; the cap needs a decimals-aware value (contract change).
+- ~~`AnonLauncher.MAX_LAUNCH_FEE = 5 ether` 18-decimal cap~~ fixed (decimals-aware, 2f55717a; smoke checks 5 USDG).
 - Old testnet tokens (mUSDG, STRATEGY) are 18-dec and are replaced, not migrated: user balances on the old mUSDG don't carry over.
 - The session policy must be redeployed (new ReferralRegistry), with or without #106; users reinstall sessions.
 - Launch costs about 6.7–6.8M gas (`fixtures.mjs` uses an 8M cap); check the AA/relay launch caps (#106 assumes 11M).
