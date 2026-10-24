@@ -39,7 +39,7 @@ export function buildReplayTrades(coinFills: Fill[], wallet: string, pnl: Pick<P
   const sorted = [...coinFills].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
   const t0 = pnl.startTs, t1 = Math.max(pnl.endTs, t0 + 1);
   const before = sorted.filter((f) => f.ts < t0);
-  const startMcap = before.length ? before[before.length - 1].mcapUsd : sorted[0]?.mcapUsd ?? 7000;
+  const startMcap = before.length ? before[before.length - 1].mcapUsd : sorted[0]?.mcapUsd ?? 7777;
   let prev = startMcap;
   const trades: ReplayTrade[] = sorted.filter((f) => f.ts >= t0 && f.ts <= t1).map((f) => {
     const impactBps = prev > 0 ? Math.round(Math.abs(f.mcapUsd / prev - 1) * 10_000) : 0; prev = f.mcapUsd;
@@ -131,7 +131,7 @@ export async function renderShareVideo(opts: {
   const replayLoadout = { skin: opts.loadoutIds.skin, thruster: opts.loadoutIds.thruster, noseCoin: opts.loadoutIds.coin,
     ...(opts.loadoutIds.accessory ? { accessory: opts.loadoutIds.accessory } : {}), ...(opts.loadoutIds.stats ? { stats: opts.loadoutIds.stats } : {}) };   // accessory/stats: cosmetic only
   const seed = Number.parseInt(opts.coin.slice(2, 10) || "7", 16) ^ Number.parseInt(opts.wallet.slice(2, 10) || "1", 16);
-  const r = await replay({ coin: opts.coin, supply: 7e9, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps,
+  const r = await replay({ coin: opts.coin, supply: 1e6, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps,
     width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });
   if (r.loadout && (r.loadout.skin !== replayLoadout.skin || r.loadout.noseCoin !== replayLoadout.noseCoin)) console.warn("[share] replay normalized loadout", r.loadout);
   onP(0, "preparing end card");
@@ -154,7 +154,7 @@ export async function renderShareVideo(opts: {
     if (opts.forceEncoder !== "mediarecorder") out = await encodeWebCodecs(src, cv, prog).catch((e) => { console.warn("[share] webcodecs failed", e); return null; });
     if (!out && opts.forceEncoder !== "webcodecs") {
       // replay frames were consumed if WebCodecs failed midway → restart the replay for the recorder
-      const r2 = await replay({ coin: opts.coin, supply: 7e9, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps, width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });
+      const r2 = await replay({ coin: opts.coin, supply: 1e6, ticker: opts.ticker, t0, t1, trades, startMcap, durationSec: VIDEO.replaySec, fps: VIDEO.fps, width: VIDEO.width, height: VIDEO.height, seed, clean: true, loadout: replayLoadout });
       Object.assign(r, { step: r2.step.bind(r2), canvas: r2.canvas, hash: r2.hash.bind(r2) });
       out = await encodeMediaRecorder(src, cv, prog);
     }

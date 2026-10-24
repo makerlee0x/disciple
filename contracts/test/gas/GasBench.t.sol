@@ -297,4 +297,40 @@ contract GasBenchModes is IntegrationBase {
     function test_bench_modes_pvp() public {
         _run(2, "pvp");
     }
+
+    /// @dev Launch with a 5-USDG First BOOST (creator buy) per mode. Same API before/after mode rules v2.
+    function _benchLaunch(uint8 m, string memory tag) internal {
+        uint64 exp = uint64(block.timestamp + 12 hours);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK, gate.digest(creator, exp, address(0)));
+        gate.attest(creator, exp, address(0), abi.encodePacked(r, s, v));
+        vm.prank(creator);
+        quote.approve(address(launchpad), type(uint256).max);
+        ILaunchpad.LaunchParams memory p = ILaunchpad.LaunchParams({
+            name: "M",
+            ticker: "M",
+            imageURI: "i",
+            description: "",
+            socialsURI: "",
+            quote: address(quote),
+            creatorTaxBps: 100,
+            creatorBuyQuoteIn: 5 ether,
+            creatorBuyMinTokensOut: 0,
+            deadline: block.timestamp + 1 days
+        });
+        vm.prank(creator);
+        launchpad.launchWithMode(p, m);
+        console2.log(string(abi.encodePacked("BENCH ", tag, ".launch.boost5")), vm.lastCallGas().gasTotalUsed);
+    }
+
+    function test_bench_launch_trench() public {
+        _benchLaunch(0, "trench");
+    }
+
+    function test_bench_launch_pve() public {
+        _benchLaunch(1, "pve");
+    }
+
+    function test_bench_launch_pvp() public {
+        _benchLaunch(2, "pvp");
+    }
 }

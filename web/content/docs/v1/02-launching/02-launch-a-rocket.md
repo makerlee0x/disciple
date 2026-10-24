@@ -27,8 +27,8 @@ Before you launch, **What am I launching?** names the coin you're creating, its 
 
 One transaction:
 
-1. A new ERC-20 is created: **7,000,000,000** supply, 18 decimals, no further mint. Its address is a standard address (no vanity).
-2. A bonding curve is created for it, starting at a **$7K** market cap.
+1. A new ERC-20 is created: **1,000,000** supply, 18 decimals, no further mint. Its address is a standard address (no vanity).
+2. A bonding curve is created for it, starting at a **$7,777** market cap.
 3. The anti-snipe clock starts: the first 7 seconds carry an extra fee on buys. See [Anti-snipe](/docs/trading/anti-snipe).
 
 You pay the gas.

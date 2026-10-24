@@ -39,7 +39,7 @@ Addresses: [Contract addresses](/docs/reference/contracts).
 
 ## Properties you can check
 
-- **Fixed supply.** 7B per rocket, no mint after launch.
+- **Fixed supply.** 1M per rocket, no mint after launch.
 - **Name and call sign are locked.**
 - **No pause.** Curves and pools are always live.
 - **Graduated liquidity has no remove function.** Tested by fuzzing: locked liquidity can never be removed.

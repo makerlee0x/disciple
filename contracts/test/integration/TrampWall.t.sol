@@ -37,8 +37,8 @@ contract TrampWallTest is IntegrationBase {
         quote.mint(alice, 1_000_000 ether);
         quote.mint(whale, 10_000_000 ether);
         quote.mint(bob, 1_000_000 ether);
-        deal(address(tok), alice, 500_000_000 ether);
-        deal(address(tok), whale, 2_000_000_000 ether);
+        deal(address(tok), alice, 75_000 ether); // token amounts scaled for 1M supply (÷ ~7,000)
+        deal(address(tok), whale, 300_000 ether);
         for (uint256 i; i < 3; i++) {
             address u = [alice, whale, bob][i];
             vm.startPrank(u);
@@ -149,7 +149,7 @@ contract TrampWallTest is IntegrationBase {
         (lo, hi) = _wallRange(1, 4);
         q0 = quote.balanceOf(alice);
         vm.prank(alice);
-        (uint256 id2,) = twm.placeWall(address(tok), lo, hi, 1_000_000 ether, 1, block.timestamp + 1);
+        (uint256 id2,) = twm.placeWall(address(tok), lo, hi, 150 ether, 1, block.timestamp + 1);
         assertEq(quote.balanceOf(alice), q0, "wall takes no quote");
         assertEq(twm.positionsOf(alice).length, 2);
         assertEq(twm.positionsOf(alice)[1], id2);
@@ -197,7 +197,7 @@ contract TrampWallTest is IntegrationBase {
         twm.pull(id);
 
         uint256 bottom = _priceAtTick(_tokenIsC0() ? lo : hi);
-        _sellUntilBelow(bottom, 20_000_000 ether);
+        _sellUntilBelow(bottom, 3_000 ether);
         assertTrue(twm.isFilled(id));
 
         uint256 q0 = quote.balanceOf(alice);
@@ -221,7 +221,7 @@ contract TrampWallTest is IntegrationBase {
 
     function test_wall_fill_converts_to_quote() public {
         (int24 lo, int24 hi) = _wallRange(1, 2);
-        uint256 amt = 2_000_000 ether;
+        uint256 amt = 300 ether;
         vm.prank(alice);
         (uint256 id,) = twm.placeWall(address(tok), lo, hi, amt, 0, block.timestamp + 1);
         uint256 topP = _priceAtTick(_tokenIsC0() ? hi : lo);
@@ -243,8 +243,8 @@ contract TrampWallTest is IntegrationBase {
         vm.prank(alice);
         (uint256 id,) = twm.placeTramp(address(tok), lo, hi, 300 ether, 0, block.timestamp + 1);
         uint256 top = _priceAtTick(_tokenIsC0() ? hi : lo);
-        _sellUntilBelow(top, 100_000 ether);
-        _sell(whale, 100_000 ether);
+        _sellUntilBelow(top, 15 ether);
+        _sell(whale, 15 ether);
         assertFalse(twm.isFilled(id));
 
         vm.prank(bob);

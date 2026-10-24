@@ -11,7 +11,7 @@ Every number in one place. Values are for the current testnet deploy unless mark
 
 | Parameter | Value |
 |---|---|
-| Total supply | 7,000,000,000, fixed, 18 decimals |
+| Total supply | 1,000,000, fixed, 18 decimals |
 | Mint after launch | None |
 | Name and call sign | Locked at launch |
 | Address | Standard (no vanity) |
@@ -21,8 +21,8 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Parameter | Value |
 |---|---|
 | Curve type | Constant product, virtual reserves |
-| Start market cap | $7,000 |
-| Graduation market cap | $33,000 (Outer Space) |
+| Start market cap | $7,777 |
+| Graduation market cap | $33,333 (Outer Space) |
 | Sold on the curve | 72% (5.04B) |
 | Locked forever in the Uniswap v4 LP | 28% (1.96B) + base raised |
 | Base raised at graduation (USDG base) | ≈ $10,943, net of fees |
@@ -58,15 +58,17 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | On rockets the referred wallet launches | 1% of the trade fee on every trade + 2% of the creator's share |
 | Self-referral | Same wallet blocked |
 
-## Launch modes (coming, PR #75, values may change)
+## Launch modes (coming with the next redeploy, mode rules v2)
 
-| | PvE | PvP | Trench Warfare |
+| | Easy (PvE) | Hard (PvP) | Trench Warfare |
 |---|---|---|---|
-| Wallet cap | 1% | 4% → 12% | None |
-| Max BOOST | 0.25% for 7 min | 3.33% | None |
-| Max DUMP | 0.5% | None | None |
-| Profit tax | 0.777% above 1.77× cost | None | None |
+| Wallet cap | 1% → 3.33% with market cap | 3.33% → 7.77% | None |
+| Over-cap BOOST | Partial fill + refund | Partial fill + refund | — |
+| Max BOOST / DUMP | None | None | None |
+| Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
+| First BOOST max | 1.2%, locked to graduation | 3.33% | 0.77% |
 | Login to BOOST | Yes | No | No |
+| Sniper tax | 99% → 0 over 60 s, to locked liquidity | same | same |
 
 ## Altitude
 

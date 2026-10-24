@@ -54,14 +54,14 @@ contract CurveTest is Test {
     CurveMath.Params internal params;
 
     // Worked-table bands (USDG @$1)
-    uint256 internal constant MCAP_0 = 7_000 ether;
-    uint256 internal constant MCAP_10_MIN = 7_800 ether;
-    uint256 internal constant MCAP_10_MAX = 8_600 ether;
-    uint256 internal constant MCAP_25_MIN = 10_000 ether;
-    uint256 internal constant MCAP_25_MAX = 11_200 ether;
-    uint256 internal constant MCAP_50_MIN = 17_000 ether;
-    uint256 internal constant MCAP_50_MAX = 19_000 ether;
-    uint256 internal constant MCAP_72 = 33_000 ether;
+    uint256 internal constant MCAP_0 = 7_777 ether;
+    uint256 internal constant MCAP_10_MIN = 8_600 ether; // ≈ $9,027
+    uint256 internal constant MCAP_10_MAX = 9_400 ether;
+    uint256 internal constant MCAP_25_MIN = 11_000 ether; // ≈ $11,552
+    uint256 internal constant MCAP_25_MAX = 12_100 ether;
+    uint256 internal constant MCAP_50_MIN = 18_000 ether; // ≈ $18,928
+    uint256 internal constant MCAP_50_MAX = 19_900 ether;
+    uint256 internal constant MCAP_72 = 33_333 ether;
 
     DiscipleHook internal hook;
 
@@ -128,7 +128,7 @@ contract CurveTest is Test {
         vm.stopPrank();
         curve = BondingCurve(r.curve);
         tok = Token(r.token);
-        vm.warp(ts + 10); // past anti-snipe window
+        vm.warp(ts + Constants.ANTI_SNIPE_DURATION + 1); // past the 60 s sniper tax
     }
 
     // ── Geometry ─────────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ contract CurveTest is Test {
 
         // Total quote raised at graduation ≈ $10,943
         uint256 raise = CurveMath.quoteInForTokens(params, 0, params.sCurve);
-        assertApproxEqRel(raise, 10_943 ether, 0.02e18);
+        assertApproxEqRel(raise, 11_592 ether, 0.02e18); // $7,777→$33,333 at 72% sold
     }
 
     function test_price_monotonic_across_curve() public view {
@@ -261,10 +261,16 @@ contract CurveTest is Test {
         assertEq(curve.walletCapBps(), 700);
         assertEq(FeeMath.walletCap(), (Constants.TOTAL_SUPPLY * 700) / 10_000);
 
+        // mode rules v2: an over-cap buy partial-fills to the cap (pre-trade mcap) and refunds the rest
         vm.startPrank(alice);
         quote.approve(address(curve), type(uint256).max);
+        uint256 b0 = quote.balanceOf(alice);
+        uint256 out = curve.buy(100_000 ether, 0, vm.getBlockTimestamp() + 1);
+        assertEq(out, FeeMath.walletCap(), "filled exactly to the 7% cap");
+        assertLt(b0 - quote.balanceOf(alice), 100_000 ether, "rest refunded");
+        // room 0 now: the next buy reverts
         vm.expectRevert(BondingCurve.WalletCap.selector);
-        curve.buy(100_000 ether, 0, vm.getBlockTimestamp() + 1);
+        curve.buy(1 ether, 0, vm.getBlockTimestamp() + 1);
         vm.stopPrank();
     }
 
@@ -336,17 +342,14 @@ contract CurveTest is Test {
     }
 
     function test_antiSnipe_decays_to_zero() public {
-        (BondingCurve curve, Token tok) = _launch();
-        // _launch warps +10s past window — fee should be 0
-        uint256 bps = antiSnipe.currentFeeBps(address(tok));
-        assertEq(bps, 0);
-        // At t0 would be 7770 — register a fresh mental check via Constants
+        (BondingCurve curve,) = _launch();
+        // _launch warps past the 60 s window — fee should be 0
+        assertEq(curve.currentSnipeFeeBps(), 0);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
-        assertEq(Constants.ANTI_SNIPE_START_BPS, 7770);
-        curve; // silence
+        assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
     }
 
-    function test_snipeFee_splits_70_rewards_30_treasury() public {
+    function test_snipeFee_heldInEscrow() public {
         // Launch WITHOUT warping past anti-snipe — buy in window so snipeFee > 0
         uint256 ts = vm.getBlockTimestamp();
         vm.startPrank(alice);
@@ -368,11 +371,11 @@ contract CurveTest is Test {
         BondingCurve curve = BondingCurve(r.curve);
         address tok = r.token;
 
-        // At t=0, snipe bps = 7770 (77.7%)
-        assertEq(antiSnipe.currentFeeBps(tok), 7770);
+        // At t=0, snipe bps = 9900 (99%)
+        assertEq(curve.currentSnipeFeeBps(), 9900);
 
         uint256 quoteIn = 100 ether;
-        uint256 expectedSnipe = (quoteIn * 7770) / 10_000; // 77.7 ether
+        uint256 expectedSnipe = (quoteIn * 9900) / 10_000; // 99 ether
 
         // Snapshot LockedLP escrow + treasury + creator accrued + rewards vault
         (,,,, uint256 escrowBefore,,) = lockedLP.positions(tok);
@@ -389,19 +392,19 @@ contract CurveTest is Test {
         uint256 afterSnipe = quoteIn - expectedSnipe;
         uint256 protoFee = (afterSnipe * 100) / 10_000;
         (uint256 cs, uint256 lps, uint256 ts_, uint256 rs) = FeeMath.splitTradeFee(protoFee);
-        uint256 toRewards = (expectedSnipe * 7000) / 10_000;
 
-        // LOCKED #9 rev.: snipe 70% → RewardsVault, 30% → treasury; LP only gets proto LP share
-        assertEq(quote.balanceOf(address(rewardsVault)), toRewards, "70% rewards");
-        assertEq(rewardsVault.totalAccrued(address(quote)), toRewards);
-        assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP");
-        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore, expectedSnipe - toRewards + ts_ + rs, "30% + proto treasury");
+        // mode rules v2: the sniper tax stays in the curve's snipeEscrow (→ locked LP at graduation, or RewardsVault
+        // after the 30-day timeout); LP only gets the proto LP share now
+        assertEq(curve.snipeEscrow(), expectedSnipe, "escrowed");
+        assertEq(quote.balanceOf(address(rewardsVault)), 0, "nothing to the vault on the buy");
+        assertEq(escrowAfter - escrowBefore, lps, "no snipe to LP yet");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - treBefore, ts_ + rs, "proto treasury only");
         assertEq(feeRouter.creatorAccrued(tok, alice) - creatorBefore, cs);
     }
 
     function test_afterSnipeWindow_noSnipeFee_onlyProtocol1pct() public {
-        (BondingCurve curve, Token tok) = _launch(); // warps +10s
-        assertEq(antiSnipe.currentFeeBps(address(tok)), 0);
+        (BondingCurve curve, Token tok) = _launch(); // warps past the sniper tax
+        assertEq(curve.currentSnipeFeeBps(), 0);
 
         (,,,, uint256 escrowBefore,,) = lockedLP.positions(address(tok));
         uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));

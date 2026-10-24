@@ -201,6 +201,7 @@ contract Deploy is Script {
         router.setUsdgRouting(o.usdg, address(launchpad));
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)
         // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
         {
             address attester = vm.envOr("PVE_ATTESTER", address(0));
@@ -273,6 +274,7 @@ contract Deploy is Script {
         vault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(vault));
         address vOwner = vm.envOr("REWARDS_VAULT_OWNER", deployer);
+        // Owned2Step: this only nominates; REWARDS_VAULT_OWNER must call vault.acceptOwnership() afterwards.
         if (vOwner != deployer) vault.transferOwnership(vOwner);
         // mcapNow / Trade-event mcap fix: live QuotePricer on the hook (curves read Launchpad.pricer()).
         hook.setPricer(address(pricer));

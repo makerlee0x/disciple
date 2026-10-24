@@ -355,6 +355,23 @@ contract DiscipleSessionPolicyTest is Test {
         acct.execute(address(router), 0, abi.encodeCall(MockRouter.sweep, (attacker)));
     }
 
+    /// Mode rules v2 add-on: launchWithUsdg / claimCreatorFeesToUsdg are deliberately NOT session-key selectors
+    /// (launches and creator-fee claims stay an owner wallet confirm).
+    function test_v2_usdgLaunchAndCreatorClaimNotSessionSelectors() public {
+        bytes4 lw = bytes4(
+            keccak256(
+                "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
+            )
+        );
+        bytes4 cc = bytes4(keccak256("claimCreatorFeesToUsdg(address,uint256)"));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), lw));
+        acct.execute(address(router), 0, abi.encodePacked(lw, new bytes(32 * 8)));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), cc));
+        acct.execute(address(router), 0, abi.encodeWithSelector(cc, address(rocket), uint256(1)));
+    }
+
     function test_rejectsUnregisteredCurve() public {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.NotCurve.selector, address(fakeCurve)));

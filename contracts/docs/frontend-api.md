@@ -49,7 +49,8 @@ The pre-grad paths are on the `BondingCurve`, at `Launchpad.curveOf(token)`:
 - `buyWithPermit(quoteIn, minTokensOut, deadline, recipient, permitDeadline, v, r, s)`: one tx using an EIP-2612 permit on the quote. STRATEGY and USDG both expose `DOMAIN_SEPARATOR`/`nonces` on RH mainnet.
 - `sellWithPermit(tokensIn, minQuoteOut, deadline, recipient, permitDeadline, v, r, s)`: every DISCIPLE token is ERC20Permit.
 - Permit calls sit in try/catch, so a front-run permit doesn't brick the tx. Without permit, approve the curve once (max) and every later trade is a single tx.
-- The per-wallet curve cap applies to `recipient` (reverts `WalletCap()`). It is per coin: read `curve.walletCapBps()` (or `Launchpad.walletCapBpsOf(token)`); **0 = no cap**, otherwise max holding = `walletCapBps * 7e27 / 10000` tokens measured by `curve.balanceOnCurve(recipient)`. The value for new launches is `Launchpad.walletCapBps()` (default 0; owner-only `setWalletCapBps`, event `WalletCapSet(bps)`).
+- **Mode rules v2:** Easy/Hard caps grow with mcap and over-cap buys **partial-fill** (refund + `BuyRefunded`; room 0 reverts `WalletCap()`). Use `MarketLens.capRoom/capNow/sniperTax/snipeEscrow/creatorLock/crewTipEstimate`; see mode-rules-v2.md (incl. the SITE UI checklist). `Trade.snipeFee` is the sniper tax (escrowed, not routed).
+- TRENCH legacy cap: the per-wallet curve cap applies to `recipient`. It is per coin: read `curve.walletCapBps()` (or `Launchpad.walletCapBpsOf(token)`); **0 = no cap**, otherwise max holding = `walletCapBps * 7e27 / 10000` tokens measured by `curve.balanceOnCurve(recipient)`. The value for new launches is `Launchpad.walletCapBps()` (default 0; owner-only `setWalletCapBps`, event `WalletCapSet(bps)`).
 - Compatibility: curves from the live v1–v3 stacks have a hard-coded 7% cap and **no** `walletCapBps()` getter. If the call reverts, fall back to 700 bps (7%). Show the cap only when it is non-zero.
 
 The post-grad paths are on `DiscipleRouter`:

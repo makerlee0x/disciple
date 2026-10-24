@@ -5,39 +5,41 @@ section: Launching
 ---
 # Launch modes
 
-> **Coming with the next testnet redeploy.** Launch modes are built (PR #75) but not deployed. Numbers below are the current defaults and may change before release. [CONFIRM: FLOW + lee — final values and release timing.]
+> **Coming with the next testnet redeploy** (mode rules v2, approved 2026-10-23). Built but not deployed. [CONFIRM: FLOW + lee — release timing.]
 
 A launch mode sets the rules on the bonding curve. The creator picks it at launch, and it can't be changed. Modes apply **only on the curve**: after graduation every rocket trades the same way.
 
-| | **PvE** (easy) | **PvP** (medium) | **Trench Warfare** (hard) |
+| | **Easy** (PvE) | **Hard** (PvP) | **Trench Warfare** |
 |---|---|---|---|
-| Per-wallet holding cap | 1% of supply | 4% at launch, rising to 12% at graduation | None by default |
-| Max single BOOST | 0.25% of supply for the first 7 minutes | 3.33% of supply | No limit |
-| Max single DUMP | 0.5% of supply | No limit | No limit |
+| Per-wallet holding cap | 1% of supply at $7,777, rising with market cap to 3.33% at $33,333 | 3.33% at $7,777, rising to 7.77% at $33,333 | None by default |
+| BOOST over your cap | Fills up to your cap, the rest is refunded | Same | Same (if a cap is set) |
+| Max single BOOST / DUMP | No limit | No limit | No limit |
 | Sign-in required to BOOST | Yes | No | No |
-| Launch-block buys | Only the creator's launch buy | Allowed | Allowed |
-| Profit tax | 0.777% on sells above 1.77× your average cost, paid to other holders | None | None |
+| Crew tip | 0.777% of a DUMP's proceeds, only when your profit on it is above 0.5% of the market cap; goes to the other holders | None | None |
+| Creator's First BOOST | Up to 1.2% of supply, locked until graduation | Up to 3.33% | Up to 0.77% |
+| Sniper tax (all modes) | 99% falling to 0 over the first 60 seconds | Same | Same |
 
-Trench Warfare is today's behaviour. Launches without a mode are Trench Warfare.
+Launches without a mode are Trench Warfare.
 
-## PvE: crew first
+## Sniper tax: every mode
 
-PvE is built for a crew to climb together.
+For the first 60 seconds after launch, BOOSTs pay a sniper tax that starts at 99% and falls to 0 in a straight line. The creator's First BOOST is exempt. The tax is held by the curve, outside the price. At graduation it goes into the rocket's locked liquidity. If the rocket hasn't graduated after 30 days, anyone can send it to the community rewards vault.
 
-- **Holding cap.** No wallet can hold more than 1% of supply from the curve. The cap follows transfers, so moving coins to a fresh wallet doesn't get around it.
-- **Slow start.** For the first 7 minutes, each BOOST is capped at 0.25% of supply.
-- **No launch-block snipes.** Nobody but the creator can buy in the launch block.
+## Easy: crew first
+
+- **Holding cap that grows.** A wallet can hold 1% of supply from the curve at launch, rising to 3.33% as the market cap climbs to $33,333. The cap follows transfers, so moving coins to a fresh wallet doesn't get around it. A BOOST over your cap fills up to the cap and refunds the rest.
 - **Signed-in buyers only.** To BOOST, a wallet needs a verified login. Selling never needs one, so holders can always exit.
-- **Profit tax to the crew.** If you DUMP above 1.77× your average cost, 0.777% of your proceeds goes to the other holders on the curve. You don't share in your own tax. Holders can claim their share, also after graduation. Claiming from the app is coming soon.
+- **Crew tip.** When you DUMP at a profit above 0.5% of the market cap, 0.777% of the proceeds goes to the other holders on the curve. You don't share in your own tip. Holders can claim their share, also after graduation.
+- **Creator lock.** The creator's First BOOST (max 1.2%) stays locked until graduation. Anything the creator buys later is free to sell.
 
-## PvP: dog eat dog
+## Hard: dog eat dog
 
-Bigger positions, bigger swings. The holding cap grows from 4% to 12% as the curve fills. A single BOOST is capped at 3.33% of supply. No sign-in needed.
+Bigger positions, bigger swings. The holding cap grows from 3.33% to 7.77% as the market cap climbs. No sign-in, no max BOOST, no crew tip. The creator's First BOOST can be up to 3.33%.
 
 ## Trench Warfare: no guardrails
 
-No mode caps. Snipers, bundles and whales are all possible. A protocol-wide wallet cap can apply, but it defaults to none. See [Wallet cap and trade limits](/docs/trading/limits).
+No mode caps, only the sniper tax. A protocol-wide wallet cap can apply, but it defaults to none. See [Wallet cap and trade limits](/docs/trading/limits).
 
 ## Practice first
 
-The [Simulator](/docs/game/simulator) uses the same three names as difficulty levels. There, the name sets who you're trading against (the bots), not the curve's rules. The Simulator doesn't apply the PvE or PvP caps or the profit tax. It's free paper trading with no wallet.
+The [Simulator](/docs/game/simulator) uses the same names as difficulty levels. There, the name sets who you're trading against (the bots), not the curve's rules. The Simulator doesn't apply the Easy or Hard caps or the crew tip. It's free paper trading with no wallet.

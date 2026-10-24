@@ -2,7 +2,7 @@
  * SINGLE SOURCE OF TRUTH for the flight tier ladder (DISCIPLE constitution, contracts Constants.sol lows).
  * engine.js and replay.js embed a GENERATED copy of this list (scripts/gen-flight-data.mjs, between the
  * @gen:flight-data markers). Edit here, then `npm run gen:flight`; `npm run test:flightdata` fails on drift.
- * Half-open bands [lo, hi). Start $7K → graduation (OUTER SPACE) $33K. `sky` = background asset path (prefix the base path).
+ * Half-open bands [lo, hi). Start $7,777 → graduation (OUTER SPACE) $33,333. `sky` = background asset path (prefix the base path).
  */
 export type FlightTier = { name: string; lo: number; hi: number; bg: string; sky: string };
 
@@ -10,8 +10,8 @@ export const FLIGHT_TIERS: FlightTier[] = [
   { name: "LAUNCH PAD", lo: 7e3, hi: 12e3, bg: "tier0", sky: "/assets/tier0.webp" },
   { name: "OZONE", lo: 12e3, hi: 18e3, bg: "tier1", sky: "/assets/tier1.webp" },
   { name: "STRATOSPHERE", lo: 18e3, hi: 25e3, bg: "tier2", sky: "/assets/tier2.webp" },
-  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33e3, bg: "tier3", sky: "/assets/tier3.webp" },
-  { name: "OUTER SPACE", lo: 33e3, hi: 55e3, bg: "tier4", sky: "/assets/tier4.webp" },
+  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33_333, bg: "tier3", sky: "/assets/tier3.webp" },
+  { name: "OUTER SPACE", lo: 33_333, hi: 55e3, bg: "tier4", sky: "/assets/tier4.webp" },
   { name: "FIRMAMENT", lo: 55e3, hi: 100e3, bg: "tier5", sky: "/assets/tier5.webp" },
   { name: "MORNING STARS", lo: 100e3, hi: 333e3, bg: "tier6", sky: "/assets/tier6.webp" },
   { name: "HEAVENLY HOST", lo: 333e3, hi: 777e3, bg: "tier7", sky: "/assets/tier7.webp" },

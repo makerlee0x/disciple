@@ -58,11 +58,11 @@ export function impactPctBetween(p: CurveParams, soldBefore: bigint, soldAfter: 
 }
 
 /* ---- Launch-time curve (sold = 0), mirrors CurveMath.makeParams / quoteInForTokens ---- */
-// Constants.sol: TOTAL_SUPPLY 7B, CURVE_SOLD_BPS 72%, START $7K, GRADUATION $33K (USD WAD).
-export const TOTAL_SUPPLY_WEI = B("7000000000") * WAD;
+// Constants.sol: TOTAL_SUPPLY 1M, CURVE_SOLD_BPS 72% (pending), START $7,777, GRADUATION $33,333 (USD WAD).
+export const TOTAL_SUPPLY_WEI = B("1000000") * WAD;
 const CURVE_SOLD_BPS = B(7200);
-const START_MCAP_USD = B(7000) * WAD;
-const GRADUATION_MCAP_USD = B(33000) * WAD;
+const START_MCAP_USD = B(7777) * WAD;
+const GRADUATION_MCAP_USD = B(33333) * WAD;
 
 function isqrt(n: bigint): bigint {
   if (n < B(2)) return n;

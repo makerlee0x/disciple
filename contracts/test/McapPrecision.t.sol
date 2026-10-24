@@ -25,8 +25,9 @@ contract McapPrecisionTest is Test {
         CurveMath.Params memory p = CurveMath.makeParams(USD6);
         uint256 m = CurveMath.marketCapUsd(p, p.sCurve);
         _assertNear(m, Constants.GRADUATION_MCAP_USD, 1); // within 0.01%
-        // the old floored path is materially low (the $28K bug)
-        assertLt(_legacyMcap(p, p.sCurve), Constants.GRADUATION_MCAP_USD * 95 / 100);
+        // the old floored path was materially low with 7B supply (the $28K bug); at 1M supply the WAD price is
+        // ~33,333 so even the floored path is within 0.01% (full-precision path kept regardless)
+        assertApproxEqRel(_legacyMcap(p, p.sCurve), Constants.GRADUATION_MCAP_USD, 0.0001e18);
         _assertNear(CurveMath.marketCapUsd(p, 0), Constants.START_MCAP_USD, 1);
     }
 
@@ -41,8 +42,8 @@ contract McapPrecisionTest is Test {
 
     function test_marketCapQuote_6dec_raw_units() public pure {
         CurveMath.Params memory p = CurveMath.makeParams(USD6);
-        // $33K at $1 → 33_000e6 raw
-        _assertNear(CurveMath.marketCapQuote(p, p.sCurve), 33_000e6, 1);
+        // $33,333 at $1 → 33_333e6 raw
+        _assertNear(CurveMath.marketCapQuote(p, p.sCurve), 33_333e6, 1);
     }
 
     function _sqrtMcapCase(uint256 quoteUsd, uint256 decScale, bool tokenIsC0) internal pure {
@@ -51,8 +52,8 @@ contract McapPrecisionTest is Test {
         uint256 y = CurveMath.virtualToken(p, p.sCurve);
         uint160 sp = SqrtPrice.fromReserves(x, y, tokenIsC0);
         uint256 mq = McapMath.mcapQuoteFromSqrt(sp, tokenIsC0, Constants.TOTAL_SUPPLY);
-        _assertNear(mq, 33_000 * decScale, 1);
-        _assertNear(McapMath.mcapUsdFromSqrt(sp, tokenIsC0, Constants.TOTAL_SUPPLY, quoteUsd), 33_000e18, 1);
+        _assertNear(mq, 33_333 * decScale, 1);
+        _assertNear(McapMath.mcapUsdFromSqrt(sp, tokenIsC0, Constants.TOTAL_SUPPLY, quoteUsd), 33_333e18, 1);
     }
 
     function test_sqrt_mcap_6dec_both_orderings() public pure {

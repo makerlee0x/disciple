@@ -88,7 +88,7 @@ contract FrontendApiTest is FrontendApiBase {
         vm.warp(block.timestamp + 2); // inside anti-snipe window
         BondingCurve.BuyQuote memory q = curve.quoteBuy(100 ether);
         assertGt(q.snipeFee, 0, "snipe fee active");
-        assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS - (7770 * 2) / 7);
+        assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS - (9900 * 2) / 60);
         uint256 pBefore = curve.priceNow();
 
         vm.recordLogs();
@@ -224,7 +224,7 @@ contract FrontendApiTest is FrontendApiBase {
         assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.001e18);
         // in STRATEGY terms the start mcap is ~ 7000 / 0.0018 = 3.89M STRATEGY
         (,, uint256 x0, uint256 y0) = curve.curveParams();
-        assertApproxEqRel(Math.mulDiv(x0, Constants.TOTAL_SUPPLY, y0), uint256(7000e18) * 1e18 / p, 0.001e18);
+        assertApproxEqRel(Math.mulDiv(x0, Constants.TOTAL_SUPPLY, y0), uint256(7777e18) * 1e18 / p, 0.001e18);
     }
 
     function test_custom_quote_without_pool_reverts() public {
@@ -453,15 +453,16 @@ contract FrontendApiFollowupTest is FrontendApiBase {
         vm.stopPrank();
         (BondingCurve curve,) = _launchWithQuote(address(u6), 0, 0);
         assertEq(curve.quotePriceUsd(), 1e30);
-        assertLt(curve.spotPriceWad(), 10); // the precision trap: price WAD is single digits
+        // 7B supply made the WAD price single digits (the precision trap); at 1M supply it is ~7,777
+        assertGt(curve.spotPriceWad(), 1_000);
         assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.0001e18);
-        assertApproxEqRel(curve.marketCapQuote(), 7_000e6, 0.0001e18);
+        assertApproxEqRel(curve.marketCapQuote(), 7_777e6, 0.0001e18);
     }
 
     function test_18dec_quote_marketCap_unchanged() public {
         (BondingCurve curve,) = _launch(0, 0);
         assertApproxEqRel(curve.mcapNow(), Constants.START_MCAP_USD, 0.0001e18);
-        assertApproxEqRel(curve.marketCapQuote(), 7_000e18, 0.0001e18);
+        assertApproxEqRel(curve.marketCapQuote(), 7_777e18, 0.0001e18);
         uint256 legacy = Math.mulDiv(curve.spotPriceWad(), Constants.TOTAL_SUPPLY, 1e18);
         assertApproxEqRel(curve.marketCapQuote(), legacy, 1e6); // identical to ~1e-12 for 18-dec
     }

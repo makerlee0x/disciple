@@ -133,11 +133,11 @@ contract UsdgRouterTest is IntegrationBase {
         uint256 s0 = strategy.balanceOf(alice);
         uint256 u0 = quote.balanceOf(alice);
         vm.prank(alice);
-        router.buyWithUsdg(address(sTok), 2000 ether, 1, _dl());
+        router.buyWithUsdg(address(sTok), 3000 ether, 1, _dl()); // $7,777→$33,333 leaves ~$2.2K above 90%
         assertTrue(sCurve.graduated(), "router buy graduated the curve");
         // DISCIPLE audit #6: the unused intermediate quote is swapped back and refunded in USDG
         assertEq(strategy.balanceOf(alice), s0, "no intermediate-quote refund");
-        assertLt(u0 - quote.balanceOf(alice), 2000 ether, "unused quote refunded to buyer in USDG");
+        assertLt(u0 - quote.balanceOf(alice), 3000 ether, "unused quote refunded to buyer in USDG");
         _noDust();
     }
 

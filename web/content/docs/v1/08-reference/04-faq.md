@@ -11,7 +11,7 @@ section: Reference
 A launchpad and a rocket game on Robinhood Chain. Every coin is a rocket, paired with a base coin you believe in. BOOST to buy, DUMP to sell. See [What is DISCIPLE](/docs).
 
 **What's a rocket?**
-A coin launched on DISCIPLE. 7B fixed supply, priced and traded in its base.
+A coin launched on DISCIPLE. 1M fixed supply, priced and traded in its base.
 
 **What does BOOST mean? DUMP?**
 BOOST is buy. DUMP is sell.
@@ -33,7 +33,7 @@ Your rocket is priced and traded in its base. At graduation, the base is locked 
 ## Curve and graduation
 
 **When does a rocket graduate?**
-At a $33K market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
+At a $33,333 market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
 
 **Is the liquidity really locked?**
 Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.

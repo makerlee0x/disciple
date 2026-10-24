@@ -78,6 +78,13 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     /// @notice Community rewards vault (70% of anti-snipe tax).
     address public rewardsVault;
 
+    /// @notice Routers allowed to claim a creator's quote fees on the creator's behalf (claimCreatorFeesFor). Kept
+    ///         separate from Launchpad.isTrustedRouter: trusting a router for trades must not also hand it every
+    ///         creator's accrued fees. Owner-set; today only DiscipleRouter (claimCreatorFeesToUsdg).
+    mapping(address => bool) public isClaimRouter;
+
+    event ClaimRouterSet(address indexed router, bool allowed);
+
     constructor(address owner_, address treasury_, address referrals_) Owned2Step(owner_) {
         if (owner_ == address(0) || treasury_ == address(0) || referrals_ == address(0)) {
             revert ZeroAddress();
@@ -101,6 +108,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (treasury_ == address(0)) revert ZeroAddress();
         treasury = treasury_;
         emit TreasuryUpdated(treasury_);
+    }
+
+    /// @notice Allow / revoke a router for claimCreatorFeesFor (owner only).
+    function setClaimRouter(address router, bool allowed) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (router == address(0)) revert ZeroAddress();
+        isClaimRouter[router] = allowed;
+        emit ClaimRouterSet(router, allowed);
     }
 
     function setAuthorized(address caller, bool ok) external {
@@ -262,6 +277,19 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         address quote = _quoteOf(token);
         IERC20(quote).safeTransfer(msg.sender, amount);
         emit CreatorFeesClaimed(token, msg.sender, amount);
+    }
+
+    /// @notice Claim-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
+    ///         side of `creator`'s accrued fees to the ROUTER, which swaps it to USDG for the creator in the same tx.
+    ///         Only isClaimRouter[msg.sender] (owner allowlist, separate from the trade-router trust); the router
+    ///         passes its own msg.sender as `creator`.
+    function claimCreatorFeesFor(address token, address creator) external returns (uint256 amount) {
+        if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
+        amount = creatorAccrued[token][creator];
+        if (amount == 0) revert NothingToClaim();
+        creatorAccrued[token][creator] = 0;
+        IERC20(_quoteOf(token)).safeTransfer(msg.sender, amount);
+        emit CreatorFeesClaimed(token, creator, amount);
     }
 
     /// @notice Creator share accrued in the launch token itself (post-graduation buys pay the hook fee in token).

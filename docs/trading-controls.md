@@ -36,6 +36,6 @@ including Touch Grass and /flight/sim. Tested by `npm run test:recenter`.
 - Entry mcap = token-weighted average (buy fee + gas in the cost basis).
 - A sell moves exactly the closed share of uPnL into realized; % presets close that fraction of the TOKENS.
 - After a full sell: holdings 0, uPnL 0, realized = the total. Exit fees + gas are booked separately (`fees`).
-- Prices are `mcap / supply` with supply = 7B for every DISCIPLE source (mock included). Positions remember the
+- Prices are `mcap / supply` with supply = 1M for every DISCIPLE source (mock included). Positions remember the
   supply they were booked with and are rebased if it differs; a mock-replay position is dropped when the mock
   restarts (it restarts at its start mcap on every load, so an old entry would be meaningless).

@@ -149,6 +149,7 @@ abstract contract IntegrationBase is Test {
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
         launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);
@@ -208,11 +209,12 @@ abstract contract IntegrationBase is Test {
     }
 
     function _buy(BondingCurve curve, address buyer, uint256 quoteIn, uint256 minOut) internal returns (uint256) {
+        uint256 b0 = quote.balanceOf(buyer);
         vm.startPrank(buyer);
         quote.approve(address(curve), quoteIn);
         uint256 out = curve.buy(quoteIn, minOut, block.timestamp + 1 hours);
         vm.stopPrank();
-        totalQuoteIn += quoteIn;
+        totalQuoteIn += b0 - quote.balanceOf(buyer); // mode rules v2: a capped buy refunds the unused input
         return out;
     }
 
@@ -247,6 +249,7 @@ abstract contract IntegrationBase is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
+    /// @dev mode rules v2: the sniper tax decays 99% → 0 over ANTI_SNIPE_DURATION (60 s).
     function _warpPastSnipe() internal {
         vm.warp(block.timestamp + Constants.ANTI_SNIPE_DURATION + 1);
     }
@@ -265,8 +268,9 @@ abstract contract IntegrationBase is Test {
             for (uint256 j = 0; j < sizes.length && !curve.graduated(); j++) {
                 vm.startPrank(w);
                 q.approve(address(curve), sizes[j]);
+                uint256 qb = q.balanceOf(w);
                 try curve.buy(sizes[j], 0, block.timestamp + 1) {
-                    totalQuoteIn += sizes[j];
+                    totalQuoteIn += qb - q.balanceOf(w);
                     vm.stopPrank();
                     break;
                 } catch {

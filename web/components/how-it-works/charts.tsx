@@ -1,6 +1,6 @@
 /**
  * /how-it-works charts: inline SVG, server-rendered, no chart library. Text comes from content/how-it-works.ts.
- * The curve is the real constant-product bonding curve shape ($7K → $33K over 72% of supply); phase 2 is illustrative.
+ * The curve is the real constant-product bonding curve shape ($7,777 → $33,333 over 72% of supply); phase 2 is illustrative.
  */
 import { HIW_FEES, HIW_PHASES } from "@/content/how-it-works";
 import { POOL_WANDER, SPARKS } from "./chartData";
@@ -17,9 +17,9 @@ export function CurveChart({ compact = false }: { compact?: boolean }) {
   const gx = L + (W - L - R) * 0.72;
   const X = (sold: number) => L + (gx - L) * (sold / 0.72);
   const Y = (m: number) => T + (H - T - B) * (1 - m / 48000);
-  const y0 = (0.72 * Math.sqrt(33 / 7)) / (Math.sqrt(33 / 7) - 1);
+  const y0 = (0.72 * Math.sqrt(33333 / 7777)) / (Math.sqrt(33333 / 7777) - 1);
   const pts: [number, number][] = [];
-  for (let i = 0; i <= 120; i++) { const sold = (i / 120) * 0.72; pts.push([X(sold), Y(7000 * (y0 / (y0 - sold)) ** 2)]); }
+  for (let i = 0; i <= 120; i++) { const sold = (i / 120) * 0.72; pts.push([X(sold), Y(7777 * (y0 / (y0 - sold)) ** 2)]); }
   const path = "M" + pts.map(([x, y]) => `${f1(x)},${f1(y)}`).join(" L");
   const area = `${path} L${f1(gx)},${f1(Y(0))} L${L},${f1(Y(0))} Z`;
   const p2 = "M" + POOL_WANDER.map((m, i) => `${f1(gx + ((W - R - gx) * i) / (POOL_WANDER.length - 1))},${f1(Y(m))}`).join(" L");
@@ -45,11 +45,11 @@ export function CurveChart({ compact = false }: { compact?: boolean }) {
       <path d={path} fill="none" stroke="#E8EAEE" strokeWidth="2.2" />
       <path d={p2} fill="none" stroke="#AEABCC" strokeWidth="1.8" strokeDasharray="5 5" />
       <line x1={f1(gx)} x2={f1(gx)} y1={T} y2={H - B} stroke="rgba(232,234,238,.5)" strokeDasharray="3 4" />
-      <circle cx={X(0)} cy={f1(Y(7000))} r="5" fill="#0B0C0E" stroke="#E8EAEE" strokeWidth="2" />
-      <text x={X(0) + 10} y={f1(Y(7000) - 10)} className={s.ui} fontSize={compact ? 11.5 : 13} fill="#E8EAEE">{C.start}</text>
-      <circle cx={f1(gx)} cy={f1(Y(33000))} r="7" fill="#E8EAEE" />
-      <circle cx={f1(gx)} cy={f1(Y(33000))} r="14" fill="none" stroke="rgba(232,234,238,.35)" />
-      <text x={f1(gx - 14)} y={f1(Y(33000) - (compact ? 10 : 4))} textAnchor="end" className={s.ui} fontSize={compact ? 11.5 : 13} fontWeight="600" fill="#E8EAEE">{C.grad}</text>
+      <circle cx={X(0)} cy={f1(Y(7777))} r="5" fill="#0B0C0E" stroke="#E8EAEE" strokeWidth="2" />
+      <text x={X(0) + 10} y={f1(Y(7777) - 10)} className={s.ui} fontSize={compact ? 11.5 : 13} fill="#E8EAEE">{C.start}</text>
+      <circle cx={f1(gx)} cy={f1(Y(33333))} r="7" fill="#E8EAEE" />
+      <circle cx={f1(gx)} cy={f1(Y(33333))} r="14" fill="none" stroke="rgba(232,234,238,.35)" />
+      <text x={f1(gx - 14)} y={f1(Y(33333) - (compact ? 10 : 4))} textAnchor="end" className={s.ui} fontSize={compact ? 11.5 : 13} fontWeight="600" fill="#E8EAEE">{C.grad}</text>
       {compact ? (
         <>
           <text x={L} y={12} className={s.mono} fontSize={9.5} letterSpacing="1.2" fill="#BCC0CA">{C.phase1}</text>

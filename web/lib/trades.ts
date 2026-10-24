@@ -28,8 +28,8 @@ export interface Fill {
   /** $ mcap after the fill */
   mcapUsd: number;
 }
-/** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 7B × 1e18). */
-export const TOTAL_SUPPLY_TOKENS = 7_000_000_000;
+/** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 1M × 1e18). */
+export const TOTAL_SUPPLY_TOKENS = 1_000_000;
 
 /** sqrtPriceX96 (v4) → $ mcap, full precision (mirrors DiscipleHook.mcapUsdFromSqrt / indexer math.mcapUsdFromSqrt).
  *  tokenIsC0 = token < quote (v4 currency order); quoteUsdWad = USD WAD per 1e18 RAW quote units (decimal-agnostic). */

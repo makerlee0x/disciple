@@ -51,6 +51,7 @@ Storage is keyed `mapping(entityId => mapping(account => Session))`, so validati
 
 ### Residual risks (stolen session key, within one session)
 * It can spend up to the cap on poor trades. `minOut = 0` is now blocked, but self-sandwiching within the router impact cap is still possible (see above). Mitigation: a small cap and a short TTL.
+* Mode rules v2: `DiscipleRouter.launchWithUsdg`, `claimCreatorFeesToUsdg` and `Launchpad.launchFor` are **not** in the policy (owner wallet confirm only). Partial-fill refunds go back to the account; the spend cap still counts the requested `amountIn` / `creatorBuyQuoteIn`.
 * It can launch coins (if `P_LAUNCH`/`P_ANON_LAUNCH` was granted) and pick `stealthOwner`, which redirects creator fees. That is why launches are **off by default** in `TRADE_PERMS`.
 * It can place tramps or walls at bad ticks and cancel them. Positions stay owned by the account.
 * Allowances left over after the session stay granted only to DISCIPLE contracts, and those only pull funds from `msg.sender` for its own trade.
