@@ -87,7 +87,7 @@ const server = createServer(async (req, res) => {
 await new Promise<void>((r) => server.listen(PORT, "127.0.0.1", r));
 
 const { Mav2Account } = await import("../lib/aa/mav2");
-const { TRADE_PERMS, buildCreateSession, readSession } = await import("@disciple/session-keys");
+const { TRADE_PERMS, buildCreateSession, chainNow, readSession } = await import("@disciple/session-keys");
 const { getDefaultSingleSignerValidationModuleAddress, getDefaultTimeRangeModuleAddress } = await import("@account-kit/smart-contracts/experimental");
 const { sessionPermissions, SESSION_POLICY_MODULE_ID, moduleIdAbi } = await import("../lib/aa/oneTap");
 const { applySlippage } = await import("../lib/curveMath");
@@ -121,11 +121,13 @@ try {
 // 2. install session on policy 1.4.1 (owner op, USDG gas)
 const key = generatePrivateKey();
 const s = buildCreateSession({
+  now: await chainNow(pc as never), // AUDIT #148 M-1: chain clock, as enableOneTap does
   modules: { policy, singleSigner: getDefaultSingleSignerValidationModuleAddress(robinhoodTestnet), timeRange: getDefaultTimeRangeModuleAddress(robinhoodTestnet) },
   targets: { router: d.router, launchpad: d.launchpad, trampWallManager: d.trampWallManager },
   sessionSigner: privateKeyToAccount(key).address,
   caps: [{ token: d.defaultQuote, cap: parseEther("1000") }, { token: d.usdg, cap: BigInt(50) * one }],
-  ttlSec: 86400, maxSlippageBps: 500, permissions: sessionPermissions(TRADE_PERMS, true),
+  ttlSec: 86400 - 600, // AUDIT #148 M-1: skew margin under the on-chain 24h max
+  maxSlippageBps: 500, permissions: sessionPermissions(TRADE_PERMS, true),
 });
 try {
   const inst = await sa.sendCalls([{ to: me, data: s.data }], "owner");
