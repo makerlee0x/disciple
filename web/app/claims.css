@@ -154,3 +154,32 @@
 }
 .cl-pending-upgrade { opacity: .78; cursor: help; }
 .cl-pending-upgrade .cl-pill { margin-left: 6px; padding: 3px 8px; font-size: 10px; color: var(--dsc-muted); }
+
+/* Combined rewards (profile) */
+.cl-rw { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.cl-rw-total { display: flex; flex-direction: column; gap: 8px; }
+.cl-rw-big { font-size: clamp(34px, 5vw, 48px); line-height: 1; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.cl-rw-week { font-size: 14px; color: var(--muted, #9aa3ad); }
+.cl-rw-week b { color: #2fd27a; font-weight: 700; }
+.cl-rw-total .cl-btn { align-self: flex-start; margin-top: 6px; }
+.cl-rw-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cl-rw-linkrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.cl-rw-linkrow .cl-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cl-rw-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.cl-rw-kind { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03); }
+.cl-rw-kind strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.cl-rw-kname { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted, #9aa3ad); }
+.cl-rw-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #8b93a1; }
+.cl-rw-dot.referral { background: #7c6cff; }
+.cl-rw-dot.creator { background: #f5b942; }
+.cl-rw-dot.crew { background: #2fd27a; }
+.cl-rw-history { margin-top: 14px; }
+.cl-rw-feed { list-style: none; margin: 8px 0 0; padding: 0; }
+.cl-rw-feed li { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.cl-rw-feed li:first-child { border-top: 0; }
+.cl-rw-what { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 14px; }
+.cl-rw-what .muted { font-size: 12px; }
+.cl-rw-amt { font-weight: 700; color: #2fd27a; font-variant-numeric: tabular-nums; }
+.cl-rw-deposit { margin-top: 14px; }
+@media (max-width: 860px) { .cl-rw { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .cl-rw-total .cl-btn { align-self: stretch; } }

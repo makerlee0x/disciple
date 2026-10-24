@@ -50,6 +50,7 @@
     "test:live-feed": "tsx --test scripts/test-live-feed.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
     "test:claims": "tsx --test scripts/test-claims.mts",
+    "test:rewards": "tsx --test scripts/test-rewards.mts",
     "test:ssrf": "tsx --test scripts/test-ssrf.mts",
     "test:coin-images": "tsx --test scripts/test-coin-images.mts",
     "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
