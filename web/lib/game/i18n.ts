@@ -90,12 +90,26 @@ const en = {
   "sim.off": "◇ SIMULATED MARKET · OFF",
   "sim.auto": "(auto)",
   "exit": "Back to Launchpad",
+  // EXIT CONFIRM (components/flight/ExitConfirm.tsx): BRAND copy, swap here only. English only for now; the other locales
+  // fall back to English (NEEDS_REVIEW: add zh / ko / ja / es once BRAND locks the line). No exclamation marks.
+  "exitc.title": "Leave the mission?",
+  "exitc.body": "The mission continues, with or without you.",
+  "exitc.stay": "Stay",
+  "exitc.leave": "Leave",
+  // secondary lines (BRAND): built but OFF (exitGuard SHOW_EXIT_NOTES = false) until lee OKs them
+  "exitc.note.live": "Your coins stay. This run's orb points and streak don't.",
+  "exitc.note.sim": "This practice run will end.",
+  "exitc.note.boost": "Your BOOST still lands on-chain.",
+  "exitc.note.dump": "Your DUMP still lands on-chain.",
 } as const;
 export type I18nKey = keyof typeof en;
+/** Keys that ship English-only on purpose (copy pending BRAND, then native review): other locales fall back to English. */
+export const ENGLISH_ONLY: readonly I18nKey[] = ["exitc.title", "exitc.body", "exitc.stay", "exitc.leave", "exitc.note.live", "exitc.note.sim", "exitc.note.boost", "exitc.note.dump"];
 type Dict = Partial<Record<I18nKey, string>>;
 
 // NEEDS_REVIEW (BRAND + native speaker): draft translations below.
 const zh: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "设置", "settings.open": "设置 (Esc)", "settings.close": "关闭 (Esc)", "settings.paused": "菜单打开时游戏快捷键暂停",
   "sec.share": "分享", "share.trade": "分享你的交易", "share.card": "下载火箭卡片",
   "sec.hotkeys": "快捷键", "hk.buy": "买入预设", "hk.sell": "卖出比例", "hk.press": "请按一个键…", "hk.reset": "重置按键", "hk.auto": "使用默认买入金额（$10 / $25 / $50 / $100）",
@@ -117,6 +131,7 @@ const zh: Dict = {
   "sim.on": "◆ 模拟市场 · 开", "sim.off": "◇ 模拟市场 · 关", "sim.auto": "（自动）", "exit": "返回发射台",
 };
 const ko: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "설정", "settings.open": "설정 (Esc)", "settings.close": "닫기 (Esc)", "settings.paused": "메뉴가 열려 있는 동안 게임 단축키가 일시 중지됩니다",
   "sec.share": "공유", "share.trade": "내 거래 공유", "share.card": "로켓 카드 다운로드",
   "sec.hotkeys": "단축키", "hk.buy": "매수 프리셋", "hk.sell": "매도 비율", "hk.press": "키를 누르세요…", "hk.reset": "키 초기화", "hk.auto": "기본 매수 금액 사용 ($10 / $25 / $50 / $100)",
@@ -138,6 +153,7 @@ const ko: Dict = {
   "sim.on": "◆ 시뮬레이션 시장 · 켜짐", "sim.off": "◇ 시뮬레이션 시장 · 꺼짐", "sim.auto": "(자동)", "exit": "런치패드로 돌아가기",
 };
 const ja: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "設定", "settings.open": "設定 (Esc)", "settings.close": "閉じる (Esc)", "settings.paused": "メニュー表示中はゲームのホットキーが停止します",
   "sec.share": "シェア", "share.trade": "トレードをシェア", "share.card": "ロケットカードを保存",
   "sec.hotkeys": "ホットキー", "hk.buy": "買いプリセット", "hk.sell": "売りサイズ", "hk.press": "キーを押してください…", "hk.reset": "キーをリセット", "hk.auto": "デフォルトの買い金額を使う（$10 / $25 / $50 / $100）",
@@ -159,6 +175,7 @@ const ja: Dict = {
   "sim.on": "◆ シミュレーション市場 · オン", "sim.off": "◇ シミュレーション市場 · オフ", "sim.auto": "（自動）", "exit": "ローンチパッドに戻る",
 };
 const es: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "AJUSTES", "settings.open": "Ajustes (Esc)", "settings.close": "Cerrar (Esc)", "settings.paused": "Los atajos del juego se pausan mientras este menú está abierto",
   "sec.share": "Compartir", "share.trade": "Comparte tu operación", "share.card": "Descargar tarjeta del cohete",
   "sec.hotkeys": "Atajos", "hk.buy": "Montos de compra", "hk.sell": "Tamaños de venta", "hk.press": "pulsa una tecla…", "hk.reset": "Restablecer teclas", "hk.auto": "Usar montos de compra por defecto ($10 / $25 / $50 / $100)",
