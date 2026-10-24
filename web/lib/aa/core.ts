@@ -179,7 +179,8 @@ export class LightSmartAccount {
         return { userOpHash: uoh, txHash: rc.receipt.transactionHash, receipt: rc, gasMode: mode };
       }
     }
+    // still unknown, not failed: the ids + the op's EntryPoint nonce let the trade layer watch it (SITE #144 shape)
     logRelayOp("pending", { userOpHash: uoh });
-    throw new AAError("Timeout", PENDING_MSG, { userOpHash: uoh });
+    throw new AAError("Timeout", PENDING_MSG, { userOpHash: uoh, nonce: BigInt(op.nonce), sender: op.sender });
   }
 }

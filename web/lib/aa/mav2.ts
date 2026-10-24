@@ -17,7 +17,12 @@ import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
-import { payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
+import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
+import { relaySend, relayUnclear } from "./relayClient";
+import type { RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
+/** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
+export const NEXT_BLOCK_MS = 170;
+const nextBlock = () => new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
 const uoRevertAbi = parseAbi(["event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)"]);
@@ -42,6 +47,13 @@ export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid acc
 /** Pre-flight rejections that are typically a lagging RPC node right after our own previous op (session install, deploy). */
 /** + balance lag (FLOW 2): a sell sized from a balance the node hasn't caught up to (just bought) reverts
  * ERC20InsufficientBalance (0xe450d38c) / "transfer amount exceeds balance" in estimation — nothing sent, retry once. */
+/** AAError("Timeout").extra for an UNCLEAR outcome: the relay fields (relayNonce = the RELAYER EOA nonce) + the smart
+ * account `sender` and the op's own EntryPoint v0.7 `nonce` (bigint; SITE's watcher checks it for landed / dropped). */
+export function unclearExtra(u: RelayUnclearInfo, userOpHash: Hex, op: { sender: Address; nonce?: Hex | bigint }): RelayTimeoutExtra {
+  let nonce: bigint | undefined;
+  try { if (op.nonce !== undefined) nonce = BigInt(op.nonce); } catch { /* malformed: leave it out */ }
+  return { ...u, userOpHash, sender: op.sender, ...(nonce !== undefined ? { nonce } : {}) };
+}
 export const TRANSIENT_SIM = /AA23|AA24|SessionInactive|0xf9be14df|ERC20InsufficientBalance|0xe450d38c|exceeds balance|insufficient balance/i;
 
 const BUNDLER_METHODS = [
@@ -153,7 +165,12 @@ export class Mav2Account {
   private ownerClient?: Promise<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sessionClient?: { entityId: number; c: Promise<any> };
-  constructor(private o: Mav2Opts, private owner: LocalAccount) { this.gasMode = o.usdgGas ? "usdg" : "self-pay"; }
+  /** Pre-issued per-sender paymaster allowance (item 5): 0 pm_* calls on a warm USDG-gas trade. */
+  readonly allowances?: AllowanceCache;
+  constructor(private o: Mav2Opts, private owner: LocalAccount) {
+    this.gasMode = o.usdgGas ? "usdg" : "self-pay";
+    if (o.usdgGas) this.allowances = new AllowanceCache({ url: absUrl(o.usdgGas.url), chainId: o.chain.id });
+  }
 
   private transport() {
     return split({ overrides: [{ methods: BUNDLER_METHODS, transport: http(absUrl(this.o.bundlerUrl)) }], fallback: http(this.o.chain.rpcUrls.default.http[0]) });
@@ -201,7 +218,23 @@ export class Mav2Account {
         }
       } catch { /* RPC hiccup: retry until the deadline */ }
       if (Date.now() > until) return null;
-      await new Promise((res) => setTimeout(res, 400));
+      await new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));   // block cadence (was 400 ms); only used without a txHash
+    }
+  }
+
+  /** The relay's tx hash is known ⇒ one receipt read (no log scan); retried at block cadence for ≤ 3 s. */
+  async receiptFor(txHash: Hex, hash: Hex): Promise<{ userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[] } | null> {
+    const until = Date.now() + 3000;
+    for (;;) {
+      const rc = await this.o.pc.getTransactionReceipt({ hash: txHash }).catch(() => null);
+      if (rc) {
+        const logs = rc.logs.map((x) => ({ address: x.address, data: x.data, topics: x.topics as Hex[] }));
+        let success = false;
+        for (const l of logs) { try { const ev = decodeEventLog({ abi: uoEventAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] }); if (ev.args.userOpHash === hash) success = ev.args.success; } catch { /* other */ } }
+        return { userOpHash: hash, txHash, success, logs };
+      }
+      if (Date.now() > until) return null;
+      await new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
     }
   }
 
@@ -213,6 +246,7 @@ export class Mav2Account {
     await Promise.all([
       this.deployed ? 0 : c.account.isAccountDeployed?.().then((d: boolean) => { this.deployed = d; }),
       FEES.get(() => fetchFees(c as unknown as FeeClient)),
+      this.allowances?.refresh(c.account.address as Address),
       // learn the executeUserOp-prefix answer now (memoizeExecPrefix) so the first tap encodes locally
       c.account.encodeExecute({ target: "0x0000000000000000000000000000000000000001", data: "0x", value: BigInt(0) }),
     ]).catch(() => undefined);
@@ -278,7 +312,7 @@ export class Mav2Account {
       let wire: UserOp;
       try {
         ({ op: wire } = await payGasInUsdg({
-          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls, build,
+          url: absUrl(pm.url), chainId: this.o.chain.id, usdg: pm.usdg, paymaster: pm.paymaster, calls, build, allowance: this.allowances?.peek(sender),
           sign: async (op) => ((await client.signUserOperation({ uoStruct: op })) as UserOp).signature,
         }));
       } catch (e) {
@@ -328,7 +362,7 @@ export class Mav2Account {
       const ids = { userOpHash: ref?.userOpHash, txHash: ref?.txHash };
       if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); logRelayOp("rejected", ids); throw new AAError("Reverted", REJECTED_MSG, ids); }
       if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, ids); }
-      if (feeRetry && TRANSIENT_SIM.test(m)) { await new Promise((res) => setTimeout(res, 700)); return this.sendCalls(calls, as, false); }
+      if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(calls, as, false); }
       return fail(e);
     }
     const t1 = now();
@@ -338,7 +372,7 @@ export class Mav2Account {
     opPhase({ phase: "submitted", userOpHash: req.hash });
     let txHash: Hex;
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
-    catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: req.hash }); }
+    catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, unclearExtra({ unclear: true, reason: "receipt-timeout" }, req.hash, { sender, nonce: (req.request as { nonce?: Hex }).nonce })); }
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
       success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
     } | null;
@@ -363,10 +397,8 @@ export class Mav2Account {
     sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; fail: (e: unknown) => Promise<never>;
     t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
   }): Promise<SendResult | null> {
-      type SyncRes = { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
-      const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" }, keepalive: true,
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_sendUserOperationSync", params: [wire, ENTRYPOINT_V07] }) }).catch((e) => ({ status: 0, json: async () => ({ error: { code: -32099, message: `network: ${(e as Error).message}` } }) }) as unknown as Response);
-      let j = await r.json().catch(() => ({ error: { code: -32098, message: `relay response unreadable (HTTP ${r.status})` } })) as SyncRes;
+      // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
+      let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash }));
       const t3 = now();
       // Post-broadcast relay error: the relay answers with the op's ids (error.data, lib/aa/relayOp). Keep OUR hash (the
       // op we signed); the relay's bundle tx hash only if it reports the same op.
@@ -378,15 +410,33 @@ export class Mav2Account {
         throw new AAError("Reverted", REJECTED_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash });
       }
       // Ambiguous failure (lost response, receipt timeout, nonce already used, or sent but unconfirmed): the op may have
-      // landed — check before failing.
+      // landed — check before failing. #141: with the bundle tx hash (same op) ONE receipt read; log scan only without it.
+      let lookedUp = false;
       if (j.error && ids.userOpHash && j.error.code !== -32601 && (ref || AMBIGUOUS_RELAY.test(j.error.message))) {
-        const got = await this.findOp(ids.userOpHash, c.sender);
-        if (got) j = { result: got };
-        else if (ref) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash }); }
+        lookedUp = true;
+        const got = ids.txHash ? await this.receiptFor(ids.txHash, ids.userOpHash) : await this.findOp(ids.userOpHash, c.sender);
+        if (got) j = { result: { kind: "confirmed", via: "rpc-wait", t: { simulate: 0, signTx: 0, send: 0, mined: 0, total: 0 }, receipt: { transactionHash: got.txHash, blockHash: "0x", blockNumber: "0x0", status: "0x1", gasUsed: "0x0", logs: got.logs }, ...got } };
       }
+      // Still no answer and the outcome is unclear (receipt timeout, lost stream, network): NEVER a definite failure and
+      // never a retry / re-sign (it may land). AAError("Timeout").extra = RelayTimeoutExtra { unclear, reason, userOpHash,
+      // txHash, relayNonce, sender, nonce (the op's EntryPoint nonce) } so SITE can keep the hold and watch the op
+      // ('pending_unknown').
+      const unclear0 = j.error && j.error.code !== -32601 ? relayUnclear(j.error, hash) : null;
+      // main #130: OUR hash wins; the relay's tx hash only when it reported the same op (keptOpRef)
+      const unclear: RelayUnclearInfo | null = unclear0 && (ids.userOpHash ? { ...unclear0, userOpHash: ids.userOpHash, ...(ids.txHash ? { txHash: ids.txHash } : {}) } : unclear0);
+      if (unclear && !ids.txHash && unclear0?.userOpHash && hash && unclear0.userOpHash.toLowerCase() !== hash.toLowerCase()) delete unclear.txHash;
+      if (unclear) {
+        const uoh = unclear.userOpHash;
+        if (uoh) opPhase({ phase: "submitted", userOpHash: uoh, txHash: unclear.txHash });
+        logRelayOp("pending", { userOpHash: uoh, txHash: unclear.txHash });
+        throw new AAError("Timeout", PENDING_MSG, uoh ? unclearExtra(unclear, uoh, { sender: c.sender, nonce: wire.nonce }) : { ...unclear, sender: c.sender });
+      }
+      // post-broadcast (relay reported the op) but not marked unclear and not found: pending, never a failure (main #130)
+      if (j.error && lookedUp && ref) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { userOpHash: ids.userOpHash, txHash: ids.txHash, sender: c.sender }); }
+      if (j.error && c.gasMode === "usdg" && /AA3[0-9]|MaxCostTooLow|signature error/i.test(`${j.error.message} ${String(j.error.data ?? "")}`)) this.allowances?.invalidate(c.sender);
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
-        await new Promise((res) => setTimeout(res, 700));
+        await nextBlock();
         return this.sendCalls(c.calls, c.as, false);
       }
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
@@ -411,7 +461,7 @@ export class Mav2Account {
         this.syncOk = true;
         const { userOpHash, txHash, success, logs } = j.result;
         opPhase({ phase: "submitted", userOpHash, txHash });
-        const timings: OpTimings = { build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), rpc: Math.round(t3 - c.t2), total: Math.round(t3 - c.t0), fast: true, server: j.result.t };
+        const timings: OpTimings = { build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), rpc: Math.round(t3 - c.t2), total: Math.round(t3 - c.t0), fast: true, server: j.result.t as Record<string, number> };
         if (!success) {
           this.gas.drop(c.kind);
           const revertData = opRevertReason(logs, userOpHash);
@@ -419,7 +469,8 @@ export class Mav2Account {
           throw new AAError("Reverted", REJECTED_MSG, { userOpHash, txHash, revertData });
         }
         // SITE #137: keep the receipt block on the confirmed event (lib/fillBook pins post-fill reads at ≥ it)
-        opPhase({ phase: "confirmed", userOpHash, txHash, timings, blockNumber: blockStr(...logs.map((l) => (l as { blockNumber?: unknown }).blockNumber)) });
+        const rb = (j.result as { receipt?: { blockNumber?: unknown } }).receipt?.blockNumber;
+        opPhase({ phase: "confirmed", userOpHash, txHash, timings, blockNumber: blockStr(...logs.map((l) => (l as { blockNumber?: unknown }).blockNumber), rb === "0x0" ? undefined : rb) });
         this.deployed = true;
         return { userOpHash, txHash, gasMode: c.gasMode, receipt: { success: true, receipt: { transactionHash: txHash, logs } }, timings };
       }
@@ -432,7 +483,10 @@ export class Mav2Account {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
     if (j.error) {
-      if (/not confirmed|timeout/i.test(j.error.message)) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: hash }); }
+      if (/not confirmed|timeout/i.test(j.error.message)) {
+        logRelayOp("pending", { userOpHash: hash });
+        throw new AAError("Timeout", PENDING_MSG, unclearExtra(relayUnclear({ message: j.error.message, data: j.error.data }, hash) ?? { unclear: true, reason: "receipt-timeout" }, hash, wire));
+      }
       // unreadable response / relay policy (gas caps, paymaster deposit): plain copy; real reverts still decode via fail()
       if (j.error.unreadable || (!/simulation|revert|AA[0-9]{2}/i.test(j.error.message) && INFRA_WORDING.test(j.error.message)))
         throw new AAError("Bundler", TRADING_UNAVAILABLE, { userOpHash: hash, detail: j.error.message.split("\n")[0].slice(0, 300) });
@@ -440,7 +494,7 @@ export class Mav2Account {
     }
     opPhase({ phase: "submitted", userOpHash: hash });
     const got = await this.findOp(hash, wire.sender, 30_000);
-    if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: hash }); }
+    if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, unclearExtra({ unclear: true, reason: "receipt-timeout" }, hash, wire)); }
     if (!got.success) {
       this.gas.drop(kind);
       const revertData = opRevertReason(got.logs, hash);

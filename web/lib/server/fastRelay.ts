@@ -6,11 +6,14 @@ import "server-only";
  *  - pre-tracked relayer nonce (local cursor, resynced on nonce errors) ⇒ no getTransactionCount per op
  *  - gas = the op's own limits + overhead ⇒ no estimateGas; no per-op simulation for verified senders (relayTrust:
  *    re-simulated every RESIM_EVERY ops / RESIM_MS, escalating strikes on reverts). FAST_RELAY_SIM=1 always simulates.
- *  - eth_sendRawTransactionSync (EIP-7966, supported by the RH RPC) returns the receipt with the send; fallback:
- *    sendRawTransaction + 50 ms receipt polling.
+ *  - eth_sendRawTransactionSync (EIP-7966) returns the FULL receipt with the send (lib/server/syncSend: sequencer
+ *    endpoint when RHT_SEQUENCER_URL is set, public RPC otherwise / as fallback). Timeout or error after signing ⇒
+ *    onPending({ txHash }) and the server waits for the receipt (the client never polls; see lib/aa/relayTypes).
  * Ops from different users/keys run concurrently: only nonce assignment is serialized (synchronous).
  */
 import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
+import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
+import { isNonceErr, jsonRpc, syncSend, type PendingReason, type RpcErr } from "./syncSend";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -37,7 +40,6 @@ const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefin
 let relayer: PrivateKeyAccount | undefined;
 let nextNonce: number | undefined, nonceSync: Promise<number> | undefined;
 let base = { fee: BigInt(0), at: 0 }, baseInflight: Promise<void> | undefined;
-let syncSupported: boolean | undefined;
 
 function account() {
   return (relayer ??= privateKeyToAccount(relayerKey())); // production: RelayerNotConfiguredError (→ 503), never the faucet key
@@ -113,32 +115,45 @@ const senderPrefund = (op: UserOp) => (op.paymaster ? BigInt(0) : maxPrefund(op,
 /** Warm the relay (nonce + base fee + TLS connection) and, if given, the sender's trust entry. */
 export async function warmRelay(sender?: string) {
   account(); // fail closed (production, no dedicated relayer key) before any RPC
+  warmSequencer();
   await Promise.all([nextNonce === undefined ? syncNonce() : 0, baseFee(), sender ? primeSender(sender).catch(() => undefined) : 0]);
 }
 
-type RpcReceipt = { status: Hex; transactionHash: Hex; logs: { address: Hex; data: Hex; topics: Hex[] }[] };
-async function sendSync(raw: Hex): Promise<{ rc: RpcReceipt; mode: "sync" | "poll"; sendMs: number; minedMs: number }> {
-  const t0 = Date.now();
-  if (syncSupported !== false) {
-    try {
-      const rc = await pc.request({ method: "eth_sendRawTransactionSync" as never, params: [raw] as never }) as unknown as RpcReceipt;
-      syncSupported = true; return { rc, mode: "sync", sendMs: Date.now() - t0, minedMs: 0 };
-    } catch (e) {
-      if (!/method not found|not supported|does not exist|-32601/i.test(String((e as Error).message))) throw e;
-      syncSupported = false;
-    }
-  }
-  const hash = await pc.sendRawTransaction({ serializedTransaction: raw });
-  const t1 = Date.now();
-  for (;;) {
-    const rc = await pc.getTransactionReceipt({ hash }).catch(() => null) as TransactionReceipt | null;
-    if (rc) return { rc: { status: rc.status === "success" ? "0x1" : "0x0", transactionHash: rc.transactionHash, logs: rc.logs as never }, mode: "poll", sendMs: t1 - t0, minedMs: Date.now() - t1 };
-    if (Date.now() - t1 > 20_000) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
-    await new Promise((r) => setTimeout(r, 50));
-  }
+/**
+ * Item 1 (feat/trade-latency): RHT_SEQUENCER_URL (server env, e.g. https://sequencer.testnet.chain.robinhood.com,
+ * send-only) ⇒ eth_sendRawTransactionSync [raw] goes there (live: full receipt in ~161 ms warm; the public RPC sees
+ * the tx 0.64–0.75 s later). Unset ⇒ the public RPC exactly as before. RHT_RECEIPT_RPC_URL (optional fast node)
+ * serves the slow-path receipt wait before the public RPC. Rules: lib/server/syncSend.
+ */
+const RPC_URL = robinhoodTestnet.rpcUrls.default.http[0];
+const SEQ_URL = /^https?:\/\//.test(process.env.RHT_SEQUENCER_URL || "") ? process.env.RHT_SEQUENCER_URL! : undefined;
+const SEND = SEQ_URL ? { name: "sequencer" as const, rpc: jsonRpc(SEQ_URL) } : { name: "rpc" as const, rpc: jsonRpc(RPC_URL) };
+const FAST_READ = /^https?:\/\//.test(process.env.RHT_RECEIPT_RPC_URL || "") ? jsonRpc(process.env.RHT_RECEIPT_RPC_URL!, 3_000) : undefined;
+let seqWarmAt = 0;
+/** Keep the TLS connection to the sequencer warm (cold TLS = +260–660 ms). Any request works; the answer is ignored. */
+export function warmSequencer() {
+  if (!SEQ_URL || Date.now() - seqWarmAt < 20_000) return;
+  seqWarmAt = Date.now();
+  void SEND.rpc("web3_clientVersion", []).catch(() => undefined);
 }
+const hx = (v: bigint | number | undefined) => (v === undefined ? undefined : (`0x${BigInt(v).toString(16)}` as Hex));
+async function receiptOf(hash: Hex): Promise<RelayReceipt | null> {
+  if (FAST_READ) { const r = await FAST_READ("eth_getTransactionReceipt", [hash]).catch(() => null) as RelayReceipt | null; if (r) return r; }
+  const rc = await pc.getTransactionReceipt({ hash }).catch(() => null) as TransactionReceipt | null;
+  if (!rc) return null;
+  return {
+    transactionHash: rc.transactionHash, blockHash: rc.blockHash, blockNumber: hx(rc.blockNumber)!, status: rc.status === "success" ? "0x1" : "0x0",
+    gasUsed: hx(rc.gasUsed)!, effectiveGasPrice: hx(rc.effectiveGasPrice),
+    logs: rc.logs.map((l) => ({ address: l.address, topics: l.topics as Hex[], data: l.data, logIndex: hx(l.logIndex ?? undefined), blockNumber: hx(l.blockNumber ?? undefined), transactionHash: l.transactionHash ?? undefined })),
+  };
+}
+async function sendSync(raw: Hex, onPending?: OnPending) {
+  warmSequencer();
+  return syncSend(raw, keccak256(raw), { send: SEND, getReceipt: receiptOf, onPending });
+}
+export type OnPending = (p: { txHash: Hex; reason: PendingReason; relayNonce?: number }) => void;
 
-export async function sendUserOperationSync(op: UserOp) {
+export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): Promise<RelayConfirmed> {
   const T0 = Date.now(), t: Record<string, number> = {};
   const me = account();
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
@@ -152,6 +167,7 @@ export async function sendUserOperationSync(op: UserOp) {
     catch (e) { if (e instanceof RelayPolicyError) console.warn("[fastRelay] paymaster check:", e.detail ?? e.message); throw e; }
   }
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
+  const hash = userOpHash(op, robinhoodTestnet.id);   // fixed by the signed op: returned on success AND on post-broadcast errors
   const fast = process.env.FAST_RELAY_SIM !== "1" && trusted(op);
   if (!fast) {
     const s = Date.now();
@@ -159,13 +175,12 @@ export async function sendUserOperationSync(op: UserOp) {
       // keep the revert payload (FailedOp / FailedOpWithRevert(inner)) so the client can show the real reason (FLOW 2)
       let rd: string | undefined;
       (e as { walk?: (f: (x: unknown) => boolean) => unknown }).walk?.((x) => { const v = (x as { data?: unknown }).data; if (typeof v === "string" && /^0x[0-9a-fA-F]{8,}$/.test(v)) { rd = v; return true; } return false; });
-      throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd });
+      throw Object.assign(new Error(`simulation failed: ${(e as Error).message.split("\n")[0]}`), { data: rd, userOpHash: hash });
     });
     t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
   const gas = totalGas(op) + BigInt(120_000);
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
-  const hash = userOpHash(op, robinhoodTestnet.id);   // fixed by the signed op: returned on success AND on post-broadcast errors
   for (let attempt = 0; ; attempt++) {
     const s = Date.now();
     const nonce = await takeNonce();
@@ -173,7 +188,7 @@ export async function sendUserOperationSync(op: UserOp) {
     const txHash = keccak256(raw);   // the bundle tx hash is known before the send (lost answer / timeout still has it)
     t.signTx = Date.now() - s;
     try {
-      const r = await sendSync(raw);
+      const r = await sendSync(raw, onPending && ((p) => onPending({ ...p, txHash, relayNonce: nonce })));
       t.send = r.sendMs; t.mined = r.minedMs; t.total = Date.now() - T0;
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(fee)));
       let success = false;
@@ -183,12 +198,27 @@ export async function sendUserOperationSync(op: UserOp) {
       }
       if (r.rc.status !== "0x1") TRUST.strike(op.sender);   // escalating backoff; fast path returns only after a passing simulation
       else if (TRUST.get(op.sender)) { TRUST.succeeded(op.sender, fast, senderPrefund(op)); void primeSender(op.sender).catch(() => undefined); } // conservative until refresh
-      if (r.rc.status !== "0x1") throw new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`);
-      return { userOpHash: hash, txHash: r.rc.transactionHash, success, logs: r.rc.logs, t: { ...t, mode: r.mode === "sync" ? 1 : 0 } };
+      if (r.rc.status !== "0x1") throw Object.assign(new Error(`relayer tx ${r.rc.transactionHash} reverted (handleOps: validation failed?)`), { txHash: r.rc.transactionHash, userOpHash: hash });
+      const receipt = normalizeReceipt(r.rc);
+      return { kind: "confirmed", userOpHash: hash, txHash: receipt.transactionHash, success, receipt, logs: receipt.logs, via: r.via, t: { simulate: t.simulate, signTx: t.signTx, send: t.send, mined: t.mined, total: t.total, mode: r.via === "rpc-wait" ? 0 : 1 } };
     } catch (e) {
-      if (attempt < 2 && isNonceError(e)) { nextNonce = undefined; await syncNonce(); continue; }
-      // signed + (maybe) sent: the op may still land ⇒ never answer without its ids (/api/bundler → error.data)
-      throw broadcastError(e, hash, txHash);
+      if (attempt < 2 && (isNonceError(e) || isNonceErr(e as RpcErr))) { nextNonce = undefined; await syncNonce(); continue; }
+      // signed + (maybe) sent: the op may still land ⇒ never answer without its ids. main #130: RelayBroadcastError
+      // ("[userOp 0x…]" + data); #141: txHash + relayer nonce ride on the error, syncSend's receipt timeout keeps unclear/reason
+      const u = e as { unclear?: unknown; reason?: unknown };
+      throw Object.assign(broadcastError(e, hash, (e as RpcErr).txHash ?? txHash), {
+        txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, relayNonce: nonce,
+        ...(u.unclear === true ? { unclear: true, reason: u.reason } : {}),
+      });
     }
   }
+}
+
+/** EIP-7966 / RPC receipts → RelayReceipt (hex quantities, logs kept whole). */
+function normalizeReceipt(rc: RelayReceipt): RelayReceipt {
+  return {
+    transactionHash: rc.transactionHash, blockHash: rc.blockHash, blockNumber: rc.blockNumber, status: rc.status, gasUsed: rc.gasUsed,
+    ...(rc.effectiveGasPrice ? { effectiveGasPrice: rc.effectiveGasPrice } : {}),
+    logs: (rc.logs ?? []).map((l) => ({ address: l.address, topics: l.topics, data: l.data, ...(l.logIndex ? { logIndex: l.logIndex } : {}), ...(l.blockNumber ? { blockNumber: l.blockNumber } : {}), ...(l.transactionHash ? { transactionHash: l.transactionHash } : {}) })),
+  };
 }
