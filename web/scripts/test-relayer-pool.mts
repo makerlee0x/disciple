@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
-import { RelayerKeyPool, leaseKey, poolKey, poolNames, type LeaseStore } from "../lib/server/relayerPool";
+import { RelayerKeyPool, leaseKey, poolKey, poolNames, uniquePoolNames, ROLE_KEY_NAMES, type LeaseStore } from "../lib/server/relayerPool";
 
 const K = (b: string) => (`0x${b.repeat(32)}`) as Hex;
 const SINGLE = K("01"), FAUCET = K("02"), P1 = K("03"), P2 = K("04"), P3 = K("05");
@@ -80,4 +80,24 @@ test("pool OFF (RELAYER_KEY_POOL unset): fastRelay signs with the single RELAYER
   assert.equal(r1.address, addr(SINGLE)); assert.equal(r2.address, addr(SINGLE));
   const fs = await import("node:fs");
   assert.equal(fs.existsSync("/tmp/disciple-kv-pooltest-never.json"), false);
+});
+
+test("AUDIT Info: role keys excluded by NAME and ADDRESS (relayer, paymaster signer, faucet); duplicate addresses deduped", () => {
+  const PM = K("06");
+  assert.deepEqual([...ROLE_KEY_NAMES], ["RELAYER_PRIVATE_KEY", "PAYMASTER_SIGNER_KEY", "DRIP_FAUCET_KEY"]);
+  assert.deepEqual(poolNames({ RELAYER_KEY_POOL: "RELAYER_PRIVATE_KEY,PAYMASTER_SIGNER_KEY,DRIP_FAUCET_KEY,RELAYER_KEY_1" }), ["RELAYER_KEY_1"]);
+  const env = { RELAYER_PRIVATE_KEY: SINGLE, PAYMASTER_SIGNER_KEY: PM.slice(2), DRIP_FAUCET_KEY: FAUCET, A: SINGLE, B: PM, C: FAUCET, D: P1, E: P1, F: P2 };
+  for (const n of ["A", "B", "C"]) assert.equal(poolKey(env, n), undefined, `${n}: role-key address`);
+  assert.equal(poolKey(env, "D"), P1);
+  assert.deepEqual(uniquePoolNames(env, ["A", "B", "C", "D", "E", "F", "MISSING"]), ["D", "F"], "E shares D's EOA");
+});
+
+test("AUDIT Info: lease epoch bumps on every re-acquisition; holds(epoch) false after the lease lapses", async () => {
+  const clock = { t: 5_000_000 }, s = memStore(clock), p = mkPool("i-epoch", s.store, clock);
+  const a = await p.ensure(); assert.ok(a);
+  assert.equal(p.holds(a!.epoch), true);
+  clock.t += 50_000;   // past TTL − safety, never renewed
+  assert.equal(p.current(), undefined); assert.equal(p.holds(a!.epoch), false);
+  const b = await p.ensure(); assert.ok(b); assert.notEqual(b!.epoch, a!.epoch);
+  assert.equal(p.holds(a!.epoch), false, "an in-flight send from the old epoch may not sign"); assert.equal(p.holds(b!.epoch), true);
 });

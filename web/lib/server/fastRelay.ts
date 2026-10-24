@@ -23,7 +23,7 @@ import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import { relayerIsFaucet, relayerKey } from "./relayer";
-import { RelayerKeyPool, poolKey, poolNames } from "./relayerPool";
+import { RelayerKeyPool, poolKey, poolNames, uniquePoolNames } from "./relayerPool";
 import { kv } from "./kv";
 import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
 import { launchTargets } from "../aa/launchTargets";
@@ -43,10 +43,10 @@ const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHas
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true } }) });
 
 /** One relayer EOA + its nonce cursor (one per key per process). */
-type RelayerState = { account: PrivateKeyAccount; nonces: RelayerNonceCursor };
+type RelayerState = { account: PrivateKeyAccount; nonces: RelayerNonceCursor; /** pool lease still held (checked before every signature) */ canSign?: () => boolean };
 let single: RelayerState | undefined;
 /** Pool keys this process has signed with (by address): an in-flight send keeps its state across a lease change. */
-const pooled = new Map<string, RelayerState>();
+const pooled = new Map<string, RelayerState & { epoch: number }>();
 let base = { fee: BigInt(0), at: 0 }, baseInflight: Promise<void> | undefined;
 
 function stateOf(account: PrivateKeyAccount): RelayerState {
@@ -64,7 +64,7 @@ let pool: RelayerKeyPool | null | undefined;
 const INSTANCE_ID = `${process.env.VERCEL_REGION ?? "local"}:${globalThis.crypto.randomUUID()}`;
 function poolOf(): RelayerKeyPool | null {
   if (pool !== undefined) return pool;
-  const names = poolNames(process.env);
+  const names = uniquePoolNames(process.env, poolNames(process.env));
   if (!names.length) return (pool = null);
   if (relayerIsFaucet()) { console.warn("[relayer-pool] RELAYER_KEY_POOL ignored: the relayer is the faucet key"); return (pool = null); }
   return (pool = new RelayerKeyPool({ names, store: kv(), id: INSTANCE_ID, resolve: (n) => poolKey(process.env, n) }));
@@ -78,8 +78,11 @@ function active(): RelayerState {
   const l = p.current();
   if (!l) return fallback;
   let st = pooled.get(l.address);
-  if (!st) { st = stateOf(privateKeyToAccount(l.key)); pooled.set(l.address, st); }
-  return st;
+  if (!st) { st = { ...stateOf(privateKeyToAccount(l.key)), epoch: l.epoch }; pooled.set(l.address, st); }
+  // AUDIT Info: a re-acquired lease (new epoch) ⇒ another instance may have signed with this EOA meanwhile: resync
+  else if (st.epoch !== l.epoch) { st.nonces.invalidate(); st.epoch = l.epoch; }
+  const epoch = l.epoch;
+  return { account: st.account, nonces: st.nonces, canSign: () => p.holds(epoch) };
 }
 /** active(), after (re-)acquiring a pool lease when the pool is on and this instance holds none (no-op when off). */
 async function ready(): Promise<RelayerState> {
@@ -209,7 +212,7 @@ export async function standardRelayer(): Promise<StandardRelayer> {
       const r = await sendWithCursor(st.nonces, async (nonce) => {
         const raw = await signRelayerTx(st.account, { nonce, data, gas, ...fees });
         return plainSend(raw, keccak256(raw), PLAIN);
-      });
+      }, 2, st.canSign);
       if (r.pending) console.warn(`[relay] standard send ${r.txHash}: ${r.pending} — waiting on the same hash (no re-sign)`);
       return r.txHash;
     },
@@ -258,7 +261,7 @@ export async function sendUserOperationSync(op: UserOp, onPending?: OnPending): 
       t.signTx = Date.now() - s;
       const h = (txHash = keccak256(raw));
       return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h })));
-    });
+    }, 2, st.canSign);
   } catch (e) {
     // AUDIT L2: notSent only for a definite rejection; anything else (unclear) leaves the client to look the tx up
     throw Object.assign(e as Error, { txHash: (e as RpcErr).txHash ?? txHash, userOpHash: hash, notSent: classifySendError(e) !== "unclear" });

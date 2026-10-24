@@ -223,3 +223,13 @@ test("L2 client: notSent:true (definite) ⇒ no lookup, normal error (fee floor 
   try { await a.sendCalls(CALLS, "owner"); } finally { s.restore(); }
   assert.equal(looked, 0); assert.equal(s.posts(), 2); assert.equal(sent.length, 2);
 });
+
+// ---- AUDIT Info: a rebuild never accepts a worse price than the press's original minOut ----
+import { boundRebuiltMinOut } from "../lib/aa/fastPath";
+test("boundRebuiltMinOut: fresh ≥ original ⇒ fresh; fresh < original ⇒ throws ⇒ retryCalls keeps the ORIGINAL calls", async () => {
+  assert.equal(boundRebuiltMinOut(BigInt(100), BigInt(100)), BigInt(100));
+  assert.equal(boundRebuiltMinOut(BigInt(100), BigInt(120)), BigInt(120));
+  assert.throws(() => boundRebuiltMinOut(BigInt(100), BigInt(99)), /below the press's minOut/);
+  const got = await retryCalls(CALLS, { rebuild: async () => [approve, buy(Number(boundRebuiltMinOut(BigInt(100), BigInt(90))))] });
+  assert.equal(got, CALLS, "worse re-quote ⇒ original calls (original minOut 100 still enforced on-chain)");
+});

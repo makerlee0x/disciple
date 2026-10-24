@@ -32,7 +32,7 @@ import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResul
 import { ensurePveLogin, PveError } from "./pve";
 import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
-import { markGradBuy } from "./aa/fastPath";
+import { markGradBuy, boundRebuiltMinOut } from "./aa/fastPath";
 import { GradHint } from "./trade/gradHint";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
@@ -558,12 +558,13 @@ export function createViemProtocol(): ProtocolClient {
       BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
+      const minOut0 = minOut;   // the press's bound: a rebuild never accepts less (boundRebuiltMinOut)
       // Rapid taps: the ONE transient-error retry in mav2.sendCalls re-quotes (fresh minOut) instead of re-sending a
       // quote taken before the preceding in-flight shots moved the curve. Same amountIn/approvals ⇒ same spend + shape.
       const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
         dropRouteQuotes(t.token); done();   // our own op hasn't landed: don't price it against itself
         try {
-          const mo = applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+          const mo = boundRebuiltMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
           const d2 = encodeTrade(mo);
           if (grad) markGradBuy(d2);
           minOut = mo;
@@ -619,11 +620,12 @@ export function createViemProtocol(): ProtocolClient {
     if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); }
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     let done = addInflight(ik, t.amountIn);
+    const minOut0 = minOut;   // the press's bound (boundRebuiltMinOut)
     // Rapid taps: transient-error retry re-quotes (see tradeOnce). Same usdgIn/tokensIn ⇒ same exact approve + shape.
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
       dropRouteQuotes(t.token); done();
       try {
-        const mo = applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+        const mo = boundRebuiltMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);

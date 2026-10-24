@@ -94,9 +94,11 @@ export class RelayerNonceCursor {
  * Take a nonce, send, apply the rules above. `send` must sign with the given nonce and either resolve (accepted or
  * pending on the same txHash) or throw. Unclear errors are rethrown untouched (caller waits on its txHash; NO re-sign).
  */
-export async function sendWithCursor<T>(cursor: RelayerNonceCursor, send: (nonce: number) => Promise<T>, retries = 2): Promise<T> {
+export async function sendWithCursor<T>(cursor: RelayerNonceCursor, send: (nonce: number) => Promise<T>, retries = 2, canSign?: () => boolean): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     const nonce = await cursor.take();
+    // pool lease lapsed (AUDIT Info): another instance may own this EOA now ⇒ never sign; nothing was sent
+    if (canSign && !canSign()) { cursor.invalidate(); throw Object.assign(new Error("relayer lease lost before signing"), { definitive: true }); }
     try { return await send(nonce); }
     catch (e) {
       const k = classifySendError(e);

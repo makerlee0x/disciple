@@ -116,3 +116,13 @@ export async function retryCalls(calls: Call[], o: SendOpts = {}): Promise<Call[
   }
   return calls;
 }
+
+/**
+ * AUDIT Info: a rebuilt (re-quoted) trade may never accept a WORSE price than the press's original minOut (quote taken
+ * at press time − the user's slippage). fresh < original ⇒ throw: retryCalls then keeps the ORIGINAL calls (same minOut,
+ * so the chain still enforces the user's bound). fresh ≥ original ⇒ the fresh (tighter-or-equal) bound.
+ */
+export function boundRebuiltMinOut(original: bigint, fresh: bigint): bigint {
+  if (fresh < original) throw Object.assign(new Error(`rebuilt minOut ${fresh} below the press's minOut ${original}`), { code: "RebuildWorsePrice" });
+  return fresh;
+}

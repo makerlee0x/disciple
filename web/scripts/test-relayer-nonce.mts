@@ -237,3 +237,14 @@ test("L2 withRelayer (drip / poke-pricer / attest): -32603 / unknown errors are 
     assert.equal(sends, 1, e.message);
   }
 });
+
+test("AUDIT Info: canSign false (pool lease lapsed) ⇒ never signs, definitive, cursor resyncs; re-sign attempts also gated", async () => {
+  const c = new RelayerNonceCursor(async () => 130);
+  let signs = 0;
+  await assert.rejects(sendWithCursor(c, async () => { signs++; return 1; }, 2, () => false), (e: Error) => /lease lost/.test(e.message) && classifySendError(e) === "definitive");
+  assert.equal(signs, 0); assert.equal(c.peek, undefined, "invalidated ⇒ resync on next take");
+  let held = true, n = 0;
+  const c2 = new RelayerNonceCursor(async () => 140);
+  await assert.rejects(sendWithCursor(c2, async () => { n++; held = false; throw err(-32000, "nonce too low"); }, 2, () => held), /lease lost/);
+  assert.equal(n, 1, "the nonce-error re-sign is blocked once the lease is gone");
+});

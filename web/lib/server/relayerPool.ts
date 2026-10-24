@@ -21,29 +21,47 @@ export const LEASE_RENEW_SEC = 20;
 export const LEASE_SAFETY_SEC = 15;
 export const leaseKey = (name: string) => `relayer:lease:${name}`;
 const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+/**
+ * AUDIT Info: role keys never join the pool — by NAME and by ADDRESS. The single relayer (RELAYER_PRIVATE_KEY) has its
+ * own cursor (two cursors on one EOA = nonce churn); the faucet and the paymaster signer must never sign handleOps.
+ */
+export const ROLE_KEY_NAMES = ["RELAYER_PRIVATE_KEY", "PAYMASTER_SIGNER_KEY", "DRIP_FAUCET_KEY"] as const;
 const MAX_POOL = 32;
 
 /** RELAYER_KEY_POOL → env-var names (deduped, invalid names dropped). [] ⇒ pool disabled. */
 export function poolNames(env: Record<string, string | undefined>): string[] {
   const raw = (env.RELAYER_KEY_POOL ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  const ok = Array.from(new Set(raw.filter((n) => NAME.test(n) && n !== "DRIP_FAUCET_KEY"))).slice(0, MAX_POOL);
-  if (ok.length !== raw.length) console.warn(`[relayer-pool] ignored ${raw.length - ok.length} invalid / duplicate / faucet name(s) in RELAYER_KEY_POOL`);
+  const ok = Array.from(new Set(raw.filter((n) => NAME.test(n) && !(ROLE_KEY_NAMES as readonly string[]).includes(n)))).slice(0, MAX_POOL);
+  if (ok.length !== raw.length) console.warn(`[relayer-pool] ignored ${raw.length - ok.length} invalid / duplicate / role-key name(s) in RELAYER_KEY_POOL`);
   return ok;
 }
+const norm = (v: string | undefined) => { const t = v?.trim(); return t ? (t.startsWith("0x") ? t : `0x${t}`) : undefined; };
 const addrOf = (k: string | undefined) => { try { return k ? privateKeyToAccount(k as Hex).address.toLowerCase() : undefined; } catch { return undefined; } };
-/** The key behind `name`, or undefined when it is unset, malformed, or the faucet's key (the faucet never relays). */
+/** The key behind `name`, or undefined when it is unset, malformed, or a role key's address (ROLE_KEY_NAMES). */
 export function poolKey(env: Record<string, string | undefined>, name: string): Hex | undefined {
   const v = env[name]?.trim();
   if (!v) return undefined;
   const k = (v.startsWith("0x") ? v : `0x${v}`) as Hex;
   if (!/^0x[0-9a-fA-F]{64}$/.test(k)) return undefined;
   const a = addrOf(k);
-  if (!a || a === addrOf(env.DRIP_FAUCET_KEY)) return undefined;
+  if (!a || ROLE_KEY_NAMES.some((r) => a === addrOf(norm(env[r])))) return undefined;
   return k;
+}
+/** Pool names whose keys resolve, first name per ADDRESS (two names on one EOA would be two cursors on one nonce). */
+export function uniquePoolNames(env: Record<string, string | undefined>, names: string[]): string[] {
+  const seen = new Set<string>(), out: string[] = [];
+  for (const n of names) {
+    const a = addrOf(poolKey(env, n));
+    if (!a || seen.has(a)) continue;
+    seen.add(a); out.push(n);
+  }
+  if (out.length !== names.length) console.warn(`[relayer-pool] ignored ${names.length - out.length} unset / role-key / duplicate-address pool entr(ies)`);
+  return out;
 }
 function hashStr(s: string) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 
-export type Lease = { name: string; key: Hex; address: string };
+/** epoch: bumps on every (re-)acquisition — a signer's cursor from an older epoch is stale (AUDIT Info). */
+export type Lease = { name: string; key: Hex; address: string; epoch: number };
 export class RelayerKeyPool {
   private lease?: Lease & { until: number; renewAt: number };
   private acquiring?: Promise<Lease | undefined>;
@@ -60,8 +78,10 @@ export class RelayerKeyPool {
     const l = this.lease;
     if (!l) return undefined;
     if (this.now() >= l.until - (this.o.safetySec ?? LEASE_SAFETY_SEC) * 1000) return undefined;
-    return { name: l.name, key: l.key, address: l.address };
+    return { name: l.name, key: l.key, address: l.address, epoch: l.epoch };
   }
+  /** true while `epoch` is still the lease this instance may sign with (checked before every signature). */
+  holds(epoch: number): boolean { return this.current()?.epoch === epoch; }
   /** current(), else acquire one (deduped). undefined ⇒ caller uses the single relayer key. */
   ensure(): Promise<Lease | undefined> {
     const c = this.current();
@@ -95,10 +115,10 @@ export class RelayerKeyPool {
         if (!got) continue;
         const address = privateKeyToAccount(key).address;
         const t = this.now();
-        this.lease = { name, key, address, until: t + this.ttl * 1000, renewAt: t + (this.o.renewSec ?? LEASE_RENEW_SEC) * 1000 };
-        this.stats.acquired++;
+        const epoch = ++this.stats.acquired;
+        this.lease = { name, key, address, epoch, until: t + this.ttl * 1000, renewAt: t + (this.o.renewSec ?? LEASE_RENEW_SEC) * 1000 };
         if (name !== prev) console.info(`[relayer-pool] leased ${name} (${address})`);
-        return { name, key, address };
+        return { name, key, address, epoch };
       } catch { this.stats.errors++; return undefined; }   // KV down: the single key, no scan storm
     }
     this.lease = undefined; this.stats.exhausted++;
