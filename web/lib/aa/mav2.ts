@@ -11,7 +11,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, FeeCache, callsKind, type GasLimits, type Fees } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, type GasLimits, type Fees } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -226,8 +226,11 @@ export class Mav2Account {
     // Launches (≈ 6M+ execution gas) ALWAYS estimate: STATIC_GAS (1.8M) runs out and a cached 1.5x would exceed the
     // launch cap. Fees are fresh and un-doubled so the prefund (gas × maxFee) stays small (~0.0002 ETH at 8M gas).
     const launch = isLaunchCalls(calls, launchTargets(this.o.chain.id));
+    // Graduating buys (flagged by the trade layer: quote ≥ remaining to graduation) ALSO always estimate: Migration +
+    // 16 floor bands ≈ 2.6M execution > STATIC_GAS, and the estimate is never cached for the preset (GRAD_GAS_CAPS server-side).
+    const grad = !launch && isGradBuyCalls(calls);
     // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
-    const gas = launch ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
+    const gas = launch || grad ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
     const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined) : FEES.peek(() => fetchFees(client as unknown as FeeClient));
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
@@ -255,7 +258,7 @@ export class Mav2Account {
       // signed paymasterAndData (the policy checks approve == maxTokenCost), and sessions imply a deployed account:
       // static limits. Owner ops estimate execution once (self-bundler: no prefund check) with the placeholder approve.
       // Launches (owner-signed) always estimate (gas undefined above) and are capped by LAUNCH_GAS_CAPS server-side.
-      let limits: GasLimits | undefined = gas ?? (session && !launch ? STATIC_GAS : undefined);
+      let limits: GasLimits | undefined = gas ?? (session && !launch ? (grad ? GRAD_STATIC_GAS : STATIC_GAS) : undefined);
       const build = async (cs: Call[], pmf: PaymasterFields): Promise<UserOp> => {
         const u = cs.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
         const struct = await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: { nonce, ...f, ...(limits ?? {}) } });
@@ -282,7 +285,7 @@ export class Mav2Account {
         if (/^paymaster|fetch failed|failed to fetch|networkerror/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: em.split("\n")[0].slice(0, 300) });
         return fail(e);
       }
-      if (!gas && !launch && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
+      if (!gas && !launch && !grad && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
       const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       if (this.syncOk !== false) {
@@ -316,7 +319,7 @@ export class Mav2Account {
     }
     const t1 = now();
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
-    if (!gas && !launch && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
+    if (!gas && !launch && !grad && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
       this.gas.set(kind, { callGasLimit: BigInt(rq.callGasLimit), verificationGasLimit: BigInt(rq.verificationGasLimit), preVerificationGas: BigInt(rq.preVerificationGas) });
     opPhase({ phase: "submitted", userOpHash: req.hash });
     let txHash: Hex;

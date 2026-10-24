@@ -12,7 +12,7 @@ import {
   paymasterApproveCall, paymasterQuoteHash, requiredMaxTokenCost, stubPaymasterData, tokenCost,
 } from "../lib/aa/paymaster";
 import { DEFAULT_MAX_SLACK_BPS, finalQuote, PaymasterQuoteError, rateFromEnv, stubQuote, type QuoteConfig, type QuoteDeps } from "../lib/server/paymasterCore";
-import { checkPaymaster, clientFees, GAS_CAPS, INFRA_WORDING, LAUNCH_GAS_CAPS, maxPrefund, NOT_ENOUGH_USDG, RelayPolicyError, relayerPrice, TRADING_UNAVAILABLE } from "../lib/aa/gasPolicy";
+import { checkPaymaster, clientFees, GAS_CAPS, GRAD_GAS_CAPS, INFRA_WORDING, LAUNCH_GAS_CAPS, maxPrefund, NOT_ENOUGH_USDG, RelayPolicyError, relayerPrice, TRADING_UNAVAILABLE } from "../lib/aa/gasPolicy";
 import { launchpadAbi } from "../lib/abi/Launchpad";
 import { toFunctionSelector, type AbiFunction } from "viem";
 import { STATIC_GAS } from "../lib/aa/fastPath";
@@ -83,6 +83,23 @@ for (const dec of [18, 6]) {
     // same op without the launcher list (or to a non-launch target) ⇒ normal 3M cap ⇒ "gas"
     await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, d), "gas");
     await rejects(finalQuote({ ...op, callData: batch([paymasterApproveCall(USDG, PM, amt), { ...launchCall, to: TOKEN }]) }, ENTRYPOINT_V07, 46630, lcfg, d), "gas");
+  });
+
+  test(`[${dec}-dec] graduating buy (3.4M call gas) quotes under GRAD_GAS_CAPS only when deps.isGradBuy confirms it`, async () => {
+    const gop = (callData: Hex): UserOp => ({ ...baseOp(callData), callGasLimit: hex(3_400_000) });
+    let asked = 0;
+    const yes = deps({ isGradBuy: async () => { asked++; return true; } }), no = deps({ isGradBuy: async () => false });
+    const stub = await stubQuote(gop(batch([trade])), ENTRYPOINT_V07, 46630, cfg, yes);
+    const amt = BigInt(stub.disciple.maxTokenCost);
+    const op: UserOp = { ...gop(batch([paymasterApproveCall(USDG, PM, amt), trade])), paymaster: stub.paymaster, paymasterVerificationGasLimit: stub.paymasterVerificationGasLimit, paymasterPostOpGasLimit: stub.paymasterPostOpGasLimit };
+    const f = await finalQuote(op, ENTRYPOINT_V07, 46630, cfg, yes);
+    assert.ok(f.paymasterData.length > 2);
+    assert.ok(asked >= 2);
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, no), "gas");
+    await rejects(finalQuote(op, ENTRYPOINT_V07, 46630, cfg, deps()), "gas");   // no checker ⇒ W-1 caps
+    await rejects(finalQuote({ ...op, callGasLimit: hex(GRAD_GAS_CAPS.callGasLimit + BigInt(1)) }, ENTRYPOINT_V07, 46630, cfg, yes), "gas");
+    // a normal-size op never asks
+    asked = 0; await twoPhase(yes).then((x) => x.final()); assert.equal(asked, 0);
   });
 
   test(`[${dec}-dec] tokenCost rounds up; rate is USDG base units per ETH`, () => {

@@ -16,8 +16,9 @@ import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import { isNonceError, relayerKey } from "./relayer";
-import { capsForOp, checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
+import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees, totalGas } from "../aa/gasPolicy";
 import { launchTargets } from "../aa/launchTargets";
+import { chainGradReads, relayCaps } from "./gradBuy";
 import { checkPaymaster, RelayPolicyError } from "../aa/gasPolicy";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
@@ -141,7 +142,8 @@ export async function sendUserOperationSync(op: UserOp) {
   const me = account();
   // W-1: reject ops that would make the relayer pay (fee below 2x base + tip, or gas above the caps) before anything else
   const fee = await baseFee();
-  checkOpGas(op, fee, capsForOp(op, launchTargets(robinhoodTestnet.id)));
+  // launches ⇒ LAUNCH_GAS_CAPS; above GAS_CAPS + verified graduating buy ⇒ GRAD_GAS_CAPS (on-chain check, lib/server/gradBuy)
+  checkOpGas(op, fee, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id)));
   // USDG-gas op: the prefund comes from OUR paymaster's deposit (launch ops: up to LAUNCH_GAS_CAPS.total × fee)
   if (op.paymaster) {
     const pm = allowedPaymaster();

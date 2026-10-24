@@ -142,3 +142,110 @@ test("non-launch ops keep W-1 caps: wrong target, extra non-approve call, single
   const ex = encodeFunctionData({ abi: acct, functionName: "execute", args: [LP, BigInt(0), launchData] });
   assert.equal(isLaunchOp(("0x8dd7712f" + ex.slice(2)) as Hex, [LP]), true);
 });
+
+// ---- FLOW 2 (#106 + steep-curve floor): graduating buys get GRAD_GAS_CAPS (5M call / 6M total) after an on-chain check
+import { buyIntents, exceedsCaps, GRAD_GAS_CAPS, isGradBuy } from "../lib/aa/gasPolicy";
+import { isGradBuyOp, relayCaps, type GradReads } from "../lib/server/gradBuy";
+import { GRAD_STATIC_GAS, isGradBuyCalls, markGradBuy } from "../lib/aa/fastPath";
+import { GradHint } from "../lib/trade/gradHint";
+import { bondingCurveAbi } from "../lib/abi/BondingCurve";
+import { discipleRouterAbi } from "../lib/abi/DiscipleRouter";
+const CURVE = "0x4444444444444444444444444444444444444444", FAKE = "0x5555555555555555555555555555555555555555", ROUTER = "0x6666666666666666666666666666666666666666", USDG = "0x7777777777777777777777777777777777777777";
+const REMAINING = BigInt(2_000) * BigInt(10) ** BigInt(18);   // quote left to graduation on CURVE
+const D = BigInt(1_900_000_000);
+const curveBuy = (q: bigint, to = CURVE) => ({ to, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: "buy", args: [q, BigInt(1), D, OTHER as Hex] }) });
+const routerBuy = (q: bigint, to = ROUTER) => ({ to, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "buyWithUsdg", args: [TOK as Hex, q, BigInt(1), D] }) });
+const reads = (o: Partial<GradReads> = {}): GradReads & { calls: number } => {
+  const r = {
+    calls: 0, router: ROUTER,
+    async curveOf(t: string) { r.calls++; return t.toLowerCase() === TOK ? CURVE : "0x0000000000000000000000000000000000000000"; },
+    async tokenOf(c: string) { r.calls++; return c.toLowerCase() === CURVE || c.toLowerCase() === FAKE ? TOK : "0x0000000000000000000000000000000000000000"; },
+    async graduated() { r.calls++; return false; },
+    async graduates(_c: string, q: bigint) { r.calls++; return isGradBuy(q, REMAINING); },
+    ...o,
+  };
+  return r;
+};
+const gradOp = (calls: { to: string; data: Hex }[], g: Record<string, number> = {}) => ({ ...op({ callGasLimit: 3_400_000, verificationGasLimit: 350_000, preVerificationGas: 60_000, ...g }), callData: batch(calls) });
+
+test("GRAD_GAS_CAPS: 5M call / 6M total, everything else as GAS_CAPS; isGradBuy = quote >= remaining (> 0)", () => {
+  assert.equal(GRAD_GAS_CAPS.callGasLimit, BigInt(5_000_000));
+  assert.equal(GRAD_GAS_CAPS.total, BigInt(6_000_000));
+  assert.equal(GRAD_GAS_CAPS.verificationGasLimit, GAS_CAPS.verificationGasLimit);
+  assert.equal(GRAD_GAS_CAPS.preVerificationGas, GAS_CAPS.preVerificationGas);
+  assert.equal(isGradBuy(REMAINING, REMAINING), true);
+  assert.equal(isGradBuy(REMAINING - BigInt(1), REMAINING), false);
+  assert.equal(isGradBuy(REMAINING, BigInt(0)), false);   // graduated / unknown
+  // 16-band graduating buy ≈ 2.56M execution (forge FloorSeedGas) ⇒ 1.3x + 20k self-bundler estimate fits 5M, not 3M
+  const est = BigInt(2_560_000) * BigInt(13) / BigInt(10) + BigInt(20_000);
+  assert.ok(est > GAS_CAPS.callGasLimit && est < GRAD_GAS_CAPS.callGasLimit);
+  // session + USDG gas static grad limits fit the grad total with paymaster gas
+  assert.ok(GRAD_STATIC_GAS.callGasLimit + GRAD_STATIC_GAS.verificationGasLimit + GRAD_STATIC_GAS.preVerificationGas + BigInt(300_000) <= GRAD_GAS_CAPS.total);
+});
+test("buyIntents decodes curve buy / buyFor and router buyWithUsdg / buyExactIn; ignores approve, sells, garbage", () => {
+  const sell = { to: CURVE, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: "sell", args: [BigInt(5), BigInt(1), D] }) };
+  const exact = { to: ROUTER, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "buyExactIn", args: [TOK as Hex, BigInt(9), BigInt(1), OTHER as Hex, D] }) };
+  const b = buyIntents(batch([{ to: USDG, data: approve }, curveBuy(BigInt(7)), sell, routerBuy(BigInt(8)), exact]));
+  assert.deepEqual(b, [
+    { kind: "curve", to: CURVE, quoteIn: BigInt(7) },
+    { kind: "router", to: ROUTER, token: TOK, quoteIn: BigInt(8) },
+    { kind: "router", to: ROUTER, token: TOK, quoteIn: BigInt(9) },
+  ]);
+  assert.deepEqual(buyIntents("0x1234"), []);
+  assert.deepEqual(buyIntents([{ to: CURVE, data: "0xdeadbeef" }]), []);
+});
+test("relayCaps: verified graduating buy above GAS_CAPS ⇒ GRAD_GAS_CAPS (curve and router paths)", async () => {
+  const o = gradOp([{ to: USDG, data: approve }, curveBuy(REMAINING)]);
+  assert.throws(() => checkOpGas(o, BASE), /callGasLimit .* above cap 3000000/);   // the bug: rejected under W-1 caps
+  const caps = await relayCaps(o, [LP], reads());
+  assert.deepEqual(caps, GRAD_GAS_CAPS);   // deepEqual: tsx may load gasPolicy twice (ESM test + CJS lib)
+  assert.ok(checkOpGas(o, BASE, caps) > BigInt(0));
+  assert.deepEqual(await relayCaps(gradOp([{ to: USDG, data: approve }, routerBuy(REMAINING + BigInt(1))]), [LP], reads()), GRAD_GAS_CAPS);
+  // 5M call still the limit
+  const big = gradOp([curveBuy(REMAINING)], { callGasLimit: 5_000_001 });
+  const bigCaps = await relayCaps(big, [LP], reads());
+  assert.throws(() => checkOpGas(big, BASE, bigCaps), /callGasLimit .* above cap 5000000/);
+});
+test("relayCaps: GAS_CAPS for non-graduating buy, fake curve, wrong router, graduated curve, unreadable chain, non-buys", async () => {
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING - BigInt(1))]), [LP], reads()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING, FAKE)]), [LP], reads()), GAS_CAPS);   // token() points at a token whose curve isn't FAKE
+  assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING, OTHER)]), [LP], reads()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], reads({ graduated: async () => true })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([curveBuy(REMAINING)]), [LP], reads({ graduates: async () => { throw new Error("rpc"); } })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp([{ to: TOK, data: approve }]), [LP], reads()), GAS_CAPS);
+  assert.equal(await isGradBuyOp("0x1234", reads()), false);
+});
+test("relayCaps: ops within GAS_CAPS never touch the chain; launches keep LAUNCH_GAS_CAPS", async () => {
+  const r = reads();
+  const small = gradOp([curveBuy(REMAINING)], { callGasLimit: 1_800_000 });
+  assert.equal(exceedsCaps(small), false);
+  assert.deepEqual(await relayCaps(small, [LP], r), GAS_CAPS);
+  assert.equal(r.calls, 0);
+  const l = launchOp(batch([{ to: LP, data: launchData }]));
+  assert.deepEqual(await relayCaps(l, [LP], r), LAUNCH_GAS_CAPS);
+  assert.equal(r.calls, 0);
+});
+test("client: markGradBuy flags exactly that call data (mav2 then skips STATIC_GAS / GasCache)", () => {
+  const g = curveBuy(REMAINING), n = curveBuy(BigInt(1));
+  assert.equal(isGradBuyCalls([g]), false);
+  markGradBuy(g.data);
+  assert.equal(isGradBuyCalls([{ to: USDG, data: approve }, g]), true);
+  assert.equal(isGradBuyCalls([{ to: USDG, data: approve }, n]), false);
+  for (let i = 0; i < 100; i++) markGradBuy(curveBuy(BigInt(1000 + i)).data);   // bounded
+  assert.equal(isGradBuyCalls([g]), false);
+});
+test("GradHint: warm answers without RPC (no ⇒ smaller amounts no, yes ⇒ larger amounts yes), TTL, drop", () => {
+  let t = 0; const h = new GradHint(1500, () => t);
+  assert.equal(h.known(CURVE, BigInt(10)), undefined);
+  h.record(CURVE, BigInt(100), false);
+  assert.equal(h.known(CURVE, BigInt(100)), false);
+  assert.equal(h.known(CURVE.toUpperCase().replace("0X", "0x"), BigInt(50)), false);
+  assert.equal(h.known(CURVE, BigInt(101)), undefined);
+  h.record(CURVE, BigInt(500), true);
+  assert.equal(h.known(CURVE, BigInt(600)), true);
+  assert.equal(h.known(CURVE, BigInt(300)), undefined);
+  t = 1501;
+  assert.equal(h.known(CURVE, BigInt(50)), undefined);
+  h.record(CURVE, BigInt(100), false); h.drop(CURVE);
+  assert.equal(h.known(CURVE, BigInt(50)), undefined);
+});

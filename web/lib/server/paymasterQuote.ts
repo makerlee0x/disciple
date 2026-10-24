@@ -20,6 +20,7 @@ import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet, DEPLOYMENTS } from "../chains";
 import { disciplePaymasterAbi } from "../aa/paymaster";
 import { launchTargets } from "../aa/launchTargets";
+import { chainGradReads, isGradBuyOp } from "./gradBuy";
 import { PAYMASTER_CHAIN_ID, PaymasterQuoteError, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"]);
@@ -84,6 +85,7 @@ export function quoteDeps(cfg: QuoteConfig): QuoteDeps {
       return fee;
     },
     sign: (hash) => signerAccount().signMessage({ message: { raw: hash } }),
+    isGradBuy: (callData) => isGradBuyOp(callData, chainGradReads(pc as never, PAYMASTER_CHAIN_ID)),
   };
 }
 

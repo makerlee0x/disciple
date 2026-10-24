@@ -50,6 +50,17 @@ export const LAUNCH_GAS_CAPS = {
   callGasLimit: BigInt(10_000_000),
   total: BigInt(11_000_000),
 } as const;
+/**
+ * Buys that may GRADUATE the curve (steep curve #1 + 16-band floor, feat/steep-curve-floor): the graduating buy runs
+ * Migration + the full-range seed + 16 floor positions in one tx ≈ 2.56M execution gas (forge FloorSeedGas, cap 3.0M),
+ * ≈ 3.4M after the self-bundler's 1.3x + 20k padding ⇒ above GAS_CAPS (3M / 4M). Only buys whose quote reaches the
+ * remaining USDG to graduation (curve.quoteBuy(q).graduates) get these; the client always estimates them fresh.
+ */
+export const GRAD_GAS_CAPS = {
+  ...GAS_CAPS,
+  callGasLimit: BigInt(5_000_000),
+  total: BigInt(6_000_000),
+} as const;
 export type GasCaps = { [K in keyof typeof GAS_CAPS]: bigint };
 
 const LAUNCH_SELECTORS = new Set(
@@ -99,9 +110,46 @@ export function isLaunchOp(callData: string, launchers: string[]): boolean {
 export const isLaunchCalls = (calls: { to: string; data: string }[], launchers: string[]) =>
   calls.some((c) => LAUNCH_SELECTORS.has(c.data.slice(0, 10).toLowerCase()) && launchers.map((a) => a.toLowerCase()).includes(c.to.toLowerCase()));
 
-/** Caps for an op: LAUNCH_GAS_CAPS when it is a launch to one of `launchers`, else the W-1 GAS_CAPS. */
-export const capsForOp = (op: { callData?: string }, launchers: string[]): GasCaps =>
-  op.callData && isLaunchOp(op.callData, launchers) ? LAUNCH_GAS_CAPS : GAS_CAPS;
+/**
+ * Caps for an op: LAUNCH_GAS_CAPS when it is a launch to one of `launchers`; GRAD_GAS_CAPS when the caller verified
+ * it is a graduating buy (lib/server/gradBuy relayCaps: on-chain check, only for ops above GAS_CAPS); else GAS_CAPS.
+ */
+export const capsForOp = (op: { callData?: string }, launchers: string[], opts?: { gradBuy?: boolean }): GasCaps =>
+  op.callData && isLaunchOp(op.callData, launchers) ? LAUNCH_GAS_CAPS : opts?.gradBuy ? GRAD_GAS_CAPS : GAS_CAPS;
+
+/** Curve buys (direct, or DiscipleRouter buyWithUsdg / buyExactIn ⇒ curve.routerBuy pre-graduation). */
+const buyAbi = parseAbi([
+  "function buy(uint256 quoteIn, uint256 minTokensOut, uint256 deadline)",
+  "function buy(uint256 quoteIn, uint256 minTokensOut, uint256 deadline, address recipient)",
+  "function buyFor(address buyer, uint256 quoteIn, uint256 minTokensOut, uint256 deadline)",
+  "function buyWithUsdg(address token, uint256 usdgIn, uint256 minTokensOut, uint256 deadline)",
+  "function buyExactIn(address token, uint256 quoteIn, uint256 minTokensOut, address recipient, uint256 deadline)",
+]);
+const BUY_SELECTORS = new Set(buyAbi.map((f) => toFunctionSelector(f).toLowerCase()));
+/** One buy inside a call list: `curve` = called on a curve (to = curve); `router` = called on a router (to = router, token named). */
+export type BuyIntent = { kind: "curve" | "router"; to: string; token?: string; quoteIn: bigint };
+/** Every curve / router buy in a call list (or an account callData). Undecodable or no buys ⇒ []. Pure. */
+export function buyIntents(callsOrCallData: string | { to: string; data: string }[]): BuyIntent[] {
+  const calls = typeof callsOrCallData === "string" ? accountCalls(callsOrCallData) : callsOrCallData;
+  const out: BuyIntent[] = [];
+  for (const c of calls ?? []) {
+    if (!BUY_SELECTORS.has(c.data.slice(0, 10).toLowerCase())) continue;
+    try {
+      const d = decodeFunctionData({ abi: buyAbi, data: c.data as Hex });
+      const a = d.args as readonly unknown[];
+      const to = c.to.toLowerCase();
+      if (d.functionName === "buy") out.push({ kind: "curve", to, quoteIn: a[0] as bigint });
+      else if (d.functionName === "buyFor") out.push({ kind: "curve", to, quoteIn: a[1] as bigint });
+      else out.push({ kind: "router", to, token: (a[0] as string).toLowerCase(), quoteIn: a[1] as bigint });
+    } catch { /* not a buy after all */ }
+  }
+  return out;
+}
+/** A buy may graduate the curve when its quote reaches the remaining quote to graduation (> 0: not yet graduated). */
+export const isGradBuy = (quoteIn: bigint, remainingToGrad: bigint) => remainingToGrad > BigInt(0) && quoteIn >= remainingToGrad;
+/** True if the op's limits are above `caps` (the only case where a wider cap class is worth checking on-chain). */
+export const exceedsCaps = (op: GasFields, caps: GasCaps = GAS_CAPS) =>
+  big(op.callGasLimit) > caps.callGasLimit || totalGas(op) > caps.total;
 
 /** handleOps fixed overhead (21k intrinsic + calldata + EntryPoint bookkeeping) is paid via PVG; below this the relayer subsidises every op. */
 export const MIN_PRE_VERIFICATION_GAS = BigInt(40_000);
