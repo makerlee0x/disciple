@@ -27,6 +27,7 @@
     "test:feed-names": "node scripts/test-feed-names.mjs",
     "test:phone-hud": "node scripts/test-phone-hud.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
+    "test:snipe": "node scripts/test-snipe.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",
     "test:sim-parity": "node scripts/test-sim-parity.mjs",
@@ -49,6 +50,8 @@
     "test:op-race": "tsx scripts/test-op-race.mts",
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:paymaster": "tsx --test scripts/test-paymaster.mts",
+    "paymaster:keeper": "tsx scripts/paymaster-keeper.mts",
     "test:trade-errors": "tsx --test scripts/test-trade-errors.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:live-feed": "tsx --test scripts/test-live-feed.mts",
@@ -58,6 +61,7 @@
     "test:coin-images": "tsx --test scripts/test-coin-images.mts",
     "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
     "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
+    "test:sync-send": "tsx --test scripts/test-sync-send.mts",
     "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts",
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",
     "test:pricer-keeper": "tsx --test scripts/test-pricer-keeper.mts",
@@ -69,7 +73,12 @@
     "test:fill-book": "tsx --conditions=react-server --test scripts/test-fill-book.mts",
     "test:usdg-fill": "tsx scripts/test-usdg-fill.mts",
     "test:usdg-decimals": "tsx --test scripts/test-usdg-decimals.mts",
-    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts"
+    "check:usdg-decimals": "tsx scripts/check-usdg-decimals.mts",
+    "test:paymaster-e2e": "tsx --conditions=react-server scripts/test-paymaster-e2e.mts",
+    "test:relayer-nonce": "tsx --test scripts/test-relayer-nonce.mts",
+    "test:rapid-retry": "tsx --test scripts/test-rapid-retry.mts",
+    "test:gas-reserve": "tsx --test scripts/test-gas-reserve.mts",
+    "test:relayer-pool": "tsx --conditions=react-server --test scripts/test-relayer-pool.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

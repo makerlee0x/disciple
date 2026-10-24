@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-/// @title Fee routing — 33/33/33/1 + creator tax + snipe→70% rewards/30% treasury (§3 / LOCKED #11–#15, §2 #9)
+/// @title Fee routing — 33/33/33/1 + creator tax (§3 / LOCKED #11–#15); legacy snipe 70/30 route (unused by v2 curves)
 interface IFeeRouter {
     function creatorAccrued(address token, address creator) external view returns (uint256);
     function referrerAccrued(address referrer, address quote) external view returns (uint256);
@@ -25,6 +25,7 @@ interface IFeeRouter {
         external
         returns (bool compoundReady);
 
-    /// @notice Anti-snipe fee (above protocol 1%) → 70% RewardsVault / 30% treasury (§2 / LOCKED #9 rev.).
+    /// @notice LEGACY: snipe fee → 70% RewardsVault / 30% treasury. Mode-rules-v2 curves never call it (sniper tax
+    ///         stays in BondingCurve.snipeEscrow → LockedLP compound bucket at graduation / RewardsVault after timeout).
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external;
 }

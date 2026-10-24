@@ -62,7 +62,8 @@ const s = buildCreateSession({
   targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[46630]?.anonLauncher, trampWallManager: d.trampWallManager },
   sessionSigner: privateKeyToAccount(key).address,
   caps: [{ token: d.defaultQuote, cap: BigInt("1000000000000000000000000") }, { token: d.usdg, cap: BigInt("1000000000000000000000000") }],
-  ttlSec: 86400, maxSlippageBps: 500, permissions: sessionPermissions(TRADE_PERMS, true),
+  ttlSec: 86400 - 600, // AUDIT #148 M-1: skew margin under the on-chain 24h max
+  maxSlippageBps: 500, permissions: sessionPermissions(TRADE_PERMS, true),
 });
 const inst = await sa.sendCalls([{ to: me, data: s.data }], "owner");
 ok("owner installs session", true, inst.txHash); out.installSession = inst.txHash;

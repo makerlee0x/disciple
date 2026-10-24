@@ -11,7 +11,13 @@ import { decodeFunctionData, parseAbi, type Address, type PublicClient } from "v
 import { bondingCurveAbi, launchpadAbi } from "../abi";
 import type { Call } from "./core";
 
-export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * AUDIT #148 M-1: the on-chain max session lifetime is 24h (DiscipleSessionPolicy.MAX_SESSION_DURATION, checked against
+ * block.timestamp at install). Install 10 min under it so a client clock ahead of the chain can't revert the install.
+ * Mirrors @disciple/session-keys SESSION_TTL_SKEW_MARGIN_SEC / SAFE_MAX_TTL_SEC (kept here so this module stays light).
+ */
+export const SESSION_TTL_SKEW_MARGIN_SEC = 10 * 60;
+export const SESSION_TTL_MS = (24 * 60 * 60 - SESSION_TTL_SKEW_MARGIN_SEC) * 1000;
 /** ReferralRegistry.tryAttribute(address,address) */
 const TRY_ATTRIBUTE_SEL = "0x9026092d";
 const erc20 = parseAbi(["function approve(address spender, uint256 amount) returns (bool)", "function mint(address to, uint256 amount)"]);

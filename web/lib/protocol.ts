@@ -51,6 +51,9 @@ export interface TradeParams {
   slippageBps?: number;
   /** Who receives the output. Defaults to the signing (Privy embedded) wallet. */
   recipient?: Address;
+  /** GAME reservation id for this press (smart-account sends): reused on every retry, echoed on disciple:op events,
+   * TradeResult.pressId and thrown errors (.pressId). Absent ⇒ generated. */
+  pressId?: string;
 }
 
 /** Pre-trade preview from on-chain views (curve quoteBuy/quoteSell, or router quoteExactIn post-grad). */
@@ -78,6 +81,8 @@ export interface TradeResult {
   txHash: string;
   amountOut?: bigint;
   reason?: string;
+  /** the press's reservation id (TradeParams.pressId, or the generated one) */
+  pressId?: string;
 }
 
 export interface CurveState {
@@ -85,9 +90,9 @@ export interface CurveState {
   quote: Address;
   mcapUsd: number;
   priceUsd: number;
-  /** % of TOTAL supply sold (graduates at 72). */
+  /** % of TOTAL supply sold (graduates at 84.24). */
   soldPct: number;
-  /** 0–100 progress toward the 72% graduation point. */
+  /** 0–100 progress toward the 84.24% graduation point. */
   curveProgressPct: number;
   nextTier: { name: string; mcapUsd: number } | null;
   tokensSold: bigint;

@@ -25,7 +25,7 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertEq(tok.balanceOf(address(curve)), Constants.TOTAL_SUPPLY);
         assertEq(curve.creatorTaxBps(), 0);
         assertFalse(curve.graduated());
-        assertEq(antiSnipe.currentFeeBps(address(tok)), Constants.ANTI_SNIPE_START_BPS);
+        assertEq(curve.currentSnipeFeeBps(), Constants.ANTI_SNIPE_START_BPS);
     }
 
     function test_launch_with_creatorBuy_under_0_77pct() public {
@@ -38,28 +38,16 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertLe(curve.balanceOnCurve(creator), FeeMath.walletCap());
     }
 
-    function test_launch_creatorBuy_reverts_above_0_77pct() public {
-        // Huge quote would buy >> 0.77% at start — Launchpad checks after buy
+    /// mode rules v2: an oversized First BOOST partially fills to the max (TRENCH: creatorBuyMaxBps, 0.77%) and
+    ///   refunds the unused input to the payer instead of reverting.
+    function test_launch_creatorBuy_partialFills_above_0_77pct() public {
         uint256 huge = 5_000 ether;
-        uint256 ts = block.timestamp;
-        vm.startPrank(creator);
-        quote.approve(address(launchpad), huge);
-        vm.expectRevert(); // CreatorBuyTooLarge or WalletCap
-        launchpad.launch(
-            ILaunchpad.LaunchParams({
-                name: "TooBig",
-                ticker: "BIG",
-                imageURI: "ipfs://x",
-                description: "",
-                socialsURI: "",
-                quote: address(quote),
-                creatorTaxBps: 0,
-                creatorBuyQuoteIn: huge,
-                creatorBuyMinTokensOut: 0,
-                deadline: ts + 1 hours
-            })
-        );
-        vm.stopPrank();
+        uint256 b0 = quote.balanceOf(creator);
+        (BondingCurve curve, Token tok) = _launch(0, huge);
+        assertEq(tok.balanceOf(creator), FeeMath.creatorBuyMax(), "filled to the First BOOST max");
+        assertEq(curve.balanceOnCurve(creator), FeeMath.creatorBuyMax());
+        assertLt(b0 - quote.balanceOf(creator), huge / 10, "unused input refunded");
+        assertEq(quote.balanceOf(address(launchpad)), 0);
     }
 
     function test_launch_creatorTax_7pct() public {
@@ -72,49 +60,53 @@ contract LifecycleIntegrationTest is IntegrationBase {
         assertGt(feeRouter.creatorAccrued(address(curve.token()), creator), before);
     }
 
-    function test_antiSnipe_decay_and_70_30_split() public {
+    /// mode rules v2: sniper tax 99% → 0 over 7 s (per-second table), held in the curve's snipeEscrow (not routed to vault/treasury).
+    function test_antiSnipe_decay_and_escrow() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
-        assertEq(antiSnipe.currentFeeBps(address(tok)), 7770);
+        assertEq(curve.currentSnipeFeeBps(), 9900);
 
         (,,,, uint256 escrow0,,) = lockedLP.positions(address(tok));
         uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
         uint256 creator0 = feeRouter.creatorAccrued(address(tok), creator);
 
         uint256 qIn = 50 ether;
-        uint256 expectedSnipe = (qIn * 7770) / 10_000;
+        uint256 expectedSnipe = (qIn * 9900) / 10_000;
         _buy(curve, sniper, qIn, 0);
 
         (,,,, uint256 escrow1,,) = lockedLP.positions(address(tok));
         uint256 afterSnipe = qIn - expectedSnipe;
         uint256 proto = (afterSnipe * 100) / 10_000;
         uint256 lpFromProto = (proto * 33) / 100;
-        assertEq(escrow1 - escrow0, lpFromProto, "snipe no longer to LP");
-        assertEq(quote.balanceOf(address(rewardsVault)), (expectedSnipe * 7000) / 10_000, "70% rewards");
+        assertEq(escrow1 - escrow0, lpFromProto, "only the proto LP share to LockedLP");
+        assertEq(curve.snipeEscrow(), expectedSnipe, "sniper tax held in escrow");
+        assertEq(quote.balanceOf(address(rewardsVault)), 0, "no 70/30 routing on curve buys");
         (,, uint256 tsh, uint256 rsh) = FeeMath.splitTradeFee(proto);
-        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - tre0, expectedSnipe - (expectedSnipe * 7000) / 10_000 + tsh + rsh, "30%");
+        assertEq((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) - tre0, tsh + rsh, "treasury: proto only");
+        assertEq(quote.balanceOf(address(curve)), curve.quoteReserve() + curve.snipeEscrow(), "escrow outside reserves");
 
         // Creator only gets protocol-fee slice, not snipe
         assertEq(feeRouter.creatorAccrued(address(tok), creator) - creator0, (proto * 33) / 100);
 
-        // Mid decay
-        vm.warp(block.timestamp + 3);
-        uint256 mid = antiSnipe.currentFeeBps(address(tok));
-        assertGt(mid, 0);
-        assertLt(mid, 7770);
+        // Mid decay (per-second table): 3% at 2s
+        vm.warp(block.timestamp + 2);
+        assertEq(curve.currentSnipeFeeBps(), 300);
 
         _warpPastSnipe();
-        assertEq(antiSnipe.currentFeeBps(address(tok)), 0);
+        assertEq(curve.currentSnipeFeeBps(), 0);
     }
 
+    /// TRENCH legacy walletCapBps (owner, default off): mode rules v2 partial fill applies to it too.
     function test_walletCap_7pct_enforced() public {
         vm.prank(owner);
         launchpad.setWalletCapBps(700);
         (BondingCurve curve,) = _launch(0, 0);
         _warpPastSnipe();
+        uint256 out = _buy(curve, trader1, 100_000 ether, 0);
+        assertEq(out, FeeMath.walletCap(700), "filled to the 7% cap");
         vm.startPrank(trader1);
         quote.approve(address(curve), type(uint256).max);
-        vm.expectRevert(BondingCurve.WalletCap.selector);
-        curve.buy(100_000 ether, 0, block.timestamp + 1);
+        vm.expectRevert(BondingCurve.WalletCap.selector); // room 0
+        curve.buy(1 ether, 0, block.timestamp + 1);
         vm.stopPrank();
     }
 

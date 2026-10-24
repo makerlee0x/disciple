@@ -12,34 +12,32 @@ default Maker lee can change before the redeploy (it is a constant, so changing 
   `Launchpad` emits `LaunchMode(token, curve, mode)` at launch.
 * Applies **only on the bonding curve**. Nothing changes after graduation: the hook, the v4 pool, LockedLP and the
   router's v4 paths contain no mode logic.
-* Curve facts: 7B supply, 72% (5.04B) sold on the curve, $7K → $33K mcap at graduation.
+* Curve facts: 1M supply, 72% (720K) sold on the curve, $7,777 → $33,333 mcap at graduation.
 
 | id | mode | difficulty |
 |----|------|-----------|
-| 0 | TRENCH WARFARE | hard (current behaviour) |
-| 1 | PVE | easy |
-| 2 | PVP | medium |
+| 0 | TRENCH WARFARE | no caps (sniper tax only) |
+| 1 | PVE | **Easy** |
+| 2 | PVP | **Hard** |
 
 "NET curve position" = `balanceOnCurve[wallet]` = tokens bought on the curve − tokens sold to the curve (floored at 0).
 Sells free up room. Tokens received by plain ERC-20 transfer are not part of it.
 
-## 1) PVE (easy)
+## Mode rules v2 (2026-10-23)
+
+**The rules below are superseded by [mode-rules-v2.md](mode-rules-v2.md)** (Easy/Hard caps that grow with mcap,
+partial fill, sniper escrow, creator lock, crew tip). Summary:
+
+## 1) PVE = Easy
 
 | rule | value | notes |
 |------|-------|-------|
-| per-wallet NET cap | **1%** of supply (70M) | `PVE_NET_CAP_BPS = 100` |
+| holding cap (NET) | **1% → 3.33%** of supply, linear in mcap $7,777 → $33,333 (pre-trade mcap) | `PVE_CAP_START_BPS = 100`, `PVE_CAP_END_BPS = 333` |
+| over-cap buy | partial fill to the cap, rest refunded (`BuyRefunded`); room 0 → `WalletCap` | |
 | login | verified Privy login required to **buy** | EIP-712 attestation, see below |
-| launch block | no buys in the launch block **except** the creator's launch buy inside the launch tx | `launchBlock` immutable |
-| launch window | first **7 minutes** (*proposal*, Maker lee set 7 min): max **0.25%** of supply per buy | `PVE_WINDOW`, `PVE_WINDOW_BUY_CAP_BPS = 25` |
-| max single sell | **0.5%** of supply | `PVE_MAX_SELL_BPS = 50` |
-| profit tax | **0.777%** of the sell proceeds when exit price > avg cost × 1.77 | `PVE_PROFIT_TAX_PPM = 7770`, `PVE_PROFIT_TRIGGER_BPS = 17700` |
-
-The window is `[launchTime, launchTime + 7 min)`; at exactly +7 min the per-buy cap is gone. The launch-block rule
-uses `block.number`, the window uses `block.timestamp`.
-
-**Creator launch buy.** The Launchpad's same-tx creator buy (`buyFor`) is the one buy allowed in the launch block. It
-counts against the same caps (0.25% window cap → effectively the creator can buy at most 0.25%; the 1% NET cap; it
-builds cost basis like any buy). The creator must also be login-verified (attest before launching, e.g. batched).
+| launch block / 7-min window / 0.25% per buy / 0.5% max sell | **removed** in v2 | `maxBuyNow`/`maxSellNow` return max (compat) |
+| crew tip | **0.777%** of sell proceeds when realized profit > `crewTipThresholdBps` (default 0.5%) of mcap | replaces the 77% profit trigger |
+| First BOOST | max **1.2%**, cap-exempt for that buy only, then counts in NET; **locked until graduation** | `FIRST_BOOST_MAX_BPS_PVE = 120`, `Token.creatorLocked()` |
 
 ### Login attestation (`src/LoginGate.sol`)
 
@@ -56,17 +54,15 @@ builds cost basis like any buy). The creator must also be login-verified (attest
   (`PVE_LOGIN_CACHE_TTL`, audit round-2 L1), so a revocation bites within 10 minutes on every curve.
 * `attest` rejects `expiry > now + 24 h` (`LoginGate.MAX_TTL`, error `TtlTooLong`, audit round-2 L2).
 
-### Profit tax and holder-claim pool
+### Crew tip and holder-claim pool
 
-* Cost basis: each PVE wallet has `costBasisOf(wallet)` = quote paid for its current NET position (the effective
-  `quoteIn` of each curve buy, **including** protocol fee, creator tax and anti-snipe fee; graduation refunds are
-  excluded). Avg cost = `costBasisOf / balanceOnCurve`.
-* On a sell of `x` tokens: basis of the sold tokens = `cost × x / NET` (if `x ≥ NET` the whole basis; extra tokens that
-  came in by transfer carry **zero** basis). Cost basis shrinks pro-rata, so the avg cost is unchanged by sells.
-* Trigger: `grossQuote × 10000 > basis × 17700` ⇔ exit price (gross curve quote per token, before fees) exceeds avg
-  cost by more than 77%.
-* Tax = `quoteOut × 0.777%` where `quoteOut` = proceeds after the 1% fee and creator tax. The seller receives
-  `quoteOut − tax`. Event: `ProfitTaxCharged(token, seller, tax, grossQuote, costBasis)`.
+* Cost basis: each PVE wallet has `costBasisOf(wallet)` = quote paid for its current NET position (effective
+  `quoteIn` of each curve buy incl. fees and sniper tax; partial-fill and graduation refunds excluded). Sells shrink it
+  pro rata; tokens beyond NET carry zero basis.
+* On a sell: `profit = netProceeds − basis(sold)`. Tip = `netProceeds × 0.777%` iff
+  `profit > marketCapQuote(pre-sale) × crewTipThresholdBps / 10000`. The seller receives `netProceeds − tip`.
+  Event (name kept): `ProfitTaxCharged(token, seller, tax, grossQuote, costBasis)`; `SellQuote.profitTax` = the tip.
+* Threshold: `Launchpad.setCrewTipThresholdBps` (owner, 10–500 bps, default 50), snapshotted per curve.
 * Pool: standard MasterChef reward-per-token accumulator (`accRewardPerToken`, 1e18-scaled) over NET curve positions
   (`totalNet`). Per wallet: `rewardDebt`, `rewardsAccrued`; `pendingRewards(holder)` view.
 * Ordering on a taxed sell (this is what makes it fair, see `test_pve_profitTaxAccumulatorFairness`):
@@ -83,18 +79,21 @@ builds cost basis like any buy). The creator must also be login-verified (attest
   positions and the accumulator freeze at graduation (no more curve trades), so `pendingRewards` stays exactly
   claimable forever.
 
-## 2) PVP (medium)
+## 2) PVP = Hard
 
 | rule | value |
 |------|-------|
-| per-wallet NET cap | linear from **4%** at launch to **12%** at graduation: `4% + 8% × tokensSold / 5.04B` (progress before the trade) |
-| max single buy | **3.33%** of supply (`PVP_MAX_BUY_BPS = 333`) |
+| holding cap (NET) | **3.33% → 7.77%** linear in mcap $7,777 → $33,333 (pre-trade), partial fill |
+| max single buy | none (v2) |
 | login | none |
+| First BOOST | max **3.33%**; no lock; no crew tip |
 
-## 3) TRENCH WARFARE (hard)
+## 3) TRENCH WARFARE
 
-No mode caps — the pre-existing behaviour, bit for bit (the legacy owner `walletCapBps`, default 0, still applies to
-TRENCH coins only; PVE/PVP use their own caps instead). Gas overhead: one immutable comparison per trade.
+Unchanged except the v2 **sniper tax** (all modes): 99% → 0 over 7 s (per-second table), First BOOST exempt, held in `snipeEscrow`
+outside reserves/price, credited to LockedLP's locked compound bucket at graduation (not the floor), or sent to RewardsVault by anyone if not graduated
+after `snipeEscrowTimeout` (default 30 days). The legacy owner `walletCapBps` (default 0) still applies to TRENCH
+coins only and now partial-fills. First BOOST max = `creatorBuyMaxBps`.
 
 ## PVE: NET follows transfers (audit round-2 M1)
 
@@ -106,7 +105,8 @@ Until graduation, every PVE token transfer where neither side is the curve calls
   (`cost[from] × moved / NET[from]`). Tokens beyond the sender's NET (e.g. received pre-hook) carry nothing.
 * Both sides are settled at the current accumulator first and their `rewardDebt` is reset, so neither side gains or
   loses already-accrued rewards (no phantom rewards from receiving NET).
-* The receiver's 1% NET cap is enforced (`WalletCap`): a transfer that would push the receiver over 1% reverts.
+* The receiver's current Easy NET cap is enforced (`WalletCap`): a transfer that would push the receiver over it reverts
+  (transfers do not partial-fill).
   So the old "buy to cap, transfer to a fresh wallet, buy again" dodge is gone in PVE.
 * Excluded: the curve itself (buys/sells already account), and the curve's cached `trustedRouter` (the router
   forwards tokens in `routerSell`). Graduation calls `Token.endPveHooks()`, after which transfers are plain ERC20
@@ -132,10 +132,10 @@ PVP/TRENCH: transfers still dodge NET caps (accepted, unchanged).
 
 ## Quotes
 
-* `BondingCurve.quoteBuyFor(trader, quoteIn)` — `quoteBuy` + every mode rule (reverts with the trade's error:
-  `LaunchBlock`, `NotVerified`, `BuyTooLarge`, `WalletCap`).
-* `BondingCurve.quoteSellFor(trader, tokensIn)` — `quoteSell` + PVE max sell + profit tax (`SellQuote.profitTax`,
-  already deducted from `quoteOut`). `SellQuote` gained a trailing `profitTax` field.
+* `BondingCurve.quoteBuyFor(trader, quoteIn)` — `quoteBuy` + every mode rule, including the v2 partial fill
+  (`BuyQuote.refund`); reverts with the trade's error (`NotVerified`, `WalletCap` at room 0).
+* `BondingCurve.quoteSellFor(trader, tokensIn)` — `quoteSell` + Easy crew tip (`SellQuote.profitTax`, already
+  deducted from `quoteOut`). No max sell in v2.
 * `DiscipleRouter.quoteUsdgRouteFor(trader, token, isBuy, amountIn)` quotes for an explicit trader (audit round-2
   M2). The session policy now quotes for the **account** it validates, so PVE gates/caps/tax are those of the account.
   `quoteUsdgRoute / quoteBuyWithUsdg / quoteSellToUsdg` still quote for the **caller** (`eth_call from`)
