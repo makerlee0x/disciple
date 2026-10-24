@@ -15,6 +15,7 @@ import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
 import type { TradeTiming } from "../trade/timing";
+import { withBlock } from "../trade/readFloor";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
 
 const uoEventAbi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
@@ -182,7 +183,7 @@ export class Mav2Account {
         if (ev.length) {
           const l = ev[ev.length - 1];
           const rc = await this.o.pc.getTransactionReceipt({ hash: l.transactionHash! });
-          return { userOpHash: hash, txHash: rc.transactionHash, success: !!l.args.success, logs: rc.logs.map((x) => ({ address: x.address, data: x.data, topics: x.topics as Hex[] })) };
+          return { userOpHash: hash, txHash: rc.transactionHash, success: !!l.args.success, logs: withBlock(rc.logs.map((x) => ({ address: x.address, data: x.data, topics: x.topics as Hex[] })), rc.blockNumber) };
         }
       } catch { /* RPC hiccup: retry until the deadline */ }
       if (Date.now() > until) return null;
@@ -278,7 +279,7 @@ export class Mav2Account {
       const wire = deepHexlify(signed) as UserOp;
       const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
       tt?.mark("send");
-      type SyncRes = { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
+      type SyncRes = { result?: { userOpHash: Hex; txHash: Hex; success: boolean; logs: { address: Address; data: Hex; topics: Hex[] }[]; blockNumber?: Hex; t?: Record<string, number> }; error?: { code: number; message: string; data?: string } };
       const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" }, keepalive: true,
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_sendUserOperationSync", params: [wire, client.account.getEntryPoint().address] }) }).catch((e) => ({ status: 0, json: async () => ({ error: { code: -32099, message: `network: ${(e as Error).message}` } }) }) as unknown as Response);
       let j = await r.json().catch(() => ({ error: { code: -32098, message: `relay response unreadable (HTTP ${r.status})` } })) as SyncRes;
@@ -325,7 +326,8 @@ export class Mav2Account {
         return fail(Object.assign(new Error(j.error.message), { data: j.error.data }));
       } else if (j.result) {
         this.syncOk = true;
-        const { userOpHash, txHash, success, logs } = j.result;
+        const { userOpHash, txHash, success } = j.result;
+        const logs = withBlock(j.result.logs, j.result.blockNumber);   // receipt block on every log: post-trade reads pin to it
         opPhase({ phase: "submitted", userOpHash, txHash });
         const timings: OpTimings = { build: Math.round(t1 - t0), sign: Math.round(t2 - t1), rpc: Math.round(t3 - t2), total: Math.round(t3 - t0), fast: true, server: j.result.t };
         if (!success) {
@@ -366,7 +368,7 @@ export class Mav2Account {
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
     catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, { userOpHash: req.hash }); }
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
-      success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
+      success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; blockNumber?: bigint | Hex; logs: { address: Address; data: Hex; topics: Hex[]; blockNumber?: bigint | Hex }[] };
     } | null;
     if (rc && !rc.success) {
       this.gas.drop(kind);
@@ -374,8 +376,8 @@ export class Mav2Account {
       logTradeError("trade reverted", { userOpHash: req.hash, txHash, revertData });
       throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: req.hash, txHash, revertData });
     }
-    const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
-      (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
+    const logs = rc?.receipt.logs ? withBlock(rc.receipt.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics })), rc.receipt.blockNumber ?? rc.receipt.logs[0]?.blockNumber) :
+      await this.o.pc.getTransactionReceipt({ hash: txHash }).then((x) => withBlock(x.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] })), x.blockNumber));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings });
     this.deployed = true;

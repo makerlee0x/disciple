@@ -3,6 +3,7 @@
 //  - afterResponse (lib/server/defer): waitUntil / await / background modes
 //  - TtlCache.rewarm + Requoter (lib/trade/hotCache): re-quote after our own trade instead of wiping
 //  - startTradeTiming (lib/trade/timing): stage keys aligned with GAME's 'disciple:op' filled ms
+//  - ReadFloor (lib/trade/readFloor): post-trade reads pinned to our receipt block (never pre-trade state)
 //   pnpm test:trade-latency   (pure: no RPC, no live endpoint)
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -10,6 +11,8 @@ import { HybridLimiter, memoryCounter, type CounterStore } from "../lib/server/l
 import { afterResponse, waitUntilFn } from "../lib/server/defer";
 import { TtlCache, Requoter, scaledQuote } from "../lib/trade/hotCache";
 import { startTradeTiming } from "../lib/trade/timing";
+import { ReadFloor, flooredRequest, flooredTransport, receiptBlock, withBlock } from "../lib/trade/readFloor";
+import { createPublicClient, custom } from "viem";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -153,4 +156,79 @@ test("trade timing: ms keys match GAME's filled event; submit/confirm split by t
   const ms = rows[0].ms as Record<string, number>;
   assert.deepEqual(ms, { total: 310, quote: 40, confirm: 150, submit: 110, fill: 10 });
   assert.equal(rows[0].outcome, "fill"); assert.equal(rows[0].path, "fast");
+});
+
+/* ---------- post-trade read floor (sequencer receipt vs lagging public RPC) ---------- */
+test("receiptBlock / withBlock: highest block from raw-hex or bigint logs; stamped for wallet.execCalls pass-through", () => {
+  assert.equal(receiptBlock([{ blockNumber: "0x10" }, { blockNumber: 18n }, {}]), 18n);
+  assert.equal(receiptBlock([]), undefined);
+  assert.equal(receiptBlock(undefined), undefined);
+  assert.equal(receiptBlock([{ blockNumber: "garbage" }]), undefined);
+  const out = withBlock([{ address: "0x1" }, { address: "0x2", blockNumber: 5n }], "0x20");
+  assert.deepEqual(out.map((l) => l.blockNumber), ["0x20", "0x5"]);
+  assert.deepEqual(withBlock([{ a: 1 }], undefined), [{ a: 1 }]);
+  assert.equal(receiptBlock(withBlock([{}, {}], 99n)), 99n);
+});
+
+test("read floor: only raises while live, expires after the window", () => {
+  let t = 0; const f = new ReadFloor(() => t, 3000);
+  assert.equal(f.pin(), undefined);
+  f.raise(100n); assert.equal(f.pin(), 100n);
+  f.raise(90n); assert.equal(f.pin(), 100n, "an older block never lowers a live floor");
+  f.raise(undefined); assert.equal(f.pin(), 100n);
+  t = 3001; assert.equal(f.pin(), undefined, "window over ⇒ plain latest");
+  f.raise(90n); assert.equal(f.pin(), 90n);
+});
+
+test("floored request: latest state reads pinned to the receipt block; node behind ⇒ retried, never pre-trade state", async () => {
+  let t = 0; const f = new ReadFloor(() => t, 3000);
+  let head = 99; const seen: unknown[] = [];
+  const inner = async ({ method, params }: { method: string; params?: unknown }) => {
+    seen.push([method, params]);
+    const tag = (params as unknown[])[1] as string;
+    if (tag !== "latest" && BigInt(tag) > BigInt(head)) { head++; throw new Error("header not found"); }
+    return method === "eth_call" ? "0xquote" : "0x1";
+  };
+  const sleeps: number[] = [];
+  const req = flooredRequest(inner, f, { sleep: async (ms) => { sleeps.push(ms); } });
+  assert.equal(await req({ method: "eth_call", params: [{ to: "0x1" }, "latest"] }), "0xquote");
+  assert.deepEqual(seen.pop(), ["eth_call", [{ to: "0x1" }, "latest"]], "no own trade ⇒ untouched");
+  f.raise(101n);                                    // our receipt: block 101, public node still at 99
+  seen.length = 0;
+  assert.equal(await req({ method: "eth_call", params: [{ to: "0x1" }, "latest"] }), "0xquote");
+  assert.deepEqual(seen.map((x) => (x as [string, unknown[]])[1][1]), ["0x65", "0x65", "0x65"], "pinned to 0x65 (101) and retried until the node has it");
+  assert.deepEqual(sleeps, [80, 80]);
+  seen.length = 0;
+  await req({ method: "eth_getBalance", params: ["0xabc"] });
+  assert.deepEqual(seen.pop(), ["eth_getBalance", ["0xabc", "0x65"]], "missing tag filled in");
+  await req({ method: "eth_call", params: [{ to: "0x1" }, "0x10"] });
+  assert.deepEqual(seen.pop(), ["eth_call", [{ to: "0x1" }, "0x10"]], "explicit block kept");
+  await req({ method: "eth_blockNumber", params: [] }).catch(() => {});
+  assert.deepEqual(seen.pop(), ["eth_blockNumber", []], "non-state methods untouched");
+});
+
+test("floored request: a lagging node that never catches up fails the read (bounded) instead of serving old state", async () => {
+  const f = new ReadFloor(() => 0, 3000); f.raise(500n);
+  let n = 0;
+  const req = flooredRequest(async () => { n++; throw new Error("RPC error: header not found"); }, f, { tries: 5, sleep: async () => {} });
+  await assert.rejects(req({ method: "eth_call", params: [{}, "latest"] }), /header not found/);
+  assert.equal(n, 5);
+  let m = 0;
+  const other = flooredRequest(async () => { m++; throw new Error("execution reverted"); }, f, { sleep: async () => {} });
+  await assert.rejects(other({ method: "eth_call", params: [{}, "latest"] }), /reverted/);
+  assert.equal(m, 1, "real reverts are not retried");
+});
+
+test("floored transport through viem: getBalance / call go out pinned while the floor is up", async () => {
+  const f = new ReadFloor(() => 0, 3000);
+  const seen: unknown[][] = [];
+  const base = custom({ request: async ({ method, params }: { method: string; params?: unknown }) => { seen.push([method, params]); return method === "eth_chainId" ? "0x1" : "0x0"; } });
+  const pc = createPublicClient({ transport: flooredTransport(base, f) });
+  await pc.getBalance({ address: "0x000000000000000000000000000000000000dEaD" });
+  assert.equal((seen.pop()![1] as unknown[])[1], "latest");
+  f.raise(0x77n);
+  await pc.getBalance({ address: "0x000000000000000000000000000000000000dEaD" });
+  assert.equal((seen.pop()![1] as unknown[])[1], "0x77");
+  await pc.call({ to: "0x000000000000000000000000000000000000dEaD", data: "0x" });
+  assert.equal((seen.pop()![1] as unknown[])[1], "0x77");
 });
