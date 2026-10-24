@@ -28,8 +28,8 @@ The fee falls in a straight line, in whole seconds. It's charged on top of the 1
 
 ## Where it goes
 
-70% of the snipe fee goes to a community rewards vault, to be shared out later (how is still being decided). 30% goes to the treasury. See [Rewards vault](/docs/fees/rewards-vault).
+The snipe fee is held in escrow by the rocket's bonding curve, outside the price. When the rocket graduates, the escrow is added to its locked liquidity (LP) in the same transaction. If the rocket hasn't graduated 30 days after launch, anyone can send the escrow to the RewardsVault. None of it goes to the treasury. See [Rewards vault](/docs/fees/rewards-vault).
 
 ## Why it exists
 
-Bots that buy in the first block take supply before people can react. The anti-snipe fee makes that expensive, and sends most of what it collects back to the community.
+Bots that buy in the first block take supply before people can react. The anti-snipe fee makes that expensive, and puts what it collects back into the rocket's pool or the community rewards vault.

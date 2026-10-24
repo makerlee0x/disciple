@@ -102,7 +102,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   const rel = (a, b) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
   ok(PCv.tail > 0 && rel(PCv.x0, N18(CP.x0)) < 1e-12 && rel(PCv.y0, N18(CP.y0)) < 1e-12 && rel(PCv.tail, N18(CP.tail)) < 1e-12, `paperCurve = curveMath launch params (x0, y0, tail $${PCv.tail.toFixed(0)})`);
   const engineSteep = /PC\.tail/.test(pm);
-  ok(engineSteep, "engine.js paperFill prices the steep tail (PC.tail·g^30) — GAME: port the steep curve into paperFill");
+  ok(engineSteep, "engine.js paperFill prices the steep tail (PC.tail·g^30)");
   if (!engineSteep) console.log("SKIP 5a–5d + mock/DISCIPLE paper fills: engine.js paperFill is still CP-only (ends at $15K, not $33,333); they run once GAME ports the tail");
   if (engineSteep) {
   // 5a) $60K at $3.3K: completes the curve (84% of supply, never more than the curve has left), refund the rest; = curveMath + sim Market
@@ -111,7 +111,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
     ok(rel(f.usd + f.refund, USD) < 1e-12 && f.usd < USD && rel(f.post, PCv.gradMcap) < 1e-9 && f.graduated, `paper $60K @ $3.3K: spends $${f.usd.toFixed(2)} to finish the curve at $${Math.round(f.post).toLocaleString()}, $${f.refund.toFixed(2)} refunded`);
     const cm = N18(CM.quoteBuy(CP, 0n, W18(f.usd), 0n)); ok(rel(cm, f.tokens) < 1e-9, `paper $60K @ $3.3K = curveMath.quoteBuy(spent) within 1e-9 (${cm.toExponential(9)} vs ${f.tokens.toExponential(9)})`);
     ok(N18(CM.quoteBuy(CP, 0n, W18(f.usd * (1 - 1e-6)), 0n)) < PCv.sC * (1 - 1e-7), "…and the spent $ is the minimum that finishes the curve (1 ppm less does not)");
-    const mk = new Market(SIM_CONFIG), mf = mk.buy(USD, 1e9, 0); ok(rel(mf.tokens, f.tokens) < 1e-9 && rel(mf.usd, f.usd) < 1e-9, "paper $60K @ $3.3K = sim Market.buy (tokens + spent) — GAME: sim Market on the steep curve");
+    const mk = new Market(SIM_CONFIG), mf = mk.buy(USD, 1e9, 0); ok(rel(mf.tokens, f.tokens) < 1e-9 && rel(mf.usd, f.usd) < 1e-9, "paper $60K @ $3.3K = sim Market.buy (tokens + spent) on the steep curve");
     for (const [M, u] of [[3_333, 5_000], [12_000, 2_500], [20_000, 800], [30_000, 1_000]]) { const g = paperFill("buy", M, u, null, false), sold = soldAt(M);
       if (!(Number.isFinite(g.tokens) && g.tokens > 0)) { ok(false, `paper $${u} @ $${M / 1e3}K: engine paperFill returned ${g.tokens} tokens (past its CP-only curve end)`); continue; }
       const q = N18(CM.quoteBuy(CP, W18(sold), W18(u), 0n)), qs = N18(CM.quoteSell(CP, W18(sold + g.tokens), W18(g.tokens), 0n)), back = paperFill("sell", g.post, 0, { tokens: g.tokens }, false);

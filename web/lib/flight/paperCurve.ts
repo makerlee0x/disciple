@@ -9,8 +9,8 @@
  *     sCurve − sold tokens; a buy that completes the curve is refunded the rest.
  *   after graduation  — the v4-style full-range pool seeded at the curve-end price (Migration.sol), constant
  *     liquidity L = (S − sCurve)·√p_grad.
- * `npm run test:audit` checks engine fills against curveMath.quoteBuy/quoteSell. NOTE: engine.js (GAME) prices the CP part
- * only until it adds the `tail` term; see the PR notes.
+ * `npm run test:audit` checks engine fills against curveMath.quoteBuy/quoteSell. engine.js paperFill prices the full curve,
+ * CP part plus the `tail`·g^30 steep tail (GAME #128).
  */
 import { CURVE } from "../config";
 import { TRADE_FEE_BPS, paramsFromQuotePrice, WAD } from "../curveMath";

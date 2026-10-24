@@ -5,11 +5,11 @@ section: Fees and rewards
 ---
 # Rewards vault
 
-70% of the snipe fee goes to a community rewards vault, to be shared out later (how is still being decided). 30% goes to the treasury.
+The RewardsVault is the community rewards vault. It gets the snipe fee of rockets that never graduate, to be shared out later (how is still being decided).
 
 ## What's in it
 
-The vault collects 70% of every anti-snipe fee: the extra fee on BOOSTs in a rocket's first 77 seconds. Nothing else goes in. It's held in each rocket's base coin.
+The anti-snipe fee (the extra fee on BOOSTs in a rocket's first 77 seconds) is held in escrow by each rocket's curve. If the rocket graduates, the escrow goes into its locked liquidity (LP), not the vault. If the rocket hasn't graduated 30 days after launch, anyone can send the escrow to the RewardsVault. Nothing else goes in. It's held in each rocket's base coin.
 
 ## How it's shared
 
