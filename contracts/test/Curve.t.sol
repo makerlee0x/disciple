@@ -129,7 +129,7 @@ contract CurveTest is Test {
         vm.stopPrank();
         curve = BondingCurve(r.curve);
         tok = Token(r.token);
-        vm.warp(ts + Constants.ANTI_SNIPE_DURATION + 1); // past the 77 s sniper tax
+        vm.warp(ts + Constants.ANTI_SNIPE_DURATION + 1); // past the 7 s sniper tax
     }
 
     // ── Geometry ─────────────────────────────────────────────────────────────
@@ -344,7 +344,7 @@ contract CurveTest is Test {
 
     function test_antiSnipe_decays_to_zero() public {
         (BondingCurve curve,) = _launch();
-        // _launch warps past the 77 s window — fee should be 0
+        // _launch warps past the 7 s window — fee should be 0
         assertEq(curve.currentSnipeFeeBps(), 0);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
         assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
