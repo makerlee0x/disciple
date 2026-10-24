@@ -132,9 +132,11 @@ contract LPCompoundTest is IntegrationBase {
         assertLt(bt, 1e16, "token side: only the reference observers' dust fees");
         assertGt(bq, 0, "leftover quote in bucket");
         assertEq(quote.balanceOf(address(lockedLP)), bq);
-        // steep curve: ~$1.2K leftover (of the ~$6.45K net raise) on the 18-dec mock quote at $1
-        assertGt(bq, 1_000 ether);
-        assertLt(bq, 3_000 ether);
+        // phase 3a: the ~$1.2K curve leftover seeds the 16-band floor; the bucket keeps only the curve-phase fee
+        // LP escrow (+ sniper escrow, if any) + floor rounding dust
+        (,, uint128 seeded) = lockedLP.floorInfo(address(tok));
+        assertApproxEqAbs(seeded, 1_201.27 ether, 1 ether, "leftover -> floor");
+        assertLt(bq, 100 ether, "bucket = escrows + dust only");
     }
 
     /// @dev The leftover quote pairs over time with incoming buy-side token fees, at default params.
