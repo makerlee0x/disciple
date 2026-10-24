@@ -171,6 +171,25 @@ console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra
   delete globalThis.__throw; delete globalThis.__sa; delete globalThis.__send; delete globalThis.__calls; delete globalThis.__rpc;
   fs.rmSync(tmp, { recursive: true, force: true }); }
 
+// ───────────── click mark hook for SITE #140 (lib/trade/timing.ts markTradeClick), not imported until #140 lands ─────────────
+console.log("— #140 click-mark hook point (guarded, no-throw)");
+{ let n = 0; TS.setTradeClickMark(null);
+  let threw = false; try { TS.tradeClick(); TS.tradeStart(); } catch { threw = true; } ok(!threw, "no hook registered (today) ⇒ tradeClick/tradeStart are silent no-ops");
+  TS.setTradeClickMark(() => { n++; });
+  TS.tradeClick(); TS.tradeStart(); ok(n === 1, "trade-bar click marks once; the bridge entry doesn't re-mark (keeps the earlier click time)");
+  TS.tradeStart(); ok(n === 2, "engine hotkey (no trade-bar click) ⇒ marked at the bridge entry");
+  TS.setTradeClickMark(() => { throw new Error("timing exploded"); }); threw = false;
+  try { TS.tradeClick(); TS.tradeStart(); TS.tradeStart(); } catch { threw = true; } ok(!threw, "a throwing markTradeClick never breaks the click or the trade");
+  TS.setTradeClickMark("nope"); threw = false; try { TS.tradeClick(); } catch { threw = true; } ok(!threw, "a non-function hook is ignored");
+  TS.setTradeClickMark(null);
+  ok(![tb, rd("lib/flight/tradeSpeed.ts")].some((f) => /^\s*import[^\n]*lib\/trade\/timing|import\(\s*["'][^"']*trade\/timing/m.test(f)), "lib/trade/timing (SITE #140) is NOT imported (not on the base yet): TODO only");
+  ok(/TODO\(#140\)[^\n]*\n\/\/\s+import \{ markTradeClick \} from "@\/lib\/trade\/timing";\s+setTradeClickMark\(markTradeClick\)/.test(tb), "TradeBridge carries the one-line #140 wiring TODO");
+  ok(/const shoot = [^\n]*\n\s+\(tradeClick\(\), window\.dispatchEvent\(new CustomEvent\("disciple:shoot"/.test(tb), "every trade-bar click / key (shoot: BOOST, DUMP, custom $ Enter / SPACE) calls tradeClick()");
+  ok(/window\.__discipleTrade = async[^\n]*\n[^\n]*\n\s+tradeStart\(\);/.test(tb), "the bridge entry calls tradeStart() (engine SPACE / Shift hotkeys)");
+  const wi = tb.indexOf("setTimeout(() => void warmRef.current(), 0)"); const pre = tb.slice(Math.max(0, wi - 400), wi);
+  ok(wi > 0 && /TODO\(#140\): REMOVE this immediate post-trade re-warm/.test(pre) && /KEEP the 150 ms custom-\$ debounce/.test(pre), "TODO(#140) marks the immediate post-trade re-warm for removal (still present today)");
+  ok(/setTimeout\(\(\) => void warmRef\.current\(\), 150\)/.test(tb), "the 150 ms custom-$ debounce re-warm stays"); }
+
 cleanup();
 console.log(bad ? `\n${bad} FAILED` : "\nall trade-speed checks passed");
 process.exit(bad ? 1 : 0);

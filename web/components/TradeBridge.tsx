@@ -7,7 +7,9 @@ import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
 import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
-import { OpMarks, doneLine, takeReceipt, tradeMs, type TradeMs } from "@/lib/flight/tradeSpeed";
+import { OpMarks, doneLine, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
+// TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
+//   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);   (setTradeClickMark from tradeSpeed)
 import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
@@ -149,6 +151,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     };
     window.__discipleTrade = async (side, usd, o) => {
       const t0 = performance.now(); let quoteAt: number | undefined;
+      tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
       // pending-trade state for the exit confirm ("Your BOOST / DUMP still lands on-chain."): in-flight count per side
       const pt = (window.__disciplePendingTrades ||= { buy: 0, sell: 0 });
       const bump = (d: number) => { pt[side] = Math.max(0, pt[side] + d); dispatchEvent(new CustomEvent(TRADE_PENDING_EVENT, { detail: { ...pt } })); };
@@ -187,6 +190,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         else void new Promise((res) => setTimeout(res, 1200)).then(async () => tokenBalance(pc, token as Address, await activeAddress())).catch(() => undefined);
         setTimeout(() => dispatchEvent(new Event("disciple:livetrade")), 1500);   // refresh the real balance
         // our own trade moved the price: re-warm the active amount's quote now (protocol-viem dropped the route quotes)
+        // TODO(#140): REMOVE this immediate post-trade re-warm once SITE #140 lands: protocol-viem then re-reads the quotes
+        // itself after our own trade. KEEP the 150 ms custom-$ debounce re-warm below (useEffect on customUsd).
         setTimeout(() => void warmRef.current(), 0);
         const ms = tradeMs(t0, { quoteAt, op: marks.byTx(r.txHash), resultAt, fillAt });
         // timing instrumentation (no UI): addEventListener('disciple:op', e => e.detail.phase === 'filled' && console.log(e.detail))
@@ -348,8 +353,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // a new BOOST amount makes an earlier failure line ("✕ not enough cash…") stale: drop it (the engine drops its ✕ rows too)
   const amtKey = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
   useEffect(() => { setLast((l) => (l.startsWith("✕") ? "" : l)); setHint(""); }, [amtKey]);
+  // every trade-bar click / key (BOOST + DUMP buttons, custom $ Enter / SPACE, custom sell Enter) goes through here
   const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number; all?: boolean }) =>
-    window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } }));
+    (tradeClick(), window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } })));
   // sell sizing. LIVE (Fix 4): frac of the smart account's REAL balanceOf × the real mark (the bridge re-reads balanceOf before
   // quoting; this $ only labels the shot) — was the PnL ledger's value, or $0.01 for a bag the ledger didn't know (blocked by
   // the engine's MIN_SHOT guard ⇒ DUMP did nothing). The $ here is only a label: sells are never size-filtered and the chart

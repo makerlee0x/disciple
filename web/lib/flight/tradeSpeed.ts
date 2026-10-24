@@ -36,6 +36,30 @@ export function doneLine(side: "buy" | "sell", estUsd: number, r: { ok: boolean;
   return `${arrow} ${fmt(usd)} ✓ done`;
 }
 
+/* ---------------- click mark hook (SITE #140 lib/trade/timing.ts markTradeClick) ---------------- */
+// TODO(#140): SITE's draft #140 (site/trade-latency) adds lib/trade/timing.ts markTradeClick(). It isn't on this base yet, so
+// it is NOT imported here. Once #140 lands, wire it with ONE line in components/TradeBridge.tsx:
+//   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);
+// Until then tradeClick()/tradeStart() are no-ops (no hook registered).
+let clickHook: (() => void) | null = null;
+let pendingClickAt: number | undefined;
+const clickNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+/** Register the click-mark function (SITE markTradeClick). null unregisters. */
+export function setTradeClickMark(fn: (() => void) | null | undefined) { clickHook = typeof fn === "function" ? fn : null; }
+/** Call from the trade bar's click / key handlers (BOOST / DUMP buttons, custom $ Enter / SPACE). Synchronous, never throws. */
+export function tradeClick() {
+  try { pendingClickAt = clickNow(); clickHook?.(); } catch { /* timing never breaks a trade */ }
+}
+/** Call at the bridge entry (window.__discipleTrade). Covers the engine's own hotkeys (SPACE / Shift), which reach the bridge
+ *  without a trade-bar click: marks now unless a trade-bar click was already marked in the last 3 s. Never throws. */
+export function tradeStart() {
+  try {
+    const now = clickNow(), had = pendingClickAt !== undefined && now - pendingClickAt >= 0 && now - pendingClickAt <= 3000;
+    pendingClickAt = undefined;
+    if (!had) clickHook?.();
+  } catch { /* timing never breaks a trade */ }
+}
+
 /* ---------------- timing ---------------- */
 export interface OpMark { submittedAt?: number; confirmedAt?: number; txHash?: string; timings?: unknown }
 /** userOpHash → its disciple:op phase times (performance.now); txHash looked up on the confirmed mark. Last 32 kept. */
