@@ -37,5 +37,23 @@ export function rankHolders(bal: Record<string, string>, o: { totalSupply: bigin
     });
 }
 
+/** Protocol contracts that can hold a coin, from the active chain's address book (lib/chains deployment()). */
+export type ProtocolBook = Partial<Record<"poolManager" | "hook" | "router" | "universalRouter" | "permit2" | "migration" | "lockedLP"
+  | "trampWallManager" | "feeRouter" | "launchpad", string>>;
+/**
+ * THE holder label map (server /api/holders and the client HoldersBridge): v4 pool plumbing → "pool"; contracts that
+ * escrow coins for the protocol (LockedLP, TrampWallManager, FeeRouter fee escrow, RewardsVault, AnonLaunchers) →
+ * "locker"; the Launchpad + this coin's curve → "curve". Zero / malformed addresses are skipped. `lockers` = extra
+ * escrow addresses read at runtime (e.g. FeeRouter.rewardsVault(), the AnonLaunchers).
+ */
+export function protocolLabels(d: ProtocolBook, o: { curve?: string; lockers?: (string | undefined)[] } = {}): Record<string, Exclude<HolderLabel, null>> {
+  const out: Record<string, Exclude<HolderLabel, null>> = {};
+  const lab = (a: string | undefined, l: Exclude<HolderLabel, null>) => { if (a && /^0x[0-9a-fA-F]{40}$/.test(a) && a.toLowerCase() !== ZERO) out[a.toLowerCase()] = l; };
+  for (const a of [d.poolManager, d.hook, d.router, d.universalRouter, d.permit2, d.migration]) lab(a, "pool");
+  for (const a of [d.lockedLP, d.trampWallManager, d.feeRouter, ...(o.lockers ?? [])]) lab(a, "locker");
+  lab(d.launchpad, "curve"); lab(o.curve, "curve");
+  return out;
+}
+
 export const clampHoldersLimit = (v: string | null) => Math.min(100, Math.max(1, Math.floor(Number(v)) || 50));
 export const isAddr = (a: string | null): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
