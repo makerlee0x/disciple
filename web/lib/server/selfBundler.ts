@@ -6,8 +6,7 @@ import "server-only";
  * op's fees cover the relayer's price and caps its gas, so it is cost-neutral apart from failed sims (we eth_call first).
  * Stateless (serverless-safe): receipts come from EntryPoint UserOperationEvent logs.
  */
-import { BaseError, concat, createPublicClient, createWalletClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { BaseError, concat, createPublicClient, decodeEventLog, encodeFunctionData, http, numberToHex, pad, parseAbi, parseAbiItem, type Address, type Hex } from "viem";
 import { relayerKey, withRelayer } from "./relayer";
 import { checkOpGas, relayerTxFees, RelayPolicyError } from "../aa/gasPolicy";
 import { chainGradReads, relayCaps } from "./gradBuy";
@@ -92,33 +91,33 @@ export async function selfBundle(method: string, params: unknown[]): Promise<unk
       return { callGasLimit: numberToHex(g * BigInt(13) / BigInt(10) + BigInt(20000)), verificationGasLimit: numberToHex(op.factory ? 450000 : 150000), preVerificationGas: numberToHex(60000) };
     }
     case "eth_sendUserOperation": {
-      const key = relayerKey(); // production: throws RelayerNotConfiguredError (→ 503) unless a dedicated relayer key is set
+      relayerKey(); // production: throws RelayerNotConfiguredError (→ 503) unless a dedicated relayer key is set
       const op = params[0] as UserOp;
-      const relayer = privateKeyToAccount(key);
+      const { relayerAddress, relaySendStandard, waitRelayReceipt } = await import("./fastRelay");
+      const me = await relayerAddress();   // the EOA that signs below (same cursor as the fast path)
       // W-1: the op must pay at least the relayer's gas price, within the gas caps (else the relayer subsidises it)
       const base = (await pc.getBlock()).baseFeePerGas ?? BigInt(0);
       try { checkOpGas(op, base, await relayCaps(op, launchTargets(robinhoodTestnet.id), chainGradReads(pc as never, robinhoodTestnet.id))); } catch (e) { if (e instanceof RelayPolicyError) throw new BundlerRpcError(e.message); throw e; }
       // USDG-gas op: the prefund comes from OUR paymaster's deposit (the sender holds no ETH; launches up to 11M gas)
       if (op.paymaster) { try { const pm = allowedPaymaster(); checkPaymaster(op, pm, pm ? await paymasterDepositCached(pm) : BigInt(0), base); } catch (e) { if (e instanceof RelayPolicyError) { console.warn("[selfBundler] paymaster check:", e.detail ?? e.message); throw new BundlerRpcError(e.message); } throw e; } }
-      const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], relayer.address] });
-      await pc.call({ account: relayer.address, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
-      const estimated = await pc.estimateGas({ account: relayer.address, to: ENTRYPOINT_V07, data });
+      const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[pack(op)], me] });
+      await pc.call({ account: me, to: ENTRYPOINT_V07, data }); // revert ⇒ reject before spending relayer gas
+      const estimated = await pc.estimateGas({ account: me, to: ENTRYPOINT_V07, data });
       const gas = estimated * BigInt(12) / BigInt(10) + BigInt(50000);
-      // one relayer send at a time (+ nonce retry): concurrent ops otherwise reuse the relayer's pending nonce
-      const hash = await withRelayer(async () => {
-        const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: relayer });
-        // never above the op's own fees ⇒ the EntryPoint refund (at the op's price) covers the relayer's cost per gas
-        const fees = relayerTxFees(op, base);
-        const { sendWithRelayerNonce } = await import("./fastRelay");
-        return sendWithRelayerNonce((nonce) => wc.sendTransaction({ to: ENTRYPOINT_V07, data, gas, nonce, ...fees }));
-      });
-      const receipt = await pc.waitForTransactionReceipt({ hash, timeout: 25000 }).catch(() => null);
+      // never above the op's own fees ⇒ the EntryPoint refund (at the op's price) covers the relayer's cost per gas
+      const fees = relayerTxFees(op, base);
+      // feat/rapid-tap: the syncSend rules on this path too. Sign once per nonce; "already known" / timeout / network ⇒
+      // wait on the SAME hash (never re-sign: a second handleOps of a landed op reverts AA25 at the relayer's cost);
+      // only a definite nonce rejection re-signs. withRelayer keeps per-instance ordering and retries ONLY definite
+      // nonce errors (lib/server/relayer.isNonceError no longer matches "already known").
+      const hash = await withRelayer(() => relaySendStandard(data, gas, fees));
+      const receipt = await waitRelayReceipt(hash, 25_000);
       // first op of an account (deploy / test funds) went the slow, simulated path: trust it now so its first TRADE
       // can skip simulation (anti-grief entry in fastRelay; one balance read, off the trade path)
       if (op.paymaster) debitPaymasterDeposit(op.paymaster, maxPrefund(op, relayerPrice(base)));
-      if (receipt?.status === "success") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
+      if (receipt?.status === "0x1") { const { primeSenderNow } = await import("./fastRelay"); await primeSenderNow(op.sender, { simulated: true }).catch(() => undefined); }
       if (!receipt) throw new Error(`relayer tx ${hash} not confirmed (timeout)`);
-      if (receipt.status !== "success") throw new Error(`relayer tx ${hash} reverted`);
+      if (receipt.status !== "0x1") throw new Error(`relayer tx ${hash} reverted`);
       return userOpHash(op, robinhoodTestnet.id);
     }
     case "eth_getUserOperationReceipt": {

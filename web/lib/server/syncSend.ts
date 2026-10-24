@@ -22,7 +22,7 @@ import type { Hex } from "viem";
 import type { RelayReceipt, RelayVia } from "../aa/relayTypes";
 
 export type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
-export type RpcErr = Error & { code?: number; data?: unknown; txHash?: Hex };
+export type RpcErr = Error & { code?: number; data?: unknown; txHash?: Hex; definitive?: boolean; unclear?: boolean };
 export type PendingReason = "sync-timeout" | "sync-error" | "sync-unsupported";
 
 /** -32602 (params rejected at parse) / -32601 (method missing): nothing was accepted ⇒ a plain send is safe. */
@@ -48,6 +48,7 @@ export async function syncSend(raw: Hex, txHash: Hex, o: SyncSendOpts): Promise<
   const now = o.now ?? Date.now, sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const t0 = now();
   const tag = (e: unknown) => Object.assign(e as RpcErr, { txHash });
+  const reject = (e: unknown) => Object.assign(e as RpcErr, { txHash, definitive: true });   // NOT accepted (lib/server/relayerNonce)
   let reason: PendingReason;
   try {
     const rc = (await o.send.rpc("eth_sendRawTransactionSync", [raw])) as RelayReceipt;
@@ -60,20 +61,42 @@ export async function syncSend(raw: Hex, txHash: Hex, o: SyncSendOpts): Promise<
         const er2 = e2 as RpcErr;
         if (isAlreadyKnown(er2)) reason = "sync-unsupported";
         else if (isUnclear(er2)) reason = "sync-error";
-        else throw tag(er2);   // definitive rejection of the plain send
+        else throw reject(er2);   // definitive rejection of the plain send
       }
     } else if (isAlreadyKnown(err)) reason = "sync-timeout";
     else if (isUnclear(err)) reason = err.code === 4 || TIMEOUT.test(err.message) ? "sync-timeout" : "sync-error";
-    else throw tag(err);       // definitive node rejection: the caller may resync its nonce and re-sign
+    else throw reject(err);    // definitive node rejection: the caller may resync its nonce and re-sign
   }
   const t1 = now();
   o.onPending?.({ txHash, reason });
-  const deadline = t1 + (o.maxWaitMs ?? 20_000);
+  const rc = await waitReceipt(txHash, o);
+  return { rc, via: "rpc-wait", sendMs: t1 - t0, minedMs: now() - t1, pending: true };
+}
+
+/** Poll the receipt of ONE precomputed hash (never a resend). Throws { unclear: true } at the deadline. */
+export async function waitReceipt(txHash: Hex, o: Pick<SyncSendOpts, "getReceipt" | "pollMs" | "maxWaitMs" | "now" | "sleep">): Promise<RelayReceipt> {
+  const now = o.now ?? Date.now, sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = now() + (o.maxWaitMs ?? 20_000);
   for (;;) {
     const rc = await o.getReceipt(txHash).catch(() => null);
-    if (rc) return { rc, via: "rpc-wait", sendMs: t1 - t0, minedMs: now() - t1, pending: true };
-    if (now() > deadline) throw tag(Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true }));
+    if (rc) return rc;
+    if (now() > deadline) throw Object.assign(new Error(`relayer tx ${txHash} not confirmed (timeout)`), { code: -32000, unclear: true, txHash }) as RpcErr;
     await sleep(o.pollMs ?? 50);
+  }
+}
+
+/**
+ * Standard path (eth_sendUserOperation, feat/rapid-tap): plain eth_sendRawTransaction under the SAME rules as syncSend.
+ * Accepted, "already known" or unclear ⇒ resolves with the precomputed hash (the caller waits on it; NO re-sign).
+ * Definitive rejection ⇒ throws { definitive: true, txHash } (the caller may resync / roll back and re-sign).
+ */
+export async function plainSend(raw: Hex, txHash: Hex, rpc: RpcFn): Promise<{ txHash: Hex; pending: PendingReason | null }> {
+  try { await rpc("eth_sendRawTransaction", [raw]); return { txHash, pending: null }; }
+  catch (e) {
+    const err = e as RpcErr;
+    if (isAlreadyKnown(err)) return { txHash, pending: "sync-timeout" };
+    if (isUnclear(err)) return { txHash, pending: err.code === 4 || TIMEOUT.test(err.message) ? "sync-timeout" : "sync-error" };
+    throw Object.assign(err, { txHash, definitive: true });
   }
 }
 
