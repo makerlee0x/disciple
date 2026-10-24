@@ -9,7 +9,7 @@
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
-import { BUNDLER_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
+import { BUNDLER_LIMITS, clientIp, hitLimit, paymasterAllowanceLimits } from "@/lib/server/limits";
 import { allowanceQuote, finalQuote, PaymasterQuoteError, stubQuote } from "@/lib/server/paymasterCore";
 import { quoteConfig, quoteDeps } from "@/lib/server/paymasterQuote";
 import type { UserOp } from "@/lib/aa/core";
@@ -49,12 +49,15 @@ export async function POST(req: Request) {
   }
 }
 
-/** Allowance issuance: per-IP limit (shared with the quote methods) + per-sender limit (≤ 30 / 10 min: the client asks once per ~8 min). */
+/**
+ * Allowance issuance: per-IP limit (shared with the quote methods) + a per-(IP, sender) limit (≤ 30 / 10 min: the client
+ * asks once per ~8 min). Keyed on IP + sender so a third party can't exhaust a victim's bucket (AUDIT #141 L-3).
+ */
 async function allowance(req: Request, id: unknown, params: unknown[], fail: (code: number, message: string, status?: number, data?: unknown) => Response) {
   const [sender, entryPoint, chainId] = params as [string | undefined, string | undefined, string | number | undefined];
   if (!sender || !ADDR.test(sender) || entryPoint === undefined || chainId === undefined) return fail(-32602, "params: [sender, entryPoint, chainId]");
   const ip = clientIp(req.headers);
-  for (const [key, limit, windowSec] of [[`paymaster:ip:${ip}`, BUNDLER_LIMITS.simPerIp.limit, BUNDLER_LIMITS.simPerIp.windowSec], [`paymaster:allow:${sender.toLowerCase()}`, 30, 600]] as const) {
+  for (const [key, limit, windowSec] of paymasterAllowanceLimits(ip, sender)) {
     const rl = await hitLimit(kv(), key, limit, windowSec);
     if (!rl.ok) return NextResponse.json({ jsonrpc: "2.0", id, error: { code: -32005, message: `rate limited, retry in ${rl.retryAfterSec}s` } }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   }
