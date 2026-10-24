@@ -134,10 +134,13 @@ function randn(){return Math.sqrt(-2*Math.log(Math.random()+1e-9))*Math.cos(6.28
    fillMcap (= PnL applyFill price × supply), graduated, refund}.  o: {tokens} sells exactly that many (a % sell),
    {maxTokens} caps a $ sell at the holdings. */
 const PC=window.__PAPER_CURVE||null;
-/* steep curve #1 in g = sold/sCurve (quote units): m(g) = M0/(1 − a·g)² + T·g³⁰, reserve R(g) = f·M0·g/(1 − a·g) + f·T·g³¹/31
-   (= lib/sim/market.ts mcapAt/reserveAt; CurveMath.sol). The inverses are bisections (both are increasing in g). */
-const pcM=g=>PC.M0/((1-PC.a*g)*(1-PC.a*g))+(g>0?PC.T*Math.pow(g,30):0);
-const pcR=g=>PC.f*PC.M0*g/(1-PC.a*g)+(g>0?PC.f*PC.T*Math.pow(g,31)/31:0);
+/* steep curve #1 in g = sold/sCurve (quote units), from lib/flight/paperCurve's fields only (S, sC, x0, y0, tail, quoteUsd):
+   mcap m(g) = S·x0·y0/(y0 − g·sC)² + tail·g³⁰ (CP part + steep tail; = curveMath / CurveMath.sol), reserve (net quote paid in)
+   R(g) = x0·y0/(y0 − g·sC) − x0 + tail·(sC/S)·g³¹/31. The inverses are bisections (both are increasing in g).
+   A paper curve without `tail` (older paperCurve) prices the CP part only. */
+const pcTail=()=>(PC.tail||0)/(PC.quoteUsd||1);
+const pcM=g=>PC.S*PC.x0*PC.y0/((PC.y0-g*PC.sC)*(PC.y0-g*PC.sC))+(g>0?pcTail()*Math.pow(g,30):0);
+const pcR=g=>PC.x0*PC.y0/(PC.y0-g*PC.sC)-PC.x0+(g>0?pcTail()*(PC.sC/PC.S)*Math.pow(g,31)/31:0);
 function pcInv(fn,v,lo,hi){ if(!(v>fn(lo))) return lo; if(v>=fn(hi)) return hi; for(let i=0;i<200&&hi-lo>1e-16;i++){ const m=(lo+hi)/2; if(fn(m)<v) lo=m; else hi=m; } return (lo+hi)/2; }
 function paperFill(side,mcap,usd,o,graduated){
   if(!PC) return {ok:false,reason:'paper market not loaded'};
