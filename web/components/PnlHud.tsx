@@ -169,7 +169,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
 
       {/* hero: unrealized PnL + %. % = uPnL ÷ cost basis = MCAP ÷ AVG ENTRY MC − 1 (fees in the basis): it depends on how far the
           mcap moved since YOUR entry, not on the share of supply held. E.g. holdings $1.35K at $8.8K MCAP with avg entry MC
-          ≈$7.27K (curve starts at $7K) ⇒ +21%; see docs in lib/pnl.ts. */}
+          ≈$7.27K (curve starts at $3,333) ⇒ +21%; see docs in lib/pnl.ts. */}
       <div style={{ ...row, marginTop: 4 }} title={t("pnl.pctTitle")}>
         <Num value={v.uPnl} fmt={usd} style={{ fontSize: 22, fontWeight: 800, color: col(v.uPnl), textShadow: glow(col(v.uPnl)), letterSpacing: "-.02em" }} />
         <Num value={v.pnlPct} fmt={pct} style={{ fontSize: 12, fontWeight: 700, padding: "2px 7px", borderRadius: 7, color: col(v.pnlPct),
