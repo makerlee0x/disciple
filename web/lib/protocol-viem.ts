@@ -9,7 +9,7 @@ import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSell
 import { COIN_DECIMALS, knownDecimals, readUsdgDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
 import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, marginalQuote, key as ckey } from "./trade/hotCache";
 import { RESERVATIONS, autoReservationId, spendable } from "./trade/reservations";
-import { chainWatchDeps, holdUnknown, type OpLanding } from "./trade/pendingOps";
+import { chainWatchDeps, relayUnclearOf, releaseReasonOf, startPendingOp, type OpLanding } from "./trade/pendingOps";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
@@ -52,7 +52,8 @@ export const quoteRawToUsd = (raw: bigint, quotePriceUsd: bigint) => Number((raw
 const fmtUnits = (v: bigint, dec = 18) => { const d = Number(v) / 10 ** dec; return d >= 1e-4 || d === 0 ? d.toPrecision(4) : d.toExponential(2); };
 
 /** pending_unknown: the op the press sent (watched in the background until it lands or is dropped). */
-export type PendingOpRef = { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint };
+// nonce = the op's EntryPoint v0.7 nonce (SITE mav2); relayNonce = FLOW #141's relayer EOA nonce of the handleOps tx
+export type PendingOpRef = { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint; relayNonce?: number };
 export class ProtocolError extends Error {
   /** rate_limited: the relay's Retry-After in ms, when it sent one. */
   retryAfterMs?: number;
@@ -117,10 +118,22 @@ export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMu
 /** Launch-buy cap copy; pct = the cap in % of supply when the caller knows it. */
 export const CREATOR_BUY_MSG = (pct?: number) => `Your launch buy is over the max for this rocket${pct ? ` (${pct}% of supply)` : ""}. Try a smaller amount.`;
 const pickIds = (x?: Record<string, unknown>) => ({ userOpHash: x?.userOpHash, txHash: x?.txHash });
-export function friendlyError(e: unknown): ProtocolError {
+/**
+ * `rid` = the press (reservation) id on the trade path. FLOW #141: an 'unclear' relay timeout (code "Timeout" +
+ * extra.unclear, on AAError or ProtocolError.extra) is pending_unknown for a press (sendTrade normally catches it first
+ * and starts the watcher); without a press (launch: no hold to keep or watch) it stays the plain Timeout line.
+ */
+export function friendlyError(e: unknown, rid?: string): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
   const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  const unclear = relayUnclearOf(e);
+  if (unclear) {
+    const nonce = unknownOpOf(e)?.nonce;
+    logTradeError(`trade pending (unclear relay outcome: ${unclear.reason})`, { id: rid, reason: unclear.reason, userOpHash: unclear.userOpHash, txHash: unclear.txHash, relayNonce: unclear.relayNonce, nonce: nonce?.toString() });
+    if (rid) return new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: { reservationId: rid, userOpHash: unclear.userOpHash, txHash: unclear.txHash, nonce, ...(unclear.relayNonce !== undefined ? { relayNonce: unclear.relayNonce } : {}) } });
+    return new ProtocolError("Timeout", PENDING_MSG);
+  }
   // rapid-tap spec #10 / #9: typed codes + plain placeholder copy (detail already logged by lib/aa)
   if (isAA && (e as AAError).code === "RateLimited") return new ProtocolError("rate_limited", SLOW_DOWN_MSG, { retryAfterMs: (e as AAError).extra?.retryAfterMs as number | undefined });
   if (isAA && (e as AAError).code === "Policy" && (e as AAError).extra?.spendLimit) return new ProtocolError("spend_limit", SPEND_LIMIT_MSG);
@@ -627,7 +640,8 @@ export function createViemProtocol(): ProtocolClient {
     } catch (e) {
       // pending_unknown: the hold stays (the watcher releases it 'filled' / 'error'); not a failure
       if ((e as { code?: unknown })?.code === "pending_unknown") { tt.done("pending", { code: "pending_unknown" }); throw e; }
-      RESERVATIONS.release(rid, (e as { code?: unknown })?.code === "Timeout" ? "timeout" : "error");
+      // a definite revert (no unclear flag) is a normal error: released 'error'
+      RESERVATIONS.release(rid, releaseReasonOf(e));
       tt.done("error", { code: (e as { code?: unknown }).code }); throw e;
     }
   }
@@ -664,16 +678,16 @@ export function createViemProtocol(): ProtocolClient {
       let r: ExecResult;
       try { r = await asTrade(tt, () => execCalls(calls), { pressId: rid }); }
       catch (e) {
-        const op = unknownOpOf(e);
-        if (!op) throw e;
+        // plain timeout (today's mav2) or FLOW #141's unclear relay timeout (receipt-timeout / stream-lost / network):
+        // hold kept, watcher started (2 min cap, never resends). A definite revert (no unclear flag) ⇒ null ⇒ rethrown.
         const settle = (e as { extra?: { settleSession?: (landed: boolean) => void } }).extra?.settleSession;
-        const sender = (op.sender as Address | undefined) ?? me;
-        void holdUnknown(RESERVATIONS, rid, op, chainWatchDeps(pc, sender), {
+        const pending = startPendingOp(RESERVATIONS, rid, e, (sender) => chainWatchDeps(pc, (sender as Address | undefined) ?? me), {
           book: (l: OpLanding) => book(l.logs as ExecResult["logs"]),
           landedUnbooked: () => { BALANCES.dropWhere((k) => k.endsWith(`|${me.toLowerCase()}`)); },
           settle, after: (l) => requoteRoute(token, l?.logs as ExecResult["logs"] | undefined),
         });
-        throw new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: { reservationId: rid, userOpHash: op.userOpHash, txHash: op.txHash, nonce: op.nonce } });
+        if (!pending) throw e;
+        throw new ProtocolError("pending_unknown", PENDING_UNKNOWN_MSG, { op: pending.op });
       }
       logs = r.logs;
       const amountOut = book(r.logs);
@@ -749,7 +763,7 @@ export function createViemProtocol(): ProtocolClient {
     } catch (e) {
       if (e instanceof ProtocolError) throw e;
       if (e instanceof PveError) throw new ProtocolError(e.code, e.message);
-      throw friendlyError(e);
+      throw friendlyError(e, rid);
     }
   }
 

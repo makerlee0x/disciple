@@ -119,7 +119,11 @@ export function unknownOpOf(e: unknown): UnknownOpRef | null {
   // can be minified in production, so the name is only a second signal
   if (!x || typeof x !== "object" || x.code !== "Timeout" || !("extra" in x || x.constructor?.name === "AAError")) return null;
   const ex = x.extra ?? {};
+  // FLOW #141: a definite relay answer (revert payload, no `unclear` flag) is never unknown, whatever the code says
+  if (ex.unclear !== true && ex.revert !== undefined && ex.revert !== null) return null;
   const h = (v: unknown) => (typeof v === "string" && HASH.test(v) ? (v as Hex) : undefined);
+  // only a bigint is the EntryPoint v0.7 op nonce (SITE mav2). FLOW #141's number `nonce` is the RELAYER EOA nonce of the
+  // handleOps tx: never the op's nonce, so the watcher's EntryPoint check must not use it (lib/trade/pendingOps keeps it)
   const nonce = typeof ex.nonce === "bigint" ? ex.nonce : undefined;
   return { userOpHash: h(ex.userOpHash), txHash: h(ex.txHash), nonce, sender: typeof ex.sender === "string" ? ex.sender : undefined };
 }

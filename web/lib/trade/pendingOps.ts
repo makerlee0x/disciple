@@ -14,7 +14,7 @@
  */
 import { decodeEventLog, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { ENTRYPOINT_V07 } from "../aa/constants";
-import type { UnknownOpRef } from "../aa/relayOp";
+import { unknownOpOf, type UnknownOpRef } from "../aa/relayOp";
 import type { Reservations } from "./reservations";
 
 export type OpLog = { address: Address; data: Hex; topics: Hex[]; blockNumber?: Hex | bigint };
@@ -102,6 +102,65 @@ export function holdUnknown(reg: Reservations, id: string, op: UnknownOpRef, dep
     return w;
   });
 }
+/* ---------- FLOW #141: 'unclear' relay errors ⇒ pending_unknown ---------- */
+// mirrors RelayErrorData from FLOW #141 (lib/aa/relayTypes.ts); swap to import at rebase
+export type RelayUnclearReasonLike = "receipt-timeout" | "stream-lost" | "network";
+// mirrors RelayErrorData from FLOW #141 (lib/aa/relayTypes.ts); swap to import at rebase
+// (`nonce` there is the RELAYER EOA nonce of the handleOps tx, not the op's EntryPoint nonce)
+export type RelayErrorDataLike = { txHash?: Hex; userOpHash?: Hex; revert?: Hex; nonce?: number; unclear?: true; reason?: RelayUnclearReasonLike };
+export type RelayUnclear = { reason: RelayUnclearReasonLike; userOpHash?: Hex; txHash?: Hex; relayNonce?: number };
+const HASH32 = /^0x[0-9a-fA-F]{64}$/;
+const hash32 = (v: unknown) => (typeof v === "string" && HASH32.test(v) ? (v as Hex) : undefined);
+
+/**
+ * FLOW #141's rule: `err.code === "Timeout" && err.extra?.unclear === true` ⇒ the outcome is unknown (the tx may still
+ * land). Works on an AAError from mav2 and on a ProtocolError from protocol-viem (#141 gives it .extra). null otherwise
+ * (a definite revert carries txHash / nonce but no unclear flag).
+ */
+export function relayUnclearOf(e: unknown): RelayUnclear | null {
+  const x = e as { code?: unknown; extra?: unknown } | null;
+  if (!x || typeof x !== "object" || x.code !== "Timeout") return null;
+  const ex = x.extra as (RelayErrorDataLike & Record<string, unknown>) | undefined;
+  if (!ex || typeof ex !== "object" || ex.unclear !== true) return null;
+  const reason: RelayUnclearReasonLike = ex.reason === "stream-lost" || ex.reason === "network" ? ex.reason : "receipt-timeout";
+  const relayNonce = typeof ex.nonce === "number" && Number.isSafeInteger(ex.nonce) && ex.nonce >= 0 ? ex.nonce : undefined;
+  return { reason, userOpHash: hash32(ex.userOpHash), txHash: hash32(ex.txHash), ...(relayNonce !== undefined ? { relayNonce } : {}) };
+}
+
+/** A send error whose op may still land: the ids to watch, plus FLOW's unclear reason / relayer nonce when flagged. */
+export type PendingSend = UnknownOpRef & { unclear?: true; reason?: RelayUnclearReasonLike; relayNonce?: number };
+/**
+ * unclear-flagged timeouts (FLOW #141) and plain timeouts (today's mav2, no flag) alike; a definite answer (revert, no
+ * flag) is null. Same decision as unknownOpOf, so lib/aa/session's held session spend always gets settled by the watcher.
+ */
+export function pendingOpOf(e: unknown): PendingSend | null {
+  const op = unknownOpOf(e);
+  if (!op) return null;
+  const u = relayUnclearOf(e);
+  if (!u) return op;
+  return { ...op, userOpHash: op.userOpHash ?? u.userOpHash, txHash: op.txHash ?? u.txHash, unclear: true, reason: u.reason, ...(u.relayNonce !== undefined ? { relayNonce: u.relayNonce } : {}) };
+}
+
+/** The ids GAME gets on ProtocolError("pending_unknown").op (structurally protocol-viem's PendingOpRef). */
+export type PendingOpIds = { reservationId: string; userOpHash?: string; txHash?: string; nonce?: bigint; relayNonce?: number };
+/**
+ * Trade layer: a send error ⇒ pending_unknown? If so, keep press `id` held (markUnknown) and start the watcher (cap
+ * 2 min, never resends); returns the op ids for ProtocolError("pending_unknown"). null ⇒ a normal error (the caller
+ * releases the hold as usual). `known` = ids the caller already had, used where the error carries none. Reason / ids go
+ * to console.warn("[disciple] …") only, never into player copy.
+ */
+export function startPendingOp(reg: Reservations, id: string, e: unknown, deps: (sender?: string) => WatchDeps, hooks: UnknownHooks,
+  known: { userOpHash?: Hex; txHash?: Hex; nonce?: bigint } = {}, o?: WatchOpts): { op: PendingOpIds; watch: Promise<WatchOutcome> } | null {
+  const p = pendingOpOf(e);
+  if (!p) return null;
+  const ref: UnknownOpRef = { userOpHash: p.userOpHash ?? known.userOpHash, txHash: p.txHash ?? known.txHash, nonce: p.nonce ?? known.nonce, sender: p.sender };
+  if (p.unclear) warn(`trade pending (unclear relay outcome: ${p.reason})`, { id, reason: p.reason, userOpHash: ref.userOpHash, txHash: ref.txHash, relayNonce: p.relayNonce, nonce: ref.nonce?.toString() });
+  const watch = holdUnknown(reg, id, ref, deps(p.sender), hooks, o);
+  return { op: { reservationId: id, userOpHash: ref.userOpHash, txHash: ref.txHash, nonce: ref.nonce, ...(p.relayNonce !== undefined ? { relayNonce: p.relayNonce } : {}) }, watch };
+}
+/** Release reason for a press whose trade threw a normal (not pending_unknown) error: a definite revert is 'error'. */
+export const releaseReasonOf = (e: unknown): "timeout" | "error" => ((e as { code?: unknown })?.code === "Timeout" ? "timeout" : "error");
+
 function warn(what: string, d: Record<string, unknown>) { if (typeof console !== "undefined") console.warn(`[disciple] ${what}`, d); }
 
 /* ---------- viem lookups ---------- */
