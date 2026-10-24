@@ -413,7 +413,7 @@ for (const [reason, mk] of [
     const log = warned.find((a) => String(a[0]).startsWith("[disciple] trade pending (unclear relay outcome"));
     assert.ok(log, "reason logged to console.warn('[disciple] …')");
     assert.equal((log![1] as { reason: string }).reason, reason); assert.equal((log![1] as { txHash: string }).txHash, TX);
-    // friendlyError: same mapping for a press, the existing placeholder copy, no ids / reason in the player line
+    // friendlyError: same mapping for a press, the approved copy, no ids / reason in the player line
     const fe = friendlyError(e, "press-x");
     assert.equal(fe.code, "pending_unknown"); assert.equal(fe.message, PENDING_UNKNOWN_MSG);
     assert.deepEqual(fe.op, { reservationId: "press-x", userOpHash: HASH, txHash: TX, nonce: undefined, relayNonce: RELAY_NONCE });

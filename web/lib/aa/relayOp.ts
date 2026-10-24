@@ -96,7 +96,7 @@ export function logTradeError(what: string, detail: Record<string, unknown>) {
 }
 
 /* ---------- rapid-tap (SITE): rate limit + spend limit ---------- */
-/** Copy pending lee + BRAND approval (placeholders). Plain words only: details go to console.warn("[disciple] …"). */
+/** Copy approved by lee 2026-10-24. Plain words only: details go to console.warn("[disciple] …"). */
 export const SLOW_DOWN_MSG = "Slow down";
 export const SPEND_LIMIT_MSG = "Spend limit reached";
 /** Typed trade error codes GAME maps to its own copy (ProtocolError.code / TradeResult.errorCode). */
@@ -104,7 +104,7 @@ export type TradeErrorCode = "rate_limited" | "spend_limit" | "pending_unknown";
 /**
  * AUDIT (#141 review): a receipt / relay timeout does NOT mean the trade failed: it may still land. The trade layer
  * answers 'pending_unknown', keeps the reservation held and watches the op until it lands or is definitely dropped.
- * Copy pending lee approval (placeholder). Plain words only: ids / nonce go to console.warn("[disciple] …").
+ * Copy approved by lee 2026-10-24. Plain words only: ids / nonce go to console.warn("[disciple] …").
  */
 export const PENDING_UNKNOWN_MSG = "Still confirming your last trade…";
 /** The op ids an ambiguous send keeps (AAError("Timeout").extra): what the background watcher looks up. */

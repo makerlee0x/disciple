@@ -158,7 +158,7 @@ export function friendlyError(e: unknown, rid?: string): ProtocolError {
     if (d) { name = d.errorName; args = d.args as unknown[] | undefined; }
     else { logTradeError("trade pre-check failed (relay)", { selector: relayRevert.slice(0, 10), revertData: relayRevert }); return new ProtocolError("Estimate", REJECTED_MSG); }
   }
-  // rapid-tap spec #10 / #9: typed codes + plain placeholder copy (detail already logged by lib/aa)
+  // rapid-tap spec #10 / #9: typed codes + plain copy, approved by lee 2026-10-24 (detail already logged by lib/aa)
   if (isAA && (e as AAError).code === "RateLimited") return new ProtocolError("rate_limited", SLOW_DOWN_MSG, { retryAfterMs: (e as AAError).extra?.retryAfterMs as number | undefined });
   if (isAA && (e as AAError).code === "Policy" && (e as AAError).extra?.spendLimit) return new ProtocolError("spend_limit", SPEND_LIMIT_MSG);
   const est = isAA && (e as AAError).code === "Estimate" ? (e as AAError) : null;
@@ -207,7 +207,7 @@ export function friendlyError(e: unknown, rid?: string): ProtocolError {
       LoginGateUnset: "PVE launches are paused: the login gate isn't configured.",
       BadMode: "Unknown game mode.",
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
-      SpendCapExceeded: SPEND_LIMIT_MSG,   // code "spend_limit" (below); copy pending lee + BRAND
+      SpendCapExceeded: SPEND_LIMIT_MSG,   // code "spend_limit" (below); copy approved by lee 2026-10-24
       MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
       QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
