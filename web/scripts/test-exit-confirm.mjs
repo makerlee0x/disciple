@@ -49,7 +49,7 @@ ok(get("exitc.title") === "Leave the mission?", `title: ${get("exitc.title")}`);
 ok(get("exitc.body") === "The mission continues, with or without you.", `body: ${get("exitc.body")}`);
 ok(get("exitc.stay") === "Stay" && get("exitc.leave") === "Leave", "buttons: Stay / Leave");
 ok(["exitc.title", "exitc.body", "exitc.stay", "exitc.leave"].every((k) => !/!/.test(get(k) || "!")), "no exclamation marks");
-const rest = i18n.slice(i18n.indexOf("} as const;"));
+const rest = i18n.slice(i18n.indexOf("const zh: Dict"), i18n.indexOf("export const DICTS"));
 ok(!/"exitc\./.test(rest), "zh / ko / ja / es carry no exitc.* yet (fall back to English via translate())");
 ok((rest.match(/NEEDS_REVIEW: exitc\.\*/g) || []).length === 4, "each non-English locale is marked NEEDS_REVIEW for exitc.*");
 ok(/ENGLISH_ONLY: readonly I18nKey\[\] = \["exitc\.title", "exitc\.body", "exitc\.stay", "exitc\.leave"\]/.test(i18n), "exitc.* listed in ENGLISH_ONLY (translation-coverage check in test:hotkeys skips them)");
