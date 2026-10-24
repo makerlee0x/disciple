@@ -23,10 +23,6 @@ interface IRewardsVault {
     function notifyReward(address token, address asset, uint256 amount) external;
 }
 
-interface ILaunchpadRouterCheck {
-    function isTrustedRouter(address r) external view returns (bool);
-}
-
 contract FeeRouter is IFeeRouter, Owned2Step {
     using SafeERC20 for IERC20;
 
@@ -90,6 +86,13 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ///         (not graduated after the timeout), and 70% of any legacy routeSnipeFee call.
     address public rewardsVault;
 
+    /// @notice Routers allowed to claim a creator's quote fees on the creator's behalf (claimCreatorFeesFor). Kept
+    ///         separate from Launchpad.isTrustedRouter: trusting a router for trades must not also hand it every
+    ///         creator's accrued fees. Owner-set; today only DiscipleRouter (claimCreatorFeesToUsdg).
+    mapping(address => bool) public isClaimRouter;
+
+    event ClaimRouterSet(address indexed router, bool allowed);
+
     constructor(address owner_, address treasury_, address referrals_) Owned2Step(owner_) {
         if (owner_ == address(0) || treasury_ == address(0) || referrals_ == address(0)) {
             revert ZeroAddress();
@@ -119,6 +122,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (msg.sender != owner) revert OnlyOwner();
         emit ReferralSinkSet(referralSink, sink);
         referralSink = sink;
+    }
+
+    /// @notice Allow / revoke a router for claimCreatorFeesFor (owner only).
+    function setClaimRouter(address router, bool allowed) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (router == address(0)) revert ZeroAddress();
+        isClaimRouter[router] = allowed;
+        emit ClaimRouterSet(router, allowed);
     }
 
     function setAuthorized(address caller, bool ok) external {
@@ -291,12 +302,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         emit CreatorFeesClaimed(token, msg.sender, amount);
     }
 
-    /// @notice Trusted-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
+    /// @notice Claim-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
     ///         side of `creator`'s accrued fees to the ROUTER, which swaps it to USDG for the creator in the same tx.
-    ///         Only Launchpad.isTrustedRouter(msg.sender); the router passes its own msg.sender as `creator`.
+    ///         Only isClaimRouter[msg.sender] (owner allowlist, separate from the trade-router trust); the router
+    ///         passes its own msg.sender as `creator`.
     function claimCreatorFeesFor(address token, address creator) external returns (uint256 amount) {
-        address lp = launchpad;
-        if (lp == address(0) || !ILaunchpadRouterCheck(lp).isTrustedRouter(msg.sender)) revert OnlyAuthorized();
+        if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
         amount = creatorAccrued[token][creator];
         if (amount == 0) revert NothingToClaim();
         creatorAccrued[token][creator] = 0;

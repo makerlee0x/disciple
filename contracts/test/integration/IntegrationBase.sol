@@ -149,6 +149,7 @@ abstract contract IntegrationBase is Test {
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
         launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);

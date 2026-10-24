@@ -826,4 +826,46 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
         feeRouter.claimCreatorFeesFor(rs.token, alice);
     }
+
+    /// Audit r121 Low (FeeRouter.sol:276): claimCreatorFeesFor uses its own owner-set allowlist, not trade-router trust.
+    function test_claimCreatorFeesFor_separateClaimRouterAllowlist() public {
+        vm.startPrank(alice);
+        quote.approve(address(router), type(uint256).max);
+        (ILaunchpad.LaunchResult memory ru,) = router.launchWithUsdg(_params(address(quote), 0), Constants.MODE_TRENCH, 0, 0);
+        vm.stopPrank();
+        vm.warp(vm.getBlockTimestamp() + 78);
+        _buyQ(BondingCurve(ru.curve), bob, 100 ether);
+        uint256 acc = feeRouter.creatorAccrued(ru.token, alice);
+        assertGt(acc, 0);
+        // a trade-trusted router that is NOT a claim router cannot sweep creator fees
+        address rogue = makeAddr("rogueRouter");
+        vm.prank(owner);
+        launchpad.setTrustedRouter(rogue, true);
+        assertTrue(launchpad.isTrustedRouter(rogue));
+        vm.prank(rogue);
+        vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
+        feeRouter.claimCreatorFeesFor(ru.token, alice);
+        // owner-only setter, zero address rejected
+        vm.prank(alice);
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        feeRouter.setClaimRouter(rogue, true);
+        vm.prank(owner);
+        vm.expectRevert(FeeRouter.ZeroAddress.selector);
+        feeRouter.setClaimRouter(address(0), true);
+        // revoking DiscipleRouter's claim right blocks claimCreatorFeesToUsdg but not trading through it
+        assertTrue(feeRouter.isClaimRouter(address(router)));
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true, address(feeRouter));
+        emit FeeRouter.ClaimRouterSet(address(router), false);
+        feeRouter.setClaimRouter(address(router), false);
+        vm.prank(alice);
+        vm.expectRevert(FeeRouter.OnlyAuthorized.selector);
+        router.claimCreatorFeesToUsdg(ru.token, 0);
+        assertTrue(launchpad.isTrustedRouter(address(router)));
+        // re-allow: the creator claims in full
+        vm.prank(owner);
+        feeRouter.setClaimRouter(address(router), true);
+        vm.prank(alice);
+        assertEq(router.claimCreatorFeesToUsdg(ru.token, acc), acc);
+    }
 }
