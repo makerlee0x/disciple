@@ -16,6 +16,7 @@ import {
   legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
 } from "@/lib/aa/session";
 import { loadPortfolio, type Portfolio } from "@/lib/portfolio";
+import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
 import IdentitySigil from "@/components/profile/IdentitySigil";
 import { pct } from "@/lib/aa/slippage";
 import { fmtSessionExpiry } from "@/lib/aa/oneTap";
@@ -124,6 +125,30 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
+  // Phones (< 740px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
+  // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
+  // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
+  const ctaLabel = !isDeployed() || addr ? null : aaAvailable() && SIGNER_MODE === "local" ? "Play" : aaAvailable() ? "Sign in" : "Connect wallet";
+  useEffect(() => {
+    (window as unknown as { __walletCta?: string | null }).__walletCta = ctaLabel;
+    dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: ctaLabel } }));
+  }, [ctaLabel]);
+  useEffect(() => () => {
+    (window as unknown as { __walletCta?: string | null }).__walletCta = null;
+    dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: null } }));
+  }, []);
+  const ctaClick = useRef<() => void>(() => {});
+  ctaClick.current = () => {
+    if (addr || busy) return;
+    if (aaAvailable() && SIGNER_MODE === "local") run("creating account", connectLocal);
+    else setMenu(true);
+  };
+  useEffect(() => {
+    const f = () => ctaClick.current();
+    addEventListener(WALLET_CTA_CLICK_EVENT, f);
+    return () => removeEventListener(WALLET_CTA_CLICK_EVENT, f);
+  }, []);
+
   const rootRef = useRef<HTMLDivElement>(null);
   // Close sign-in / account popovers on outside click or Escape (menus are absolute so they
   // must not rely on layout collapse for dismissal).
@@ -196,11 +221,11 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+              <button type="button" className="ap-wallet-cta" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
                 {busy || <><Icon name="play" size={16} /> Play</>}
               </button>
             ) : (
-            <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+            <button type="button" className="ap-wallet-cta" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
               {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
             </button>
             )
