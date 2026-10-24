@@ -8,8 +8,9 @@ import {Owned2Step} from "../utils/Owned2Step.sol";
 import {PackedUserOperation, PostOpMode, IPaymasterV07, IEntryPointStakeV07} from "./IPaymasterV07.sol";
 
 /// @title DisciplePaymaster — USDG token paymaster for EntryPoint v0.7 (self-hosted, no sponsorship)
-/// @notice Users pay gas in USDG. A DISCIPLE quote signer signs (validUntil, validAfter, rate, maxTokenCost) for one
-///         exact userOp; the paymaster fronts the ETH from its EntryPoint deposit and, in postOp, pulls the ACTUAL gas
+/// @notice Users pay gas in USDG. A DISCIPLE quote signer issues a per-sender ALLOWANCE: it signs
+///         (sender, chainId, paymaster, validUntil, validAfter, rate, maxTokenCost) once, and every op of that sender
+///         inside [validAfter, validUntil] may reuse it (no per-op paymaster round trip). The paymaster fronts the ETH from its EntryPoint deposit and, in postOp, pulls the ACTUAL gas
 ///         cost (converted at the signed rate) from the user to the treasury. Nothing is sponsored: if the pull fails
 ///         (the batch reverted together with its approve, or the user moved the USDG) the shortfall is recorded as
 ///         `debtOf[sender]` and must be included in (and is collected by) the sender's next paymaster op.
@@ -23,6 +24,13 @@ import {PackedUserOperation, PostOpMode, IPaymasterV07, IEntryPointStakeV07} fro
 ///                       | validUntil(6) | validAfter(6) | rate(32) | maxTokenCost(32) | signature(65)
 ///      rate         = USDG raw units per 1e18 wei (decimals-aware: works for 18-dec testnet and 6-dec mainnet USDG)
 ///      maxTokenCost = the exact USDG allowance the op grants this paymaster: ceil(maxCost * rate / 1e18) + debt
+///
+///      Exposure bound (see contracts/docs/usdg-paymaster.md §Allowance): every per-op check stays in validation, and
+///      each validated op RESERVES its gas cap (`reservedOf[sender]`) until its postOp clears it. A reservation that
+///      is still set when the sender's next op validates (a second op of the same sender in one bundle, or a postOp
+///      that never ran / reverted) is rolled into `debtOf`, which that op must cover inside the same fixed
+///      maxTokenCost. Hence per sender, at any time: unrecovered USDG ≤ maxTokenCost ≤ maxCostCap, independent of how
+///      many ops or bundles reuse the allowance.
 contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     // ───────────────────────── constants / immutables ─────────────────────────
     uint256 internal constant PAYMASTER_DATA_OFFSET = 52;
@@ -34,6 +42,11 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     /// @notice Max signed validity window. Validation can't read TIMESTAMP (ERC-7562); the EntryPoint enforces it.
     uint256 public constant MAX_QUOTE_WINDOW = 1 hours;
     uint256 public constant MAX_POST_OP_GAS = 200_000;
+    /// @notice Floor on the op's paymasterPostOpGasLimit. The allowance no longer signs the gas limits, so a sender
+    ///         could otherwise starve postOp (EntryPoint then bills our deposit and skips the pull). Measured ≈ 35-45k.
+    uint256 public constant MIN_PM_POST_OP_GAS_LIMIT = 60_000;
+    /// @notice Domain tag of the allowance hash (keeps it distinct from the old per-op quote hash).
+    bytes32 public constant ALLOWANCE_TYPEHASH = keccak256("DisciplePaymaster.Allowance(v1)");
 
     bytes4 internal constant EXECUTE = bytes4(keccak256("execute(address,uint256,bytes)"));
     bytes4 internal constant EXECUTE_BATCH = bytes4(keccak256("executeBatch((address,uint256,bytes)[])"));
@@ -57,6 +70,8 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
     /// @notice USDG owed by a sender whose postOp pull failed. Must be included in the next quote.
     mapping(address => uint256) public debtOf;
+    /// @notice Gas cap (USDG) of the sender's op that passed validation but whose postOp has not run yet.
+    mapping(address => uint256) public reservedOf;
 
     struct Context {
         address sender;
@@ -88,6 +103,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     error MaxCostTooLow(uint256 maxTokenCost, uint256 required);
     error InsufficientUsdgBalance(uint256 balance, uint256 required);
     error InsufficientUsdgAllowance(uint256 allowance, uint256 required);
+    error PostOpGasLimitTooLow(uint256 limit, uint256 min);
 
     constructor(
         address entryPoint_,
@@ -121,7 +137,9 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         (uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost, bytes calldata sig) =
             parsePaymasterAndData(op.paymasterAndData);
 
-        bytes32 h = MessageHashUtils.toEthSignedMessageHash(getHash(op, validUntil, validAfter, rate, maxTokenCost));
+        address sender = op.sender;
+        bytes32 h =
+            MessageHashUtils.toEthSignedMessageHash(getHash(sender, validUntil, validAfter, rate, maxTokenCost));
         (address rec, ECDSA.RecoverError err,) = ECDSA.tryRecover(h, sig);
         if (err != ECDSA.RecoverError.NoError || rec != signer) {
             // ERC-4337: a bad signature returns SIG_VALIDATION_FAILED (the EntryPoint rejects with AA34), no revert.
@@ -132,8 +150,18 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         if (rate < minRate || rate > maxRate) revert RateOutOfBounds(rate);
         if (maxTokenCost > maxCostCap) revert MaxCostAboveCap(maxTokenCost, maxCostCap);
 
-        address sender = op.sender;
+        uint256 pmPostOp = _pmPostOpGasLimit(op.paymasterAndData);
+        if (pmPostOp < MIN_PM_POST_OP_GAS_LIMIT) revert PostOpGasLimitTooLow(pmPostOp, MIN_PM_POST_OP_GAS_LIMIT);
+
         uint256 debt = debtOf[sender];
+        uint256 stale = reservedOf[sender];
+        if (stale != 0) {
+            // an earlier op of this sender validated and its postOp has not cleared the reservation (same bundle, or
+            // postOp reverted): treat its whole gas cap as owed until proven otherwise.
+            debt += stale;
+            debtOf[sender] = debt;
+            emit DebtRecorded(userOpHash, sender, stale, debt);
+        }
         uint256 required = tokenCost(maxCost, rate) + debt;
         if (maxTokenCost < required) revert MaxCostTooLow(maxTokenCost, required);
 
@@ -143,6 +171,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
             uint256 al = IERC20(usdg).allowance(sender, address(this));
             if (al < maxTokenCost) revert InsufficientUsdgAllowance(al, maxTokenCost);
         }
+        reservedOf[sender] = maxTokenCost - debt;
 
         context = abi.encode(
             Context({
@@ -151,7 +180,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
                 rate: rate,
                 gasMaxToken: maxTokenCost - debt,
                 debt: debt,
-                executionGasLimit: uint128(uint256(op.accountGasLimits)) + _pmPostOpGasLimit(op.paymasterAndData),
+                executionGasLimit: uint128(uint256(op.accountGasLimits)) + pmPostOp,
                 preOpGas: op.preVerificationGas + uint128(uint256(op.accountGasLimits) >> 128)
                     + _pmVerificationGasLimit(op.paymasterAndData)
             })
@@ -167,6 +196,7 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
     {
         _onlyEntryPoint();
         Context memory c = abi.decode(context, (Context));
+        delete reservedOf[c.sender];
         uint256 penalty =
             expectedPenaltyGasCost(actualGasCost, actualUserOpFeePerGas, postOpGas, c.preOpGas, c.executionGasLimit);
         uint256 gasCost = tokenCost(actualGasCost + penalty + postOpGas * actualUserOpFeePerGas, c.rate);
@@ -193,31 +223,20 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
         return (weiAmount * rate + 1e18 - 1) / 1e18;
     }
 
-    /// @notice Hash the quote signer signs (EIP-191 personal_sign over it). Binds the exact userOp (incl. callData,
-    ///         so the approve amount), the paymaster gas limits, chain and this paymaster.
-    function getHash(
-        PackedUserOperation calldata op,
-        uint48 validUntil,
-        uint48 validAfter,
-        uint256 rate,
-        uint256 maxTokenCost
-    ) public view returns (bytes32) {
-        bytes32 pmGas = op.paymasterAndData.length >= PAYMASTER_DATA_OFFSET
-            ? bytes32(op.paymasterAndData[20:PAYMASTER_DATA_OFFSET])
-            : bytes32(0);
-        bytes32 opPart = keccak256(
+    /// @notice Hash the quote signer signs (EIP-191 personal_sign over it): a per-sender allowance, valid for any op of
+    ///         `sender` in [validAfter, validUntil] on this chain and this paymaster. It deliberately does NOT bind the
+    ///         userOp (nonce, callData, gas): every per-op rule (cost ≤ maxTokenCost incl. debt, balance, approve /
+    ///         allowance, rate and cap bounds, postOp gas floor) is checked on-chain in validatePaymasterUserOp.
+    function getHash(address sender, uint48 validUntil, uint48 validAfter, uint256 rate, uint256 maxTokenCost)
+        public
+        view
+        returns (bytes32)
+    {
+        return keccak256(
             abi.encode(
-                op.sender,
-                op.nonce,
-                keccak256(op.initCode),
-                keccak256(op.callData),
-                op.accountGasLimits,
-                pmGas,
-                op.preVerificationGas,
-                op.gasFees
+                ALLOWANCE_TYPEHASH, sender, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost
             )
         );
-        return keccak256(abi.encode(opPart, block.chainid, address(this), validUntil, validAfter, rate, maxTokenCost));
     }
 
     function parsePaymasterAndData(bytes calldata pmd)
@@ -337,8 +356,9 @@ contract DisciplePaymaster is IPaymasterV07, Owned2Step {
 
     function forgiveDebt(address sender) external {
         _checkOwner();
-        uint256 d = debtOf[sender];
+        uint256 d = debtOf[sender] + reservedOf[sender];
         delete debtOf[sender];
+        delete reservedOf[sender];
         emit DebtForgiven(sender, d);
     }
 
