@@ -13,7 +13,7 @@
  *     cover the fixed handleOps overhead (MIN_PRE_VERIFICATION_GAS).
  * Pure (no server-only, no RPC): unit-tested by scripts/test-relay-policy.mts.
  */
-import { decodeFunctionData, parseAbi, toFunctionSelector, type AbiFunction, type AbiItem, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, parseAbi, toFunctionSelector, type AbiFunction, type AbiItem, type Hex } from "viem";
 import { anonLauncherAbi } from "../abi/AnonLauncher";
 import { launchpadAbi } from "../abi/Launchpad";
 
@@ -79,13 +79,13 @@ const accountAbi = parseAbi([
 ]);
 const EXECUTE_USER_OP = "0x8dd7712f";
 /** Inner calls of an MAv2 / LightAccount callData (execute / executeBatch, optionally behind executeUserOp). null = unknown shape. */
-export function accountCalls(callData: string): { to: string; data: string }[] | null {
+export function accountCalls(callData: string): { to: string; data: string; value: bigint }[] | null {
   let cd = (callData || "0x").toLowerCase() as Hex;
   if (cd.startsWith(EXECUTE_USER_OP)) cd = ("0x" + cd.slice(10)) as Hex;
   try {
     const d = decodeFunctionData({ abi: accountAbi, data: cd });
-    if (d.functionName === "execute") { const [to, , data] = d.args as readonly [string, bigint, string]; return [{ to, data }]; }
-    return (d.args[0] as readonly { target: string; data: string }[]).map((c) => ({ to: c.target, data: c.data }));
+    if (d.functionName === "execute") { const [to, value, data] = d.args as readonly [string, bigint, string]; return [{ to, data, value }]; }
+    return (d.args[0] as readonly { target: string; value: bigint; data: string }[]).map((c) => ({ to: c.target, data: c.data, value: c.value }));
   } catch { return null; }
 }
 /**
@@ -155,8 +155,16 @@ const approveAbi = parseAbi(["function approve(address spender, uint256 amount)"
 export const MAX_GRAD_BUY_INTENTS = 2;
 /** An approve that runs inside the op before the buy: token = the approve's target. */
 export type InOpApproval = { token: string; spender: string; amount: bigint };
-/** usdg.approve(paymaster, x): the one extra leading call a USDG-gas (DisciplePaymaster) op must carry. */
-export type GradPaymasterApprove = { usdg?: string; paymaster?: string };
+/**
+ * What a grad-buy op may carry besides approves + the buy (gradBuyCandidate). All addresses come from the relay's own
+ * config (lib/server/gradBuy chainGradReads: DEPLOYMENTS[chainId], the same deployment() the client builds calls from):
+ *  - `usdg` + `paymaster`: usdg.approve(paymaster, x), the one extra leading call a USDG-gas (DisciplePaymaster) op
+ *    must carry — set only when the op's paymaster field IS our paymaster;
+ *  - `referralRegistry`: ReferralRegistry.tryAttribute(sender, referrer) (protocol-viem referralCall, first buy of a
+ *    referred wallet); `sender` binds its `wallet` arg (the registry reverts NotWalletOrAttestor otherwise);
+ *  - `loginGate`: LoginGate.attest(wallet, expiry, coin, sig) (lib/pve ensurePveLogin, relay-unavailable fallback).
+ */
+export type GradShapeOpts = { usdg?: string; paymaster?: string; referralRegistry?: string; loginGate?: string; sender?: string };
 /** `c` decoded as ERC-20 approve(spender, amount) on `c.to`, else null (selector AND full decode required). */
 function asApprove(c: { to: string; data: string }): InOpApproval | null {
   if (c.data.slice(0, 10).toLowerCase() !== APPROVE_SEL) return null;
@@ -165,20 +173,48 @@ function asApprove(c: { to: string; data: string }): InOpApproval | null {
     return { token: c.to.toLowerCase(), spender: (d.args[0] as string).toLowerCase(), amount: d.args[1] as bigint };
   } catch { return null; }
 }
+const referralAbi = parseAbi(["function tryAttribute(address wallet, address referrer)"]);
+const loginGateAttestAbi = parseAbi(["function attest(address wallet, uint64 expiry, address coin, bytes sig)"]);
+const TRY_ATTRIBUTE_SEL = toFunctionSelector(referralAbi[0]).toLowerCase();
+const ATTEST_SEL = toFunctionSelector(loginGateAttestAbi[0]).toLowerCase();
+const sameAddr = (a: string | undefined, b: string | undefined) => !!a && !!b && !/^0x0{40}$/i.test(b) && a.toLowerCase() === b.toLowerCase();
 /**
- * The only op shape that may earn GRAD_GAS_CAPS (audit r106 Low gradBuy.ts:40, round 2 gasPolicy.ts:168/:177):
+ * `c` is exactly `fn` on `target`: configured (non-zero) target, value 0, exact selector, and the data is the
+ * CANONICAL encoding of its decoded args (no trailing / non-canonical bytes). Returns the decoded args, else null.
+ */
+function asExactCall(c: { to: string; data: string; value?: bigint }, target: string | undefined, abi: typeof referralAbi | typeof loginGateAttestAbi, sel: string): readonly unknown[] | null {
+  if (!sameAddr(c.to, target) || (c.value ?? BigInt(0)) !== BigInt(0) || c.data.slice(0, 10).toLowerCase() !== sel) return null;
+  try {
+    const d = decodeFunctionData({ abi, data: c.data as Hex });
+    const args = d.args as readonly unknown[];
+    if (encodeFunctionData({ abi, functionName: d.functionName, args } as never).toLowerCase() !== c.data.toLowerCase()) return null;
+    return args;
+  } catch { return null; }
+}
+/**
+ * The only op shape that may earn GRAD_GAS_CAPS (audit r106 Low gradBuy.ts:40, round 2 gasPolicy.ts:168/:177, round 3
+ * prefix regression):
  *
  *   [ usdg.approve(paymaster, x)?          ← only for a USDG-gas op, only when `pm` names the op's paymaster + USDG
+ *   , LoginGate.attest(w, exp, coin, sig)? ← at most one, target = the configured LoginGate
+ *   , ReferralRegistry.tryAttribute(sender, ref)? ← at most one, target = the configured ReferralRegistry
  *   , approve(quoteToken, spender, y)*     ← zero or more, ALL on one token, spender = the buy's target (curve / router)
  *   , buy ]                                ← the literal LAST call (curve buy / buyFor, router buyWithUsdg / buyExactIn)
  *
- * Anything else ⇒ null: any non-approve call before the buy, any call after it, an approve to another spender or on
- * a second token, more than MAX_GRAD_BUY_INTENTS buys (checked first, before any decode work). The approve token is
- * returned as `quoteToken`; the caller (lib/server/gradBuy) must check it equals the curve's quote on-chain. Because
- * only approves precede the buy, the post-approve state the buy sees is (pre-op balance, last approve's amount — or
- * the pre-op allowance when there is none): `approvals` carries them in order. Pure.
+ * This is the order protocol-viem emits: tradeOnce [...pveCalls, ...refCalls, ...approveCalls, buy], tradeViaUsdg
+ * [...refCalls, approve, buyWithUsdg] (its attest path throws PveRelayUnavailable), with paymasterClient putting the
+ * paymaster approve first. The two prefix calls are value-0, fully decoded, on OUR contracts: tryAttribute only writes
+ * ReferralRegistry's own pending/referrer maps, attest only LoginGate's verifiedUntil — neither calls a token or the
+ * account, so neither moves funds nor changes any allowance, and the post-approve funding state below is unchanged.
+ *
+ * Anything else ⇒ null: any other call before the buy, any call after it, a prefix call out of order / twice / on
+ * another target / with value / with another selector, an approve to another spender or on a second token, more than
+ * MAX_GRAD_BUY_INTENTS buys (checked first, before any decode work). The approve token is returned as `quoteToken`; the
+ * caller (lib/server/gradBuy) must check it equals the curve's quote on-chain. Because only approves (and the
+ * state-isolated prefix calls) precede the buy, the post-approve state the buy sees is (pre-op balance, last approve's
+ * amount — or the pre-op allowance when there is none): `approvals` carries them in order. Pure.
  */
-export function gradBuyCandidate(callData: string, pm: GradPaymasterApprove = {}): { intent: BuyIntent; approvals: InOpApproval[]; quoteToken?: string } | null {
+export function gradBuyCandidate(callData: string, pm: GradShapeOpts = {}): { intent: BuyIntent; approvals: InOpApproval[]; quoteToken?: string } | null {
   const calls = accountCalls(callData);
   if (!calls?.length) return null;
   if (buyIntents(calls).length > MAX_GRAD_BUY_INTENTS) return null;
@@ -189,6 +225,15 @@ export function gradBuyCandidate(callData: string, pm: GradPaymasterApprove = {}
   if (last > 0 && pm.usdg && pm.paymaster) {
     const a = asApprove(calls[0]);
     if (a && a.token === pm.usdg.toLowerCase() && a.spender === pm.paymaster.toLowerCase()) i = 1;
+  }
+  // optional prefix, in emit order, each at most once
+  if (i < last && asExactCall(calls[i], pm.loginGate, loginGateAttestAbi, ATTEST_SEL)) i++;
+  if (i < last) {
+    const t = asExactCall(calls[i], pm.referralRegistry, referralAbi, TRY_ATTRIBUTE_SEL);
+    if (t) {
+      if (!pm.sender || !sameAddr(t[0] as string, pm.sender)) return null;   // wallet must be the op's sender
+      i++;
+    }
   }
   const approvals: InOpApproval[] = [];
   for (; i < last; i++) {

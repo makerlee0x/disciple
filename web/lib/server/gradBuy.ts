@@ -3,8 +3,10 @@
  * remaining quote to graduation runs Migration + 16 floor bands (≈ 2.76M execution gas at 6-dec USDG) and gets
  * GRAD_GAS_CAPS (5M call / 6M total) instead of GAS_CAPS. Checked ON-CHAIN, and only for ops that are above GAS_CAPS
  * (normal ops pay no extra RPC). Rules (audit r106 Lows, gradBuy.ts:28/:40, gasPolicy.ts:132):
- *  - exact op shape only (audit r106 round 2): [usdg.approve(paymaster)?, approve(quoteToken, curve|router)*, buy]
- *    with the buy as the literal last call (gasPolicy.gradBuyCandidate); every approve must be on the curve's quote
+ *  - exact op shape only (audit r106 round 2/3): [usdg.approve(paymaster)?, LoginGate.attest?,
+ *    ReferralRegistry.tryAttribute(sender, ·)?, approve(quoteToken, curve|router)*, buy] with the buy as the literal
+ *    last call (gasPolicy.gradBuyCandidate); prefix calls only on OUR configured LoginGate / ReferralRegistry
+ *    (DEPLOYMENTS[chainId], value 0, exact selector, canonical encoding); every approve must be on the curve's quote
  *    token (checked here) with the buy's spender; ops with more than MAX_GRAD_BUY_INTENTS buys are rejected before
  *    any read ⇒ bounded work per op;
  *  - the buy targets a real curve: Launchpad.curveOf(curve.token()) == target (a fake contract can't claim it), or
@@ -33,6 +35,9 @@ export type GradReads = {
   usdg?: string;
   /** DisciplePaymaster: a USDG-gas op's leading usdg.approve(paymaster) is allowed only when the op names it. */
   paymaster?: string;
+  /** Optional grad-buy prefix targets (protocol-viem referralCall / pve ensurePveLogin): only these addresses count. */
+  referralRegistry?: string;
+  loginGate?: string;
   /** Launchpad.curveOf(token) (router path, step 1). */
   curveOf(token: string): Promise<string>;
   /** One batch: curve.token(), curve.quote(), curve.graduated(). */
@@ -46,7 +51,7 @@ const eq = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toL
 /** `opPaymaster`: the op's paymaster field (USDG-gas ops); its leading approve is skipped only if it is r.paymaster. */
 export async function isGradBuyOp(callData: string, sender: string | undefined, r: GradReads, opPaymaster?: string): Promise<boolean> {
   const pm = opPaymaster && eq(opPaymaster, r.paymaster) ? { usdg: r.usdg, paymaster: r.paymaster } : {};
-  const cand = gradBuyCandidate(callData, pm);
+  const cand = gradBuyCandidate(callData, { ...pm, referralRegistry: r.referralRegistry, loginGate: r.loginGate, sender });
   if (!cand || !sender || isZero(sender)) return false;
   const b = cand.intent;
   try {
@@ -93,6 +98,8 @@ export function chainGradReads(pc: PublicClient, chainId: number, over: { paymas
     router: d?.router && d.router !== ZERO ? d.router : undefined,
     usdg: over.usdg ?? (d?.usdg && d.usdg !== ZERO ? d.usdg : undefined),
     paymaster: over.paymaster ?? (d?.paymaster && d.paymaster !== ZERO ? d.paymaster : undefined),
+    referralRegistry: d?.referralRegistry && d.referralRegistry !== ZERO ? d.referralRegistry : undefined,
+    loginGate: d?.loginGate && d.loginGate !== ZERO ? d.loginGate : undefined,
     async curveOf(token) { if (!lp) return ZERO; return pc.readContract({ address: lp, abi: launchpadAbi, functionName: "curveOf", args: [token as Address] }); },
     async curveInfo(curve) {
       const c = { address: curve as Address, abi: curveAbi } as const;
