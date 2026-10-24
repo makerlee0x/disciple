@@ -74,8 +74,19 @@ contract FeeMathTest is Test {
     function test_antiSnipe_constants() public pure {
         assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
-        assertEq(Constants.ANTI_SNIPE_DURATION, 77);
+        assertEq(Constants.ANTI_SNIPE_DURATION, 7);
         assertEq(Constants.SNIPE_ESCROW_TIMEOUT, 30 days);
+    }
+
+    /// lee 2026-10-24: 7s window, fast per-second decay (≈ Pons V2), hard 0 from 7s.
+    function test_snipeBps_schedule() public pure {
+        uint256[8] memory want = [uint256(9900), 2500, 300, 100, 30, 10, 3, 0];
+        for (uint256 e; e < 8; ++e) assertEq(FeeMath.snipeBps(e), want[e]);
+        assertEq(FeeMath.snipeBps(0), Constants.ANTI_SNIPE_START_BPS);
+        assertEq(FeeMath.snipeBps(Constants.ANTI_SNIPE_DURATION), 0);
+        assertEq(FeeMath.snipeBps(77), 0);
+        assertEq(FeeMath.snipeBps(type(uint64).max), 0);
+        for (uint256 e = 1; e < 8; ++e) assertLt(FeeMath.snipeBps(e), FeeMath.snipeBps(e - 1)); // strictly decreasing
     }
 
     function test_creatorBuyMax_0_77pct() public pure {

@@ -6,7 +6,7 @@
  *
  * Curve: virtual reserves x (quote), y (tokens): x = x0·y0 / (y0 − sold), y = y0 − sold, spot = x / y.
  *   y0 = sCurve·√r / (√r − 1), r = M1/M0; x0 = (M0/S)·y0  → mcap(0) = $7,777, mcap(sCurve) = $33,333.
- * Buys pay 1% + sniper tax (99% → 0 over 77 s, from launch config) before the curve; sells pay 1% from the output.
+ * Buys pay 1% + sniper tax (99% → 25% at 1s → 3% at 2s → 0 from 7s, per-second table from launch config) before the curve; sells pay 1% from the output.
  * Wallet cap: launch.walletCapBps (0 = none — the live Launchpad default, Constants.WALLET_CAP_BPS_DEFAULT).
  */
 import type { SimConfig } from "./config";
@@ -36,7 +36,7 @@ export class Market {
   mcap() { return this.price() * this.S * this.cfg.launch.quotePriceUsd; }
   /** quote depth ($) — what a trade's size is measured against (pool: incl. range orders the price sits in) */
   depth() { return this.pool ? this.pool.depth() : this.x0 * this.y0 / (this.y0 - this.sold); }
-  antiSnipe(t: number) { const L = this.cfg.launch; return t >= L.antiSnipeDurationS ? 0 : (L.antiSnipeStartBps / 10_000) * (1 - t / L.antiSnipeDurationS); }
+  antiSnipe(t: number) { const L = this.cfg.launch, e = Math.floor(t); return e >= L.antiSnipeDurationS ? 0 : (L.antiSnipeBpsBySec[e] ?? 0) / 10_000; } // = FeeMath.snipeBps
   /** price ratio after a trade of usd (used for the engine's optimistic ghost + tier-bar maths).
    *  Pool phase: an exact dry run through the range orders (walls slow buys, tramps slow sells). */
   impact(usd: number, side: "buy" | "sell") {
