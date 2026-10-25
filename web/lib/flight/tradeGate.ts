@@ -5,8 +5,8 @@
  *      "Too big for this rocket right now" when the quote is over the router's live max impact (SITE's
  *      readRouterMaxImpactBps via lib/flight/gradAdapter; NEVER hard-coded; 0 / null = no cap). Scope change from lee 7:09 PM CT: NOTHING is greyed, disabled or
  *      blocked for price impact, in any mode, and the warning is never a confirm dialog (rapid taps still send).
- *   2. one exact GRADUATE buy, sized from the curve + router (SITE's readGradNeedForToken usdgIn, via
- *      lib/flight/gradAdapter; no extra margin), never from the HUD's ≈ maths.
+ *   2. the tier bar's exact "$X to graduate" (SITE's readGradNeedForToken usdgIn via lib/flight/gradAdapter), never "≈$0".
+ *      Label only — no GRADUATE buy button (lee 7:56 PM CT).
  *   3. plain trade error copy (no "router" / "slippage" / "minOut" / "gas").
  * Player copy below is PLACEHOLDER pending lee + BRAND, except OUT_OF_GAS (lee-approved).
  */
@@ -71,25 +71,13 @@ export const chipTag = (side: "buy" | "sell", w: MoveWarn | null | undefined) =>
 /** Round UP to the cent (never shows $0.00 for a buy that is still needed). Float noise below 1e-9 cents is ignored. */
 export const ceilCents = (usd: number) => (usd > 0 ? Math.ceil(usd * 100 - 1e-7) / 100 : 0);
 
-/** The engine drops live buys under its MIN_SHOT ($0.20, public/flight/engine.js "MINIMUM BUY"), so GRADUATE never asks for less. */
-export const GRAD_MIN_USD = 0.2;
 /**
- * $ for the GRADUATE button from SITE's GradNeed.usdgIn (USDG raw, quoted through the router; SITE already adds +0.1%).
- * No extra margin (SITE's withGradMargin is classifier tolerance only). Rounded UP to the cent, floored at GRAD_MIN_USD. null / 0 / unroutable ⇒ null (hide GRADUATE).
+ * $ left to graduate for the tier-bar label, from SITE's GradNeed.usdgIn (USDG raw, quoted through the router; SITE's +0.1%
+ * included). Rounded UP to the cent so a real need never reads $0. null / 0 / unroutable ⇒ null (engine keeps its estimate).
  * (IRON on testnet 2026-10-24: usdgIn ≈ 0.2846 USDG ⇒ $0.29.)
  */
-export function graduateUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals = 6, minUsd = GRAD_MIN_USD): number | null {
+export function needUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals = 6): number | null {
   if (usdgRaw == null || usdgRaw <= BigInt(0)) return null;
   const usd = Number(usdgRaw) / 10 ** usdgDecimals;
-  if (!(usd > 0) || !Number.isFinite(usd)) return null;
-  return Math.max(minUsd, ceilCents(usd));
+  return usd > 0 && Number.isFinite(usd) ? ceilCents(usd) : null;
 }
-
-/** Show GRADUATE when the exact graduating buy is at or below the smallest preset (the "≈$0 buys needed" state). */
-export function showGraduate(gradUsd: number | null | undefined, presets: readonly number[]): boolean {
-  if (typeof gradUsd !== "number" || !(gradUsd > 0)) return false;
-  const ps = presets.filter((v) => v > 0);
-  return ps.length === 0 || gradUsd <= Math.min(...ps);
-}
-/** PLACEHOLDER label: "GRADUATE · $0.29" (always cents, so it never reads $0). */
-export const graduateLabel = (usd: number) => `GRADUATE · $${ceilCents(usd).toFixed(2)}`;

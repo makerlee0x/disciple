@@ -1,4 +1,5 @@
-// GAME graduation fix (lee 7:04 / 7:09 PM CT 2026-10-24): price-move WARNINGS (never block), exact GRADUATE buy from the curve,
+// GAME graduation fix (lee 7:04 / 7:09 PM CT 2026-10-24): price-move WARNINGS (never block), exact "$X to graduate" tier label
+// (no GRADUATE button, lee 7:56 PM CT),
 // plain trade-error copy — on SITE's real helpers (PR #157: tradeErrorKind, readRouterMaxImpactBps, readGradNeedForToken). Pure helpers run for real (tsx; no RPC); wiring is source-checked.
 import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -45,7 +46,7 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(/on: has, sel: i === sellSel,\n\s*warn: chipTag/.test(tb), "sell chips: `on` stays holdings-only, warn is extra");
   ok(/data-testid="trade-warn"/.test(tb) && /data-testid="trade-warn"/.test(bar), "trade bar + phone bar show the active warning line");
   ok(/liveMaxImpactBps\(\)/.test(tb) && /readRouterMaxImpactBps\(publicClient\(\)\)/.test(ad) && !/10_?000\b/.test(ad) && /moveWarnings\("buy"/.test(tb) && /moveWarnings\("sell"/.test(tb), "TradeBridge reads the live limit + quotes for both sides");
-  ok(/"disciple:buywarn"/.test(wb) && /"disciple:gradbuy"/.test(wb), "worker forwards the new events");
+  ok(/"disciple:buywarn"/.test(wb) && /"disciple:gradneed"/.test(wb), "worker forwards the new events");
   // 3) plain errors via SITE's tradeErrorKind (our classifier shim is gone)
   ok(!existsSync(new URL("../lib/flight/tradeErrorShim.ts", import.meta.url)) && !existsSync(new URL("../lib/flight/gradShim.ts", import.meta.url)), "GAME shims deleted");
   ok(/import \{ tradeErrorKind,[^\n]*from "@\/lib\/protocol-viem"/.test(tb) && /plainTradeMessage\(tradeErrorKind\(e\)\)/.test(tb), "bridge uses SITE's tradeErrorKind");
@@ -67,24 +68,22 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(/plainReason\(e\) \?\?/.test(tb), "bridge maps thrown failures (the viem client always throws on failure)");
   const rev = new Function(`${eng.match(/function isOnchainRevert\(reason\)\{[^\n]+/)[0]}\nreturn isOnchainRevert;`)();
   ok(!rev("Too big for this rocket right now. Try a smaller amount.") && !rev("Price moved. Tap again.") && !rev("That didn't go through. Try again.") && rev("reverted"), "engine: plain copy isn't prefixed 'trade failed:'");
-  // 4) graduate $ = SITE's GradNeed.usdgIn (router-quoted USDG, SITE's +0.1% included) rounded up to the cent; NO extra margin
-  const iron = 284_600n;   // IRON testnet 2026-10-24: usdgIn ≈ 0.2846 USDG
-  const usd = G.graduateUsdFromUsdg(iron, 6);
-  ok(usd >= 0.29 && usd <= 0.30 && usd === 0.29, `IRON graduate $ (${usd})`);
-  ok(G.graduateUsdFromUsdg(null) === null && G.graduateUsdFromUsdg(0n) === null, "usdgIn null / 0 ⇒ hide GRADUATE");
-  ok(G.graduateUsdFromUsdg(1000n) === 0.2 && G.GRAD_MIN_USD === 0.2 && /const MIN_SHOT=0\.20;/.test(eng), "floored at the engine's live MIN_SHOT ($0.20; smaller live buys are dropped)");
-  ok(G.graduateUsdFromUsdg(1_234_567n) === 1.24, "rounds UP to the cent");
-  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /graduateUsdFromUsdg\(n\.usdgIn, /.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken usdgIn as-is; null usdgIn hides");
-  ok(!/withGradMargin\(|GRAD_QUOTE_MARGIN_BPS/.test(ad.replace(/\/\*[\s\S]*?\*\//g, "") + gate.replace(/\/\*[\s\S]*?\*\//g, "")) && !/import[^\n]*withGradMargin/.test(ad + gate + tb), "no withGradMargin on the spend (classifier tolerance only)");
-  ok(!/graduationFromProbe|GRAD_MARGIN_BPS|quotePriceUsd/.test(gate + ad), "old launch-price conversion + 3% margin removed");
-  ok(G.graduateLabel(0.3) === "GRADUATE · $0.30" && G.graduateLabel(0.001) === "GRADUATE · $0.01", "label always cents, never $0");
-  ok(G.showGraduate(0.3, [1, 5, 25, 100]) && !G.showGraduate(1.5, [1, 5, 25, 100]) && !G.showGraduate(null, [1]), "GRADUATE only when ≤ smallest preset");
-  ok(/shoot\("buy", \{ usd: grad \}\)/.test(tb) && /data-testid="grad-btn"/.test(tb) && /data-testid="grad-btn"/.test(bar), "GRADUATE buys the exact curve amount (desktop + phone)");
+  // 4) tier-bar need = SITE's GradNeed.usdgIn (router-quoted USDG, SITE's +0.1% included) rounded up to the cent; label only
+  const need = G.needUsdFromUsdg(284_600n, 6);   // IRON testnet 2026-10-24: usdgIn ≈ 0.2846 USDG
+  ok(need === 0.29, `IRON need $ (${need})`);
+  ok(G.needUsdFromUsdg(null) === null && G.needUsdFromUsdg(0n) === null, "usdgIn null / 0 ⇒ engine keeps its estimate");
+  ok(G.needUsdFromUsdg(1000n) === 0.01 && G.needUsdFromUsdg(1_234_567n) === 1.24, "rounds UP to the cent (no buy floor: it's a label)");
+  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /needUsdFromUsdg\(n\.usdgIn, /.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken usdgIn as-is");
+  ok(!/withGradMargin|GRAD_QUOTE_MARGIN_BPS|graduationFromProbe|GRAD_MARGIN_BPS|quotePriceUsd/.test(ad.replace(/\/\*[\s\S]*?\*\//g, "") + gate.replace(/\/\*[\s\S]*?\*\//g, "")), "no margins / launch-price maths");
+  // GRADUATE button removed everywhere (lee 7:56 PM CT)
+  ok(!/grad-btn|ph-grad|graduateLabel|showGraduate|GRAD_MIN_USD|graduateUsdFromUsdg|graduateBuyUsd|usd: grad\b|GRADUATE ·/.test(tb + bar + eng + gate + ad), "no GRADUATE button / chip / amount logic");
+  ok(!("graduateLabel" in G) && !("showGraduate" in G) && !("GRAD_MIN_USD" in G), "tradeGate exports no GRADUATE helpers");
+  ok(/"disciple:gradneed"/.test(tb) && /graduationNeedUsd\(token\)/.test(tb) && !/disciple:gradbuy/.test(tb + eng + wb), "TradeBridge sends only the tier-bar need");
   // 5) tier bar: exact amount, never ≈$0
   const fmtUsd = new Function(`${eng.match(/const fmtUsd=[^\n]+/)[0]}\nreturn fmtUsd;`)();
   const fmtNeed = new Function("fmtUsd", `${eng.match(/const fmtNeed=[^\n]+/)[0]}\nreturn fmtNeed;`)(fmtUsd);
   ok(fmtNeed(0.0004) === "$0.01" && fmtNeed(0.281) === "$0.29" && fmtNeed(3.5) === "$3.50" && fmtNeed(12.2) === "$13" && fmtNeed(4321) === "$4.3K", "fmtNeed rounds up to the cent");
-  ok(/exact\?`\$\{fmtNeed\(need\)\} to graduate`/.test(eng) && /S\.gradBuyUsd!=null&&nx\.lo>=TB_M1&&m<TB_M1/.test(eng), "tier bar uses the exact curve amount at graduation");
+  ok(/exact\?`\$\{fmtNeed\(need\)\} to graduate`/.test(eng) && /S\.gradNeedUsd!=null&&nx\.lo>=TB_M1&&m<TB_M1/.test(eng), "tier bar uses the exact curve amount at graduation");
   ok(!/≈\$\{fmtUsd\(need\)\}/.test(eng), "no more ≈${fmtUsd(need)} (≈$0)");
   console.log(`test-grad-fix: ${n} checks passed`);
 }

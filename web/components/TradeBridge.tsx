@@ -25,8 +25,8 @@ import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettin
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 import { readCoinRules } from "@/lib/flight/coinRules";
-import { chipTag, graduateLabel, moveWarnings, plainTradeMessage, showGraduate, type MoveWarn } from "@/lib/flight/tradeGate";
-import { graduateBuyUsd, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
+import { chipTag, moveWarnings, plainTradeMessage, type MoveWarn } from "@/lib/flight/tradeGate";
+import { graduationNeedUsd, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -393,21 +393,19 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     return () => { alive = false; clearInterval(iv); removeEventListener("disciple:ammo", boot); removeEventListener("disciple:livetrade", again); };
   }, [valid, token]);
   const has = live && liveHas != null ? liveHas : pos.size > 0;
-  // GRADUATE (GAME graduation fix 2): the exact $ left to graduate, from the curve + router (SITE's readGradNeedForToken
-  // usdgIn as-is (no extra margin), via lib/flight/gradAdapter graduateBuyUsd), never from the HUD's ≈ maths. Live only (paper trades don't move the curve).
-  // Also pushed to the engine (disciple:gradbuy) so the tier bar shows the real "$0.30 to graduate", never "≈$0".
-  const [grad, setGrad] = useState<number | null>(null);
+  // Tier-bar "$X to graduate" (GAME graduation fix): the exact USDG left to graduate, from the curve + router (SITE's
+  // readGradNeedForToken usdgIn via lib/flight/gradAdapter), rounded UP to the cent, never the HUD's "≈$0". Label only: there is
+  // no GRADUATE buy button (lee 7:56 PM CT). Live only (paper trades don't move the curve); paper keeps the HUD estimate.
   useEffect(() => {
-    if (!live) { setGrad(null); dispatchEvent(new CustomEvent("disciple:gradbuy", { detail: { usd: null } })); return; }
+    const send = (usd: number | null) => dispatchEvent(new CustomEvent("disciple:gradneed", { detail: { usd } }));
+    if (!live) { send(null); return; }
     let alive = true;
     const poll = async () => { if (!alive || document.hidden) return;
-      try { const usd = await graduateBuyUsd(token);
-        if (alive) { setGrad(usd); dispatchEvent(new CustomEvent("disciple:gradbuy", { detail: { usd } })); } } catch { /* keep last */ } };
+      try { const usd = await graduationNeedUsd(token); if (alive) send(usd); } catch { /* keep last */ } };
     void poll(); const iv = setInterval(poll, 4000);
     const soon = () => setTimeout(() => void poll(), 300);
     addEventListener("disciple:livetrade", soon); addEventListener("disciple:ownbalance", soon); addEventListener("disciple:ammo", soon);
-    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); removeEventListener("disciple:ammo", soon);
-      dispatchEvent(new CustomEvent("disciple:gradbuy", { detail: { usd: null } })); };
+    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); removeEventListener("disciple:ammo", soon); send(null); };
   }, [live, token]);
   // price-move warnings (GAME graduation fix 1, lee 7:09 PM CT): never grey / disable / block — warn only
   const [warns, setWarns] = useState<Warns>(NO_WARNS);
@@ -508,10 +506,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const sellWarn = customSellPct ? warns.customSell : customSellUsd ? null : warns.sell[sellSel] ?? null;
   const warnText = [buyWarn?.text ? `BOOST: ${buyWarn.text}` : "", has && sellWarn?.text ? `DUMP: ${sellWarn.text}` : ""].filter(Boolean).join(" · ");
   const warnOver = buyWarn?.level === "over" || (has && sellWarn?.level === "over");
-  const gradOn = live && showGraduate(grad, ammo.usd.slice(0, 4));
-  const gradShort = gradOn && cashUsd != null && grad != null && cashUsd + 1e-9 < grad;
-  const graduate = () => { if (grad != null && grad > 0) shoot("buy", { usd: grad }); };
-  const gradTitle = gradOn && grad != null ? `Buy exactly what's left to graduate this rocket (${graduateLabel(grad).split(" · ")[1]})` : "";
   const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
   // phones (html.ap-phone, PhoneHud): the v3 bar — same amount state + trade calls as the desktop bar below, layout only
   if (phone) return (
@@ -527,7 +521,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       onSetSell={(v) => { pickUnit("%"); setSellCustom(v); }}
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
-      grad={gradOn && grad != null ? { label: graduateLabel(grad), onClick: graduate, disabled: gradShort, title: gradTitle } : null}
       hint={hint || shortMsg} keyGuard={noKeyActivate} />
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
@@ -547,8 +540,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
             e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
         <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} title={short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short} disabled={short} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short ? 0.4 : 1, cursor: short ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
-        {gradOn && grad != null && <button type="button" aria-label="graduate" data-testid="grad-btn" {...noKeyActivate} title={gradShort ? `Not enough cash for ${graduateLabel(grad)}` : gradTitle} aria-disabled={gradShort} disabled={gradShort} onClick={graduate}
-          style={{ ...btn, background: "linear-gradient(180deg,#ffe7a3,#c99b3c)", color: "#1a1630", opacity: gradShort ? 0.4 : 1, cursor: gradShort ? "not-allowed" : "pointer" }}>{graduateLabel(grad)}</button>}
         <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has} disabled={!has} onClick={() => dumpRef.current?.()}
           style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>

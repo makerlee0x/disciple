@@ -9,8 +9,7 @@ import { useEffect, useState } from "react";
  * Amount sheet: 2×2 presets (BUY $ = the engine's ammo tiers, DUMP = the SELL % presets) + Custom field / SET. A tap SETS the
  * amount and closes the sheet; the sheet never trades.
  * GAME graduation fix (lee 7:09 PM CT): options carry a price-move tag ("+38%", "!" = over the live limit) and the bar shows
- * the active amount's warning line; nothing is ever greyed or blocked for price impact. GRADUATE · $X (exact graduating buy,
- * from the curve) sits above BOOST / DUMP when it's at or below the smallest preset.
+ * the active amount's warning line; nothing is ever greyed or blocked for price impact.
  */
 export type PhoneTradeBarProps = {
   buyLabel: string; sellLabel: string;
@@ -23,8 +22,6 @@ export type PhoneTradeBarProps = {
   buyWarn?: string[]; sellWarn?: string[];
   /** the active amount's warning line ("BOOST: Big move: price +38%"); shown under any blocking hint */
   warn?: string; warnOver?: boolean;
-  /** exact graduating buy (TradeBridge, lib/flight/gradAdapter) */
-  grad?: { label: string; onClick: () => void; disabled: boolean; title: string } | null;
   keyGuard: { onKeyDown: (e: React.KeyboardEvent) => void; onKeyUp: (e: React.KeyboardEvent) => void };
 };
 /** chip / sheet money: $10 · $2.50 · $1.20K (whole dollars drop the cents) */
@@ -59,8 +56,6 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
       <div aria-label="trade bar" data-testid="trade-bar" className="ph-bar">
         {p.hint ? <div data-testid="trade-hint" className="ph-hint">{p.hint}</div>
           : p.warn ? <div data-testid="trade-warn" className={`ph-hint ph-warn${p.warnOver ? " over" : ""}`}>{p.warn}</div> : null}
-        {p.grad && <button type="button" className="ph-grad" data-testid="grad-btn" aria-label={p.grad.label} title={p.grad.title} aria-disabled={p.grad.disabled} disabled={p.grad.disabled}
-          {...p.keyGuard} onClick={p.grad.onClick}>{p.grad.label}</button>}
         <div className="ph-btns">{tb("buy")}{tb("sell")}</div>
       </div>
       {sheet && <>
@@ -107,10 +102,6 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
           font-size: 11.5px; color: #FFB0C8; background: rgba(16,18,34,.85); border: 1px solid rgba(255,61,127,.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .ph-warn { color: #FFE7A3; border-color: rgba(255,231,163,.35); }
         .ph-warn.over { color: #FFB0C8; border-color: rgba(255,61,127,.3); }
-        .ph-grad { all: unset; box-sizing: border-box; display: block; width: 100%; height: 48px; margin-bottom: 10px; border-radius: 16px; text-align: center; line-height: 48px;
-          font-size: 16px; font-weight: 800; letter-spacing: .08em; cursor: pointer; color: #1a1630; background: linear-gradient(180deg, #ffe7a3, #c99b3c); box-shadow: 0 10px 24px -10px rgba(255,231,163,.6); -webkit-tap-highlight-color: transparent; }
-        .ph-grad:disabled { opacity: .45; cursor: not-allowed; }
-        .ph-grad:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
         .ph-opt-warn { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #FFE7A3; }
         .ph-opt-warn.over { color: #FFB0C8; }
         .ph-dim { position: fixed; inset: 0; z-index: 60; background: rgba(5,6,14,.5); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }

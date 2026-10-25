@@ -756,9 +756,9 @@ addEventListener('disciple:sellpresets',e=>{ const a=e.detail&&e.detail.items; i
 // router's live limit) + the hover line. WARNING ONLY: selecting / BOOSTing is never blocked for price impact (lee 7:09 PM CT).
 S.buyWarn={tags:[],texts:[],over:[]};
 addEventListener('disciple:buywarn',e=>{ const d=e.detail||{}; S.buyWarn={tags:Array.isArray(d.tags)?d.tags:[],texts:Array.isArray(d.texts)?d.texts:[],over:Array.isArray(d.over)?d.over:[]}; });
-// exact $ left to graduate, from the curve (TradeBridge → lib/flight/gradAdapter, SITE readGradNeedForToken); null = unknown / paper → HUD estimate
-S.gradBuyUsd=null;
-addEventListener('disciple:gradbuy',e=>{ const u=e.detail&&e.detail.usd; S.gradBuyUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null; });
+// exact $ left to graduate, for the tier-bar label (TradeBridge → lib/flight/gradAdapter, SITE readGradNeedForToken); null = unknown / paper → HUD estimate
+S.gradNeedUsd=null;
+addEventListener('disciple:gradneed',e=>{ const u=e.detail&&e.detail.usd; S.gradNeedUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null; });
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
 addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
@@ -2284,7 +2284,7 @@ function drawTierBar(m,ti,leftEnd){
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
     // graduation (GAME fix): the exact curve amount when TradeBridge has it ("$0.29 to graduate"); else the estimate, but small
     // amounts round UP to the cent (fmtNeed) — never "≈$0" while a buy is still needed
-    const exact=S.gradBuyUsd!=null&&nx.lo>=TB_M1&&m<TB_M1, need=exact?S.gradBuyUsd:usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8';
+    const exact=S.gradNeedUsd!=null&&nx.lo>=TB_M1&&m<TB_M1, need=exact?S.gradNeedUsd:usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8';
     ctx.fillText(exact?`${fmtNeed(need)} to graduate`:`≈${fmtNeed(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
   else { ctx.fillStyle='#ffe7a3'; drawIcon('star',X,Y+BH+3,12,'#ffe7a3'); ctx.fillText('TOP TIER',X+15,Y+BH+13); }
 }
