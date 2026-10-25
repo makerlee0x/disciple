@@ -138,7 +138,7 @@ ok(/onPickSell=\{\(i\) => \{ setSellCustom\(""\); selSell\.current\(i\); \}\}/.t
 ok(/data-testid="custom-sell"/.test(tb) && /data-testid="sell-unit"/.test(tb) && /aria-label="custom amount"/.test(tb), "desktop bar markup kept");
 const sheetJsx = bar.slice(bar.indexOf("{sheet && <>"), bar.indexOf("<style jsx global>"));
 ok(sheetJsx.length > 200 && !/onBoost|onDump/.test(sheetJsx), "amount sheet never trades");
-ok(/setSheet\(null\); \}\}>\{o\}<\/button>/.test(sheetJsx) && /data-testid="amt-set"/.test(sheetJsx), "tap sets the amount and closes; Custom + SET");
+ok(/setSheet\(null\); \}\}>\{o\}(\{tags\[i\] \? <span[^\n]*?: null\})?<\/button>/.test(sheetJsx) && /data-testid="amt-set"/.test(sheetJsx), "tap sets the amount and closes; Custom + SET");
 ok(/data-testid=\{b \? "phone-amt-buy" : "phone-amt-sell"\}/.test(bar) && /\.ph-tb \{[^}]*height: 68px; border-radius: 22px;/.test(bar), "68px BOOST / DUMP with amount chips");
 // 8) PnL line + panels
 ok(/\.__pnlView = detail;/.test(pnl) && /addEventListener\("disciple:phonesheet", onSheet\)/.test(pnl), "PnlHud: view mirrored for the PnL line; Run tab hook kept");

@@ -117,6 +117,8 @@ const fmtShot=v=>fmtMoney(v);   // = lib/pnl.ts fmtMoney: <$1K 2 decimals, then 
 // ---------- utils ----------
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const lerp=(a,b,t)=>a+(b-a)*t;
+// "buys needed" amounts: under $10 → cents rounded UP (min $0.01 while anything is needed), so a real need never shows "$0"
+const fmtNeed=v=>!(v>0)?'$0':v<10?'$'+(Math.max(1,Math.ceil(v*100-1e-6))/100).toFixed(2):fmtUsd(Math.ceil(v));
 const fmtUsd=v=>v>=1e9?'$'+(v/1e9).toFixed(2)+'B':v>=1e6?'$'+(v/1e6).toFixed(2)+'M':v>=1e3?'$'+(v/1e3).toFixed(1)+'K':'$'+v.toFixed(0);
 function hash(n){n=Math.sin(n*127.1+311.7)*43758.5453;return n-Math.floor(n);}
 function randn(){return Math.sqrt(-2*Math.log(Math.random()+1e-9))*Math.cos(6.2831853*Math.random());}
@@ -750,6 +752,13 @@ addEventListener('disciple:holdings',e=>{ const d=e.detail; S.liveHas=d&&typeof 
 function hasTokens(){ return isLive()&&S.liveHas!=null ? S.liveHas : S.hold.tokens>0; }
 function noTokens(){ if(S.t-(S._ntT??-9)>0.8){ S._ntT=S.t; S.flashes.push({txt:'NO TOKENS IN WALLET',life:1.2,c:'#ffb0c8'}); } }
 addEventListener('disciple:sellpresets',e=>{ const a=e.detail&&e.detail.items; if(Array.isArray(a)) S.sellPresets=a.slice(0,4); });
+// GAME graduation fix (TradeBridge, live only): per-buy-preset price-move warnings — a tag on the tile ("+38%", "!" = over the
+// router's live limit) + the hover line. WARNING ONLY: selecting / BOOSTing is never blocked for price impact (lee 7:09 PM CT).
+S.buyWarn={tags:[],texts:[],over:[]};
+addEventListener('disciple:buywarn',e=>{ const d=e.detail||{}; S.buyWarn={tags:Array.isArray(d.tags)?d.tags:[],texts:Array.isArray(d.texts)?d.texts:[],over:Array.isArray(d.over)?d.over:[]}; });
+// exact $ left to graduate, from the curve (TradeBridge → lib/flight/gradShim getGraduationBuy); null = unknown / paper → HUD estimate
+S.gradBuyUsd=null;
+addEventListener('disciple:gradbuy',e=>{ const u=e.detail&&e.detail.usd; S.gradBuyUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null; });
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
 addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
@@ -859,7 +868,8 @@ function submit(side,usd,force,opt,pct){
   });
 }
 // Pre-flight failures (gas estimate / simulation / balance) are not reverts — show the reason as-is.
-function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient)/i.test(reason); }
+// GAME plain copy (TradeBridge → lib/flight/tradeGate GAME_COPY) is already a full sentence — no "trade failed:" prefix either.
+function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient|too big|price moved|that didn't go through)/i.test(reason); }
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode|0));
   if(typeof d.mode==='number'&&!d.side) pushAmmo();
@@ -1590,8 +1600,8 @@ function drawHud(){
   const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
-    if(hv>=0&&hv<MODES.length){ ctx.fillStyle='#9ff3c8'; ctx.fillText(`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
-    else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?'#ffb0c8':'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?`click to select ${p.label}`:'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
+    if(hv>=0&&hv<MODES.length){ const wt=S.buyWarn.texts[hv]; ctx.fillStyle=wt?(S.buyWarn.over[hv]?'#ffb0c8':'#ffe7a3'):'#9ff3c8'; ctx.fillText(wt||`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
+    else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?(p.warnText?(p.over?'#ffb0c8':'#ffe7a3'):'#ffb0c8'):'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?(p.warnText||`click to select ${p.label}`):'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
     else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText(HOTKEYS.sell.join()==='KeyZ,KeyX,KeyC,KeyV'?'SELL · Z/X/C/V select, SHIFT dump':'SELL · '+HOTKEYS.sell.map(hotkeyLabel).join('/')+' select, SHIFT dump',ax+AW-12,ay+16); }
     ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const TW=82, bx=ax+50+i*86, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=TW; R.h=30;   // 4 tiles, aligned over the 4 SELL tiles
@@ -1599,7 +1609,8 @@ function drawHud(){
     ctx.strokeStyle=hov?'#fff':'rgba(255,255,255,.2)'; ctx.lineWidth=hov?2:1; ctx.strokeRect(bx,by,TW,30);
     ctx.fillStyle=sel?'#1a1630':'#e8ecff'; ctx.font='bold 14px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText(fmtShot(q.usd),bx+TW/2,by+20); ctx.textAlign='left';
     { const f=S.pressFx; if(f&&f.i===i&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#9ff3c8'; ctx.fillRect(bx,by,TW,30); ctx.globalAlpha=1; ctx.fillStyle=sel?'#1a1630':'#e8ecff'; } }   // press flash
-    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+TW-3,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1; });
+    ctx.font='9px ui-monospace,monospace'; ctx.globalAlpha=0.6; ctx.fillText(q.key,bx+4,by+10); if(below){ ctx.textAlign='right'; ctx.fillText('min✗',bx+TW-3,by+27); ctx.textAlign='left'; } ctx.globalAlpha=1;
+    { const wt=S.buyWarn.tags[i]; if(wt){ ctx.font='bold 9px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle=sel?(S.buyWarn.over[i]?'#8a1238':'#5a3a00'):(S.buyWarn.over[i]?'#ffb0c8':'#ffe7a3'); ctx.fillText(wt,bx+TW-3,by+10); ctx.textAlign='left'; } } });   // price-move tag (warning only)
   ctx.font='11px ui-monospace,monospace';
   ctx.fillStyle=boostShort()||(activeBuyUsd()<MIN_SHOT&&!source.isSim)?'#ffb0c8':'#9ff3c8'; ctx.fillText(cashLineText(),ax+12,ay+72);
   // SELL row (moved up from the bottom bar): presets Z/X/C/V + gear → Swap settings
@@ -1608,7 +1619,9 @@ function drawHud(){
       ctx.globalAlpha=p.on?1:0.45; ctx.fillStyle=p.sel?'rgba(255,176,200,.92)':hov?'rgba(160,50,80,.85)':'rgba(122,34,54,.55)'; ctx.fillRect(bx,sy,82,sh);   // selected = filled pink (like the gold buy tile)
       { const f=S.pressFx; if(f&&f.i===6+k&&S.t-f.t<0.35){ ctx.globalAlpha=0.7*(1-(S.t-f.t)/0.35); ctx.fillStyle='#ffd0dc'; ctx.fillRect(bx,sy,82,sh); ctx.globalAlpha=p.on?1:0.4; } }
       ctx.strokeStyle=p.sel?'#fff':hov?'#ffd0dc':'rgba(255,176,200,.25)'; ctx.lineWidth=p.sel?2:1; ctx.strokeRect(bx+.5,sy+.5,81,sh-1); ctx.lineWidth=1;
-      ctx.fillStyle=p.sel?'#3a0f1c':'#ffd0dc'; ctx.fillText(String(p.label).slice(0,9),bx+6,sy+14); ctx.fillStyle=p.sel?'rgba(58,15,28,.7)':'rgba(255,208,220,.55)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+77,sy+14); ctx.textAlign='left'; ctx.globalAlpha=1; });
+      ctx.fillStyle=p.sel?'#3a0f1c':'#ffd0dc'; ctx.fillText(String(p.label).slice(0,9),bx+6,sy+14); ctx.fillStyle=p.sel?'rgba(58,15,28,.7)':'rgba(255,208,220,.55)'; ctx.textAlign='right'; ctx.fillText(p.key,bx+77,sy+14);
+      if(p.on&&p.warn){ ctx.font='bold 9px ui-monospace,monospace'; ctx.fillStyle=p.sel?'#3a0f1c':(p.over?'#ffb0c8':'#ffe7a3'); ctx.fillText(String(p.warn).slice(0,6),bx+66,sy+14); ctx.font='bold 10px ui-monospace,monospace'; }   // price-move tag (warning only)
+      ctx.textAlign='left'; ctx.globalAlpha=1; });
     const gx=ax+AW-12-62, R=AMMO_HIT[10], hov=S.ammoHover===10; R.x=gx; R.y=sy; R.w=62; R.h=sh;
     ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
     ctx.fillStyle='#ffe7a3'; drawIcon('gear',gx+10,sy+4,12,'#ffe7a3'); ctx.fillText('ADV',gx+10+15,sy+14); }
@@ -2269,7 +2282,10 @@ function drawTierBar(m,ti,leftEnd){
     if(lb) ctx.fillText(lb,384,108); }
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
-    const need=usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8'; ctx.fillText(`≈${fmtUsd(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
+    // graduation (GAME fix): the exact curve amount when TradeBridge has it ("$0.29 to graduate"); else the estimate, but small
+    // amounts round UP to the cent (fmtNeed) — never "≈$0" while a buy is still needed
+    const exact=S.gradBuyUsd!=null&&nx.lo>=TB_M1&&m<TB_M1, need=exact?S.gradBuyUsd:usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8';
+    ctx.fillText(exact?`${fmtNeed(need)} to graduate`:`≈${fmtNeed(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
   else { ctx.fillStyle='#ffe7a3'; drawIcon('star',X,Y+BH+3,12,'#ffe7a3'); ctx.fillText('TOP TIER',X+15,Y+BH+13); }
 }
 
