@@ -62,3 +62,25 @@ test("protocolLabels: FeeRouter + RewardsVault + AnonLaunchers are 'locker' (dat
   const h = rankHolders({ [A(2)]: "5", "0xe7ab694edcf1c91c34be23baf493d45e83f752d9": "1" }, { totalSupply: BigInt(6), mcapUsd: 6, labels: l, limit: 5 });
   assert.equal(h.find((x) => x.address === "0xe7ab694edcf1c91c34be23baf493d45e83f752d9")!.label, "locker");
 });
+
+test("holderKinds (GAME contract): PoolManager + hook = pool; LockedLP + Migration = locker; 0x…dEaD + 0x0 = burn; others = holder", async () => {
+  const { holderKinds, kindOf, rankHolders, BURN_ADDRESS } = await import("../lib/holders");
+  const { DEPLOYMENTS } = await import("../lib/chains");
+  const d = DEPLOYMENTS[46630];
+  const curve = A(7), vault = A(8);
+  const k = holderKinds(d, { curve, lockers: [vault, undefined, Z] });
+  assert.equal(k[d.poolManager.toLowerCase()], "pool");
+  assert.equal(k[d.hook.toLowerCase()], "pool");
+  assert.equal(k[curve], "pool");                                   // pre-grad liquidity
+  assert.equal(k[d.lockedLP.toLowerCase()], "locker");
+  assert.equal(k[d.migration.toLowerCase()], "locker");             // label stays "pool"; kind = locker
+  assert.equal(k[vault], "locker");
+  assert.equal(k[BURN_ADDRESS], "burn"); assert.equal(k[Z], "burn");
+  assert.equal(BURN_ADDRESS, "0x000000000000000000000000000000000000dead"); // = contracts/src/LockedLP.sol BURN
+  assert.equal(kindOf(A(99), k), "holder");
+  assert.equal(kindOf("0x000000000000000000000000000000000000dEaD"), "burn", "burn sinks need no map");
+  const bal = { [d.poolManager.toLowerCase()]: "500", [d.lockedLP.toLowerCase()]: "300", [BURN_ADDRESS]: "150", [A(42)]: "50" };
+  const h = rankHolders(bal, { totalSupply: BigInt(1000), mcapUsd: 1000, labels: {}, kinds: k, limit: 10 });
+  assert.deepEqual(h.map((x) => x.kind), ["pool", "locker", "burn", "holder"]);
+  assert.equal(rankHolders({ [A(42)]: "1" }, { totalSupply: BigInt(1), mcapUsd: null, labels: {}, limit: 1 })[0].kind, "holder", "no kinds map ⇒ holder");
+});
