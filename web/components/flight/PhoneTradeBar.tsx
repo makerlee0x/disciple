@@ -8,6 +8,8 @@ import { useEffect, useState } from "react";
  *   BOOST [$10 ⌄]  DUMP [25% ⌄]   tap the button body = trade (TradeBridge shoot / dumpRef), tap the amount chip = amount sheet.
  * Amount sheet: 2×2 presets (BUY $ = the engine's ammo tiers, DUMP = the SELL % presets) + Custom field / SET. A tap SETS the
  * amount and closes the sheet; the sheet never trades.
+ * GAME graduation fix (lee 7:09 PM CT): options carry a price-move tag ("+38%", "!" = over the live limit) and the bar shows
+ * the active amount's warning line; nothing is ever greyed or blocked for price impact.
  */
 export type PhoneTradeBarProps = {
   buyLabel: string; sellLabel: string;
@@ -16,6 +18,10 @@ export type PhoneTradeBarProps = {
   buyOpts: string[]; buySel: number; onPickBuy: (i: number) => void; onSetBuy: (v: string) => void;
   sellOpts: string[]; sellSel: number; onPickSell: (i: number) => void; onSetSell: (v: string) => void;
   hint: string;
+  /** per-option price-move tags (lib/flight/tradeGate chipTag); "" = none. Warning only. */
+  buyWarn?: string[]; sellWarn?: string[];
+  /** the active amount's warning line ("BOOST: Big move: price +38%"); shown under any blocking hint */
+  warn?: string; warnOver?: boolean;
   keyGuard: { onKeyDown: (e: React.KeyboardEvent) => void; onKeyUp: (e: React.KeyboardEvent) => void };
 };
 /** chip / sheet money: $10 · $2.50 · $1.20K (whole dollars drop the cents) */
@@ -31,7 +37,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   useEffect(() => { if (!sheet) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setSheet(null); } };
     addEventListener("keydown", k, true); return () => removeEventListener("keydown", k, true); }, [sheet]);
   const buy = sheet === "buy";
-  const opts = buy ? p.buyOpts : p.sellOpts, sel = buy ? p.buySel : p.sellSel;
+  const opts = buy ? p.buyOpts : p.sellOpts, sel = buy ? p.buySel : p.sellSel, tags = (buy ? p.buyWarn : p.sellWarn) || [];
   const n = +val > 0 ? +val : 0;
   const apply = () => { if (!n) return; (buy ? p.onSetBuy : p.onSetSell)(String(buy ? n : Math.min(100, n))); setSheet(null); };
   const tb = (side: "buy" | "sell") => {
@@ -48,7 +54,8 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   return (
     <>
       <div aria-label="trade bar" data-testid="trade-bar" className="ph-bar">
-        {p.hint && <div data-testid="trade-hint" className="ph-hint">{p.hint}</div>}
+        {p.hint ? <div data-testid="trade-hint" className="ph-hint">{p.hint}</div>
+          : p.warn ? <div data-testid="trade-warn" className={`ph-hint ph-warn${p.warnOver ? " over" : ""}`}>{p.warn}</div> : null}
         <div className="ph-btns">{tb("buy")}{tb("sell")}</div>
       </div>
       {sheet && <>
@@ -59,7 +66,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
             <button type="button" className="ph-sh-x" data-testid="amt-sheet-close" aria-label="Close" onClick={() => setSheet(null)}><Xicon /></button></div>
           <div className="ph-grid">
             {opts.slice(0, 4).map((o, i) => <button key={i} type="button" data-testid={`amt-opt-${i}`} className={`ph-opt${i === sel ? " sel" : ""}${buy ? "" : " dump"}`} aria-pressed={i === sel}
-              onClick={() => { (buy ? p.onPickBuy : p.onPickSell)(i); setSheet(null); }}>{o}</button>)}
+              onClick={() => { (buy ? p.onPickBuy : p.onPickSell)(i); setSheet(null); }}>{o}{tags[i] ? <span className={`ph-opt-warn${tags[i].endsWith("!") ? " over" : ""}`} data-testid={`amt-opt-warn-${i}`}>{tags[i].endsWith("!") ? "too big" : "big move"} {tags[i].replace(/!$/, "")}</span> : null}</button>)}
           </div>
           <form className="ph-custom" onSubmit={(e) => { e.preventDefault(); apply(); }}>
             <span className="ph-cl">Custom</span>
@@ -93,6 +100,10 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         .ph-dump .ph-amt { background: rgba(60,0,22,.22); color: #fff; }
         .ph-hint { position: absolute; left: 0; right: 0; bottom: calc(100% + 10px); margin: 0 auto; width: max-content; max-width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 12px;
           font-size: 11.5px; color: #FFB0C8; background: rgba(16,18,34,.85); border: 1px solid rgba(255,61,127,.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-warn { color: #FFE7A3; border-color: rgba(255,231,163,.35); }
+        .ph-warn.over { color: #FFB0C8; border-color: rgba(255,61,127,.3); }
+        .ph-opt-warn { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #FFE7A3; }
+        .ph-opt-warn.over { color: #FFB0C8; }
         .ph-dim { position: fixed; inset: 0; z-index: 60; background: rgba(5,6,14,.5); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
         .ph-sheet { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 61; border-radius: 30px; padding: 0 18px 20px; box-sizing: border-box; color: #EEF1FA;
           font-family: ui-monospace, Menlo, "DejaVu Sans Mono", monospace; background: rgba(18,20,38,.78); -webkit-backdrop-filter: blur(28px) saturate(1.3); backdrop-filter: blur(28px) saturate(1.3);
@@ -103,7 +114,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
         .ph-sh-title { font-size: 15px; font-weight: 800; letter-spacing: .12em; }
         .ph-sh-x { all: unset; width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; background: rgba(255,255,255,.06); margin-right: -6px; cursor: pointer; }
         .ph-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .ph-opt { all: unset; box-sizing: border-box; height: 72px; border-radius: 20px; display: grid; place-items: center; font-size: 24px; font-weight: 800; letter-spacing: .03em; cursor: pointer;
+        .ph-opt { all: unset; box-sizing: border-box; position: relative; height: 72px; border-radius: 20px; display: grid; place-items: center; font-size: 24px; font-weight: 800; letter-spacing: .03em; cursor: pointer;
           background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: #EEF1FA; }
         .ph-opt.sel { background: rgba(47,217,138,.14); border: 1.5px solid #2FD98A; color: #9FF5C8; box-shadow: 0 0 24px -8px rgba(47,217,138,.7); }
         .ph-opt.dump.sel { background: rgba(255,61,127,.14); border-color: #FF3D7F; color: #FFB3CC; box-shadow: 0 0 24px -8px rgba(255,61,127,.7); }
