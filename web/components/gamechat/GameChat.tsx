@@ -231,12 +231,14 @@ function HoldersView({ h }: { h: Holders | null }) {
 function RealHolders({ items, you }: { items: HolderItem[]; you: number }) {
   const ranked = items.filter((r) => !r.label), sys = items.filter((r) => r.label);
   const row = (r: HolderItem, i: number | null) => <div key={r.address} data-testid={r.mine ? "holder-mine" : undefined} title={r.address}
-    style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "2px 0", color: r.mine ? "#9ff3c8" : r.label ? "rgba(220,228,255,.55)" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : r.mine ? 700 : 400 }}>
-    <span>{i === null ? "  ·" : i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {r.mine ? "you" : r.who}{r.label ? ` · ${holderLabelText(r.label)}` : ""}</span>
+    style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "2px 0", color: r.mine ? "#9ff3c8" : r.label ? "rgba(220,228,255,.55)" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : r.mine ? 700 : 400 }}
+    data-kind={r.label || undefined}>
+    <span>{i === null ? "  ·" : i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {r.label ? holderLabelText(r.label) : r.mine ? "you" : r.who}</span>
     <span>{r.pct >= 0.01 ? r.pct.toFixed(2) + "% · " : ""}{fmtUsd(r.usd)}</span></div>;
+  // lee 9:19 PM CT: pool / locker / burn / curve rows on TOP, labelled, greyed a little, no rank; real holders ranked from #1 below
   return <>
+    {sys.length > 0 && <div data-testid="holders-tagged" style={{ marginBottom: 6, opacity: 0.8 }}>{sys.map((r) => row(r, null))}</div>}
     {!ranked.length ? <div style={{ opacity: 0.6 }}>no holders yet</div> : ranked.map((r, i) => row(r, i))}
-    {sys.length > 0 && <div style={{ marginTop: 6, opacity: 0.8 }}>{sys.map((r) => row(r, null))}</div>}
     {you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your bag: {fmtUsd(you)}</div>}
   </>;
 }

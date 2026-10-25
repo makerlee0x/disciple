@@ -149,9 +149,9 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
     { address: "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c", balance: "139537263542902666165", label: "locker" },
     { address: "0x2222222222222222222222222222222222222222", balance: "1000000000000000000" } ], asOfBlock: "1" };
   const r = H.normalizeApiHolders(api, base).rows;
-  ok(r.map((x) => x.label || "-").join() === "-,-,pool,burn,locker", `ranked first, tagged after (${r.map((x) => x.label || "-").join()})`);
-  ok(r[0].address === "0x1111111111111111111111111111111111111111", "pool (bigger balance) is not ranked #1");
-  ok(H.holderLabelText("pool") === "Pool (locked)" && H.holderLabelText("burn") === "Burned" && H.holderLabelText("locker") === "Locked LP" && H.holderLabelText(null) === "", "friendly names");
+  ok(r.map((x) => x.label || "-").join() === "pool,burn,locker,-,-", `tagged rows on top, then the ranked holders (lee 9:19 PM CT) (${r.map((x) => x.label || "-").join()})`);
+  ok(r.filter((x) => !x.label)[0].address === "0x1111111111111111111111111111111111111111", "real holders ranked from #1 below the tagged rows (pool is not #1)");
+  ok(H.holderLabelText("pool") === "Pool" && H.holderLabelText("burn") === "Burned" && H.holderLabelText("locker") === "Locked LP" && H.holderLabelText(null) === "", "friendly names");
   const un = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "842400000000000000000000", label: null }] }, base).rows;
   ok(un[0].label === null, "untagged unknown address left alone (no hard-coded guesses)");
   const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "1", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
@@ -162,8 +162,11 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
     { address: "0x3333333333333333333333333333333333333333", balance: "9", kind: "holder" },
     { address: "0x4444444444444444444444444444444444444444", balance: "8", kind: "locker" },
     { address: "0x0000000000000000000000000000000000000000", balance: "7" } ] }, { ...base, labels: { "0x3333333333333333333333333333333333333333": "locker" } }).rows;
-  ok(hk.map((x) => x.label || "-").join() === "-,locker,burn", `kind 'holder' is ranked unlabelled (API truth), locker tagged, 0x0 = burn (${hk.map((x) => x.label || "-").join()})`);
-  ok(/holderLabelText\(r\.label\)/.test(rd("components/gamechat/GameChat.tsx")), "desktop holders list uses the friendly names");
-  ok(/HOLDER_KIND=\{pool:'Pool \(locked\)',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'\}/.test(eng) && /sysAll\.slice/.test(eng), "phone holders tab: tagged rows after the ranked list, named");
+  ok(hk.map((x) => x.label || "-").join() === "locker,burn,-", `kind 'holder' is ranked unlabelled (API truth), locker tagged, 0x0 = burn (${hk.map((x) => x.label || "-").join()})`);
+  { const gc = rd("components/gamechat/GameChat.tsx");
+    ok(/\{r\.label \? holderLabelText\(r\.label\) : r\.mine \? "you" : r\.who\}/.test(gc), "desktop holders list: tagged rows show their name");
+    ok(gc.indexOf('data-testid="holders-tagged"') > 0 && gc.indexOf('data-testid="holders-tagged"') < gc.indexOf("ranked.map((r, i) => row(r, i))") && /sys\.map\(\(r\) => row\(r, null\)\)/.test(gc), "desktop: tagged rows on top, greyed, unranked; ranked from #1 below"); }
+  ok(/items=h\?h\.system\.concat\(h\.items\.slice\(0,10\)\)/.test(eng), "engine → GameChat: tagged rows first");
+  ok(/HOLDER_KIND=\{pool:'Pool',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'\}/.test(eng) && /sysAll\.slice/.test(eng), "phone holders tab: tagged rows named (PLACEHOLDER copy)");
   console.log(`test-grad-fix: ${n} checks passed`);
 }

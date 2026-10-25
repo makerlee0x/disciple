@@ -10,8 +10,8 @@
  */
 import { kindOf, type HolderKind } from "../holders";
 export type HolderLabel = "pool" | "curve" | "locker" | "burn" | null;
-/** Post-grad fix 5: friendly names for tagged (non-ranked) rows. PLACEHOLDER copy — pending lee + BRAND. */
-export const HOLDER_LABEL_TEXT: Record<Exclude<HolderLabel, null>, string> = { pool: "Pool (locked)", locker: "Locked LP", burn: "Burned", curve: "Bonding curve" };
+/** Post-grad fix 5: friendly names for tagged (non-ranked) rows, shown on top of the list (lee 9:19 PM CT). PLACEHOLDER copy — pending lee + BRAND. */
+export const HOLDER_LABEL_TEXT: Record<Exclude<HolderLabel, null>, string> = { pool: "Pool", locker: "Locked LP", burn: "Burned", curve: "Bonding curve" };
 export const holderLabelText = (l: HolderLabel | undefined): string => (l ? HOLDER_LABEL_TEXT[l] : "");
 
 export interface HolderRow { address: string; balance: string; tokens: number; pct: number; usd: number; label: HolderLabel; mine: boolean }
@@ -35,7 +35,7 @@ export interface BuildOpts {
   limit?: number;
   decimals?: number;
 }
-/** Rank raw balances: non-zero only, labelled protocol rows after the ranked holders, `mine` on the user's row. */
+/** Rank raw balances: non-zero only, labelled protocol rows first (unranked, lee 9:19 PM CT), then the ranked holders, `mine` on the user's row. */
 export function buildHolders(bal: { address: string; balance: bigint | string }[], o: BuildOpts): HolderRow[] {
   const me = o.me ? lc(o.me) : "", labels = o.labels || {}, seen = new Set<string>(), out: HolderRow[] = [];
   const sup = o.totalSupplyRaw > BigInt(0) ? o.totalSupplyRaw : BigInt(1);
@@ -46,9 +46,9 @@ export function buildHolders(bal: { address: string; balance: bigint | string }[
     out.push({ address: a, balance: raw.toString(), tokens, pct: Number((raw * BigInt(1_000_000)) / sup) / 10_000,
       usd: tokens * (o.priceUsd > 0 ? o.priceUsd : 0), label: labels[a] ?? (kindOf(a) === "burn" ? "burn" : null), mine: !!me && a === me });
   }
-  out.sort((x, y) => (x.label ? 1 : 0) - (y.label ? 1 : 0) || (BigInt(y.balance) > BigInt(x.balance) ? 1 : BigInt(y.balance) < BigInt(x.balance) ? -1 : 0));
+  out.sort((x, y) => (x.label ? 0 : 1) - (y.label ? 0 : 1) || (BigInt(y.balance) > BigInt(x.balance) ? 1 : BigInt(y.balance) < BigInt(x.balance) ? -1 : 0));
   const ranked = out.filter((r) => !r.label).slice(0, o.limit ?? 50);
-  return [...ranked, ...out.filter((r) => r.label)];
+  return [...out.filter((r) => r.label), ...ranked];   // tagged rows on top (unranked), then the ranked holders
 }
 
 /** SITE /api/holders JSON → rows (labels from the API, plus our protocol labels for anything it left unlabelled). */

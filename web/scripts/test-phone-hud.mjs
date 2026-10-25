@@ -174,4 +174,10 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
     const r = chartRect(() => ({ sheet: "chart", body: L.body }), w, false, (v, a, b) => Math.max(a, Math.min(b, v)), { w: 300, h: 196 })();
     ok(r.x === L.body.x && r.w === L.body.w && r.h === L.body.h - 8 && r.h > 196, `${w}: chart = drawer body (${r.w}×${r.h})`); }
   ok(/R0=chartRect\(\), h=R0\.h, w=R0\.w\|\|st\.w;[^\n]*if\(C\.cv\.width!==w\) C\.cv\.width=w;/.test(eng), "chart canvas resizes to the rect"); }
+{ // holders tab (lee 9:19 PM CT): pool / locker / burn / curve rows on TOP, labelled, greyed, no rank; real holders #1… below
+  const f = eng.match(/function drawPhoneHolders\(P,top,title\)\{[\s\S]*?\n  ctx\.restore\(\); \}/)[0];
+  ok(/sys\.forEach\(\(r,j\)=>\{ const y=B\.y\+26\+j\*rh/.test(f) && /rows\.forEach\(\(\[w,v\],i\)=>\{ const y=B\.y\+26\+\(off\+i\)\*rh/.test(f) && /const off=sys\.length;/.test(f), "phone: tagged rows drawn first, ranked rows below them");
+  ok(/fillText\(String\(i\+1\)/.test(f) && /fillText\('·',x0\+14/.test(f), "phone: ranked from #1, tagged rows have no rank number");
+  ok(/ctx\.fillStyle='rgba\(214,222,245,\.62\)'; ctx\.font=`bold 13px \$\{PH_FONT\}`; ctx\.fillText\(phFit\(holderKindText\(r\.label\)/.test(f), "phone: tagged rows labelled + greyed (still readable)");
+  ok(/Math\.min\(sysAll\.length,Math\.max\(0,n-1\),4\)/.test(f), "phone: at least one ranked row always fits"); }
 console.log(`phone-hud: ${n} checks passed`);

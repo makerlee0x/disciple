@@ -1412,7 +1412,7 @@ function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const m
   const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
   const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
 function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
-  const h=realHolders(), items=h?h.items.slice(0,10).concat(h.system):undefined, me=h&&h.items.find(r=>r.mine);
+  const h=realHolders(), items=h?h.system.concat(h.items.slice(0,10)):undefined, me=h&&h.items.find(r=>r.mine);
   try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:h?(me?me.usd:0):(S.fuelers&&S.fuelers.you||0),items,asOfBlock:h?h.asOfBlock:undefined}})); }catch(_){} }
 /* Real holders (S.holders from HoldersBridge): $ re-marked at the CURRENT mark from each row's share of supply, so the list
    moves with the price between balance refreshes. items = ranked holders, system = labelled pool / curve / locker rows. */
@@ -1561,24 +1561,25 @@ function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28
     ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`12.5px ${PH_FONT}`; ctx.fillText(phAgo(r.at),cx+cAgo,cy); ctx.textAlign='left'; });
   ctx.restore(); }
 /* HOLDERS tab: the same topFuelers() list as the desktop TOP HOLDERS / KOTH panel, as rows */
-/* post-grad fix 5: tagged rows (pool / locker / burn / curve) are never ranked — shown after the ranked list with a friendly name.
+/* post-grad fix 5: tagged rows (pool / locker / burn / curve) are never ranked — shown ON TOP of the list (lee 9:19 PM CT), labelled,
+   greyed a little, no rank number; real holders are ranked from #1 below them.
    PLACEHOLDER copy (pending lee + BRAND); mirrors lib/flight/holders HOLDER_LABEL_TEXT. */
-const HOLDER_KIND={pool:'Pool (locked)',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'};
+const HOLDER_KIND={pool:'Pool',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'};
 const holderKindText=l=>HOLDER_KIND[l]||'';
 function drawPhoneHolders(P,top,title){ const B=P.body, rh=46, n=Math.max(1,Math.min(10,Math.floor((B.h-26)/rh))), x0=B.x+4, iw=B.w-8;
   const sysAll=((realHolders()||{}).system)||[];
   ctx.save(); ctx.textBaseline='middle'; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`11.5px ${PH_FONT}`; if('letterSpacing' in ctx) ctx.letterSpacing='1.4px'; ctx.fillText(phFit(title.toUpperCase(),iw),x0,B.y+10); if('letterSpacing' in ctx) ctx.letterSpacing='0px';
-  const rows=top.slice(0,Math.max(1,n-Math.min(sysAll.length,3))), sys=sysAll.slice(0,Math.max(0,n-rows.length)); S.phoneHolderTags=sys.map(r=>holderKindText(r.label));
+  const sys=sysAll.slice(0,Math.min(sysAll.length,Math.max(0,n-1),4)), rows=top.slice(0,Math.max(0,n-sys.length)); S.phoneHolderTags=sys.map(r=>holderKindText(r.label)); const off=sys.length;
   if(!rows.length&&!sys.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No holders yet',B.x+B.w/2,B.y+60); ctx.textAlign='left'; }
-  rows.forEach(([w,v],i)=>{ const y=B.y+26+i*rh, cy=y+rh/2, you=w==='you';
+  rows.forEach(([w,v],i)=>{ const y=B.y+26+(off+i)*rh, cy=y+rh/2, you=w==='you';
     if(i<rows.length-1){ ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1); }
     ctx.fillStyle=i===0?'rgba(255,216,115,.18)':'rgba(255,255,255,.06)'; rrect(x0,cy-14,28,28,9); ctx.fill();
     ctx.fillStyle=i===0?'#FFD873':'rgba(214,222,245,.75)'; ctx.font=`800 12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(String(i+1),x0+14,cy+.5); ctx.textAlign='left';
     if(i===0) drawIcon('crown',x0+38,cy-7,14,'#FFD873');
     ctx.fillStyle=you?'#9FF5C8':'#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(String(w),iw-150),x0+(i===0?58:38),cy);
     ctx.textAlign='right'; ctx.fillText(fmtUsd(v),x0+iw,cy); ctx.textAlign='left'; });
-  sys.forEach((r,j)=>{ const y=B.y+26+(rows.length+j)*rh, cy=y+rh/2;
-    ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y,iw,1);
+  sys.forEach((r,j)=>{ const y=B.y+26+j*rh, cy=y+rh/2;
+    ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1);
     ctx.fillStyle='rgba(255,255,255,.04)'; rrect(x0,cy-14,28,28,9); ctx.fill();
     ctx.fillStyle='rgba(214,222,245,.5)'; ctx.font=`800 12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('·',x0+14,cy+.5); ctx.textAlign='left';
     ctx.fillStyle='rgba(214,222,245,.62)'; ctx.font=`bold 13px ${PH_FONT}`; ctx.fillText(phFit(holderKindText(r.label)||String(r.label),iw-150),x0+38,cy);
