@@ -54,6 +54,7 @@ export default function PhoneHud() {
   const [sheet, setSheetS] = useState<PhoneSheet | null>(null);
   const [L, setL] = useState<ReturnType<typeof phoneLayout> | null>(null);
   const [xRight, setXRight] = useState(SIDE);
+  const [cashTop, setCashTop] = useState(72);
   const [avail, setAvail] = useState<Record<string, boolean>>({});
   const [pnl, setPnl] = useState<PnlView>(null);
   const sheetRef = useRef<PhoneSheet | null>(null);
@@ -77,13 +78,17 @@ export default function PhoneHud() {
       setPhone((p) => (p === on ? p : on));
       if (!on) { last = ""; return; }
       const menu = rectOf("#apReopen"), wallet = rectOf('[aria-label="wallet"]');
-      const topBottom = Math.max(64, menu ? menu.bottom : 0, wallet ? wallet.bottom : 0);
+      // post-grad fix 4: the site's cash + portfolio cards get their own row under the top row (CSS below: position fixed at
+      // --ph-cash-top, so the wallet strip's own rect is just the top row); the pill stacks under whichever is lower.
+      const rowBottom = Math.max(60, menu ? menu.bottom : 0, wallet ? wallet.bottom : 0), cashTop = Math.round(rowBottom + 8);
+      const cash = rectOf('[aria-label="cash and portfolio"]');
+      const topBottom = Math.max(64, rowBottom, cash ? cash.bottom : 0);
       // ✕ sits in the top row: flush right, or just left of the site's wallet strip (SITE "Play") while that is there
       const xr = wallet && wallet.top < 40 ? Math.round(innerWidth - wallet.left + 8) : SIDE;
       const a: Record<string, boolean> = {}; for (const [k, s] of Object.entries(AVAIL_SEL)) a[k] = !!document.querySelector(s as string);
-      const key = `${innerWidth}:${innerHeight}:${topBottom}:${xr}:${JSON.stringify(a)}`;
+      const key = `${innerWidth}:${innerHeight}:${topBottom}:${cashTop}:${xr}:${JSON.stringify(a)}`;
       if (key === last) return; last = key;
-      setL(phoneLayout({ w: innerWidth, h: innerHeight, topBottom })); setXRight(xr); setAvail(a);
+      setL(phoneLayout({ w: innerWidth, h: innerHeight, topBottom })); setXRight(xr); setAvail(a); setCashTop(cashTop);
     };
     tick();
     const id = window.setInterval(tick, 300); addEventListener("resize", tick);
@@ -95,11 +100,11 @@ export default function PhoneHud() {
     const de = document.documentElement, w = window as unknown as { __phoneHud?: unknown };
     if (!phone || !L) { de.classList.remove("ap-phone"); delete de.dataset.phSheet; w.__phoneHud = undefined; return; }
     de.classList.add("ap-phone"); de.dataset.phSheet = sheet || "";
-    const vars: Record<string, number> = { "x-right": xRight, "hud-top": L.hudTop, "pnl-top": L.pnlTop, "btn-top": L.btnTop, "d-top": L.dTop,
+    const vars: Record<string, number> = { "x-right": xRight, "cash-top": cashTop, "pill-top": L.pillTop, "hud-top": L.hudTop, "pnl-top": L.pnlTop, "btn-top": L.btnTop, "d-top": L.dTop,
       bx: L.body.x, by: L.body.y, bw: L.body.w, bh: L.body.h };
     for (const [k, v] of Object.entries(vars)) de.style.setProperty(`--ph-${k}`, v + "px");
     w.__phoneHud = { on: true, sheet, drawer: !!sheet, pillTop: L.pillTop, hudTop: L.hudTop, dTop: sheet ? L.dTop : 0, body: L.body };
-  }, [phone, L, sheet, xRight]);
+  }, [phone, L, sheet, xRight, cashTop]);
   useEffect(() => () => { const de = document.documentElement; de.classList.remove("ap-phone"); delete de.dataset.phSheet; (window as unknown as { __phoneHud?: unknown }).__phoneHud = undefined; }, []);
 
   // quiet PnL line: the same view PnlHud publishes (disciple:pnlview; window.__pnlView for the first paint)
@@ -123,7 +128,12 @@ export default function PhoneHud() {
 
   // gestures: swipe up / tap the handle zone opens; swipe down on the drawer header closes
   const g = useRef<{ y: number; id: number } | null>(null);
+  // post-grad fix 6: capture the pointer so a desktop mouse drag that ends off the handle still delivers pointerup (and
+  // opens the drawer as soon as the drag passes the threshold, like a touch swipe)
+  // (handle only: capturing on the drawer head would retarget clicks away from its tab buttons)
   const down = (e: React.PointerEvent) => { g.current = { y: e.clientY, id: e.pointerId }; };
+  const downOpen = (e: React.PointerEvent) => { down(e); try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* not capturable */ } };
+  const moveOpen = (e: React.PointerEvent) => { const s = g.current; if (!s || s.id !== e.pointerId) return; if (e.clientY - s.y < -24) { g.current = null; setSheet(lastTab.current); } };
   const upOpen = (e: React.PointerEvent) => { const s = g.current; g.current = null; if (!s || s.id !== e.pointerId) return; const dy = e.clientY - s.y; if (dy < -18 || Math.abs(dy) < 8) setSheet(lastTab.current); };
   const upClose = (e: React.PointerEvent) => { const s = g.current; g.current = null; if (!s || s.id !== e.pointerId) return; if (e.clientY - s.y > 36) setSheet(null); };
 
@@ -142,7 +152,7 @@ export default function PhoneHud() {
       <div aria-hidden style={{ position: "fixed", left: 0, right: 0, top: 0, height: 150, zIndex: 24, pointerEvents: "none",
         background: "linear-gradient(to bottom, rgba(8,10,22,.55), rgba(8,10,22,0))" }} />
       {!sheet && <div data-testid="phone-handle" role="button" tabIndex={0} aria-label="Open panels (feed, holders, chart, crew, chat, run)"
-        onPointerDown={down} onPointerUp={upOpen} onPointerCancel={() => { g.current = null; }}
+        onPointerDown={downOpen} onPointerMove={moveOpen} onPointerUp={upOpen} onPointerCancel={() => { g.current = null; }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSheet(lastTab.current); } }}
         style={{ position: "fixed", left: 0, right: 0, top: L.hudTop, height: HANDLE_H + PNL_H + 6, zIndex: 31, touchAction: "none", cursor: "pointer", outline: "none" }}>
         <div style={{ height: HANDLE_H, display: "grid", placeItems: "center" }}><span style={{ width: 40, height: 5, borderRadius: 3, background: "rgba(255,255,255,.38)" }} /></div>
@@ -170,6 +180,17 @@ export default function PhoneHud() {
       </section>}
       <style jsx global>{`
         /* ---- phone HUD v3 (html.ap-phone) ---- */
+        /* post-grad fix 4 (play-test 8:26 PM CT). These restyle SITE components (claims FloorBins pill, WalletButton cash /
+           portfolio cards) from GAME's phone layer only — no SITE file is edited. */
+        /* floor-support pill: stacked under the mcap / tier pill + its caption or GRADUATED badge, never on top of it */
+        html.ap-phone .cl-coin { top: calc(var(--ph-pill-top) + 46px + 30px) !important; max-width: calc(100vw - 24px) !important; }
+        /* cash + portfolio: own full-width row under the logo / wallet row — room, contrast, never clipped */
+        html.ap-phone [aria-label="cash and portfolio"] { position: fixed !important; top: var(--ph-cash-top) !important; left: 16px !important; right: 16px !important;
+          display: flex !important; gap: 8px !important; justify-content: flex-end; z-index: 60; }
+        html.ap-phone [data-testid="cash-card"], html.ap-phone [data-testid="portfolio-card"] { flex: 1 1 0; min-width: 0; max-width: 200px; overflow: visible !important;
+          white-space: nowrap !important; padding: 6px 12px !important; border-radius: 14px !important; background: rgba(12,14,28,.9) !important;
+          border: 1px solid rgba(255,255,255,.22) !important; box-shadow: 0 8px 24px rgba(0,0,0,.4); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+        html.ap-phone [data-testid="cash-card"] a { color: #9FF5C8 !important; }
         html.ap-phone [data-testid="settings-btn"],
         html.ap-phone [data-testid="crew-panel"],
         html.ap-phone [data-testid="chat-open"],

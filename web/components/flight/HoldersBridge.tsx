@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { anonLaunchers } from "@/lib/anon";
-import { protocolLabels } from "@/lib/holders";
+import { holderKinds, protocolLabels } from "@/lib/holders";
 import type { Address } from "@/lib/protocol";
 import { curveOf, publicClient } from "@/lib/protocol-viem";
 import { tokenAbi } from "@/lib/abi";
@@ -31,6 +31,9 @@ export default function HoldersBridge({ coin }: { coin: string }) {
     const d = deployment();
     // the shared protocol label map (lib/holders protocolLabels — same as /api/holders)
     const labels: Record<string, HolderLabel> = protocolLabels(d, { lockers: anonLaunchers(ACTIVE_CHAIN.id) });
+    // post-grad fallback for rows the API didn't tag: SITE's holderKinds (#158: same book as /api/holders `kind` — routers,
+    // Launchpad, Migration, LockedLP, … , 0x0 / 0x…dEaD) fills in anything protocolLabels doesn't name. No GAME address table.
+    for (const [a, k] of Object.entries(holderKinds(d, { lockers: anonLaunchers(ACTIVE_CHAIN.id) }))) if (!labels[a]) labels[a] = k;
     const curveP = curveOf(pc, coin as Address).then((c) => { Object.assign(labels, protocolLabels({}, { curve: c })); }).catch(() => undefined);
     const opts = (): BuildOpts => ({ me, labels, totalSupplyRaw: BigInt(Math.round(supply)) * BigInt(10) ** BigInt(18), priceUsd: price, limit: 50 });
     let last: { raw: HoldersSnapshot; o: BuildOpts } | null = null;

@@ -81,3 +81,14 @@ export function needUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals
   const usd = Number(usdgRaw) / 10 ** usdgDecimals;
   return usd > 0 && Number.isFinite(usd) ? ceilCents(usd) : null;
 }
+
+/**
+ * Post-grad fix 3 (play-test 8:26 PM CT): ONE side's warning at a time — the side being tapped / previewed (phone: the side whose
+ * button or amount was last touched; desktop: the hovered / focused side), else nothing. Never both. Warning only, never blocks.
+ */
+export type TradeSide = "buy" | "sell";
+export function activeWarning(side: TradeSide | null | undefined, buy: MoveWarn | null | undefined, sell: MoveWarn | null | undefined, hasTokens: boolean): { text: string; over: boolean } {
+  if (side === "buy" && buy?.text) return { text: `BOOST: ${buy.text}`, over: buy.level === "over" };
+  if (side === "sell" && hasTokens && sell?.text) return { text: `DUMP: ${sell.text}`, over: sell.level === "over" };
+  return { text: "", over: false };
+}

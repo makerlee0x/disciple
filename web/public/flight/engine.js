@@ -450,11 +450,15 @@ class DiscipleSource {
     // paper shots (no wallet) move a multiplicative offset that decays like arbitrage would (τ 20 s), same as PoolV3Base
     this.dv=setInterval(()=>{ if(this.mcap==null||this.paper===1) return; this.paper=1+(this.paper-1)*Math.exp(-0.25/20); if(Math.abs(this.paper-1)<1e-5) this.paper=1; emit({t:'mark',mcap:this.shown()}); },250);
     this.h=(ev)=>{ const e=ev.detail; if(!e) return;
+      // @graduated: SITE (#158 lib/events mcapOrderer) stamps every State / Trade / Graduate with { graduated, poolId, graduatedAt }
+      // (lib/protocol GradState). graduated:true — on load or a late re-sent State — is the same as the live Graduate event.
+      // STICKY: a coin never un-graduates, so false / missing never clears it (default false until something says true).
+      if(e.graduated===true){ this.graduated=true; setGraduated(true,e); }
       if(e.type==='Trade'){ const pre=this.mcap; this.mcap=e.mcapUsd; this.block=+e.block||this.block;
         emit({t:'block',block:this.block,ts:Date.now()});
         emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
               prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader,mine:isMine(e.trader)}); }
-      else if(e.type==='Graduate'){ this.graduated=true; emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'}); }
+      else if(e.type==='Graduate'){ this.graduated=true; setGraduated(true,e); emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'}); }
       else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
     addEventListener('disciple:event',this.h); }
   stop(){ removeEventListener('disciple:event',this.h); clearInterval(this.dv); }
@@ -758,7 +762,24 @@ S.buyWarn={tags:[],texts:[],over:[]};
 addEventListener('disciple:buywarn',e=>{ const d=e.detail||{}; S.buyWarn={tags:Array.isArray(d.tags)?d.tags:[],texts:Array.isArray(d.texts)?d.texts:[],over:Array.isArray(d.over)?d.over:[]}; });
 // exact $ left to graduate, for the tier-bar label (TradeBridge → lib/flight/gradAdapter, SITE readGradNeedForToken); null = unknown / paper → HUD estimate
 S.gradNeedUsd=null;
-addEventListener('disciple:gradneed',e=>{ const u=e.detail&&e.detail.usd; S.gradNeedUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null; });
+addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradNeedUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null;
+  if(d.graduated===true) setGraduated(true,d); });   // sticky: the curve read can only flip it on
+/* @graduated: one flag for the whole HUD. Sources: SITE's State payload (graduated / poolId / graduatedAt), the live Graduate
+   event, TradeBridge's curve read (disciple:gradneed {graduated}). A graduated coin trades on its Uniswap v4 pool: no curve
+   tier progress, no "buys needed" / "to graduate" text, a GRADUATED badge instead (desktop tier bar + phone pill). */
+S.graduated=false; S.gradInfo=null;
+const GRAD_BADGE='GRADUATED · trading on Uniswap';   // PLACEHOLDER copy (pending lee + BRAND)
+function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
+    S.gradInfo={poolId:d&&typeof d.poolId==='string'?d.poolId:g.poolId||null,graduatedAt:d&&Number.isFinite(+d.graduatedAt)&&+d.graduatedAt>0?+d.graduatedAt:g.graduatedAt||null}; }
+  else S.gradInfo=null;
+  try{ if(typeof source!=='undefined'&&source&&source instanceof DiscipleSource) source.graduated=!!on; }catch(_){ } }
+/* tier-bar need line (pure, tested in scripts/test-grad-fix.mjs): exact "$X to graduate" when the curve read has it, else the HUD
+   estimate marked "≈ … (est.)" — never both, never "≈$0", nothing once graduated. */
+function tierNeedText(m,nx,o){ if(!nx||o.graduated) return '';
+  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to graduate`;
+  const need=o.est; return need>0&&isFinite(need)?`≈${fmtNeed(need)} buys needed (est.)`:''; }
+/* curve progress is meaningless once graduated: hide the bar while the next tier is still a curve tier (≤ graduation) */
+const curveTierProgress=(nx)=>!!nx&&nx.lo<=TB_M1;
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
 addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
@@ -1391,7 +1412,7 @@ function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const m
   const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
   const sig=JSON.stringify(d); if(sig===S._ctlSig) return; S._ctlSig=sig; try{ dispatchEvent(new CustomEvent('disciple:controls',{detail:d})); }catch(_){} }
 function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holdersT=S.t; const rows=top.slice(0,10), sig=title+JSON.stringify(rows); if(sig===S._holdersSig) return; S._holdersSig=sig;
-  const h=realHolders(), items=h?h.items.slice(0,10).concat(h.system):undefined, me=h&&h.items.find(r=>r.mine);
+  const h=realHolders(), items=h?h.system.concat(h.items.slice(0,10)):undefined, me=h&&h.items.find(r=>r.mine);
   try{ dispatchEvent(new CustomEvent('disciple:holders',{detail:{title,rows,you:h?(me?me.usd:0):(S.fuelers&&S.fuelers.you||0),items,asOfBlock:h?h.asOfBlock:undefined}})); }catch(_){} }
 /* Real holders (S.holders from HoldersBridge): $ re-marked at the CURRENT mark from each row's share of supply, so the list
    moves with the price between balance refreshes. items = ranked holders, system = labelled pool / curve / locker rows. */
@@ -1501,11 +1522,17 @@ function drawPhonePill(m,ti,P){
   if(nm!==b) nm=nm.slice(0,-1)+'…'; ctx.fillText(nm,tx,ty); tx+=Math.min(wb,ctx.measureText(nm).width);
   if(sim){ const gx=tx+10, gy=ty-9; ctx.fillStyle='rgba(201,184,255,.16)'; rrect(gx,gy,wt,18,6); ctx.fill(); ctx.strokeStyle='rgba(201,184,255,.4)'; rrect(gx+.5,gy+.5,wt-1,17,6); ctx.stroke();
     ctx.font=`800 10px ${PH_FONT}`; ctx.fillStyle='#d9ccff'; ctx.fillText('SIM',gx+6,ty+.5); }
-  const bx=x+20, bw=w-40, by=y+h-10; ctx.fillStyle='rgba(255,255,255,.12)'; rrect(bx,by,bw,2,1); ctx.fill();
+  const bx=x+20, bw=w-40, by=y+h-10;
+  if(!(S.graduated&&(!nx||curveTierProgress(nx)))){   // @graduated: no curve progress line once the coin trades on its pool
+  ctx.fillStyle='rgba(255,255,255,.12)'; rrect(bx,by,bw,2,1); ctx.fill();
   const g=ctx.createLinearGradient(bx,0,bx+bw*Math.max(f,.02),0); g.addColorStop(0,'#FFB547'); g.addColorStop(1,'#FFD873');
-  ctx.save(); ctx.shadowColor='rgba(255,216,115,.7)'; ctx.shadowBlur=6; ctx.fillStyle=g; rrect(bx,by,Math.max(2,bw*f),2,1); ctx.fill(); ctx.restore();
-  const lb=P.drawer?'':tierLabel(f,nx); S.phoneTierLabel=lb;   // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
-  if(lb){ ctx.font=`600 11px ${PH_FONT}`; ctx.textAlign='center'; ctx.shadowColor='rgba(0,0,0,.85)'; ctx.shadowBlur=6;
+  ctx.save(); ctx.shadowColor='rgba(255,216,115,.7)'; ctx.shadowBlur=6; ctx.fillStyle=g; rrect(bx,by,Math.max(2,bw*f),2,1); ctx.fill(); ctx.restore(); }
+  S.gradBadge=S.graduated?GRAD_BADGE:'';
+  const lb=P.drawer?'':S.graduated?GRAD_BADGE:tierLabel(f,nx); S.phoneTierLabel=lb;   // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
+  if(lb&&S.graduated){ ctx.font=`800 11px ${PH_FONT}`; const t2=phFit(lb,W-64), tw=ctx.measureText(t2).width, gx=Math.round(x+w/2-tw/2-10), gy=y+h+4;   // @graduated badge, phone
+    ctx.fillStyle='rgba(255,216,115,.16)'; rrect(gx,gy,tw+20,18,9); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; rrect(gx+.5,gy+.5,tw+19,17,9); ctx.stroke();
+    ctx.fillStyle='#FFD873'; ctx.textAlign='center'; ctx.fillText(t2,x+w/2,gy+9.5); ctx.textAlign='left'; }
+  else if(lb){ ctx.font=`600 11px ${PH_FONT}`; ctx.textAlign='center'; ctx.shadowColor='rgba(0,0,0,.85)'; ctx.shadowBlur=6;
     ctx.fillStyle='rgba(226,232,250,.72)'; ctx.fillText(phFit(lb,W-48),x+w/2,y+h+13); ctx.textAlign='left'; }
   ctx.restore();
 }
@@ -1534,17 +1561,29 @@ function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28
     ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`12.5px ${PH_FONT}`; ctx.fillText(phAgo(r.at),cx+cAgo,cy); ctx.textAlign='left'; });
   ctx.restore(); }
 /* HOLDERS tab: the same topFuelers() list as the desktop TOP HOLDERS / KOTH panel, as rows */
+/* post-grad fix 5: tagged rows (pool / locker / burn / curve) are never ranked — shown ON TOP of the list (lee 9:19 PM CT), labelled,
+   greyed a little, no rank number; real holders are ranked from #1 below them.
+   PLACEHOLDER copy (pending lee + BRAND); mirrors lib/flight/holders HOLDER_LABEL_TEXT. */
+const HOLDER_KIND={pool:'Pool',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'};
+const holderKindText=l=>HOLDER_KIND[l]||'';
 function drawPhoneHolders(P,top,title){ const B=P.body, rh=46, n=Math.max(1,Math.min(10,Math.floor((B.h-26)/rh))), x0=B.x+4, iw=B.w-8;
+  const sysAll=((realHolders()||{}).system)||[];
   ctx.save(); ctx.textBaseline='middle'; ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`11.5px ${PH_FONT}`; if('letterSpacing' in ctx) ctx.letterSpacing='1.4px'; ctx.fillText(phFit(title.toUpperCase(),iw),x0,B.y+10); if('letterSpacing' in ctx) ctx.letterSpacing='0px';
-  const rows=top.slice(0,n);
-  if(!rows.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No holders yet',B.x+B.w/2,B.y+60); ctx.textAlign='left'; }
-  rows.forEach(([w,v],i)=>{ const y=B.y+26+i*rh, cy=y+rh/2, you=w==='you';
+  const sys=sysAll.slice(0,Math.min(sysAll.length,Math.max(0,n-1),4)), rows=top.slice(0,Math.max(0,n-sys.length)); S.phoneHolderTags=sys.map(r=>holderKindText(r.label)); const off=sys.length;
+  if(!rows.length&&!sys.length){ ctx.fillStyle='rgba(214,222,245,.42)'; ctx.font=`12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('No holders yet',B.x+B.w/2,B.y+60); ctx.textAlign='left'; }
+  rows.forEach(([w,v],i)=>{ const y=B.y+26+(off+i)*rh, cy=y+rh/2, you=w==='you';
     if(i<rows.length-1){ ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1); }
     ctx.fillStyle=i===0?'rgba(255,216,115,.18)':'rgba(255,255,255,.06)'; rrect(x0,cy-14,28,28,9); ctx.fill();
     ctx.fillStyle=i===0?'#FFD873':'rgba(214,222,245,.75)'; ctx.font=`800 12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText(String(i+1),x0+14,cy+.5); ctx.textAlign='left';
     if(i===0) drawIcon('crown',x0+38,cy-7,14,'#FFD873');
     ctx.fillStyle=you?'#9FF5C8':'#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(phFit(String(w),iw-150),x0+(i===0?58:38),cy);
     ctx.textAlign='right'; ctx.fillText(fmtUsd(v),x0+iw,cy); ctx.textAlign='left'; });
+  sys.forEach((r,j)=>{ const y=B.y+26+j*rh, cy=y+rh/2;
+    ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fillRect(x0,y+rh-1,iw,1);
+    ctx.fillStyle='rgba(255,255,255,.04)'; rrect(x0,cy-14,28,28,9); ctx.fill();
+    ctx.fillStyle='rgba(214,222,245,.5)'; ctx.font=`800 12px ${PH_FONT}`; ctx.textAlign='center'; ctx.fillText('·',x0+14,cy+.5); ctx.textAlign='left';
+    ctx.fillStyle='rgba(214,222,245,.62)'; ctx.font=`bold 13px ${PH_FONT}`; ctx.fillText(phFit(holderKindText(r.label)||String(r.label),iw-150),x0+38,cy);
+    ctx.textAlign='right'; ctx.fillText(fmtUsd(r.usd),x0+iw,cy); ctx.textAlign='left'; });
   ctx.restore(); }
 function drawHud(){
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
@@ -2273,22 +2312,29 @@ function tierLabel(f,nx){ return nx ? `${Math.min(99,Math.max(0,Math.floor(f*100
 function drawTierBar(m,ti,leftEnd){
   const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
+  if (S.graduated){ S.tierNeedText=''; S.gradBadge=GRAD_BADGE; drawGradBadgeDesk(X,Y,BW,BH);   // @graduated: badge replaces the curve progress + need text
+    if(!nx||curveTierProgress(nx)) return; }
+  else S.gradBadge='';
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
   const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
   ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
-  { let lb=tierLabel(f,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
+  if(!S.graduated){ let lb=tierLabel(f,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
     if(lb) ctx.fillText(lb,384,108); }
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
-  if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
-    // graduation (GAME fix): the exact curve amount when TradeBridge has it ("$0.29 to graduate"); else the estimate, but small
-    // amounts round UP to the cent (fmtNeed) — never "≈$0" while a buy is still needed
-    const exact=S.gradNeedUsd!=null&&nx.lo>=TB_M1&&m<TB_M1, need=exact?S.gradNeedUsd:usdToReach(m,nx.lo); ctx.textAlign='right'; ctx.fillStyle='#9ff3c8';
-    ctx.fillText(exact?`${fmtNeed(need)} to graduate`:`≈${fmtNeed(need)} buys needed`,384,Y+BH+13); ctx.textAlign='left'; }
+  if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; if(!S.graduated) ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
+    // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to graduate") and ONLY that; else
+    // the HUD estimate, marked ≈ … (est.); amounts round UP to the cent (fmtNeed) — never "≈$0"; nothing once graduated
+    const nt=tierNeedText(m,nx,{graduated:S.graduated,exact:S.gradNeedUsd,est:S.gradNeedUsd!=null&&m<TB_M1?0:usdToReach(m,nx.lo)}); S.tierNeedText=nt;
+    if(nt){ ctx.textAlign='right'; ctx.fillStyle=S.gradNeedUsd!=null&&m<TB_M1?'#9ff3c8':'rgba(159,243,200,.7)'; ctx.fillText(nt,384,Y+BH+13); ctx.textAlign='left'; } }
   else { ctx.fillStyle='#ffe7a3'; drawIcon('star',X,Y+BH+3,12,'#ffe7a3'); ctx.fillText('TOP TIER',X+15,Y+BH+13); }
 }
 
+/* @graduated badge, desktop: a gold pill on the tier-bar row (replaces the curve bar while the next tier is a curve tier) */
+function drawGradBadgeDesk(X,Y,BW,BH){ ctx.save(); ctx.font='bold 10px ui-monospace,monospace'; const tw=ctx.measureText(GRAD_BADGE).width, bw=Math.min(BW,tw+16), by=Y+BH+2;
+  ctx.fillStyle='rgba(255,216,115,.16)'; rrect(X,by,bw,16,8); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; ctx.lineWidth=1; rrect(X+.5,by+.5,bw-1,15,8); ctx.stroke();
+  ctx.fillStyle='#FFD873'; ctx.textAlign='left'; ctx.fillText(GRAD_BADGE,X+8,by+11.5); ctx.restore(); }
 /* ---- 2) chart-map: tiny dexscreener-style mcap candle chart in a game-map frame (M toggles) ----
    Real OHLC on fixed wall-clock buckets (1m / 5m / 1h / 4h / D; 5m default; toggles in the title bar).
    Every tick (each swap + the per-frame mark) feeds ALL intervals from the same history, so switching is instant.
@@ -2405,14 +2451,14 @@ const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*864
 const GRID_COLS='ABCDEFGH';
 const CHART_PNL_BOTTOM=456;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
-  { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x+Math.max(0,(B.w-st.w)/2)),y:Math.round(B.y+4),h:Math.round(clamp(B.h-8,132,st.h))}:{x:-1e4,y:-1e4,h:st.h}; } }   /* @phone-hud: chart only inside the drawer's CHART tab */
+  { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
 function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
   for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }
 function redrawChart(dt){
-  const st=CHART_STYLE, C=chartState(), h=chartRect().h, w=st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.height!==h) C.cv.height=h;
+  const st=CHART_STYLE, C=chartState(), R0=chartRect(), h=R0.h, w=R0.w||st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.width!==w) C.cv.width=w; if(C.cv.height!==h) C.cv.height=h;
   const g=C.cv.getContext('2d'); g.clearRect(0,0,w,h); g.textBaseline='alphabetic';
   // Guild Wars window: dark outer frame, bevel, title bar
   g.fillStyle=st.frameOuter; g.fillRect(0,0,w,h); g.fillStyle=st.frameMid; g.fillRect(3,3,w-6,h-6);

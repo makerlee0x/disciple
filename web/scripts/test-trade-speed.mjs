@@ -16,7 +16,7 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
 const rd = (f) => fs.readFileSync(path.join(web, f), "utf8");
 const eng = rd("public/flight/engine.js"), tb = rd("components/TradeBridge.tsx"), wl = rd("lib/wallet.ts");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "flight/holders", "abi/DiscipleRouter"], "tradespeed-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "holders", "flight/holders", "abi/DiscipleRouter"], "tradespeed-");
 const TS = mods["flight/tradeSpeed"], fills = mods["flight/fills"], { fmtMoney } = mods.pnl, { discipleRouterAbi } = mods["abi/DiscipleRouter"];
 
 // ───────────── 1 + 6. fill from the returned logs, status shows the fill $ ─────────────
@@ -282,7 +282,7 @@ console.log("— SITE #137: own receipt events + holders from the receipt");
   const lag = { rows: HL.buildHolders([{ address: BIG, balance: 50n * 10n ** 18n }, { address: POOL, balance: 900n * 10n ** 18n }, { address: ME, balance: 0n }], o), asOfBlock: null, source: "balances", at: 1 };
   ok(!lag.rows.some((r) => r.mine), "lagging node: our row missing (0 holdings) before the overlay");
   const ov = HL.overlayOwn(lag, o, 80n * 10n ** 18n), mine = ov.rows.find((r) => r.mine);
-  ok(mine && mine.tokens === 80 && near(mine.usd, 160) && near(mine.pct, 8) && ov.rows[0].mine && ov.rows[ov.rows.length - 1].label === "pool", "overlayOwn: our row from the receipt ledger (80 tokens), re-ranked, pool row kept last");
+  ok(mine && mine.tokens === 80 && near(mine.usd, 160) && near(mine.pct, 8) && ov.rows[0].label === "pool" && ov.rows[1].mine, "overlayOwn: our row from the receipt ledger (80 tokens), re-ranked, pool row kept on top (lee 9:19 PM CT)");
   ok(HL.overlayOwn(lag, o, undefined) === lag && HL.overlayOwn(lag, { ...o, me: null }, 5n) === lag, "overlayOwn: no ledger value / no wallet ⇒ snapshot unchanged");
   const api = { rows: [{ address: POOL, balance: (900n * 10n ** 18n).toString(), tokens: 900, pct: 90, usd: 1800, label: "curve", mine: false }], asOfBlock: 7, source: "api", at: 1 };
   const ova = HL.overlayOwn(api, { ...o, labels: {} }, 10n ** 18n);
