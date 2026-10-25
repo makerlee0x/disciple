@@ -87,7 +87,8 @@
     "test:rapid-retry": "tsx --test scripts/test-rapid-retry.mts",
     "test:gas-reserve": "tsx --test scripts/test-gas-reserve.mts",
     "test:relayer-pool": "tsx --conditions=react-server --test scripts/test-relayer-pool.mts",
-    "test:grad-fix": "tsx scripts/test-grad-fix.mjs"
+    "test:grad-fix": "tsx scripts/test-grad-fix.mjs",
+    "test:turbo": "tsx --test scripts/test-turbo.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
