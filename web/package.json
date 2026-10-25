@@ -51,6 +51,7 @@
     "test:op-race": "tsx scripts/test-op-race.mts",
     "test:usdg-router": "tsx scripts/test-usdg-router.mts",
     "test:relay-policy": "tsx --test scripts/test-relay-policy.mts",
+    "test:grad-any-pair": "tsx --test scripts/test-grad-any-pair.mts",
     "test:bundle-gas": "tsx --test scripts/test-bundle-gas.mts",
     "test:gaspolicy-v5": "tsx --test scripts/test-gaspolicy-v5.mts",
     "test:paymaster": "tsx --test scripts/test-paymaster.mts",

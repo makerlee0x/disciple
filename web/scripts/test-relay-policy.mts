@@ -146,7 +146,8 @@ test("non-launch ops keep W-1 caps: wrong target, extra non-approve call, single
 // ---- FLOW 2 (#106 + steep-curve floor): graduating buys get GRAD_GAS_CAPS (5M call / 6M total) after an on-chain check
 import { buyIntents, exceedsCaps, GRAD_GAS_CAPS, gradBuyCandidate, isGradBuy, MAX_GRAD_BUY_INTENTS } from "../lib/aa/gasPolicy";
 import { isGradBuyOp, relayCaps, type GradReads } from "../lib/server/gradBuy";
-import { GRAD_STATIC_GAS, isGradBuyCalls, markGradBuy } from "../lib/aa/fastPath";
+import { GRAD_STATIC_GAS, GRAD_CALL_GAS_MAX, gradSessionGas, isGradBuyCalls, markGradBuy } from "../lib/aa/fastPath";
+import { withGradMargin } from "../lib/trade/gradNeed";
 import { GradHint } from "../lib/trade/gradHint";
 import { bondingCurveAbi } from "../lib/abi/BondingCurve";
 import { discipleRouterAbi } from "../lib/abi/DiscipleRouter";
@@ -338,17 +339,87 @@ test("audit r106 round 2: a USDG-gas op's leading usdg.approve(paymaster) is all
   assert.deepEqual(await relayCaps(pmOp([pmA, pmA, g], PM), [LP], rp()), GAS_CAPS);
   assert.deepEqual(await relayCaps(pmOp([pmA, g], PM), [LP], rp()), GAS_CAPS);   // pm approve ≠ allowance to the curve
 });
-test("audit r106 (gasPolicy.ts:132): buyWithUsdg (USDG units) on a non-USDG curve is skipped; buyExactIn (quote units) is checked", async () => {
+test("audit r106 (gasPolicy.ts:132): buyWithUsdg (USDG units) on a non-USDG curve without an on-chain USDG→quote read is skipped; buyExactIn (quote units) is checked", async () => {
   const STRAT = "0x9999999999999999999999999999999999999999";
   const r = reads({}, { quote: STRAT });
   assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], r), GAS_CAPS);
-  assert.equal(r.seen.length, 0);   // no quoteBuy with a USDG amount on a STRATEGY curve
+  assert.equal(r.seen.length, 0);   // never a quoteBuy with a raw USDG amount on a STRATEGY curve
   const exact = { to: ROUTER, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "buyExactIn", args: [TOK as Hex, REMAINING, BigInt(1), OTHER as Hex, D] }) };
   const r2 = reads({}, { quote: STRAT });
   assert.deepEqual(await relayCaps(gradOp([exact]), [LP], r2), GRAD_GAS_CAPS);
   assert.deepEqual(r2.seen, [{ payToken: STRAT, spender: ROUTER, quoteIn: REMAINING }]);
   // no USDG configured ⇒ buyWithUsdg never upgraded
   assert.deepEqual(await relayCaps(gradOp([routerBuy(REMAINING)]), [LP], reads({ usdg: undefined })), GAS_CAPS);
+});
+// site/grad-any-pair: buyWithUsdg on a STRATEGY curve. The router swaps USDG → STRATEGY first, so the relay converts the
+// USDG amount ON-CHAIN (router.quoteUsdgQuoteSwap — mocked here as 1 USDG unit = 400 STRATEGY units, IRON-like) and
+// asks the curve's quoteBuy(converted + 0.5%).graduates. Never a client flag.
+const STRAT = "0x9999999999999999999999999999999999999999", RATE = BigInt(400);
+const stratReads = (f: Funds = {}, conv: (u: bigint) => Promise<bigint> = async (u) => u * RATE) => {
+  const r = reads({}, { quote: STRAT, ...f });
+  const seenConv: bigint[] = [];
+  r.usdgToQuote = async (quote: string, usdgIn: bigint) => { r.calls++; assert.equal(quote, STRAT); seenConv.push(usdgIn); return conv(usdgIn); };
+  return Object.assign(r, { seenConv });
+};
+const stratBuy = (usdgIn: bigint) => [approveTo(USDG, ROUTER, usdgIn), routerBuy(usdgIn)];
+test("grad-any-pair: USDG-router buy on a STRATEGY curve that graduates gets GRAD caps (on-chain conversion, USDG funding)", async () => {
+  const usdgIn = REMAINING / RATE;   // converts to exactly the remaining quote
+  const r = stratReads();
+  assert.deepEqual(await relayCaps(gradOp(stratBuy(usdgIn)), [LP], r), GRAD_GAS_CAPS);
+  assert.deepEqual(r.seenConv, [usdgIn]);
+  assert.deepEqual(r.seen, [{ payToken: USDG, spender: ROUTER, quoteIn: withGradMargin(REMAINING) }]);   // funding on USDG → router
+  assert.equal(r.calls, 4);   // curveOf, curveInfo, swap quote, check
+  // the 3.4M-call op passes the relay's gas check under the grad caps it was given, not under GAS_CAPS
+  assert.ok(checkOpGas(gradOp(stratBuy(usdgIn)), BASE, GRAD_GAS_CAPS) > BigInt(0));
+  // within the 0.5% margin (pool drift between check and execution) still graduates
+  const near = (REMAINING * BigInt(9960)) / BigInt(10_000) / RATE;
+  assert.deepEqual(await relayCaps(gradOp(stratBuy(near)), [LP], stratReads()), GRAD_GAS_CAPS);
+});
+test("grad-any-pair: USDG-router buy on a STRATEGY curve that does NOT graduate keeps the 3M cap", async () => {
+  for (const usdgIn of [BigInt(1_000_000), (REMAINING * BigInt(9900)) / BigInt(10_000) / RATE]) {   // $1, and 1% short (outside the margin)
+    const r = stratReads();
+    assert.deepEqual(await relayCaps(gradOp(stratBuy(usdgIn)), [LP], r), GAS_CAPS);
+    rejects(gradOp(stratBuy(usdgIn)) as Record<string, string | undefined>, "gas");   // 3.4M call gas above the 3M cap
+  }
+  // conversion unreadable / zero ⇒ normal caps
+  assert.deepEqual(await relayCaps(gradOp(stratBuy(REMAINING / RATE)), [LP], stratReads({}, async () => BigInt(0))), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp(stratBuy(REMAINING / RATE)), [LP], stratReads({}, async () => { throw new Error("rpc"); })), GAS_CAPS);
+  // approve on STRATEGY (not what buyWithUsdg spends) / underfunded USDG / graduated curve ⇒ normal caps
+  assert.deepEqual(await relayCaps(gradOp([approveTo(STRAT, ROUTER, BIG), routerBuy(REMAINING / RATE)]), [LP], stratReads()), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp(stratBuy(REMAINING / RATE)), [LP], stratReads({ balance: REMAINING / RATE - BigInt(1) })), GAS_CAPS);
+  assert.deepEqual(await relayCaps(gradOp(stratBuy(REMAINING / RATE)), [LP], stratReads({ graduated: true })), GAS_CAPS);
+});
+test("grad-any-pair: a forged client grad flag on a non-graduating buy is refused (server never reads the client flag)", async () => {
+  const usdgIn = BigInt(1_000_000);   // $1 on the STRATEGY curve: nowhere near graduation
+  const buy = stratBuy(usdgIn);
+  markGradBuy(buy[1].data);   // the client-side flag (lib/aa/fastPath) — what a forged/buggy client would set
+  assert.equal(isGradBuyCalls(buy), true);
+  const forged = gradOp(buy, { callGasLimit: 4_600_000 });   // the gas a flagged grad op would ask for
+  const r = stratReads();
+  const caps = await relayCaps(forged, [LP], r);
+  assert.deepEqual(caps, GAS_CAPS);
+  assert.throws(() => checkOpGas(forged, BASE, caps), (e: unknown) => e instanceof RelayPolicyError && e.code === "gas");
+  // same for a forged USDG-curve buy and a forged curve-direct buy
+  for (const calls of [[approveTo(USDG, ROUTER, BigInt(7)), routerBuy(BigInt(7))], [approveTo(USDG, CURVE, BigInt(7)), curveBuy(BigInt(7))]]) {
+    markGradBuy(calls[1].data);
+    const op2 = gradOp(calls, { callGasLimit: 4_600_000 });
+    const c2 = await relayCaps(op2, [LP], reads());
+    assert.deepEqual(c2, GAS_CAPS);
+    assert.throws(() => checkOpGas(op2, BASE, c2), (e: unknown) => e instanceof RelayPolicyError && e.code === "gas");
+  }
+});
+test("grad-any-pair: client session grad gas = real estimate + pad, clamped under the grad caps", () => {
+  assert.deepEqual(gradSessionGas(null), GRAD_STATIC_GAS);   // estimate failed ⇒ static grad limits
+  assert.deepEqual(gradSessionGas(BigInt(0)), GRAD_STATIC_GAS);
+  // fork-measured STRATEGY graduation (EntryPoint → executeBatch): 2,804,575 ⇒ 4.21M call gas (> 1.8M STATIC_GAS, > 3M)
+  const g = gradSessionGas(BigInt(2_804_575));
+  assert.equal(g.callGasLimit, (BigInt(2_804_575) * BigInt(125)) / BigInt(100) + BigInt(700_000));
+  assert.ok(g.callGasLimit > GAS_CAPS.callGasLimit && g.callGasLimit <= GRAD_GAS_CAPS.callGasLimit);
+  assert.equal(gradSessionGas(BigInt(9_000_000)).callGasLimit, GRAD_CALL_GAS_MAX);   // clamped
+  assert.equal(gradSessionGas(BigInt(500_000)).callGasLimit, GRAD_STATIC_GAS.callGasLimit);   // never below the static grad limit
+  // worst case (max call + session verification + PVG + paymaster verification/postOp) fits GRAD_GAS_CAPS.total
+  assert.ok(GRAD_CALL_GAS_MAX <= GRAD_GAS_CAPS.callGasLimit);
+  assert.ok(GRAD_CALL_GAS_MAX + GRAD_STATIC_GAS.verificationGasLimit + GRAD_STATIC_GAS.preVerificationGas + BigInt(200_000) <= GRAD_GAS_CAPS.total);
 });
 test("relayCaps: ops within GAS_CAPS never touch the chain; launches keep LAUNCH_GAS_CAPS", async () => {
   const r = reads();

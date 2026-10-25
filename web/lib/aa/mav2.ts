@@ -11,7 +11,7 @@ import { createModularAccountV2Client } from "@account-kit/smart-contracts";
 import { LocalAccountSigner, defaultGasEstimator, deepHexlify, split, type ClientMiddlewareFn, type SmartAccountSigner } from "@aa-sdk/core";
 import { concatHex, decodeEventLog, encodeFunctionData, http, parseAbi, type Address, type Chain, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { MAV2_FACTORY } from "./constants";
-import { NonceCursor, GasCache, STATIC_GAS, GRAD_STATIC_GAS, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
+import { NonceCursor, GasCache, STATIC_GAS, gradSessionGas, FeeCache, callsKind, isGradBuyCalls, retryCalls, newPressId, tagPress, type GasLimits, type Fees, type SendOpts, type SendCallsOpts } from "./fastPath";
 import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAVAILABLE } from "./gasPolicy";
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
@@ -38,6 +38,24 @@ export function opRevertReason(logs: { address: string; data: Hex; topics: Hex[]
   }
   return undefined;
 }
+/** The EntryPoint's UserOperationEvent.actualGasUsed for `hash` (verification + execution + unused-gas penalty). */
+export function opGasUsed(logs: { address: string; data: Hex; topics: Hex[] }[], hash?: Hex): bigint | undefined {
+  for (const l of logs) {
+    if (l.address.toLowerCase() !== ENTRYPOINT_V07.toLowerCase()) continue;
+    try {
+      const ev = decodeEventLog({ abi: uoEventAbi, data: l.data, topics: l.topics as [Hex, ...Hex[]] });
+      if (!hash || ev.args.userOpHash === hash) return ev.args.actualGasUsed;
+    } catch { /* other event */ }
+  }
+  return undefined;
+}
+/** AAError("Reverted").extra gas fields: lets the trade layer tell an out-of-gas revert (no reason, gas used ≈ the
+ *  limit) from a contract revert (protocol-viem tradeErrorKind → "OUT_OF_GAS"). */
+const revertGas = (logs: { address: string; data: Hex; topics: Hex[] }[], hash: Hex, callGasLimit?: unknown) => {
+  const actualGasUsed = opGasUsed(logs, hash);
+  const cgl = callGasLimit == null ? undefined : (() => { try { return BigInt(callGasLimit as string); } catch { return undefined; } })();
+  return { ...(actualGasUsed !== undefined ? { actualGasUsed } : {}), ...(cgl !== undefined ? { callGasLimit: cgl } : {}) };
+};
 /**
  * Relay answers that do NOT prove the op wasn't sent: the response was lost/garbled, the relay timed out waiting for the
  * receipt, or the nonce is already used (= an earlier send of this op landed). Bug #6: these were all shown as
@@ -308,6 +326,12 @@ export class Mav2Account {
     } finally { if (top) this.pressDepth.delete(pressId); }
   }
   private readonly pressDepth = new Set<string>();
+  /** gradSessionGas(eth_estimateGas of the calls as the EntryPoint runs them); never cached (curve state moves). */
+  private async gradGas(sender: Address, calls: Call[]): Promise<GasLimits> {
+    const data = encodeFunctionData({ abi: execAbi, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to, value: c.value ?? BigInt(0), data: c.data }))] });
+    const est = await this.o.pc.estimateGas({ account: ENTRYPOINT_V07, to: sender, data }).catch(() => null);
+    return gradSessionGas(est);
+  }
 
   private async sendCalls1(calls: Call[], so: SendCallsOpts & { pressId: string }): Promise<SendResult> {
     const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
@@ -355,7 +379,9 @@ export class Mav2Account {
       // signed paymasterAndData (the policy checks approve == maxTokenCost), and sessions imply a deployed account:
       // static limits. Owner ops estimate execution once (self-bundler: no prefund check) with the placeholder approve.
       // Launches (owner-signed) always estimate (gas undefined above) and are capped by LAUNCH_GAS_CAPS server-side.
-      let limits: GasLimits | undefined = gas ?? (session && !launch ? (grad ? GRAD_STATIC_GAS : STATIC_GAS) : undefined);
+      // Graduating session buy: a REAL execution estimate (EntryPoint → account.executeBatch(calls), no signature
+      // needed) padded for the policy hook + paymaster approve (gradSessionGas); GRAD_STATIC_GAS if it can't be read.
+      let limits: GasLimits | undefined = gas ?? (session && !launch ? (grad ? await this.gradGas(sender, calls) : STATIC_GAS) : undefined);
       const build = async (cs: Call[], pmf: PaymasterFields): Promise<UserOp> => {
         const u = cs.map((c) => ({ target: c.to, data: c.data, value: c.value ?? BigInt(0) }));
         const struct = await client.buildUserOperation({ uo: u.length === 1 ? u[0] : u, overrides: { nonce, ...f, ...(limits ?? {}) } });
@@ -436,7 +462,7 @@ export class Mav2Account {
       this.gas.drop(kind);
       const revertData = opRevertReason(rc.receipt.logs ?? [], req.hash);
       logTradeError("trade reverted", { userOpHash: req.hash, txHash, revertData });
-      throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: req.hash, txHash, revertData });
+      throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: req.hash, txHash, revertData, ...revertGas(rc.receipt.logs ?? [], req.hash, (req.request as { callGasLimit?: unknown }).callGasLimit) });
     }
     const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
       (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
@@ -572,7 +598,7 @@ export class Mav2Account {
           this.gas.drop(c.kind);
           const revertData = opRevertReason(logs, userOpHash);
           logTradeError("trade reverted", { userOpHash, txHash, revertData });
-          throw new AAError("Reverted", REJECTED_MSG, { userOpHash, txHash, revertData });
+          throw new AAError("Reverted", REJECTED_MSG, { userOpHash, txHash, revertData, ...revertGas(logs, userOpHash, wire.callGasLimit) });
         }
         // SITE #137: keep the receipt block on the confirmed event (lib/fillBook pins post-fill reads at ≥ it)
         const rb = (j.result as { receipt?: { blockNumber?: unknown } }).receipt?.blockNumber;
@@ -601,7 +627,7 @@ export class Mav2Account {
           this.gas.drop(kind);
           const revertData = opRevertReason(got.logs, hash);
           logTradeError("trade reverted", { userOpHash: hash, txHash: got.txHash, revertData });
-          throw new AAError("Reverted", REJECTED_MSG, { userOpHash: hash, txHash: got.txHash, revertData });
+          throw new AAError("Reverted", REJECTED_MSG, { userOpHash: hash, txHash: got.txHash, revertData, ...revertGas(got.logs, hash, wire.callGasLimit) });
         }
         opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, pressId, blockNumber: blockStr(...got.logs.map((l) => (l as { blockNumber?: unknown }).blockNumber)) });
         this.deployed = true;
@@ -619,7 +645,7 @@ export class Mav2Account {
       this.gas.drop(kind);
       const revertData = opRevertReason(got.logs, hash);
       logTradeError("trade reverted", { userOpHash: hash, txHash: got.txHash, revertData });
-      throw new AAError("Reverted", REJECTED_MSG, { userOpHash: hash, txHash: got.txHash, revertData });
+      throw new AAError("Reverted", REJECTED_MSG, { userOpHash: hash, txHash: got.txHash, revertData, ...revertGas(got.logs, hash, wire.callGasLimit) });
     }
     const timings: OpTimings = { build: 0, sign: 0, rpc: Math.round(now() - t0), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, timings, pressId, blockNumber: blockStr(...got.logs.map((l) => (l as { blockNumber?: unknown }).blockNumber)) });

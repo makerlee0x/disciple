@@ -53,6 +53,21 @@ export const isGradBuyCalls = (calls: { data: string }[]) => calls.some((c) => G
  * Sum with session verification + PVG + paymaster gas stays under GRAD_GAS_CAPS.total (6M).
  */
 export const GRAD_STATIC_GAS: GasLimits = { callGasLimit: BigInt(4_000_000), verificationGasLimit: BigInt(350_000), preVerificationGas: BigInt(60_000) };
+/** Execution-gas padding for a graduating session buy estimated with eth_estimateGas(EntryPoint → account.executeBatch):
+ *  that direct call skips the session's pre-exec policy hook (it re-quotes the route, ≈ 0.3–0.6M) and the in-op paymaster
+ *  approve, and graduation gas varies with curve state ⇒ ×1.25 + 700k. Clamped to [GRAD_STATIC_GAS, GRAD_CALL_GAS_MAX]. */
+export const GRAD_EST_PAD_NUM = BigInt(125), GRAD_EST_PAD_ADD = BigInt(700_000);
+/** Highest call gas we ever ask for on a graduating buy: + session verification 350k + PVG 60k + paymaster 200k ⇒ 5.21M,
+ *  under GRAD_GAS_CAPS (5M call is the server's call cap ⇒ 4.6M keeps 400k spare; total 6M). */
+export const GRAD_CALL_GAS_MAX = BigInt(4_600_000);
+/** Session USDG-gas graduating buy limits from a real estimate (null / failed ⇒ GRAD_STATIC_GAS). Pure. */
+export function gradSessionGas(estimate: bigint | null | undefined): GasLimits {
+  if (!estimate || estimate <= BigInt(0)) return GRAD_STATIC_GAS;
+  let call = (estimate * GRAD_EST_PAD_NUM) / BigInt(100) + GRAD_EST_PAD_ADD;
+  if (call < GRAD_STATIC_GAS.callGasLimit) call = GRAD_STATIC_GAS.callGasLimit;
+  if (call > GRAD_CALL_GAS_MAX) call = GRAD_CALL_GAS_MAX;
+  return { ...GRAD_STATIC_GAS, callGasLimit: call };
+}
 export class GasCache {
   private m = new Map<string, GasLimits>();
   /** Headroom: call gas varies with v4 ticks crossed / curve state; verification and PVG are ~constant. */
