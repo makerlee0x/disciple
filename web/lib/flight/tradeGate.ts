@@ -5,8 +5,8 @@
  *      "Too big for this rocket right now" when the quote is over the router's live max impact (SITE's
  *      readRouterMaxImpactBps via lib/flight/gradAdapter; NEVER hard-coded; 0 / null = no cap). Scope change from lee 7:09 PM CT: NOTHING is greyed, disabled or
  *      blocked for price impact, in any mode, and the warning is never a confirm dialog (rapid taps still send).
- *   2. one exact GRADUATE buy, sized from the curve + router (SITE's readGradNeedForToken usdgIn + withGradMargin, via
- *      lib/flight/gradAdapter), never from the HUD's ≈ maths.
+ *   2. one exact GRADUATE buy, sized from the curve + router (SITE's readGradNeedForToken usdgIn, via
+ *      lib/flight/gradAdapter; no extra margin), never from the HUD's ≈ maths.
  *   3. plain trade error copy (no "router" / "slippage" / "minOut" / "gas").
  * Player copy below is PLACEHOLDER pending lee + BRAND, except OUT_OF_GAS (lee-approved).
  */
@@ -74,9 +74,9 @@ export const ceilCents = (usd: number) => (usd > 0 ? Math.ceil(usd * 100 - 1e-7)
 /** The engine drops live buys under its MIN_SHOT ($0.20, public/flight/engine.js "MINIMUM BUY"), so GRADUATE never asks for less. */
 export const GRAD_MIN_USD = 0.2;
 /**
- * $ for the GRADUATE button from SITE's GradNeed.usdgIn (USDG raw, quoted through the router, already margined by the caller
- * with SITE's withGradMargin). Rounded UP to the cent, floored at GRAD_MIN_USD. null / 0 / unroutable ⇒ null (hide GRADUATE).
- * (IRON on testnet 2026-10-24: usdgIn ≈ 0.2846 USDG ⇒ withGradMargin ⇒ $0.29.)
+ * $ for the GRADUATE button from SITE's GradNeed.usdgIn (USDG raw, quoted through the router; SITE already adds +0.1%).
+ * No extra margin (SITE's withGradMargin is classifier tolerance only). Rounded UP to the cent, floored at GRAD_MIN_USD. null / 0 / unroutable ⇒ null (hide GRADUATE).
+ * (IRON on testnet 2026-10-24: usdgIn ≈ 0.2846 USDG ⇒ $0.29.)
  */
 export function graduateUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals = 6, minUsd = GRAD_MIN_USD): number | null {
   if (usdgRaw == null || usdgRaw <= BigInt(0)) return null;

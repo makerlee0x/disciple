@@ -3,13 +3,14 @@
  * GAME UI shapes live here (the pure maths is in lib/flight/tradeGate).
  *   - liveMaxImpactBps: DiscipleRouter.maxImpactBps via readRouterMaxImpactBps (cached 60 s by SITE). This IS the live limit
  *     (the router passes it into the curve; 100000 bps since FLOW raised it at 7:10 PM CT 2026-10-24). 0 / unreadable = no cap.
- *   - graduateBuyUsd: $ for GRADUATE · $X from readGradNeedForToken().usdgIn (USDG through the router) + SITE's withGradMargin
- *     (GRAD_QUOTE_MARGIN_BPS). null ⇒ graduated / not routable / read failed ⇒ GRADUATE is hidden.
+ *   - graduateBuyUsd: $ for GRADUATE · $X = readGradNeedForToken().usdgIn (USDG through the router, already +0.1% by SITE),
+ *     rounded up to the cent, $0.20 floor. NO withGradMargin: that 0.5% is only SITE's "graduates?" classifier tolerance, not
+ *     spend (SITE 7:42 PM CT; the relay still classifies an overshooting buy as graduating). null ⇒ graduated / not routable /
+ *     read failed ⇒ GRADUATE is hidden.
  */
 import type { Address } from "viem";
 import { hasRouter, deployment } from "@/lib/chains";
 import { publicClient, readGradNeedForToken, readRouterMaxImpactBps } from "@/lib/protocol-viem";
-import { withGradMargin } from "@/lib/trade/gradNeed";
 import { graduateUsdFromUsdg } from "./tradeGate";
 
 export async function liveMaxImpactBps(): Promise<number> {
@@ -21,6 +22,6 @@ export async function graduateBuyUsd(token: string): Promise<number | null> {
   try {
     const n = await readGradNeedForToken(publicClient(), token as Address);
     if (n.graduated || n.usdgIn == null || n.usdgIn <= BigInt(0)) return null;
-    return graduateUsdFromUsdg(withGradMargin(n.usdgIn), deployment().usdgDecimals);
+    return graduateUsdFromUsdg(n.usdgIn, deployment().usdgDecimals);
   } catch { return null; }
 }

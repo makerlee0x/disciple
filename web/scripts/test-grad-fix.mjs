@@ -1,6 +1,5 @@
 // GAME graduation fix (lee 7:04 / 7:09 PM CT 2026-10-24): price-move WARNINGS (never block), exact GRADUATE buy from the curve,
-// plain trade-error copy — on SITE's real helpers (PR #157: tradeErrorKind, readRouterMaxImpactBps, readGradNeedForToken,
-// withGradMargin). Pure helpers run for real (tsx; no RPC); wiring is source-checked.
+// plain trade-error copy — on SITE's real helpers (PR #157: tradeErrorKind, readRouterMaxImpactBps, readGradNeedForToken). Pure helpers run for real (tsx; no RPC); wiring is source-checked.
 import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import assert from "node:assert/strict";
@@ -8,7 +7,6 @@ import { encodeErrorResult, parseAbi } from "viem";
 import * as G from "../lib/flight/tradeGate.ts";
 import { tradeErrorKind, friendlyError } from "../lib/protocol-viem.ts";
 import { AAError } from "../lib/aa/core.ts";
-import { GRAD_QUOTE_MARGIN_BPS, withGradMargin } from "../lib/trade/gradNeed.ts";
 const rd = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 const tb = rd("components/TradeBridge.tsx"), bar = rd("components/flight/PhoneTradeBar.tsx"), eng = rd("public/flight/engine.js");
 const wb = rd("lib/flight/workerBridge.ts"), ad = rd("lib/flight/gradAdapter.ts"), gate = rd("lib/flight/tradeGate.ts");
@@ -69,15 +67,15 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(/plainReason\(e\) \?\?/.test(tb), "bridge maps thrown failures (the viem client always throws on failure)");
   const rev = new Function(`${eng.match(/function isOnchainRevert\(reason\)\{[^\n]+/)[0]}\nreturn isOnchainRevert;`)();
   ok(!rev("Too big for this rocket right now. Try a smaller amount.") && !rev("Price moved. Tap again.") && !rev("That didn't go through. Try again.") && rev("reverted"), "engine: plain copy isn't prefixed 'trade failed:'");
-  // 4) graduate $ from SITE's GradNeed.usdgIn (router-quoted USDG) + SITE's withGradMargin (no GAME launch-price maths / 3% margin)
-  ok(GRAD_QUOTE_MARGIN_BPS === 50n && withGradMargin(1_000_000n) === 1_005_000n, "SITE margin = 0.5%");
-  const iron = withGradMargin(284_600n);   // IRON testnet 2026-10-24: usdgIn ≈ 0.2846 USDG
+  // 4) graduate $ = SITE's GradNeed.usdgIn (router-quoted USDG, SITE's +0.1% included) rounded up to the cent; NO extra margin
+  const iron = 284_600n;   // IRON testnet 2026-10-24: usdgIn ≈ 0.2846 USDG
   const usd = G.graduateUsdFromUsdg(iron, 6);
   ok(usd >= 0.29 && usd <= 0.30 && usd === 0.29, `IRON graduate $ (${usd})`);
   ok(G.graduateUsdFromUsdg(null) === null && G.graduateUsdFromUsdg(0n) === null, "usdgIn null / 0 ⇒ hide GRADUATE");
   ok(G.graduateUsdFromUsdg(1000n) === 0.2 && G.GRAD_MIN_USD === 0.2 && /const MIN_SHOT=0\.20;/.test(eng), "floored at the engine's live MIN_SHOT ($0.20; smaller live buys are dropped)");
   ok(G.graduateUsdFromUsdg(1_234_567n) === 1.24, "rounds UP to the cent");
-  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /graduateUsdFromUsdg\(withGradMargin\(n\.usdgIn\)/.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken + withGradMargin; null usdgIn hides");
+  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /graduateUsdFromUsdg\(n\.usdgIn, /.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken usdgIn as-is; null usdgIn hides");
+  ok(!/withGradMargin\(|GRAD_QUOTE_MARGIN_BPS/.test(ad.replace(/\/\*[\s\S]*?\*\//g, "") + gate.replace(/\/\*[\s\S]*?\*\//g, "")) && !/import[^\n]*withGradMargin/.test(ad + gate + tb), "no withGradMargin on the spend (classifier tolerance only)");
   ok(!/graduationFromProbe|GRAD_MARGIN_BPS|quotePriceUsd/.test(gate + ad), "old launch-price conversion + 3% margin removed");
   ok(G.graduateLabel(0.3) === "GRADUATE · $0.30" && G.graduateLabel(0.001) === "GRADUATE · $0.01", "label always cents, never $0");
   ok(G.showGraduate(0.3, [1, 5, 25, 100]) && !G.showGraduate(1.5, [1, 5, 25, 100]) && !G.showGraduate(null, [1]), "GRADUATE only when ≤ smallest preset");

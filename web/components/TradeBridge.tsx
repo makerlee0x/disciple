@@ -394,7 +394,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   }, [valid, token]);
   const has = live && liveHas != null ? liveHas : pos.size > 0;
   // GRADUATE (GAME graduation fix 2): the exact $ left to graduate, from the curve + router (SITE's readGradNeedForToken
-  // usdgIn + withGradMargin, via lib/flight/gradAdapter graduateBuyUsd), never from the HUD's ≈ maths. Live only (paper trades don't move the curve).
+  // usdgIn as-is (no extra margin), via lib/flight/gradAdapter graduateBuyUsd), never from the HUD's ≈ maths. Live only (paper trades don't move the curve).
   // Also pushed to the engine (disciple:gradbuy) so the tier bar shows the real "$0.30 to graduate", never "≈$0".
   const [grad, setGrad] = useState<number | null>(null);
   useEffect(() => {
