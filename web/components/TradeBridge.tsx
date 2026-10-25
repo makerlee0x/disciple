@@ -7,7 +7,7 @@ import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
+import { tradeErrorKind, balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
@@ -26,8 +26,7 @@ import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 import { readCoinRules } from "@/lib/flight/coinRules";
 import { chipTag, graduateLabel, moveWarnings, plainTradeMessage, showGraduate, type MoveWarn } from "@/lib/flight/tradeGate";
-import { classifyTradeError } from "@/lib/flight/tradeErrorShim";
-import { getGraduationBuy, getMaxImpactBps, graduationBuyUsd } from "@/lib/flight/gradShim";
+import { graduateBuyUsd, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -196,11 +195,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         return null;
       } catch { return null; /* the estimate stays booked */ }
     };
-    /** Failure → GAME plain copy (lib/flight/tradeGate GAME_COPY, PLACEHOLDER) via the SITE classifier shim; null = keep the message. */
-    const plainReason = (e: unknown, side: "buy" | "sell", usd: number) => {
-      const g = gradRef.current;
-      return plainTradeMessage(classifyTradeError(e, { graduating: side === "buy" && g != null && usd + 1e-9 >= g }));
-    };
+    /** Failure → GAME plain copy (lib/flight/tradeGate GAME_COPY) by SITE's tradeErrorKind; null (OTHER) = keep the message. */
+    const plainReason = (e: unknown) => plainTradeMessage(tradeErrorKind(e));
     window.__discipleTrade = async (side, usd, o) => {
       const t0 = performance.now(); let quoteAt: number | undefined;
       tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
@@ -247,12 +243,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const ms = tradeMs(t0, { quoteAt, op: marks.byTx(r.txHash), resultAt, fillAt });
         // timing instrumentation (no UI): addEventListener('disciple:op', e => e.detail.phase === 'filled' && console.log(e.detail))
         dispatchEvent(new CustomEvent("disciple:op", { detail: { phase: "filled", side, txHash: r.txHash, ok: r.ok, usd: fill ? fill.usd : usd, logs: logs ? "returned" : "polled", ms, op: marks.byTx(r.txHash)?.timings, at: performance.now() } }));
-        const reason = r.ok ? r.reason : plainReason({ message: r.reason }, side, usd) ?? r.reason;
-        if (!r.ok && reason) setLast(`✕ ${reason}`);
-        return { ok: r.ok, txHash: r.txHash, reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
+        return { ok: r.ok, txHash: r.txHash, reason: r.reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
       } catch (e) {
         // plain copy for the classified failures (price impact / price moved / gas), else the existing plain line
-        const m = plainReason(e, side, usd) ?? String((e as Error)?.message ?? e).split("\n")[0].slice(0, 90);
+        const m = plainReason(e) ?? String((e as Error)?.message ?? e).split("\n")[0].slice(0, 90);
         setLast(`✕ ${m}`);
         return { ok: false, reason: m };
       } finally { bump(-1); }
@@ -399,16 +393,15 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     return () => { alive = false; clearInterval(iv); removeEventListener("disciple:ammo", boot); removeEventListener("disciple:livetrade", again); };
   }, [valid, token]);
   const has = live && liveHas != null ? liveHas : pos.size > 0;
-  // GRADUATE (GAME graduation fix 2): the exact $ left to graduate, from the CURVE (lib/flight/gradShim getGraduationBuy →
-  // graduationBuyUsd; TODO(SITE) helper), never from the HUD's ≈ maths. Live only (paper trades don't move the curve).
+  // GRADUATE (GAME graduation fix 2): the exact $ left to graduate, from the curve + router (SITE's readGradNeedForToken
+  // usdgIn + withGradMargin, via lib/flight/gradAdapter graduateBuyUsd), never from the HUD's ≈ maths. Live only (paper trades don't move the curve).
   // Also pushed to the engine (disciple:gradbuy) so the tier bar shows the real "$0.30 to graduate", never "≈$0".
   const [grad, setGrad] = useState<number | null>(null);
-  const gradRef = useRef<number | null>(null); gradRef.current = grad;
   useEffect(() => {
     if (!live) { setGrad(null); dispatchEvent(new CustomEvent("disciple:gradbuy", { detail: { usd: null } })); return; }
     let alive = true;
     const poll = async () => { if (!alive || document.hidden) return;
-      try { const g = await getGraduationBuy(token); const usd = g ? await graduationBuyUsd(token, g) : null;
+      try { const usd = await graduateBuyUsd(token);
         if (alive) { setGrad(usd); dispatchEvent(new CustomEvent("disciple:gradbuy", { detail: { usd } })); } } catch { /* keep last */ } };
     void poll(); const iv = setInterval(poll, 4000);
     const soon = () => setTimeout(() => void poll(), 300);
@@ -460,7 +453,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const customSellUsd = sellUnit === "$" && sellCustomN ? (pos.valueUsd > 0 ? Math.min(sellCustomN, pos.valueUsd) : sellCustomN) : 0;
   const dumpLabel = customSellPct ? `${+customSellPct.toFixed(2)}%` : customSellUsd ? fmtMoney(customSellUsd) : selSellPreset.label;
   // Expected price move per amount (buy presets + custom $, sell presets + custom %) from on-chain quotes, vs the BIG_MOVE_BPS
-  // threshold and the router's live max impact (gradShim getMaxImpactBps; 0 = no cap ⇒ no "too big" warning). Live only,
+  // threshold and the router's live max impact (SITE readRouterMaxImpactBps via gradAdapter; 0 = no cap ⇒ no "too big" warning). Live only,
   // off the trade hot path (own 4 s loop + after trades). Warnings only: nothing here can block a tap.
   const buySig = ammo.usd.slice(0, 4).join(), sellFracSig = cfg.sells.join();
   useEffect(() => {
@@ -470,7 +463,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     const run = async () => {
       if (!alive || document.hidden) return;
       try {
-        const max = await getMaxImpactBps();
+        const max = await liveMaxImpactBps();
         const me = await activeAddress().catch(() => null);
         const bal = me ? await ownHint(pc, tk, me, 4000).catch(() => BigInt(0)) : BigInt(0);
         const buyUsd = [...ammo.usd.slice(0, 4), customUsd], fracs = [...cfg.sells.map((v) => v / 100), customSellPct / 100];

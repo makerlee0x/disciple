@@ -756,7 +756,7 @@ addEventListener('disciple:sellpresets',e=>{ const a=e.detail&&e.detail.items; i
 // router's live limit) + the hover line. WARNING ONLY: selecting / BOOSTing is never blocked for price impact (lee 7:09 PM CT).
 S.buyWarn={tags:[],texts:[],over:[]};
 addEventListener('disciple:buywarn',e=>{ const d=e.detail||{}; S.buyWarn={tags:Array.isArray(d.tags)?d.tags:[],texts:Array.isArray(d.texts)?d.texts:[],over:Array.isArray(d.over)?d.over:[]}; });
-// exact $ left to graduate, from the curve (TradeBridge → lib/flight/gradShim getGraduationBuy); null = unknown / paper → HUD estimate
+// exact $ left to graduate, from the curve (TradeBridge → lib/flight/gradAdapter, SITE readGradNeedForToken); null = unknown / paper → HUD estimate
 S.gradBuyUsd=null;
 addEventListener('disciple:gradbuy',e=>{ const u=e.detail&&e.detail.usd; S.gradBuyUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null; });
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */

@@ -1,17 +1,20 @@
-// GAME graduation fix (lee 7:04 / 7:09 PM CT 2026-10-24): price-move WARNINGS (never block), exact GRADUATE buy from the curve
-// (SITE shim), plain trade-error copy. Pure helpers run for real (lib/flight/tradeGate + tradeErrorShim); wiring is source-checked.
-import { readFileSync } from "node:fs";
+// GAME graduation fix (lee 7:04 / 7:09 PM CT 2026-10-24): price-move WARNINGS (never block), exact GRADUATE buy from the curve,
+// plain trade-error copy — on SITE's real helpers (PR #157: tradeErrorKind, readRouterMaxImpactBps, readGradNeedForToken,
+// withGradMargin). Pure helpers run for real (tsx; no RPC); wiring is source-checked.
+import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { loadLib } from "./lib/load-ts.mjs";
+import { encodeErrorResult, parseAbi } from "viem";
+import * as G from "../lib/flight/tradeGate.ts";
+import { tradeErrorKind, friendlyError } from "../lib/protocol-viem.ts";
+import { AAError } from "../lib/aa/core.ts";
+import { GRAD_QUOTE_MARGIN_BPS, withGradMargin } from "../lib/trade/gradNeed.ts";
 const rd = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 const tb = rd("components/TradeBridge.tsx"), bar = rd("components/flight/PhoneTradeBar.tsx"), eng = rd("public/flight/engine.js");
-const wb = rd("lib/flight/workerBridge.ts"), shim = rd("lib/flight/gradShim.ts"), gate = rd("lib/flight/tradeGate.ts");
+const wb = rd("lib/flight/workerBridge.ts"), ad = rd("lib/flight/gradAdapter.ts"), gate = rd("lib/flight/tradeGate.ts");
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
-const { mods, cleanup } = await loadLib(["flight/tradeGate", "flight/tradeErrorShim"], "gradfix-");
-const G = mods["flight/tradeGate"], E = mods["flight/tradeErrorShim"];
-try {
-  // 1) warning threshold (named constant) + live limit 5000 vs no cap
+{
+  // 1) warning threshold (named constant) + live limit 5000 vs 100000 (FLOW raised the router to 100000 at 7:10 PM CT) vs no cap
   ok(G.BIG_MOVE_BPS === 1000, "BIG_MOVE_BPS named constant = 10%");
   ok(G.moveWarning("buy", 999, 5000).level === "none", "9.99% move: no warning");
   ok(G.moveWarning("buy", 1000, 5000).level === "big", "10% move: big-move warning");
@@ -19,6 +22,9 @@ try {
   ok(G.moveWarning("sell", -3800, 5000).text === "Big move: price −38%", "sell copy: price −38%");
   ok(G.moveWarning("buy", 6200, 5000).level === "over" && G.moveWarning("buy", 6200, 5000).text === "Too big for this rocket right now · price +62%", "over the 5000 bps limit: likely-to-fail warning");
   ok(G.moveWarning("buy", 5000, 5000).level === "big", "exactly at the limit: not over");
+  ok(G.moveWarning("buy", 6200, 100000).level === "big" && G.moveWarning("buy", 6200, 100000).text === "Big move: price +62%", "limit 100000: same 62% quote is only a big move");
+  ok(G.moveWarning("buy", 99_000, 100000).level === "big" && G.moveWarning("buy", 100_001, 100000).level === "over", "limit 100000 is a real cap (≥10000 is NOT treated as no cap)");
+  ok(G.hasImpactCap(100000) && G.hasImpactCap(5000) && !G.hasImpactCap(0) && !G.hasImpactCap(null), "only 0 / null = no cap");
   for (const off of [0, null, undefined, NaN, -1]) ok(G.moveWarning("buy", 9000, off).level === "big", `limit ${off}: no cap ⇒ no over-limit warning (big-move still shown)`);
   ok(G.moveWarning("buy", null, 5000).level === "none" && G.moveWarning("buy", NaN, 5000).level === "none", "unknown quote: no warning");
   ok(G.moveWarning("buy", 1500, 5000, 2000).level === "none", "threshold is tunable");
@@ -40,16 +46,19 @@ try {
   ok(/S\.buyWarn\.tags\[i\]/.test(eng) && /p\.on&&p\.warn/.test(eng), "engine: buy tiles + sell chips show the tag");
   ok(/on: has, sel: i === sellSel,\n\s*warn: chipTag/.test(tb), "sell chips: `on` stays holdings-only, warn is extra");
   ok(/data-testid="trade-warn"/.test(tb) && /data-testid="trade-warn"/.test(bar), "trade bar + phone bar show the active warning line");
-  ok(/getMaxImpactBps\(\)/.test(tb) && /moveWarnings\("buy"/.test(tb) && /moveWarnings\("sell"/.test(tb), "TradeBridge reads the live limit + quotes for both sides");
+  ok(/liveMaxImpactBps\(\)/.test(tb) && /readRouterMaxImpactBps\(publicClient\(\)\)/.test(ad) && !/10_?000\b/.test(ad) && /moveWarnings\("buy"/.test(tb) && /moveWarnings\("sell"/.test(tb), "TradeBridge reads the live limit + quotes for both sides");
   ok(/"disciple:buywarn"/.test(wb) && /"disciple:gradbuy"/.test(wb), "worker forwards the new events");
-  // 3) plain errors via the classifier shim
-  const C = (e, c) => E.classifyTradeError(e, c);
-  ok(C({ code: "PriceImpactTooHigh", message: "router cap" }) === "PRICE_IMPACT", "PriceImpactTooHigh → PRICE_IMPACT");
-  ok(C(new Error("PriceImpactTooHigh(7712, 5000)")) === "PRICE_IMPACT", "message-only price impact");
-  ok(C({ code: "PreExecHookReverted", message: "x" }) === "MIN_OUT" && C(new Error("MinOutTooLow")) === "MIN_OUT", "MinOutTooLow (wrapped) → MIN_OUT");
-  ok(C(new Error("AA95 out of gas")) === "OUT_OF_GAS" && C({ code: "Reverted", message: "reverted", extra: { revertData: "0x" } }) === "OUT_OF_GAS", "gas / empty revert → OUT_OF_GAS");
-  ok(C({ code: "Estimate", message: "e" }, { graduating: true }) === "OUT_OF_GAS" && C({ code: "Estimate", message: "e" }) === "OTHER", "graduating estimate failure → OUT_OF_GAS only when graduating");
-  ok(C(new Error("not enough USDG")) === "OTHER", "everything else OTHER");
+  // 3) plain errors via SITE's tradeErrorKind (our classifier shim is gone)
+  ok(!existsSync(new URL("../lib/flight/tradeErrorShim.ts", import.meta.url)) && !existsSync(new URL("../lib/flight/gradShim.ts", import.meta.url)), "GAME shims deleted");
+  ok(/import \{ tradeErrorKind,[^\n]*from "@\/lib\/protocol-viem"/.test(tb) && /plainTradeMessage\(tradeErrorKind\(e\)\)/.test(tb), "bridge uses SITE's tradeErrorKind");
+  const R = parseAbi(["error MinOutTooLow(uint256 minOut, uint256 required)", "error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps)"]);
+  const impact = encodeErrorResult({ abi: R, errorName: "PriceImpactTooHigh", args: [12931n, 5000n] });
+  const minOut = encodeErrorResult({ abi: R, errorName: "MinOutTooLow", args: [1n, 2n] });
+  const msg = (e) => G.plainTradeMessage(tradeErrorKind(e));
+  ok(msg(friendlyError(new AAError("Reverted", "x", { revertData: impact }))) === "Too big for this rocket right now. Try a smaller amount.", "PriceImpactTooHigh → plain PRICE_IMPACT copy");
+  ok(msg(friendlyError(new AAError("Reverted", "x", { revertData: minOut }))) === "Price moved. Tap again.", "MinOutTooLow → plain MIN_OUT copy");
+  ok(msg(friendlyError(new AAError("Reverted", "x", { revertData: undefined, actualGasUsed: 1_915_000n, callGasLimit: 1_800_000n }))) === "That didn't go through. Try again.", "out of gas → plain OUT_OF_GAS copy");
+  ok(msg(new Error("not enough USDG")) === null, "OTHER keeps the existing message");
   ok(G.plainTradeMessage("PRICE_IMPACT") === "Too big for this rocket right now. Try a smaller amount.", "PRICE_IMPACT copy");
   ok(G.plainTradeMessage("MIN_OUT") === "Price moved. Tap again.", "MIN_OUT copy");
   ok(G.plainTradeMessage("OUT_OF_GAS") === "That didn't go through. Try again.", "OUT_OF_GAS copy");
@@ -57,24 +66,21 @@ try {
     ok(!Object.values(G.GAME_COPY).some((t) => dropped.test(t)) && !dropped.test(tb + bar + eng + gate), "OUT_OF_GAS copy makes no 'spent' claim"); }
   ok(G.plainTradeMessage("OTHER") === null, "OTHER keeps the existing message");
   for (const t of Object.values(G.GAME_COPY)) ok(!/router|slippage|min ?out|gas/i.test(t), `no jargon: ${t}`);
-  ok(/plainReason\(e, side, usd\)/.test(tb) && /plainReason\(\{ message: r\.reason \}/.test(tb), "bridge maps thrown + !ok failures");
+  ok(/plainReason\(e\) \?\?/.test(tb), "bridge maps thrown failures (the viem client always throws on failure)");
   const rev = new Function(`${eng.match(/function isOnchainRevert\(reason\)\{[^\n]+/)[0]}\nreturn isOnchainRevert;`)();
   ok(!rev("Too big for this rocket right now. Try a smaller amount.") && !rev("Price moved. Tap again.") && !rev("That didn't go through. Try again.") && rev("reverted"), "engine: plain copy isn't prefixed 'trade failed:'");
-  // 4) graduate maths from the shim
-  const probe = 10n ** 24n;
-  const g = G.graduationFromProbe(probe, { tokensOut: 8_310000000000000000n, graduates: true, refund: probe - 114_200000000000000000n });
-  ok(g && g.inputNeeded === 114_200000000000000000n && g.remainingTokens === 8_310000000000000000n, "inputNeeded = probe − refund, remainingTokens = tokensOut");
-  ok(G.graduationFromProbe(probe, { tokensOut: 1n, graduates: false, refund: 0n }) === null, "not graduating ⇒ null");
-  // STRATEGY-quoted IRON: 114.2 STRATEGY × $0.00245 ≈ $0.2798 → +3% +1¢ → ceil cents
-  const qp = 2_450000000000000n;   // $0.00245 per STRATEGY (USD WAD)
-  const usd = G.graduateUsd({ inputNeeded: g.inputNeeded, quoteIsUsdg: false, usdgDecimals: 6, quotePriceUsd: qp, minShot: 0.2 });
-  ok(usd === G.ceilCents(0.27979 * 1.03 + 0.01) && usd === 0.30, `IRON graduate $ (${usd})`);
-  ok(G.graduateUsd({ inputNeeded: 1_234_567n, quoteIsUsdg: true, usdgDecimals: 6, quotePriceUsd: 0n, minShot: 0.2 }) === G.ceilCents(1.234567 * 1.03 + 0.01), "USDG-quoted 1:1");
-  ok(G.graduateUsd({ inputNeeded: 1000n, quoteIsUsdg: true, usdgDecimals: 6, quotePriceUsd: 0n, minShot: 0.2 }) === 0.2, "never below MIN_SHOT");
+  // 4) graduate $ from SITE's GradNeed.usdgIn (router-quoted USDG) + SITE's withGradMargin (no GAME launch-price maths / 3% margin)
+  ok(GRAD_QUOTE_MARGIN_BPS === 50n && withGradMargin(1_000_000n) === 1_005_000n, "SITE margin = 0.5%");
+  const iron = withGradMargin(284_600n);   // IRON testnet 2026-10-24: usdgIn ≈ 0.2846 USDG
+  const usd = G.graduateUsdFromUsdg(iron, 6);
+  ok(usd >= 0.29 && usd <= 0.30 && usd === 0.29, `IRON graduate $ (${usd})`);
+  ok(G.graduateUsdFromUsdg(null) === null && G.graduateUsdFromUsdg(0n) === null, "usdgIn null / 0 ⇒ hide GRADUATE");
+  ok(G.graduateUsdFromUsdg(1000n) === 0.2 && G.GRAD_MIN_USD === 0.2 && /const MIN_SHOT=0\.20;/.test(eng), "floored at the engine's live MIN_SHOT ($0.20; smaller live buys are dropped)");
+  ok(G.graduateUsdFromUsdg(1_234_567n) === 1.24, "rounds UP to the cent");
+  ok(/readGradNeedForToken\(publicClient\(\), token as Address\)/.test(ad) && /graduateUsdFromUsdg\(withGradMargin\(n\.usdgIn\)/.test(ad) && /n\.usdgIn == null/.test(ad), "adapter: SITE readGradNeedForToken + withGradMargin; null usdgIn hides");
+  ok(!/graduationFromProbe|GRAD_MARGIN_BPS|quotePriceUsd/.test(gate + ad), "old launch-price conversion + 3% margin removed");
   ok(G.graduateLabel(0.3) === "GRADUATE · $0.30" && G.graduateLabel(0.001) === "GRADUATE · $0.01", "label always cents, never $0");
   ok(G.showGraduate(0.3, [1, 5, 25, 100]) && !G.showGraduate(1.5, [1, 5, 25, 100]) && !G.showGraduate(null, [1]), "GRADUATE only when ≤ smallest preset");
-  ok(/export async function getMaxImpactBps\(\): Promise<number>/.test(shim) && /export async function getGraduationBuy\(token: [^)]*\): Promise<\{ remainingTokens: bigint; inputNeeded: bigint; quoteToken: string \} \| null>/.test(shim), "SITE shim signatures");
-  ok(/TODO\(SITE\)/.test(shim) && /TODO\(SITE/.test(rd("lib/flight/tradeErrorShim.ts")), "shims carry TODO(SITE)");
   ok(/shoot\("buy", \{ usd: grad \}\)/.test(tb) && /data-testid="grad-btn"/.test(tb) && /data-testid="grad-btn"/.test(bar), "GRADUATE buys the exact curve amount (desktop + phone)");
   // 5) tier bar: exact amount, never ≈$0
   const fmtUsd = new Function(`${eng.match(/const fmtUsd=[^\n]+/)[0]}\nreturn fmtUsd;`)();
@@ -83,4 +89,4 @@ try {
   ok(/exact\?`\$\{fmtNeed\(need\)\} to graduate`/.test(eng) && /S\.gradBuyUsd!=null&&nx\.lo>=TB_M1&&m<TB_M1/.test(eng), "tier bar uses the exact curve amount at graduation");
   ok(!/≈\$\{fmtUsd\(need\)\}/.test(eng), "no more ≈${fmtUsd(need)} (≈$0)");
   console.log(`test-grad-fix: ${n} checks passed`);
-} finally { cleanup(); }
+}

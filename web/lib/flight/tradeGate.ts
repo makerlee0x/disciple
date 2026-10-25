@@ -2,16 +2,18 @@
  * GAME graduation fix (maker lee 2026-10-24 7:04 PM CT, "graduation fix 1-3", item 3 = GAME). Pure helpers, no viem / DOM,
  * shared by components/TradeBridge.tsx, components/flight/PhoneTradeBar.tsx and scripts/test-grad-fix.mjs:
  *   1. price-move WARNINGS before a big trade (chip, picker sheet, trade bar): "Big move: price +38%" at ≥ BIG_MOVE_BPS, and
- *      "Too big for this rocket right now" when the quote is over the router's live max impact (lib/flight/gradShim
- *      getMaxImpactBps; NEVER hard-coded; 0 = no cap). Scope change from lee 7:09 PM CT: NOTHING is greyed, disabled or
+ *      "Too big for this rocket right now" when the quote is over the router's live max impact (SITE's
+ *      readRouterMaxImpactBps via lib/flight/gradAdapter; NEVER hard-coded; 0 / null = no cap). Scope change from lee 7:09 PM CT: NOTHING is greyed, disabled or
  *      blocked for price impact, in any mode, and the warning is never a confirm dialog (rapid taps still send).
- *   2. one exact GRADUATE buy, sized from the curve (gradShim getGraduationBuy), never from the HUD's ≈ maths.
+ *   2. one exact GRADUATE buy, sized from the curve + router (SITE's readGradNeedForToken usdgIn + withGradMargin, via
+ *      lib/flight/gradAdapter), never from the HUD's ≈ maths.
  *   3. plain trade error copy (no "router" / "slippage" / "minOut" / "gas").
- * ALL player copy below is PLACEHOLDER pending lee + BRAND.
+ * Player copy below is PLACEHOLDER pending lee + BRAND, except OUT_OF_GAS (lee-approved).
  */
+import type { TradeErrorKind } from "../protocol-viem";
 
-/** Stable trade-error codes. Mirrors the codes SITE's grad/gas PR will export (TODO(SITE): import theirs once landed). */
-export type TradeErrorCode = "PRICE_IMPACT" | "MIN_OUT" | "OUT_OF_GAS" | "OTHER";
+/** SITE's stable trade-error kind (lib/protocol-viem tradeErrorKind). Type-only import: this module stays pure. */
+export type TradeErrorCode = TradeErrorKind;
 
 /** PLACEHOLDER copy (pending lee + BRAND). */
 export const GAME_COPY = {
@@ -69,33 +71,18 @@ export const chipTag = (side: "buy" | "sell", w: MoveWarn | null | undefined) =>
 /** Round UP to the cent (never shows $0.00 for a buy that is still needed). Float noise below 1e-9 cents is ignored. */
 export const ceilCents = (usd: number) => (usd > 0 ? Math.ceil(usd * 100 - 1e-7) / 100 : 0);
 
-/** Curve quoteBuy result fields the graduation maths needs. */
-export type GradQuote = { tokensOut: bigint; graduates: boolean; refund: bigint };
+/** The engine drops live buys under its MIN_SHOT ($0.20, public/flight/engine.js "MINIMUM BUY"), so GRADUATE never asks for less. */
+export const GRAD_MIN_USD = 0.2;
 /**
- * Exact graduating buy from ONE oversized curve quote: the curve fills up to graduation and refunds the rest, so
- * inputNeeded = probeIn − refund (fee included) and remainingTokens = tokensOut. Not graduating ⇒ null (not close / unknown).
- * (Checked on testnet IRON 2026-10-24: progress 9999 bps ⇒ 114.2 STRATEGY ≈ $0.28 left, 8.31 tokens.)
+ * $ for the GRADUATE button from SITE's GradNeed.usdgIn (USDG raw, quoted through the router, already margined by the caller
+ * with SITE's withGradMargin). Rounded UP to the cent, floored at GRAD_MIN_USD. null / 0 / unroutable ⇒ null (hide GRADUATE).
+ * (IRON on testnet 2026-10-24: usdgIn ≈ 0.2846 USDG ⇒ withGradMargin ⇒ $0.29.)
  */
-export function graduationFromProbe(probeIn: bigint, q: GradQuote): { remainingTokens: bigint; inputNeeded: bigint } | null {
-  if (!q || !q.graduates || probeIn <= BigInt(0)) return null;
-  const inputNeeded = probeIn - (q.refund > BigInt(0) ? q.refund : BigInt(0));
-  return inputNeeded > BigInt(0) ? { remainingTokens: q.tokensOut, inputNeeded } : null;
-}
-
-/** Default safety margin on the GRADUATE $: 3% (+1¢). The curve refunds any excess, so overshooting is safe; undershooting is not. */
-export const GRAD_MARGIN_BPS = 300;
-/**
- * $ to spend for the GRADUATE button. inputNeeded is in the coin's quote token: USDG-quoted ⇒ 1:1 dollars at usdgDecimals;
- * otherwise × the curve's launch-fixed quotePriceUsd (USD WAD per 1e18 quote raw, as lib/protocol-viem usdToAmountIn).
- * Rounded UP to the cent, never below the engine's minimum buy.
- */
-export function graduateUsd(o: { inputNeeded: bigint; quoteIsUsdg: boolean; usdgDecimals: number; quotePriceUsd: bigint; marginBps?: number; minShot?: number }): number {
-  if (!(o.inputNeeded > BigInt(0))) return 0;
-  const raw = o.quoteIsUsdg ? Number(o.inputNeeded) / 10 ** o.usdgDecimals
-    : Number((o.inputNeeded * o.quotePriceUsd) / BigInt(1e18)) / 1e18;
-  if (!(raw > 0) || !Number.isFinite(raw)) return 0;
-  const m = (o.marginBps ?? GRAD_MARGIN_BPS) / 10_000;
-  return Math.max(o.minShot ?? 0, ceilCents(raw * (1 + m) + 0.01));
+export function graduateUsdFromUsdg(usdgRaw: bigint | null | undefined, usdgDecimals = 6, minUsd = GRAD_MIN_USD): number | null {
+  if (usdgRaw == null || usdgRaw <= BigInt(0)) return null;
+  const usd = Number(usdgRaw) / 10 ** usdgDecimals;
+  if (!(usd > 0) || !Number.isFinite(usd)) return null;
+  return Math.max(minUsd, ceilCents(usd));
 }
 
 /** Show GRADUATE when the exact graduating buy is at or below the smallest preset (the "≈$0 buys needed" state). */

@@ -23,7 +23,7 @@ export type PhoneTradeBarProps = {
   buyWarn?: string[]; sellWarn?: string[];
   /** the active amount's warning line ("BOOST: Big move: price +38%"); shown under any blocking hint */
   warn?: string; warnOver?: boolean;
-  /** exact graduating buy (TradeBridge, gradShim) */
+  /** exact graduating buy (TradeBridge, lib/flight/gradAdapter) */
   grad?: { label: string; onClick: () => void; disabled: boolean; title: string } | null;
   keyGuard: { onKeyDown: (e: React.KeyboardEvent) => void; onKeyUp: (e: React.KeyboardEvent) => void };
 };
