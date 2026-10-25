@@ -41,11 +41,15 @@ test("sells are symmetric: usd = quote received × quote price (hook sell 87,677
   assert.equal(quoteUsd(B("1000000000000000000"), B("1000000000000000000")), 1, "USDG-style $1 quote: 1 unit = $1");
 });
 
-test("no quoteAmt / no quote price ⇒ falls back to tokens × price after (usdBasis 'price')", () => {
+test("no quoteAmt / no quote price ⇒ falls back to the old estimate, tokens × mid price (usdBasis 'price')", () => {
   const noQ: Partial<typeof SGRAD_BUY> = { ...SGRAD_BUY }; delete noQ.quoteAmt;
   const u = fillUsd(noQ as typeof SGRAD_BUY);
   assert.equal(u.usdBasis, "price");
-  assert.ok(Math.abs(u.usd - u.tokens * u.priceUsd) < 1e-9);
+  const mid = u.priceUsd * ((Number(SGRAD_BUY.priceAfterX18) + Number(SGRAD_BUY.priceBeforeX18)) / 2 / Number(SGRAD_BUY.priceAfterX18));
+  assert.ok(Math.abs(u.usd - u.tokens * mid) < 1e-6, `fallback ${u.usd}`);
+  // coarse (6-dec USDG) prices ⇒ no mid factor: tokens × price after
+  const c = fillUsd({ ...(noQ as typeof SGRAD_BUY), priceBeforeX18: B(1), priceAfterX18: B(2) });
+  assert.ok(Math.abs(c.usd - c.tokens * c.priceUsd) < 1e-9);
   assert.equal(fillUsd({ ...SGRAD_BUY, quotePriceUsd: B(0), mcapAfterUsd: B("1000000000000000000000") }).usdBasis, "price");
 });
 
