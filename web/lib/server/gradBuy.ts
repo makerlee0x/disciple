@@ -11,14 +11,16 @@
  *    any read ⇒ bounded work per op;
  *  - the buy targets a real curve: Launchpad.curveOf(curve.token()) == target (a fake contract can't claim it), or
  *    our DiscipleRouter (buyWithUsdg / buyExactIn) with Launchpad.curveOf(token) != 0;
- *  - units: router buyWithUsdg's amount is USDG; it is only compared with curve.quoteBuy when the curve's quote is
- *    USDG (else no upgrade — no price conversion on the hot path);
+ *  - units: router buyWithUsdg's amount is USDG. USDG-quoted curve ⇒ compared with curve.quoteBuy directly. Any other
+ *    quote (STRATEGY …) ⇒ converted ON-CHAIN exactly as the router executes it (router.quoteUsdgQuoteSwap(quote, true,
+ *    usdgIn), lib/trade/gradNeed) and the curve's quoteBuy(converted ⊕ GRAD_QUOTE_MARGIN_BPS).graduates decides; the
+ *    in-op approves must then be on USDG (to the router) and the funding check is on USDG. Never a client flag;
  *  - the curve is not graduated, curve.quoteBuy(quoteIn).graduates, and the sender can actually pay:
  *    balanceOf(sender) ≥ quoteIn and allowance(sender → curve/router) ≥ quoteIn, both in the POST-APPROVE state the
  *    buy sees: only approves run before it, so balance = the pre-op balance and allowance = the last in-op approve's
  *    amount (the pre-op allowance only when the op has no approve) — so an op can't claim the wide caps for a buy
  *    that would revert.
- * Reads are batched (one multicall per step, ≤ 3 steps) and injected (GradReads) so the rule is unit-tested without
+ * Reads are batched (one multicall per step, ≤ 3 steps; 4 for buyWithUsdg on a non-USDG curve: + the swap quote) and injected (GradReads) so the rule is unit-tested without
  * RPC (scripts/test-relay-policy.mts).
  */
 import type { Address, PublicClient } from "viem";
@@ -27,6 +29,7 @@ import { bondingCurveAbi as curveAbi } from "../abi/BondingCurve";
 import { launchpadAbi } from "../abi/Launchpad";
 import { capsForOp, exceedsCaps, GAS_CAPS, gradBuyCandidate, type GasCaps, type GasFields } from "../aa/gasPolicy";
 import { DEPLOYMENTS, ZERO } from "../chains";
+import { usdgToQuote, withGradMargin } from "../trade/gradNeed";
 
 export type CurveInfo = { token: string; quote: string; graduated: boolean };
 export type GradCheck = { curveOf: string; graduates: boolean; balance: bigint; allowance: bigint };
@@ -44,6 +47,9 @@ export type GradReads = {
   curveInfo(curve: string): Promise<CurveInfo>;
   /** One batch: Launchpad.curveOf(token), curve.quoteBuy(quoteIn).graduates, payToken.balanceOf(owner), payToken.allowance(owner, spender). */
   check(a: { token: string; curve: string; quoteIn: bigint; payToken: string; owner: string; spender: string }): Promise<GradCheck>;
+  /** router.quoteUsdgQuoteSwap(quote, true, usdgIn).amountOut — the quote a pre-grad buyWithUsdg delivers to a non-USDG
+   *  curve. Absent ⇒ buyWithUsdg on a non-USDG curve is never upgraded. */
+  usdgToQuote?(quote: string, usdgIn: bigint): Promise<bigint>;
 };
 const isZero = (a: string | undefined) => !a || /^0x0{40}$/i.test(a);
 const eq = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
@@ -64,10 +70,20 @@ export async function isGradBuyOp(callData: string, sender: string | undefined, 
     const info = await r.curveInfo(curve);
     if (isZero(info.token) || info.graduated) return false;
     if (b.kind === "router" && !eq(info.token, b.token)) return false;
-    if (b.unit === "usdg" && (!r.usdg || !eq(info.quote, r.usdg))) return false;   // USDG amount vs a non-USDG curve: skip
-    if (cand.quoteToken && !eq(cand.quoteToken, info.quote)) return false;   // in-op approves must be on the quote token
+    if (b.unit === "usdg" && !r.usdg) return false;
+    // USDG amount on a non-USDG curve (STRATEGY …): the router swaps USDG → quote first; convert on-chain the same way
+    const viaSwap = b.unit === "usdg" && !eq(info.quote, r.usdg);
+    if (viaSwap && !r.usdgToQuote) return false;
+    const payToken = viaSwap ? r.usdg! : info.quote;   // what the buy actually spends (balance + allowance checked on it)
+    if (cand.quoteToken && !eq(cand.quoteToken, payToken)) return false;   // in-op approves must be on the spent token
+    let curveIn = b.quoteIn;
+    if (viaSwap) {
+      const q = await r.usdgToQuote!(info.quote, b.quoteIn);
+      if (q <= BigInt(0)) return false;
+      curveIn = withGradMargin(q);
+    }
     const spender = b.kind === "router" ? b.to.toLowerCase() : curve;      // == every in-op approve's spender (candidate)
-    const c = await r.check({ token: info.token, curve, quoteIn: b.quoteIn, payToken: info.quote, owner: sender, spender });
+    const c = await r.check({ token: info.token, curve, quoteIn: curveIn, payToken, owner: sender, spender });
     if (!eq(c.curveOf, curve) || !c.graduates) return false;
     // post-approve state: approves don't move the balance; the last in-op approve SETS the allowance
     const allowance = cand.approvals.length ? cand.approvals[cand.approvals.length - 1].amount : c.allowance;
@@ -117,6 +133,10 @@ export function chainGradReads(pc: PublicClient, chainId: number, over: { paymas
         { address: payToken as Address, abi: erc20Abi, functionName: "allowance", args: [owner as Address, spender as Address] },
       ]);
       return { curveOf, graduates: qb.graduates, balance, allowance };
+    },
+    async usdgToQuote(quote, usdgIn) {
+      if (!d?.router || d.router === ZERO) return BigInt(0);
+      return usdgToQuote(pc, d.router as Address, quote as Address, usdgIn);
     },
   };
 }

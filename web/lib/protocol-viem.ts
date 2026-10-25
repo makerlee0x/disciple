@@ -39,6 +39,8 @@ import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, boundRebuiltMinOut, newPressId, tagPress } from "./aa/fastPath";
 import { GradHint } from "./trade/gradHint";
+import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
+export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
 const erc20Events = parseAbi(["event Transfer(address indexed from, address indexed to, uint256 value)"]);
 
 const B = BigInt;
@@ -58,10 +60,65 @@ export class ProtocolError extends Error {
    * Absent otherwise — not even an own `undefined` key (`declare`), so `"extra" in e` stays false for a plain Timeout.
    */
   declare extra?: RelayTimeoutExtra;
-  constructor(public code: string, msg: string, o?: { extra?: RelayTimeoutExtra }) {
+  /** Set (true) only on a "Reverted" error that ran out of gas (no revert reason, gas used ≈ the op's limit). */
+  declare outOfGas?: true;
+  constructor(public code: string, msg: string, o?: { extra?: RelayTimeoutExtra; outOfGas?: boolean }) {
     super(msg);
     if (o?.extra) this.extra = o.extra;
+    if (o?.outOfGas) this.outOfGas = true;
   }
+  /** Stable classification for UI copy (GAME); messages are unchanged. Getter ⇒ no own key on the error. */
+  get kind(): TradeErrorKind { return tradeErrorKindOf(this.code, this.outOfGas === true); }
+}
+
+/**
+ * Stable trade-failure classes (GAME owns the copy):
+ *  - PRICE_IMPACT: DiscipleRouter PriceImpactTooHigh (the trade moves a hop past router.maxImpactBps — see
+ *    readRouterMaxImpactBps in lib/trade/gradNeed).
+ *  - MIN_OUT: the price moved past minOut — session policy MinOutTooLow (also when wrapped in PreExecHookReverted /
+ *    FailedOpWithRevert), curve/router Slippage, v4 V4TooLittleReceived / V4TooMuchRequested (= MINOUT_RETRY).
+ *  - OUT_OF_GAS: the op reverted with NO reason and used ≈ all its gas (isOutOfGas).
+ *  - OTHER: everything else.
+ */
+export type TradeErrorKind = "PRICE_IMPACT" | "MIN_OUT" | "OUT_OF_GAS" | "OTHER";
+export function tradeErrorKindOf(code: string, outOfGas = false): TradeErrorKind {
+  if (outOfGas) return "OUT_OF_GAS";
+  if (code === "PriceImpactTooHigh") return "PRICE_IMPACT";
+  if (MINOUT_RETRY.test(code)) return "MIN_OUT";
+  return "OTHER";
+}
+/** OOG percentage: actualGasUsed (verification + execution + EntryPoint's 10% unused-gas penalty) ≥ 95% of callGasLimit. */
+export const OOG_USED_PCT = 95;
+/** AAError("Reverted").extra of an out-of-gas op: no revert reason and actualGasUsed ≥ OOG_USED_PCT% of callGasLimit. */
+export function isOutOfGas(extra?: Record<string, unknown> | null): boolean {
+  if (!extra) return false;
+  const rd = extra.revertData;
+  if (typeof rd === "string" && rd !== "0x" && rd.length > 2) return false;
+  try {
+    const used = extra.actualGasUsed == null ? null : BigInt(extra.actualGasUsed as bigint);
+    const lim = extra.callGasLimit == null ? null : BigInt(extra.callGasLimit as bigint);
+    return used != null && lim != null && lim > B(0) && used * B(100) >= lim * B(OOG_USED_PCT);
+  } catch { return false; }
+}
+/** Classify ANY trade error (ProtocolError from the trade API, or a raw AAError / viem error) without logging. */
+export function tradeErrorKind(e: unknown): TradeErrorKind {
+  if (e instanceof ProtocolError) return e.kind;
+  const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  if (isAA) {
+    const a = e as AAError;
+    const d = decodeRevert(a.extra?.revertData as Hex | undefined);
+    if (d) return tradeErrorKindOf(d.errorName);
+    return tradeErrorKindOf(a.code, a.code === "Reverted" && isOutOfGas(a.extra));
+  }
+  if (e instanceof BaseError) {
+    const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
+    if (rev?.data?.errorName) return tradeErrorKindOf(rev.data.errorName);
+    const raw = (rev as { raw?: Hex } | null)?.raw;
+    const d = decodeRevert(raw);
+    if (d) return tradeErrorKindOf(d.errorName);
+  }
+  const code = (e as { code?: unknown })?.code;
+  return typeof code === "string" ? tradeErrorKindOf(code) : "OTHER";
 }
 
 /** Map contract custom errors to friendly copy. */
@@ -125,7 +182,7 @@ export function friendlyError(e: unknown): ProtocolError {
       return new ProtocolError("Estimate", REJECTED_MSG);
     }
     // Reverted: players see the plain line only; the unknown selector goes to the console (never hex in copy)
-    else { if (raw && raw.length >= 10) logTradeError("trade reverted (unknown reason)", { selector: raw.slice(0, 10), revertData: raw, ...pickIds(rv!.extra) }); return new ProtocolError("Reverted", rv!.message); }
+    else { if (raw && raw.length >= 10) logTradeError("trade reverted (unknown reason)", { selector: raw.slice(0, 10), revertData: raw, ...pickIds(rv!.extra) }); return new ProtocolError("Reverted", rv!.message, { outOfGas: isOutOfGas(rv!.extra) }); }
   }
   if (!name && e instanceof BaseError) {
     const rev = e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
@@ -360,11 +417,25 @@ async function curveSellQuote(pc: PublicClient, curve: Address, mode: number, to
   return who ? pc.readContract({ ...c, functionName: "quoteSellFor", args: [who, tokensIn] }) : pc.readContract({ ...c, functionName: "quoteSell", args: [tokensIn] });
 }
 
-/** amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote. */
-export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500): Promise<bigint> {
+/**
+ * GAME: exact amount needed to graduate `token`'s curve right now — remaining tokens, quote input and USDG input
+ * (through the active router; usdgIn null when the router can't route it). Read from the curve, cached 1.5 s.
+ */
+export async function readGradNeedForToken(pc: PublicClient, token: Address): Promise<GradNeed> {
+  const curve = await curveOf(pc, token);
+  const router = hasRouter() ? deployment().router : undefined;
+  const usdg = router ? await routerUsdg(pc, router) : null;
+  return readGradNeed(pc, curve, { router, usdg: usdg ?? undefined });
+}
+
+/**
+ * amountOut for (token, side, amountIn): the background-warmed value if ≤ maxAge ms old, else a live quote.
+ * exact = true (trade minOut): skip the linear down-scale of a bigger warmed quote (see usdgRouteQuote).
+ */
+export async function quoteOut(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint, maxAge = 1500, exact = false): Promise<bigint> {
   const k = ckey(token, side, amountIn), lk = ckey(token, side);
-  const exact = QUOTES.fresh(k, maxAge); if (exact) return exact.amountOut;
-  const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; // e.g. sell % after balance shrank
+  const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
+  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; } // e.g. sell % after balance shrank
   return (await QUOTES.get(k, async () => ({ amountOut: await readAmountOut(pc, token, side, amountIn) }), maxAge)).amountOut;
 }
 /** amountOut only — ONE eth_call (router quoteExactIn post-grad, curve quoteBuy/quoteSell pre-grad); readQuote also
@@ -571,8 +642,8 @@ export function createViemProtocol(): ProtocolClient {
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const usdg = await usdgRouteFor(pc, t.token);
-      // graduation check only when the curve itself is USDG-quoted (usdgIn is then the curve's quoteIn)
-      const gradCurve = usdg && side === "buy" && !graduated && quoteAsset.toLowerCase() === usdg.toLowerCase() ? { curve, mode } : undefined;
+      // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
+      const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
       if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve });
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
@@ -581,7 +652,7 @@ export function createViemProtocol(): ProtocolClient {
       const gradP = side === "buy" && !graduated ? buyMayGraduate(pc, curve, mode, t.amountIn, recipient) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
       const quoteNow = () => !graduated && mode !== MODE.TRENCH ? readAmountOut(pc, t.token, side, t.amountIn, side === "buy" ? recipient : me)
-        : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age));
+        : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true));
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
         balanceHint(pc, spendAsset, me),
@@ -649,16 +720,22 @@ export function createViemProtocol(): ProtocolClient {
    * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number } }): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address } }): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
     const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
     // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
     if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
-    const gradP = isBuy && c.gradCurve ? buyMayGraduate(pc, c.gradCurve.curve, c.gradCurve.mode, t.amountIn, c.me) : Promise.resolve(false);
+    const g = isBuy ? c.gradCurve : undefined;
+    // USDG-quoted curve: usdgIn IS the curve's quoteIn. Other quote (STRATEGY …): the router swaps USDG → quote first ⇒
+    // the same on-chain conversion + margin the relay applies (lib/trade/gradNeed, lib/server/gradBuy).
+    const gradP = !g ? Promise.resolve(false) : g.quote.toLowerCase() === c.usdg.toLowerCase()
+      ? buyMayGraduate(pc, g.curve, g.mode, t.amountIn, c.me)
+      : usdgBuyGraduates(pc, { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn });
     const ik = ckey("usdgroute", t.token, side);
-    const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me));
+    // exact (no down-scaled warm quote): minOut must clear the session policy floor on the FIRST try
+    const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true));
     const [q, have] = await Promise.all([
       t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
       balanceHint(pc, spend, c.me),

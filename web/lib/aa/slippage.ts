@@ -35,3 +35,13 @@ export function clampSlippage(requested: number | undefined, sessionMaxBps: numb
 /** New session max to offer when capped: the user's request, bounded to the policy limit. */
 export const suggestedSessionMax = (c: SlippageClamp) => Math.min(SESSION_SLIPPAGE_LIMIT_BPS, c.requestedBps);
 export const pct = (bps: number) => `${+(bps / 100).toFixed(2)}%`;
+
+/**
+ * DiscipleSessionPolicy 1.4.1 floor (contracts/src/session/DiscipleSessionPolicy.sol, _checkMinOut): at execution the
+ * policy re-quotes (router.quoteUsdgRouteFor for USDG-router trades, curve quoteBuyFor/quoteSellFor direct) and reverts
+ * MinOutTooLow(minOut, required) when minOut < quoted × (BPS − maxSlippageBps) / BPS. Pure mirror (integer math).
+ */
+export const policyMinOutFloor = (quoted: bigint, maxSlippageBps: number) =>
+  (quoted * BigInt(10_000 - maxSlippageBps)) / BigInt(10_000);
+export const meetsPolicyFloor = (minOut: bigint, quoted: bigint, maxSlippageBps: number) =>
+  minOut >= policyMinOutFloor(quoted, maxSlippageBps);
