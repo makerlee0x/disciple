@@ -243,7 +243,23 @@ export interface GraduateEvent {
   type: "Graduate";
   token: Address;
   poolId: `0x${string}`; // BondingCurve.GraduatedToV4 poolId
+  /** unix seconds of the GraduatedToV4 block, when known (lib/events watchCurve) */
+  graduatedAt?: number | null;
 }
+/**
+ * A coin's graduation state (SITE job 7 ↔ GAME engine contract). Stamped on EVERY live update DiscipleFeed sends to the
+ * engine (window "disciple:event" detail: "State", "Trade" and "Graduate") by lib/events mcapOrderer, next to mcapUsd.
+ * Immutable once graduated (server-cached: lib/server/grad, GET /api/coin/grad).
+ */
+export interface GradState {
+  /** BondingCurve.graduated() — true once the curve migrated to the v4 pool */
+  graduated: boolean;
+  /** v4 poolId (bytes32 hex, BondingCurve.GraduatedToV4); null before graduation or when unknown */
+  poolId: `0x${string}` | null;
+  /** unix SECONDS of the GraduatedToV4 block; null before graduation or when unknown */
+  graduatedAt: number | null;
+}
+export const NOT_GRADUATED: GradState = { graduated: false, poolId: null, graduatedAt: null };
 export type ProtocolEvent = LaunchEvent | LaunchTierContextEvent | CreatorTransferredEvent | TradeEvent | GraduateEvent;
 
 /**

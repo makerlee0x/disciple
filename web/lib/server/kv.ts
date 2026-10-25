@@ -20,6 +20,8 @@ export interface Kv {
   /** ascending by score */
   /** lowest scores first; rev → highest (newest) first */
   zrange(k: string, limit?: number, rev?: boolean): Promise<string[]>;
+  /** ZREM: remove members (exact JSON strings); returns how many were removed. */
+  zrem(k: string, ...members: string[]): Promise<number>;
   sadd(k: string, ...m: string[]): Promise<void>;
   smembers(k: string): Promise<string[]>;
   /** Atomic GET + DEL (single-use tokens): the value, or null if absent/expired or already taken. */
@@ -55,6 +57,7 @@ function local(): Kv {
     async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
     async zadd(k, items) { await ready; const z = (st.z[k] ??= {}); for (const i of items) if (!(i.member in z)) z[i.member] = i.score; save(); },
     async zrange(k, limit = 1000, rev = false) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => (rev ? b[1] - a[1] : a[1] - b[1])).slice(0, limit).map(([m]) => m); },
+    async zrem(k, ...m) { await ready; const z = st.z[k]; if (!z) return 0; let n = 0; for (const x of m) if (x in z) { delete z[x]; n++; } save(); return n; },
     async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
     async smembers(k) { await ready; return st.s[k] ?? []; },
     async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
@@ -92,6 +95,7 @@ function upstash(url: string, token: string): Kv {
       }
     },
     async zrange(k, limit = 1000, rev = false) { return (await cmd<string[]>(...(rev ? ["ZRANGE", k, 0, limit - 1, "REV"] : ["ZRANGE", k, 0, limit - 1]))) ?? []; },
+    async zrem(k, ...m) { return m.length ? Number(await cmd<number>("ZREM", k, ...m)) : 0; },
     async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
     getDel: (k) => cmd<string | null>("GETDEL", k),
