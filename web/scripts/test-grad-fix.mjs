@@ -36,7 +36,7 @@ try {
   const boostDis = (s) => (s.match(/aria-label="buy"[^\n]*/) || [""])[0];
   ok(boostDis(tb) === boostDis(main("components/TradeBridge.tsx")), "BOOST button line unchanged from main (still only cash / min gating)");
   ok(/onPickBuy : p\.onPickSell\)\(i\); setSheet\(null\)/.test(bar) && !/ph-opt[^\n]*disabled=\{[^}]*tags/.test(bar), "sheet options stay tappable with a warning");
-  ok((eng.match(/S\.buyWarn/g) || []).every((_, i, a) => true) && !/buyWarn[^\n]*return;/.test(eng) && !/(\bp\.warn|buyWarn)[^\n]*(S\.mode=|selectSell|pending)/.test(eng), "engine: warning tags draw only, never gate select / shoot");
+  ok(/S\.buyWarn=/.test(eng) && !/buyWarn[^\n]*return;/.test(eng) && !/(\bp\.warn|buyWarn)[^\n]*(S\.mode=|selectSell|pending)/.test(eng), "engine: warning tags draw only, never gate select / shoot");
   ok(/S\.buyWarn\.tags\[i\]/.test(eng) && /p\.on&&p\.warn/.test(eng), "engine: buy tiles + sell chips show the tag");
   ok(/on: has, sel: i === sellSel,\n\s*warn: chipTag/.test(tb), "sell chips: `on` stays holdings-only, warn is extra");
   ok(/data-testid="trade-warn"/.test(tb) && /data-testid="trade-warn"/.test(bar), "trade bar + phone bar show the active warning line");
@@ -52,12 +52,14 @@ try {
   ok(C(new Error("not enough USDG")) === "OTHER", "everything else OTHER");
   ok(G.plainTradeMessage("PRICE_IMPACT") === "Too big for this rocket right now. Try a smaller amount.", "PRICE_IMPACT copy");
   ok(G.plainTradeMessage("MIN_OUT") === "Price moved. Tap again.", "MIN_OUT copy");
-  ok(G.plainTradeMessage("OUT_OF_GAS") === "That didn't go through. Nothing was spent. Try again.", "OUT_OF_GAS copy");
+  ok(G.plainTradeMessage("OUT_OF_GAS") === "That didn't go through. Try again.", "OUT_OF_GAS copy");
+  { const dropped = new RegExp(["nothing", "was", "spent"].join(" "), "i");   // removed phrase (paymaster may charge USDG gas)
+    ok(!Object.values(G.GAME_COPY).some((t) => dropped.test(t)) && !dropped.test(tb + bar + eng + gate), "OUT_OF_GAS copy makes no 'spent' claim"); }
   ok(G.plainTradeMessage("OTHER") === null, "OTHER keeps the existing message");
   for (const t of Object.values(G.GAME_COPY)) ok(!/router|slippage|min ?out|gas/i.test(t), `no jargon: ${t}`);
   ok(/plainReason\(e, side, usd\)/.test(tb) && /plainReason\(\{ message: r\.reason \}/.test(tb), "bridge maps thrown + !ok failures");
   const rev = new Function(`${eng.match(/function isOnchainRevert\(reason\)\{[^\n]+/)[0]}\nreturn isOnchainRevert;`)();
-  ok(!rev("Too big for this rocket right now. Try a smaller amount.") && !rev("Price moved. Tap again.") && !rev("That didn't go through. Nothing was spent. Try again.") && rev("reverted"), "engine: plain copy isn't prefixed 'trade failed:'");
+  ok(!rev("Too big for this rocket right now. Try a smaller amount.") && !rev("Price moved. Tap again.") && !rev("That didn't go through. Try again.") && rev("reverted"), "engine: plain copy isn't prefixed 'trade failed:'");
   // 4) graduate maths from the shim
   const probe = 10n ** 24n;
   const g = G.graduationFromProbe(probe, { tokensOut: 8_310000000000000000n, graduates: true, refund: probe - 114_200000000000000000n });

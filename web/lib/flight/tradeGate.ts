@@ -21,7 +21,8 @@ export const GAME_COPY = {
   bigMove: "Big move: ",
   PRICE_IMPACT: "Too big for this rocket right now. Try a smaller amount.",
   MIN_OUT: "Price moved. Tap again.",
-  OUT_OF_GAS: "That didn't go through. Nothing was spent. Try again.",
+  /** lee-approved string (not a placeholder) */
+  OUT_OF_GAS: "That didn't go through. Try again.",
 } as const;
 
 /** Plain line for a classified failure; null = keep the existing (already plain) message. */
