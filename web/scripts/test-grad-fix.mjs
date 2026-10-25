@@ -38,7 +38,7 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(!/disabled=\{[^}]*(warn|Warn|over|impact)/.test(tbc) && !/disabled=\{[^}]*(warn|Warn|over|impact)/.test(strip(bar)), "no button disabled by a price-move warning");
   ok(!/(warn|Warn)[^\n]*\breturn \{ ok: false/.test(tbc), "the bridge never refuses a trade for a warning");
   const main = (p) => execSync(`git show origin/main:web/${p}`, { cwd: new URL("..", import.meta.url) }).toString();
-  const boostDis = (s) => (s.match(/aria-label="buy"[^\n]*/) || [""])[0];
+  const boostDis = (s) => ((s.match(/aria-label="buy"[^\n]*/) || [""])[0].match(/disabled=\{[^}]*\}/) || [""])[0];   // the gating expr (post-grad adds hover handlers to the line)
   ok(boostDis(tb) === boostDis(main("components/TradeBridge.tsx")), "BOOST button line unchanged from main (still only cash / min gating)");
   ok(/onPickBuy : p\.onPickSell\)\(i\); setSheet\(null\)/.test(bar) && !/ph-opt[^\n]*disabled=\{[^}]*tags/.test(bar), "sheet options stay tappable with a warning");
   ok(/S\.buyWarn=/.test(eng) && !/buyWarn[^\n]*return;/.test(eng) && !/(\bp\.warn|buyWarn)[^\n]*(S\.mode=|selectSell|pending)/.test(eng), "engine: warning tags draw only, never gate select / shoot");
@@ -78,12 +78,76 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   // GRADUATE button removed everywhere (lee 7:56 PM CT)
   ok(!/grad-btn|ph-grad|graduateLabel|showGraduate|GRAD_MIN_USD|graduateUsdFromUsdg|graduateBuyUsd|usd: grad\b|GRADUATE ·/.test(tb + bar + eng + gate + ad), "no GRADUATE button / chip / amount logic");
   ok(!("graduateLabel" in G) && !("showGraduate" in G) && !("GRAD_MIN_USD" in G), "tradeGate exports no GRADUATE helpers");
-  ok(/"disciple:gradneed"/.test(tb) && /graduationNeedUsd\(token\)/.test(tb) && !/disciple:gradbuy/.test(tb + eng + wb), "TradeBridge sends only the tier-bar need");
+  ok(/"disciple:gradneed"/.test(tb) && /graduationStatus\(token\)/.test(tb) && !/disciple:gradbuy/.test(tb + eng + wb), "TradeBridge sends only the tier-bar need");
   // 5) tier bar: exact amount, never ≈$0
   const fmtUsd = new Function(`${eng.match(/const fmtUsd=[^\n]+/)[0]}\nreturn fmtUsd;`)();
   const fmtNeed = new Function("fmtUsd", `${eng.match(/const fmtNeed=[^\n]+/)[0]}\nreturn fmtNeed;`)(fmtUsd);
   ok(fmtNeed(0.0004) === "$0.01" && fmtNeed(0.281) === "$0.29" && fmtNeed(3.5) === "$3.50" && fmtNeed(12.2) === "$13" && fmtNeed(4321) === "$4.3K", "fmtNeed rounds up to the cent");
-  ok(/exact\?`\$\{fmtNeed\(need\)\} to graduate`/.test(eng) && /S\.gradNeedUsd!=null&&nx\.lo>=TB_M1&&m<TB_M1/.test(eng), "tier bar uses the exact curve amount at graduation");
+  ok(/const nt=tierNeedText\(m,nx,[^\n]*S\.tierNeedText=nt/.test(eng) && /exact:S\.gradNeedUsd/.test(eng), "tier bar need line = tierNeedText(exact curve amount | estimate)");
   ok(!/≈\$\{fmtUsd\(need\)\}/.test(eng), "no more ≈${fmtUsd(need)} (≈$0)");
+  // ---- post-grad fixes (play-test 8:26–8:30 PM CT on $SGRAD) ----
+  // 6) estimate vs exact: ONE line — exact "$X to graduate" when known, else "≈$X … (est.)", never both, never ≈$0, nothing once graduated
+  const grab = (re) => { const m = eng.match(re); assert.ok(m, "engine source: " + re); return m[0]; };
+  const TB_M1 = 33333;
+  const tierNeedText = new Function("fmtNeed", "TB_M1", `${grab(/function tierNeedText\(m,nx,o\)\{[\s\S]*?\n  const need=o\.est;[^\n]*\n/)}\nreturn tierNeedText;`)(fmtNeed, TB_M1);
+  const nx = { lo: TB_M1 };
+  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to graduate", "exact known ⇒ only '$X to graduate'");
+  ok(!/≈|est/.test(tierNeedText(30000, nx, { exact: 812.4, est: 900 })), "exact ⇒ no estimate alongside");
+  ok(tierNeedText(30000, nx, { exact: null, est: 900 }) === "≈$900 buys needed (est.)", "no exact ⇒ estimate, clearly marked ≈ … (est.)");
+  ok(tierNeedText(30000, nx, { exact: null, est: 0 }) === "" && tierNeedText(30000, nx, { exact: 0, est: 0.0 }) === "" && tierNeedText(30000, nx, { exact: null, est: NaN }) === "", "never ≈$0 / ≈NaN");
+  ok(tierNeedText(30000, nx, { graduated: true, exact: 812, est: 900 }) === "" && tierNeedText(40000, { lo: 55000 }, { graduated: true, est: 9000 }) === "", "graduated ⇒ no need text at all");
+  ok(tierNeedText(30000, null, { exact: 5 }) === "", "top tier ⇒ nothing");
+  // 7) graduated flag: SITE State payload graduated:true on load ≡ live Graduate event; missing ⇒ default false; sticky
+  const S = { gradNeedUsd: 120, gradInfo: null, graduated: false };
+  const setGraduated = new Function("S", "DiscipleSource", "source", `${grab(/function setGraduated\(on,d\)\{[\s\S]*?\n  try\{[^\n]*\n/)}\nreturn setGraduated;`)(S, class {}, undefined);
+  const handler = grab(/if\(e\.graduated===true\)\{[^\n]*/);
+  const onEvent = new Function("setGraduated", `return function(e){ ${handler} };`)(setGraduated);
+  const src = {}; onEvent.call(src, { type: "State", mcapUsd: 33400 });
+  ok(S.graduated === false && !src.graduated, "State without `graduated` ⇒ stays false (default)");
+  onEvent.call(src, { type: "State", mcapUsd: 33400, graduated: true, poolId: "0xabc", graduatedAt: 1793149800 });
+  ok(S.graduated === true && src.graduated === true && S.gradNeedUsd === null, "simulated State {graduated:true} on load ⇒ graduated, need cleared");
+  ok(S.gradInfo.poolId === "0xabc" && S.gradInfo.graduatedAt === 1793149800, "poolId / graduatedAt kept (optional)");
+  onEvent.call(src, { type: "Trade", mcapUsd: 34000 });
+  ok(S.graduated === true, "later events without the flag keep it (sticky)");
+  onEvent.call(src, { type: "State", mcapUsd: 34000, graduated: false });
+  ok(S.graduated === false && S.gradInfo === null, "explicit State graduated:false (chain truth) unsets");
+  ok(/else if\(e\.type==='Graduate'\)\{ this\.graduated=true; setGraduated\(true,e\);/.test(eng), "live Graduate event → same setGraduated(true)");
+  ok(/if\(d\.graduated===true\) setGraduated\(true,d\)/.test(eng), "TradeBridge curve read (gradneed {graduated}) → setGraduated");
+  ok(/if ?\(S\.graduated\)\{[^\n]*S\.gradBadge=GRAD_BADGE[^\n]*drawGradBadgeDesk/.test(eng), "desktop tier bar → GRADUATED badge");
+  ok(/S\.graduated&&\(!nx\|\|curveTierProgress\(nx\)\)/.test(eng) && /GRAD_BADGE/.test(grab(/function drawPhonePill[\s\S]*?\nfunction /)), "phone pill: curve progress hidden, GRADUATED badge");
+  ok(/const GRAD_BADGE='GRADUATED · trading on Uniswap';\s*\/\/ PLACEHOLDER/.test(eng), "badge copy marked PLACEHOLDER");
+  ok(/'graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText'/.test(rd("public/flight/worker.js")), "worker renderer mirrors graduated / badge / need text");
+  ok(/send\(live \? st\.usd : null, st\.graduated\)/.test(tb) && /\[valid, live, token\]/.test(tb), "curve read runs for every viewer; exact $ only when live");
+  // 8) big-move warning: only the side being tapped / previewed
+  const bw = { level: "big", text: "Big move: price +38%", pct: 38 }, sw = { level: "over", text: "Too big · price −62%", pct: 62 };
+  ok(G.activeWarning(null, bw, sw, true).text === "", "no active side ⇒ no warning");
+  ok(G.activeWarning("buy", bw, sw, true).text === "BOOST: Big move: price +38%" && !G.activeWarning("buy", bw, sw, true).over, "buy side ⇒ only BOOST warning");
+  ok(G.activeWarning("sell", bw, sw, true).text === "DUMP: Too big · price −62%" && G.activeWarning("sell", bw, sw, true).over, "sell side ⇒ only DUMP warning");
+  ok(G.activeWarning("sell", bw, sw, false).text === "", "sell side with nothing to sell ⇒ nothing");
+  ok(!/BOOST: [^\n]*·[^\n]*DUMP:/.test(G.activeWarning("buy", bw, sw, true).text), "never both sides");
+  ok(/activeWarning\(phone \? phoneSide : deskSide, buyWarn, sellWarn, has\)/.test(tb) && !/\.join\(" · "\)/.test(tb.match(/const \{ text: warnText[^\n]*/)[0]), "TradeBridge: warn line from the active side only");
+  ok((tb.match(/\{\.\.\.hoverSide\("buy"\)\}/g) || []).length >= 2 && (tb.match(/\{\.\.\.hoverSide\("sell"\)\}/g) || []).length >= 3, "desktop: hover / focus on buy + sell controls sets the side");
+  ok(/onSide=\{setPhoneSide\}/.test(tb) && /onPointerDown=\{\(\) => p\.onSide\?\.\(side\)\}/.test(bar) && /p\.onSide\?\.\(buy \? "buy" : "sell"\); \(buy \? p\.onPickBuy/.test(bar), "phone: touching a side / picking an amount sets the side");
+  ok(/liveMaxImpactBps/.test(tb), "router-limit read kept");
+  // 9) holders: tagged rows (kind pool | locker | burn) never ranked, friendly names; 0x…dEaD = burn
+  const H = await import("../lib/flight/holders.ts");
+  const base = { totalSupplyRaw: 10n ** 24n, priceUsd: 0.0000334 };
+  const api = { holders: [
+    { address: "0x8366a39cc670b4001a1121b8f6a443a643e40951", balance: "157391735427547906468412", kind: "pool" },
+    { address: "0x1111111111111111111111111111111111111111", balance: "50000000000000000000000" },
+    { address: "0x000000000000000000000000000000000000dEaD", balance: "40000000000000000000000" },
+    { address: "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c", balance: "139537263542902666165", label: "locker" },
+    { address: "0x2222222222222222222222222222222222222222", balance: "1000000000000000000" } ], asOfBlock: "1" };
+  const r = H.normalizeApiHolders(api, base).rows;
+  ok(r.map((x) => x.label || "-").join() === "-,-,pool,burn,locker", `ranked first, tagged after (${r.map((x) => x.label || "-").join()})`);
+  ok(r[0].address === "0x1111111111111111111111111111111111111111", "pool (bigger balance) is not ranked #1");
+  ok(H.holderLabelText("pool") === "Pool (locked)" && H.holderLabelText("burn") === "Burned" && H.holderLabelText("locker") === "Locked LP" && H.holderLabelText(null) === "", "friendly names");
+  const un = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "842400000000000000000000", label: null }] }, base).rows;
+  ok(un[0].label === null, "untagged unknown address left alone (no hard-coded guesses)");
+  const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "1", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
+  ok(known[0].label === "locker", "client-known pool / locker address labels an untagged row");
+  ok([...H.BURN_ADDRS].length === 2, "only the standard burn sinks are built in");
+  ok(/holderLabelText\(r\.label\)/.test(rd("components/gamechat/GameChat.tsx")), "desktop holders list uses the friendly names");
+  ok(/HOLDER_KIND=\{pool:'Pool \(locked\)',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'\}/.test(eng) && /sysAll\.slice/.test(eng), "phone holders tab: tagged rows after the ranked list, named");
   console.log(`test-grad-fix: ${n} checks passed`);
 }

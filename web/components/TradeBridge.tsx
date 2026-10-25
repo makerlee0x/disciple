@@ -25,8 +25,8 @@ import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettin
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 import { readCoinRules } from "@/lib/flight/coinRules";
-import { chipTag, moveWarnings, plainTradeMessage, type MoveWarn } from "@/lib/flight/tradeGate";
-import { graduationNeedUsd, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
+import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
+import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -393,22 +393,25 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     return () => { alive = false; clearInterval(iv); removeEventListener("disciple:ammo", boot); removeEventListener("disciple:livetrade", again); };
   }, [valid, token]);
   const has = live && liveHas != null ? liveHas : pos.size > 0;
-  // Tier-bar "$X to graduate" (GAME graduation fix): the exact USDG left to graduate, from the curve + router (SITE's
-  // readGradNeedForToken usdgIn via lib/flight/gradAdapter), rounded UP to the cent, never the HUD's "≈$0". Label only: there is
-  // no GRADUATE buy button (lee 7:56 PM CT). Live only (paper trades don't move the curve); paper keeps the HUD estimate.
+  // Tier-bar "$X to graduate" + graduated flag (GAME graduation fixes): one curve read (SITE's readGradNeedForToken via
+  // lib/flight/gradAdapter graduationStatus). usd = exact USDG left, rounded UP to the cent — live only (paper trades don't move
+  // the curve; paper keeps the HUD estimate). graduated = chain truth for every viewer (wallet or not), so the HUD flips to the
+  // GRADUATED badge even before SITE's State payload carries `graduated`. Label only: no GRADUATE buy button (lee 7:56 PM CT).
   useEffect(() => {
-    const send = (usd: number | null) => dispatchEvent(new CustomEvent("disciple:gradneed", { detail: { usd } }));
-    if (!live) { send(null); return; }
+    const send = (usd: number | null, graduated?: boolean) => dispatchEvent(new CustomEvent("disciple:gradneed", { detail: graduated === undefined ? { usd } : { usd, graduated } }));
+    if (!valid) { send(null); return; }
     let alive = true;
     const poll = async () => { if (!alive || document.hidden) return;
-      try { const usd = await graduationNeedUsd(token); if (alive) send(usd); } catch { /* keep last */ } };
+      try { const st = await graduationStatus(token); if (alive && st) send(live ? st.usd : null, st.graduated); } catch { /* keep last */ } };
     void poll(); const iv = setInterval(poll, 4000);
     const soon = () => setTimeout(() => void poll(), 300);
     addEventListener("disciple:livetrade", soon); addEventListener("disciple:ownbalance", soon); addEventListener("disciple:ammo", soon);
     return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); removeEventListener("disciple:ammo", soon); send(null); };
-  }, [live, token]);
+  }, [valid, live, token]);
   // price-move warnings (GAME graduation fix 1, lee 7:09 PM CT): never grey / disable / block — warn only
   const [warns, setWarns] = useState<Warns>(NO_WARNS);
+  const [phoneSide, setPhoneSide] = useState<TradeSide | null>(null);   // phone: the side whose button / amount was last touched
+  const [deskSide, setDeskSide] = useState<TradeSide | null>(null);     // desktop: the hovered / focused side (none ⇒ no warning)
   const [hint, setHint] = useState("");
   useEffect(() => { if (!hint) return; const t = setTimeout(() => setHint(""), 1400); return () => clearTimeout(t); }, [hint]);
   const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0) + "|" + sellSel + "|" + gs.keys.sell.join() + "|" + warns.sell.map((w) => chipTag("sell", w)).join();
@@ -504,8 +507,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // the ACTIVE amount's price-move warning (custom wins over the preset, like BOOST / DUMP themselves)
   const buyWarn = customUsd ? warns.customBuy : warns.buy[mode] ?? null;
   const sellWarn = customSellPct ? warns.customSell : customSellUsd ? null : warns.sell[sellSel] ?? null;
-  const warnText = [buyWarn?.text ? `BOOST: ${buyWarn.text}` : "", has && sellWarn?.text ? `DUMP: ${sellWarn.text}` : ""].filter(Boolean).join(" · ");
-  const warnOver = buyWarn?.level === "over" || (has && sellWarn?.level === "over");
+  // only the side being tapped / previewed (post-grad fix 3): phone = last touched side, desktop = hovered / focused side, else none
+  const { text: warnText, over: warnOver } = activeWarning(phone ? phoneSide : deskSide, buyWarn, sellWarn, has);
+  const hoverSide = (side: TradeSide) => ({ onMouseEnter: () => setDeskSide(side), onMouseLeave: () => setDeskSide((x) => (x === side ? null : x)),
+    onFocus: () => setDeskSide(side), onBlur: () => setDeskSide((x) => (x === side ? null : x)) });
   const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
   // phones (html.ap-phone, PhoneHud): the v3 bar — same amount state + trade calls as the desktop bar below, layout only
   if (phone) return (
@@ -514,6 +519,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short} dumpDisabled={!has} boostTitle={boostTitle} dumpTitle={dumpTitle}
       buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
+      onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
       onSetBuy={(v) => setCustom(v)}
       sellOpts={SELLS.slice(0, 4).map((x) => x.label)} sellSel={sellCustomN ? -1 : sellSel}
@@ -533,22 +539,22 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
       padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
       <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
-        <input aria-label="custom amount" inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
+        <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
           onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
           onKeyDown={(e) => { if ((e.key === "Enter" || (e.key === " " && !e.repeat)) && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
             else if (e.key === " ") e.preventDefault();   // no custom $ / held: never type a space into the amount
             e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} title={short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short} disabled={short} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short ? 0.4 : 1, cursor: short ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
-        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has} disabled={!has} onClick={() => dumpRef.current?.()}
+        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short} disabled={short} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short ? 0.4 : 1, cursor: short ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
+        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has} disabled={!has} onClick={() => dumpRef.current?.()}
           style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has ? 1 : 0.4, cursor: has ? "pointer" : "not-allowed" }}>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-          <input aria-label="custom sell amount" data-testid="custom-sell" inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
+          <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
             title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
             onChange={(e) => setSellCustom(e.target.value.replace(/[^\d.]/g, ""))}
             onKeyDown={(e) => { if (e.key === "Enter" && sellCustomN) { e.preventDefault(); dumpRef.current?.(); } e.stopPropagation(); }}
             style={{ width: 58, fontSize: 12, padding: "7px 6px", borderRadius: 8, border: `1px solid ${sellCustomN ? "#ffb0c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-          <button type="button" data-testid="sell-unit" aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
+          <button type="button" data-testid="sell-unit" {...hoverSide("sell")} aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
             style={{ ...btn, padding: "6px 7px", fontSize: 11, background: "rgba(255,176,200,.14)", color: "#ffd0dc" }}>{sellUnit}</button>
         </span>
         <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>

@@ -9,7 +9,8 @@ import { useEffect, useState } from "react";
  * Amount sheet: 2×2 presets (BUY $ = the engine's ammo tiers, DUMP = the SELL % presets) + Custom field / SET. A tap SETS the
  * amount and closes the sheet; the sheet never trades.
  * GAME graduation fix (lee 7:09 PM CT): options carry a price-move tag ("+38%", "!" = over the live limit) and the bar shows
- * the active amount's warning line; nothing is ever greyed or blocked for price impact.
+ * the active amount's warning line; nothing is ever greyed or blocked for price impact. Post-grad fix 3: the line is only the
+ * side being tapped / previewed — onSide reports the side whose button or amount chip was touched (TradeBridge activeWarning).
  */
 export type PhoneTradeBarProps = {
   buyLabel: string; sellLabel: string;
@@ -22,6 +23,8 @@ export type PhoneTradeBarProps = {
   buyWarn?: string[]; sellWarn?: string[];
   /** the active amount's warning line ("BOOST: Big move: price +38%"); shown under any blocking hint */
   warn?: string; warnOver?: boolean;
+  /** the side the user is touching (button, amount chip, sheet pick) → TradeBridge shows only that side's warning */
+  onSide?: (side: "buy" | "sell") => void;
   keyGuard: { onKeyDown: (e: React.KeyboardEvent) => void; onKeyUp: (e: React.KeyboardEvent) => void };
 };
 /** chip / sheet money: $10 · $2.50 · $1.20K (whole dollars drop the cents) */
@@ -39,11 +42,11 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   const buy = sheet === "buy";
   const opts = buy ? p.buyOpts : p.sellOpts, sel = buy ? p.buySel : p.sellSel, tags = (buy ? p.buyWarn : p.sellWarn) || [];
   const n = +val > 0 ? +val : 0;
-  const apply = () => { if (!n) return; (buy ? p.onSetBuy : p.onSetSell)(String(buy ? n : Math.min(100, n))); setSheet(null); };
+  const apply = () => { if (!n) return; p.onSide?.(buy ? "buy" : "sell"); (buy ? p.onSetBuy : p.onSetSell)(String(buy ? n : Math.min(100, n))); setSheet(null); };
   const tb = (side: "buy" | "sell") => {
     const b = side === "buy", dis = b ? p.boostDisabled : p.dumpDisabled;
     return (
-      <div className={`ph-tb ${b ? "ph-boost" : "ph-dump"}`} data-disabled={dis ? "1" : "0"}>
+      <div className={`ph-tb ${b ? "ph-boost" : "ph-dump"}`} data-disabled={dis ? "1" : "0"} onPointerDown={() => p.onSide?.(side)} onFocusCapture={() => p.onSide?.(side)}>
         <button type="button" className="ph-tb-body" data-testid={b ? "buy-btn" : "sell-btn"} aria-label={b ? `buy ${p.buyLabel}` : `sell ${p.sellLabel}`}
           title={b ? p.boostTitle : p.dumpTitle} aria-disabled={dis} disabled={dis} {...p.keyGuard} onClick={b ? p.onBoost : p.onDump}>
           <span className="ph-lbl">{b ? "BOOST" : "DUMP"}</span></button>
@@ -66,7 +69,7 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
             <button type="button" className="ph-sh-x" data-testid="amt-sheet-close" aria-label="Close" onClick={() => setSheet(null)}><Xicon /></button></div>
           <div className="ph-grid">
             {opts.slice(0, 4).map((o, i) => <button key={i} type="button" data-testid={`amt-opt-${i}`} className={`ph-opt${i === sel ? " sel" : ""}${buy ? "" : " dump"}`} aria-pressed={i === sel}
-              onClick={() => { (buy ? p.onPickBuy : p.onPickSell)(i); setSheet(null); }}>{o}{tags[i] ? <span className={`ph-opt-warn${tags[i].endsWith("!") ? " over" : ""}`} data-testid={`amt-opt-warn-${i}`}>{tags[i].endsWith("!") ? "too big" : "big move"} {tags[i].replace(/!$/, "")}</span> : null}</button>)}
+              onClick={() => { p.onSide?.(buy ? "buy" : "sell"); (buy ? p.onPickBuy : p.onPickSell)(i); setSheet(null); }}>{o}{tags[i] ? <span className={`ph-opt-warn${tags[i].endsWith("!") ? " over" : ""}`} data-testid={`amt-opt-warn-${i}`}>{tags[i].endsWith("!") ? "too big" : "big move"} {tags[i].replace(/!$/, "")}</span> : null}</button>)}
           </div>
           <form className="ph-custom" onSubmit={(e) => { e.preventDefault(); apply(); }}>
             <span className="ph-cl">Custom</span>
