@@ -109,8 +109,18 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(S.gradInfo.poolId === "0xabc" && S.gradInfo.graduatedAt === 1793149800, "poolId / graduatedAt kept (optional)");
   onEvent.call(src, { type: "Trade", mcapUsd: 34000 });
   ok(S.graduated === true, "later events without the flag keep it (sticky)");
-  onEvent.call(src, { type: "State", mcapUsd: 34000, graduated: false });
-  ok(S.graduated === false && S.gradInfo === null, "explicit State graduated:false (chain truth) unsets");
+  onEvent.call(src, { type: "State", mcapUsd: 34000, graduated: false, poolId: null, graduatedAt: null });
+  ok(S.graduated === true && S.gradInfo.poolId === "0xabc", "graduated:false never un-graduates (sticky — a coin never goes back)");
+  { // SITE #158: the first State waits ≤2.5 s for /api/coin/grad and is re-sent when the answer is late ⇒ a late flip to true
+    const S2 = { gradNeedUsd: 50, gradInfo: null, graduated: false };
+    const sg2 = new Function("S", "DiscipleSource", "source", `${grab(/function setGraduated\(on,d\)\{[\s\S]*?\n  try\{[^\n]*\n/)}\nreturn setGraduated;`)(S2, class {}, undefined);
+    const on2 = new Function("setGraduated", `return function(e){ ${handler} };`)(sg2), s2 = {};
+    on2.call(s2, { type: "State", mcapUsd: 33400, graduated: false, poolId: null, graduatedAt: null });
+    ok(S2.graduated === false, "first State (server late): not graduated yet");
+    on2.call(s2, { type: "Trade", mcapUsd: 33400, graduated: false, poolId: null, graduatedAt: null });
+    on2.call(s2, { type: "State", mcapUsd: 33400, graduated: true, poolId: "0x" + "ab".repeat(32), graduatedAt: 1793149800 });
+    ok(S2.graduated === true && s2.graduated === true && S2.gradInfo.poolId === "0x" + "ab".repeat(32), "re-sent State graduated:true flips the HUD"); }
+  ok(!/setGraduated\(false/.test(eng), "nothing ever un-graduates");
   ok(/else if\(e\.type==='Graduate'\)\{ this\.graduated=true; setGraduated\(true,e\);/.test(eng), "live Graduate event → same setGraduated(true)");
   ok(/if\(d\.graduated===true\) setGraduated\(true,d\)/.test(eng), "TradeBridge curve read (gradneed {graduated}) → setGraduated");
   ok(/if ?\(S\.graduated\)\{[^\n]*S\.gradBadge=GRAD_BADGE[^\n]*drawGradBadgeDesk/.test(eng), "desktop tier bar → GRADUATED badge");
@@ -146,7 +156,13 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(un[0].label === null, "untagged unknown address left alone (no hard-coded guesses)");
   const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "1", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
   ok(known[0].label === "locker", "client-known pool / locker address labels an untagged row");
-  ok([...H.BURN_ADDRS].length === 2, "only the standard burn sinks are built in");
+  ok(!/BURN_ADDRS|0x000000000000000000000000000000000000dead/i.test(rd("lib/flight/holders.ts")) && /kindOf\(a\) === "burn"/.test(rd("lib/flight/holders.ts")), "burn fallback = SITE kindOf / BURN_ADDRESSES (no GAME table)");
+  ok(/holderKinds\(d, \{ lockers: anonLaunchers/.test(rd("components/flight/HoldersBridge.tsx")), "untagged-row fallback = SITE holderKinds");
+  const hk = H.normalizeApiHolders({ holders: [
+    { address: "0x3333333333333333333333333333333333333333", balance: "9", kind: "holder" },
+    { address: "0x4444444444444444444444444444444444444444", balance: "8", kind: "locker" },
+    { address: "0x0000000000000000000000000000000000000000", balance: "7" } ] }, { ...base, labels: { "0x3333333333333333333333333333333333333333": "locker" } }).rows;
+  ok(hk.map((x) => x.label || "-").join() === "-,locker,burn", `kind 'holder' is ranked unlabelled (API truth), locker tagged, 0x0 = burn (${hk.map((x) => x.label || "-").join()})`);
   ok(/holderLabelText\(r\.label\)/.test(rd("components/gamechat/GameChat.tsx")), "desktop holders list uses the friendly names");
   ok(/HOLDER_KIND=\{pool:'Pool \(locked\)',locker:'Locked LP',burn:'Burned',curve:'Bonding curve'\}/.test(eng) && /sysAll\.slice/.test(eng), "phone holders tab: tagged rows after the ranked list, named");
   console.log(`test-grad-fix: ${n} checks passed`);

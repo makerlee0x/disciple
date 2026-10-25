@@ -16,7 +16,7 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
 const rd = (f) => fs.readFileSync(path.join(web, f), "utf8");
 const eng = rd("public/flight/engine.js"), tb = rd("components/TradeBridge.tsx"), wl = rd("lib/wallet.ts");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "flight/holders", "abi/DiscipleRouter"], "tradespeed-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/tradeSpeed", "flight/ownLedger", "holders", "flight/holders", "abi/DiscipleRouter"], "tradespeed-");
 const TS = mods["flight/tradeSpeed"], fills = mods["flight/fills"], { fmtMoney } = mods.pnl, { discipleRouterAbi } = mods["abi/DiscipleRouter"];
 
 // ───────────── 1 + 6. fill from the returned logs, status shows the fill $ ─────────────

@@ -13,7 +13,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "holders", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
 const pnl = mods.pnl, fills = mods["flight/fills"], H = mods["flight/holders"], LS = mods["flight/liveSell"];
 const { discipleRouterAbi } = mods["abi/DiscipleRouter"], { bondingCurveAbi } = mods["abi/BondingCurve"], { discipleHookAbi } = mods["abi/DiscipleHook"];
 

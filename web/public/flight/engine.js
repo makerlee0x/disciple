@@ -450,9 +450,10 @@ class DiscipleSource {
     // paper shots (no wallet) move a multiplicative offset that decays like arbitrage would (τ 20 s), same as PoolV3Base
     this.dv=setInterval(()=>{ if(this.mcap==null||this.paper===1) return; this.paper=1+(this.paper-1)*Math.exp(-0.25/20); if(Math.abs(this.paper-1)<1e-5) this.paper=1; emit({t:'mark',mcap:this.shown()}); },250);
     this.h=(ev)=>{ const e=ev.detail; if(!e) return;
-      // @graduated: SITE's payload carries graduated (+ poolId / graduatedAt) next to mcap — graduated:true on load is the same as
-      // the live Graduate event; missing ⇒ unchanged (default false). Only a State read may say false (chain truth).
-      if(e.graduated===true){ this.graduated=true; setGraduated(true,e); } else if(e.type==='State'&&e.graduated===false){ this.graduated=false; setGraduated(false); }
+      // @graduated: SITE (#158 lib/events mcapOrderer) stamps every State / Trade / Graduate with { graduated, poolId, graduatedAt }
+      // (lib/protocol GradState). graduated:true — on load or a late re-sent State — is the same as the live Graduate event.
+      // STICKY: a coin never un-graduates, so false / missing never clears it (default false until something says true).
+      if(e.graduated===true){ this.graduated=true; setGraduated(true,e); }
       if(e.type==='Trade'){ const pre=this.mcap; this.mcap=e.mcapUsd; this.block=+e.block||this.block;
         emit({t:'block',block:this.block,ts:Date.now()});
         emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
@@ -762,7 +763,7 @@ addEventListener('disciple:buywarn',e=>{ const d=e.detail||{}; S.buyWarn={tags:A
 // exact $ left to graduate, for the tier-bar label (TradeBridge → lib/flight/gradAdapter, SITE readGradNeedForToken); null = unknown / paper → HUD estimate
 S.gradNeedUsd=null;
 addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradNeedUsd=typeof u==='number'&&isFinite(u)&&u>0?u:null;
-  if(d.graduated===true) setGraduated(true,d); else if(d.graduated===false) setGraduated(false); });
+  if(d.graduated===true) setGraduated(true,d); });   // sticky: the curve read can only flip it on
 /* @graduated: one flag for the whole HUD. Sources: SITE's State payload (graduated / poolId / graduatedAt), the live Graduate
    event, TradeBridge's curve read (disciple:gradneed {graduated}). A graduated coin trades on its Uniswap v4 pool: no curve
    tier progress, no "buys needed" / "to graduate" text, a GRADUATED badge instead (desktop tier bar + phone pill). */
