@@ -29,7 +29,7 @@ export interface Fill {
   mcapUsd: number;
   /**
    * How `usd` was valued: "quote" = Trade.quoteAmt × the launch quote price (exact quote paid/received); "price" =
-   * tokens × price after the fill (quoteAmt or quote price unknown). Absent = indexed before SITE job 7 (old tokens ×
+   * estimate, tokens × mid / after-fill price (quoteAmt or quote price unknown). Absent = indexed before SITE job 7 (old tokens ×
    * mid-price estimate) ⇒ lib/server/trades reindexFills revalues it.
    */
   usdBasis?: "quote" | "price";
@@ -65,7 +65,8 @@ export const preciseX18 = (v: bigint | number | undefined) => v !== undefined &&
  *    price; USDG = $1). Both venues emit quoteAmt that way (BondingCurve: quoteIn incl. fee on buys, quoteOut after fee
  *    on sells; DiscipleHook: quote in incl. fee / out after fee). SITE job 7: the old tokens × mid(priceBefore,
  *    priceAfter) estimate overstated big curve buys ~2.3× (SGRAD's first buy: $15.2K shown for ~$6.5K paid).
- *    Only when quoteAmt or the quote price is missing: tokens × the price after the fill.
+ *    Only when quoteAmt or the quote price is missing: the old estimate, tokens × mid(priceBefore, priceAfter) (mid
+ *    factor only when both prices are precise, else tokens × the price after the fill).
  */
 export function fillUsd(a: {
   tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint;
@@ -86,7 +87,11 @@ export function fillUsd(a: {
       : (Number(a.priceAfterX18) / 1e18) * (Number(qp) / 1e18) * supply;
   const priceUsd = mcapUsd / supply;
   const exact = a.quoteAmt !== undefined && a.quoteAmt > BigInt(0) && qp > BigInt(0);
-  const usd = exact ? quoteUsd(a.quoteAmt as bigint, qp) : tokens * priceUsd;
+  // fallback only (quote paid unknown): the pre-job-7 estimate, tokens × mid(priceBefore, priceAfter) — the mid factor
+  // (pb/pa) only when both prices are precise, else tokens × price after (FLOW #115).
+  const pa = Number(a.priceAfterX18), pb = Number(a.priceBeforeX18);
+  const mid = preciseX18(pa) && preciseX18(pb) ? priceUsd * ((pa + pb) / 2 / pa) : priceUsd;
+  const usd = exact ? quoteUsd(a.quoteAmt as bigint, qp) : tokens * mid;
   return { tokens, usd, priceUsd, mcapUsd, usdBasis: exact ? "quote" as const : "price" as const };
 }
 /** $ of `raw` quote units at quotePriceUsd (USD WAD per 1e18 raw ⇒ decimal-agnostic; = lib/protocol-viem quoteRawToUsd). */
