@@ -128,7 +128,7 @@ export default function ProfileClaims() {
         {caps.crew && crew && (
           <article className="cl-card cl-mini wide" data-testid="crew-rewards">
             <span className="cl-eyebrow">Crew rewards</span>
-            <p className="muted cl-fine">From the 0.777% profit tax on DUMPs in PVE rockets you hold.</p>
+            <p className="muted cl-fine">Your share of crew tips from Easy rockets you hold.</p>
             {crewOpen.length ? (
               <ul className="cl-crew">
                 {crewOpen.map((r) => (

@@ -1,9 +1,9 @@
 "use client";
 
 import type { ActivityItem } from "@/lib/stats";
+import Link from "next/link";
 import { fmtUsd } from "@/lib/config";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
-import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
 import Icon, { OrbMeter, type BombTier } from "@/components/icons/Icon";
 import { BOMB_ICON } from "@/components/ui/Icon";
 import Pager from "../Pager";
@@ -11,17 +11,27 @@ import { useMemo, useState } from "react";
 import { CrosshairChart, RangeToggle, sliceRange, type RangeKey } from "../Charts";
 
 /** Activity tab: the "Record" tiles (each stat shown once on the page), then one page (20) of the feed. */
-export default function ActivityTab({ record, pnl, rows, total, page, pages, onPage, isPrivate, owner }: {
+export default function ActivityTab({ record, pnl, rows, total, page, pages, onPage, isPrivate, owner, sample = false }: {
   record: { label: string; value: string; tone?: "pos" | "neg" }[];
   /** Cumulative PnL series: the profile's one PnL chart (PnL is public, lee 2026-10-24). */
   pnl: { t: number; v: number }[];
   rows: ActivityItem[]; total: number; page: number; pages: number; onPage: (p: number) => void; isPrivate: boolean; owner: string;
+  /** dev-only sample stats (`next dev` + ?sample=1) */ sample?: boolean;
 }) {
   const [range, setRange] = useState<RangeKey>("30d");
   const pts = useMemo(() => sliceRange(pnl, range, "level"), [pnl, range]);
+  if (!total) {
+    return isPrivate ? (
+      <div className="pf-empty" data-testid="tab-activity">
+        <strong>{C["activity.empty.own.title"]}</strong>
+        <p>{C["activity.empty.own.body"]}</p>
+        <Link href="/" className="ds-btn">{C["rockets.empty.own.cta"]}</Link>
+      </div>
+    ) : <div className="pf-empty" data-testid="tab-activity"><p>{C["activity.empty.other"](owner)}</p></div>;
+  }
   return (
     <div className="pf-tab-body" data-testid="tab-activity">
-      <div className="pf-chips-row"><span className="pf-eyebrow">{C["activity.record"]}</span><span className="tag mock" title={SAMPLE_DATA_LABEL}>{C["profile.sample"]}</span></div>
+      <div className="pf-chips-row"><span className="pf-eyebrow">{C["activity.record"]}</span>{sample && <span className="tag mock">{C["profile.sample"]}</span>}</div>
       <div className="pf-record">
         {record.map((r) => <div key={r.label} className={`pf-stat ${r.tone ?? ""}`}><span>{r.label}</span><strong>{r.value}</strong></div>)}
       </div>

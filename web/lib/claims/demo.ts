@@ -1,6 +1,6 @@
 /**
- * SAMPLE data for the claim screens (screenshots / design review). Only active with ?demo=1 AND (dev build or
- * NEXT_PUBLIC_CLAIMS_DEMO=1). Always rendered under a visible "SAMPLE DATA" tag; never mixed with live rows.
+ * SAMPLE data for the claim screens (screenshots / design review). Only active in `next dev` with ?demo=1 (never in a
+ * production build, lee Oct 26 2026). Always rendered under a visible "SAMPLE DATA" tag; never mixed with live rows.
  */
 import type { Address, Hex } from "viem";
 import type { Caps } from "./capabilities";
@@ -10,7 +10,7 @@ import type { Asset } from "./common";
 
 export function demoEnabled(): boolean {
   if (typeof window === "undefined") return false;
-  const allowed = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_CLAIMS_DEMO === "1";
+  const allowed = process.env.NODE_ENV === "development";
   return allowed && new URLSearchParams(window.location.search).get("demo") === "1";
 }
 /** v4: every claim card is live, so the demo always previews them all (kept as a function for callers). */

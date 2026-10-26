@@ -317,7 +317,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(sess.oneTap!.maxSlippageBps); }), "Apply (new session)")}
               </>
             ) : oneTapAvailable() && oneTap.settingUp ? (
-              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading in the background… trades already go through without prompts (your wallet signs them silently).</span>
+              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading…</span>
             ) : oneTapAvailable() ? (
               <>
                 <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>
@@ -329,7 +329,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <span style={{ opacity: 0.7 }}>Optional: a 24h session key caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
               </>
             ) : (
-              <span style={{ opacity: 0.7 }}>Trades are signed by your Privy wallet in the background.</span>
+              <span style={{ opacity: 0.7 }}>One-tap trading is on.</span>
             )}
             <button type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>

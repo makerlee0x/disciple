@@ -3,22 +3,22 @@
 import Link from "next/link";
 import { useState } from "react";
 import PairArt from "@/components/pairart/PairArt";
-import { sampleArtFor } from "@/lib/pairArt";
 import { fmtUsd } from "@/lib/config";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
-import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
 import Pager from "../Pager";
 
 export interface RocketCardRow {
   key: string; href: string; ticker: string; name: string; tier?: string;
-  /** Sample rows: realized PnL. Live rows: current value, with the 24h change in `sub`. */
+  /** Coin image + base pair when known; otherwise the ticker monogram (never a stand-in picture). */
+  icon?: string; pair?: string;
+  /** Traded rows: realized PnL. Live rows: current value, with the 24h change in `sub`. */
   amount: number; signed: boolean; sub?: string; share?: () => void;
 }
 
 /** Rockets tab: one page (12) of rocket cards. Tap → /coin/<address>. "Share this trade" sits in the ⋯ menu. */
-export default function RocketsTab({ rows, total, page, pages, onPage, isPrivate, owner, sample }: {
+export default function RocketsTab({ rows, total, page, pages, onPage, isPrivate, owner, sample = false }: {
   rows: RocketCardRow[]; total: number; page: number; pages: number; onPage: (p: number) => void;
-  isPrivate: boolean; owner: string; sample: boolean;
+  isPrivate: boolean; owner: string; /** dev-only sample rows (`next dev` + ?sample=1) */ sample?: boolean;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
   if (!total) {
@@ -34,7 +34,7 @@ export default function RocketsTab({ rows, total, page, pages, onPage, isPrivate
     <div className="pf-tab-body" data-testid="tab-rockets">
       <div className="pf-chips-row">
         <span className="pf-chip on">{C["rockets.filter.holding"](total)}</span>
-        {sample && <span className="tag mock" title={SAMPLE_DATA_LABEL}>{C["profile.sample"]}</span>}
+        {sample && <span className="tag mock">{C["profile.sample"]}</span>}
       </div>
       <ul className="pf-rocket-grid">
         {rows.map((r) => {
@@ -42,7 +42,7 @@ export default function RocketsTab({ rows, total, page, pages, onPage, isPrivate
           return (
             <li key={r.key} className="pf-rocket">
               <Link href={r.href} className="pf-rocket-link">
-                <PairArt {...sampleArtFor(r.ticker)} tk={r.ticker} size="list" px={40} />
+                <PairArt src={r.icon} pair={r.pair} tk={r.ticker} size="list" px={40} />
                 <span className="pf-rocket-id"><strong>${r.ticker}</strong><span>{r.name}</span></span>
                 {r.tier && <span className="tier-chip">{r.tier}</span>}
                 <span className={`pf-rocket-amt ${r.signed ? (r.amount >= 0 ? "pos" : "neg") : ""}`} aria-label={r.signed ? C["rockets.card.pnl.aria"](amt) : undefined}>

@@ -134,22 +134,22 @@ export interface ProtocolClient {
 /** Stub client — throws until DISCIPLE FLOW wires real implementations. */
 export const protocolStub: ProtocolClient = {
   async launchCoin() {
-    throw new Error("TODO: wire launchCoin to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: launchCoin is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async buy() {
-    throw new Error("TODO: wire buy to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: buy is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async sell() {
-    throw new Error("TODO: wire sell to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: sell is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async quote() {
-    throw new Error("No chain configured (mock mode).");
+    console.warn("[disciple] mock protocol: no chain configured (mock mode)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async getCurveState() {
-    throw new Error("TODO: wire getCurveState to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: getCurveState is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async impactPct() {
-    throw new Error("TODO: wire impactPct to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: impactPct is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
 };
 
@@ -273,5 +273,5 @@ export const PROTOCOL_META = {
   curve: CURVE,
   hookFeeBps: CURVE.tradeFeeBps,
   v4PoolFee: V4_POOL_FEE,
-  note: "No custody: the Privy embedded wallet signs each trade; approve curve/router once (max). Verification is a manual off-chain flag. Gas not sponsored.",
+  note: "You hold your own keys. Gas is paid in USDG, so no ETH is needed.",
 } as const;

@@ -63,7 +63,7 @@ export default function CashPanel() {
   return (
     <section id="cash" className="chart-card cash-panel" aria-label="Cash">
       <div className="table-head"><h3>Cash</h3><span className="muted tiny">{ACTIVE_CHAIN.name} · only visible to you</span></div>
-      {!addr ? <p className="muted">Sign in (top right) to see balances and deposit.</p> : <>
+      {!addr ? <p className="muted">Sign in to see this.</p> : <>
         <div className="cash-balances">
           {rows.map((r) => <div key={r.symbol} className="cash-tile"><span>{r.symbol}</span><strong>{fmt(r.bal, r.dec)}</strong></div>)}
         </div>

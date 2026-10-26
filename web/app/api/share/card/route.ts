@@ -2,7 +2,8 @@
  * GET /api/share/card?wallet&coin[&format=story|og][&ticker][&username][&demo=1][&skin&coin_skin&thruster][&demoMcap]
  * PNG share card (story 1080×1920, og 1080×1080) drawn by lib/share/scene.ts on the tier sky of the end mcap.
  * Numbers come from indexed fills (pnlForPosition), never the query; loadout params are cosmetic only.
- * No fills / demo=1 → stamped SAMPLE DATA card.
+ * No fills → a "no trades yet" card with real zeros. The stamped SAMPLE DATA card (demo=1, or no fills) is
+ * `next dev` only: production never draws sample numbers.
  */
 import type { Address } from "viem";
 import { pnlForPosition } from "@/lib/server/share/pnl";
@@ -28,18 +29,21 @@ export async function GET(req: Request) {
   const at = Number(q.get("at")) || Date.now();
   let ticker = clean(q.get("ticker")?.toUpperCase().replace(/^\$/, ""), /^[A-Z0-9]{1,12}$/) || "ROCKET";
   let username = clean(q.get("username")?.toLowerCase(), /^[a-z0-9_]{3,20}$/);
+  const devDemo = process.env.NODE_ENV === "development";
   let pnl = null as Awaited<ReturnType<typeof pnlForPosition>> | null;
-  if (q.get("demo") !== "1" && isAddr(wallet) && isAddr(coin)) {
+  if (!(devDemo && q.get("demo") === "1") && isAddr(wallet) && isAddr(coin)) {
     pnl = await pnlForPosition(wallet, coin, at).catch(() => null);
     username = (await usernameOf(wallet).catch(() => null)) ?? null;
     const sym = await serverPc().readContract({ address: coin as Address, abi: tokenAbi, functionName: "symbol" }).catch(() => null);
     if (typeof sym === "string" && sym) ticker = sym.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || ticker;
   }
-  const sample = !pnl || pnl.kind === "none";
+  const sample = devDemo && (!pnl || pnl.kind === "none");
   const w = isAddr(wallet) ? wallet.toLowerCase() : "0x000000000000000000000000000000000000dead";
   if (sample) {
     const dm = Math.min(5e9, Math.max(3333, Number(q.get("demoMcap")) || DEMO_MCAP));
     pnl = pnlFromFills(w, coin, demoFills(w, coin, at, dm), dm, at);
+  } else if (!pnl) {
+    pnl = pnlFromFills(w, coin.toLowerCase(), [], null, at); // no position: kind "none", every number 0
   }
   const host = u.host.startsWith("localhost") || u.host.endsWith(".vercel.app") ? u.host : "disciple.vip";
   const d: SceneData = {

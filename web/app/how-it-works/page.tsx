@@ -330,7 +330,7 @@ export default function HowItWorksPage() {
           <h2 id="final-h">{HIW_FINAL.h2}</h2>
           <p className={s.finalSub}>{HIW_FINAL.sub}</p>
           <CTAs {...HIW_FINAL.ctas} />
-          <p className={s.docs}>{HIW_FINAL.link}</p>
+          {HIW_FINAL.link ? <p className={s.docs}>{HIW_FINAL.link}</p> : null}
         </div>
       </section>
       <footer className={s.footer}>

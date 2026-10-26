@@ -4,6 +4,7 @@ import "server-only";
  *  - coins: lib/events listLaunches (Launched events + live curve / MarketLens mcap, graduated, moderated image)
  *  - trades: the KV trade index (lib/server/trades: indexTrades catch-up + tradesOf), the same fills /api/trades serves
  *  - age: the launch block's timestamp (RPC), hero + strip only
+ * Known test coins (lib/home/hiddenCoins) are left out before anything is ranked.
  * Cached in-process for CACHE_MS; every step is time-boxed so a slow RPC degrades to the newest coin / empty state.
  */
 import type { PublicClient } from "viem";
@@ -12,6 +13,7 @@ import { listLaunches } from "@/lib/events";
 import { publicClient } from "@/lib/protocol-viem";
 import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
+import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { chipOf, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
 import { resolveKeys } from "./imageStore";
 import { indexTrades, tradesOf } from "./trades";
@@ -46,7 +48,8 @@ async function build(): Promise<HomeData> {
     listLaunches(pc, resolveImages),
     indexTrades(4_000).catch(() => null), // short catch-up, like /api/trades
   ]);
-  const list = launches.slice(0, MAX_COINS);
+  // known test coins never reach the home (lib/home/hiddenCoins); their data is untouched
+  const list = launches.filter((x) => !isHiddenCoin(x.token)).slice(0, MAX_COINS);
   const fillsBy = await Promise.all(list.map((c) => tradesOf(c.token, null, FILLS_CAP, "desc").catch(() => [])));
   const coins: HomeCoin[] = list.map((x, i) => {
     const fills = fillsBy[i];

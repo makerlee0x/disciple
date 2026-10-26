@@ -87,7 +87,7 @@ export function deriveIdentity(m: IdentityMetrics): DerivedIdentity {
   const matched = IDENTITIES.filter((d) => d.test(m)).sort((a, b) => b.weight - a.weight);
   if (matched.length === 0) {
     const fallback: IdentityDef = {
-      id: "believer", label: "Pilgrim", blurb: "Still finding the flight path.", weight: 0, test: () => true,
+      id: "believer", label: "Normie", blurb: "Still finding the flight path.", weight: 0, test: () => true,
     };
     return { primary: fallback, secondary: [], matched: [] };
   }

@@ -1,6 +1,6 @@
 "use client";
 /**
- * Lazy feed: the Launchpad bundle (and its 600 generated SAMPLE rows) loads only after the hero has painted, on the
+ * Lazy feed: the Launchpad bundle loads only after the hero has painted, on the
  * first of: page load + idle, or the placeholder nearing the viewport. The placeholder holds the feed's space (no CLS).
  */
 import dynamic from "next/dynamic";

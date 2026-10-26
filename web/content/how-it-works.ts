@@ -41,7 +41,8 @@ export const HIW_SUBNAV = {
     { id: "fees", label: "Fees" },
     { id: "faq", label: "FAQ" },
   ],
-  docs: "Full docs: coming soon",
+  /** Hidden until docs ship (BRAND sweep r1); empty string renders nothing. */
+  docs: "",
 } as const;
 
 export type HiwItem = { icon: IconName; title: string; body: string; openItem?: string };
@@ -66,7 +67,7 @@ export const HIW_PAIR = {
       { icon: "dump", strong: "DUMP", text: " pays out in the base" },
       { icon: "graduation", strong: "Graduation", text: " locks the base permanently in the Uniswap v4 LP" },
     ] as { icon: IconName; strong: string; text: string }[],
-    sample: "SAMPLE · $HALO paired with USDG",
+    sample: "Example: $HALO, paired with USDG",
   },
   items: [
     { icon: "base-pair", title: "A supported base", body: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
@@ -98,13 +99,13 @@ export const HIW_GAME = {
   items: [
     { icon: "rocket", title: "Flight", body: "Open any rocket to fly it: the chart becomes the sky. Live altitude, BOOST and DUMP, bombs, and the top boosters (King of the Hill)." },
     { icon: "crew", title: "Crew", body: "Everyone who holds the rocket is aboard. Everyone aboard flies together, with crew chat in flight." },
-    { icon: "achievement", title: "Achievements", body: "The Choir of Deeds: 43 badges in 8 categories. Earn rHALO points along the way." },
+    { icon: "achievement", title: "Achievements", body: "The Choir of Deeds: 43 badges in 8 categories." },
     { icon: "believer", title: "Identities", body: "Your playstyle earns a tag: Believer, Trencher, Sniper, Whale, Diamond Hands and more." },
   ] as HiwItem[],
   note: "Rocket upgrades are cosmetic only. They never change price, fills or odds.",
   /** Sample flight card (illustrative, mock data). */
   flight: {
-    sample: "SAMPLE · $CHOIR",
+    sample: "Example: $CHOIR",
     hudLabel: "ALTITUDE · MCAP",
     hudValue: "$402.0K",
     hudDelta: "▲ 12.9% · 24h",
@@ -133,7 +134,7 @@ export const HIW_PHASES = {
     ["You trade with", "The bonding curve", "The Uniswap v4 pool"],
     ["Market cap", "$3,333 → $33,333", "$33,333 and up"],
     ["Supply", "84% sells on the curve", "The remaining 15.76% is locked forever in the Uniswap v4 LP"],
-    ["Liquidity", "Base builds up in the curve", "Full-range, owned by LockedLP, locked forever"],
+    ["Liquidity", "Base builds up in the curve", "Locked forever in the Uniswap v4 LP."],
     ["Fee", "1% (+ optional creator tax)", "1%, via the DISCIPLE hook"],
   ] as [string, string, string][],
   grad: "Graduation: at 84% sold and $33,333, the same BOOST that crosses the line opens the pool.",
@@ -200,7 +201,7 @@ export const HIW_FAQ = {
   eyebrow: "FAQ",
   h2: "Questions, answered.",
   items: [
-    { q: "Is the liquidity really locked?", a: "Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet." },
+    { q: "Is the liquidity really locked?", a: "Yes. Liquidity is locked forever in the Uniswap v4 LP. Nobody can withdraw it." },
     { q: "What coins can I pair with?", a: "Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool." },
     { q: "What does pairing do for my coin?", a: "Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket’s Uniswap v4 LP." },
     { q: "When does a rocket graduate?", a: "At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction." },
@@ -218,7 +219,8 @@ export const HIW_FINAL = {
   h2: "To the moon.",
   sub: "Pick a coin you believe in. Launch a rocket paired with it.",
   ctas: { primary: "Launch a rocket", secondary: "Explore rockets" },
-  link: "Full docs: coming soon",
+  /** Hidden until docs ship (BRAND sweep r1); empty string renders nothing. */
+  link: "",
   footer: "Robinhood Chain Testnet · Not audited · Nothing here is financial advice.",
   footerOpenItem: "C10",
   logoAlt: "DISCIPLE",

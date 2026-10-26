@@ -34,13 +34,13 @@ export async function pveVerifiedUntil(pc: PublicClient, trader: Address, coin: 
  */
 export async function ensurePveLogin(pc: PublicClient, trader: Address, opts: { fetchFn?: typeof fetch; token?: () => Promise<string | null> } = {}): Promise<Call[]> {
   const gate = deployment().loginGate;
-  if (gate === ZERO) throw new PveError("PveUnavailable", "PVE rockets aren't available on this network yet.");
+  if (gate === ZERO) throw new PveError("PveUnavailable", "Easy mode isn't open yet. Try Hard or Trench.");
   const k = trader.toLowerCase();
   if ((until.get(k) ?? 0) > nowSec() + 120) return [];
   const onchain = await pveVerifiedUntil(pc, trader).catch(() => 0);
   if (onchain > nowSec() + 120) { until.set(k, onchain); return []; }
   const token = await (opts.token ?? privyAccessToken)();
-  if (!token) throw new PveError("PveLoginRequired", "PVE rockets need a verified login — sign in with email or Google first.");
+  if (!token) throw new PveError("PveLoginRequired", "Easy rockets need you signed in to BOOST. Sign in with X, email or wallet.");
   const r = await (opts.fetchFn ?? fetch)("/api/pve/attest", {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({ wallet: trader, relay: true }),
@@ -48,7 +48,7 @@ export async function ensurePveLogin(pc: PublicClient, trader: Address, opts: { 
   const j = (await r.json().catch(() => ({}))) as { error?: string; signature?: Hex; expiry?: number; coin?: Address; relayed?: boolean; already?: boolean; verifiedUntil?: number };
   if (!r.ok || !j.signature) {
     const M: Record<string, string> = {
-      login_not_verified: "PVE needs a verified login: link an email, Google or X account to your profile.",
+      login_not_verified: "Sign in with X, email or wallet to BOOST Easy rockets.",
       wallet_not_owned: "This wallet isn't linked to your login.",
       rate_limited: "Too many login checks — try again in a few minutes.",
       attester_not_registered: "PVE login checks aren't switched on yet (attester not registered on-chain).",

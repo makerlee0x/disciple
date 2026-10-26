@@ -269,5 +269,5 @@ export const mockLeaderboardAdapter: LeaderboardAdapter = {
   },
 };
 
-/** Active adapter — swap to indexer client later. */
+/** DEV-ONLY: the page loads this adapter only behind devSample() (`next dev` + ?sample=1); production uses emptyLeaderboardAdapter. */
 export const leaderboardAdapter: LeaderboardAdapter = mockLeaderboardAdapter;
