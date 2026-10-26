@@ -17,6 +17,7 @@ import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
 import SettingsModal from "./SettingsModal";
+import { OPEN_CASH_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import EditProfileSheet from "./EditProfileSheet";
 import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
 import IdentitySigil from "./IdentitySigil";
@@ -119,7 +120,21 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [toast, setToast] = useState("");
   const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
-  useEffect(() => { if (isPrivate && window.location.hash === "#settings") setSettingsOpen(true); }, [isPrivate]);
+  // #settings / #cash (the Deposit link, lib/cashLink) open Settings; #cash also scrolls to the Cash panel. On load, on
+  // hashchange, and on OPEN_CASH_EVENT (a Deposit click while already on /profile#cash fires no hashchange).
+  useEffect(() => {
+    if (!isPrivate) return;
+    const open = () => {
+      const h = window.location.hash;
+      if (!(SETTINGS_HASHES as readonly string[]).includes(h)) return;
+      setSettingsOpen(true);
+      if (h === "#cash") window.setTimeout(() => document.getElementById("cash")?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    window.addEventListener(OPEN_CASH_EVENT, open);
+    return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_CASH_EVENT, open); };
+  }, [isPrivate]);
 
   const { data, ready, sample } = useProfileStats(wallet);
   const { identity } = data;

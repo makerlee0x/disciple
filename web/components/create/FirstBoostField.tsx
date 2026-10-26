@@ -124,7 +124,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
         {!deployed ? null : limitsErr ? <span>{COPY.unavailable}</span> : !limits ? <span>{COPY.loading}</span> : (
           <>
             <span>{COPY.max(maxStr, fmtAmount(limits.capTokens, 18), pct!)}</span>
-            <span>{balance != null ? `Balance ${usd(balance)}` : me ? "Balance …" : COPY.connect}</span>
+            <span data-testid="first-boost-balance">{balance != null ? COPY.balanceOf(usd(balance), symbol) : me ? COPY.balanceOf("…", symbol) : COPY.connect}</span>
             {raw != null && raw > BigInt(0) && <span data-testid="first-boost-pays">{COPY.pays(fmtAmount(raw, limits.decimals), symbol)}</span>}
           </>
         )}
@@ -135,6 +135,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           <span className="first-boost-note">{fresh ? "Launchpad quote" : "estimate"} · anti-snipe exempt · 1% fee{creatorTaxBps ? ` + ${creatorTaxBps / 100}% creator tax` : ""}</span>
         </p>
       )}
+      {limits && me && raw != null && raw > BigInt(0) && <p className="first-boost-note" data-testid="first-boost-paid-from">{COPY.paidFrom(symbol)}</p>}
       {limits?.capBy === "mode" && <p className="first-boost-note first-boost-mode">{COPY.modeCap(modeName(limits.mode), pct!, bpsToPct(limits.launchpadCapBps))}</p>}
       {pve && raw != null && raw > BigInt(0) && (
         <p className="first-boost-note first-boost-mode">{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
