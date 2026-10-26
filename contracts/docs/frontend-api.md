@@ -49,7 +49,8 @@ The pre-grad paths are on the `BondingCurve`, at `Launchpad.curveOf(token)`:
 - `buyWithPermit(quoteIn, minTokensOut, deadline, recipient, permitDeadline, v, r, s)`: one tx using an EIP-2612 permit on the quote. STRATEGY and USDG both expose `DOMAIN_SEPARATOR`/`nonces` on RH mainnet.
 - `sellWithPermit(tokensIn, minQuoteOut, deadline, recipient, permitDeadline, v, r, s)`: every DISCIPLE token is ERC20Permit.
 - Permit calls sit in try/catch, so a front-run permit doesn't brick the tx. Without permit, approve the curve once (max) and every later trade is a single tx.
-- The per-wallet curve cap applies to `recipient` (reverts `WalletCap()`). It is per coin: read `curve.walletCapBps()` (or `Launchpad.walletCapBpsOf(token)`); **0 = no cap**, otherwise max holding = `walletCapBps * 7e27 / 10000` tokens measured by `curve.balanceOnCurve(recipient)`. The value for new launches is `Launchpad.walletCapBps()` (default 0; owner-only `setWalletCapBps`, event `WalletCapSet(bps)`).
+- **Mode rules v2:** Easy/Hard caps grow with mcap and over-cap buys **partial-fill** (refund + `BuyRefunded`; room 0 reverts `WalletCap()`). Use `MarketLens.capRoom/capNow/sniperTax/snipeEscrow/creatorLock/crewTipEstimate`; see mode-rules-v2.md (incl. the SITE UI checklist). `Trade.snipeFee` is the sniper tax (escrowed, not routed).
+- TRENCH legacy cap: the per-wallet curve cap applies to `recipient`. It is per coin: read `curve.walletCapBps()` (or `Launchpad.walletCapBpsOf(token)`); **0 = no cap**, otherwise max holding = `walletCapBps * 7e27 / 10000` tokens measured by `curve.balanceOnCurve(recipient)`. The value for new launches is `Launchpad.walletCapBps()` (default 0; owner-only `setWalletCapBps`, event `WalletCapSet(bps)`).
 - Compatibility: curves from the live v1–v3 stacks have a hard-coded 7% cap and **no** `walletCapBps()` getter. If the call reverts, fall back to 700 bps (7%). Show the cap only when it is non-zero.
 
 The post-grad paths are on `DiscipleRouter`:
@@ -170,10 +171,10 @@ After every `Trade`, BondingCurve (pre-grad) and DiscipleHook (post-grad) emit:
 
 Other contract changes: `Launchpad.curveDeployer()` / `CurveDeployer` deploys curves, which keeps Launchpad under the size limit. `FeeRouter.routeHookFee(token, feeToken, trader, creator, feeAmount)` is called by the hook (the `donated` argument has been removed).
 
-## Anti-snipe tax routing (LOCKED #9 rev. 2026-10-15)
-- `snipeFee` in `Trade` / `quoteBuy` is split by `FeeRouter.routeSnipeFee`: `toRewards = snipeFee * 7000 / 10000` → `FeeRouter.rewardsVault()` (community `RewardsVault`), `snipeFee - toRewards` → treasury.
-- Event: `FeeRouter.SnipeFeeRouted(token indexed, quote indexed, toRewards, toTreasury)` (replaces `SnipeFeeRoutedToLP`). `RewardsVault.RewardAccrued(token indexed, asset indexed, amount)`; `RewardsVault.totalAccrued(asset)` = lifetime total; payouts emit `Distributed(asset, to, amount)`.
-- Anti-snipe tax is no longer added to LockedLP, so `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee (curve phase only).
+## Sniper tax routing (mode rules v2; supersedes LOCKED #9 rev. 2026-10-15)
+- 99% at launch → 25% at 1s → 3% at 2s → 1% at 3s → 0.3% · 0.1% · 0.03% → 0 from 7s (per-second table, `FeeMath.snipeBps`), buys only, First BOOST exempt. `snipeFee` in `Trade` / `quoteBuy` is kept in `curve.snipeEscrow()` (outside reserves and price). At graduation it goes to LockedLP's locked compound bucket (`SnipeEscrowToLP`; excluded from the graduation floor). If not graduated within `snipeEscrowTimeout` (default 30 days), anyone can `releaseSnipeEscrow()` → `FeeRouter.rewardsVault()` (`SnipeEscrowReleased`).
+- Legacy only: `FeeRouter.routeSnipeFee` (70% vault / 30% treasury, event `FeeRouter.SnipeFeeRouted(token indexed, quote indexed, toRewards, toTreasury)`) still exists but v2 curves never call it. `RewardsVault.RewardAccrued(token indexed, asset indexed, amount)`; `RewardsVault.totalAccrued(asset)` = lifetime total; payouts emit `Distributed(asset, to, amount)`.
+- `LockedLP.positions(token).escrow` grows only by the LP share of the 1% fee (curve phase only); the sniper escrow is held by the curve, not LockedLP, until graduation.
 
 ## LP auto-compound (post-graduation)
 - The 33% LP share of the 1% hook fee is bucketed every trade and compounded in batches into the coin's locked full-range position. Pending amounts: `LockedLP.compoundBucket(token) → (tokenAmount, quoteAmount)` (buys add token, sells add quote).

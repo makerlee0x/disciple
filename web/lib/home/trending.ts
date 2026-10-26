@@ -43,8 +43,8 @@ export type HomeCoin = {
   creator: string;
   mcapUsd: number;
   graduated: boolean;
-  /** 0–100 to graduation, from the curve's progressBps() (null = unknown ⇒ cards derive it from mcapUsd) */
-  gradPct?: number | null;
+  /** curve progressBps (tokens sold / curve supply, 1e4 = graduation) */
+  progressBps?: number;
   /** launch block (newer = larger) */
   block: number;
   /** launch time, ms (filled for the hero + strip only) */
@@ -109,9 +109,9 @@ export function statsFromFills(fills: Fill[], now: number, mcapNow: number, trun
   }
   // 24h change: live mcap vs the price at the 24h mark (last fill before it), or the pre-trade price of the first fill
   // when the coin is younger than 24h. Post-grad hook fills carry a frozen mcapAfterUsd (known FLOW bug) ⇒ no change.
-  // Compared as mcaps (lib/mcap basis, the coin's own supply on both sides): was live mcap ÷ a fixed 7B vs a fill price
-  // that already used the coin's own supply ⇒ wrong for any coin not launched with 7B.
   let chg24: number | null = null;
+  // Compared as mcaps (lib/mcap basis, the coin's own supply on both sides): was live mcap ÷ a fixed supply vs a fill
+  // price that already used the coin's own supply ⇒ wrong for any coin not launched with it (main #137).
   const refMcap = ref ? (ref.venue === "curve" ? ref.mcapUsd : null) : firstIn && firstIn.venue === "curve" ? preMcapOf(firstIn) : null;
   if (refMcap && mcapNow > 0 && (ref || firstIn)) chg24 = (mcapNow / refMcap - 1) * 100;
   if (chg24 != null && !Number.isFinite(chg24)) chg24 = null;

@@ -125,7 +125,11 @@ contract Migration is IMigration, Owned2Step {
         }
 
         bytes32 salt = bytes32(uint256(uint160(token)));
-        lockedLP.seedV4Position(token, quote, key, sqrtPriceX96, amount0, amount1, salt);
+        // Graduation floor (phase 3a): only the curve reserve's leftover seeds the floor. The sniper escrow (inside
+        // quoteAmount; the curve zeroes it after this call) and the curve-phase fee LP escrow are excluded and keep
+        // going to the locked compound bucket, as before.
+        uint256 nonFloor = escrow + _snipeEscrowOf(msg.sender);
+        lockedLP.seedV4Position(token, quote, key, sqrtPriceX96, amount0, amount1, salt, nonFloor);
 
         // Creator from the Launchpad record (current creator), falling back to the curve's immutable creator.
         address creator = ILaunchpadRecord(lp).creatorOf(token);
@@ -139,6 +143,12 @@ contract Migration is IMigration, Owned2Step {
         poolIdOf[token] = poolId;
 
         emit Migrated(token, quote, poolId, tokenAmount, quoteAmount, sqrtPriceX96);
+    }
+
+    /// @dev BondingCurve.snipeEscrow() (mode rules v2); 0 for curves without it.
+    function _snipeEscrowOf(address curve) internal view returns (uint256 esc) {
+        (bool ok, bytes memory data) = curve.staticcall(abi.encodeWithSignature("snipeEscrow()"));
+        if (ok && data.length >= 32) esc = abi.decode(data, (uint256));
     }
 
     function _quotePriceFromCurve(address curve) internal view returns (uint256) {

@@ -19,26 +19,29 @@ export const DEMO_POOL = {
 };
 
 export const CURVE = {
-  startMcap: 7_000,
-  graduationMcap: 33_000,
-  soldPctAtGrad: 72,
-  totalSupply: 7_000_000_000,
+  startMcap: 3_333,
+  graduationMcap: 33_333,
+  soldPctAtGrad: 84.24,
+  totalSupply: 1_000_000,
   decimals: 18,
   /** wallet cap = Launchpad default Constants.WALLET_CAP_BPS_DEFAULT = 0 (no cap): live, paper and SIMULATOR alike */
   walletCapDefaultBps: 0,
   tradeFeeBps: 100, // 1%
   creatorTaxMaxPct: 7,
-  antiSnipeStartPct: 77.7,
+  antiSnipeStartPct: 99,
+  /** sniper tax window: Constants.ANTI_SNIPE_DURATION (7s, lee 2026-10-24; was 77s linear) */
   antiSnipeWindowSec: 7,
+  /** sniper tax bps per elapsed whole second, 0 from antiSnipeWindowSec: Constants.ANTI_SNIPE_TABLE (FeeMath.snipeBps) */
+  antiSnipeBpsBySec: [9900, 2500, 300, 100, 30, 10, 3],
 } as const;
 
 /** 18-tier biblically ascending ladder (constitution LOCKED 2026-10-15) */
 export const TIERS = [
-  { name: "LAUNCH PAD", lo: 7e3, hi: 12e3, bg: "tier0" },
+  { name: "LAUNCH PAD", lo: 3_333, hi: 12e3, bg: "tier0" },
   { name: "OZONE", lo: 12e3, hi: 18e3, bg: "tier1" },
   { name: "STRATOSPHERE", lo: 18e3, hi: 25e3, bg: "tier2" },
-  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33e3, bg: "tier3" },
-  { name: "OUTER SPACE", lo: 33e3, hi: 55e3, bg: "tier4" },
+  { name: "KÁRMÁN LINE", lo: 25e3, hi: 33_333, bg: "tier3" },
+  { name: "OUTER SPACE", lo: 33_333, hi: 55e3, bg: "tier4" },
   { name: "FIRMAMENT", lo: 55e3, hi: 100e3, bg: "tier5" },
   { name: "MORNING STARS", lo: 100e3, hi: 333e3, bg: "tier6" },
   { name: "HEAVENLY HOST", lo: 333e3, hi: 777e3, bg: "tier7" },

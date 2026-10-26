@@ -7,7 +7,7 @@ import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
+import { tradeErrorKind, balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
@@ -32,6 +32,8 @@ import { gasReservePerOp, warmGasPrice } from "@/lib/flight/gasReserve";
 const gasUsd = () => { try { return rawToUsd(gasReservePerOp()); } catch { return 0; } };   // display / engine pre-check only
 /** the last real USDG balance, RAW (reservation math stays bigint; decimals from config) */
 const CASH_RAW: { v: bigint | null } = { v: null };
+import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
+import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -60,6 +62,9 @@ type Pos = { size: number; valueUsd: number; costBasis: number };
 type Sell = { id: string; label: string; frac: number; key: string };
 const toSells = (sl: SellSlot[]): Sell[] => sl.map((v, i) => ({ id: String(v), label: sellLabel(v), frac: v / 100, key: SELL_KEYS[i] }));
 const DEFAULT_SELL_SEL = 1;   // 25%
+/** GAME graduation fix: expected price-move warnings per amount (lib/flight/tradeGate moveWarning). Warnings only — never block. */
+type Warns = { max: number; buy: MoveWarn[]; sell: MoveWarn[]; customBuy: MoveWarn | null; customSell: MoveWarn | null };
+const NO_WARNS: Warns = { max: 0, buy: [], sell: [], customBuy: null, customSell: null };
 
 /** Bottom bar = custom $ + BOOST (buy) / DUMP (sell) + position/paper badge. storagePrefix scopes Swap settings (sim has its own). */
 /* own balances from the sync receipt (lib/flight/ownLedger): the public RPC lags the sequencer ~0.7 s, so the HUD / cash /
@@ -203,6 +208,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         return null;
       } catch { return null; /* the estimate stays booked */ }
     };
+    /** Failure → GAME plain copy (lib/flight/tradeGate GAME_COPY) by SITE's tradeErrorKind; null (OTHER) = keep the message. */
+    const plainReason = (e: unknown) => plainTradeMessage(tradeErrorKind(e));
     window.__discipleTrade = async (side, usd, o) => {
       const t0 = performance.now(); let quoteAt: number | undefined;
       tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
@@ -300,7 +307,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         return { ok: r.ok, txHash: r.txHash, reason: r.reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
       } catch (e) {
         if (isPendingUnknown(e)) return pendingUnknown();   // ProtocolError("pending_unknown"): SITE holds + watches it
-        const m = tradeErrorCopy({ ok: false, code: (e as { code?: string }).code, reason: (e as Error).message.split("\n")[0].slice(0, 90) }) || "failed";
+        // rapid-tap codes (429 / spend limit / confirming) first, then main's plain copy for the classified failures
+        // (price impact / price moved / gas), else the existing plain line
+        const raw = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 90);
+        const rt = tradeErrorCopy({ ok: false, code: (e as { code?: string }).code, reason: raw });
+        const m = (rt && rt !== raw ? rt : undefined) ?? plainReason(e) ?? (raw || "failed");
         setLast(`✕ ${m}`);
         return { ok: false, reason: m };
       } finally {
@@ -463,11 +474,32 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ n: number; max: number }>).detail; if (d && Number.isFinite(d.n)) setInFlight({ n: d.n, max: d.max || 3 }); };
     addEventListener("disciple:inflight", h); const off = onReservations(() => setResv((x) => x + 1));
     return () => { removeEventListener("disciple:inflight", h); off(); }; }, []);
+  // Tier-bar "$X to graduate" + graduated flag (GAME graduation fixes): one curve read (SITE's readGradNeedForToken via
+  // lib/flight/gradAdapter graduationStatus). usd = exact USDG left, rounded UP to the cent — live only (paper trades don't move
+  // the curve; paper keeps the HUD estimate). graduated = chain truth for every viewer (wallet or not), so the HUD flips to the
+  // GRADUATED badge even before SITE's State payload carries `graduated`. Label only: no GRADUATE buy button (lee 7:56 PM CT).
+  useEffect(() => {
+    const send = (usd: number | null, graduated?: boolean) => dispatchEvent(new CustomEvent("disciple:gradneed", { detail: graduated === undefined ? { usd } : { usd, graduated } }));
+    if (!valid) { send(null); return; }
+    let alive = true;
+    const poll = async () => { if (!alive || document.hidden) return;
+      try { const st = await graduationStatus(token); if (alive && st) send(live ? st.usd : null, st.graduated); } catch { /* keep last */ } };
+    void poll(); const iv = setInterval(poll, 4000);
+    const soon = () => setTimeout(() => void poll(), 300);
+    addEventListener("disciple:livetrade", soon); addEventListener("disciple:ownbalance", soon); addEventListener("disciple:ammo", soon);
+    return () => { alive = false; clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); removeEventListener("disciple:ammo", soon); send(null); };
+  }, [valid, live, token]);
+  // price-move warnings (GAME graduation fix 1, lee 7:09 PM CT): never grey / disable / block — warn only
+  const [warns, setWarns] = useState<Warns>(NO_WARNS);
+  const [phoneSide, setPhoneSide] = useState<TradeSide | null>(null);   // phone: the side whose button / amount was last touched
+  const [deskSide, setDeskSide] = useState<TradeSide | null>(null);     // desktop: the hovered / focused side (none ⇒ no warning)
   const [hint, setHint] = useState("");
   useEffect(() => { if (!hint) return; const t = setTimeout(() => setHint(""), 1400); return () => clearTimeout(t); }, [hint]);
-  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0) + "|" + sellSel + "|" + gs.keys.sell.join();
+  const sellSig = SELLS.map((x) => x.id).join() + "|" + (has ? 1 : 0) + "|" + (pos.costBasis > 0 ? 1 : 0) + "|" + sellSel + "|" + gs.keys.sell.join() + "|" + warns.sell.map((w) => chipTag("sell", w)).join();
   const pushSells = useRef(() => {});
-  pushSells.current = () => { const items = toSells(cfgRef.current.sells).map((x, i) => ({ label: x.label, key: keyLabel(gs.keys.sell[i] || x.key), on: has, sel: i === sellSel }));
+  // `warn` = the chip's price-move tag ("−38%", "!" = over the live limit), `warnText` = the hover line. `on` stays holdings-only.
+  pushSells.current = () => { const items = toSells(cfgRef.current.sells).map((x, i) => ({ label: x.label, key: keyLabel(gs.keys.sell[i] || x.key), on: has, sel: i === sellSel,
+    warn: chipTag("sell", warns.sell[i]), warnText: warns.sell[i]?.text || "", over: warns.sell[i]?.level === "over" }));
     dispatchEvent(new CustomEvent("disciple:sellpresets", { detail: { items } })); };
   useEffect(() => { pushSells.current(); }, [sellSig]);
   useEffect(() => { let n = 0; const h = () => { if (n++ < 3) pushSells.current(); }; addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, []);   // engine may boot after mount (worker)
@@ -502,6 +534,39 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const customSellPct = sellUnit === "%" && sellCustomN ? Math.min(100, sellCustomN) : 0;
   const customSellUsd = sellUnit === "$" && sellCustomN ? (pos.valueUsd > 0 ? Math.min(sellCustomN, pos.valueUsd) : sellCustomN) : 0;
   const dumpLabel = customSellPct ? `${+customSellPct.toFixed(2)}%` : customSellUsd ? fmtMoney(customSellUsd) : selSellPreset.label;
+  // Expected price move per amount (buy presets + custom $, sell presets + custom %) from on-chain quotes, vs the BIG_MOVE_BPS
+  // threshold and the router's live max impact (SITE readRouterMaxImpactBps via gradAdapter; 0 = no cap ⇒ no "too big" warning). Live only,
+  // off the trade hot path (own 4 s loop + after trades). Warnings only: nothing here can block a tap.
+  const buySig = ammo.usd.slice(0, 4).join(), sellFracSig = cfg.sells.join();
+  useEffect(() => {
+    if (!live) { setWarns(NO_WARNS); return; }
+    let alive = true; const pc = publicClient(), tk = token as Address;
+    const imp = (side: "buy" | "sell", a: Promise<bigint>) => a.then((x) => (x > BigInt(0) ? readQuote(pc, tk, side, x).then((q) => q.impactBps) : null)).catch(() => null);
+    const run = async () => {
+      if (!alive || document.hidden) return;
+      try {
+        const max = await liveMaxImpactBps();
+        const me = await activeAddress().catch(() => null);
+        const bal = me ? await ownHint(pc, tk, me, 4000).catch(() => BigInt(0)) : BigInt(0);
+        const buyUsd = [...ammo.usd.slice(0, 4), customUsd], fracs = [...cfg.sells.map((v) => v / 100), customSellPct / 100];
+        const [b, s] = await Promise.all([
+          Promise.all(buyUsd.map((u) => (u > 0 ? imp("buy", usdToAmountIn(pc, tk, "buy", u)) : Promise.resolve(null)))),
+          Promise.all(fracs.map((f) => (bal > BigInt(0) && f > 0 ? imp("sell", Promise.resolve(sellAmount(bal, Math.min(1, f)))) : Promise.resolve(null)))),
+        ]);
+        const wb = moveWarnings("buy", b, max), wsl = moveWarnings("sell", s, max);
+        if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellPct ? wsl[4] : null });
+      } catch { /* keep last */ }
+    };
+    const id = setTimeout(run, 150); const iv = setInterval(run, 4000);
+    const soon = () => setTimeout(() => void run(), 300);
+    addEventListener("disciple:livetrade", soon); addEventListener("disciple:ownbalance", soon);
+    return () => { alive = false; clearTimeout(id); clearInterval(iv); removeEventListener("disciple:livetrade", soon); removeEventListener("disciple:ownbalance", soon); };
+  }, [live, token, buySig, sellFracSig, customUsd, customSellPct]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // buy chips' warning tags → engine ammo panel (desktop canvas chips)
+  const buyWarnSig = warns.buy.map((w) => chipTag("buy", w) + w.text).join("|");
+  useEffect(() => { dispatchEvent(new CustomEvent("disciple:buywarn", { detail: { tags: warns.buy.map((w) => chipTag("buy", w)), texts: warns.buy.map((w) => w.text), over: warns.buy.map((w) => w.level === "over") } })); }, [buyWarnSig]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { let n = 0; const h = () => { if (n++ < 3) dispatchEvent(new CustomEvent("disciple:buywarn", { detail: { tags: warns.buy.map((w) => chipTag("buy", w)), texts: warns.buy.map((w) => w.text), over: warns.buy.map((w) => w.level === "over") } })); };
+    addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, [buyWarnSig]);   // eslint-disable-line react-hooks/exhaustive-deps
   dumpRef.current = () => {
     if (customSellPct) return sellFrac(customSellPct / 100);
     if (customSellUsd) { if (!has) { setHint("NO TOKENS IN WALLET"); return; } if (!(pos.valueUsd > 0)) { setHint("position value unknown: use %"); return; }
@@ -524,6 +589,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const shortMsg = short ? `Not enough cash: ${fmtShot(shotUsd)} BOOST, you have ${fmtShot(Math.max(0, spendable ?? 0))}${inFlight.n ? ` (${inFlight.n} pending)` : ""}` : "";
   const full = inFlight.n >= inFlight.max;   // 3 in flight: BOOST + DUMP greyed until one resolves
   const boostTitle = full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`;
+  // the ACTIVE amount's price-move warning (custom wins over the preset, like BOOST / DUMP themselves)
+  const buyWarn = customUsd ? warns.customBuy : warns.buy[mode] ?? null;
+  const sellWarn = customSellPct ? warns.customSell : customSellUsd ? null : warns.sell[sellSel] ?? null;
+  // only the side being tapped / previewed (post-grad fix 3): phone = last touched side, desktop = hovered / focused side, else none
+  const { text: warnText, over: warnOver } = activeWarning(phone ? phoneSide : deskSide, buyWarn, sellWarn, has);
+  const hoverSide = (side: TradeSide) => ({ onMouseEnter: () => setDeskSide(side), onMouseLeave: () => setDeskSide((x) => (x === side ? null : x)),
+    onFocus: () => setDeskSide(side), onBlur: () => setDeskSide((x) => (x === side ? null : x)) });
   const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
   // phones (html.ap-phone, PhoneHud): the v3 bar — same amount state + trade calls as the desktop bar below, layout only.
   // Rapid tap on the phone bar (it has no status line, only the hint bubble): '3 IN FLIGHT' while full, the pending-hold
@@ -536,11 +608,14 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short || full} dumpDisabled={!has || full} boostTitle={boostTitle} dumpTitle={dumpTitle}
       buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
+      onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
       onSetBuy={(v) => setCustom(v)}
       sellOpts={SELLS.slice(0, 4).map((x) => x.label)} sellSel={sellCustomN ? -1 : sellSel}
       onPickSell={(i) => { setSellCustom(""); selSell.current(i); }}
       onSetSell={(v) => { pickUnit("%"); setSellCustom(v); }}
+      buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
+      warn={warnText} warnOver={warnOver}
       hint={phoneHint} keyGuard={noKeyActivate} />
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}
@@ -553,24 +628,24 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
       padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
       <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
-        <input aria-label="custom amount" inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
+        <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder={fmtMoney(ammo.usd[mode] ?? MODES[mode].usd)} value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
           onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
           onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.repeat) { e.preventDefault(); }   // held Enter / SPACE never auto-fires
             else if ((e.key === "Enter" || e.key === " ") && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
             else if (e.key === " ") e.preventDefault();   // no custom $ / held: never type a space into the amount
             e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} title={full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short || full} disabled={short || full} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short || full ? 0.4 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
-        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has || full} disabled={!has || full} onClick={() => dumpRef.current?.()}
+        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short || full} disabled={short || full} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short || full ? 0.4 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
+        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has || full} disabled={!has || full} onClick={() => dumpRef.current?.()}
           style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has && !full ? 1 : 0.4, cursor: has && !full ? "pointer" : "not-allowed" }}>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-          <input aria-label="custom sell amount" data-testid="custom-sell" inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
+          <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
             title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
             onChange={(e) => setSellCustom(e.target.value.replace(/[^\d.]/g, ""))}
             onKeyDown={(e) => { if (e.key === "Enter" && e.repeat) e.preventDefault();   // held Enter never auto-fires DUMPs
             else if (e.key === "Enter" && sellCustomN) { e.preventDefault(); dumpRef.current?.(); } e.stopPropagation(); }}
             style={{ width: 58, fontSize: 12, padding: "7px 6px", borderRadius: 8, border: `1px solid ${sellCustomN ? "#ffb0c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-          <button type="button" data-testid="sell-unit" aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
+          <button type="button" data-testid="sell-unit" {...hoverSide("sell")} aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
             style={{ ...btn, padding: "6px 7px", fontSize: 11, background: "rgba(255,176,200,.14)", color: "#ffd0dc" }}>{sellUnit}</button>
         </span>
         <div style={{ display: "grid", gap: 1, fontSize: 10, lineHeight: 1.2, minWidth: 64 }}>
@@ -580,7 +655,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         </div>
       </div>
       {(hint || shortMsg) && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint || shortMsg}</div>}
-      {!hint && !shortMsg && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
+      {!hint && !shortMsg && warnText && <div data-testid="trade-warn" style={{ fontSize: 10, color: warnOver ? "#ffb0c8" : "#ffe7a3" }}>{warnText}</div>}
+      {!hint && !shortMsg && !warnText && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}

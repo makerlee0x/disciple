@@ -6,6 +6,7 @@ import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {Owned2Step} from "../src/utils/Owned2Step.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {McapMath} from "../src/libraries/McapMath.sol";
+import {CurveMath} from "../src/libraries/CurveMath.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -65,7 +66,7 @@ contract AnonLauncherTest is IntegrationBase {
         returns (BondingCurve c, Token t, uint256 bought)
     {
         vm.prank(payer);
-        ILaunchpad.LaunchResult memory r = anon.launchAnon(_params(buy), stealth, recipient, "", 0x00);
+        ILaunchpad.LaunchResult memory r = anon.launchAnon(_params(buy), stealth, recipient, "", 0x00, FEE);
         return (BondingCurve(r.curve), Token(r.token), r.creatorTokensBought);
     }
 
@@ -115,6 +116,64 @@ contract AnonLauncherTest is IntegrationBase {
     function test_zero_recipient_defaults_to_stealth() public {
         (, Token t, uint256 bought) = _anonLaunch(stealthA, address(0), 10 ether);
         assertEq(t.balanceOf(stealthA), bought);
+    }
+
+    // ── redeploy pack item 6: payer maxFee on launchAnon ──
+    function test_launchAnon_maxFee_exact_ok() public {
+        uint256 t0 = quote.balanceOf(treasury);
+        vm.prank(payer);
+        anon.launchAnon(_params(0), stealthA, stealthA, "", 0x00, FEE);
+        assertEq(quote.balanceOf(treasury) - t0, FEE);
+    }
+
+    function test_launchAnon_fee_above_maxFee_reverts() public {
+        ILaunchpad.LaunchParams memory p = _params(0);
+        vm.prank(payer);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.launchAnon(p, stealthA, stealthA, "", 0x00, FEE - 1);
+    }
+
+    function test_launchAnon_owner_raises_fee_after_quote_reverts() public {
+        // payer quoted FEE, owner front-runs with a higher (still <= $5) fee: the launch must not pay it
+        vm.prank(owner);
+        anon.setLaunchFee(FEE * 2);
+        ILaunchpad.LaunchParams memory p = _params(0);
+        vm.prank(payer);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.launchAnon(p, stealthA, stealthA, "", 0x00, FEE);
+    }
+
+    function test_launchAnon_zero_fee_zero_maxFee_ok() public {
+        vm.prank(owner);
+        anon.setLaunchFee(0);
+        vm.prank(payer);
+        ILaunchpad.LaunchResult memory r = anon.launchAnon(_params(0), stealthA, stealthA, "", 0x00, 0);
+        assertTrue(r.token != address(0));
+    }
+
+    function testFuzz_launchAnon_maxFee(uint256 maxFee) public {
+        maxFee = bound(maxFee, 0, 2 * FEE);
+        ILaunchpad.LaunchParams memory p = _params(0);
+        vm.prank(payer);
+        if (maxFee < FEE) vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        anon.launchAnon(p, stealthA, stealthA, "", 0x00, maxFee);
+    }
+
+    // ── pack scope (lee 2026-10-24): anon launches are TRENCH-only ──
+    function test_launchAnon_is_trench_only() public {
+        (BondingCurve c, Token t,) = _anonLaunch(stealthA, stealthA, 10 ether);
+        assertEq(launchpad.modeOf(address(t)), Constants.MODE_TRENCH, "TRENCH");
+        assertFalse(t.pveHooks(), "no PVE hooks");
+        assertEq(c.mode(), Constants.MODE_TRENCH, "curve mode TRENCH");
+        // the launchAnon ABI has no mode parameter: (LaunchParams, stealthOwner, buyRecipient, eph, viewTag, maxFee)
+        assertEq(
+            AnonLauncher.launchAnon.selector,
+            bytes4(
+                keccak256(
+                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+                )
+            )
+        );
     }
 
     function test_launch_fee_capped_and_owner_only() public {
@@ -492,10 +551,8 @@ contract McapNowGraduatedTest is IntegrationBase {
 library CurveMathView {
     function mcap(BondingCurve c) internal view returns (uint256) {
         (uint256 ts, uint256 sC, uint256 x0, uint256 y0) = c.curveParams();
-        sC;
-        uint256 y = y0 - c.tokensSold();
-        uint256 x = Math.mulDiv(x0, y0, y);
-        return Math.mulDiv(Math.mulDiv(x, ts, y), c.quotePriceUsd(), 1e18);
+        CurveMath.Params memory p = CurveMath.Params(ts, sC, x0, y0, c.quotePriceUsd(), c.curveTail());
+        return CurveMath.marketCapUsd(p, c.tokensSold());
     }
 }
 
@@ -512,5 +569,59 @@ contract MarketLensTest is IntegrationBase {
         assertTrue(g);
         assertEq(p, curve.priceNow());
         assertEq(m, curve.mcapNow());
+    }
+}
+
+contract FeeCapToken is ERC20 {
+    uint8 internal immutable dec;
+
+    constructor(uint8 d) ERC20("USDG", "USDG") {
+        dec = d;
+    }
+
+    function decimals() public view override returns (uint8) {
+        return dec;
+    }
+}
+
+/// @notice Audit r127/r121 Medium (AnonLauncher.sol:50/:111/:124): the $5 launch-fee cap is scaled to the fee token's
+///         decimals (cherry-pick of #115 b6a9117). The old `5 ether` cap was $5 trillion with 6-dec USDG.
+contract AnonLauncherFeeCapTest is Test {
+    address internal o = makeAddr("o");
+
+    function _deploy(address feeToken, uint256 fee) internal returns (AnonLauncher) {
+        return new AnonLauncher(o, address(1), address(2), feeToken, address(3), address(0), fee);
+    }
+
+    function test_cap_is_5_usd_at_6_dec() public {
+        FeeCapToken t = new FeeCapToken(6);
+        AnonLauncher al = _deploy(address(t), 5e6);
+        assertEq(al.MAX_LAUNCH_FEE(), 5 * 10 ** 6);
+        assertEq(al.MAX_LAUNCH_FEE(), al.MAX_LAUNCH_FEE_USD() * 10 ** t.decimals());
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        _deploy(address(t), 5e6 + 1);
+        vm.startPrank(o);
+        al.setLaunchFee(5e6);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        al.setLaunchFee(5e6 + 1);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        al.setLaunchFee(5 ether); // the old 18-dec cap is now rejected at 6 dec
+        vm.stopPrank();
+    }
+
+    function test_cap_is_5_usd_at_18_dec() public {
+        FeeCapToken t = new FeeCapToken(18);
+        AnonLauncher al = _deploy(address(t), 5 ether);
+        assertEq(al.MAX_LAUNCH_FEE(), 5 ether);
+        vm.prank(o);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        al.setLaunchFee(5 ether + 1);
+    }
+
+    function test_no_fee_token_means_zero_cap() public {
+        AnonLauncher al = _deploy(address(0), 0);
+        assertEq(al.MAX_LAUNCH_FEE(), 0);
+        vm.expectRevert(AnonLauncher.FeeTooHigh.selector);
+        _deploy(address(0), 1);
     }
 }

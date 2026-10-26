@@ -65,7 +65,7 @@ const tradeProxy = (side, usd, o) => new Promise((res) => { const id = ++tradeSe
 Object.defineProperty(self, '__discipleTrade', { get: () => (tradeAvail ? tradeProxy : undefined), configurable: true });
 
 /* ---------- HUD / tooling snapshot (≤10 Hz) ---------- */
-const SNAP_KEYS = ['x', 'fight', 'flare', 'momV', 'mode', 'aimDisp', 'heading', 'camPx', 'camAlt', 'ry', 'anch', 'bgScrollX', 'fwd', 'vyS', 'simF', 'simT', 'displayAlt', 'balance', 'orbsOn', 'bombsOn', 'score', 'ammoTier', 'volEma', 'buyEma', 'sellEma'];
+const SNAP_KEYS = ['graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText', 'phoneTierLabel', 'x', 'fight', 'flare', 'momV', 'mode', 'aimDisp', 'heading', 'camPx', 'camAlt', 'ry', 'anch', 'bgScrollX', 'fwd', 'vyS', 'simF', 'simT', 'displayAlt', 'balance', 'orbsOn', 'bombsOn', 'score', 'ammoTier', 'volEma', 'buyEma', 'sellEma'];
 function snapshot() {
   const F = self.__flight; if (!F || !F.S) return;
   const S = F.S, o = { confirmed: { mcap: S.confirmed.mcap, block: S.confirmed.block } };

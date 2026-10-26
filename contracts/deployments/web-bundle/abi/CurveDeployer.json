@@ -1,5 +1,10 @@
 [
   {
+    "type": "constructor",
+    "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "function",
     "name": "deploy",
     "inputs": [
@@ -20,11 +25,6 @@
       },
       {
         "name": "feeRouter",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "antiSnipe",
         "type": "address",
         "internalType": "address"
       },
@@ -67,6 +67,11 @@
             "name": "quotePriceUsd",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "tail",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       },
@@ -89,15 +94,35 @@
         "name": "trustedRouter",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "crewTipThresholdBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "snipeEscrowTimeout",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "curve",
         "type": "address",
         "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "error",
+    "name": "ChunkDeployFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CurveDeployFailed",
+    "inputs": []
   }
 ]

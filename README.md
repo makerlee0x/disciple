@@ -2,7 +2,7 @@
 
 **Every coin is a rocket. Altitude = price.**
 
-DISCIPLE is a launchpad that pairs any coin with any ERC-20 using a CPAMM bonding curve ($7K → $33K, graduates at 72% sold into locked Uniswap v4). v0 targets **Robinhood Chain** (chain id **4663**). The front end is a rocket flight game on [disciple.vip](https://disciple.vip) — angel/heaven theme (gold & white on dark, chrome rocket). The product name is DISCIPLE; do not use apostle/disciple imagery.
+DISCIPLE is a launchpad that pairs any coin with any ERC-20 using a CPAMM bonding curve ($7,777 → $33,333, graduates at 72% sold into locked Uniswap v4). v0 targets **Robinhood Chain** (chain id **4663**). The front end is a rocket flight game on [disciple.vip](https://disciple.vip) — angel/heaven theme (gold & white on dark, chrome rocket). The product name is DISCIPLE; do not use apostle/disciple imagery.
 
 ## Product
 
@@ -68,7 +68,7 @@ Flight controls (coin page): SPACE = BOOST · SHIFT = DUMP, 1–6 modes, A/D lan
 
 ## Protocol (summary)
 
-- Curve: single CPAMM, start mcap **$7K**, graduation **$33K** (Outer Space), **72%** sold on curve
+- Curve: single CPAMM, start mcap **$7,777**, graduation **$33,333** (Outer Space), **72%** sold on curve
 - Trade fee **1%** → 33% creator / 33% LP lock / 33% treasury / 1% referral
 - Optional creator tax ≤ **7%**, immutable at launch
 - Deposit: one **USDG** approval; no per-trade signing; user pays gas

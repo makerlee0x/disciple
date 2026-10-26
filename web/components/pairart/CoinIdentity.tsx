@@ -3,20 +3,33 @@
 import { useEffect, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import { DEMO_POOL } from "@/lib/config";
-import { isDeployed } from "@/lib/chains";
+import { deployment, isDeployed } from "@/lib/chains";
 import { publicClient, readCurveState } from "@/lib/protocol-viem";
+import { launchpadAbi } from "@/lib/abi";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
-import { isStoreSrc } from "@/lib/coinImages";
+import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
 
 export default function CoinIdentity({ address, sp }: { address: string; sp: URLSearchParams }) {
   const demo = address.toLowerCase() === DEMO_POOL.address.toLowerCase();
-  // only moderated-store images (what the launchpad list hands out) or the demo icon: a crafted ?icon= link can't
-  // make the coin page render an arbitrary image (W-3e)
-  const q = sp.get("icon");
-  const icon = (isStoreSrc(q) ? q : null) || (demo && !sp.get("cs") ? AI_ICON : null);
+  // The coin's own stored image: on-chain metaOf imageURI → moderated-store allowlist (/api/image/resolve), same source
+  // as the home list. It wins over ?icon= (store-gated first paint only), so a crafted ?icon= link can't make the coin
+  // page render some other image (W-3e); unapproved / unknown ⇒ letter placeholder. lib/coinPageImage.
+  const [stored, setStored] = useState<StoredImage>(undefined);
+  const readImage = !demo && isDeployed() && isAddress(address);
+  useEffect(() => {
+    setStored(undefined);
+    if (!readImage) return;
+    let alive = true;
+    const pc = publicClient();
+    resolveCoinStoredImage(() => pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "metaOf", args: [address as Address] })
+      .then((m) => String((m as readonly unknown[])[2] ?? "")))
+      .then((s) => { if (alive) setStored(s); });
+    return () => { alive = false; };
+  }, [readImage, address]);
+  const icon = pickCoinIcon(stored, sp.get("icon"), demo && !sp.get("cs") ? AI_ICON : null);
   // 1e: a direct /coin/0x… link has no ?cs/?nm ⇒ read name / symbol / pair from chain so the name always shows
   const [chain, setChain] = useState<{ name: string; symbol: string; pair?: string } | null>(null);
   const needRead = !demo && !sp.get("cs") && isDeployed() && isAddress(address);

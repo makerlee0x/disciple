@@ -220,6 +220,14 @@ contract MockMAv2 {
     }
 }
 
+/// @dev AnonLauncher v2 (redeploy pack): launchAnon(..., uint256 maxFee). The AnonLauncher contract change lives on
+///      feat/redeploy-pack; this branch pins the policy to the v2 selector.
+bytes4 constant ANON_LAUNCH_V2 = bytes4(
+    keccak256(
+        "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+    )
+);
+
 contract DiscipleSessionPolicyTest is Test {
     P policy;
     ReferralRegistry registry;
@@ -242,7 +250,7 @@ contract DiscipleSessionPolicyTest is Test {
         vm.warp(1_800_000_000);
         usdg = new TKN("USDG");
         registry = new ReferralRegistry(address(this), address(usdg));
-        policy = new P(address(registry));
+        policy = new P(address(registry), address(0));
         rocket = new TKN("RKT");
         rocket2 = new TKN("RKT2");
         router = new MockRouter(usdg);
@@ -353,6 +361,33 @@ contract DiscipleSessionPolicyTest is Test {
         vm.prank(key);
         vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), MockRouter.sweep.selector));
         acct.execute(address(router), 0, abi.encodeCall(MockRouter.sweep, (attacker)));
+    }
+
+    /// Mode rules v2 add-on (#121), re-scoped by policy 1.4.1 (#146/#148, lee 2026-10-24): claimCreatorFeesToUsdg is
+    /// still NOT a session-key selector (creator-fee claims stay an owner wallet confirm). launchWithUsdg became a
+    /// P_LAUNCH session selector in 1.4.1 (dollar First BOOST; positive cases in SessionPack.t.sol), so a session
+    /// without P_LAUNCH must still be refused.
+    function test_v2_usdgLaunchAndCreatorClaimNotSessionSelectors() public {
+        bytes4 lw = bytes4(
+            keccak256(
+                "launchWithUsdg((string,string,string,string,string,address,uint256,uint256,uint256,uint256),uint8,uint256,uint256)"
+            )
+        );
+        bytes4 cc = bytes4(keccak256("claimCreatorFeesToUsdg(address,uint256)"));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), cc));
+        acct.execute(address(router), 0, abi.encodeWithSelector(cc, address(rocket), uint256(1)));
+
+        P.SessionConfig memory c = _cfg(uint48(block.timestamp + 1 hours));
+        c.permissions = ((1 << 10) - 1) & ~policy.P_LAUNCH();
+        vm.prank(owner);
+        acct.installSession(policy, E, key, c);
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), lw));
+        acct.execute(address(router), 0, abi.encodePacked(lw, new bytes(32 * 8)));
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(router), cc));
+        acct.execute(address(router), 0, abi.encodeWithSelector(cc, address(rocket), uint256(1)));
     }
 
     function test_rejectsUnregisteredCurve() public {
@@ -706,7 +741,7 @@ contract DiscipleSessionPolicyTest is Test {
         lpp.quote = address(usdg);
         lpp.deadline = block.timestamp + 1 hours;
         return abi.encodeWithSelector(
-            AnonLauncher.launchAnon.selector, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0)
+            ANON_LAUNCH_V2, lpp, stealthOwner, buyRecipient, bytes(""), bytes1(0), uint256(5e6)
         );
     }
 

@@ -20,8 +20,16 @@ import {
 } from "@account-kit/smart-contracts/experimental";
 
 export const EXEC_HOOK_FLAG = 2 ** 31;
-export const DEFAULT_TTL_SEC = 24 * 60 * 60;
 export const MAX_TTL_SEC = 24 * 60 * 60; // DiscipleSessionPolicy.MAX_SESSION_DURATION (enforced on-chain)
+/**
+ * AUDIT #148 M-1: onInstall requires validUntil - max(validAfter, block.timestamp) <= MAX_SESSION_DURATION, but
+ * validUntil is computed off-chain. If the client clock (or the "now" we used) is ahead of the block the install is
+ * simulated/mined in, a full-24h session reverts with InvalidConfig. Keep a 10 min skew margin under the on-chain max.
+ */
+export const SESSION_TTL_SKEW_MARGIN_SEC = 10 * 60;
+/** Longest TTL buildCreateSession will encode (24h - 10 min). Requests in (this, MAX_TTL_SEC] are clamped down to it. */
+export const SAFE_MAX_TTL_SEC = MAX_TTL_SEC - SESSION_TTL_SKEW_MARGIN_SEC;
+export const DEFAULT_TTL_SEC = SAFE_MAX_TTL_SEC;
 export const DEFAULT_MAX_SLIPPAGE_BPS = 500;
 export const MIN_SLIPPAGE_BPS = 10; // 0.1% — DiscipleSessionPolicy.MIN_SLIPPAGE_BPS_LIMIT
 export const MAX_SLIPPAGE_BPS = 5000;
@@ -52,11 +60,11 @@ export type CreateSessionParams = {
   sessionSigner: Address;        // public address of the browser-held session key
   caps: [QuoteCap] | [QuoteCap, QuoteCap];
   entityId?: number;             // default: random in [1, 2^31)
-  ttlSec?: number;               // default 24h, max 24h (on-chain limit)
+  ttlSec?: number;               // default/max SAFE_MAX_TTL_SEC (24h - 10 min skew margin); > 24h throws
   permissions?: bigint;          // default TRADE_PERMS
   stealthOwner?: Address;        // launchAnon: stealth owner allowed besides the account (default: account only)
   maxSlippageBps?: number;       // buys/sells need minOut >= on-chain quote * (1 - bps); default 500, range [10, 5000]
-  now?: number;                  // unix seconds (tests)
+  now?: number;                  // unix seconds; pass chainNow(pc) (latest block timestamp) when a client is available
 };
 
 export const policyAbi = parseAbi([
@@ -95,10 +103,21 @@ export function encodePolicyInstallData(entityId: number, p: Required<Pick<Creat
   }]);
 }
 
+/**
+ * Chain "now" (latest block timestamp, unix seconds) for buildCreateSession({ now }): the install is simulated and mined
+ * at or after this block, so validUntil - block.timestamp <= ttl regardless of the browser clock. undefined on RPC error
+ * (callers then fall back to Date.now(); the SAFE_MAX_TTL_SEC margin still covers normal skew).
+ */
+export async function chainNow(pc: Pick<PublicClient, "getBlock">): Promise<number | undefined> {
+  try { return Number((await pc.getBlock({ blockTag: "latest" })).timestamp); } catch { return undefined; }
+}
+
 /** Calldata the OWNER must send to the account (self-call) to install a session. */
 export function buildCreateSession(p: CreateSessionParams) {
-  const ttl = p.ttlSec ?? DEFAULT_TTL_SEC;
-  if (ttl <= 0 || ttl > MAX_TTL_SEC) throw new Error(`ttlSec must be in (0, ${MAX_TTL_SEC}]`);
+  const req = p.ttlSec ?? DEFAULT_TTL_SEC;
+  if (!(req > 0) || req > MAX_TTL_SEC) throw new Error(`ttlSec must be in (0, ${MAX_TTL_SEC}]`);
+  const ttl = Math.min(Math.floor(req), SAFE_MAX_TTL_SEC); // M-1: never encode the full on-chain max
+  if (ttl <= 0) throw new Error(`ttlSec must be in (0, ${MAX_TTL_SEC}]`);
   if (!p.caps.length || p.caps.some((c) => c.cap <= 0n)) throw new Error("every quote cap must be > 0");
   const entityId = p.entityId ?? randomEntityId();
   if (entityId <= 0 || entityId >= EXEC_HOOK_FLAG) throw new Error("entityId must be in [1, 2^31)");

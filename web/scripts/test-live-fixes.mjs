@@ -13,7 +13,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "holders", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
 const pnl = mods.pnl, fills = mods["flight/fills"], H = mods["flight/holders"], LS = mods["flight/liveSell"];
 const { discipleRouterAbi } = mods["abi/DiscipleRouter"], { bondingCurveAbi } = mods["abi/BondingCurve"], { discipleHookAbi } = mods["abi/DiscipleHook"];
 
@@ -66,7 +66,7 @@ const e18 = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n, SUP = e18(7e9);
   ok(ranked.map((r) => r.address).join() === [A, ME].join(), "ranked by real balance; zero balances dropped");
   ok(ranked.find((r) => r.address === ME)?.mine === true && ranked.filter((r) => r.mine).length === 1, "user's own row is `mine`");
   ok(snap.rows.find((r) => r.address === CURVE)?.label === "curve" && snap.rows.find((r) => r.address === LOCK)?.label === "locker", "curve / locker labelled, not ranked");
-  ok(snap.rows.slice(-2).every((r) => r.label), "labelled rows after the ranked holders");
+  ok(snap.rows.slice(0, 2).every((r) => r.label), "labelled rows on top of the ranked holders (lee 9:19 PM CT)");
   const me = ranked.find((r) => r.mine); ok(near(me.pct, 100 / 70, 1e-3) && near(me.usd, 1e3, 1e-9), "pct of supply + $ at the mark from balances"); }
 { const deps = { fetchJson: async () => ({ status: 200, json: { asOfBlock: 123, holders: [
     { address: A, balance: e18(5e8).toString(), pct: 7.14, usd: 5000, label: null },
@@ -74,7 +74,7 @@ const e18 = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n, SUP = e18(7e9);
     { address: ME.toUpperCase().replace("0X", "0x"), balance: e18(1e8).toString(), pct: 1.43, usd: 1000 } ] } }), balancesOf: async () => { throw new Error("no fallback expected"); } };
   const snap = await H.fetchHolders(COIN, { me: ME, labels: {}, totalSupplyRaw: SUP, priceUsd: 1e-5 }, deps);
   ok(snap.source === "api" && snap.asOfBlock === 123, "API shape {holders:[{address,balance,pct,usd,label}],asOfBlock} consumed");
-  ok(snap.rows[0].address === A && snap.rows[1].mine && snap.rows[2].label === "pool", "API rows: ranked, mine (case-insensitive), pool label kept"); }
+  ok(snap.rows[0].label === "pool" && snap.rows[1].address === A && snap.rows[2].mine, "API rows: pool label kept (on top), then ranked, mine (case-insensitive)"); }
 { // engine DiscipleSource marks the user's own live-feed swap
   const src = block("class DiscipleSource {", "/* SIMULATOR bridge");
   const L = {}; const env = { Q: new URLSearchParams(""), paperImpact: () => 1, paperFill: () => ({}), isMine: (t) => t === ME, window: {},

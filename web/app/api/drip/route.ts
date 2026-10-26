@@ -18,6 +18,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { robinhoodTestnet } from "@/lib/chains";
 import { ENTRYPOINT_V07 } from "@/lib/aa/constants";
 import { relayerIsFaucet, withRelayer } from "@/lib/server/relayer";
+import { classifySendError } from "@/lib/server/relayerNonce";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 
@@ -64,15 +65,18 @@ export async function POST(req: Request) {
   const gl = rl.ok ? await hitLimit(kv(), "drip:global", GLOBAL_PER_HOUR, 3600) : rl;
   if (!rl.ok || !gl.ok) { await kv().del(k); return NextResponse.json({ ok: false, reason: "rate limited" }, { status: 429, headers: { "retry-after": String((rl.ok ? gl : rl).retryAfterSec) } }); }
   try {
-    const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(), account: privateKeyToAccount(key) });
+    const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(undefined, { retryCount: 0 }), account: privateKeyToAccount(key) });   // no transport-level resend (AUDIT Info)
     const send = (nonce?: number) => wc.sendTransaction({ to: address as Hex, value: AMOUNT > funds ? AMOUNT - funds : AMOUNT, ...(nonce === undefined ? {} : { nonce }) });
     // same EOA as the self-bundler relayer (RELAYER_PRIVATE_KEY unset, non-production only) ⇒ share its nonce cursor; else plain serialized send
     const hash = relayerIsFaucet()
-      ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send))
+      ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send), 0)   // the cursor already retries nonce errors
       : await withRelayer(() => send());
     return NextResponse.json({ ok: true, txHash: hash, refill: deployed });
   } catch (e) {
-    await kv().del(k).catch(() => undefined);
-    return NextResponse.json({ ok: false, reason: (e as Error).message.split("\n")[0].slice(0, 120) }, { status: 500 });
+    // AUDIT Info: a timeout / unclear error may have landed ⇒ KEEP the claim (a re-request re-claims after the TTL
+    // instead of re-sending now); only a definite rejection (nothing was sent) frees it for an immediate retry.
+    const unclear = classifySendError(e) === "unclear";
+    if (!unclear) await kv().del(k).catch(() => undefined);
+    return NextResponse.json({ ok: false, pending: unclear || undefined, reason: (e as Error).message.split("\n")[0].slice(0, 120) }, { status: unclear ? 202 : 500 });
   }
 }

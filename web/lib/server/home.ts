@@ -9,7 +9,6 @@ import "server-only";
 import type { PublicClient } from "viem";
 import { isDeployed } from "@/lib/chains";
 import { listLaunches } from "@/lib/events";
-import { pctFromBps } from "@/lib/mcap";
 import { publicClient } from "@/lib/protocol-viem";
 import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
@@ -53,7 +52,7 @@ async function build(): Promise<HomeData> {
     const fills = fillsBy[i];
     return {
       token: x.token.toLowerCase(), name: x.name, ticker: x.ticker, pair: pairOf(x.quote), pairSym: pairSymOf(x.quote),
-      icon: x.imageURI, creator: shortHex(x.creator), mcapUsd: x.mcapUsd, graduated: x.graduated, gradPct: pctFromBps(x.progressBps), block: Number(x.block),
+      icon: x.imageURI, creator: shortHex(x.creator), mcapUsd: x.mcapUsd, graduated: x.graduated, progressBps: x.progressBps ?? undefined, block: Number(x.block),
       launchedAt: null,
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
