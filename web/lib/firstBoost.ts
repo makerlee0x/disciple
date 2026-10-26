@@ -15,7 +15,7 @@ import { LAUNCH_ABI_SHAPE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapB
 /** The approved draft says "0.77%"; `pct` is rendered from the live creatorBuyMaxBps so the copy can't drift. */
 export const FIRST_BOOST_COPY = {
   label: "First BOOST (optional)",
-  helper: (pct: string) => `BOOST your own rocket in the launch transaction, before anyone else. Enter a $ amount, up to ${pct} of supply.`,
+  helper: (pct: string) => `BOOST your own rocket in the launch, before anyone else. Enter a $ amount, up to ${pct} of supply. Paid from your cash.`,
   max: (usd: string, tokens: string, pct: string) => `Max ${usd} (${tokens} tokens, ${pct} of supply)`,
   pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
@@ -27,7 +27,12 @@ export const FIRST_BOOST_COPY = {
   pveLoginAttest: "Easy needs a verified email, Google or X login to BOOST. We'll check yours when you launch.",
   pveLoginUnknown: "Easy needs a verified email, Google or X login to BOOST. Sign in to check yours before your First BOOST.",
   overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
-  balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`,
+  balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`, // legacy path only (no USDG router)
+  // USDG-funded First BOOST (DiscipleRouter.launchWithUsdg): dollars only, the pair coin is never asked for.
+  cash: (haveUsd: string) => `Not enough cash for that First BOOST: you have ${haveUsd}. Lower it or deposit more.`,
+  cashBalance: (haveUsd: string) => `Cash ${haveUsd}`,
+  paysCash: "Paid from your cash. We buy the pair coin for you in the same step.",
+  privateOff: "First BOOST isn't available on private launches yet. Launch first, then BOOST like anyone else.",
   invalid: "Enter a $ amount like 25 or 12.5.",
   connect: "Connect your wallet to check your balance.",
   loading: "Reading the live cap…",
