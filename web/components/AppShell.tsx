@@ -12,6 +12,8 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 // The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
 // after hydration instead of sitting in every page's first-load JS ahead of the LCP. Fixed positioning = no layout shift.
 const WalletButton = dynamic(() => import("./WalletButton"), { ssr: false });
+// Funnel counter beacon (lib/funnelClient): client-only, own chunk, fails silently.
+const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -26,6 +28,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       <WalletButton compact={!isGame} />
+      <FunnelBeacon />
       {isGame ? children : <div className="main-offset main-offset-open min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (
         <div
