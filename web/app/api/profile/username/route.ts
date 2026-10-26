@@ -23,6 +23,7 @@ import { lastUsernameChangeAt, markUsernameChange } from "@/lib/server/profileMe
 import { nextUsernameChangeAt, usernameChange } from "@/lib/usernameCooldown";
 import { PROFILE_COPY } from "@/lib/copy/profile";
 import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
+import { INVITE_REQUIRED_MESSAGE, requireInviteWallet } from "@/lib/server/inviteGate";
 
 const NONCE_TTL = 600;
 const NONCE_PREFIX = "user:nonce";
@@ -76,6 +77,8 @@ export async function POST(req: Request) {
   if (!(await nonceValid(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
   const who = await verifyWalletSignature(addr, claimMessage(u, addr, nonce), String(body.signature ?? ""), body.owner ?? null);
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
+  // invite-only beta (lib/server/invites), checked after the signature so it can't be probed; off by default ⇒ no-op
+  if (!(await requireInviteWallet(addr, "username")).ok) return NextResponse.json({ ok: false, reason: INVITE_REQUIRED_MESSAGE, error: "invite_required" }, { status: 403 });
   // 24h rename cooldown, checked after the signature (so a stranger can't probe it) and before the claim.
   const now = Date.now();
   const change = usernameChange({ prev: await usernameOf(addr), next: u, lastChangeAt: await lastUsernameChangeAt(addr), now });

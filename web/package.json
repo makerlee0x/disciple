@@ -67,6 +67,7 @@
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:live-feed": "tsx --test scripts/test-live-feed.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
+    "test:invites": "tsx --test scripts/test-invites.mts",
     "test:claims": "tsx --test scripts/test-claims.mts",
     "test:rewards": "tsx --test scripts/test-rewards.mts",
     "test:ssrf": "tsx --test scripts/test-ssrf.mts",

@@ -11,6 +11,7 @@ import { BUNDLER_LIMITS, clientIp, hitLimit, isSendLimitError, sendLimiter, type
 import { alchemyKey } from "@/lib/server/alchemyKey";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
+import { inviteRequiredRpc, requireInviteWallet } from "@/lib/server/inviteGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +63,8 @@ export async function POST(req: Request) {
   const sl = senderLimiter(req, body.method, body.params || []);
   const rl = await limited(req, body.method, sl);
   if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
+  // invite-only beta (lib/server/invites): sends need an invited sender; off by default ⇒ no-op
+  if (SEND.has(body.method) && !(await requireInviteWallet(senderOf(body.params || []), "bundler")).ok) return inviteRequiredRpc(body.id);
   if (key && process.env.AA_SELF_BUNDLER !== "1" && !selfOnly) {
     // forwarded to Alchemy (it validates; we can't hook before its submission): refuse when the sender's validated-sends
     // bucket is already full (read-only — junk ops never fill it), and count the send only once Alchemy accepted it
