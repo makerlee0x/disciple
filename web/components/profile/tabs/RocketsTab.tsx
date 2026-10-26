@@ -42,7 +42,7 @@ export default function RocketsTab({ rows, total, page, pages, onPage, isPrivate
           return (
             <li key={r.key} className="pf-rocket">
               <Link href={r.href} className="pf-rocket-link">
-                <PairArt src={r.icon} pair={r.pair} tk={r.ticker} size="list" px={40} />
+                <PairArt src={r.icon} pair={r.pair} tk={r.ticker} size="list" px={40} coin={r.href.match(/0x[0-9a-fA-F]{40}/)?.[0]} />
                 <span className="pf-rocket-id"><strong>${r.ticker}</strong><span>{r.name}</span></span>
                 {r.tier && <span className="tier-chip">{r.tier}</span>}
                 <span className={`pf-rocket-amt ${r.signed ? (r.amount >= 0 ? "pos" : "neg") : ""}`} aria-label={r.signed ? C["rockets.card.pnl.aria"](amt) : undefined}>

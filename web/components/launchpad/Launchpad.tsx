@@ -7,6 +7,7 @@ import { isRocketVerified } from "@/lib/verified";
 import { useVerifiedMany } from "@/lib/verifiedClient";
 import VerifiedBadge from "@/components/VerifiedBadge";
 import PairArt from "@/components/pairart/PairArt";
+import { rocketArtTier } from "@/lib/rocketDefault";
 import { BASE_PAIRS, basePair } from "@/lib/pairArt";
 import DsSelect from "@/components/ui/DsSelect";
 import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
@@ -47,7 +48,7 @@ function useWatchlist() {
 function Avatar({ c, size = 40 }: { c: Rocket; size?: number }) {
   return (
     <span className="lp-av2">
-      <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size={size <= 32 ? "icon" : "list"} px={size} />
+      <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size={size <= 32 ? "icon" : "list"} px={size} coin={c.id} />
       <span className="lp-av-check"><VerifiedBadge verified={verOf(c)} token={c.id} size={13} /></span>
     </span>
   );
@@ -93,7 +94,7 @@ function Carousel({ items, onPick }: { items: Rocket[]; onPick: (c: Rocket) => v
         {items.map((c, i) => (
           <button key={c.id} type="button" className="lp-tcard" onClick={() => onPick(c)}>
             <span className="lp-tart">
-              <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid eager={i < 6} />
+              <PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid eager={i < 6} coin={c.id} artTier={rocketArtTier(c)} />
               <span className="lp-rank">{i + 1}</span>
               <Tag c={c} />
             </span>
@@ -137,7 +138,7 @@ const Card = memo(function Card({ c, starred, onStar, onPick }: { c: Rocket; sta
   return (
     <div role="link" tabIndex={0} className="rocket-card lp-card" onClick={() => onPick(c)} onKeyDown={(e) => { if (e.key === "Enter") onPick(c); }}
       style={{ border: c.live ? "1px solid rgba(143,240,192,.6)" : undefined }}>
-      <div className="lp-card-art"><PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid /></div>
+      <div className="lp-card-art"><PairArt src={c.icon} pair={c.pairSym ?? "STRATEGY"} tk={c.tk} tint={c.c} size="grid" fluid coin={c.id} artTier={rocketArtTier(c)} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="lp-card-top"><Tag c={c} /><Star on={starred} onClick={() => onStar(c.id)} /></div>
         <div className="lp-card-name">{c.name} <VerifiedBadge verified={verOf(c)} token={c.id} size={14} /></div>

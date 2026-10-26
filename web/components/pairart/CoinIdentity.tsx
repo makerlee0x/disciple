@@ -55,7 +55,7 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const pairSym = ethPair ? "" : bp?.sym ?? pair;
   return (
     <div className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
-      <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
+      <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager coin={demo ? null : address} defaultArt={!demo} />
       <div className="coin-id-txt">
         <b>{name}</b>
         <span>${tk}{pairSym ? ` · ${pairSym}` : ""}</span>
