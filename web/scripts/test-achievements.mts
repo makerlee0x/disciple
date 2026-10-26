@@ -222,3 +222,17 @@ test("views take the V1 rule name/rarity; evaluatedAt null → syncing", () => {
   assert.equal(parseAchievementsBody({ evaluatedAt: 1, items: [] }, W)?.source, "api");
   assert.ok(v.every((x) => !x.reward.points), "no points on real data (V1)");
 });
+
+test("lee Oct 26: season UI off by default (flag); beta-reset note on testnet; no season copy in V1 names / toasts", async () => {
+  const prev = process.env.NEXT_PUBLIC_SEASONS_UI; delete process.env.NEXT_PUBLIC_SEASONS_UI;
+  const { SEASONS_UI, ACH_BETA } = await import("../lib/game/flags.ts");
+  if (prev !== undefined) process.env.NEXT_PUBLIC_SEASONS_UI = prev;
+  assert.equal(SEASONS_UI, false);
+  if (!process.env.NEXT_PUBLIC_CHAIN_ID || process.env.NEXT_PUBLIC_CHAIN_ID === "46630") assert.equal(ACH_BETA, true);
+  const { PROFILE_COPY } = await import("../lib/copy/profile.ts");
+  assert.match(PROFILE_COPY["ach.betaReset"], /resets at launch/);
+  for (const r of V1_RULES) {
+    assert.doesNotMatch(r.name, /season/i);
+    assert.doesNotMatch(ACHIEVEMENTS.find((a) => a.id === r.id)?.description ?? "", /season/i);
+  }
+});

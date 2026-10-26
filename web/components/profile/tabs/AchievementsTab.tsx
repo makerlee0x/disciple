@@ -4,6 +4,7 @@ import Link from "next/link";
 import { achievementIconPath, type AchievementView } from "@/lib/achievements";
 import { withBase } from "@/lib/base-path";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
+import { ACH_BETA } from "@/lib/game/flags";
 import Icon from "@/components/icons/Icon";
 import Pager from "../Pager";
 import { RarityTag, rarityVars } from "../rarity";
@@ -20,6 +21,7 @@ export default function AchievementsTab({ rows, unlocked, total, syncing, page, 
     <div className="pf-tab-body" data-testid="tab-achievements">
       <section className="pf-ach-summary">
         <strong>{C["ach.summary"](unlocked, total)}</strong>
+        {ACH_BETA && <span className="muted" data-testid="ach-beta-reset">{C["ach.betaReset"]}</span>}
         {syncing && <span className="muted" data-testid="ach-syncing">{C["ach.syncing"]}</span>}
       </section>
       {!unlocked && !syncing && <p className="muted">{isPrivate ? C["ach.empty.own"] : C["ach.empty.other"](owner)}</p>}

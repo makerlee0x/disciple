@@ -7,6 +7,7 @@ import { rarityRank } from "@/lib/config";
 import { onWallet } from "@/lib/wallet";
 import { useAchievements } from "@/lib/game/useAchievements";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
+import { ACH_BETA } from "@/lib/game/flags";
 
 const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
 
@@ -17,7 +18,12 @@ const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
 export default function AchievementsGrid() {
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
   const [wallet, setWallet] = useState<string | null>(null);
-  useEffect(() => onWallet((a) => setWallet(a ? a.toLowerCase() : null)), []);
+  // ?wallet=0x… views any wallet (the API is public); otherwise the signed-in trading account.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("wallet");
+    if (q && /^0x[0-9a-fA-F]{40}$/.test(q)) { setWallet(q.toLowerCase()); return; }
+    return onWallet((a) => setWallet(a ? a.toLowerCase() : null));
+  }, []);
   const { views, unlocked, source, loading } = useAchievements(wallet);
   const [openLocked, setOpenLocked] = useState<Record<string, boolean>>({});
   const cats = ACHIEVEMENT_CATEGORIES.filter((c) => views.some((v) => v.category === c.id));
@@ -40,6 +46,7 @@ export default function AchievementsGrid() {
         </div>
       </header>
       {!wallet && <p className="muted" data-testid="ach-signin">Sign in (top right) to track your achievements.</p>}
+      {ACH_BETA && <p className="muted" data-testid="ach-beta-reset">{C["ach.betaReset"]}</p>}
       {wallet && !loading && source !== "api" && <p className="muted" data-testid="ach-syncing">{C["ach.syncing"]}</p>}
 
       <div className="ach-filters">

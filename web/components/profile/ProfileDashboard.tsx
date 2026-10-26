@@ -6,6 +6,7 @@ import { PROFILE_CHANGED_EVENT, localUsername, profileUrl } from "@/lib/profile"
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
+import { SEASONS_UI } from "@/lib/game/flags";
 import { useAchievements } from "@/lib/game/useAchievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
 import { PROFILE_TABS, useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
@@ -252,7 +253,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <div className="pf-id">
           <h1 className="pf-name"><span>{handle}</span>{meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
           <div className="pf-rankrow">
-            <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
+            {SEASONS_UI && <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>}
             <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>
           </div>
           <ul className="pf-tags" aria-label={C["profile.tags.aria"]}>
