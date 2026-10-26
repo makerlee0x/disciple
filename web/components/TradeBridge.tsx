@@ -17,6 +17,8 @@ import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
+import { plainText } from "@/lib/aa/relayOp";
+import { isSentUnknown } from "@/lib/trade/pendingWatch";
 import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
@@ -317,9 +319,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         return { ok: r.ok, txHash: r.txHash, reason: r.reason, ...(fill ? { fillUsd: fill.usd, fillTokens: fill.tokens } : {}), ms };
       } catch (e) {
         if (isPendingUnknown(e)) return pendingUnknown();   // ProtocolError("pending_unknown"): SITE holds + watches it
+        if (isSentUnknown(e)) return pendingUnknown();   // SITE "Timeout" = sent, outcome unknown: lib/trade/pendingWatch settles it
         // rapid-tap codes (429 / spend limit / confirming) first, then main's plain copy for the classified failures
         // (price impact / price moved / gas), else the existing plain line
-        const raw = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 90);
+        const raw = plainText(String((e as Error)?.message ?? e).split("\n")[0].slice(0, 90), "trade failed (bridge)");   // never raw text in copy
         const rt = tradeErrorCopy({ ok: false, code: (e as { code?: string }).code, reason: raw });
         const m = (rt && rt !== raw ? rt : undefined) ?? plainReason(e) ?? (raw || "failed");
         say(`✕ ${m}`);

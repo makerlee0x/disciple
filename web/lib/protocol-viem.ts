@@ -14,7 +14,8 @@ import {
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
 import { fillBook, readAtOrAfter } from "./fillBook";
-import { NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, logTradeError, plainText } from "./aa/relayOp";
+import { NETWORK_MSG, NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, isTransportError, logTradeError, plainText } from "./aa/relayOp";
+import { lookupOp, pendingIds, watchPending } from "./trade/pendingWatch";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -165,6 +166,21 @@ export const MINOUT_RETRY = /^(Slippage|MinOutTooLow|V4TooLittleReceived|V4TooMu
 /** Launch-buy cap copy; pct = the cap in % of supply when the caller knows it. */
 export const CREATOR_BUY_MSG = (pct?: number) => `Your launch buy is over the max for this rocket${pct ? ` (${pct}% of supply)` : ""}. Try a smaller amount.`;
 const pickIds = (x?: Record<string, unknown>) => ({ userOpHash: x?.userOpHash, txHash: x?.txHash });
+const SENT = new WeakSet<object>();
+/** The error is from an op that was sent (on-chain revert or unknown outcome); never auto-resend it. */
+export const wasSent = (e: unknown) => typeof e === "object" && e !== null && SENT.has(e);
+export const markSent = <T extends object>(e: T): T => { SENT.add(e); return e; };
+/**
+ * A trade's pre-send read (quote / balance / coin facts / policy check) failed on the network: viem "HTTP request failed."
+ * / "took too long" / fetch errors were shown raw to players (lee, Oct 26). Nothing was sent (the AA layer turns any
+ * post-send failure into "Timeout"). Plain line; raw text + url to the console. null = not a transport error.
+ */
+export function tradeNetworkError(e: unknown): ProtocolError | null {
+  const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  if (isAA || e instanceof ProtocolError || !isTransportError(e)) return null;
+  logTradeError("trade failed before sending (network)", { name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: (e as { url?: string })?.url });
+  return new ProtocolError("Network", NETWORK_MSG);
+}
 export function friendlyError(e: unknown): ProtocolError {
   let name: string | undefined, args: unknown[] | undefined;
   // duck-typed as well as instanceof: AAError can arrive from a second module instance (tests, split chunks)
@@ -626,7 +642,9 @@ export function createViemProtocol(): ProtocolClient {
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     try { return await tradeOnce(side, t); }
     catch (e) {
-      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code)) throw e;
+      // Only a PRE-SEND min-out failure (nothing was sent) is retried. An op that already ran on-chain (reverted with
+      // Slippage) or may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from this resend.
+      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || wasSent(e)) throw e;
       dropRouteQuotes(t.token);
       return tradeOnce(side, t);
     }
@@ -708,8 +726,13 @@ export function createViemProtocol(): ProtocolClient {
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
-      const out = e instanceof ProtocolError ? e : e instanceof PveError ? new ProtocolError(e.code, e.message) : friendlyError(e);
+      const out = e instanceof ProtocolError ? e : e instanceof PveError ? new ProtocolError(e.code, e.message) : tradeNetworkError(e) ?? friendlyError(e);
       if (pid) tagPress(out, pid);
+      // the op went out (reverted on-chain / outcome unknown): mark it so trade() never resends it
+      const ac = (e as { code?: unknown; constructor?: { name?: string } } | null);
+      if ((e instanceof AAError || ac?.constructor?.name === "AAError") && (ac?.code === "Reverted" || ac?.code === "Timeout")) markSent(out);
+      // sent, outcome unknown: hold the press and settle it from the chain (never resends); TradeBridge shows "confirming"
+      if (pid && out.code === "Timeout") void watchPending(pid, pendingIds(e), { lookup: (ids) => lookupOp(pc, ids) });
       throw out;
     }
   }

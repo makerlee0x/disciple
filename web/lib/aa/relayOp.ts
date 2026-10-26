@@ -72,6 +72,17 @@ export const BUNDLE_REVERTED = /relayer tx 0x[0-9a-fA-F]{64} reverted/i;
  */
 export const PENDING_MSG = "Still confirming. Check back in a moment.";
 export const REJECTED_MSG = "That didn't go through. Try again.";
+/** A connection problem before anything was sent (viem HttpRequestError / TimeoutError / fetch failure on a read). */
+export const NETWORK_MSG = "Connection hiccup, nothing was sent. Try again.";
+/** viem / fetch transport failures ("HTTP request failed.", "The request took too long to respond.", "Failed to fetch"). */
+export const TRANSPORT_ERR = /HTTP request failed|request took too long|failed to fetch|fetch failed|networkerror|load failed|ERR_\w+|socket hang up|ECONNRESET/i;
+export function isTransportError(e: unknown): boolean {
+  const x = e as { name?: string; shortMessage?: string; message?: string; walk?: (f: (y: unknown) => boolean) => unknown } | null;
+  if (!x) return false;
+  if (x.name === "HttpRequestError" || x.name === "TimeoutError") return true;
+  if (typeof x.walk === "function" && x.walk((y) => { const n = (y as { name?: string })?.name; return n === "HttpRequestError" || n === "TimeoutError"; })) return true;
+  return TRANSPORT_ERR.test(`${x.shortMessage ?? ""} ${String(x.message ?? e).split("\n")[0]}`);
+}
 export const NO_PRICE_MSG = "Couldn't get a price right now. Try again.";
 /** Console-only trace of a sent op's ids (support/debugging); never shown to players. */
 export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: string; txHash?: string }, relayError?: string) {
@@ -81,7 +92,7 @@ export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: st
  * Player-copy guard: text that carries ids/hex, a function or contract error name, or chain/relay plumbing words.
  * Display layers (friendlyError fallback, lib/playerError) swap such text for REJECTED_MSG and log the raw text.
  */
-export const JARGON = /0x[0-9a-fA-F]{3,}|\b(?:user ?op(?:eration)?s?|txs?|transaction reverted|relay(?:er|ed)?|on-?chain|simulat\w*|bundl\w*|AA\d{2}|v4|rpc|eth_\w+|entry ?point|paymaster|nonce|reverted|execution reverted|calldata|selector|abi)\b|\w+\.\w+\(\)|\b[a-z]+[A-Z]\w*\(/i;
+export const JARGON = /0x[0-9a-fA-F]{3,}|\b(?:user ?op(?:eration)?s?|txs?|transaction reverted|relay(?:er|ed)?|on-?chain|simulat\w*|bundl\w*|AA\d{2}|v4|rpc|eth_\w+|entry ?point|paymaster|nonce|reverted|execution reverted|calldata|selector|abi|https?|request failed|fetch)\b|\w+\.\w+\(\)|\b[a-z]+[A-Z]\w*\(/i;
 const RAW_NAME = /^\s*[A-Za-z][A-Za-z0-9_]*[a-z0-9][A-Z][A-Za-z0-9_]*\s*$/;   // one camel-case token: "WalletCap", "ERC20InsufficientBalance"
 /** The text players may see: `m` when it is plain, else REJECTED_MSG (raw text → console). */
 export function plainText(m: string | undefined | null, what = "error", detail: Record<string, unknown> = {}): string {
