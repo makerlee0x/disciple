@@ -77,7 +77,7 @@ const fc = rd("components/FlightCanvas.tsx");
 ok(/<ExitConfirm active=\{flightActive\} mode=\{isSimulator \? "sim" : "live"\} \/>/.test(fc), "FlightCanvas mounts <ExitConfirm active={flightActive} mode={sim|live} /> (sim = ?source=sim)");
 ok(/const notes = secondaryKeys\(mode, trades\)/.test(comp) && /\{notes\.length > 0 && <div id="exitc-note"/.test(comp) && !/secondaryKeys\([^)]*true/.test(comp) && /data-testid="exit-confirm-note"/.test(comp) && /fontSize: 11/.test(comp), "component renders the note block only when secondaryKeys returns lines (none while SHOW_EXIT_NOTES is false)");
 const tb = rd("components/TradeBridge.tsx");
-ok(/__disciplePendingTrades/.test(tb) && /TRADE_PENDING_EVENT/.test(tb) && /finally \{ bump\(-1\); \}/.test(tb), "TradeBridge counts in-flight trades per side (+1 on tap, −1 in finally) and fires the pending event");
+ok(/__disciplePendingTrades/.test(tb) && /TRADE_PENDING_EVENT/.test(tb) && /finally \{\s*(if \(!keep\) \{[^\n]*\n\s*)?bump\(-1\);/.test(tb), "TradeBridge counts in-flight trades per side (+1 on tap, −1 in finally) and fires the pending event");
 ok(/addEventListener\(TRADE_PENDING_EVENT/.test(comp) && /window\.__disciplePendingTrades/.test(comp), "ExitConfirm reads pending trades on open and follows the event");
 ok(/flightActive = status === "Live" && !err && !isReplay/.test(fc), "armed only while the engine is Live, no error, not a replay");
 ok(/id="exitX"/.test(fc) && /href="\/"/.test(fc), "✕ (#exitX) is still a plain link to / (caught by the capture-phase click guard)");
