@@ -7,10 +7,6 @@ import HowItWorksHost from "./home/HowItWorksHost";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
-import { ACTIVE_CHAIN } from "@/lib/chains";
-
-/** Robinhood Chain testnet. A plain "Test network" marker shows in the shell there (GAME play-test, Oct 26 2026). */
-const TEST_NETWORK_ID = 46630;
 
 // The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
 // after hydration instead of sitting in every page's first-load JS ahead of the LCP. Fixed positioning = no layout shift.
@@ -26,8 +22,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <ReferralOnboarding />
       <HowItWorksHost />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
-      {/* Game routes are left out: the flight HUD owns that screen space (GAME's lane). */}
-      {!isGame && ACTIVE_CHAIN.id === TEST_NETWORK_ID && <div className="ap-testnet" role="note">Test network</div>}
+      {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       <WalletButton compact={!isGame} />
       {isGame ? children : <div className="main-offset main-offset-open min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (

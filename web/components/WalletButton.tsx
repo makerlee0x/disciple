@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
-import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+
+/** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
+const TEST_NETWORK_ID = 46630;
 import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
 import { balanceLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
@@ -257,11 +260,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
       fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+        {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
+        <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
+          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
               {pf && smart && (
-                <div aria-label="cash and portfolio" style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
                   <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
@@ -272,7 +277,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                       <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)}</span>
                       <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
                     </span>
-                    <IdentitySigil id="believer" size={26} />
+                    <span className="wb-sigil"><IdentitySigil id="believer" size={26} /></span>
                   </a>
                 </div>
               )}
