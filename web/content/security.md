@@ -1,4 +1,4 @@
-<!-- /security copy. Source: disciple-brand/copy/r1/security.md (BRAND draft r1). Copy pending lee approval.
+<!-- /security copy. Source: disciple-brand/copy/r1/security.md (BRAND draft r1, re-synced 9:28 AM CDT update). Copy pending lee approval.
      Rewards stay "TBD by lee". Every [CONFIRM: …] renders as a visible "To be confirmed" tag until lee fills it in. -->
 # Security at DISCIPLE
 
@@ -12,7 +12,7 @@ Found a bug? Tell us first, and we'll pay for it. This page explains what's in s
 - Anything that lets someone take funds, mint or move tokens they don't own, unlock graduated liquidity, bypass mode caps or the sniper tax, take over another pilot's account, embedded wallet or session, or take creator fees that aren't theirs.
 
 **Out of scope**
-- Third-party systems: Uniswap, Robinhood Chain, Privy, Google, Alchemy and other providers. Report those to their owners.
+- Third-party systems: Uniswap, Robinhood Chain, Privy, Google, X, Alchemy and other providers. (Bugs in how DISCIPLE handles an X, Google or email login are in scope.) Report those to their owners.
 - Rockets launched by other users, and their content.
 - Social engineering, phishing, physical attacks, spam, or denial-of-service and load testing.
 - Missing best-practice headers, clickjacking on pages with no sensitive actions, self-XSS, and reports from automated scanners with no working exploit.
