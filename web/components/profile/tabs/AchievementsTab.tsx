@@ -22,7 +22,7 @@ export default function AchievementsTab({ rows, unlocked, total, syncing, page, 
         <strong>{C["ach.summary"](unlocked, total)}</strong>
         {syncing && <span className="muted" data-testid="ach-syncing">{C["ach.syncing"]}</span>}
       </section>
-      {!unlocked && <p className="muted">{isPrivate ? C["ach.empty.own"] : C["ach.empty.other"](owner)}</p>}
+      {!unlocked && !syncing && <p className="muted">{isPrivate ? C["ach.empty.own"] : C["ach.empty.other"](owner)}</p>}
       <ul className="pf-ach-grid">
         {rows.map((a, i) => {
           const v = rarityVars(a.rarity);

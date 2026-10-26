@@ -40,7 +40,7 @@ export default function AchievementsGrid() {
         </div>
       </header>
       {!wallet && <p className="muted" data-testid="ach-signin">Sign in (top right) to track your achievements.</p>}
-      {wallet && !loading && source === "unavailable" && <p className="muted" data-testid="ach-syncing">{C["ach.syncing"]}</p>}
+      {wallet && !loading && source !== "api" && <p className="muted" data-testid="ach-syncing">{C["ach.syncing"]}</p>}
 
       <div className="ach-filters">
         <button type="button" className={cat === "all" ? "on" : ""} onClick={() => setCat("all")}>All</button>

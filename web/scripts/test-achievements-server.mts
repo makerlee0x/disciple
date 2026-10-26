@@ -28,9 +28,9 @@ const fill = (wallet: string, side: "buy" | "sell", tokens: number, usd: number,
 const ids = (r: { unlocks: { id: string }[] }) => r.unlocks.map((u) => u.id).sort();
 const ATOM: AchievementRule = { id: "atom_bomber", name: "Atom Bomber", rarity: "LEGENDARY", criteria: { kind: "sell_impact", minImpactBps: 5000, minUsd: 50 } };
 
-test("V1_RULES: GAME's 10 picks, unique ids", () => {
-  assert.equal(V1_RULES.length, 10);
-  assert.equal(new Set(V1_RULES.map((r) => r.id)).size, 10);
+test("V1_RULES: GAME's 10 picks + atom_bomber, unique ids", () => {
+  assert.equal(V1_RULES.length, 11);   // GAME added atom_bomber (game/achievements)
+  assert.equal(new Set(V1_RULES.map((r) => r.id)).size, 11);
 });
 
 test("first_blessing: first buy ≥ $1 is the proof", () => {

@@ -3,7 +3,7 @@ import { prestigeFromPoints } from "./prestige";
  * 43 DISCIPLE achievements — angel/CT names, rarity frames, rewards.
  * Trimmed from 50 (dropped near-duplicates / filler); the page groups them by category.
  */
-import { ACHIEVEMENT_RARITY, SEASON_PASS, normalizeRarity, rarityRank, type AchievementRarity } from "./config";
+import { ACHIEVEMENT_RARITY, BOMB_PCT, SEASON_PASS, normalizeRarity, rarityRank, type AchievementRarity } from "./config";
 import type { PlayerStats } from "./stats";
 
 export type AchievementCategory =
@@ -39,7 +39,7 @@ const A = (
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("first_blessing", "First Blessing", "BOOST your first rocket ($1+).", "flight", "COMMON", 1, { points: 50 }, (s) => Math.min(s.metrics.buyCount, 1)),
   A("final_boost", "Final Push", "Make the buy that graduates a rocket ($1+).", "flight", "RARE", 1, { points: 300 }, () => 0),   // real data only (graduating buy); no PlayerStats signal
-  A("through_pearly_gates", "Outer Space", "Witness a rocket graduate ($33,333).", "flight", "RARE", 1, { points: 250, frame: "Pearly Frame" }, (s) => s.ct.graduationsWitnessed),
+  A("through_pearly_gates", "Outer Space", "Hold a rocket you BOOSTED through graduation ($33,333).", "flight", "RARE", 1, { points: 250, frame: "Pearly Frame" }, (s) => s.ct.graduationsWitnessed),
   A("seventh_heaven", "Seventh Heaven", "Ride a rocket into Seventh Heaven tier.", "flight", "MYTHIC", 1, { points: 5000, skin: "Empyrean Hull", trail: "Halo Gold" }, (s) => s.rockets.filter((r) => r.tierIndex >= 17).length),
   A("firmament_walker", "Firmament Walker", "Cross into Firmament ($55K+).", "flight", "RARE", 1, { points: 300, trail: "Star Wake" }, (s) => s.rockets.filter((r) => r.tierIndex >= 5).length),
   A("angel_altitude", "Angel Altitude", "Hit the Morning Stars tier ($100K+).", "flight", "EPIC", 1, { points: 750, frame: "Winged Border" }, (s) => s.rockets.filter((r) => r.tierIndex >= 6).length),
@@ -248,18 +248,20 @@ export interface AchievementRule {
 export type Rule = AchievementRule;
 
 /** Bump when V1_RULES changes in a way that should re-score existing wallets (SITE cron replays; unlocks are kept). */
-export const V1_RULES_VERSION = 1;
+export const V1_RULES_VERSION = 2;   // 2: + atom_bomber (GAME)
 
-/** GAME's 10 V1 picks (v1-achievements-plan.md). atom_bomber (11th) is GAME's to add on game/achievements. */
+/** GAME's 10 V1 picks (v1-achievements-plan.md) + atom_bomber (11th). Thresholds: lib/config BOMB_PCT (2 / 12 / 25 / 50 %). */
 export const V1_RULES: readonly AchievementRule[] = [
   { id: "first_blessing", name: "First Blessing", rarity: "COMMON", criteria: { kind: "buy", minUsd: 1 } },
   { id: "pad_ignition", name: "Pad Ignition", rarity: "COMMON", criteria: { kind: "launch" } },
   { id: "graduated_dev", name: "Blessed Dev", rarity: "EPIC", criteria: { kind: "launch_graduated" } },
   { id: "through_pearly_gates", name: "Outer Space", rarity: "RARE", criteria: { kind: "held_through_graduation", minCurveBuyUsd: 10 } },
   { id: "final_boost", name: "Final Push", rarity: "RARE", criteria: { kind: "graduating_buy", minUsd: 1 } },
-  { id: "first_grenade", name: "Pin Pulled", rarity: "COMMON", criteria: { kind: "sell_impact", minImpactBps: 200, minUsd: 10 } },
-  { id: "cruise_missile_ach", name: "Cruise Control", rarity: "RARE", criteria: { kind: "sell_impact", minImpactBps: 1200, minUsd: 25 } },
-  { id: "nuke_ach", name: "Nuke", rarity: "EPIC", criteria: { kind: "sell_impact", minImpactBps: 2500, minUsd: 50 } },
+  { id: "first_grenade", name: "Pin Pulled", rarity: "COMMON", criteria: { kind: "sell_impact", minImpactBps: BOMB_PCT.GRENADE * 100, minUsd: 10 } },
+  { id: "cruise_missile_ach", name: "Cruise Control", rarity: "RARE", criteria: { kind: "sell_impact", minImpactBps: BOMB_PCT.CRUISE * 100, minUsd: 25 } },
+  { id: "nuke_ach", name: "Nuke", rarity: "EPIC", criteria: { kind: "sell_impact", minImpactBps: BOMB_PCT.NUKE * 100, minUsd: 50 } },
+  // 11th (GAME): one sell at ≥ 50% impact (ATOM tier). $100 floor is GAME's proposal (open question for lee).
+  { id: "atom_bomber", name: "Atom Bomber", rarity: "LEGENDARY", criteria: { kind: "sell_impact", minImpactBps: BOMB_PCT.ATOM * 100, minUsd: 100 } },
   { id: "unfumbled", name: "Unfumbled", rarity: "EPIC", criteria: { kind: "realized_profit", minProfitUsd: 500 } },
   { id: "best_x_10", name: "Tenfold Halo", rarity: "EPIC", criteria: { kind: "realized_multiple", minMultiple: 10, minBasisUsd: 10 } },
 ];

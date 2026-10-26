@@ -10,7 +10,7 @@
  * Never sample/persona data. Nothing here starts, derives or advances a season.
  */
 import { withBase } from "@/lib/base-path";
-import { achievementById, type AchievementDef, type AchievementView } from "@/lib/achievements";
+import { V1_RULES, achievementById, v1RuleById, type AchievementDef, type AchievementView } from "@/lib/achievements";
 
 export const ACHIEVEMENT_EVENT = "disciple:achievement";
 
@@ -27,7 +27,8 @@ export interface AchievementItem {
 export interface AchievementsResult {
   wallet: string;
   items: AchievementItem[];
-  source: "api" | "unavailable";
+  /** api = scored; syncing = API up but this wallet not scored yet (evaluatedAt null); unavailable = API missing/erroring */
+  source: "api" | "syncing" | "unavailable";
 }
 
 /** One unlock as broadcast on window (`disciple:achievement`) and drawn by the engine / HUD toast. */
@@ -68,7 +69,8 @@ export function parseAchievementsBody(body: unknown, wallet: string): Achievemen
   const b = body as Record<string, unknown>;
   if (!Array.isArray(b.items)) return null;
   const items = b.items.map(parseItem).filter((x): x is AchievementItem => !!x);
-  return { wallet: (isAddr(b.wallet) ? b.wallet : wallet).toLowerCase(), items, source: "api" };
+  const syncing = "evaluatedAt" in b && b.evaluatedAt == null;
+  return { wallet: (isAddr(b.wallet) ? b.wallet : wallet).toLowerCase(), items, source: syncing ? "syncing" : "api" };
 }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Pick<Response, "ok" | "status" | "json">>;
@@ -151,24 +153,20 @@ export function watchUnlocks(
  * View merge: API items → AchievementView (so AchievementCard / AchievementsTab / badges keep working unchanged).
  * ------------------------------------------------------------------------------------------------------------- */
 
-/**
- * V1 real-data set (v1-achievements-plan.md: 10 picks + atom_bomber). Only these can unlock in V1; the rest of the
- * catalog is hidden on real data (Q: show as "coming soon" instead?). Order = display order within a category.
- */
-export const V1_ACHIEVEMENT_IDS = [
-  "first_blessing", "pad_ignition", "graduated_dev", "through_pearly_gates", "final_boost",
-  "first_grenade", "cruise_missile_ach", "nuke_ach", "atom_bomber", "unfumbled", "best_x_10",
-] as const;
+/** V1 real-data set = the shared rules (lib/achievements V1_RULES: 10 picks + atom_bomber), in rule order. The rest of the
+ *  catalog is hidden on real data until it has a real rule. */
+export const V1_ACHIEVEMENT_IDS: readonly string[] = V1_RULES.map((r) => r.id);
 
 const titleCase = (id: string) => id.replace(/_ach$/, "").split("_").map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" ");
 
 /** Catalog def, or a minimal stand-in for an id the API knows but this build doesn't (never crash on a new rule). */
 export function defFor(id: string, item?: AchievementItem): AchievementDef {
-  const d = achievementById(id);
-  if (d) return d;
+  const d = achievementById(id), r = v1RuleById(id);
+  // The V1 rule's name / rarity win over the legacy catalog (single source with SITE's API).
+  if (d) return r ? { ...d, name: r.name, rarity: r.rarity } : d;
   return {
-    id, name: titleCase(id), description: "", category: "flight",
-    rarity: (item?.rarity as AchievementDef["rarity"]) ?? "COMMON", target: item?.target ?? 1, reward: {}, progress: () => 0,
+    id, name: r?.name ?? titleCase(id), description: "", category: "flight",
+    rarity: (item?.rarity as AchievementDef["rarity"]) ?? r?.rarity ?? "COMMON", target: item?.target ?? 1, reward: {}, progress: () => 0,
   };
 }
 
@@ -181,8 +179,10 @@ export function realAchievementViews(res: Pick<AchievementsResult, "items">, ids
     const unlocked = it?.unlockedAt != null || (it?.progress != null && it.progress >= target);
     const current = unlocked ? target : Math.max(0, Math.min(target, it?.progress ?? 0));
     const pct = Math.min(100, (current / target) * 100);
+    const { points: _noPoints, ...reward } = def.reward;   // V1 has no points: never show "+N pts" on real data
+    void _noPoints;
     return {
-      ...def, target,
+      ...def, target, reward,
       // API rarity wins once SITE ships (single source of truth); catalog rarity until then.
       rarity: (it?.rarity as AchievementDef["rarity"]) ?? def.rarity,
       state: unlocked ? "unlocked" : current > 0 ? "in_progress" : "locked",

@@ -318,7 +318,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         )}
         {url.tab === "achievements" && (
           <AchievementsTab rows={pageSlice(achievements, page, PAGE.achievements)} unlocked={unlocked} total={achievements.length}
-            syncing={!achLoading && achSource === "unavailable"} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
+            syncing={!achLoading && achSource !== "api"} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
         )}
         {url.tab === "activity" && (
           <ActivityTab record={[
