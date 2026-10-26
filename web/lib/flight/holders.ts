@@ -48,7 +48,30 @@ export function buildHolders(bal: { address: string; balance: bigint | string }[
   }
   out.sort((x, y) => (x.label ? 0 : 1) - (y.label ? 0 : 1) || (BigInt(y.balance) > BigInt(x.balance) ? 1 : BigInt(y.balance) < BigInt(x.balance) ? -1 : 0));
   const ranked = out.filter((r) => !r.label).slice(0, o.limit ?? 50);
-  return [...out.filter((r) => r.label), ...ranked];   // tagged rows on top (unranked), then the ranked holders
+  return [...tidySystemRows(out.filter((r) => r.label)), ...ranked];   // tagged rows on top (unranked), then the ranked holders
+}
+
+/** A system row is dust (fee escrow / LockedLP leftovers worth cents) when it is under BOTH of these; dust is not shown.
+ *  (Both, so an unpriced snapshot, usd = 0, never hides the pool or the curve.) */
+export const SYSTEM_DUST_USD = 1, SYSTEM_DUST_PCT = 0.01;
+/**
+ * Tagged (non-player) rows: ONE row per label, and no dust. Several protocol contracts share a label (FeeRouter + LockedLP
+ * are both "locker" ⇒ two "Locked LP $0" rows after graduation, GAME VFIVE test); they are summed into one row (address =
+ * the largest). Rows under $1 and under 0.01% of supply are dropped. Note the locked v4 liquidity itself sits in the PoolManager ⇒ the "Pool" row;
+ * LockedLP only holds the position, so its own token balance is dust by design. Player rows pass through untouched.
+ */
+export function tidySystemRows(rows: HolderRow[]): HolderRow[] {
+  const by = new Map<string, HolderRow>(), order: string[] = [], players: HolderRow[] = [];
+  for (const r of rows) {
+    if (!r.label) { players.push(r); continue; }
+    const m = by.get(r.label);
+    if (!m) { by.set(r.label, { ...r }); order.push(r.label); continue; }
+    const big = BigInt(r.balance) > BigInt(m.balance) ? r.address : m.address;
+    by.set(r.label, { ...m, address: big, balance: (BigInt(m.balance) + BigInt(r.balance)).toString(), tokens: m.tokens + r.tokens, pct: m.pct + r.pct, usd: m.usd + r.usd, mine: m.mine || r.mine });
+  }
+  const sys = order.map((l) => by.get(l)!).filter((r) => r.usd >= SYSTEM_DUST_USD || r.pct >= SYSTEM_DUST_PCT)
+    .sort((x, y) => (BigInt(y.balance) > BigInt(x.balance) ? 1 : BigInt(y.balance) < BigInt(x.balance) ? -1 : 0));
+  return [...sys, ...players];
 }
 
 /** SITE /api/holders JSON → rows (labels from the API, plus our protocol labels for anything it left unlabelled). */
@@ -65,9 +88,11 @@ export function normalizeApiHolders(j: unknown, o: BuildOpts): { rows: HolderRow
   const rows = buildHolders(bal, { ...o, labels });
   // prefer the API's $ / pct when given (it may price at a fresher block), keep ours otherwise
   const byA = new Map((h as ApiHolder[]).filter((x) => x && isAddr(x.address)).map((x) => [lc(x.address), x]));
-  for (const r of rows) { const a = byA.get(r.address); if (a && Number.isFinite(a.usd) && (a.usd as number) >= 0) r.usd = a.usd as number; if (a && Number.isFinite(a.pct)) r.pct = a.pct as number; }
+  // (merged system rows keep the summed values: the API's per-address $ / pct would undo the merge)
+  const merged = new Set(rows.filter((r) => r.label && (h as ApiHolder[]).filter((x) => x && isAddr(x.address) && (labels[lc(x.address)] ?? null) === r.label).length > 1).map((r) => r.address));
+  for (const r of rows) { if (merged.has(r.address)) continue; const a = byA.get(r.address); if (a && Number.isFinite(a.usd) && (a.usd as number) >= 0) r.usd = a.usd as number; if (a && Number.isFinite(a.pct)) r.pct = a.pct as number; }
   const ab = (j as { asOfBlock?: unknown }).asOfBlock;
-  return { rows, asOfBlock: ab != null && Number.isFinite(Number(ab)) ? Number(ab) : null };
+  return { rows: tidySystemRows(rows), asOfBlock: ab != null && Number.isFinite(Number(ab)) ? Number(ab) : null };
 }
 
 export interface HoldersDeps {
