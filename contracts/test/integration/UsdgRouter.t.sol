@@ -133,11 +133,11 @@ contract UsdgRouterTest is IntegrationBase {
         uint256 s0 = strategy.balanceOf(alice);
         uint256 u0 = quote.balanceOf(alice);
         vm.prank(alice);
-        router.buyWithUsdg(address(sTok), 2000 ether, 1, _dl());
+        router.buyWithUsdg(address(sTok), 3000 ether, 1, _dl()); // $7,777→$33,333 leaves ~$2.2K above 90%
         assertTrue(sCurve.graduated(), "router buy graduated the curve");
         // DISCIPLE audit #6: the unused intermediate quote is swapped back and refunded in USDG
         assertEq(strategy.balanceOf(alice), s0, "no intermediate-quote refund");
-        assertLt(u0 - quote.balanceOf(alice), 2000 ether, "unused quote refunded to buyer in USDG");
+        assertLt(u0 - quote.balanceOf(alice), 3000 ether, "unused quote refunded to buyer in USDG");
         _noDust();
     }
 
@@ -227,7 +227,7 @@ contract UsdgRouterTest is IntegrationBase {
 
     function _installSession(uint128 cap) internal {
         acct = new MockMAv2(address(this));
-        policy = new P(address(referrals));
+        policy = new P(address(referrals), address(0));
         quote.mint(address(acct), 1_000 ether);
         P.SessionConfig memory c = P.SessionConfig({
             validUntil: uint48(block.timestamp + 1 hours),
@@ -323,7 +323,7 @@ contract UsdgRouterTest is IntegrationBase {
     /// DISCIPLE audit #5: exact-amount USDG approvals to a curve (and other spenders) matched to the batch's spend.
     function test_sessionUsdgApproveToCurveExact() public {
         acct = new MockMAv2(address(this));
-        policy = new P(address(referrals));
+        policy = new P(address(referrals), address(0));
         quote.mint(address(acct), 1_000 ether);
         P.SessionConfig memory c = P.SessionConfig({
             validUntil: uint48(block.timestamp + 1 hours),

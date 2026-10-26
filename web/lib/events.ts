@@ -15,7 +15,7 @@ import { deployment } from "./chains";
 import { curveOf, publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import { coinBasis, hookMcapUsd as hookSqrtMcapUsd, readCoinMcap } from "./mcap";
 import { blockOf, txBlock, type BlockLike } from "./fillBook";
-import type { Address, ProtocolEvent } from "./protocol";
+import { NOT_GRADUATED, type Address, type GradState, type ProtocolEvent } from "./protocol";
 
 type Cb = (e: ProtocolEvent) => void;
 type L = Log & { eventName: string; args: Record<string, unknown> };
@@ -42,10 +42,10 @@ export function watchLaunchpad(cb: Cb, pc: PublicClient = publicClient()): () =>
   });
 }
 
-/** 7B × 1e18 (Constants.TOTAL_SUPPLY). */
-const SUPPLY_TOKENS = 7_000_000_000;
-/** LEGACY (18-dec quotes only): USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw, floored on-chain — a
- *  single-digit integer at 6-dec USDG) and quotePriceUsd (USD WAD per 1e18 quote raw). Hook Trades use sqrtPriceAfter. */
+/** 1M × 1e18 (Constants.TOTAL_SUPPLY, redeploy pack). */
+const SUPPLY_TOKENS = 1_000_000;
+/** LEGACY (18-dec quotes only): USD mcap from a Trade's priceAfterX18 (quote raw × 1e18 / token raw, floored on-chain — coarse
+ *  at 6-dec USDG) and quotePriceUsd (USD WAD per 1e18 quote raw). Hook Trades use sqrtPriceAfter. */
 export const hookMcapUsd = (priceAfterX18: bigint | undefined, quotePriceUsd: bigint) =>
   priceAfterX18 ? (Number(priceAfterX18) / 1e18) * (Number(quotePriceUsd) / 1e18) * SUPPLY_TOKENS : 0;
 
@@ -99,6 +99,11 @@ export const tradeKey = (e: { block: bigint | string | number; logIndex?: number
  */
 export function mcapOrderer(emit: Cb) {
   let lastK = BigInt(-1), lastMcap = 0;
+  // SITE job 7 (GAME contract): every update to the engine carries the coin's graduation state next to mcapUsd —
+  // { graduated, poolId, graduatedAt } (lib/protocol GradState) on "State", "Trade" and "Graduate" alike. Set from the
+  // server (DiscipleFeed → GET /api/coin/grad, falls back to the curve read) and flipped by a live GraduatedToV4.
+  let grad: GradState = { ...NOT_GRADUATED };
+  const out = (e: ProtocolEvent | StateEvent) => emit({ ...e, ...grad } as ProtocolEvent);
   // Every Trade reaches the engine at most once (tx:logIndex). The engine has no dedupe of its own: a repeat drew a second
   // "▲ BOOST" row + chart tick (viem's getLogs fallback re-delivered a range whenever a lagging node's lower blockNumber
   // rewound its cursor).
@@ -113,8 +118,10 @@ export function mcapOrderer(emit: Cb) {
         }
         const k = tradeKey(e);
         if (k >= lastK) { lastK = k; lastMcap = e.mcapUsd; } else if (lastMcap > 0) e = { ...e, mcapUsd: lastMcap };
+      } else if (e.type === "Graduate") {
+        grad = { graduated: true, poolId: e.poolId ?? grad.poolId, graduatedAt: e.graduatedAt ?? grad.graduatedAt };
       }
-      emit(e);
+      out(e);
     },
     /** Live mcap read at block `atBlock` (or later): applied unless a newer Trade was already applied. */
     state(mcapUsd: number, atBlock: bigint) {
@@ -123,12 +130,26 @@ export function mcapOrderer(emit: Cb) {
       lastK = k;
       if (Math.abs(mcapUsd - lastMcap) < 1e-9 * Math.max(1, mcapUsd)) return false;
       lastMcap = mcapUsd;
-      emit({ type: "State", mcapUsd } as never);
+      out({ type: "State", mcapUsd });
       return true;
     },
+    /** Graduation state from the server / curve read. Never un-graduates; a known poolId / graduatedAt is kept. */
+    setGrad(g: Partial<GradState> | null | undefined) {
+      if (!g) return;
+      grad = {
+        graduated: grad.graduated || g.graduated === true,
+        poolId: grad.poolId ?? (typeof g.poolId === "string" && /^0x[0-9a-fA-F]{64}$/.test(g.poolId) ? g.poolId as `0x${string}` : null),
+        graduatedAt: grad.graduatedAt ?? (typeof g.graduatedAt === "number" && g.graduatedAt > 0 ? g.graduatedAt : null),
+      };
+    },
+    /** Re-send the current mcap (with the graduation fields) as a "State" — e.g. right after setGrad on page load. */
+    resend() { if (lastMcap > 0) out({ type: "State", mcapUsd: lastMcap }); },
+    get grad(): GradState { return { ...grad }; },
     get mcap() { return lastMcap; },
   };
 }
+/** The engine's mcap snapshot (not a chain event): window "disciple:event" detail { type: "State", mcapUsd, ...GradState }. */
+export type StateEvent = { type: "State"; mcapUsd: number };
 export type McapOrderer = ReturnType<typeof mcapOrderer>;
 
 /** RH testnet RPC: ~4 blocks/s, no eth_newFilter, and its load-balanced nodes lag each other by a few blocks. */
@@ -265,6 +286,12 @@ export async function readMcapAt(pc: PublicClient, token: Address, b: bigint, o:
   return null;
 }
 
+/** Unix seconds of a block (GraduatedToV4 → graduatedAt); null when the read fails (the engine still gets graduated + poolId). */
+export async function blockTs(pc: Pick<PublicClient, "getBlock">, block: bigint | null | undefined): Promise<number | null> {
+  if (block === null || block === undefined) return null;
+  try { return Number((await pc.getBlock({ blockNumber: block })).timestamp); } catch { return null; }
+}
+
 /**
  * Per-coin trade stream: curve Trade + GraduatedToV4, and the hook's Trade for this token
  * (post-grad swaps from DiscipleRouter or any third-party router). Batches are processed strictly in arrival
@@ -309,9 +336,9 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   const c = pollLogs({
     pc, fromBlock: start,
     fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
-    onLogs: (logs) => inOrder(() => {
+    onLogs: (logs) => inOrder(async () => {
       for (const l of logs) {
-        if (l.eventName === "GraduatedToV4") order.trade({ type: "Graduate", token, poolId: l.args.poolId as `0x${string}` });
+        if (l.eventName === "GraduatedToV4") order.trade({ type: "Graduate", token, poolId: l.args.poolId as `0x${string}`, graduatedAt: await blockTs(pc, l.blockNumber) });
         else if (l.eventName === "Trade") order.trade(tradeFromLog(l, qp, "curve", undefined, usdgOf(l)));
       }
     }),

@@ -20,6 +20,8 @@ export interface Kv {
   /** ascending by score */
   /** lowest scores first; rev → highest (newest) first */
   zrange(k: string, limit?: number, rev?: boolean): Promise<string[]>;
+  /** ZREM: remove members (exact JSON strings); returns how many were removed. */
+  zrem(k: string, ...members: string[]): Promise<number>;
   sadd(k: string, ...m: string[]): Promise<void>;
   smembers(k: string): Promise<string[]>;
   /** Atomic GET + DEL (single-use tokens): the value, or null if absent/expired or already taken. */
@@ -28,6 +30,10 @@ export interface Kv {
   incrEx(k: string, ttlSec: number): Promise<number>;
   /** Seconds until k expires (-1 no ttl, -2 missing). */
   ttl(k: string): Promise<number>;
+  /** Atomic compare-and-expire: reset k's TTL to ttlSec only while k == v (lease renewal). true if refreshed. */
+  expireIfEq(k: string, v: string, ttlSec: number): Promise<boolean>;
+  /** Atomic compare-and-delete: DEL k only while k == v (lease release by its owner token). true if deleted. */
+  delIfEq(k: string, v: string): Promise<boolean>;
 }
 
 /* ---------------- local ---------------- */
@@ -51,15 +57,20 @@ function local(): Kv {
     async del(...ks) { await ready; for (const k of ks) delete st.kv[k]; save(); },
     async zadd(k, items) { await ready; const z = (st.z[k] ??= {}); for (const i of items) if (!(i.member in z)) z[i.member] = i.score; save(); },
     async zrange(k, limit = 1000, rev = false) { await ready; return Object.entries(st.z[k] ?? {}).sort((a, b) => (rev ? b[1] - a[1] : a[1] - b[1])).slice(0, limit).map(([m]) => m); },
+    async zrem(k, ...m) { await ready; const z = st.z[k]; if (!z) return 0; let n = 0; for (const x of m) if (x in z) { delete z[x]; n++; } save(); return n; },
     async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
     async smembers(k) { await ready; return st.s[k] ?? []; },
     async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
     async incrEx(k, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
     async ttl(k) { await ready; const e = live(k); return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1; },
+    async expireIfEq(k, v, ttl) { await ready; const e = live(k); if (!e || e.v !== v) return false; e.exp = Date.now() + ttl * 1000; save(); return true; },
+    async delIfEq(k, v) { await ready; const e = live(k); if (!e || e.v !== v) return false; delete st.kv[k]; save(); return true; },
   };
 }
 
 /* ---------------- Upstash REST ---------------- */
+const EXPIRE_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('EXPIRE',KEYS[1],ARGV[2]) else return 0 end";
+const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end";
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
 function upstash(url: string, token: string): Kv {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
@@ -84,11 +95,14 @@ function upstash(url: string, token: string): Kv {
       }
     },
     async zrange(k, limit = 1000, rev = false) { return (await cmd<string[]>(...(rev ? ["ZRANGE", k, 0, limit - 1, "REV"] : ["ZRANGE", k, 0, limit - 1]))) ?? []; },
+    async zrem(k, ...m) { return m.length ? Number(await cmd<number>("ZREM", k, ...m)) : 0; },
     async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
     getDel: (k) => cmd<string | null>("GETDEL", k),
     async incrEx(k, ttl) { return Number(await cmd<number>("EVAL", INCR_EX_LUA, 1, k, ttl)); },
     async ttl(k) { return Number(await cmd<number>("TTL", k)); },
+    async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
+    async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },
   };
 }
 

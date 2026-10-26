@@ -90,8 +90,8 @@ test("anon: claims route per launcher; legacy token share and stealth rows never
   const { creatorClaimCalls } = await import("../lib/claims/creatorFees");
   const { anonLauncherAddr, anonLauncherLegacyAddr } = await import("../lib/claims/capabilities");
   const v2 = anonLauncherAddr()!, v1 = anonLauncherLegacyAddr()!;
-  assert.equal(v2.toLowerCase(), "0x06f31a8877c8e025cc55faffb20cba8486cca527");
-  assert.equal(v1.toLowerCase(), "0xe564900809746b1f2baca9d2b8df3224a463f359");
+  assert.equal(v2.toLowerCase(), "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509"); // v5 AnonLauncher
+  assert.equal(v1.toLowerCase(), "0x06f31a8877c8e025cc55faffb20cba8486cca527"); // legacy = the v4-stack launcher
   const asset = { address: A(9), symbol: "NITE", decimals: 18, usd: null };
   const caps = { creatorFees: true, referrerFees: true, creatorTokenFees: true, crew: true, referralGate: true, anonClaims: true };
   const row = { token: A(9), claimable: BigInt(0), anon: true, launcher: v1, tokenSide: { asset, claimable: BigInt(0), claimed: BigInt(0) }, tokenUnclaimable: { asset, raw: BigInt(5) } };

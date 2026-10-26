@@ -14,22 +14,28 @@ export interface Fill {
   venue: "curve" | "hook";
   /** token units (18 dec) */
   tokens: number;
-  /** $ notional at fill ≈ tokens × mid(priceBefore, priceAfter) in USD (gross, fee inside) */
+  /** $ of the quote paid (buy) / received (sell) at the coin's launch quote price (Trade.quoteAmt × quotePriceUsd) */
   usd: number;
   /** $ per token after the fill */
   priceUsd: number;
   /**
    * REAL USDG of a router trade (DiscipleRouter UsdgTrade in the same tx): USDG paid in on a buy, USDG received on a
    * sell (18 dp → $). Absent for direct curve/pool trades or fills indexed before this field existed. Prefer these
-   * over `usd` (a mid-price estimate) for P&L.
+   * over `usd` (the quote value at the launch quote price) for P&L.
    */
   usdIn?: number;
   usdOut?: number;
   /** $ mcap after the fill */
   mcapUsd: number;
+  /**
+   * How `usd` was valued: "quote" = Trade.quoteAmt × the launch quote price (exact quote paid/received); "price" =
+   * estimate, tokens × mid / after-fill price (quoteAmt or quote price unknown). Absent = indexed before SITE job 7 (old tokens ×
+   * mid-price estimate) ⇒ lib/server/trades reindexFills revalues it.
+   */
+  usdBasis?: "quote" | "price";
 }
-/** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 7B × 1e18). */
-export const TOTAL_SUPPLY_TOKENS = 7_000_000_000;
+/** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 1M × 1e18). */
+export const TOTAL_SUPPLY_TOKENS = 1_000_000;
 
 /** sqrtPriceX96 (v4) → $ mcap, full precision (mirrors DiscipleHook.mcapUsdFromSqrt / indexer math.mcapUsdFromSqrt).
  *  tokenIsC0 = token < quote (v4 currency order); quoteUsdWad = USD WAD per 1e18 RAW quote units (decimal-agnostic). */
@@ -55,11 +61,17 @@ export const preciseX18 = (v: bigint | number | undefined) => v !== undefined &&
  *  - DiscipleHook Trade (post-grad, v4 G-1): no mcapAfterUsd (last field = sqrtPriceAfter) ⇒ mcap = mcapUsdFromSqrt(
  *    sqrtPriceAfter, token < quote, quotePriceUsd). Legacy fallback (no sqrtPriceAfter / quote given): priceAfterX18 ×
  *    supply × quotePriceUsd — exact only for 18-dec quotes.
- *  - usd = tokens × mid(priceBefore, priceAfter); the mid factor (pb/pa) is applied only when both are precise, else
- *    tokens × price after the fill.
+ *  - usd = the QUOTE actually paid (buy) / received (sell): Trade.quoteAmt × quotePriceUsd (the coin's launch quote
+ *    price; USDG = $1). Both venues emit quoteAmt that way (BondingCurve: quoteIn incl. fee on buys, quoteOut after fee
+ *    on sells; DiscipleHook: quote in incl. fee / out after fee). SITE job 7: the old tokens × mid(priceBefore,
+ *    priceAfter) estimate overstated big curve buys ~2.3× (SGRAD's first buy: $15.2K shown for ~$6.5K paid).
+ *    Only when quoteAmt or the quote price is missing: the old estimate, tokens × mid(priceBefore, priceAfter) (mid
+ *    factor only when both prices are precise, else tokens × the price after the fill).
  */
 export function fillUsd(a: {
   tokenAmt: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint;
+  /** Trade.quoteAmt (quote raw): paid on a buy, received on a sell */
+  quoteAmt?: bigint;
   /** hook Trade: pool sqrtPriceX96 after the swap + the coin/quote addresses (currency order) */
   sqrtPriceAfter?: bigint; token?: string; quote?: string;
   /** the coin's own total supply in whole tokens (lib/mcap coinBasis); default = the 7B legacy constant */
@@ -74,10 +86,16 @@ export function fillUsd(a: {
       ? mcapUsdFromSqrt(a.sqrtPriceAfter, tokenIsCurrency0(a.token, a.quote), qp, supply)
       : (Number(a.priceAfterX18) / 1e18) * (Number(qp) / 1e18) * supply;
   const priceUsd = mcapUsd / supply;
+  const exact = a.quoteAmt !== undefined && a.quoteAmt > BigInt(0) && qp > BigInt(0);
+  // fallback only (quote paid unknown): the pre-job-7 estimate, tokens × mid(priceBefore, priceAfter) — the mid factor
+  // (pb/pa) only when both prices are precise, else tokens × price after (FLOW #115).
   const pa = Number(a.priceAfterX18), pb = Number(a.priceBeforeX18);
   const mid = preciseX18(pa) && preciseX18(pb) ? priceUsd * ((pa + pb) / 2 / pa) : priceUsd;
-  return { tokens, usd: tokens * mid, priceUsd, mcapUsd };
+  const usd = exact ? quoteUsd(a.quoteAmt as bigint, qp) : tokens * mid;
+  return { tokens, usd, priceUsd, mcapUsd, usdBasis: exact ? "quote" as const : "price" as const };
 }
+/** $ of `raw` quote units at quotePriceUsd (USD WAD per 1e18 raw ⇒ decimal-agnostic; = lib/protocol-viem quoteRawToUsd). */
+export const quoteUsd = (raw: bigint, quotePriceUsd: bigint) => Number((raw * quotePriceUsd) / BigInt(10) ** BigInt(18)) / 1e18;
 
 /**
  * THE player-facing $ of a fill (live retest #3: feed rows, the trade status line, home chips and 24h volume all use

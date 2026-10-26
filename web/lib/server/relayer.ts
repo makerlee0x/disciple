@@ -1,18 +1,24 @@
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
+import { classifySendError } from "./relayerNonce";
 
 /**
  * The relayer EOA (relayerKey(): RELAYER_PRIVATE_KEY; local dev/test may fall back to DRIP_FAUCET_KEY) signs the self-bundler's handleOps
  * (and, when they are the same key, /api/drip top-ups). Concurrent requests fetched
  * the same pending nonce ("Nonce provided for the transaction is lower than the current nonce of the account").
- * withRelayer() runs relayer sends one at a time per server instance and retries nonce errors (another instance /
- * a send outside this process may still race on serverless) with a fresh nonce.
+ * withRelayer() runs relayer sends one at a time per server instance and retries DEFINITE nonce errors (another
+ * instance / a send outside this process may still race on serverless) with a fresh nonce. "already known" and
+ * unclear failures are never retried (the tx may be in: re-signing would double-submit).
  */
 let tail: Promise<unknown> = Promise.resolve();
 
-export const isNonceError = (e: unknown) =>
-  /nonce (provided for the transaction is lower|too low|has already been used)|replacement transaction underpriced|already known/i
-    .test(String((e as { details?: string })?.details || "") + " " + String((e as Error)?.message || e));
+/**
+ * A DEFINITE nonce rejection (the tx was not accepted ⇒ safe to re-sign with a fresh nonce). feat/rapid-tap: no longer
+ * matches "already known" — that means the node HAS the tx; re-signing it with a new nonce double-submits handleOps
+ * (the copy reverts AA25 at the relayer's cost + a TRUST strike). "nonce too high" (a gap) now matches. Same rules as
+ * lib/server/relayerNonce.classifySendError.
+ */
+export const isNonceError = (e: unknown) => classifySendError(e) === "nonce";
 
 export function withRelayer<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
   const attempt = async (left: number): Promise<T> => {

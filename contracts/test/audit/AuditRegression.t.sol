@@ -85,10 +85,9 @@ contract AuditRegression is IntegrationBase {
 
         this.gradExt(curve);
         (uint160 sp,,,) = manager.getSlot0(key.toId());
-        (,, uint256 x0, uint256 y0) = curve.curveParams();
-        uint256 sold = curve.tokensSold();
-        uint256 y = y0 - sold;
-        uint160 expected = SqrtPrice.fromReserves(Math_mulDiv(x0, y0, y), y, tokenIsC0);
+        (uint256 ts, uint256 sC, uint256 x0, uint256 y0) = curve.curveParams();
+        CurveMath.Params memory cp = CurveMath.Params(ts, sC, x0, y0, curve.quotePriceUsd(), curve.curveTail());
+        uint160 expected = SqrtPrice.fromReserves(CurveMath.marketCapQuote(cp, curve.tokensSold()), ts, tokenIsC0);
         assertEq(sp, expected, "pool initialized at the curve-end price");
         assertTrue(hook.getHookPermissions().beforeInitialize);
     }

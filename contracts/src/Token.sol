@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {IToken} from "./interfaces/IToken.sol";
 
@@ -12,10 +13,12 @@ interface IPveCurveHook {
 }
 
 /// @title DISCIPLE ERC-20 launch token
-/// @notice Fixed 7B supply, 18 decimals, no further mint (§2 / LOCKED #7, #10).
+/// @notice Fixed 1M supply at launch, 18 decimals, no further mint (§2 / LOCKED #7, #10). Holders may burn their own
+///         tokens (`burn`) or an approved holder's (`burnFrom`): `totalSupply()` really drops (redeploy pack, lee
+///         2026-10-24). PVE coins block burns until graduation so the curve's NET positions stay exact.
 /// @dev EIP-2612 permit enabled (single-tx sells via BondingCurve.sellWithPermit).
 ///      Standard CREATE deployment (no vanity). Entire supply minted once to `recipient` (the curve).
-contract Token is ERC20, ERC20Permit, IToken {
+contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     address public immutable override creator;
     address public immutable override launchpad;
     /// @notice True for PVE coins: pre-graduation wallet→wallet transfers notify the curve. Immutable, so TRENCH /
@@ -25,11 +28,17 @@ contract Token is ERC20, ERC20Permit, IToken {
     ///         the curve at graduation). One packed slot.
     address public pveCurve;
     bool public pveLive;
+    /// @notice Mode rules v2 (PVE / Easy): the creator's First BOOST (launch buy) amount. Until graduation
+    ///         (`pveLive` cleared by the curve) the creator's balance can never drop below it: no curve sell, no
+    ///         transfer. Tokens the creator buys later stay free. Set once by the curve; same slot as pveCurve.
+    uint88 public creatorLocked;
 
     error ZeroAddress();
     error OnlyLaunchpad();
     error OnlyCurve();
     error AlreadySet();
+    error CreatorLocked();
+    error BurnLocked();
 
     constructor(
         string memory name_,
@@ -67,12 +76,33 @@ contract Token is ERC20, ERC20Permit, IToken {
         pveLive = false;
     }
 
+    /// @notice The PVE curve records the creator's First BOOST once (in the launch tx, right after the buy).
+    function lockCreator(uint256 amount) external {
+        if (msg.sender != pveCurve) revert OnlyCurve();
+        if (creatorLocked != 0) revert AlreadySet();
+        creatorLocked = uint88(amount); // <= 1.2% of supply (FIRST_BOOST_MAX_BPS_PVE) << 2^88
+    }
+
+    /// @notice True while the creator's First BOOST is locked (PVE, not graduated, lock recorded).
+    function creatorLockActive() external view returns (bool) {
+        return pveLive && creatorLocked != 0;
+    }
+
     function _update(address from, address to, uint256 value) internal override {
         super._update(from, to, value);
-        if (pveHooks && from != to && from != address(0) && to != address(0) && value != 0) {
-            address c = pveCurve;
-            // curve buys/sells/graduation move tokens to/from the curve: the curve books those itself
-            if (pveLive && from != c && to != c) IPveCurveHook(c).onTokenTransfer(from, to, value);
+        if (pveHooks && pveLive) {
+            // burns wait for graduation on PVE coins: the curve books NET positions per wallet (rewards, caps)
+            if (to == address(0)) revert BurnLocked();
+            // creator lock (mode rules v2): the creator's balance may not drop below the First BOOST pre-graduation
+            if (from == creator) {
+                uint256 l = creatorLocked;
+                if (l != 0 && balanceOf(from) < l) revert CreatorLocked();
+            }
+            if (from != to && from != address(0) && to != address(0) && value != 0) {
+                address c = pveCurve;
+                // curve buys/sells/graduation move tokens to/from the curve: the curve books those itself
+                if (from != c && to != c) IPveCurveHook(c).onTokenTransfer(from, to, value);
+            }
         }
     }
 

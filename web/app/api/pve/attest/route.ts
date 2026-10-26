@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       if (!wl.ok) return NextResponse.json({ ...out, relayed: false, relayError: "rate_limited" });
       try {
         const relayer = privateKeyToAccount(relayerKey());
-        const wc = createWalletClient({ chain: ACTIVE_CHAIN.id === 46630 ? robinhoodTestnet : ACTIVE_CHAIN, transport: http(), account: relayer });
+        const wc = createWalletClient({ chain: ACTIVE_CHAIN.id === 46630 ? robinhoodTestnet : ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });   // no transport-level resend (AUDIT Info)
         const hash = await withRelayer(() => wc.writeContract({ address: gate, abi: loginGateMiniAbi, functionName: "attest", args: [w, BigInt(expiry), coin, signature as Hex] }));
         const rc = await client.waitForTransactionReceipt({ hash, timeout: 20_000 });
         if (rc.status !== "success") return NextResponse.json({ ...out, relayed: false, relayError: "reverted", txHash: hash });

@@ -17,9 +17,19 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
 
 interface ILaunchpadCurveOf {
     function curveOf(address token) external view returns (address);
+    function defaultQuote() external view returns (address);
+    function feeRouter() external view returns (address);
+    function launchFor(address creator, ILaunchpad.LaunchParams calldata params, uint8 mode)
+        external
+        returns (ILaunchpad.LaunchResult memory);
+}
+
+interface IFeeRouterClaimFor {
+    function claimCreatorFeesFor(address token, address creator) external returns (uint256);
 }
 
 interface IUsdgCurve {
@@ -106,8 +116,20 @@ contract DiscipleRouter is IUnlockCallback {
     event UsdgPoolRemoved(address indexed quote);
     /// @notice Graduating curve buy refund: `quoteRefund` of the coin's quote returned as `usdgRefund` USDG.
     event UsdgRefund(address indexed trader, address indexed token, uint256 quoteRefund, uint256 usdgRefund);
+    /// @notice launchWithUsdg: `usdgIn` USDG → `quoteIn` pair coin used as the First BOOST (`tokensBought`).
+    event UsdgLaunch(
+        address indexed creator, address indexed token, uint256 usdgIn, uint256 quoteIn, uint256 tokensBought
+    );
+    /// @notice claimCreatorFeesToUsdg: `quoteAmount` of creator fees paid out as `usdgOut` USDG.
+    event UsdgCreatorFeesClaimed(
+        address indexed creator, address indexed token, uint256 quoteAmount, uint256 usdgOut
+    );
     event UsdgTrade(
         address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve
+    );
+    /// @notice swapUsdgToQuote (`toQuote`) / swapQuoteToUsdg on the registered USDG/`quote` pool.
+    event UsdgQuoteSwap(
+        address indexed trader, address indexed quote, bool toQuote, uint256 amountIn, uint256 amountOut, address recipient
     );
 
     struct Hop {
@@ -326,16 +348,9 @@ contract DiscipleRouter is IUnlockCallback {
             uint256 refund;
             (tokensOut, refund) = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, maxImpactBps);
             if (refund != 0) {
-                // Graduating buy: unused quote comes back here. DISCIPLE audit #6: return it in USDG (swap the
+                // Graduating buy or holding-cap partial fill (mode rules v2): unused quote comes back here. DISCIPLE audit #6: return it in USDG (swap the
                 // intermediate quote back through the same registered pool); USDG-quoted coins: plain transfer.
-                uint256 usdgRefund = refund;
-                if (q != u) {
-                    Hop[] memory hb = new Hop[](1);
-                    hb[0] = _usdgHop(u, q, false);
-                    usdgRefund = _route(address(this), msg.sender, hb, refund);
-                } else {
-                    IERC20(u).safeTransfer(msg.sender, refund);
-                }
+                uint256 usdgRefund = _toUsdg(u, q, refund, msg.sender);
                 emit UsdgRefund(msg.sender, token, refund, usdgRefund);
             }
         }
@@ -374,6 +389,134 @@ contract DiscipleRouter is IUnlockCallback {
         if (usdgOut < minUsdgOut) revert Slippage();
         emit UsdgTrade(msg.sender, token, false, tokensIn, usdgOut, !grad);
         _exit();
+    }
+
+    /// @notice Launch a coin AS msg.sender, paying the First BOOST in USDG: pulls `usdgIn` USDG, swaps it to the
+    ///         coin's pair coin on the registered USDG reference pool (skipped for USDG-paired coins; same leg as
+    ///         buyWithUsdg), and calls Launchpad.launchFor(msg.sender, …) with that as `creatorBuyQuoteIn`. The
+    ///         CALLER is the creator (Token.creator, fees, Easy login + creator lock, sniper exemption); this router
+    ///         only pays. Any First BOOST partial-fill refund (above the mode's max) is swapped back and returned in
+    ///         USDG. `p.creatorBuyQuoteIn` is ignored; `p.creatorBuyMinTokensOut` / `p.deadline` apply.
+    ///         Session keys: DiscipleSessionPolicy 1.4.x may sign this (dollar First BOOST), capped like buyWithUsdg.
+    /// @param minQuoteIn minimum pair coin out of the USDG leg (slippage guard on the swap)
+    function launchWithUsdg(ILaunchpad.LaunchParams calldata p, uint8 mode, uint256 usdgIn, uint256 minQuoteIn)
+        external
+        returns (ILaunchpad.LaunchResult memory r, uint256 usdgRefund)
+    {
+        _enter();
+        address u = usdg;
+        address lp = launchpad;
+        if (u == address(0) || lp == address(0)) revert UsdgNotConfigured();
+        if (block.timestamp > p.deadline) revert Expired();
+        ILaunchpad.LaunchParams memory m = p;
+        address q = m.quote == address(0) ? ILaunchpadCurveOf(lp).defaultQuote() : m.quote;
+        m.quote = q;
+        uint256 b0 = IERC20(q).balanceOf(address(this));
+        uint256 quoteAmt;
+        if (usdgIn != 0) {
+            if (q == u) {
+                IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
+                quoteAmt = usdgIn;
+            } else {
+                Hop[] memory h = new Hop[](1);
+                h[0] = _usdgHop(u, q, true);
+                quoteAmt = _route(msg.sender, address(this), h, usdgIn);
+            }
+            if (quoteAmt < minQuoteIn) revert Slippage();
+            IERC20(q).forceApprove(lp, quoteAmt);
+        }
+        m.creatorBuyQuoteIn = quoteAmt;
+        r = ILaunchpadCurveOf(lp).launchFor(msg.sender, m, mode);
+        uint256 left = IERC20(q).balanceOf(address(this)) - b0;
+        if (left != 0) {
+            usdgRefund = _toUsdg(u, q, left, msg.sender);
+            emit UsdgRefund(msg.sender, r.token, left, usdgRefund);
+        }
+        emit UsdgLaunch(msg.sender, r.token, usdgIn, quoteAmt, r.creatorTokensBought);
+        _exit();
+    }
+
+    /// @notice Claim msg.sender's accrued creator fees (quote side) of `token` and receive them in USDG (swapped on
+    ///         the registered USDG pool; plain transfer for USDG-paired coins). Token-side fees: FeeRouter directly.
+    function claimCreatorFeesToUsdg(address token, uint256 minUsdgOut) external returns (uint256 usdgOut) {
+        _enter();
+        address u = usdg;
+        address lp = launchpad;
+        if (u == address(0) || lp == address(0)) revert UsdgNotConfigured();
+        address curve = ILaunchpadCurveOf(lp).curveOf(token);
+        if (curve == address(0)) revert UnknownToken(token);
+        address q = IUsdgCurve(curve).quote();
+        uint256 amt = IFeeRouterClaimFor(ILaunchpadCurveOf(lp).feeRouter()).claimCreatorFeesFor(token, msg.sender);
+        usdgOut = _toUsdg(u, q, amt, msg.sender);
+        if (usdgOut < minUsdgOut) revert Slippage();
+        emit UsdgCreatorFeesClaimed(msg.sender, token, amt, usdgOut);
+        _exit();
+    }
+
+    /// @notice Swap `usdgIn` USDG (from msg.sender) for pair coin `quote` (to `recipient`) on the registered USDG/quote
+    ///         pool: the same leg buyWithUsdg / launchWithUsdg use. For a dollar-priced First BOOST or a buy on a
+    ///         non-USDG pair. Router impact cap applies; no custody.
+    /// @param minOut minimum `quote` out (must be > 0)
+    function swapUsdgToQuote(address quote, uint256 usdgIn, uint256 minOut, address recipient, uint256 deadline)
+        external
+        returns (uint256 out)
+    {
+        out = _usdgQuoteSwap(quote, true, usdgIn, minOut, recipient, deadline);
+    }
+
+    /// @notice Swap `quoteIn` of pair coin `quote` (from msg.sender) for USDG (to `recipient`) on the registered
+    ///         USDG/quote pool: the same leg sellToUsdg uses. Cashes non-USDG pair loot out to dollars.
+    /// @param minOut minimum USDG out (must be > 0)
+    function swapQuoteToUsdg(address quote, uint256 quoteIn, uint256 minOut, address recipient, uint256 deadline)
+        external
+        returns (uint256 out)
+    {
+        out = _usdgQuoteSwap(quote, false, quoteIn, minOut, recipient, deadline);
+    }
+
+    /// @notice Exact-in quote for swapUsdgToQuote (`toQuote`) / swapQuoteToUsdg (simulate-and-revert; eth_call).
+    function quoteUsdgQuoteSwap(address quote, bool toQuote, uint256 amountIn)
+        external
+        returns (uint256 amountOut, uint256 impactBps)
+    {
+        address u = usdg;
+        if (u == address(0)) revert UsdgNotConfigured();
+        if (quote == u) revert BadParam();
+        Hop[] memory h = new Hop[](1);
+        h[0] = _usdgHop(u, quote, toQuote);
+        return _simulate(msg.sender, h, amountIn, address(0));
+    }
+
+    function _usdgQuoteSwap(
+        address quote,
+        bool toQuote,
+        uint256 amountIn,
+        uint256 minOut,
+        address recipient,
+        uint256 deadline
+    ) private returns (uint256 out) {
+        _enter();
+        _preflight(amountIn, minOut, deadline);
+        if (recipient == address(0)) revert ZeroRecipient();
+        address u = usdg;
+        if (quote == u) revert BadParam();
+        Hop[] memory h = new Hop[](1);
+        h[0] = _usdgHop(u, quote, toQuote);
+        out = _route(msg.sender, recipient, h, amountIn);
+        if (out < minOut) revert Slippage();
+        emit UsdgQuoteSwap(msg.sender, quote, toQuote, amountIn, out, recipient);
+        _exit();
+    }
+
+    /// @dev Router-held `amount` of pair coin `q` → USDG to `to` (plain transfer when q is USDG).
+    function _toUsdg(address u, address q, uint256 amount, address to) private returns (uint256) {
+        if (q == u) {
+            IERC20(u).safeTransfer(to, amount);
+            return amount;
+        }
+        Hop[] memory hb = new Hop[](1);
+        hb[0] = _usdgHop(u, q, false);
+        return _route(address(this), to, hb, amount);
     }
 
     /// @notice Exact-in USDG route quote (simulate-and-revert; call via eth_call). Includes all fees.

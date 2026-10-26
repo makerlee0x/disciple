@@ -85,10 +85,10 @@ if (fail) process.exit(1); else console.log("PASS");
   for (const v of [0, 0.11, -0.11, 1, 999.994, 1234, -1234.5, 4.56e6, 7.89e9]) { eq(mirror[0](v), fmtMoney(v)); eq(mirror[1](v), fmtPnl(v)); }
   console.log("ok  shared PnL formatter (2-decimal $, compact K/M/B, 1-decimal %) + engine fallback mirror"); }
 
-// ---- audit scenarios (maker lee): mcap vs entry vs realized, 7B supply, fees separate ----
+// ---- audit scenarios (maker lee): mcap vs entry vs realized, 1M supply, fees separate ----
 { let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
   const S7 = DEFAULT_SUPPLY, px = (m) => m / S7, near = (a, b, tol) => Math.abs(a - b) <= tol;
-  ok(S7 === 7e9, "default supply is DISCIPLE's 7B");
+  ok(S7 === 1e6, "default supply is DISCIPLE's 1M");
   let p = applyFill(emptyPosition(), "buy", 100, px(10_000), 0, 0);
   let v = view(p, px(10_000), S7, 0);
   ok(near(v.entryMcap, 10_000 / 0.99, 1), `buy $100 @ $10K: entry mcap ${v.entryMcap.toFixed(0)} (= $10K grossed up by the 1% buy fee)`);
@@ -118,13 +118,13 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(near(half.size, h.size / 2, 1e-6), "50% preset sells exactly half the tokens even with a worse fill price");
   // supply rebase (ledgers booked with the old 1e9 fallback) keeps $ basis and entry mcap
   const old = { ...applyFill(emptyPosition(), "buy", 100, 10_000 / 1e9, 0, 0), supply: 1e9 }, nb = rebase(old, S7);
-  ok(near(view(nb, px(10_000), S7, 0).entryMcap, view(old, 10_000 / 1e9, 1e9, 0).entryMcap, 1e-6) && nb.costBasis === old.costBasis, "supply 1e9 → 7e9 rebase keeps cost basis and entry mcap");
+  ok(near(view(nb, px(10_000), S7, 0).entryMcap, view(old, 10_000 / 1e9, 1e9, 0).entryMcap, 1e-6) && nb.costBasis === old.costBasis, "supply 1e9 → 1e6 rebase keeps cost basis and entry mcap");
   if (bad) { console.error(bad + " audit scenario(s) FAILED"); process.exit(1); }
   console.log("ok  audit scenarios"); }
 
 // ---- #3 (maker lee, 2026-10): "I own $1.35K of an $8.8K mcap but I'm only up 21%?" — holdings value vs PnL % ----------
 // PnL % = uPnL ÷ cost basis = mark ÷ avg-entry price − 1 (fees in the basis): it measures how far the mcap moved since YOUR
-// entry, not your share of supply. The DISCIPLE curve starts at $7K (not $0), so even the very first buyer is entering at ≥$7K.
+// entry, not your share of supply. The DISCIPLE curve starts at $3,333 (not $0), so even the very first buyer is entering at ≥$3,333.
 { let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
   const S7 = DEFAULT_SUPPLY, px = (m) => m / S7;
   // the reported numbers: value $1.35K at $8.8K ⇒ 15.3% of supply; +21% ⇒ cost $1.116K ⇒ avg entry MC = 8.8K / 1.21 ≈ $7.27K
@@ -132,28 +132,32 @@ if (fail) process.exit(1); else console.log("PASS");
     ok(Math.abs(v.valueUsd - 1350) < 1e-6 && Math.abs(v.pnlPct - 21) < 1e-9 && Math.abs(v.entryMcap - 8800 / 1.21) < 1e-6,
       `report: $1.35K held at $8.8K MC (${(tokens / S7 * 100).toFixed(1)}% of supply), +21% ⇔ avg entry MC ${fmtMoney(v.entryMcap)} — consistent`);
     ok(Math.abs(v.pnlPct - (8800 / v.entryMcap - 1) * 100) < 1e-9, "identity: PnL % = MCAP ÷ AVG ENTRY MC − 1 (the HUD's AVG ENTRY row explains the %)"); }
-  // DISCIPLE bonding curve (x·y = k, spot = x / y; START $7K, GRADUATION $33K at 72% sold; CurveMath.sol / lib/sim)
-  const sC = 0.72 * S7, r = Math.sqrt(33_000 / 7_000), y0 = sC * r / (r - 1), x0 = 7_000 / S7 * y0, k = x0 * y0, FEEc = 0.01;
-  const mcOf = (y) => k / y / y * S7, buyCurve = (y, usd) => { const y2 = k / (k / y + usd * (1 - FEEc)); return { tokens: y - y2, y2 }; };
-  { const m1 = mcOf(y0); ok(Math.abs(m1 - 7000) < 1e-6, "curve mirror: starts at $7K"); }
+  // DISCIPLE steep curve #1 (CurveMath.sol / lib/curveMath): m(g) = M0/(1−a·g)² + T·g^30, g = sold / sCurve;
+  // START $3,333, CURVE_MID $15,000 (CP part at g = 1), GRADUATION $33,333 at 84.24% sold; T = GRADUATION − MID.
+  const M0 = 3_333, sC = 0.8424 * S7, r = Math.sqrt(15_000 / M0), y0 = sC * r / (r - 1), x0 = M0 / S7 * y0, k = x0 * y0, T = 33_333 - 15_000, FEEc = 0.01;
+  const mcOf = (sold) => k / (y0 - sold) / (y0 - sold) * S7 + T * (sold / sC) ** 30;
+  const cost = (s1, s2) => k * (s2 - s1) / ((y0 - s1) * (y0 - s2)) + T / S7 * sC / 31 * ((s2 / sC) ** 31 - (s1 / sC) ** 31);
+  const buyCurve = (sold, usd) => { const net = usd * (1 - FEEc); let lo = 0, hi = sC - sold; if (cost(sold, sold + hi) <= net) return { tokens: hi, s2: sC };
+    for (let i = 0; i < 200; i++) { const mid = (lo + hi) / 2; if (cost(sold, sold + mid) <= net) lo = mid; else hi = mid; } return { tokens: lo, s2: sold + lo }; };
+  { const m1 = mcOf(0), mEnd = mcOf(sC); ok(Math.abs(m1 - M0) < 1e-6 && Math.abs(mEnd - 33_333) < 1e-6, "curve mirror: starts at $3,333, ends at $33,333 (84.24% sold)"); }
   // a launch buy of the reported cost: exact curve fill (paper path) — ledger tokens = curve tokens; uPnL ≥ −fees right after
-  { const usd = 1350 / 1.21, f = buyCurve(y0, usd), fillMcap = usd * (1 - FEEc) / f.tokens * S7, post = mcOf(f.y2);
+  { const usd = 1350 / 1.21, f = buyCurve(0, usd), fillMcap = usd * (1 - FEEc) / f.tokens * S7, post = mcOf(f.s2);
     const p = applyFill(emptyPosition(), "buy", usd, px(fillMcap), GAS, 0), v = view(p, px(post), S7, 0);
-    ok(Math.abs(p.size - f.tokens) / f.tokens < 1e-12, `paper: $${usd.toFixed(0)} launch buy books exactly the curve's ${(f.tokens / 1e9).toFixed(3)}B tokens`);
+    ok(Math.abs(p.size - f.tokens) / f.tokens < 1e-12, `paper: $${usd.toFixed(0)} launch buy books exactly the curve's ${(f.tokens / 1e3).toFixed(3)}K tokens`);
     ok(v.uPnl >= -(usd * FEEc + GAS) - 1e-9, `paper: right after the buy uPnL ${fmtPnl(v.uPnl)} (${fmtPct(v.pnlPct)}) ≥ −fees (marked at the post-trade price $${post.toFixed(0)}, not net of impact)`);
     const v88 = view(p, px(8800), S7, 0);
-    ok(v88.pnlPct > 0 && v88.pnlPct < 21, `even the launch buyer of that size is only ${fmtPct(v88.pnlPct)} at $8.8K (avg entry MC ${fmtMoney(v88.entryMcap)}): +21% needs a lower average entry`);
-    const best = (8800 / 7000 * (1 - FEEc) - 1) * 100;
-    ok(best < 25, `upper bound from a $7K start to $8.8K: ${best.toFixed(1)}% (1% fee) — 21% is in range, a 15% stake doesn't change %`); }
+    ok(v88.pnlPct > 21 && Math.abs(v88.pnlPct - (8800 / v88.entryMcap - 1) * 100) < 1e-9, `the launch buyer of that size is ${fmtPct(v88.pnlPct)} at $8.8K (avg entry MC ${fmtMoney(v88.entryMcap)}): +21% ⇔ a higher average entry (bought later on the curve)`);
+    const best = (8800 / M0 * (1 - FEEc) - 1) * 100;
+    ok(best > 21, `upper bound from a $3,333 start to $8.8K: ${best.toFixed(1)}% (1% fee) — 21% is in range, a 15% stake doesn't change %`); }
   // LIVE booking: was the PRE-trade mark (tokens overstated by ~impact/2); now mark × √(price ratio) = constant-product average
-  { const usd = 1000, f = buyCurve(y0, usd), ratio = mcOf(f.y2) / 7000;
-    window.__discipleTrade = () => {}; S.simF = 1; S.confirmed.mcap = 7000;
-    E.setSource({ supply: S7, realMcap: () => 7000, impact: () => ratio });
+  { const usd = 1000, f = buyCurve(0, usd), ratio = mcOf(f.s2) / M0;
+    window.__discipleTrade = () => {}; S.simF = 1; S.confirmed.mcap = M0;
+    E.setSource({ supply: S7, realMcap: () => M0, impact: () => ratio });
     const est = E.fillMcapEst(usd, "buy"), pre = E.markMcap();
     const live = applyFill(emptyPosition(), "buy", usd, px(est), 0, 0), old = applyFill(emptyPosition(), "buy", usd, px(pre), 0, 0);
     const errNew = live.size / f.tokens - 1, errOld = old.size / f.tokens - 1;
-    ok(Math.abs(errNew) < 0.002, `live: $1K buy at $7K books ${(live.size / 1e9).toFixed(4)}B vs curve ${(f.tokens / 1e9).toFixed(4)}B (${(errNew * 100).toFixed(2)}%)`);
-    ok(errOld > 0.05, `… the old pre-trade booking over-credited ${(errOld * 100).toFixed(1)}% tokens (uPnL ${fmtPct(view(old, px(mcOf(f.y2)), S7, 0).pnlPct)} vs real ${fmtPct(view(live, px(mcOf(f.y2)), S7, 0).pnlPct)})`);
+    ok(Math.abs(errNew) < 0.002, `live: $1K buy at $3,333 books ${(live.size / 1e9).toFixed(4)}B vs curve ${(f.tokens / 1e9).toFixed(4)}B (${(errNew * 100).toFixed(2)}%)`);
+    ok(errOld > 0.05, `… the old pre-trade booking over-credited ${(errOld * 100).toFixed(1)}% tokens (uPnL ${fmtPct(view(old, px(mcOf(f.s2)), S7, 0).pnlPct)} vs real ${fmtPct(view(live, px(mcOf(f.s2)), S7, 0).pnlPct)})`);
     delete window.__discipleTrade; }
   if (bad) { console.error(bad + " #3 scenario(s) FAILED"); process.exit(1); }
   console.log("ok  #3 holdings vs PnL % scenarios"); }

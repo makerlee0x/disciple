@@ -1,0 +1,176 @@
+{
+  "rpc": "https://rpc.testnet.chain.robinhood.com",
+  "checks": {
+    "code at every bundle address (eth_getCode)": {
+      "pass": true,
+      "detail": "16 contracts + USDG"
+    },
+    "owned contracts: owner() != 0": {
+      "pass": true,
+      "detail": "all nonzero"
+    },
+    "LoginGate.attester != 0 (PVE_ATTESTER set at deploy)": {
+      "pass": true,
+      "detail": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1"
+    },
+    "Launchpad.loginGate() == LoginGate": {
+      "pass": true,
+      "detail": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"
+    },
+    "USDG decimals == 6": {
+      "pass": true,
+      "detail": "USDG 0x9dC7A988a8707dC4AB7ac08fC2CB4D5bf906158D decimals 6"
+    },
+    "FeeRouter.referralSink default": {
+      "pass": true,
+      "detail": "0x0000000000000000000000000000000000000000 (expected 0x0000000000000000000000000000000000000000; 0 = referrer/launch-KOL routing)"
+    },
+    "Launchpad.antiSnipe() == 0 (legacy AntiSnipe not deployed)": {
+      "pass": true,
+      "detail": "pack item 8"
+    },
+    "no AntiSnipe in the bundle": {
+      "pass": true,
+      "detail": "16 contracts"
+    },
+    "no stale AntiSnipe ABI in the bundle": {
+      "pass": true,
+      "detail": "AUDIT stale ABIs"
+    },
+    "FeeRouter.kolCreatorShareBps default": {
+      "pass": true,
+      "detail": "200 bps of the creator share (want 200; range 0-500)"
+    },
+    "AnonLauncher.launchAnon has maxFee (v2 ABI)": {
+      "pass": true,
+      "detail": "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee)"
+    },
+    "Launchpad.maxMode default == Hard": {
+      "pass": true,
+      "detail": "2 (want 2; owner-settable, bounds [2,15])"
+    },
+    "DiscipleRouter has swapUsdgToQuote / swapQuoteToUsdg / quoteUsdgQuoteSwap": {
+      "pass": true,
+      "detail": "pack item 2"
+    },
+    "Token ABI has burn / burnFrom": {
+      "pass": true,
+      "detail": "pack item 5"
+    },
+    "FeeRouter.rewardsVault set": {
+      "pass": true,
+      "detail": "0xF1a2784de1DEd172f4B10b242F124f60A6AB38c0"
+    },
+    "AnonLauncher.MAX_LAUNCH_FEE == 5 * 10**usdg.decimals()": {
+      "pass": true,
+      "detail": "5000000 (want 5000000; #115 b6a9117)"
+    },
+    "AnonLauncher.launchFee <= MAX_LAUNCH_FEE": {
+      "pass": true,
+      "detail": "0.25 USDG"
+    },
+    "FeeRouter.isClaimRouter(DiscipleRouter)": {
+      "pass": true,
+      "detail": "0x688160633b22012717661545df6299d3d3174ad2"
+    },
+    "Multicall3 has code at 0xcA11…CA11 (eth_getCode)": {
+      "pass": true,
+      "detail": "0xcA11bde05977b3631167028862bE2a173976CA11: 3808 bytes"
+    },
+    "SEC-01 addLockedLiquidity from EOA rejected": {
+      "pass": true,
+      "detail": "Unauthorized"
+    },
+    "First BOOST (creator launch buy) is sniper-exempt": {
+      "pass": true,
+      "detail": "snipeEscrow after launch 0"
+    },
+    "sniper tax inside 7s = table value at the buy's second (mid-window)": {
+      "pass": true,
+      "detail": "0.1 of 10 at t=3s (want 100 bps = 0.1)"
+    },
+    "no 70/30 SnipeFeeRouted on a v2 curve": {
+      "pass": true,
+      "detail": "0 events"
+    },
+    "RewardsVault gets nothing at buy time": {
+      "pass": true,
+      "detail": "delta 0"
+    },
+    "sniper tax 0 from 7s": {
+      "pass": true,
+      "detail": "t=8s"
+    },
+    "quoteBuy(grad size) graduates": {
+      "pass": true,
+      "detail": "in 9000, refund 2500.148305, mcapAfterUsd 33333"
+    },
+    "graduating buy gas <= 3.0M (6-dec USDG, ≈2.76M expected)": {
+      "pass": true,
+      "detail": "2365644"
+    },
+    "graduated (GraduatedToV4 + graduated())": {
+      "pass": true,
+      "detail": "poolId 0xe7e9802c4d3c9923aa87f888906fdaf81da5193a3c00f07d53de4ff100fa5c31 tokenLiq 157600 quoteLiq 6454.654179"
+    },
+    "tokens sold at graduation = 84.24% of supply": {
+      "pass": true,
+      "detail": "842400 / 1000000"
+    },
+    "graduation mcap = $33,333 (v4 pool spot, ±0.1%)": {
+      "pass": true,
+      "detail": "$33332.999999 (quote-time $33333)"
+    },
+    "FloorSeeded event, 16 bands": {
+      "pass": true,
+      "detail": "event bands 16, floorInfo bands 16, baseTick 310380"
+    },
+    "floor quote ≈ $1,201.27 (±1%)": {
+      "pass": true,
+      "detail": "1201.27337 USDG seeded, dust→bucket 0.000009"
+    },
+    "floorBands: 16, USDG-only (tokenAmount 0, quote > 0)": {
+      "pass": true,
+      "detail": "quote per band 90.095502, 90.095502, 90.095502, 90.095502, 31.95387, 36.158327, 41.083548, 46.609406, 52.856027, 59.94354, 67.992072, 77.121749, 87.4527, 99.22518, 112.559314, 127.935613"
+    },
+    "floorBands sum ≈ quoteSeeded (±0.01%)": {
+      "pass": true,
+      "detail": "1201.273354 vs 1201.27337"
+    },
+    "sniper escrow → compound bucket": {
+      "pass": true,
+      "detail": "escrow 0.1, SnipeEscrowToLP 0.1, bucket quote 21.615189"
+    },
+    "progressBps = 10000": {
+      "pass": true,
+      "detail": ""
+    }
+  },
+  "info": {
+    "ReferralRegistry.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "LockedLP.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "FeeRouter.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "Migration.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "DiscipleRouter.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "TrampWallManager.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "Launchpad.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "QuotePricer.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "QuoteProbe.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "AnonLauncher.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "UsdgDepositNotifier.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "LoginGate.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+    "RewardsVault owner / pendingOwner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5 / 0x0000000000000000000000000000000000000000 (Owned2Step: REWARDS_VAULT_OWNER must acceptOwnership)",
+    "approveLaunchpad gasUsed": "46316",
+    "launch gasUsed": "6780271",
+    "token": "0xc7E64e22c58c16926f99D0c12A31187364B369F5",
+    "curve": "0xBf1d2ed934f37DD58DFb11e9DdDB4faB015Cfb2e",
+    "approveCurve gasUsed": "46316",
+    "snipeBuy gasUsed": "248338",
+    "snipe buy elapsed since launch (s) / table bps": "3 / 100",
+    "pre-grad mcapNow USD": "3357.771215",
+    "graduationBuy gasUsed": "2365644",
+    "graduationGas": "2365644"
+  },
+  "readOnlyChecks": 19,
+  "result": "PASS"
+}

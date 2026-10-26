@@ -20,6 +20,7 @@ import type { Address, PublicClient } from "viem";
 import { bondingCurveAbi, launchpadAbi, marketLensAbi, tokenAbi } from "./abi";
 import { deployment, hasLens, ZERO } from "./chains";
 import { CURVE } from "./config";
+import { CURVE_GRAD_USD, CURVE_START_USD, curveFracAtMcap } from "./curveMath";
 import { mcapUsdFromSqrt, tokenIsCurrency0 } from "./trades";
 
 const WAD = BigInt(10) ** BigInt(18);
@@ -34,14 +35,19 @@ export function mcapUsdFromQuote(mcapQuoteRaw: bigint, launchQuoteUsdWad: bigint
  * Pure: graduation progress 0–100 from the mcap on the same basis (live retest #4). Matches the curve's progressBps()
  * (tokensSold / sCurve) exactly: CurveMath is x·y = x0·y0 with y = y0 − sold and mcap = x·S/y ∝ 1/(y0 − sold)², so
  * sold/y0 = 1 − √(M0/M) and progress = (1 − √(M0/M)) / (1 − √(M0/Mgrad)). M0 / Mgrad = the coin's LaunchTierContext
- * startMcapUsd / graduationMcapUsd (default $7K / $33K). It was mcap-linear ((M − M0)/(Mgrad − M0)): 79% on RPNR
+ * startMcapUsd / graduationMcapUsd. It was mcap-linear ((M − M0)/(Mgrad − M0)): 79% on RPNR
  * where the curve says 91.8%. `null` when the mcap is unknown.
+ *
+ * Redeploy v5 (integration): the steep curve #1 (CurveMath.sol m(g) = M0/(1−a·g)² + T·g^30, $3,333 → $33,333) is NOT a
+ * pure constant product, so for its endpoints (the default) progress = g = curveFracAtMcap(M) (exact inverse of the
+ * same m(g)); any other endpoints (pre-v5 constant-product coins, e.g. $7K / $33K) keep the √ formula above.
  */
 export function graduationPct(mcapUsd: number | null | undefined, startMcapUsd: number = CURVE.startMcap, graduationMcapUsd: number = CURVE.graduationMcap): number | null {
   if (mcapUsd == null || !Number.isFinite(mcapUsd)) return null;
   if (!(startMcapUsd > 0) || !(graduationMcapUsd > startMcapUsd)) return null;
   if (mcapUsd >= graduationMcapUsd) return 100;
   if (mcapUsd <= startMcapUsd) return 0;
+  if (startMcapUsd === CURVE_START_USD && graduationMcapUsd === CURVE_GRAD_USD) return Math.max(0, Math.min(100, curveFracAtMcap(mcapUsd) * 100));
   const p = (1 - Math.sqrt(startMcapUsd / mcapUsd)) / (1 - Math.sqrt(startMcapUsd / graduationMcapUsd));
   return Math.max(0, Math.min(100, p * 100));
 }

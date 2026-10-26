@@ -38,7 +38,7 @@ const A = (
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("first_blessing", "First Blessing", "BOOST your first rocket.", "flight", "COMMON", 1, { points: 50 }, (s) => s.metrics.distinctRockets),
-  A("through_pearly_gates", "Outer Space", "Witness a rocket graduate ($33K).", "flight", "RARE", 1, { points: 250, frame: "Pearly Frame" }, (s) => s.ct.graduationsWitnessed),
+  A("through_pearly_gates", "Outer Space", "Witness a rocket graduate ($33,333).", "flight", "RARE", 1, { points: 250, frame: "Pearly Frame" }, (s) => s.ct.graduationsWitnessed),
   A("seventh_heaven", "Seventh Heaven", "Ride a rocket into Seventh Heaven tier.", "flight", "MYTHIC", 1, { points: 5000, skin: "Empyrean Hull", trail: "Halo Gold" }, (s) => s.rockets.filter((r) => r.tierIndex >= 17).length),
   A("firmament_walker", "Firmament Walker", "Cross into Firmament ($55K+).", "flight", "RARE", 1, { points: 300, trail: "Star Wake" }, (s) => s.rockets.filter((r) => r.tierIndex >= 5).length),
   A("angel_altitude", "Angel Altitude", "Hit the Morning Stars tier ($100K+).", "flight", "EPIC", 1, { points: 750, frame: "Winged Border" }, (s) => s.rockets.filter((r) => r.tierIndex >= 6).length),

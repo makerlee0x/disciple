@@ -3,28 +3,27 @@
   "network": "Robinhood Chain Testnet",
   "rpc": "https://rpc.testnet.chain.robinhood.com",
   "explorer": "https://explorer.testnet.chain.robinhood.com",
-  "deployedAt": "2026-10-17",
+  "deployedAt": "2026-10-24",
   "deployer": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
-  "startBlock": 137540728,
-  "gitBranch": "main",
+  "startBlock": 142064001,
+  "gitBranch": "release/redeploy-v5",
   "contracts": {
-    "ReferralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
-    "LockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
-    "FeeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
-    "DiscipleHook": "0x16b6a7912324b67e562769bf7ed7e048ef6128c4",
-    "Migration": "0x37f20243c2cb78613fcfbd58607ce9905cf423b0",
-    "DiscipleRouter": "0xb53c37baa373c22b85fd3bb27fa71b8091abd316",
-    "TrampWallManager": "0x9c9693c44b5c09d318c95ba351ca4f70965c6cde",
-    "AntiSnipe": "0xe21904fc33220a81e23a5f0cd3fdeba6a644f45e",
-    "Launchpad": "0x4f540bc1585ca36c8a49662dc642f6e28ae534da",
-    "QuotePricer": "0xe173a0f0b8d44a7686fbd32958d65375ff77314f",
-    "QuoteProbe": "0x4d6e5131d197318da7aeb502659486eb00bf4c1f",
-    "CurveDeployer": "0x5f64b3464e340d2afdc4f4b35aa45346b89d1550",
-    "RewardsVault": "0x1f42909f1dea0f6bd0dbd19e05f2e9505d748b9e",
-    "AnonLauncher": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
-    "MarketLens": "0x3afe8b96fba7c47790d6d195f0070edd560165ae",
-    "UsdgDepositNotifier": "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9",
-    "LoginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f"
+    "ReferralRegistry": "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
+    "LockedLP": "0x61efff9f0dbdd818317858074bcf80e4dcc39646",
+    "FeeRouter": "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c",
+    "DiscipleHook": "0x2ac264a620edd05ba78381c51539650c40e2e8c4",
+    "Migration": "0x32790b0a28871984300f3bc75e1b3a8ea7b8bb1a",
+    "DiscipleRouter": "0x688160633b22012717661545df6299d3d3174ad2",
+    "TrampWallManager": "0xe9e98e149b43ff20dc7db665eefc387a8926e618",
+    "Launchpad": "0x8a92e51940909424b3aacefff99b4834588c0988",
+    "QuotePricer": "0xbb757b8270a3fff15db2ff7694508a4ea4488078",
+    "QuoteProbe": "0xf7a91d5d32cccb053dfbd8a56ddacc6fab7a96c9",
+    "CurveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+    "RewardsVault": "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0",
+    "AnonLauncher": "0x73a2a6e049aa21a5c440f3bc358de37fe3f7c509",
+    "MarketLens": "0xd89da17e3aee9a7b1cba359666f0feb5382421fa",
+    "UsdgDepositNotifier": "0xf7b3c09cae8c914530424c5882a24a4160013e9c",
+    "LoginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2"
   },
   "uniswapV4": {
     "PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
@@ -34,9 +33,582 @@
     "Permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
   },
   "hookTrustedRouters": [
-    "0xb53c37baa373c22b85fd3bb27fa71b8091abd316"
+    "0x688160633b22012717661545df6299d3d3174ad2"
   ],
   "tokens": {
+    "USDG": {
+      "address": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",
+      "symbol": "USDG",
+      "decimals": 6,
+      "note": "mintable mock USDG (DevToken), 6 decimals like mainnet"
+    },
+    "STRATEGY": {
+      "address": "0xf5eb226f7f0890c36a06cbd0ff843292b7b1a88c",
+      "symbol": "STRATEGY",
+      "decimals": 18,
+      "note": "test STRATEGY; STRATEGY/USDG pricer pool fee 3000 / tickSpacing 60 / no hooks"
+    }
+  },
+  "strategyUsdgRefPool": {
+    "currency0": "0x9dc7a988a8707dc4ab7ac08fc2cb4d5bf906158d",
+    "currency1": "0xf5eb226f7f0890c36a06cbd0ff843292b7b1a88c",
+    "fee": 3000,
+    "tickSpacing": 60,
+    "hooks": "0x0000000000000000000000000000000000000000",
+    "initPriceUsd": 0.00245,
+    "seededVia": "Deploy.s.sol (~$1M per side)"
+  },
+  "previous": {
+    "id": "v4",
+    "status": "superseded",
+    "supersededBy": "v5",
+    "supersededAt": "2026-10-24",
+    "note": "v4: PRs #60/#61/#64/#65/#75 merged (session-policy referral, Oct-16 audit fixes, LP auto-compound, USDG router, bonding modes PVE/PVP/TRENCH + gas G-1). Broadcast record: deployments/broadcast-v4/.",
+    "startBlock": 137540728,
+    "contracts": {
+      "ReferralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c",
+      "LockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
+      "FeeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
+      "DiscipleHook": "0x16b6a7912324b67e562769bf7ed7e048ef6128c4",
+      "Migration": "0x37f20243c2cb78613fcfbd58607ce9905cf423b0",
+      "DiscipleRouter": "0xb53c37baa373c22b85fd3bb27fa71b8091abd316",
+      "TrampWallManager": "0x9c9693c44b5c09d318c95ba351ca4f70965c6cde",
+      "AntiSnipe": "0xe21904fc33220a81e23a5f0cd3fdeba6a644f45e",
+      "Launchpad": "0x4f540bc1585ca36c8a49662dc642f6e28ae534da",
+      "QuotePricer": "0xe173a0f0b8d44a7686fbd32958d65375ff77314f",
+      "QuoteProbe": "0x4d6e5131d197318da7aeb502659486eb00bf4c1f",
+      "CurveDeployer": "0x5f64b3464e340d2afdc4f4b35aa45346b89d1550",
+      "RewardsVault": "0x1f42909f1dea0f6bd0dbd19e05f2e9505d748b9e",
+      "AnonLauncher": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
+      "MarketLens": "0x3afe8b96fba7c47790d6d195f0070edd560165ae",
+      "UsdgDepositNotifier": "0xaf5d4a15ee996140e83179952f0a0cf46c93f6d9",
+      "LoginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f"
+    },
+    "addons": {
+      "DiscipleSessionPolicy": {
+        "address": "0x3d3667e8880c6b633b424d645b8004788b1d6e27",
+        "deployTx": "0xb8005ca03784329befe06340eedd84f629bb7a2fe875c8b28b7562477d04ef01",
+        "deployedAt": "2026-10-17",
+        "constructor": {
+          "referralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c"
+        },
+        "supersedes": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2 (v3 stack)"
+      },
+      "AnonLauncher": {
+        "address": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
+        "version": "v2",
+        "deployTx": "0xd900b2b2ec9f67a04baffe84324d0cb2fcdb3c29636838eac59d6c0ab6075d5b",
+        "deployBlock": 137727851,
+        "deployedAt": "2026-10-17",
+        "script": "script/anon/DeployAnonLauncherV2.s.sol",
+        "branch": "fix/anon-token-fees",
+        "constructor": {
+          "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+          "launchpad": "0x4f540bc1585ca36c8a49662dc642f6e28ae534da",
+          "feeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
+          "feeToken": "0x25030Bff74764aD72b912276a603717DB1C00644",
+          "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+          "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+          "launchFee": "250000000000000000"
+        },
+        "eip712Domain": {
+          "name": "DISCIPLE AnonLauncher",
+          "version": "1",
+          "chainId": 46630,
+          "verifyingContract": "0x06f31a8877c8e025cc55faffb20cba8486cca527"
+        },
+        "wiring": "none needed: Launchpad.launch and FeeRouter claims are permissionless for the creator; DiscipleSessionPolicy takes anonLauncher per session at onInstall",
+        "note": "claimMany/claimManyBySig/claimManyBySigBatch pay BOTH the quote side and the post-grad launch-token side (FeeRouter.creatorTokenAccrued). Owned2Step ownership.",
+        "smoke": {
+          "approveTx": "0xba83b514436ba841e8401956bdfc65cf1eafb17d0830b5b274d8763879cc2722",
+          "launchAnonTx": "0xfdb1098708193de18db5f703106615aa2d18e0a822ad98f9b1d1cda1f6845f39",
+          "token": "0x9ddfde533526cb7116cc46737a239cf36021b06b",
+          "curve": "0xc8931ac615f3385e3b844428f860f2d9d4bdf16b",
+          "checks": "Launchpad.creatorOf(token)==v2, stealthOwnerOf(token)==deployer, pending(token)=(STRATEGY,0,0)"
+        }
+      },
+      "AnonLauncherLegacy": {
+        "address": "0xe564900809746b1f2baca9d2b8df3224a463f359",
+        "version": "v1",
+        "status": "legacy",
+        "note": "v1 AnonLauncher from the v4 Deploy.s.sol run. LEGACY: still the Launchpad creator of anon coins launched before v2 — keep it for their stealthOwnerOf / pending / quote-side claims. Its post-grad launch-token share (FeeRouter.creatorTokenAccrued[token][v1]) is unclaimable: v1 has no claimCreatorTokenFees path and no way to call Launchpad.transferCreator, so these coins cannot migrate to v2."
+      }
+    },
+    "smoke": {
+      "approveLaunchpadTx": "0x9a529410ac6219bc2c38817d4ba6508fe79c3cad1445165eacd4a6b0556481fa",
+      "launches": {
+        "TRENCH": {
+          "mode": 0,
+          "tx": "0x4642ca21a9ea4b31c9e3c79c951cdaec3231a5fa6f08c5406c10b6a86fe186b2",
+          "token": "0xf3499d126dd959080f6acd7ada17d39d256de996",
+          "curve": "0x738cbab79f99f8fb037606241cfd4d046e916efe"
+        },
+        "PVE": {
+          "mode": 1,
+          "tx": "0x379d965b1015c5c0f020ada18741ad9c005d895e3f0e3413187d7e7016b17efc",
+          "token": "0x5c37d290f4c05de9b5081a5f25ba434eba1c6375",
+          "curve": "0x88e54a8503091cbe759866be343145bdbb0515f8"
+        },
+        "PVP": {
+          "mode": 2,
+          "tx": "0xf867ea62af68be987ee775a3ea1d5b118f33885122bee062a7d448c7e412c2f0",
+          "token": "0x49eef46b243dee5a6345299cbfc7a223d6c0b781",
+          "curve": "0xf08ffbc830cb5e08656fc17d4675e78a2f34fdd2"
+        }
+      },
+      "modeViews": {
+        "PVE": {
+          "netCapNow": "70000000e18 (1%)",
+          "maxBuyNow": "17500000e18 (0.25% window)",
+          "maxSellNow": "35000000e18 (0.5%)"
+        },
+        "PVP": {
+          "netCapNow": "280000000e18 (4%)",
+          "maxBuyNow": "233100000e18 (3.33%)"
+        },
+        "TRENCH": "uncapped"
+      },
+      "trenchBuyTx": "0xfd8fb17ec853dbfba7839bcd9e3e915368f961bac231cedaf467c846b475aa94",
+      "trenchBuy": "100 STRATEGY -> 250537.067996895420375688 tokens; mcapNow $7000.375 == MarketLens",
+      "trenchSellTx": "0xad9cb6befe950ce71d7c7e84291f36526cafa2812aaac9ff1ca990f82dba9611",
+      "trenchSell": "125268.53 tokens -> 49.0057 STRATEGY",
+      "routerBuyWithUsdgTx": "0x470eac1c1379cb651beb4e7b9c4883821ce31aef40ed853df08910d865e09c12",
+      "routerBuyWithUsdg": "1 mUSDG -> TRENCH tokens via STRATEGY/mUSDG hop",
+      "pveBuy": "not executed: LoginGate attester unset; quoteBuyFor(deployer) reverts NotVerified as expected",
+      "pvpBuyTx": "0x955f7ecbfa5c66895e0df44f260e3dede5ace1f5a15d84612574cef3684a39e1"
+    },
+    "previous": {
+      "id": "v3",
+      "status": "superseded",
+      "supersededBy": "v4",
+      "supersededAt": "2026-10-17",
+      "note": "previous stack — superseded by combined redeploy",
+      "startBlock": 136187963,
+      "contracts": {
+        "ReferralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac",
+        "LockedLP": "0x09cdfa29e3a25c91c7807ef779b0e376d5f1fd11",
+        "FeeRouter": "0xf04f7d3b54f86cc5333e7e2302850b023c796e69",
+        "DiscipleHook": "0xbc13b0bb1b18f479872f52dcddc840b8041300c4",
+        "Migration": "0x67830dba366f2ae12cb7285d50cb22a721549285",
+        "DiscipleRouter": "0xcfb16275fcbcf124dde54f3dbc36ddc684111564",
+        "TrampWallManager": "0xccd9c94d7d4877fb487b01960c77917f6df2f3fe",
+        "AntiSnipe": "0x44afe78fc0ef4578d1d1d461b2eb23585615209a",
+        "Launchpad": "0xf5c09182091e527f0445ce065f7fc59d4b55cede",
+        "QuotePricer": "0x37427357b6d0db92137872d6b7d17c9cede72c40",
+        "QuoteProbe": "0xeec226531767a8da505af01f11399ebb3dc9ca36",
+        "CurveDeployer": "0x451cc3b2f94fcc6a0f657d20ec998c46c35a2482",
+        "RewardsVault": "0x3b23a99acc22ced35882b5c96af42836e2595a5a",
+        "AnonLauncher": "0xd38e9db3790e4587f97d0541943cf5a0239f1870",
+        "MarketLens": "0x4683f586ad2f70443f74f40751d202494ec9d0ed"
+      },
+      "addons": {
+        "DiscipleSessionPolicy": {
+          "address": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2",
+          "deployTx": "0xaee4434aed9086afeb31dfcc79183261702d8dee1e39bbad899347cc28155c1c",
+          "deployedAt": "2026-10-16",
+          "moduleId": "disciple.session-policy.1.1.1",
+          "supersedes": "0x476a7ed0775f6c7720c9157e4dade639424218cc (1.1.0: preExecutionHook rejected MAv2 executeUserOp calldata)",
+          "constructor": {
+            "referralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac"
+          },
+          "note": "ERC-6900 session hook (MAv2). Per-session config (router/launchpad/anonLauncher/trampWallManager/quotes/caps) is passed at onInstall; only ReferralRegistry is fixed. Branch feat/session-policy-referral."
+        }
+      },
+      "smoke": {
+        "approveLaunchpadTx": "0x7ba1683be0fa31dd85b74e969a779fe2bba4630c93458ac2194e3f56ab6860eb",
+        "creatorBuyMaxBps": "77",
+        "launchTx": "0xe82b1fd9f62d6a05be76c72b74a56c638cefe32736af49d2f43088846e5b39df",
+        "token": "0xcac8A9654dE3aE01470fC9E93e58fb97d5B86bb3",
+        "curve": "0x21a9435beab05d7D8AeECA69e143603DDFED3717",
+        "creatorBuy": "100 STRATEGY -> 242543.703504269063453317 tokens (cap 53900000) withinCap=true",
+        "approveCurveTx": "0x6bff2a77c5dec160c244d28eea099c9a720451843ec2ecdcf7d229ab096951e5",
+        "snipeFeeBpsBeforeBuy": "5550",
+        "snipeBuyTx": "0x34ef5a4c39701be1dc74e328572398cea740aa7b6b0496f10df46b8491c87601",
+        "snipeSplit": "rewards 3.108 / treasury 1.332 = 70% / 30%",
+        "balanceDeltas": "RewardsVault +3.108 treasury +-8.649096 FeeRouter +0.018348 (treasury=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5, deployer=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5)",
+        "SEC-01 addLockedLiquidity from EOA": "rejected: Unauthorized",
+        "mcapNow pre-grad": "curve $7000.38365624894345 expected(price*supply*quoteUsd) $7000.38365624894345 lens $7000.38365624894345 match=true",
+        "ethSpentSmoke": "0.00004085968",
+        "graduation": {
+          "curve": "0x21a9435beab05d7D8AeECA69e143603DDFED3717",
+          "finalTx": "0x9ead056e296a90ddfdc2cb6a845dbb33eac84fc9a5b73d6a8d86ecde4e587772",
+          "graduated": true,
+          "postGradMcapUsd": "32999.99",
+          "note": "7% wallet cap: buys spread over throwaway recipients (script/redeploy/graduate.mjs)"
+        }
+      },
+      "previous": {
+        "note": "v2 stack (PR #10) — superseded by combined redeploy",
+        "contracts": {
+          "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
+          "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
+          "DiscipleHook": "0x40Cb2f2a91eD48B013D88dA410Bb7F66Baa280C4",
+          "QuotePricer": "0xf2258181F75d3B7D74FDCeD6D116CC1D5e379778",
+          "QuoteProbe": "0xC3C18ebCBE5E66300dA35c6046a0B3c40dB38bbf",
+          "FeeRouter": "0x13F813cFb0B14EFd01EB5026A92420b0A84C346C",
+          "LockedLP": "0xc2D4c8796A8753c61c77bC65AE523DDecd1dF5e3",
+          "Migration": "0xFabc75DF0996083FC05fF7D63e8f11eF20421684",
+          "AntiSnipe": "0x0af141f678677293ca1B8B0a0ba6078888CeCC7A",
+          "ReferralRegistry": "0x1e124C3654B9880FBB6459ecfabE05E69058fcC2",
+          "TrampWallManager": "0x901B5059BEE5aFd94C38069d6B10d5890ED533bd",
+          "CurveDeployer": "0x534F50f7C976E463a2329501012E467D8B75A155"
+        },
+        "addons": {
+          "note": "Add-on contracts only (core stack unchanged). Branch flow/anon-launch.",
+          "deployedAt": "2026-10-15",
+          "AnonLauncher": {
+            "address": "0x722a7927B5496b10C58e50628ab7787f1Eec0696",
+            "deployTx": "0x311ec36f3e6713c1177f061965f2cf2334671782e2cecf9d25560e87b72247f8",
+            "launchFeeUSDG": "0.25",
+            "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+            "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564"
+          },
+          "MarketLens": {
+            "address": "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9",
+            "deployTx": "0x1c00351bcc40b34b78daf2261e85d578c595265832b068e64445c4b861b7ef1c",
+            "trmpCheck": "market(TRMP) = $45,284.87 (curve.mcapNow() on live curve = $33,000)"
+          },
+          "erc4337": {
+            "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+            "accountFactory": "0x0000000000400CdFef5E2714E63d8040b700BC24 (LightAccount v2)",
+            "sponsored": false,
+            "sponsorshipError": "alchemy_requestGasAndPaymasterAndData / pm_getPaymasterStubData: 'Gas sponsorship is not enabled for this app' (-32602)"
+          },
+          "smoke": {
+            "userOps": [
+              {
+                "label": "launch0",
+                "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
+                "userOpHash": "0x63f3d338709934dfa7fe6dbe897a52575c8d889dcf3ce0dcc3098b48c41340b1",
+                "tx": "0xf81d0ff4f7d0f411aa347ff787b227968821e652b04b1960b7e8bdc3db650e9c",
+                "success": true,
+                "paymaster": "0x0000000000000000000000000000000000000000",
+                "actualGasCost": "0x243751c50e70"
+              },
+              {
+                "label": "launch1",
+                "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
+                "userOpHash": "0xd844c4c4368a02c00bfc1a4a06ded4cc697d1839e5a7bf67fbef9aa602166fa2",
+                "tx": "0xe89123d3774c9de9b0c1f3024116211ac87cd73bfe818a9a1376d9c22747961e",
+                "success": true,
+                "paymaster": "0x0000000000000000000000000000000000000000",
+                "actualGasCost": "0x243748e52ce0"
+              },
+              {
+                "label": "claimBatch",
+                "sender": "0x1B948f51eC6e04EA9809819444d6A079cA70F31A",
+                "userOpHash": "0xdeafe9028ba43b548d9373983ea0b99a05be8e315e94b39393f457fb2637d82b",
+                "tx": "0x5e21dbe131d742829bfe53ffd5cb08aed5e6cdf18cd3c33241ce31762a34100e",
+                "success": true,
+                "paymaster": "0x0000000000000000000000000000000000000000",
+                "actualGasCost": "0x47ba34d9860"
+              }
+            ],
+            "ethFund_0xAe025acD32c9642172567426e6BB0fEF6082563f": "0x3b3599bffea863df2697a3721b8a88dd6215c382088eb8892cdeaa6e009a5556",
+            "fundTx": "0x6487ab6c65c66e520a10788f254b2e5ae63b48dce7637640510c54fd81ee1554",
+            "coins": [
+              "0x423B741F4366Ae7B0cAf7D7d6b1035B70701ced5",
+              "0x9a19Acd130E10EE6423b82E58599B203253e2c78"
+            ],
+            "stealths": [
+              "0x5023c3FD84e0022e0bb8C6B2F6F24A506A8D0fE5",
+              "0x0CEb4FccAB44FAE14c0716636864f91f1387A3c9"
+            ],
+            "claimDest": "0x362A34e2BCc9754fBDBc97EBfC863630e0dd0eb2",
+            "claimedUSDG": "33000000000000000",
+            "pending": [
+              "16500000000000000",
+              "16500000000000000"
+            ]
+          }
+        },
+        "smoke": {
+          "graduatedStrategyCoin": {
+            "token": "0xfa86b94d37cba24910bd68426c5c0ace683d6628",
+            "curve": "0x87beb3c5a9a7b45956a9e8905a43133b3b3afbf4",
+            "launchTx": "0xff5f9b3fb11ea53fc860052f80a45963e543083a05afa1496fa5609532347060",
+            "graduationTx": "0x31fb550564078bb0f413322e9e57f20252998ea4ba1fac1af8903e6376f1a9e4",
+            "quoteSpentOnCurve": "4.95M test STRATEGY (~$12.1K)"
+          },
+          "trampsWalls": {
+            "tramp": {
+              "id": 1,
+              "ticks": [
+                59640,
+                59760
+              ],
+              "placeTx": "0x870e875a64c8ca5d6264fb4a08f814e5da0f0379803db76478a88c50776ce0c9",
+              "quoteIn": "50000 STRATEGY",
+              "claimFeesTx": "0x9304bad69902ebf340bb9df8cb06f2029565ad63d56916c667dac0cb7f349319",
+              "pullTx": "0x5dbc786ca0cbc0491958169516b9c3e5ebc0c9455e32a40b3577da8d44631397",
+              "filledOut": {
+                "quote": "36.89 (fees)",
+                "token": "19569441.58"
+              }
+            },
+            "wall": {
+              "id": 2,
+              "ticks": [
+                59460,
+                59580
+              ],
+              "placeTx": "0x5bb3eea197b45cd79afa442900b5d1bfcb1d0198b31bf064b20ad4e21fd1423a",
+              "tokenIn": "20000000",
+              "pullTx": "0x0093c28473713c86273bf237fa3eee67fb1811ae177b93baadf6ac3ec41a3247",
+              "filledOut": {
+                "quote": "52028.16",
+                "token": "22560.73 (fees)"
+              }
+            },
+            "donationCheck": "tramp in range earned pendingFees 29.72 STRATEGY + 1691.7 token after 3 round trips; out-of-range wall earned 0"
+          }
+        },
+        "startBlock": 136100595,
+        "id": "v2",
+        "previous": {
+          "note": "v1 stack (PR #4, superseded by hook change)",
+          "contracts": {
+            "Launchpad": "0x71c36E59be17710a15e7E8a6348467330fB93B24",
+            "DiscipleRouter": "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
+            "DiscipleHook": "0xeB517C9F9171325E43048B25ECf63A42b1A640C4",
+            "QuotePricer": "0x4297b9f559148b19773DaFb6DD173A793EcaB54F",
+            "QuoteProbe": "0xCbc584333C4eC81c00acc81b2Ef09F8394E51015",
+            "FeeRouter": "0x8A80e1c181bdddfeA432aB816ac16E65efDA57EF",
+            "LockedLP": "0xDaa97b1F70a97B9656D899341DC24170325f8455",
+            "Migration": "0xBc33E74c576b90Ef93526bd45155fC429F79647b",
+            "AntiSnipe": "0x0F47b2FB55004ac12ced8e2Caa1fD5829f93321a",
+            "ReferralRegistry": "0xceDA0CB8d7ABB9f3D962746B9148bB6B403F5425"
+          },
+          "smoke": {
+            "defaultQuoteCoin": {
+              "token": "0x7b154cf513f4c3bbc0f880b6bb92ff864e4b5b57",
+              "curve": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+              "launchTx": "0x77a79d26037e2b1f94d97086cf8e87e382de739149d6ccd9a26d852dc7742839",
+              "buyRecipientTx": "0xb866ca4a15a80911a526c5db8c57fcf5e73e482d17b6b9bce17afee740786ae8"
+            },
+            "graduatedUsdgCoin": {
+              "token": "0x59f3a103f665a5dd3427cc26f8a749bcf3eb38e0",
+              "curve": "0xa74555c61b2cf1f27b150530b7960c1918ff4ba5",
+              "launchTx": "0xc6b6ab9070c7f44417a65d92ac79e82693beaf71279b3e8e3e127b3391421c53",
+              "graduationTx": "0x8fa5333f461a5991c5eb872425b503d8fa4bb5c02d07e936e5301e3bce2cca9f",
+              "v4PoolId": "0x8f2d43d30a554d27a4bda1cf315cc797aa0b4da9fd0905e003eacd666e505350",
+              "quoteSpentOnCurve": "12375 mUSDG",
+              "routerBuyTx": "0xd9a9bafab2c6a524ba671c0fd0cf9e22712aaaff0e1ad823b8ae7238c718b54c",
+              "routerSellTx": "0x6c085e9dfae77423c1d050a1d96b5979c5df474f370e4712d2d3ffa431896a7e"
+            }
+          },
+          "id": "v1",
+          "startBlock": 136090000
+        }
+      }
+    },
+    "deployTxFirst": "0x8d9e64dd082066a40fa019db43426bcd1793eaf65a7fc697f802820f9f59de9b",
+    "endBlock": 137541494,
+    "ethSpentDeploy": "0.00033403711",
+    "loginGate": {
+      "address": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
+      "attester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+      "note": "Attester set by owner via LoginGate.setAttester (on-chain attester() verified 2026-10-17). PVE_ATTESTER was unset at deploy time.",
+      "setAttesterTx": "0x751cf1cbcbe88cc1c2471b911bb7fe8ab32f869ca5c0d5f0059fe46e23c2a0c0"
+    },
+    "wiring": {
+      "note": "All wiring is done inside Deploy.s.sol (see broadcast-v4/Deploy.run-latest.json).",
+      "Hook.setTrustedRouter(DiscipleRouter)": "0xad4820cbda9054a93443df6059f25c6d6e19d8508d48458ae71bdf7483259939",
+      "Launchpad.setTrustedRouter(DiscipleRouter)": "0x4c4c434aecd41cfa36b4b0815f74a277b5955e552a012bac284667267bc292a4",
+      "QuotePricer.setPricePool(STRATEGY, STRATEGY/mUSDG 3000/60)": "0x69d54eea03b3be0532539d98f77ff8f22164c0b1d2d54880ce0b33ca55b7f2cd",
+      "DiscipleRouter.setUsdgRouting(USDG, Launchpad)": "0x9c217cfac80dba9b11db3abe0a0e577c27c4d74814ec2016bf0bb2837d1903e1",
+      "DiscipleRouter.setUsdgPool(STRATEGY, STRATEGY/mUSDG)": "0x31edd619fd2cb0d0ccae768db1cefdf151c45e74eaaf68834a484cfd8ed240a5",
+      "Launchpad.setLoginGate(LoginGate)": "0x9ef8923d9bf28c14af928157746941e35c690d3cb6344465e8da833a71c3efcf",
+      "ReferralRegistry.setDepositHook(UsdgDepositNotifier)": "0x1afb58a8ec30ec0d2ed39e0d0604fb6f4e102b3001ee088055a9adef14717779",
+      "Hook.setLiquidityManager(LockedLP)": "0x4aba66937e5759552e3b0f9d74ea8dcb372606d38d43ecf0b776e4c662dbcb7a",
+      "Hook.setLiquidityManager(TrampWallManager)": "0xd0760867d41e141d39ffddbe5f28bb662ce753f6281611cde3b7d3ce054cc1e3",
+      "Hook.setCompounder(LockedLP, 250000)": "0x527d720963c166815fbfd354c49303dbc5d6046f60a47b4ded34908a3f155a64",
+      "Hook.setPricer(QuotePricer)": "0xe4f9d00e0894a28e727a3a99fbb6e4b8482179d908c8dbf4f3486082e8135329",
+      "FeeRouter.setRewardsVault(RewardsVault)": "0xb464d22c3748e02c8ab366c1321c1f2925e55718bde08e1721b4770914cb2486",
+      "readback": {
+        "launchpad.isTrustedRouter(router)": true,
+        "launchpad.curveRouter": "0xb53C37bAA373c22B85fD3BB27Fa71B8091ABD316",
+        "hook.isTrustedRouter(router)": true,
+        "hook.isTrustedRouter(UniversalRouter)": false,
+        "hook.isLiquidityManager(LockedLP,TWM)": [
+          true,
+          true
+        ],
+        "pricer.hasPricePool(STRATEGY)": true,
+        "pricer.quotePriceUsd(STRATEGY)": "2530745316733980",
+        "pricer.quotePriceUsd(USDG)": "1e18",
+        "referrals.depositHook": "0xAF5D4a15ee996140E83179952f0a0CF46c93f6d9 (== UsdgDepositNotifier)",
+        "router.maxImpactBps": 5000
+      }
+    },
+    "testFixtures": {
+      "createdAt": "2026-10-23",
+      "note": "testnet-only replay fixtures (test tokens). Curve buys sent to throwaway recipients. progressBps = tokensSold / 72% supply.",
+      "strategyUsdgRefPool": {
+        "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
+        "method": "PoolModifyLiquidityTest 0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c modifyLiquidity full-range (-887220..887220), liquidityDelta +4.5e24 at current price (tick 57816 unchanged)",
+        "mintUsdgTx": "0x65212117d547660bdf88f1b43d8cce0e2a65fb5631a52c986f0187b52dc4a76b",
+        "addLiquidityTx": "0xa5f0611a7e9c59559460067ed959e17a30cc75c70690e7200fd55dafebf21726",
+        "added": "~249,930 mUSDG + ~81.0M STRATEGY (existing deployer STRATEGY balance)",
+        "before": {
+          "liquidity": "4e22",
+          "tick": 57816,
+          "usdgSideApprox": "2,221",
+          "quote20UsdgToStrategy": "6407.21"
+        },
+        "after": {
+          "liquidity": "4.54e24",
+          "tick": 57816,
+          "usdgSideApprox": "252,100",
+          "quote20UsdgToStrategy": "6464.21"
+        },
+        "quotePricerStrategyUsd": "0.003084434186546977 (unchanged)"
+      },
+      "coins": [
+        {
+          "name": "Replay Fresh",
+          "symbol": "RPFR",
+          "mode": 0,
+          "quote": "STRATEGY",
+          "token": "0x073811470e7F81925Fcf8287f14230C484CBE840",
+          "curve": "0x13f179C34c822C91CA7902862a9ee2e926e5D666",
+          "stage": "fresh (just launched + creator buy)",
+          "progressBps": 6,
+          "graduated": false,
+          "mcapUsdAtSeed": 7004.58,
+          "launchTx": "0xc1de0401a977f8f1df61ffd6fa4d46810e3f19c1420cc301df02aa483a22de8c",
+          "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
+          "curveBuys": []
+        },
+        {
+          "name": "Replay Near",
+          "symbol": "RPNR",
+          "mode": 0,
+          "quote": "STRATEGY",
+          "token": "0xaB2D901023D31c1d7Fe2c85ee0eBd3bB07C00328",
+          "curve": "0x256A738e2EFB95C5003325F552B1226Bc4e869B7",
+          "stage": "near graduation",
+          "progressBps": 9179,
+          "graduated": false,
+          "mcapUsdAtSeed": 27465.22,
+          "launchTx": "0x4f4e10b1f24502be3d23c0148814d5f0aaa9357b4e16ee02c906b6f4d1d91507",
+          "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
+          "curveBuys": [
+            {
+              "strategyIn": "2000000",
+              "tx": "0x1b18882984cfc5a3fe9ed9590f7a83dcc4ac2bff40ad3b5da74922d45b6d3024"
+            },
+            {
+              "strategyIn": "1000000",
+              "tx": "0x4985181fa9aba7a2599305392ba71bd946448b672daa00ed5f40d63a3ce29009"
+            }
+          ]
+        },
+        {
+          "name": "Replay Grad",
+          "symbol": "RPGD",
+          "mode": 0,
+          "quote": "STRATEGY",
+          "token": "0x8456bFf4c15Bc639F5EBE697551BfcFD189dc404",
+          "curve": "0x53753db249300f5DfF4755099f27D35Ef02e7242",
+          "stage": "graduated",
+          "progressBps": 10000,
+          "graduated": true,
+          "mcapUsdAtSeed": 33202.33,
+          "launchTx": "0x737a0da72c5598f8f24c1fc9c2dc861b77f3e9b855888e689398514aed8234fb",
+          "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
+          "curveBuys": [
+            {
+              "strategyIn": "2500000",
+              "tx": "0xfefe355672fb3b2507e85633d4d0b52f5409159feb848ea6e2d6b3a478516ddc"
+            },
+            {
+              "strategyIn": "2500000",
+              "tx": "0x8b4aee0806c9b76da346994bb73db20377c584b6c162e57e591b3558059b4a37"
+            }
+          ],
+          "poolId": "0xd3efe5fa9475f7b434c34e39980370e86e62f654386262441854033b15bb700b",
+          "graduationTx": "0x8b4aee0806c9b76da346994bb73db20377c584b6c162e57e591b3558059b4a37",
+          "lockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
+          "lockedLPPosition": "full-range (-887220..887220), liquidity 7.6626e25 = 100% of pool liquidity",
+          "postGradRouter": {
+            "buyExactInTx": "0x50709835e30993b3ef718f5f5d4ab60972e59cb8fc6e7adf7ab493cb0c4a4c20",
+            "strategyIn": "10000",
+            "tokensOut": "6455761.605820955206185917",
+            "sellExactInTx": "0xb1c5508dc6a85f814899bf1e962dec4bfdc20068228d973f4b41b591e267c6b9",
+            "tokensSold": "3227880.802910477603092958",
+            "strategyOut": "4908.747423257889671771",
+            "buyWithUsdgTx": "0x890e6579eca08b77e0eaf736f71a6539885b28121de55250580eb3ad77436500",
+            "sellToUsdgTx": "0xfbbf9ac56dae5ef7df533319d8876977f29a6b3874b2aaf4c74e77bb80f1e65d"
+          }
+        },
+        {
+          "name": "Replay Easy",
+          "symbol": "RPEZ",
+          "mode": 1,
+          "modeName": "PVE (Easy)",
+          "quote": "STRATEGY",
+          "token": "0xc47F8Edf14F2D907d467c55f86BDE1c8B6DB65B3",
+          "curve": "0xe9ceA6DA3D2533F2094B65922eA80c7Cb5BF18DC",
+          "stage": "fresh (just launched, no creator buy)",
+          "progressBps": 0,
+          "graduated": false,
+          "mcapUsdAtSeed": 7000,
+          "launchTx": "0x97b879f9cb4fa5722773601e10c32596083f2456c5e16a7cc03023b6015de632",
+          "launchGas": 6077851,
+          "creatorBuy": "none",
+          "loginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
+          "loginGateAttester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+          "verified": "curve.mode()=1, curve.loginGate()=LoginGate, Launchpad.modeOf=1, LoginGate.attester() unchanged",
+          "unsignedBuyCheck": "eth_call only: router buyWithUsdg 1 and 0.1 mUSDG from unattested deployer -> NotVerified() (0xa95362b5); quoteBuyFor -> NotVerified(); 20 mUSDG -> BuyTooLarge() first (maxBuyNow 17.5M tokens = 0.25% supply)"
+        }
+      ]
+    },
+    "strategyUsdgRefPool": {
+      "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
+      "currency0": "0x25030Bff74764aD72b912276a603717DB1C00644",
+      "currency1": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
+      "fee": 3000,
+      "tickSpacing": 60,
+      "hooks": "0x0000000000000000000000000000000000000000",
+      "initPriceUsd": 0.00245,
+      "liquidity": "4.54e24 full-range (deepened 2026-10-23, see testFixtures)",
+      "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
+    }
+  },
+  "estimatedGas": "51689161",
+  "id": "v5",
+  "deployCommit": "4310665bf9d7fcd591bb8f96a5ddbb4fe482c1a5",
+  "status": "active",
+  "deployTxFirst": "0x0337049dca463c390693be5f00c649537a1a99b613b4ab8cb96e1d68f6138dc0",
+  "endBlock": 142064543,
+  "ethSpentDeploy": "0.00040622876",
+  "note": "v5 (release/redeploy-v5 @ 4310665b): steep curve #1, 16-band USDG-only floor, FeeRouter referralSink (0), 7s sniper-tax escrow, 6-dec mock USDG, AnonLauncher v2, no legacy AntiSnipe; DisciplePaymaster + DiscipleSessionPolicy 1.4.1 as addons. Fresh broadcast 2026-10-24 16:01-16:05 CDT from deployer nonce 366. Nonces 362-365 (an interrupted earlier broadcast: mock USDG 0xa0c47030D06457099ED908901F691905f956a068, ReferralRegistry, LockedLP, FeeRouter) are ABANDONED orphans and are not part of this stack.",
+  "loginGate": {
+    "address": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2",
+    "attester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+    "note": "PVE_ATTESTER set at deploy (LoginGate constructor); smoke checks attester() != 0."
+  },
+  "wiring": {
+    "note": "All wiring is done inside Deploy.s.sol (broadcast/Deploy.s.sol/46630/run-latest.json, gitignored).",
+    "readback": {
+      "FeeRouter.rewardsVault": "0xf1a2784de1ded172f4b10b242f124f60a6ab38c0",
+      "RewardsVault.feeRouter": "0xa5aaddd75f1bc3b8fb3ecc8845eab0cfa5faed8c",
+      "RewardsVault.owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "RewardsVault.pendingOwner": "0x0000000000000000000000000000000000000000",
+      "FeeRouter.isClaimRouter(DiscipleRouter)": true,
+      "FeeRouter.referralSink": "0x0000000000000000000000000000000000000000",
+      "FeeRouter.treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "hook.isTrustedRouter(router)": true,
+      "hook.isTrustedRouter(UniversalRouter)": false,
+      "hook.pricer": "0xbb757b8270a3fff15db2ff7694508a4ea4488078",
+      "launchpad.defaultQuote": "0xf5eb226f7f0890c36a06cbd0ff843292b7b1a88c",
+      "launchpad.loginGate": "0xaeb8abd314d2392f0f26b664ae78d889c4a079e2",
+      "launchpad.curveDeployer": "0x1055f3d6d79cce590e5ceae71a47476e937f9a21",
+      "launchpad.antiSnipe": "0x0000000000000000000000000000000000000000"
+    }
+  },
+  "previousTokens": {
     "USDG": {
       "address": "0x25030Bff74764aD72b912276a603717DB1C00644",
       "symbol": "mUSDG",
@@ -47,504 +619,66 @@
       "address": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
       "symbol": "STRATEGY",
       "decimals": 18,
-      "note": "test STRATEGY (DevToken, 1e9 supply, mintable \u2014 testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
+      "note": "test STRATEGY (DevToken, 1e9 supply, mintable — testnet only) (reused from v1 deploy; existing STRATEGY/mUSDG ref pool)",
       "defaultQuote": true
     }
   },
-  "strategyUsdgRefPool": {
-    "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
-    "currency0": "0x25030Bff74764aD72b912276a603717DB1C00644",
-    "currency1": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
-    "fee": 3000,
-    "tickSpacing": 60,
-    "hooks": "0x0000000000000000000000000000000000000000",
-    "initPriceUsd": 0.00245,
-    "liquidity": "4.54e24 full-range (deepened 2026-10-23, see testFixtures)",
-    "seededVia": "0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c (PoolModifyLiquidityTest)"
-  },
-  "previous": {
-    "id": "v3",
-    "status": "superseded",
-    "supersededBy": "v4",
-    "supersededAt": "2026-10-17",
-    "note": "previous stack \u2014 superseded by combined redeploy",
-    "startBlock": 136187963,
-    "contracts": {
-      "ReferralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac",
-      "LockedLP": "0x09cdfa29e3a25c91c7807ef779b0e376d5f1fd11",
-      "FeeRouter": "0xf04f7d3b54f86cc5333e7e2302850b023c796e69",
-      "DiscipleHook": "0xbc13b0bb1b18f479872f52dcddc840b8041300c4",
-      "Migration": "0x67830dba366f2ae12cb7285d50cb22a721549285",
-      "DiscipleRouter": "0xcfb16275fcbcf124dde54f3dbc36ddc684111564",
-      "TrampWallManager": "0xccd9c94d7d4877fb487b01960c77917f6df2f3fe",
-      "AntiSnipe": "0x44afe78fc0ef4578d1d1d461b2eb23585615209a",
-      "Launchpad": "0xf5c09182091e527f0445ce065f7fc59d4b55cede",
-      "QuotePricer": "0x37427357b6d0db92137872d6b7d17c9cede72c40",
-      "QuoteProbe": "0xeec226531767a8da505af01f11399ebb3dc9ca36",
-      "CurveDeployer": "0x451cc3b2f94fcc6a0f657d20ec998c46c35a2482",
-      "RewardsVault": "0x3b23a99acc22ced35882b5c96af42836e2595a5a",
-      "AnonLauncher": "0xd38e9db3790e4587f97d0541943cf5a0239f1870",
-      "MarketLens": "0x4683f586ad2f70443f74f40751d202494ec9d0ed"
-    },
-    "addons": {
-      "DiscipleSessionPolicy": {
-        "address": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2",
-        "deployTx": "0xaee4434aed9086afeb31dfcc79183261702d8dee1e39bbad899347cc28155c1c",
-        "deployedAt": "2026-10-16",
-        "moduleId": "disciple.session-policy.1.1.1",
-        "supersedes": "0x476a7ed0775f6c7720c9157e4dade639424218cc (1.1.0: preExecutionHook rejected MAv2 executeUserOp calldata)",
-        "constructor": {
-          "referralRegistry": "0x633be77ee01aafb35297950d88168ca052e1f9ac"
-        },
-        "note": "ERC-6900 session hook (MAv2). Per-session config (router/launchpad/anonLauncher/trampWallManager/quotes/caps) is passed at onInstall; only ReferralRegistry is fixed. Branch feat/session-policy-referral."
-      }
-    },
-    "smoke": {
-      "approveLaunchpadTx": "0x7ba1683be0fa31dd85b74e969a779fe2bba4630c93458ac2194e3f56ab6860eb",
-      "creatorBuyMaxBps": "77",
-      "launchTx": "0xe82b1fd9f62d6a05be76c72b74a56c638cefe32736af49d2f43088846e5b39df",
-      "token": "0xcac8A9654dE3aE01470fC9E93e58fb97d5B86bb3",
-      "curve": "0x21a9435beab05d7D8AeECA69e143603DDFED3717",
-      "creatorBuy": "100 STRATEGY -> 242543.703504269063453317 tokens (cap 53900000) withinCap=true",
-      "approveCurveTx": "0x6bff2a77c5dec160c244d28eea099c9a720451843ec2ecdcf7d229ab096951e5",
-      "snipeFeeBpsBeforeBuy": "5550",
-      "snipeBuyTx": "0x34ef5a4c39701be1dc74e328572398cea740aa7b6b0496f10df46b8491c87601",
-      "snipeSplit": "rewards 3.108 / treasury 1.332 = 70% / 30%",
-      "balanceDeltas": "RewardsVault +3.108 treasury +-8.649096 FeeRouter +0.018348 (treasury=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5, deployer=0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5)",
-      "SEC-01 addLockedLiquidity from EOA": "rejected: Unauthorized",
-      "mcapNow pre-grad": "curve $7000.38365624894345 expected(price*supply*quoteUsd) $7000.38365624894345 lens $7000.38365624894345 match=true",
-      "ethSpentSmoke": "0.00004085968",
-      "graduation": {
-        "curve": "0x21a9435beab05d7D8AeECA69e143603DDFED3717",
-        "finalTx": "0x9ead056e296a90ddfdc2cb6a845dbb33eac84fc9a5b73d6a8d86ecde4e587772",
-        "graduated": true,
-        "postGradMcapUsd": "32999.99",
-        "note": "7% wallet cap: buys spread over throwaway recipients (script/redeploy/graduate.mjs)"
-      }
-    },
-    "previous": {
-      "note": "v2 stack (PR #10) \u2014 superseded by combined redeploy",
-      "contracts": {
-        "Launchpad": "0x5A3C7743D365F770710FE15F4bBf1cEc7bc41006",
-        "DiscipleRouter": "0xF70F50F8C89A62E47b9ffa8F47d368B6215168B9",
-        "DiscipleHook": "0x40Cb2f2a91eD48B013D88dA410Bb7F66Baa280C4",
-        "QuotePricer": "0xf2258181F75d3B7D74FDCeD6D116CC1D5e379778",
-        "QuoteProbe": "0xC3C18ebCBE5E66300dA35c6046a0B3c40dB38bbf",
-        "FeeRouter": "0x13F813cFb0B14EFd01EB5026A92420b0A84C346C",
-        "LockedLP": "0xc2D4c8796A8753c61c77bC65AE523DDecd1dF5e3",
-        "Migration": "0xFabc75DF0996083FC05fF7D63e8f11eF20421684",
-        "AntiSnipe": "0x0af141f678677293ca1B8B0a0ba6078888CeCC7A",
-        "ReferralRegistry": "0x1e124C3654B9880FBB6459ecfabE05E69058fcC2",
-        "TrampWallManager": "0x901B5059BEE5aFd94C38069d6B10d5890ED533bd",
-        "CurveDeployer": "0x534F50f7C976E463a2329501012E467D8B75A155"
-      },
-      "addons": {
-        "note": "Add-on contracts only (core stack unchanged). Branch flow/anon-launch.",
-        "deployedAt": "2026-10-15",
-        "AnonLauncher": {
-          "address": "0x722a7927B5496b10C58e50628ab7787f1Eec0696",
-          "deployTx": "0x311ec36f3e6713c1177f061965f2cf2334671782e2cecf9d25560e87b72247f8",
-          "launchFeeUSDG": "0.25",
-          "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
-          "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564"
-        },
-        "MarketLens": {
-          "address": "0x1d5fA9343d8049C8592f543fDedbEbD9174D59e9",
-          "deployTx": "0x1c00351bcc40b34b78daf2261e85d578c595265832b068e64445c4b861b7ef1c",
-          "trmpCheck": "market(TRMP) = $45,284.87 (curve.mcapNow() on live curve = $33,000)"
-        },
-        "erc4337": {
-          "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
-          "accountFactory": "0x0000000000400CdFef5E2714E63d8040b700BC24 (LightAccount v2)",
-          "sponsored": false,
-          "sponsorshipError": "alchemy_requestGasAndPaymasterAndData / pm_getPaymasterStubData: 'Gas sponsorship is not enabled for this app' (-32602)"
-        },
-        "smoke": {
-          "userOps": [
-            {
-              "label": "launch0",
-              "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
-              "userOpHash": "0x63f3d338709934dfa7fe6dbe897a52575c8d889dcf3ce0dcc3098b48c41340b1",
-              "tx": "0xf81d0ff4f7d0f411aa347ff787b227968821e652b04b1960b7e8bdc3db650e9c",
-              "success": true,
-              "paymaster": "0x0000000000000000000000000000000000000000",
-              "actualGasCost": "0x243751c50e70"
-            },
-            {
-              "label": "launch1",
-              "sender": "0xAe025acD32c9642172567426e6BB0fEF6082563f",
-              "userOpHash": "0xd844c4c4368a02c00bfc1a4a06ded4cc697d1839e5a7bf67fbef9aa602166fa2",
-              "tx": "0xe89123d3774c9de9b0c1f3024116211ac87cd73bfe818a9a1376d9c22747961e",
-              "success": true,
-              "paymaster": "0x0000000000000000000000000000000000000000",
-              "actualGasCost": "0x243748e52ce0"
-            },
-            {
-              "label": "claimBatch",
-              "sender": "0x1B948f51eC6e04EA9809819444d6A079cA70F31A",
-              "userOpHash": "0xdeafe9028ba43b548d9373983ea0b99a05be8e315e94b39393f457fb2637d82b",
-              "tx": "0x5e21dbe131d742829bfe53ffd5cb08aed5e6cdf18cd3c33241ce31762a34100e",
-              "success": true,
-              "paymaster": "0x0000000000000000000000000000000000000000",
-              "actualGasCost": "0x47ba34d9860"
-            }
-          ],
-          "ethFund_0xAe025acD32c9642172567426e6BB0fEF6082563f": "0x3b3599bffea863df2697a3721b8a88dd6215c382088eb8892cdeaa6e009a5556",
-          "fundTx": "0x6487ab6c65c66e520a10788f254b2e5ae63b48dce7637640510c54fd81ee1554",
-          "coins": [
-            "0x423B741F4366Ae7B0cAf7D7d6b1035B70701ced5",
-            "0x9a19Acd130E10EE6423b82E58599B203253e2c78"
-          ],
-          "stealths": [
-            "0x5023c3FD84e0022e0bb8C6B2F6F24A506A8D0fE5",
-            "0x0CEb4FccAB44FAE14c0716636864f91f1387A3c9"
-          ],
-          "claimDest": "0x362A34e2BCc9754fBDBc97EBfC863630e0dd0eb2",
-          "claimedUSDG": "33000000000000000",
-          "pending": [
-            "16500000000000000",
-            "16500000000000000"
-          ]
-        }
-      },
-      "smoke": {
-        "graduatedStrategyCoin": {
-          "token": "0xfa86b94d37cba24910bd68426c5c0ace683d6628",
-          "curve": "0x87beb3c5a9a7b45956a9e8905a43133b3b3afbf4",
-          "launchTx": "0xff5f9b3fb11ea53fc860052f80a45963e543083a05afa1496fa5609532347060",
-          "graduationTx": "0x31fb550564078bb0f413322e9e57f20252998ea4ba1fac1af8903e6376f1a9e4",
-          "quoteSpentOnCurve": "4.95M test STRATEGY (~$12.1K)"
-        },
-        "trampsWalls": {
-          "tramp": {
-            "id": 1,
-            "ticks": [
-              59640,
-              59760
-            ],
-            "placeTx": "0x870e875a64c8ca5d6264fb4a08f814e5da0f0379803db76478a88c50776ce0c9",
-            "quoteIn": "50000 STRATEGY",
-            "claimFeesTx": "0x9304bad69902ebf340bb9df8cb06f2029565ad63d56916c667dac0cb7f349319",
-            "pullTx": "0x5dbc786ca0cbc0491958169516b9c3e5ebc0c9455e32a40b3577da8d44631397",
-            "filledOut": {
-              "quote": "36.89 (fees)",
-              "token": "19569441.58"
-            }
-          },
-          "wall": {
-            "id": 2,
-            "ticks": [
-              59460,
-              59580
-            ],
-            "placeTx": "0x5bb3eea197b45cd79afa442900b5d1bfcb1d0198b31bf064b20ad4e21fd1423a",
-            "tokenIn": "20000000",
-            "pullTx": "0x0093c28473713c86273bf237fa3eee67fb1811ae177b93baadf6ac3ec41a3247",
-            "filledOut": {
-              "quote": "52028.16",
-              "token": "22560.73 (fees)"
-            }
-          },
-          "donationCheck": "tramp in range earned pendingFees 29.72 STRATEGY + 1691.7 token after 3 round trips; out-of-range wall earned 0"
-        }
-      },
-      "startBlock": 136100595,
-      "id": "v2",
-      "previous": {
-        "note": "v1 stack (PR #4, superseded by hook change)",
-        "contracts": {
-          "Launchpad": "0x71c36E59be17710a15e7E8a6348467330fB93B24",
-          "DiscipleRouter": "0xC83EEDbA3455F71d053c847e55d5742E549fcf44",
-          "DiscipleHook": "0xeB517C9F9171325E43048B25ECf63A42b1A640C4",
-          "QuotePricer": "0x4297b9f559148b19773DaFb6DD173A793EcaB54F",
-          "QuoteProbe": "0xCbc584333C4eC81c00acc81b2Ef09F8394E51015",
-          "FeeRouter": "0x8A80e1c181bdddfeA432aB816ac16E65efDA57EF",
-          "LockedLP": "0xDaa97b1F70a97B9656D899341DC24170325f8455",
-          "Migration": "0xBc33E74c576b90Ef93526bd45155fC429F79647b",
-          "AntiSnipe": "0x0F47b2FB55004ac12ced8e2Caa1fD5829f93321a",
-          "ReferralRegistry": "0xceDA0CB8d7ABB9f3D962746B9148bB6B403F5425"
-        },
-        "smoke": {
-          "defaultQuoteCoin": {
-            "token": "0x7b154cf513f4c3bbc0f880b6bb92ff864e4b5b57",
-            "curve": "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3",
-            "launchTx": "0x77a79d26037e2b1f94d97086cf8e87e382de739149d6ccd9a26d852dc7742839",
-            "buyRecipientTx": "0xb866ca4a15a80911a526c5db8c57fcf5e73e482d17b6b9bce17afee740786ae8"
-          },
-          "graduatedUsdgCoin": {
-            "token": "0x59f3a103f665a5dd3427cc26f8a749bcf3eb38e0",
-            "curve": "0xa74555c61b2cf1f27b150530b7960c1918ff4ba5",
-            "launchTx": "0xc6b6ab9070c7f44417a65d92ac79e82693beaf71279b3e8e3e127b3391421c53",
-            "graduationTx": "0x8fa5333f461a5991c5eb872425b503d8fa4bb5c02d07e936e5301e3bce2cca9f",
-            "v4PoolId": "0x8f2d43d30a554d27a4bda1cf315cc797aa0b4da9fd0905e003eacd666e505350",
-            "quoteSpentOnCurve": "12375 mUSDG",
-            "routerBuyTx": "0xd9a9bafab2c6a524ba671c0fd0cf9e22712aaaff0e1ad823b8ae7238c718b54c",
-            "routerSellTx": "0x6c085e9dfae77423c1d050a1d96b5979c5df474f370e4712d2d3ffa431896a7e"
-          }
-        },
-        "id": "v1",
-        "startBlock": 136090000
-      }
-    }
-  },
-  "estimatedGas": "42747460",
-  "id": "v4",
-  "deployCommit": "fdd436b5a2f505b8116156744a3fab3924fe132c",
-  "status": "active",
-  "deployTxFirst": "0x8d9e64dd082066a40fa019db43426bcd1793eaf65a7fc697f802820f9f59de9b",
-  "endBlock": 137541494,
-  "ethSpentDeploy": "0.00033403711",
-  "note": "v4: PRs #60/#61/#64/#65/#75 merged (session-policy referral, Oct-16 audit fixes, LP auto-compound, USDG router, bonding modes PVE/PVP/TRENCH + gas G-1). Broadcast record: deployments/broadcast-v4/.",
-  "loginGate": {
-    "address": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
-    "attester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
-    "note": "Attester set by owner via LoginGate.setAttester (on-chain attester() verified 2026-10-17). PVE_ATTESTER was unset at deploy time.",
-    "setAttesterTx": "0x751cf1cbcbe88cc1c2471b911bb7fe8ab32f869ca5c0d5f0059fe46e23c2a0c0"
-  },
-  "wiring": {
-    "note": "All wiring is done inside Deploy.s.sol (see broadcast-v4/Deploy.run-latest.json).",
-    "Hook.setTrustedRouter(DiscipleRouter)": "0xad4820cbda9054a93443df6059f25c6d6e19d8508d48458ae71bdf7483259939",
-    "Launchpad.setTrustedRouter(DiscipleRouter)": "0x4c4c434aecd41cfa36b4b0815f74a277b5955e552a012bac284667267bc292a4",
-    "QuotePricer.setPricePool(STRATEGY, STRATEGY/mUSDG 3000/60)": "0x69d54eea03b3be0532539d98f77ff8f22164c0b1d2d54880ce0b33ca55b7f2cd",
-    "DiscipleRouter.setUsdgRouting(USDG, Launchpad)": "0x9c217cfac80dba9b11db3abe0a0e577c27c4d74814ec2016bf0bb2837d1903e1",
-    "DiscipleRouter.setUsdgPool(STRATEGY, STRATEGY/mUSDG)": "0x31edd619fd2cb0d0ccae768db1cefdf151c45e74eaaf68834a484cfd8ed240a5",
-    "Launchpad.setLoginGate(LoginGate)": "0x9ef8923d9bf28c14af928157746941e35c690d3cb6344465e8da833a71c3efcf",
-    "ReferralRegistry.setDepositHook(UsdgDepositNotifier)": "0x1afb58a8ec30ec0d2ed39e0d0604fb6f4e102b3001ee088055a9adef14717779",
-    "Hook.setLiquidityManager(LockedLP)": "0x4aba66937e5759552e3b0f9d74ea8dcb372606d38d43ecf0b776e4c662dbcb7a",
-    "Hook.setLiquidityManager(TrampWallManager)": "0xd0760867d41e141d39ffddbe5f28bb662ce753f6281611cde3b7d3ce054cc1e3",
-    "Hook.setCompounder(LockedLP, 250000)": "0x527d720963c166815fbfd354c49303dbc5d6046f60a47b4ded34908a3f155a64",
-    "Hook.setPricer(QuotePricer)": "0xe4f9d00e0894a28e727a3a99fbb6e4b8482179d908c8dbf4f3486082e8135329",
-    "FeeRouter.setRewardsVault(RewardsVault)": "0xb464d22c3748e02c8ab366c1321c1f2925e55718bde08e1721b4770914cb2486",
-    "readback": {
-      "launchpad.isTrustedRouter(router)": true,
-      "launchpad.curveRouter": "0xb53C37bAA373c22B85fD3BB27Fa71B8091ABD316",
-      "hook.isTrustedRouter(router)": true,
-      "hook.isTrustedRouter(UniversalRouter)": false,
-      "hook.isLiquidityManager(LockedLP,TWM)": [
-        true,
-        true
-      ],
-      "pricer.hasPricePool(STRATEGY)": true,
-      "pricer.quotePriceUsd(STRATEGY)": "2530745316733980",
-      "pricer.quotePriceUsd(USDG)": "1e18",
-      "referrals.depositHook": "0xAF5D4a15ee996140E83179952f0a0CF46c93f6d9 (== UsdgDepositNotifier)",
-      "router.maxImpactBps": 5000
-    }
-  },
+  "gasUsed": "40622876",
   "addons": {
     "DiscipleSessionPolicy": {
-      "address": "0x3d3667e8880c6b633b424d645b8004788b1d6e27",
-      "deployTx": "0xb8005ca03784329befe06340eedd84f629bb7a2fe875c8b28b7562477d04ef01",
-      "deployedAt": "2026-10-17",
+      "address": "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac",
+      "version": "1.4.1",
       "constructor": {
-        "referralRegistry": "0x0aa4dfb57deb37ada6de375da06aba5dc2099a9c"
+        "referralRegistry": "0xfe529086b25c4e0724b88780e5ba9b4ace785aaf",
+        "paymaster": "0xB3DB53C1E94F146194756FF456479ea0577E7d7E"
       },
-      "supersedes": "0x0399d58c802cfefe0a559fe9bbc147ad92212be2 (v3 stack)"
+      "deployTx": "0x599d255fd20fe51b64f3eb5d61d7b7589f089cfb0e42fbc78a93b0a28c57edda",
+      "block": 142064768,
+      "moduleId": "disciple.session-policy.1.4.1"
     },
-    "AnonLauncher": {
-      "address": "0x06f31a8877c8e025cc55faffb20cba8486cca527",
-      "version": "v2",
-      "deployTx": "0xd900b2b2ec9f67a04baffe84324d0cb2fcdb3c29636838eac59d6c0ab6075d5b",
-      "deployBlock": 137727851,
-      "deployedAt": "2026-10-17",
-      "script": "script/anon/DeployAnonLauncherV2.s.sol",
-      "branch": "fix/anon-token-fees",
-      "constructor": {
-        "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
-        "launchpad": "0x4f540bc1585ca36c8a49662dc642f6e28ae534da",
-        "feeRouter": "0xe7ab694edcf1c91c34be23baf493d45e83f752d9",
-        "feeToken": "0x25030Bff74764aD72b912276a603717DB1C00644",
-        "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
-        "announcer": "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
-        "launchFee": "250000000000000000"
-      },
-      "eip712Domain": {
-        "name": "DISCIPLE AnonLauncher",
-        "version": "1",
-        "chainId": 46630,
-        "verifyingContract": "0x06f31a8877c8e025cc55faffb20cba8486cca527"
-      },
-      "wiring": "none needed: Launchpad.launch and FeeRouter claims are permissionless for the creator; DiscipleSessionPolicy takes anonLauncher per session at onInstall",
-      "note": "claimMany/claimManyBySig/claimManyBySigBatch pay BOTH the quote side and the post-grad launch-token side (FeeRouter.creatorTokenAccrued). Owned2Step ownership.",
-      "smoke": {
-        "approveTx": "0xba83b514436ba841e8401956bdfc65cf1eafb17d0830b5b274d8763879cc2722",
-        "launchAnonTx": "0xfdb1098708193de18db5f703106615aa2d18e0a822ad98f9b1d1cda1f6845f39",
-        "token": "0x9ddfde533526cb7116cc46737a239cf36021b06b",
-        "curve": "0xc8931ac615f3385e3b844428f860f2d9d4bdf16b",
-        "checks": "Launchpad.creatorOf(token)==v2, stealthOwnerOf(token)==deployer, pending(token)=(STRATEGY,0,0)"
-      }
-    },
-    "AnonLauncherLegacy": {
-      "address": "0xe564900809746b1f2baca9d2b8df3224a463f359",
-      "version": "v1",
-      "status": "legacy",
-      "note": "v1 AnonLauncher from the v4 Deploy.s.sol run. LEGACY: still the Launchpad creator of anon coins launched before v2 \u2014 keep it for their stealthOwnerOf / pending / quote-side claims. Its post-grad launch-token share (FeeRouter.creatorTokenAccrued[token][v1]) is unclaimable: v1 has no claimCreatorTokenFees path and no way to call Launchpad.transferCreator, so these coins cannot migrate to v2."
+    "DisciplePaymaster": {
+      "address": "0xB3DB53C1E94F146194756FF456479ea0577E7d7E",
+      "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "deployTx": "0x6fcaf9074fd8cc3fa5941b0a0c1532ae4295b34a1c6baf0bad3dcfb6f68986f7",
+      "depositTx": "0xae19c689aff9acd6aa110980ef4b9dd28a048611cf2c64c167f7f048838afc3c",
+      "deposit": "100000000000000000 (0.1 ETH)",
+      "stake": "none (self-relay; runbook item 12a)",
+      "owner": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "treasury": "0xd9fdF29fBAB9Be7cA1F6A3A07e0c36D65170AEf5",
+      "signer": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
+      "minRate": "1000000000",
+      "maxRate": "10000000000",
+      "maxCostCap": "2000000 (2 USDG)",
+      "postOpGas": 30000,
+      "blocks": [
+        142064653,
+        142064662
+      ]
     }
   },
-  "smoke": {
-    "approveLaunchpadTx": "0x9a529410ac6219bc2c38817d4ba6508fe79c3cad1445165eacd4a6b0556481fa",
-    "launches": {
-      "TRENCH": {
-        "mode": 0,
-        "tx": "0x4642ca21a9ea4b31c9e3c79c951cdaec3231a5fa6f08c5406c10b6a86fe186b2",
-        "token": "0xf3499d126dd959080f6acd7ada17d39d256de996",
-        "curve": "0x738cbab79f99f8fb037606241cfd4d046e916efe"
-      },
-      "PVE": {
-        "mode": 1,
-        "tx": "0x379d965b1015c5c0f020ada18741ad9c005d895e3f0e3413187d7e7016b17efc",
-        "token": "0x5c37d290f4c05de9b5081a5f25ba434eba1c6375",
-        "curve": "0x88e54a8503091cbe759866be343145bdbb0515f8"
-      },
-      "PVP": {
-        "mode": 2,
-        "tx": "0xf867ea62af68be987ee775a3ea1d5b118f33885122bee062a7d448c7e412c2f0",
-        "token": "0x49eef46b243dee5a6345299cbfc7a223d6c0b781",
-        "curve": "0xf08ffbc830cb5e08656fc17d4675e78a2f34fdd2"
-      }
-    },
-    "modeViews": {
-      "PVE": {
-        "netCapNow": "70000000e18 (1%)",
-        "maxBuyNow": "17500000e18 (0.25% window)",
-        "maxSellNow": "35000000e18 (0.5%)"
-      },
-      "PVP": {
-        "netCapNow": "280000000e18 (4%)",
-        "maxBuyNow": "233100000e18 (3.33%)"
-      },
-      "TRENCH": "uncapped"
-    },
-    "trenchBuyTx": "0xfd8fb17ec853dbfba7839bcd9e3e915368f961bac231cedaf467c846b475aa94",
-    "trenchBuy": "100 STRATEGY -> 250537.067996895420375688 tokens; mcapNow $7000.375 == MarketLens",
-    "trenchSellTx": "0xad9cb6befe950ce71d7c7e84291f36526cafa2812aaac9ff1ca990f82dba9611",
-    "trenchSell": "125268.53 tokens -> 49.0057 STRATEGY",
-    "routerBuyWithUsdgTx": "0x470eac1c1379cb651beb4e7b9c4883821ce31aef40ed853df08910d865e09c12",
-    "routerBuyWithUsdg": "1 mUSDG -> TRENCH tokens via STRATEGY/mUSDG hop",
-    "pveBuy": "not executed: LoginGate attester unset; quoteBuyFor(deployer) reverts NotVerified as expected",
-    "pvpBuyTx": "0x955f7ecbfa5c66895e0df44f260e3dede5ace1f5a15d84612574cef3684a39e1"
+  "deployTxLast": "0x5adfa55419200eef2b9f89566ca64599a4a7fe5ea4c8a15fee1d5ee86103f4ff",
+  "deployerNonces": {
+    "core": "366-416 (51 txs)",
+    "paymaster": "417-418",
+    "sessionPolicy": "419",
+    "smoke": "420-424"
   },
-  "testFixtures": {
-    "createdAt": "2026-10-23",
-    "note": "testnet-only replay fixtures (test tokens). Curve buys sent to throwaway recipients. progressBps = tokensSold / 72% supply.",
-    "strategyUsdgRefPool": {
-      "poolId": "0x4e2574520245d89e8c05d29905cb9bfc2099d9d3d371fca9001ce46860120458",
-      "method": "PoolModifyLiquidityTest 0x3074ca8059b047ee85a1efad1ed6c66ffad9b25c modifyLiquidity full-range (-887220..887220), liquidityDelta +4.5e24 at current price (tick 57816 unchanged)",
-      "mintUsdgTx": "0x65212117d547660bdf88f1b43d8cce0e2a65fb5631a52c986f0187b52dc4a76b",
-      "addLiquidityTx": "0xa5f0611a7e9c59559460067ed959e17a30cc75c70690e7200fd55dafebf21726",
-      "added": "~249,930 mUSDG + ~81.0M STRATEGY (existing deployer STRATEGY balance)",
-      "before": {
-        "liquidity": "4e22",
-        "tick": 57816,
-        "usdgSideApprox": "2,221",
-        "quote20UsdgToStrategy": "6407.21"
-      },
-      "after": {
-        "liquidity": "4.54e24",
-        "tick": 57816,
-        "usdgSideApprox": "252,100",
-        "quote20UsdgToStrategy": "6464.21"
-      },
-      "quotePricerStrategyUsd": "0.003084434186546977 (unchanged)"
+  "smoke": {
+    "date": "2026-10-24 16:05 CDT",
+    "result": "PASS 36/36 (19 read-only + 17 live), GRADUATE=1; READ_ONLY=1 pre-run 19/19",
+    "record": "deployments/rh-testnet-46630.smoke.json",
+    "token": "0xc7E64e22c58c16926f99D0c12A31187364B369F5",
+    "curve": "0xBf1d2ed934f37DD58DFb11e9DdDB4faB015Cfb2e",
+    "txs": {
+      "approveLaunchpad": "0xffc6cbced87d1053dc672d10ce6b61b0703dfd108c4f1107a97d7714e2911749",
+      "launch": "0xbe2d2a01c3109da6608c139feb0a4496c2b22506353d8b6465dae42ada7d3d75",
+      "approveCurve": "0xdc06e5b2f02777527ce6562c6ac34422eb7eab946cff1dfd93107561c67d5681",
+      "snipeBuy": "0x64d2b1287ca6c70f1e462f0f04f4e07ea935370b41912d86de0937f2c5481d31",
+      "graduationBuy": "0x72fbb11a12bf9b0887943edd733089ff1ace18ba959f626385a1f48d33b43629"
     },
-    "coins": [
-      {
-        "name": "Replay Fresh",
-        "symbol": "RPFR",
-        "mode": 0,
-        "quote": "STRATEGY",
-        "token": "0x073811470e7F81925Fcf8287f14230C484CBE840",
-        "curve": "0x13f179C34c822C91CA7902862a9ee2e926e5D666",
-        "stage": "fresh (just launched + creator buy)",
-        "progressBps": 6,
-        "graduated": false,
-        "mcapUsdAtSeed": 7004.58,
-        "launchTx": "0xc1de0401a977f8f1df61ffd6fa4d46810e3f19c1420cc301df02aa483a22de8c",
-        "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
-        "curveBuys": []
-      },
-      {
-        "name": "Replay Near",
-        "symbol": "RPNR",
-        "mode": 0,
-        "quote": "STRATEGY",
-        "token": "0xaB2D901023D31c1d7Fe2c85ee0eBd3bB07C00328",
-        "curve": "0x256A738e2EFB95C5003325F552B1226Bc4e869B7",
-        "stage": "near graduation",
-        "progressBps": 9179,
-        "graduated": false,
-        "mcapUsdAtSeed": 27465.22,
-        "launchTx": "0x4f4e10b1f24502be3d23c0148814d5f0aaa9357b4e16ee02c906b6f4d1d91507",
-        "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
-        "curveBuys": [
-          {
-            "strategyIn": "2000000",
-            "tx": "0x1b18882984cfc5a3fe9ed9590f7a83dcc4ac2bff40ad3b5da74922d45b6d3024"
-          },
-          {
-            "strategyIn": "1000000",
-            "tx": "0x4985181fa9aba7a2599305392ba71bd946448b672daa00ed5f40d63a3ce29009"
-          }
-        ]
-      },
-      {
-        "name": "Replay Grad",
-        "symbol": "RPGD",
-        "mode": 0,
-        "quote": "STRATEGY",
-        "token": "0x8456bFf4c15Bc639F5EBE697551BfcFD189dc404",
-        "curve": "0x53753db249300f5DfF4755099f27D35Ef02e7242",
-        "stage": "graduated",
-        "progressBps": 10000,
-        "graduated": true,
-        "mcapUsdAtSeed": 33202.33,
-        "launchTx": "0x737a0da72c5598f8f24c1fc9c2dc861b77f3e9b855888e689398514aed8234fb",
-        "creatorBuy": "1000 STRATEGY -> 3052592.174209359080086819 tokens",
-        "curveBuys": [
-          {
-            "strategyIn": "2500000",
-            "tx": "0xfefe355672fb3b2507e85633d4d0b52f5409159feb848ea6e2d6b3a478516ddc"
-          },
-          {
-            "strategyIn": "2500000",
-            "tx": "0x8b4aee0806c9b76da346994bb73db20377c584b6c162e57e591b3558059b4a37"
-          }
-        ],
-        "poolId": "0xd3efe5fa9475f7b434c34e39980370e86e62f654386262441854033b15bb700b",
-        "graduationTx": "0x8b4aee0806c9b76da346994bb73db20377c584b6c162e57e591b3558059b4a37",
-        "lockedLP": "0x6edb30bce65f87aeb750822de0de36b1cabd3d9a",
-        "lockedLPPosition": "full-range (-887220..887220), liquidity 7.6626e25 = 100% of pool liquidity",
-        "postGradRouter": {
-          "buyExactInTx": "0x50709835e30993b3ef718f5f5d4ab60972e59cb8fc6e7adf7ab493cb0c4a4c20",
-          "strategyIn": "10000",
-          "tokensOut": "6455761.605820955206185917",
-          "sellExactInTx": "0xb1c5508dc6a85f814899bf1e962dec4bfdc20068228d973f4b41b591e267c6b9",
-          "tokensSold": "3227880.802910477603092958",
-          "strategyOut": "4908.747423257889671771",
-          "buyWithUsdgTx": "0x890e6579eca08b77e0eaf736f71a6539885b28121de55250580eb3ad77436500",
-          "sellToUsdgTx": "0xfbbf9ac56dae5ef7df533319d8876977f29a6b3874b2aaf4c74e77bb80f1e65d"
-        }
-      },
-      {
-        "name": "Replay Easy",
-        "symbol": "RPEZ",
-        "mode": 1,
-        "modeName": "PVE (Easy)",
-        "quote": "STRATEGY",
-        "token": "0xc47F8Edf14F2D907d467c55f86BDE1c8B6DB65B3",
-        "curve": "0xe9ceA6DA3D2533F2094B65922eA80c7Cb5BF18DC",
-        "stage": "fresh (just launched, no creator buy)",
-        "progressBps": 0,
-        "graduated": false,
-        "mcapUsdAtSeed": 7000.0,
-        "launchTx": "0x97b879f9cb4fa5722773601e10c32596083f2456c5e16a7cc03023b6015de632",
-        "launchGas": 6077851,
-        "creatorBuy": "none",
-        "loginGate": "0xe900b7060895f130e866eeddec2b3efd3ff0b69f",
-        "loginGateAttester": "0xd21a6cD7A5B312aaFD14D3b35cd5d4879de78ca1",
-        "verified": "curve.mode()=1, curve.loginGate()=LoginGate, Launchpad.modeOf=1, LoginGate.attester() unchanged",
-        "unsignedBuyCheck": "eth_call only: router buyWithUsdg 1 and 0.1 mUSDG from unattested deployer -> NotVerified() (0xa95362b5); quoteBuyFor -> NotVerified(); 20 mUSDG -> BuyTooLarge() first (maxBuyNow 17.5M tokens = 0.25% supply)"
-      }
-    ]
+    "launchGas": 6780271,
+    "graduationGas": 2365644,
+    "floorUsdg": "1201.27337",
+    "graduationMcapUsd": "33332.999999"
   }
 }
