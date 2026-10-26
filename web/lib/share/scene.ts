@@ -28,7 +28,8 @@ export interface SceneData {
   wallet?: string | null;
   fills: { side: string; mcapUsd: number }[];
 }
-export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null }
+/** coinIcon: the coin's own moderated image (lib/server/share/coinIcon). None ⇒ the ticker block draws as before. */
+export interface SceneAssets { bg: Img | null; rocket: Img | null; wordmark?: Img | null; coinIcon?: Img | null }
 export const FONT = { black: "GeistBlack", mono: "GeistMonoBold", monoMed: "GeistMonoMed" };
 
 const GREEN = "#5FF0A0", RED = "#F0307F", INK = "#E8EAEE";
@@ -183,8 +184,17 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
 
   // ticker block
   const tickY = story ? 960 : 330;
-  ctx.fillStyle = INK; const tpx = fitText(ctx, `$${d.ticker}`, (p) => `${p}px ${FONT.black}`, story ? 760 : 560, story ? 132 : 104);
-  ctx.font = `${tpx}px ${FONT.black}`; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 30; ctx.fillText(`$${d.ticker}`, L - 4, tickY); ctx.shadowBlur = 0;
+  const ic = a.coinIcon, isz = ic ? (story ? 120 : 92) : 0, tx = ic ? L + isz + 24 : L - 4;
+  ctx.fillStyle = INK; const tpx = fitText(ctx, `$${d.ticker}`, (p) => `${p}px ${FONT.black}`, (story ? 760 : 560) - (ic ? isz + 28 : 0), story ? 132 : 104);
+  if (ic) { // the coin's own icon, rounded, left of the ticker (baseline-aligned to the cap height)
+    const iy = tickY - Math.round(tpx * 0.72) - Math.round((isz - tpx * 0.72) / 2);
+    ctx.save(); ctx.beginPath(); const rr = Math.round(isz * 0.22);
+    ctx.moveTo(L + rr, iy); ctx.arcTo(L + isz, iy, L + isz, iy + isz, rr); ctx.arcTo(L + isz, iy + isz, L, iy + isz, rr); ctx.arcTo(L, iy + isz, L, iy, rr); ctx.arcTo(L, iy, L + isz, iy, rr); ctx.closePath();
+    ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 24; ctx.fillStyle = "#111"; ctx.fill(); ctx.shadowBlur = 0; ctx.clip();
+    const k = Math.max(isz / ic.width, isz / ic.height), dw = ic.width * k, dh = ic.height * k;
+    ctx.drawImage(ic, L + (isz - dw) / 2, iy + (isz - dh) / 2, dw, dh); ctx.restore(); ctx.fillStyle = INK;
+  }
+  ctx.font = `${tpx}px ${FONT.black}`; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 30; ctx.fillText(`$${d.ticker}`, tx, tickY); ctx.shadowBlur = 0;
   ctx.font = `26px ${FONT.mono}`; ctx.fillStyle = "rgba(232,234,238,.7)";
   tracked(ctx, d.kind === "realized" ? "CLOSED · REALIZED" : d.kind === "none" ? "NO TRADES YET" : "STILL HOLDING · UNREALIZED", L, tickY + 46, 5);
 
