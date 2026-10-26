@@ -18,7 +18,7 @@ export default function TestCashButton({ account, className, style, showNote = t
     if (!account) return;
     setBusy(true); setMsg(null);
     const r = await getTestCash(account);
-    setMsg(r.ok ? { ok: true, text: COPY.done(r.usd) } : { ok: false, text: r.text });
+    setMsg(r.ok ? { ok: true, text: COPY.done(r.usd, r.strategyUsd) } : { ok: false, text: r.text });
     setBusy(false);
   }
   return (

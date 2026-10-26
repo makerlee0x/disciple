@@ -22,7 +22,7 @@ export const CASH_ARRIVED_EVENT = "disciple:cash";
 export const TEST_CASH_COPY = {
   button: "Get test cash",
   busy: "Adding test cash…",
-  done: (usd: number) => `Added $${usd.toLocaleString("en-US")} in test cash.`,
+  done: (usd: number, strategyUsd = 0) => `Added $${usd.toLocaleString("en-US")} in test cash${strategyUsd > 0 ? ` and $${strategyUsd.toLocaleString("en-US")} in STRATEGY` : ""}.`,
   note: "Test cash is free and only works here while we test. It has no real value.",
   wait: (mins: number) => `You already got test cash. Try again in ${mins} min.`,
   off: "Test cash isn't available right now. Try again later.",
@@ -30,14 +30,14 @@ export const TEST_CASH_COPY = {
   deposit: "Deposit",
 } as const;
 
-export type TestCashResult = { ok: true; usd: number } | { ok: false; text: string };
+export type TestCashResult = { ok: true; usd: number; strategyUsd: number } | { ok: false; text: string };
 
 /** POST /api/test-cash, wait for the mints to land, then announce CASH_ARRIVED_EVENT. Never throws. */
 export async function getTestCash(account: Address): Promise<TestCashResult> {
   if (!TEST_CASH_ENABLED) return { ok: false, text: TEST_CASH_COPY.off };
   try {
     const r = await fetch("/api/test-cash", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account }) });
-    const j = await r.json().catch(() => ({})) as { ok?: boolean; txHashes?: Hex[]; usd?: number; reason?: string; retryAfterSec?: number };
+    const j = await r.json().catch(() => ({})) as { ok?: boolean; txHashes?: Hex[]; usd?: number; strategyUsd?: number; reason?: string; retryAfterSec?: number };
     if (!j.ok || !j.txHashes?.length) {
       console.warn("[disciple] test cash refused:", r.status, j.reason);
       if (r.status === 429) return { ok: false, text: TEST_CASH_COPY.wait(Math.max(1, Math.ceil((j.retryAfterSec ?? TEST_CASH_COOLDOWN_SEC) / 60))) };
@@ -46,7 +46,7 @@ export async function getTestCash(account: Address): Promise<TestCashResult> {
     const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
     await Promise.all(j.txHashes.map((hash) => pc.waitForTransactionReceipt({ hash, timeout: 30_000 }).catch((e) => console.warn("[disciple] test cash receipt wait:", (e as Error).message?.split("\n")[0]))));
     if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(CASH_ARRIVED_EVENT, { detail: { account } }));
-    return { ok: true, usd: j.usd ?? TEST_CASH_USD };
+    return { ok: true, usd: j.usd ?? TEST_CASH_USD, strategyUsd: j.strategyUsd ?? 0 };
   } catch (e) {
     console.warn("[disciple] test cash request failed:", (e as Error).message);
     return { ok: false, text: TEST_CASH_COPY.off };

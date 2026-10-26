@@ -28,11 +28,12 @@ test("Get test cash: never enabled on mainnet config", async () => {
 test("new copy is plain (dollars, no jargon)", async () => {
   const { TEST_CASH_COPY } = await import("../lib/testCash");
   const { FIRST_BOOST_COPY } = await import("../lib/firstBoost");
-  const strings = [TEST_CASH_COPY.button, TEST_CASH_COPY.busy, TEST_CASH_COPY.done(500), TEST_CASH_COPY.note, TEST_CASH_COPY.wait(42), TEST_CASH_COPY.off,
+  const strings = [TEST_CASH_COPY.button, TEST_CASH_COPY.busy, TEST_CASH_COPY.done(500), TEST_CASH_COPY.done(500, 250), TEST_CASH_COPY.note, TEST_CASH_COPY.wait(42), TEST_CASH_COPY.off,
     TEST_CASH_COPY.needsCash, TEST_CASH_COPY.deposit, FIRST_BOOST_COPY.balanceOf("$245.00", "STRATEGY"), FIRST_BOOST_COPY.paidFrom("STRATEGY")];
   for (const s of strings) assert.doesNotMatch(s, JARGON, s);
   assert.equal(TEST_CASH_COPY.needsCash, "Add cash first to turn on one-tap.");
   assert.equal(TEST_CASH_COPY.done(500), "Added $500 in test cash.");
+  assert.equal(TEST_CASH_COPY.done(500, 250), "Added $500 in test cash and $250 in STRATEGY.");
 });
 
 test("Deposit link opens the Cash panel hash", async () => {

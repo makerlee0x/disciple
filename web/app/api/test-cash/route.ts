@@ -50,14 +50,14 @@ export async function POST(req: Request) {
   if (!rl.ok || !gl.ok) { await kv().del(k); return NextResponse.json({ ok: false, reason: "rate limited", retryAfterSec: (rl.ok ? gl : rl).retryAfterSec }, { status: 429 }); }
 
   const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
-  const mints: { token: Address; amount: bigint; usd: number }[] = [];
+  const mints: { token: Address; amount: bigint; usd: number; cash: boolean }[] = [];
   try {
     const usdgDec = await pc.readContract({ address: d.usdg, abi: tokenAbi, functionName: "decimals" }).catch(() => d.usdgDecimals);
-    mints.push({ token: d.usdg, amount: parseUnits(String(TEST_CASH_USD), Number(usdgDec)), usd: TEST_CASH_USD });
+    mints.push({ token: d.usdg, amount: parseUnits(String(TEST_CASH_USD), Number(usdgDec)), usd: TEST_CASH_USD, cash: true });
     // STRATEGY (the pair token creator buys are paid in): only if it prices; raw = usd × 1e18 / (USD WAD per 1e18 raw)
     if (!Z.test(d.defaultQuote) && !Z.test(d.quotePricer)) {
       const px = await pc.readContract({ address: d.quotePricer, abi: pricerAbi, functionName: "quotePriceUsd", args: [d.defaultQuote] }).catch(() => BigInt(0));
-      if (px > BigInt(0)) mints.push({ token: d.defaultQuote, amount: (BigInt(TEST_CASH_STRATEGY_USD) * WAD * WAD) / px, usd: TEST_CASH_STRATEGY_USD });
+      if (px > BigInt(0)) mints.push({ token: d.defaultQuote, amount: (BigInt(TEST_CASH_STRATEGY_USD) * WAD * WAD) / px, usd: TEST_CASH_STRATEGY_USD, cash: false });
     }
   } catch (e) {
     await kv().del(k).catch(() => undefined);
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
   const wc = createWalletClient({ chain: robinhoodTestnet, transport: http(undefined, { retryCount: 0 }), account: privateKeyToAccount(key) });
   const hashes: Hex[] = [];
-  let usd = 0;
+  let usd = 0, strategyUsd = 0;
   for (const m of mints) {
     const send = (nonce?: number) => wc.writeContract({ address: m.token, abi: tokenAbi, functionName: "mint", args: [address as Address, m.amount], ...(nonce === undefined ? {} : { nonce }) });
     try {
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
       const h = relayerIsFaucet()
         ? await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce(send), 0)
         : await withRelayer(() => send());
-      hashes.push(h); usd += m.usd;
+      hashes.push(h); if (m.cash) usd += m.usd; else strategyUsd += m.usd;
     } catch (e) {
       if (hashes.length) break;   // USDG landed, STRATEGY failed: still a success (cash is what matters)
       // a definite rejection (nothing sent) frees the claim for an immediate retry; an unclear one keeps it
@@ -82,5 +82,5 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, reason: (e as Error).message.split("\n")[0].slice(0, 120) }, { status: 500 });
     }
   }
-  return NextResponse.json({ ok: true, txHashes: hashes, usd });
+  return NextResponse.json({ ok: true, txHashes: hashes, usd, strategyUsd });
 }
