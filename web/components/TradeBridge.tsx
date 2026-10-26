@@ -587,7 +587,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const spendable = rawLive ? rawToUsd(spendableRaw(CASH_RAW.v!)) : cashUsd;
   const short = rawLive ? !canSpend(CASH_RAW.v!, shotUsd, gasKindFor("buy", shotUsd, gradRef.current, markRef.current.mcap)) : spendable != null && spendable + 1e-9 < shotUsd;   // BOOST greyed out: the amount is more than the spendable cash
   const shortMsg = short ? `Not enough cash: ${fmtShot(shotUsd)} BOOST, you have ${fmtShot(Math.max(0, spendable ?? 0))}${inFlight.n ? ` (${inFlight.n} pending)` : ""}` : "";
-  const full = inFlight.n >= inFlight.max;   // 3 in flight: BOOST + DUMP greyed until one resolves
+  // 3 in flight: BOOST + DUMP look greyed and READ "3 IN FLIGHT" until one resolves. They stay clickable (aria-disabled only):
+  // a press over the cap reaches the engine, which shows the '3 IN FLIGHT' pulse — a disabled button would swallow it silently.
+  const full = inFlight.n >= inFlight.max;
   const boostTitle = full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`;
   // the ACTIVE amount's price-move warning (custom wins over the preset, like BOOST / DUMP themselves)
   const buyWarn = customUsd ? warns.customBuy : warns.buy[mode] ?? null;
@@ -606,7 +608,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <>
     <AmmoTierNotice />
     <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
-      onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short || full} dumpDisabled={!has || full} boostTitle={boostTitle} dumpTitle={dumpTitle}
+      onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
       buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
       onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
@@ -635,9 +637,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
             else if (e.key === " ") e.preventDefault();   // no custom $ / held: never type a space into the amount
             e.stopPropagation(); }}
           style={{ width: 78, fontSize: 12, padding: "7px 8px", borderRadius: 8, border: `1px solid ${customUsd ? "#9ff3c8" : "rgba(255,255,255,.18)"}`, background: "rgba(0,0,0,.4)", color: "#fff" }} />
-        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short || full} disabled={short || full} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short || full ? 0.4 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
-        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has || full} disabled={!has || full} onClick={() => dumpRef.current?.()}
-          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has && !full ? 1 : 0.4, cursor: has && !full ? "pointer" : "not-allowed" }}>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</button>
+        <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`} aria-disabled={short || full} disabled={short} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")} style={{ ...btn, minWidth: 116, background: "#1f6f4a", color: "#c8ffe4", opacity: short || full ? 0.4 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>{full ? COPY.inFlight : <>▲ {t("tb.boost")} {fmtShot(shotUsd)}{customUsd ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</>}</button>
+        <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET"} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
+          style={{ ...btn, minWidth: 104, background: "#7a2236", color: "#ffd0dc", opacity: has && !full ? 1 : 0.4, cursor: has && !full ? "pointer" : "not-allowed" }}>{full && has ? COPY.inFlight : <>▼ {t("tb.dump")} {dumpLabel}{sellCustomN ? <span style={{ fontSize: 9, opacity: 0.8, fontWeight: 600 }}> {t("tb.custom")}</span> : null}</>}</button>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
           <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? selSellPreset.label : "$ value"} value={sellCustom}
             title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}

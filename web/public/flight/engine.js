@@ -596,7 +596,7 @@ function onEvent(e){
 source.start(onEvent);
 
 // ---------- trading (Space = BOOST: buy the selection, Shift = DUMP: sell the selection; Z/X/C/V only select) ----------
-const COOLDOWN_MS=250, MAX_PENDING=3;
+const MAX_PENDING=3;   // rapid tap: every press is its own trade (no time cooldown — it silently dropped presses < 250 ms apart, v5 replay Oct 26)
 /* Climb angle from horizontal (deg). Buys +, sells −.
    angleDeg = clamp(15 + 22*log10(1+usd), 15, 88)
    → ~$5≈32°, $10≈38°, $100≈59°, $1k≈81°, $10k+→88°. */
@@ -895,9 +895,10 @@ function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
 function submit(side,usd,force,opt,pct){
   S.tradeUsd=usd;
   const now=performance.now();
-  if ((!force&&now<S.cooldownUntil) || S.confirmed.mcap===null) return;
+  // NO SILENT DROP (v5 replay Oct 26): every press either goes out or says why. (Was: a 250 ms cooldown that returned with no
+  // message, so 3 clicks in 62 ms = 1 trade and 5 clicks 150 ms apart = 3.) Over the cap = the '3 IN FLIGHT' pulse.
+  if (S.confirmed.mcap===null){ S.flashes.push({txt:'LOADING PRICE…',life:1.2}); return; }
   if (pendingCount()>=MAX_PENDING){ inFlightPulse(); return; }   // only real in-flight trades count (no linger)
-  S.cooldownUntil=now+COOLDOWN_MS;
   if (!source.submitTrade){ S.flashes.push({txt:'READ-ONLY SOURCE — trading disabled',life:1.5}); return; }
   // optimistic ghost: projected (NOT applied) price after our trade, from local impact estimate
   // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps

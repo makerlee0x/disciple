@@ -78,10 +78,10 @@ for (const live of [true, false]) { const E = engine({ live, cash: 1000 }), tag 
   ok(E.sent.length === 4, `${tag}: …so the next press goes straight out`);
   E.at(1600); E.trade("buy");
   ok(E.sent.length === 4 && E.S.flashes.some((f) => f.inflight && f.life > 0), `${tag}: cap again at 3`); }
-{ const E = engine({ live: true, cash: 1000 }); E.trade("buy"); E.at(100); E.trade("buy"); const n1 = E.sent.length; E.at(260); E.trade("buy");
-  ok(n1 === 1 && E.sent.length === 2, "250 ms cooldown kept (a press 100 ms later is dropped, 260 ms later goes out)"); }
+{ const E = engine({ live: true, cash: 1000 }); E.trade("buy"); E.at(20); E.trade("buy"); const n1 = E.sent.length; E.at(40); E.trade("buy");
+  ok(n1 === 2 && E.sent.length === 3, "no time cooldown: presses 20 ms apart each go out (the 250 ms cooldown silently dropped them — v5 replay)"); }
 ok(!/setTimeout\(\(\)=>\{S\.pending=S\.pending\.filter[^\n]*450\)/.test(eng) && !/,\s*450\s*\)/.test(eng), "engine: the 450 ms failed-ghost linger is gone");
-ok(/disabled=\{short \|\| full\}/.test(tb) && /disabled=\{!has \|\| full\}/.test(tb) && /const full = inFlight\.n >= inFlight\.max/.test(tb) && /addEventListener\("disciple:inflight"/.test(tb), "TradeBridge: BOOST + DUMP disabled while 3 in flight (disciple:inflight)");
+ok(/aria-disabled=\{short \|\| full\} disabled=\{short\}/.test(tb) && /aria-disabled=\{!has \|\| full\} disabled=\{!has\}/.test(tb) && /const full = inFlight\.n >= inFlight\.max/.test(tb) && /addEventListener\("disciple:inflight"/.test(tb), "TradeBridge: BOOST + DUMP greyed + '3 IN FLIGHT' while 3 in flight (disciple:inflight), still clickable so the pulse shows");
 ok(/title=\{full \? COPY\.inFlight/.test(tb), "TradeBridge: greyed BOOST title = '3 IN FLIGHT'");
 
 console.log("— 3. cash reservation incl. gas");
@@ -184,7 +184,7 @@ ok(/void warmGasPrice\(pc\);/.test(tb) && tb.indexOf("void warmGasPrice(pc)") > 
   ok(/gradRef\.current = \{ usd, graduates: b\.graduates, mcapAfterUsd: b\.mcapAfterUsd, venue: b\.venue \}/.test(tb), "gas-kind hint = the warm buy preview (graduates / mcapAfter / venue)"); }
 console.log("— phone trade bar (#139 PhoneTradeBar) keeps the rapid-tap states");
 { const ph = tb.slice(tb.indexOf("if (phone) return ("), tb.indexOf("<PhoneTradeBar") + 1600);
-  ok(/boostDisabled=\{short \|\| full\} dumpDisabled=\{!has \|\| full\}/.test(ph), "phone: BOOST greyed when short or 3 in flight, DUMP when no tokens or 3 in flight");
+  ok(/boostDisabled=\{short\} dumpDisabled=\{!has\} inFlightFull=\{full\}/.test(ph), "phone: BOOST disabled when short, DUMP when no tokens; 3 in flight = greyed + '3 IN FLIGHT' label (still tappable → pulse)");
   ok(/const boostTitle = full \? COPY\.inFlight : short \? shortMsg :/.test(tb) && /boostTitle=\{boostTitle\}/.test(ph), "phone: BOOST title = '3 IN FLIGHT' while full (same as desktop)");
   ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortMsg \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
     "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / the trade line while pending or 'Still confirming your last trade…'");
