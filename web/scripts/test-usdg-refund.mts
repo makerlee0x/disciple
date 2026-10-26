@@ -1,8 +1,16 @@
 // usdIn NET of the router's UsdgRefund (achievements-server commit 1). Pure + a golden receipt (no network):
 //   pnpm test:usdg-refund
-// Golden: SGRAD graduating BOOST tx 0x22f3…1843 (RH testnet 46630). UsdgTrade.amountIn = 25.025002 USDG,
-// UsdgRefund.usdgRefund = 0.024851 USDG ⇒ net paid $25.000151 (6-dec USDG). The paymaster's gas charge in the same tx
-// is NOT a UsdgRefund and must not be netted.
+// Golden: SGRAD graduating BOOST tx 0x22f3…1843 (RH testnet 46630, block 142139099). Re-verified log by log (Oct 26):
+//  - log 55 UsdgRefund is emitted by the DiscipleRouter 0x6881…4ad2 (NOT the paymaster): quoteRefund 10.041 STRATEGY
+//    (the curve's unused quote on the graduating buy, DiscipleRouter.sol:349-354), swapped back to USDG through the
+//    PoolManager (log 52 Swap, sender = router, 24851 out; log 53 STRATEGY router→PoolManager; log 54 USDG
+//    PoolManager→trader 24851) ⇒ usdgRefund 0.024851 USDG.
+//  - log 56 UsdgTrade.amountIn = 25.025002 USDG = only what the router pulled for the trade (usdgIn). No gas in it.
+//  - the AA gas is separate: log 57 USDG trader→treasury 0.092457 and log 58 DisciplePaymaster 0xB3DB…7d7E
+//    UserOperationCharged(gasCostToken 92457, debtRepaid 0). The paymaster emitted NO refund in this tx.
+// ⇒ trade usdIn = 25.025002 − 0.024851 = $25.000151 (gas excluded). Only router-emitted UsdgRefund logs are netted.
+// It is the ONLY UsdgRefund ever emitted by any DiscipleRouter in contracts/deployments (all 5 routers scanned from
+// block 120M to 143.05M on Oct 26), so it is the only real refund fixture on testnet.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -13,6 +21,7 @@ const { usdgFromReceiptLogs, revalueFill } = await import("../lib/server/trades"
 
 const ROUTER = "0x688160633b22012717661545df6299d3d3174ad2";
 const SGRAD = "0x4c0b30188f5ff953ac81499ec421c71074a2cb99";
+const PAYMASTER = "0xb3db53c1e94f146194756ff456479ea0577e7d7e";
 const fx = JSON.parse(readFileSync(new URL("./fixtures/sgrad-grad-receipt.json", import.meta.url), "utf8")) as { tx: string; block: number; logs: { address: string; topics: string[]; data: string; logIndex: number }[] };
 
 const buy = (o: Partial<UsdgTradeArgs> = {}): UsdgTradeArgs => ({ trader: "0xaa", token: "0xcc", isBuy: true, amountIn: BigInt(25_025_002), amountOut: BigInt(1), ...o });
@@ -56,6 +65,15 @@ test("golden SGRAD graduating BOOST: receipt → net usdIn $25.000151", () => {
   const a = usdgAmounts(u, 6);
   assert.equal(a.usdIn!.toFixed(6), "25.000151");
   assert.equal(a.usdInGross, 25.025002);
+  // gas is not trade value: the paymaster's 0.092457 charge never enters usdIn (neither added nor netted)
+  assert.ok(fx.logs.some((l) => l.address.toLowerCase() === PAYMASTER && l.logIndex === 58), "paymaster UserOperationCharged in fixture");
+  // a UsdgRefund-shaped log emitted by the PAYMASTER (forged, = its 92457 gas charge) is ignored: only the router's counts
+  const rr = fx.logs.find((l) => l.logIndex === 55)!;
+  assert.equal(rr.address.toLowerCase(), ROUTER, "the real UsdgRefund is router-emitted");
+  const forged = { ...rr, address: PAYMASTER, logIndex: 60, data: rr.data.slice(0, 66) + (92457).toString(16).padStart(64, "0") };
+  const u2 = usdgFromReceiptLogs([...fx.logs.filter((l) => l.logIndex !== 55), forged], ROUTER, 14, { token: SGRAD, isBuy: true });
+  assert.equal(u2!.usdgRefund, undefined);
+  assert.equal(usdgAmounts(u2, 6).usdIn, 25.025002);
   // a foreign "router" address ⇒ nothing trusted
   assert.equal(usdgFromReceiptLogs(fx.logs, "0x000000000000000000000000000000000000dead", 14, { token: SGRAD, isBuy: true }), undefined);
 });
