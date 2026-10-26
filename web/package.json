@@ -101,7 +101,8 @@
     "test:holder-rows": "tsx scripts/test-holder-rows.mts",
     "test:rapid-tap": "node scripts/test-rapid-tap.mjs",
     "test:public-get-limits": "tsx --test scripts/test-public-get-limits.mts",
-    "test:security-page": "tsx --conditions=react-server --test scripts/test-security-page.mts"
+    "test:security-page": "tsx --conditions=react-server --test scripts/test-security-page.mts",
+    "test:trade-guards": "tsx --test scripts/test-trade-guards.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
