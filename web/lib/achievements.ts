@@ -37,22 +37,23 @@ const A = (
 ): AchievementDef => ({ id, name, description, category, rarity, target, reward, progress });
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
-  A("first_blessing", "First Blessing", "BOOST your first rocket.", "flight", "COMMON", 1, { points: 50 }, (s) => s.metrics.distinctRockets),
+  A("first_blessing", "First Blessing", "BOOST your first rocket ($1+).", "flight", "COMMON", 1, { points: 50 }, (s) => Math.min(s.metrics.buyCount, 1)),
+  A("final_boost", "Final Push", "Make the buy that graduates a rocket ($1+).", "flight", "RARE", 1, { points: 300 }, () => 0),   // real data only (graduating buy); no PlayerStats signal
   A("through_pearly_gates", "Outer Space", "Witness a rocket graduate ($33,333).", "flight", "RARE", 1, { points: 250, frame: "Pearly Frame" }, (s) => s.ct.graduationsWitnessed),
   A("seventh_heaven", "Seventh Heaven", "Ride a rocket into Seventh Heaven tier.", "flight", "MYTHIC", 1, { points: 5000, skin: "Empyrean Hull", trail: "Halo Gold" }, (s) => s.rockets.filter((r) => r.tierIndex >= 17).length),
   A("firmament_walker", "Firmament Walker", "Cross into Firmament ($55K+).", "flight", "RARE", 1, { points: 300, trail: "Star Wake" }, (s) => s.rockets.filter((r) => r.tierIndex >= 5).length),
   A("angel_altitude", "Angel Altitude", "Hit the Morning Stars tier ($100K+).", "flight", "EPIC", 1, { points: 750, frame: "Winged Border" }, (s) => s.rockets.filter((r) => r.tierIndex >= 6).length),
   A("seraphim_sight", "Seraphim Sight", "Reach Seraphim altitude.", "flight", "LEGENDARY", 1, { points: 2000, skin: "Seraph Chrome" }, (s) => s.rockets.filter((r) => r.tierIndex >= 14).length),
-  A("best_x_10", "Tenfold Halo", "Book a 10× multiple on any rocket.", "flight", "EPIC", 10, { points: 1000, trail: "Golden Multipath" }, (s) => Math.floor(s.rings.find((r) => r.key === "bestx")?.value ?? 1)),
-  A("best_x_50", "Fiftyfold Glory", "Book a 50× multiple.", "flight", "LEGENDARY", 50, { points: 4000, skin: "Glory Nosecone" }, (s) => Math.floor(s.rings.find((r) => r.key === "bestx")?.value ?? 1)),
+  A("best_x_10", "Tenfold Halo", "Sell for 10× what you paid (realized).", "flight", "EPIC", 10, { points: 1000, trail: "Golden Multipath" }, (s) => Math.floor(s.metrics.bestRealizedX ?? 0)),
+  A("best_x_50", "Fiftyfold Glory", "Sell for 50× what you paid (realized).", "flight", "LEGENDARY", 50, { points: 4000, skin: "Glory Nosecone" }, (s) => Math.floor(s.metrics.bestRealizedX ?? 0)),
   A("crew_captain_ach", "Crew Captain", "Be the top booster on a graduated rocket.", "crew", "EPIC", 1, { points: 800, frame: "Captain Crest" }, (s) => s.metrics.crewCaptainGrads),
   A("gate_keeper_ach", "Gate Keeper", "Help push 3 rockets into Outer Space.", "crew", "RARE", 3, { points: 600, trail: "Gate Spark" }, (s) => s.metrics.gateKeeperAssists),
   A("choir_of_three", "Choir of Three", "Join 3 different crews.", "crew", "COMMON", 3, { points: 100 }, (s) => s.rings.find((r) => r.key === "crews")?.value ?? 0),
   A("full_congregation", "Full Congregation", "Join 12 crews.", "crew", "EPIC", 12, { points: 900, frame: "Congregation" }, (s) => s.rings.find((r) => r.key === "crews")?.value ?? 0),
   A("first_grenade", "Pin Pulled", "Drop your first grenade (≥2% impact).", "bombs", "COMMON", 1, { points: 40 }, (s) => Math.min(s.metrics.bombCount, 1)),
-  A("cruise_missile_ach", "Cruise Control", "Drop a cruise missile (≥12% impact).", "bombs", "RARE", 1, { points: 200, trail: "Smoke Trail" }, (s) => (s.metrics.bombCount >= 3 ? 1 : 0)),
-  A("nuke_ach", "Survived a Nuke", "Be present for a nuke (≥25% impact).", "bombs", "EPIC", 1, { points: 700, frame: "Fallout Rim" }, (s) => s.metrics.nukeCount),
-  A("atom_bomber", "Atom Bomber", "Detonate an atom bomb (≥50% impact).", "bombs", "LEGENDARY", 1, { points: 2500, skin: "Atom Warhead", trail: "Mushroom Wake" }, (s) => Math.max(0, s.metrics.nukeCount >= 2 ? 1 : 0)),
+  A("cruise_missile_ach", "Cruise Control", "Drop a cruise missile (≥12% impact).", "bombs", "RARE", 1, { points: 200, trail: "Smoke Trail" }, (s) => Math.min(s.metrics.cruiseCount ?? 0, 1)),
+  A("nuke_ach", "Nuke", "Drop a nuke (≥25% impact).", "bombs", "EPIC", 1, { points: 700, frame: "Fallout Rim" }, (s) => Math.min(s.metrics.nukeCount, 1)),
+  A("atom_bomber", "Atom Bomber", "Detonate an atom bomb (≥50% impact).", "bombs", "LEGENDARY", 1, { points: 2500, skin: "Atom Warhead", trail: "Mushroom Wake" }, (s) => Math.min(s.metrics.atomCount ?? 0, 1)),
   A("carpet_bomber", "Carpet Bomber", "Drop 15 bombs.", "bombs", "EPIC", 15, { points: 1000 }, (s) => s.metrics.bombCount),
   A("diamond_halo", "Diamond Halo", "Hold through a −50% drawdown.", "conviction", "EPIC", 1, { points: 900, frame: "Diamond Halo" }, (s) => s.metrics.diamondHandsCount),
   A("believer_badge", "True Believer", "Average hold time ≥ 12 hours.", "conviction", "RARE", 12, { points: 350, trail: "Patience Gold" }, (s) => Math.floor(s.metrics.avgHoldHours)),
@@ -157,6 +158,14 @@ export const ACHIEVEMENT_DISPLAY: Record<string, { icon: string; color: string }
   top_percentile: { icon: "🏅", color: "#E5875A" },
   rhalo_stacker: { icon: "✨", color: "#B3B6E6" },
   pass_level_25: { icon: "📜", color: "#C9A8DC" },
+  final_boost: { icon: "⛽", color: "#B3B6E6" },   // placeholder glyph/colour (BRAND)
+  // Tramps & walls: placeholder glyphs/colours until BRAND supplies them (were falling back to ⭐).
+  first_bounce: { icon: "🤸", color: "#77C591" },
+  trampoline_saint: { icon: "😇", color: "#6EC4A4" },
+  holy_safety_net: { icon: "🥅", color: "#85B0D6" },
+  wall_of_jericho: { icon: "🧱", color: "#DD7A72" },
+  stonemason: { icon: "🪨", color: "#A9AFBC" },
+  gatekeeper_of_range: { icon: "🛡️", color: "#E5875A" },
 };
 
 /** Frame style for a rarity; legacy keys (BLESSED/ANOINTED/…) resolve via LEGACY_RARITY_ALIASES. */

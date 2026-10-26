@@ -64,6 +64,7 @@ def txt(t, y=60, size=10):
 
 G = {
  "first_blessing": ROCKET + HALO,
+ "final_boost": FUEL + GATE,   # placeholder (BRAND)
  "through_pearly_gates": GATE,
  "seventh_heaven": CLOUD + '<text x="32" y="30" text-anchor="middle" class="t" font-size="16">VII</text>',
  "narrow_gate": '<path d="M26 50V24a6 6 0 0112 0v26" class="s"/><path d="M14 50h36" class="s"/>' + HALO,

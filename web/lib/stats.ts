@@ -71,6 +71,8 @@ export interface IdentityMetrics {
   sniperBuyFraction: number; diamondHandsCount: number; paperHandsCount: number;
   exitLiqEvents: number; sizePercentile: number; distinctRockets: number;
   openUpnlLossFrac: number; openHoldHours: number; bombCount: number; nukeCount: number;
+  /** own sells ≥ CRUISE (12%) / ATOM (50%) impact; best realized multiple (usd out ÷ basis of the tokens sold) */
+  cruiseCount?: number; atomCount?: number; bestRealizedX?: number;
   crewCaptainGrads: number; gateKeeperAssists: number; launches: number;
   graduatedLaunches: number; kingmakerCount: number; points: number; realizedPnl: number;
   roi: number; roiPercentile: number; closedTrades: number; jeetCount: number;
@@ -151,6 +153,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
   const activity: ActivityItem[] = [];
   let cum = 0, cumVol = 0, vol = 0, vol30 = 0, real30 = 0;
   let buys = 0, sells = 0, snipes = 0, bombs = 0, nukes = 0, impactSum = 0;
+  let cruises = 0, atoms = 0, bestRealizedX = 0;   // achievements: own sells ≥ CRUISE / ATOM impact; best realized multiple
   let dumps = 0, flips = 0, paper = 0, exitLiq = 0, jeets = 0, roundTrips = 0, rugged = 0;
   let bigW = 0, bigL = 0, fumbled = 0, bestX = 1;
   let holdSum = 0, holdN = 0, hold30 = 0, holdN30 = 0, wins = 0, losses = 0, wins30 = 0, losses30 = 0;
@@ -197,12 +200,15 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
       } else {
         activity.push({ id: `${t.ts}-${t.token}-s`, ts: t.ts, kind: "sell", text: `Puffed ${t.ticker}`, usd: t.usd, ticker: t.ticker });
       }
+      if (imp >= BOMB_TIERS[3].min) cruises++;
       if (imp >= BOMB_TIERS[4].min) nukes++;
+      if (imp >= BOMB_TIERS[5].min) atoms++;
       if (p.size > 0) {
         const tokens = Math.min(p.size, t.usd / t.priceBefore);
         const frac = tokens / p.size;
         const basis = p.cost * frac;
         const pnl = tokens * t.priceBefore - basis;
+        if (basis > 0) bestRealizedX = Math.max(bestRealizedX, (tokens * t.priceBefore) / basis);   // realized only (sold part vs its basis)
         p.realized += pnl; cum += pnl;
         if (t.ts >= d30) real30 += pnl;
         pnlDay.set(dayKey(t.ts), (pnlDay.get(dayKey(t.ts)) ?? 0) + pnl);
@@ -347,7 +353,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     avgHoldHours: avgHold, tradeCount: buys + sells, buyCount: buys, sellCount: sells,
     sniperBuyFraction: buys ? snipes / buys : 0, diamondHandsCount: diamonds, paperHandsCount: paper,
     exitLiqEvents: exitLiq, sizePercentile: o.sizePercentile ?? Math.min(0.995, avgSize / 1000),
-    distinctRockets: pos.size, openUpnlLossFrac: bagLoss, openHoldHours: openHold, bombCount: bombs, nukeCount: nukes,
+    distinctRockets: pos.size, openUpnlLossFrac: bagLoss, openHoldHours: openHold, bombCount: bombs, nukeCount: nukes, cruiseCount: cruises, atomCount: atoms, bestRealizedX,
     crewCaptainGrads, gateKeeperAssists, launches, graduatedLaunches, kingmakerCount, points: o.points,
     realizedPnl: cum, roi, roiPercentile: o.roiPercentile ?? 0.5, closedTrades: closed, jeetCount: jeets,
     heldThroughDrawdownFrac: pos.size ? ddHolds / pos.size : 0,
