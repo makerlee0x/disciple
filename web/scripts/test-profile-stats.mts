@@ -1,9 +1,8 @@
-/** Public profile stats (lib/profileStatsCore) + default rocket art chain (lib/rocketDefault). Run: npm run test:profile-stats */
+/** Public profile stats (lib/profileStatsCore). Run: npm run test:profile-stats */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BOMB_MIN_IMPACT_BPS, impactBpsOf, publicSummaryOf, statsTradeOf } from "../lib/profileStatsCore";
 import { BOMB_PCT } from "../lib/config";
-import { artSlotOf, defaultRocketArtChain, rocketArtTier, DEFAULT_ROCKET_IMAGE, LAUNCH_TIER } from "../lib/rocketDefault";
 import type { Fill } from "../lib/trades";
 
 const C = "0x00000000000000000000000000000000000000c1";
@@ -49,11 +48,9 @@ test("no trades ⇒ zeros, no NaN", () => {
   assert.deepEqual([s.realizedPnlUsd, s.winRate, s.closedTrades, s.bombsDropped], [0, 0, 0, 0]);
 });
 
-test("default art: size rule, tier variant only on md/lg, generic fallback, never for test coins", () => {
-  assert.equal(artSlotOf(30), "sm"); assert.equal(artSlotOf(64), "sm"); assert.equal(artSlotOf(120), "md"); assert.equal(artSlotOf(140), "lg");
-  assert.deepEqual(defaultRocketArtChain({ slot: "sm", tier: 3 }), ["/assets/rocket-default/rocket-default-sm_128.webp"]);
-  assert.deepEqual(defaultRocketArtChain({ slot: "md", tier: 3 }), ["/assets/rocket-default/tier/rocket-default_tier3_256.webp", "/assets/rocket-default/rocket-default_256.webp"]);
-  assert.deepEqual(defaultRocketArtChain({ slot: "lg", tier: 99 }), [DEFAULT_ROCKET_IMAGE]);
-  assert.deepEqual(defaultRocketArtChain({ slot: "md", tier: 0, coin: "0x4C0B30188F5FF953AC81499EC421C71074A2CB99" }), [], "test coin (SGRAD) gets no default art");
-  assert.equal(rocketArtTier({ mcap: 5e6 }), LAUNCH_TIER, "launch tier for now (lee)");
+test("Share this trade links to the coin page with ?ref=<wallet> (not /r/, which opens home)", async () => {
+  const { coinRefLink } = await import("../lib/referral");
+  assert.equal(coinRefLink("0xAbC0000000000000000000000000000000000001", "pilot", "0x00000000000000000000000000000000000000AA", "https://disciple.vip"),
+    "https://disciple.vip/coin/0xabc0000000000000000000000000000000000001?ref=0x00000000000000000000000000000000000000aa");
+  assert.equal(coinRefLink("0xabc0000000000000000000000000000000000001", "pilot", null, "https://disciple.vip"), "https://disciple.vip/r/pilot");
 });

@@ -24,6 +24,7 @@ import Flag from "./Flag";
 import BioText from "./BioText";
 import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
+import { useCoinIcons } from "@/lib/useCoinIcons";
 import type { RocketCardRow } from "./tabs/RocketsTab";
 import ProfileClaims from "@/components/claims/ProfileClaims";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
@@ -140,20 +141,23 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const owner = (isPrivate ? me : publicUsername) || "";
   // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
   const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
+  // each row's own coin image (moderated store); none ⇒ PairArt's current placeholder
+  const rowCoins = useMemo(() => (live && live.length ? live.map((h) => h.coin) : data.rockets.map((r) => r.token)), [live, data.rockets]);
+  const coinIcons = useCoinIcons(sample ? [] : rowCoins);
   const rocketRows: RocketCardRow[] = useMemo(() => {
     if (live && live.length) {
       return live.map((h) => {
         const ch = h.tokens * (h.priceNow - h.price24h);
         const tk = h.symbol || h.coin.slice(2, 6).toUpperCase();
-        return { key: h.coin, href: `/coin/${h.coin}`, ticker: tk, name: h.coin.slice(0, 6) + "…" + h.coin.slice(-4), amount: h.usd, signed: false, sub: C["rockets.live.change"](signedUsd(ch)),
+        return { key: h.coin, href: `/coin/${h.coin}`, ticker: tk, name: h.coin.slice(0, 6) + "…" + h.coin.slice(-4), amount: h.usd, signed: false, sub: C["rockets.live.change"](signedUsd(ch)), icon: coinIcons[h.coin.toLowerCase()],
           share: () => setShare({ coin: h.coin, ticker: tk, wallet, username: owner || null }) };
       });
     }
     return [...data.rockets].sort((a, b) => b.pnl - a.pnl).map((r) => ({
-      key: r.token, href: `/coin/${r.token}`, ticker: r.ticker, name: r.name, tier: r.tierName, amount: r.pnl, signed: true,
+      key: r.token, href: `/coin/${r.token}`, ticker: r.ticker, name: r.name, tier: r.tierName, amount: r.pnl, signed: true, icon: coinIcons[r.token.toLowerCase()],
       share: () => setShare({ coin: r.token, ticker: r.ticker, wallet, username: owner || null }),
     }));
-  }, [live, data.rockets, wallet, owner]);
+  }, [live, data.rockets, wallet, owner, coinIcons]);
   const rocketsSample = sample && !(live && live.length);
 
   // Achievements: only the ones earned from real trades (dev sample: unlocked → in progress → locked), and their loot.

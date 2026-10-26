@@ -9,6 +9,7 @@ import type { Address } from "viem";
 import { pnlForPosition } from "@/lib/server/share/pnl";
 import { demoFills, DEMO_MCAP } from "@/lib/server/share/demo";
 import { renderSharePng } from "@/lib/server/share/render";
+import { coinIconBuffer } from "@/lib/server/share/coinIcon";
 import { pnlFromFills } from "@/lib/sharePnl";
 import { usernameOf } from "@/lib/server/usernames";
 import { refLabel } from "@/lib/referral";
@@ -51,6 +52,7 @@ export async function GET(req: Request) {
     endTs: pnl!.endTs || at, username, refLabel: refLabel(username, isAddr(wallet) ? wallet : null, host), sample, wallet: isAddr(wallet) ? wallet : null,
     fills: pnl!.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })),
   };
-  const png = await renderSharePng(d, { skin: q.get("skin") || undefined, coin: q.get("nose") || undefined, thruster: q.get("thruster") || undefined }, format);
+  const icon = sample || !isAddr(coin) ? null : await coinIconBuffer(coin);
+  const png = await renderSharePng(d, { skin: q.get("skin") || undefined, coin: q.get("nose") || undefined, thruster: q.get("thruster") || undefined }, format, icon);
   return new Response(new Uint8Array(png), { headers: { "content-type": "image/png", "cache-control": "public, max-age=60, s-maxage=60" } });
 }
