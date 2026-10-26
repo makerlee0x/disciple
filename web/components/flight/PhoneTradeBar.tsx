@@ -16,6 +16,9 @@ export type PhoneTradeBarProps = {
   buyLabel: string; sellLabel: string;
   onBoost: () => void; onDump: () => void;
   boostDisabled: boolean; dumpDisabled: boolean; boostTitle: string; dumpTitle: string;
+  /** rapid tap: 3 trades in flight — both buttons look greyed and read "3 IN FLIGHT" but stay tappable, so an extra tap
+   *  reaches the engine's '3 IN FLIGHT' pulse instead of being swallowed by a disabled button */
+  inFlightFull?: boolean;
   buyOpts: string[]; buySel: number; onPickBuy: (i: number) => void; onSetBuy: (v: string) => void;
   sellOpts: string[]; sellSel: number; onPickSell: (i: number) => void; onSetSell: (v: string) => void;
   hint: string;
@@ -44,12 +47,12 @@ export default function PhoneTradeBar(p: PhoneTradeBarProps) {
   const n = +val > 0 ? +val : 0;
   const apply = () => { if (!n) return; p.onSide?.(buy ? "buy" : "sell"); (buy ? p.onSetBuy : p.onSetSell)(String(buy ? n : Math.min(100, n))); setSheet(null); };
   const tb = (side: "buy" | "sell") => {
-    const b = side === "buy", dis = b ? p.boostDisabled : p.dumpDisabled;
+    const b = side === "buy", dis = b ? p.boostDisabled : p.dumpDisabled, full = !!p.inFlightFull && !dis;
     return (
-      <div className={`ph-tb ${b ? "ph-boost" : "ph-dump"}`} data-disabled={dis ? "1" : "0"} onPointerDown={() => p.onSide?.(side)} onFocusCapture={() => p.onSide?.(side)}>
+      <div className={`ph-tb ${b ? "ph-boost" : "ph-dump"}`} data-disabled={dis || full ? "1" : "0"} data-inflight={full ? "1" : "0"} onPointerDown={() => p.onSide?.(side)} onFocusCapture={() => p.onSide?.(side)}>
         <button type="button" className="ph-tb-body" data-testid={b ? "buy-btn" : "sell-btn"} aria-label={b ? `buy ${p.buyLabel}` : `sell ${p.sellLabel}`}
-          title={b ? p.boostTitle : p.dumpTitle} aria-disabled={dis} disabled={dis} {...p.keyGuard} onClick={b ? p.onBoost : p.onDump}>
-          <span className="ph-lbl">{b ? "BOOST" : "DUMP"}</span></button>
+          title={b ? p.boostTitle : p.dumpTitle} aria-disabled={dis || full} disabled={dis} {...p.keyGuard} onClick={b ? p.onBoost : p.onDump}>
+          <span className="ph-lbl">{full ? "3 IN FLIGHT" : b ? "BOOST" : "DUMP"}</span></button>
         <button type="button" className="ph-amt" data-testid={b ? "phone-amt-buy" : "phone-amt-sell"} aria-haspopup="dialog" aria-label={`${b ? "BOOST" : "DUMP"} amount: ${b ? p.buyLabel : p.sellLabel} (change)`}
           {...p.keyGuard} onClick={() => setSheet(side)}>{b ? p.buyLabel : p.sellLabel}<Chevron c={b ? "#04281A" : "#fff"} /></button>
       </div>);

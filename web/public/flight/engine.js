@@ -563,13 +563,16 @@ addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='objec
 function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
 function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
 if (source.isSim&&source.startBalance>0) S.balance=source.startBalance;
+const goodMcap=(m)=>typeof m==='number'&&Number.isFinite(m)&&m>0;
 function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
     if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
     e=ownSellSwap(e); if(!e) return;   // @sellfill: own sell $ from the decoded receipt; already drawn from the receipt ⇒ skip
-    S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
-    if (S.displayAlt===null) S.displayAlt=mcapToAlt(e.mcap);
+    // a swap with no usable mcap (0 / null / NaN, e.g. a hook Trade priced before the quote $ is known at graduation) keeps
+    // the last good mcap: mcapToAlt() floors it to LAUNCH PAD ⇒ the VFIVE replay's "TIER WITNESS — crossed into LAUNCH PAD"
+    if (goodMcap(e.mcap)) S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); hudNoteTrade(e);
+    if (S.displayAlt===null&&goodMcap(e.mcap)) S.displayAlt=mcapToAlt(e.mcap);
     if(e.side==='buy'&&e.usd>0){ const who=e.mine?'you':e.trader?short(e.trader):null; if(who) S.fuelers[who]=(S.fuelers[who]||0)+e.usd; }   // no made-up wallet when the trader is unknown
     if(e.side==='sell'&&e.mine) S.fuelers.you=Math.max(0,S.fuelers.you-e.usd);
     if(e.mine&&e.side==='buy') award('first','FIRST FLAME','first confirmed thrust');
@@ -582,7 +585,7 @@ function onEvent(e){
     S.feed.length=Math.min(S.feed.length,7);
   }
   else if (e.t==='depth'){ S.levels=e.levels; }
-  else if (e.t==='mark'){ S.confirmed.mcap=e.mcap; }
+  else if (e.t==='mark'){ if(goodMcap(e.mcap)) S.confirmed.mcap=e.mcap; }
   else if (e.t==='replayRestart'){ S.feed.unshift({txt:'⟲ replay restarted',c:'#ffe7a3'}); /* keep altitude + camera: the springs glide to the restart price (no snap / loading flash) */ }
   else if (e.t==='levelFilled'){ const l=e.level; const y=altToScreenY(mcapToAlt(l.mcap));
     for(let i=0;i<40;i++) spawnShard(laneX(l)+(Math.random()-.5)*laneW(l), y, (Math.random()-.5)*300, (Math.random()-.8)*260, l.side==='ask'?'#dfe8ff':'#ffd98a');
@@ -596,7 +599,7 @@ function onEvent(e){
 source.start(onEvent);
 
 // ---------- trading (Space = BOOST: buy the selection, Shift = DUMP: sell the selection; Z/X/C/V only select) ----------
-const COOLDOWN_MS=250, MAX_PENDING=3;
+const MAX_PENDING=3;   // rapid tap: every press is its own trade (no time cooldown — it silently dropped presses < 250 ms apart, v5 replay Oct 26)
 /* Climb angle from horizontal (deg). Buys +, sells −.
    angleDeg = clamp(15 + 22*log10(1+usd), 15, 88)
    → ~$5≈32°, $10≈38°, $100≈59°, $1k≈81°, $10k+→88°. */
@@ -895,9 +898,10 @@ function fillThrust(side,usd,pct,r){ if(!r||!r.ok) return;
 function submit(side,usd,force,opt,pct){
   S.tradeUsd=usd;
   const now=performance.now();
-  if ((!force&&now<S.cooldownUntil) || S.confirmed.mcap===null) return;
+  // NO SILENT DROP (v5 replay Oct 26): every press either goes out or says why. (Was: a 250 ms cooldown that returned with no
+  // message, so 3 clicks in 62 ms = 1 trade and 5 clicks 150 ms apart = 3.) Over the cap = the '3 IN FLIGHT' pulse.
+  if (S.confirmed.mcap===null){ S.flashes.push({txt:'LOADING PRICE…',life:1.2}); return; }
   if (pendingCount()>=MAX_PENDING){ inFlightPulse(); return; }   // only real in-flight trades count (no linger)
-  S.cooldownUntil=now+COOLDOWN_MS;
   if (!source.submitTrade){ S.flashes.push({txt:'READ-ONLY SOURCE — trading disabled',life:1.5}); return; }
   // optimistic ghost: projected (NOT applied) price after our trade, from local impact estimate
   // STACKED (up to MAX_PENDING in flight): each ghost is projected from the previous PENDING ghost, so 3 quick taps = 3 steps
@@ -2291,7 +2295,7 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown) S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; if(ti>S.tierShown){ S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } /* only a CLIMB is a crossing */ } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)

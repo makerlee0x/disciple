@@ -41,6 +41,7 @@
     "test:exit-confirm": "node scripts/test-exit-confirm.mjs",
     "test:trade-speed": "node scripts/test-trade-speed.mjs",
     "test:boost-anim": "node scripts/test-boost-anim.mjs",
+    "test:rapid-click": "node scripts/test-rapid-click.mjs",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",

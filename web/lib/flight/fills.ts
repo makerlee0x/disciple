@@ -17,6 +17,8 @@ export interface DecodedFill {
   tokens: number;
   /** trade fee in $ (0 when unknown) */
   feeUsd: number;
+  /** graduating buy: the overshoot the router sent back (UsdgRefund.usdgRefund) in $; absent when none */
+  refundUsd?: number;
   source: "usdg" | "curve" | "hook";
 }
 
@@ -102,17 +104,17 @@ export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): Decode
     if (topicAddr(l.topics[2]) !== token || !mine(topicAddr(l.topics[1]))) continue;
     const w = words(l.data); if (w.length < 3) continue;
     const isBuy = w[0] !== BigInt(0);
-    let usdRaw = isBuy ? w[1] : w[2];
+    let usdRaw = isBuy ? w[1] : w[2], refundRaw = BigInt(0);
     const tokRaw = isBuy ? w[2] : w[1];
     if (isBuy) for (const r of logs) {
       if (lc(r.topics[0]) !== TOPIC.usdgRefund || !fromRouter(r) || topicAddr(r.topics[2]) !== token || !mine(topicAddr(r.topics[1]))) continue;
-      const rw = words(r.data); if (rw.length >= 2) usdRaw = usdRaw > rw[1] ? usdRaw - rw[1] : BigInt(0);
+      const rw = words(r.data); if (rw.length >= 2) { refundRaw += rw[1]; usdRaw = usdRaw > rw[1] ? usdRaw - rw[1] : BigInt(0); }
     }
     const usd = units(usdRaw, dec), tokens = units(tokRaw);
     // fee: venue fee scaled by this trade's own $/quote ratio (exact for USDG-quoted coins: quote = USDG)
     let feeUsd = 0;
     if (venue && venue.isBuy === isBuy && venue.quoteAmt > BigInt(0)) feeUsd = usd * (Number(venue.fee) / Number(venue.quoteAmt));
-    return { side: isBuy ? "buy" : "sell", usd, tokens, feeUsd, source: "usdg" };
+    return { side: isBuy ? "buy" : "sell", usd, tokens, feeUsd, source: "usdg", ...(refundRaw > BigInt(0) ? { refundUsd: units(refundRaw, dec) } : {}) };
   }
   if (!venue || venue.tokenAmt <= BigInt(0)) return null;
   // native-quote path: $ = quote raw × $/quote raw (curve: from mcapAfterUsd; hook: from the caller's mark)

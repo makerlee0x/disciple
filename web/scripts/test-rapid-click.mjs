@@ -1,0 +1,112 @@
+// game/rapid-tap-fix — the REAL click path, end to end (v5 replay Oct 26: 3 clicks in 62 ms = 1 fill, 5 clicks 150 ms apart = 3).
+//   BOOST <button onClick> (TradeBridge desktop + PhoneTradeBar) → TradeBridge shoot() → window 'disciple:shoot'
+//   → engine's disciple:shoot listener → trade() → submit() → source.submitTrade, with 'disciple:inflight' fed back into the
+//   button state exactly as TradeBridge does. Everything here is SLICED FROM THE SHIPPED SOURCE (no COOLDOWN_MS stub, no
+//   direct trade() calls): shoot, the listener, trade/submit, and the button's disabled / label expressions.
+//   Rule under test: NO PRESS IS SILENTLY DROPPED — each click either sends a trade or visibly says why
+//   ('3 IN FLIGHT' pulse on the canvas + the button label reads "3 IN FLIGHT"), for the custom amount AND a preset.
+import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
+import ts from "typescript";
+const web = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) bad++; };
+const rd = (f) => fs.readFileSync(path.join(web, f), "utf8");
+const eng = rd("public/flight/engine.js"), tb = rd("components/TradeBridge.tsx"), ph = rd("components/flight/PhoneTradeBar.tsx");
+const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b, i); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
+const trBlock = block("/* @trade (sliced", "// Pre-flight failures");
+const lsn = eng.match(/addEventListener\('disciple:shoot',[\s\S]*?\}\);/); if (!lsn) throw new Error("engine disciple:shoot listener");
+const shootSrc = tb.match(/const shoot = \(side[\s\S]*?\)\)\);/); if (!shootSrc) throw new Error("TradeBridge shoot");
+const tsx = (src) => ts.transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+
+console.log("— 0. the shipped wiring");
+const deskBuy = tb.match(/data-testid="buy-btn"[^\n]*/)[0];
+ok(/onClick=\{\(\) => shoot\("buy"\)\}/.test(deskBuy), "desktop BOOST onClick = shoot(\"buy\")");
+ok(/onBoost=\{\(\) => shoot\("buy"\)\}/.test(tb) && /onClick=\{b \? p\.onBoost : p\.onDump\}/.test(ph), "phone BOOST → onBoost → shoot(\"buy\")");
+ok(!/COOLDOWN_MS/.test(eng) && !/now<S\.cooldownUntil/.test(eng), "engine: the 250 ms cooldown (silent return in submit) is gone");
+ok(/if \(S\.confirmed\.mcap===null\)\{ S\.flashes\.push\(/.test(eng), "engine: no price yet = a visible flash, not a silent return");
+const deskDis = deskBuy.match(/ disabled=\{([^}]*)\}/)[1], phDis = ph.match(/ disabled=\{([^}]*)\}/)[1];
+ok(!/full/.test(deskDis) && /aria-disabled=\{short \|\| full\}/.test(deskBuy), `desktop BOOST: disabled={${deskDis}} — never disabled by 'full' (a disabled button swallows the click silently)`);
+ok(/boostDisabled=\{short\} dumpDisabled=\{!has\} inFlightFull=\{full\}/.test(tb) && phDis === "dis", "phone BOOST / DUMP: disabled only for cash / no tokens; inFlightFull drives the look");
+ok(/\{full \? COPY\.inFlight : <>▲/.test(deskBuy) && /\{full && has \? COPY\.inFlight : <>▼/.test(tb), "desktop BOOST / DUMP label reads COPY.inFlight ('3 IN FLIGHT') while full");
+ok(/<span className="ph-lbl">\{full \? "3 IN FLIGHT" : b \? "BOOST" : "DUMP"\}<\/span>/.test(ph) && /data-disabled=\{dis \|\| full \? "1" : "0"\}/.test(ph), "phone label reads '3 IN FLIGHT' while full (and greys)");
+
+// ---- harness: one window EventTarget shared by TradeBridge (shoot, inflight listener) and the engine (listener, trade/submit)
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+function rig({ customUsd = 0, mode = 0, presets = [{ usd: 1 }, { usd: 5 }] } = {}) {
+  const win = new EventTarget(); let now = 1;
+  const E = { sent: [], res: [], clicks: [] };
+  const S = { fuelers: { you: 0 }, hold: { tokens: 1e6, valueUsd: 50 }, liveBag: { tokens: 1e6 }, flashes: [], feed: [], mode: 0, balance: 1000, liveCash: 1000,
+    gasPerOpUsd: 0, confirmed: { mcap: 7e4 }, pending: [], cooldownUntil: 0, buyBoost: 0, score: 0, simF: 1 };
+  const env = { S, MODES: presets, hasTokens: () => true, noTokens() {}, isLive: () => true, markMcap: () => 7e4, MIN_SHOT: 0.2, fmtShot: (x) => "$" + (+x).toFixed(2),
+    fmtMoney: (x) => "$" + (+x).toFixed(2), window: { __discipleTrade() {} }, applyThrust() {},
+    source: { supply: 7e9, impact: () => 1.02, submitTrade: (side, usd, o) => { E.sent.push({ side, usd, o, at: now }); return new Promise((r) => E.res.push(r)); } },
+    srcImpact: () => 1.02, fillMcapEst: () => 7e4, MAX_PENDING: 3, COOLDOWN_MS: 250 /* main d3c33ab5 value; unused once the cooldown is gone */, performance: { now: () => now }, mcapToAlt: (m) => Math.log10(m),
+    shownMcap: () => S.confirmed.mcap, clamp, pushPaperCash() {}, pushAmmo() {}, dispatchEvent: (e) => win.dispatchEvent(e), CustomEvent, SESSION: null,
+    isOnchainRevert: () => true, setTimeout: () => 0, addEventListener: (t, f) => win.addEventListener(t, f) };
+  new Function(...Object.keys(env), trBlock + "\n" + lsn[0])(...Object.values(env));      // the engine's own listener, registered on win
+  // TradeBridge side: inflight state (as its useEffect listener), shoot() as shipped, button disabled / label as shipped
+  let inFlight = { n: 0, max: 3 }; win.addEventListener("disciple:inflight", (e) => { inFlight = e.detail; });
+  let marks = 0; const tradeClick = () => { marks++; };
+  const shoot = new Function("window", "CustomEvent", "tradeClick", "mode", "customUsd", tsx(shootSrc[0]) + "\nreturn shoot;")({ dispatchEvent: (e) => win.dispatchEvent(e) }, CustomEvent, tradeClick, mode, customUsd);
+  const btn = () => { const full = inFlight.n >= inFlight.max, short = false;
+    return { disabled: new Function("short", "full", "return " + deskDis)(short, full), label: full ? "3 IN FLIGHT" : "▲ BOOST" }; };
+  E.click = (t) => { for (const f of S.flashes) f.life -= (t - now) / 1000; now = t;   // flashes fade like the render loop's
+    const b = btn(), s0 = E.sent.length, f0 = S.flashes.length, life0 = S.flashes.map((f) => f.life);
+    if (!b.disabled) shoot("buy");   // a disabled <button> never fires onClick
+    const shown = S.flashes.length > f0 ? S.flashes.at(-1) : S.flashes.find((f, i) => f.life > life0[i]);   // new flash, or a re-armed one (inFlightPulse dedupe)
+    const out = E.sent.length > s0 ? "sent" : shown ? "flash:" + shown.txt : "SILENT";
+    E.clicks.push({ t, out, label: btn().label }); return out; };
+  E.settle = async (i, r) => { E.res[i]?.(r); await new Promise((x) => setImmediate(x)); };
+  E.S = S; E.marks = () => marks; E.label = () => btn().label;
+  return E; }
+
+for (const [kind, opts, want] of [["custom $1", { customUsd: 1 }, 1], ["preset $5", { mode: 1 }, 5]]) {
+  console.log(`— ${kind}`);
+  { const E = rig(opts); [0, 31, 62].forEach((t) => E.click(t));       // replay: 3 clicks within 62 ms
+    ok(E.sent.length === 3 && E.sent.every((s) => s.side === "buy" && Math.abs(s.usd - want) < 1e-9), `${kind}: 3 clicks in 62 ms = 3 trades of $${want} (was 1)`);
+    ok(E.S.pending.length === 3 && E.label() === "3 IN FLIGHT", `${kind}: 3 stacked ghosts pending, button label '3 IN FLIGHT'`);
+    ok(E.marks() === 3, `${kind}: every click marked tradeClick (tradeSpeed)`); }
+  { const E = rig(opts); [0, 150, 300, 450, 600].forEach((t) => E.click(t));   // replay: 5 clicks 150 ms apart
+    ok(E.clicks.every((c) => c.out !== "SILENT"), `${kind}: 5 clicks 150 ms apart — none silently dropped (${E.clicks.map((c) => c.out).join(", ")})`);
+    ok(E.sent.length === 3 && E.clicks.slice(3).every((c) => c.out === "flash:3 IN FLIGHT" && c.label === "3 IN FLIGHT"), `${kind}: clicks 4–5 = '3 IN FLIGHT' pulse + label, no trade`);
+    await E.settle(0, { ok: true, txHash: "0x1", filled: true });
+    ok(E.label() !== "3 IN FLIGHT" && E.click(900) === "sent" && E.sent.length === 4, `${kind}: a fill frees a slot → label back, next click goes out`); }
+  { const E = rig(opts); E.click(0); E.click(200);                       // replay: 2 taps 200 ms apart
+    ok(E.sent.length === 2 && E.S.pending.length === 2, `${kind}: 2 taps 200 ms apart = 2 trades, 2 stacked ghosts (was 1, none)`); }
+  { const E = rig(opts); E.click(0);
+    ok(E.sent.length === 1 && E.S.pending.length === 1 && E.label() !== "3 IN FLIGHT", `${kind}: single tap unchanged (1 trade, label stays BOOST)`); }
+}
+console.log("— 10 taps in 200 ms (SITE window 2, 09:09:22 CT: 10 taps → 1 op)");
+for (const [kind, opts] of [["custom $1", { customUsd: 1 }], ["preset $5", { mode: 1 }]]) {
+  const E = rig(opts); for (let i = 0; i < 10; i++) E.click(Math.round(i * 200 / 9));
+  const outs = E.clicks.map((c) => c.out);
+  ok(outs.every((o) => o !== "SILENT"), `${kind}: every one of 10 taps is sent or visibly refused (${outs.join(", ")})`);
+  ok(E.sent.length === 3 && outs.filter((o) => o === "flash:3 IN FLIGHT").length === 7 && E.clicks.slice(3).every((c) => c.label === "3 IN FLIGHT"),
+    `${kind}: 3 trades go out, taps 4–10 = '3 IN FLIGHT' pulse + button label`);
+  for (let i = 0; i < 3; i++) await E.settle(i, { ok: true, txHash: "0x" + i, filled: true });
+  ok(E.S.pending.length === 0 && E.click(400) === "sent", `${kind}: all 3 fill → next tap goes straight out`); }
+
+console.log("— per-press status rows (SITE window 1: 8 taps → 6 ops, UI showed 4 fills)");
+{ const src = rd("lib/flight/rapidTap.ts"), cp = src.match(/export const COPY = \{[\s\S]*?\n\} as const;/)[0], rs = src.slice(src.indexOf("export type PressRow"));
+  const R = new Function(tsx((cp + "\n" + rs).replace(/export /g, "")) + "\nreturn { COPY, rowLive, upsertRow, ROW_MAX };")();
+  let rows = []; for (const id of ["p1", "p2", "p3"]) rows = R.upsertRow(rows, id, "▲ $1.00 · sending…");
+  rows = R.upsertRow(rows, "p1", "✓ ▲ $1.00 done"); rows = R.upsertRow(rows, "p3", "✓ ▲ $1.00 done"); rows = R.upsertRow(rows, "p2", "✓ ▲ $1.00 done");
+  ok(rows.length === 3 && rows.every((r) => r.done) && rows.map((r) => r.id).join() === "p1,p2,p3", "3 close fills = 3 rows, none overwritten (was one shared `last` line)");
+  ok(R.rowLive("▲ $1.00 · sent ⚡") && R.rowLive(`▲ $1.00 · ${R.COPY.confirming}`) && !R.rowLive("✕ That didn't go through."), "rowLive: sending / sent / confirming stay; ✓ / ✕ are final");
+  for (let i = 4; i < 9; i++) rows = R.upsertRow(rows, "p" + i, "▲ $1.00 · sending…");
+  ok(rows.length === R.ROW_MAX && rows.at(-1).id === "p8", `keeps the newest ${R.ROW_MAX} rows`);
+  ok(/const say = \(txt: string\) => \{\s*setLast\(txt\);[\s\S]*?setRows\(\(rs\) => upsertRow\(rs, pressId, txt\)\)/.test(tb), "TradeBridge: each press reports through say() → its own row (pressId)");
+  const body = tb.slice(tb.indexOf("const say = (txt: string)"), tb.indexOf("return () => { delete window.__discipleTrade;"));
+  ok((body.match(/setLast\(/g) || []).length === 1, "TradeBridge: no press writes the shared line directly (only via say)");
+  ok(/data-testid="press-rows"/.test(tb) && /rowsLine = rows\.length > 1/.test(tb), "desktop shows one row per press; the phone hint lists them"); }
+
+console.log("— graduation replay (VFIVE 9:12–9:35 CT)");
+ok(/const shortLine = short && rows\.length === 0 \? shortMsg : "";/.test(tb) && !/\{hint \|\| shortMsg\}/.test(tb) && /\|\| shortLine \|\| rowsLine/.test(tb),
+  "'Not enough cash' (next BOOST) never replaces the status of a press in flight / just filled (was: shown for a $6.6K BOOST that went through)");
+ok(/if \(live && liveHas !== false\) \{/.test(tb) && /else setHint\(COPY\.loadingPosition\); \};/.test(tb),
+  "DUMP right after a reload: live + bag not re-read yet still sends (bridge re-reads balanceOf); otherwise a visible 'Loading your position…', never a silent no-op");
+ok(/const goodMcap=\(m\)=>typeof m==='number'&&Number\.isFinite\(m\)&&m>0;/.test(eng) && /if \(goodMcap\(e\.mcap\)\) S\.confirmed\.mcap=e\.mcap;/.test(eng) && /e\.t==='mark'\)\{ if\(goodMcap\(e\.mcap\)\) S\.confirmed\.mcap=e\.mcap; \}/.test(eng),
+  "engine: a swap / mark with no usable mcap (0 / null / NaN) keeps the last good one (was: floored to LAUNCH PAD)");
+ok(/if\(ti>S\.tierShown\)\{ S\.grassCard=4\.5; award\('tier'\+ti,'TIER WITNESS'/.test(eng), "engine: 'TIER WITNESS — crossed into …' only on a climb, never on a drop");
+{ const E = rig({ customUsd: 1 }); E.S.confirmed.mcap = null;
+  ok(E.click(0) !== "SILENT" && E.sent.length === 0, "no price yet: the click shows a flash instead of vanishing"); }
+console.log(bad ? `\n${bad} FAILED` : "\nall ok"); process.exit(bad ? 1 : 0);

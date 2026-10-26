@@ -113,6 +113,8 @@ ok(near(buy.feeUsd, 0.5, 1e-6), "fee $ from the venue Trade fee / quoteAmt");
 const refRc = [ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: true, amountIn: e18(100), amountOut: e18(8e6), viaCurve: true }, ROUTER),
   ev(discipleRouterAbi, "UsdgRefund", { trader: ME, token: TOKEN, quoteRefund: e18(12), usdgRefund: e18(12) }, ROUTER)];
 ok(near(fills.decodeTradeFill(refRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 }).usd, 88), "UsdgRefund subtracted from the USDG spent");
+ok(near(fills.decodeTradeFill(refRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 }).refundUsd, 12) && fills.decodeTradeFill(buyRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 }).refundUsd === undefined,
+  "graduating buy: refundUsd = UsdgRefund.usdgRefund (the overshoot sent back); none on a normal buy");
 // SELL 2.45M tokens → $27.0 net (fee $0.27)
 const sellRc = [ev(bondingCurveAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, mcapAfterUsd: e18(77000) }, CURVE),
   ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: false, amountIn: e18(2.45e6), amountOut: e18(27), viaCurve: true }, ROUTER)];
