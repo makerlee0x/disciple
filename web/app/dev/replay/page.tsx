@@ -25,7 +25,7 @@ export default function DevReplay() {
   const [busy, setBusy] = useState(false);
   const say = (s: string) => setLog((l) => [...l.slice(-12), s]);
   const opts = () => { const q = new URLSearchParams(location.search), d = demoTrades(+(q.get("seed") || 7));
-    return { coin: "0xdemo", supply: 7e9, ticker: "DEMO", ...d, durationSec: +(q.get("sec") || 12), fps: +(q.get("fps") || 30), width: 1080, height: 1920, seed: +(q.get("seed") || 7), clean: q.get("clean") !== "0" }; };
+    return { coin: "0xdemo", supply: 1e6, ticker: "DEMO", ...d, durationSec: +(q.get("sec") || 12), fps: +(q.get("fps") || 30), width: 1080, height: 1920, seed: +(q.get("seed") || 7), clean: q.get("clean") !== "0" }; };
   useEffect(() => { (window as unknown as Record<string, unknown>).__replayDemo = { demoTrades, opts, loadReplay }; }, []);
   async function record() {
     setBusy(true); setUrl("");

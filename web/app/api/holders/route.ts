@@ -1,6 +1,8 @@
 /**
  * GET /api/holders?coin=0x…&limit=50 (1–100) → { coin, holders: [{ address, balance (raw string), pct (% of supply),
- * usd (at current mcap), label: 'pool'|'curve'|'locker'|null }], asOfBlock } sorted by balance desc.
+ * usd (at current mcap), label: 'pool'|'curve'|'locker'|null, kind: 'pool'|'locker'|'burn'|'holder' }], asOfBlock } sorted
+ * by balance desc. `kind` (lib/holders holderKinds) is GAME's contract: PoolManager + hook (+ routers, curve) = pool;
+ * LockedLP + Migration (+ protocol escrows) = locker; 0x…dEaD + 0x0 = burn; everyone else = holder.
  * Indexed from the coin's ERC-20 Transfer logs (lib/server/holders). Rate-limited per IP; short shared cache.
  */
 import { NextResponse } from "next/server";

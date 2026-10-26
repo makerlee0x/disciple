@@ -74,8 +74,8 @@ export const PENDING_MSG = "Still confirming. Check back in a moment.";
 export const REJECTED_MSG = "That didn't go through. Try again.";
 export const NO_PRICE_MSG = "Couldn't get a price right now. Try again.";
 /** Console-only trace of a sent op's ids (support/debugging); never shown to players. */
-export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: string; txHash?: string }) {
-  if (typeof console !== "undefined") console.warn(`[disciple] trade ${state}`, { userOpHash: ids.userOpHash, txHash: ids.txHash });
+export function logRelayOp(state: "pending" | "rejected", ids: { userOpHash?: string; txHash?: string }, relayError?: string) {
+  if (typeof console !== "undefined") console.warn(`[disciple] trade ${state}`, { userOpHash: ids.userOpHash, txHash: ids.txHash, ...(relayError ? { relayError } : {}) });
 }
 /**
  * Player-copy guard: text that carries ids/hex, a function or contract error name, or chain/relay plumbing words.

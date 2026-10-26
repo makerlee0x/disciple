@@ -3,44 +3,38 @@ pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Owned2Step} from "./utils/Owned2Step.sol";
 
-/// @title Community rewards vault (LOCKED #9 rev. 2026-10-15: 70% of anti-snipe tax)
-/// @notice Accrues anti-snipe tax (any quote asset) for later USDG/rewards distribution.
+/// @title Community rewards vault (mode rules v2: receives sniper escrows of coins not graduated within
+///        snipeEscrowTimeout, via BondingCurve.releaseSnipeEscrow; also 70% of any legacy FeeRouter.routeSnipeFee)
+/// @notice Accrues sniper tax (any quote asset) for later USDG/rewards distribution.
 ///         v0: owner (multisig) distributes; per-token accounting is event-based (`RewardAccrued`).
-contract RewardsVault {
+///         Ownership is two-step (Owned2Step, as FeeRouter / LockedLP / Migration): the vault also receives released
+///         sniper escrows, so a typo'd owner must never be able to strand it. The nominee calls acceptOwnership().
+contract RewardsVault is Owned2Step {
     using SafeERC20 for IERC20;
 
-    address public owner;
     address public feeRouter;
     /// @notice Total accrued per asset (lifetime, for indexers / dashboards).
     mapping(address => uint256) public totalAccrued;
 
-    error OnlyOwner();
     error ZeroAddress();
     error LengthMismatch();
 
     event RewardAccrued(address indexed token, address indexed asset, uint256 amount);
     event Distributed(address indexed asset, address indexed to, uint256 amount);
-    event OwnerTransferred(address indexed owner);
 
-    constructor(address owner_) {
+    constructor(address owner_) Owned2Step(owner_) {
         if (owner_ == address(0)) revert ZeroAddress();
-        owner = owner_;
     }
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert OnlyOwner();
+        _checkOwner();
         _;
     }
 
     function setFeeRouter(address r) external onlyOwner {
         feeRouter = r;
-    }
-
-    function transferOwnership(address o) external onlyOwner {
-        if (o == address(0)) revert ZeroAddress();
-        owner = o;
-        emit OwnerTransferred(o);
     }
 
     /// @notice Bookkeeping hook called by FeeRouter after transferring `amount` of `asset` here.

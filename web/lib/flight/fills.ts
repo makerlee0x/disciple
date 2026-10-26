@@ -71,7 +71,7 @@ export interface DecodeOpts {
 
 export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): DecodedFill | null {
   const token = lc(o.token), me = o.trader ? lc(o.trader) : "", router = o.router ? lc(o.router) : "";
-  const dec = o.usdgDecimals, supply = o.supply || 7_000_000_000;
+  const dec = o.usdgDecimals, supply = o.supply || 1_000_000;
   const fromRouter = (l: LogLike) => !router || lc(l.address) === router;
   const mine = (a: string) => !me || a === me;
   // venue Trade for this token (prefer the trader's own row): token amount, fee, price

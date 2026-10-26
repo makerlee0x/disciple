@@ -74,7 +74,7 @@ describe("v4 usd: hook Trade with sqrtPriceAfter", () => {
     const c0 = tradeUsd({ quotePriceUsdWad: q, quoteAmt: 5n * E18, priceAfterX18: 0n, sqrtPriceAfter: Q96, token: TOKEN, quote: QUOTE });
     expect(c0.priceUsd).toBeCloseTo(2, 9);
     expect(c0.volumeUsd).toBe(10);
-    expect(BigInt(c0.mcapUsdWad)).toBe(TOTAL_SUPPLY * 2n); // 7B tokens × 1 quote × $2
+    expect(BigInt(c0.mcapUsdWad)).toBe(TOTAL_SUPPLY * 2n); // 1M tokens × 1 quote × $2
     // token > quote ⇒ token is currency1: price = 1/p²; sqrtP = 2·Q96 ⇒ 0.25 quote/token
     const c1 = tradeUsd({ quotePriceUsdWad: q, quoteAmt: 0n, priceAfterX18: 0n, sqrtPriceAfter: 2n * Q96, token: QUOTE, quote: TOKEN });
     expect(c1.priceUsd).toBeCloseTo(0.5, 9);
@@ -91,11 +91,11 @@ describe("v4 ingest", () => {
     const tr = db.prepare("SELECT source, trader, CAST(mcap_usd AS REAL)/1e18 m, price_usd p FROM trades ORDER BY block").all() as any[];
     expect(tr.map((t) => t.source)).toEqual(["curve", "hook"]);
     expect(tr[0].m).toBe(7001);
-    expect(tr[1].m).toBeCloseTo(14e9, -3); // 7B × $2
+    expect(tr[1].m).toBeCloseTo(2e6, -3); // 1M × $2
     expect(tr[1].p).toBeCloseTo(2, 9);
     const st: any = db.prepare("SELECT trades, last_mcap FROM coin_stats").get();
     expect(st.trades).toBe(2);
-    expect(st.last_mcap).toBeCloseTo(14e9, -3);
+    expect(st.last_mcap).toBeCloseTo(2e6, -3);
   });
   it("profit tax / holder rewards only from the coin's curve; notifier only from the notifier; wipe clears them", () => {
     const db = seeded();

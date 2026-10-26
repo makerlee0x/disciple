@@ -197,28 +197,28 @@ test("client: op executed but reverted (no readable reason) → plain 'didn't go
   } finally { bundlerOverride = null; }
 });
 
-test("client: network failure before the relay answers (DNS: provably not sent) → plain 'didn't go through', raw text to console only", async () => {
+test("client: network failure before the relay answers → AUDIT L2 (#145): outcome unknown ⇒ Timeout + the plain pending line (never 'didn't go through'), raw text to console only", async () => {
   warned.length = 0;
   bundlerOverride = async () => { throw new TypeError("fetch failed: getaddrinfo ENOTFOUND relay.test"); };
   try {
     const e = await errOf(send());
-    assert.equal(e.code, "Bundler");
-    assert.equal(e.message, REJECTED);
-    assert.equal(friendlyError(e).message, REJECTED);
+    assert.equal(e.code, "Timeout");
+    assert.equal(e.message, PENDING);
+    assert.equal(friendlyError(e).message, PENDING);
     plain(friendlyError(e).message, [expectedHash()]);
     assert.match(String(e.extra.relayError), /^network: /, "raw detail kept on extra");
     assert.ok(warned.some((w) => String(w[0]).startsWith("[disciple] ") && /network: /.test(JSON.stringify(w[1]))), "raw text logged");
   } finally { bundlerOverride = null; }
 });
 
-test("client: unreadable relay response (HTTP 502) → op fate UNKNOWN (AUDIT: may have been broadcast) — Timeout + ids/nonce, pending line, no failure shown", async () => {
+test("client: unreadable relay response → AUDIT L2 (#145): outcome unknown ⇒ Timeout + the plain pending line, HTTP detail to console only", async () => {
   warned.length = 0;
   bundlerOverride = async () => new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "content-type": "text/html" } });
   try {
     const e = await errOf(send());
-    assert.equal(e.code, "Timeout", "unknown, not 'Bundler' failed: the relay may have broadcast before the gateway dropped the answer");
+    assert.equal(e.code, "Timeout");
     assert.equal(e.message, PENDING);
-    assert.notEqual(friendlyError(e).message, REJECTED);
+    assert.equal(friendlyError(e).message, PENDING);
     plain(friendlyError(e).message, [expectedHash()]);
     assert.equal(e.extra.userOpHash, expectedHash());
     assert.equal(typeof e.extra.nonce, "bigint", "nonce carried for the background watcher");

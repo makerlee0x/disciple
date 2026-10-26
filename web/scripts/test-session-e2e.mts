@@ -1,4 +1,5 @@
 /**
+ * LEGACY v4 stack (policy 1.3.0, 18-dec mUSDG): for the v5 stack use test-session-e2e-v5.mts.
  * One-tap session e2e on RH testnet (DiscipleSessionPolicy v1.3.0, v4) against a running app (/api/drip, /api/bundler).
  * A fresh local key stands in for the Privy embedded EOA (same viem LocalAccount interface as toViemAccount).
  *   1. drip → owner op: mint test STRATEGY (deploys the MAv2)
@@ -62,7 +63,8 @@ const s = buildCreateSession({
   targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[46630]?.anonLauncher, trampWallManager: d.trampWallManager },
   sessionSigner: privateKeyToAccount(key).address,
   caps: [{ token: d.defaultQuote, cap: BigInt("1000000000000000000000000") }, { token: d.usdg, cap: BigInt("1000000000000000000000000") }],
-  ttlSec: 86400, maxSlippageBps: 500, permissions: sessionPermissions(TRADE_PERMS, true),
+  ttlSec: 86400 - 600, // AUDIT #148 M-1: skew margin under the on-chain 24h max
+  maxSlippageBps: 500, permissions: sessionPermissions(TRADE_PERMS, true),
 });
 const inst = await sa.sendCalls([{ to: me, data: s.data }], "owner");
 ok("owner installs session", true, inst.txHash); out.installSession = inst.txHash;

@@ -16,6 +16,7 @@ import { decodeEventLog, parseAbi, type Address, type Hex, type PublicClient } f
 import { ENTRYPOINT_V07 } from "../aa/constants";
 import { unknownOpOf, type UnknownOpRef } from "../aa/relayOp";
 import type { Reservations } from "./reservations";
+import type { RelayUnclearReason } from "../aa/relayTypes";
 
 export type OpLog = { address: Address; data: Hex; topics: Hex[]; blockNumber?: Hex | bigint };
 export type OpLanding = { userOpHash?: Hex; txHash: Hex; success: boolean; nonce?: bigint; logs: OpLog[] };
@@ -103,8 +104,8 @@ export function holdUnknown(reg: Reservations, id: string, op: UnknownOpRef, dep
   });
 }
 /* ---------- FLOW #141: 'unclear' relay errors ⇒ pending_unknown ---------- */
-// mirrors RelayErrorData from FLOW #141 (lib/aa/relayTypes.ts); swap to import at rebase
-export type RelayUnclearReasonLike = "receipt-timeout" | "stream-lost" | "network";
+// FLOW #141 landed on main: the reason union is relayTypes' own (was a local mirror)
+export type RelayUnclearReasonLike = RelayUnclearReason;
 // mirrors RelayErrorData from FLOW #141 (lib/aa/relayTypes.ts); swap to import at rebase
 // relayNonce = the RELAYER EOA nonce of the handleOps tx; `nonce` (bigint) is only on RelayTimeoutExtra: the op's EntryPoint nonce
 export type RelayErrorDataLike = { txHash?: Hex; userOpHash?: Hex; revert?: Hex; relayNonce?: number; unclear?: true; reason?: RelayUnclearReasonLike };

@@ -33,7 +33,7 @@ export function createMockAdapter(getCurrentMcap: () => number): TrampWallAdapte
     async isGraduated() {
       const q = new URLSearchParams(window.location.search).get("graduated");
       if (q === "1") return true; if (q === "0") return false;
-      return getCurrentMcap() >= 33_000; // graduation at $33K
+      return getCurrentMcap() >= 33_333; // graduation at $33,333
     },
     async list(token) {
       const k = token.toLowerCase();

@@ -9,7 +9,7 @@ At graduation, the liquidity is locked forever in a full-range Uniswap v4 positi
 
 ## What's locked
 
-- The 28% of supply kept back for the pool.
+- The 15.76% of supply kept back for the pool.
 - The base the curve raised.
 - Every later LP share of the trade fee (33% of each fee), added to the position as it builds up.
 

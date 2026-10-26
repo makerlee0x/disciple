@@ -6,6 +6,7 @@ import { pickProvider } from "@/lib/server/moderation";
 import { allowUri, putImage } from "@/lib/server/imageStore";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
+import { launchImageUrl } from "@/lib/launchImage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,8 @@ const DATA_URI = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$
  *    server records sha256(uri) → stored image in the render allowlist (lib/server/imageStore, W-3e): coin images only
  *    render from that store, so an imageURI set by calling the contract directly shows the placeholder instead.
  * Only "allow" stores the normalized (resized, EXIF-stripped) image, persistently in Upstash (was /tmp on Vercel), and
- * returns imageUri = /api/image/<sha256>. Block → hash added to denylist. Per-IP limit (moderation provider cost).
+ * returns imageUri = /api/image/<sha256> and imageUrl = the absolute launch URI (lib/launchImage), which is ALSO added to
+ * the render allowlist so a coin launched with it renders. Block → hash added to denylist. Per-IP limit.
  */
 export async function POST(req: NextRequest) {
   const rl = await hitLimit(kv(), `moderate:ip:${clientIp(req.headers)}`, 30, 60);
@@ -66,19 +68,21 @@ export async function POST(req: NextRequest) {
   }
   if (res.verdict === "block") await deny(img.sha256, img.phash, `${res.provider}:${JSON.stringify(res.scores || {})}`);
 
-  let imageUri: string | undefined;
+  let imageUri: string | undefined, imageUrl: string | undefined;
   if (res.verdict === "allow") {
     try {
       const id = await putImage(img.buf);
       if (id) {
-        imageUri = `/api/image/${id}`;
+        const abs = launchImageUrl(id);
+        await allowUri(abs, id); // the launch writes this URL on-chain (create page); must render
         if (uri) await allowUri(uri, id);
+        imageUri = `/api/image/${id}`; imageUrl = abs;
       }
     } catch { /* storage unavailable: the verdict still returns, the image just won't render until re-checked */ }
   }
   return NextResponse.json({
     verdict: res.verdict, provider: res.provider, scores: res.scores,
-    sha256: img.sha256, phash: img.phash, imageUri,
+    sha256: img.sha256, phash: img.phash, imageUri, imageUrl,
     checkedAt: new Date().toISOString(),
   });
 }

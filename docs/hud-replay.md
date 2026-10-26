@@ -5,12 +5,12 @@ The panel shows the current tier and a gold bar filled by log-progress inside th
 `→ NEXT TIER $threshold` and `≈$X buys needed`.
 
 How "buys needed" is computed (`usdToReach` in engine.js, a float copy of CurveMath.sol / lib/sim/market.ts):
-- **Before graduation (< $33K):** the curve's virtual quote reserve is x(M) = x0·√(M/M0), with
+- **Before graduation (< $33,333):** the curve's virtual quote reserve is x(M) = x0·√(M/M0), with
   x0 = M0·0.72·√r/(√r−1) and r = 33K/7K. Needed = (x(target) − x(now)) / (1 − 1% fee). This is exact for the curve.
   It ignores the 7-second anti-snipe tax.
-- **After graduation:** constant product, seeded with X_grad = $33K·28%, so X(M) = X_grad·√(M/33K).
+- **After graduation:** constant product, seeded with X_grad = $33,333·28%, so X(M) = X_grad·√(M/33,333).
   Needed = ΔX / (1 − fee). This is an approximation that assumes no other flow.
-- **Crossing $33K:** the curve part up to $33K plus the pool part beyond it.
+- **Crossing $33,333:** the curve part up to $33,333 plus the pool part beyond it.
 - **/flight/sim:** the sim's own depth is used (inverted from `source.impact`) whenever the current price and the
   target are in the same phase.
 

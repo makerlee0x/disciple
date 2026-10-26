@@ -14,8 +14,10 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
-import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
+import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
+import { newPressId, tagPress, type SendOpts } from "./fastPath";
+import { derivedGasReserve, fallbackUsdgDecimals, type GasOpKind } from "./gasReserve";
+import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
 import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
@@ -98,9 +100,22 @@ function loadSessionKey(account: Address): StoredSessionKey | null {
   } catch { return null; }
 }
 
+/** ERC-7677 paymaster endpoint (our /api/paymaster); override with NEXT_PUBLIC_PAYMASTER_URL. */
+export const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_URL || "/api/paymaster";
+/**
+ * USDG gas via DisciplePaymaster when the chain has one (NEXT_PUBLIC_RHT_PAYMASTER); unset ⇒ ETH prefund (self-pay).
+ * Session keys use it only on a policy that knows the paymaster (moduleId ≥ 1.4.0); older sessions keep paying ETH.
+ */
+export function usdgGasConfig(): UsdgGasOpts | undefined {
+  const d = deployment();
+  const pm = d.paymaster, usdg = d.usdg;
+  if (!pm || /^0x0{40}$/i.test(pm) || !usdg || /^0x0{40}$/i.test(usdg)) return undefined;
+  return { paymaster: pm, usdg, url: PAYMASTER_URL, session: policyHasPaymaster() };
+}
+
 async function makeAccount(owner: LocalAccount) {
   const { Mav2Account } = await import("./mav2");
-  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL }, owner);
+  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL, usdgGas: usdgGasConfig() }, owner);
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
@@ -111,6 +126,7 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   const a = await sa.address();
   curAccount = a;
   userEndedOneTap = isOneTapOff(lsStore(), a);   // the player's own "one-tap off" survives reloads
+  void sa.warmGasReserve().catch(() => undefined);   // rapid taps: gasReservePerOp is warm before the first tap
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
   void dripOnce(a);
@@ -252,14 +268,13 @@ export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string
  * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
  * fresh nonce key. No refill available ⇒ the original FundAccount error.
  */
-async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, timing?: TradeTiming, pressId?: string) {
-  // TODO(FLOW #145): pass `pressId` here (sendCalls(calls, { as, feeRetry: true, pressId })) — no slot on this branch
-  // (4th positional arg is TradeTiming); plumbed to here so the swap is one line once #145 lands.
-  void pressId;
-  try { return await sa!.sendCalls(calls, as, true, timing); }
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, o: SendOpts = {}) {
+  // o.pressId (the press / reservation id) and o.timing ride on every send and retry (FLOW #145 sendCalls options)
+  try { return await sa!.sendCalls(calls, { ...o, as }); }
   catch (e) {
-    if ((e as AAError).code !== "FundAccount" || !(await refillGas(me))) throw e;
-    return sa!.sendCalls(calls, as, true, timing);
+    // a USDG shortfall (USDG-paid network cost) can't be fixed by an ETH refill: surface "Not enough USDG" as is
+    if ((e as AAError).code !== "FundAccount" || (e as AAError).extra?.usdg || !(await refillGas(me))) throw e;
+    return sa!.sendCalls(calls, { ...o, as });
   }
 }
 /** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
@@ -422,7 +437,10 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
   const account = await sa.address();
   const caps = await sessionCaps(opts.spendLimitUsd !== undefined ? opts.spendLimitUsd : oneTapSpendLimitUsd());
+  // AUDIT #148 M-1: validUntil from the chain's clock (latest block), not the browser's; Date.now() only if the RPC fails.
+  const now = await sk.chainNow(publicClient());
   const s = sk.buildCreateSession({
+    now,
     modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
     targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
     sessionSigner: privateKeyToAccount(key).address,
@@ -481,6 +499,22 @@ export async function endOneTap() {
   saveSessionKey();
   changed();
   return r;
+}
+
+/**
+ * Rapid taps (GAME cash reservation), SYNC, USDG base units: what one pending op may still take for gas.
+ *   reserve = liveCash − Σ pending (amountIn + aaGasReservePerOp())
+ * peek: the WARM value (fresh allowance: its real maxTokenCost; grad buys: the per-op bound) or null while cold;
+ * 0n when gas isn't paid in USDG. kind: "trade" (buy / sell, default) | "gradBuy". See lib/aa/gasReserve.
+ */
+export function aaPeekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
+  if (sa) return sa.peekGasReservePerOp(kind);
+  return usdgGasConfig() ? null : BigInt(0);
+}
+/** Never null: warm value, else derived from gas limit × allowance-formula maxFee(gas price) × rate (config before any RPC). */
+export function aaGasReservePerOp(kind: GasOpKind = "trade"): bigint {
+  if (sa) return sa.gasReservePerOp(kind);
+  return usdgGasConfig() ? derivedGasReserve({ kind, decimals: fallbackUsdgDecimals(ACTIVE_CHAIN.id) }) : BigInt(0);
 }
 
 /** Keep the smart account hot: clients + deployment status + fee cache (client) and relayer nonce/fees (server). */
@@ -552,9 +586,7 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  */
 /**
  * pressId (rapid-tap, FLOW #145): the press's reservation id. FLOW's sendCalls takes { pressId } and sends it as
- * params[2].pressId (first send of a press counts toward the per-sender limit, its next 2 retries are free).
- * TODO(FLOW #145): this branch's Mav2Account.sendCalls(calls, as, feeRetry, tt) has no options slot yet, so the id is
- * carried to the send call site below and stops there. Once #145 lands: sa.sendCalls(calls, { as, feeRetry: true, pressId }).
+ * params[2].pressId (first send of a press counts toward the per-sender limit, its retries are free).
  */
 type TradeCtx = { trade?: boolean; timing?: TradeTiming; pressId?: string };
 let tradeCtx: TradeCtx | undefined;
@@ -570,7 +602,20 @@ export function asTrade<T>(timing: TradeTiming | undefined, fn: () => Promise<T>
  * an exhausted session just means the owner signs (bug #1). Trades (`opts.trade`) are session-only once the account is
  * deployed — see "session-only trades" above.
  */
-export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {}) {
+/**
+ * GAME: `o0.pressId` is the caller's reservation id (optional; generated when absent). It is reused on every retry
+ * (fee floor, TRANSIENT_SIM rebuild, gas refill, owner fallback) and echoed on every "disciple:op" event
+ * (submitted/confirmed/error), on SendResult.pressId, and on every thrown error (AAError.extra.pressId / err.pressId).
+ * SITE: inside asTrade(), the trade context (trade flag, timing, the press's reservation id) is merged in; explicit
+ * options win.
+ */
+export async function aaSend(calls: Call[], o0: SendOpts & TradeCtx = {}) {
+  const ctx = takeTradeCtx() ?? {};
+  const o: SendOpts & TradeCtx = { ...ctx, ...o0, pressId: o0.pressId ?? ctx.pressId ?? newPressId() };   // one press: refill retry + owner fallback share it
+  try { return await aaSend1(calls, o); } catch (e) { tagPress(e, o.pressId!); throw e; }
+}
+async function aaSend1(calls: Call[], opts: SendOpts & TradeCtx) {
+  const o: SendOpts = { rebuild: opts.rebuild, pressId: opts.pressId, timing: opts.timing };
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
   const me = await sa.address();
@@ -612,7 +657,7 @@ export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {
   if (opts.trade && !asSession) console.info("[disciple] trade signed by the owner", { why: pick.why, strict: mode.strict });
   let r;
   const hold = asSession ? SESSION_PENDING.hold(spend) : undefined;
-  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, opts.timing, opts.pressId); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, o); }
   catch (e) {
     const ae = e as AAError;
     if (unknownOpOf(e)) {
@@ -642,7 +687,7 @@ export async function aaSend(calls: Call[], opts: TradeCtx = takeTradeCtx() ?? {
         console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { revertData: ae.extra?.revertData });
         throw new AAError("Policy", ONE_TAP_REFRESH_MSG, { sessionRequired: true, revertData: ae.extra?.revertData });
       }
-      r = await sa.sendCalls(calls, "owner", true, opts.timing);   // owner signs the same calls once
+      r = await sa.sendCalls(calls, { ...o, as: "owner" });   // owner signs the same calls once
     } else throw e;
   }
   if (hold) SESSION_PENDING.drop(hold);   // landed: moves into `spent` below

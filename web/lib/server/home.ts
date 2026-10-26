@@ -52,7 +52,7 @@ async function build(): Promise<HomeData> {
     const fills = fillsBy[i];
     return {
       token: x.token.toLowerCase(), name: x.name, ticker: x.ticker, pair: pairOf(x.quote), pairSym: pairSymOf(x.quote),
-      icon: x.imageURI, creator: shortHex(x.creator), mcapUsd: x.mcapUsd, graduated: x.graduated, block: Number(x.block),
+      icon: x.imageURI, creator: shortHex(x.creator), mcapUsd: x.mcapUsd, graduated: x.graduated, progressBps: x.progressBps ?? undefined, block: Number(x.block),
       launchedAt: null,
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };

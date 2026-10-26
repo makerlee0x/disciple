@@ -12,36 +12,85 @@ export interface CurveParams {
   sCurve: bigint;
   x0: bigint;
   y0: bigint;
+  /** steep tail mcap at g=1 in quote wei (BondingCurve.curveTail()); m(g) = CP(x0,y0) + tail·g^30 */
+  tail: bigint;
 }
 
 const mulDiv = (a: bigint, b: bigint, d: bigint) => (a * b) / d;
+const mulDivUp = (a: bigint, b: bigint, d: bigint) => { const n = a * b; return n / d + (n % d === B(0) ? B(0) : B(1)); };
+const RAY = WAD * WAD;
+const md = (a: bigint, b: bigint, d: bigint, up: boolean) => (up ? mulDivUp(a, b, d) : mulDiv(a, b, d));
 
-export function virtualQuote(p: CurveParams, sold: bigint) {
-  return mulDiv(p.x0, p.y0, p.y0 - sold);
+/* ---- steep curve #1 (CurveMath.sol): m(g) = M0/(1−a·g)² + T·g^30, g = sold/sCurve; same rounding as Solidity ---- */
+const gOf = (p: CurveParams, s: bigint, up: boolean) => md(s, RAY, p.sCurve, up);
+function pow30(g: bigint, up: boolean) {
+  if (g === B(0)) return g;
+  const m = (a: bigint, b: bigint) => md(a, b, RAY, up);
+  const g2 = m(g, g), g4 = m(g2, g2), g8 = m(g4, g4), g16 = m(g8, g8);
+  return m(m(m(g16, g8), g4), g2);
 }
-/** quote raw × 1e18 / token raw — floored; single-digit at 6-dec quotes, don't derive $ or ratios from it. */
-export function spotPriceWad(p: CurveParams, sold: bigint) {
+const pow31 = (g: bigint, up: boolean) => (g === B(0) ? g : md(pow30(g, up), g, RAY, up));
+const cpMcap = (p: CurveParams, s: bigint) => { const y = p.y0 - s; return mulDiv(mulDiv(p.x0, p.y0, y), p.totalSupply, y); };
+const tailMcap = (p: CurveParams, s: bigint, up: boolean) => (s === B(0) ? s : md(p.tail, pow30(gOf(p, s, up), up), RAY, up));
+
+/** Curve mcap in quote wei at `sold` (CurveMath.marketCapQuote). */
+export const marketCapQuote = (p: CurveParams, sold: bigint) => cpMcap(p, sold) + tailMcap(p, sold, false);
+
+/** Exact curve cost of [s1, s2] (CurveMath.costUp / costDown). */
+export function curveCost(p: CurveParams, s1: bigint, s2: bigint, up: boolean) {
+  if (s2 <= s1) return B(0);
+  const cp = md(p.x0 * p.y0, s2 - s1, (p.y0 - s1) * (p.y0 - s2), up);
+  const hi = pow31(gOf(p, s2, up), up), lo = pow31(gOf(p, s1, !up), !up);
+  return cp + (hi > lo ? md(p.tail * p.sCurve, hi - lo, B(31) * p.totalSupply * RAY, up) : B(0));
+}
+
+function priceWadUp(p: CurveParams, s: bigint) {
+  const y = p.y0 - s;
+  return mulDivUp(mulDivUp(p.x0 * p.y0, p.totalSupply, y * y) + tailMcap(p, s, true), WAD, p.totalSupply);
+}
+
+/** Tokens out for net quote (CurveMath.tokensOutForQuoteCapped: Newton from above, never more than paid for). */
+export function tokensOutForQuote(p: CurveParams, sold: bigint, quoteIn: bigint, cap?: bigint) {
+  if (quoteIn <= B(0) || sold >= p.sCurve || cap === B(0)) return B(0);
+  let rem = p.sCurve - sold;
+  if (cap !== undefined && cap < rem) rem = cap;
   const y = p.y0 - sold;
-  return mulDiv(mulDiv(p.x0, p.y0, y), WAD, y);
+  let dt = mulDiv(y, quoteIn, mulDiv(p.x0, p.y0, y) + quoteIn) + B(1);
+  if (dt > rem) dt = rem;
+  for (let i = 0; i < 64; i++) {
+    const c = curveCost(p, sold, sold + dt, true);
+    if (c <= quoteIn) return dt;
+    let step = mulDiv(c - quoteIn, WAD, priceWadUp(p, sold + dt));
+    if (step === B(0)) step = B(1);
+    if (step >= dt) return B(0);
+    dt -= step;
+  }
+  throw new Error("CurveMath: no convergence");
+}
+
+/** Gross quote for selling tokensIn (CurveMath.quoteOutForTokens, incl. the G-7 clamp). */
+export function quoteOutForTokens(p: CurveParams, sold: bigint, tokensIn: bigint) {
+  if (tokensIn <= B(0) || tokensIn > sold) return B(0);
+  const sAfter = sold - tokensIn;
+  const q = curveCost(p, sAfter, sold, false), qMax = curveCost(p, sAfter, sold + B(1), true) - B(1);
+  return q > qMax ? qMax : q;
+}
+
+/** quote raw × 1e18 / token raw — floored; coarse at 6-dec quotes, don't derive $ or ratios from it (FLOW #115). */
+export function spotPriceWad(p: CurveParams, sold: bigint) {
+  return mulDiv(marketCapQuote(p, sold), WAD, p.totalSupply);
 }
 
 /** Tokens out for a gross quoteIn (after 1% + creator tax; anti-snipe NOT modelled → minOut covers it only via slippage). */
 export function quoteBuy(p: CurveParams, sold: bigint, quoteIn: bigint, creatorTaxBps: bigint) {
   const net = quoteIn - mulDiv(quoteIn, TRADE_FEE_BPS, BPS) - mulDiv(quoteIn, creatorTaxBps, BPS);
   if (sold >= p.sCurve || net <= B(0)) return B(0);
-  const y = p.y0 - sold;
-  const x = mulDiv(p.x0, p.y0, y);
-  const out = mulDiv(y, net, x + net);
-  const rem = p.sCurve - sold;
-  return out > rem ? rem : out;
+  return tokensOutForQuote(p, sold, net);
 }
 
 /** Quote out (net of 1% + creator tax) for selling tokensIn. */
 export function quoteSell(p: CurveParams, sold: bigint, tokensIn: bigint, creatorTaxBps: bigint) {
-  if (tokensIn > sold) return B(0);
-  const y = p.y0 - sold;
-  const x = mulDiv(p.x0, p.y0, y);
-  const gross = mulDiv(x, tokensIn, y + tokensIn);
+  const gross = quoteOutForTokens(p, sold, tokensIn);
   return gross - mulDiv(gross, TRADE_FEE_BPS, BPS) - mulDiv(gross, creatorTaxBps, BPS);
 }
 
@@ -49,20 +98,21 @@ export function applySlippage(amount: bigint, slippageBps: number) {
   return mulDiv(amount, BPS - B(Math.round(slippageBps)), BPS);
 }
 
-/** Price impact % between two sold levels (spot-to-spot). */
+/** Price impact % between two sold levels (spot-to-spot; price ∝ curve mcap). */
 export function impactPctBetween(p: CurveParams, soldBefore: bigint, soldAfter: bigint) {
-  // spot ∝ x0·y0 / y² ⇒ b/a = (yBefore / yAfter)². Exact ratio of token reserves, NOT of spotPriceWad (floored to a
-  // single-digit integer when the quote has 6 decimals — FLOW #115).
-  const ya = Number(p.y0 - soldBefore), yb = Number(p.y0 - soldAfter);
-  return ya > 0 && yb > 0 ? ((ya / yb) ** 2 - 1) * 100 : 0;
+  // steep curve: spot ∝ curve mcap (constant-product + tail). Ratio of marketCapQuote (quote raw × supply, not floored),
+  // NOT of spotPriceWad (floored to a single-digit integer when the quote has 6 decimals — FLOW #115).
+  const a = Number(marketCapQuote(p, soldBefore)), b = Number(marketCapQuote(p, soldAfter));
+  return a > 0 ? ((b - a) / a) * 100 : 0;
 }
 
 /* ---- Launch-time curve (sold = 0), mirrors CurveMath.makeParams / quoteInForTokens ---- */
-// Constants.sol: TOTAL_SUPPLY 7B, CURVE_SOLD_BPS 72%, START $7K, GRADUATION $33K (USD WAD).
-export const TOTAL_SUPPLY_WEI = B("7000000000") * WAD;
-const CURVE_SOLD_BPS = B(7200);
-const START_MCAP_USD = B(7000) * WAD;
-const GRADUATION_MCAP_USD = B(33000) * WAD;
+// Constants.sol: TOTAL_SUPPLY 1M, CURVE_SOLD_BPS 84.24%, START $3,333, CURVE_MID $15,000, GRADUATION $33,333 (USD WAD).
+export const TOTAL_SUPPLY_WEI = B("1000000") * WAD;
+export const CURVE_SOLD_BPS = B(8424);
+export const START_MCAP_USD = B(3333) * WAD;
+export const CURVE_MID_MCAP_USD = B(15000) * WAD;
+export const GRADUATION_MCAP_USD = B(33333) * WAD;
 
 function isqrt(n: bigint): bigint {
   if (n < B(2)) return n;
@@ -76,11 +126,14 @@ export function paramsFromQuotePrice(quotePriceUsd: bigint): CurveParams {
   if (quotePriceUsd <= B(0)) throw new Error("quotePriceUsd = 0");
   const sCurve = mulDiv(TOTAL_SUPPLY_WEI, CURVE_SOLD_BPS, BPS);
   const m0Q = mulDiv(START_MCAP_USD, WAD, quotePriceUsd);
+  const mMidQ = mulDiv(CURVE_MID_MCAP_USD, WAD, quotePriceUsd);
   const m1Q = mulDiv(GRADUATION_MCAP_USD, WAD, quotePriceUsd);
-  const sqrtRWad = isqrt(mulDiv(m1Q, WAD, m0Q) * WAD);
+  const sqrtRWad = isqrt(mulDiv(mMidQ, WAD, m0Q) * WAD);
   const y0 = mulDiv(sCurve, sqrtRWad, sqrtRWad - WAD);
   const x0 = mulDiv(m0Q, y0, TOTAL_SUPPLY_WEI);
-  return { totalSupply: TOTAL_SUPPLY_WEI, sCurve, x0, y0 };
+  const p: CurveParams = { totalSupply: TOTAL_SUPPLY_WEI, sCurve, x0, y0, tail: B(0) };
+  p.tail = m1Q - cpMcap(p, sCurve);
+  return p;
 }
 
 /** FeeMath.creatorBuyMax(bps): token cap for the launch buy. */
@@ -92,15 +145,40 @@ const launchNet = (quoteIn: bigint, creatorTaxBps: bigint) => quoteIn - mulDiv(q
 /** Tokens out for the launch buy on a fresh curve (Launchpad.quoteCreatorBuy mirror). */
 export function launchBuyTokensOut(p: CurveParams, quoteIn: bigint, creatorTaxBps: bigint) {
   const net = launchNet(quoteIn, creatorTaxBps);
-  return net <= B(0) ? B(0) : mulDiv(p.y0, net, p.x0 + net);
+  return net <= B(0) ? B(0) : tokensOutForQuote(p, B(0), net);
 }
 
 /** Largest gross quoteIn whose launch buy stays ≤ capTokens (so Launchpad won't revert CreatorBuyTooLarge). */
 export function maxLaunchBuyQuoteIn(p: CurveParams, capTokens: bigint, creatorTaxBps: bigint) {
-  if (capTokens <= B(0) || capTokens >= p.y0) return B(0);
-  // tokensOut = floor(y0·net / (x0+net)) ≤ cap  ⇔  net ≤ floor(x0·cap / (y0−cap)) (+ rounding slack, checked below)
-  const netMax = mulDiv(p.x0, capTokens, p.y0 - capTokens);
+  if (capTokens <= B(0) || capTokens >= p.sCurve) return B(0);
+  // Buying capTokens+1 must be unaffordable: net < cost(0, cap+1) (ceil), then step down on gross rounding.
+  const netMax = curveCost(p, B(0), capTokens + B(1), true) - B(1);
   let gross = mulDiv(netMax, BPS, BPS - TRADE_FEE_BPS - creatorTaxBps) + B(2);
   while (gross > B(0) && launchBuyTokensOut(p, gross, creatorTaxBps) > capTokens) gross -= B(1);
   return gross;
+}
+
+/* ---- Float view of the launch curve in USD (charts, card progress, paper fills): derived from the bigint params above
+ *      at a $1 quote, so it is the same m(g) = M0/(1−a·g)² + T·g^30 as CurveMath.sol; g = sold / sCurve ∈ [0, 1]. ---- */
+const USD_PARAMS = paramsFromQuotePrice(WAD);
+/** a = sCurve / y0 (CP part's curvature). */
+export const CURVE_A = Number(USD_PARAMS.sCurve) / Number(USD_PARAMS.y0);
+export const CURVE_START_USD = Number(START_MCAP_USD / WAD);
+export const CURVE_GRAD_USD = Number(GRADUATION_MCAP_USD / WAD);
+/** T: steep-tail mcap at g = 1 ($), GRADUATION − CURVE_MID. */
+export const CURVE_TAIL_USD = Number(USD_PARAMS.tail) / 1e18;
+/** Fraction of TOTAL supply sold on the curve at graduation (0.8424). */
+export const CURVE_SOLD_FRAC = Number(CURVE_SOLD_BPS) / 10_000;
+/** Curve mcap ($) at g = sold / sCurve. */
+export const curveMcapAtFrac = (g: number) => {
+  const x = Math.max(0, Math.min(1, g));
+  return CURVE_START_USD / (1 - CURVE_A * x) ** 2 + CURVE_TAIL_USD * x ** 30;
+};
+/** Inverse of curveMcapAtFrac: g = sold / sCurve at a curve mcap ($), clamped to [0, 1] (bisection; m(g) is strictly increasing). */
+export function curveFracAtMcap(mcapUsd: number): number {
+  if (!(mcapUsd > CURVE_START_USD)) return 0;
+  if (mcapUsd >= CURVE_GRAD_USD) return 1;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (curveMcapAtFrac(mid) < mcapUsd) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
 }

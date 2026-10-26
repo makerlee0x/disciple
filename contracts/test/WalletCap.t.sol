@@ -41,11 +41,16 @@ contract WalletCapTest is IntegrationBase {
         _warpPastSnipe();
         vm.startPrank(trader1);
         quote.approve(address(curve), type(uint256).max);
-        vm.expectRevert(BondingCurve.WalletCap.selector);
-        curve.buy(100_000 ether, 0, block.timestamp + 1);
-        // a small buy under the cap still works, and the cap binds cumulatively
+        // a small buy under the cap works, and the cap binds cumulatively
         uint256 out = curve.buy(10 ether, 0, block.timestamp + 1);
         assertLe(out, FeeMath.walletCap(100));
+        // mode rules v2: an over-cap buy partially fills to the cap (refund), then room 0 reverts
+        uint256 q0 = quote.balanceOf(trader1);
+        uint256 out2 = curve.buy(100_000 ether, 0, block.timestamp + 1);
+        assertEq(out + out2, FeeMath.walletCap(100), "filled to the cap");
+        assertLt(q0 - quote.balanceOf(trader1), 100_000 ether, "refunded");
+        vm.expectRevert(BondingCurve.WalletCap.selector);
+        curve.buy(1 ether, 0, block.timestamp + 1);
         vm.stopPrank();
     }
 
@@ -77,11 +82,8 @@ contract WalletCapTest is IntegrationBase {
         _warpPastSnipe();
         uint256 out = _bigBuy(a, trader1, 100_000 ether); // A stays uncapped
         assertGt(out, FeeMath.walletCap(100));
-        vm.startPrank(trader2);
-        quote.approve(address(b), type(uint256).max);
-        vm.expectRevert(BondingCurve.WalletCap.selector);
-        b.buy(100_000 ether, 0, block.timestamp + 1);
-        vm.stopPrank();
+        uint256 outB = _bigBuy(b, trader2, 100_000 ether); // B: partial fill to its 1% cap
+        assertEq(outB, FeeMath.walletCap(100));
         // tightening again later does not touch A or B
         vm.prank(owner);
         launchpad.setWalletCapBps(1);

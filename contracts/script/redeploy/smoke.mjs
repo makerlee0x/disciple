@@ -1,78 +1,216 @@
-// Post-redeploy smoke on RH testnet 46630. Env: PRIVATE_KEY (deployer; can mint test STRATEGY). GRADUATE=1 tries graduation.
-import { createPublicClient, createWalletClient, http, parseAbi, parseEther, formatEther, decodeEventLog, maxUint256 } from "viem";
+// Post-redeploy smoke for the single DISCIPLE redeploy (RH testnet 46630 or a local anvil fork of it).
+// Checks: 6-dec USDG, referralSink default, SEC-01, 7s per-second sniper tax → snipeEscrow (no 70/30 routing), graduation at
+// $33,333 with the 16-band USDG-only floor (~$1,201) and the sniper escrow in the compound bucket; AUDIT fixes (launch-fee
+// cap at USDG decimals, claim-router allowlist, graduating-buy gas <= 3.0M); AUDIT round 2 run items (canonical Multicall3 has
+// code on 46630 — #106's relay batches its graduating-buy reads through it; RewardsVault Owned2Step acceptance); AUDIT round 3:
+// every read-only check (code at every bundle address, owners, config, Multicall3, LoginGate attester != 0) runs FIRST and
+// smoke aborts before sending any tx if one fails.
+// Env:
+//   PRIVATE_KEY   buyer/launcher key (fork: anvil account 0 by default; never printed; not needed with READ_ONLY=1)
+//   RPC_URL       default https://rpc.testnet.chain.robinhood.com (FORK=1 → http://127.0.0.1:8545)
+//   FORK=1        local anvil fork: reads deployments/fork/web-bundle, pins the snipe buy to launch+1s (25%) and uses evm_increaseTime to skip the 7s window
+//   BUNDLE        web-bundle dir (default deployments/web-bundle, or deployments/fork/web-bundle with FORK=1)
+//   QUOTE         quote token for the smoke coin (default the bundle's USDG; the floor is USDG-only)
+//   GRADUATE=1    buy through graduation (default on with FORK=1)
+//   EXPECT_REFERRAL_SINK  default 0x000…000 (today's routing)
+//   EXPECT_REWARDS_VAULT_OWNER  set after REWARDS_VAULT_OWNER ran acceptOwnership() (runbook §5): checks owner() == it and
+//                 pendingOwner() == 0. Unset ⇒ owner / pendingOwner are printed only (the acceptance may not have happened yet).
+//   EXPECT_OWNER  optional: every owned contract except RewardsVault must have owner() == it (default: owner() != 0 only)
+//   READ_ONLY=1   run only the read-only checks (phase 1) and exit; never sends a tx
+// ABIs come from the bundle (forge artifacts), so AUDIT's contract fixes need no change here unless an API changes.
+import { createPublicClient, createWalletClient, http, parseAbi, formatUnits, decodeEventLog, maxUint256, zeroAddress, getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import fs from "node:fs";
-const B = JSON.parse(fs.readFileSync(new URL("../../deployments/web-bundle/addresses.json", import.meta.url))).contracts;
-const RPC = "https://rpc.testnet.chain.robinhood.com";
-const chain = { id: 46630, name: "rh", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [RPC] } } };
+import path from "node:path";
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const FORK = process.env.FORK === "1";
+const BUNDLE = path.resolve(root, process.env.BUNDLE ?? (FORK ? "deployments/fork/web-bundle" : "deployments/web-bundle"));
+const bundle = JSON.parse(fs.readFileSync(path.join(BUNDLE, "addresses.json"), "utf8"));
+const B = bundle.contracts;
+const abi = (n) => JSON.parse(fs.readFileSync(path.join(BUNDLE, "abi", `${n}.json`), "utf8"));
+const [lpAbi, curveAbi, llAbi, frAbi] = ["Launchpad", "BondingCurve", "LockedLP", "FeeRouter"].map(abi);
+const RPC = process.env.RPC_URL ?? (FORK ? "http://127.0.0.1:8545" : "https://rpc.testnet.chain.robinhood.com");
+const chain = { id: 46630, name: "rh-testnet", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [RPC] } } };
 const pc = createPublicClient({ chain, transport: http(RPC) });
-const me = privateKeyToAccount(process.env.PRIVATE_KEY);
-const wc = createWalletClient({ chain, transport: http(RPC), account: me });
-const Q = "0xd4d0eB01960AACE441bFcb323Bfaf7c3d8b555a3";
-const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)", "function mint(address,uint256)"]);
-const lp = parseAbi([
-  "struct P { string name; string ticker; string imageURI; string description; string socialsURI; address quote; uint256 creatorTaxBps; uint256 creatorBuyQuoteIn; uint256 creatorBuyMinTokensOut; uint256 deadline; }",
-  "struct R { address token; address curve; uint256 creatorTokensBought; }",
-  "function launch(P) returns (R)", "function quoteCreatorBuy(address,uint256) view returns (uint256,uint256,uint256,uint256,bool)",
-  "function creatorBuyMaxBpsOf(address) view returns (uint256)", "function creatorBuyMaxBps() view returns (uint256)", "error CreatorBuyTooLarge()",
-]);
-const curveAbi = parseAbi(["function buy(uint256,uint256,uint256) returns (uint256)", "function mcapNow() view returns (uint256)", "function priceNow() view returns (uint256)",
-  "function quotePriceUsd() view returns (uint256)", "function graduated() view returns (bool)", "function progressBps() view returns (uint256)", "function currentSnipeFeeBps() view returns (uint256)"]);
-const frAbi = parseAbi(["event SnipeFeeRouted(address indexed token, address indexed quote, uint256 toRewards, uint256 toTreasury)", "function treasury() view returns (address)", "function rewardsVault() view returns (address)"]);
-const llAbi = parseAbi(["function addLockedLiquidity(address,address,uint256,uint256)", "error Unauthorized()"]);
-const lensAbi = parseAbi(["function mcapNow(address) view returns (uint256)"]);
-const res = {}; const ok = (k, v) => { res[k] = v; console.log(k, typeof v === "bigint" ? v.toString() : v); };
-const send = async (k, p) => { const h = await wc.writeContract(p); const r = await pc.waitForTransactionReceipt({ hash: h }); if (r.status !== "success") throw new Error(k + " reverted " + h); ok(k, h); return r; };
-const bal0 = await pc.getBalance({ address: me.address });
-const dl = BigInt(Math.floor(Date.now() / 1000) + 900);
-if ((await pc.readContract({ address: Q, abi: erc20, functionName: "balanceOf", args: [me.address] })) < parseEther("5000"))
-  await send("mintTx", { address: Q, abi: erc20, functionName: "mint", args: [me.address, parseEther("20000")] });
-await send("approveLaunchpadTx", { address: Q, abi: erc20, functionName: "approve", args: [B.Launchpad, maxUint256] });
-// creator buy sizing: largest of candidates within cap
-const cands = ["1", "5", "10", "20", "50", "100"].map((x) => parseEther(x));
-let inCap = 0n, over = 0n;
-for (const c of cands) { const [, , , , ex] = await pc.readContract({ address: B.Launchpad, abi: lp, functionName: "quoteCreatorBuy", args: [Q, c] }); if (!ex) inCap = c; else if (!over) over = c; }
-ok("creatorBuyMaxBps", await pc.readContract({ address: B.Launchpad, abi: lp, functionName: "creatorBuyMaxBps" }));
-const P = (buy) => ({ name: "Smoke " + Date.now() % 1e5, ticker: "SMK", imageURI: "ipfs://smoke", description: "redeploy smoke", socialsURI: "", quote: Q, creatorTaxBps: 0n, creatorBuyQuoteIn: buy, creatorBuyMinTokensOut: 0n, deadline: dl });
-if (over) { try { await pc.simulateContract({ account: me, address: B.Launchpad, abi: lp, functionName: "launch", args: [P(over)] }); ok("overCapCreatorBuy", "UNEXPECTEDLY ALLOWED"); } catch (e) { ok("overCapCreatorBuy(" + formatEther(over) + " STRATEGY)", "rejected: " + (e.cause?.data?.errorName ?? e.shortMessage)); } }
-const sim = await pc.simulateContract({ account: me, address: B.Launchpad, abi: lp, functionName: "launch", args: [P(inCap)] });
-const r1 = await send("launchTx", sim.request);
-const { token, curve, creatorTokensBought } = sim.result;
-ok("token", token); ok("curve", curve);
-const cap = (7_000_000_000n * 10n ** 18n * (await pc.readContract({ address: B.Launchpad, abi: lp, functionName: "creatorBuyMaxBpsOf", args: [token] }))) / 10000n;
-ok("creatorBuy", `${formatEther(inCap)} STRATEGY -> ${formatEther(creatorTokensBought)} tokens (cap ${formatEther(cap)}) withinCap=${creatorTokensBought <= cap}`);
-// snipe buy inside the 7s window
-await send("approveCurveTx", { address: Q, abi: erc20, functionName: "approve", args: [curve, maxUint256] });
-const tre = await pc.readContract({ address: B.FeeRouter, abi: frAbi, functionName: "treasury" });
-const rv = await pc.readContract({ address: B.FeeRouter, abi: frAbi, functionName: "rewardsVault" });
-const bq = async (a) => pc.readContract({ address: Q, abi: erc20, functionName: "balanceOf", args: [a] });
-const [rv0, tr0, fr0] = [await bq(rv), await bq(tre), await bq(B.FeeRouter)];
-ok("snipeFeeBpsBeforeBuy", await pc.readContract({ address: curve, abi: curveAbi, functionName: "currentSnipeFeeBps" }));
-const r2 = await send("snipeBuyTx", { address: curve, abi: curveAbi, functionName: "buy", args: [parseEther("10"), 0n, dl] });
-for (const l of r2.logs) { try { const d = decodeEventLog({ abi: frAbi, ...l }); if (d.eventName === "SnipeFeeRouted") {
-  const { toRewards, toTreasury } = d.args; const t = toRewards + toTreasury;
-  ok("snipeSplit", `rewards ${formatEther(toRewards)} / treasury ${formatEther(toTreasury)} = ${Number((toRewards * 10000n) / t) / 100}% / ${Number((toTreasury * 10000n) / t) / 100}%`);
-} } catch {} }
-ok("balanceDeltas", `RewardsVault +${formatEther((await bq(rv)) - rv0)} treasury +${formatEther((await bq(tre)) - tr0)} FeeRouter +${formatEther((await bq(B.FeeRouter)) - fr0)} (treasury=${tre}, deployer=${me.address})`);
-// SEC-01
-try { await pc.simulateContract({ account: me, address: B.LockedLP, abi: llAbi, functionName: "addLockedLiquidity", args: [token, Q, 1n, 1n] }); ok("SEC-01", "UNEXPECTEDLY ALLOWED"); }
-catch (e) { ok("SEC-01 addLockedLiquidity from EOA", "rejected: " + (e.cause?.data?.errorName ?? e.shortMessage)); }
-// mcapNow
-const mcheck = async (tag) => {
-  const [m, p, q, lens] = await Promise.all(["mcapNow", "priceNow", "quotePriceUsd"].map((f) => pc.readContract({ address: curve, abi: curveAbi, functionName: f })).concat(pc.readContract({ address: B.MarketLens, abi: lensAbi, functionName: "mcapNow", args: [token] })));
-  const exp = (((p * 7_000_000_000n * 10n ** 18n) / 10n ** 18n) * q) / 10n ** 18n;
-  ok("mcapNow " + tag, `curve $${formatEther(m)} expected(price*supply*quoteUsd) $${formatEther(exp)} lens $${formatEther(lens)} match=${m === exp}`);
+const KEY = process.env.PRIVATE_KEY ?? (FORK ? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" : undefined);
+const me = KEY ? privateKeyToAccount(KEY) : null; // READ_ONLY=1 needs no key
+const wc = me ? createWalletClient({ chain, transport: http(RPC), account: me }) : null;
+const USDG = getAddress(bundle.tokens.USDG.address);
+const Q = getAddress(process.env.QUOTE ?? USDG);
+const GRADUATE = process.env.GRADUATE ? process.env.GRADUATE === "1" : FORK;
+const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)", "function mint(address,uint256)", "function decimals() view returns (uint8)", "function totalSupply() view returns (uint256)"]);
+
+const res = { rpc: FORK ? "local anvil fork" : RPC, checks: {}, info: {} };
+let fails = 0;
+const info = (k, v) => { res.info[k] = v; console.log("  ", k, typeof v === "bigint" ? v.toString() : v); };
+const check = (k, pass, detail = "") => { res.checks[k] = { pass, detail }; if (!pass) fails++; console.log(pass ? "PASS" : "FAIL", k, detail); };
+const near = (a, b, bps) => (a > b ? a - b : b - a) * 10000n <= b * BigInt(bps);
+const rd = (address, a, functionName, args = []) => pc.readContract({ address, abi: a, functionName, args });
+const send = async (k, p) => {
+  const h = await wc.writeContract({ ...p, account: me });
+  const r = await pc.waitForTransactionReceipt({ hash: h });
+  if (r.status !== "success") throw new Error(k + " reverted " + h);
+  info(k + " gasUsed", r.gasUsed);
+  return r;
 };
-await mcheck("pre-grad");
-if (process.env.GRADUATE === "1") {
-  for (let i = 0; i < 6 && !(await pc.readContract({ address: curve, abi: curveAbi, functionName: "graduated" })); i++) {
-    const amt = parseEther("2000");
-    if ((await bq(me.address)) < amt) await send("mintTx" + i, { address: Q, abi: erc20, functionName: "mint", args: [me.address, parseEther("20000")] });
-    await send("gradBuyTx" + i, { address: curve, abi: curveAbi, functionName: "buy", args: [amt, 0n, dl] });
-    ok("progressBps", await pc.readContract({ address: curve, abi: curveAbi, functionName: "progressBps" }));
-  }
-  ok("graduated", await pc.readContract({ address: curve, abi: curveAbi, functionName: "graduated" }));
-  if (res.graduated) await mcheck("post-grad (v4 pool)");
+const decodeAll = (logs, abis) => logs.flatMap((l) => abis.flatMap((a) => { try { return [{ ...decodeEventLog({ abi: a, ...l }), address: l.address }]; } catch { return []; } }));
+const now = async () => (await pc.getBlock()).timestamp;
+
+// 1. read-only checks (AUDIT round 3 on #131): all of them run before any tx; any FAIL aborts before the first send.
+// 1a. code at every bundle address (eth_getCode)
+const noCode = [];
+for (const [n, a] of [...Object.entries(B), ["USDG", USDG]]) { const c = await pc.getCode({ address: getAddress(a) }); if (!c || c === "0x") noCode.push(`${n} ${a}`); }
+check("code at every bundle address (eth_getCode)", noCode.length === 0, noCode.length ? `no code: ${noCode.join(", ")}` : `${Object.keys(B).length} contracts + USDG`);
+// 1b. owners: every owned contract has a nonzero owner (== EXPECT_OWNER when set); RewardsVault is checked separately below
+const ownerWant = process.env.EXPECT_OWNER ? getAddress(process.env.EXPECT_OWNER) : null;
+const badOwner = [];
+for (const n of Object.keys(B)) {
+  if (n === "RewardsVault" || !fs.existsSync(path.join(BUNDLE, "abi", `${n}.json`))) continue;
+  const a = abi(n);
+  if (!a.some((x) => x.type === "function" && x.name === "owner")) continue;
+  const o = await rd(B[n], a, "owner");
+  info(`${n}.owner`, o);
+  if (o === zeroAddress || (ownerWant && o !== ownerWant)) badOwner.push(`${n} ${o}`);
 }
-ok("ethSpentSmoke", formatEther(bal0 - (await pc.getBalance({ address: me.address }))));
-fs.writeFileSync(new URL("../../deployments/rh-testnet-46630.smoke.json", import.meta.url), JSON.stringify(res, (k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+check(`owned contracts: owner() ${ownerWant ? "== EXPECT_OWNER" : "!= 0"}`, badOwner.length === 0, badOwner.join(", ") || (ownerWant ?? "all nonzero"));
+// 1c. PVE LoginGate: Deploy.s.sol falls back to attester 0x0 when PVE_ATTESTER is unset (no login could ever be attested)
+const lgAbi = abi("LoginGate");
+const attester = await rd(B.LoginGate, lgAbi, "attester");
+check("LoginGate.attester != 0 (PVE_ATTESTER set at deploy)", attester !== zeroAddress, attester);
+check("Launchpad.loginGate() == LoginGate", getAddress(await rd(B.Launchpad, lpAbi, "loginGate")) === getAddress(B.LoginGate), B.LoginGate);
+// 1d. config
+const dec = await rd(USDG, erc20, "decimals");
+check("USDG decimals == 6", dec === 6, `USDG ${USDG} decimals ${dec}`);
+const qDec = await rd(Q, erc20, "decimals");
+const U = (x) => BigInt(Math.round(x * 1e6)) * 10n ** BigInt(qDec) / 1_000_000n; // human → quote raw
+const fmt = (x) => formatUnits(x, qDec);
+const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? zeroAddress);
+const sink = await rd(B.FeeRouter, frAbi, "referralSink");
+check("FeeRouter.referralSink default", sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
+// redeploy pack (lee 2026-10-24): no legacy AntiSnipe; owner-settable KOL creator-share cut; launchAnon maxFee; Token.burn
+check("Launchpad.antiSnipe() == 0 (legacy AntiSnipe not deployed)", (await rd(B.Launchpad, lpAbi, "antiSnipe")) === zeroAddress, "pack item 8");
+check("no AntiSnipe in the bundle", !("AntiSnipe" in B), Object.keys(B).length + " contracts");
+check("no stale AntiSnipe ABI in the bundle", !fs.existsSync(path.join(BUNDLE, "abi", "AntiSnipe.json")), "AUDIT stale ABIs");
+const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? 200);
+const kolBps = BigInt(await rd(B.FeeRouter, frAbi, "kolCreatorShareBps"));
+check("FeeRouter.kolCreatorShareBps default", kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
+check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6 && x.inputs[5].name === "maxFee"), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee)");
+const mmWant = Number(process.env.EXPECT_MAX_MODE ?? 2);
+const mm = Number(await rd(B.Launchpad, lpAbi, "maxMode"));
+check("Launchpad.maxMode default == Hard", mm === mmWant, `${mm} (want ${mmWant}; owner-settable, bounds [2,15])`);
+const rtAbiNames = new Set(abi("DiscipleRouter").filter((x) => x.type === "function").map((x) => x.name));
+check("DiscipleRouter has swapUsdgToQuote / swapQuoteToUsdg / quoteUsdgQuoteSwap", ["swapUsdgToQuote", "swapQuoteToUsdg", "quoteUsdgQuoteSwap", "launchWithUsdg"].every((n) => rtAbiNames.has(n)), "pack item 2");
+check("Token ABI has burn / burnFrom", fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? ["burn", "burnFrom"].every((n) => abi("Token").some((x) => x.type === "function" && x.name === n)) : true, fs.existsSync(path.join(BUNDLE, "abi", "Token.json")) ? "pack item 5" : "Token ABI not in bundle (skipped)");
+const rv = await rd(B.FeeRouter, frAbi, "rewardsVault");
+check("FeeRouter.rewardsVault set", rv !== zeroAddress && (!B.RewardsVault || rv === getAddress(B.RewardsVault)), rv);
+// AUDIT fixes (contracts/docs/redeploy-runbook.md §11)
+const alAbi = abi("AnonLauncher");
+const maxFee = await rd(B.AnonLauncher, alAbi, "MAX_LAUNCH_FEE");
+check("AnonLauncher.MAX_LAUNCH_FEE == 5 * 10**usdg.decimals()", maxFee === 5n * 10n ** BigInt(dec), `${maxFee} (want ${5n * 10n ** BigInt(dec)}; #115 b6a9117)`);
+const lf = await rd(B.AnonLauncher, alAbi, "launchFee");
+check("AnonLauncher.launchFee <= MAX_LAUNCH_FEE", lf <= maxFee, `${formatUnits(lf, dec)} USDG`);
+check("FeeRouter.isClaimRouter(DiscipleRouter)", (await rd(B.FeeRouter, frAbi, "isClaimRouter", [B.DiscipleRouter])) === true, B.DiscipleRouter);
+const rvAbi = abi("RewardsVault");
+const [rvOwner, rvPending] = [await rd(rv, rvAbi, "owner"), await rd(rv, rvAbi, "pendingOwner")];
+info("RewardsVault owner / pendingOwner", `${rvOwner} / ${rvPending} (Owned2Step: REWARDS_VAULT_OWNER must acceptOwnership)`);
+if (process.env.EXPECT_REWARDS_VAULT_OWNER) {
+  const want = getAddress(process.env.EXPECT_REWARDS_VAULT_OWNER);
+  check("RewardsVault.owner() == REWARDS_VAULT_OWNER, pendingOwner 0 (acceptOwnership done)", rvOwner === want && rvPending === zeroAddress, `owner ${rvOwner}, pendingOwner ${rvPending} (want ${want})`);
+}
+// Multicall3 at the canonical address (AUDIT r2 on #106/#131): read-only eth_getCode. #106's relay (web/lib/server/gradBuy.ts
+// chainGradReads) batches its graduating-buy reads through it with allowFailure=false; no code ⇒ every graduating buy falls
+// back to normal gas caps. On FORK=1 anvil serves the code from the forked live chain, so the check is meaningful there too.
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const mc3 = await pc.getCode({ address: MULTICALL3 });
+check("Multicall3 has code at 0xcA11…CA11 (eth_getCode)", !!mc3 && mc3 !== "0x", `${MULTICALL3}: ${mc3 && mc3 !== "0x" ? (mc3.length - 2) / 2 : 0} bytes`);
+const outDir = path.join(root, "deployments", FORK ? "fork" : "");
+const finish = () => {
+  console.log(res.result);
+  fs.writeFileSync(path.join(outDir, "rh-testnet-46630.smoke.json"), JSON.stringify(res, (k, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n");
+  process.exit(fails ? 1 : 0);
+};
+res.readOnlyChecks = Object.keys(res.checks).length;
+if (fails) { res.result = `ABORT: ${fails} read-only check(s) failed; no tx sent`; finish(); }
+if (process.env.READ_ONLY === "1") { res.result = `PASS (read-only, ${res.readOnlyChecks} checks; no tx sent)`; finish(); }
+if (!me) throw new Error("PRIVATE_KEY unset (only READ_ONLY=1 runs without a key)");
+
+// 2. launch (TRENCH; 10-quote creator buy, which is sniper-exempt)
+const ensure = async (amt) => { if ((await rd(Q, erc20, "balanceOf", [me.address])) < amt) await send("mint", { address: Q, abi: erc20, functionName: "mint", args: [me.address, amt * 2n] }); };
+await ensure(U(30000));
+await send("approveLaunchpad", { address: Q, abi: erc20, functionName: "approve", args: [B.Launchpad, maxUint256] });
+const dl = (await now()) + 3600n;
+const P = { name: "Smoke " + (Date.now() % 1e5), ticker: "SMK", imageURI: "ipfs://smoke", description: "redeploy smoke", socialsURI: "", quote: Q, creatorTaxBps: 0n, creatorBuyQuoteIn: U(10), creatorBuyMinTokensOut: 0n, deadline: dl };
+const sim = await pc.simulateContract({ account: me, address: B.Launchpad, abi: lpAbi, functionName: "launch", args: [P] });
+await send("launch", sim.request);
+const { token, curve } = sim.result;
+info("token", token); info("curve", curve);
+const SUPPLY = await rd(token, erc20, "totalSupply");
+
+// 3. SEC-01
+try { await pc.simulateContract({ account: me, address: B.LockedLP, abi: llAbi, functionName: "addLockedLiquidity", args: [token, Q, 1n, 1n] }); check("SEC-01 addLockedLiquidity from EOA rejected", false, "UNEXPECTEDLY ALLOWED"); }
+catch (e) { check("SEC-01 addLockedLiquidity from EOA rejected", true, e.cause?.data?.errorName ?? e.shortMessage); }
+
+// 4. sniper tax inside the 7s window → snipeEscrow (replaces the old 70/30 SnipeFeeRouted split check).
+//    Per-second table (Constants.ANTI_SNIPE_TABLE / FeeMath.snipeBps): 99% · 25% · 3% · 1% · 0.3% · 0.1% · 0.03%, 0 from 7s.
+const SNIPE_BPS = [9900n, 2500n, 300n, 100n, 30n, 10n, 3n];
+const launchTime = await rd(curve, curveAbi, "launchTime");
+const bq = (a) => rd(Q, erc20, "balanceOf", [a]);
+const [rv0, esc0] = [await bq(rv), await rd(curve, curveAbi, "snipeEscrow")];
+check("First BOOST (creator launch buy) is sniper-exempt", esc0 === 0n, `snipeEscrow after launch ${fmt(esc0)}`);
+await send("approveCurve", { address: Q, abi: erc20, functionName: "approve", args: [curve, maxUint256] });
+const snipeIn = U(10);
+let pinned = false;
+if (FORK && (await now()) <= launchTime + 1n) { await pc.request({ method: "evm_setNextBlockTimestamp", params: [Number(launchTime + 1n)] }); pinned = true; }
+const r2 = await send("snipeBuy", { address: curve, abi: curveAbi, functionName: "buy", args: [snipeIn, 0n, dl] });
+const snipeAt = (await pc.getBlock({ blockNumber: r2.blockNumber })).timestamp - launchTime;
+const esc1 = await rd(curve, curveAbi, "snipeEscrow");
+const snipeTaken = esc1 - esc0;
+const wantBps = snipeAt < 7n ? SNIPE_BPS[Number(snipeAt)] : 0n;
+info("snipe buy elapsed since launch (s) / table bps", `${snipeAt} / ${wantBps}${pinned ? " (fork: pinned to launch+1s)" : ""}`);
+check("sniper tax inside 7s = table value at the buy's second (mid-window)", snipeAt < 7n && snipeTaken === (snipeIn * wantBps) / 10000n && (!pinned || wantBps === 2500n),
+  `${fmt(snipeTaken)} of ${fmt(snipeIn)} at t=${snipeAt}s (want ${wantBps} bps = ${fmt((snipeIn * wantBps) / 10000n)})`);
+const routed = decodeAll(r2.logs, [frAbi]).filter((e) => e.eventName === "SnipeFeeRouted");
+check("no 70/30 SnipeFeeRouted on a v2 curve", routed.length === 0, `${routed.length} events`);
+check("RewardsVault gets nothing at buy time", (await bq(rv)) === rv0, `delta ${fmt((await bq(rv)) - rv0)}`);
+
+// 5. from 7s: tax 0
+if (FORK) { await pc.request({ method: "evm_increaseTime", params: [8] }); await pc.request({ method: "evm_mine", params: [] }); }
+else { for (let i = 0; i < 6 && (await now()) < launchTime + 7n; i++) await new Promise((r) => setTimeout(r, 2000)); }
+check("sniper tax 0 from 7s", (await now()) >= launchTime + 7n && (await rd(curve, curveAbi, "currentSnipeFeeBps")) === 0n, `t=${(await now()) - launchTime}s`);
+
+// 6. graduation
+const mcap = async () => rd(curve, curveAbi, "mcapNow");
+info("pre-grad mcapNow USD", formatUnits(await mcap(), 18));
+if (GRADUATE) {
+  const escPre = await rd(curve, curveAbi, "snipeEscrow");
+  const amt = U(Number(process.env.GRAD_BUY ?? 9000));
+  const gq = await rd(curve, curveAbi, "quoteBuy", [amt]);
+  check("quoteBuy(grad size) graduates", gq.graduates === true, `in ${fmt(amt)}, refund ${fmt(gq.refund)}, mcapAfterUsd ${formatUnits(gq.mcapAfterUsd, 18)}`);
+  await ensure(amt);
+  const r3 = await send("graduationBuy", { address: curve, abi: curveAbi, functionName: "buy", args: [amt, 0n, dl] });
+  res.info.graduationGas = r3.gasUsed.toString();
+  // tx gasUsed (execution + 21k intrinsic + calldata); AUDIT measured ≈ 2.764M execution at 6-dec USDG. Same 3.0M ceiling as forge FloorSeedGas.
+  check("graduating buy gas <= 3.0M (6-dec USDG, ≈2.76M expected)", r3.gasUsed <= 3_000_000n, r3.gasUsed.toString());
+  const ev = decodeAll(r3.logs, [curveAbi, llAbi]);
+  const g = ev.find((e) => e.eventName === "GraduatedToV4");
+  check("graduated (GraduatedToV4 + graduated())", !!g && (await rd(curve, curveAbi, "graduated")), g ? `poolId ${g.args.poolId} tokenLiq ${formatUnits(g.args.tokenLiq, 18)} quoteLiq ${fmt(g.args.quoteLiq)}` : "no event");
+  const sold = await rd(curve, curveAbi, "tokensSold");
+  check("tokens sold at graduation = 84.24% of supply", near(sold, SUPPLY * 8424n / 10000n, 1), `${formatUnits(sold, 18)} / ${formatUnits(SUPPLY, 18)}`);
+  const m = await mcap();
+  check("graduation mcap = $33,333 (v4 pool spot, ±0.1%)", near(m, 33333n * 10n ** 18n, 10), `$${formatUnits(m, 18)} (quote-time $${formatUnits(gq.mcapAfterUsd, 18)})`);
+  const fs1 = ev.find((e) => e.eventName === "FloorSeeded");
+  const [baseTick, bands, quoteSeeded] = await rd(B.LockedLP, llAbi, "floorInfo", [token]);
+  check("FloorSeeded event, 16 bands", !!fs1 && Number(fs1.args.bands) === 16 && bands === 16, `event bands ${fs1?.args.bands}, floorInfo bands ${bands}, baseTick ${baseTick}`);
+  check("floor quote ≈ $1,201.27 (±1%)", Q === USDG && near(quoteSeeded, U(1201.27), 100), `${fmt(quoteSeeded)} USDG seeded, dust→bucket ${fs1 ? fmt(fs1.args.dustToBucket) : "?"}`);
+  const fb = await rd(B.LockedLP, llAbi, "floorBands", [token]);
+  const sumQ = fb.reduce((a, b) => a + b.quoteAmount, 0n);
+  check("floorBands: 16, USDG-only (tokenAmount 0, quote > 0)", fb.length === 16 && fb.every((b) => b.tokenAmount === 0n && b.quoteAmount > 0n && b.liquidity > 0n), `quote per band ${fb.map((b) => fmt(b.quoteAmount)).join(", ")}`);
+  check("floorBands sum ≈ quoteSeeded (±0.01%)", near(sumQ, quoteSeeded, 1), `${fmt(sumQ)} vs ${fmt(quoteSeeded)}`);
+  const se = ev.find((e) => e.eventName === "SnipeEscrowToLP");
+  const [, bucketQ] = await rd(B.LockedLP, llAbi, "compoundBucket", [token]);
+  check("sniper escrow → compound bucket", !!se && se.args.amount === escPre && (await rd(curve, curveAbi, "snipeEscrow")) === 0n && bucketQ >= escPre,
+    `escrow ${fmt(escPre)}, SnipeEscrowToLP ${se ? fmt(se.args.amount) : "none"}, bucket quote ${fmt(bucketQ)}`);
+  check("progressBps = 10000", (await rd(curve, curveAbi, "progressBps")) === 10000n);
+}
+res.result = fails === 0 ? "PASS" : `FAIL (${fails})`;
+finish();
