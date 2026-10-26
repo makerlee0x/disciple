@@ -85,6 +85,10 @@ contract Launchpad is ILaunchpad, Owned2Step {
     ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
     uint256 public snipeEscrowTimeout = Constants.SNIPE_ESCROW_TIMEOUT;
 
+    /// @notice Highest launch mode accepted (default Hard). Owner can open a future mode (<= 15) once a CurveDeployer
+    ///         that understands it is set; the current BondingCurve still rejects mode > Hard (BadParams).
+    uint8 public maxMode = Constants.MODE_PVP;
+
     error InvalidMetadata();
     error TaxTooHigh();
     error CreatorBuyTooLarge();
@@ -96,6 +100,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error CreatorBuyMaxTooHigh();
     error WalletCapTooHigh();
     error BadMode();
+    error MaxModeOutOfBounds();
     error LoginGateUnset();
     error CrewTipThresholdOutOfBounds();
     error SnipeEscrowTimeoutOutOfBounds();
@@ -122,6 +127,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event LoginGateSet(address indexed gate);
     event CrewTipThresholdSet(uint256 bps);
     event SnipeEscrowTimeoutSet(uint256 secs);
+    event MaxModeSet(uint8 mode);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
@@ -192,6 +198,14 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
         crewTipThresholdBps = bps;
         emit CrewTipThresholdSet(bps);
+    }
+
+    /// @notice Protocol owner sets the highest launch mode for FUTURE launches (bounds [Hard, 15]).
+    function setMaxMode(uint8 m) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (m < Constants.MODE_PVP || m > 15) revert MaxModeOutOfBounds();
+        maxMode = m;
+        emit MaxModeSet(m);
     }
 
     /// @notice Protocol owner sets the sniper-escrow timeout for FUTURE launches (seconds, bounded).
@@ -270,7 +284,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
         internal
         returns (LaunchResult memory result)
     {
-        if (mode > Constants.MODE_PVP) revert BadMode();
+        if (mode > maxMode) revert BadMode();
         address gate;
         if (mode == Constants.MODE_PVE) {
             gate = loginGate;

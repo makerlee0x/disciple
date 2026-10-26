@@ -15,5 +15,5 @@ export {
   GAS,
   minShotUsd,
   fmtUsd,
-  gradProgress,
 } from "../config";
+export { graduationPct as gradProgress } from "../mcap";

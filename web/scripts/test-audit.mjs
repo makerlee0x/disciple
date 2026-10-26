@@ -48,8 +48,8 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(want.every(([v, w]) => engFmt(v) === w), "engine fmtMoney (buy tiles / labels) matches lib/pnl.ts");
 }
 // 3) engine sell guard is the first thing trade() checks for sells
-{ const tr = eng.slice(eng.indexOf("function trade(side,opt){"), eng.indexOf("function submit(")); const g = tr.indexOf("!hasTokens()"), th = tr.indexOf("applyThrust(");
-  ok(g > 0 && g < th, "engine: no-tokens guard runs before any thrust/bomb visual or submit");
+{ const tr = eng.slice(eng.indexOf("function trade(side,opt){"), eng.indexOf("function submit(")); const g = tr.indexOf("!hasTokens()"), th = tr.indexOf("submit(side");
+  ok(g > 0 && g < th, "engine: no-tokens guard runs before submit (thrust/flare only on the confirmed fill, @fillthrust)");
   ok(/md\.usd>S\.hold\.valueUsd/.test(tr), "engine: paper sell capped at holdings value"); }
 // 4) select-then-fire: clicks only select, shortcuts fire, DUMP/Shift sells the selected %
 { const pd = eng.slice(eng.indexOf("cv.addEventListener('pointerdown'"), eng.indexOf("addEventListener('resize',resize)"));

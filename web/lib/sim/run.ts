@@ -100,6 +100,7 @@ export class SimRun {
     if (cluster) wallet = "0xb0b" + (wallet.slice(5, 38)) + "c" + cluster.toString(16);   // clustered wallets share a visible prefix/suffix
     const name = arch === "bundler" ? `Bundle#${cluster}·${nm}` : arch === "rugger" ? "DEV" : arch === "cto" ? "CTO Council" : `${A.label.split(" ")[0]}·${nm}${id}`;
     const launchy = arch === "sniper" || arch === "bundler" || arch === "rugger";
+    // launch wallets act in the first blocks after the sniper tax reaches 0 (antiSnipeDurationS = 7 s: 7.2–11 s; the dev 7.2–7.6 s)
     const b: Bot = { id, name, wallet, arch, cash, cash0: cash, pos: emptyPosition(), cluster, joinT: t, active: arch !== "cto",
       nextT: launchy && t === 0 ? this.cfg.launch.antiSnipeDurationS + this.r(0.2, arch === "rugger" ? 0.6 : 4)
         : t === 0 ? this.r(...(D.startS ?? [0.5, 8]) as [number, number]) : t + this.r(0.5, 60 / Math.max(0.1, A.rate)), buys: 0, sells: 0, volume: 0,
@@ -240,7 +241,7 @@ export class SimRun {
   // ── bots ─────────────────────────────────────────────────────────────────────────────────────────────
   inWave() { return this.t < this.waveUntil; }
   private botBuy(b: Bot, frac: number, react?: ReactKind) {
-    // non-launch bots don't pay the anti-snipe tax: they nibble during the first 7 s, full size after
+    // launch bots wait out the sniper tax (buys only, 99% at 0s … 0.03% at 6s, 0 from 7s); everyone else nibbles through it, full size after
     const as = b.arch === "sniper" || b.arch === "bundler" || b.arch === "rugger" ? 0 : this.m.antiSnipe(this.t);
     if (as > 0) frac *= Math.max(0.04, 1 - as) ** 2;
     const usd = Math.min(b.cash, b.cash * frac); if (usd >= 1) this.exec("buy", b, usd, react); }
@@ -336,7 +337,7 @@ export class SimRun {
         return;
       }
       case "sniper": {
-        if (!b.buys && age < 30) return this.botBuy(b, bf());
+        if (!b.buys && age < this.cfg.launch.antiSnipeDurationS + 20) return this.botBuy(b, bf());   // first block after the sniper tax hits 0 (7 s table), not into it; a sniper that misses that ~20 s launch window doesn't buy late as a "sniper"
         if (this.adapt(b, F, u)) return;
         if (has && (u > A.tp * this.r(0.8, 1.6) || u < A.sl || (age > 120 && R() < 0.15))) return this.botSell(b, sf());
         if (!has && F.mom > 0.05 && R() < 0.15) return this.botBuy(b, 0.3);

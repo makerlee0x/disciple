@@ -127,6 +127,10 @@ contract DiscipleRouter is IUnlockCallback {
     event UsdgTrade(
         address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve
     );
+    /// @notice swapUsdgToQuote (`toQuote`) / swapQuoteToUsdg on the registered USDG/`quote` pool.
+    event UsdgQuoteSwap(
+        address indexed trader, address indexed quote, bool toQuote, uint256 amountIn, uint256 amountOut, address recipient
+    );
 
     struct Hop {
         PoolKey key;
@@ -393,7 +397,7 @@ contract DiscipleRouter is IUnlockCallback {
     ///         CALLER is the creator (Token.creator, fees, Easy login + creator lock, sniper exemption); this router
     ///         only pays. Any First BOOST partial-fill refund (above the mode's max) is swapped back and returned in
     ///         USDG. `p.creatorBuyQuoteIn` is ignored; `p.creatorBuyMinTokensOut` / `p.deadline` apply.
-    ///         Launches are NOT in the session-key policy (they stay a wallet confirmation).
+    ///         Session keys: DiscipleSessionPolicy 1.4.x may sign this (dollar First BOOST), capped like buyWithUsdg.
     /// @param minQuoteIn minimum pair coin out of the USDG leg (slippage guard on the swap)
     function launchWithUsdg(ILaunchpad.LaunchParams calldata p, uint8 mode, uint256 usdgIn, uint256 minQuoteIn)
         external
@@ -446,6 +450,61 @@ contract DiscipleRouter is IUnlockCallback {
         usdgOut = _toUsdg(u, q, amt, msg.sender);
         if (usdgOut < minUsdgOut) revert Slippage();
         emit UsdgCreatorFeesClaimed(msg.sender, token, amt, usdgOut);
+        _exit();
+    }
+
+    /// @notice Swap `usdgIn` USDG (from msg.sender) for pair coin `quote` (to `recipient`) on the registered USDG/quote
+    ///         pool: the same leg buyWithUsdg / launchWithUsdg use. For a dollar-priced First BOOST or a buy on a
+    ///         non-USDG pair. Router impact cap applies; no custody.
+    /// @param minOut minimum `quote` out (must be > 0)
+    function swapUsdgToQuote(address quote, uint256 usdgIn, uint256 minOut, address recipient, uint256 deadline)
+        external
+        returns (uint256 out)
+    {
+        out = _usdgQuoteSwap(quote, true, usdgIn, minOut, recipient, deadline);
+    }
+
+    /// @notice Swap `quoteIn` of pair coin `quote` (from msg.sender) for USDG (to `recipient`) on the registered
+    ///         USDG/quote pool: the same leg sellToUsdg uses. Cashes non-USDG pair loot out to dollars.
+    /// @param minOut minimum USDG out (must be > 0)
+    function swapQuoteToUsdg(address quote, uint256 quoteIn, uint256 minOut, address recipient, uint256 deadline)
+        external
+        returns (uint256 out)
+    {
+        out = _usdgQuoteSwap(quote, false, quoteIn, minOut, recipient, deadline);
+    }
+
+    /// @notice Exact-in quote for swapUsdgToQuote (`toQuote`) / swapQuoteToUsdg (simulate-and-revert; eth_call).
+    function quoteUsdgQuoteSwap(address quote, bool toQuote, uint256 amountIn)
+        external
+        returns (uint256 amountOut, uint256 impactBps)
+    {
+        address u = usdg;
+        if (u == address(0)) revert UsdgNotConfigured();
+        if (quote == u) revert BadParam();
+        Hop[] memory h = new Hop[](1);
+        h[0] = _usdgHop(u, quote, toQuote);
+        return _simulate(msg.sender, h, amountIn, address(0));
+    }
+
+    function _usdgQuoteSwap(
+        address quote,
+        bool toQuote,
+        uint256 amountIn,
+        uint256 minOut,
+        address recipient,
+        uint256 deadline
+    ) private returns (uint256 out) {
+        _enter();
+        _preflight(amountIn, minOut, deadline);
+        if (recipient == address(0)) revert ZeroRecipient();
+        address u = usdg;
+        if (quote == u) revert BadParam();
+        Hop[] memory h = new Hop[](1);
+        h[0] = _usdgHop(u, quote, toQuote);
+        out = _route(msg.sender, recipient, h, amountIn);
+        if (out < minOut) revert Slippage();
+        emit UsdgQuoteSwap(msg.sender, quote, toQuote, amountIn, out, recipient);
         _exit();
     }
 

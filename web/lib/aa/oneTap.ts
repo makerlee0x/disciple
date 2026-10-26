@@ -1,5 +1,5 @@
 /**
- * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.3.0, v4 stack). Shared by session.ts (browser),
+ * Pure helpers for on-chain one-tap sessions (DiscipleSessionPolicy 1.4.1, v5 stack). Shared by session.ts (browser),
  * WalletButton, and scripts/test-session-e2e.mts (node), so tests exercise the exact logic the app uses.
  */
 import { toFunctionSelector, type Address, type Hex } from "viem";
@@ -8,17 +8,18 @@ import type { Call } from "./core";
 /**
  * Expected DiscipleSessionPolicy.moduleId(); enableOneTap refuses a policy that reports anything else.
  * Config, so the redeploy swaps it with the address: NEXT_PUBLIC_SESSION_POLICY (address) +
- * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.3.0 = the v4 testnet policy, contracts/deployments/rh-testnet-46630.json
- * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.3.0", USDG routing).
+ * NEXT_PUBLIC_SESSION_POLICY_VERSION (default 1.4.1 = the v5 testnet policy, contracts/deployments/rh-testnet-46630.json
+ * addons.DiscipleSessionPolicy; moduleId() "disciple.session-policy.1.4.1": USDG routing, USDG gas paymaster, USDG<->pair swaps).
  */
-export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.3.0";
+export const SESSION_POLICY_VERSION = process.env.NEXT_PUBLIC_SESSION_POLICY_VERSION || "1.4.1";
 /**
  * Deployed DiscipleSessionPolicy per chain — source of truth: contracts/deployments/rh-testnet-46630.json
- * (addons.DiscipleSessionPolicy.address, v4, constructor referralRegistry 0x0aa4…9a9c). NEXT_PUBLIC_SESSION_POLICY overrides.
- * (v3's 0x0399…2be2 / 1.1.1 is superseded: its sessions were installed against the v3 router/launchpad.)
+ * (addons.DiscipleSessionPolicy.address, v5 1.4.1, constructor referralRegistry 0xfe52…5aaf). NEXT_PUBLIC_SESSION_POLICY
+ * overrides. (v4's 0x3d36…6e27 / 1.3.0 and v3's 0x0399…2be2 / 1.1.1 are superseded: their sessions were installed against
+ * the old routers / launchpads.) Must stay paired with SESSION_POLICY_VERSION's default.
  */
 export const DEFAULT_SESSION_POLICY: Record<number, Address> = {
-  46630: "0x3d3667e8880c6b633b424d645b8004788b1d6e27",
+  46630: "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac",
 };
 export const sessionPolicyFor = (chainId: number, env = process.env.NEXT_PUBLIC_SESSION_POLICY): Address | "" =>
   (/^0x[0-9a-fA-F]{40}$/.test(env || "") ? (env as Address) : DEFAULT_SESSION_POLICY[chainId] ?? "");
@@ -26,6 +27,11 @@ export const SESSION_POLICY_MODULE_ID = `disciple.session-policy.${SESSION_POLIC
 const verAtLeast = (v: string, min: string) => { const a = v.split(".").map(Number), b = min.split(".").map(Number); for (let i = 0; i < 3; i++) { if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); } return true; };
 /** Policy 1.3.0+ lets the session key sign buyWithUsdg / sellToUsdg; before that those go to the owner signer. */
 export const policyHasUsdg = (v = SESSION_POLICY_VERSION) => verAtLeast(v, "1.3.0");
+/** 1.4.0+: the policy allows the exact USDG gas approve to its (immutable) DisciplePaymaster. */
+export const policyHasPaymaster = (v = SESSION_POLICY_VERSION) => verAtLeast(v, "1.4.0");
+/** 1.4.1+: DiscipleRouter.swapUsdgToQuote / swapQuoteToUsdg are session-signable (P_ROUTER_BUY / P_ROUTER_SELL, recipient
+ *  pinned to the account, live-quote minOut, input counted against its cap). */
+export const policyHasUsdgSwaps = (v = SESSION_POLICY_VERSION) => verAtLeast(v, "1.4.1");
 export const moduleIdAbi = [{ type: "function", name: "moduleId", stateMutability: "pure", inputs: [], outputs: [{ type: "string" }] }] as const;
 /** P_REFERRAL (1<<10): ReferralRegistry.tryAttribute(wallet == account, referrer). Not in the SDK's TRADE_PERMS. */
 export const P_REFERRAL = BigInt(1) << BigInt(10);
@@ -43,10 +49,16 @@ const SIGS = [
   "placeTramp(address,int24,int24,uint256,uint128,uint256)", "placeWall(address,int24,int24,uint256,uint128,uint256)", "cancel(uint256)",
 ];
 const USDG_SIGS = ["buyWithUsdg(address,uint256,uint256,uint256)", "sellToUsdg(address,uint256,uint256,uint256)"];
-/** Session-signable selectors for the configured policy version (USDG router calls only on ≥ 1.3.0). */
-export const tradeSelectors = (v = SESSION_POLICY_VERSION) => new Set([...SIGS, ...(policyHasUsdg(v) ? USDG_SIGS : [])].map((s) => toFunctionSelector(s).toLowerCase()));
+/** DiscipleRouter USDG<->pair-coin swaps (policy 1.4.1): swapUsdgToQuote 0xfa71c4e8, swapQuoteToUsdg 0xa4d85470.
+ *  launchWithUsdg (0x9c05e6c5) is deliberately NOT here: the policy maps it to P_LAUNCH, which TRADE_PERMS does not grant,
+ *  so a session-signed launchWithUsdg would revert NotAllowed ⇒ it stays on the owner signer. */
+const USDG_SWAP_SIGS = ["swapUsdgToQuote(address,uint256,uint256,address,uint256)", "swapQuoteToUsdg(address,uint256,uint256,address,uint256)"];
+/** Session-signable selectors for the configured policy version (USDG router calls on ≥ 1.3.0, USDG swaps on ≥ 1.4.1). */
+export const tradeSelectors = (v = SESSION_POLICY_VERSION) =>
+  new Set([...SIGS, ...(policyHasUsdg(v) ? USDG_SIGS : []), ...(policyHasUsdgSwaps(v) ? USDG_SWAP_SIGS : [])].map((s) => toFunctionSelector(s).toLowerCase()));
 export const TRADE_SELECTORS = tradeSelectors();
 const APPROVE = toFunctionSelector("approve(address,uint256)").toLowerCase();
+const ROUTER_ONLY = new Set([...USDG_SIGS, ...USDG_SWAP_SIGS].map((s) => toFunctionSelector(s).toLowerCase()));
 export const TRY_ATTRIBUTE = toFunctionSelector("tryAttribute(address,address)").toLowerCase() as Hex;
 
 /**
@@ -60,6 +72,9 @@ export function sessionEligible(calls: Call[], o: { referral: boolean; registry?
     // policy ≥ 1.3.0: USDG may only be approved to the router (exact amount, paired with buyWithUsdg) — a USDG
     // approve to a curve / tramp manager would be rejected on-chain ⇒ owner signer instead
     if (o.usdg && sel === APPROVE && c.to.toLowerCase() === o.usdg.toLowerCase() && `0x${c.data.slice(34, 74)}`.toLowerCase() !== o.router?.toLowerCase()) return false;
+    // router-only selectors (USDG routes / swaps) are session-signable only when sent to the router the session was
+    // installed with; the policy rejects them on any other target (a curve, a token)
+    if (ROUTER_ONLY.has(sel) && o.router && c.to.toLowerCase() !== o.router.toLowerCase()) return false;
     if (TRADE_SELECTORS.has(sel)) return true;
     return o.referral && sel === TRY_ATTRIBUTE && !!o.registry && c.to.toLowerCase() === o.registry.toLowerCase();
   });
@@ -91,7 +106,9 @@ export type CachedSession = {
 /**
  * Session spend cap in the quote token's RAW units for a $ budget. The on-chain caps (cap0/cap1) are raw token amounts,
  * NOT dollars: the old fixed 1e24 ("1M tokens") meant $1M of USDG but only ~$2.5K of test STRATEGY (~$0.0025) — the
- * "Spend limit reached" bug. quotePriceUsdWad = QuotePricer.quotePriceUsd(token) (USD WAD per 1e18 raw); USDG = 1e18.
+ * "Spend limit reached" bug. quotePriceUsdWad = QuotePricer.quotePriceUsd(token) (USD WAD per 1e18 raw); $1 of USDG = 10^(36 − usdgDecimals)
+ * (1e18 for 18-dec mUSDG, 1e30 for 6-dec USDG — lib/usdg usdgPriceWadPer1e18Raw). Because px is per 1e18 raw, the cap
+ * needs NO decimals (the old `decimals = 18` param was wrong for 6-dec USDG and is removed).
  */
 /** uint128 max = "no session spend cap" (Maker: no cap by default). A ZERO cap or zero quote slot BLOCKS spending on-chain
  *  (DiscipleSessionPolicy L270/276/519), so both slots are always set and uncapped slots get this value, never 0. */
@@ -101,10 +118,12 @@ export const parseSpendLimitUsd = (v: string | number | null | undefined): numbe
   const n = Number(String(v ?? "").replace(/[$,\s]/g, ""));
   return Number.isFinite(n) && n > 0 ? n : null;
 };
-export function usdCapRaw(usd: number, quotePriceUsdWad: bigint, decimals = 18): bigint {
+export function usdCapRaw(usd: number, quotePriceUsdWad: bigint): bigint {
   if (!(usd > 0) || quotePriceUsdWad <= BigInt(0)) return BigInt(0);
   const usdWad = BigInt(Math.round(usd * 1e6)) * BigInt(1e12);
-  const cap = (usdWad * BigInt(10) ** BigInt(decimals)) / quotePriceUsdWad;
+  // px is per 1e18 RAW units (IQuotePricer), so raw = usdWad × 1e18 / px for ANY decimals. The old `× 10^decimals`
+  // was only right for 18-dec quotes: 6-dec USDG (px 1e30) gave a $25k cap of 0.025 USDG ⇒ "Spend limit reached".
+  const cap = (usdWad * BigInt(10) ** BigInt(18)) / quotePriceUsdWad;
   const MAX128 = (BigInt(1) << BigInt(128)) - BigInt(1);
   return cap > MAX128 ? MAX128 : cap;
 }

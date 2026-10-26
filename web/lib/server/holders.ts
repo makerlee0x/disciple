@@ -6,10 +6,12 @@ import "server-only";
  * Keys: holders:bal:<coin> (JSON map addr → raw), holders:cur:<coin> (last applied block), holders:lock:<coin> (10s).
  * Starts at the v4 start block (deployment().fromBlock): the coin's mint is its first Transfer.
  */
-import { parseAbiItem, type Address } from "viem";
-import { bondingCurveAbi, launchpadAbi, marketLensAbi, tokenAbi } from "@/lib/abi";
-import { deployment, hasLens, ZERO } from "@/lib/chains";
-import { applyTransfers, rankHolders, type Holder, type HolderLabel } from "@/lib/holders";
+import { parseAbiItem, type Address, type PublicClient } from "viem";
+import { bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi } from "@/lib/abi";
+import { anonLaunchers } from "@/lib/anon";
+import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
+import { applyTransfers, holderKinds, protocolLabels, rankHolders, type Holder } from "@/lib/holders";
+import { readCoinMcap } from "@/lib/mcap";
 import { serverPc } from "./chat/identity";
 import { kv } from "./kv";
 
@@ -44,22 +46,30 @@ async function catchUp(coin: Address, budgetMs: number): Promise<{ bal: Record<s
   } finally { await s.del(`holders:lock:${coin}`).catch(() => {}); }
 }
 
+/** FeeRouter.rewardsVault() (immutable wiring; cached) — escrows coins for holder rewards ⇒ labelled "locker". */
+let vaultP: Promise<string | undefined> | null = null;
+function rewardsVaultOf(): Promise<string | undefined> {
+  const fr = deployment().feeRouter;
+  if (fr === ZERO) return Promise.resolve(undefined);
+  vaultP ??= serverPc().readContract({ address: fr, abi: feeRouterAbi, functionName: "rewardsVault" }).then((v) => String(v), () => { vaultP = null; return undefined; });
+  return vaultP;
+}
+
 /** Throws "unknown coin" for tokens Launchpad doesn't know (no curve). */
 export async function holdersOf(coin: Address, limit: number, budgetMs = 8_000): Promise<{ holders: Holder[]; asOfBlock: string }> {
   const pc = serverPc(), d = deployment();
   const c = coin.toLowerCase() as Address;
   const curve = String(await pc.readContract({ address: d.launchpad, abi: launchpadAbi, functionName: "curveOf", args: [c] }).catch(() => ZERO)).toLowerCase();
   if (curve === ZERO.toLowerCase()) throw new Error("unknown coin");
-  const [{ bal, asOfBlock }, totalSupply, market] = await Promise.all([
+  const [{ bal, asOfBlock }, totalSupply, market, vault] = await Promise.all([
     catchUp(c, budgetMs),
     pc.readContract({ address: c, abi: tokenAbi, functionName: "totalSupply" }) as Promise<bigint>,
-    hasLens() ? pc.readContract({ address: d.marketLens, abi: marketLensAbi, functionName: "market", args: [c] }).then((m) => ({ mcapUsd: Number(m[1]) / 1e18 })).catch(() => null) : Promise.resolve(null),
+    readCoinMcap(pc as unknown as PublicClient, c, curve as Address).catch(() => null),   // THE mcap (lib/mcap.ts) — same as the header/cards/chart
+    rewardsVaultOf(),
   ]);
   let mcapUsd = market?.mcapUsd ?? null;
   if (mcapUsd == null) mcapUsd = await pc.readContract({ address: curve as Address, abi: bondingCurveAbi, functionName: "mcapNow" }).then((v) => Number(v as bigint) / 1e18).catch(() => null);
-  const labels: Record<string, Exclude<HolderLabel, null>> = { [curve]: "curve" };
-  if (d.poolManager !== ZERO) labels[d.poolManager.toLowerCase()] = "pool";
-  if (d.hook !== ZERO) labels[d.hook.toLowerCase()] = "pool";
-  if (d.lockedLP !== ZERO) labels[d.lockedLP.toLowerCase()] = "locker";
-  return { holders: rankHolders(bal, { totalSupply, mcapUsd, labels, limit }), asOfBlock: asOfBlock.toString() };
+  const extra = { curve, lockers: [vault, ...anonLaunchers(ACTIVE_CHAIN.id)] };
+  const labels = protocolLabels(d, extra), kinds = holderKinds(d, extra);
+  return { holders: rankHolders(bal, { totalSupply, mcapUsd, labels, kinds, limit }), asOfBlock: asOfBlock.toString() };
 }

@@ -42,13 +42,27 @@ export const units = (raw: bigint, decimals = 18) => {
   return Number(w) + Number(f) / Number(d);
 };
 
+/**
+ * Quote raw per token raw from a v4 sqrtPriceX96. Both currency orders are computed; the one whose ×1e18 value floors
+ * to the event's priceAfterX18 (or is nearest to it) wins. 0 when sqrtP is 0.
+ */
+export function quotePerTokFromSqrt(sqrtP: bigint, priceAfterX18: bigint): number {
+  if (sqrtP <= BigInt(0)) return 0;
+  const s = Number(sqrtP) / 2 ** 96;
+  const c0 = s * s, c1 = 1 / (s * s);                         // token = currency0: price = s²; token = currency1: 1/s²
+  const target = Number(priceAfterX18);
+  const err = (p: number) => Math.abs(Math.floor(p * 1e18) - target) / Math.max(1, target);
+  return err(c0) <= err(c1) ? c0 : c1;
+}
+
 export interface DecodeOpts {
   token: string;
   /** the trading account (smart account / EOA) — the `trader` the events credit */
   trader?: string | null;
   /** DiscipleRouter address (only its UsdgTrade/UsdgRefund logs are trusted) */
   router?: string | null;
-  usdgDecimals?: number;
+  /** USDG decimals (config: lib/usdg usdgDecimals()); required — no 18 default (6-dec USDG). */
+  usdgDecimals: number;
   /** $ per token at the mark, for a hook-only fill (no mcapAfterUsd in the event) */
   markPriceUsd?: number;
   /** total supply (whole tokens) for curve mcap → price */
@@ -57,7 +71,7 @@ export interface DecodeOpts {
 
 export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): DecodedFill | null {
   const token = lc(o.token), me = o.trader ? lc(o.trader) : "", router = o.router ? lc(o.router) : "";
-  const dec = o.usdgDecimals ?? 18, supply = o.supply || 1_000_000;
+  const dec = o.usdgDecimals, supply = o.supply || 1_000_000;
   const fromRouter = (l: LogLike) => !router || lc(l.address) === router;
   const mine = (a: string) => !me || a === me;
   // venue Trade for this token (prefer the trader's own row): token amount, fee, price
@@ -70,11 +84,16 @@ export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): Decode
     if (!venue || mine(topicAddr(l.topics[2]))) venue = v;
     if (mine(topicAddr(l.topics[2]))) break;
   }
-  // quote raw → $ rate from the venue event: curve mcapAfterUsd / supply = $ per token; priceAfterX18 = quote raw per token × 1e18 (per 1e18 token raw)
+  // quote raw → $ rate from the venue event (only for the native-quote fallback; router fills use UsdgTrade below).
+  // priceAfterX18 = quote raw × 1e18 / token raw, FLOORED on-chain: a single-digit integer at 6-dec USDG (FLOW #115).
+  //  - hook: quote per token from sqrtPriceAfter (full precision); the currency order is the one consistent with the
+  //    floored priceAfterX18 (no quote address needed).
+  //  - curve: priceAfterX18 only when it has ≥ 6 significant digits; otherwise no native-quote $ (null fill).
   const quoteUsdPerRaw = (() => {
-    if (!venue || venue.priceAfter <= BigInt(0)) return 0;
+    if (!venue) return 0;
     const pxTok = venue.hook ? (o.markPriceUsd || 0) : units(venue.last) / supply;          // $ per whole token
-    const quotePerTok = Number(venue.priceAfter) / 1e18;                                    // quote raw per token raw
+    const quotePerTok = venue.hook ? quotePerTokFromSqrt(venue.last, venue.priceAfter)       // quote raw per token raw
+      : Number(venue.priceAfter) >= 1e6 ? Number(venue.priceAfter) / 1e18 : 0;
     return pxTok > 0 && quotePerTok > 0 ? pxTok / quotePerTok / 1e18 : 0;                    // $ per quote raw unit
   })();
 

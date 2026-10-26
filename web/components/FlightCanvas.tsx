@@ -2,6 +2,7 @@
 
 import TouchGrass from "./flight/TouchGrass";
 import SettingsMenu from "./flight/SettingsMenu";
+import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import Icon from "@/components/ui/Icon";
@@ -16,6 +17,7 @@ import { ACTIVE_CHAIN } from "@/lib/chains";
 import { chooseRenderMode, startWorkerRender } from "@/lib/flight/workerBridge";
 import GameChat from "@/components/gamechat/GameChat";
 import HoldersBridge from "@/components/flight/HoldersBridge";
+import PhoneHud from "@/components/flight/PhoneHud";
 
 declare global {
   interface Window {
@@ -24,6 +26,9 @@ declare global {
     __rocketDecal?: { canvas: HTMLCanvasElement; t0: number; fallback: boolean };
   }
 }
+
+/** = engine.js HUD_NARROW_W / HUD_NARROW_TOP (narrow screens: right HUD column below the MARKET CAP panel). */
+const HUD_NARROW_W = 740, HUD_NARROW_TOP = 158;
 
 type Props = {
   /** Query string without leading ? (replay, speed, zoom, source, launched, …) */
@@ -184,14 +189,17 @@ export default function FlightCanvas({ search }: Props) {
   // Top-right stacking: the site's wallet strip (top-right, height varies with its state) comes first,
   // then the Settings(gear)/Exit row, then the in-canvas status column + crew panel. Measured, not hardcoded.
   useEffect(() => {
-    let last = -1;
+    let last = "";
     const tick = () => {
       const w = document.querySelector('[aria-label="wallet"]') as HTMLElement | null;
       const b = w ? Math.ceil(w.getBoundingClientRect().bottom) : 0;
-      if (b === last) return;
-      last = b;
+      const vw = Math.round(wrapRef.current?.clientWidth || innerWidth);
+      if (`${b}:${vw}` === last) return;
+      last = `${b}:${vw}`;
       const row = Math.max(12, b + 8);
-      const hudRT = row + 38 + 10;
+      // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
+      // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
+      const hudRT = vw < HUD_NARROW_W ? Math.max(row + 38 + 10, HUD_NARROW_TOP) : row + 38 + 10;
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
       st.setProperty("--ap-hud-rt", hudRT + "px");
@@ -221,6 +229,9 @@ export default function FlightCanvas({ search }: Props) {
     if (q.get("source") === "sim" && q.get("chatmock") !== "1") return null;
     return coin || "0x000000000000000000000000000000000000c0de"; })();
   const q0 = new URLSearchParams(search);
+  // EXIT CONFIRM is armed only while a flight is actually running (engine booted, no error) and not on a replay
+  const isReplay = q0.get("replay") === "1" || q0.get("source") === "replay";
+  const flightActive = status === "Live" && !err && !isReplay;
 
   return (
     <>
@@ -263,13 +274,17 @@ export default function FlightCanvas({ search }: Props) {
       >
         <Icon name="close" size={16} />
       </Link>
+      {/* ✕ above, rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
+      <ExitConfirm active={flightActive} mode={isSimulator ? "sim" : "live"} />
       <TouchGrass />
       {/* ESC settings menu + its gear button (top-right, left of the exit X): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
+      {/* phones (<740px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Run); desktop renders nothing */}
+      <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
-      <div className="ap-bc" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
+      <div className="ap-bc" data-testid="flight-pills" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
         {!isSimulator && sim.available === true && <button
           type="button"
           data-testid="sim-toggle"
@@ -360,6 +375,7 @@ export default function FlightCanvas({ search }: Props) {
         #c {
           display: block;
           image-rendering: auto;
+          touch-action: none; /* touch drag-to-steer (engine @drag-steer): no browser pan / zoom on the sky; mouse unaffected */
         }
         .flight-wrap[data-render="worker"] #c {
           width: 100%;

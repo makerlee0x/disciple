@@ -24,6 +24,8 @@ function FlightInner({ address }: { address: string }) {
     if (isDeployed() && address.toLowerCase() !== DEMO_POOL.address && !q.has("source") && q.get("replay") !== "1") q.set("source", "disciple");
     // minimap pool label (Uniswap style "$TICKER/QUOTE fee%"): quote + total fee = LP fee + hook fee
     const demo = address.toLowerCase() === DEMO_POOL.address;
+    // launchpad links carry ?cs=TICKER: hand it to the engine so its chart label names the coin instead of "COIN"
+    if (!q.has("ticker") && q.get("cs")) q.set("ticker", q.get("cs") as string);
     if (!q.has("quote")) q.set("quote", demo ? DEMO_POOL.ticker.split("/")[1].trim() : STRATEGY_TOKEN.symbol);
     if (!q.has("feeBps")) q.set("feeBps", String(demo ? DEMO_POOL.fee / 100 : PROTOCOL_META.hookFeeBps + PROTOCOL_META.v4PoolFee / 100));
     return q.toString();

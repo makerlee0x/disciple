@@ -58,7 +58,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
         </div>
         <div style={{ borderTop: "1px dashed rgba(255,255,255,.12)", margin: "16px 0 12px" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span title="Max price move allowed between quote and fill (live trades only). Auto = 1%.">Slippage <Icon name="info" size={12} /></span>
+          <span title="Price protection: the most the price may move between your tap and the fill, or the trade is cancelled (live trades only). Auto = 1%.">Price protection <Icon name="info" size={12} /></span>
           {slipMode === "custom" && <input data-testid="swap-slip" inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value.replace(/[^\d.]/g, ""))}
             style={{ ...cell, width: 64, padding: "5px 4px", fontSize: 13, marginLeft: "auto" }} />}
           {slipMode === "custom" && <span>%</span>}

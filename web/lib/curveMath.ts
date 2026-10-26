@@ -76,6 +76,7 @@ export function quoteOutForTokens(p: CurveParams, sold: bigint, tokensIn: bigint
   return q > qMax ? qMax : q;
 }
 
+/** quote raw × 1e18 / token raw — floored; coarse at 6-dec quotes, don't derive $ or ratios from it (FLOW #115). */
 export function spotPriceWad(p: CurveParams, sold: bigint) {
   return mulDiv(marketCapQuote(p, sold), WAD, p.totalSupply);
 }
@@ -99,7 +100,9 @@ export function applySlippage(amount: bigint, slippageBps: number) {
 
 /** Price impact % between two sold levels (spot-to-spot; price ∝ curve mcap). */
 export function impactPctBetween(p: CurveParams, soldBefore: bigint, soldAfter: bigint) {
-  const a = Number(spotPriceWad(p, soldBefore)), b = Number(spotPriceWad(p, soldAfter));
+  // steep curve: spot ∝ curve mcap (constant-product + tail). Ratio of marketCapQuote (quote raw × supply, not floored),
+  // NOT of spotPriceWad (floored to a single-digit integer when the quote has 6 decimals — FLOW #115).
+  const a = Number(marketCapQuote(p, soldBefore)), b = Number(marketCapQuote(p, soldAfter));
   return a > 0 ? ((b - a) / a) * 100 : 0;
 }
 

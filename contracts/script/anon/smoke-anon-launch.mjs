@@ -122,7 +122,7 @@ async function main() {
     const params = { name: `Pseudo${i}`, ticker: `PSD${i}`, imageURI: 'ipfs://anon', description: 'pseudonymous launch smoke', socialsURI: '', quote: USDG, creatorTaxBps: 0n, creatorBuyQuoteIn: parseEther('5'), creatorBuyMinTokensOut: 0n, deadline: BigInt(Math.floor(Date.now() / 1000) + 3600) };
     const cd = encodeFunctionData({ abi: acctAbi, functionName: 'executeBatch', args: [[USDG, ANON], [0n, 0n], [
       encodeFunctionData({ abi: erc20, functionName: 'approve', args: [ANON, parseEther('5.25')] }),
-      encodeFunctionData({ abi: anonAbi, functionName: 'launchAnon', args: [params, st.addr, fresh, st.ephPub, st.viewTag] })]] });
+      encodeFunctionData({ abi: anonAbi, functionName: 'launchAnon', args: [params, st.addr, fresh, st.ephPub, st.viewTag, await pc.readContract({ address: ANON, abi: anonAbi, functionName: 'launchFee' })] })]] });
     const { rc } = await sendSponsored(main, salt, cd, `launch${i}`);
     let token;
     for (const l of rc.logs) { try { const ev = decodeEventLog({ abi: anonAbi, data: l.data, topics: l.topics }); if (ev.eventName === 'AnonLaunched') token = ev.args.token; } catch {} }

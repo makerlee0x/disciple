@@ -44,7 +44,7 @@ export async function GET(req: Request) {
   const host = u.host.startsWith("localhost") || u.host.endsWith(".vercel.app") ? u.host : "disciple.vip";
   const d: SceneData = {
     gainUsd: pnl!.gainUsd, gainPct: pnl!.gainPct, kind: pnl!.kind, ticker, mcapStart: pnl!.mcapStartUsd, mcapEnd: pnl!.mcapEndUsd,
-    endTs: pnl!.endTs || at, username, refLabel: refLabel(username, isAddr(wallet) ? wallet : null, host), sample,
+    endTs: pnl!.endTs || at, username, refLabel: refLabel(username, isAddr(wallet) ? wallet : null, host), sample, wallet: isAddr(wallet) ? wallet : null,
     fills: pnl!.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })),
   };
   const png = await renderSharePng(d, { skin: q.get("skin") || undefined, coin: q.get("nose") || undefined, thruster: q.get("thruster") || undefined }, format);

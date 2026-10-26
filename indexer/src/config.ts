@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Address } from "viem";
+import { parseQuoteDecimals } from "./decimals.js";
 
 export interface Stack {
   id: string; // "v1" | "v2" | "v3" ...
@@ -40,6 +41,8 @@ export interface Config {
   /** Max RPC requests per second (token bucket) and max chunk size floor for adaptive getLogs. */
   rpcRps: number;
   minChunk: bigint;
+  /** QUOTE_DECIMALS="0xUSDG:6,0xSTRAT:18" — known quote decimals (skip the decimals() read); others are read on-chain. */
+  quoteDecimals?: Record<string, number>;
 }
 
 /**
@@ -99,6 +102,7 @@ export function loadConfig(env = process.env): Config {
     pollMs: Number(env.POLL_MS ?? 4000),
     confirmations: Number(env.CONFIRMATIONS ?? 2),
     reorgDepth: Number(env.REORG_DEPTH ?? 64),
+    quoteDecimals: parseQuoteDecimals(env.QUOTE_DECIMALS),
     rpcRps: Number(env.RPC_RPS ?? 20),
     minChunk: BigInt(env.MIN_LOG_CHUNK ?? 500),
   };

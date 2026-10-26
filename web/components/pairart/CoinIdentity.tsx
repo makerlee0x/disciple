@@ -1,22 +1,35 @@
 "use client";
-/** Coin page header art: pair art + name, compact chip docked in the empty foot of the sidebar rail (top-left next to the menu on mobile), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels.. */
+/** Coin page header art: pair art + name + ticker, docked right under the MARKET CAP panel (top-left next to the menu on mobile, art only), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels. */
 import { useEffect, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import { DEMO_POOL } from "@/lib/config";
-import { isDeployed } from "@/lib/chains";
+import { deployment, isDeployed } from "@/lib/chains";
 import { publicClient, readCurveState } from "@/lib/protocol-viem";
+import { launchpadAbi } from "@/lib/abi";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
-import { isStoreSrc } from "@/lib/coinImages";
+import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
 
 export default function CoinIdentity({ address, sp }: { address: string; sp: URLSearchParams }) {
   const demo = address.toLowerCase() === DEMO_POOL.address.toLowerCase();
-  // only moderated-store images (what the launchpad list hands out) or the demo icon: a crafted ?icon= link can't
-  // make the coin page render an arbitrary image (W-3e)
-  const q = sp.get("icon");
-  const icon = (isStoreSrc(q) ? q : null) || (demo && !sp.get("cs") ? AI_ICON : null);
+  // The coin's own stored image: on-chain metaOf imageURI → moderated-store allowlist (/api/image/resolve), same source
+  // as the home list. It wins over ?icon= (store-gated first paint only), so a crafted ?icon= link can't make the coin
+  // page render some other image (W-3e); unapproved / unknown ⇒ letter placeholder. lib/coinPageImage.
+  const [stored, setStored] = useState<StoredImage>(undefined);
+  const readImage = !demo && isDeployed() && isAddress(address);
+  useEffect(() => {
+    setStored(undefined);
+    if (!readImage) return;
+    let alive = true;
+    const pc = publicClient();
+    resolveCoinStoredImage(() => pc.readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "metaOf", args: [address as Address] })
+      .then((m) => String((m as readonly unknown[])[2] ?? "")))
+      .then((s) => { if (alive) setStored(s); });
+    return () => { alive = false; };
+  }, [readImage, address]);
+  const icon = pickCoinIcon(stored, sp.get("icon"), demo && !sp.get("cs") ? AI_ICON : null);
   // 1e: a direct /coin/0x… link has no ?cs/?nm ⇒ read name / symbol / pair from chain so the name always shows
   const [chain, setChain] = useState<{ name: string; symbol: string; pair?: string } | null>(null);
   const needRead = !demo && !sp.get("cs") && isDeployed() && isAddress(address);
@@ -36,12 +49,16 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
   if (!icon && !tk) return null;
   const bp = basePair(pair);
+  // Dollars-only rule (no ETH / gas wording on player surfaces): an ETH / WETH pair gets no pair badge or pair label;
+  // the chip is the coin's own art + name. Other pairs keep their badge.
+  const ethPair = bp?.tk === "eth" || /^w?eth$/i.test(pair);
+  const pairSym = ethPair ? "" : bp?.sym ?? pair;
   return (
-    <div className="coin-id" data-testid="coin-name" title={`${name} · $${tk} · ${bp?.sym ?? pair}`} aria-label={`${name} paired with ${bp?.sym ?? pair}`}>
-      <PairArt src={icon} pair={pair} tk={tk} size="list" px={38} eager />
+    <div className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
+      <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>
-        <span>${tk} · {bp?.sym ?? pair}</span>
+        <span>${tk}{pairSym ? ` · ${pairSym}` : ""}</span>
       </div>
     </div>
   );

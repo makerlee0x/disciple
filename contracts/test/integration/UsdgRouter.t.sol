@@ -227,7 +227,7 @@ contract UsdgRouterTest is IntegrationBase {
 
     function _installSession(uint128 cap) internal {
         acct = new MockMAv2(address(this));
-        policy = new P(address(referrals));
+        policy = new P(address(referrals), address(0));
         quote.mint(address(acct), 1_000 ether);
         P.SessionConfig memory c = P.SessionConfig({
             validUntil: uint48(block.timestamp + 1 hours),
@@ -323,7 +323,7 @@ contract UsdgRouterTest is IntegrationBase {
     /// DISCIPLE audit #5: exact-amount USDG approvals to a curve (and other spenders) matched to the batch's spend.
     function test_sessionUsdgApproveToCurveExact() public {
         acct = new MockMAv2(address(this));
-        policy = new P(address(referrals));
+        policy = new P(address(referrals), address(0));
         quote.mint(address(acct), 1_000 ether);
         P.SessionConfig memory c = P.SessionConfig({
             validUntil: uint48(block.timestamp + 1 hours),

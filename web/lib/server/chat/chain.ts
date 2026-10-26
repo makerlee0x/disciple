@@ -16,13 +16,13 @@ import { chatStore } from "./store";
 import { serverPc } from "./identity";
 import { ulid } from "@/lib/chat/ulid";
 import type { ChatMsg } from "@/lib/chat/types";
+import { defaultUsername } from "@/lib/defaultUsername";
 
 // First scan per coin looks back this many blocks (CHAT_BACKFILL_BLOCKS, default 300 ≈ a few minutes).
 const BACKFILL = BigInt(Math.max(1, Number(process.env.CHAT_BACKFILL_BLOCKS) || 300));
 const MAX_RANGE = BACKFILL > BigInt(5000) ? BACKFILL : BigInt(5000);
 const curveCache = new Map<string, Address>();
 const qpCache = new Map<string, { v: bigint; at: number }>();
-const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const fmtUsd = (v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(v >= 10 ? 0 : 2)}`);
 
 async function curveOf(coin: Address): Promise<Address | null> {
@@ -45,7 +45,7 @@ export function tradeMsg(coin: string, a: { trader: string; isBuy: boolean; quot
   const pct = `${bps >= 0 ? "+" : ""}${(bps / 100).toFixed(1)}%`;
   return {
     id: ulid(now), coin, kind: "event", from: { addr: a.trader.toLowerCase() }, ts: now,
-    text: `${short(a.trader)} ${a.isBuy ? "bought" : "sold"} ${fmtUsd(usd)} (${pct})`,
+    text: `${defaultUsername(a.trader)} ${a.isBuy ? "bought" : "sold"} ${fmtUsd(usd)} (${pct})`,
     meta: { event: side, usd, tx, impactBps: bps, logIndex, block },
   };
 }

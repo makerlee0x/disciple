@@ -63,8 +63,11 @@ const T = 1_700_000_000_000;
 {
   const u = fillUsd({ tokenAmt: 1_000n * 10n ** 18n, priceBeforeX18: 100n, priceAfterX18: 100n, mcapAfterUsd: 70_000n * 10n ** 18n });
   ok(near(u.mcapUsd, 70_000) && near(u.priceUsd, 0.07) && near(u.usd, 70), `fillUsd flat ${JSON.stringify(u)}`);
-  const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50n, priceAfterX18: 100n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
+  const v = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 50_000_000n, priceAfterX18: 100_000_000n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
   ok(near(v.usd, 0.75), `fillUsd mid ${v.usd}`);
+  // 6-dec USDG: priceX18 floored to single digits ⇒ the mid factor is noise and is NOT applied (FLOW #115)
+  const w = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 1n, priceAfterX18: 2n, mcapAfterUsd: 1_000_000n * 10n ** 18n });
+  ok(near(w.usd, 1) && near(w.mcapUsd, 1e6), `fillUsd coarse priceX18 ⇒ price after ${w.usd}`);
 }
 // 7) v4 hook fill (no mcapAfterUsd): mcap = priceAfterX18 × supply × quotePriceUsd. 1 token raw = 0.07 quote raw·1e18
 //    ⇒ price 7e16 (x18), quote $2 ⇒ token $0.14, mcap 1e6 × 0.14 = $140k; must match the curve formula for the same mcap.
@@ -73,6 +76,18 @@ const T = 1_700_000_000_000;
   ok(near(h.mcapUsd, 140_000) && near(h.priceUsd, 0.14), `fillUsd hook ${JSON.stringify(h)}`);
   const c = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 7n * 10n ** 16n, priceAfterX18: 7n * 10n ** 16n, mcapAfterUsd: 140_000n * 10n ** 18n });
   ok(near(c.usd, h.usd), "hook fill USD == curve fill USD at the same mcap");
+  // v4 hook at 6-dec USDG: mcap from sqrtPriceAfter (priceAfterX18 is useless). Token $0.14 (1M supply ⇒ $140k), quote =
+  // USDG ($1 = 1e30 per 1e18 raw) ⇒ quote raw per token raw = 0.14 × 1e6 / 1e18 = 1.4e-13. token < quote ⇒ currency0 ⇒ price = s².
+  {
+    const px = 1.4e-13, s = BigInt(Math.round(Math.sqrt(px) * 2 ** 80)) << 16n;
+    const TOK = "0x" + "11".repeat(20), Q = "0x" + "ee".repeat(20);
+    const h6 = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 19n, priceAfterX18: 20n, quotePriceUsd: 10n ** 30n, sqrtPriceAfter: s, token: TOK, quote: Q });
+    ok(Math.abs(h6.mcapUsd / 140_000 - 1) < 1e-6 && Math.abs(h6.priceUsd / 0.14 - 1) < 1e-6, `fillUsd hook 6-dec via sqrt ${JSON.stringify(h6)}`);
+    // token > quote ⇒ currency1 ⇒ price = 1/s²
+    const s1 = BigInt(Math.round(Math.sqrt(1 / px) * 2 ** 48)) << 48n;
+    const h6b = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 19n, priceAfterX18: 20n, quotePriceUsd: 10n ** 30n, sqrtPriceAfter: s1, token: Q, quote: TOK });
+    ok(Math.abs(h6b.mcapUsd / 140_000 - 1) < 1e-6, `fillUsd hook 6-dec via sqrt (token = currency1) ${h6b.mcapUsd}`);
+  }
   const z = fillUsd({ tokenAmt: 10n ** 18n, priceBeforeX18: 1n, priceAfterX18: 1n });
   ok(z.mcapUsd === 0 && z.usd === 0, "hook fill without a quote price ⇒ 0, never NaN");
 }

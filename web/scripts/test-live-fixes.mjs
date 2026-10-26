@@ -13,7 +13,7 @@ let bad = 0; const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
 const eng = fs.readFileSync(path.join(web, "public/flight/engine.js"), "utf8");
 const block = (a, b) => { const i = eng.indexOf(a), j = eng.indexOf(b); if (!(i > 0 && j > i)) throw new Error("engine block " + a); return eng.slice(i, j); };
-const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
+const { mods, cleanup } = await loadLib(["config", "pnl", "flight/fills", "holders", "flight/holders", "flight/liveSell", "abi/DiscipleRouter", "abi/BondingCurve", "abi/DiscipleHook"], "livefix-");
 const pnl = mods.pnl, fills = mods["flight/fills"], H = mods["flight/holders"], LS = mods["flight/liveSell"];
 const { discipleRouterAbi } = mods["abi/DiscipleRouter"], { bondingCurveAbi } = mods["abi/BondingCurve"], { discipleHookAbi } = mods["abi/DiscipleHook"];
 
@@ -66,7 +66,7 @@ const e18 = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n, SUP = e18(7e9);
   ok(ranked.map((r) => r.address).join() === [A, ME].join(), "ranked by real balance; zero balances dropped");
   ok(ranked.find((r) => r.address === ME)?.mine === true && ranked.filter((r) => r.mine).length === 1, "user's own row is `mine`");
   ok(snap.rows.find((r) => r.address === CURVE)?.label === "curve" && snap.rows.find((r) => r.address === LOCK)?.label === "locker", "curve / locker labelled, not ranked");
-  ok(snap.rows.slice(-2).every((r) => r.label), "labelled rows after the ranked holders");
+  ok(snap.rows.slice(0, 2).every((r) => r.label), "labelled rows on top of the ranked holders (lee 9:19 PM CT)");
   const me = ranked.find((r) => r.mine); ok(near(me.pct, 100 / 70, 1e-3) && near(me.usd, 1e3, 1e-9), "pct of supply + $ at the mark from balances"); }
 { const deps = { fetchJson: async () => ({ status: 200, json: { asOfBlock: 123, holders: [
     { address: A, balance: e18(5e8).toString(), pct: 7.14, usd: 5000, label: null },
@@ -74,7 +74,7 @@ const e18 = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n, SUP = e18(7e9);
     { address: ME.toUpperCase().replace("0X", "0x"), balance: e18(1e8).toString(), pct: 1.43, usd: 1000 } ] } }), balancesOf: async () => { throw new Error("no fallback expected"); } };
   const snap = await H.fetchHolders(COIN, { me: ME, labels: {}, totalSupplyRaw: SUP, priceUsd: 1e-5 }, deps);
   ok(snap.source === "api" && snap.asOfBlock === 123, "API shape {holders:[{address,balance,pct,usd,label}],asOfBlock} consumed");
-  ok(snap.rows[0].address === A && snap.rows[1].mine && snap.rows[2].label === "pool", "API rows: ranked, mine (case-insensitive), pool label kept"); }
+  ok(snap.rows[0].label === "pool" && snap.rows[1].address === A && snap.rows[2].mine, "API rows: pool label kept (on top), then ranked, mine (case-insensitive)"); }
 { // engine DiscipleSource marks the user's own live-feed swap
   const src = block("class DiscipleSource {", "/* SIMULATOR bridge");
   const L = {}; const env = { Q: new URLSearchParams(""), paperImpact: () => 1, paperFill: () => ({}), isMine: (t) => t === ME, window: {},
@@ -106,25 +106,36 @@ const buyRc = [
   ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: true, amountIn: e18(50), amountOut: e18(4.9e6), viaCurve: true }, ROUTER),
 ];
 ok(decodeEventLog({ abi: discipleRouterAbi, ...buyRc[2] }).args.amountIn === e18(50), "fixture receipt round-trips through viem");
-const buy = fills.decodeTradeFill(buyRc, { token: TOKEN, trader: ME, router: ROUTER });
+const buy = fills.decodeTradeFill(buyRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 });
 ok(buy && buy.source === "usdg" && buy.side === "buy" && near(buy.usd, 50) && near(buy.tokens, 4.9e6), "UsdgTrade (trader = smart account): USDG in / tokens out exact, other traders ignored");
 ok(near(buy.feeUsd, 0.5, 1e-6), "fee $ from the venue Trade fee / quoteAmt");
 // graduating buy with a refund
 const refRc = [ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: true, amountIn: e18(100), amountOut: e18(8e6), viaCurve: true }, ROUTER),
   ev(discipleRouterAbi, "UsdgRefund", { trader: ME, token: TOKEN, quoteRefund: e18(12), usdgRefund: e18(12) }, ROUTER)];
-ok(near(fills.decodeTradeFill(refRc, { token: TOKEN, trader: ME, router: ROUTER }).usd, 88), "UsdgRefund subtracted from the USDG spent");
+ok(near(fills.decodeTradeFill(refRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 }).usd, 88), "UsdgRefund subtracted from the USDG spent");
 // SELL 2.45M tokens → $27.0 net (fee $0.27)
 const sellRc = [ev(bondingCurveAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, mcapAfterUsd: e18(77000) }, CURVE),
   ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: false, amountIn: e18(2.45e6), amountOut: e18(27), viaCurve: true }, ROUTER)];
-const sell = fills.decodeTradeFill(sellRc, { token: TOKEN, trader: ME, router: ROUTER });
+const sell = fills.decodeTradeFill(sellRc, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 18 });
 ok(sell.side === "sell" && near(sell.usd, 27) && near(sell.tokens, 2.45e6) && near(sell.feeUsd, 0.27, 1e-6), "sell: tokens in / USDG out exact");
 // native path (no router event): curve Trade only; $ from mcapAfterUsd (USD per quote raw derived)
-const nat = fills.decodeTradeFill([sellRc[0]], { token: TOKEN, trader: ME, router: ROUTER, supply: 7e9 });
+const nat = fills.decodeTradeFill([sellRc[0]], { token: TOKEN, trader: ME, router: ROUTER, supply: 7e9, usdgDecimals: 18 });
 ok(nat && nat.source === "curve" && near(nat.tokens, 2.45e6) && near(nat.usd, 27, 1e-6), "no UsdgTrade → curve Trade (quoteAmt × $/quote from mcapAfterUsd)");
 // hook-only fill priced at the caller's mark
-const hk = ev(discipleHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, sqrtPriceAfter: 1n << 96n }, "0x" + "16".repeat(20));
-ok(near(fills.decodeTradeFill([hk], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5 }).usd, 27, 1e-6), "hook Trade (sqrtPriceAfter variant) decoded at the mark");
-ok(fills.decodeTradeFill([hk], { token: "0x" + "01".repeat(20), trader: ME, markPriceUsd: 1e-5 }) === null, "other token's logs → null");
+const hk = ev(discipleHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e18(27), tokenAmt: e18(2.45e6), fee: e18(0.27), snipeFee: 0n, priceBeforeX18: e18(1.12e-5), priceAfterX18: e18(1.1e-5), impactBps: 100n, sqrtPriceAfter: BigInt(Math.round(Math.sqrt(1.1e-5) * 2 ** 48)) << 48n }, "0x" + "16".repeat(20));
+ok(near(fills.decodeTradeFill([hk], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5, usdgDecimals: 18 }).usd, 27, 1e-6), "hook Trade (sqrtPriceAfter variant) decoded at the mark");
+ok(fills.decodeTradeFill([hk], { token: "0x" + "01".repeat(20), trader: ME, markPriceUsd: 1e-5, usdgDecimals: 18 }) === null, "other token's logs → null");
+// 6-dec USDG (FLOW #115): priceAfterX18 floors to single digits. Hook: quote/token from sqrtPriceAfter; curve: no native $.
+{ const e6 = (x) => BigInt(Math.round(x * 1e6));
+  const px = 1.1e-5 * 1e6 / 1e18;                                    // quote raw per token raw at $1.1e-5/token, 6-dec quote
+  const hk6 = ev(discipleHookAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e6(27), tokenAmt: e18(2.45e6), fee: e6(0.27), snipeFee: 0n, priceBeforeX18: 11n, priceAfterX18: 11n, impactBps: 100n, sqrtPriceAfter: BigInt(Math.round(Math.sqrt(1 / px) * 2 ** 48)) << 48n }, "0x" + "16".repeat(20));
+  const h = fills.decodeTradeFill([hk6], { token: TOKEN, trader: ME, markPriceUsd: 1.1e-5, usdgDecimals: 6 });
+  ok(h && near(h.usd, 27, 1e-6) && near(h.feeUsd, 0.27, 1e-6), "6-dec hook Trade: $ from sqrtPriceAfter (currency order inferred), not the floored priceAfterX18");
+  const cv6 = ev(bondingCurveAbi, "Trade", { token: TOKEN, trader: ME, isBuy: false, quoteAmt: e6(27), tokenAmt: e18(2.45e6), fee: e6(0.27), snipeFee: 0n, priceBeforeX18: 11n, priceAfterX18: 11n, impactBps: 100n, mcapAfterUsd: e18(77000) }, CURVE);
+  ok(fills.decodeTradeFill([cv6], { token: TOKEN, trader: ME, supply: 7e9, usdgDecimals: 6 }) === null, "6-dec curve Trade without UsdgTrade: floored priceAfterX18 ⇒ no guessed $ (null)");
+  const r6 = [cv6, ev(discipleRouterAbi, "UsdgTrade", { trader: ME, token: TOKEN, isBuy: false, amountIn: e18(2.45e6), amountOut: e6(27), viaCurve: true }, ROUTER)];
+  const s6 = fills.decodeTradeFill(r6, { token: TOKEN, trader: ME, router: ROUTER, usdgDecimals: 6 });
+  ok(s6 && s6.source === "usdg" && near(s6.usd, 27) && near(s6.feeUsd, 0.27, 1e-6), "6-dec router sell: UsdgTrade exact at 6 dp"); }
 // ledger: exact booking
 const gas = 0.01;
 let p = pnl.applyExactFill(pnl.emptyPosition(), "buy", buy, gas, 1);
@@ -159,7 +170,7 @@ ok(/disciple:fillreceipt/.test(hud) && /disciple:fillreceipt/.test(tb) && /txHas
   ok(b2 === 700n && reads === 2, "lagging node right after our own buy: re-read once, then trust the receipt-bumped cache");
   const b3 = await LS.freshSellBalance(async () => 700n, async () => { throw new Error("x"); }, 0, 1e9, async () => {});
   ok(b3 === 700n, "no cache → fresh balanceOf"); }
-ok(/freshSellBalance\(\(\) => tokenBalance\(/.test(tb), "TradeBridge: sells size from a fresh tokenBalance (balanceOf) read");
+ok(/freshSellBalance\(\(\) => ownBalance\(pc, token as Address, me, \(\) => tokenBalance\(/.test(tb), "TradeBridge: sells size from a fresh tokenBalance (balanceOf) read (through the own-balance ledger: never a stale pre-fill value)");
 { // engine trade(): live DUMP ALL → frac 1 to the bridge, not blocked by the fuelers stack / MIN_SHOT
   function tradeEnv({ live, liveTokens = 0, hold = { tokens: 0, valueUsd: 0 }, fuel = 0 }) {
     const E = { submits: [], flashes: [] };

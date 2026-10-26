@@ -17,6 +17,7 @@ test("#1 usdCapRaw: $25k of STRATEGY @ $0.00253 ≈ 9.88M tokens; $25k USDG = 25
   assert.ok(strat / E18 > BigInt(9_880_000) && strat / E18 < BigInt(9_882_000), String(strat / E18));
   assert.equal(usdCapRaw(25_000, E18), BigInt(25_000) * E18);
   assert.equal(usdCapRaw(0, E18), BigInt(0));
+  assert.equal(usdCapRaw(25_000, BigInt(10) ** BigInt(30)), BigInt(25_000) * BigInt(1e6), "6-dec USDG (px 1e30): $25k = 25k×1e6 raw");
   assert.equal(usdCapRaw(1e40, BigInt(1)), (BigInt(1) << BigInt(128)) - BigInt(1), "clamped to uint128");
 });
 test("no session cap by default: uint128 max (never 0, which blocks spending); opt-in $ limit parses", () => {
@@ -42,8 +43,8 @@ test("#1 sessionHasHeadroom: session key only while under cap; unknown caps ⇒ 
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(500) * E18 }), false);
   assert.equal(sessionHasHeadroom(full, { [STRAT]: BigInt(400) * E18 }), true);
 });
-test("v4 wiring: session policy defaults to the v4 deployment on 46630", () => {
-  assert.equal(sessionPolicyFor(46630, ""), "0x3d3667e8880c6b633b424d645b8004788b1d6e27");
+test("v5 wiring: session policy defaults to the v5 deployment (1.4.1) on 46630", () => {
+  assert.equal(sessionPolicyFor(46630, ""), "0x92b38057bb7bfa7d640e836e9b3aa8c7365720ac");
   assert.equal(sessionPolicyFor(1, ""), "");
   assert.equal(sessionPolicyFor(46630, "0x0000000000000000000000000000000000000001"), "0x0000000000000000000000000000000000000001");
 });
@@ -66,7 +67,7 @@ test("#6 friendlyError unwraps PreExecHookReverted → policy error", () => {
   assert.equal(outer.slice(0, 10), "0x74a1a72c");
   const e = friendlyError(new AAError("Estimate", "sim", { revertData: outer }));
   assert.equal(e.code, "QuoteFailed", e.message);
-  assert.match(e.message, /Couldn.t price that trade/);
+  assert.equal(e.message, "Couldn't get a price right now. Try again.");
 });
 test("portfolio: 24h price = last fill at/before now−24h, else launch price; totals", () => {
   const now = 1_000 * 86_400_000;

@@ -5,6 +5,8 @@
  */
 import { createWalletClient, custom, type Address, type WalletClient } from "viem";
 import { ACTIVE_CHAIN } from "./chains";
+import { REJECTED_MSG } from "./aa/relayOp";
+import { noteReceipt } from "./flight/tradeSpeed";
 
 type Eip1193 = Parameters<typeof custom>[0];
 let provider: Eip1193 | null = null;
@@ -67,10 +69,12 @@ export async function getSigner(): Promise<Signer> {
 
 /* ---------------- smart account (one-tap) seam ---------------- */
 import type { Call } from "./aa/core";
-import { aaAddress, aaAvailable, aaLogout, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
+import type { SendOpts } from "./aa/fastPath";
+import type { GasOpKind } from "./aa/gasReserve";
+import { aaAddress, aaAvailable, aaGasReservePerOp, aaLogout, aaPeekGasReservePerOp, aaSend, aaSession, eoaLogin, localImport, localReset, localStart, privyLogin, restore, setPrivyOwner } from "./aa/session";
 import type { Hex, LocalAccount } from "viem";
 
-export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string };
+export type ExecResult = { txHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[]; userOp?: Hex; gasMode?: string; /** GAME reservation id (SendOpts.pressId) */ pressId?: string };
 
 /** Smart-account mode is on when a session exists; otherwise the legacy EOA path is used. */
 export const isSmartMode = () => !!aaSession();
@@ -111,14 +115,36 @@ export async function activeAddress(): Promise<Address> {
 }
 
 /**
+ * Rapid taps (GAME): USDG base units one pending trade may still take for network fees — SYNC, never awaits.
+ *   reserve = liveCash − Σ pending (amountIn + gasReservePerOp())
+ * Warm: the fresh allowance's real maxTokenCost (never min'd with an estimate); cold: derived (lib/aa/gasReserve:
+ * gas limit × the allowance's maxFee formula at the live gas price × the paymaster rate ≈ $0.3–0.5/trade today);
+ * 0n when gas isn't paid in USDG (EOA / ETH). kind: "trade" (buy / sell, default) | "gradBuy".
+ */
+export function gasReservePerOp(kind: GasOpKind = "trade"): bigint { return isSmartMode() ? aaGasReservePerOp(kind) : BigInt(0); }
+// SITE #144 (lib/trade/reservations, not in this base yet) — at rebase add, once at module scope here:
+//   import { setGasReserveSource } from "@/lib/trade/reservations";
+//   setGasReserveSource(() => gasReservePerOp());   // raw USDG base units (18 dec testnet mUSDG, 6 mainnet); 0n ⇒ ETH gas
+/** Same, but null while cold (no fresh allowance yet) instead of the derived value. */
+export function peekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null { return isSmartMode() ? aaPeekGasReservePerOp(kind) : BigInt(0); }
+export type { GasOpKind } from "./aa/gasReserve";
+
+/**
  * Execute a call list. Smart account ⇒ ONE sponsored (or self-paid) userOp, no popup.
  * EOA ⇒ legacy: one tx per call, in order.
  */
-export async function execCalls(calls: Call[]): Promise<ExecResult> {
+/** GAME trade speed hand-off (SITE conditions): synchronous, no await, no RPC (logs passed as returned), NEVER throws, so a
+ *  failing hand-off can't break or delay the trade return (TradeBridge then just falls back to polling the receipt). */
+function handOffLogs(txHash: Hex | undefined, logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[] | undefined) {
+  try { noteReceipt(txHash, logs); } catch { /* never break the trade */ }
+}
+export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecResult> {
   if (!isSmartMode() && !plainWallet) throw new SignInRequired();
   if (isSmartMode()) {
-    const r = await aaSend(calls);
-    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode };
+    const r = await aaSend(calls, o);
+    // GAME trade speed: the send already returned the receipt logs ⇒ TradeBridge decodes the fill from them (no 2nd receipt poll)
+    handOffLogs(r.txHash, r.receipt?.receipt?.logs);
+    return { txHash: r.txHash, logs: r.receipt.receipt.logs, userOp: r.userOpHash, gasMode: r.gasMode, pressId: r.pressId };
   }
   const w = await getSigner();
   const { createPublicClient, http } = await import("viem");
@@ -127,8 +153,13 @@ export async function execCalls(calls: Call[]): Promise<ExecResult> {
   for (const c of calls) {
     const hash = await w.sendTransaction({ chain: ACTIVE_CHAIN, account: w.account.address, to: c.to, data: c.data, value: c.value });
     const rc = await pc.waitForTransactionReceipt({ hash });
-    if (rc.status !== "success") throw new Error(`Transaction reverted (${hash})`);
+    if (rc.status !== "success") {
+      // players see the plain line; the hash stays on the error (txHash) and in the console
+      console.warn("[disciple] trade reverted", { txHash: hash });
+      throw Object.assign(new Error(REJECTED_MSG), { txHash: hash });
+    }
     last = { txHash: hash, logs: rc.logs as ExecResult["logs"] };
+    handOffLogs(hash, last.logs);
   }
   return last!;
 }

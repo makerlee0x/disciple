@@ -98,7 +98,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
       }
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
       const blocked = () => document.documentElement.classList.contains("ap-grass")
-        || !!document.querySelector('[data-testid="swap-settings"], [role="dialog"][aria-modal="true"], [aria-label="wallet"] [role="menu"], [aria-label="Share card preview"]');
+        || !!document.querySelector('[data-testid="swap-settings"], [role="dialog"][aria-modal="true"], [aria-label="wallet"] [role="menu"], [aria-label="Share card preview"], [data-testid="phone-drawer"]');   // phone drawer: its own Esc closes it
       if (e.code === "Escape") { if (blocked()) return; e.preventDefault(); e.stopImmediatePropagation(); openMenu(); return; }
       if (e.code === "F1" || (e.code === "Slash" && !e.shiftKey)) { if (blocked()) return; e.preventDefault(); e.stopImmediatePropagation(); openMenu("controls"); }
     };
