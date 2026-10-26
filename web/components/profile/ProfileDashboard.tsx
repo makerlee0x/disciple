@@ -6,7 +6,7 @@ import { PROFILE_CHANGED_EVENT, localUsername, profileUrl } from "@/lib/profile"
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
-import { evaluateAchievements } from "@/lib/achievements";
+import { useAchievements } from "@/lib/game/useAchievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
 import { PROFILE_TABS, useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
 import { LOOT_ENABLED } from "@/lib/features";
@@ -166,11 +166,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const rocketsSample = !(live && live.length);
 
   // Achievements (unlocked → in progress → locked) and the loot they grant.
-  const achievements = useMemo(() => {
-    const order = { unlocked: 0, in_progress: 1, locked: 2 } as const;
-    return evaluateAchievements(data).sort((x, y) => order[x.state] - order[y.state]);
-  }, [data]);
-  const unlocked = achievements.filter((a) => a.state === "unlocked").length;
+  // Real per-wallet unlocks (GET /api/achievements via lib/game/achievementsClient); V1 set only, no persona data.
+  const { views: achievements, unlocked, source: achSource, loading: achLoading } = useAchievements(wallet);
   const loot = useMemo(() => lootFromAchievements(achievements), [achievements]);
   const lootFilter = (LOOT_SLOTS as readonly string[]).includes(url.filter ?? "") ? (url.filter as LootSlot) : null;
   const lootShown = useMemo(() => (lootFilter ? loot.filter((p) => p.slot === lootFilter) : loot), [loot, lootFilter]);
@@ -321,8 +318,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         )}
         {url.tab === "achievements" && (
           <AchievementsTab rows={pageSlice(achievements, page, PAGE.achievements)} unlocked={unlocked} total={achievements.length}
-            prestige={prestige} nextRank={data.rank.next.tier !== data.rank.tier ? { points: data.pointsToNextRank, label: data.rank.next.label } : null}
-            leaderboardRank={data.leaderboardRank} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
+            syncing={!achLoading && achSource === "unavailable"} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
         )}
         {url.tab === "activity" && (
           <ActivityTab record={[

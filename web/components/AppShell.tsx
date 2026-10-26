@@ -4,6 +4,7 @@ import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import RefCapture from "./RefCapture";
 import ReferralOnboarding from "./claims/ReferralOnboarding";
 import HowItWorksHost from "./home/HowItWorksHost";
+import AchievementToaster from "./game/AchievementToaster";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
@@ -21,6 +22,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <RefCapture />
       <ReferralOnboarding />
       <HowItWorksHost />
+      <AchievementToaster />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
       <WalletButton compact={!isGame} />
       {isGame ? children : <div className="main-offset main-offset-open min-h-screen">{children}</div>}

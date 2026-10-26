@@ -64,6 +64,7 @@ export const PROFILE_COPY = {
   "ach.nextrank": (pts: string, next: string) => `${pts} pts to ${next}`,
   "ach.leaderboard": (rank: number) => `#${rank} on the leaderboard`,
   "ach.seeall": "See all achievements",
+  "ach.syncing": "Achievements are syncing. Check back soon.", // working copy (BRAND)
   "ach.empty.own": "No achievements yet. Your first BOOST starts the climb.",
   "ach.empty.other": (u: string) => `${u} hasn't unlocked any achievements yet.`,
 

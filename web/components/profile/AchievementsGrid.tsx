@@ -1,26 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  ACHIEVEMENT_CATEGORIES, evaluateAchievements, type AchievementCategory, type AchievementView,
-} from "@/lib/achievements";
+import { useEffect, useState } from "react";
+import { ACHIEVEMENT_CATEGORIES, type AchievementCategory, type AchievementView } from "@/lib/achievements";
 import AchievementCard from "./AchievementCard";
 import { rarityRank } from "@/lib/config";
-import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
-import { prestigeFromPoints } from "@/lib/prestige";
+import { onWallet } from "@/lib/wallet";
+import { useAchievements } from "@/lib/game/useAchievements";
+import { PROFILE_COPY as C } from "@/lib/copy/profile";
 
 const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
 
+/**
+ * /achievements: the signed-in wallet's real unlocks (GET /api/achievements). V1 set only; no sample persona and no
+ * season pass / prestige block (no points in V1, and nothing season-related auto-starts: season-autostart audit).
+ */
 export default function AchievementsGrid() {
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
-  const data = useMemo(() => buildPersonaStats("believer"), []);
-  const views = useMemo(() => evaluateAchievements(data), [data]);
-  const pass = prestigeFromPoints(data.points);
+  const [wallet, setWallet] = useState<string | null>(null);
+  useEffect(() => onWallet((a) => setWallet(a ? a.toLowerCase() : null)), []);
+  const { views, unlocked, source, loading } = useAchievements(wallet);
   const [openLocked, setOpenLocked] = useState<Record<string, boolean>>({});
-  const unlocked = views.filter((v) => v.state === "unlocked").length;
+  const cats = ACHIEVEMENT_CATEGORIES.filter((c) => views.some((v) => v.category === c.id));
 
   const card = (a: AchievementView) => <AchievementCard key={a.id} a={a} />;
-  const groups = ACHIEVEMENT_CATEGORIES
+  const groups = cats
     .filter((c) => cat === "all" || c.id === cat)
     .map((c) => {
       const items = views.filter((v) => v.category === c.id).sort((x, y) => STATE_ORDER[x.state] - STATE_ORDER[y.state] || rarityRank(y.rarity) - rarityRank(x.rarity));
@@ -29,36 +32,19 @@ export default function AchievementsGrid() {
     .filter((g) => g.items.length);
 
   return (
-    <div className="ach-page">
+    <div className="ach-page" data-testid="achievements-grid">
       <header className="profile-head">
         <div>
           <h1>Achievements</h1>
           <div className="sub">CHOIR OF DEEDS · {unlocked}/{views.length} UNLOCKED</div>
         </div>
       </header>
-      <span className="tag mock">{SAMPLE_DATA_LABEL}</span>
-
-      <section className="season-pass">
-        <div className="pass-meta">
-          <div>
-            <div className="pass-name">Prestige {pass.prestige} · {pass.prestigeName}</div>
-            <div className="muted">Level {pass.level} / {pass.maxLevel} · max level → next prestige</div>
-          </div>
-          <div className="pass-xp">{pass.into.toLocaleString()} / {pass.need.toLocaleString()} pts → {pass.nextLabel}</div>
-        </div>
-        <div className="pass-track">
-          <div className="pass-fill" style={{ width: `${(pass.level / pass.maxLevel) * 100}%` }} />
-          <div className="pass-markers">
-            {[1, 10, 20, 30, 40, 50].map((lv) => (
-              <span key={lv} style={{ left: `${(lv / pass.maxLevel) * 100}%` }} className={pass.level >= lv ? "on" : ""}>{lv}</span>
-            ))}
-          </div>
-        </div>
-      </section>
+      {!wallet && <p className="muted" data-testid="ach-signin">Sign in (top right) to track your achievements.</p>}
+      {wallet && !loading && source === "unavailable" && <p className="muted" data-testid="ach-syncing">{C["ach.syncing"]}</p>}
 
       <div className="ach-filters">
         <button type="button" className={cat === "all" ? "on" : ""} onClick={() => setCat("all")}>All</button>
-        {ACHIEVEMENT_CATEGORIES.map((c) => (
+        {cats.map((c) => (
           <button key={c.id} type="button" className={cat === c.id ? "on" : ""} onClick={() => setCat(c.id)}>{c.label}</button>
         ))}
       </div>

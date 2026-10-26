@@ -807,6 +807,12 @@ function fillMcapEst(usd,side){ const live=isLive(), r=source&&source.paperImpac
 function pushMark(){ const m=markMcap(); if(!(m>0)||m===S._pm||S.t-(S._pmT??-1)<0.1) return; S._pm=m; S._pmT=S.t;
   try{ dispatchEvent(new CustomEvent('disciple:mark',{detail:{mcap:m,supply:source.supply||1e6,session:SESSION}})); }catch(_){} }
 function award(id,title,sub){ if(S.ach[id]) return; S.ach[id]=1; S.toasts.push({title,sub,life:4}); }
+/* @achtoast Real (on-chain, per-wallet) achievement unlocks: React (components/game/AchievementToaster, lib/game/achievementsClient)
+   polls /api/achievements/feed and dispatches window 'disciple:achievement' {id,name,rarity,description,color}. Shown once per id,
+   ahead of the in-session awards above, tinted by rarity. Worker mode: lib/flight/workerBridge forwards the event (INBOUND). */
+function achToast(d){ d=d||{}; const id=String(d.id||''); if(!id||S.ach['real:'+id]) return false; S.ach['real:'+id]=1;
+  const rar=String(d.rarity||'').toUpperCase(); S.toasts.unshift({title:String(d.name||id).toUpperCase(),sub:(rar?rar+' · ':'')+'unlocked'+(d.description?' · '+String(d.description):''),life:5,c:d.color||null,real:1}); return true; }
+addEventListener('disciple:achievement',e=>achToast(e.detail));
 /* No wallet cap anywhere (paper, sim, live): the Launchpad default is Constants.WALLET_CAP_BPS_DEFAULT = 0. */
 /* paper sources price the player's shot on the curve/pool (paperImpact); bots and live use source.impact */
 function srcImpact(usd,side){ return source.paperImpact&&!isLive()?source.paperImpact(usd,side):source.impact?source.impact(usd,side):1; }
@@ -1697,8 +1703,9 @@ function drawHud(){
     ctx.fillStyle=hov?'rgba(255,231,163,.3)':'rgba(255,255,255,.08)'; ctx.fillRect(gx,sy,62,sh); ctx.strokeStyle=hov?'#ffe7a3':'rgba(255,231,163,.35)'; ctx.strokeRect(gx+.5,sy+.5,61,sh-1);
     ctx.fillStyle='#ffe7a3'; drawIcon('gear',gx+10,sy+4,12,'#ffe7a3'); ctx.fillText('ADV',gx+10+15,sy+14); }
   TOX=Math.round(ax+(AW-300)/2); TOY=ay+118; }
-  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=TOY+i*58, tx=TOX; ctx.globalAlpha=a; panel(tx,y,300,50);
-    ctx.fillStyle='#ffe7a3'; ctx.font='bold 13px ui-monospace,monospace'; drawIcon('star',tx+14,y+9,14,'#ffe7a3'); ctx.fillText('ACHIEVEMENT · '+t.title,tx+14+18,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(t.sub,tx+14,y+39); ctx.globalAlpha=1; });
+  S.toasts.slice(0,3).forEach((t,i)=>{ const a=clamp(t.life,0,1), y=TOY+i*58, tx=TOX, tc=t.c||'#ffe7a3'; ctx.globalAlpha=a; panel(tx,y,300,50);
+    if(t.real){ ctx.strokeStyle=tc; ctx.lineWidth=1.5; ctx.strokeRect(tx+.5,y+.5,299,49); ctx.lineWidth=1; }
+    ctx.fillStyle=tc; ctx.font='bold 13px ui-monospace,monospace'; drawIcon('star',tx+14,y+9,14,tc); ctx.fillText('ACHIEVEMENT · '+t.title,tx+14+18,y+21); ctx.fillStyle='rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; let sub=t.sub; while(sub.length>4&&ctx.measureText(sub).width>272) sub=sub.slice(0,-2)+'…'; ctx.fillText(sub,tx+14,y+39); ctx.globalAlpha=1; });
   }   /* end !CLEAN */
   // tier banner
   if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
@@ -2706,6 +2713,6 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={achToast,setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 })();
