@@ -38,7 +38,8 @@ import { ensurePveLogin, PveError } from "./pve";
 import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
-import { markGradBuy, boundRebuiltMinOut, newPressId, tagPress } from "./aa/fastPath";
+import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
+import { holdInflightUntilSeen } from "./trade/queuePricing";
 import { GradHint } from "./trade/gradHint";
 import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
 export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
@@ -170,6 +171,16 @@ const SENT = new WeakSet<object>();
 /** The error is from an op that was sent (on-chain revert or unknown outcome); never auto-resend it. */
 export const wasSent = (e: unknown) => typeof e === "object" && e !== null && SENT.has(e);
 export const markSent = <T extends object>(e: T): T => { SENT.add(e); return e; };
+const REVERTED = new WeakSet<object>();
+/** The op EXECUTED on-chain and reverted (AAError "Reverted"): definitely nothing traded — unlike "Timeout" (may still land). */
+export const wasReverted = (e: unknown) => typeof e === "object" && e !== null && REVERTED.has(e);
+/** Block of a landed op's logs (bigint | hex | number), for releasing its in-flight amount once the RPC has seen it. */
+const logsBlock = (logs: unknown): bigint | undefined => {
+  for (const l of (Array.isArray(logs) ? logs : []) as { blockNumber?: unknown }[]) {
+    const b = l?.blockNumber; try { if (b != null && b !== "") return BigInt(b as string | number | bigint); } catch { /* next */ }
+  }
+  return undefined;
+};
 /**
  * A trade's pre-send read (quote / balance / coin facts / policy check) failed on the network: viem "HTTP request failed."
  * / "took too long" / fetch errors were shown raw to players (lee, Oct 26). Nothing was sent (the AA layer turns any
@@ -639,12 +650,33 @@ export function createViemProtocol(): ProtocolClient {
    * quote and execution (busy curve, our own previous shot). Drop the cached quotes, re-quote and retry ONCE. A caller-
    * pinned minAmountOut is never retried (that is the user's explicit limit).
    */
+  /**
+   * Back-to-back trades: a landed op keeps counting as in flight until the public RPC's head has its block (the RPC lags
+   * ~0.7–1.3 s) — else the next press is quoted at the pre-trade price and its minOut can't clear (lee: 5 × 10% sells).
+   * Failed / no block ⇒ released now.
+   */
+  const releaseInflight = (done: () => void, landed: bigint | undefined) => {
+    if (landed === undefined) { done(); return; }
+    void holdInflightUntilSeen(done, landed, () => pc.getBlockNumber({ cacheTime: 0 }));
+  };
+  /**
+   * Rebuilt (re-quoted) minOut. Was boundRebuiltMinOut (never below the first quote's minOut ⇒ a rebuild after the
+   * price moved became a refusal). lee, Oct 26 10:50/10:51: buys and sells always go through at the fresh price; a big
+   * move is shown as a price-impact warning before the tap, never a block. AUDIT / Needs GAME review.
+   */
+  const freshMinOut = (first: bigint, fresh: bigint): bigint => {
+    if (fresh < first) console.warn("[disciple] re-quote is below the first quote; sending at the fresh price", { first: String(first), fresh: String(fresh) });
+    return fresh;
+  };
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     try { return await tradeOnce(side, t); }
     catch (e) {
-      // Only a PRE-SEND min-out failure (nothing was sent) is retried. An op that already ran on-chain (reverted with
-      // Slippage) or may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from this resend.
-      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || wasSent(e)) throw e;
+      // A min-out failure on a quote WE derived is retried ONCE with a fresh quote: pre-send, or (lee, Oct 26 10:50:
+      // "we can't stop them from selling") an op that definitely EXECUTED and reverted on-chain (nothing traded).
+      // An op that may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from that resend.
+      // AUDIT: the definite-revert resend is new (was: never resend anything sent).
+      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || (wasSent(e) && !wasReverted(e))) throw e;
+      if (wasReverted(e)) console.warn("[disciple] trade reverted on price movement; resending once at a fresh quote", e.code);
       dropRouteQuotes(t.token);
       return tradeOnce(side, t);
     }
@@ -706,23 +738,25 @@ export function createViemProtocol(): ProtocolClient {
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
       const pressId = t.pressId ?? newPressId();   // GAME reservation id: same on every retry of this press
-      const minOut0 = minOut;   // the press's bound: a rebuild never accepts less (boundRebuiltMinOut)
+      const minOut0 = minOut;   // the first quote's minOut (a rebuild may go lower: freshMinOut)
       // Rapid taps: the ONE transient-error retry in mav2.sendCalls re-quotes (fresh minOut) instead of re-sending a
       // quote taken before the preceding in-flight shots moved the curve. Same amountIn/approvals ⇒ same spend + shape.
       const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
         dropRouteQuotes(t.token); done();   // our own op hasn't landed: don't price it against itself
         try {
-          const mo = boundRebuiltMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+          const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
           const d2 = encodeTrade(mo);
           if (grad) markGradBuy(d2);
           minOut = mo;
           return [...calls.slice(0, -1), { to: target, data: d2 }];
         } finally { done = addInflight(ik, t.amountIn); }
       };
+      let landed: bigint | undefined;
       try {
         const r = await execCalls(calls, { rebuild, pressId });
+        landed = logsBlock(r.logs);
         return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut, pressId: r.pressId ?? pressId };
-      } finally { done(); dropRouteQuotes(t.token); }
+      } finally { releaseInflight(done, landed); dropRouteQuotes(t.token); }
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
@@ -731,6 +765,7 @@ export function createViemProtocol(): ProtocolClient {
       // the op went out (reverted on-chain / outcome unknown): mark it so trade() never resends it
       const ac = (e as { code?: unknown; constructor?: { name?: string } } | null);
       if ((e instanceof AAError || ac?.constructor?.name === "AAError") && (ac?.code === "Reverted" || ac?.code === "Timeout")) markSent(out);
+      if ((e instanceof AAError || ac?.constructor?.name === "AAError") && ac?.code === "Reverted") REVERTED.add(out);
       // sent, outcome unknown: hold the press and settle it from the chain (never resends); TradeBridge shows "confirming"
       if (pid && out.code === "Timeout") void watchPending(pid, pendingIds(e), { lookup: (ids) => lookupOp(pc, ids) });
       throw out;
@@ -781,12 +816,12 @@ export function createViemProtocol(): ProtocolClient {
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     let done = addInflight(ik, t.amountIn);
     const pressId = t.pressId ?? newPressId();   // GAME reservation id
-    const minOut0 = minOut;   // the press's bound (boundRebuiltMinOut)
+    const minOut0 = minOut;   // the first quote's minOut (freshMinOut)
     // Rapid taps: transient-error retry re-quotes (see tradeOnce). Same usdgIn/tokensIn ⇒ same exact approve + shape.
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
       dropRouteQuotes(t.token); done();
       try {
-        const mo = boundRebuiltMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+        const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);
@@ -794,10 +829,12 @@ export function createViemProtocol(): ProtocolClient {
         return next;
       } finally { done = addInflight(ik, t.amountIn); }
     };
+    let landed: bigint | undefined;
     try {
       const r = await execCalls(calls, { rebuild, pressId });
+      landed = logsBlock(r.logs);
       return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut, pressId: r.pressId ?? pressId };
-    } finally { done(); dropRouteQuotes(t.token); }
+    } finally { releaseInflight(done, landed); dropRouteQuotes(t.token); }
   }
 
   return {

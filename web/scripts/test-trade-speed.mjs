@@ -127,7 +127,7 @@ console.log("— 5. click → confirm → fill ms");
   ok(slow.byTx("0xT2").submittedAt === 1200, "slow path (submitted carries only the userOpHash) still joins by op");
   ok(TS.tradeMs(0, { resultAt: 900 }).confirm === 900 && TS.tradeMs(0, { resultAt: 900 }).fill === undefined, "no op marks / no fill: confirm = result time, fill undefined"); }
 ok(/new CustomEvent\("disciple:op", \{ detail: \{ phase: "filled"/.test(tb) && /logs: logs \? "returned" : "polled", ms/.test(tb), "TradeBridge emits disciple:op {phase:'filled', ms, logs:'returned'|'polled'} (no UI)");
-ok(/if \(d\?\.phase === "submitted"( && mine)?\)/.test(tb) && /if \(d\?\.phase === "confirmed"\)/.test(tb) && !/d\?\.phase === "filled"/.test(tb), "existing disciple:op consumers only act on submitted / confirmed (filled is instrumentation only)");
+ok(/const sent = d\?\.phase === "submitted" \|\| d\?\.phase === "sent";/.test(tb) && /if \(sent( && mine)?\)/.test(tb) && /if \(d\?\.phase === "confirmed"\)/.test(tb) && !/d\?\.phase === "filled"/.test(tb), "existing disciple:op consumers only act on submitted / confirmed (filled is instrumentation only)");
 
 // ───────────── SITE conditions on the lib/wallet.ts hand-off: no-throw, sync, logs as returned (no RPC) ─────────────
 console.log("— wallet.ts noteReceipt hand-off: no-throw, synchronous, no extra RPC");
@@ -282,7 +282,7 @@ console.log("— SITE #137: own receipt events + holders from the receipt");
   const fr = tb.match(/disciple:fillreceipt", \{ detail: \{([^\n]*)\} \}\)\)/);
   ok(!!fr && /blockNumber: rcpt\.blockNumber/.test(fr[1]) && /trader: me/.test(fr[1]) && /\btoken\b/.test(fr[1]) && /logs: rl/.test(fr[1]), "fillreceipt detail adds blockNumber, trader, token, raw logs");
   ok(/dispatchEvent\(new CustomEvent\("disciple:receipt", \{ detail: rcpt \}\)\)/.test(tb) && /disciple:receipt", \{ detail: \{ \.\.\.ownReceipt\([^)]*\), update: true \} \}/.test(tb) && /RECONCILE_MIN_MS\);/.test(tb), "disciple:receipt emitted at confirm; block unknown ⇒ re-emitted once (update:true) after ≥ 1 s");
-  const br = tb.slice(tb.indexOf("const bookReceipt"), tb.indexOf("window.__discipleTrade = "));
+  const br = tb.slice(tb.indexOf("const bookReceipt"), tb.indexOf("const runTrade: Bridge = "));
   ok((br.match(/waitForTransactionReceipt/g) || []).length === 1 && /if \(!rl\) \{[^\n]*FALLBACK ONLY[^\n]*\n\s*const rc = await pc\.waitForTransactionReceipt/.test(br), "waitForTransactionReceipt only on the no-logs fallback (never on the normal path)");
   ok((tb.match(/waitForTransactionReceipt/g) || []).length === 2, "TradeBridge: no other waitForTransactionReceipt (1 call + 1 comment)");
   const HL = mods["flight/holders"], ME = "0x" + "aa".repeat(20), BIG = "0x" + "bb".repeat(20), POOL = "0x" + "cc".repeat(20);
