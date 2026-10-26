@@ -112,8 +112,19 @@ test("KV engine: dirty → scored once; re-runs / re-dirtying never double-count
     token: C1, trader: A, isBuy: side, tokenAmt: BigInt(100) * BigInt(10) ** BigInt(18), quoteAmt: BigInt(Math.round(usd * 1e6)) * BigInt(10) ** BigInt(12),
     quotePriceUsd: BigInt(10) ** BigInt(18), priceBeforeX18: BigInt(1), priceAfterX18: BigInt(1), mcapAfterUsd: BigInt(10) ** BigInt(18), impactBps: BigInt(impact), snipeFee: BigInt(0),
   }, ts);
-  await storeFills([mk(1, true, 5, 10, now - 3_600_000)]);                 // old buy (backfill-like)
+  // C1 launched by THIS chain's launchpad (scan writes ach:46630:coin:<c>); fills only count on such coins
+  await s.set(ACH.coin(C1), JSON.stringify({ creator: B, anon: false, curve: C1, launch: { tx: "0xl", block: 1, logIndex: 0, ts: now - 7_200_000 } }));
+  await s.sadd(ACH.coins(), C1);
+  // a fill on a coin with no meta in this namespace (e.g. a testnet coin seen from mainnet) never unlocks anything
+  const FOREIGN = "0x" + "f".repeat(40), W2 = "0x" + "9".repeat(40);
+  await storeFills([toFill({ transactionHash: "0xf1", logIndex: 1, blockNumber: BigInt(5) }, "curve", {
+    token: FOREIGN, trader: W2, isBuy: true, tokenAmt: BigInt(10) ** BigInt(20), quoteAmt: BigInt(50) * BigInt(10) ** BigInt(18),
+    quotePriceUsd: BigInt(10) ** BigInt(18), priceBeforeX18: BigInt(1), priceAfterX18: BigInt(1), mcapAfterUsd: BigInt(10) ** BigInt(18), impactBps: BigInt(10), snipeFee: BigInt(0),
+  }, now - 1000)]);
   let r = await processDirty(10_000);
+  assert.equal(r.fresh, 0, "foreign-chain fill unlocks nothing");
+  await storeFills([mk(1, true, 5, 10, now - 3_600_000)]);                 // old buy (backfill-like)
+  r = await processDirty(10_000);
   assert.equal(r.wallets, 1); assert.deepEqual(r.unlocked.map((x) => x.id), ["first_blessing"]);
   await storeFills([mk(2, false, 30, 1500, now - 1000)]);                  // live sell ≥ 12% and ≥ $25
   r = await processDirty(10_000);
@@ -133,4 +144,10 @@ test("KV engine: dirty → scored once; re-runs / re-dirtying never double-count
   // feed: the two live unlocks, not the backfilled first_blessing
   const feed = await feedSince(0, A);
   assert.deepEqual(feed.map((x) => x.id).sort(), ["cruise_missile_ach", "first_grenade"]);
+});
+
+test("KV namespaced by chain id: testnet (46630) state never carries to mainnet (lee: achievements reset at mainnet)", () => {
+  const w = "0x" + "d".repeat(40);
+  const keys = [ACH.dirty(), ACH.unlocks(w), ACH.seen("first_blessing", w), ACH.progress(w), ACH.coin(C1), ACH.coins(), ACH.cursor(C1), ACH.feed(), ACH.count("x"), ACH.ver(), ACH.seed(1), ACH.lock()];
+  for (const k of keys) assert.ok(k.startsWith("ach:46630:"), k);
 });
