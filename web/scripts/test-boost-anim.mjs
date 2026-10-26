@@ -82,8 +82,8 @@ for (const live of [false, true]) { const E = engine({ live }), tag = live ? "li
   ok(P.length === 3 && A.length === 3 && A.every((e) => e.st === "pending"), `${tag}: 3 taps → 3 pending ghosts, 3 animation segments`);
   ok(near(P[0].proj, 7e4 * 1.02) && near(P[1].proj, 7e4 * 1.02 ** 2) && near(P[2].proj, 7e4 * 1.02 ** 3), `${tag}: ghosts stack (each projected from the previous pending one)`);
   ok(near(A[1].base, Math.log10(P[0].proj)) && near(A[2].base, Math.log10(P[1].proj)), `${tag}: each press owns its segment (previous ghost → its ghost)`);
-  ok(E.events.length === 0 && E.S.balance === 1e3 && E.S.fuelers.you === 0 && E.S.score === 0 && E.thrust.length === 0 && E.S.buyBoost === 0,
-    `${tag}: before any receipt — no event dispatched (no paperfill / cash / broadcast), balance / points / fuel untouched, no flare`);
+  ok(E.events.filter((e) => e.type !== "disciple:inflight").length === 0 && E.S.balance === 1e3 && E.S.fuelers.you === 0 && E.S.score === 0 && E.thrust.length === 0 && E.S.buyBoost === 0,
+    `${tag}: before any receipt — no event dispatched (no paperfill / cash / broadcast; only the in-flight count), balance / points / fuel untouched, no flare`);
   E.at(400); await E.settle(1, { ok: false, reason: "Price moved" });
   ok(A[1].st === "fail" && E.S.flashes.some((f) => f.txt === "That didn't go through.") && E.S.feed[0] && /Price moved/.test(E.S.feed[0].txt), `${tag}: failure → eases back + "That didn't go through." (reason kept in the TRADES row)`);
   ok(near(P[2].proj, 7e4 * 1.02 ** 2) && near(A[2].base, Math.log10(7e4 * 1.02)), `${tag}: later ghost drops by the failed step`);

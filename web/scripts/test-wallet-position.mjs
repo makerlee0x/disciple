@@ -94,7 +94,7 @@ const poll = tb.slice(tb.indexOf("const [liveHas, setLiveHas]"), tb.indexOf("con
 ok(/freshSellBalance\(\(\) => ownBalance\(pc, token as Address, me, \(\) => tokenBalance/.test(poll), "TradeBridge: HUD balance read = freshSellBalance (the read DUMP sizes from)");
 ok(/addEventListener\("disciple:ownbalance"/.test(poll) && /addEventListener\("disciple:livetrade"/.test(poll) && /void poll\(\)/.test(poll), "TradeBridge: refreshed on load, after each trade and when a receipt lands");
 ok(/settled/.test(poll), "TradeBridge: holdings carry `settled` (ledger only shrinks when no own trade is in flight)");
-ok(/bag = units\(bal\)/.test(tb) && /bookReceipt\(r\.txHash, side, bag\)/.test(tb), "TradeBridge: sell receipt carries the balance it was sized from");
+ok(/bag = units\(bal\)/.test(tb) && /bookReceipt\(r\.txHash, side, (rp, )?bag\)/.test(tb), "TradeBridge: sell receipt carries the balance it was sized from");
 const sim = fs.readFileSync(path.join(web, "components/sim/SimMode.tsx"), "utf8");
 ok(/<TradeBridge token="SIMULATOR"/.test(sim) && /if \(!live\) \{ setLiveHas\(null\); dispatchEvent\(new CustomEvent\("disciple:holdings", \{ detail: null \}\)\)/.test(poll),
   "sim: TradeBridge token SIMULATOR is never live ⇒ holdings null ⇒ the sim's own ledger stays the position");
