@@ -4,10 +4,10 @@
  * buy is still visible on-chain, and bundlers / our backend see request metadata.
  *
  * Launchers on RH testnet 46630:
- *   v2 (default)  0x06f3…a527  new private launches; claimMany / claimManyBySig pay BOTH sides (quote + the post-grad
- *                              FeeRouter token share accrued to the launcher).
- *   v1 (legacy)   0xe564…f359  older coins. Claims still work for the quote side; its FeeRouter token share
- *                              (creatorTokenAccrued[token][v1]) can't be claimed by anyone ⇒ "Unclaimable (legacy launcher)".
+ *   v5 (default)  0x73a2…C509  new private launches on the v5 stack (launchAnon(…, maxFee)); claimMany / claimManyBySig pay
+ *                              BOTH sides. Also a one-tap session target (buildCreateSession anonLauncher).
+ *   legacy        0x06f3…a527  the v4-stack v2 launcher (per FLOW's v5 env note); older coins only. The v1 launcher
+ *                              0xe564…f359 is no longer listed (its coins live on the superseded v3/v4 launchpads).
  * Each coin's launcher = Launchpad.creatorOf(token) (the launcher is the on-chain creator), so pending / stealthOwnerOf /
  * claims / EIP-712 signatures always go to that address (a v1 coin sent to v2 reverts NotStealthOwner).
  */
@@ -16,17 +16,17 @@ import { publicKeyToAddress } from "viem/accounts";
 import { secp256k1 } from "@noble/curves/secp256k1";
 
 export type AnonAddons = { anonLauncher: Address; anonLauncherLegacy: Address; marketLens: Address; announcer: Address; v2DeployBlock: bigint };
-/** Add-ons for RH testnet 46630 (contracts/deployments/rh-testnet-46630.json addons.AnonLauncher / AnonLauncherLegacy). */
+/** Add-ons for RH testnet 46630 (contracts/deployments/rh-testnet-46630.json contracts.AnonLauncher / MarketLens, v5). */
 export const ANON_ADDONS: Record<number, AnonAddons> = {
   46630: {
-    anonLauncher: "0x06f31a8877c8e025cc55faffb20cba8486cca527",
-    anonLauncherLegacy: "0xe564900809746b1f2baca9d2b8df3224a463f359",
-    marketLens: "0x3afe8b96fba7c47790d6d195f0070edd560165ae",
-    announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
-    v2DeployBlock: BigInt(137727851),
+    anonLauncher: "0x73a2a6e049aa21A5C440F3bc358dE37FE3f7C509", // v5 contracts.AnonLauncher
+    anonLauncherLegacy: "0x06f31a8877c8e025cc55faffb20cba8486cca527", // v4-stack AnonLauncher v2
+    marketLens: "0xD89da17E3aEe9a7b1CBa359666F0fEb5382421Fa", // v5 contracts.MarketLens
+    announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564", // ERC-5564 singleton (= AnonLauncher(v5).announcer())
+    v2DeployBlock: BigInt(142064537), // v5 AnonLauncher creation block (tx 0x853e696d…6c0b)
   },
 };
-/** Every AnonLauncher this chain has used (v2 first). */
+/** Every AnonLauncher this chain still lists (current first). */
 export const anonLaunchers = (chainId: number): Address[] => {
   const a = ANON_ADDONS[chainId];
   return a ? [a.anonLauncher, a.anonLauncherLegacy] : [];

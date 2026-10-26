@@ -117,6 +117,19 @@
   },
   {
     "type": "function",
+    "name": "crewTipThresholdBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "curveDeployer",
     "inputs": [],
     "outputs": [
@@ -182,6 +195,25 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "firstBoostMaxBps",
+    "inputs": [
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -415,6 +447,104 @@
   },
   {
     "type": "function",
+    "name": "launchFor",
+    "inputs": [
+      {
+        "name": "creator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "params",
+        "type": "tuple",
+        "internalType": "struct ILaunchpad.LaunchParams",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "ticker",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "imageURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "socialsURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "quote",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creatorTaxBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "creatorBuyQuoteIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "creatorBuyMinTokensOut",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ILaunchpad.LaunchResult",
+        "components": [
+          {
+            "name": "token",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "curve",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "creatorTokensBought",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "launchWithMode",
     "inputs": [
       {
@@ -515,6 +645,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "maxMode",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
@@ -657,6 +800,60 @@
         "name": "creatorBuyQuoteIn",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "creatorTaxBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "snipeFee",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quotePriceUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "exceedsCap",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteCreatorBuy",
+    "inputs": [
+      {
+        "name": "quote",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "creatorBuyQuoteIn",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -765,6 +962,19 @@
   },
   {
     "type": "function",
+    "name": "setCrewTipThresholdBps",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setCurveDeployer",
     "inputs": [
       {
@@ -822,6 +1032,19 @@
   },
   {
     "type": "function",
+    "name": "setMaxMode",
+    "inputs": [
+      {
+        "name": "m",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setPricer",
     "inputs": [
       {
@@ -841,6 +1064,19 @@
         "name": "probe_",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setSnipeEscrowTimeout",
+    "inputs": [
+      {
+        "name": "secs",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -876,6 +1112,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "snipeEscrowTimeout",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1002,6 +1251,19 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CrewTipThresholdSet",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1164,6 +1426,19 @@
   },
   {
     "type": "event",
+    "name": "MaxModeSet",
+    "inputs": [
+      {
+        "name": "mode",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "MetadataUpdated",
     "inputs": [
       {
@@ -1284,6 +1559,19 @@
   },
   {
     "type": "event",
+    "name": "SnipeEscrowTimeoutSet",
+    "inputs": [
+      {
+        "name": "secs",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TrustedRouterSet",
     "inputs": [
       {
@@ -1331,6 +1619,11 @@
   },
   {
     "type": "error",
+    "name": "CrewTipThresholdOutOfBounds",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CurveDeployerUnset",
     "inputs": []
   },
@@ -1361,7 +1654,22 @@
   },
   {
     "type": "error",
+    "name": "MaxModeOutOfBounds",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoConvergence",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotPendingOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotRouter",
     "inputs": []
   },
   {
@@ -1400,6 +1708,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "SnipeEscrowTimeoutOutOfBounds",
+    "inputs": []
   },
   {
     "type": "error",

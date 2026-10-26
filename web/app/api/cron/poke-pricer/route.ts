@@ -42,7 +42,7 @@ export async function GET(req: Request) {
   try {
     const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
     const relayer = privateKeyToAccount(key);
-    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(), account: relayer });
+    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });   // no transport-level resend of a signed tx (AUDIT Info)
 
     // 1) new bases from launches since the cursor
     const latest = await pc.getBlockNumber();

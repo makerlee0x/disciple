@@ -332,6 +332,16 @@ body.home.home-top .ap-topbar { background: transparent; border-bottom-color: tr
 @media (max-width: 760px) {
   #apSide .ap-tog.ap-tog-mobile { display: grid; }
 }
+/* Phones (< 740px = PhoneHud PHONE_W): the wallet's signed-out pill ("Play") leaves the top bar so GAME's ✕ owns the
+   top-right corner; the same action is a Sidebar item (lib/walletCta.ts). Desktop keeps the pill, no Sidebar item. */
+#apSide .ap-foot .ap-side-cta { display: none; }
+@media (max-width: 739.98px) {
+  [aria-label="wallet"] .ap-wallet-cta { display: none !important; }
+  #apSide .ap-foot .ap-side-cta { display: flex; }
+  /* the drawer's extra items (Play, Settings) must stay reachable on short phones */
+  /* the open drawer sits above the flight HUD (coin chip / wallet z 60, phone trade bar z 40) so its items are tappable */
+  #apSide:not(.collapsed) { overflow-y: auto; overscroll-behavior: contain; z-index: 62; }
+}
 
 /* Placeholder page shell */
 .page-shell {

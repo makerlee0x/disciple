@@ -9,7 +9,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReferralRegistry} from "../src/ReferralRegistry.sol";
 import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
-import {AntiSnipe} from "../src/AntiSnipe.sol";
 import {Migration} from "../src/Migration.sol";
 import {LoginGate} from "../src/LoginGate.sol";
 import {Launchpad} from "../src/Launchpad.sol";
@@ -23,6 +22,7 @@ import {RewardsVault} from "../src/RewardsVault.sol";
 import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
 import {MarketLens} from "../src/addons/MarketLens.sol";
+import {Constants} from "../src/libraries/Constants.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
@@ -57,8 +57,14 @@ contract DevToken is ERC20, ERC20Permit {
 ///   POOL_MANAGER        existing v4 PoolManager (RH mainnet+testnet: 0x8366a39cc670b4001a1121b8f6a443a643e40951);
 ///                       unset → deploy a fresh PoolManager (local). Quotes: DiscipleRouter.quoteExactIn
 ///   V4_QUOTER           official V4Quoter (RH: 0x8dc178efb8111bb0973dd9d722ebeff267c98f94) — logged only
-///   USDG                USDG address (RH mainnet: 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168);
-///                       unset → deploy 18-dec DevToken "USDG" + mock STRATEGY w/ STRATEGY/USDG pool at $0.00245
+///   USDG                USDG address (RH mainnet: 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168, 6 decimals);
+///                       unset → deploy a mintable DevToken "USDG" with USDG_DECIMALS (default 6, like mainnet)
+///                       (+ a mock STRATEGY w/ STRATEGY/USDG pool at $0.00245 when DEFAULT_QUOTE is unset too)
+///   USDG_DECIMALS       decimals of the mock USDG deployed when USDG is unset (default 6)
+///   EXPECT_USDG_DECIMALS  revert unless USDG.decimals() equals this (default 6; set 18 only for a legacy mUSDG)
+///   REFERRAL_SINK       FeeRouter.referralSink (default address(0) = today's routing: referrer / launch KOL get the
+///                       1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
+///                       Owner can change it any time later with FeeRouter.setReferralSink(addr).
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
@@ -66,12 +72,16 @@ contract DevToken is ERC20, ERC20Permit {
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
 ///   (UNIVERSAL_ROUTER is intentionally NOT trusted: audit #10 / SEC-05 — anyone can pass arbitrary hookData
 ///    through it and spoof the credited trader. Only DiscipleRouter is a trusted router.)
-///   REWARDS_VAULT_OWNER community RewardsVault owner/multisig (default deployer); 70% of anti-snipe tax
-///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee (default 0.25e18, cap 5e18)
+///   REWARDS_VAULT_OWNER community RewardsVault owner/multisig (default deployer); receives sniper escrows of coins
+///                       not graduated within snipeEscrowTimeout (releaseSnipeEscrow)
+///   ANON_LAUNCH_FEE     AnonLauncher USDG launch fee in USDG raw units (default 0.25 USDG at USDG's decimals;
+///                       contract cap MAX_LAUNCH_FEE = 5e18 raw)
 ///   ERC5564_ANNOUNCER   ERC-5564 announcer (default 0x55649E01B5Df198D18D95b5cc5051630cfD45564)
-///   DEPLOY_TEST_STRATEGY true → (with USDG set, DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a
-///                       STRATEGY/USDG pool at TEST_STRATEGY_PRICE_WAD (default 2.45e15 = $0.00245)
-///                       with REF_POOL_LIQUIDITY (default 1e24) full-range liquidity from the deployer
+///   DEPLOY_TEST_STRATEGY true → (DEFAULT_QUOTE unset) deploy a test STRATEGY and seed a STRATEGY/USDG pool at
+///                       TEST_STRATEGY_PRICE_WAD (USDG raw per STRATEGY raw, WAD; default $0.00245 scaled to USDG's
+///                       decimals: 2.45e15 for 18-dec, 2450 for 6-dec) with REF_POOL_LIQUIDITY full-range liquidity
+///                       (default ≈ REF_POOL_USD per side, REF_POOL_USD default 1,000,000)
+///   Chain guard: only chainid 46630 (RH testnet or an anvil fork of it) or 31337 (plain anvil / forge test).
 contract Deploy is Script {
     /// @dev forge script routes `new X{salt: s}` through this deterministic CREATE2 factory.
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
@@ -86,7 +96,6 @@ contract Deploy is Script {
         address lockedLP;
         address feeRouter;
         address referrals;
-        address antiSnipe;
         address migration;
         address launchpad;
         address probe;
@@ -94,6 +103,10 @@ contract Deploy is Script {
         address usdg;
         address defaultQuote;
         address depositNotifier;
+        address rewardsVault;
+        address anonLauncher;
+        address marketLens;
+        address loginGate;
     }
 
     function run() external returns (Out memory o) {
@@ -102,6 +115,7 @@ contract Deploy is Script {
         o.quoter = vm.envOr("V4_QUOTER", address(0));
         o.usdg = vm.envOr("USDG", address(0));
         o.defaultQuote = vm.envOr("DEFAULT_QUOTE", address(0));
+        require(block.chainid == 46630 || block.chainid == 31337, "Deploy: testnet/local only");
 
         vm.startBroadcast();
         // The broadcasting account (== msg.sender under `forge script`; also correct when run() is called from a test).
@@ -115,7 +129,12 @@ contract Deploy is Script {
 
         // USDG first: the referral gate is scaled by its decimals at construction.
         bool devUsdg = o.usdg == address(0);
-        if (devUsdg) o.usdg = address(new DevToken("Global Dollar (dev)", "USDG", 18, deployer, 1e30));
+        if (devUsdg) {
+            uint8 dec = uint8(vm.envOr("USDG_DECIMALS", uint256(6)));
+            o.usdg = address(new DevToken("Global Dollar (test)", "USDG", dec, deployer, 1e12 * 10 ** uint256(dec)));
+        }
+        uint8 usdgDec = ERC20(o.usdg).decimals();
+        require(usdgDec == vm.envOr("EXPECT_USDG_DECIMALS", uint256(6)), "Deploy: unexpected USDG decimals");
         ReferralRegistry referrals = new ReferralRegistry(deployer, o.usdg);
         LockedLP lockedLP = new LockedLP(deployer, treasury);
         FeeRouter feeRouter = new FeeRouter(deployer, treasury, address(referrals));
@@ -148,11 +167,9 @@ contract Deploy is Script {
         hook.setTrustedRouter(address(router), true);
         // Audit #10 (SEC-05): only our DiscipleRouter is trusted for hookData trader attribution.
 
-        uint64 n = uint64(vm.getNonce(deployer));
-        address launchpadAddr = vm.computeCreateAddress(deployer, n + 1);
-        AntiSnipe antiSnipe = new AntiSnipe(launchpadAddr);
-        Launchpad launchpad = new Launchpad(deployer, address(feeRouter), address(antiSnipe), address(migration));
-        require(address(launchpad) == launchpadAddr, "Deploy: launchpad address mismatch");
+        // Redeploy pack item 8: the legacy AntiSnipe is no longer deployed. Launchpad.antiSnipe is a never-read
+        // immutable (v2 curves compute the sniper tax inline via FeeMath.snipeBps), so it is address(0).
+        Launchpad launchpad = new Launchpad(deployer, address(feeRouter), address(0), address(migration));
         migration.setLaunchpad(address(launchpad)); // audit #1: migrate() only from launchpad.curveOf(token)
 
         feeRouter.setLaunchpad(address(launchpad));
@@ -166,13 +183,15 @@ contract Deploy is Script {
             // local: mock USDG (created above) + mock STRATEGY with a seeded STRATEGY/USDG pool at $0.0018
             if (o.defaultQuote == address(0)) {
                 o.defaultQuote = address(new DevToken("Strategy Coin (dev)", "STRATEGY", 18, deployer, 1e30));
-                refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, 245e13); // $0.00245
+                refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, _strategyPriceWad(usdgDec), usdgDec); // $0.00245
                 hasRef = true;
             }
         }
         if (o.defaultQuote == address(0) && vm.envOr("DEPLOY_TEST_STRATEGY", false)) {
             o.defaultQuote = address(new DevToken("Strategy Coin (test)", "STRATEGY", 18, deployer, 1e27));
-            refKey = _seedRefPool(manager, o.defaultQuote, o.usdg, vm.envOr("TEST_STRATEGY_PRICE_WAD", uint256(245e13)));
+            refKey = _seedRefPool(
+                manager, o.defaultQuote, o.usdg, vm.envOr("TEST_STRATEGY_PRICE_WAD", _strategyPriceWad(usdgDec)), usdgDec
+            );
             hasRef = true;
         }
         if (o.defaultQuote == address(0)) o.defaultQuote = o.usdg;
@@ -201,11 +220,13 @@ contract Deploy is Script {
         router.setUsdgRouting(o.usdg, address(launchpad));
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)
         // PVE login gate: attester = backend key that signs Privy-login attestations (public address only).
         {
             address attester = vm.envOr("PVE_ATTESTER", address(0));
             LoginGate gate = new LoginGate(deployer, attester);
             launchpad.setLoginGate(address(gate));
+            o.loginGate = address(gate);
         }
         if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
         // Sanity: oracle must price the default quote now, else launches would revert.
@@ -223,8 +244,14 @@ contract Deploy is Script {
         launchpad.setDefaultQuote(o.defaultQuote);
 
         // ── Combined redeploy additions (flow/anon-launch + flow/snipe-split) ──
-        // LOCKED #9 rev.: anti-snipe tax 70% community RewardsVault / 30% treasury.
-        _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg);
+        // Mode rules v2: sniper tax → curve snipeEscrow → LockedLP compound bucket at graduation (RewardsVault after timeout).
+        (o.rewardsVault, o.anonLauncher, o.marketLens) =
+            _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
+        // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
+        {
+            address sink = vm.envOr("REFERRAL_SINK", address(0));
+            if (sink != address(0)) feeRouter.setReferralSink(sink);
+        }
 
         vm.stopBroadcast();
 
@@ -233,7 +260,6 @@ contract Deploy is Script {
         o.lockedLP = address(lockedLP);
         o.feeRouter = address(feeRouter);
         o.referrals = address(referrals);
-        o.antiSnipe = address(antiSnipe);
         o.migration = address(migration);
         o.launchpad = address(launchpad);
         o.probe = address(probe);
@@ -248,7 +274,6 @@ contract Deploy is Script {
         console2.log("ReferralRegistry", o.referrals);
         console2.log("LockedLP", o.lockedLP);
         console2.log("FeeRouter", o.feeRouter);
-        console2.log("AntiSnipe", o.antiSnipe);
         console2.log("Migration", o.migration);
         console2.log("Launchpad", o.launchpad);
         console2.log("QuoteProbe", o.probe);
@@ -257,6 +282,21 @@ contract Deploy is Script {
         console2.log("USDG", o.usdg);
         console2.log("DefaultQuote", o.defaultQuote);
         console2.log("DefaultQuoteUsdWad", pricer.quotePriceUsd(o.defaultQuote));
+        console2.log("LoginGate", o.loginGate);
+        // Config echo (checked by the runbook pre-flight / smoke): steep curve #1, floor, sniper tax, referral sink.
+        console2.log("cfg USDG decimals", usdgDec);
+        console2.log("cfg CURVE_SOLD_BPS", Constants.CURVE_SOLD_BPS);
+        console2.log("cfg START_MCAP_USD", Constants.START_MCAP_USD / 1e18);
+        console2.log("cfg GRADUATION_MCAP_USD", Constants.GRADUATION_MCAP_USD / 1e18);
+        console2.log("cfg ANTI_SNIPE_START_BPS", Constants.ANTI_SNIPE_START_BPS);
+        console2.log("cfg ANTI_SNIPE_DURATION", Constants.ANTI_SNIPE_DURATION);
+        console2.log("cfg MAX_FLOOR_BANDS", Constants.MAX_FLOOR_BANDS);
+        console2.log("cfg referralSink", feeRouter.referralSink());
+    }
+
+    /// @dev $0.00245 per STRATEGY (18 dec) as USDG raw per STRATEGY raw, WAD, for a USDG with `usdgDec` decimals.
+    function _strategyPriceWad(uint8 usdgDec) internal pure returns (uint256) {
+        return (245e13 * 10 ** uint256(usdgDec)) / 1e18;
     }
 
     function _addons(
@@ -267,12 +307,14 @@ contract Deploy is Script {
         Launchpad launchpad,
         Migration migration,
         QuotePricer pricer,
-        address usdg
-    ) internal {
+        address usdg,
+        uint8 usdgDec
+    ) internal returns (address, address, address) {
         RewardsVault vault = new RewardsVault(deployer);
         vault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(vault));
         address vOwner = vm.envOr("REWARDS_VAULT_OWNER", deployer);
+        // Owned2Step: this only nominates; REWARDS_VAULT_OWNER must call vault.acceptOwnership() afterwards.
         if (vOwner != deployer) vault.transferOwnership(vOwner);
         // mcapNow / Trade-event mcap fix: live QuotePricer on the hook (curves read Launchpad.pricer()).
         hook.setPricer(address(pricer));
@@ -283,16 +325,18 @@ contract Deploy is Script {
             usdg,
             treasury,
             vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564)),
-            vm.envOr("ANON_LAUNCH_FEE", uint256(0.25 ether))
+            vm.envOr("ANON_LAUNCH_FEE", 25 * 10 ** uint256(usdgDec) / 100)
         );
         MarketLens lens = new MarketLens(address(launchpad), address(migration));
         console2.log("RewardsVault", address(vault));
         console2.log("AnonLauncher", address(anon));
         console2.log("MarketLens", address(lens));
+        return (address(vault), address(anon), address(lens));
     }
 
-    /// @dev price = usdg raw per quote raw, WAD.
-    function _seedRefPool(IPoolManager manager, address q, address usdg, uint256 priceWad)
+    /// @dev price = usdg raw per quote raw, WAD. Default liquidity ≈ REF_POOL_USD per side (full range):
+    ///      L = sqrt(usdgRaw * quoteRaw) with usdgRaw = USD·10^usdgDec, quoteRaw = usdgRaw·1e18/price.
+    function _seedRefPool(IPoolManager manager, address q, address usdg, uint256 priceWad, uint8 usdgDec)
         internal
         returns (PoolKey memory key)
     {
@@ -314,10 +358,15 @@ contract Deploy is Script {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: TickMath.minUsableTick(60),
                 tickUpper: TickMath.maxUsableTick(60),
-                liquidityDelta: int256(vm.envOr("REF_POOL_LIQUIDITY", uint256(1e24))),
+                liquidityDelta: int256(vm.envOr("REF_POOL_LIQUIDITY", _refLiquidity(priceWad, usdgDec))),
                 salt: 0
             }),
             ""
         );
+    }
+
+    function _refLiquidity(uint256 priceWad, uint8 usdgDec) internal view returns (uint256) {
+        uint256 usdgRaw = vm.envOr("REF_POOL_USD", uint256(1_000_000)) * 10 ** uint256(usdgDec);
+        return Math.sqrt(usdgRaw * Math.mulDiv(usdgRaw, 1e18, priceWad));
     }
 }

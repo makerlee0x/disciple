@@ -15,7 +15,7 @@ import {TwapOracle} from "./libraries/TwapOracle.sol";
 import {BasePools} from "./libraries/BasePools.sol";
 
 /// @title Quote/USD oracle (USDG = $1, others via a TRUNCATED TWAP of a registered quote/USDG v4 pool)
-/// @notice Curve mcap targets ($7K / $33K) are USD. At launch the Launchpad asks this contract for the
+/// @notice Curve mcap targets ($7,777 / $33,333) are USD. At launch the Launchpad asks this contract for the
 ///         quote's USD price exactly once and bakes it into the curve geometry (immutable thereafter).
 /// @dev Trust assumptions (documented in README):
 ///      - USDG is treated as exactly $1 (no depeg handling).

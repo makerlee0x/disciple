@@ -12,7 +12,7 @@ library Altitude {
             uint32(12_000),
             18_000,
             25_000,
-            33_000,
+            33_333, // OUTER SPACE = graduation (Constants.GRADUATION_MCAP_USD)
             55_000,
             100_000,
             333_000,

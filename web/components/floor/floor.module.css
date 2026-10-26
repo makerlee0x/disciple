@@ -1,0 +1,39 @@
+/* Graduation floor bins (coin page + /dev/floor). BRAND v2 tokens only. */
+.pill { display: inline-flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: var(--dsc-radius-full, 999px);
+  font: 500 12.5px var(--dsc-font-ui); color: var(--dsc-text); background: color-mix(in srgb, var(--dsc-surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dsc-primary) 40%, transparent); backdrop-filter: blur(10px); box-shadow: var(--dsc-shadow-md); }
+.pill .lbl { color: var(--dsc-muted); }
+.pill strong { color: var(--dsc-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pill button { appearance: none; border: 0; cursor: pointer; font: 700 12px var(--dsc-font-ui); padding: 6px 12px; border-radius: var(--dsc-radius-full, 999px);
+  background: var(--dsc-surface-2); color: var(--dsc-text); }
+.pill button:hover { background: var(--dsc-border); }
+
+.card { width: min(440px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px;
+  border-radius: var(--dsc-radius-2xl, 18px); background: linear-gradient(180deg, var(--dsc-surface-2), var(--dsc-surface));
+  border: 1px solid var(--dsc-border); box-shadow: var(--dsc-shadow-lg); font-family: var(--dsc-font-ui); color: var(--dsc-text); }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.eyebrow { font: 600 10.5px var(--dsc-font-mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--dsc-muted); }
+.big { font: 400 24px/1.1 var(--dsc-font-display); font-variant-numeric: tabular-nums; }
+.big small { font: 500 12px var(--dsc-font-ui); color: var(--dsc-muted); margin-left: 6px; }
+.meter { height: 4px; border-radius: 999px; background: var(--dsc-border); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--dsc-primary); border-radius: inherit; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font: 500 11.5px var(--dsc-font-ui); color: var(--dsc-muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend b { color: var(--dsc-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.swTop { background: var(--dsc-gold); }
+.swBottom { background: var(--dsc-primary); }
+.swGhost { background: transparent; border: 1px dashed var(--dsc-muted); }
+.svg { width: 100%; height: auto; display: block; }
+.axis { font: 500 10px var(--dsc-font-mono); fill: var(--dsc-muted); }
+.now { font: 600 10px var(--dsc-font-mono); fill: var(--dsc-text); }
+.note { margin: 0; font-size: 11.5px; color: var(--dsc-muted); }
+.close { appearance: none; border: 0; background: none; color: var(--dsc-muted); cursor: pointer; font: 600 12px var(--dsc-font-ui); padding: 2px 4px; }
+.close:hover { color: var(--dsc-text); }
+
+@media (max-width: 860px) {
+  .pill { white-space: nowrap; gap: 6px; padding: 3px 3px 3px 10px; font-size: 11px; background: color-mix(in srgb, var(--dsc-bg) 88%, transparent); }
+  .pill button { padding: 4px 10px; font-size: 11px; }
+  .card { padding: 12px 12px 10px; }
+  .big { font-size: 20px; }
+}

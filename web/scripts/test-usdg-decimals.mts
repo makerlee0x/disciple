@@ -56,7 +56,7 @@ test("knownDecimals: USDG from config (no RPC), STRATEGY 18, unknown ⇒ undefin
 test("6-dec: hook Trade mcap from sqrtPriceAfter (launch quote price, lib/mcap), not the floored priceAfterX18", async () => {
   const { hookTradeMcapUsd } = await import("../lib/events");
   const { mcapUsdFromSqrt } = await import("../lib/trades");
-  const px = 33_000 * 1e6 / 7e27;                                   // quote raw per token raw at $33K mcap, 6-dec USDG
+  const px = 33_000 * 1e6 / 1e24;                                   // quote raw per token raw at $33K mcap, 6-dec USDG, 1M supply (v5 default)
   const lo = "0x" + "11".repeat(20), hi = "0x" + "ee".repeat(20);
   const s0 = BigInt(Math.round(Math.sqrt(px) * 2 ** 80)) << BigInt(16), s1 = BigInt(Math.round(Math.sqrt(1 / px) * 2 ** 48)) << BigInt(48);
   const q = B(10) ** B(30);                                          // $1 USDG in QuotePricer units (6-dec)
@@ -64,14 +64,16 @@ test("6-dec: hook Trade mcap from sqrtPriceAfter (launch quote price, lib/mcap),
   near(mcapUsdFromSqrt(s0, true, q), 33_000);
   near(mcapUsdFromSqrt(s1, false, q), 33_000);
   near(hookTradeMcapUsd({ token: lo, sqrtPriceAfter: s0, priceAfterX18: B(4) }, q, { quote: hi }), 33_000);
-  near(hookTradeMcapUsd({ token: hi, sqrtPriceAfter: s1, priceAfterX18: B(4) }, q, { quote: lo, supplyTokens: 7e9 }), 33_000);
+  near(hookTradeMcapUsd({ token: hi, sqrtPriceAfter: s1, priceAfterX18: B(4) }, q, { quote: lo, supplyTokens: 1e6 }), 33_000);
 });
 test("6-dec: curve impact from token reserves, not floored spotPriceWad", async () => {
   const { impactPctBetween, spotPriceWad } = await import("../lib/curveMath");
   // tiny x0 (6-dec quote) ⇒ spotPriceWad is 0–5, but the impact must still be exact
-  const p = { totalSupply: B(7e9) * B(10) ** B(18), sCurve: B(504e7) * B(10) ** B(18), x0: B(2_100_000_000), y0: B(9e9) * B(10) ** B(18) };
+  const p = { totalSupply: B(7e9) * B(10) ** B(18), sCurve: B(504e7) * B(10) ** B(18), x0: B(2_100_000_000), y0: B(9e9) * B(10) ** B(18), tail: B(0) };   // tail 0: the pure CP part (steep curve #1 adds tail·g^30)
   assert.ok(spotPriceWad(p, B(0)) < B(10), "fixture really is coarse");
   const before = B(1e9) * B(10) ** B(18), after = B(11e8) * B(10) ** B(18);
   const exact = ((8e9 / 7.9e9) ** 2 - 1) * 100;
-  assert.ok(Math.abs(impactPctBetween(p, before, after) - exact) < 1e-9);
+  // v5 steep curve: impact = ratio of marketCapQuote (integer quote raw, floored like Solidity) ⇒ ~1e-8 pct-point
+  // rounding at this tiny x0; the floored spotPriceWad (0–5) would be off by whole percents
+  assert.ok(Math.abs(impactPctBetween(p, before, after) - exact) < 1e-6, `${impactPctBetween(p, before, after)} vs ${exact}`);
 });

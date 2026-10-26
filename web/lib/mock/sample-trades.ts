@@ -74,7 +74,7 @@ const ROCKETS = [
 
 const NOW = Date.UTC(2026, 9, 15, 18, 0, 0);
 
-function price(mcap: number) { return mcap / 7_000_000_000; }
+function price(mcap: number) { return mcap / 1_000_000; }
 
 function push(
   out: StatsTrade[], r: (typeof ROCKETS)[0], side: "buy" | "sell", usd: number,

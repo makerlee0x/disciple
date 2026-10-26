@@ -13,6 +13,13 @@
  * Like the contract: no LP yield (pure limit orders), the owner may cancel any time (gets whatever mix is left),
  * and a filled order may be `pull`ed by anyone, who earns a keeper tip (KEEPER_TIP_BPS of each asset paid out).
  * If the price comes back into the range before the pull, the order is partly un-filled again (isFilled false).
+ *
+ * FLOOR (LockedLP graduation floor, contracts/src/libraries/FloorBands.sol): 16 USDG-only bands seeded below spot at
+ * graduation from the curve reserve's leftover (~$1,201). Same math as a tramp, but locked forever: never cancelled,
+ * never pulled, never compounded. Sells fall into them and are absorbed (USDG → tokens); buys walk back up through
+ * them and re-arm them (tokens → USDG). Layer A: 4 flat bands × 7.5% over spot → 0.75× (48 spacings = $25K mcap);
+ * layer B: 12 bands × 32 spacings (equal log width) holding 70% over spot → 0.1× (~$3,326), weight rising 4× toward
+ * the bottom. Live values: LockedLP.floorBands(token); the sim has no chain reads, so it rebuilds the same shape.
  */
 
 /** TrampWallManager.keeperTipBps default (10 = 0.1%). */
@@ -39,8 +46,33 @@ export interface RangeOrder {
 
 export interface SwapResult { out: number; s: number }
 
+// ── Graduation floor geometry (Constants.sol + FloorBands.sol, steep-curve PR #127) ─────────────────────────────
+export const FLOOR = {
+  maxBands: 16, flatBands: 4, flatSpacings: 48, bottomSpacings: 384, flatBps: 3_000,
+  /** FloorBands.BOTTOM_BPS_PACKED, j = 0 (top) .. 11 (bottom); sums to 7000 with the flat 3000 */
+  bottomBps: [266, 301, 342, 388, 440, 499, 566, 642, 728, 826, 937, 1065],
+  /** pool tick spacing (FloorBands.SPACING); 1 tick = ×1.0001 in price */
+  tickSpacing: 60,
+} as const;
+export interface FloorBandRange { i: number; a: number; b: number; bps: number }
+/** FloorBands.band(i) + ticks(): √price ranges below `s` (the base is the first spacing-aligned tick at/below spot,
+ *  like FloorBands.baseTick for token = currency0, in the sim's own $/token tick domain). */
+export function floorBandRanges(s: number): FloorBandRange[] {
+  const F = FLOOR, ln = Math.log(1.0001), cur = Math.floor(2 * Math.log(s) / ln), base = Math.floor(cur / F.tickSpacing) * F.tickSpacing;
+  const sAt = (tick: number) => Math.exp(tick * ln / 2), out: FloorBandRange[] = [];
+  for (let i = 0; i < F.maxBands; i++) {
+    let lo: number, hi: number, bps: number;
+    if (i < F.flatBands) { const w = F.flatSpacings / F.flatBands; lo = w * i; hi = w * (i + 1); bps = F.flatBps / F.flatBands; }
+    else { const j = i - F.flatBands, w = F.bottomSpacings / (F.maxBands - F.flatBands); lo = w * j; hi = w * (j + 1); bps = F.bottomBps[j]; }
+    out.push({ i, a: sAt(base - hi * F.tickSpacing), b: Math.min(s, sAt(base - lo * F.tickSpacing)), bps });
+  }
+  return out;
+}
+
 export class Pool {
   L0: number; s: number; orders: RangeOrder[] = []; active: RangeOrder[] = [];
+  /** locked graduation floor bands (USDG-only range liquidity that can never be removed) */
+  floor: RangeOrder[] = [];
   constructor(X: number, Y: number) { this.L0 = Math.sqrt(X * Y); this.s = Math.sqrt(X / Y); }
   price() { return this.s * this.s; }
   /** full-range quote reserve (the locked LP) */
@@ -48,10 +80,23 @@ export class Pool {
   get Y() { return this.L0 / this.s; }
   /** quote liquidity a trade meets around the price: full range + range orders the price is inside */
   depth() { return (this.L0 + this.liqUp(this.s)) * this.s; }
-  private liqUp(s: number) { let L = 0; for (const o of this.active) if (o.a <= s && s < o.b) L += o.L; return L; }
-  private liqDown(s: number) { let L = 0; for (const o of this.active) if (o.a < s && s <= o.b) L += o.L; return L; }
-  private nextUp(s: number) { let n = Infinity; for (const o of this.active) { if (o.a > s && o.a < n) n = o.a; if (o.b > s && o.b < n) n = o.b; } return n; }
-  private nextDown(s: number) { let n = 0; for (const o of this.active) { if (o.a < s && o.a > n) n = o.a; if (o.b < s && o.b > n) n = o.b; } return n; }
+  private liqUp(s: number) { let L = 0; for (const o of this.active) if (o.a <= s && s < o.b) L += o.L; for (const o of this.floor) if (o.a <= s && s < o.b) L += o.L; return L; }
+  private liqDown(s: number) { let L = 0; for (const o of this.active) if (o.a < s && s <= o.b) L += o.L; for (const o of this.floor) if (o.a < s && s <= o.b) L += o.L; return L; }
+  private nextUp(s: number) { let n = Infinity; for (const l of [this.active, this.floor]) for (const o of l) { if (o.a > s && o.a < n) n = o.a; if (o.b > s && o.b < n) n = o.b; } return n; }
+  private nextDown(s: number) { let n = 0; for (const l of [this.active, this.floor]) for (const o of l) { if (o.a < s && o.a > n) n = o.a; if (o.b < s && o.b > n) n = o.b; } return n; }
+  /** LockedLP._seedFloor: budget × bps per band, USDG-only below spot (rounding dust stays out, like the bucket) */
+  seedFloor(ranges: FloorBandRange[], budget: number) {
+    if (!(budget > 0)) return;
+    for (const r of ranges) { const amt = budget * r.bps / 10_000; if (!(amt > 0 && r.b > r.a && r.b <= this.s)) continue;
+      this.floor.push({ id: -1 - r.i, owner: "FLOOR", kind: "tramp", a: r.a, b: r.b, L: amt / (r.b - r.a), status: "active", deposit: amt, sizeUsd: amt, basis: amt,
+        placedT: 0, placedBlk: 0, crossedT: null, pullAt: null }); }
+  }
+  /** LockedLP.floorBands(token) mirror: USDG still resting and tokens bought, per band and in total */
+  floorState() {
+    const bands = this.floor.map((o) => ({ ...this.amounts(o), seeded: o.deposit, lo: o.a * o.a, hi: o.b * o.b }));
+    const quote = bands.reduce((t, b) => t + b.quote, 0), tokens = bands.reduce((t, b) => t + b.tokens, 0), seeded = bands.reduce((t, b) => t + b.seeded, 0);
+    return { bands, quote, tokens, seeded, absorbed: seeded - quote };
+  }
   /** quote in (after fees) → tokens out; moves s up through any walls above */
   quoteBuy(quoteIn: number): SwapResult {
     let s = this.s, left = quoteIn, out = 0;

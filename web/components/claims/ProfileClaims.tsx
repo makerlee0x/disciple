@@ -2,7 +2,8 @@
 /**
  * Private profile: Rewards & claims.
  *  - Creator: link to /creator when the user launched rockets
- *  - Referral rewards: FeeRouter.referrerAccrued(me, quote) + claimReferrerFees(quote) (referrer first)
+ *  - Referral rewards: FeeRouter.referrerAccrued(me, quote) + claimReferrerFees(quote) (referrer first); a calm note when
+ *    FeeRouter.referralSink() is set (new referral shares go to the sink; existing balances stay claimable)
  *  - Referral deposit: UsdgDepositNotifier deposit (exact approve, minDeposit from chain) + escrow countdown + withdraw(ids)
  *  - Crew rewards: PVE BondingCurve.pendingRewards list + Launchpad.claim(token)
  * Every claim is eth_call-simulated first (common.preflight) so reverts show plain copy before signing.
@@ -10,7 +11,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Hex } from "viem";
-import { createdRockets, creatorClaimable, referralBalances, referralClaimCalls, type ReferralBalance } from "@/lib/claims/creatorFees";
+import { createdRockets, creatorClaimable, referralBalances, referralClaimCalls, referralSink, type ReferralBalance } from "@/lib/claims/creatorFees";
 import { crewClaimCall, crewPositions } from "@/lib/claims/crew";
 import { deposit, depositNeeded, gateState, unlockLabel, unlocked, withdraw, withdrawCall, type GateState } from "@/lib/claims/referralGate";
 import { claimErrorText, fmtUsd, preflight, toUsd, type Asset } from "@/lib/claims/common";
@@ -26,6 +27,7 @@ export default function ProfileClaims() {
   const { caps, ready, demo } = useCaps();
   const [creator, setCreator] = useState<{ n: number; usd: number } | null>(null);
   const [refs, setRefs] = useState<ReferralBalance[] | null>(null);
+  const [sinkOn, setSinkOn] = useState(false);
   const [gate, setGate] = useState<GateState | null>(null);
   const [crew, setCrew] = useState<{ token: Address; ticker?: string; name?: string; quote: Asset; pending: bigint }[] | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -49,6 +51,7 @@ export default function ProfileClaims() {
       setCreator({ n: rs.length, usd: vals.some((v) => v > BigInt(0)) ? 1 : 0 }); // live: flag only (USD needs per-quote prices; the dashboard shows them)
     }).catch(() => setCreator({ n: 0, usd: 0 }));
     if (caps.referrerFees) void referralBalances(c, me).then(setRefs).catch(() => setRefs([]));
+    if (caps.referrerFees) void referralSink(c).then((s) => setSinkOn(!!s)).catch(() => setSinkOn(false));
     if (caps.referralGate) void gateState(c, me).then(setGate).catch(() => setGate(null));
     if (caps.crew) void crewPositions(c, me).then(setCrew).catch(() => setCrew([]));
   }, [me, ready, demo, caps]);
@@ -84,7 +87,8 @@ export default function ProfileClaims() {
         {caps.referrerFees && refs && (
           <article className="cl-card cl-mini" data-testid="referral-rewards">
             <span className="cl-eyebrow">Referral rewards</span>
-            {refOpen.length ? refOpen.map((r) => <Money key={r.asset.address} raw={r.claimable} asset={r.asset} big={refOpen.length === 1} />) : <p className="muted">Nothing yet. Share your link to earn from friends&apos; trades.</p>}
+            {refOpen.length ? refOpen.map((r) => <Money key={r.asset.address} raw={r.claimable} asset={r.asset} big={refOpen.length === 1} />) : sinkOn ? null : <p className="muted">Nothing yet. Share your link to earn from friends&apos; trades.</p>}
+            {sinkOn && <p className="muted cl-fine" data-testid="referral-sink-note">Referral earnings have stopped growing for now. Anything already here stays yours to claim.</p>}
             <button type="button" className="cl-btn primary" disabled={!refOpen.length}
               onClick={() => open({ title: "Claim referral rewards", lines: refOpen.map((r) => ({ label: r.asset.symbol, raw: r.claimable, asset: r.asset })),
                 run: async () => { const calls = referralClaimCalls(refOpen); await preflight(pc(), calls, me!); return (await execCalls(calls)).txHash; } })}>

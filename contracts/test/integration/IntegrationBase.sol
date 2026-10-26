@@ -12,7 +12,6 @@ import {FeeMath} from "../../src/libraries/FeeMath.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
-import {AntiSnipe} from "../../src/AntiSnipe.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
@@ -80,7 +79,6 @@ abstract contract IntegrationBase is Test {
     DepositHookMock internal depositHook;
     LockedLP internal lockedLP;
     FeeRouter internal feeRouter;
-    AntiSnipe internal antiSnipe;
     Migration internal migration;
     Launchpad internal launchpad;
     DiscipleHook internal hook;
@@ -117,11 +115,8 @@ abstract contract IntegrationBase is Test {
         referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
 
-        uint64 n = uint64(vm.getNonce(address(this)));
-        address launchpadAddr = vm.computeCreateAddress(address(this), n + 1);
-        antiSnipe = new AntiSnipe(launchpadAddr);
-        launchpad = new Launchpad(owner, address(feeRouter), address(antiSnipe), address(migration));
-        require(address(launchpad) == launchpadAddr, "predict");
+        // redeploy pack item 8: no legacy AntiSnipe (v2 curves compute the sniper tax inline), as in Deploy.s.sol
+        launchpad = new Launchpad(owner, address(feeRouter), address(0), address(migration));
 
         strategy = new MockUSDG(); // treat as STRATEGY
         // Rename via nothing — MockUSDG is fine as STRATEGY stand-in
@@ -149,6 +144,7 @@ abstract contract IntegrationBase is Test {
         launchpad.setPricer(address(pricer));
         launchpad.setCurveDeployer(address(new CurveDeployer()));
         launchpad.setTrustedRouter(address(router), true);
+        feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();
 
         strategy.mint(creator, 50_000_000 ether);
@@ -208,11 +204,12 @@ abstract contract IntegrationBase is Test {
     }
 
     function _buy(BondingCurve curve, address buyer, uint256 quoteIn, uint256 minOut) internal returns (uint256) {
+        uint256 b0 = quote.balanceOf(buyer);
         vm.startPrank(buyer);
         quote.approve(address(curve), quoteIn);
         uint256 out = curve.buy(quoteIn, minOut, block.timestamp + 1 hours);
         vm.stopPrank();
-        totalQuoteIn += quoteIn;
+        totalQuoteIn += b0 - quote.balanceOf(buyer); // mode rules v2: a capped buy refunds the unused input
         return out;
     }
 
@@ -247,6 +244,7 @@ abstract contract IntegrationBase is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
+    /// @dev mode rules v2: the sniper tax decays 99% → 0 over ANTI_SNIPE_DURATION (7 s, per-second table).
     function _warpPastSnipe() internal {
         vm.warp(block.timestamp + Constants.ANTI_SNIPE_DURATION + 1);
     }
@@ -265,8 +263,9 @@ abstract contract IntegrationBase is Test {
             for (uint256 j = 0; j < sizes.length && !curve.graduated(); j++) {
                 vm.startPrank(w);
                 q.approve(address(curve), sizes[j]);
+                uint256 qb = q.balanceOf(w);
                 try curve.buy(sizes[j], 0, block.timestamp + 1) {
-                    totalQuoteIn += sizes[j];
+                    totalQuoteIn += qb - q.balanceOf(w);
                     vm.stopPrank();
                     break;
                 } catch {
