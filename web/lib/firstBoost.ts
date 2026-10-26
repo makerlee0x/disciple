@@ -19,12 +19,13 @@ export const FIRST_BOOST_COPY = {
   max: (usd: string, tokens: string, pct: string) => `Max ${usd} (${tokens} tokens, ${pct} of supply)`,
   pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
-  modeCap: (mode: string, pct: string, launchpadPct: string) => `${mode} launch: the first 7 minutes allow at most ${pct} of supply per buy, so your First BOOST is capped at ${pct} (not ${launchpadPct}).`,
-  pveLogin: "PVE rockets only sell to login-verified wallets. Your wallet must be verified before you can First BOOST.",
-  pveLoginUnverified: "Your wallet isn't login-verified for PVE yet, so the First BOOST would revert. Verify your login first, or set First BOOST to 0.",
+  modeCap: (mode: string, pct: string) => `${mode} launch: your First BOOST can be up to ${pct} of the coins.`,
+  easyLock: "On Easy, your First BOOST stays locked until the rocket graduates. Coins you buy later are free to sell.",
+  pveLogin: "Easy rockets only let signed-in players BOOST. You're signed in, so you're good to go.",
+  pveLoginUnverified: "Easy rockets only let signed-in players BOOST, and your sign-in isn't checked yet. Sign in again, or set First BOOST to 0.",
   // #99: /api/pve/attest verifies the Privy login and relays LoginGate.attest when you launch.
-  pveLoginAttest: "PVE rockets only sell to login-verified wallets. Your wallet isn't attested yet: launching checks your login (email, Google or X) and attests it first.",
-  pveLoginUnknown: "PVE rockets only sell to login-verified wallets. Connect your wallet to check yours before you First BOOST.",
+  pveLoginAttest: "Easy rockets only let signed-in players BOOST. We'll check your sign-in when you launch.",
+  pveLoginUnknown: "Easy rockets only let signed-in players BOOST. Sign in to check yours before your First BOOST.",
   overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
   balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`,
   invalid: "Enter a $ amount like 25 or 12.5.",
@@ -47,7 +48,7 @@ export interface FirstBoostLimits {
   symbol: string;
   decimals: number;
   launchpadCapBps: number; // Launchpad.creatorBuyMaxBps() (live)
-  capBps: number;         // effective cap: min(launchpad cap, mode per-buy cap); strictest wins
+  capBps: number;         // effective cap = Launchpad.firstBoostMaxBps(mode) (lib/modeRules; Trench = launchpad cap)
   capBy: "launchpad" | "mode";
   mode: number;
   capTokens: bigint;      // TOTAL_SUPPLY * capBps / 1e4
@@ -62,18 +63,18 @@ export async function readFirstBoostLimits(pc: PublicClient, pair: Address, crea
     readCreatorBuyMaxBps(pc),
     pc.readContract({ address: quote, abi: erc20Abi, functionName: "symbol" }),
     pc.readContract({ address: quote, abi: erc20Abi, functionName: "decimals" }),
-    readCreatorBuyQuote(pc, quote, BigInt(0), creatorTaxBps).catch(() => null),
+    readCreatorBuyQuote(pc, quote, BigInt(0), creatorTaxBps, mode).catch(() => null),
   ]);
   const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode, shape);
   const capBps = eff.bps;
   const capTokens = creatorBuyMaxTokens(capBps);
   let quotePriceUsd = probe?.quotePriceUsd ?? BigInt(0);
-  if (!probe) quotePriceUsd = (await readCreatorBuyQuote(pc, quote, BigInt(1), creatorTaxBps)).quotePriceUsd;
+  if (!probe) quotePriceUsd = (await readCreatorBuyQuote(pc, quote, BigInt(1), creatorTaxBps, mode)).quotePriceUsd;
   let maxQuoteIn = maxLaunchBuyQuoteIn(paramsFromQuotePrice(quotePriceUsd), capTokens, BigInt(creatorTaxBps));
   // The contract is authoritative: confirm the max with the view and back off if rounding differs.
   for (let i = 0; i < 3 && maxQuoteIn > BigInt(0); i++) {
-    const q = await readCreatorBuyQuote(pc, quote, maxQuoteIn, creatorTaxBps);
-    if (!q.exceedsCap && q.tokensOut <= capTokens) break; // exceedsCap only knows the launchpad cap; mode clamp is client-side
+    const q = await readCreatorBuyQuote(pc, quote, maxQuoteIn, creatorTaxBps, mode);
+    if (!q.exceedsCap && q.tokensOut <= capTokens) break; // mode-aware quote: exceedsCap = over firstBoostMaxBps(mode)
     maxQuoteIn = (maxQuoteIn * BigInt(9999)) / BigInt(10000);
   }
   return { quote, symbol: String(symbol), decimals: Number(decimals), launchpadCapBps, capBps, capBy: eff.by, mode, capTokens, maxQuoteIn, quotePriceUsd };

@@ -38,6 +38,7 @@
     "test:wallet-position": "node scripts/test-wallet-position.mjs",
     "test:trade-ui": "node scripts/test-trade-ui.mjs",
     "test:fix-batch": "node scripts/test-fix-batch.mjs",
+    "test:mode-rules": "node scripts/test-mode-rules.mjs",
     "test:exit-confirm": "node scripts/test-exit-confirm.mjs",
     "test:trade-speed": "node scripts/test-trade-speed.mjs",
     "test:boost-anim": "node scripts/test-boost-anim.mjs",
