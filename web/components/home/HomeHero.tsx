@@ -155,7 +155,7 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
             {hero ? (
               <>
                 <div className={s.ident}>
-                  <span className={s.av}><PairArt src={hero.icon || undefined} pair={hero.pairSym} tk={hero.ticker} tint="#E8EAEE" size="list" fluid eager coin={hero.token} /></span>
+                  <span className={s.av}><PairArt src={hero.icon || undefined} pair={hero.pairSym} tk={hero.ticker} tint="#E8EAEE" size="list" fluid eager /></span>
                   <div className={s.identTxt}>
                     <Link href={href} prefetch={false} className={s.name} onMouseEnter={warm} onFocus={warm}>{hero.name}</Link>
                     <div className={s.sub}><span className={s.num}>${hero.ticker}</span> · <Icon name="base-pair" size={14} className={s.subIc} /> paired with {hero.pairSym}</div>
