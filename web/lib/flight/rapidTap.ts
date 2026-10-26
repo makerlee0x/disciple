@@ -121,3 +121,15 @@ export function awaitResolution(pressId: string, o: { subscribe?: (cb: (e: Reser
     if (!held(pressId)) fin({ outcome: "gone" });
   });
 }
+
+/** RAPID TAP status: one trade-bar row per press (pressId), so close-together fills never overwrite each other in a single
+ *  status line (SITE diag, Oct 26 9:29 CT: 8 taps → 6 ops on chain, the UI showed 4). Finished rows linger ROW_LINGER_MS. */
+export type PressRow = { id: string; txt: string; done: boolean };
+export const ROW_LINGER_MS = 6000, ROW_MAX = 5;
+/** still in flight? (sending / confirm in wallet / sent ⚡ / still confirming) — else the row is final and fades out */
+export const rowLive = (txt: string) => /sending…|confirm in wallet…|sent ⚡/.test(txt) || txt.includes(COPY.confirming);
+/** set press `id`'s row (append if new; keeps the newest ROW_MAX) */
+export const upsertRow = (rs: PressRow[], id: string, txt: string): PressRow[] => {
+  const row = { id, txt, done: !rowLive(txt) };
+  return rs.some((r) => r.id === id) ? rs.map((r) => (r.id === id ? row : r)) : [...rs, row].slice(-ROW_MAX);
+};

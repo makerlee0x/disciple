@@ -186,8 +186,8 @@ console.log("— phone trade bar (#139 PhoneTradeBar) keeps the rapid-tap states
 { const ph = tb.slice(tb.indexOf("if (phone) return ("), tb.indexOf("<PhoneTradeBar") + 1600);
   ok(/boostDisabled=\{short\} dumpDisabled=\{!has\} inFlightFull=\{full\}/.test(ph), "phone: BOOST disabled when short, DUMP when no tokens; 3 in flight = greyed + '3 IN FLIGHT' label (still tappable → pulse)");
   ok(/const boostTitle = full \? COPY\.inFlight : short \? shortMsg :/.test(tb) && /boostTitle=\{boostTitle\}/.test(ph), "phone: BOOST title = '3 IN FLIGHT' while full (same as desktop)");
-  ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortMsg \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
-    "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / the trade line while pending or 'Still confirming your last trade…'");
+  ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortMsg \|\| rowsLine \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
+    "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / per-press rows (2+) / the trade line while pending or 'Still confirming your last trade…'");
   ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, gasKindFor/.test(tb) && (tb.match(/const short = /g) || []).length === 1, "one short (rapid-tap raw + gas kind), #139's float short dropped"); }
 console.log("— pressId (FLOW #145)");
 ok(/reservationId: pressId, pressId \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
@@ -285,7 +285,7 @@ for (const lateOk of [true, false]) { const E = engine({ live: true, cash: 1000 
   const L = []; const e = BA.baStart(L, 0, 1, 0); e.unk = 1;
   ok(BA.baOffset(L, 0, 45000) > 0.69 && e.st !== "fail", "@boostanim: a pending_unknown send keeps hovering past the 30 s stale guard (SITE watches ≤ 2 min)"); }
 ok(/if \(isPendingUnknown\(e\)\) return pendingUnknown\(\);/.test(tb) && /if \(!r\.ok && isPendingUnknown\(r\)\) return pendingUnknown\(\);/.test(tb), "TradeBridge: a thrown / returned pending_unknown goes to the hover path, not the failure copy");
-ok(/awaitResolution\(pressId\)/.test(tb) && /if \(!keep\) \{/.test(tb) && /out\.outcome === "filled"[\s\S]{0,600}bookReceipt\(out\.txHash, side, pressId, bag\)/.test(tb) && /out\.outcome === "error"\) \{ setLast\(`✕ \$\{REJECTED\}`\)/.test(tb),
+ok(/awaitResolution\(pressId\)/.test(tb) && /if \(!keep\) \{/.test(tb) && /out\.outcome === "filled"[\s\S]{0,600}bookReceipt\(out\.txHash, side, pressId, bag\)/.test(tb) && /out\.outcome === "error"\) \{ say\(`✕ \$\{REJECTED\}`\)/.test(tb),
   "TradeBridge: no release on pending_unknown; resolved fill booked from its receipt, resolved error = REJECTED");
 ok(/disciple:livetrade/.test(tb.slice(tb.indexOf("const pendingUnknown"), tb.indexOf("// pending-trade state"))), "TradeBridge: a late fill re-reads balances (no amountOut ⇒ booked from the re-read)");
 { const src = [rd("lib/flight/rapidTap.ts"), tb, block("/* @rapidtap —", "/* @rapidtap-end */")].map((x) => x.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")).join("\n");

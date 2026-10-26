@@ -75,6 +75,30 @@ for (const [kind, opts, want] of [["custom $1", { customUsd: 1 }, 1], ["preset $
   { const E = rig(opts); E.click(0);
     ok(E.sent.length === 1 && E.S.pending.length === 1 && E.label() !== "3 IN FLIGHT", `${kind}: single tap unchanged (1 trade, label stays BOOST)`); }
 }
+console.log("— 10 taps in 200 ms (SITE window 2, 09:09:22 CT: 10 taps → 1 op)");
+for (const [kind, opts] of [["custom $1", { customUsd: 1 }], ["preset $5", { mode: 1 }]]) {
+  const E = rig(opts); for (let i = 0; i < 10; i++) E.click(Math.round(i * 200 / 9));
+  const outs = E.clicks.map((c) => c.out);
+  ok(outs.every((o) => o !== "SILENT"), `${kind}: every one of 10 taps is sent or visibly refused (${outs.join(", ")})`);
+  ok(E.sent.length === 3 && outs.filter((o) => o === "flash:3 IN FLIGHT").length === 7 && E.clicks.slice(3).every((c) => c.label === "3 IN FLIGHT"),
+    `${kind}: 3 trades go out, taps 4–10 = '3 IN FLIGHT' pulse + button label`);
+  for (let i = 0; i < 3; i++) await E.settle(i, { ok: true, txHash: "0x" + i, filled: true });
+  ok(E.S.pending.length === 0 && E.click(400) === "sent", `${kind}: all 3 fill → next tap goes straight out`); }
+
+console.log("— per-press status rows (SITE window 1: 8 taps → 6 ops, UI showed 4 fills)");
+{ const src = rd("lib/flight/rapidTap.ts"), cp = src.match(/export const COPY = \{[\s\S]*?\n\} as const;/)[0], rs = src.slice(src.indexOf("export type PressRow"));
+  const R = new Function(tsx((cp + "\n" + rs).replace(/export /g, "")) + "\nreturn { COPY, rowLive, upsertRow, ROW_MAX };")();
+  let rows = []; for (const id of ["p1", "p2", "p3"]) rows = R.upsertRow(rows, id, "▲ $1.00 · sending…");
+  rows = R.upsertRow(rows, "p1", "✓ ▲ $1.00 done"); rows = R.upsertRow(rows, "p3", "✓ ▲ $1.00 done"); rows = R.upsertRow(rows, "p2", "✓ ▲ $1.00 done");
+  ok(rows.length === 3 && rows.every((r) => r.done) && rows.map((r) => r.id).join() === "p1,p2,p3", "3 close fills = 3 rows, none overwritten (was one shared `last` line)");
+  ok(R.rowLive("▲ $1.00 · sent ⚡") && R.rowLive(`▲ $1.00 · ${R.COPY.confirming}`) && !R.rowLive("✕ That didn't go through."), "rowLive: sending / sent / confirming stay; ✓ / ✕ are final");
+  for (let i = 4; i < 9; i++) rows = R.upsertRow(rows, "p" + i, "▲ $1.00 · sending…");
+  ok(rows.length === R.ROW_MAX && rows.at(-1).id === "p8", `keeps the newest ${R.ROW_MAX} rows`);
+  ok(/const say = \(txt: string\) => \{\s*setLast\(txt\);[\s\S]*?setRows\(\(rs\) => upsertRow\(rs, pressId, txt\)\)/.test(tb), "TradeBridge: each press reports through say() → its own row (pressId)");
+  const body = tb.slice(tb.indexOf("const say = (txt: string)"), tb.indexOf("return () => { delete window.__discipleTrade;"));
+  ok((body.match(/setLast\(/g) || []).length === 1, "TradeBridge: no press writes the shared line directly (only via say)");
+  ok(/data-testid="press-rows"/.test(tb) && /rowsLine = rows\.length > 1/.test(tb), "desktop shows one row per press; the phone hint lists them"); }
+
 { const E = rig({ customUsd: 1 }); E.S.confirmed.mcap = null;
   ok(E.click(0) !== "SILENT" && E.sent.length === 0, "no price yet: the click shows a flash instead of vanishing"); }
 console.log(bad ? `\n${bad} FAILED` : "\nall ok"); process.exit(bad ? 1 : 0);

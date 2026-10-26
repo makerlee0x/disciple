@@ -49,7 +49,7 @@ ok(/handOffLogs\(r\.txHash, r\.receipt\?\.receipt\?\.logs\)/.test(wl) && /handOf
 ok(/takeReceipt\(r\.txHash\)/.test(tb) && /await bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb), "TradeBridge decodes the fill from the returned logs BEFORE the result returns (fillreceipt at ✓ done)");
 ok(!/pollingInterval: 700/.test(tb), "TradeBridge: the 700 ms waitForTransactionReceipt poll is gone");
 ok(/if \(!rl\) \{[^}]*waitForTransactionReceipt/.test(tb) && /&& !logs\) (void|releaseAfter =) bookReceipt\(r\.txHash, side, rp, bag\)/.test(tb), "receipt polling kept only as the fallback when no logs came back");
-ok(/setLast\(doneLine\(side, usd, r, fill, fmtMoney\)\)/.test(tb) && /if \(x\) setLast\(doneLine\(side, usd, r, x, fmtMoney\)\)/.test(tb), "TradeBridge ✓ done line = doneLine (fill $), also once a polled receipt lands");
+ok(/say\(doneLine\(side, usd, r, fill, fmtMoney\)\)/.test(tb) && /if \(x\) say\(doneLine\(side, usd, r, x, fmtMoney\)\)/.test(tb), "TradeBridge ✓ done line = doneLine (fill $), also once a polled receipt lands");
 ok(/fillUsd: fill\.usd/.test(tb), "bridge result carries the fill $ (fillUsd) to the engine");
 
 // ───────────── 2. rocket only on the real fill ─────────────
