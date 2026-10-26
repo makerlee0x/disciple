@@ -45,6 +45,7 @@
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
     "test:onetap": "tsx --test scripts/test-onetap.mts",
+    "test:new-player-cash": "tsx --conditions=react-server --test scripts/test-new-player-cash.mts",
     "test:v4-fixes": "tsx --test scripts/test-v4-fixes.mts",
     "test:session-e2e": "tsx scripts/test-session-e2e.mts",
     "test:session-e2e-v5": "tsx scripts/test-session-e2e-v5.mts",
