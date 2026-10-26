@@ -41,7 +41,7 @@ export interface CoinMeta { creator: string; anon: boolean; curve: string; launc
 /* ------------------------------------------------ pure helpers (tests) ------------------------------------------------ */
 
 /** Pure: stored fill → evaluator event (player $ = net usdIn / usdOut / usd). */
-export function fillEvent(f: Fill & { impactBps?: number }): AchEvent {
+export function fillEvent(f: Fill): AchEvent {
   return {
     kind: "fill", id: f.id, tx: f.tx, block: f.block, logIndex: f.logIndex, ts: f.ts, coin: f.coin, wallet: f.trader,
     side: f.side, venue: f.venue, tokens: f.tokens, usd: playerUsd(f), impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined,
