@@ -122,7 +122,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: (usdgPays ? t.address.toLowerCase() === deployment().usdg.toLowerCase() : !!meta && t.address.toLowerCase() === meta.quote.toLowerCase()) ? "spend" : "other" }));
       if (meta) list.unshift({ symbol: meta.symbol, address: coin!, role: "held" });
       // USDG is shown as dollar "cash" in its own card (never as "USDG" in the header); keep it out of the token line
-      if (usdgPays) for (let i = list.length - 1; i >= 0; i--) if (list[i].address.toLowerCase() === deployment().usdg.toLowerCase()) list.splice(i, 1);
+      // …except on a USDG-paired coin: USDG is that coin's quote, so the chip shows it (in dollars) as what pays
+      const usdgQuote = !!meta && meta.quote.toLowerCase() === deployment().usdg.toLowerCase();
+      if (usdgPays && !usdgQuote) for (let i = list.length - 1; i >= 0; i--) if (list[i].address.toLowerCase() === deployment().usdg.toLowerCase()) list.splice(i, 1);
       const extra = [...new Set([...(coin ? [coin] : []), ...fillBook.pendingTokens(a).filter((t) => t !== deployment().usdg.toLowerCase())])] as Address[];
       // one block for everything: ≥ our last receipt's block (fillBook.floor); a node that's behind errors ⇒ brief retry
       const { value, block } = await readAtOrAfter(pc, fillBook.floor(a), async (blockNumber) => {

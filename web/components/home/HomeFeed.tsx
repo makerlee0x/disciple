@@ -54,8 +54,8 @@ export default function HomeFeed({ initial }: { initial: HomeCoin[] }) {
   }, []);
 
   useEffect(() => {
-    if (process.env.NODE_ENV !== "development" || !devSample()) return; // constant false in production builds: the mock chunk is never emitted
-    import("@/lib/mock/launchpad").then((m) => setDev(m.sampleRockets(600, withBase))).catch(() => {});
+    // inline NODE_ENV check (not an early return) so webpack drops the import() and never emits the mock chunk in prod
+    if (process.env.NODE_ENV === "development" && devSample()) import("@/lib/mock/launchpad").then((m) => setDev(m.sampleRockets(600, withBase))).catch(() => {});
   }, []);
 
   const all = useMemo(() => [...live, ...dev], [live, dev]);
