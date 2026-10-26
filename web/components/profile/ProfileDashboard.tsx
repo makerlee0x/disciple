@@ -27,6 +27,7 @@ import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
 import type { RocketCardRow } from "./tabs/RocketsTab";
 import ProfileClaims from "@/components/claims/ProfileClaims";
+import InvitesCard from "@/components/invites/InvitesCard";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import Icon from "@/components/icons/Icon";
 
@@ -297,6 +298,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       </header>
 
       {isPrivate && <ProfileClaims />}
+      {isPrivate && <InvitesCard />}
 
       <div className="pf-tabbar" ref={tabBar}>
         <div className="pf-tabs" role="tablist">
