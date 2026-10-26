@@ -25,6 +25,11 @@ export interface Fill {
    */
   usdIn?: number;
   usdOut?: number;
+  /**
+   * Gross USDG sent into the router on a buy that got a `UsdgRefund` back (graduating buy, First BOOST above the mode
+   * cap). Only set when a refund happened; `usdIn` is then the NET paid (amountIn − usdgRefund). Kept for audits.
+   */
+  usdInGross?: number;
   /** $ mcap after the fill */
   mcapUsd: number;
   /**
@@ -33,7 +38,14 @@ export interface Fill {
    * mid-price estimate) ⇒ lib/server/trades reindexFills revalues it.
    */
   usdBasis?: "quote" | "price";
+  /**
+   * Stored fill schema version (FILL_V). Absent/lower ⇒ lib/server/trades reindexFills rebuilds the fill once from its
+   * receipt (net usdIn, …), then skips it on later runs.
+   */
+  v?: number;
 }
+/** Current stored-fill schema. 2 = usdIn net of the router's UsdgRefund (+ usdInGross). */
+export const FILL_V = 2;
 /** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 1M × 1e18). */
 export const TOTAL_SUPPLY_TOKENS = 1_000_000;
 
@@ -108,7 +120,27 @@ export function playerUsd(f: { side: "buy" | "sell"; usd: number; usdIn?: number
 }
 
 /** DiscipleRouter UsdgTrade args (amountIn = USDG on buys / tokens on sells; amountOut = tokens on buys / USDG on sells). */
-export type UsdgTradeArgs = { trader: string; token: string; isBuy: boolean; amountIn: bigint; amountOut: bigint };
+export type UsdgTradeArgs = {
+  trader: string; token: string; isBuy: boolean; amountIn: bigint; amountOut: bigint;
+  /** USDG refunded by the router for this buy (UsdgRefund of the same tx/token/trader; attachRefunds) — subtracted from usdIn */
+  usdgRefund?: bigint;
+};
+/** DiscipleRouter UsdgRefund args: emitted on the graduating curve buy (unused quote) and a First BOOST above the mode cap. */
+export type UsdgRefundArgs = { trader: string; token: string; quoteRefund: bigint; usdgRefund: bigint };
+/**
+ * Pure: put each UsdgRefund on its buy UsdgTrade (same tx, token, trader; the first buy that has no refund yet, in log
+ * order) as `usdgRefund`. Mutates and returns `trades`. Only pass router-emitted logs (callers filter by address). A
+ * refund with no matching buy is dropped (nothing is guessed).
+ */
+export function attachRefunds<T extends { tx: string; args: UsdgTradeArgs }>(trades: T[], refunds: { tx: string; args: UsdgRefundArgs }[]): T[] {
+  for (const r of refunds) {
+    const tx = r.tx.toLowerCase(), tok = String(r.args.token).toLowerCase(), who = String(r.args.trader).toLowerCase();
+    const hit = trades.find((t) => t.tx.toLowerCase() === tx && t.args.isBuy && String(t.args.token).toLowerCase() === tok
+      && String(t.args.trader).toLowerCase() === who && t.args.usdgRefund === undefined);
+    if (hit) hit.args = { ...hit.args, usdgRefund: BigInt(r.args.usdgRefund) };
+  }
+  return trades;
+}
 /** Key for matching a Trade fill to the router's UsdgTrade of the same tx (token + side). */
 export const usdgKey = (tx: string, token: string, isBuy: boolean) => `${tx.toLowerCase()}:${token.toLowerCase()}:${isBuy ? "b" : "s"}`;
 /**
@@ -124,8 +156,13 @@ export function usdgIndex(logs: { tx: string; args: UsdgTradeArgs }[]): Map<stri
  * Real $ in/out for a fill from its matched UsdgTrade. `dec` = the chain's USDG decimals (lib/usdg usdgDecimals(): 18 on
  * today's testnet, 6 on mainnet / the redeploy) — required, no 18 default; this file stays import-free (test-share-pnl).
  */
-export function usdgAmounts(u: UsdgTradeArgs | undefined, dec: number): Pick<Fill, "usdIn" | "usdOut"> {
+export function usdgAmounts(u: UsdgTradeArgs | undefined, dec: number): Pick<Fill, "usdIn" | "usdOut" | "usdInGross"> {
   if (!u) return {};
   const usd = (raw: bigint) => Number(raw) / 10 ** dec;
-  return u.isBuy ? { usdIn: usd(u.amountIn) } : { usdOut: usd(u.amountOut) };
+  if (!u.isBuy) return { usdOut: usd(u.amountOut) };
+  // NET paid: the router's UsdgRefund (graduating buy / First BOOST over the cap) went back to the player (bug: gross was stored)
+  const refund = u.usdgRefund !== undefined && u.usdgRefund > BigInt(0) ? u.usdgRefund : BigInt(0);
+  if (refund === BigInt(0)) return { usdIn: usd(u.amountIn) };
+  const net = u.amountIn > refund ? u.amountIn - refund : BigInt(0);
+  return { usdIn: usd(net), usdInGross: usd(u.amountIn) };
 }
