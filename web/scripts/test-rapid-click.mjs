@@ -104,6 +104,9 @@ ok(/const shortLine = short && rows\.length === 0 \? shortMsg : "";/.test(tb) &&
   "'Not enough cash' (next BOOST) never replaces the status of a press in flight / just filled (was: shown for a $6.6K BOOST that went through)");
 ok(/if \(live && liveHas !== false\) \{/.test(tb) && /else setHint\(COPY\.loadingPosition\); \};/.test(tb),
   "DUMP right after a reload: live + bag not re-read yet still sends (bridge re-reads balanceOf); otherwise a visible 'Loading your position…', never a silent no-op");
+ok(/const goodMcap=\(m\)=>typeof m==='number'&&Number\.isFinite\(m\)&&m>0;/.test(eng) && /if \(goodMcap\(e\.mcap\)\) S\.confirmed\.mcap=e\.mcap;/.test(eng) && /e\.t==='mark'\)\{ if\(goodMcap\(e\.mcap\)\) S\.confirmed\.mcap=e\.mcap; \}/.test(eng),
+  "engine: a swap / mark with no usable mcap (0 / null / NaN) keeps the last good one (was: floored to LAUNCH PAD)");
+ok(/if\(ti>S\.tierShown\)\{ S\.grassCard=4\.5; award\('tier'\+ti,'TIER WITNESS'/.test(eng), "engine: 'TIER WITNESS — crossed into …' only on a climb, never on a drop");
 { const E = rig({ customUsd: 1 }); E.S.confirmed.mcap = null;
   ok(E.click(0) !== "SILENT" && E.sent.length === 0, "no price yet: the click shows a flash instead of vanishing"); }
 console.log(bad ? `\n${bad} FAILED` : "\nall ok"); process.exit(bad ? 1 : 0);

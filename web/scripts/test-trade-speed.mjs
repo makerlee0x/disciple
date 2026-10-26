@@ -44,6 +44,9 @@ ok(bl === "▲ $1.95 ✓ done", `BOOST status shows the FILLED $ (${bl}), not th
 ok(TS.doneLine("buy", 1.98, { ok: true }, null, fmtMoney) === "▲ $1.98 ✓ done", "no fill decoded yet (slow path) ⇒ shot $ until the polled receipt replaces it");
 ok(TS.doneLine("buy", 5, { ok: true }, { side: "sell", usd: 9 }, fmtMoney) === "▲ $5.00 ✓ done", "a fill for the other side is never shown");
 ok(TS.doneLine("sell", 5, { ok: false, reason: "Price moved" }, sellFill, fmtMoney) === "▼ $5.00 ✕ Price moved", "failure keeps its reason (no fill $)");
+{ const g = TS.doneLine("buy", 6600, { ok: true }, { side: "buy", usd: 6520, refundUsd: 80 }, (v) => "$" + Math.round(v).toLocaleString("en-US"));
+  ok(g === "▲ $6,520 ✓ done · $80 back: only $6,520 was needed to graduate", `graduating BOOST tells the refund (${g})`);
+  ok(TS.doneLine("buy", 5, { ok: true }, { side: "buy", usd: 5, refundUsd: 0.001 }, fmtMoney) === "▲ $5.00 ✓ done", "dust refund (< 1¢): no refund line"); }
 // wiring
 ok(/handOffLogs\(r\.txHash, r\.receipt\?\.receipt\?\.logs\)/.test(wl) && /handOffLogs\(hash, last\.logs\)/.test(wl), "lib/wallet.execCalls hands the returned logs over (smart account + EOA paths)");
 ok(/takeReceipt\(r\.txHash\)/.test(tb) && /await bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb), "TradeBridge decodes the fill from the returned logs BEFORE the result returns (fillreceipt at ✓ done)");

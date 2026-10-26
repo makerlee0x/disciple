@@ -29,11 +29,18 @@ export function takeReceipt(txHash: string | undefined): LogLike[] | undefined {
 /* ---------------- status line ---------------- */
 /** Trade bar status after the result: "✓ done" shows the decoded FILL $ (what really moved), else the shot $ (no fill decoded
  *  yet: slow path polls in the background); failures keep the reason. fmt = lib/pnl fmtMoney. */
-export function doneLine(side: "buy" | "sell", estUsd: number, r: { ok: boolean; reason?: string }, fill: Pick<DecodedFill, "side" | "usd"> | null | undefined, fmt: (v: number) => string) {
+export function doneLine(side: "buy" | "sell", estUsd: number, r: { ok: boolean; reason?: string }, fill: Pick<DecodedFill, "side" | "usd" | "refundUsd"> | null | undefined, fmt: (v: number) => string) {
   const arrow = side === "buy" ? "▲" : "▼";
   if (!r.ok) return `${arrow} ${fmt(estUsd)} ✕ ${r.reason || "failed"}`;
-  const usd = fill && fill.side === side && Number.isFinite(fill.usd) && fill.usd >= 0 ? fill.usd : estUsd;
-  return `${arrow} ${fmt(usd)} ✓ done`;
+  const ok = !!fill && fill.side === side && Number.isFinite(fill.usd) && fill.usd >= 0;
+  const usd = ok ? fill!.usd : estUsd;
+  const back = ok && side === "buy" ? refundLine(fill!.refundUsd, usd, fmt) : "";
+  return `${arrow} ${fmt(usd)} ✓ done${back ? ` · ${back}` : ""}`;
+}
+/** Graduating BOOST overshoot (receipt UsdgRefund): "$80 back: only $6,520 was needed to graduate". "" when none / dust.
+ *  PLACEHOLDER COPY (BRAND to finalise). */
+export function refundLine(refundUsd: number | undefined, spentUsd: number, fmt: (v: number) => string) {
+  return refundUsd !== undefined && Number.isFinite(refundUsd) && refundUsd >= 0.01 ? `${fmt(refundUsd)} back: only ${fmt(spentUsd)} was needed to graduate` : "";
 }
 
 /* ---------------- click mark hook (SITE #140 lib/trade/timing.ts markTradeClick) ---------------- */
