@@ -8,7 +8,7 @@
  */
 import { decodeEventLog, type Log, type PublicClient } from "viem";
 import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
-import { playerUsd, usdgAmounts, usdgIndex, usdgKey, type UsdgTradeArgs } from "./trades";
+import { attachRefunds, playerUsd, usdgAmounts, usdgIndex, usdgKey, type UsdgRefundArgs, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
 import { publishTraderName } from "./nameLookup";
 import { deployment } from "./chains";
@@ -248,15 +248,19 @@ export async function usdgFromReceipt(pc: Pick<PublicClient, "getTransactionRece
     const rc = await pc.getTransactionReceipt({ hash: tx }).catch(() => null);
     if (rc) {
       let hit: UsdgTradeArgs | null = null;
+      const refunds: { tx: string; args: UsdgRefundArgs }[] = [];
       for (const l of rc.logs) {
         if (l.address.toLowerCase() !== router.toLowerCase()) continue;
         try {
           const ev = decodeEventLog({ abi: discipleRouterAbi, data: l.data, topics: l.topics as [`0x${string}`, ...`0x${string}`[]] });
-          if (ev.eventName !== "UsdgTrade") continue;
+          if (ev.eventName === "UsdgRefund") { refunds.push({ tx, args: ev.args as unknown as UsdgRefundArgs }); continue; }
+          if (ev.eventName !== "UsdgTrade" || hit) continue;
           const a = ev.args as unknown as UsdgTradeArgs;
-          if (String(a.token).toLowerCase() === token.toLowerCase() && Boolean(a.isBuy) === isBuy && String(a.trader).toLowerCase() === trader.toLowerCase()) { hit = a; break; }
+          if (String(a.token).toLowerCase() === token.toLowerCase() && Boolean(a.isBuy) === isBuy && String(a.trader).toLowerCase() === trader.toLowerCase()) hit = a;
         } catch { /* another router event */ }
       }
+      // usdIn NET of the router's UsdgRefund (graduating buy / First BOOST over the cap)
+      if (hit && refunds.length) hit = attachRefunds([{ tx, args: hit }], refunds)[0].args;
       RECEIPT_USDG.set(k, hit); while (RECEIPT_USDG.size > 512) RECEIPT_USDG.delete(RECEIPT_USDG.keys().next().value as string);
       return hit ?? undefined;
     }
@@ -321,7 +325,11 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
         : (pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>)
           .catch((e) => { console.warn("[disciple] live UsdgTrade read failed; feed falls back to quote value", e); return [] as L[]; }),
     ]);
-    const idx = usdgIndex(rl.map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })));
+    // UsdgRefund of the same txs (only when a router buy is in range) ⇒ usdIn is the NET paid
+    const refunds = router === "0x0000000000000000000000000000000000000000" || !rl.some((l) => Boolean(l.args.isBuy)) ? [] as L[]
+      : await (pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgRefund", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>).catch(() => [] as L[]);
+    const idx = usdgIndex(attachRefunds(rl.map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })),
+      refunds.map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgRefundArgs }))));
     for (const l of ls) if (l.eventName === "Trade") (l as L & { usdg?: UsdgTradeArgs }).usdg = idx.get(usdgKey(l.transactionHash ?? "", String(l.args.token), Boolean(l.args.isBuy)))?.shift();
     // SITE #137: the UsdgTrade getLogs can land on a node that is behind the one that served the Trade (it answers []
     // for blocks it doesn't have, no error) ⇒ the row showed the quote value instead of the USDG paid. For a Trade with
@@ -436,14 +444,17 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
     pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quote" }).catch(() => undefined),
   ]);
   const router = deployment().router;
-  const [curveLogs, hookLogs, routerLogs] = await Promise.all([
+  const [curveLogs, hookLogs, routerLogs, refundLogs] = await Promise.all([
     pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock, toBlock: "latest" }),
     pc.getContractEvents({ address: deployment().hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock, toBlock: "latest" }),
     router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])
       : pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock, toBlock: "latest" }).catch(() => []),
+    router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])
+      : pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgRefund", args: { token }, fromBlock, toBlock: "latest" }).catch(() => []),
   ]);
-  // real USDG in/out of router trades, matched by (tx, token, side)
-  const usdg = usdgIndex((routerLogs as unknown as L[]).map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })));
+  // real USDG in/out of router trades, matched by (tx, token, side); buys net of the router's UsdgRefund
+  const usdg = usdgIndex(attachRefunds((routerLogs as unknown as L[]).map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgTradeArgs })),
+    (refundLogs as unknown as L[]).map((l) => ({ tx: l.transactionHash ?? "", args: l.args as unknown as UsdgRefundArgs }))));
   const take = (l: L) => usdg.get(usdgKey(l.transactionHash ?? "", String(l.args.token), Boolean(l.args.isBuy)))?.shift();
   const key = (l: L) => (l.blockNumber ?? BigInt(0)) * BigInt(100000) + BigInt(l.logIndex ?? 0);
   const out: { k: bigint; e: ProtocolEvent }[] = [];
