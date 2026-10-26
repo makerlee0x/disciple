@@ -21,6 +21,7 @@ import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } fro
 import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
+import { ACH } from "./achKeys";
 import { coinBasis } from "@/lib/mcap";
 import { attachRefunds, fillUsd, FILL_V, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgRefundArgs, type UsdgTradeArgs } from "@/lib/trades";
 import { usdgDecimals } from "@/lib/usdg";
@@ -165,6 +166,8 @@ export async function storeFills(fills: Fill[]) {
   const coinsBy = new Map<string, Set<string>>();
   for (const f of fills) (coinsBy.get(f.trader) ?? coinsBy.set(f.trader, new Set()).get(f.trader)!).add(f.coin);
   for (const [w, cs] of Array.from(coinsBy.entries())) await s.sadd(`trades:w:${w}`, ...Array.from(cs));
+  // achievements engine: re-score these wallets on the next /api/cron/achievements (one member per fill ⇒ never lost)
+  if (fills.length) await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
 }
 
 const byOrder = (a: Fill, b: Fill) => a.block - b.block || a.logIndex - b.logIndex;
@@ -235,6 +238,8 @@ export async function replaceFill(s: Pick<Kv, "zadd" | "zrem">, coin: string, ol
   await s.zadd(wk, [{ score: nf.ts, member: nm }]);
   await s.zrem(`trades:${coin}`, oldMember);
   await s.zrem(wk, oldMember);
+  // a re-indexed fill (net usdIn, impactBps) can change achievements ⇒ re-score its wallet
+  await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${nf.trader}|re:${nf.id}:${nf.v ?? 0}` }]);
 }
 
 /**
