@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/poke-pricer", "schedule": "* * * * *" }
+    { "path": "/api/cron/poke-pricer", "schedule": "* * * * *" },
+    { "path": "/api/cron/achievements", "schedule": "*/2 * * * *" }
   ]
 }

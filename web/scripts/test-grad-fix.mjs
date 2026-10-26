@@ -39,7 +39,8 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(!/(warn|Warn)[^\n]*\breturn \{ ok: false/.test(tbc), "the bridge never refuses a trade for a warning");
   const main = (p) => execSync(`git show origin/main:web/${p}`, { cwd: new URL("..", import.meta.url) }).toString();
   const boostDis = (s) => ((s.match(/aria-label="buy"[^\n]*/) || [""])[0].match(/disabled=\{[^}]*\}/) || [""])[0];   // the gating expr (post-grad adds hover handlers to the line)
-  ok(boostDis(tb) === boostDis(main("components/TradeBridge.tsx")), "BOOST button line unchanged from main (still only cash / min gating)");
+  // rapid-tap (#147) adds the 3-in-flight cap (`|| full`) — not a price-move gate; everything else must match main
+  ok(boostDis(tb).replace(/ \|\| full\b/, "") === boostDis(main("components/TradeBridge.tsx")), "BOOST button line unchanged from main (still only cash / min gating, + rapid-tap in-flight cap)");
   ok(/onPickBuy : p\.onPickSell\)\(i\); setSheet\(null\)/.test(bar) && !/ph-opt[^\n]*disabled=\{[^}]*tags/.test(bar), "sheet options stay tappable with a warning");
   ok(/S\.buyWarn=/.test(eng) && !/buyWarn[^\n]*return;/.test(eng) && !/(\bp\.warn|buyWarn)[^\n]*(S\.mode=|selectSell|pending)/.test(eng), "engine: warning tags draw only, never gate select / shoot");
   ok(/S\.buyWarn\.tags\[i\]/.test(eng) && /p\.on&&p\.warn/.test(eng), "engine: buy tiles + sell chips show the tag");

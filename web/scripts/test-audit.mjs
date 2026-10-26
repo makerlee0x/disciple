@@ -67,7 +67,7 @@ const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8"
   ok(/const mod=e\.ctrlKey\|\|e\.metaKey\|\|e\.altKey/.test(kd) && /ShiftLeft'\|\|e\.code==='ShiftRight'\)&&!mod/.test(kd) && kd.indexOf("isTyping(e)") < kd.indexOf("ShiftLeft"), "Shift: no modifier combos, never while typing");
   ok((kd.match(/Shift(Left|Right)/g) || []).length === 2 && !/Shift/.test(eng.slice(eng.indexOf("addEventListener('keyup'"), eng.indexOf("addEventListener('keyup'") + 200)), "Shift does nothing else in the engine");
   ok(/SELL · Z\/X\/C\/V select, SHIFT dump/.test(eng), "SELL row hint: Z/X/C/V select, SHIFT dump");
-  ok(/▲ \{t\("tb\.boost"\)\} \{fmtShot\(shotUsd\)\}/.test(tb) && /▼ \{t\("tb\.dump"\)\} \{/.test(tb) && /disabled=\{!has\}/.test(tb), "BOOST/DUMP show the selected amount; DUMP disabled with 0 tokens");
+  ok(/▲ \{t\("tb\.boost"\)\} \{fmtShot\(shotUsd\)\}/.test(tb) && /▼ \{t\("tb\.dump"\)\} \{/.test(tb) && /disabled=\{!has( \|\| full)?\}/.test(tb), "BOOST/DUMP show the selected amount; DUMP disabled with 0 tokens");
   ok(!/no tokens to sell/i.test(tb), "TradeBridge hint says NO TOKENS IN WALLET");
   ok(!/INITIALS|"init"/.test(tb.replace(/INITIALS → 25%/, "")) && !/INITIALS/.test(eng), "INITIALS removed (engine + bridge)");
   ok(/fmtShot=v=>fmtMoney\(v\)/.test(eng) && /const fmtShot = fmtMoney/.test(tb), "buttons and buy tiles use the shared formatter");

@@ -61,18 +61,23 @@ export function tradeStart() {
 }
 
 /* ---------------- timing ---------------- */
-export interface OpMark { submittedAt?: number; confirmedAt?: number; txHash?: string; timings?: unknown }
-/** userOpHash → its disciple:op phase times (performance.now); txHash looked up on the confirmed mark. Last 32 kept. */
+export interface OpMark { submittedAt?: number; confirmedAt?: number; errorAt?: number; txHash?: string; pressId?: string; timings?: unknown; code?: string }
+/** disciple:op phase times (performance.now), keyed by the press id when the AA layer tags it (FLOW #145 OpPhase.pressId),
+ *  else by userOpHash / txHash. "error" is FLOW's terminal phase. Last 32 kept. */
 export class OpMarks {
   private m = new Map<string, OpMark>();
-  note(d: { phase?: string; userOpHash?: string; txHash?: string; at?: number; timings?: unknown } | null | undefined) {
-    if (!d || (d.phase !== "submitted" && d.phase !== "confirmed")) return;
-    const k = String(d.userOpHash || d.txHash || "").toLowerCase(); if (!k) return;
+  note(d: { phase?: string; userOpHash?: string; txHash?: string; pressId?: string; at?: number; timings?: unknown; code?: string } | null | undefined) {
+    if (!d || (d.phase !== "submitted" && d.phase !== "confirmed" && d.phase !== "error")) return;
+    const k = d.pressId ? "p:" + d.pressId : String(d.userOpHash || d.txHash || "").toLowerCase(); if (!k) return;
     const cur = this.m.get(k) || {};
-    if (d.phase === "submitted") cur.submittedAt ??= d.at; else { cur.confirmedAt = d.at; cur.timings = d.timings; }
+    if (d.phase === "submitted") cur.submittedAt ??= d.at;
+    else if (d.phase === "confirmed") { cur.confirmedAt = d.at; cur.timings = d.timings; }
+    else { cur.errorAt = d.at; if (d.code) cur.code = d.code; }
     if (d.txHash) cur.txHash = String(d.txHash).toLowerCase();
+    if (d.pressId) cur.pressId = d.pressId;
     this.m.set(k, cur); while (this.m.size > 32) this.m.delete(this.m.keys().next().value as string);
   }
+  byPress(pressId: string | undefined): OpMark | undefined { return pressId ? this.m.get("p:" + pressId) : undefined; }
   byTx(txHash: string | undefined): OpMark | undefined {
     if (!txHash) return undefined; const t = txHash.toLowerCase();
     for (const v of this.m.values()) if (v.txHash === t) return v;
