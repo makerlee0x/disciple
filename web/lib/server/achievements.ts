@@ -144,7 +144,11 @@ export async function scanCoinEvents(budgetMs = 15_000, s: Kv = kv()): Promise<{
       const meta: CoinMeta = { creator, anon: anon.has(creator), curve: a.curve.toLowerCase(), launch: await refOf(l) };
       await s.set(ACH.coin(coin), JSON.stringify(meta));
       await s.sadd(ACH.coins(), coin);
-      if (!meta.anon) await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${creator}|launch:${coin}` }]);
+      // creator (launch rules) + anyone whose fills were indexed before this meta existed (fills only count on coins
+      // with a meta in this chain's namespace — see scoreWallet)
+      const ws = await tradersOf(coin, s);
+      if (!meta.anon) ws.add(creator);
+      if (ws.size) await s.zadd(ACH.dirty(), Array.from(ws).map((w) => ({ score: Date.now(), member: `${w}|launch:${coin}` })));
       out.launches++;
     }
     for (const l of grads) {
@@ -183,7 +187,11 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
   for (const c of coins) fills.push(...(await tradesOf(c, w, TRADES_MAX_LIMIT)));
   const launched = (await s.smembers(ACH.coins())).length ? await launchedBy(w, s) : [];
   const metas = await coinMetas(Array.from(new Set([...coins, ...launched])), s);
-  const r = evaluateWallet(w, [...fills.map((f) => fillEvent(f)), ...coinEvents(metas)], V1_RULES);
+  // Chain isolation (lee 9:24 AM CDT, Oct 26: "achievements reset at mainnet"): fill keys (`trades:*`) are per coin
+  // address, not per chain, so only fills on coins launched by THIS chain's launchpad (meta under ach:<chainId>:coin:)
+  // count. A shared Upstash DB can never leak testnet fills into mainnet unlocks.
+  const onChain = fills.filter((f) => metas.has(f.coin.toLowerCase()));
+  const r = evaluateWallet(w, [...onChain.map((f) => fillEvent(f)), ...coinEvents(metas)], V1_RULES);
   const fresh: string[] = [];
   if (!o.dryRun) {
     for (const u of r.unlocks) {
