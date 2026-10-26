@@ -1,0 +1,8 @@
+# DISCIPLE security contact (RFC 9116). Full policy: https://disciple.vip/security
+# PLACEHOLDER: no security email is decided yet, so Contact points at the policy page. Replace with
+# mailto:<security address> once lee picks one. Expires needs a yearly reminder.
+Contact: https://disciple.vip/security
+Expires: 2027-10-26T05:00:00.000Z
+Policy: https://disciple.vip/security
+Preferred-Languages: en
+Canonical: https://disciple.vip/.well-known/security.txt
