@@ -39,13 +39,22 @@ export interface Fill {
    */
   usdBasis?: "quote" | "price";
   /**
+   * Trade.impactBps (unsigned, UNCAPPED: the live router allows up to 100000 and direct curve/hook trades are uncapped).
+   * The bomb tier of a sell (BOMB_PCT × 100). Absent on fills stored before FILL_V 3 (reindex-trades backfills it).
+   */
+  impactBps?: number;
+  /** Trade.priceBeforeX18 as a decimal string (quote raw × 1e18 / token raw; floored on-chain — see preciseX18) */
+  priceBeforeX18?: string;
+  /** Trade.snipeFee (quote raw) as a decimal string; "0" outside the anti-snipe window */
+  snipeFee?: string;
+  /**
    * Stored fill schema version (FILL_V). Absent/lower ⇒ lib/server/trades reindexFills rebuilds the fill once from its
    * receipt (net usdIn, …), then skips it on later runs.
    */
   v?: number;
 }
-/** Current stored-fill schema. 2 = usdIn net of the router's UsdgRefund (+ usdInGross). */
-export const FILL_V = 2;
+/** Current stored-fill schema. 2 = usdIn net of the router's UsdgRefund (+ usdInGross); 3 = + impactBps, priceBeforeX18, snipeFee. */
+export const FILL_V = 3;
 /** Fixed DISCIPLE supply (contracts Constants.TOTAL_SUPPLY = 1M × 1e18). */
 export const TOTAL_SUPPLY_TOKENS = 1_000_000;
 

@@ -68,6 +68,8 @@ export function toFill(log: { transactionHash: string; logIndex: number; blockNu
   sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number;
   /** Trade.quoteAmt: quote paid (buy) / received (sell) ⇒ usd = quoteAmt × quotePriceUsd (lib/trades fillUsd) */
   quoteAmt?: bigint;
+  /** Trade.impactBps (uncapped) / Trade.snipeFee (quote raw) — stored per fill (achievements bomb rules) */
+  impactBps?: bigint; snipeFee?: bigint;
 }, ts: number, usdg?: UsdgTradeArgs): Fill {
   const u = fillUsd(a);
   return {
@@ -76,11 +78,14 @@ export function toFill(log: { transactionHash: string; logIndex: number; blockNu
     // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630).
     // usdIn is NET of the router's UsdgRefund when usdg.usdgRefund is set (attachRefunds).
     ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined, usdgDecimals()),
+    ...(a.impactBps !== undefined ? { impactBps: Number(a.impactBps) } : {}),
+    priceBeforeX18: a.priceBeforeX18.toString(),
+    ...(a.snipeFee !== undefined ? { snipeFee: a.snipeFee.toString() } : {}),
     v: FILL_V,
   };
 }
 
-export type TradeArgs = { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; quoteAmt?: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number };
+export type TradeArgs = { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; quoteAmt?: bigint; impactBps?: bigint; snipeFee?: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number };
 /**
  * Verify the emitter and fill in the USD basis of a decoded Trade (mutates `a`): venue (null = spoofed / foreign), the coin's
  * launch quote price (both venues: usd = quoteAmt × quotePriceUsd), and for hook trades the quote (currency order) for the
