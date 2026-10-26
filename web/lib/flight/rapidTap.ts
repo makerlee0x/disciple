@@ -23,6 +23,7 @@ setGasReserveSource(() => gasReservePerOp("trade"));   // SITE gasSource(): ever
 export const COPY = {
   inFlight: "3 IN FLIGHT", slowDown: "Slow down", spendLimit: "Spend limit reached", allSelling: "Already selling it all",
   confirming: "Still confirming your last trade…",
+  loadingPosition: "Loading your position… tap again in a second",   // placeholder copy (BRAND)
 } as const;
 /** relayOp.ts REJECTED_MSG (#138/#140): the definite-failure line. */
 export const REJECTED = "That didn't go through. Try again.";

@@ -186,7 +186,7 @@ console.log("— phone trade bar (#139 PhoneTradeBar) keeps the rapid-tap states
 { const ph = tb.slice(tb.indexOf("if (phone) return ("), tb.indexOf("<PhoneTradeBar") + 1600);
   ok(/boostDisabled=\{short\} dumpDisabled=\{!has\} inFlightFull=\{full\}/.test(ph), "phone: BOOST disabled when short, DUMP when no tokens; 3 in flight = greyed + '3 IN FLIGHT' label (still tappable → pulse)");
   ok(/const boostTitle = full \? COPY\.inFlight : short \? shortMsg :/.test(tb) && /boostTitle=\{boostTitle\}/.test(ph), "phone: BOOST title = '3 IN FLIGHT' while full (same as desktop)");
-  ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortMsg \|\| rowsLine \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
+  ok(/const phoneHint = hint \|\| \(full \? COPY\.inFlight : ""\) \|\| shortLine \|\| rowsLine \|\| \(inFlight\.n > 0 \|\| last\.includes\(COPY\.confirming\) \? last : ""\);/.test(tb) && /hint=\{phoneHint\}/.test(ph),
     "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / per-press rows (2+) / the trade line while pending or 'Still confirming your last trade…'");
   ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, gasKindFor/.test(tb) && (tb.match(/const short = /g) || []).length === 1, "one short (rapid-tap raw + gas kind), #139's float short dropped"); }
 console.log("— pressId (FLOW #145)");

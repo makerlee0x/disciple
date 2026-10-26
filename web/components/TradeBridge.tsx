@@ -531,13 +531,16 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // the engine's MIN_SHOT guard ⇒ DUMP did nothing). The $ here is only a label: sells are never size-filtered and the chart
   // marker is resized from the decoded receipt (disciple:fillreceipt → engine @sellfill). Paper: x% of the ledger position value.
   const sellPlan = (frac: number) => {
-    if (live && liveHas) { const m = markRef.current, free = Math.max(0, liveTokens.current - units(reservedTokens(token))), v = free * (m.mcap > 0 ? m.mcap / m.supply : 0);   // label = the unreserved bag (same as the sizing)
+    // live + bag not re-read yet (liveHas null right after a reload): still send — the bridge re-reads balanceOf before quoting
+    // (VFIVE replay 9:12–9:35 CT: the first DUMP 25 % after a reload on a graduated coin returned null here ⇒ nothing happened)
+    if (live && liveHas !== false) { const m = markRef.current, free = Math.max(0, liveTokens.current - units(reservedTokens(token))), v = free * (m.mcap > 0 ? m.mcap / m.supply : 0);   // label = the unreserved bag (same as the sizing)
       return { usd: v > 0 ? v * frac : pos.valueUsd > 0 ? pos.valueUsd * frac : 0.01, frac }; }
     if (!(pos.valueUsd > 0)) return null;
     return { usd: pos.valueUsd * frac, frac };
   };
   const sellFrac = (frac: number) => { if (!has) { setHint("NO TOKENS IN WALLET"); return; } const p = sellPlan(Math.min(1, frac));
-    if (p && p.usd > 0) shoot("sell", { usd: +Math.max(0.01, p.usd).toFixed(2), frac: p.frac, ...(p.frac >= 1 ? { all: true } : {}) }); };
+    if (p && p.usd > 0) shoot("sell", { usd: +Math.max(0.01, p.usd).toFixed(2), frac: p.frac, ...(p.frac >= 1 ? { all: true } : {}) });
+    else setHint(COPY.loadingPosition); };   // never a silent no-op: the position's value isn't known yet
   const sell = (s: Sell) => sellFrac(s.frac);
   const selSellPreset = SELLS[sellSel] || SELLS[DEFAULT_SELL_SEL];
   // custom sell: % of holdings (≤ 100) or a $ value capped at the position value; overrides the selected preset (same rule as custom buy $)
@@ -601,6 +604,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // 3 in flight: BOOST + DUMP look greyed and READ "3 IN FLIGHT" until one resolves. They stay clickable (aria-disabled only):
   // a press over the cap reaches the engine, which shows the '3 IN FLIGHT' pulse — a disabled button would swallow it silently.
   const full = inFlight.n >= inFlight.max;
+  // "Not enough cash" is about the NEXT BOOST: while a press is in flight or just finished (its row lingers), the status line
+  // shows that press, never this — else a $6.6K BOOST that went through read "Not enough cash: $6.60K BOOST, you have $5.60K
+  // (1 pending)" (VFIVE graduation replay). The button stays greyed with the reason in its title.
+  const shortLine = short && rows.length === 0 ? shortMsg : "";
   const boostTitle = full ? COPY.inFlight : short ? shortMsg : `BOOST (Space): buy ${fmtShot(shotUsd)}${customUsd ? " — custom amount (overrides the selected preset)" : " — the selected preset"}`;
   // the ACTIVE amount's price-move warning (custom wins over the preset, like BOOST / DUMP themselves)
   const buyWarn = customUsd ? warns.customBuy : warns.buy[mode] ?? null;
@@ -616,7 +623,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // ("· Still confirming your last trade…") — same state as the desktop bar's title / hint / status line.
   // 2+ presses with a status: every press's row (rapid tap), newest last — else the single line as before
   const rowsLine = rows.length > 1 ? rows.map((r) => r.txt).join("  ·  ") : "";
-  const phoneHint = hint || (full ? COPY.inFlight : "") || shortMsg || rowsLine || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
+  const phoneHint = hint || (full ? COPY.inFlight : "") || shortLine || rowsLine || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
   if (phone) return (
     <>
     <AmmoTierNotice />
@@ -669,11 +676,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           <span style={{ opacity: 0.65 }}>{pos.valueUsd > 0 ? `${t("tb.pos")} ${fmtMoney(pos.valueUsd)}` : t("tb.noPos")}</span>
         </div>
       </div>
-      {(hint || shortMsg) && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint || shortMsg}</div>}
-      {!hint && !shortMsg && warnText && <div data-testid="trade-warn" style={{ fontSize: 10, color: warnOver ? "#ffb0c8" : "#ffe7a3" }}>{warnText}</div>}
-      {!hint && !shortMsg && !warnText && rows.length > 1 && <div data-testid="press-rows" style={{ fontSize: 10, opacity: 0.85, maxWidth: 380, color: "#ffe7a3", display: "flex", flexDirection: "column", gap: 1 }}>
+      {(hint || shortLine) && <div data-testid="trade-hint" style={{ fontSize: 10, color: "#ffb0c8" }}>{hint || shortLine}</div>}
+      {!hint && !shortLine && warnText && <div data-testid="trade-warn" style={{ fontSize: 10, color: warnOver ? "#ffb0c8" : "#ffe7a3" }}>{warnText}</div>}
+      {!hint && !shortLine && !warnText && rows.length > 1 && <div data-testid="press-rows" style={{ fontSize: 10, opacity: 0.85, maxWidth: 380, color: "#ffe7a3", display: "flex", flexDirection: "column", gap: 1 }}>
         {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>}
-      {!hint && !shortMsg && !warnText && rows.length <= 1 && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
+      {!hint && !shortLine && !warnText && rows.length <= 1 && (last || preview) && <div style={{ fontSize: 10, opacity: 0.8, maxWidth: 380, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? "#ffe7a3" : undefined }}>{last || preview}</div>}
     </div>
     {showCfg && <SwapSettingsModal initial={cfg} autoUsd={autoUsd} tier={ammo.tier} scope={`${live ? "live" : storagePrefix.includes("sim") ? "simulator" : "paper"} settings`}
       onClose={() => setShowCfg(false)}

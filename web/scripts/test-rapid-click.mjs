@@ -99,6 +99,11 @@ console.log("— per-press status rows (SITE window 1: 8 taps → 6 ops, UI show
   ok((body.match(/setLast\(/g) || []).length === 1, "TradeBridge: no press writes the shared line directly (only via say)");
   ok(/data-testid="press-rows"/.test(tb) && /rowsLine = rows\.length > 1/.test(tb), "desktop shows one row per press; the phone hint lists them"); }
 
+console.log("— graduation replay (VFIVE 9:12–9:35 CT)");
+ok(/const shortLine = short && rows\.length === 0 \? shortMsg : "";/.test(tb) && !/\{hint \|\| shortMsg\}/.test(tb) && /\|\| shortLine \|\| rowsLine/.test(tb),
+  "'Not enough cash' (next BOOST) never replaces the status of a press in flight / just filled (was: shown for a $6.6K BOOST that went through)");
+ok(/if \(live && liveHas !== false\) \{/.test(tb) && /else setHint\(COPY\.loadingPosition\); \};/.test(tb),
+  "DUMP right after a reload: live + bag not re-read yet still sends (bridge re-reads balanceOf); otherwise a visible 'Loading your position…', never a silent no-op");
 { const E = rig({ customUsd: 1 }); E.S.confirmed.mcap = null;
   ok(E.click(0) !== "SILENT" && E.sent.length === 0, "no price yet: the click shows a flash instead of vanishing"); }
 console.log(bad ? `\n${bad} FAILED` : "\nall ok"); process.exit(bad ? 1 : 0);
