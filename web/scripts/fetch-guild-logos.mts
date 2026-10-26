@@ -1,0 +1,39 @@
+/**
+ * One-off, for lee's review: download the starter guilds' logos from CoinGecko's public API into OUR folder, so the
+ * site serves its own copies (never hotlinks). Nothing here runs in the build or at request time.
+ *
+ *   npx tsx scripts/fetch-guild-logos.mts                                  # → public/guilds/<id>.<ext>
+ *   npx tsx scripts/fetch-guild-logos.mts --out=/workspace/disciple-notes/guild-logos
+ *
+ * Guilds with coingeckoId null (no confident CoinGecko match) are skipped. Downloaded files are NOT committed until lee
+ * has checked each logo and its licensing; then set GUILD_LOGOS_COMMITTED = true in lib/guildSeed.ts (expects .png).
+ */
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { GUILD_SEED } from "../lib/guildSeed.ts";
+
+const outArg = process.argv.slice(2).find((a) => a.startsWith("--out="))?.slice(6);
+const out = path.resolve(outArg || path.join(import.meta.dirname, "..", "public", "guilds"));
+await mkdir(out, { recursive: true });
+const API = "https://api.coingecko.com/api/v3/coins";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+for (const g of GUILD_SEED) {
+  if (!g.coingeckoId) { console.log(`skip ${g.id} (${g.tag}): no CoinGecko id`); continue; }
+  try {
+    const r = await fetch(`${API}/${encodeURIComponent(g.coingeckoId)}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false`, { headers: { accept: "application/json" } });
+    if (!r.ok) throw new Error(`coin ${r.status}`);
+    const j = (await r.json()) as { name?: string; symbol?: string; image?: { large?: string } };
+    const src = j.image?.large;
+    if (!src) throw new Error("no image");
+    const img = await fetch(src);
+    if (!img.ok) throw new Error(`image ${img.status}`);
+    const ext = (path.extname(new URL(src).pathname).toLowerCase() || ".png").replace(".jpeg", ".jpg");
+    const file = path.join(out, `${g.id}${ext}`);
+    await writeFile(file, Buffer.from(await img.arrayBuffer()));
+    console.log(`ok   ${g.id} (${g.tag}) ← ${g.coingeckoId} "${j.name}" ${String(j.symbol).toUpperCase()} → ${file}${ext === ".png" ? "" : "  (not .png: convert before committing)"}`);
+  } catch (e) {
+    console.log(`fail ${g.id} (${g.tag}) ← ${g.coingeckoId}: ${(e as Error).message}`);
+  }
+  await sleep(2500); // public API rate limit
+}

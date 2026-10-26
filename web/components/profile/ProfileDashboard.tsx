@@ -23,6 +23,8 @@ import EditProfileSheet from "./EditProfileSheet";
 import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
 import IdentitySigil from "./IdentitySigil";
 import Flag from "./Flag";
+import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import BioText from "./BioText";
 import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
@@ -243,7 +245,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </button>
 
         <div className="pf-id">
-          <h1 className="pf-name"><span>{handle}</span>{meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
+          <h1 className="pf-name"><span>{handle}</span><GuildTagFor address={wallet} size="lg" />{COUNTRY_FLAGS_ENABLED && meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
           {real && <div className="pf-rankrow" data-testid="profile-rankrow">
             <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
             <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>

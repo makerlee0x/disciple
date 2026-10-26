@@ -6,9 +6,9 @@
  *  - bio: plain text, control / zero-width / bidi-override chars stripped, whitespace collapsed, ≤ BIO_MAX characters
  *    counted as grapheme clusters (an emoji, flag or ZWJ family is 1). Emoji and links allowed; links are rendered as
  *    text-only http(s) anchors by lib/linkify (never as HTML).
- *  - flag: optional. ISO 3166-1 alpha-2 country code, or a coin-community flag id from lib/flags/community.
+ *  - flag: optional. ISO 3166-1 alpha-2 country code. Coin-community flags became guilds (lib/guilds, Guilds V1): an old
+ *    stored "c-…" flag now reads as no flag and never fails a save (scripts/migrate-flags-to-guilds.mts clears them silently).
  */
-import { isCommunityFlag } from "./flags/community";
 import { PROFILE_COPY } from "./copy/profile";
 
 export const BIO_MAX = 160;
@@ -50,13 +50,13 @@ export function bioLength(s: string): number {
   for (const _ of segmenter.segment(s)) n++; // eslint-disable-line @typescript-eslint/no-unused-vars
   return n;
 }
-/** Country codes are upper case (JP); community flag ids are lower case (c-pepe). */
+/** Country codes are upper case (JP). Anything else is lower-cased (an old c-… community flag, which isFlag rejects). */
 export const normalizeFlag = (s: unknown) => {
   const v = String(s ?? "").trim();
   return /^[a-z]{2}$/i.test(v) ? v.toUpperCase() : v.toLowerCase();
 };
 export const isCountryFlag = (s: string) => COUNTRY_SET.has(s);
-export const isFlag = (s: string) => s === "" || COUNTRY_SET.has(s) || isCommunityFlag(s);
+export const isFlag = (s: string) => s === "" || COUNTRY_SET.has(s);
 export const isPfpId = (s: string) => s === "" || PFP_ID_RE.test(s);
 export const pfpUrl = (id: string) => (PFP_ID_RE.test(id) ? `/api/image/${id}` : "");
 

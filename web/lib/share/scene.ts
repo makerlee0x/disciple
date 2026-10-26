@@ -24,6 +24,8 @@ export interface SceneData {
   gainUsd: number; gainPct: number; kind: "unrealized" | "realized" | "none";
   ticker: string; mcapStart: number; mcapEnd: number; endTs: number;
   username: string | null; refLabel: string; sample: boolean;
+  /** Guilds V1: the player's guild tag ("BONK"), drawn as a quiet chip after the name. Optional; never on SAMPLE cards. */
+  guildTag?: string | null;
   /** player wallet: no username → footer shows its space-themed default call sign (lib/defaultUsername) */
   wallet?: string | null;
   fills: { side: string; mcapUsd: number }[];
@@ -224,7 +226,16 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   const fy = H - (story ? 90 : 62);
   ctx.fillStyle = "rgba(232,234,238,.35)"; ctx.fillRect(L, fy - (story ? 70 : 58), R - L, 2);
   ctx.fillStyle = INK; ctx.font = `${story ? 54 : 42}px ${FONT.black}`;
-  ctx.fillText(d.username ? `@${d.username}` : defaultUsername(d.wallet) || d.refLabel.split("/r/")[1] || "", L, fy);
+  const who = d.username ? `@${d.username}` : defaultUsername(d.wallet) || d.refLabel.split("/r/")[1] || "";
+  ctx.fillText(who, L, fy);
+  if (d.guildTag && /^[A-Z0-9]{2,5}$/.test(d.guildTag)) {
+    const nx = L + ctx.measureText(who).width + (story ? 22 : 18), ch = story ? 46 : 38;
+    ctx.save(); ctx.font = `${story ? 26 : 22}px ${FONT.monoMed}`;
+    const cw = ctx.measureText(d.guildTag).width + (story ? 28 : 22);
+    ctx.strokeStyle = "rgba(201,206,214,.45)"; ctx.lineWidth = 2; ctx.strokeRect(nx, fy - ch + (story ? 6 : 5), cw, ch);
+    ctx.fillStyle = INK; ctx.fillText(d.guildTag, nx + (story ? 14 : 11), fy - (story ? 6 : 5));
+    ctx.restore();
+  }
   ctx.font = `${story ? 28 : 24}px ${FONT.mono}`;
   const lw = ctx.measureText(d.refLabel).width + 36;
   ctx.fillStyle = "rgba(10,10,14,.6)"; ctx.fillRect(R - lw, fy - (story ? 42 : 36), lw, story ? 56 : 48);

@@ -2,10 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BIO_MAX, COUNTRY_CODES, bioLength, isFlag, normalizeFlag, profileMetaMessage, sanitizeBio, validateMeta } from "../lib/profileMeta.ts";
-import { COMMUNITY_FLAGS, COMMUNITY_FLAG_ID_RE } from "../lib/flags/community.ts";
 import { linkify, safeHttpUrl } from "../lib/linkify.ts";
 import { USERNAME_COOLDOWN_MS, nextUsernameChangeAt, usernameChange } from "../lib/usernameCooldown.ts";
-import { existsSync } from "node:fs";
 
 test("sanitizeBio strips controls, zero-width and bidi overrides, collapses whitespace", () => {
   assert.equal(sanitizeBio("  hi\n\nthere\t\u0007 "), "hi there");
@@ -45,17 +43,10 @@ test("links: http(s) only, trailing punctuation stays text, nothing else becomes
   assert.equal(safeHttpUrl("ftp://a.io"), null);
 });
 
-test("community flags: config ids are valid, never collide with ISO codes, assets exist", () => {
-  assert.ok(COMMUNITY_FLAGS.length >= 4);
-  for (const f of COMMUNITY_FLAGS) {
-    assert.match(f.id, COMMUNITY_FLAG_ID_RE);
-    assert.ok(!COUNTRY_CODES.includes(f.id.toUpperCase()));
-    assert.ok(isFlag(f.id) && normalizeFlag(f.id.toUpperCase()) === f.id, f.id);
-    assert.ok(existsSync(new URL(`../public${f.asset}`, import.meta.url)), f.asset);
-  }
-  assert.ok(isFlag("c-pepe") && isFlag("AI") && !isFlag("c-nope") && !isFlag("pepe"));
-  assert.equal(validateMeta({ pfp: "", flag: "c-mog", bio: "" }), null);
-  assert.equal(validateMeta({ pfp: "", flag: "c-unknown", bio: "" }), "Unknown flag.");
+test("flags are countries only (coin-community flags became guilds)", () => {
+  assert.ok(isFlag("US") && normalizeFlag("us") === "US");
+  assert.ok(!isFlag("c-pepe") && !isFlag("c-mog") && !isFlag("pepe"));
+  assert.equal(validateMeta({ pfp: "", flag: "", bio: "" }), null);
 });
 
 test("username: one change per 24h; same name is not a change; first name starts the clock", () => {

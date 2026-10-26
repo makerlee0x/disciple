@@ -20,6 +20,8 @@ export type Rocket = {
   pair?: PairKey;
   pairSym?: string;
   creator?: string;
+  /** Full creator wallet on live coins only (the guild tag lookup). Sample rockets never set it. */
+  creatorAddr?: string;
   graduated?: boolean;
   /** Live curve progressBps (tokensSold·1e4/sCurve, 10000 once graduated); drives the card progress bar. */
   progressBps?: number;
