@@ -10,7 +10,7 @@ import { parseAbiItem, type Address, type PublicClient } from "viem";
 import { bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi } from "@/lib/abi";
 import { anonLaunchers } from "@/lib/anon";
 import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
-import { applyTransfers, protocolLabels, rankHolders, type Holder } from "@/lib/holders";
+import { applyTransfers, holderKinds, protocolLabels, rankHolders, type Holder } from "@/lib/holders";
 import { readCoinMcap } from "@/lib/mcap";
 import { serverPc } from "./chat/identity";
 import { kv } from "./kv";
@@ -69,6 +69,7 @@ export async function holdersOf(coin: Address, limit: number, budgetMs = 8_000):
   ]);
   let mcapUsd = market?.mcapUsd ?? null;
   if (mcapUsd == null) mcapUsd = await pc.readContract({ address: curve as Address, abi: bondingCurveAbi, functionName: "mcapNow" }).then((v) => Number(v as bigint) / 1e18).catch(() => null);
-  const labels = protocolLabels(d, { curve, lockers: [vault, ...anonLaunchers(ACTIVE_CHAIN.id)] });
-  return { holders: rankHolders(bal, { totalSupply, mcapUsd, labels, limit }), asOfBlock: asOfBlock.toString() };
+  const extra = { curve, lockers: [vault, ...anonLaunchers(ACTIVE_CHAIN.id)] };
+  const labels = protocolLabels(d, extra), kinds = holderKinds(d, extra);
+  return { holders: rankHolders(bal, { totalSupply, mcapUsd, labels, kinds, limit }), asOfBlock: asOfBlock.toString() };
 }

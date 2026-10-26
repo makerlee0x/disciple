@@ -14,6 +14,7 @@ import { claimCrew, coinMode, crewClaimCall, crewFeed, crewPending, isPve, type 
 import { assetMeta, claimErrorText, fmtAmount, preflight, type Asset } from "@/lib/claims/common";
 import { demoFeed, demoRedeploy } from "@/lib/claims/demo";
 import { ConfirmSheet, TxLink, pc, useCaps, useWalletAddr } from "./ui";
+import CoinFloor from "@/components/floor/FloorBins";
 
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 
@@ -73,11 +74,14 @@ export default function CoinClaims({ token }: { token: string }) {
     } catch (e) { setErr(claimErrorText(e)); } finally { setBusy(false); }
   };
 
-  if (!quote || (mine == null && crew == null && !feed.length)) return null;
+  if (!valid) return null;
+  const claims = !!quote && (mine != null || crew != null || feed.length > 0);
   return (
     <>
       <div className="cl-coin" data-testid="coin-claims">
-        {mine != null && (
+        {/* graduated coins: floor support pill → bins card (renders nothing otherwise) */}
+        <CoinFloor token={token} />
+        {claims && quote && mine != null && (
           <div className="cl-coin-pill creator" data-testid="creator-badge">
             <span className="cl-dot" aria-hidden="true" />
             <span className="lbl">Your fees</span>
@@ -86,20 +90,20 @@ export default function CoinClaims({ token }: { token: string }) {
             {mine > BigInt(0) || mineTok ? <button type="button" onClick={() => { setErr(null); setDone(null); setSheet("creator"); }}>Claim</button> : <Link href="/creator">Dashboard</Link>}
           </div>
         )}
-        {crew != null && (
+        {claims && quote && crew != null && (
           <div className="cl-coin-pill crew" data-testid="crew-pill">
             <span className="lbl">Crew rewards</span>
             <strong>{fmtAmount(crew, quote, 2)}</strong>
             {crew > BigInt(0) && <button type="button" onClick={() => { setErr(null); setDone(null); setSheet("crew"); }}>Claim</button>}
           </div>
         )}
-        {feed.slice(0, 3).map((r) => (
+        {claims && quote && feed.slice(0, 3).map((r) => (
           <div key={r.tx + r.seller} className="cl-coin-feed" data-testid="crew-feed">
             Crew earned <strong>{fmtAmount(r.tax, quote, 2)}</strong> from this DUMP <TxLink hash={r.tx}>↗</TxLink>
           </div>
         ))}
       </div>
-      {sheet && (
+      {sheet && quote && (
         <ConfirmSheet title={sheet === "creator" ? "Claim creator fees" : "Claim crew rewards"}
           lines={[{ label: sheet === "creator" ? "Creator fees" : "Crew rewards", raw: (sheet === "creator" ? mine : crew) ?? BigInt(0), asset: quote },
             ...(sheet === "creator" && mineTok ? [{ label: "Token share", raw: mineTok.raw, asset: mineTok.asset }] : [])]}

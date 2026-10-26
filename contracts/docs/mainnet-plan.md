@@ -9,7 +9,7 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 
 ## 2. Treasury and RewardsVault payout ops
 - The treasury is a separate Safe (not the owner Safe). Set via `FeeRouter.setTreasury`, `LockedLP.setTreasury` and `AnonLauncher.setTreasury`.
-- Fee flow: the 1% fee splits 33/33/33/1 (unchanged). The anti-snipe tax goes 70% to RewardsVault and 30% to treasury.
+- Fee flow: the 1% fee splits 33/33/33/1 (unchanged). The sniper tax (99% → 0 over 7 s, fast per-second decay) is escrowed in the curve and goes to LockedLP's compound bucket at graduation; RewardsVault gets it only if the coin hasn't graduated within `snipeEscrowTimeout` (default 30 days).
 - RewardsVault `distribute`: run on a weekly cadence, proposed by an ops signer and executed by the Safe. Publish the distribution CSV and the tx hash. Reconcile vault balance against the indexer's sum of snipe-tax events before each payout.
 - Treasury spend: Safe transaction with a written justification. Keep the monthly report from indexer data.
 
@@ -21,7 +21,7 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 | QuotePricer.minLiquidity | QuotePricer | default | set to resist manipulation (SEC-03) |
 | creatorBuyMaxBps | Launchpad | 77 (cap 700) | 77 |
 | Anti-snipe window/tax | Hook/Launchpad consts | as coded | confirm |
-| Snipe split | FeeRouter | 70/30 | 70/30 |
+| Sniper escrow timeout | Launchpad.setSnipeEscrowTimeout | 30 days | decide (1–365 days) |
 | ANON_LAUNCH_FEE (USDG) | AnonLauncher | 0.25 USDG | decide |
 | Trusted routers | Hook.setTrustedRouter | DiscipleRouter + UR | same (SEC-05: UR attribution is spoofable; document) |
 | LockedLP.feeRouter / migration | LockedLP | wired by script | verify (SEC-01 fix) |

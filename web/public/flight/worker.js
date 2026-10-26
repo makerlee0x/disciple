@@ -65,7 +65,7 @@ const tradeProxy = (side, usd, o) => new Promise((res) => { const id = ++tradeSe
 Object.defineProperty(self, '__discipleTrade', { get: () => (tradeAvail ? tradeProxy : undefined), configurable: true });
 
 /* ---------- HUD / tooling snapshot (≤10 Hz) ---------- */
-const SNAP_KEYS = ['fight', 'flare', 'momV', 'mode', 'aimDisp', 'heading', 'camPx', 'camAlt', 'ry', 'anch', 'bgScrollX', 'fwd', 'vyS', 'simF', 'simT', 'displayAlt', 'balance', 'orbsOn', 'bombsOn', 'score', 'ammoTier', 'volEma', 'buyEma', 'sellEma'];
+const SNAP_KEYS = ['graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText', 'phoneTierLabel', 'x', 'fight', 'flare', 'momV', 'mode', 'aimDisp', 'heading', 'camPx', 'camAlt', 'ry', 'anch', 'bgScrollX', 'fwd', 'vyS', 'simF', 'simT', 'displayAlt', 'balance', 'orbsOn', 'bombsOn', 'score', 'ammoTier', 'volEma', 'buyEma', 'sellEma'];
 function snapshot() {
   const F = self.__flight; if (!F || !F.S) return;
   const S = F.S, o = { confirmed: { mcap: S.confirmed.mcap, block: S.confirmed.block } };
@@ -103,7 +103,7 @@ self.onmessage = async (m) => {
     case 'ev': inbound(d.custom ? new CustomEvent(d.type, { detail: d.detail }) : new Event(d.type)); break;
     case 'key': inbound(mkEvent(d.type, { code: d.code, key: d.key, repeat: d.repeat, ctrlKey: d.ctrlKey, metaKey: d.metaKey, shiftKey: d.shiftKey })); break;
     case 'blur': inbound(new Event('blur')); break;
-    case 'ptr': if (canvas) canvas.dispatchEvent(mkEvent(d.type, { clientX: d.x, clientY: d.y })); break;
+    case 'ptr': if (canvas) canvas.dispatchEvent(mkEvent(d.type, { clientX: d.x, clientY: d.y, pointerId: d.id, pointerType: d.pt })); break;
     case 'size': RECT = d.rect; WRAP.clientWidth = d.w; WRAP.clientHeight = d.h; self.devicePixelRatio = d.dpr; self.innerWidth = d.w; self.innerHeight = d.h; inbound(new Event('resize')); break;
     case 'vis': HIDDEN = d.hidden; for (const f of docListeners.visibilitychange || []) f(new Event('visibilitychange')); break;
     case 'glob': self[d.name] = d.value; break;

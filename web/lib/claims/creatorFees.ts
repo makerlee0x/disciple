@@ -238,6 +238,16 @@ export async function referralBalances(pc: PublicClient, me: Address, extraQuote
     claimable: await (pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "referrerAccrued", args: [me, q] }) as Promise<bigint>).catch(() => ZERO),
   })));
 }
+/**
+ * FeeRouter.referralSink(): zero = referral shares route to referrers as today. Non-zero = new referral shares go to
+ * the sink, so referrer balances stop growing (what has accrued stays claimable via claimReferrerFees).
+ * null when the deployed FeeRouter predates the sink (ABI or read fails) or the sink is unset.
+ */
+export async function referralSink(pc: PublicClient): Promise<Address | null> {
+  if (!(feeRouterAbi as readonly { type?: string; name?: string }[]).some((x) => x.type === "function" && x.name === "referralSink")) return null;
+  const a = await (pc.readContract({ address: deployment().feeRouter, abi: feeRouterAbi, functionName: "referralSink" }) as Promise<Address>).catch(() => null);
+  return a && !/^0x0{40}$/i.test(a) ? a : null;
+}
 export function referralClaimCalls(rows: ReferralBalance[]): Call[] {
   const fr = deployment().feeRouter;
   return rows.filter((r) => r.claimable > ZERO).map((r) => ({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimReferrerFees", args: [r.asset.address] }) }));

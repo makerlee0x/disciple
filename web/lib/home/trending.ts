@@ -6,7 +6,7 @@
  */
 import { BOMB_TIERS, TIERS } from "@/lib/config";
 import { bombTierIndex } from "@/lib/flight/bombTier";
-import { TOTAL_SUPPLY_TOKENS, type Fill } from "@/lib/trades";
+import { playerUsd, type Fill } from "@/lib/trades";
 
 export const DAY_MS = 864e5;
 
@@ -43,6 +43,8 @@ export type HomeCoin = {
   creator: string;
   mcapUsd: number;
   graduated: boolean;
+  /** curve progressBps (tokens sold / curve supply, 1e4 = graduation) */
+  progressBps?: number;
   /** launch block (newer = larger) */
   block: number;
   /** launch time, ms (filled for the hero + strip only) */
@@ -70,8 +72,14 @@ export function prePriceOf(f: Pick<Fill, "usd" | "tokens" | "priceUsd">): number
   return r > 0 ? f.priceUsd * r : null;
 }
 
+/** Mcap before a fill (same basis as f.mcapUsd): pre-price × the fill's own supply (mcapUsd / priceUsd). */
+export function preMcapOf(f: Pick<Fill, "usd" | "tokens" | "priceUsd" | "mcapUsd">): number | null {
+  const pre = prePriceOf(f);
+  return pre && f.mcapUsd > 0 && f.priceUsd > 0 ? pre * (f.mcapUsd / f.priceUsd) : null;
+}
+
 export function chipOf(f: Fill): TradeChip {
-  const c: TradeChip = { id: f.id, side: f.side, usd: f.usd, trader: f.trader, ts: f.ts };
+  const c: TradeChip = { id: f.id, side: f.side, usd: playerUsd(f) || f.usd, trader: f.trader, ts: f.ts };
   if (f.side === "sell") {
     const pre = prePriceOf(f);
     const pct = pre ? Math.abs(f.priceUsd / pre - 1) * 100 : 0;
@@ -96,15 +104,16 @@ export function statsFromFills(fills: Fill[], now: number, mcapNow: number, trun
     pos.set(f.trader, (pos.get(f.trader) ?? 0) + (f.side === "buy" ? f.tokens : -f.tokens));
     if (f.ts <= cut) { ref = f; continue; }
     if (!firstIn) firstIn = f;
-    vol24 += f.usd; trades24++;
+    vol24 += playerUsd(f) || f.usd; trades24++;
     if (f.side === "sell") bombs24++;
   }
   // 24h change: live mcap vs the price at the 24h mark (last fill before it), or the pre-trade price of the first fill
   // when the coin is younger than 24h. Post-grad hook fills carry a frozen mcapAfterUsd (known FLOW bug) ⇒ no change.
   let chg24: number | null = null;
-  const refPx = ref ? (ref.venue === "curve" ? ref.priceUsd : null) : firstIn && firstIn.venue === "curve" ? prePriceOf(firstIn) : null;
-  const nowPx = mcapNow > 0 ? mcapNow / TOTAL_SUPPLY_TOKENS : null;
-  if (refPx && nowPx && (ref || firstIn)) chg24 = (nowPx / refPx - 1) * 100;
+  // Compared as mcaps (lib/mcap basis, the coin's own supply on both sides): was live mcap ÷ a fixed supply vs a fill
+  // price that already used the coin's own supply ⇒ wrong for any coin not launched with it (main #137).
+  const refMcap = ref ? (ref.venue === "curve" ? ref.mcapUsd : null) : firstIn && firstIn.venue === "curve" ? preMcapOf(firstIn) : null;
+  if (refMcap && mcapNow > 0 && (ref || firstIn)) chg24 = (mcapNow / refMcap - 1) * 100;
   if (chg24 != null && !Number.isFinite(chg24)) chg24 = null;
   let crew: number | null = null;
   if (!truncated && asc.length) { crew = 0; pos.forEach((v) => { if (v > 1) crew!++; }); }
