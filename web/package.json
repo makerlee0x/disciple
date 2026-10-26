@@ -40,6 +40,7 @@
     "test:fix-batch": "node scripts/test-fix-batch.mjs",
     "test:exit-confirm": "node scripts/test-exit-confirm.mjs",
     "test:trade-speed": "node scripts/test-trade-speed.mjs",
+    "test:boost-anim": "node scripts/test-boost-anim.mjs",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",
@@ -88,7 +89,8 @@
     "test:rapid-retry": "tsx --test scripts/test-rapid-retry.mts",
     "test:gas-reserve": "tsx --test scripts/test-gas-reserve.mts",
     "test:relayer-pool": "tsx --conditions=react-server --test scripts/test-relayer-pool.mts",
-    "test:grad-fix": "tsx scripts/test-grad-fix.mjs"
+    "test:grad-fix": "tsx scripts/test-grad-fix.mjs",
+    "test:rapid-tap": "node scripts/test-rapid-tap.mjs"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

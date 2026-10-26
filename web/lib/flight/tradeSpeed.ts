@@ -61,18 +61,23 @@ export function tradeStart() {
 }
 
 /* ---------------- timing ---------------- */
-export interface OpMark { submittedAt?: number; confirmedAt?: number; txHash?: string; timings?: unknown }
-/** userOpHash → its disciple:op phase times (performance.now); txHash looked up on the confirmed mark. Last 32 kept. */
+export interface OpMark { submittedAt?: number; confirmedAt?: number; errorAt?: number; txHash?: string; pressId?: string; timings?: unknown; code?: string }
+/** disciple:op phase times (performance.now), keyed by the press id when the AA layer tags it (FLOW #145 OpPhase.pressId),
+ *  else by userOpHash / txHash. "error" is FLOW's terminal phase. Last 32 kept. */
 export class OpMarks {
   private m = new Map<string, OpMark>();
-  note(d: { phase?: string; userOpHash?: string; txHash?: string; at?: number; timings?: unknown } | null | undefined) {
-    if (!d || (d.phase !== "submitted" && d.phase !== "confirmed")) return;
-    const k = String(d.userOpHash || d.txHash || "").toLowerCase(); if (!k) return;
+  note(d: { phase?: string; userOpHash?: string; txHash?: string; pressId?: string; at?: number; timings?: unknown; code?: string } | null | undefined) {
+    if (!d || (d.phase !== "submitted" && d.phase !== "confirmed" && d.phase !== "error")) return;
+    const k = d.pressId ? "p:" + d.pressId : String(d.userOpHash || d.txHash || "").toLowerCase(); if (!k) return;
     const cur = this.m.get(k) || {};
-    if (d.phase === "submitted") cur.submittedAt ??= d.at; else { cur.confirmedAt = d.at; cur.timings = d.timings; }
+    if (d.phase === "submitted") cur.submittedAt ??= d.at;
+    else if (d.phase === "confirmed") { cur.confirmedAt = d.at; cur.timings = d.timings; }
+    else { cur.errorAt = d.at; if (d.code) cur.code = d.code; }
     if (d.txHash) cur.txHash = String(d.txHash).toLowerCase();
+    if (d.pressId) cur.pressId = d.pressId;
     this.m.set(k, cur); while (this.m.size > 32) this.m.delete(this.m.keys().next().value as string);
   }
+  byPress(pressId: string | undefined): OpMark | undefined { return pressId ? this.m.get("p:" + pressId) : undefined; }
   byTx(txHash: string | undefined): OpMark | undefined {
     if (!txHash) return undefined; const t = txHash.toLowerCase();
     for (const v of this.m.values()) if (v.txHash === t) return v;
@@ -85,6 +90,16 @@ export function tradeMs(t0: number, m: { quoteAt?: number; op?: OpMark; resultAt
   const d = (x?: number) => (typeof x === "number" && Number.isFinite(x) ? Math.round(x - t0) : undefined);
   const confirm = d(m.op?.confirmedAt) ?? d(m.resultAt);
   return { quote: d(m.quoteAt), submit: d(m.op?.submittedAt), confirm, fill: d(m.fillAt), total: d(m.fillAt ?? m.resultAt) ?? 0 };
+}
+
+/* ---------------- boost anim (engine.js @boostanim) ---------------- */
+/** Same curve as public/flight/engine.js @boostanim (BA_CAP / BA_TAU_UP; test-boost-anim checks they match). Before the
+ *  receipt the rocket covers g = CAP·(1−e^(−t/τ)) of its segment; it counts as hovering at the cap once g ≥ 97 % of CAP. */
+export const BOOST_ANIM = { cap: 0.7, tauUpMs: 140, hoverAt: 0.97 } as const;
+export const BOOST_HOVER_FROM_MS = BOOST_ANIM.tauUpMs * Math.log(1 / (1 - BOOST_ANIM.hoverAt));   // ≈ 491 ms
+/** ms the rocket spent waiting at the cap for this press's receipt (0 when the receipt beat the climb). */
+export function boostHoverMs(clickToResultMs: number | undefined): number {
+  return typeof clickToResultMs === "number" && Number.isFinite(clickToResultMs) ? Math.max(0, Math.round(clickToResultMs - BOOST_HOVER_FROM_MS)) : 0;
 }
 
 /* ---------------- own receipt events for SITE (#137 books WalletButton / profile holdings from them) ---------------- */
