@@ -49,6 +49,9 @@
   display: block; padding: 5px 10px; border-radius: var(--dsc-radius-sm); border-left: 2px solid transparent;
   color: var(--dv-soft); text-decoration: none; font-size: 13.5px; line-height: 1.4;
 }
+.dv-side-bug { margin: 28px 8px 0; padding-top: 14px; border-top: 1px solid var(--dsc-border); font-size: 12.5px; line-height: 1.5; color: var(--dsc-muted); }
+.dv-side-bug a { color: var(--dv-soft); }
+.dv-side-bug a:hover { color: var(--dsc-text); }
 .dv-side li a:hover { background: var(--dsc-surface); color: var(--dsc-text); }
 .dv-side li a.is-active { background: var(--dsc-surface-2); color: var(--dsc-text); border-left-color: var(--dv-accent); border-radius: 0 var(--dsc-radius-sm) var(--dsc-radius-sm) 0; }
 .dv-side a:focus-visible, .dv-toc a:focus-visible, .dv-pn a:focus-visible, .dv-mbar-btn:focus-visible { outline: 2px solid var(--dsc-primary); outline-offset: 2px; }
