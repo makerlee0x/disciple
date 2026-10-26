@@ -443,7 +443,8 @@ export class Mav2Account {
       if (ref && BUNDLE_REVERTED.test(m)) { this.gas.drop(kind); logRelayOp("rejected", ids); throw new AAError("Reverted", REJECTED_MSG, ids); }
       if (ref || /not confirmed|timeout/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, ids); }
       // AUDIT L2 (#145): a transport / internal error may follow a broadcast ⇒ pending, never a retry
-      if (/fetch failed|failed to fetch|network|socket|ECONN|unreadable|internal error|context canceled|\b50[234]\b|FUNCTION_INVOCATION/i.test(m)) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { ...ids, detail: m.split("\n")[0].slice(0, 300) }); }
+      if (/fetch failed|failed to fetch|network|socket|ECONN|unreadable|internal error|context canceled|\b50[234]\b|FUNCTION_INVOCATION/i.test(m)
+        || ((e as { status?: number }).status !== 429 && /HTTP request failed|took too long/i.test(`${(e as { shortMessage?: string }).shortMessage ?? ""} ${(e as Error).message ?? ""}`))) { logRelayOp("pending", ids); throw new AAError("Timeout", PENDING_MSG, { ...ids, detail: m.split("\n")[0].slice(0, 300) }); }
       if (feeRetry && TRANSIENT_SIM.test(m)) { await nextBlock(); return this.sendCalls(await retryCalls(calls, o), as, false, o); }
       return fail(e);
     }
@@ -611,8 +612,25 @@ export class Mav2Account {
 
   /** Standard eth_sendUserOperation for an already-signed op (USDG-gas ops on a bundler without the sync method). */
   private async sendRaw(wire: UserOp, hash: Hex, kind: string, t0: number, fail: (e: unknown) => Promise<never>, gasMode: GasMode, pressId?: string): Promise<SendResult> {
-    const r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
+    let r: Response;
+    try {
+      r = await fetch(absUrl(this.o.bundlerUrl), { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendUserOperation", params: [wire, ENTRYPOINT_V07] }) });
+    } catch (e) {
+      // The connection dropped during the POST: the op may already be in. Look it up before saying anything; never resend.
+      const detail = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300);
+      const got = await this.findOp(hash, wire.sender, 15_000);
+      if (!got) { logRelayOp("pending", { userOpHash: hash }); throw new AAError("Timeout", PENDING_MSG, { ...unclearExtra({ unclear: true, reason: "network" }, hash, wire), detail }); }
+      if (!got.success) {
+        this.gas.drop(kind);
+        const revertData = opRevertReason(got.logs, hash);
+        logTradeError("trade reverted", { userOpHash: hash, txHash: got.txHash, revertData });
+        throw new AAError("Reverted", REJECTED_MSG, { userOpHash: hash, txHash: got.txHash, revertData, ...revertGas(got.logs, hash, wire.callGasLimit) });
+      }
+      opPhase({ phase: "confirmed", userOpHash: hash, txHash: got.txHash, pressId, blockNumber: blockStr(...got.logs.map((l) => (l as { blockNumber?: unknown }).blockNumber)) });
+      this.deployed = true;
+      return { userOpHash: hash, txHash: got.txHash, gasMode, receipt: { success: true, receipt: { transactionHash: got.txHash, logs: got.logs } } };
+    }
     const j = await r.json().catch(() => ({ error: { message: `send response unreadable (HTTP ${r.status})`, unreadable: true } })) as { result?: Hex; error?: { message: string; data?: string; unreadable?: boolean } };
     if (j.error) {
       if (/not confirmed|timeout/i.test(j.error.message)) {

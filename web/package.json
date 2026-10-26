@@ -60,6 +60,7 @@
     "test:paymaster": "tsx --test scripts/test-paymaster.mts",
     "paymaster:keeper": "tsx scripts/paymaster-keeper.mts",
     "test:trade-errors": "tsx --test scripts/test-trade-errors.mts",
+    "test:trade-failures": "tsx --conditions=react-server --test scripts/test-trade-failures.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:live-feed": "tsx --test scripts/test-live-feed.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
