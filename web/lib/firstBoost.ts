@@ -29,6 +29,10 @@ export const FIRST_BOOST_COPY = {
   overCap: (pct: string, maxUsd: string) => `Over the First BOOST cap: you can buy at most ${pct} of supply. Lower it to ${maxUsd} or less.`,
   balance: (haveUsd: string, symbol: string) => `Not enough ${symbol} for that First BOOST: you have ${haveUsd}.`,
   invalid: "Enter a $ amount like 25 or 12.5.",
+  // SITE new-player cash (DRAFT, pending lee): the First BOOST spends the pair token (STRATEGY), not the USDG cash shown
+  // top right, so the balance is labelled by its token and a note says where the money comes from.
+  balanceOf: (usd: string, symbol: string) => `${symbol} balance ${usd}`,
+  paidFrom: (symbol: string) => `Your First BOOST is paid from your ${symbol} balance, not your cash.`,
   connect: "Connect your wallet to check your balance.",
   loading: "Reading the live cap…",
   unavailable: "Couldn't read the live cap from the Launchpad. Leave this at 0 or try again.",
