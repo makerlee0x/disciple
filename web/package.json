@@ -21,6 +21,7 @@
     "test:share-pnl": "node scripts/test-share-pnl.mjs",
     "test:username-claim": "node scripts/test-username-claim.mjs",
     "test:profile-meta": "tsx --test scripts/test-profile-meta.mts",
+    "test:guilds": "tsx --test scripts/test-guilds.mts",
     "test:profile-meta-api": "node scripts/test-profile-meta-api.mjs",
     "test:replay": "node scripts/test-replay.mjs",
     "test:chartseed": "node scripts/test-chartseed.mjs",

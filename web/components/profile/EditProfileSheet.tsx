@@ -10,11 +10,13 @@ import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import Icon from "@/components/icons/Icon";
 import Sheet from "./Sheet";
 import FlagPicker from "./FlagPicker";
+import GuildPicker from "@/components/guilds/GuildPicker";
+import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 
 const same = (a: ProfileMeta, b: ProfileMeta) => a.pfp === b.pfp && a.flag === b.flag && sanitizeBio(a.bio) === sanitizeBio(b.bio);
 
 /**
- * Edit profile: picture · username · bio · flag (country or coin community), one Save. Username: one change per 24h,
+ * Edit profile: picture · username · bio · guild (· country flag when COUNTRY_FLAGS_ENABLED; off in V1), one Save (the guild row saves on its own, /api/guilds). Username: one change per 24h,
  * enforced by the server; the field is disabled until the server's nextAllowedAt. Desktop modal / mobile bottom sheet (Sheet).
  * Username keeps its own signed claim (/api/profile/username); picture / bio / flag share one signed write
  * (/api/profile/meta). Pictures pass /api/moderate-image before they can be saved.
@@ -162,11 +164,13 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
             </span>
           </label>
 
-          <div className="pf-field" role="group" aria-label={C["edit.flag.label.any"]}>
-            <span className="pf-field-label">{C["edit.flag.label.any"]}</span>
+          <GuildPicker wallet={wallet} hasUsername={!!me} />
+
+          {COUNTRY_FLAGS_ENABLED && <div className="pf-field" role="group" aria-label={C["edit.flag.label"]}>
+            <span className="pf-field-label">{C["edit.flag.label"]}</span>
             <FlagPicker value={draft.flag} onChange={(id) => setDraft((d) => ({ ...d, flag: id }))} />
-            <span className="pf-help">{C["edit.flag.helper.any"]}</span>
-          </div>
+            <span className="pf-help">{C["edit.flag.helper"]}</span>
+          </div>}
 
           {note && <p className="pf-help" role="status">{note}</p>}
           {err && <p className="pf-bad" role="alert">{err}</p>}

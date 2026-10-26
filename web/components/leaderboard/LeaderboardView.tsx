@@ -1,5 +1,7 @@
 "use client";
 
+import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -86,9 +88,10 @@ function Row({ row }: { row: LeaderboardRow }) {
           <Link href={href} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
             {name}
           </Link>
-          <span className="lb-flag" title={row.country}>
+          <GuildTagFor address={row.address} />
+          {COUNTRY_FLAGS_ENABLED && <span className="lb-flag" title={row.country}>
             {flagEmoji(row.country)}
-          </span>
+          </span>}
           {row.isSelf && <span className="lb-you">you</span>}
         </div>
         <div className="lb-id-label">{identityLabel(row.identity)}</div>

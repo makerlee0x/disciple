@@ -10,6 +10,7 @@ import { demoFills, DEMO_MCAP } from "@/lib/server/share/demo";
 import { renderSharePng } from "@/lib/server/share/render";
 import { pnlFromFills } from "@/lib/sharePnl";
 import { usernameOf } from "@/lib/server/usernames";
+import { guildTagsOf } from "@/lib/server/guilds";
 import { refLabel } from "@/lib/referral";
 import { serverPc } from "@/lib/server/chat/identity";
 import { tokenAbi } from "@/lib/abi";
@@ -28,10 +29,12 @@ export async function GET(req: Request) {
   const at = Number(q.get("at")) || Date.now();
   let ticker = clean(q.get("ticker")?.toUpperCase().replace(/^\$/, ""), /^[A-Z0-9]{1,12}$/) || "ROCKET";
   let username = clean(q.get("username")?.toLowerCase(), /^[a-z0-9_]{3,20}$/);
+  let guildTag: string | null = null;
   let pnl = null as Awaited<ReturnType<typeof pnlForPosition>> | null;
   if (q.get("demo") !== "1" && isAddr(wallet) && isAddr(coin)) {
     pnl = await pnlForPosition(wallet, coin, at).catch(() => null);
     username = (await usernameOf(wallet).catch(() => null)) ?? null;
+    guildTag = (await guildTagsOf([wallet]))[wallet.toLowerCase()]?.tag ?? null;
     const sym = await serverPc().readContract({ address: coin as Address, abi: tokenAbi, functionName: "symbol" }).catch(() => null);
     if (typeof sym === "string" && sym) ticker = sym.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || ticker;
   }
@@ -44,7 +47,7 @@ export async function GET(req: Request) {
   const host = u.host.startsWith("localhost") || u.host.endsWith(".vercel.app") ? u.host : "disciple.vip";
   const d: SceneData = {
     gainUsd: pnl!.gainUsd, gainPct: pnl!.gainPct, kind: pnl!.kind, ticker, mcapStart: pnl!.mcapStartUsd, mcapEnd: pnl!.mcapEndUsd,
-    endTs: pnl!.endTs || at, username, refLabel: refLabel(username, isAddr(wallet) ? wallet : null, host), sample, wallet: isAddr(wallet) ? wallet : null,
+    endTs: pnl!.endTs || at, username, refLabel: refLabel(username, isAddr(wallet) ? wallet : null, host), sample, wallet: isAddr(wallet) ? wallet : null, guildTag: sample ? null : guildTag,
     fills: pnl!.fills.map((f) => ({ side: f.side, mcapUsd: f.mcapUsd })),
   };
   const png = await renderSharePng(d, { skin: q.get("skin") || undefined, coin: q.get("nose") || undefined, thruster: q.get("thruster") || undefined }, format);

@@ -9,6 +9,7 @@ import VerifiedBadge from "@/components/VerifiedBadge";
 import PairArt from "@/components/pairart/PairArt";
 import { BASE_PAIRS, basePair } from "@/lib/pairArt";
 import DsSelect from "@/components/ui/DsSelect";
+import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { fmtAge, sparkPoints, type Rocket } from "@/lib/launchpad";
 import Icon from "@/components/icons/Icon";
 
@@ -116,7 +117,7 @@ const Row = memo(function Row({ c, rank, starred, onStar, onPick }: { c: Rocket;
         <Avatar c={c} />
         <span className="lp-tok-txt">
           <span className="lp-tok-name">{c.name} <span className="lp-tk">${c.tk}</span> <Tag c={c} /></span>
-          <span className="lp-tok-sub">{c.creator ?? "—"} · {c.live && !c.stats.ageHours ? "live" : fmtAge(c.stats.ageHours)}</span>
+          <span className="lp-tok-sub">{c.creator ?? "—"}{c.live && c.creatorAddr ? <> <GuildTagFor address={c.creatorAddr} /></> : null} · {c.live && !c.stats.ageHours ? "live" : fmtAge(c.stats.ageHours)}</span>
         </span>
       </span>
       <span className="lp-c-pair"><i className={"lp-pdot " + (c.pair ?? "STRATEGY").toLowerCase()} />{c.pairSym ?? "STRATEGY"}</span>
