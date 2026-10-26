@@ -64,9 +64,9 @@ export const MODE_COPY: Record<number, string> = {
 };
 /** Extra line shown under the picker for the selected mode (BRAND r1). */
 export const MODE_SELECTED_COPY: Record<number, string> = {
-  [MODE.EASY]: "Pilots need to be signed in to BOOST. DUMPs are always open.",
-  [MODE.HARD]: "No sign-in needed to BOOST.",
-  [MODE.TRENCH]: "No caps, no training wheels.",
+  [MODE.EASY]: "Easy needs a signed-in account to BOOST (a verified email, Google or X login). DUMPs are always open.",
+  [MODE.HARD]: "No login check on BOOSTs.",
+  [MODE.TRENCH]: "No caps, no login check, no training wheels.",
 };
 /** Chip on the default card. */
 export const MODE_DEFAULT_CHIP = "RECOMMENDED";
