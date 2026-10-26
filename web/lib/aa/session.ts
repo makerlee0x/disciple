@@ -155,25 +155,79 @@ let autoBusy: Promise<unknown> | null = null;
 let autoTried = false;
 let autoError = "";
 /**
+ * New-player cash fix: with USDG gas (DisciplePaymaster) the install op needs cash in the account. A $0 account used to
+ * attempt the silent install, fail "not enough USDG" and never retry. Now: no cash ⇒ no attempt, the UI shows
+ * "Add cash first to turn on one-tap." (oneTapStatus().needsCash), and a watcher (every 15s + window focus / tab
+ * visible + CASH_ARRIVED_EVENT from "Get test cash") retries as soon as the balance goes above `cashFloor`
+ * (0, or the balance a USDG-short attempt failed at, so a too-small balance doesn't retry every tick).
+ */
+let needsCash = false;
+let cashFloor = BigInt(0);
+let stopCashWatch: (() => void) | null = null;
+const CASH_WATCH_MS = 15_000;
+const usdgBalAbi = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
+function watchForCash() {
+  if (stopCashWatch || typeof window === "undefined") return;
+  const tick = () => { if (!needsCash || !sa) { stopCashWatch?.(); return; } void maybeAutoOneTap("cash-arrived"); };
+  const vis = () => { if (document.visibilityState === "visible") tick(); };
+  const i = window.setInterval(tick, CASH_WATCH_MS);
+  window.addEventListener("focus", tick);
+  window.addEventListener("disciple:cash", tick);   // lib/testCash CASH_ARRIVED_EVENT
+  document.addEventListener("visibilitychange", vis);
+  stopCashWatch = () => {
+    window.clearInterval(i); window.removeEventListener("focus", tick); window.removeEventListener("disciple:cash", tick);
+    document.removeEventListener("visibilitychange", vis); stopCashWatch = null;
+  };
+}
+function setNeedsCash(floor: bigint, why: string) {
+  if (!needsCash) console.warn(`[disciple] one-tap: skipping silent session install (${why}): USDG balance ${floor} raw covers no gas; waiting for cash`);
+  needsCash = true; cashFloor = floor; autoTried = false; autoError = "";
+  watchForCash();
+}
+function clearNeedsCash() { needsCash = false; cashFloor = BigInt(0); stopCashWatch?.(); }
+/**
  * Privy (and local) owners sign silently anyway, so the "Enable one-tap" step is just a gas-paying install: do it for the
  * user in the background once the account exists (login with a deployed account, or right after the first owner-signed
  * trade, which deploys it). Until it lands, trades keep going through the owner signer — no prompt either way.
+ * With USDG gas the account must hold cash first (see needsCash above); a funded but undeployed account installs too
+ * (the install op deploys it), so one-tap turns on right after the first deposit / test cash.
  */
 export function maybeAutoOneTap(why: string) {
   if (!ONE_TAP_AUTO || !oneTapAvailable() || onchain || autoBusy || autoTried || !sa || !state || state.kind === "eoa") return;
   const acct = sa;
+  const usdgGas = usdgGasConfig();
   autoBusy = (async () => {
     const a = await acct.address();
+    if (usdgGas) {
+      const bal = await publicClient().readContract({ address: usdgGas.usdg, abi: usdgBalAbi, functionName: "balanceOf", args: [a] }).catch(() => null);
+      if (bal === null) return;   // RPC hiccup: autoTried stays false, the next trigger (login, trade, cash watcher) retries
+      if (bal <= cashFloor) { setNeedsCash(cashFloor, why); return; }
+    }
     const code = await publicClient().getCode({ address: a }).catch(() => undefined);
-    if (!code || code === "0x") return;   // not deployed yet: the first trade deploys it, then we retry
+    // ETH self-pay: not deployed yet ⇒ the first trade deploys it, then we retry. USDG gas: cash is there, install now.
+    if (!usdgGas && (!code || code === "0x")) return;
+    if (acct !== sa) return;   // signed out / switched meanwhile
     autoTried = true;
-    try { await enableOneTap(); autoError = ""; } catch (e) { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn(`[one-tap] auto setup (${why}) failed:`, autoError); }
+    try { await enableOneTap(); autoError = ""; clearNeedsCash(); }
+    catch (e) {
+      const ae = e as AAError;
+      if (usdgGas && ae.code === "FundAccount" && ae.extra?.usdg) {
+        // cash too low for the install's network cost: wait for MORE cash (not every tick at the same balance)
+        const bal = await publicClient().readContract({ address: usdgGas.usdg, abi: usdgBalAbi, functionName: "balanceOf", args: [a] }).catch(() => BigInt(0));
+        setNeedsCash(bal, `${why}: ${String(ae.extra?.detail ?? ae.message).slice(0, 140)}`);
+        return;
+      }
+      autoError = ae.message.split("\n")[0].slice(0, 140); console.warn(`[disciple] one-tap auto setup (${why}) failed:`, autoError);
+    }
   })().finally(() => { autoBusy = null; changed(); });
   changed();
 }
-/** One-tap state for the UI: on (session key signs), setting-up (auto install in flight), or off (owner signs, silently). */
-export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
-  return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
+/**
+ * One-tap state for the UI: on (session key signs), setting-up (auto install in flight), needsCash (no cash yet: show
+ * "Add cash first to turn on one-tap." + Deposit), or off (owner signs, silently).
+ */
+export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string; needsCash: boolean } {
+  return { on: !!onchain, settingUp: !!autoBusy, error: needsCash ? "" : autoError, needsCash: !onchain && needsCash };
 }
 /**
  * AA21 fix: the account pays every op's gas PREFUND (gas × maxFee ≈ 0.00011 ETH per trade) from its balance + EntryPoint
@@ -275,7 +329,7 @@ export function aaSession() {
 }
 export async function aaLogout() {
   const kind = state?.kind;
-  state = null; sa = null; ownerAcct = null; onchain = null; autoTried = false; autoError = ""; save(); changed();
+  state = null; sa = null; ownerAcct = null; onchain = null; autoTried = false; autoError = ""; clearNeedsCash(); save(); changed();
   if (kind === "privy") { try { await privyHooks?.logout(); } catch {} }
 }
 /** Owner signs a raw hash (chat login / username proof). Null when no smart session. */

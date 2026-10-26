@@ -27,13 +27,15 @@ import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
 import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
+import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
+import { CASH_ARRIVED_EVENT, TEST_CASH_COPY } from "@/lib/testCash";
+import TestCashButton from "@/components/TestCashButton";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const signedUsd = (n: number) => `${n > 0.005 ? "+" : n < -0.005 ? "-" : ""}${usd2(Math.abs(n))}`;
 const GREEN = "#8ff0c0", RED = "#ff9fb8";
-/** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile, Cash panel). */
-const DEPOSIT_HREF = "/profile#cash";
+/** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile → Settings → Cash panel; lib/cashLink). */
 
 const symAbi = parseAbi(["function symbol() view returns (string)"]);
 const balAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
@@ -161,8 +163,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       if (booked.length) { show(addr); dispatchEvent(new CustomEvent(BOOKED_EVENT, { detail: { holder: addr, tokens: booked, txHash: d?.txHash } })); }
       refresh(addr);
     };
-    addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r); addEventListener("disciple:op", op);
-    return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
+    const cash = () => refresh(addr);   // "Get test cash" landed (lib/testCash)
+    addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r); addEventListener("disciple:op", op); addEventListener(CASH_ARRIVED_EVENT, cash);
+    return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); removeEventListener(CASH_ARRIVED_EVENT, cash); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // live retest #5: the chip shows the claimed @name (the account's, else its owner's), not only the short address
   const [uname, setUname] = useState<string | null>(null);
@@ -259,7 +262,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <div aria-label="cash and portfolio" style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
                   <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
-                    <a href={DEPOSIT_HREF} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
+                    <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
                   </div>
                   <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, flexDirection: "row", alignItems: "center", gap: 8, textDecoration: "none", color: "inherit" }}
                     title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
@@ -316,6 +319,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
                 {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(sess.oneTap!.maxSlippageBps); }), "Apply (new session)")}
               </>
+            ) : oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp ? (
+              <>
+                <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
+                  <a href={DEPOSIT_HREF} onClick={(e) => { setAcct(false); onDepositClick(e); }} style={{ color: "#E8EAEE", fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
+                </span>
+                <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
+              </>
             ) : oneTapAvailable() && oneTap.settingUp ? (
               <span style={{ color: "#C9CED6" }}>Setting up one-tap trading in the background… trades already go through without prompts (your wallet signs them silently).</span>
             ) : oneTapAvailable() ? (
@@ -340,6 +350,14 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
             {bal && <span title={balTitle}>{bal}</span>}
+            {oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp && (
+              <>
+                <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
+                  <a href={DEPOSIT_HREF} onClick={(e) => { setAcct(false); onDepositClick(e); }} style={{ color: "#E8EAEE", fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
+                </span>
+                <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
+              </>
+            )}
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
             ) : (

@@ -8,6 +8,8 @@ import { execCalls, onWallet } from "@/lib/wallet";
 import { playerError } from "@/lib/playerError";
 import type { Address } from "@/lib/protocol";
 import DsSelect from "@/components/ui/DsSelect";
+import TestCashButton from "@/components/TestCashButton";
+import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 type Row = { symbol: string; address: Address; bal: bigint; dec: number };
@@ -39,7 +41,14 @@ export default function CashPanel() {
       setSym((s) => s || out[0]?.symbol || "");
     } catch { /* rpc hiccup */ }
   }
-  useEffect(() => { if (!addr) return; void refresh(addr); const i = setInterval(() => refresh(addr), 20000); return () => clearInterval(i); }, [addr]);
+  useEffect(() => {
+    if (!addr) return;
+    void refresh(addr);
+    const i = setInterval(() => refresh(addr), 20000);
+    const cash = () => { void refresh(addr); };   // "Get test cash" landed
+    window.addEventListener(CASH_ARRIVED_EVENT, cash);
+    return () => { clearInterval(i); window.removeEventListener(CASH_ARRIVED_EVENT, cash); };
+  }, [addr]);
 
   const sel = rows.find((r) => r.symbol === sym);
   async function withdraw() {
@@ -76,6 +85,7 @@ export default function CashPanel() {
           <div className="cash-body">
             <p className="muted tiny">Send USDG (or any ERC-20) on {ACTIVE_CHAIN.name} to your account address:</p>
             <div className="cash-addr mono">{addr}<button type="button" className="ds-btn gold" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? "Copied" : "Copy"}</button></div>
+            <TestCashButton account={addr} className="ds-btn gold" />
           </div>
         ) : (
           <div className="cash-body cash-form">
