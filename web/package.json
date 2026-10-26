@@ -79,7 +79,7 @@
     "test:grad": "tsx --test scripts/test-grad.mts",
     "test:player-errors": "tsx --conditions=react-server --test scripts/test-player-errors.mts",
     "test:relay-op": "tsx --conditions=react-server --test scripts/test-relay-op.mts",
-    "test:rapid-tap": "tsx --conditions=react-server --test scripts/test-rapid-tap.mts",
+    "test:rapid-tap-trade": "tsx --conditions=react-server --test scripts/test-rapid-tap.mts",
     "test:mcap": "tsx --conditions=react-server --test scripts/test-mcap.mts",
     "test:live-retest": "tsx --conditions=react-server --test scripts/test-live-retest.mts",
     "test:fill-book": "tsx --conditions=react-server --test scripts/test-fill-book.mts",

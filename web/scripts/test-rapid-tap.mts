@@ -1,6 +1,6 @@
 // Rapid-tap (SITE part of GAME's lee-approved spec): reservation registry, release on fill / error / timeout,
 // in-flight-aware quotes, session-cap reservation (cap race refused before sending) and the 429 / spend-limit mapping.
-//   pnpm test:rapid-tap   (pure: no RPC, nothing broadcast)
+//   pnpm test:rapid-tap-trade   (pure: no RPC, nothing broadcast)
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeErrorResult, parseAbi } from "viem";
