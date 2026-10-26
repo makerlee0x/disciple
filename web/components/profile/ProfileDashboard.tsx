@@ -121,7 +121,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
   useEffect(() => { if (isPrivate && window.location.hash === "#settings") setSettingsOpen(true); }, [isPrivate]);
 
-  const { data, ready, sample } = useProfileStats(wallet);
+  const { data, summary, ready, sample } = useProfileStats(wallet);
   const { identity } = data;
   const prestige = prestigeFromPoints(data.points);
   const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
@@ -222,9 +222,13 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const tags = [{ id: identity.primary.id, label: identity.primary.label, primary: true, rule: `${identityRuleText(identity.primary.id)}. ${badge.blurb}` },
     ...identity.secondary.map((t) => ({ id: t.id, label: t.label, primary: false, rule: identityRuleText(t.id) }))];
   const shownTags = tagsOpen ? tags : tags.slice(0, MAX_TAGS);
-  const rpnl = kpi("rpnl");
+  // Header numbers: the server's summary from indexed trades (same for every visitor; PnL is public). Dev sample uses its own.
+  const rpnl = sample ? kpi("rpnl") : summary?.realizedPnlUsd ?? 0;
   const traded = ready && data.metrics.tradeCount > 0;
-  const closed = data.metrics.closedTrades > 0;
+  const closed = sample ? data.metrics.closedTrades > 0 : (summary?.closedTrades ?? 0) > 0;
+  const statsOk = ready && (sample || !!summary);   // failed read ⇒ "—", never a fake $0
+  const winPct = sample ? Math.round(kpi("wr")) : Math.round((summary?.winRate ?? 0) * 100);
+  const bombsDropped = sample ? data.metrics.bombCount : summary?.bombsDropped ?? 0;
   const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: sample ? `${unlocked}/${achievements.length}` : String(unlocked), activity: "" };
   const prefetch = (t: ProfileTab) => { void TAB_LOADERS[t](); };
 
@@ -283,9 +287,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             )}
           </div>
           <div className="pf-stats" data-testid="profile-stats">
-            <div className={`pf-stat ${closed && rpnl !== 0 ? (rpnl > 0 ? "pos" : "neg") : ""}`}><span>Realized PnL</span><strong>{!ready ? DASH : closed ? signedUsd(rpnl) : "$0"}</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{ready && closed ? `${Math.round(kpi("wr"))}%` : DASH}</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{ready ? data.metrics.bombCount : DASH}</strong></div>
+            <div className={`pf-stat ${closed && rpnl !== 0 ? (rpnl > 0 ? "pos" : "neg") : ""}`}><span>Realized PnL</span><strong>{!statsOk ? DASH : closed ? signedUsd(rpnl) : "$0"}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{statsOk && closed ? `${winPct}%` : DASH}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{statsOk ? bombsDropped : DASH}</strong></div>
           </div>
         </div>
       </header>
