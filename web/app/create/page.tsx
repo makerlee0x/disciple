@@ -65,9 +65,9 @@ export default function LaunchRocketPage() {
   const [tax, setTax] = useState(0);
   // Private launch (AnonLauncher v2): stealth on-chain creator; Trench only; fees claimed privately on /creator.
   const [privateLaunch, setPrivateLaunch] = useState(false);
-  // First BOOST (creator launch buy): $ amount, converted to the pair token at the live price by FirstBoostField.
+  // First BOOST (creator launch buy): $ amount paid from the player's USDG; the router buys the pair coin (FirstBoostField).
   const [boost, setBoost] = useState("");
-  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), error: null, ready: true });
+  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, error: null, ready: true });
   // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
@@ -200,7 +200,9 @@ export default function LaunchRocketPage() {
         imageUri, // absolute https URL of the moderated, stored square crop (lib/launchImage)
         quoteToken: quoteAddr,
         creatorTaxPct: effTax,
-        creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
+        // First BOOST (0 = skip): paid in USDG via launchWithUsdg; pair-coin amount only on a network without USDG routing
+        creatorBuyUsdgIn: boostState.usdgIn != null && boostState.usdgIn > BigInt(0) ? boostState.usdgIn : undefined,
+        creatorBuyQuoteIn: boostState.usdgIn == null && boostState.raw > BigInt(0) ? boostState.raw : undefined,
         socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
@@ -294,7 +296,7 @@ export default function LaunchRocketPage() {
         <FirstBoostField
           pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
           ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE}
+          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
         />
 
         <div className="grid gap-4 md:grid-cols-2">

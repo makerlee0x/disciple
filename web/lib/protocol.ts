@@ -23,8 +23,13 @@ export interface LaunchCoinParams {
   creatorBuyPct?: number; // UI hint; on-chain limit is Launchpad.creatorBuyMaxBps() (v3 default 77 = 0.77% of supply)
   /** Bonding mode (0 TRENCH WARFARE, 1 PVE, 2 PVP); only honoured once NEXT_PUBLIC_LAUNCH_ABI=modes (lib/launchAbi.ts). */
   mode?: number;
-  /** Optional same-tx creator buy, in quote raw units (decimals per quote token). */
+  /** Optional same-tx creator buy, in quote raw units (decimals per quote token). Legacy path (no USDG router). */
   creatorBuyQuoteIn?: bigint;
+  /**
+   * First BOOST paid in USDG (raw, usdgDecimals): DiscipleRouter.launchWithUsdg swaps it into the pair coin and launches
+   * in one tx (USDG above the mode max comes back as USDG). Takes precedence over creatorBuyQuoteIn. Public launches only.
+   */
+  creatorBuyUsdgIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */
   slippageBps?: number;
   /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
