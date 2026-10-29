@@ -338,6 +338,7 @@ export default function HowItWorksPage() {
         <img src={withBase("/brand/disciple-lockup-horizontal-light.svg")} alt={HIW_FINAL.logoAlt} width={120} height={31} className={s.lockup} loading="lazy" />
         <span className={s.sp} />
         <span>{HIW_FINAL.footer}</span>
+        <Link href="/security" className={s.footLink}>Security</Link>
       </footer>
     </main>
   );

@@ -47,6 +47,7 @@ export default function DocsShell({ sections, children }: { sections: NavSection
               </ul>
             </div>
           ))}
+          <p className="dv-side-bug">Found a security bug? <Link href="/security">Report a bug</Link></p>
         </nav>
         <div className="dv-main">{children}</div>
       </div>

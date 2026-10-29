@@ -241,6 +241,20 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
               <span className="lb">Settings</span>
             </button>
           )}
+          <Link
+            href="/security"
+            title="Security"
+            data-testid="side-security"
+            className={pathname === "/security" ? "on" : ""}
+            onClick={() => {
+              if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
+            }}
+          >
+            <span className="ic">
+              <NavIcon name="shield" />
+            </span>
+            <span className="lb">Security</span>
+          </Link>
           <button
             type="button"
             title="Help"
