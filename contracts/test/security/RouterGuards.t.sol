@@ -83,7 +83,7 @@ contract RouterGuardsTest is IntegrationBase {
         router.setMaxImpactBps(100_000);
         vm.stopPrank();
         vm.prank(whale);
-        assertGt(router.buyExactIn(address(tok), 20_000 ether, 1, whale, block.timestamp + 1), 0);
+        assertGt(router.buyExactIn(address(tok), 10_000 ether, 1, whale, block.timestamp + 1), 0); // < 1000% impact on the steep-curve pool
     }
 
     function test_transferOwnership() public {

@@ -1,5 +1,5 @@
 /* App home (BRAND app-home r1, mock A): trending hero + feed. Lunar palette + v2 tokens (--dsc-*) for scrims and motion.
- * Grain sits only on the sky (background); the rocket, coin art and text carry none. Motion is transform/opacity only,
+ * Film grain covers the hero scene (sky, pad, rocket); coin art and text carry none. Motion is transform/opacity only,
  * starts after paint (.go) and is off under prefers-reduced-motion. */
 .hero {
   --hero-h: 580px;
@@ -12,35 +12,19 @@
   font-family: var(--dsc-font-ui);
   color: var(--dsc-text);
 }
-.stage { position: absolute; inset: 0; }
-.sky {
-  position: absolute; left: 0; top: 0; width: 120%; height: 100%;
-  object-fit: cover; object-position: 0% 42%; display: block; user-select: none; pointer-events: none;
-}
+.stage { position: absolute; inset: 0; container-type: inline-size; } /* cq units: HeroPad's plate frame covers the stage */
+/* film grain (grain.webp, BRAND layers r1) over the whole scene incl. the rocket, desktop and mobile; under the scrims + UI */
 .grain {
-  position: absolute; inset: 0; pointer-events: none; opacity: .5;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .55  0 0 0 .05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: .3; mix-blend-mode: overlay;
+  background-repeat: repeat; background-size: 256px 256px;
 }
 .scrim {
-  position: absolute; inset: 0; pointer-events: none;
+  position: absolute; inset: 0; z-index: 3; pointer-events: none;
   background:
     linear-gradient(0deg, rgba(11, 12, 14, 1) 0%, rgba(11, 12, 14, .55) 16%, rgba(11, 12, 14, 0) 40%),
     var(--dsc-gradient-scrim-side);
 }
 .scrim::after { content: ""; position: absolute; inset: 0; background: var(--dsc-gradient-scrim-top); opacity: .7; }
-
-/* dynamic sky: the galaxy plate drifts and turns slowly (75s each way, visible within a few seconds) while two sparse star layers twinkle
- * and creep the other way (parallax). Under the grain + scrims; transform/opacity only; still under reduced motion. */
-.go .sky { transform-origin: 62% 40%; animation: skyDrift 75s ease-in-out infinite alternate; }
-.stars { position: absolute; inset: 0; pointer-events: none; overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 78%); mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 78%); }
-.stars i { position: absolute; inset: -8% -12%; background-size: 640px 400px; opacity: .5; animation: twinkleA 6.5s ease-in-out infinite, starDrift 90s ease-in-out infinite alternate; }
-.stars i + i { background-position: 213px 131px; opacity: .3; animation: twinkleB 9.2s ease-in-out infinite, starDrift 90s ease-in-out infinite alternate-reverse; }
-/* starts at identity so the drift picks up from the painted LCP frame without a jump */
-@keyframes skyDrift { from { transform: scale(1) rotate(0deg) translate3d(0, 0, 0); } to { transform: scale(1.07) rotate(.8deg) translate3d(-2%, -.8%, 0); } }
-@keyframes starDrift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(2.2%, .6%, 0); } }
-@keyframes twinkleA { 0%, 100% { opacity: .55; } 50% { opacity: .18; } }
-@keyframes twinkleB { 0%, 100% { opacity: .12; } 50% { opacity: .5; } }
 
 /* rocket + launch pad + smog + moon: HeroPad / heroPad.module.css */
 
@@ -113,6 +97,8 @@
 }
 .mini:hover, .mini:focus-visible { border-color: rgba(201, 206, 214, .4); outline: none; }
 .miniTh { width: 64px; height: 40px; border-radius: 7px; object-fit: cover; flex: none; border: 1px solid rgba(201, 206, 214, .12); background: var(--dsc-surface); }
+.miniTh:has(> .miniBadge) { display: block; overflow: hidden; }
+.miniBadge { display: block; width: 100% !important; height: 100% !important; border-radius: 0; }
 .miniTx { min-width: 0; display: flex; flex-direction: column; }
 .miniR { display: flex; gap: 6px; align-items: baseline; font-size: 13px; white-space: nowrap; overflow: hidden; }
 .miniN { color: var(--dsc-muted); font: 11px var(--dsc-font-mono); }
@@ -130,10 +116,11 @@
 /* mobile (mock A mobile): sky + rocket on top, info at the bottom of the scene, Next trending below it */
 @media (max-width: 760px) {
   .hero { height: auto; background: var(--dsc-bg); }
-  .stage { position: relative; height: 560px; overflow: hidden; background: var(--dsc-sky-ink); }
-  .sky { width: 100%; object-position: 68% 50%; }
-  .scrim { background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0%, rgba(11, 12, 14, .86) 30%, rgba(11, 12, 14, .5) 46%, rgba(11, 12, 14, 0) 64%); }
-  .grain { display: none; }
+  /* tall enough that the info panel sits in the plate's fog below the deck and the seated rocket stays clear of it:
+   * the plate frame height (1792/828 of the width; 844px at 390) up to seat (54.81% of it) + 382px on wider phones */
+  .stage { position: relative; height: min(calc(100vw * 1792 / 828), calc(118.6vw + 382px)); overflow: hidden; background: var(--dsc-sky-ink); }
+  /* same scrim as before, anchored to the bottom in px (it was % of a 560px stage) so it stays under the panel */
+  .scrim { background: linear-gradient(0deg, rgba(11, 12, 14, 1) 0, rgba(11, 12, 14, .86) 168px, rgba(11, 12, 14, .5) 258px, rgba(11, 12, 14, 0) 358px); }
   .panel {
     left: 18px; right: 18px; top: auto; bottom: 18px; width: auto;
     grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "eyebrow eyebrow" "ident mcap" "tier tier" "stats stats" "actions actions";
@@ -171,7 +158,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .go .sky, .stars i, .go .stars i { animation: none; }
   .btn, .mini { transition: none; }
   .boost:hover { transform: none; }
 }

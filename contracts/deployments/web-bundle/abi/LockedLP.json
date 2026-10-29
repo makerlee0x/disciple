@@ -255,6 +255,81 @@
   },
   {
     "type": "function",
+    "name": "floorBands",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "out",
+        "type": "tuple[]",
+        "internalType": "struct LockedLP.FloorBand[]",
+        "components": [
+          {
+            "name": "tickLower",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "tickUpper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "liquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "quoteAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "tokenAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "floorInfo",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "baseTick",
+        "type": "int24",
+        "internalType": "int24"
+      },
+      {
+        "name": "bands",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "quoteSeeded",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "flush",
     "inputs": [
       {
@@ -602,6 +677,11 @@
         "name": "salt",
         "type": "bytes32",
         "internalType": "bytes32"
+      },
+      {
+        "name": "nonFloorQuote",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -814,6 +894,49 @@
       },
       {
         "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FloorSeeded",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "poolId",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "baseTick",
+        "type": "int24",
+        "indexed": false,
+        "internalType": "int24"
+      },
+      {
+        "name": "bands",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "quoteSeeded",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "dustToBucket",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1052,6 +1175,16 @@
   {
     "type": "error",
     "name": "CompoundOverspend",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FloorNotSingleSided",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FloorOverspend",
     "inputs": []
   },
   {

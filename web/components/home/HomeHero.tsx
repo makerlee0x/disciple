@@ -1,9 +1,10 @@
 "use client";
 /**
- * App home hero (BRAND app-home r1, mock A): the #1 trending rocket (highest 24h volume) on the launch pad over its
- * current tier sky. It stays on the rocket the visitor landed on for the whole visit (no auto-rotate); only its
- * numbers and the Next trending strip refresh. The rocket stands on the #79 pad (HeroPad) with its idle exhaust smog
- * under a slowly drifting, twinkling sky and a far-off moon; BOOST / DUMP play the lift-off first and then open the flight page (Open flight goes straight there).
+ * App home hero (BRAND app-home r1, mock A): the #1 trending rocket (highest 24h volume) on the launch pad under the
+ * BRAND night plate (home-hero layers r1). It stays on the rocket the visitor landed on for the whole visit (no auto-rotate); only its
+ * numbers and the Next trending strip refresh. The rocket sits in the mount ring of the BRAND layered pad (HeroPad: one
+ * plate frame with the sky, pad, moon, stars, smog and exhaust glow) under a twinkling sky and a far-off moon; BOOST / DUMP
+ * play the lift-off first and then open the flight page (Open flight goes straight there).
  * Server-rendered with the data (app/page.tsx), so the sky plate is the LCP and needs no client fetch; sky/pad idle
  * motion and polling start only after paint.
  */
@@ -12,19 +13,21 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtUsd } from "@/lib/config";
 import { withBase } from "@/lib/base-path";
+import { isStoreSrc } from "@/lib/coinImages";
 import PairArt from "@/components/pairart/PairArt";
 import Icon from "@/components/icons/Icon";
 import {
-  ROCKET_SRC, fmtAgeShort, rankTrending, skySrc, thumbSrc, tierProgress,
+  ROCKET_SRC, fmtAgeShort, rankTrending, tierProgress,
   type HomeCoin, type HomeData,
 } from "@/lib/home/trending";
 import { afterPaint, prefersReducedMotion } from "./idle";
-import HeroPad, { LIFTOFF_MS } from "./HeroPad";
+import HeroPad, { LIFTOFF_MS, SKY, SKY_DESKTOP_MQ, SKY_MOBILE_MQ, SKY_SIZES } from "./HeroPad";
 import s from "./appHome.module.css";
 
 const POLL_MS = 30_000;
-/** Twinkle layers over the sky plate (two sparse star tiles pulsed out of phase); loaded after paint. */
-const STARS = ["/home/pad/stars-a.webp", "/home/pad/stars-b.webp"];
+/** Tileable film grain (BRAND home-hero layers r1), overlay at .3; loaded after paint. */
+const GRAIN_SRC = "/home/pad/grain.webp";
+const baseSet = (list: string) => list.split(", ").map((e) => { const [u, w] = e.split(" "); return `${withBase(u)} ${w}`; }).join(", ");
 
 function usd(v: number) {
   if (v > 0 && v < 10) return "$" + v.toFixed(2);
@@ -137,17 +140,17 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
 
   return (
     <>
-      {/* LCP: the one sky plate in use + the rocket sprite (React hoists these into <head>) */}
-      <link rel="preload" as="image" type="image/webp" href={withBase(skySrc(tier.index))} fetchPriority="high" />
+      {/* LCP: the sky plate (AVIF, same candidates as the <picture> in HeroPad) + the rocket sprite (React hoists these into <head>) */}
+      <link rel="preload" as="image" type="image/avif" media={SKY_DESKTOP_MQ} imageSrcSet={baseSet(SKY.desktopAvif)} imageSizes={SKY_SIZES} fetchPriority="high" />
+      <link rel="preload" as="image" type="image/avif" media={SKY_MOBILE_MQ} imageSrcSet={baseSet(SKY.mobileAvif)} imageSizes={SKY_SIZES} fetchPriority="high" />
       <link rel="preload" as="image" type="image/webp" href={withBase(ROCKET_SRC)} />
       <section ref={ref} className={`${s.hero}${go ? " " + s.go : ""}${launching ? " " + s.launching : ""}`} aria-label={hero ? `#1 trending rocket: ${hero.name}` : "Trending rocket"}>
         <div className={s.stage}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className={s.sky} src={withBase(skySrc(tier.index))} alt="" width={1280} height={720} fetchPriority="high" decoding="async" />
-          {go && <div className={s.stars} aria-hidden><i style={{ backgroundImage: `url(${withBase(STARS[0])})` }} /><i style={{ backgroundImage: `url(${withBase(STARS[1])})` }} /></div>}
-          <div className={s.grain} aria-hidden />
-          <div className={s.scrim} aria-hidden />
+          {/* plate frame: sky (pad baked in) + stars + moon + pad + rocket + exhaust + smog, all registered to the sky */}
           <HeroPad go={go} launching={launching} />
+          {/* film grain over the whole scene (restores the plate grain the WebP/AVIF encode drops), then the scrims */}
+          <div className={s.grain} style={go ? { backgroundImage: `url(${withBase(GRAIN_SRC)})` } : undefined} aria-hidden />
+          <div className={s.scrim} aria-hidden />
           <div className={s.panel}>
             {hero && <div className={s.eyebrow}><span className={s.dot} aria-hidden />{mode === "newest" ? "Newest launch" : "#1 Trending · 24h"}</div>}
             {hero ? (
@@ -197,9 +200,9 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
               </>
             ) : (
               <>
-                <h1 className={s.emptyT}>No rockets in flight yet</h1>
+                <h1 className={s.emptyT}>No rockets yet</h1>
                 <div className={s.actions}>
-                  <Link href="/create" className={`${s.btn} ${s.primary}`}><Icon name="plus" size={18} />Launch a Rocket</Link>
+                  <Link href="/create" className={`${s.btn} ${s.primary}`}><Icon name="plus" size={18} />Launch the first one</Link>
                 </div>
               </>
             )}
@@ -219,8 +222,12 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
             <div className={s.minis} ref={stripRef}>
               {next.map((c, i) => (
                 <Link key={c.token} href={heroHref(c)} prefetch={false} className={s.mini}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className={s.miniTh} src={withBase(thumbSrc(tierProgress(c.mcapUsd).index))} alt="" width={64} height={40} loading="lazy" decoding="async" />
+                  {/* the coin's own (moderated store) image, the same ?icon= its coin page renders; none ⇒ the
+                      two-letter ticker badge (PairArt's monogram, as the hero and Rising list show) in the same 64x40 box */}
+                  {isStoreSrc(c.icon)
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img className={s.miniTh} src={c.icon} alt="" width={64} height={40} loading="lazy" decoding="async" />
+                    : <span className={s.miniTh} aria-hidden><PairArt tk={c.ticker} tint="#E8EAEE" size="list" className={s.miniBadge} /></span>}
                   <span className={s.miniTx}>
                     <span className={s.miniR}><span className={s.miniN}>#{i + 2}</span><b>${c.ticker}</b></span>
                     <span className={s.miniR2}><span className={s.num}>{fmtUsd(c.mcapUsd)}</span><Chg v={c.stats?.chg24} /></span>

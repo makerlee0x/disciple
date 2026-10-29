@@ -57,6 +57,7 @@ function seeded() {
     mk("Filled", { id: 1n, owner: ALICE, token: TOKEN, tickLower: 0, tickUpper: 60, quoteOut: 0n, tokenOut: 5n, keeper: KEEPER }, stack.trampWallManager!, 7n),
     mk("ReferrerFeesClaimed", { quote: QUOTE, referrer: CAROL, amount: E18 }, stack.feeRouter, 8n),
   ], ts);
+  db.prepare("UPDATE coins SET quote_decimals=18").run(); // the test quote is 18-dec (what fillQuoteDecimals would store)
   return db;
 }
 const get = async (api: Api, path: string) => (await api.route("GET", new URL("http://x" + path)))[1] as any;
@@ -148,6 +149,7 @@ describe("rpc hygiene", () => {
 function fakeClient(logsByBlock: Map<bigint, RawLog[]>, head: () => bigint, hashOf: (b: bigint) => Hex) {
   return {
     getBlockNumber: async () => head(),
+    readContract: async () => 18, // quote decimals() (Syncer.fillQuoteDecimals)
     getBlock: async ({ blockNumber }: any) => ({ number: blockNumber, timestamp: BigInt(ts(blockNumber)), hash: hashOf(blockNumber) }),
     getLogs: async ({ address, fromBlock, toBlock }: any) => {
       const set = new Set((address as string[]).map((x) => x.toLowerCase()));

@@ -2,6 +2,8 @@
 import { BaseError, ContractFunctionRevertedError, decodeErrorResult, formatUnits, parseAbi, type Abi, type Address, type Hex, type PublicClient } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, referralRegistryAbi, tokenAbi, usdgDepositNotifierAbi } from "../abi";
 import { deployment } from "../chains";
+import { tokenDecimals } from "../usdg";
+import { plainText } from "../aa/relayOp";
 
 const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)"]);
 export type Asset = { address: Address; symbol: string; decimals: number; /** USD per 1 whole unit (live QuotePricer, else null) */ usd: number | null };
@@ -15,7 +17,7 @@ export function assetMeta(pc: PublicClient, address: Address): Promise<Asset> {
     p = (async () => {
       const [symbol, decimals, px] = await Promise.all([
         pc.readContract({ address, abi: tokenAbi, functionName: "symbol" }).catch(() => "?"),
-        pc.readContract({ address, abi: tokenAbi, functionName: "decimals" }).then(Number).catch(() => 18),
+        tokenDecimals(pc, address),   // config for USDG / STRATEGY; on-chain otherwise (no guessed 18 — a failure retries next call)
         deployment().quotePricer !== "0x0000000000000000000000000000000000000000"
           ? pc.readContract({ address: deployment().quotePricer, abi: pricerAbi, functionName: "quotePriceUsd", args: [address] }).catch(() => BigInt(0))
           : Promise.resolve(BigInt(0)),
@@ -25,6 +27,7 @@ export function assetMeta(pc: PublicClient, address: Address): Promise<Asset> {
       return { address, symbol: String(symbol), decimals, usd };
     })();
     metaCache.set(k, p);
+    p.catch(() => metaCache.delete(k));
   }
   return p;
 }
@@ -79,11 +82,12 @@ export function claimErrorText(e: unknown): string {
     case "ERC20InsufficientBalance": return "Not enough balance.";
     case "ERC20InsufficientAllowance": return "Approval missing. Try again.";
     case "Panic": return "Nothing to withdraw yet.";
-    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "Approval missing. Try again." : /BAL/i.test(String(r.args[0])) ? "Not enough balance." : String(r.args[0]).slice(0, 120);
+    case "Error": return /ALLOW/i.test(String(r.args[0])) ? "Approval missing. Try again." : /BAL/i.test(String(r.args[0])) ? "Not enough balance." : plainText(String(r.args[0]).slice(0, 120), "claim error");
   }
   const m = (e as Error)?.message ?? String(e);
   if (/user rejected|denied/i.test(m)) return "Cancelled.";
-  return m.split("\n")[0].slice(0, 120);
+  // unmapped: plain text passes; ids / hex / raw contract or relay text → the plain line (detail to console)
+  return plainText(m.split("\n")[0].slice(0, 120), "claim error", r ? { name: r.name } : {});
 }
 
 /**

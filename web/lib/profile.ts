@@ -6,14 +6,21 @@
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { refLink } from "./referral";
 import { claimMessage } from "./usernameClaim";
+import { PROFILE_COPY } from "./copy/profile";
 
+export const USERNAME_MIN = 3;
+export const USERNAME_MAX = 20;
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+/** Plain reason shown inline and returned by /api/profile/username for a name under USERNAME_MIN. */
+export const USERNAME_SHORT: string = PROFILE_COPY["edit.username.error.short"];
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
 const K = { username: "disciple.username", x: "disciple.xHandle", ref: "disciple.ref" };
 
 export function normalizeUsername(u: string) { return u.trim().toLowerCase().replace(/^@/, ""); }
 export function validateUsername(u: string): string | null {
   const n = normalizeUsername(u);
+  // Length first, so a short name gets the specific message. Existing names are never re-validated (only a change is).
+  if (n.length < USERNAME_MIN) return USERNAME_SHORT;
   if (!USERNAME_RE.test(n)) return "3–20 chars: a–z, 0–9, underscore.";
   if (RESERVED.has(n)) return "That name is reserved.";
   return null;
@@ -27,6 +34,10 @@ export const localXHandle = () => get(K.x);
 export const setLocalXHandle = (h: string) => set(K.x, h.replace(/^@/, "").trim());
 export const rememberReferrer = (u: string) => { if (!get(K.ref)) set(K.ref, normalizeUsername(u)); };
 export const referrer = () => get(K.ref);
+
+/** Fired after the user saves their username / picture / bio / flag, so the profile header re-reads them. */
+export const PROFILE_CHANGED_EVENT = "disciple:profile-changed";
+export function notifyProfileChanged() { try { window.dispatchEvent(new Event(PROFILE_CHANGED_EVENT)); } catch { /* ssr */ } }
 
 export function profileUrl(username: string) { return `/u/${encodeURIComponent(normalizeUsername(username))}`; }
 /** Ref link: /r/<username> (wallet fallback). Legacy /u/<name>?ref=1 links still record the referrer. */
@@ -44,7 +55,17 @@ export async function checkUsername(u: string): Promise<{ available: boolean; re
   } catch { return { available: false, reason: "Could not reach username service." }; }
 }
 
-export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string }> {
+/** The wallet's claimed username and, during the 24h rename cooldown, when the next change is allowed (ms epoch). */
+export async function fetchUsernameStatus(address: string | null | undefined): Promise<{ username: string | null; nextAllowedAt: number | null }> {
+  if (IS_STATIC_PREVIEW || !address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return { username: null, nextAllowedAt: null };
+  try {
+    const j = (await (await fetch(`/api/profile/username?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as { username?: string | null; nextAllowedAt?: number | null };
+    const t = typeof j.nextAllowedAt === "number" && j.nextAllowedAt > Date.now() ? j.nextAllowedAt : null;
+    return { username: j.username ?? null, nextAllowedAt: t };
+  } catch { return { username: null, nextAllowedAt: null }; }
+}
+
+export async function claimUsername(u: string, address: string | null): Promise<{ ok: boolean; reason?: string; nextAllowedAt?: number }> {
   const n = normalizeUsername(u);
   const bad = validateUsername(n);
   if (bad) return { ok: false, reason: bad };
@@ -62,16 +83,21 @@ export async function claimUsername(u: string, address: string | null): Promise<
         body: JSON.stringify({ username: n, address: a, nonce, ...signed }),
       });
       const j = await r.json();
-      if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken." };
+      if (!r.ok || !j.ok) return { ok: false, reason: j.reason || "Username taken.", nextAllowedAt: typeof j.nextAllowedAt === "number" ? j.nextAllowedAt : undefined };
     } catch { return { ok: false, reason: "Could not reach username service." }; }
   }
   set(K.username, n);
+  notifyProfileChanged();
   return { ok: true };
 }
 
-/** Sign the claim with the connected wallet: DISCIPLE smart account → owner signs keccak(msg) raw; else signMessage. */
+/** Sign the claim with the connected wallet (see signWalletMessage). */
 async function signClaim(username: string, address: string, nonce: string): Promise<{ signature: string; owner?: string } | null> {
-  const msg = claimMessage(username, address, nonce);
+  return signWalletMessage(claimMessage(username, address, nonce), address);
+}
+/** Sign a plain message with the connected wallet: DISCIPLE smart account → owner signs keccak(msg) raw; else signMessage. */
+export async function signWalletMessage(msg: string, address: string): Promise<{ signature: string; owner?: string } | null> {
+  address = address.toLowerCase();
   try {
     const s = await import("./aa/session");
     const smart = await s.aaAddress().catch(() => null);
@@ -80,8 +106,8 @@ async function signClaim(username: string, address: string, nonce: string): Prom
       return o ? { signature: o.sig, owner: o.owner } : null;
     }
     const w = await import("./wallet");
-    const signer = await w.getSigner();
-    if (signer.account.address.toLowerCase() !== address) return null;
+    // #103: no window.ethereum fallback — only an explicitly connected injected wallet for this exact address
+    const signer = await w.plainWalletSigner(address);
     return { signature: await signer.signMessage({ account: signer.account.address, message: msg }) };
   } catch { return null; }
 }

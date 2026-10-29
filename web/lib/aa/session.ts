@@ -14,9 +14,12 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
 import { AAError, type Call, type GasMode } from "./core";
-import type { Mav2Account } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
-import { policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
+import type { Mav2Account, UsdgGasOpts } from "./mav2"; // aa-sdk is loaded lazily (makeAccount) to keep it out of first-load JS
+import { newPressId, tagPress, type SendOpts } from "./fastPath";
+import { derivedGasReserve, fallbackUsdgDecimals, type GasOpKind } from "./gasReserve";
+import { policyHasPaymaster, policyHasUsdg, SESSION_POLICY_MODULE_ID, cachedSessionUsable, moduleIdAbi, type CachedSession, referralAttributionOn, sessionEligible, sessionPermissions, sessionPolicyFor, usdCapRaw, sessionHasHeadroom, addSpent, parseSpendLimitUsd, SESSION_NO_CAP } from "./oneTap";
 import { quotePricerAbi } from "../abi";
+import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 
@@ -93,9 +96,22 @@ function loadSessionKey(account: Address): StoredSessionKey | null {
   } catch { return null; }
 }
 
+/** ERC-7677 paymaster endpoint (our /api/paymaster); override with NEXT_PUBLIC_PAYMASTER_URL. */
+export const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_URL || "/api/paymaster";
+/**
+ * USDG gas via DisciplePaymaster when the chain has one (NEXT_PUBLIC_RHT_PAYMASTER); unset ⇒ ETH prefund (self-pay).
+ * Session keys use it only on a policy that knows the paymaster (moduleId ≥ 1.4.0); older sessions keep paying ETH.
+ */
+export function usdgGasConfig(): UsdgGasOpts | undefined {
+  const d = deployment();
+  const pm = d.paymaster, usdg = d.usdg;
+  if (!pm || /^0x0{40}$/i.test(pm) || !usdg || /^0x0{40}$/i.test(usdg)) return undefined;
+  return { paymaster: pm, usdg, url: PAYMASTER_URL, session: policyHasPaymaster() };
+}
+
 async function makeAccount(owner: LocalAccount) {
   const { Mav2Account } = await import("./mav2");
-  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL }, owner);
+  return new Mav2Account({ chain: ACTIVE_CHAIN, pc: publicClient(), bundlerUrl: BUNDLER_URL, usdgGas: usdgGasConfig() }, owner);
 }
 
 async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
@@ -104,6 +120,7 @@ async function startSession(kind: OwnerKind, owner: LocalAccount, key?: Hex) {
   state = { kind, owner: owner.address, key, expiresAt: Date.now() + SESSION_TTL_MS, spent: {} };
   save();
   const a = await sa.address();
+  void sa.warmGasReserve().catch(() => undefined);   // rapid taps: gasReservePerOp is warm before the first tap
   onchain = loadSessionKey(a);
   if (onchain) { await sa.useSession(onchain.entityId, privateKeyToAccount(onchain.key)); void syncSessionFromChain(); }
   else void maybeAutoOneTap("login");
@@ -122,6 +139,10 @@ export async function syncSessionFromChain() {
     const r = await publicClient().readContract({ address: SESSION_POLICY, abi: sessionOfAbi, functionName: "sessionOf", args: [s0.account, s0.entityId] });
     if (onchain !== s0) return;   // changed meanwhile
     if (!r.active) { onchain = null; sa?.clearSession(); saveSessionKey(); changed(); void maybeAutoOneTap("inactive"); return; }
+    // Sessions installed against AnonLauncher v1 (before v2 became the default): drop the cached key and reinstall in
+    // the background (owner signs silently). Trades keep working meanwhile: no session ⇒ the owner signs them.
+    const al = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
+    if (al && r.cfg.anonLauncher.toLowerCase() !== al.toLowerCase()) { onchain = null; sa?.clearSession(); saveSessionKey(); autoTried = false; changed(); void maybeAutoOneTap("anon-launcher-v2"); return; }
     const caps: Record<string, string> = {}, spent: Record<string, string> = {};
     if (!/^0x0{40}$/i.test(r.cfg.quote0)) { caps[r.cfg.quote0.toLowerCase()] = r.cfg.cap0.toString(); spent[r.cfg.quote0.toLowerCase()] = r.spent0.toString(); }
     if (!/^0x0{40}$/i.test(r.cfg.quote1)) { caps[r.cfg.quote1.toLowerCase()] = r.cfg.cap1.toString(); spent[r.cfg.quote1.toLowerCase()] = r.spent1.toString(); }
@@ -134,25 +155,104 @@ let autoBusy: Promise<unknown> | null = null;
 let autoTried = false;
 let autoError = "";
 /**
+ * New-player cash fix: with USDG gas (DisciplePaymaster) the install op needs cash in the account. A $0 account used to
+ * attempt the silent install, fail "not enough USDG" and never retry. Now: no cash ⇒ no attempt, the UI shows
+ * "Add cash first to turn on one-tap." (oneTapStatus().needsCash), and a watcher (every 15s + window focus / tab
+ * visible + CASH_ARRIVED_EVENT from "Get test cash") retries as soon as the balance goes above `cashFloor`
+ * (0, or the balance a USDG-short attempt failed at, so a too-small balance doesn't retry every tick).
+ */
+let needsCash = false;
+let cashFloor = BigInt(0);
+let stopCashWatch: (() => void) | null = null;
+const CASH_WATCH_MS = 15_000;
+const usdgBalAbi = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
+function watchForCash() {
+  if (stopCashWatch || typeof window === "undefined") return;
+  const tick = () => { if (!needsCash || !sa) { stopCashWatch?.(); return; } void maybeAutoOneTap("cash-arrived"); };
+  const vis = () => { if (document.visibilityState === "visible") tick(); };
+  const i = window.setInterval(tick, CASH_WATCH_MS);
+  window.addEventListener("focus", tick);
+  window.addEventListener("disciple:cash", tick);   // lib/testCash CASH_ARRIVED_EVENT
+  document.addEventListener("visibilitychange", vis);
+  stopCashWatch = () => {
+    window.clearInterval(i); window.removeEventListener("focus", tick); window.removeEventListener("disciple:cash", tick);
+    document.removeEventListener("visibilitychange", vis); stopCashWatch = null;
+  };
+}
+function setNeedsCash(floor: bigint, why: string) {
+  if (!needsCash) console.warn(`[disciple] one-tap: skipping silent session install (${why}): USDG balance ${floor} raw covers no gas; waiting for cash`);
+  needsCash = true; cashFloor = floor; autoTried = false; autoError = "";
+  watchForCash();
+}
+function clearNeedsCash() { needsCash = false; cashFloor = BigInt(0); stopCashWatch?.(); }
+/**
  * Privy (and local) owners sign silently anyway, so the "Enable one-tap" step is just a gas-paying install: do it for the
  * user in the background once the account exists (login with a deployed account, or right after the first owner-signed
  * trade, which deploys it). Until it lands, trades keep going through the owner signer — no prompt either way.
+ * With USDG gas the account must hold cash first (see needsCash above); a funded but undeployed account installs too
+ * (the install op deploys it), so one-tap turns on right after the first deposit / test cash.
  */
 export function maybeAutoOneTap(why: string) {
   if (!ONE_TAP_AUTO || !oneTapAvailable() || onchain || autoBusy || autoTried || !sa || !state || state.kind === "eoa") return;
   const acct = sa;
+  const usdgGas = usdgGasConfig();
   autoBusy = (async () => {
     const a = await acct.address();
+    if (usdgGas) {
+      const bal = await publicClient().readContract({ address: usdgGas.usdg, abi: usdgBalAbi, functionName: "balanceOf", args: [a] }).catch(() => null);
+      if (bal === null) return;   // RPC hiccup: autoTried stays false, the next trigger (login, trade, cash watcher) retries
+      if (bal <= cashFloor) { setNeedsCash(cashFloor, why); return; }
+    }
     const code = await publicClient().getCode({ address: a }).catch(() => undefined);
-    if (!code || code === "0x") return;   // not deployed yet: the first trade deploys it, then we retry
+    // ETH self-pay: not deployed yet ⇒ the first trade deploys it, then we retry. USDG gas: cash is there, install now.
+    if (!usdgGas && (!code || code === "0x")) return;
+    if (acct !== sa) return;   // signed out / switched meanwhile
     autoTried = true;
-    try { await enableOneTap(); autoError = ""; } catch (e) { autoError = (e as Error).message.split("\n")[0].slice(0, 140); console.warn(`[one-tap] auto setup (${why}) failed:`, autoError); }
+    try { await enableOneTap(); autoError = ""; clearNeedsCash(); }
+    catch (e) {
+      const ae = e as AAError;
+      if (usdgGas && ae.code === "FundAccount" && ae.extra?.usdg) {
+        // cash too low for the install's network cost: wait for MORE cash (not every tick at the same balance)
+        const bal = await publicClient().readContract({ address: usdgGas.usdg, abi: usdgBalAbi, functionName: "balanceOf", args: [a] }).catch(() => BigInt(0));
+        setNeedsCash(bal, `${why}: ${String(ae.extra?.detail ?? ae.message).slice(0, 140)}`);
+        return;
+      }
+      autoError = ae.message.split("\n")[0].slice(0, 140); console.warn(`[disciple] one-tap auto setup (${why}) failed:`, autoError);
+    }
   })().finally(() => { autoBusy = null; changed(); });
   changed();
 }
-/** One-tap state for the UI: on (session key signs), setting-up (auto install in flight), or off (owner signs, silently). */
-export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string } {
-  return { on: !!onchain, settingUp: !!autoBusy, error: autoError };
+/**
+ * One-tap state for the UI: on (session key signs), setting-up (auto install in flight), needsCash (no cash yet: show
+ * "Add cash first to turn on one-tap." + Deposit), or off (owner signs, silently).
+ */
+export function oneTapStatus(): { on: boolean; settingUp: boolean; error: string; needsCash: boolean } {
+  return { on: !!onchain, settingUp: !!autoBusy, error: needsCash ? "" : autoError, needsCash: !onchain && needsCash };
+}
+/**
+ * AA21 fix: the account pays every op's gas PREFUND (gas × maxFee ≈ 0.00011 ETH per trade) from its balance + EntryPoint
+ * deposit. Once that's below one prefund every trade fails "AA21 didn't pay prefund" (nothing is sent). Ask /api/drip for
+ * a refill (server checks balance + deposit < low-water mark and rate-limits), wait for it to land, and retry ONCE with a
+ * fresh nonce key. No refill available ⇒ the original FundAccount error.
+ */
+async function sendWithGasRefill(calls: Call[], as: "owner" | "session", me: Address, o: SendOpts = {}) {
+  try { return await sa!.sendCalls(calls, { ...o, as }); }
+  catch (e) {
+    // a USDG shortfall (USDG-paid network cost) can't be fixed by an ETH refill: surface "Not enough USDG" as is
+    if ((e as AAError).code !== "FundAccount" || (e as AAError).extra?.usdg || !(await refillGas(me))) throw e;
+    return sa!.sendCalls(calls, { ...o, as });
+  }
+}
+/** Awaited refill (see sendWithGasRefill). true ⇒ a top-up landed. */
+export async function refillGas(a: Address): Promise<boolean> {
+  if (ACTIVE_CHAIN.id !== 46630) return false;
+  try {
+    const r = await fetch("/api/drip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) });
+    const j = await r.json().catch(() => ({})) as { ok?: boolean; txHash?: Hex };
+    if (!j.ok || !j.txHash) return false;
+    await publicClient().waitForTransactionReceipt({ hash: j.txHash, timeout: 20_000 });
+    return true;
+  } catch { return false; }
 }
 /** One-time server top-up of test ETH for gas (self-pay, existing drip faucet). Fire-and-forget. */
 export function drip(a: Address) {
@@ -229,7 +329,7 @@ export function aaSession() {
 }
 export async function aaLogout() {
   const kind = state?.kind;
-  state = null; sa = null; ownerAcct = null; onchain = null; autoTried = false; autoError = ""; save(); changed();
+  state = null; sa = null; ownerAcct = null; onchain = null; autoTried = false; autoError = ""; clearNeedsCash(); save(); changed();
   if (kind === "privy") { try { await privyHooks?.logout(); } catch {} }
 }
 /** Owner signs a raw hash (chat login / username proof). Null when no smart session. */
@@ -279,7 +379,7 @@ export async function sweepLegacy() {
   const { clientFees } = await import("./gasPolicy");
   const reserve = clientFees(blk.baseFeePerGas ?? BigInt(0)).maxFeePerGas * BigInt(800_000); // worst-case gas for this op (same fee formula as LightSmartAccount.selfPayGas)
   if (lb.eth > reserve * BigInt(2)) calls.push({ to, data: "0x", value: lb.eth - reserve });
-  if (!calls.length) throw new AAError("FundAccount", "Old account only holds gas dust — nothing worth sweeping.");
+  if (!calls.length) throw new AAError("FundAccount", "Your old account is empty — nothing to move over.");
   const old = new LightSmartAccount({ pc, chainId: ACTIVE_CHAIN.id, bundler: alchemyBundler(BUNDLER_URL), owner: ownerAcct });
   return old.sendCalls(calls);
 }
@@ -303,7 +403,10 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
   const account = await sa.address();
   const caps = await sessionCaps(opts.spendLimitUsd !== undefined ? opts.spendLimitUsd : oneTapSpendLimitUsd());
+  // AUDIT #148 M-1: validUntil from the chain's clock (latest block), not the browser's; Date.now() only if the RPC fails.
+  const now = await sk.chainNow(publicClient());
   const s = sk.buildCreateSession({
+    now,
     modules: { policy: SESSION_POLICY, singleSigner: getDefaultSingleSignerValidationModuleAddress(ACTIVE_CHAIN), timeRange: getDefaultTimeRangeModuleAddress(ACTIVE_CHAIN) },
     targets: { router: d.router, launchpad: d.launchpad, anonLauncher: ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher, trampWallManager: d.trampWallManager },
     sessionSigner: privateKeyToAccount(key).address,
@@ -328,15 +431,14 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
 async function sessionCaps(limitUsd: number | null): Promise<[{ token: Address; cap: bigint }, { token: Address; cap: bigint }]> {
   const d = deployment(), pc = publicClient();
   if (!limitUsd) return [{ token: d.defaultQuote, cap: SESSION_NO_CAP }, { token: d.usdg, cap: SESSION_NO_CAP }];
-  const decAbi = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
+  // px = USD WAD per 1e18 raw (decimal-agnostic), so the cap needs no decimals() read — and no guessed-18 fallback
   const one = async (token: Address, fallbackUsdWad?: bigint) => {
-    const [px, dec] = await Promise.all([
-      pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [token] }).then((v) => v as bigint).catch(() => fallbackUsdWad ?? BigInt(0)),
-      pc.readContract({ address: token, abi: decAbi, functionName: "decimals" }).then(Number).catch(() => 18),
-    ]);
-    return { token, cap: usdCapRaw(limitUsd, px, dec) };
+    const px = await pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [token] })
+      .then((v) => v as bigint).catch(() => fallbackUsdWad ?? BigInt(0));
+    return { token, cap: usdCapRaw(limitUsd, px) };
   };
-  const out = await Promise.all([one(d.defaultQuote), one(d.usdg, BigInt(10) ** BigInt(18))] as const);
+  // USDG falls back to $1 = 10^(36 − usdgDecimals) (QuotePricer units: USD WAD per 1e18 raw)
+  const out = await Promise.all([one(d.defaultQuote), one(d.usdg, usdgPriceWadPer1e18Raw())] as const);
   if (out.some((c) => c.cap <= BigInt(0))) throw new AAError("Policy", "Couldn't price your spend limit right now — try again in a moment.");
   return out;
 }
@@ -362,6 +464,22 @@ export async function endOneTap() {
   saveSessionKey();
   changed();
   return r;
+}
+
+/**
+ * Rapid taps (GAME cash reservation), SYNC, USDG base units: what one pending op may still take for gas.
+ *   reserve = liveCash − Σ pending (amountIn + aaGasReservePerOp())
+ * peek: the WARM value (fresh allowance: its real maxTokenCost; grad buys: the per-op bound) or null while cold;
+ * 0n when gas isn't paid in USDG. kind: "trade" (buy / sell, default) | "gradBuy". See lib/aa/gasReserve.
+ */
+export function aaPeekGasReservePerOp(kind: GasOpKind = "trade"): bigint | null {
+  if (sa) return sa.peekGasReservePerOp(kind);
+  return usdgGasConfig() ? null : BigInt(0);
+}
+/** Never null: warm value, else derived from gas limit × allowance-formula maxFee(gas price) × rate (config before any RPC). */
+export function aaGasReservePerOp(kind: GasOpKind = "trade"): bigint {
+  if (sa) return sa.gasReservePerOp(kind);
+  return usdgGasConfig() ? derivedGasReserve({ kind, decimals: fallbackUsdgDecimals(ACTIVE_CHAIN.id) }) : BigInt(0);
 }
 
 /** Keep the smart account hot: clients + deployment status + fee cache (client) and relayer nonce/fees (server). */
@@ -390,7 +508,16 @@ const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCap
  * budget has headroom; otherwise the owner (Privy embedded wallet, signs silently). Never refuses for "spend limit":
  * an exhausted session just means the owner signs (bug #1).
  */
-export async function aaSend(calls: Call[]) {
+/**
+ * GAME: `o0.pressId` is the caller's reservation id (optional; generated when absent). It is reused on every retry
+ * (fee floor, TRANSIENT_SIM rebuild, gas refill, owner fallback) and echoed on every "disciple:op" event
+ * (submitted/confirmed/error), on SendResult.pressId, and on every thrown error (AAError.extra.pressId / err.pressId).
+ */
+export async function aaSend(calls: Call[], o0: SendOpts = {}) {
+  const o: SendOpts = { ...o0, pressId: o0.pressId ?? newPressId() };   // one press: refill retry + owner fallback share it
+  try { return await aaSend1(calls, o); } catch (e) { tagPress(e, o.pressId!); throw e; }
+}
+async function aaSend1(calls: Call[], o: SendOpts) {
   if (!sa || !state) throw new AAError("Policy", "Sign in first.");
   const d = deployment();
   const me = await sa.address();
@@ -408,13 +535,13 @@ export async function aaSend(calls: Call[]) {
   const spend = quoteSpend(delta);
   const asSession = policyOk && (await canUseSessionKey(calls)) && sessionHasHeadroom(onchain, spend);
   let r;
-  try { r = await sa.sendCalls(calls, asSession ? "session" : "owner"); }
+  try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, o); }
   catch (e) {
     const ae = e as AAError;
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed ⇒ owner signs the same calls once
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
-      r = await sa.sendCalls(calls, "owner");
+      r = await sa.sendCalls(calls, { ...o, as: "owner" });
     } else throw e;
   }
   gasListeners.forEach((f) => f("self-pay"));

@@ -1,6 +1,7 @@
 /** Shared live-chat types + limits (client + server). */
 export type ChatBadge = "believer" | "trencher" | "bomber" | "creator" | "whale" | "mod";
-export type ChatFrom = { addr: string; name?: string; badge?: ChatBadge; prestige?: number };
+/** guild: the sender's guild tag (Guilds V1, lib/guilds GuildTag) when they wear one. GAME renders it in GameChat. */
+export type ChatFrom = { addr: string; name?: string; badge?: ChatBadge; prestige?: number; guild?: { id: string; tag: string; mark: string } };
 export type ChatMsg = {
   id: string; // ulid, sortable
   coin: string; // lowercase token address

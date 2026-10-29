@@ -65,8 +65,9 @@ await t("mcapOrderer: a late OLDER buy batch can't undo a newer DUMP; reconcile 
 });
 await t("balanceLine: held coin first, quote marked as what trades spend, ETH = gas", () => {
   const l = balanceLine([{ symbol: "ETH", amount: 0.0009, role: "gas" }, { symbol: "STRATEGY", amount: 999007, role: "spend" }, { symbol: "mUSDG", amount: 1000 }, { symbol: "SMK", amount: 25483509, role: "held" }]);
-  assert.equal(l.text, "25.48M $SMK · 999,007 STRATEGY (pays trades) · 1,000 mUSDG · 0.0009 ETH (gas)");
-  assert.match(l.title, /mUSDG: test dollars; not spent/);
+  assert.equal(l.text, "25.48M $SMK · 999,007 STRATEGY (pays trades) · $1,000.00 · 0.0009 ETH (fees)");
+  assert.match(l.title, /Test dollars: not spent/);
+  assert.equal(balanceLine([{ symbol: "STRATEGY", amount: 0, role: "spend" }, { symbol: "mUSDG", amount: 0 }]).text, "$0.00", "all-zero wallet reads $0.00, no '0 STRATEGY' / 'mUSDG 0'");
 });
 await t("scaledQuote: only scales DOWN (safe lower bound), respects age", () => {
   const last = { amountIn: 1000n, amountOut: 500n, at: 0 };

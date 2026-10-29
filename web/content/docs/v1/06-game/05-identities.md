@@ -29,6 +29,6 @@ Your playstyle earns a tag. Tags are worked out from your trades and may change 
 | **Bag Holder** | Open position down 50%+ for 24h+ |
 | **Jeet** | 3+ DUMPs within 10 minutes after a 1.5× pump |
 
-No match yet? You're a **Pilgrim**.
+No match yet? You're a **Normie**.
 
 All tags are public, including Paper Hands, Exit Liquidity, Bag Holder and Jeet. They show on your profile and next to your name on the leaderboard.

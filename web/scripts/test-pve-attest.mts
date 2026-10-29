@@ -95,5 +95,5 @@ test("client ensurePveLogin: verified ⇒ no calls; relayed ⇒ no calls; relay 
   _resetPveCache();
   await assert.rejects(ensurePveLogin(pc(0), me, { token: async () => null }), (e: unknown) => e instanceof PveError && e.code === "PveLoginRequired");
   const fetch403 = (async () => new Response(JSON.stringify({ error: "login_not_verified" }), { status: 403 })) as typeof fetch;
-  await assert.rejects(ensurePveLogin(pc(0), me, { fetchFn: fetch403, token: async () => "t" }), (e: unknown) => e instanceof PveError && /verified login/.test(e.message));
+  await assert.rejects(ensurePveLogin(pc(0), me, { fetchFn: fetch403, token: async () => "t" }), (e: unknown) => e instanceof PveError && /Sign in with X, email or wallet/.test(e.message));
 });

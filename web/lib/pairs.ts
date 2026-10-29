@@ -21,7 +21,7 @@ export function recommendedPairs(): PairOption[] {
   });
   if (d.usdg && d.usdg !== ZERO) {
     out.push({
-      symbol: testnet ? "mUSDG" : "USDG", name: testnet ? "Mock USDG (test stable)" : "Global Dollar", address: d.usdg,
+      symbol: testnet ? "mUSDG" : "USDG", name: testnet ? "Test USDG" : "Global Dollar", address: d.usdg,
       note: "Stablecoin pair · rockets priced in dollars", tint: "#9ff3c8",
     });
   }

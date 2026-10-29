@@ -1,6 +1,7 @@
 /**
  * Referral attribution (first touch, 30 days).
  *   /r/<username|0xwallet>  → server sets cookie `disciple_ref` = {u,a,t} (only if absent) and redirects to /
+ *   /coin/<token>?ref=<0xwallet> ("Share this trade") → <RefCapture/> records the same first touch client-side
  *   <RefCapture/> (AppShell) copies the cookie into localStorage `disciple.refv2` (only if absent/expired).
  * Trade calls read `referrerWallet()`; see protocol-viem trade() for how it reaches the chain.
  */
@@ -66,6 +67,21 @@ export function refLink(username: string | null | undefined, wallet?: string | n
   const o = origin ?? (typeof window !== "undefined" ? window.location.origin : "https://disciple.vip");
   const slug = username ? encodeURIComponent(username.toLowerCase()) : wallet ? wallet.toLowerCase() : "";
   return `${o}/r/${slug}`;
+}
+/** "Share this trade" link: the coin page itself, carrying the sharer as ?ref=<wallet> (username-only ⇒ /r/<username>). */
+export function coinRefLink(coin: string, username: string | null | undefined, wallet?: string | null, origin?: string) {
+  if (!isAddr(wallet)) return refLink(username, wallet, origin);
+  const o = origin ?? (typeof window !== "undefined" ? window.location.origin : "https://disciple.vip");
+  return `${o}/coin/${coin.toLowerCase()}?ref=${wallet.toLowerCase()}`;
+}
+/** ?ref=<0xwallet> on any page (coin share links): first touch, same 30-day rule as /r/. Usernames go through /r/. */
+export function captureRefFromQuery(search: string): RefTouch | null {
+  try {
+    const a = new URLSearchParams(search).get("ref");
+    if (!isAddr(a)) return null;
+    rememberRefTouch({ u: null, a: a.toLowerCase() });
+    return currentRef();
+  } catch { return null; }
 }
 /** Short human label for a ref link (display only). */
 export function refLabel(username: string | null | undefined, wallet?: string | null, host = "disciple.vip") {

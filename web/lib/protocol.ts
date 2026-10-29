@@ -23,10 +23,17 @@ export interface LaunchCoinParams {
   creatorBuyPct?: number; // UI hint; on-chain limit is Launchpad.creatorBuyMaxBps() (v3 default 77 = 0.77% of supply)
   /** Bonding mode (0 TRENCH WARFARE, 1 PVE, 2 PVP); only honoured once NEXT_PUBLIC_LAUNCH_ABI=modes (lib/launchAbi.ts). */
   mode?: number;
-  /** Optional same-tx creator buy, in quote raw units (decimals per quote token). */
+  /** Optional same-tx creator buy, in quote raw units (decimals per quote token). Legacy path (no USDG router). */
   creatorBuyQuoteIn?: bigint;
+  /**
+   * First BOOST paid in USDG (raw, usdgDecimals): DiscipleRouter.launchWithUsdg swaps it into the pair coin and launches
+   * in one tx (USDG above the mode max comes back as USDG). Takes precedence over creatorBuyQuoteIn. Public launches only.
+   */
+  creatorBuyUsdgIn?: bigint;
   /** Slippage on the creator buy's minTokensOut (default 1%). */
   slippageBps?: number;
+  /** Private launch (AnonLauncher v2, TRENCH only): stealth creator from lib/privateLaunch.newStealthOwner. */
+  private?: { stealthOwner: Address; ephemeralPubKey: `0x${string}`; viewTag: `0x${string}` };
   // quotePriceUsd was REMOVED in PR #4: Launchpad prices the quote on-chain via QuotePricer.
 }
 
@@ -49,6 +56,9 @@ export interface TradeParams {
   slippageBps?: number;
   /** Who receives the output. Defaults to the signing (Privy embedded) wallet. */
   recipient?: Address;
+  /** GAME reservation id for this press (smart-account sends): reused on every retry, echoed on disciple:op events,
+   * TradeResult.pressId and thrown errors (.pressId). Absent ⇒ generated. */
+  pressId?: string;
 }
 
 /** Pre-trade preview from on-chain views (curve quoteBuy/quoteSell, or router quoteExactIn post-grad). */
@@ -76,6 +86,8 @@ export interface TradeResult {
   txHash: string;
   amountOut?: bigint;
   reason?: string;
+  /** the press's reservation id (TradeParams.pressId, or the generated one) */
+  pressId?: string;
 }
 
 export interface CurveState {
@@ -83,9 +95,9 @@ export interface CurveState {
   quote: Address;
   mcapUsd: number;
   priceUsd: number;
-  /** % of TOTAL supply sold (graduates at 72). */
+  /** % of TOTAL supply sold (graduates at 84.24). */
   soldPct: number;
-  /** 0–100 progress toward the 72% graduation point. */
+  /** 0–100 progress toward the 84.24% graduation point. */
   curveProgressPct: number;
   nextTier: { name: string; mcapUsd: number } | null;
   tokensSold: bigint;
@@ -127,22 +139,22 @@ export interface ProtocolClient {
 /** Stub client — throws until DISCIPLE FLOW wires real implementations. */
 export const protocolStub: ProtocolClient = {
   async launchCoin() {
-    throw new Error("TODO: wire launchCoin to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: launchCoin is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async buy() {
-    throw new Error("TODO: wire buy to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: buy is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async sell() {
-    throw new Error("TODO: wire sell to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: sell is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async quote() {
-    throw new Error("No chain configured (mock mode).");
+    console.warn("[disciple] mock protocol: no chain configured (mock mode)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async getCurveState() {
-    throw new Error("TODO: wire getCurveState to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: getCurveState is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
   async impactPct() {
-    throw new Error("TODO: wire impactPct to contracts (DISCIPLE FLOW)");
+    console.warn("[disciple] mock protocol: impactPct is not wired to contracts (DISCIPLE FLOW)"); throw new Error("Something went wrong. Try again in a moment.");
   },
 };
 
@@ -209,6 +221,9 @@ export interface TradeEvent {
   side: "buy" | "sell";
   amountIn: bigint;
   amountOut: bigint;
+  /** REAL USDG of a DiscipleRouter trade (UsdgTrade, same tx): $ paid on a buy / $ received on a sell. Absent otherwise. */
+  usdIn?: number;
+  usdOut?: number;
   /** Raw Trade fields (quote raw units in quote decimals; token raw in 18). */
   quoteAmt?: bigint;
   tokenAmt?: bigint;
@@ -233,7 +248,23 @@ export interface GraduateEvent {
   type: "Graduate";
   token: Address;
   poolId: `0x${string}`; // BondingCurve.GraduatedToV4 poolId
+  /** unix seconds of the GraduatedToV4 block, when known (lib/events watchCurve) */
+  graduatedAt?: number | null;
 }
+/**
+ * A coin's graduation state (SITE job 7 ↔ GAME engine contract). Stamped on EVERY live update DiscipleFeed sends to the
+ * engine (window "disciple:event" detail: "State", "Trade" and "Graduate") by lib/events mcapOrderer, next to mcapUsd.
+ * Immutable once graduated (server-cached: lib/server/grad, GET /api/coin/grad).
+ */
+export interface GradState {
+  /** BondingCurve.graduated() — true once the curve migrated to the v4 pool */
+  graduated: boolean;
+  /** v4 poolId (bytes32 hex, BondingCurve.GraduatedToV4); null before graduation or when unknown */
+  poolId: `0x${string}` | null;
+  /** unix SECONDS of the GraduatedToV4 block; null before graduation or when unknown */
+  graduatedAt: number | null;
+}
+export const NOT_GRADUATED: GradState = { graduated: false, poolId: null, graduatedAt: null };
 export type ProtocolEvent = LaunchEvent | LaunchTierContextEvent | CreatorTransferredEvent | TradeEvent | GraduateEvent;
 
 /**
@@ -247,5 +278,5 @@ export const PROTOCOL_META = {
   curve: CURVE,
   hookFeeBps: CURVE.tradeFeeBps,
   v4PoolFee: V4_POOL_FEE,
-  note: "No custody: the Privy embedded wallet signs each trade; approve curve/router once (max). Verification is a manual off-chain flag. Gas not sponsored.",
+  note: "You hold your own keys. Gas is paid in USDG, so no ETH is needed.",
 } as const;

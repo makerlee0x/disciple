@@ -14,6 +14,7 @@ import { launchpadAbi } from "@/lib/abi";
 import { CHAT_LIMITS, type ChatBadge, type ChatFrom } from "@/lib/chat/types";
 import { chatLoginMessage } from "@/lib/chat/login";
 import { usernameOf as registryUsernameOf } from "../usernames";
+import { guildTagsOf } from "../guilds";
 import { kv } from "../kv";
 import { consumeNonce, issueNonce } from "../nonces";
 
@@ -79,7 +80,8 @@ async function creatorOf(coin: string): Promise<string | null> {
 const mods = () => new Set((process.env.CHAT_MODS || "").toLowerCase().split(/[\s,]+/).filter(isAddr));
 
 export async function fromFor(addr: string, coin: string): Promise<ChatFrom> {
-  const [name, creator] = await Promise.all([usernameOf(addr), creatorOf(coin)]);
+  const [name, creator, guilds] = await Promise.all([usernameOf(addr), creatorOf(coin), guildTagsOf([addr])]);
   const badge: ChatBadge | undefined = mods().has(addr) ? "mod" : creator === addr ? "creator" : undefined;
-  return { addr, ...(name ? { name } : {}), ...(badge ? { badge } : {}) };
+  const guild = guilds[addr.toLowerCase()];
+  return { addr, ...(name ? { name } : {}), ...(badge ? { badge } : {}), ...(guild ? { guild } : {}) };
 }

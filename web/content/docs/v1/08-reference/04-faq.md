@@ -11,7 +11,7 @@ section: Reference
 A launchpad and a rocket game on Robinhood Chain. Every coin is a rocket, paired with a base coin you believe in. BOOST to buy, DUMP to sell. See [What is DISCIPLE](/docs).
 
 **What's a rocket?**
-A coin launched on DISCIPLE. 7B fixed supply, priced and traded in its base.
+A coin launched on DISCIPLE. 1M fixed supply, priced and traded in its base.
 
 **What does BOOST mean? DUMP?**
 BOOST is buy. DUMP is sell.
@@ -33,7 +33,7 @@ Your rocket is priced and traded in its base. At graduation, the base is locked 
 ## Curve and graduation
 
 **When does a rocket graduate?**
-At a $33K market cap, when 72% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
+At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
 
 **Is the liquidity really locked?**
 Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.
@@ -44,10 +44,10 @@ There's no further mint, the name and call sign are locked at launch, and gradua
 ## Fees
 
 **What are the fees?**
-1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. An anti-snipe fee applies only in the first 7 seconds. See [Trade fee](/docs/fees).
+1% on every BOOST and DUMP: 33% creator, 33% locked liquidity, 33% treasury, 1% referrer. Creators can add a 0–7% tax on bonding-curve trades, set at launch. A sniper tax applies only in the first 7 seconds. See [Trade fee](/docs/fees).
 
 **Why did my first-second BOOST cost so much?**
-The anti-snipe fee. It starts at 77.7% at launch and reaches 0% after 7 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
+The sniper tax. It's 99% at launch, 25% at 1s, 3% at 2s, and 0 from 7 seconds. See [Anti-snipe](/docs/trading/anti-snipe).
 
 **How do referrals work?**
 When a wallet opens your link and deposits $10+ in USDG, it's yours for life. You earn 1% of the protocol fee on its trades, plus 2% of the creator's share on rockets it launches. On testnet, referrals don't lock yet. See [Referrals](/docs/fees/referrals).

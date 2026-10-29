@@ -1,4 +1,4 @@
-// Hotkeys (maker lee, 2026-10): buy-preset keys (default 1–6) and sell-size keys (default Z/X/C/V) only SELECT, they never
+// Hotkeys (maker lee, 2026-10): buy-preset keys (default 1–4; 4 buy presets since GAME trade-ui-fixes) and sell-size keys (default Z/X/C/V) only SELECT, they never
 // trade; SPACE = BOOST buys the ACTIVE amount (the trade bar's custom $ when filled, else the selected preset); SHIFT = DUMP.
 // Bindings are customizable (ESC settings menu → lib/game/settings.ts) and no gameplay key fires while the menu is open.
 // Evaluates the engine's own @hotkeys block (public/flight/engine.js) with stubs, plus the settings store + i18n tables.
@@ -19,7 +19,7 @@ ok(/addEventListener\('keydown',onHotkey\)/.test(eng), "engine.js: keydown → o
 function engine(ls = null) {
   const E = { L: {}, out: [], trades: [], ammo: [], flags: { noTokens: 0, tokens: true } };
   E.S = { keys: {}, mode: 2, t: 0, grass: false };
-  E.MODES = [1, 2, 3, 4, 5, 6].map((k) => ({ key: String(k), usd: k * 10 }));
+  E.MODES = [1, 2, 3, 4].map((k) => ({ key: String(k), usd: k * 10 }));
   class CE { constructor(type, o) { this.type = type; this.detail = o && o.detail; } }
   const env = {
     S: E.S, MODES: E.MODES, CustomEvent: CE, isTyping: (e) => !!e.typing,
@@ -39,7 +39,7 @@ function engine(ls = null) {
 { const E = engine();
   for (let i = 0; i < 6; i++) E.key("Digit" + (i + 1));
   ok(E.trades.length === 0, "1–6 never trade (was: digit = BUY that preset now)");
-  ok(E.S.mode === 5 && E.ammo.join() === "0,1,2,3,4,5", "1–6 select the preset (S.mode + ammo push)");
+  ok(E.S.mode === 3 && E.ammo.join() === "0,1,2,3", "1–4 select the 4 buy presets (S.mode + ammo push); 5/6 are unbound and do nothing");
   E.key("Space");
   ok(E.trades.length === 1 && E.trades[0].side === "buy" && E.trades[0].opt === undefined, "SPACE with no custom $ buys the selected preset");
   E.emit("disciple:custombuy", { usd: 37 }); E.key("Space");
@@ -60,23 +60,35 @@ function engine(ls = null) {
   E.key("Space", { typing: true }); E.key("Digit3", { typing: true });
   ok(E.trades.length === 4 && E.S.mode === 0, "typing in a field: SPACE / digits do nothing");
   E.emit("disciple:menu", { open: true }); E.key("Space"); E.key("Digit4"); E.key("KeyZ"); E.flags.tokens = true; E.key("ShiftLeft");
-  ok(E.trades.length === 4 && E.S.mode === 0 && E.events("disciple:dump").length === 1 && E.events("disciple:sellselect").length === 4, "ESC menu open: SPACE / SHIFT / 1–6 / Z–V do nothing");
+  ok(E.trades.length === 4 && E.S.mode === 0 && E.events("disciple:dump").length === 1 && E.events("disciple:sellselect").length === 4, "ESC menu open: SPACE / SHIFT / 1–4 / Z–V do nothing");
   E.emit("disciple:menu", { open: false }); E.key("Space");
   ok(E.trades.length === 5, "menu closed: SPACE boosts again"); }
 { const E = engine();
-  E.emit("disciple:hotkeys", { buy: ["KeyQ", "KeyE", "KeyR", "KeyY", "KeyU", "KeyI"], sell: ["Digit1", "Digit2", "Digit3", "Digit4"] });
+  E.emit("disciple:hotkeys", { buy: ["KeyQ", "KeyE", "KeyR", "KeyY"], sell: ["Digit1", "Digit2", "Digit3", "Digit4"] });
   E.key("KeyR"); ok(E.S.mode === 2 && E.trades.length === 0, "custom binding: R selects preset 3 (no trade)");
   E.key("Digit1"); ok(E.S.mode === 2 && E.events("disciple:sellselect").map((e) => e.detail.i).join() === "0", "custom binding: 1 now selects sell size 1, not a buy preset");
-  ok(E.MODES.map((m) => m.key).join("") === "QERYUI", "engine ammo labels follow the bindings (MODES[i].key)"); }
+  ok(E.MODES.map((m) => m.key).join("") === "QERY", "engine ammo labels follow the bindings (MODES[i].key)");
+  E.emit("disciple:hotkeys", { buy: ["KeyQ", "KeyE", "KeyR", "KeyY", "KeyU", "KeyI"], sell: ["Digit1", "Digit2", "Digit3", "Digit4"] });
+  ok(E.MODES.map((m) => m.key).join("") === "QERY", "an older 6-key buy binding keeps its first 4 keys"); }
 { const E = engine(JSON.stringify({ v: 1, keys: { buy: ["Numpad1", "Numpad2", "Numpad3", "Numpad4", "Numpad5", "Numpad6"], sell: ["KeyZ", "KeyX", "KeyC", "KeyV"] } }));
-  E.key("Numpad4"); ok(E.S.mode === 3 && E.MODES[3].key === "N4", "bindings saved in localStorage apply at engine boot (before React pushes them)"); }
+  E.key("Numpad4"); ok(E.S.mode === 3 && E.MODES[3].key === "N4", "bindings saved in localStorage (old 6-key save) apply at engine boot (before React pushes them)"); }
 
 // ---- trade bar (TradeBridge): pushes the custom $ to the engine; no own key listener that trades -------------------
 { const tb = rd("components/TradeBridge.tsx");
   ok(/new CustomEvent\("disciple:custombuy", \{ detail: \{ usd: customUsd \} \}\)/.test(tb), "TradeBridge pushes the custom $ (disciple:custombuy) on change");
   ok(/disciple:custombuy", \{ detail: \{ usd: customRef\.current \} \}/.test(tb), "TradeBridge re-pushes the custom $ when the engine (re)boots");
   ok(!/addEventListener\("keydown"/.test(tb), "TradeBridge has no keydown listener (engine owns gameplay keys + bindings)");
-  ok(/onClick=\{\(\) => shoot\("buy"\)\}/.test(tb), "BOOST button still buys (custom $ wins)"); }
+  ok(/onClick=\{\(\) => shoot\("buy"\)\}/.test(tb), "BOOST button still buys (custom $ wins)");
+  // SPACE while typing in the custom $ field = BOOST that amount (the field stops propagation, so the engine's typing guard
+  // and the worker forwarder never see it; chat / other inputs keep the global typing guards)
+  const kd = (tb.match(/aria-label="custom amount"[\s\S]*?onKeyDown=\{(\(e\) => \{[\s\S]*?e\.stopPropagation\(\); \})\}/) || [])[1];
+  ok(!!kd, "custom $ field keydown handler found");
+  if (kd) { const shots = []; const run = (k, repeat, usd) => { const e = { key: k, repeat, p: 0, s: 0, preventDefault() { this.p = 1; }, stopPropagation() { this.s = 1; } };
+      new Function("shoot", "customUsd", "return " + kd + ";")((x) => shots.push(x), usd)(e); return e; };
+    let e = run(" ", false, 40); ok(shots.length === 1 && e.p && e.s, "SPACE in the custom $ field (custom $40 set) = BOOST $40, default prevented");
+    e = run(" ", true, 40); ok(shots.length === 1, "held SPACE in the field does not re-fire");
+    e = run(" ", false, 0); ok(shots.length === 1 && e.p, "SPACE in an empty custom field: no trade, no space typed"); }
+  ok(/isTyping\(e\) \|\| S\.menuOpen/.test(eng) && /if \(k\.type === "keydown" && typing\(e\)\) return;/.test(rd("lib/flight/workerBridge.ts")), "global typing guards kept (chat SPACE types a space)"); }
 // ---- ESC menu: capture-phase key gate + disciple:menu ------------------------------------------------------------
 { const m = rd("components/flight/SettingsMenu.tsx");
   ok(/addEventListener\("keydown", k, true\)/.test(m) && /stopImmediatePropagation\(\)/.test(m), "SettingsMenu swallows game keys in the capture phase while open");
@@ -93,7 +105,8 @@ fs.writeFileSync(path.join(tmp, "i18n.mjs"), tx(rd("lib/game/i18n.ts").replace(/
 const G = await import(pathToFileURL(path.join(tmp, "settings.mjs")).href);
 const I = await import(pathToFileURL(path.join(tmp, "i18n.mjs")).href);
 { const d = G.sanitizeGameSettings(null);
-  ok(d.keys.buy.join() === "Digit1,Digit2,Digit3,Digit4,Digit5,Digit6" && d.keys.sell.join() === "KeyZ,KeyX,KeyC,KeyV", "defaults: buy 1–6, sell Z/X/C/V");
+  ok(d.keys.buy.join() === "Digit1,Digit2,Digit3,Digit4" && d.keys.sell.join() === "KeyZ,KeyX,KeyC,KeyV", "defaults: buy 1–4, sell Z/X/C/V");
+  ok(G.sanitizeGameSettings({ keys: { buy: ["KeyQ", "KeyE", "KeyR", "KeyY", "KeyU", "KeyI"], sell: ["KeyZ", "KeyX", "KeyC", "KeyV"] } }).keys.buy.join() === "KeyQ,KeyE,KeyR,KeyY", "an older 6-key save keeps its first 4 buy keys");
   ok(["Space", "ShiftLeft", "Escape", "KeyW", "KeyG", "KeyO", "Enter"].every((c) => !G.isBindable(c)) && G.isBindable("KeyQ") && G.isBindable("Numpad1"), "SPACE / SHIFT / ESC / steering / toggles are not bindable");
   const s1 = G.bindKey(d, { kind: "buy", i: 0 }, "KeyZ");
   ok(s1.keys.buy[0] === "KeyZ" && s1.keys.sell[0] === "Digit1", "binding a key used by another slot swaps them (no duplicates)");
@@ -103,7 +116,7 @@ const I = await import(pathToFileURL(path.join(tmp, "i18n.mjs")).href);
   ok(dup.sfx.on === false && dup.sfx.vol === 1 && dup.lang === "en", "sanitize: volume clamped 0..1, unknown language → en");
   ok(G.audioLevel("sfx", dup) === 0 && G.audioLevel("music", d) === 0.5, "audioLevel: 0 when muted, else the volume");
   ok(["Digit1", "KeyZ", "Numpad3"].map(G.keyLabel).join() === "1,Z,Num3", "keyLabel"); }
-{ const en = Object.keys(I.DICTS.en);
+{ const en = Object.keys(I.DICTS.en).filter((k) => !(I.ENGLISH_ONLY || []).includes(k));   // ENGLISH_ONLY: copy pending BRAND (falls back to English)
   ok(I.LOCALES.map((l) => l.id).join() === "en,zh,ko,ja,es" && I.LOCALES.map((l) => l.label).join() === "English,中文,한국어,日本語,Español", "locales: English, 中文, 한국어, 日本語, Español");
   for (const id of ["zh", "ko", "ja", "es"]) { const k = Object.keys(I.DICTS[id]); ok(k.every((x) => en.includes(x)) && k.length >= en.length - 3, `${id}: ${k.length}/${en.length} HUD strings drafted, no unknown keys, marked ${I.REVIEW_STATUS[id]}`); }
   ok(I.translate("zh", "pnl.mcap") === "市值" && I.translate("es", "tb.boost") === "BOOST" && I.translate("ja", "ctl.shot", { shot: "$5" }).includes("$5"), "translate: locale string, English fallback, {vars}");

@@ -5,14 +5,14 @@ import { MODES } from "@/lib/config";
 import { AUTO_SLIPPAGE_PCT, DEFAULT_SELLS, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import Icon from "@/components/icons/Icon";
 
-/** Swap settings modal (gear in the ammo panel's SELL row). Styled after the reference: dark card, 4-up preset grids, Reset, Auto/Custom, Save. */
+/** Swap settings modal (gear in the ammo panel's SELL row): 4 editable buy presets (default $10/$25/$50/$100), the fixed
+ *  sell sizes (10/25/50/100% — read-only), slippage, tag. */
 export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSave, onClose }: {
   initial: SwapSettings; autoUsd: number[]; tier: number | null; scope: string;
   onSave: (s: SwapSettings, tier: number | null) => void; onClose: () => void;
 }) {
   const [buy, setBuy] = useState<string[]>((initial.buy || autoUsd).map(String));
   const [buyAuto, setBuyAuto] = useState(!initial.buy);
-  const [sells, setSells] = useState<string[]>(initial.sells.map(String));
   const [slipMode, setSlipMode] = useState(initial.slippage.mode);
   const [slip, setSlip] = useState(String(initial.slippage.pct));
   const [tag, setTag] = useState(initial.tag);
@@ -21,8 +21,8 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
   useEffect(() => { if (buyAuto) setBuy(autoUsd.map(String)); }, [buyAuto, autoUsd]);
   const save = () => {
     const b = buy.map((v) => +v);
-    const s: SellSlot[] = sells.map((v, i) => (+v > 0 && +v <= 100 ? +v : DEFAULT_SELLS[i]));
-    onSave({ buy: buyAuto || !b.every((v) => v > 0) ? null : b, sells: s, slippage: { mode: slipMode, pct: +slip > 0 ? Math.min(50, +slip) : AUTO_SLIPPAGE_PCT }, tag }, t);
+    // sells are fixed (10/25/50/100% of the bag): never saved from here
+    onSave({ buy: buyAuto || !b.every((v) => v > 0 && Number.isFinite(v)) ? null : b, sells: DEFAULT_SELLS.slice() as SellSlot[], slippage: { mode: slipMode, pct: +slip > 0 ? Math.min(50, +slip) : AUTO_SLIPPAGE_PCT }, tag }, t);
   };
   const cell: React.CSSProperties = { width: "100%", boxSizing: "border-box", textAlign: "center", font: "bold 15px ui-monospace,monospace", color: "#fff", padding: "10px 4px",
     background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, outline: "none" };
@@ -39,7 +39,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
         <div style={{ textAlign: "center", fontWeight: 700, fontSize: 18 }}>Swap settings</div>
         <div style={{ textAlign: "center", fontSize: 10, opacity: 0.5, marginTop: 2, fontFamily: "ui-monospace,monospace" }}>{scope}</div>
         {head("Buy presets ($)", () => setBuyAuto(true))}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {buy.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, opacity: 0.95, fontFamily: "ui-monospace,monospace", color: "#ffe7a3" }}>
             <span>{MODES[i].key}</span>
             <input data-testid={`swap-buy-${i}`} inputMode="decimal" value={buyAuto ? (+v < 1 ? `$${(+v).toFixed(2)}` : `$${+v}`) : v} onFocus={() => { if (buyAuto) { setBuyAuto(false); } }}
@@ -47,19 +47,18 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
           <input type="checkbox" data-testid="swap-autoscale" checked={buyAuto} onChange={(e) => setBuyAuto(e.target.checked)} />
-          <span>Auto-scale with mcap: {buyAuto ? "on" : "off"}</span></label>
-        {head("Sell presets (%)", () => setSells(DEFAULT_SELLS.map(String)))}
+          <span>Use defaults ($10 / $25 / $50 / $100): {buyAuto ? "on" : "off"}</span></label>
+        {head("Sell sizes (% of bag, fixed)")}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-          {sells.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, fontFamily: "ui-monospace,monospace", color: "#ffb0c8" }}>
+          {DEFAULT_SELLS.map((v, i) => <label key={i} style={{ display: "grid", gap: 3, fontSize: 9, fontFamily: "ui-monospace,monospace", color: "#ffb0c8" }}>
             <span>{["Z", "X", "C", "V"][i]}</span>
-            <input data-testid={`swap-sell-${i}`} value={v} title="% of your position (1–100)"
-              onChange={(e) => { const n = [...sells]; const x = e.target.value; n[i] = x.replace(/[^\d.]/g, ""); setSells(n); }}
-              style={cell} />
+            <input data-testid={`swap-sell-${i}`} value={`${v}%`} readOnly aria-readonly title="Fixed: % of your bag. Use the custom sell field for any other size."
+              style={{ ...cell, color: "rgba(255,255,255,.7)" }} />
             </label>)}
         </div>
         <div style={{ borderTop: "1px dashed rgba(255,255,255,.12)", margin: "16px 0 12px" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span title="Max price move allowed between quote and fill (live trades only). Auto = 1%.">Slippage <Icon name="info" size={12} /></span>
+          <span title="Price protection: the most the price may move between your tap and the fill, or the trade is cancelled (live trades only). Auto = 1%.">Price protection <Icon name="info" size={12} /></span>
           {slipMode === "custom" && <input data-testid="swap-slip" inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value.replace(/[^\d.]/g, ""))}
             style={{ ...cell, width: 64, padding: "5px 4px", fontSize: 13, marginLeft: "auto" }} />}
           {slipMode === "custom" && <span>%</span>}

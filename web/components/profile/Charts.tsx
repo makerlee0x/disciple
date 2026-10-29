@@ -201,30 +201,21 @@ export function PlaystyleMeter({ pve, pvp }: { pve: number; pvp: number }) {
 export type RangeKey = "1d" | "7d" | "30d";
 export const RANGE_DAYS: Record<RangeKey, number> = { "1d": 1, "7d": 7, "30d": 30 };
 
-/** Slice a daily series to a range; for 1d (too few daily points) synthesize a deterministic hourly walk. */
+/**
+ * Slice a daily series to a range. Real points only (no synthesized walk, lee Oct 26 2026: no sample data on prod):
+ * a short range gets one anchor at its start (the last value before it for "level", 0 for "flow") so the line still draws.
+ */
 export function sliceRange(points: { t: number; v: number }[], range: RangeKey, mode: "level" | "flow" = "level") {
   if (!points.length) return points;
-  const end = points[points.length - 1].t;
+  const last = points[points.length - 1];
+  const end = last.t;
   const start = end - RANGE_DAYS[range] * 86_400_000;
   const inRange = points.filter((p) => p.t >= start);
   if (inRange.length >= 6) return inRange;
-  const prev = [...points].reverse().find((p) => p.t < end) ?? points[0];
-  const last = points[points.length - 1];
-  const out: { t: number; v: number }[] = [];
-  let seed = Math.abs(Math.round(last.v)) % 9973 || 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let h = 0; h <= 24; h++) {
-    const f = h / 24;
-    const t = start + f * (end - start);
-    if (mode === "level") {
-      const base = prev.v + (last.v - prev.v) * f;
-      const jitter = h === 0 || h === 24 ? 0 : (rnd() - 0.5) * Math.max(10, Math.abs(last.v - prev.v)) * 0.8;
-      out.push({ t, v: base + jitter });
-    } else {
-      out.push({ t, v: (last.v / 24) * (0.3 + rnd() * 1.4) });
-    }
-  }
-  return out;
+  const before = [...points].reverse().find((p) => p.t < start);
+  const anchor = { t: start, v: mode === "level" ? (before?.v ?? 0) : 0 };
+  const out = inRange.length && inRange[0].t === start ? inRange : [anchor, ...inRange];
+  return out.length >= 2 ? out : [anchor, { t: end, v: last.v }];
 }
 
 export function RangeToggle({ value, onChange }: { value: RangeKey; onChange: (r: RangeKey) => void }) {

@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { EMOTE_CODES, EMOTE_EMOJI, MAX_LEN, resolveChat, stressRate, synthMsg, type ChatApi, type ChatMsg, type ChatState } from "@/lib/gamechat/adapter";
 import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
+import { holderLabelText, type HolderLabel } from "@/lib/flight/holders";
 
 /**
  * In-game live chat overlay (Twitch-style column, right side). DOM overlay only: the canvas never reads it.
@@ -24,16 +25,19 @@ const W_MIN = 240, W_DEF = 310, W_MAX = 560, FLUSH_MS = 200;
 const typingTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)); };
 const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
 type Tab = "chat" | "holders";
-type HolderItem = { who: string; address: string; usd: number; pct: number; label: "pool" | "curve" | "locker" | null; mine: boolean };
+type HolderItem = { who: string; address: string; usd: number; pct: number; label: HolderLabel; mine: boolean };
 /** rows: legacy [name, $] (session boosters on mock / sim / pool); items: REAL holders from on-chain balances (live coins:
- *  engine realHolders ← components/flight/HoldersBridge) — ranked rows first, labelled pool / curve / locker rows after. */
+ *  engine realHolders ← components/flight/HoldersBridge) — ranked rows first, labelled pool / curve / locker / burn rows after (friendly names: lib/flight/holders holderLabelText). */
 type Holders = { title: string; rows: [string, number][]; you: number; items?: HolderItem[]; asOfBlock?: number | null };
+
+/** Chat keys (H / Enter) apply only when the dock is open and focus is inside it — never from the game / trading surface. */
+export function chatKeyApplies(o: { open: boolean; inDock: boolean; typing: boolean; mod: boolean }) { return o.open && o.inDock && !o.typing && !o.mod; }
 
 export default function GameChat({ coin }: { coin: string }) {
   const [api, setApi] = useState<{ api: ChatApi; svg: boolean; source: string } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [conn, setConn] = useState<ChatState | "init">("init");
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);   // closed by default: opens only from the chat toggle (stored choice is kept)
   const [width, setWidth] = useState(W_DEF);
   const [unread, setUnread] = useState(0);
   const [text, setText] = useState("");
@@ -51,9 +55,10 @@ export default function GameChat({ coin }: { coin: string }) {
   const pinned = useRef(true);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dockRef = useRef<HTMLElement>(null);
   const c = coin.toLowerCase();
 
-  useEffect(() => { try { setOpen(localStorage.getItem("disciple.gamechat.open") !== "0"); const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); const t = localStorage.getItem("disciple.gamechat.tab"); if (t === "holders") { tabRef.current = "holders"; setTabS("holders"); } } catch { /* */ } }, []);
+  useEffect(() => { try { setOpen(localStorage.getItem("disciple.gamechat.open") === "1"); const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); const t = localStorage.getItem("disciple.gamechat.tab"); if (t === "holders") { tabRef.current = "holders"; setTabS("holders"); } } catch { /* */ } }, []);
   useEffect(() => { let alive = true; resolveChat().then((r) => { if (alive && r) setApi({ api: r.api, svg: r.svgEmotes, source: r.source }); }); return () => { alive = false; }; }, []);
   // history + subscribe; incoming messages are buffered and flushed ≤ every 150 ms (one React commit per batch)
   useEffect(() => {
@@ -85,15 +90,16 @@ export default function GameChat({ coin }: { coin: string }) {
   }, [api, open]);
   useEffect(() => { if (!api) return; dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); try { localStorage.setItem("disciple.gamechat.open", open ? "1" : "0"); } catch { /* */ } }, [open, api]);
   useEffect(() => () => { dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open: false } })); }, []);
-  // Enter (not typing anywhere) → open + focus the input
+  // Chat never opens itself and never takes keys while you trade. Keys act ONLY when the dock is already open AND has focus
+  // (you clicked into it): H = CHAT ↔ HOLDERS, Enter = focus the message box. Anywhere else H / Enter are left alone.
   useEffect(() => {
-    if (!api) return;
-    const k = (e: KeyboardEvent) => {
-      if (typingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.code === "KeyH" && !e.repeat) { setOpen(true); setTab(tabRef.current === "chat" ? "holders" : "chat"); return; }   // H: CHAT ↔ HOLDERS (unused by the game)
-      if (e.code !== "Enter" && e.code !== "NumpadEnter") return; e.preventDefault(); setOpen(true); setTab("chat"); requestAnimationFrame(() => inputRef.current?.focus()); };
+    if (!api || !open) return;
+    const k = (e: KeyboardEvent) => { const d = dockRef.current, el = e.target as Node | null;
+      if (!chatKeyApplies({ open, inDock: !!d && !!el && d.contains(el), typing: typingTarget(e.target), mod: e.ctrlKey || e.metaKey || e.altKey })) return;
+      if (e.code === "KeyH" && !e.repeat) { setTab(tabRef.current === "chat" ? "holders" : "chat"); return; }
+      if ((e.code === "Enter" || e.code === "NumpadEnter") && !(el instanceof HTMLButtonElement || el instanceof HTMLAnchorElement)) { e.preventDefault(); setTab("chat"); requestAnimationFrame(() => inputRef.current?.focus()); } };
     addEventListener("keydown", k); return () => removeEventListener("keydown", k);
-  }, [api, setTab]);
+  }, [api, open, setTab]);
   // rate-limit countdown
   useEffect(() => { if (!err?.until) return; const iv = window.setInterval(() => { if (Date.now() >= err.until!) setErr(null); else tick((x) => x + 1); }, 250); return () => clearInterval(iv); }, [err]);
 
@@ -126,7 +132,7 @@ export default function GameChat({ coin }: { coin: string }) {
   if (!api) return null;
   const st = STATE[conn];
   if (!open) return (
-    <button data-testid="chat-open" onClick={() => setOpen(true)} title="Open chat (Enter)"
+    <button data-testid="chat-open" onClick={() => setOpen(true)} title="Open chat"
       style={{ position: "fixed", right: 344, bottom: 20, zIndex: 33, height: 30, padding: "0 12px", borderRadius: 15, cursor: "pointer", font: `bold 12px ${mono}`,
         color: "#e8ecff", background: "rgba(10,12,28,.72)", border: "1px solid rgba(255,231,163,.45)" }}>
       <span style={{ color: st.c }}>●</span> CHAT{unread > 0 ? ` · ${unread > 99 ? "99+" : unread}` : ""}
@@ -135,7 +141,7 @@ export default function GameChat({ coin }: { coin: string }) {
   const known = (code: string) => code in api.api.EMOTES || EMOTE_CODES.includes(code);
   const rl = err?.until ? Math.max(0, Math.ceil((err.until - Date.now()) / 1000)) : 0;
   return (
-    <aside data-testid="chat-dock" aria-label="Live chat"
+    <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" aria-label="Live chat"
       style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 100px + var(--ap-crew-h, 0px))", bottom: 20, width, zIndex: 32, display: "flex", flexDirection: "column",
         background: "linear-gradient(90deg, rgba(8,10,24,.38), rgba(8,10,24,.62))", border: "1px solid rgba(255,231,163,.22)", borderRadius: 12,
         font: `12.5px/1.38 ${mono}`, color: "#e8ecff", contain: "layout paint" }}>
@@ -225,12 +231,14 @@ function HoldersView({ h }: { h: Holders | null }) {
 function RealHolders({ items, you }: { items: HolderItem[]; you: number }) {
   const ranked = items.filter((r) => !r.label), sys = items.filter((r) => r.label);
   const row = (r: HolderItem, i: number | null) => <div key={r.address} data-testid={r.mine ? "holder-mine" : undefined} title={r.address}
-    style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "2px 0", color: r.mine ? "#9ff3c8" : r.label ? "rgba(220,228,255,.55)" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : r.mine ? 700 : 400 }}>
-    <span>{i === null ? "  ·" : i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {r.mine ? "you" : r.who}{r.label ? ` (${r.label})` : ""}</span>
+    style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "2px 0", color: r.mine ? "#9ff3c8" : r.label ? "rgba(220,228,255,.55)" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : r.mine ? 700 : 400 }}
+    data-kind={r.label || undefined}>
+    <span>{i === null ? "  ·" : i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {r.label ? holderLabelText(r.label) : r.mine ? "you" : r.who}</span>
     <span>{r.pct >= 0.01 ? r.pct.toFixed(2) + "% · " : ""}{fmtUsd(r.usd)}</span></div>;
+  // lee 9:19 PM CT: pool / locker / burn / curve rows on TOP, labelled, greyed a little, no rank; real holders ranked from #1 below
   return <>
+    {sys.length > 0 && <div data-testid="holders-tagged" style={{ marginBottom: 6, opacity: 0.8 }}>{sys.map((r) => row(r, null))}</div>}
     {!ranked.length ? <div style={{ opacity: 0.6 }}>no holders yet</div> : ranked.map((r, i) => row(r, i))}
-    {sys.length > 0 && <div style={{ marginTop: 6, opacity: 0.8 }}>{sys.map((r) => row(r, null))}</div>}
     {you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your bag: {fmtUsd(you)}</div>}
   </>;
 }

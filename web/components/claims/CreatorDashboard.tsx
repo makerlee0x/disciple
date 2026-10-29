@@ -3,13 +3,14 @@
  * /creator — Rocket creator dashboard (v4): per rocket claimable fees (quote coin + USD), launch-token share
  * (post-grad), lifetime earned, claimed so far, recent accruals, Claim / Claim all, and verified-badge requests.
  *   wallet launches  FeeRouter creatorAccrued + claimCreatorFees, creatorTokenAccrued + claimCreatorTokenFees
- *   pseudonymous     AnonLauncher pending(token) + claimMany(tokens, me) when this wallet is the stealth owner
+ *   private          the coin's AnonLauncher (v2, or v1 legacy) pending(token) + claimMany / claimManyBySig (stealth key)
  * Every claim is eth_call-simulated first so a revert shows plain copy before anything is signed.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Hex } from "viem";
-import { creatorClaimCalls, creatorDashboard, sendCreatorClaims, type CreatorRocket } from "@/lib/claims/creatorFees";
+import { anonSigClaimCalls, creatorClaimCalls, creatorDashboard, sendCreatorClaims, type CreatorRocket } from "@/lib/claims/creatorFees";
+import { myStealthCoins, myStealthKeys, stealthKeyFor } from "@/lib/privateLaunch";
 import { claimErrorText, fmtUsd, preflight, toUsd } from "@/lib/claims/common";
 import { demoRockets, demoRedeploy } from "@/lib/claims/demo";
 import { connectPrivy } from "@/lib/wallet";
@@ -33,7 +34,9 @@ export default function CreatorDashboard() {
     if (demo) { setRows(demoRockets(demoRedeploy())); return; }
     if (!me || !ready) return;
     setErr(null);
-    try { setRows(await creatorDashboard(pc(), me, caps)); } catch (e) { setErr(claimErrorText(e)); setRows([]); }
+    // private launches: coins announced to this account's stealth keys (one silent owner signature; none on the EOA path)
+    const stealth = caps.anonClaims ? await myStealthKeys().then((k) => myStealthCoins(pc(), k)).catch(() => []) : [];
+    try { setRows(await creatorDashboard(pc(), me, caps, 6, stealth)); } catch (e) { setErr(claimErrorText(e)); setRows([]); }
   }, [me, ready, demo, caps]);
   useEffect(() => { void load(); }, [load]);
 
@@ -57,6 +60,7 @@ export default function CreatorDashboard() {
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 600)); setDone(`0x${"ab".repeat(32)}` as Hex); return; }
       const calls = creatorClaimCalls(pending.rows, caps, me ?? undefined);
+      if (me && pending.rows.some((r) => r.stealth)) { const k = await myStealthKeys(); calls.push(...(await anonSigClaimCalls(pc(), pending.rows, me, (eph) => stealthKeyFor(k, eph)))); }
       if (me) await preflight(pc(), calls, me);
       const r = await sendCreatorClaims(calls);
       setDone(r.txHash);
@@ -80,8 +84,8 @@ export default function CreatorDashboard() {
 
       {!me && !demo ? (
         <section className="cl-card cl-empty">
-          <h3 className="cl-display sm">Log in to see your rockets</h3>
-          <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Log in</button>
+          <h3 className="cl-display sm">Sign in to see your rockets</h3>
+          <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Sign in</button>
         </section>
       ) : rows == null ? (
         <section className="cl-card cl-empty"><div className="cl-skel" /><div className="cl-skel short" /></section>
@@ -110,7 +114,7 @@ export default function CreatorDashboard() {
                 <div className="cl-rocket-top">
                   <div>
                     <Link href={`/coin/${r.token}`} className="cl-rocket-name">{r.name} <VerifiedBadge token={r.token} size={14} /></Link>
-                    <div className="muted cl-mono">${r.ticker} · {shortA(r.token)}{r.anon && <span className="cl-pill">Pseudonymous</span>}</div>
+                    <div className="muted cl-mono">${r.ticker} · {shortA(r.token)}{r.anon && <span className="cl-pill">Private</span>}</div>
                   </div>
                   <button type="button" className="cl-btn gold" disabled={!canClaim(r)}
                     onClick={() => open([r], `Claim $${r.ticker} creator fees`)} data-testid="claim-one">Claim creator fees</button>
@@ -121,11 +125,12 @@ export default function CreatorDashboard() {
                   {(r.anon || caps.creatorTokenFees) && r.tokenSide && (
                     <div className="cl-token-side"><span className="muted">Token share</span><Money raw={r.tokenSide.claimable} asset={r.tokenSide.asset} /></div>
                   )}
-                  {r.anon && r.tokenPendingUpgrade && (
-                    <div className="cl-token-side cl-pending-upgrade" data-testid="pending-upgrade"
-                      title="Claimable after an AnonLauncher upgrade." aria-label="Token share pending upgrade. Claimable after an AnonLauncher upgrade.">
-                      <span className="muted">Token share <span className="cl-pill">Pending upgrade</span></span>
-                      <Money raw={r.tokenPendingUpgrade.raw} asset={r.tokenPendingUpgrade.asset} />
+                  {r.anon && r.tokenUnclaimable && (
+                    <div className="cl-token-side cl-pending-upgrade" data-testid="unclaimable-legacy"
+                      title="This coin launched on the legacy AnonLauncher (v1), which can't claim its post-graduation token share."
+                      aria-label="Token share unclaimable: legacy launcher.">
+                      <span className="muted">Token share <span className="cl-pill">Unclaimable (legacy launcher)</span></span>
+                      <Money raw={r.tokenUnclaimable.raw} asset={r.tokenUnclaimable.asset} />
                     </div>
                   )}
                 </div>
@@ -141,7 +146,7 @@ export default function CreatorDashboard() {
                         <li key={`${a.tx}${a.trader}${a.side}`}><span className="cl-mono muted">{shortA(a.trader)}</span><Money raw={a.amount} asset={a.side === "token" && r.tokenSide ? r.tokenSide.asset : r.quote} /><TxLink hash={a.tx}>tx</TxLink></li>
                       ))}
                     </ul>
-                  ) : <p className="muted">{r.anon ? "Pseudonymous rocket. Claims go through AnonLauncher." : "No trades yet."}</p>}
+                  ) : <p className="muted">{r.anon ? "Private rocket. Fees are claimed privately to this account." : "No trades yet."}</p>}
                 </div>
                 <VerifyRequest token={r.token} demo={demo} />
               </article>
@@ -152,7 +157,7 @@ export default function CreatorDashboard() {
 
       {pending && (
         <ConfirmSheet title={pending.title} lines={linesOf(pending.rows)} to={me ?? (demo ? "0x5a3c7743d365f770710fe15f4bbf1cec7bc41006" : null)}
-          note={pending.rows.length > 1 ? `${pending.rows.length} rockets in one transaction.` : pending.rows[0]?.anon ? "Claimed as the stealth owner, paid to this wallet." : "Fees go to the wallet that launched the rocket."}
+          note={pending.rows.length > 1 ? `${pending.rows.length} rockets in one transaction.` : pending.rows[0]?.anon ? "Claimed privately, paid to this account." : "Fees go to the wallet that launched the rocket."}
           busy={busy} error={sheetErr} done={done} onConfirm={confirm} onClose={() => setPending(null)} />
       )}
     </div>

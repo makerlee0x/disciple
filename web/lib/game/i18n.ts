@@ -29,7 +29,7 @@ const en = {
   "hk.sell": "Sell sizes",
   "hk.press": "press a key…",
   "hk.reset": "Reset keys",
-  "hk.auto": "Auto-scale buy amounts with mcap",
+  "hk.auto": "Use default buy amounts ($10 / $25 / $50 / $100)",
   "hk.save": "Save amounts",
   "hk.saved": "Saved",
   "hk.reserved": "That key is reserved",
@@ -78,7 +78,11 @@ const en = {
   "pnl.points": "POINTS",
   "pnl.hintUp": "▲ more uPnL → bigger points multiplier · hold to ramp",
   "pnl.hintFlat": "stay green to earn a bigger points multiplier",
-  "pnl.pctTitle": "uPnL ÷ cost basis (incl. buy fee + gas) = MCAP ÷ AVG ENTRY MC − 1. Marked at the current price, before exit fee and price impact.",
+  "pnl.inclBuyFees": "incl. {fee} buy fees",
+  "pnl.pctTitle": "uPnL ÷ cost basis (incl. buy fee) = MCAP ÷ AVG ENTRY MC − 1. Marked at the current price, before exit fee and price impact.",
+  "pnl.live": "LIVE",
+  "pnl.untracked": "held before tracking · no PnL",
+  "pnl.untrackedTitle": "Part of your holdings was bought before this game tracked the coin (or somewhere else). Its entry price isn't known, so PnL and % only cover the part bought here. DUMP sells from all of your holdings.",
   "tb.boost": "BOOST",
   "tb.dump": "DUMP",
   "tb.custom": "custom",
@@ -89,15 +93,29 @@ const en = {
   "sim.off": "◇ SIMULATED MARKET · OFF",
   "sim.auto": "(auto)",
   "exit": "Back to Launchpad",
+  // EXIT CONFIRM (components/flight/ExitConfirm.tsx): BRAND copy, swap here only. English only for now; the other locales
+  // fall back to English (NEEDS_REVIEW: add zh / ko / ja / es once BRAND locks the line). No exclamation marks.
+  "exitc.title": "Leave the mission?",
+  "exitc.body": "The mission continues, with or without you.",
+  "exitc.stay": "Stay",
+  "exitc.leave": "Leave",
+  // secondary lines (BRAND): built but OFF (exitGuard SHOW_EXIT_NOTES = false) until lee OKs them
+  "exitc.note.live": "Your coins stay. This run's orb points and streak don't.",
+  "exitc.note.sim": "This practice run will end.",
+  "exitc.note.boost": "Your BOOST still lands on-chain.",
+  "exitc.note.dump": "Your DUMP still lands on-chain.",
 } as const;
 export type I18nKey = keyof typeof en;
+/** Keys that ship English-only on purpose (copy pending BRAND, then native review): other locales fall back to English. */
+export const ENGLISH_ONLY: readonly I18nKey[] = ["exitc.title", "exitc.body", "exitc.stay", "exitc.leave", "exitc.note.live", "exitc.note.sim", "exitc.note.boost", "exitc.note.dump"];
 type Dict = Partial<Record<I18nKey, string>>;
 
 // NEEDS_REVIEW (BRAND + native speaker): draft translations below.
 const zh: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "设置", "settings.open": "设置 (Esc)", "settings.close": "关闭 (Esc)", "settings.paused": "菜单打开时游戏快捷键暂停",
   "sec.share": "分享", "share.trade": "分享你的交易", "share.card": "下载火箭卡片",
-  "sec.hotkeys": "快捷键", "hk.buy": "买入预设", "hk.sell": "卖出比例", "hk.press": "请按一个键…", "hk.reset": "重置按键", "hk.auto": "买入金额随市值自动缩放",
+  "sec.hotkeys": "快捷键", "hk.buy": "买入预设", "hk.sell": "卖出比例", "hk.press": "请按一个键…", "hk.reset": "重置按键", "hk.auto": "使用默认买入金额（$10 / $25 / $50 / $100）",
   "hk.save": "保存金额", "hk.saved": "已保存", "hk.reserved": "该按键已被占用",
   "hk.note": "预设键只做选择。空格 BOOST 使用当前金额（自定义金额优先），SHIFT 按所选比例 DUMP。",
   "sec.audio": "声音", "audio.sfx": "音效", "audio.music": "音乐", "audio.note": "暂未加入声音：设置会保存，加入后自动生效。",
@@ -111,14 +129,16 @@ const zh: Dict = {
   "pnl.yourRun": "你的航程", "pnl.paper": "模拟", "pnl.unrealized": "未实现盈亏", "pnl.mcap": "市值", "pnl.holdings": "持仓", "pnl.avgEntry": "平均入场",
   "pnl.realized": "已实现", "pnl.exitFees": "退出费用", "pnl.other": "其他火箭", "pnl.points": "积分",
   "pnl.hintUp": "▲ 未实现盈亏越高 → 积分倍数越大 · 持有以提升", "pnl.hintFlat": "保持盈利以获得更高积分倍数",
-  "pnl.pctTitle": "未实现盈亏 ÷ 成本（含买入手续费 + Gas）= 市值 ÷ 平均入场市值 − 1。按当前价格计价，未扣除退出费用与价格冲击。",
+  "pnl.pctTitle": "未实现盈亏 ÷ 成本（含买入手续费）= 市值 ÷ 平均入场市值 − 1。按当前价格计价，未扣除退出费用与价格冲击。",
+  "pnl.live": "实盘", "pnl.untracked": "追踪前已持有 · 不计盈亏", "pnl.untrackedTitle": "部分持仓是在本游戏开始追踪该币之前（或在别处）买入的。其入场价格未知，因此盈亏和 % 只计算在这里买入的部分。DUMP 会从全部持仓中卖出。",
   "tb.custom": "自定义", "tb.noPos": "无持仓", "tb.pos": "持仓", "tb.noTokens": "钱包中没有代币",
   "sim.on": "◆ 模拟市场 · 开", "sim.off": "◇ 模拟市场 · 关", "sim.auto": "（自动）", "exit": "返回发射台",
 };
 const ko: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "설정", "settings.open": "설정 (Esc)", "settings.close": "닫기 (Esc)", "settings.paused": "메뉴가 열려 있는 동안 게임 단축키가 일시 중지됩니다",
   "sec.share": "공유", "share.trade": "내 거래 공유", "share.card": "로켓 카드 다운로드",
-  "sec.hotkeys": "단축키", "hk.buy": "매수 프리셋", "hk.sell": "매도 비율", "hk.press": "키를 누르세요…", "hk.reset": "키 초기화", "hk.auto": "시가총액에 맞춰 매수 금액 자동 조정",
+  "sec.hotkeys": "단축키", "hk.buy": "매수 프리셋", "hk.sell": "매도 비율", "hk.press": "키를 누르세요…", "hk.reset": "키 초기화", "hk.auto": "기본 매수 금액 사용 ($10 / $25 / $50 / $100)",
   "hk.save": "금액 저장", "hk.saved": "저장됨", "hk.reserved": "이미 사용 중인 키입니다",
   "hk.note": "프리셋 키는 선택만 합니다. SPACE는 현재 금액으로 BOOST(직접 입력 금액 우선), SHIFT는 선택한 비율로 DUMP합니다.",
   "sec.audio": "사운드", "audio.sfx": "효과음", "audio.music": "음악", "audio.note": "아직 사운드가 없습니다. 설정은 저장되며 추가되면 적용됩니다.",
@@ -132,14 +152,16 @@ const ko: Dict = {
   "pnl.yourRun": "나의 비행", "pnl.paper": "모의", "pnl.unrealized": "미실현 손익", "pnl.mcap": "시총", "pnl.holdings": "보유", "pnl.avgEntry": "평균 진입",
   "pnl.realized": "실현 손익", "pnl.exitFees": "청산 수수료", "pnl.other": "다른 로켓", "pnl.points": "포인트",
   "pnl.hintUp": "▲ 미실현 손익 증가 → 포인트 배수 상승 · 보유할수록 상승", "pnl.hintFlat": "수익을 유지하면 포인트 배수가 커집니다",
-  "pnl.pctTitle": "미실현 손익 ÷ 원가(매수 수수료 + 가스 포함) = 시총 ÷ 평균 진입 시총 − 1. 현재 가격 기준이며 청산 수수료와 가격 영향은 제외됩니다.",
+  "pnl.pctTitle": "미실현 손익 ÷ 원가(매수 수수료 포함) = 시총 ÷ 평균 진입 시총 − 1. 현재 가격 기준이며 청산 수수료와 가격 영향은 제외됩니다.",
+  "pnl.live": "실전", "pnl.untracked": "추적 전 보유 · 손익 제외", "pnl.untrackedTitle": "보유분 일부는 이 게임이 코인을 추적하기 전(또는 다른 곳)에서 매수했습니다. 진입 가격을 알 수 없어 손익과 %는 여기서 매수한 부분만 계산합니다. DUMP는 전체 보유분에서 매도합니다.",
   "tb.custom": "직접 입력", "tb.noPos": "포지션 없음", "tb.pos": "포지션", "tb.noTokens": "지갑에 토큰이 없습니다",
   "sim.on": "◆ 시뮬레이션 시장 · 켜짐", "sim.off": "◇ 시뮬레이션 시장 · 꺼짐", "sim.auto": "(자동)", "exit": "런치패드로 돌아가기",
 };
 const ja: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "設定", "settings.open": "設定 (Esc)", "settings.close": "閉じる (Esc)", "settings.paused": "メニュー表示中はゲームのホットキーが停止します",
   "sec.share": "シェア", "share.trade": "トレードをシェア", "share.card": "ロケットカードを保存",
-  "sec.hotkeys": "ホットキー", "hk.buy": "買いプリセット", "hk.sell": "売りサイズ", "hk.press": "キーを押してください…", "hk.reset": "キーをリセット", "hk.auto": "時価総額に合わせて買い金額を自動調整",
+  "sec.hotkeys": "ホットキー", "hk.buy": "買いプリセット", "hk.sell": "売りサイズ", "hk.press": "キーを押してください…", "hk.reset": "キーをリセット", "hk.auto": "デフォルトの買い金額を使う（$10 / $25 / $50 / $100）",
   "hk.save": "金額を保存", "hk.saved": "保存しました", "hk.reserved": "そのキーは予約済みです",
   "hk.note": "プリセットキーは選択のみ。SPACEで現在の金額をBOOST（カスタム金額優先）、SHIFTで選択サイズをDUMP。",
   "sec.audio": "サウンド", "audio.sfx": "効果音", "audio.music": "音楽", "audio.note": "サウンドは未実装です。設定は保存され、追加時に反映されます。",
@@ -153,14 +175,16 @@ const ja: Dict = {
   "pnl.yourRun": "あなたのフライト", "pnl.paper": "ペーパー", "pnl.unrealized": "含み損益", "pnl.mcap": "時価総額", "pnl.holdings": "保有", "pnl.avgEntry": "平均取得",
   "pnl.realized": "確定損益", "pnl.exitFees": "決済手数料", "pnl.other": "他のロケット", "pnl.points": "ポイント",
   "pnl.hintUp": "▲ 含み益が増えるほどポイント倍率アップ · 保有で上昇", "pnl.hintFlat": "プラスを保つとポイント倍率が上がります",
-  "pnl.pctTitle": "含み損益 ÷ 取得コスト（買い手数料 + ガス込み）= 時価総額 ÷ 平均取得時価総額 − 1。現在価格で評価、決済手数料と価格影響は含みません。",
+  "pnl.pctTitle": "含み損益 ÷ 取得コスト（買い手数料込み）= 時価総額 ÷ 平均取得時価総額 − 1。現在価格で評価、決済手数料と価格影響は含みません。",
+  "pnl.live": "ライブ", "pnl.untracked": "追跡前の保有 · 損益対象外", "pnl.untrackedTitle": "保有の一部は、このゲームがコインを追跡する前（または別の場所）で購入されました。取得価格が不明なため、損益と % はここで購入した分のみです。DUMP は保有全体から売却します。",
   "tb.custom": "カスタム", "tb.noPos": "ポジションなし", "tb.pos": "ポジ", "tb.noTokens": "ウォレットにトークンがありません",
   "sim.on": "◆ シミュレーション市場 · オン", "sim.off": "◇ シミュレーション市場 · オフ", "sim.auto": "（自動）", "exit": "ローンチパッドに戻る",
 };
 const es: Dict = {
+  // NEEDS_REVIEW: exitc.* (exit confirm) not translated yet, falls back to English until BRAND final copy + native review.
   "settings.title": "AJUSTES", "settings.open": "Ajustes (Esc)", "settings.close": "Cerrar (Esc)", "settings.paused": "Los atajos del juego se pausan mientras este menú está abierto",
   "sec.share": "Compartir", "share.trade": "Comparte tu operación", "share.card": "Descargar tarjeta del cohete",
-  "sec.hotkeys": "Atajos", "hk.buy": "Montos de compra", "hk.sell": "Tamaños de venta", "hk.press": "pulsa una tecla…", "hk.reset": "Restablecer teclas", "hk.auto": "Escalar montos de compra con el mcap",
+  "sec.hotkeys": "Atajos", "hk.buy": "Montos de compra", "hk.sell": "Tamaños de venta", "hk.press": "pulsa una tecla…", "hk.reset": "Restablecer teclas", "hk.auto": "Usar montos de compra por defecto ($10 / $25 / $50 / $100)",
   "hk.save": "Guardar montos", "hk.saved": "Guardado", "hk.reserved": "Esa tecla está reservada",
   "hk.note": "Las teclas de preset solo seleccionan. ESPACIO hace BOOST con el monto activo (el $ personalizado manda), SHIFT hace DUMP del tamaño elegido.",
   "sec.audio": "Sonido", "audio.sfx": "Efectos de sonido", "audio.music": "Música", "audio.note": "Aún no hay sonidos: estos ajustes se guardan y se aplicarán cuando lleguen.",
@@ -174,7 +198,8 @@ const es: Dict = {
   "pnl.yourRun": "TU VUELO", "pnl.paper": "PAPEL", "pnl.unrealized": "PNL NO REALIZADO", "pnl.mcap": "MCAP", "pnl.holdings": "TENENCIA", "pnl.avgEntry": "ENTRADA PROM.",
   "pnl.realized": "REALIZADO", "pnl.exitFees": "COMISIONES DE SALIDA", "pnl.other": "OTROS COHETES", "pnl.points": "PUNTOS",
   "pnl.hintUp": "▲ más uPnL → mayor multiplicador de puntos · mantén para subir", "pnl.hintFlat": "mantente en verde para un multiplicador mayor",
-  "pnl.pctTitle": "uPnL ÷ costo (incl. comisión de compra + gas) = MCAP ÷ MC de entrada promedio − 1. Valorado al precio actual, antes de la comisión de salida y el impacto de precio.",
+  "pnl.pctTitle": "uPnL ÷ costo (incl. comisión de compra) = MCAP ÷ MC de entrada promedio − 1. Valorado al precio actual, antes de la comisión de salida y el impacto de precio.",
+  "pnl.live": "EN VIVO", "pnl.untracked": "en cartera antes del seguimiento · sin PnL", "pnl.untrackedTitle": "Parte de tus tenencias se compró antes de que este juego siguiera la moneda (o en otro sitio). Su precio de entrada no se conoce, así que el PnL y el % solo cubren lo comprado aquí. DUMP vende de todas tus tenencias.",
   "tb.custom": "personalizado", "tb.noPos": "sin posición", "tb.pos": "pos", "tb.noTokens": "NO HAY TOKENS EN LA BILLETERA",
   "sim.on": "◆ MERCADO SIMULADO · SÍ", "sim.off": "◇ MERCADO SIMULADO · NO", "sim.auto": "(auto)", "exit": "Volver al Launchpad",
 };

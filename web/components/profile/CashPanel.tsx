@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { encodeFunctionData, formatUnits, isAddress, parseAbi, parseUnits } from "viem";
-import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
 import { decimalsOf, publicClient, tokenBalance } from "@/lib/protocol-viem";
 import { execCalls, onWallet } from "@/lib/wallet";
+import { playerError } from "@/lib/playerError";
 import type { Address } from "@/lib/protocol";
 import DsSelect from "@/components/ui/DsSelect";
+import TestCashButton from "@/components/TestCashButton";
+import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 type Row = { symbol: string; address: Address; bal: bigint; dec: number };
@@ -14,7 +17,6 @@ type Row = { symbol: string; address: Address; bal: bigint; dec: number };
 /** Private-profile cash: balances + deposit (your address) + withdraw (ERC-20 transfer out). */
 export default function CashPanel() {
   const [addr, setAddr] = useState<Address | null>(null);
-  const [eth, setEth] = useState<bigint | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [sym, setSym] = useState("");
@@ -29,7 +31,6 @@ export default function CashPanel() {
     if (!isDeployed()) return;
     try {
       const pc = publicClient();
-      setEth(await pc.getBalance({ address: a }));
       const toks = MINTABLE_TEST_TOKENS.length ? MINTABLE_TEST_TOKENS : [{ symbol: "STRATEGY", address: deployment().defaultQuote }];
       const out: Row[] = [];
       for (const t of toks) {
@@ -40,7 +41,14 @@ export default function CashPanel() {
       setSym((s) => s || out[0]?.symbol || "");
     } catch { /* rpc hiccup */ }
   }
-  useEffect(() => { if (!addr) return; void refresh(addr); const i = setInterval(() => refresh(addr), 20000); return () => clearInterval(i); }, [addr]);
+  useEffect(() => {
+    if (!addr) return;
+    void refresh(addr);
+    const i = setInterval(() => refresh(addr), 20000);
+    const cash = () => { void refresh(addr); };   // "Get test cash" landed
+    window.addEventListener(CASH_ARRIVED_EVENT, cash);
+    return () => { clearInterval(i); window.removeEventListener(CASH_ARRIVED_EVENT, cash); };
+  }, [addr]);
 
   const sel = rows.find((r) => r.symbol === sym);
   async function withdraw() {
@@ -56,18 +64,20 @@ export default function CashPanel() {
       await execCalls([{ to: sel.address, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [to as Address, amount] }) }]);
       setMsg({ ok: true, text: `Sent ${amt} ${sel.symbol}.` }); setAmt("");
       await refresh(addr);
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message.split("\n")[0].slice(0, 160) }); }
+    } catch (e) { setMsg({ ok: false, text: playerError(e) }); }
     finally { setBusy(false); }
   }
 
+  const isDollar = (s: string) => /^m?usdg$/i.test(s);
+  const usd = (b: bigint, d: number) => Number(formatUnits(b, d)).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt = (b: bigint, d: number) => Number(formatUnits(b, d)).toLocaleString(undefined, { maximumFractionDigits: 4 });
   return (
     <section id="cash" className="chart-card cash-panel" aria-label="Cash">
       <div className="table-head"><h3>Cash</h3><span className="muted tiny">{ACTIVE_CHAIN.name} · only visible to you</span></div>
-      {!addr ? <p className="muted">Sign in (top right) to see balances and deposit.</p> : <>
+      {!addr ? <p className="muted">Sign in to see this.</p> : <>
         <div className="cash-balances">
-          <div className="cash-tile"><span>ETH (gas)</span><strong>{eth === null ? "…" : fmt(eth, 18)}</strong></div>
-          {rows.map((r) => <div key={r.symbol} className="cash-tile"><span>{r.symbol}</span><strong>{fmt(r.bal, r.dec)}</strong></div>)}
+          {/* Plain dollar labels (GAME play-test, Oct 26 2026): test / stable dollars read "Cash $0.00"; other tokens show only when held. */}
+          {rows.filter((r) => isDollar(r.symbol) || r.bal > BigInt(0)).map((r) => <div key={r.symbol} className="cash-tile"><span>{isDollar(r.symbol) ? "Cash" : r.symbol}</span><strong>{isDollar(r.symbol) ? usd(r.bal, r.dec) : fmt(r.bal, r.dec)}</strong></div>)}
         </div>
         <div className="ds-seg" role="tablist">
           {(["deposit", "withdraw"] as const).map((t) => (
@@ -76,9 +86,9 @@ export default function CashPanel() {
         </div>
         {tab === "deposit" ? (
           <div className="cash-body">
-            <p className="muted tiny">Send ERC-20s or ETH on {ACTIVE_CHAIN.name} to your account address:</p>
+            <p className="muted tiny">Send USDG (or any ERC-20) on {ACTIVE_CHAIN.name} to your account address:</p>
             <div className="cash-addr mono">{addr}<button type="button" className="ds-btn gold" onClick={() => { navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>{copied ? "Copied" : "Copy"}</button></div>
-            <p className="muted tiny">Need test gas? <a href={GAS_FAUCET} target="_blank" rel="noreferrer">ETH faucet</a>{MINTABLE_TEST_TOKENS.length > 0 ? " · use “Get test funds” (top right) for STRATEGY / mUSDG." : ""}</p>
+            <TestCashButton account={addr} className="ds-btn gold" />
           </div>
         ) : (
           <div className="cash-body cash-form">

@@ -13,6 +13,7 @@ import {
 
 import { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY } from "./constants";
 import { clientFees } from "./gasPolicy";
+import { PENDING_MSG, REJECTED_MSG, logRelayOp, logTradeError } from "./relayOp";
 export { ENTRYPOINT_V07, LIGHT_ACCOUNT_V2_FACTORY };
 
 export const factoryAbi = parseAbi([
@@ -38,7 +39,7 @@ export type UserOp = {
 };
 export type UserOpReceipt = { success: boolean; actualGasCost?: Hex; paymaster?: Address; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] } };
 
-export type GasMode = "self-pay";
+export type GasMode = "self-pay" | "usdg";
 export class AAError extends Error {
   constructor(public code: "FundAccount" | "Bundler" | "Timeout" | "Policy" | "Reverted" | "Estimate", msg: string, public extra?: Record<string, unknown>) { super(msg); }
 }
@@ -156,7 +157,7 @@ export class LightSmartAccount {
     op.preVerificationGas = numberToHex(BigInt(est.preVerificationGas) * BigInt(12) / BigInt(10));
     const need = (BigInt(op.callGasLimit) + BigInt(op.verificationGasLimit!) + BigInt(op.preVerificationGas)) * BigInt(op.maxFeePerGas);
     const have = await pc.getBalance({ address: op.sender });
-    if (have < need) throw new AAError("FundAccount", "Gas sponsorship is off — fund your account with test ETH to pay gas.", { need, have, address: op.sender });
+    if (have < need) throw new AAError("FundAccount", "Your account is still getting ready. Try again in a moment.", { need, have, address: op.sender });
   }
 
   /** Send calls as ONE userOp. Owner signs once per op (session/embedded signer ⇒ no popup). */
@@ -174,10 +175,12 @@ export class LightSmartAccount {
       await new Promise((r) => setTimeout(r, i < 5 ? 400 : 1200));
       const rc: UserOpReceipt | null = await this.o.bundler.rpc("eth_getUserOperationReceipt", [uoh]);
       if (rc) {
-        if (!rc.success) throw new AAError("Reverted", `UserOp reverted (tx ${rc.receipt.transactionHash})`, { rc });
+        if (!rc.success) { logTradeError("trade reverted", { userOpHash: uoh, txHash: rc.receipt.transactionHash }); throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: uoh, txHash: rc.receipt.transactionHash }); }
         return { userOpHash: uoh, txHash: rc.receipt.transactionHash, receipt: rc, gasMode: mode };
       }
     }
-    throw new AAError("Timeout", `UserOp ${uoh} not mined yet`);
+    // still unknown, not failed: the ids + the op's EntryPoint nonce let the trade layer watch it (SITE #144 shape)
+    logRelayOp("pending", { userOpHash: uoh });
+    throw new AAError("Timeout", PENDING_MSG, { userOpHash: uoh, nonce: BigInt(op.nonce), sender: op.sender });
   }
 }

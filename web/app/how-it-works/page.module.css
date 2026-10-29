@@ -176,6 +176,8 @@
 .finalSub { margin-top: 14px; font-size: 18px; color: var(--dsc-muted-on-sky); text-wrap: balance; }
 .docs { margin-top: 22px; font: 12px var(--dsc-font-mono); color: var(--dsc-muted); }
 .footer { display: flex; align-items: center; gap: 16px; padding: 28px 40px 40px; border-top: 1px solid var(--line); font: 12px var(--dsc-font-mono); color: var(--dsc-muted); }
+.footLink { color: var(--dsc-muted); text-decoration: underline; text-underline-offset: 3px; }
+.footLink:hover { color: var(--dsc-text); }
 .lockup { display: block; width: 120px; height: auto; }
 
 /* ------------------------------ mobile ------------------------------ */

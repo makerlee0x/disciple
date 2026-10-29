@@ -20,7 +20,7 @@ function mk(name: string, args: Record<string, any>, address: Hex, block = 1n): 
   return { address, topics: topics as any, data, blockNumber: block, transactionHash: `0x${(++li).toString(16).padStart(64, "0")}` as Hex, logIndex: li };
 }
 const trade = (trader: Hex, isBuy: boolean, quoteAmt: bigint, priceAfter: bigint, src: Hex, block: bigint) =>
-  mk("Trade", { token: TOKEN, trader, isBuy, quoteAmt, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: priceAfter, impactBps: 0n, mcapAfterUsd: 33_000n * 10n ** 18n }, src, block);
+  mk("Trade", { token: TOKEN, trader, isBuy, quoteAmt, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: priceAfter, impactBps: 0n, mcapAfterUsd: priceAfter * 1_000_000n }, src, block); // mcap = price × 1M (v5 default supply, quote $1)
 
 function seeded() {
   const db = openDb(":memory:");
@@ -58,13 +58,13 @@ describe("math", () => {
     expect(priceWadFromSqrt(Q96, true)).toBe(10n ** 18n);
     expect(priceWadFromSqrt(2n * Q96, true)).toBe(4n * 10n ** 18n);
     expect(priceWadFromSqrt(2n * Q96, false)).toBe(25n * 10n ** 16n);
-    expect(mcapUsdWad(10n ** 18n, 10n ** 18n)).toBe(7_000_000_000n * 10n ** 18n);
+    expect(mcapUsdWad(10n ** 18n, 10n ** 18n)).toBe(1_000_000n * 10n ** 18n);
     expect(virtualQuoteReserve(1000n, Q96, true)).toBe(1000n);
   });
   it("TRMP-like pool price ~ $45.3K", () => {
-    // live TRMP slot0 (token is currency1) and STRATEGY = $0.00245
+    // live TRMP slot0 (token is currency1) and STRATEGY = $0.00245 — legacy 7B-supply coin, supply passed explicitly
     const p = priceWadFromSqrt(1541825069166933097153735021859n, false);
-    const m = Number(mcapUsdWad(p, 2450000000000000n)) / 1e18;
+    const m = Number(mcapUsdWad(p, 2450000000000000n, 7_000_000_000n * 10n ** 18n)) / 1e18;
     expect(m).toBeGreaterThan(45_000);
     expect(m).toBeLessThan(45_600);
   });
@@ -130,17 +130,18 @@ describe("lp auto-compound", () => {
 
 describe("mcap precision", () => {
   const sqrt = (x: bigint) => { let z = x, y = (x + 1n) / 2n; while (y < z) { z = y; y = (x / y + y) / 2n; } return z; };
-  // $33K over 7B tokens; quote raw per token raw = 33000*10^dec / 7e27
+  // $33K over 1M tokens; quote raw per token raw = 33000*10^dec / 1e24
   const sqrtFor = (dec: bigint, c0: boolean) => {
-    const num = 33_000n * 10n ** dec, den = 7_000_000_000n * 10n ** 18n;
+    const num = 33_000n * 10n ** dec, den = 1_000_000n * 10n ** 18n;
     return c0 ? sqrt((num << 192n) / den) : sqrt((den << 192n) / num);
   };
   const near = (a: bigint, b: bigint) => expect(Number(a) / Number(b)).toBeCloseTo(1, 4);
-  it("6-dec quote: $33K exact from sqrt (priceWad path floors to ~$28K)", () => {
+  it("6-dec quote: $33K exact from sqrt (1M supply: priceWad path now within 0.01%; 7B floored it to ~$28K)", () => {
     for (const c0 of [true, false]) {
       const sp = sqrtFor(6n, c0);
       near(mcapUsdFromSqrt(sp, c0, 10n ** 30n), 33_000n * 10n ** 18n);
-      expect(mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 30n) < 30_000n * 10n ** 18n).toBe(true);
+      const viaPrice = Number(mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 30n)) / 33_000e18;
+      expect(Math.abs(viaPrice - 1)).toBeLessThan(1e-4);
     }
   });
   it("18-dec quote: unchanged", () => {
@@ -149,5 +150,32 @@ describe("mcap precision", () => {
       near(mcapUsdFromSqrt(sp, c0, 10n ** 18n), 33_000n * 10n ** 18n);
       near(mcapUsdFromSqrt(sp, c0, 10n ** 18n), mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 18n));
     }
+  });
+});
+
+describe("#103 creator First BOOST attribution", () => {
+  it("credits a private launch's First BOOST to the buyRecipient (smart account), not the AnonLauncher", () => {
+    const db = openDb(":memory:");
+    const ts = (b: bigint) => 1_000_000 + Number(b) * 60;
+    const ANON = stack.anonLauncher!, SMART = A(0x5a), TOK2 = A(0x200), CURVE2 = A(0x201);
+    const tx = `0x${"77".repeat(32)}` as Hex;
+    const same = (l: RawLog) => ({ ...l, transactionHash: tx });
+    applyLogs(db, stack, [
+      mk("Launched", { token: TOK2, curve: CURVE2, creator: ANON, quote: QUOTE, name: "Priv", ticker: "P", creatorTaxBps: 0n }, stack.launchpad),
+      mk("QuotePriced", { token: TOK2, quote: QUOTE, quotePriceUsd: 10n ** 18n }, stack.launchpad),
+    ], ts);
+    const t = (trader: Hex) => mk("Trade", { token: TOK2, trader, isBuy: true, quoteAmt: 5n * 10n ** 18n, tokenAmt: 9n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: 10n ** 18n, impactBps: 0n, mcapAfterUsd: 33_000n * 10n ** 18n }, CURVE2, 2n);
+    applyLogs(db, stack, [
+      same(mk("Transfer", { from: A(0), to: CURVE2, value: 7n * 10n ** 27n }, TOK2, 2n)),
+      same(t(ANON)),
+      same(mk("Transfer", { from: CURVE2, to: ANON, value: 9n }, TOK2, 2n)),
+      same(mk("Transfer", { from: ANON, to: SMART, value: 9n }, TOK2, 2n)),
+      t(BOB), // an unrelated buy in another tx is untouched
+    ], ts);
+    const rows = db.prepare("SELECT trader, tx FROM trades WHERE token=? ORDER BY trader").all(TOK2.toLowerCase()) as any[];
+    expect(rows.map((r) => r.trader).sort()).toEqual([BOB.toLowerCase(), SMART.toLowerCase()].sort());
+    expect(rows.find((r) => r.trader === SMART.toLowerCase())!.tx).toBe(tx);
+    const bal = db.prepare("SELECT bal FROM balances WHERE token=? AND holder=?").get(TOK2.toLowerCase(), SMART.toLowerCase()) as any;
+    expect(bal.bal).toBe("9");
   });
 });

@@ -2,35 +2,47 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
-import { encodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
-import { ACTIVE_CHAIN, GAS_FAUCET, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
-import { decimalsOf, publicClient, readCurveState, tokenBalance, usdgRouteFor } from "@/lib/protocol-viem";
+import { formatUnits, parseAbi } from "viem";
+import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+
+/** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
+const TEST_NETWORK_ID = 46630;
+import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
 import { balanceLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
-  aaAvailable, activeAddress, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
-  execCalls, hasWallet, isSmartMode, onWallet, restoreSmart,
+  aaAvailable, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
+  hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
   DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, aaSession, enableOneTap, endOneTap,
   legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
 } from "@/lib/aa/session";
-import { loadPortfolio, type Portfolio } from "@/lib/portfolio";
+import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
+import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
+import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
+import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import IdentitySigil from "@/components/profile/IdentitySigil";
 import { pct } from "@/lib/aa/slippage";
 import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
+import { playerError } from "@/lib/playerError";
+import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
+import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
+import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
+import { CASH_ARRIVED_EVENT, TEST_CASH_COPY } from "@/lib/testCash";
+import TestCashButton from "@/components/TestCashButton";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const signedUsd = (n: number) => `${n > 0.005 ? "+" : n < -0.005 ? "-" : ""}${usd2(Math.abs(n))}`;
 const GREEN = "#8ff0c0", RED = "#ff9fb8";
-/** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile, Cash panel). */
-const DEPOSIT_HREF = "/profile#cash";
+/** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile → Settings → Cash panel; lib/cashLink). */
 
-const mintAbi = parseAbi(["function mint(address to, uint256 amount)"]);
 const symAbi = parseAbi(["function symbol() view returns (string)"]);
+const balAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 const coinMeta = new Map<string, Promise<{ symbol: string; quote: Address } | null>>();
 /** Symbol + pair (quote) token of a DISCIPLE coin, cached per page load. */
 function metaOf(coin: Address) {
@@ -48,7 +60,7 @@ function metaOf(coin: Address) {
 export default function WalletButton({ compact = false }: { compact?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [busy, setBusy] = useState("");
-  const [eth, setEth] = useState<bigint | null>(null);
+  const [, setEth] = useState<bigint | null>(null);
   const [bal, setBal] = useState("");
   const [balTitle, setBalTitle] = useState("");
   const path = usePathname() || "";
@@ -91,54 +103,118 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     return () => removeEventListener("disciple:slippagecap", f);
   }, []);
 
+  // SITE #137: the last balance reads (value + the block they were taken at). After our own fill the header is booked
+  // from the fill's receipt (lib/fillBook) and re-derived from these WITHOUT a new RPC read; the follow-up read is
+  // pinned at/after the receipt's block, so a lagging public-RPC node can't put the pre-fill balance back.
+  const lastRead = useRef<{ parts: (BalancePart & { address: Address })[]; usdgPays: boolean; pf: Portfolio | null } | null>(null);
+  const fillPx = useRef(new Map<string, number>());   // coin → $/token of our last fill (prices a first buy the indexer doesn't list yet)
+  function show(a: Address) {
+    const r = lastRead.current;
+    if (!r) return;
+    const parts = r.parts.map(({ address, ...p }) => ({ ...p, amount: fillBook.display(a, address) ?? p.amount }));
+    const l = balanceLine(parts, { payUsdg: r.usdgPays });
+    setBal(l.text); setBalTitle(l.title);
+    if (r.pf) setPf(bookedPortfolio(r.pf, a, deployment().usdg, fillPx.current));
+  }
+
   async function refresh(a: Address) {
+    const pc = publicClient(), startedAt = Date.now();
     try {
-      const pc = publicClient();
-      const e = await pc.getBalance({ address: a });
-      setEth(e);
       const meta = coin ? await metaOf(coin) : null;
       // USDG pays only once the router supports it (#65); until then trades still spend the coin's quote
       const usdgPays = coin ? !!(await usdgRouteFor(pc, coin).catch(() => null)) : payUsdg() && !!(await routerUsdg(pc, deployment().router));
-      const parts: BalancePart[] = [{ symbol: "ETH", amount: Number(formatUnits(e, 18)), role: "gas" }];
+      // Users never need ETH (network fees are topped up for them): no ETH in the balance line
       const syms = MINTABLE_TEST_TOKENS.length ? MINTABLE_TEST_TOKENS : [{ symbol: "STRATEGY", address: deployment().defaultQuote }];
       const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: (usdgPays ? t.address.toLowerCase() === deployment().usdg.toLowerCase() : !!meta && t.address.toLowerCase() === meta.quote.toLowerCase()) ? "spend" : "other" }));
       if (meta) list.unshift({ symbol: meta.symbol, address: coin!, role: "held" });
       // USDG is shown as dollar "cash" in its own card (never as "USDG" in the header); keep it out of the token line
-      if (usdgPays) for (let i = list.length - 1; i >= 0; i--) if (list[i].address.toLowerCase() === deployment().usdg.toLowerCase()) list.splice(i, 1);
-      for (const t of list) {
-        const [b, d] = await Promise.all([tokenBalance(pc, t.address, a), decimalsOf(pc, t.address)]);
-        parts.push({ symbol: t.symbol, amount: Number(formatUnits(b, d)), role: t.role });
+      // …except on a USDG-paired coin: USDG is that coin's quote, so the chip shows it (in dollars) as what pays
+      const usdgQuote = !!meta && meta.quote.toLowerCase() === deployment().usdg.toLowerCase();
+      if (usdgPays && !usdgQuote) for (let i = list.length - 1; i >= 0; i--) if (list[i].address.toLowerCase() === deployment().usdg.toLowerCase()) list.splice(i, 1);
+      const extra = [...new Set([...(coin ? [coin] : []), ...fillBook.pendingTokens(a).filter((t) => t !== deployment().usdg.toLowerCase())])] as Address[];
+      // one block for everything: ≥ our last receipt's block (fillBook.floor); a node that's behind errors ⇒ brief retry
+      const { value, block } = await readAtOrAfter(pc, fillBook.floor(a), async (blockNumber) => {
+        const [e, raws, pf]: [bigint, (BalancePart & { address: Address })[], Portfolio | null] = await Promise.all([
+          pc.getBalance({ address: a, blockNumber }),
+          Promise.all(list.map(async (t) => {
+            const [b, d] = await Promise.all([pc.readContract({ address: t.address, abi: balAbi, functionName: "balanceOf", args: [a], blockNumber }), decimalsOf(pc, t.address)]);
+            return { ...t, amount: Number(formatUnits(b, d)) };
+          })),
+          loadPortfolio(pc, a, extra, { blockNumber }),
+        ]);
+        return { e, raws, pf };
+      });
+      setEth(value.e);
+      // every read goes through the book: it retires fills it includes and never replaces a newer-block read
+      for (const t of value.raws) fillBook.observe(a, t.address, t.amount, block, startedAt);
+      if (value.pf) {
+        fillBook.observe(a, deployment().usdg, value.pf.cashUsd, block, startedAt);
+        const held = new Set(value.pf.holdings.map((h) => h.coin.toLowerCase()));
+        for (const h of value.pf.holdings) fillBook.observe(a, h.coin, h.tokens, block, startedAt);
+        for (const c of extra) if (!held.has(c.toLowerCase())) fillBook.observe(a, c, 0, block, startedAt);   // read at ≥ block: really 0
       }
-      const l = balanceLine(parts, { payUsdg: usdgPays });
-      setBal(l.text); setBalTitle(l.title);
-    } catch { /* ignore */ }
-    loadPortfolio(publicClient(), a, coin ? [coin] : []).then(setPf).catch(() => { /* keep last */ });
+      lastRead.current = { parts: value.raws, usdgPays, pf: value.pf ?? lastRead.current?.pf ?? null };
+      show(a);
+    } catch { /* ignore: keep the last (booked) values */ }
   }
   useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
-    addEventListener("disciple:livetrade", t); return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
+    // SITE #137: our relay's receipt block ('disciple:op' confirmed) ⇒ later reads are pinned at/after it
+    const op = (e: Event) => { const d = (e as CustomEvent<{ phase?: string; blockNumber?: string }>).detail; const b = blockOf(d?.blockNumber); if (d?.phase === "confirmed" && b !== undefined) fillBook.raiseFloor(addr, b); };
+    // the fill decoded from the receipt logs: book it and show it now (no RPC), then one read pinned at/after its block
+    const r = (e: Event) => {
+      const d = (e as CustomEvent<FillReceiptDetail>).detail;
+      const fc = d?.token || coin;
+      if (fc && d?.tokens && d.usd && d.tokens > 0) fillPx.current.set(fc.toLowerCase(), d.usd / d.tokens);
+      const booked = bookFill(fillBook, d, { holder: addr, coin, usdg: deployment().usdg, usdgDecimals: usdgDecimals(), coinDecimals: COIN_DECIMALS, decimals: (t) => knownDecimals(t), block: txBlock(d?.txHash) });
+      if (booked.length) { show(addr); dispatchEvent(new CustomEvent(BOOKED_EVENT, { detail: { holder: addr, tokens: booked, txHash: d?.txHash } })); }
+      refresh(addr);
+    };
+    const cash = () => refresh(addr);   // "Get test cash" landed (lib/testCash)
+    addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r); addEventListener("disciple:op", op); addEventListener(CASH_ARRIVED_EVENT, cash);
+    return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); removeEventListener(CASH_ARRIVED_EVENT, cash); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fail = (e: unknown) => {
-    const m = (e as Error).message.split("\n")[0];
-    setErr(m.slice(0, 160));
-  };
+  // live retest #5: the chip shows the claimed @name (the account's, else its owner's), not only the short address
+  const [uname, setUname] = useState<string | null>(null);
+  const ownerAddr = addr ? aaSession()?.owner : undefined;
+  useEffect(() => {
+    if (!addr) { setUname(null); return; }
+    let alive = true;
+    const load = () => { lookupFirstName([addr, ownerAddr]).then((n) => { if (alive) setUname(n); }); };
+    const changed = () => { clearNameCache(); load(); };
+    load();
+    addEventListener(PROFILE_CHANGED_EVENT, changed);
+    return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
+  }, [addr, ownerAddr]);
+
+  const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
     try { await f(); setMenu(false); } catch (e) { fail(e); } finally { setBusy(""); }
   }
 
-  async function getFunds() {
-    await run("minting", async () => {
-      const pc = publicClient();
-      const me = await activeAddress();
-      const calls = [];
-      for (const t of MINTABLE_TEST_TOKENS) {
-        const d = await decimalsOf(pc, t.address);
-        calls.push({ to: t.address, data: encodeFunctionData({ abi: mintAbi, functionName: "mint", args: [me, parseUnits(t.amount, d)] }) });
-      }
-      await execCalls(calls); // smart account: ONE userOp for all mints
-      await refresh(me);
-    });
-  }
+  // Phones (< 740px): the signed-out pill ("Play" / "Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
+  // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
+  // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
+  const ctaLabel = !isDeployed() || addr ? null : aaAvailable() && SIGNER_MODE === "local" ? "Play" : aaAvailable() ? "Sign in" : "Connect wallet";
+  useEffect(() => {
+    (window as unknown as { __walletCta?: string | null }).__walletCta = ctaLabel;
+    dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: ctaLabel } }));
+  }, [ctaLabel]);
+  useEffect(() => () => {
+    (window as unknown as { __walletCta?: string | null }).__walletCta = null;
+    dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: null } }));
+  }, []);
+  const ctaClick = useRef<() => void>(() => {});
+  ctaClick.current = () => {
+    if (addr || busy) return;
+    if (aaAvailable() && SIGNER_MODE === "local") run("creating account", connectLocal);
+    else setMenu(true);
+  };
+  useEffect(() => {
+    const f = () => ctaClick.current();
+    addEventListener(WALLET_CTA_CLICK_EVENT, f);
+    return () => removeEventListener(WALLET_CTA_CLICK_EVENT, f);
+  }, []);
 
   const rootRef = useRef<HTMLDivElement>(null);
   // Close sign-in / account popovers on outside click or Escape (menus are absolute so they
@@ -169,7 +245,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const smart = isSmartMode();
   const sess = aaSession();
   const oneTap = oneTapStatus();
-  const needFund = smart && eth !== null && eth < BigInt(3e12);
   const cardStyle: CSSProperties = { display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, padding: compact ? "3px 9px" : "5px 11px",
     borderRadius: 12, background: "rgba(22,24,28,.88)", border: "1px solid rgba(201,206,214,.22)", lineHeight: 1.15 };
   const pill = { all: "unset" as const, cursor: "pointer", padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: ".04em" };
@@ -186,15 +261,16 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
       fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-          <span title="Network" style={{ fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid rgba(201,206,214,.25)", color: "#C9CED6", opacity: 0.85 }}>{ACTIVE_CHAIN.name}</span>
+        {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
+        <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
+          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
               {pf && smart && (
-                <div aria-label="cash and portfolio" style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
                   <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
-                    <a href={DEPOSIT_HREF} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
+                    <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
                   </div>
                   <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, flexDirection: "row", alignItems: "center", gap: 8, textDecoration: "none", color: "inherit" }}
                     title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
@@ -202,28 +278,23 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                       <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)}</span>
                       <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
                     </span>
-                    <IdentitySigil id="believer" size={26} />
+                    <span className="wb-sigil"><IdentitySigil id="believer" size={26} tip={false} /></span>
                   </a>
                 </div>
               )}
-              {MINTABLE_TEST_TOKENS.length > 0 && (
-                <button type="button" disabled={!!busy} onClick={getFunds} style={{ ...pill, background: "#2E323A", color: "#C9CED6" }}>
-                  {busy || "Get test funds"}
-                </button>
-              )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : `${addr.slice(0, 6)}…${addr.slice(-4)}`}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} /></>}
               </button>
               {smart && SIGNER_MODE !== "local" && <button type="button" onClick={() => run("", disconnect)} style={{ ...pill, background: "rgba(255,255,255,.08)" }} aria-label="Disconnect"><Icon name="close" size={16} /></button>}
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
-              <button type="button" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+              <button type="button" className="ap-wallet-cta" onClick={() => run("creating account", connectLocal)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
                 {busy || <><Icon name="play" size={16} /> Play</>}
               </button>
             ) : (
-            <button type="button" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
+            <button type="button" className="ap-wallet-cta" onClick={() => setMenu((m) => !m)} disabled={!!busy} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E" }}>
               {busy || (aaAvailable() ? "Sign in" : "Connect wallet")}
             </button>
             )
@@ -256,8 +327,15 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
                 {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(sess.oneTap!.maxSlippageBps); }), "Apply (new session)")}
               </>
+            ) : oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp ? (
+              <>
+                <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
+                  <a href={DEPOSIT_HREF} onClick={(e) => { setAcct(false); onDepositClick(e); }} style={{ color: "#E8EAEE", fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
+                </span>
+                <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
+              </>
             ) : oneTapAvailable() && oneTap.settingUp ? (
-              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading in the background… trades already go through without prompts (your wallet signs them silently).</span>
+              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading…</span>
             ) : oneTapAvailable() ? (
               <>
                 <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>
@@ -266,12 +344,11 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 </label>
                 <button type="button" disabled={!!busy} onClick={() => run("approve session", () => { saveLimit(); return enableOneTap({ maxSlippageBps: Math.round(Number(slipPct) * 100), spendLimitUsd: limitNum() }); })} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Enable one-tap trading</button>
                 {advancedLimit(saveLimit, "Save")}
-                <span style={{ opacity: 0.7 }}>Optional: a 24h session key (a little gas) caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
+                <span style={{ opacity: 0.7 }}>Optional: a 24h session key caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
               </>
             ) : (
-              <span style={{ opacity: 0.7 }}>Trades are signed by your Privy wallet in the background.</span>
+              <span style={{ opacity: 0.7 }}>One-tap trading is on.</span>
             )}
-            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a>
             <button type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>
         )}
@@ -281,7 +358,14 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
             {bal && <span title={balTitle}>{bal}</span>}
-            <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a>
+            {oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp && (
+              <>
+                <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
+                  <a href={DEPOSIT_HREF} onClick={(e) => { setAcct(false); onDepositClick(e); }} style={{ color: "#E8EAEE", fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
+                </span>
+                <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
+              </>
+            )}
             {shownKey ? (
               <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
             ) : (
@@ -295,8 +379,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           </div>
         )}
       </div>
-      {addr && bal && !compact && <span title={balTitle} style={{ fontSize: 10, opacity: 0.8 }}>{bal}{smart ? " · self-pay gas" : ""} · <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#C9CED6" }}>ETH faucet</a></span>}
-      {needFund && <span role="status" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>Low on gas — fund your account ({addr?.slice(0, 8)}…) with test ETH from the <a href={GAS_FAUCET} target="_blank" rel="noreferrer" style={{ color: "#fff" }}>faucet</a>.</span>}
+      {addr && bal && !compact && <span title={balTitle} style={{ fontSize: 10, opacity: 0.8 }}>{bal}</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
           Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}

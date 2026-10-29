@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { NeedLogin, loginPrivy, myVerification, requestVerification, type MyRequest } from "@/lib/claims/verifyClient";
 import { onPrivy } from "@/lib/aa/session";
+import { plainText } from "@/lib/aa/relayOp";
 
 const LABEL: Record<string, string> = { pending: "In review", approved: "Verified", rejected: "Not approved", revoked: "Revoked" };
 
@@ -31,7 +32,7 @@ export default function VerifyRequest({ token, demo }: { token: string; demo?: b
       setMine({ status: "pending", ...f }); setOpen(false); setMsg({ ok: true, t: "Sent. We review requests by hand." });
     } catch (e) {
       if (e instanceof NeedLogin) { setNeedLogin(true); loginPrivy(); }
-      setMsg({ ok: false, t: (e as Error).message });
+      setMsg({ ok: false, t: plainText((e as Error).message, "verify request") });
     } finally { setBusy(false); }
   };
 
@@ -43,7 +44,7 @@ export default function VerifyRequest({ token, demo }: { token: string; demo?: b
         {st ? <span className={`cl-pill ${st}`}>{LABEL[st]}</span> : null}
         {(!st || st === "rejected" || st === "revoked") && !open && (
           <button type="button" className="cl-btn ghost sm" onClick={() => (needLogin && !demo ? loginPrivy() : setOpen(true))} data-testid="verify-open">
-            {needLogin && !demo ? "Log in to request" : "Request verification"}
+            {needLogin && !demo ? "Sign in to request" : "Request verification"}
           </button>
         )}
       </div>

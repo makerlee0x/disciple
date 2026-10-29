@@ -148,26 +148,38 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     ///         USDG `launchFee` and the optional creator buy; tokens bought go to `buyRecipient`.
     /// @param ephemeralPubKey ERC-5564 ephemeral pubkey (empty = no announcement).
     /// @param viewTag ERC-5564 view tag (first metadata byte).
+    /// @param maxFee Payer's ceiling on `launchFee` in `feeToken` raw units (decimals-aware; the owner cap is
+    ///        MAX_LAUNCH_FEE = $5). Reverts FeeTooHigh if the owner raised the fee above it after the payer signed.
     function launchAnon(
         ILaunchpad.LaunchParams calldata p,
         address stealthOwner,
         address buyRecipient,
         bytes calldata ephemeralPubKey,
-        bytes1 viewTag
+        bytes1 viewTag,
+        uint256 maxFee
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory r) {
         if (stealthOwner == address(0)) revert ZeroAddress();
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
 
         uint256 fee = launchFee;
+        if (fee > maxFee) revert FeeTooHigh();
         if (fee > 0) feeToken.safeTransferFrom(msg.sender, treasury, fee);
 
+        address q;
+        uint256 b0;
         if (p.creatorBuyQuoteIn > 0) {
-            address q = p.quote == address(0) ? ILaunchpadAdmin(address(launchpad)).defaultQuote() : p.quote;
+            q = p.quote == address(0) ? ILaunchpadAdmin(address(launchpad)).defaultQuote() : p.quote;
+            b0 = IERC20(q).balanceOf(address(this));
             IERC20(q).safeTransferFrom(msg.sender, address(this), p.creatorBuyQuoteIn);
             IERC20(q).forceApprove(address(launchpad), p.creatorBuyQuoteIn);
         }
 
         r = launchpad.launch(p);
+        // mode rules v2: a First BOOST above the max partially fills; the Launchpad refunds the unused quote here
+        if (q != address(0)) {
+            uint256 left = IERC20(q).balanceOf(address(this)) - b0;
+            if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
+        }
         stealthOwnerOf[r.token] = stealthOwner;
         if (r.creatorTokensBought > 0) IERC20(r.token).safeTransfer(buyRecipient, r.creatorTokensBought);
 

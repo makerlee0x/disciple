@@ -3,7 +3,7 @@
 //   pnpm test:relay-trust   (pure: fake clock, no RPC, no live endpoint)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RESIM_EVERY, RESIM_MS, SenderTrust, STRIKE_BASE_MS, STRIKE_DECAY_MS, STRIKE_MAX_MS, TRUST_TTL } from "../lib/server/relayTrust";
+import { RESIM_EVERY, RESIM_MS, SenderTrust, STRIKE_BASE_MS, STRIKE_DECAY_MS, STRIKE_MAX_MS, TRUST_TTL, type PersistedTrust, type TrustStore } from "../lib/server/relayTrust";
 
 const A = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
 const BAL = BigInt(10) ** BigInt(18), PREFUND = BigInt(10) ** BigInt(14);
@@ -94,4 +94,111 @@ test("successful sends debit the cached balance until the next refresh", () => {
   tr.prime(A, PREFUND * BigInt(2));
   tr.succeeded(A, true, PREFUND); assert.equal(tr.check(A, PREFUND), null);
   tr.succeeded(A, true, PREFUND); assert.equal(tr.check(A, PREFUND), "low-balance");
+});
+
+// AUDIT Low: shared / durable trust state (TrustStore → KV). Strikes and verification survive a restart / cold instance.
+function memStore() {
+  const rec = new Map<string, PersistedTrust>(), first = new Set<string>();
+  const store: TrustStore = {
+    async load(s) { return rec.get(s) ?? null; },
+    async save(s, p) { rec.set(s, { ...p }); },
+    async claimFirstPrime(s) { if (first.has(s)) return false; first.add(s); return true; },
+  };
+  return { store, rec };
+}
+test("shared store: first-prime grant happens once globally, not once per (cold) instance", async () => {
+  let t = 1_000_000; const now = () => t; const { store } = memStore();
+  const a = new SenderTrust(now, store);
+  assert.equal(a.check(A, PREFUND), "unknown");
+  await a.primeShared(A, BAL);
+  assert.equal(a.check(A, PREFUND), null);                  // honest first login stays fast
+  await a.flush();
+  // restart / new lambda: the verification is loaded, not re-granted from a balance read
+  const b = new SenderTrust(now, store);
+  assert.equal(b.check(A, PREFUND), "unknown");             // not hydrated yet ⇒ simulate
+  await b.primeShared(A, BAL);
+  assert.equal(b.check(A, PREFUND), null);
+  // a sender whose record was lost but whose grant was used is NOT verified again by a balance read
+  const B = "0xBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBb";
+  await a.primeShared(B, BAL); a.strike(B); await a.flush();
+  const c = new SenderTrust(now, store);
+  await c.primeShared(B, BAL);
+  assert.equal(c.check(B, PREFUND), "strike");               // strike crosses instances
+  t += STRIKE_MAX_MS + 1;
+  await c.primeShared(B, BAL);
+  assert.equal(c.check(B, PREFUND), "unverified");           // and still needs a passing simulation afterwards
+  c.simulated(B); await c.flush();
+  assert.equal(c.check(B, PREFUND), null);
+});
+test("shared store errors fail safe (simulate), never grant trust", async () => {
+  const bad: TrustStore = { load: async () => { throw new Error("kv down"); }, save: async () => { throw new Error("kv down"); }, claimFirstPrime: async () => { throw new Error("kv down"); } };
+  const tr = new SenderTrust(() => 1_000_000, bad);
+  await tr.primeShared(A, BAL);
+  assert.notEqual(tr.check(A, PREFUND), null);
+  tr.simulated(A); await tr.flush();                        // write errors are swallowed
+});
+
+// ---- AUDIT #145 L-B: at most one unsimulated (fast-path) op in flight per sender ----
+import { FastInflight } from "../lib/server/relayTrust";
+function memLease() {
+  const m = new Map<string, string>();
+  return { m, setNX: async (k: string, v: string) => (m.has(k) ? false : (m.set(k, v), true)), delIfEq: async (k: string, v: string) => (m.get(k) === v ? (m.delete(k), true) : false) };
+}
+test("L-B: a 2nd concurrent fast op for the same sender is refused (⇒ simulated); released ⇒ fast again", async () => {
+  const g = new FastInflight();
+  const r1 = await g.acquire(A);
+  assert.ok(r1);
+  assert.equal(await g.acquire(A.toLowerCase()), null);   // same sender, any case
+  assert.ok(await g.acquire("0x" + "bb".repeat(20)));       // other senders unaffected
+  await r1!(); await r1!();                                  // idempotent release
+  assert.ok(await g.acquire(A));
+});
+test("L-B: shared lease across instances (SET NX); store error ⇒ refuse (simulate, fail-safe)", async () => {
+  const st = memLease();
+  const i1 = new FastInflight(st), i2 = new FastInflight(st);
+  const r = await i1.acquire(A);
+  assert.ok(r);
+  assert.equal(await i2.acquire(A), null);                   // another instance sees the lease
+  await r!();
+  assert.equal(st.m.size, 0);
+  const r2 = await i2.acquire(A);
+  assert.ok(r2);
+  assert.equal(await i1.acquire(A), null);
+  await r2!();
+  // a failed setNX releases the local hold too, so the sender isn't stuck on this instance
+  const bad = new FastInflight({ setNX: async () => { throw new Error("kv down"); }, delIfEq: async () => false });
+  assert.equal(await bad.acquire(A), null);
+  const flaky = { ...memLease() }; let fail = true;
+  const f = new FastInflight({ setNX: async (k, v) => (fail ? (fail = false, Promise.reject(new Error("x"))) : flaky.setNX(k, v)), delIfEq: flaky.delIfEq });
+  assert.equal(await f.acquire(A), null);
+  assert.ok(await f.acquire(A));
+});
+test("L-B Info: a stale release (lease TTL lapsed, slot re-taken) never frees someone else's slot", async () => {
+  const st = memLease();
+  const i1 = new FastInflight(st), i2 = new FastInflight(st), i3 = new FastInflight(st);
+  const r1 = await i1.acquire(A);
+  assert.ok(r1);
+  const key = `relay:fast:${A.toLowerCase()}`, t1 = st.m.get(key)!;
+  assert.match(t1, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);   // random owner token, not "1"
+  st.m.delete(key);                                          // i1's lease TTL lapses while its op is still slow
+  const r2 = await i2.acquire(A);                            // another instance takes the slot
+  assert.ok(r2);
+  const t2 = st.m.get(key)!;
+  assert.notEqual(t2, t1);
+  await r1!();                                               // i1's late release: token mismatch ⇒ no delete
+  assert.equal(st.m.get(key), t2);
+  assert.equal(await i3.acquire(A), null);                   // i2's slot still held
+  await r2!();                                               // the owner's release frees it
+  assert.equal(st.m.size, 0);
+  const r3 = await i3.acquire(A);
+  assert.ok(r3);
+  await r3!();
+  // local: a release fn from an earlier hold can't free a newer local hold either
+  const g = new FastInflight();
+  const a1 = await g.acquire(A); await a1!();
+  const a2 = await g.acquire(A); assert.ok(a2);
+  await a1!();                                               // idempotent + token-checked
+  assert.equal(await g.acquire(A), null);
+  await a2!();
+  assert.ok(await g.acquire(A));
 });

@@ -38,7 +38,7 @@ export default function SubNav() {
           <a key={i.id} href={`#${i.id}`} className={s.link} aria-current={active === i.id ? "location" : undefined}>{i.label}</a>
         ))}
       </div>
-      <span className={s.docs}>{HIW_SUBNAV.docs}</span>
+      {HIW_SUBNAV.docs ? <span className={s.docs}>{HIW_SUBNAV.docs}</span> : null}
     </nav>
   );
 }

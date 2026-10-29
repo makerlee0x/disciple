@@ -72,11 +72,16 @@ export async function useUsdgRouter(pc: PublicClient, router: Address): Promise<
   return payUsdg() ? routerUsdg(pc, router) : null;
 }
 
-/** End-to-end quote (coin out on buy, USDG out on sell) + max per-hop impact; one eth_call, cached ≤ maxAge. */
-export async function usdgRouteQuote(pc: PublicClient, router: Address, token: Address, isBuy: boolean, amountIn: bigint, maxAge = 1500, trader?: Address | null): Promise<bigint> {
+/**
+ * End-to-end quote (coin out on buy, USDG out on sell) + max per-hop impact; one eth_call, cached ≤ maxAge.
+ * exact = true (trade minOut): never a linear down-scale of a bigger warmed quote. The down-scale is a safe lower
+ * bound, but the session policy requires minOut ≥ liveQuote × (1 − max) — near graduation (output capped at the
+ * remaining tokens) or on a concave sell it falls far below that floor ⇒ MinOutTooLow on the first try.
+ */
+export async function usdgRouteQuote(pc: PublicClient, router: Address, token: Address, isBuy: boolean, amountIn: bigint, maxAge = 1500, trader?: Address | null, exact = false): Promise<bigint> {
   const side = isBuy ? "buy" : "sell", k = ckey("usdg", token, side, amountIn), lk = ckey("usdg", token, side);
   const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
-  const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc;
+  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; }
   return (await QUOTES.get(k, async () => {
     const { result } = trader
       ? await pc.simulateContract({ address: router, abi: usdgRouterAbi, functionName: "quoteUsdgRouteFor", args: [trader, token, isBuy, amountIn] })

@@ -6,7 +6,7 @@ import CashPanel from "./CashPanel";
 import SettingsPanel from "./SettingsPanel";
 import Icon from "@/components/icons/Icon";
 
-/** Private account settings: username / wallet / X / referral, Cash (deposit + withdraw), preferences. */
+/** Private account settings (username lives in Edit profile): wallet / X / referral, Cash (deposit + withdraw), preferences. */
 export default function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
     if (!open) return;
@@ -28,7 +28,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
           <button type="button" className="ds-btn" aria-label="Close settings" onClick={onClose}><Icon name="close" size={16} /></button>
         </header>
         <div className="ds-modal-body">
-          <ProfileIdentity />
+          <ProfileIdentity hideUsername />
           <CashPanel />
           <SettingsPanel />
         </div>

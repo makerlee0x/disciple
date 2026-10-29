@@ -4,6 +4,7 @@ import { wipeStack, type DB } from "./db.js";
 import { decodeEventLog } from "viem";
 import { EVENTS } from "./abi.js";
 import { applyLogs, type RawLog } from "./ingest.js";
+import { fillQuoteDecimals } from "./decimals.js";
 
 /** Coins launched by this stack's Launchpad within a batch of core logs. */
 export function launchedIn(core: RawLog[], stack: Stack): { token: Address; curve: Address }[] {
@@ -25,7 +26,7 @@ export function makeClient(cfg: Config): PublicClient {
 }
 
 export const coreAddrs = (s: Stack) =>
-  [s.launchpad, s.feeRouter, s.hook, s.migration, s.trampWallManager, s.anonLauncher, s.rewardsVault, s.referralRegistry, s.lockedLP, s.usdgDepositNotifier].filter(Boolean) as Address[];
+  [s.launchpad, s.feeRouter, s.hook, s.migration, s.trampWallManager, s.anonLauncher, s.anonLauncherLegacy, s.rewardsVault, s.referralRegistry, s.lockedLP, s.usdgDepositNotifier].filter(Boolean) as Address[];
 
 export class Syncer {
   private limiter: RateLimiter;
@@ -97,6 +98,15 @@ export class Syncer {
       if (core_n || sub.length || to - from >= 1000n) this.log(`[${stack.id}] ${from}-${to}: core ${core_n}, curve/token ${sub.length}`);
       from = to + 1n;
     }
+    await this.fillQuoteDecimals();
+  }
+
+  /** coins.quote_decimals for newly launched coins (config first, else decimals() on-chain). */
+  async fillQuoteDecimals() {
+    const abi = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
+    const n = await fillQuoteDecimals(this.db, (t) => this.retry(() => this.client.readContract({ address: t, abi, functionName: "decimals" })).then(Number),
+      this.cfg.quoteDecimals ?? {}, this.log);
+    if (n) this.log(`quote decimals filled for ${n} coin(s)`);
   }
 
   async syncAll() {

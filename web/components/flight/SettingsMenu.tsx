@@ -17,7 +17,7 @@ import ShareButton from "@/components/ShareButton";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import ControlsReference, { useControlsFeed } from "@/components/ControlsPill";
 import { MODES } from "@/lib/config";
-import { DEFAULT_SELLS } from "@/lib/trade/swapSettings";
+import { DEFAULT_BUY, DEFAULT_SELLS } from "@/lib/trade/swapSettings";
 import { onWallet } from "@/lib/wallet";
 import { localUsername } from "@/lib/profile";
 import { DEFAULT_BUY_KEYS, DEFAULT_SELL_KEYS, bindKey, broadcast, isBindable, keyLabel, setGameSettings, useGameSettings } from "@/lib/game/settings";
@@ -71,7 +71,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
   }, []);
   // amount drafts follow the live values while the hotkeys tab isn't being edited
   const editing = useRef(false);
-  useEffect(() => { if (editing.current) return; setBuyAuto(!presets.buy); setBuyDraft((presets.buy || ammoUsd).map(money)); setSellDraft(presets.sells.map(String)); }, [presets, ammoUsd, open]);
+  useEffect(() => { if (editing.current) return; setBuyAuto(!presets.buy); setBuyDraft((presets.buy || DEFAULT_BUY).map(money)); setSellDraft(DEFAULT_SELLS.map(String)); }, [presets, ammoUsd, open]);   // sells are fixed
 
   // tell the engine (and anyone else) that gameplay input is paused
   const paused = open || !!share;
@@ -98,7 +98,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
       }
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
       const blocked = () => document.documentElement.classList.contains("ap-grass")
-        || !!document.querySelector('[data-testid="swap-settings"], [role="dialog"][aria-modal="true"], [aria-label="wallet"] [role="menu"], [aria-label="Share card preview"]');
+        || !!document.querySelector('[data-testid="swap-settings"], [role="dialog"][aria-modal="true"], [aria-label="wallet"] [role="menu"], [aria-label="Share card preview"], [data-testid="phone-drawer"]');   // phone drawer: its own Esc closes it
       if (e.code === "Escape") { if (blocked()) return; e.preventDefault(); e.stopImmediatePropagation(); openMenu(); return; }
       if (e.code === "F1" || (e.code === "Slash" && !e.shiftKey)) { if (blocked()) return; e.preventDefault(); e.stopImmediatePropagation(); openMenu("controls"); }
     };
@@ -108,8 +108,8 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
   }, [close, openMenu, t]);
 
   const saveAmounts = () => {
-    const b = buyDraft.map((v) => +v), s = sellDraft.map((v, i) => (+v > 0 && +v <= 100 ? +v : DEFAULT_SELLS[i]));
-    dispatchEvent(new CustomEvent("disciple:presets-set", { detail: { buy: buyAuto || !b.every((v) => v > 0) ? null : b, sells: s } }));
+    const b = buyDraft.map((v) => +v);   // only buy amounts are customisable; sell sizes are fixed 10/25/50/100%
+    dispatchEvent(new CustomEvent("disciple:presets-set", { detail: { buy: buyAuto || !b.every((v) => v > 0 && Number.isFinite(v)) ? null : b } }));
     editing.current = false; flash(t("hk.saved"));
   };
 
@@ -180,7 +180,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                         onChange={(e) => { setBuyAuto(false); const n = [...buyDraft]; n[i] = e.target.value.replace(/[^\d.]/g, ""); setBuyDraft(n); }} />
                     </div>)}
                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, cursor: "pointer", marginTop: 4 }}>
-                      <input type="checkbox" data-testid="hk-auto" checked={buyAuto} onChange={(e) => { setBuyAuto(e.target.checked); if (e.target.checked) setBuyDraft(ammoUsd.map(money)); }} /> {t("hk.auto")}
+                      <input type="checkbox" data-testid="hk-auto" checked={buyAuto} onChange={(e) => { setBuyAuto(e.target.checked); if (e.target.checked) setBuyDraft(DEFAULT_BUY.map(money)); }} /> {t("hk.auto")}
                     </label>
                   </div>
                   <div>
@@ -188,8 +188,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
                     {[0, 1, 2, 3].map((i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ width: 52, fontSize: 10, opacity: 0.85 }}>SELL {i + 1}</span>
                       {keyBtn({ kind: "sell", i }, gs.keys.sell[i])}
-                      <input aria-label={`sell size ${i + 1} percent`} data-testid={`hk-sell-amt-${i}`} inputMode="decimal" value={sellDraft[i] ?? ""} style={field}
-                        onChange={(e) => { const n = [...sellDraft]; n[i] = e.target.value.replace(/[^\d.]/g, ""); setSellDraft(n); }} />
+                      <input aria-label={`sell size ${i + 1} percent`} data-testid={`hk-sell-amt-${i}`} inputMode="decimal" value={`${sellDraft[i] ?? DEFAULT_SELLS[i]}%`} readOnly aria-readonly title="fixed % of your bag (use the custom sell field for other sizes)" style={{ ...field, opacity: 0.7 }} />
                     </div>)}
                   </div>
                 </div>

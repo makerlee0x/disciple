@@ -1,58 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  ACHIEVEMENT_CATEGORIES, achievementIconPath, evaluateAchievements, rarityStyle,
-  type AchievementCategory, type AchievementView,
-} from "@/lib/achievements";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { ACHIEVEMENT_CATEGORIES, type AchievementCategory, type AchievementView } from "@/lib/achievements";
+import AchievementCard from "./AchievementCard";
+import TitlesSection from "./TitlesSection";
 import { rarityRank } from "@/lib/config";
-import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
+import { useProfileStats } from "@/lib/profileStats";
 import { prestigeFromPoints } from "@/lib/prestige";
-import { withBase } from "@/lib/base-path";
-import Icon from "@/components/icons/Icon";
-
-function rewardPreview(a: AchievementView) {
-  const bits: string[] = [];
-  if (a.reward.points) bits.push(`+${a.reward.points} pts`);
-  if (a.reward.skin) bits.push(a.reward.skin);
-  if (a.reward.trail) bits.push(a.reward.trail);
-  if (a.reward.frame) bits.push(a.reward.frame);
-  return bits.join(" · ") || "—";
-}
+import { onWallet } from "@/lib/wallet";
 
 const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
 
+/**
+ * /achievements: the signed-in wallet's achievements EARNED from its real trades (lib/profileStats). No sample pilot
+ * in production; nothing earned (or signed out) → one empty state. The full catalog with progress, locked cards and
+ * the season pass shows only for the dev sample (`next dev` + ?sample=1) until GAME sets the V1 set and points are real.
+ */
 export default function AchievementsGrid() {
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
-  const data = useMemo(() => buildPersonaStats("believer"), []);
-  const views = useMemo(() => evaluateAchievements(data), [data]);
+  const [wallet, setWallet] = useState<string | null>(null);
+  useEffect(() => onWallet((a) => setWallet(a ? a.toLowerCase() : null)), []);
+  const { data, ready, sample } = useProfileStats(wallet);
+  const views = useMemo(() => (sample ? data.achievements : data.achievements.filter((a) => a.state === "unlocked")), [data, sample]);
   const pass = prestigeFromPoints(data.points);
   const [openLocked, setOpenLocked] = useState<Record<string, boolean>>({});
   const unlocked = views.filter((v) => v.state === "unlocked").length;
 
-  const card = (a: AchievementView) => {
-    const rarity = rarityStyle(a.rarity);
-    return (
-      <article key={a.id} className={`ach-card state-${a.state}`}
-        style={{ borderColor: rarity.border, boxShadow: a.state === "unlocked" ? `0 0 24px ${rarity.glow}` : undefined }}>
-        <div className="ach-frame" style={{ borderColor: rarity.border }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="ach-svg" src={withBase(achievementIconPath(a.id))} alt="" width={60} height={60} />
-          {a.state === "locked" && <span className="ach-lock" aria-label="locked"><Icon name="lock" size={16} /></span>}
-        </div>
-        <div className="ach-body">
-          <div className="ach-rarity" style={{ color: rarity.border }}>{rarity.label}</div>
-          <h3>{a.name}</h3>
-          <p>{a.description}</p>
-          <div className="ach-progress">
-            <div className="ach-bar"><div style={{ width: `${a.pct}%`, background: rarity.border }} /></div>
-            <span>{a.current}/{a.target}</span>
-          </div>
-          <div className="ach-reward">Reward: {rewardPreview(a)}</div>
-        </div>
-      </article>
-    );
-  };
+  const card = (a: AchievementView) => <AchievementCard key={a.id} a={a} />;
   const groups = ACHIEVEMENT_CATEGORIES
     .filter((c) => cat === "all" || c.id === cat)
     .map((c) => {
@@ -60,6 +35,35 @@ export default function AchievementsGrid() {
       return { ...c, items, active: items.filter((v) => v.state !== "locked"), locked: items.filter((v) => v.state === "locked") };
     })
     .filter((g) => g.items.length);
+
+  if (!sample) {
+    return (
+      <div className="ach-page">
+        <header className="profile-head">
+          <div>
+            <h1>Achievements</h1>
+            {unlocked > 0 && <div className="sub">{unlocked} EARNED</div>}
+          </div>
+        </header>
+        {wallet && !ready ? <div className="pf-skeleton" aria-hidden /> : !unlocked ? (
+          <div className="pf-empty" data-testid="ach-empty">
+            <strong>No achievements yet</strong>
+            <p>Your first BOOST starts the climb.</p>
+            <Link href="/" className="ds-btn">Open Launchpad</Link>
+          </div>
+        ) : (
+          <div className="ach-groups">
+            {groups.map((g) => (
+              <section key={g.id} className="ach-group" aria-label={g.label}>
+                <header className="ach-group-head"><h2>{g.label}</h2></header>
+                <div className="ach-grid">{g.items.map(card)}</div>
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="ach-page">
@@ -69,7 +73,7 @@ export default function AchievementsGrid() {
           <div className="sub">CHOIR OF DEEDS · {unlocked}/{views.length} UNLOCKED</div>
         </div>
       </header>
-      <span className="tag mock">{SAMPLE_DATA_LABEL}</span>
+      <span className="tag mock">SAMPLE DATA · DEV</span>
 
       <section className="season-pass">
         <div className="pass-meta">
@@ -88,6 +92,8 @@ export default function AchievementsGrid() {
           </div>
         </div>
       </section>
+
+      <TitlesSection />
 
       <div className="ach-filters">
         <button type="button" className={cat === "all" ? "on" : ""} onClick={() => setCat("all")}>All</button>
