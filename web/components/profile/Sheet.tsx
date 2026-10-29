@@ -11,8 +11,13 @@ export default function Sheet({ open, onClose, label, className = "", children, 
   open: boolean; onClose: () => void; label: string; className?: string; children: ReactNode; testId?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  // Latest onClose in a ref: callers pass an inline function (a new one every render). Depending on it re-ran this
+  // effect on every keystroke inside the sheet, and its cleanup / autofocus pulled focus out of the field being typed in.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
+    const onClose = () => closeRef.current();
     const opener = document.activeElement as HTMLElement | null;
     const k = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
@@ -28,10 +33,10 @@ export default function Sheet({ open, onClose, label, className = "", children, 
     document.body.style.overflow = "hidden";
     requestAnimationFrame(() => box.current?.querySelector<HTMLElement>("[data-autofocus],button")?.focus());
     return () => { window.removeEventListener("keydown", k); document.body.style.overflow = prev; opener?.focus?.(); };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
-    <div className="ds-modal-backdrop pf-sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="ds-modal-backdrop pf-sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) closeRef.current(); }}>
       <div ref={box} className={`ds-modal pf-sheet ${className}`} role="dialog" aria-modal="true" aria-label={label} data-testid={testId}>
         <span className="pf-sheet-handle" aria-hidden />
         {children}

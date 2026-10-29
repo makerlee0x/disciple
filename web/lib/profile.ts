@@ -6,14 +6,21 @@
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { refLink } from "./referral";
 import { claimMessage } from "./usernameClaim";
+import { PROFILE_COPY } from "./copy/profile";
 
+export const USERNAME_MIN = 3;
+export const USERNAME_MAX = 20;
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+/** Plain reason shown inline and returned by /api/profile/username for a name under USERNAME_MIN. */
+export const USERNAME_SHORT: string = PROFILE_COPY["edit.username.error.short"];
 export const RESERVED = new Set(["admin", "disciple", "support", "root", "api", "you", "settings", "profile"]);
 const K = { username: "disciple.username", x: "disciple.xHandle", ref: "disciple.ref" };
 
 export function normalizeUsername(u: string) { return u.trim().toLowerCase().replace(/^@/, ""); }
 export function validateUsername(u: string): string | null {
   const n = normalizeUsername(u);
+  // Length first, so a short name gets the specific message. Existing names are never re-validated (only a change is).
+  if (n.length < USERNAME_MIN) return USERNAME_SHORT;
   if (!USERNAME_RE.test(n)) return "3–20 chars: a–z, 0–9, underscore.";
   if (RESERVED.has(n)) return "That name is reserved.";
   return null;

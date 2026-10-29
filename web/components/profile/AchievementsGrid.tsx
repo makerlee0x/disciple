@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ACHIEVEMENT_CATEGORIES, type AchievementCategory, type AchievementView } from "@/lib/achievements";
 import AchievementCard from "./AchievementCard";
+import TitlesSection from "./TitlesSection";
 import { rarityRank } from "@/lib/config";
 import { useProfileStats } from "@/lib/profileStats";
 import { prestigeFromPoints } from "@/lib/prestige";
@@ -91,6 +92,8 @@ export default function AchievementsGrid() {
           </div>
         </div>
       </section>
+
+      <TitlesSection />
 
       <div className="ach-filters">
         <button type="button" className={cat === "all" ? "on" : ""} onClick={() => setCat("all")}>All</button>

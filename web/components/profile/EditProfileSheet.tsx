@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { identityRuleText, type IdentityId } from "@/lib/identity";
+import { earnedTitlesFor, profileStatsSeed, shownTitle, titleDef } from "@/lib/titles";
 import { withBase } from "@/lib/base-path";
 import { checkUsername, claimUsername, fetchUsernameStatus, localUsername, normalizeUsername, validateUsername } from "@/lib/profile";
 import { formatLocalWhen } from "@/lib/usernameCooldown";
@@ -11,7 +13,7 @@ import Icon from "@/components/icons/Icon";
 import Sheet from "./Sheet";
 import FlagPicker from "./FlagPicker";
 
-const same = (a: ProfileMeta, b: ProfileMeta) => a.pfp === b.pfp && a.flag === b.flag && sanitizeBio(a.bio) === sanitizeBio(b.bio);
+const same = (a: ProfileMeta, b: ProfileMeta) => a.pfp === b.pfp && a.flag === b.flag && sanitizeBio(a.bio) === sanitizeBio(b.bio) && (a.title || "") === (b.title || "");
 
 /**
  * Edit profile: picture · username · bio · flag (country or coin community), one Save. Username: one change per 24h,
@@ -25,7 +27,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   const [draft, setDraft] = useState<ProfileMeta>(EMPTY_META);
   const [me, setMe] = useState("");
   const [name, setName] = useState("");
-  const [nameStatus, setNameStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [nameStatus, setNameStatus] = useState<{ ok: boolean; text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = useState<"" | "upload" | "save">("");
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
@@ -58,7 +60,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   useEffect(() => {
     if (!open || !nameChanged) { setNameStatus(null); return; }
     const bad = validateUsername(name);
-    if (bad) { setNameStatus({ ok: false, text: bad }); return; }
+    if (bad) { setNameStatus({ ok: false, text: bad, bad: true }); return; }
     setNameStatus({ ok: false, text: C["edit.username.checking"] });
     let alive = true;
     const t = setTimeout(async () => {
@@ -69,6 +71,10 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
   }, [name, nameChanged, open]);
 
   const bioLen = bioLength(sanitizeBio(draft.bio));
+  // Titles: earned ones only (lib/titles, same computation the server checks). A rename changes the (sample) stats
+  // seed, so the list follows the name being saved.
+  const earned = useMemo(() => earnedTitlesFor(profileStatsSeed(nameChanged && nameStatus?.ok ? normalizeUsername(name) : me, wallet)), [nameChanged, nameStatus?.ok, name, me, wallet]);
+  const titleNow = shownTitle(draft.title, earned);
   const metaChanged = !same(draft, meta);
   const dirty = metaChanged || nameChanged;
   const valid = bioLen <= BIO_MAX && (!nameChanged || !!nameStatus?.ok);
@@ -82,7 +88,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
     const r = await uploadPfp(f);
     setBusy("");
     if (r.id) setDraft((d) => ({ ...d, pfp: r.id! }));
-    else setErr(r.reason || "This image can't be used.");
+    else setErr(r.reason || C["edit.pfp.error.failed"]);
     if (file.current) file.current.value = "";
   }
 
@@ -96,7 +102,8 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
       setMe(normalizeUsername(name));
     }
     if (metaChanged) {
-      const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio) }, wallet);
+      const t = draft.title && earned.includes(draft.title as IdentityId) ? draft.title : "";
+      const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: t }, wallet);
       if (!r.ok) { setBusy(""); setErr(r.reason || C["edit.error.save"]); return; }
     }
     setBusy("");
@@ -146,7 +153,8 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
               {nameLocked ? C["username.cooldown.note"](formatLocalWhen(nextNameAt!)) : C["username.cooldown.rule"]}
             </span>
             <span className="pf-help-row">
-              {nameStatus ? <span className={nameStatus.ok ? "pf-ok" : "pf-help"} role={nameStatus.ok ? "status" : undefined}>{nameStatus.text}</span>
+              {nameStatus ? <span className={nameStatus.ok ? "pf-ok" : nameStatus.bad ? "pf-bad" : "pf-help"} role={nameStatus.ok ? "status" : undefined}
+                  data-testid="username-status">{nameStatus.text}</span>
                 : name && !nameChanged ? <span className="pf-help">That&apos;s you.</span> : <span />}
               <span className="pf-help pf-mono">{name.length}/20</span>
             </span>
@@ -167,6 +175,24 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus }:
             <FlagPicker value={draft.flag} onChange={(id) => setDraft((d) => ({ ...d, flag: id }))} />
             <span className="pf-help">{C["edit.flag.helper.any"]}</span>
           </div>
+
+          <fieldset className="pf-field pf-title-pick" data-testid="title-picker">
+            <legend className="pf-field-label">{C["edit.title.label"]}</legend>
+            {earned.length ? (
+              <div className="pf-title-opts" role="radiogroup" aria-label={C["edit.title.label"]}>
+                {earned.map((id) => (
+                  <label key={id} className={`pf-title-opt ${titleNow === id ? "on" : ""}`}>
+                    <input type="radio" name="pf-title" value={id} checked={titleNow === id} onChange={() => setDraft((d) => ({ ...d, title: id }))} />
+                    <span className="pf-title-opt-text"><strong>{titleDef(id)?.label}</strong><span className="pf-help">{identityRuleText(id)}</span></span>
+                  </label>
+                ))}
+              </div>
+            ) : <span className="pf-help">{C["edit.title.empty"]}</span>}
+            <span className="pf-help-row">
+              <span className="pf-help">{C["edit.title.helper"]}</span>
+              <a href={withBase("/achievements#titles")} className="pf-help pf-link">{C["edit.title.more"]}</a>
+            </span>
+          </fieldset>
 
           {note && <p className="pf-help" role="status">{note}</p>}
           {err && <p className="pf-bad" role="alert">{err}</p>}

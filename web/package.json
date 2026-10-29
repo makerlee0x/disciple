@@ -23,6 +23,8 @@
     "test:profile-meta": "tsx --test scripts/test-profile-meta.mts",
     "test:profile-stats": "tsx --test scripts/test-profile-stats.mts",
     "test:profile-meta-api": "node scripts/test-profile-meta-api.mjs",
+    "test:profile-edit-fixes": "tsx --conditions=react-server --test scripts/test-profile-edit-fixes.mts",
+    "test:profile-edit-focus": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-profile-edit-focus.mts",
     "test:replay": "node scripts/test-replay.mjs",
     "test:chartseed": "node scripts/test-chartseed.mjs",
     "test:feed-names": "node scripts/test-feed-names.mjs",
@@ -103,7 +105,9 @@
     "test:rapid-tap": "node scripts/test-rapid-tap.mjs",
     "test:public-get-limits": "tsx --test scripts/test-public-get-limits.mts",
     "test:security-page": "tsx --conditions=react-server --test scripts/test-security-page.mts",
-    "test:trade-guards": "tsx --test scripts/test-trade-guards.mts"
+    "test:trade-guards": "tsx --test scripts/test-trade-guards.mts",
+    "test:profile-one-page": "tsx --conditions=react-server --test scripts/test-profile-one-page.mts",
+    "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",
@@ -130,6 +134,7 @@
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
+    "happy-dom": "^21.0.4",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.23.15",

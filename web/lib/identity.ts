@@ -83,14 +83,18 @@ export interface DerivedIdentity {
   matched: IdentityDef[];
 }
 
+/**
+ * Shown when no title is earned (lee, 2026-10-24: "instead of pilgrim that should say normie"). Not a title and not
+ * pickable. The id stays "believer" only because it picks the sigil art; nothing stores it.
+ */
+export const NO_TITLE: IdentityDef = {
+  id: "believer", label: "Normie", blurb: "Still finding the flight path.", weight: 0, test: () => true,
+};
+export const NO_IDENTITY: DerivedIdentity = { primary: NO_TITLE, secondary: [], matched: [] };
+
 export function deriveIdentity(m: IdentityMetrics): DerivedIdentity {
   const matched = IDENTITIES.filter((d) => d.test(m)).sort((a, b) => b.weight - a.weight);
-  if (matched.length === 0) {
-    const fallback: IdentityDef = {
-      id: "believer", label: "Normie", blurb: "Still finding the flight path.", weight: 0, test: () => true,
-    };
-    return { primary: fallback, secondary: [], matched: [] };
-  }
+  if (matched.length === 0) return NO_IDENTITY;
   return { primary: matched[0], secondary: matched.slice(1, 4), matched };
 }
 
