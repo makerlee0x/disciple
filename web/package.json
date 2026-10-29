@@ -72,6 +72,7 @@
     "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
     "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
     "test:sync-send": "tsx --test scripts/test-sync-send.mts",
+    "test:achievements-server": "tsx --conditions=react-server --test scripts/test-achievements-server.mts",
     "test:usdg-refund": "tsx --conditions=react-server --test scripts/test-usdg-refund.mts",
     "test:denylist": "tsx --conditions=react-server --test scripts/test-denylist.mts",
     "test:pve-attest": "tsx --test scripts/test-pve-attest.mts",

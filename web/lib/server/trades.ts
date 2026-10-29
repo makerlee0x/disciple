@@ -21,6 +21,7 @@ import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } fro
 import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
+import { ACH } from "./achKeys";
 import { coinBasis } from "@/lib/mcap";
 import { attachRefunds, fillUsd, FILL_V, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgRefundArgs, type UsdgTradeArgs } from "@/lib/trades";
 import { usdgDecimals } from "@/lib/usdg";
@@ -67,6 +68,8 @@ export function toFill(log: { transactionHash: string; logIndex: number; blockNu
   sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number;
   /** Trade.quoteAmt: quote paid (buy) / received (sell) ⇒ usd = quoteAmt × quotePriceUsd (lib/trades fillUsd) */
   quoteAmt?: bigint;
+  /** Trade.impactBps (uncapped) / Trade.snipeFee (quote raw) — stored per fill (achievements bomb rules) */
+  impactBps?: bigint; snipeFee?: bigint;
 }, ts: number, usdg?: UsdgTradeArgs): Fill {
   const u = fillUsd(a);
   return {
@@ -75,11 +78,14 @@ export function toFill(log: { transactionHash: string; logIndex: number; blockNu
     // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630).
     // usdIn is NET of the router's UsdgRefund when usdg.usdgRefund is set (attachRefunds).
     ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined, usdgDecimals()),
+    ...(a.impactBps !== undefined ? { impactBps: Number(a.impactBps) } : {}),
+    priceBeforeX18: a.priceBeforeX18.toString(),
+    ...(a.snipeFee !== undefined ? { snipeFee: a.snipeFee.toString() } : {}),
     v: FILL_V,
   };
 }
 
-export type TradeArgs = { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; quoteAmt?: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number };
+export type TradeArgs = { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; quoteAmt?: bigint; impactBps?: bigint; snipeFee?: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number };
 /**
  * Verify the emitter and fill in the USD basis of a decoded Trade (mutates `a`): venue (null = spoofed / foreign), the coin's
  * launch quote price (both venues: usd = quoteAmt × quotePriceUsd), and for hook trades the quote (currency order) for the
@@ -165,6 +171,8 @@ export async function storeFills(fills: Fill[]) {
   const coinsBy = new Map<string, Set<string>>();
   for (const f of fills) (coinsBy.get(f.trader) ?? coinsBy.set(f.trader, new Set()).get(f.trader)!).add(f.coin);
   for (const [w, cs] of Array.from(coinsBy.entries())) await s.sadd(`trades:w:${w}`, ...Array.from(cs));
+  // achievements engine: re-score these wallets on the next /api/cron/achievements (one member per fill ⇒ never lost)
+  if (fills.length) await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
 }
 
 const byOrder = (a: Fill, b: Fill) => a.block - b.block || a.logIndex - b.logIndex;
@@ -235,6 +243,8 @@ export async function replaceFill(s: Pick<Kv, "zadd" | "zrem">, coin: string, ol
   await s.zadd(wk, [{ score: nf.ts, member: nm }]);
   await s.zrem(`trades:${coin}`, oldMember);
   await s.zrem(wk, oldMember);
+  // a re-indexed fill (net usdIn, impactBps) can change achievements ⇒ re-score its wallet
+  await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${nf.trader}|re:${nf.id}:${nf.v ?? 0}` }]);
 }
 
 /**

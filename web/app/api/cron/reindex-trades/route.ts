@@ -2,6 +2,9 @@
  * GET /api/cron/reindex-trades?coin=0x…|all[&dry=1] — one-off maintenance (SITE job 7), NOT scheduled in vercel.json.
  * Re-values stored /api/trades fills indexed with the old tokens × mid-price estimate (lib/server/trades reindexFills):
  * usd = Trade.quoteAmt × the coin's launch quote price. Idempotent; scoped to one coin or all; `dry=1` writes nothing.
+ * Also the backfill for stored-fill schema bumps (lib/trades FILL_V): v2 = usdIn net of the router's UsdgRefund, v3 = +
+ * impactBps / priceBeforeX18 / snipeFee. Every fill below FILL_V is rebuilt once from its receipt; each rebuilt fill marks
+ * its wallet dirty for /api/cron/achievements. Run `?coin=all&dry=1` first and check the samples (usdInBefore/After).
  * Stops at a 45 s budget — `done: false` in the response ⇒ call again (already-revalued fills are skipped).
  * Auth: Bearer CRON_SECRET (constant-time). In production an unset CRON_SECRET ⇒ 503 (never an open endpoint).
  */
