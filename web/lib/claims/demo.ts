@@ -7,6 +7,8 @@ import type { Caps } from "./capabilities";
 import type { CreatorRocket } from "./creatorFees";
 import { usdgDecimals, usdToUsdgRaw } from "../usdg";
 import type { Asset } from "./common";
+import { groupHistory, summarize, type RewardEntry } from "./rewards";
+import type { RewardsData } from "./rewardsData";
 
 export function demoEnabled(): boolean {
   if (typeof window === "undefined") return false;
@@ -55,3 +57,23 @@ export const demoFeed = () => [
   { seller: who(9), tax: r(77.7), grossQuote: r(10_000), tx: tx(9), block: BigInt(1) },
   { seller: who(8), tax: r(12.4), grossQuote: r(1_600), tx: tx(8), block: BigInt(1) },
 ];
+
+/** SAMPLE combined rewards (profile Rewards section, ?demo=1 on dev builds only). Built with the same sums as live. */
+export function demoRewards(nowSec: number): RewardsData {
+  const h = 3600, d = 86400;
+  const entries: RewardEntry[] = [
+    { kind: "referral", ts: nowSec - 5 * h, usd: 44.87 }, { kind: "creator", ts: nowSec - 7 * h, usd: 12.4 },
+    { kind: "referral", ts: nowSec - d - 2 * h, usd: 57.87 }, { kind: "crew", ts: nowSec - 2 * d, usd: 1.57 },
+    { kind: "referral", ts: nowSec - 3 * d, usd: 11.35 }, { kind: "creator", ts: nowSec - 9 * d, usd: 30.2 },
+    { kind: "referral", ts: nowSec - 12 * d, usd: 80.04 },
+  ];
+  const claimable = [{ kind: "referral" as const, usd: 21.43 }, { kind: "creator" as const, usd: 45.12 }, { kind: "crew" as const, usd: 1.57 }];
+  const claimed = [{ kind: "referral" as const, usd: 172.7 }, { kind: "creator" as const, usd: 42.6 }, { kind: "crew" as const, usd: 1.57 }];
+  const summary = summarize(claimable, claimed, entries, nowSec);
+  return {
+    summary, history: groupHistory(entries),
+    claimableByKind: { referral: 21.43, creator: 45.12, crew: 1.57 },
+    claim: { referral: demoReferral(), creator: demoRockets(true).filter((x) => x.claimable > BigInt(0)), crew: demoCrew().map((c) => ({ token: c.token, pending: c.pending })) },
+    launched: 4, referralPaused: false,
+  };
+}
