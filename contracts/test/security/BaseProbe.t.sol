@@ -112,3 +112,10 @@ contract BaseProbeTest is BaseTestBase {
         emit log_named_uint("launch gas (USDG base, no probe)", g - gasleft());
     }
 }
+
+/// @notice 6-decimal USDG run of BaseProbeTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract BaseProbe6DecTest is BaseProbeTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
+    }
+}

@@ -12,14 +12,14 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 contract ReferralOwnershipIntegrationTest is IntegrationBase {
     function test_referral_firstTouch_usdgGate_and_lifetime_1pct() public {
         // Attribute pending then deposit ≥ $10
-        _bindReferral(referred, kol, 10 ether);
+        _bindReferral(referred, kol, 10 * U);
         assertEq(referrals.referrerOf(referred), kol);
 
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _warpPastSnipe();
 
         uint256 refBefore = feeRouter.referrerAccrued(kol, address(quote));
-        _buy(curve, referred, 100 ether, 0);
+        _buy(curve, referred, 100 * U, 0);
         uint256 refAfter = feeRouter.referrerAccrued(kol, address(quote));
         assertGt(refAfter, refBefore, "KOL gets 1% of trade fee leftover");
 
@@ -45,9 +45,9 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         assertEq(referrals.referrerOf(trader1), address(0));
         assertEq(referrals.pendingReferrer(trader1), kol);
         // Deposit $9.99 — still under gate
-        depositHook.notifyDeposit(trader1, 9 ether);
+        depositHook.notifyDeposit(trader1, 9 * U);
         assertEq(referrals.referrerOf(trader1), address(0));
-        depositHook.notifyDeposit(trader1, 1 ether);
+        depositHook.notifyDeposit(trader1, 1 * U);
         assertEq(referrals.referrerOf(trader1), kol);
     }
 
@@ -55,14 +55,14 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         (BondingCurve curve,) = _launch(0, 0);
         _warpPastSnipe();
         uint256 tre0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        _buy(curve, trader1, 100 ether, 0);
+        _buy(curve, trader1, 100 * U, 0);
         assertGt((quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))), tre0, "treasury auto-push");
     }
 
     function test_creator_claim_anytime() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _warpPastSnipe();
-        _buy(curve, trader1, 100 ether, 0);
+        _buy(curve, trader1, 100 * U, 0);
         uint256 accrued = feeRouter.creatorAccrued(address(tok), creator);
         assertGt(accrued, 0);
         uint256 bal0 = quote.balanceOf(creator);
@@ -101,7 +101,7 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         _warpPastSnipe();
 
         // Accrue some fees to original creator first
-        _buy(curve, trader1, 40 ether, 0);
+        _buy(curve, trader1, 40 * U, 0);
         uint256 oldAccrued = feeRouter.creatorAccrued(address(tok), creator);
         assertGt(oldAccrued, 0, "pre-transfer accrual");
 
@@ -112,7 +112,7 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         assertEq(launchpad.creatorOf(address(tok)), hop1);
 
         // Post-transfer fees → hop1; old accrual unchanged under creator
-        _buy(curve, trader2, 50 ether, 0);
+        _buy(curve, trader2, 50 * U, 0);
         assertEq(feeRouter.creatorAccrued(address(tok), creator), oldAccrued, "pre-transfer accrual stays with old");
         assertGt(feeRouter.creatorAccrued(address(tok), hop1), 0, "new creator accrues after transfer");
 
@@ -120,7 +120,7 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         vm.prank(hop1);
         launchpad.transferCreator(address(tok), hop2);
         uint256 hop1Accrued = feeRouter.creatorAccrued(address(tok), hop1);
-        _buy(curve, sniper, 30 ether, 0);
+        _buy(curve, sniper, 30 * U, 0);
         assertEq(feeRouter.creatorAccrued(address(tok), hop1), hop1Accrued, "hop1 pre-transfer stays");
         assertGt(feeRouter.creatorAccrued(address(tok), hop2), 0, "hop2 accrues");
 
@@ -133,7 +133,7 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
 
     /// @notice LOCKED #21: coins created by referred wallet → KOL gets leftover 1% + 2% of creator's 33%.
     function test_kol_on_creates_gets_1pct_leftover_plus_2pct_of_creator_share() public {
-        _bindReferral(referred, kol, 10 ether);
+        _bindReferral(referred, kol, 10 * U);
         assertEq(referrals.referrerOf(referred), kol);
 
         uint256 ts = block.timestamp;
@@ -157,7 +157,7 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
 
         BondingCurve curve = BondingCurve(r.curve);
         _warpPastSnipe();
-        _buy(curve, trader1, 100 ether, 0);
+        _buy(curve, trader1, 100 * U, 0);
 
         uint256 creatorFees = feeRouter.creatorAccrued(r.token, referred);
         uint256 kolShare = feeRouter.referrerAccrued(kol, address(quote));
@@ -167,10 +167,17 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         // protoFee = 1% of 100e18 = 1e18
         // creatorShare raw = 33% = 0.33e18; kol takes 2% of that = 0.0066e18; leftover 1% = 0.01e18
         // expected kol ≈ 0.0166e18
-        uint256 proto = 1 ether; // 1% of 100 ether
+        uint256 proto = 1 * U; // 1% of 100 * U
         uint256 creatorRaw = (proto * 33) / 100;
         uint256 expectedKol = (proto * 1) / 100 + (creatorRaw * 200) / 10_000;
         assertEq(kolShare, expectedKol);
         assertEq(creatorFees, creatorRaw - (creatorRaw * 200) / 10_000);
+    }
+}
+
+/// @notice 6-decimal USDG run of ReferralOwnershipIntegrationTest (mainnet USDG / next testnet mock); same tests, `U` = 1e6.
+contract ReferralOwnershipIntegration6DecTest is ReferralOwnershipIntegrationTest {
+    function _usdgDecimals() internal pure override returns (uint8) {
+        return 6;
     }
 }
