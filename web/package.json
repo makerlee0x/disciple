@@ -22,6 +22,7 @@
     "test:username-claim": "node scripts/test-username-claim.mjs",
     "test:profile-meta": "tsx --test scripts/test-profile-meta.mts",
     "test:profile-stats": "tsx --test scripts/test-profile-stats.mts",
+    "test:guilds": "tsx --test scripts/test-guilds.mts",
     "test:profile-meta-api": "node scripts/test-profile-meta-api.mjs",
     "test:profile-edit-fixes": "tsx --conditions=react-server --test scripts/test-profile-edit-fixes.mts",
     "test:profile-edit-focus": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-profile-edit-focus.mts",
