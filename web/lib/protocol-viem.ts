@@ -529,11 +529,15 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
            mcapAfterUsd: wadToNum(q.mcapAfterUsd), profitTax: q.profitTax, venue: "curve" };
 }
 
-/** Launchpad.quoteCreatorBuy: preview the optional same-tx creator buy. quote = 0 ⇒ default quote. */
-export async function readCreatorBuyQuote(pc: PublicClient, quote: Address, quoteIn: bigint, creatorTaxBps: number) {
-  const [tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap] = await pc.readContract({
-    address: deployment().launchpad, abi: launchpadAbi, functionName: "quoteCreatorBuy", args: [quote, quoteIn, B(creatorTaxBps)],
-  });
+/**
+ * Launchpad.quoteCreatorBuy: preview the optional same-tx creator buy. quote = 0 ⇒ default quote. With `mode` on the modes
+ * ABI it calls the mode-aware overload, so exceedsCap / tokensOut use firstBoostMaxBps(mode) (Easy 1.2%, Hard 3.33%).
+ */
+export async function readCreatorBuyQuote(pc: PublicClient, quote: Address, quoteIn: bigint, creatorTaxBps: number, mode?: number) {
+  const args = mode != null && modesActive() ? ([quote, quoteIn, B(creatorTaxBps), mode] as const) : ([quote, quoteIn, B(creatorTaxBps)] as const);
+  const [tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap] = (await pc.readContract({
+    address: deployment().launchpad, abi: launchpadAbi, functionName: "quoteCreatorBuy", args,
+  } as never)) as readonly [bigint, bigint, bigint, bigint, boolean];
   return { tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap };
 }
 
@@ -823,17 +827,17 @@ export function createViemProtocol(): ProtocolClient {
         const calls: Call[] = [];
         if (creatorBuy > B(0)) {
           const [cq, launchpadCapBps] = await Promise.all([
-            readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps)), readCreatorBuyMaxBps(pc),
+            readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps), mode), readCreatorBuyMaxBps(pc),
           ]);
-          // Mode caps stack on top of creatorBuyMaxBps (PVE 0.25% per buy in its launch window); quoteCreatorBuy can't see them.
+          // First BOOST cap = Launchpad.firstBoostMaxBps(mode) (lib/modeRules: Easy 1.2%, Hard 3.33%, Trench creatorBuyMaxBps).
           const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
           if (cq.exceedsCap) {
-            const pct = Math.min(launchpadCapBps, eff.bps, 700) / 100;   // 700 bps = the 7% wallet cap
+            const pct = Math.min(eff.bps, 700) / 100;   // 700 bps = the creatorBuyMaxBps ceiling
             logTradeError("launch buy over cap", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
             throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
           }
           if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
-            throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow at most ${eff.bps / 100}% of supply per buy. Lower the First BOOST.`);
+            throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow a First BOOST of at most ${eff.bps / 100}% of the coins. Lower it.`);
           }
           // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
           // ensurePveLogin (#99) gets one from /api/pve/attest (relayed on-chain) or prepends LoginGate.attest; it throws

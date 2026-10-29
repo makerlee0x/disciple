@@ -20,7 +20,7 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
  * First BOOST input for /create: the creator's optional buy in the launch tx (LaunchParams.creatorBuyQuoteIn),
  * denominated in the pair (quote) token. Cap = Launchpad.creatorBuyMaxBps() read live; estimate =
  * Launchpad.quoteCreatorBuy (local curve math shows instantly while the view loads). On the modes (v4) ABI the
- * launch mode's per-buy cap stacks on top (PVE 0.25%, PVP/TRENCH 0.77% today): MAX and validation use the stricter one,
+ * launch mode sets the cap (Launchpad.firstBoostMaxBps: Easy 1.2%, Hard 3.33%, Trench creatorBuyMaxBps; lib/modeRules),
  * and a PVE First BOOST needs a login-verified wallet (note + check).
  */
 export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE }: {
@@ -79,7 +79,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
     if (!limits || !raw || raw <= BigInt(0)) { setViewOut(null); return; }
     let alive = true;
     const t = setTimeout(() => {
-      readCreatorBuyQuote(publicClient(), limits.quote, raw, creatorTaxBps)
+      readCreatorBuyQuote(publicClient(), limits.quote, raw, creatorTaxBps, limits.mode)
         .then((q) => { if (alive) setViewOut({ raw, tokens: q.tokensOut, exceedsCap: q.exceedsCap }); })
         .catch(() => { /* keep local estimate */ });
     }, 250);
@@ -136,7 +136,8 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
         </p>
       )}
       {limits && me && raw != null && raw > BigInt(0) && <p className="first-boost-note" data-testid="first-boost-paid-from">{COPY.paidFrom(symbol)}</p>}
-      {limits?.capBy === "mode" && <p className="first-boost-note first-boost-mode">{COPY.modeCap(modeName(limits.mode), pct!, bpsToPct(limits.launchpadCapBps))}</p>}
+      {limits?.capBy === "mode" && <p className="first-boost-note first-boost-mode">{COPY.modeCap(modeName(limits.mode), pct!)}</p>}
+      {pve && raw != null && raw > BigInt(0) && <p className="first-boost-note first-boost-mode">{COPY.easyLock}</p>}
       {pve && raw != null && raw > BigInt(0) && (
         <p className="first-boost-note first-boost-mode">{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
       )}
