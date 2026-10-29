@@ -25,6 +25,7 @@ import Flag from "./Flag";
 import BioText from "./BioText";
 import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
+import { useCoinIcons } from "@/lib/useCoinIcons";
 import type { RocketCardRow } from "./tabs/RocketsTab";
 import ProfileClaims from "@/components/claims/ProfileClaims";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
@@ -136,7 +137,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_CASH_EVENT, open); };
   }, [isPrivate]);
 
-  const { data, ready, sample } = useProfileStats(wallet);
+  const { data, summary, ready, sample } = useProfileStats(wallet);
   const { identity } = data;
   const prestige = prestigeFromPoints(data.points);
   const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
@@ -155,20 +156,23 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const owner = (isPrivate ? me : publicUsername) || "";
   // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
   const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
+  // each row's own coin image (moderated store); none ⇒ PairArt's current placeholder
+  const rowCoins = useMemo(() => (live && live.length ? live.map((h) => h.coin) : data.rockets.map((r) => r.token)), [live, data.rockets]);
+  const coinIcons = useCoinIcons(sample ? [] : rowCoins);
   const rocketRows: RocketCardRow[] = useMemo(() => {
     if (live && live.length) {
       return live.map((h) => {
         const ch = h.tokens * (h.priceNow - h.price24h);
         const tk = h.symbol || h.coin.slice(2, 6).toUpperCase();
-        return { key: h.coin, href: `/coin/${h.coin}`, ticker: tk, name: h.coin.slice(0, 6) + "…" + h.coin.slice(-4), amount: h.usd, signed: false, sub: C["rockets.live.change"](signedUsd(ch)),
+        return { key: h.coin, href: `/coin/${h.coin}`, ticker: tk, name: h.coin.slice(0, 6) + "…" + h.coin.slice(-4), amount: h.usd, signed: false, sub: C["rockets.live.change"](signedUsd(ch)), icon: coinIcons[h.coin.toLowerCase()],
           share: () => setShare({ coin: h.coin, ticker: tk, wallet, username: owner || null }) };
       });
     }
     return [...data.rockets].sort((a, b) => b.pnl - a.pnl).map((r) => ({
-      key: r.token, href: `/coin/${r.token}`, ticker: r.ticker, name: r.name, tier: r.tierName, amount: r.pnl, signed: true,
+      key: r.token, href: `/coin/${r.token}`, ticker: r.ticker, name: r.name, tier: r.tierName, amount: r.pnl, signed: true, icon: coinIcons[r.token.toLowerCase()],
       share: () => setShare({ coin: r.token, ticker: r.ticker, wallet, username: owner || null }),
     }));
-  }, [live, data.rockets, wallet, owner]);
+  }, [live, data.rockets, wallet, owner, coinIcons]);
   const rocketsSample = sample && !(live && live.length);
 
   // Achievements: only the ones earned from real trades (dev sample: unlocked → in progress → locked), and their loot.
@@ -237,9 +241,13 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const tags = [{ id: identity.primary.id, label: identity.primary.label, primary: true, rule: `${identityRuleText(identity.primary.id)}. ${badge.blurb}` },
     ...identity.secondary.map((t) => ({ id: t.id, label: t.label, primary: false, rule: identityRuleText(t.id) }))];
   const shownTags = tagsOpen ? tags : tags.slice(0, MAX_TAGS);
-  const rpnl = kpi("rpnl");
+  // Header numbers: the server's summary from indexed trades (same for every visitor; PnL is public). Dev sample uses its own.
+  const rpnl = sample ? kpi("rpnl") : summary?.realizedPnlUsd ?? 0;
   const traded = ready && data.metrics.tradeCount > 0;
-  const closed = data.metrics.closedTrades > 0;
+  const closed = sample ? data.metrics.closedTrades > 0 : (summary?.closedTrades ?? 0) > 0;
+  const statsOk = ready && (sample || !!summary);   // failed read ⇒ "—", never a fake $0
+  const winPct = sample ? Math.round(kpi("wr")) : Math.round((summary?.winRate ?? 0) * 100);
+  const bombsDropped = sample ? data.metrics.bombCount : summary?.bombsDropped ?? 0;
   const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: sample ? `${unlocked}/${achievements.length}` : String(unlocked), activity: "" };
   const prefetch = (t: ProfileTab) => { void TAB_LOADERS[t](); };
 
@@ -298,9 +306,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             )}
           </div>
           <div className="pf-stats" data-testid="profile-stats">
-            <div className={`pf-stat ${closed && rpnl !== 0 ? (rpnl > 0 ? "pos" : "neg") : ""}`}><span>Realized PnL</span><strong>{!ready ? DASH : closed ? signedUsd(rpnl) : "$0"}</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{ready && closed ? `${Math.round(kpi("wr"))}%` : DASH}</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{ready ? data.metrics.bombCount : DASH}</strong></div>
+            <div className={`pf-stat ${closed && rpnl !== 0 ? (rpnl > 0 ? "pos" : "neg") : ""}`}><span>Realized PnL</span><strong>{!statsOk ? DASH : closed ? signedUsd(rpnl) : "$0"}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{statsOk && closed ? `${winPct}%` : DASH}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{statsOk ? bombsDropped : DASH}</strong></div>
           </div>
         </div>
       </header>

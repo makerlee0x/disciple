@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { shareMediaFor, imageMedia, videoMedia, canEncodeVideo, type ShareMedia, type ShareParams } from "@/lib/share/media";
-import { refLabel, refLink } from "@/lib/referral";
+import { coinRefLink, refLabel } from "@/lib/referral";
 import { fmtMcap, fmtMoney, fmtPct, shareText } from "@/lib/share/format";
 import { localLoadoutIds, loadoutFromIds } from "@/lib/share/loadout";
 import type { PositionPnl } from "@/lib/sharePnl";
@@ -33,7 +33,7 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
   const png = useMemo(() => shareMediaFor(params), [target.coin, target.wallet, target.username, demo, at]); // eslint-disable-line react-hooks/exhaustive-deps
   const og = useMemo(() => imageMedia(params, "og"), [png]); // eslint-disable-line react-hooks/exhaustive-deps
   const media = video ?? png;
-  const link = refLink(target.username, target.wallet);
+  const link = coinRefLink(target.coin, target.username, target.wallet); // opens this coin, not home; ?ref= keeps attribution
 
   useEffect(() => {
     if (demo === false || (demo === true && pnl)) return;
