@@ -16,6 +16,8 @@ import { refLabel } from "@/lib/referral";
 import { serverPc } from "@/lib/server/chat/identity";
 import { tokenAbi } from "@/lib/abi";
 import type { SceneData } from "@/lib/share/scene";
+import { kv } from "@/lib/server/kv";
+import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +25,8 @@ const isAddr = (a: string | null): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.t
 const clean = (s: string | null | undefined, re: RegExp) => (s && re.test(s) ? s : null);
 
 export async function GET(req: Request) {
+  const rl = await hitLimit(kv(), `share:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.sharePerIp.limit, PUBLIC_GET_LIMITS.sharePerIp.windowSec);
+  if (!rl.ok) return new Response("rate limited", { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const u = new URL(req.url), q = u.searchParams;
   const format = q.get("format") === "og" ? "og" : "story";
   const coin = q.get("coin") || "0x0000000000000000000000000000000000000000";

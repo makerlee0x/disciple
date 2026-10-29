@@ -8,6 +8,7 @@ import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, isSendLimitError, sendLimiter, type LimitResult, type SendLimiter } from "@/lib/server/limits";
+import { alchemyKey } from "@/lib/server/alchemyKey";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
 
@@ -48,7 +49,7 @@ const limitedResponse = (id: unknown, method: string, retryAfterSec: number) =>
 const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
 export async function POST(req: Request) {
-  const key = process.env.ALCHEMY_API_KEY || process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+  const key = alchemyKey();
   let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
