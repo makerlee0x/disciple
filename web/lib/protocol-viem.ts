@@ -825,6 +825,8 @@ export function createViemProtocol(): ProtocolClient {
     async launchCoin(lp: LaunchCoinParams): Promise<LaunchCoinResult> {
       if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
       const launchpad = deployment().launchpad;
+      // lee 2026-10-26: no default rocket art; every launch needs an uploaded picture.
+      if (!lp.imageUri || !lp.imageUri.trim()) throw new ProtocolError("NoImage", "Upload a picture to launch your rocket.");
       // First BOOST in USDG (lee 2026-10-26: every buy is paid in USDG; the router buys the pair coin): public launches
       // go through DiscipleRouter.launchWithUsdg. creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
       const usdgIn = !lp.private ? lp.creatorBuyUsdgIn ?? B(0) : B(0);

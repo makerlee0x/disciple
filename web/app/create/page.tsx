@@ -141,7 +141,7 @@ export default function LaunchRocketPage() {
     setMsg(null);
     if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim() || !file) {
-      setMsg("Rocket name, call sign, and an uploaded rocket icon are required.");
+      setMsg("Add a rocket name, a call sign, and a picture to launch.");
       return;
     }
     if (mod.state !== "allow" || !mod.uri) {
@@ -378,12 +378,18 @@ export default function LaunchRocketPage() {
             Sign in to launch
           </button>
         ) : (
+          <>
           <button
             type="submit"
-            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
+            disabled={!file}
+            aria-describedby={!file ? "create-image-hint" : undefined}
+            data-testid="create-launch"
+            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:from-[#1F2228]"
           >
             <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
           </button>
+          {!file && <p id="create-image-hint" className="text-xs text-[#C9CED6]">Upload a picture to launch your rocket.</p>}
+          </>
         )}
         {status && (
           <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>
