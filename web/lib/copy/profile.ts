@@ -18,7 +18,7 @@ export const PROFILE_COPY = {
   "profile.action.edit": "Edit profile",
   "profile.action.share": "Share profile",
   "profile.share.copied": "Profile link copied",
-  "profile.sample": "SAMPLE", // tooltip reuses the existing SAMPLE_DATA_LABEL
+  "profile.sample": "SAMPLE", // dev-only tag (`next dev` + ?sample=1); production never shows sample data
 
   // Tabs + paging
   "profile.tab.rockets": "Rockets",
@@ -64,7 +64,10 @@ export const PROFILE_COPY = {
   "ach.nextrank": (pts: string, next: string) => `${pts} pts to ${next}`,
   "ach.leaderboard": (rank: number) => `#${rank} on the leaderboard`,
   "ach.seeall": "See all achievements",
+  "ach.earned": (n: number) => `${n} earned`,
   "ach.empty.own": "No achievements yet. Your first BOOST starts the climb.",
+  "ach.empty.own.title": "No achievements yet",
+  "ach.empty.own.body": "Your first BOOST starts the climb.",
   "ach.empty.other": (u: string) => `${u} hasn't unlocked any achievements yet.`,
 
   // Activity
@@ -72,6 +75,8 @@ export const PROFILE_COPY = {
   "activity.record.grads": "Graduations",
   "activity.pnl.title": "Cumulative PnL", // existed on the old profile; moved here as the one PnL chart
   "activity.empty.own": "Nothing here yet. BOOST a rocket and your war log starts.",
+  "activity.empty.own.title": "No activity yet",
+  "activity.empty.own.body": "BOOST a rocket and your war log starts.",
   "activity.empty.other": (u: string) => `No activity from ${u} yet.`,
 
   // Edit profile (modal / bottom sheet)

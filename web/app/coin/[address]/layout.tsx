@@ -1,15 +1,8 @@
 import { DEMO_POOL } from "@/lib/config";
 
-/** Pre-render demo + sample launchpad cards for `output: 'export'`. */
+/** `output: 'export'` needs one pre-rendered path: the engine demo pool. Sample launchpad cards are gone. */
 export function generateStaticParams() {
-  return [
-    { address: DEMO_POOL.address },
-    { address: "sample-halo" },
-    { address: "sample-limbo" },
-    { address: "sample-choir" },
-    { address: "sample-seraph" },
-    { address: "sample-pearly" },
-  ];
+  return [{ address: DEMO_POOL.address }];
 }
 
 export default function CoinLayout({ children }: { children: React.ReactNode }) {

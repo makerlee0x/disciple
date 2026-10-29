@@ -28,7 +28,7 @@ export async function saveProfileMeta(input: ProfileMeta, address: string | null
   const bad = validateMeta(m);
   if (bad) return { ok: false, reason: bad };
   if (IS_STATIC_PREVIEW) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m)); } catch { /* ignore */ } notifyProfileChanged(); return { ok: true }; }
-  if (!isAddr(address)) return { ok: false, reason: "Sign in (top right)" };
+  if (!isAddr(address)) return { ok: false, reason: "Sign in to see this." };
   const a = address.toLowerCase();
   try {
     const { nonce } = (await (await fetch(`/api/profile/meta?nonce=1&address=${a}`, { cache: "no-store" })).json()) as { nonce?: string };

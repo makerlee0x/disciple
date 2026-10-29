@@ -1540,3 +1540,15 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 }
 @keyframes pf-slide { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .pf-sheet { animation: none; } }
+
+/* wallet strip (components/WalletButton): never clipped on phones down to 360px */
+.wb-row { flex-wrap: nowrap; justify-content: flex-end; }
+.wb-sigil { display: flex; }
+@media (max-width: 480px) {
+  .wb-row { flex-wrap: wrap; row-gap: 4px; }
+  .wb-sigil { display: none; }  /* the portfolio sigil: frees ~34px */
+}
+/* "Test network" tag, first item of the wallet strip on chain 46630 (components/WalletButton). Small, plain, never blocks clicks. */
+.wb-testnet { align-self: center; padding: 3px 8px; border-radius: 999px; font: 600 10px/1.4 var(--dsc-font-body, system-ui); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dsc-text, #E8EAEE); background: color-mix(in srgb, var(--dsc-surface, #16171B) 82%, transparent);
+  border: 1px solid color-mix(in srgb, #C9CED6 35%, transparent); pointer-events: none; }

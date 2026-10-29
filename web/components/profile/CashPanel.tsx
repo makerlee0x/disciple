@@ -68,13 +68,16 @@ export default function CashPanel() {
     finally { setBusy(false); }
   }
 
+  const isDollar = (s: string) => /^m?usdg$/i.test(s);
+  const usd = (b: bigint, d: number) => Number(formatUnits(b, d)).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt = (b: bigint, d: number) => Number(formatUnits(b, d)).toLocaleString(undefined, { maximumFractionDigits: 4 });
   return (
     <section id="cash" className="chart-card cash-panel" aria-label="Cash">
       <div className="table-head"><h3>Cash</h3><span className="muted tiny">{ACTIVE_CHAIN.name} · only visible to you</span></div>
-      {!addr ? <p className="muted">Sign in (top right) to see balances and deposit.</p> : <>
+      {!addr ? <p className="muted">Sign in to see this.</p> : <>
         <div className="cash-balances">
-          {rows.map((r) => <div key={r.symbol} className="cash-tile"><span>{r.symbol}</span><strong>{fmt(r.bal, r.dec)}</strong></div>)}
+          {/* Plain dollar labels (GAME play-test, Oct 26 2026): test / stable dollars read "Cash $0.00"; other tokens show only when held. */}
+          {rows.filter((r) => isDollar(r.symbol) || r.bal > BigInt(0)).map((r) => <div key={r.symbol} className="cash-tile"><span>{isDollar(r.symbol) ? "Cash" : r.symbol}</span><strong>{isDollar(r.symbol) ? usd(r.bal, r.dec) : fmt(r.bal, r.dec)}</strong></div>)}
         </div>
         <div className="ds-seg" role="tablist">
           {(["deposit", "withdraw"] as const).map((t) => (

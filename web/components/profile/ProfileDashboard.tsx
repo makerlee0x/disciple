@@ -6,12 +6,11 @@ import { PROFILE_CHANGED_EVENT, localUsername, profileUrl } from "@/lib/profile"
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
-import { evaluateAchievements } from "@/lib/achievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
 import { PROFILE_TABS, useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
 import { LOOT_ENABLED } from "@/lib/features";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
-import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
+import { useProfileStats } from "@/lib/profileStats";
 import { fmtUsd } from "@/lib/config";
 import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
@@ -53,20 +52,13 @@ function fmtHours(v: number) {
   return `${(v / 24).toFixed(1)}d`;
 }
 const signedUsd = (v: number) => `${v >= 0 ? "+" : "-"}${fmtUsd(Math.abs(v))}`;
-
-/** Deterministic sample stats for a username (until the indexer serves real history). */
-function samplePersonaFor(username?: string): PersonaId {
-  if (!username) return "believer";
-  const ids = Object.keys(PERSONAS) as PersonaId[];
-  let h = 0;
-  for (const c of username) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return ids[h % ids.length];
-}
+const DASH = "—";
 
 /**
  * /profile (private) and /u/[username] (public). Header (picture, @username, flag, rank + level, identity tags, bio,
  * 3 headline stats, actions) then four bounded tabs: Rockets · Loot · Achievements · Activity, paged, state in the URL.
- * Stats are SAMPLE until the indexer is live; live on-chain holdings replace the sample rockets when the wallet has any.
+ * Every number is real: the wallet's indexed trades (lib/profileStats) and its on-chain holdings. Nothing yet → $0 / "—"
+ * and each tab's empty state. No sample pilot in production (`next dev` + ?sample=1 loads the seeded persona).
  */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
   const isPrivate = mode === "private";
@@ -144,8 +136,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_CASH_EVENT, open); };
   }, [isPrivate]);
 
-  const persona = samplePersonaFor(username);
-  const data = useMemo(() => buildPersonaStats(persona), [persona]);
+  const { data, ready, sample } = useProfileStats(wallet);
   const { identity } = data;
   const prestige = prestigeFromPoints(data.points);
   const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
@@ -159,7 +150,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   };
   const goTab = (t: ProfileTab) => setUrl({ tab: t, page: 1, loot: null, filter: null });
 
-  // Rockets: live holdings when the wallet has any, otherwise the sample rows. Both capped at a page of 12.
+  // Rockets: live holdings when the wallet has any, otherwise the rockets it traded (real realized PnL), else empty.
   const live = useLiveHoldings(wallet);
   const owner = (isPrivate ? me : publicUsername) || "";
   // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
@@ -178,13 +169,14 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       share: () => setShare({ coin: r.token, ticker: r.ticker, wallet, username: owner || null }),
     }));
   }, [live, data.rockets, wallet, owner]);
-  const rocketsSample = !(live && live.length);
+  const rocketsSample = sample && !(live && live.length);
 
-  // Achievements (unlocked → in progress → locked) and the loot they grant.
+  // Achievements: only the ones earned from real trades (dev sample: unlocked → in progress → locked), and their loot.
   const achievements = useMemo(() => {
+    if (!sample) return data.achievements.filter((a) => a.state === "unlocked");
     const order = { unlocked: 0, in_progress: 1, locked: 2 } as const;
-    return evaluateAchievements(data).sort((x, y) => order[x.state] - order[y.state]);
-  }, [data]);
+    return [...data.achievements].sort((x, y) => order[x.state] - order[y.state]);
+  }, [data, sample]);
   const unlocked = achievements.filter((a) => a.state === "unlocked").length;
   const loot = useMemo(() => lootFromAchievements(achievements), [achievements]);
   const lootFilter = (LOOT_SLOTS as readonly string[]).includes(url.filter ?? "") ? (url.filter as LootSlot) : null;
@@ -231,7 +223,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       <div className="profile-page pf-v3">
         <header className="pf-head pf-signedout" data-testid="profile-identity">
           <h1 className="pf-name">Your Profile</h1>
-          <p className="muted">Sign in (top right)</p>
+          <p className="muted">Sign in to see this.</p>
         </header>
       </div>
     );
@@ -246,7 +238,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     ...identity.secondary.map((t) => ({ id: t.id, label: t.label, primary: false, rule: identityRuleText(t.id) }))];
   const shownTags = tagsOpen ? tags : tags.slice(0, MAX_TAGS);
   const rpnl = kpi("rpnl");
-  const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: `${unlocked}/${achievements.length}`, activity: "" };
+  const traded = ready && data.metrics.tradeCount > 0;
+  const closed = data.metrics.closedTrades > 0;
+  const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: sample ? `${unlocked}/${achievements.length}` : String(unlocked), activity: "" };
   const prefetch = (t: ProfileTab) => { void TAB_LOADERS[t](); };
 
   return (
@@ -303,10 +297,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
               <button type="button" className="ds-btn pf-btn-secondary pf-share-wide" onClick={shareProfile}><Icon name="share" size={16} /> {C["profile.action.share"]}</button>
             )}
           </div>
-          <div className="pf-stats" title={SAMPLE_DATA_LABEL}>
-            <div className={`pf-stat ${rpnl >= 0 ? "pos" : "neg"}`}><span>Realized PnL</span><strong>{signedUsd(rpnl)}</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{Math.round(kpi("wr"))}%</strong></div>
-            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{data.metrics.bombCount}</strong></div>
+          <div className="pf-stats" data-testid="profile-stats">
+            <div className={`pf-stat ${closed && rpnl !== 0 ? (rpnl > 0 ? "pos" : "neg") : ""}`}><span>Realized PnL</span><strong>{!ready ? DASH : closed ? signedUsd(rpnl) : "$0"}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{ready && closed ? `${Math.round(kpi("wr"))}%` : DASH}</strong></div>
+            <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{ready ? data.metrics.bombCount : DASH}</strong></div>
           </div>
         </div>
       </header>
@@ -335,20 +329,20 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
             isPrivate={isPrivate} owner={ownerName} onSeeAchievements={() => goTab("achievements")} />
         )}
         {url.tab === "achievements" && (
-          <AchievementsTab rows={pageSlice(achievements, page, PAGE.achievements)} unlocked={unlocked} total={achievements.length}
+          <AchievementsTab rows={pageSlice(achievements, page, PAGE.achievements)} unlocked={unlocked} sample={sample}
             prestige={prestige} nextRank={data.rank.next.tier !== data.rank.tier ? { points: data.pointsToNextRank, label: data.rank.next.label } : null}
             leaderboardRank={data.leaderboardRank} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
         )}
         {url.tab === "activity" && (
           <ActivityTab record={[
-            { label: "Volume", value: fmtUsd(kpi("vol")) },
-            { label: "Avg hold", value: fmtHours(kpi("hold")) },
-            { label: "Biggest W", value: fmtUsd(data.ct.biggestW), tone: "pos" },
-            { label: "Biggest L", value: fmtUsd(data.ct.biggestL), tone: "neg" },
+            { label: "Volume", value: traded ? fmtUsd(kpi("vol")) : "$0" },
+            { label: "Avg hold", value: closed ? fmtHours(kpi("hold")) : DASH },
+            { label: "Biggest W", value: closed && data.ct.biggestW > 0 ? fmtUsd(data.ct.biggestW) : DASH, tone: closed && data.ct.biggestW > 0 ? "pos" : undefined },
+            { label: "Hardest Fall", value: closed && data.ct.biggestL < 0 ? fmtUsd(data.ct.biggestL) : DASH, tone: closed && data.ct.biggestL < 0 ? "neg" : undefined },
             { label: C["activity.record.grads"], value: String(data.ct.graduationsWitnessed) },
-            { label: "Rugged count", value: String(data.ct.ruggedCount) },
+            { label: "Rockets Lost", value: String(data.ct.ruggedCount) },
           ]} pnl={data.cumulativePnl} rows={pageSlice(data.activity, page, PAGE.activity)} total={data.activity.length} page={page} pages={pages} onPage={goPage}
-            isPrivate={isPrivate} owner={ownerName} />
+            isPrivate={isPrivate} owner={ownerName} sample={sample} />
         )}
       </section>
     </div>

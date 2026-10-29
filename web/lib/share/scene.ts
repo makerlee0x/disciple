@@ -186,7 +186,7 @@ export function drawShareScene(ctx: Ctx, mk: MakeCanvas, d: SceneData, a: SceneA
   ctx.fillStyle = INK; const tpx = fitText(ctx, `$${d.ticker}`, (p) => `${p}px ${FONT.black}`, story ? 760 : 560, story ? 132 : 104);
   ctx.font = `${tpx}px ${FONT.black}`; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 30; ctx.fillText(`$${d.ticker}`, L - 4, tickY); ctx.shadowBlur = 0;
   ctx.font = `26px ${FONT.mono}`; ctx.fillStyle = "rgba(232,234,238,.7)";
-  tracked(ctx, d.kind === "realized" ? "CLOSED · REALIZED" : "STILL HOLDING · UNREALIZED", L, tickY + 46, 5);
+  tracked(ctx, d.kind === "realized" ? "CLOSED · REALIZED" : d.kind === "none" ? "NO TRADES YET" : "STILL HOLDING · UNREALIZED", L, tickY + 46, 5);
 
   // the number: glow + crisp pass, slams in on the video
   const big = fmtMoney(d.gainUsd), bt = ease(t * 1.6);

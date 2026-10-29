@@ -44,7 +44,7 @@ export default function VerifyRequest({ token, demo }: { token: string; demo?: b
         {st ? <span className={`cl-pill ${st}`}>{LABEL[st]}</span> : null}
         {(!st || st === "rejected" || st === "revoked") && !open && (
           <button type="button" className="cl-btn ghost sm" onClick={() => (needLogin && !demo ? loginPrivy() : setOpen(true))} data-testid="verify-open">
-            {needLogin && !demo ? "Log in to request" : "Request verification"}
+            {needLogin && !demo ? "Sign in to request" : "Request verification"}
           </button>
         )}
       </div>

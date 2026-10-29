@@ -4,30 +4,43 @@ import Link from "next/link";
 import { achievementIconPath, type AchievementView } from "@/lib/achievements";
 import { withBase } from "@/lib/base-path";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
-import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
 import Icon from "@/components/icons/Icon";
 import Pager from "../Pager";
 import { RarityTag, rarityVars } from "../rarity";
 
-/** Achievements tab: the only home of points / prestige progress, then one page (12) of achievements; tap → popup. */
-export default function AchievementsTab({ rows, unlocked, total, prestige, nextRank, leaderboardRank, page, pages, onPage, onOpen, isPrivate, owner }: {
-  rows: AchievementView[]; unlocked: number; total: number;
-  prestige: { prestige: number; prestigeName: string; level: number; maxLevel: number; progress: number };
-  nextRank: { points: number; label: string } | null; leaderboardRank: number;
-  page: number; pages: number; onPage: (p: number) => void; onOpen: (i: number) => void; isPrivate: boolean; owner: string;
+/**
+ * Achievements tab: one page (12) of EARNED achievements; tap → popup. Only achievements unlocked from the wallet's real
+ * trades are passed in (lib/profileStats). Points / prestige / leaderboard rank show only for the dev-only sample
+ * (`next dev` + ?sample=1): there is no real points source yet, so prod never shows a made-up level or rank.
+ */
+export default function AchievementsTab({ rows, unlocked, prestige, nextRank, leaderboardRank, page, pages, onPage, onOpen, isPrivate, owner, sample = false }: {
+  rows: AchievementView[]; unlocked: number;
+  prestige?: { prestige: number; prestigeName: string; level: number; maxLevel: number; progress: number };
+  nextRank?: { points: number; label: string } | null; leaderboardRank?: number;
+  page: number; pages: number; onPage: (p: number) => void; onOpen: (i: number) => void; isPrivate: boolean; owner: string; sample?: boolean;
 }) {
+  if (!unlocked) {
+    return isPrivate ? (
+      <div className="pf-empty" data-testid="tab-achievements">
+        <strong>{C["ach.empty.own.title"]}</strong>
+        <p>{C["ach.empty.own.body"]}</p>
+        <Link href="/" className="ds-btn">{C["rockets.empty.own.cta"]}</Link>
+      </div>
+    ) : <div className="pf-empty" data-testid="tab-achievements"><p>{C["ach.empty.other"](owner)}</p></div>;
+  }
   return (
     <div className="pf-tab-body" data-testid="tab-achievements">
       <section className="pf-ach-summary">
-        <strong>{C["ach.summary"](unlocked, total)}</strong>
-        <span>{C["ach.prestige"](prestige.prestige, prestige.prestigeName)} · {C["ach.level"](prestige.level, prestige.maxLevel)}</span>
-        <div className="xp-bar pf-xp"><div className="xp-fill" style={{ width: `${prestige.progress * 100}%` }} /></div>
-        <span className="muted">
-          {nextRank ? `${C["ach.nextrank"](nextRank.points.toLocaleString(), nextRank.label)} · ` : ""}{C["ach.leaderboard"](leaderboardRank)}
-        </span>
-        <span className="tag mock" title={SAMPLE_DATA_LABEL}>{C["profile.sample"]}</span>
+        <strong>{C["ach.earned"](unlocked)}</strong>
+        {sample && prestige && <>
+          <span>{C["ach.prestige"](prestige.prestige, prestige.prestigeName)} · {C["ach.level"](prestige.level, prestige.maxLevel)}</span>
+          <div className="xp-bar pf-xp"><div className="xp-fill" style={{ width: `${prestige.progress * 100}%` }} /></div>
+          <span className="muted">
+            {nextRank ? `${C["ach.nextrank"](nextRank.points.toLocaleString(), nextRank.label)} · ` : ""}{leaderboardRank ? C["ach.leaderboard"](leaderboardRank) : ""}
+          </span>
+          <span className="tag mock">{C["profile.sample"]}</span>
+        </>}
       </section>
-      {!unlocked && <p className="muted">{isPrivate ? C["ach.empty.own"] : C["ach.empty.other"](owner)}</p>}
       <ul className="pf-ach-grid">
         {rows.map((a, i) => {
           const v = rarityVars(a.rarity);
