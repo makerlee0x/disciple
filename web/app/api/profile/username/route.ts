@@ -44,6 +44,9 @@ export async function GET(req: Request) {
     const nonce = await issueNonce(kv(), NONCE_PREFIX, address, NONCE_TTL);
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
+  // Lookups (?address / ?resolve / ?u=) share one bucket — caps enumeration without blocking a normal profile page.
+  const look = await hitLimit(kv(), `user:lookup:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.usernameLookupPerIp.limit, PUBLIC_GET_LIMITS.usernameLookupPerIp.windowSec);
+  if (!look.ok) return tooMany(look.retryAfterSec);
   if (address) {
     if (!isAddr(address)) return NextResponse.json({ username: null, nextAllowedAt: null });
     const [username, last] = await Promise.all([usernameOf(address), lastUsernameChangeAt(address).catch(() => null)]);

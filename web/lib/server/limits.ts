@@ -208,4 +208,10 @@ export const PUBLIC_GET_LIMITS = {
   usernameNoncePerIp: { limit: 30, windowSec: 60 },
   /** POST /api/image/resolve — up to 200 Upstash mgets per call */
   imageResolvePerIp: { limit: 30, windowSec: 60 },
+  /** GET /api/home — cache miss runs indexer + RPC; CDN s-maxage helps but still cap */
+  homePerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/chat/history + /api/chat/stream — store reads / long-lived SSE */
+  chatReadPerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/profile/username lookup (?u= / ?resolve= / ?address=) */
+  usernameLookupPerIp: { limit: 60, windowSec: 60 },
 } as const;
