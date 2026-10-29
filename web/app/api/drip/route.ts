@@ -21,6 +21,7 @@ import { relayerIsFaucet, withRelayer } from "@/lib/server/relayer";
 import { classifySendError } from "@/lib/server/relayerNonce";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
+import { inviteRequiredResponse, requireInviteWallet } from "@/lib/server/inviteGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +47,8 @@ export async function POST(req: Request) {
   try { address = String((await req.json()).address || ""); } catch { address = ""; }
   if (!isAddress(address)) return NextResponse.json({ ok: false, reason: "bad address" }, { status: 400 });
   const a = address.toLowerCase();
+  // invite-only beta (lib/server/invites); off by default ⇒ no-op
+  if (!(await requireInviteWallet(a, "drip")).ok) return inviteRequiredResponse();
   const ip = clientIp(req.headers);
 
   const pc = createPublicClient({ chain: robinhoodTestnet, transport: http() });
