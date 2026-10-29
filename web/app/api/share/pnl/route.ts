@@ -4,12 +4,16 @@ import { pnlForPosition } from "@/lib/server/share/pnl";
 import { indexTrades } from "@/lib/server/trades";
 import { demoFills, DEMO_MCAP } from "@/lib/server/share/demo";
 import { pnlFromFills } from "@/lib/sharePnl";
+import { kv } from "@/lib/server/kv";
+import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const isAddr = (a: string | null): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 
 export async function GET(req: Request) {
+  const rl = await hitLimit(kv(), `share:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.sharePerIp.limit, PUBLIC_GET_LIMITS.sharePerIp.windowSec);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const u = new URL(req.url);
   const wallet = u.searchParams.get("wallet"), coin = u.searchParams.get("coin");
   if (process.env.NODE_ENV === "development" && u.searchParams.get("demo") === "1") {

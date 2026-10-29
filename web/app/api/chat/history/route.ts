@@ -2,9 +2,13 @@
 import { NextResponse } from "next/server";
 import { historyOf } from "@/lib/server/chat/store";
 import { isCoin } from "@/lib/chat/types";
+import { kv } from "@/lib/server/kv";
+import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
+  const rl = await hitLimit(kv(), `chatread:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.chatReadPerIp.limit, PUBLIC_GET_LIMITS.chatReadPerIp.windowSec);
+  if (!rl.ok) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const u = new URL(req.url);
   const coin = (u.searchParams.get("coin") || "").toLowerCase();
   if (!isCoin(coin)) return NextResponse.json({ error: "bad_coin" }, { status: 400 });

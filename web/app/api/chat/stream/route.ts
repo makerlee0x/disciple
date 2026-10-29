@@ -6,12 +6,16 @@
 import { chatStore, historyOf, messagesAfter } from "@/lib/server/chat/store";
 import { catchUp } from "@/lib/server/chat/chain";
 import { isCoin } from "@/lib/chat/types";
+import { kv } from "@/lib/server/kv";
+import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const LIFETIME_MS = 50_000, POLL_MS = 800, CHAIN_MS = 3000, PING_MS = 15_000;
 
 export async function GET(req: Request) {
+  const rl = await hitLimit(kv(), `chatread:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.chatReadPerIp.limit, PUBLIC_GET_LIMITS.chatReadPerIp.windowSec);
+  if (!rl.ok) return new Response("rate limited", { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   const u = new URL(req.url);
   const coin = (u.searchParams.get("coin") || "").toLowerCase();
   if (!isCoin(coin)) return new Response("bad coin", { status: 400 });

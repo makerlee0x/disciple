@@ -22,6 +22,7 @@ import { claimMessage } from "@/lib/usernameClaim";
 import { lastUsernameChangeAt, markUsernameChange } from "@/lib/server/profileMeta";
 import { nextUsernameChangeAt, usernameChange } from "@/lib/usernameCooldown";
 import { PROFILE_COPY } from "@/lib/copy/profile";
+import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 
 const NONCE_TTL = 600;
 const NONCE_PREFIX = "user:nonce";
@@ -30,15 +31,22 @@ export const dynamic = "force-dynamic";
 
 const norm = (u: unknown) => String(u ?? "").trim().toLowerCase().replace(/^@/, "");
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
+const tooMany = (retry: number) =>
+  NextResponse.json({ ok: false, reason: "Too many requests, try again shortly." }, { status: 429, headers: { "retry-after": String(retry) } });
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const address = url.searchParams.get("address");
   if (url.searchParams.get("nonce") !== null) {
     if (!address || !isAddr(address)) return NextResponse.json({ error: "address required" }, { status: 400 });
+    const rl = await hitLimit(kv(), `user:nonce:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.usernameNoncePerIp.limit, PUBLIC_GET_LIMITS.usernameNoncePerIp.windowSec);
+    if (!rl.ok) return tooMany(rl.retryAfterSec);
     const nonce = await issueNonce(kv(), NONCE_PREFIX, address, NONCE_TTL);
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
+  // Lookups (?address / ?resolve / ?u=) share one bucket — caps enumeration without blocking a normal profile page.
+  const look = await hitLimit(kv(), `user:lookup:ip:${clientIp(req.headers)}`, PUBLIC_GET_LIMITS.usernameLookupPerIp.limit, PUBLIC_GET_LIMITS.usernameLookupPerIp.windowSec);
+  if (!look.ok) return tooMany(look.retryAfterSec);
   if (address) {
     if (!isAddr(address)) return NextResponse.json({ username: null, nextAllowedAt: null });
     const [username, last] = await Promise.all([usernameOf(address), lastUsernameChangeAt(address).catch(() => null)]);
