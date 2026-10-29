@@ -9,6 +9,7 @@ import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import TradeBridge from "@/components/TradeBridge";
+import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
 import { isDeployed } from "@/lib/chains";
@@ -58,6 +59,7 @@ function FlightInner({ address }: { address: string }) {
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />
       <TradeBridge token={address} />
+      <SnipeCountdown token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
       {/* Share (trade card + rocket card) lives in the ESC settings menu (FlightCanvas → SettingsMenu), not a floating pill */}
