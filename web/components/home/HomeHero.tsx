@@ -199,9 +199,9 @@ export default function HomeHero({ data: initial }: { data: HomeData }) {
               </>
             ) : (
               <>
-                <h1 className={s.emptyT}>No rockets in flight yet</h1>
+                <h1 className={s.emptyT}>No rockets yet</h1>
                 <div className={s.actions}>
-                  <Link href="/create" className={`${s.btn} ${s.primary}`}><Icon name="plus" size={18} />Launch a Rocket</Link>
+                  <Link href="/create" className={`${s.btn} ${s.primary}`}><Icon name="plus" size={18} />Launch the first one</Link>
                 </div>
               </>
             )}

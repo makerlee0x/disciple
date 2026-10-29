@@ -257,13 +257,13 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           </button>
           <button
             type="button"
-            title="Log out"
+            title="Sign out"
             onClick={() => setLogoutNote(true)}
           >
             <span className="ic">
               <NavIcon name="logout" />
             </span>
-            <span className="lb">Log out</span>
+            <span className="lb">Sign out</span>
           </button>
         </div>
       </aside>
@@ -287,10 +287,10 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             role="dialog"
           >
             <h2 className="m-0 mb-2 font-display text-2xl font-normal text-[#E8EAEE]">
-              Log out
+              Sign out
             </h2>
             <p className="text-sm opacity-75">
-              No account is connected yet (Privy TBD). Nothing to log out of.
+              You&rsquo;re not signed in.
             </p>
             <button
               type="button"

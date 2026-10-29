@@ -223,7 +223,7 @@ export function friendlyError(e: unknown): ProtocolError {
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
       // v4 bonding modes (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP)
-      NotVerified: "PVE rocket: this wallet needs a verified login first (email, Google or X).",
+      NotVerified: "Easy rocket: sign in with X, email or wallet to BOOST.",
       BuyTooLarge: "That buy is above this rocket's per-buy cap right now. Try a smaller shot.",
       SellTooLarge: "That sell is above this PVE rocket's per-sell cap (0.5% of supply). Sell in smaller chunks.",
       LaunchBlock: "PVE rocket just launched: buys open from the next block.",

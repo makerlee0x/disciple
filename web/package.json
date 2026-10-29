@@ -94,6 +94,7 @@
     "test:gas-reserve": "tsx --test scripts/test-gas-reserve.mts",
     "test:relayer-pool": "tsx --conditions=react-server --test scripts/test-relayer-pool.mts",
     "test:grad-fix": "tsx scripts/test-grad-fix.mjs",
+    "test:holder-rows": "tsx scripts/test-holder-rows.mts",
     "test:rapid-tap": "node scripts/test-rapid-tap.mjs"
   },
   "dependencies": {

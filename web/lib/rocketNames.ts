@@ -1,5 +1,5 @@
 /** Random rocket-name generator for /create (fresh name on every page open + shuffle). */
-const A = ["Halo", "Seraph", "Gilded", "Pearly", "Celestial", "Holy", "Neon", "Lunar", "Solar", "Blessed", "Cosmic", "Velvet", "Iron", "Crystal", "Golden", "Silent", "Wild", "Feral", "Based", "Turbo"];
+const A = ["Halo", "Seraph", "Gilded", "Pearly", "Celestial", "Holy", "Neon", "Lunar", "Solar", "Blessed", "Cosmic", "Velvet", "Iron", "Crystal", "Golden", "Silent", "Wild", "Feral", "Based"];
 const B = ["Inu", "Pilgrim", "Choir", "Comet", "Falcon", "Monk", "Frog", "Cat", "Ape", "Whale", "Prophet", "Angel", "Dragon", "Oracle", "Saint", "Ghost", "Rocket", "Lion", "Wolf", "Phoenix"];
 const C = ["", "", "", " Mk II", " One", " X", " Prime", " Zero"];
 const pick = <T,>(xs: readonly T[]) => xs[Math.floor(Math.random() * xs.length)];

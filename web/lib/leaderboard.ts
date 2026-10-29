@@ -1,6 +1,7 @@
 /**
- * Leaderboard data adapter — mock now, indexer later.
- * Swap `getLeaderboard` implementation without changing the page.
+ * Leaderboard data adapter. No per-pilot ranking source is wired yet, so production shows no rows (the page's
+ * "No pilots yet" empty state); an indexer adapter slots in here without changing the page.
+ * The sample pilots in lib/mock/leaderboard.ts load only in `next dev` with ?sample=1 (lib/devSample).
  */
 import type { IdentityId } from "./identity";
 import type { AchievementDef } from "./achievements";
@@ -48,8 +49,8 @@ export interface LeaderboardResult {
   rows: LeaderboardRow[];
   window: LeaderboardWindow;
   sort: LeaderboardSort;
-  /** SAMPLE DATA until indexer is wired */
-  source: "mock" | "indexer";
+  /** "mock" = dev-only sample pilots; "none" = no ranking source wired yet */
+  source: "mock" | "indexer" | "none";
   updatedAt: number;
 }
 
@@ -58,6 +59,13 @@ export interface LeaderboardAdapter {
 }
 
 export const DEFAULT_ROCKET = DEMO_POOL.address;
+
+/** Production adapter until real per-pilot scores exist: no rows, never sample pilots. */
+export const emptyLeaderboardAdapter: LeaderboardAdapter = {
+  async getLeaderboard(q) {
+    return { rows: [], window: q.window, sort: q.sort, source: "none", updatedAt: Date.now() };
+  },
+};
 
 export function flagEmoji(cc: string): string {
   const code = cc.trim().toUpperCase();

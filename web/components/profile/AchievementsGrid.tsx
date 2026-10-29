@@ -1,20 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  ACHIEVEMENT_CATEGORIES, evaluateAchievements, type AchievementCategory, type AchievementView,
-} from "@/lib/achievements";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { ACHIEVEMENT_CATEGORIES, type AchievementCategory, type AchievementView } from "@/lib/achievements";
 import AchievementCard from "./AchievementCard";
 import { rarityRank } from "@/lib/config";
-import { SAMPLE_DATA_LABEL, buildPersonaStats } from "@/lib/mock/sample-trades";
+import { useProfileStats } from "@/lib/profileStats";
 import { prestigeFromPoints } from "@/lib/prestige";
+import { onWallet } from "@/lib/wallet";
 
 const STATE_ORDER = { unlocked: 0, in_progress: 1, locked: 2 } as const;
 
+/**
+ * /achievements: the signed-in wallet's achievements EARNED from its real trades (lib/profileStats). No sample pilot
+ * in production; nothing earned (or signed out) → one empty state. The full catalog with progress, locked cards and
+ * the season pass shows only for the dev sample (`next dev` + ?sample=1) until GAME sets the V1 set and points are real.
+ */
 export default function AchievementsGrid() {
   const [cat, setCat] = useState<AchievementCategory | "all">("all");
-  const data = useMemo(() => buildPersonaStats("believer"), []);
-  const views = useMemo(() => evaluateAchievements(data), [data]);
+  const [wallet, setWallet] = useState<string | null>(null);
+  useEffect(() => onWallet((a) => setWallet(a ? a.toLowerCase() : null)), []);
+  const { data, ready, sample } = useProfileStats(wallet);
+  const views = useMemo(() => (sample ? data.achievements : data.achievements.filter((a) => a.state === "unlocked")), [data, sample]);
   const pass = prestigeFromPoints(data.points);
   const [openLocked, setOpenLocked] = useState<Record<string, boolean>>({});
   const unlocked = views.filter((v) => v.state === "unlocked").length;
@@ -28,6 +35,35 @@ export default function AchievementsGrid() {
     })
     .filter((g) => g.items.length);
 
+  if (!sample) {
+    return (
+      <div className="ach-page">
+        <header className="profile-head">
+          <div>
+            <h1>Achievements</h1>
+            {unlocked > 0 && <div className="sub">{unlocked} EARNED</div>}
+          </div>
+        </header>
+        {wallet && !ready ? <div className="pf-skeleton" aria-hidden /> : !unlocked ? (
+          <div className="pf-empty" data-testid="ach-empty">
+            <strong>No achievements yet</strong>
+            <p>Your first BOOST starts the climb.</p>
+            <Link href="/" className="ds-btn">Open Launchpad</Link>
+          </div>
+        ) : (
+          <div className="ach-groups">
+            {groups.map((g) => (
+              <section key={g.id} className="ach-group" aria-label={g.label}>
+                <header className="ach-group-head"><h2>{g.label}</h2></header>
+                <div className="ach-grid">{g.items.map(card)}</div>
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="ach-page">
       <header className="profile-head">
@@ -36,7 +72,7 @@ export default function AchievementsGrid() {
           <div className="sub">CHOIR OF DEEDS · {unlocked}/{views.length} UNLOCKED</div>
         </div>
       </header>
-      <span className="tag mock">{SAMPLE_DATA_LABEL}</span>
+      <span className="tag mock">SAMPLE DATA · DEV</span>
 
       <section className="season-pass">
         <div className="pass-meta">
