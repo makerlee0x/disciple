@@ -33,7 +33,7 @@ fs.writeFileSync(path.join(tmp, "abi.mjs"), "export const tokenAbi = [];");
 const viemUrl = import.meta.resolve("viem");
 ok(/robinhoodGwei: 0\.0207/.test(rd("lib/config.ts")) && /ethUsd: 2372/.test(rd("lib/config.ts")), "config stub = lib/config GAS (gwei / ETH-USD)");
 const rew = (src) => src.replace(/from "@\/lib\/(chains|wallet|config|usdg)"/g, 'from "./$1"').replace(/from "@\/lib\/aa\/gasPolicy"/g, 'from "./gasPolicy"').replace(/from "\.\.\/usdg"/g, 'from "./usdg"').replace(/from "viem"/g, `from "${viemUrl}"`).replace(/from "(\.\/[^"]+)"/g, 'from "$1.mjs"');
-for (const [m, f] of [["gasPolicy", path.relative(web, path.join(tmp, "gasPolicy.ts"))], ["rapidTap", "lib/flight/rapidTap.ts"], ["reservationsShim", "lib/flight/reservationsShim.ts"], ["gasReserve", "lib/flight/gasReserve.ts"], ["usdg", "lib/usdg.ts"]])
+for (const [m, f] of [["gasPolicy", path.relative(web, path.join(tmp, "gasPolicy.ts"))], ["rapidTap", "lib/flight/rapidTap.ts"], ["reservationsShim", "lib/trade/reservations.ts"], ["gasReserve", "lib/flight/gasReserve.ts"], ["usdg", "lib/usdg.ts"]])
   fs.writeFileSync(path.join(tmp, m + ".mjs"), ts.transpileModule(rew(rd(f)), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 const imp = (m) => import(pathToFileURL(path.join(tmp, m + ".mjs")).href);
 const RT = await imp("rapidTap"), RS = await imp("reservationsShim"), GR = await imp("gasReserve"), CH = await imp("chains"), WL = await imp("wallet");
@@ -225,7 +225,7 @@ console.log("— 6. no await before aaSend; error copy");
   ok(body.indexOf("await aaSend(") > 0 && (body.slice(0, body.indexOf("await aaSend(")).match(/await /g) || []).length === 0, "execCalls: no await before aaSend"); }
 { const i = tb.indexOf("window.__discipleTrade = async"), r = tb.indexOf("reservePress(pressId", i), a = tb.indexOf("await ", i);
   ok(r > i && a > r, "TradeBridge: the press is reserved before the first await of the trade"); }
-for (const [f, src] of [["reservationsShim", rd("lib/flight/reservationsShim.ts")], ["gasReserve", rd("lib/flight/gasReserve.ts").replace(/export function warmGasPrice[\s\S]*?\n\}\n/, "")]])
+for (const [f, src] of [["reservationsShim", rd("lib/trade/reservations.ts")], ["gasReserve", rd("lib/flight/gasReserve.ts").replace(/export function warmGasPrice[\s\S]*?\n\}\n/, "")]])
   ok(!/\bawait\b|\basync\b/.test(src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")), `${f}.ts: no async / await (sync in the trade path)`);
 { const rt = rd("lib/flight/rapidTap.ts");
   ok(!/\bawait\b|\basync\b/.test(rt.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")), "rapidTap.ts: sync (no async / await at all)");

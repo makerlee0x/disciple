@@ -23,6 +23,9 @@ import { usdgPriceWadPer1e18Raw } from "../usdg";
 import { SESSION_TTL_MS, checkCalls, recordSpend, type SessionState } from "./policy";
 import { PRIVY_APP_ID, SIGNER_MODE } from "./env";
 import type { TradeTiming } from "../trade/timing";
+import { SESSION_PENDING } from "../trade/reservations";
+import { SPEND_LIMIT_MSG } from "./relayOp";
+import { WATCH_MS } from "../trade/pendingWatch";
 import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -622,6 +625,7 @@ function quoteSpend(delta: Record<string, bigint>): Record<string, bigint> {
   return Object.fromEntries(Object.entries(delta).filter(([t]) => q.has(t.toLowerCase())));
 }
 /** Policy reverts we can recover from by letting the owner sign instead (nothing landed: pre-flight/simulation). */
+const SPEND_CAP_REVERT = /SpendCapExceeded|b92251e1/i;
 const POLICY_RECOVERABLE = /0xa6dfc94a|0xf9be14df|0x1fd05a4a|0x74a1a72c|SpendCapExceeded|SessionInactive|SessionExpired|PreExecHookReverted|AA2[234]/i;
 
 /**
@@ -671,11 +675,18 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   const spend = quoteSpend(delta);
   const eligible = policyOk && (await sessionCallsEligible(calls));
   const live = sessionLive();
-  const headroom = sessionHasHeadroom(onchain, spend);
   const mode = opts.trade && eligible ? await strictSessionTrades(me) : { strict: false, deployed: sa.deployed };
   const strict = !!opts.trade && eligible && mode.strict && mode.deployed !== undefined;
-  const pick = tradeSigner({ trade: !!opts.trade, eligible, live, headroom, strictMode: mode.strict, deployed: mode.deployed });
+  // Rapid-tap spec #9 (#144): session spend still in flight counts against the cap. Headroom check → pick → hold run
+  // with NO await in between, so two concurrent taps can't both pass on the same headroom.
+  const headroom = sessionHasHeadroom(onchain, spend, SESSION_PENDING.total());
+  const capRace = !headroom && SESSION_PENDING.size > 0 && sessionHasHeadroom(onchain, spend);
+  const pick = tradeSigner({ trade: !!opts.trade, eligible, live, headroom, strictMode: mode.strict, deployed: mode.deployed, capRace });
   const asSession = pick.as === "session";
+  if (pick.as === "refuse" && capRace) {
+    console.warn("[disciple] trade refused: session spend limit reached with trades in flight", { inFlight: SESSION_PENDING.size, why: pick.why });
+    throw new AAError("Policy", SPEND_LIMIT_MSG, { spendLimit: true, tradeError: "spend_limit" });
+  }
   if (pick.as === "refuse") {
     const settingUp = loginSetup.busy(me), failed = !!loginSetup.lastError(me);
     console.warn("[disciple] trade refused: one-tap session not ready (no owner fallback)", { why: pick.why, settingUp, deployed: mode.deployed });
@@ -686,12 +697,25 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
   }
   if (opts.trade && !asSession) console.info("[disciple] trade signed by the owner", { why: pick.why, strict: mode.strict });
   let r;
+  const hold = asSession ? SESSION_PENDING.hold(spend) : undefined;
   try { r = await sendWithGasRefill(calls, asSession ? "session" : "owner", me, { ...o, tt: opts.timing }); }
   catch (e) {
     const ae = e as AAError;
+    if (hold && ae?.code === "Timeout") {
+      // sent, outcome unknown: the spend stays held while lib/trade/pendingWatch looks for it (≤ WATCH_MS), then the
+      // cap is re-read from the chain (a landed op is in its `spent`, a dropped one isn't), so nothing is double counted
+      setTimeout(() => { SESSION_PENDING.drop(hold); void syncSessionFromChain(); }, WATCH_MS);
+      throw e;
+    }
+    if (hold) SESSION_PENDING.drop(hold);   // refund: nothing was spent
     // session pre-flight rejected (stale/inactive session, cap race): nothing landed
     if (asSession && ae.code === "Estimate" && POLICY_RECOVERABLE.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
       void syncSessionFromChain();
+      if (strict && SPEND_CAP_REVERT.test(`${ae.message} ${String(ae.extra?.revertData ?? "")}`)) {
+        // the policy's own cap check (a race with another device / tab, or a stale cached `spent`): plain spend-limit line
+        console.warn("[disciple] trade refused: session spend limit reached (policy pre-flight)", { revertData: ae.extra?.revertData });
+        throw new AAError("Policy", SPEND_LIMIT_MSG, { spendLimit: true, tradeError: "spend_limit", revertData: ae.extra?.revertData });
+      }
       if (strict) {
         // session-only trades: no second, owner-signed send — refresh the session and let the player tap again
         console.warn("[disciple] trade refused: session rejected by the policy pre-flight (no owner fallback)", { revertData: ae.extra?.revertData });
@@ -700,6 +724,7 @@ async function aaSend1(calls: Call[], o: SendOpts, opts: TradeCtx) {
       r = await sa.sendCalls(calls, { ...o, as: "owner", tt: opts.timing });   // owner signs the same calls once
     } else throw e;
   }
+  if (hold) SESSION_PENDING.drop(hold);   // landed: moves into `spent` below
   gasListeners.forEach((f) => f("self-pay"));
   state = { ...state, ...recordSpend(state, delta) }; save();
   if (asSession && onchain) { onchain = addSpent(onchain, spend); saveSessionKey(); }

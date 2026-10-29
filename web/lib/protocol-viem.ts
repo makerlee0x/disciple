@@ -19,6 +19,7 @@ import { readCoinMcap } from "./mcap";
 import { fillBook, readAtOrAfter } from "./fillBook";
 import { NETWORK_MSG, NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, isTransportError, logTradeError, plainText } from "./aa/relayOp";
 import { lookupOp, pendingIds, watchPending } from "./trade/pendingWatch";
+import { RESERVATIONS, spendable } from "./trade/reservations";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -755,8 +756,20 @@ export function createViemProtocol(): ProtocolClient {
     if (fresh < first) console.warn("[disciple] re-quote is below the first quote; sending at the fresh price", { first: String(first), fresh: String(fresh) });
     return fresh;
   };
-  async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
+  async function trade(side: "buy" | "sell", t0: TradeParams): Promise<TradeResult> {
     const tt = startTradeTiming(side);   // console-only latency marks: `[disciple] trade timing`
+    // rapid-tap (#144): one reservation per press (GAME's press id, else ours), kept across the minOut retry. tradeOnce
+    // holds the exact raw spend under it before quoting (holdSpend); it is released here on fill or a definite error.
+    // A Timeout (sent, outcome unknown) keeps the hold: lib/trade/pendingWatch settles it from the chain.
+    const t: TradeParams = t0.pressId ? t0 : { ...t0, pressId: newPressId() };
+    const rid = t.pressId!;
+    if (RESERVATIONS.isUnknown(rid)) {
+      // never rebuild or re-send a press whose op is still confirming (same id ⇒ same press)
+      const u = RESERVATIONS.get(rid)?.unknown;
+      console.warn("[disciple] trade not re-sent: this press is still confirming", { id: rid, userOpHash: u?.userOpHash });
+      tt.done("error", { code: "Timeout", resend: false });
+      const err = markSent(new ProtocolError("Timeout", PENDING_MSG)); tagPress(err, rid); throw err;
+    }
     try {
       let r: TradeResult;
       try { r = await tradeOnce(side, t, tt); }
@@ -772,8 +785,31 @@ export function createViemProtocol(): ProtocolClient {
         r = await tradeOnce(side, t, tt);
       }
       tt.done("fill");
+      RESERVATIONS.release(rid, "filled");
       return r;
-    } catch (e) { tt.done("error", { code: (e as { code?: unknown }).code }); throw e; }
+    } catch (e) {
+      if ((e as { code?: unknown } | null)?.code !== "Timeout") RESERVATIONS.release(rid, "error");
+      tt.done("error", { code: (e as { code?: unknown }).code }); throw e;
+    }
+  }
+  /**
+   * Hold this trade's raw spend under the press id BEFORE quoting (#144 spec #6), merged into GAME's reservation of the
+   * same press (reserve() merges per id, never double counts). `others` = what OTHER pending trades hold of the same
+   * asset (cash / holdings check); `need` adds this press's own gas hold when the spend is USDG.
+   * Synchronous: nothing awaits between the reservation and the quote that follows it.
+   */
+  function holdSpend(rid: string, side: "buy" | "sell", token: Address, asset: Address, amountIn: bigint, route: string) {
+    const usdg = deployment().usdg;
+    const r = RESERVATIONS.reserve(rid, { side: side === "buy" ? "boost" : "dump", coin: token, spend: { asset, raw: amountIn, route } });
+    const ownGas = asset.toLowerCase() === usdg.toLowerCase() ? r.gasReserve ?? B(0) : B(0);
+    return { others: () => RESERVATIONS.reservedRaw(asset, { exceptId: rid, usdg }), need: amountIn + ownGas };
+  }
+  /** Copy for a spend that only fails because other pending trades hold the money (plain words, no ids; lee 2026-10-24). */
+  function heldMsg(isCash: boolean, amountUsd?: number) {
+    const n = Math.max(0, RESERVATIONS.count() - 1);
+    return isCash
+      ? `Not enough cash${amountUsd !== undefined ? ` for $${amountUsd.toFixed(2)}` : ""} while ${n === 1 ? "your other trade finishes" : "your other trades finish"}. Try again in a moment.`
+      : `Not enough tokens while ${n === 1 ? "your other trade finishes" : "your other trades finish"}. Try again in a moment.`;
   }
   async function tradeOnce(side: "buy" | "sell", t: TradeParams, tt?: TradeTiming): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
@@ -792,6 +828,7 @@ export function createViemProtocol(): ProtocolClient {
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
+      const held = holdSpend(t.pressId!, side, t.token, spendAsset, t.amountIn, ckey("coin", t.token, side));
       const smart = isSmartMode();
       const gradP = side === "buy" && !graduated ? buyMayGraduate(pc, curve, mode, t.amountIn, recipient) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
@@ -814,7 +851,8 @@ export function createViemProtocol(): ProtocolClient {
       const grad = !graduated && await gradP;
       if (grad) { markGradBuy(data); GRAD.drop(curve); }
       // Preflight: an underfunded spend otherwise surfaces only as an opaque estimate failure / on-chain revert.
-      if (have < t.amountIn) {
+      // rapid-tap: what other pending trades hold of this asset is not spendable (no extra read: `have` is the hint).
+      if (spendable(have, held.others()) < held.need) {
         const live = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });   // hint may be stale-low
         BALANCES.set(ckey(spendAsset, me), live);
         if (live < t.amountIn) {
@@ -825,14 +863,18 @@ export function createViemProtocol(): ProtocolClient {
           throw new ProtocolError("InsufficientBalance", dec == null ? `not enough ${sym} for that shot size`
             : `not enough ${sym}: need ${fmtUnits(t.amountIn, dec)} have ${fmtUnits(live, dec)}`);
         }
+        if (spendable(live, held.others()) < held.need) {
+          console.warn("[disciple] trade refused: balance held by trades in flight", { have: String(live), held: String(held.others()), need: String(held.need), inFlight: RESERVATIONS.count() });
+          throw new ProtocolError("InsufficientBalance", heldMsg(side === "buy"));
+        }
       }
       // Smart account: exact approve batched into the same op, always (no allowance read on the hot path).
       const approveCalls = smart ? [{ to: spendAsset, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [target, t.amountIn] }) }] : (approve ?? []);
       const calls = [...pveCalls, ...refCalls, ...approveCalls, { to: target, data }];
-      BALANCES.set(ckey(spendAsset, me), have - t.amountIn);   // optimistic; corrected by the next poll
+      // no optimistic balance write: displayed balances stay real; the pending spend is held in RESERVATIONS (#144)
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
-      const pressId = t.pressId ?? newPressId();   // GAME reservation id: same on every retry of this press
+      const pressId = t.pressId!;   // trade() set it: GAME's reservation id, same on every retry of this press
       const minOut0 = minOut;   // the first quote's minOut (a rebuild may go lower: freshMinOut)
       // Rapid taps: the ONE transient-error retry in mav2.sendCalls re-quotes (fresh minOut) instead of re-sending a
       // quote taken before the preceding in-flight shots moved the curve. Same amountIn/approvals ⇒ same spend + shape.
@@ -890,17 +932,22 @@ export function createViemProtocol(): ProtocolClient {
       ? buyMayGraduate(pc, g.curve, g.mode, t.amountIn, c.me)
       : usdgBuyGraduates(pc, { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn });
     const ik = ckey("usdgroute", t.token, side);
+    const held = holdSpend(t.pressId!, side, t.token, spend, t.amountIn, ik);
     // exact (no down-scaled warm quote): minOut must clear the session policy floor on the FIRST try
     const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true));
     const [q, have] = await Promise.all([
       t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
       balanceHint(pc, spend, c.me),
     ]);
-    if (have < t.amountIn) {
+    if (spendable(have, held.others()) < held.need) {
       const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
       if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
         ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
         : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);
+      if (spendable(live, held.others()) < held.need) {
+        console.warn("[disciple] trade refused: balance held by trades in flight", { have: String(live), held: String(held.others()), need: String(held.need), inFlight: RESERVATIONS.count() });
+        throw new ProtocolError("InsufficientBalance", heldMsg(isBuy, isBuy ? usdgRawToUsd(t.amountIn) : undefined));
+      }
     }
     let minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
@@ -911,9 +958,9 @@ export function createViemProtocol(): ProtocolClient {
     const calls: Call[] = [...prefix, ...routerCalls(minOut)];
     const grad = await gradP;
     if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); }
-    BALANCES.set(ckey(spend, c.me), have - t.amountIn);
+    // no optimistic balance write (displayed balances stay real); the pending spend is held in RESERVATIONS (#144)
     let done = addInflight(ik, t.amountIn);
-    const pressId = t.pressId ?? newPressId();   // GAME reservation id
+    const pressId = t.pressId!;   // trade() set it: GAME's reservation id
     const minOut0 = minOut;   // the first quote's minOut (freshMinOut)
     // Rapid taps: transient-error retry re-quotes (see tradeOnce). Same usdgIn/tokensIn ⇒ same exact approve + shape.
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {

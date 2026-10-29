@@ -106,6 +106,7 @@
     "test:grad-fix": "tsx scripts/test-grad-fix.mjs",
     "test:holder-rows": "tsx scripts/test-holder-rows.mts",
     "test:rapid-tap": "node scripts/test-rapid-tap.mjs",
+    "test:rapid-tap-trade": "tsx --test scripts/test-rapid-tap-trade.mts",
     "test:public-get-limits": "tsx --test scripts/test-public-get-limits.mts",
     "test:security-page": "tsx --conditions=react-server --test scripts/test-security-page.mts",
     "test:trade-guards": "tsx --test scripts/test-trade-guards.mts",

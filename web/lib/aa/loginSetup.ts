@@ -188,6 +188,11 @@ export type TradeSignerInput = {
   strictMode: boolean;
   /** account deployed (true/false) or unknown (RPC hiccup ⇒ never block the trade) */
   deployed: boolean | undefined;
+  /**
+   * Rapid-tap spec #9 (#144): the cap has room for this trade on its own but not on top of the session spend still in
+   * flight (a cap race). Session-only mode refuses it before sending ("Spend limit reached") instead of a doomed send.
+   */
+  capRace?: boolean;
 };
 export type TradeSigner = { as: "session" } | { as: "owner"; why: string } | { as: "refuse"; why: string };
 /**
@@ -201,6 +206,7 @@ export function tradeSigner(i: TradeSignerInput): TradeSigner {
   if (i.eligible && i.live && i.headroom) return { as: "session" };
   if (!i.trade) return { as: "owner", why: "not a trade" };
   if (!i.eligible) return { as: "owner", why: "outside session policy" };
+  if (i.live && i.capRace && i.strictMode && i.deployed !== undefined) return { as: "refuse", why: "spend limit (trades in flight)" };
   if (i.live) return { as: "owner", why: "spend limit used up" };
   if (i.strictMode && i.deployed !== undefined) return { as: "refuse", why: i.deployed ? "no live session" : "account setup not finished" };
   return { as: "owner", why: i.strictMode ? "deployment status unknown" : "no live session (owner fallback allowed)" };
