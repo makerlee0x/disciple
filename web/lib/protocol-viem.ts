@@ -22,6 +22,8 @@ import { fillBook, readAtOrAfter } from "./fillBook";
 import { NETWORK_MSG, NO_PRICE_MSG, PENDING_MSG, REJECTED_MSG, isTransportError, logTradeError, plainText } from "./aa/relayOp";
 import { lookupOp, pendingIds, watchPending } from "./trade/pendingWatch";
 import { RESERVATIONS, spendable } from "./trade/reservations";
+import { isWhitelistedQuote } from "./pairWhitelist";
+import { PAIR_NOT_ALLOWED_MSG } from "./aa/launchQuote";
 import { ANON_ADDONS } from "./anon";
 import { ACTIVE_CHAIN, deployment, hasRouter, isDeployed } from "./chains";
 import { referrerWallet } from "./referral";
@@ -1186,6 +1188,8 @@ export function createViemProtocol(): ProtocolClient {
       const launchpad = deployment().launchpad;
       // lee 2026-10-26: no default rocket art; every launch needs an uploaded picture.
       if (!lp.imageUri || !lp.imageUri.trim()) throw new ProtocolError("NoImage", "Upload a picture to launch your rocket.");
+      // pair whitelist (lee 2026-10-29): refused here before signing; the bundler route enforces the same list
+      if (!isWhitelistedQuote(lp.quoteToken, ACTIVE_CHAIN.id)) throw new ProtocolError("PairNotAllowed", PAIR_NOT_ALLOWED_MSG);
       // First BOOST in USDG (lee 2026-10-26: every buy is paid in USDG; the router buys the pair coin): public launches
       // go through DiscipleRouter.launchWithUsdg. creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
       const usdgIn = !lp.private ? lp.creatorBuyUsdgIn ?? B(0) : B(0);
