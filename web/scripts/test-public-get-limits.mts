@@ -7,13 +7,14 @@ import assert from "node:assert/strict";
 import { PUBLIC_GET_LIMITS, hitLimit, memoryCounter } from "../lib/server/limits";
 import { alchemyKey } from "../lib/server/alchemyKey";
 
-test("PUBLIC_GET_LIMITS: positive caps for img / share / trades / username nonce", () => {
+test("PUBLIC_GET_LIMITS: positive caps for img / share / trades / username nonce / image resolve", () => {
   for (const [name, lim] of Object.entries(PUBLIC_GET_LIMITS)) {
     assert.ok(lim.limit > 0 && lim.limit <= 10_000, `${name}.limit`);
     assert.ok(lim.windowSec > 0 && lim.windowSec <= 3600, `${name}.windowSec`);
   }
   assert.equal(PUBLIC_GET_LIMITS.usernameNoncePerIp.limit, 30);
   assert.equal(PUBLIC_GET_LIMITS.usernameNoncePerIp.windowSec, 60);
+  assert.equal(PUBLIC_GET_LIMITS.imageResolvePerIp.limit, 30);
 });
 
 test("hitLimit enforces the public-get windows (memory store)", async () => {

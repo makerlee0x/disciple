@@ -206,4 +206,6 @@ export const PUBLIC_GET_LIMITS = {
   sharePerIp: { limit: 30, windowSec: 60 },
   tradesPerIp: { limit: 60, windowSec: 60 },
   usernameNoncePerIp: { limit: 30, windowSec: 60 },
+  /** POST /api/image/resolve — up to 200 Upstash mgets per call */
+  imageResolvePerIp: { limit: 30, windowSec: 60 },
 } as const;
