@@ -2,6 +2,9 @@
 /**
  * Privy = auth + embedded EOA custody only. The embedded Ethereum wallet becomes the OWNER of the user's Alchemy
  * Modular Account v2 (lib/aa/session.ts). No Privy smart wallets, no Privy gas sponsorship, no Solana.
+ * Sign-in: email, Google, X/Twitter, or an external wallet (MetaMask, Coinbase, WalletConnect…). An external wallet
+ * is only the login: every player still gets an embedded wallet (createOnLogin "all-users"), and that one owns the
+ * smart account, so one-tap trading signs silently the same way for every login method.
  * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
  */
 import { useEffect, useRef } from "react";
@@ -40,9 +43,9 @@ export default function PrivyMount() {
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        loginMethods: ["email", "google"],
+        loginMethods: ["email", "google", "twitter", "wallet"],
         appearance: { theme: "dark", accentColor: "#C9CED6", showWalletLoginFirst: false },
-        embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
+        embeddedWallets: { ethereum: { createOnLogin: "all-users" }, showWalletUIs: false },
         defaultChain: ACTIVE_CHAIN,
         supportedChains: [ACTIVE_CHAIN],
       }}

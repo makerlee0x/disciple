@@ -108,6 +108,7 @@
     "test:security-page": "tsx --conditions=react-server --test scripts/test-security-page.mts",
     "test:trade-guards": "tsx --test scripts/test-trade-guards.mts",
     "test:profile-one-page": "tsx --conditions=react-server --test scripts/test-profile-one-page.mts",
+    "test:login-methods": "tsx --test scripts/test-login-methods.mts",
     "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts"
   },
   "dependencies": {
