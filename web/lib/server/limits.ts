@@ -193,3 +193,25 @@ export function paymasterAllowanceLimits(ip: string, sender: string): [key: stri
     [`paymaster:allow:${ip}:${sender.toLowerCase()}`, ALLOWANCE_LIMITS.perIpSender.limit, ALLOWANCE_LIMITS.perIpSender.windowSec],
   ];
 }
+
+/**
+ * Public GET endpoints that were missing per-IP caps (site security pass, 2026-10-28).
+ *  - img: open image proxy (SSRF-safe, but still burns egress/CPU) — was unlimited after W-2
+ *  - share card/pnl: PNG render + indexer catch-up
+ *  - trades: indexer catch-up on every hit
+ *  - username nonce: match profile/meta nonce (30/min) — was unmetered while meta was capped
+ */
+export const PUBLIC_GET_LIMITS = {
+  imgPerIp: { limit: 60, windowSec: 60 },
+  sharePerIp: { limit: 30, windowSec: 60 },
+  tradesPerIp: { limit: 60, windowSec: 60 },
+  usernameNoncePerIp: { limit: 30, windowSec: 60 },
+  /** POST /api/image/resolve — up to 200 Upstash mgets per call */
+  imageResolvePerIp: { limit: 30, windowSec: 60 },
+  /** GET /api/home — cache miss runs indexer + RPC; CDN s-maxage helps but still cap */
+  homePerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/chat/history + /api/chat/stream — store reads / long-lived SSE */
+  chatReadPerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/profile/username lookup (?u= / ?resolve= / ?address=) */
+  usernameLookupPerIp: { limit: 60, windowSec: 60 },
+} as const;

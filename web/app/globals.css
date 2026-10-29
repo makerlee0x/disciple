@@ -1540,3 +1540,87 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 }
 @keyframes pf-slide { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .pf-sheet { animation: none; } }
+
+/* wallet strip (components/WalletButton): never clipped on phones down to 360px */
+.wb-row { flex-wrap: nowrap; justify-content: flex-end; }
+.wb-sigil { display: flex; }
+@media (max-width: 480px) {
+  .wb-row { flex-wrap: wrap; row-gap: 4px; }
+  .wb-sigil { display: none; }  /* the portfolio sigil: frees ~34px */
+}
+/* "Test network" tag, first item of the wallet strip on chain 46630 (components/WalletButton). Small, plain, never blocks clicks. */
+.wb-testnet { align-self: center; padding: 3px 8px; border-radius: 999px; font: 600 10px/1.4 var(--dsc-font-body, system-ui); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dsc-text, #E8EAEE); background: color-mix(in srgb, var(--dsc-surface, #16171B) 82%, transparent);
+  border: 1px solid color-mix(in srgb, #C9CED6 35%, transparent); pointer-events: none; }
+/* Shared tooltip (components/ui/Tooltip): BRAND v2 surface, type, radius, border, shadow; arrow follows the trigger. */
+.ds-tip { position: fixed; z-index: 1000; max-width: min(280px, calc(100vw - 16px)); padding: 8px 10px; background: var(--dsc-surface-2); color: var(--dsc-text);
+  border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-sm); box-shadow: var(--dsc-shadow-md); font: 400 var(--dsc-font-size-xs)/1.45 var(--dsc-font-ui);
+  letter-spacing: 0; text-transform: none; text-align: left; white-space: normal; pointer-events: none; animation: ds-tip-in .12s ease-out; }
+.ds-tip::after { content: ""; position: absolute; left: var(--ds-tip-arrow); width: 8px; height: 8px; background: var(--dsc-surface-2); transform: translateX(-50%) rotate(45deg); }
+.ds-tip-top::after { bottom: -5px; border-right: 1px solid var(--dsc-border); border-bottom: 1px solid var(--dsc-border); }
+.ds-tip-bottom::after { top: -5px; border-left: 1px solid var(--dsc-border); border-top: 1px solid var(--dsc-border); }
+.ds-tip strong { display: block; font-weight: 600; margin-bottom: 2px; }
+@keyframes ds-tip-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ds-tip { animation: none; } }
+
+/* Profile one page (lee 2026-10-24): main column (achievements card, activity) + side column (rocket holdings). */
+.pf-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--dsc-space-6); align-items: start; }
+.pf-main { display: flex; flex-direction: column; gap: var(--dsc-space-6); min-width: 0; }
+.pf-aside { min-width: 0; display: flex; flex-direction: column; gap: var(--dsc-space-4); }
+.pf-section { display: flex; flex-direction: column; gap: var(--dsc-space-3); scroll-margin-top: calc(var(--ap-topbar-h) + 8px); min-width: 0; }
+.pf-section-h { margin: 0; font: 600 var(--dsc-font-size-sm) var(--dsc-font-ui); letter-spacing: var(--dsc-tracking-eyebrow); text-transform: uppercase; color: var(--dsc-muted); }
+.pf-aside .pf-rocket-grid { grid-template-columns: 1fr; }
+.pf-ach-card { display: flex; flex-direction: column; gap: 8px; padding: var(--dsc-space-4); background: var(--dsc-surface); border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-xl); color: var(--dsc-text); text-decoration: none; font-size: 14px; transition: border-color .15s; }
+.pf-ach-card:hover, .pf-ach-card:focus-visible { border-color: var(--dsc-border-color-strong); }
+.pf-ach-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.pf-ach-card-cta { font-size: 13px; color: var(--dsc-primary); }
+.pf-ach-card .pf-xp { margin: 0; height: 8px; }
+.pf-tags .pf-tag { cursor: default; }
+@media (max-width: 1100px) { .pf-body { grid-template-columns: minmax(0, 1fr) 300px; } }
+/* Mobile order: header → achievements card → holdings (short, the live part) → activity (long feed). */
+@media (max-width: 860px) {
+  .pf-body { display: flex; flex-direction: column; gap: var(--dsc-space-5); }
+  .pf-main { display: contents; }
+  .pf-ach-card { order: 1; } .pf-aside { order: 2; } .pf-activity { order: 3; } .pf-main > .pf-section:not(.pf-activity) { order: 4; }
+}
+/* Title picker (edit profile). */
+.pf-title-pick { border: 0; padding: 0; margin: 0; }
+.pf-title-opts { display: flex; flex-direction: column; gap: 6px; }
+.pf-title-opt { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--dsc-border); border-radius: var(--dsc-radius-md); cursor: pointer; }
+.pf-title-opt.on { border-color: var(--dsc-border-color-strong); background: var(--dsc-surface-2); }
+.pf-title-opt input { margin-top: 3px; accent-color: var(--dsc-primary); }
+.pf-title-opt-text { display: flex; flex-direction: column; gap: 2px; }
+.pf-title-opt-text strong { font-size: 14px; font-weight: 600; }
+.pf-title-pick .pf-link { font-size: 12px; }
+/* Titles on /achievements. */
+.ach-titles { display: flex; flex-direction: column; gap: 10px; scroll-margin-top: calc(var(--ap-topbar-h) + 8px); }
+.ach-titles h2 { margin: 0; }
+.ach-titles-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.ach-title { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: var(--dsc-radius-full); font: 13px var(--dsc-font-ui); color: var(--dsc-text); border: 1px solid var(--dsc-border-color-strong); background: var(--dsc-surface); }
+.ach-title.locked { color: var(--dsc-muted); border-style: dashed; border-color: var(--dsc-border); opacity: .7; }
+.ach-title.shown { background: var(--dsc-surface-2); font-weight: 600; }
+.pf-ach-card { box-sizing: border-box; width: 100%; align-self: stretch; }
+.ach-titles { margin-bottom: var(--dsc-space-4); }
+/* ---------- Guilds V1: tag chip + 24×24 mark slot (BRAND guilds-r1; one quiet silver chip, no per-guild colors, no gold) ---------- */
+.guild-chip { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 5px; border: 1px solid rgba(201,206,214,.16); border-radius: 4px; color: #E8EAEE; font-size: 11px; font-weight: 600; letter-spacing: .08em; line-height: 1; vertical-align: middle; white-space: nowrap; flex-shrink: 0; }
+.guild-chip-md { height: 24px; padding: 0 8px; font-size: 12px; gap: 6px; }
+.guild-chip-lg { height: 28px; padding: 0 10px; font-size: 13px; gap: 7px; }
+.guild-chip-word { font-weight: 500; color: rgba(232,234,238,.6); }
+.guild-chip-tag { font-weight: 600; }
+.guild-mark { position: relative; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 4px; vertical-align: middle; }
+.guild-mark-ring { box-shadow: inset 0 0 0 1px rgba(201,206,214,.35); }
+.guild-mark-logo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.guild-mark-letter { font-weight: 700; letter-spacing: 0; line-height: 1; }
+.guild-mark-frame { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.guild-cat { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; margin: 4px 0 0; }
+.guild-picker { display: flex; flex-direction: column; gap: 8px; }
+.guild-current { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.guild-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; max-height: 260px; overflow: auto; }
+.guild-opt { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid rgba(201,206,214,.16); border-radius: 6px; background: none; color: inherit; text-align: left; cursor: pointer; }
+.guild-opt.on { border-color: rgba(232,234,238,.7); }
+.guild-opt:disabled { opacity: .5; cursor: default; }
+.guild-opt-txt { display: flex; flex-direction: column; min-width: 0; }
+.guild-opt-tag { font-weight: 600; letter-spacing: .08em; font-size: 12px; }
+.guild-opt-sub { font-size: 11px; color: rgba(232,234,238,.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guild-new { display: grid; grid-template-columns: 96px 1fr auto; gap: 6px; align-items: start; }
+.guild-new .pf-input { min-width: 0; }

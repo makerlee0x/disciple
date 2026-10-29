@@ -2,12 +2,11 @@
 
 import { useId, useMemo, useState } from "react";
 import { COUNTRY_CODES } from "@/lib/profileMeta";
-import { COMMUNITY_FLAGS } from "@/lib/flags/community";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 import Flag, { countryName, flagName } from "./Flag";
 
 /**
- * Flag picker: "No flag", then Communities (lib/flags/community) and Countries, one search box over both.
+ * Country flag picker: "No flag", then countries, with a search box. Coin communities moved to the guild picker (Guilds V1).
  * Optional; the player picks. Values are flag ids validated again on the server (lib/profileMeta.isFlag).
  */
 export default function FlagPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
@@ -17,7 +16,6 @@ export default function FlagPicker({ value, onChange }: { value: string; onChang
   const countries = useMemo(() => COUNTRY_CODES.map((c) => ({ id: c, label: countryName(c) })).sort((a, b) => a.label.localeCompare(b.label)), []);
   const needle = q.trim().toLowerCase();
   const match = (f: { id: string; label: string }) => !needle || f.label.toLowerCase().includes(needle) || f.id.toLowerCase().replace(/^c-/, "").includes(needle);
-  const community = COMMUNITY_FLAGS.filter(match);
   const country = countries.filter(match);
   const pick = (id: string) => { onChange(id); setOpen(false); setQ(""); };
 
@@ -40,13 +38,10 @@ export default function FlagPicker({ value, onChange }: { value: string; onChang
         <div className="pf-flag-panel" id={listId}>
           <input className="pf-input pf-flag-search" type="search" value={q} placeholder={C["edit.flag.search"]} aria-label={C["edit.flag.search"]}
             autoComplete="off" spellCheck={false} onChange={(e) => setQ(e.target.value)} />
-          <ul className="pf-flag-list" role="listbox" aria-label={C["edit.flag.label.any"]}>
+          <ul className="pf-flag-list" role="listbox" aria-label={C["edit.flag.label"]}>
             {!needle && <Option id="" label={C["edit.flag.none"]} />}
-            {community.length > 0 && <li className="pf-flag-section" role="presentation">{C["edit.flag.section.community"]}</li>}
-            {community.map((f) => <Option key={f.id} id={f.id} label={f.label} />)}
-            {country.length > 0 && <li className="pf-flag-section" role="presentation">{C["edit.flag.section.country"]}</li>}
             {country.map((f) => <Option key={f.id} id={f.id} label={f.label} />)}
-            {!community.length && !country.length && <li className="pf-flag-section muted" role="presentation">{C["edit.flag.empty"]}</li>}
+            {!country.length && <li className="pf-flag-section muted" role="presentation">{C["edit.flag.empty"]}</li>}
           </ul>
         </div>
       )}

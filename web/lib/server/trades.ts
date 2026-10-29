@@ -21,8 +21,9 @@ import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } fro
 import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
+import { ACH } from "./achKeys";
 import { coinBasis } from "@/lib/mcap";
-import { fillUsd, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgTradeArgs } from "@/lib/trades";
+import { attachRefunds, fillUsd, FILL_V, usdgAmounts, usdgIndex, usdgKey, type Fill, type UsdgRefundArgs, type UsdgTradeArgs } from "@/lib/trades";
 import { usdgDecimals } from "@/lib/usdg";
 
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
@@ -30,6 +31,7 @@ const CURVE_TRADE = getAbiItem({ abi: bondingCurveAbi, name: "Trade" });
 const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
 const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
+const USDG_REFUND = getAbiItem({ abi: discipleRouterAbi, name: "UsdgRefund" });
 export const cursorKey = (launchpad: string) => `trades:cur:${launchpad.toLowerCase()}`;
 const curveCache = new Map<string, string>();
 const qpCache = new Map<string, bigint>();
@@ -66,17 +68,24 @@ export function toFill(log: { transactionHash: string; logIndex: number; blockNu
   sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number;
   /** Trade.quoteAmt: quote paid (buy) / received (sell) ⇒ usd = quoteAmt × quotePriceUsd (lib/trades fillUsd) */
   quoteAmt?: bigint;
+  /** Trade.impactBps (uncapped) / Trade.snipeFee (quote raw) — stored per fill (achievements bomb rules) */
+  impactBps?: bigint; snipeFee?: bigint;
 }, ts: number, usdg?: UsdgTradeArgs): Fill {
   const u = fillUsd(a);
   return {
     id: `${log.transactionHash}:${log.logIndex}`, tx: log.transactionHash, logIndex: log.logIndex, block: Number(log.blockNumber), ts,
     coin: a.token.toLowerCase(), trader: a.trader.toLowerCase(), side: a.isBuy ? "buy" : "sell", venue, ...u,
-    // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630)
+    // same account only (the router trades for msg.sender, so Trade.trader == UsdgTrade.trader — verified on 46630).
+    // usdIn is NET of the router's UsdgRefund when usdg.usdgRefund is set (attachRefunds).
     ...usdgAmounts(usdg && usdg.trader.toLowerCase() === a.trader.toLowerCase() ? usdg : undefined, usdgDecimals()),
+    ...(a.impactBps !== undefined ? { impactBps: Number(a.impactBps) } : {}),
+    priceBeforeX18: a.priceBeforeX18.toString(),
+    ...(a.snipeFee !== undefined ? { snipeFee: a.snipeFee.toString() } : {}),
+    v: FILL_V,
   };
 }
 
-export type TradeArgs = { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; quoteAmt?: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number };
+export type TradeArgs = { token: string; trader: string; isBuy: boolean; tokenAmt: bigint; quoteAmt?: bigint; impactBps?: bigint; snipeFee?: bigint; priceBeforeX18: bigint; priceAfterX18: bigint; mcapAfterUsd?: bigint; quotePriceUsd?: bigint; sqrtPriceAfter?: bigint; quote?: string; supplyTokens?: number };
 /**
  * Verify the emitter and fill in the USD basis of a decoded Trade (mutates `a`): venue (null = spoofed / foreign), the coin's
  * launch quote price (both venues: usd = quoteAmt × quotePriceUsd), and for hook trades the quote (currency order) for the
@@ -125,7 +134,9 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
       // DiscipleRouter UsdgTrade in the same range (address-filtered: the RH RPC serves those over any range) ⇒ real USDG in/out
       const router = d.router;
       const usdgLogs = router === ZERO ? [] : ((await pc.getLogs({ address: router, event: USDG_TRADE, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgTradeArgs }[]);
-      const usdg = usdgIndex(usdgLogs.map((x) => ({ tx: x.transactionHash, args: x.args })));
+      // …and its UsdgRefund (graduating buy / First BOOST over the cap) ⇒ usdIn is the NET paid. Router address only.
+      const refundLogs = router === ZERO || !usdgLogs.length ? [] : ((await pc.getLogs({ address: router, event: USDG_REFUND, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: UsdgRefundArgs }[]);
+      const usdg = usdgIndex(attachRefunds(usdgLogs.map((x) => ({ tx: x.transactionHash, args: x.args })), refundLogs.map((x) => ({ tx: x.transactionHash, args: x.args }))));
       const fills: Fill[] = [];
       for (const l of logs) {
         let dec: { args: Record<string, unknown> };
@@ -160,6 +171,8 @@ export async function storeFills(fills: Fill[]) {
   const coinsBy = new Map<string, Set<string>>();
   for (const f of fills) (coinsBy.get(f.trader) ?? coinsBy.set(f.trader, new Set()).get(f.trader)!).add(f.coin);
   for (const [w, cs] of Array.from(coinsBy.entries())) await s.sadd(`trades:w:${w}`, ...Array.from(cs));
+  // achievements engine: re-score these wallets on the next /api/cron/achievements (one member per fill ⇒ never lost)
+  if (fills.length) await s.zadd(ACH.dirty(), fills.map((f) => ({ score: Date.now(), member: `${f.trader}|${f.id}` })));
 }
 
 const byOrder = (a: Fill, b: Fill) => a.block - b.block || a.logIndex - b.logIndex;
@@ -174,12 +187,54 @@ export async function tradesOf(coin: string, wallet?: string | null, limit = 100
 }
 export async function coinsOf(wallet: string): Promise<string[]> { return kv().smembers(`trades:w:${wallet.toLowerCase()}`); }
 
-/** Pure (tests): a stored fill rebuilt from its decoded + prepared Trade (prepareTrade) — same id/tx/ts, the router's usdIn/usdOut kept. */
-export function revalueFill(f: Fill, venue: Fill["venue"], a: TradeArgs): Fill {
-  const nf: Fill = toFill({ transactionHash: f.tx, logIndex: f.logIndex, blockNumber: BigInt(f.block) }, venue, a, f.ts);
-  if (f.usdIn !== undefined) nf.usdIn = f.usdIn;
-  if (f.usdOut !== undefined) nf.usdOut = f.usdOut;
+/**
+ * Pure (tests): a stored fill rebuilt from its decoded + prepared Trade (prepareTrade) — same id/tx/ts. `usdg` = the
+ * router's UsdgTrade for this fill re-read from the receipt (usdgFromReceiptLogs, refund attached) ⇒ usdIn/usdOut are
+ * recomputed (net of UsdgRefund). Without it (undefined: receipt had no router leg we could match) the stored
+ * usdIn/usdOut are kept — never dropped.
+ */
+export function revalueFill(f: Fill, venue: Fill["venue"], a: TradeArgs, usdg?: UsdgTradeArgs): Fill {
+  const nf: Fill = toFill({ transactionHash: f.tx, logIndex: f.logIndex, blockNumber: BigInt(f.block) }, venue, a, f.ts, usdg);
+  if (!usdg) {
+    if (f.usdIn !== undefined) nf.usdIn = f.usdIn;
+    if (f.usdOut !== undefined) nf.usdOut = f.usdOut;
+  }
   return nf;
+}
+type RLog = { address: string; topics: readonly string[]; data: string; logIndex: number | bigint | null };
+/**
+ * Pure (tests): the router UsdgTrade (with its UsdgRefund attached) for the Trade log at `logIndex` in a receipt. Matched
+ * like the indexer: the n-th Trade of (token, side) in the tx takes the n-th UsdgTrade of (token, side), by log order.
+ */
+export function usdgFromReceiptLogs(logs: readonly RLog[], router: string, logIndex: number, a: { token: string; isBuy: boolean }): UsdgTradeArgs | undefined {
+  const r = router.toLowerCase(), tok = a.token.toLowerCase();
+  const sorted = [...logs].sort((x, y) => Number(x.logIndex) - Number(y.logIndex));
+  const trades: { tx: string; args: UsdgTradeArgs }[] = [], refunds: { tx: string; args: UsdgRefundArgs }[] = [];
+  let nth = 0;
+  for (const l of sorted) {
+    const t = { data: l.data as Hex, topics: l.topics as [Hex, ...Hex[]] };
+    if (l.address.toLowerCase() === r) {
+      try {
+        const ev = decodeEventLog({ abi: [USDG_TRADE, USDG_REFUND], ...t }) as unknown as { eventName: string; args: Record<string, unknown> };
+        if (ev.eventName === "UsdgTrade") trades.push({ tx: "r", args: ev.args as unknown as UsdgTradeArgs });
+        else if (ev.eventName === "UsdgRefund") refunds.push({ tx: "r", args: ev.args as unknown as UsdgRefundArgs });
+      } catch { /* other router event */ }
+      continue;
+    }
+    if (Number(l.logIndex) >= logIndex) continue;
+    try {
+      const ev = decodeEventLog({ abi: [CURVE_TRADE], ...t }) as unknown as { args: { token: string; isBuy: boolean } };
+      if (ev.args.token.toLowerCase() === tok && ev.args.isBuy === a.isBuy) nth++;
+    } catch {
+      try {
+        const ev = decodeEventLog({ abi: [HOOK_TRADE], ...t }) as unknown as { args: { token: string; isBuy: boolean } };
+        if (ev.args.token.toLowerCase() === tok && ev.args.isBuy === a.isBuy) nth++;
+      } catch { /* not a Trade */ }
+    }
+  }
+  attachRefunds(trades, refunds);
+  const mine = trades.filter((x) => String(x.args.token).toLowerCase() === tok && x.args.isBuy === a.isBuy);
+  return mine[nth]?.args;
 }
 /** Swap one stored fill member for its revalued JSON in the coin + wallet zsets (add first: a crash never loses the fill; tradesOf dedupes by id). */
 export async function replaceFill(s: Pick<Kv, "zadd" | "zrem">, coin: string, oldMember: string, nf: Fill): Promise<void> {
@@ -188,22 +243,25 @@ export async function replaceFill(s: Pick<Kv, "zadd" | "zrem">, coin: string, ol
   await s.zadd(wk, [{ score: nf.ts, member: nm }]);
   await s.zrem(`trades:${coin}`, oldMember);
   await s.zrem(wk, oldMember);
+  // a re-indexed fill (net usdIn, impactBps) can change achievements ⇒ re-score its wallet
+  await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${nf.trader}|re:${nf.id}:${nf.v ?? 0}` }]);
 }
 
 /**
  * Re-value stored fills (SITE job 7): every fill without usdBasis "quote" (indexed with the old tokens × mid-price
  * estimate) is rebuilt from its own Trade log (tx receipt, same logIndex) with toFill — usd = quoteAmt × the coin's launch
  * quote price — keeping id/ts and the router's real usdIn/usdOut. The old JSON member is replaced (ZREM + ZADD) in
- * trades:<coin> and trades:w:<trader>:<coin>. Idempotent: fills already on usdBasis "quote" are skipped without RPC, so
- * re-running converges and is cheap. Scope: one coin, or "all" (every coin the Launchpad launched since fromBlock).
+ * trades:<coin> and trades:w:<trader>:<coin>. usdIn/usdOut are recomputed from the receipt's UsdgTrade + UsdgRefund (net
+ * paid). Idempotent: fills already on usdBasis "quote" AND schema FILL_V are skipped without RPC, so re-running converges
+ * and is cheap; bumping FILL_V (lib/trades) rebuilds every older fill once. Scope: one coin, or "all" (every coin the Launchpad launched since fromBlock).
  * dryRun reports what would change and writes nothing. Stops at budgetMs; `done: false` ⇒ run again.
  */
 export async function reindexFills(scope: { coin: string } | "all", o: { dryRun?: boolean; budgetMs?: number } = {}): Promise<{
   coins: number; scanned: number; changed: number; skipped: number; missing: number; done: boolean; dryRun: boolean;
-  samples: { id: string; coin: string; side: Fill["side"]; usdBefore: number; usdAfter: number }[];
+  samples: { id: string; coin: string; side: Fill["side"]; usdBefore: number; usdAfter: number; usdInBefore?: number; usdInAfter?: number }[];
 }> {
   const s = kv(), d = deployment(), pc = serverPc(), t0 = Date.now(), budget = o.budgetMs ?? 45_000, dryRun = !!o.dryRun;
-  const out = { coins: 0, scanned: 0, changed: 0, skipped: 0, missing: 0, done: true, dryRun, samples: [] as { id: string; coin: string; side: Fill["side"]; usdBefore: number; usdAfter: number }[] };
+  const out = { coins: 0, scanned: 0, changed: 0, skipped: 0, missing: 0, done: true, dryRun, samples: [] as { id: string; coin: string; side: Fill["side"]; usdBefore: number; usdAfter: number; usdInBefore?: number; usdInAfter?: number }[] };
   if (d.launchpad === ZERO) return out;
   if (!dryRun && !(await s.setNX("trades:reindex:lock", "1", 60))) throw new Error("reindex already running");
   try {
@@ -227,7 +285,7 @@ export async function reindexFills(scope: { coin: string } | "all", o: { dryRun?
         out.scanned++;
         let f: Fill;
         try { f = JSON.parse(m) as Fill; } catch { out.missing++; continue; }
-        if (f.usdBasis === "quote") { out.skipped++; continue; }
+        if (f.usdBasis === "quote" && (f.v ?? 0) >= FILL_V) { out.skipped++; continue; }
         const r = await receipt(f.tx);
         const l = r?.logs.find((x) => Number(x.logIndex) === f.logIndex);
         if (!l) { out.missing++; continue; }
@@ -237,11 +295,12 @@ export async function reindexFills(scope: { coin: string } | "all", o: { dryRun?
         catch { out.missing++; continue; }
         const venue = await prepareTrade(pc, a, src, hook);
         if (!venue) { out.missing++; continue; }
-        const nf = revalueFill(f, venue, a);
+        const usdg = d.router === ZERO ? undefined : usdgFromReceiptLogs(r!.logs as unknown as RLog[], d.router, f.logIndex, a);
+        const nf = revalueFill(f, venue, a, usdg);
         const nm = JSON.stringify(nf);
         if (nm === m) { out.skipped++; continue; }
         out.changed++;
-        if (out.samples.length < 20) out.samples.push({ id: f.id, coin, side: f.side, usdBefore: f.usd, usdAfter: nf.usd });
+        if (out.samples.length < 20) out.samples.push({ id: f.id, coin, side: f.side, usdBefore: f.usd, usdAfter: nf.usd, usdInBefore: f.usdIn, usdInAfter: nf.usdIn });
         if (dryRun) continue;
         await replaceFill(s, coin, m, nf);
       }

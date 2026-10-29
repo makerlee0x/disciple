@@ -5,6 +5,7 @@
  * one request per address in flight, so a busy feed doesn't hammer the API.
  */
 import { fetchUsernameStatus } from "./profile";
+import { lookupGuild } from "./guildClient";
 
 const TTL_MS = 5 * 60_000;
 type Hit = { at: number; name: string | null };
@@ -51,10 +52,13 @@ export function chipLabel(username: string | null | undefined, address: string):
 /**
  * Feed names for the flight engine: window.__discipleNames[lc] = name, and a "disciple:names" event with the map after
  * each new name. (engine.js still prints short(addr): it needs to read this map — GAME patch in the PR body.)
+ * Guilds V1: the same call also looks up the trader's guild tag, published as window.__discipleGuilds[lc] = { id, tag, mark }
+ * with a "disciple:guilds" event (lib/guildClient). The names map and event above are unchanged.
  */
 export function publishTraderName(address: string | null | undefined, fetcher?: NameFetcher) {
   if (typeof window === "undefined" || !isAddr(address)) return;
   const k = address.toLowerCase();
+  void lookupGuild(k);
   const w = window as unknown as { __discipleNames?: Record<string, string> };
   if (w.__discipleNames && k in w.__discipleNames) return;
   void lookupName(k, fetcher).then((n) => {

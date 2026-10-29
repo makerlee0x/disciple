@@ -83,7 +83,7 @@ Thresholds in `IDENTITY_THRESHOLDS` (`web/lib/config.ts`). Primary = highest-wei
 | Farmer | ≥5,000 points with realized PnL ≤ $50 |
 | Smart Money | Top-decile ROI with ≥10 closes |
 
-Unmatched pilots fall back to **Pilgrim**.
+Unmatched pilots fall back to **Normie**.
 
 ## Achievements (`web/lib/achievements.ts`)
 

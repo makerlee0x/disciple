@@ -19,11 +19,13 @@ import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
-import { clampSlippage, suggestedSessionMax } from "@/lib/aa/slippage";
+import { clampSlippage } from "@/lib/aa/slippage";
+import { NO_REFUSE_SLIPPAGE_BPS } from "@/lib/trade/queuePricing";
+import { nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
-import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, slippageBps, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
+import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
 import { useT } from "@/lib/game/i18n";
 import { readCoinRules } from "@/lib/flight/coinRules";
@@ -39,9 +41,14 @@ import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
-type BridgeResult = { ok: boolean; reason?: string; txHash?: string; fillUsd?: number; fillTokens?: number; ms?: TradeMs; lateFill?: true; unknown?: true };
+type BridgeResult = { ok: boolean; reason?: string; txHash?: string; fillUsd?: number; fillTokens?: number; ms?: TradeMs; lateFill?: true; unknown?: true;
+  /** SITE optimistic fill: resolved when the op was sent, at the quoted amount; `settled` = the real outcome (Needs GAME review) */
+  optimistic?: true; settled?: Promise<BridgeResult>;
+  /** a wallet-limit / price-impact alert is showing instead (one tap: go ahead / buy max); nothing was sent */
+  needsConfirm?: TradeAlert["kind"] };
+type TradeOpts = { frac?: number; all?: boolean; confirmed?: TradeAlert["kind"][]; onPress?: (pressId: string) => void };
 /** pending: the send timed out — outcome UNKNOWN (may still land); `late` resolves to the real outcome (engine keeps hovering). */
-type Bridge = (side: "buy" | "sell", usd: number, o?: { frac?: number; all?: boolean }) => Promise<BridgeResult & { pending?: true; late?: Promise<BridgeResult> }>;
+type Bridge = (side: "buy" | "sell", usd: number, o?: TradeOpts) => Promise<BridgeResult & { pending?: true; late?: Promise<BridgeResult> }>;
 declare global {
   interface Window {
     __discipleTrade?: Bridge;
@@ -130,6 +137,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const linePress = useRef<string | null>(null);
   const warmRef = useRef<() => Promise<void>>(async () => {});   // HOT PATH warm tick (below); re-run right after our own trade
   const liveTokens = useRef(0);   // last real balanceOf (whole tokens) of the trading account
+  // SITE trade alerts (wallet limit, > 10 % price impact): cached reads only, so a tap never waits on them
+  const rulesRef = useRef<{ capBps: number | null } | null>(null);
+  const impRef = useRef<{ buyUsd: number[]; b: ({ bps: number; out: bigint } | null)[]; fracs: number[]; s: ({ bps: number; out: bigint } | null)[]; bal: bigint }>({ buyUsd: [], b: [], fracs: [], s: [], bal: BigInt(0) });
+  const pendingBuyUsd = useRef(0);   // sent buys not yet in liveTokens (wallet-limit room)
+  const [alert, setAlert] = useState<{ a: TradeAlert; side: "buy" | "sell"; usd: number; o?: TradeOpts } | null>(null);
   // Swap settings, per scope (sim / paper / live)
   const scope = storagePrefix + (live ? "live" : "paper");
   const [cfg, setCfg] = useState<SwapSettings>(() => loadSettings(scope));
@@ -215,9 +227,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     };
     /** Failure → GAME plain copy (lib/flight/tradeGate GAME_COPY) by SITE's tradeErrorKind; null (OTHER) = keep the message. */
     const plainReason = (e: unknown) => plainTradeMessage(tradeErrorKind(e));
-    window.__discipleTrade = async (side, usd, o) => {
+    const runTrade: Bridge = async (side, usd, o) => {
       const t0 = performance.now(); let quoteAt: number | undefined;
-      tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
       // RAPID TAP cash check, raw bigint (sync): this BOOST on top of every pending press' spend + gas reserves
       // gas kind: "gradBuy" (6M-gas reserve) when this BOOST could graduate the curve, else "trade" (sync, from the preview)
       const kind = gasKindFor(side, usd, gradRef.current, markRef.current.mcap);
@@ -228,6 +239,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       // RAPID TAP: this press's reservation, SYNC at entry (no await): buy $ + one op's gas now; a sell's tokens once sized.
       // Released on the result (slow path: once its receipt is booked) ⇒ the next press sizes from what is really left.
       const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined, kind);
+      o?.onPress?.(pressId);
       // this press's status: its own row (rapid tap) + the legacy single line (phone hint / one-press case)
       const say = (txt: string) => {
         setLast(txt);
@@ -285,8 +297,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         quoteAt = performance.now();
         // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
         // One-tap session active ⇒ never exceed its on-chain max slippage (the policy would revert the trade).
-        const slip = clampSlippage(slippageBps(cfgRef.current), sessionMaxSlippageBps());
-        if (slip.capped) dispatchEvent(new CustomEvent("disciple:slippagecap", { detail: { maxBps: slip.sessionMaxBps, requestedBps: slip.requestedBps, suggestBps: suggestedSessionMax(slip) } }));
+        // lee, Oct 26 10:50/10:51: buys and sells are never refused for price movement — a big move is the > 10 % impact
+        // alert before the tap (tradeAlert below). minOut = quote × (1 − 99.99 %) (overrides the Custom slippage setting);
+        // a one-tap session's on-chain policy still floors it at its max slippage (contract-enforced: FLOW / GAME flag).
+        const slip = clampSlippage(NO_REFUSE_SLIPPAGE_BPS, sessionMaxSlippageBps());
+        if (slip.capped) console.warn("[disciple] one-tap session policy floors minOut at", slip.sessionMaxBps, "bps (on-chain; not changeable from SITE)");
         // reservationId = this press id (SITE #144 TradeParams.reservationId): the trade layer merges into OUR reservation
         // instead of adding its own (else the press is counted twice). pressId = the same id (FLOW #145 TradeParams.pressId):
         // the AA layer tags its disciple:op events / errors / result with it. Both optional + ignored by a stack without them.
@@ -334,6 +349,68 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         }
       }
     };
+    /**
+     * Pre-send alerts (lee, Oct 26 10:50–10:52; COPY PENDING LEE APPROVAL in lib/trade/tradeGuards): wallet limit first
+     * (buys: the coin's mode cap from BondingCurve.netCapNow via coinRules), then > 10 % price impact. Cached reads; an
+     * amount the 4 s loop didn't quote gets ONE quick quote (≤ 400 ms), else no alert (never blocks on a guess).
+     */
+    const tradeAlert = async (side: "buy" | "sell", usd: number, o?: TradeOpts): Promise<TradeAlert | null> => {
+      const m = markRef.current, price = m.mcap > 0 && m.supply > 0 ? m.mcap / m.supply : 0;
+      const cap = side === "buy" && rulesRef.current ? { capBps: rulesRef.current.capBps, supply: m.supply, holding: liveTokens.current, pendingBuyTokens: price > 0 ? pendingBuyUsd.current / price : 0, priceUsd: price } : null;
+      const c = impRef.current, frac = o?.all ? 1 : o?.frac;
+      let hit = side === "buy" ? c.b[c.buyUsd.findIndex((u) => Math.abs(u - usd) < 1e-9)] : frac ? c.s[c.fracs.findIndex((f) => Math.abs(f - frac) < 1e-9)] : undefined;
+      if (!hit && !o?.confirmed?.includes("impact")) {
+        const pc = publicClient(), tk = token as Address;
+        const q = (async () => {
+          const a = side === "buy" ? await usdToAmountIn(pc, tk, "buy", usd) : frac && c.bal > BigInt(0) ? sellAmountFor(c.bal, { frac, all: o?.all }) : await usdToAmountIn(pc, tk, "sell", usd);
+          const r = await readQuote(pc, tk, side, a); return { bps: Math.abs(r.impactBps), out: r.amountOut };
+        })().catch(() => null);
+        hit = await Promise.race([q, new Promise<null>((r) => setTimeout(() => r(null), 400))]);
+      }
+      return nextAlert(side, usd, { cap, impactBps: hit?.bps ?? null, expected: hit ? (side === "buy" ? { coinsOut: units(hit.out) } : { usdOut: rawToUsd(hit.out) }) : {} }, o?.confirmed ?? []);
+    };
+    /**
+     * OPTIMISTIC FILL: resolve as filled (at the quoted amount) the moment the signed op is sent ("sent" / "submitted"),
+     * so the next tap never waits on the receipt. The press keeps its reservation until the real outcome; the receipt
+     * reconciles quietly (the row's "✓ done" line + fillreceipt). A real failure rolls back: plain ✕ line, balances re-read,
+     * disciple:optimisticrollback for the engine (Needs GAME review). Timeout: SITE's watcher settles it, as before.
+     */
+    window.__discipleTrade = async (side, usd, o) => {
+      // the press starts here (before the alerts): tap → filled is measured from this mark
+      tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
+      const a = await tradeAlert(side, usd, o).catch(() => null);
+      if (a) {
+        console.warn("[disciple] trade alert shown instead of sending", a.kind, side, usd);
+        setAlert({ a, side, usd, o: o && { frac: o.frac, all: o.all, confirmed: o.confirmed } });
+        return { ok: false, reason: a.text, needsConfirm: a.kind };
+      }
+      let pid: string | undefined, early: (r: BridgeResult) => void = () => undefined;
+      const earlyP = new Promise<BridgeResult>((res) => { early = res; });
+      const onSent = (e: Event) => {
+        const d = (e as CustomEvent<{ phase?: string; pressId?: string; txHash?: string }>).detail;
+        if (pid && d?.pressId === pid && (d.phase === "sent" || d.phase === "submitted")) early({ ok: true, optimistic: true, fillUsd: usd, ...(d.txHash ? { txHash: d.txHash } : {}) });
+      };
+      addEventListener("disciple:op", onSent);
+      if (side === "buy") pendingBuyUsd.current += usd;
+      const real = runTrade(side, usd, { ...o, onPress: (id) => { pid = id; } }).finally(() => {
+        removeEventListener("disciple:op", onSent);
+        if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, 1600);   // after the balance re-read
+      });
+      const first = await Promise.race([real.then((r) => ({ r, early: false })), earlyP.then((r) => ({ r, early: true }))]);
+      if (!first.early) return first.r;
+      dispatchEvent(new CustomEvent("disciple:optimisticfill", { detail: { pressId: pid, side, usd, token } }));
+      const rollback = (reason?: string) => {
+        console.warn("[disciple] optimistic fill rolled back", pid, reason);
+        dispatchEvent(new CustomEvent("disciple:optimisticrollback", { detail: { pressId: pid, side, usd, token, reason } }));
+        dispatchEvent(new Event("disciple:livetrade"));   // re-read cash / bag
+      };
+      const settled: Promise<BridgeResult> = real.then(async (r) => {
+        if (r.pending && r.late) { const x = await r.late; if (!x.ok && !x.unknown) rollback(x.reason); return x; }
+        if (!r.ok) rollback(r.reason);
+        return r;
+      }, (e) => { rollback(String(e)); return { ok: false, reason: REJECTED }; });
+      return { ...first.r, settled };
+    };
     return () => { delete window.__discipleTrade; removeEventListener("disciple:op", onOp); };
   }, [token, live]);
 
@@ -366,8 +443,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       // FLOW #145 tags disciple:op with the press id ⇒ only THAT press's line flips to "sent"; an untagged event (stack
       // without pressId) keeps the old behaviour. "error" (FLOW's terminal phase): the trade result paints the ✕ line.
       const mine = !d?.pressId || d.pressId === linePress.current;
-      if (d?.phase === "submitted" && mine) setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "· sent ⚡"));
-      if (d?.phase === "submitted" && d.pressId) setRows((rs) => rs.map((r) => (r.id === d.pressId ? { ...r, txt: r.txt.replace(/· sending…|· confirm in wallet…/, "· sent ⚡") } : r)));
+      // optimistic: "✓ done" the moment the op is sent; the receipt's doneLine then shows the filled $ (or ✕ on a failure)
+      const sent = d?.phase === "submitted" || d?.phase === "sent";
+      if (sent && mine) setLast((l) => l.replace(/· sending…|· confirm in wallet…/, "✓ done"));
+      if (sent && d.pressId) setRows((rs) => rs.map((r) => (r.id === d.pressId ? { ...r, txt: r.txt.replace(/· sending…|· confirm in wallet…/, "✓ done") } : r)));
       // the trade moved the price: its route quotes were dropped — re-warm right away (after the drop runs)
       if (d?.phase === "confirmed") setTimeout(() => void tick(), 0);
     };
@@ -475,7 +554,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     if (!valid) { dispatchEvent(new CustomEvent("disciple:coinrules", { detail: null })); return; }
     let alive = true; const pc = publicClient();
-    const poll = async () => { try { const r = await readCoinRules(pc, token as Address); if (alive) dispatchEvent(new CustomEvent("disciple:coinrules", { detail: r })); } catch { /* keep last */ } };
+    const poll = async () => { try { const r = await readCoinRules(pc, token as Address); if (alive) rulesRef.current = r; if (alive) dispatchEvent(new CustomEvent("disciple:coinrules", { detail: r })); } catch { /* keep last */ } };
     void poll(); const iv = setInterval(poll, 15_000); const again = () => { n = 0; void poll(); }; let n = 0;
     const boot = () => { if (n++ < 3) void poll(); };   // engine may boot after mount (worker): re-send on its first ammo announcements
     addEventListener("disciple:ammo", boot); addEventListener("disciple:livetrade", again);
@@ -558,7 +637,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => {
     if (!live) { setWarns(NO_WARNS); return; }
     let alive = true; const pc = publicClient(), tk = token as Address;
-    const imp = (side: "buy" | "sell", a: Promise<bigint>) => a.then((x) => (x > BigInt(0) ? readQuote(pc, tk, side, x).then((q) => q.impactBps) : null)).catch(() => null);
+    const imp = (side: "buy" | "sell", a: Promise<bigint>) => a.then((x) => (x > BigInt(0) ? readQuote(pc, tk, side, x).then((q) => ({ bps: Math.abs(q.impactBps), out: q.amountOut, signed: q.impactBps })) : null)).catch(() => null);
     const run = async () => {
       if (!alive || document.hidden) return;
       try {
@@ -570,7 +649,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           Promise.all(buyUsd.map((u) => (u > 0 ? imp("buy", usdToAmountIn(pc, tk, "buy", u)) : Promise.resolve(null)))),
           Promise.all(fracs.map((f) => (bal > BigInt(0) && f > 0 ? imp("sell", Promise.resolve(sellAmount(bal, Math.min(1, f)))) : Promise.resolve(null)))),
         ]);
-        const wb = moveWarnings("buy", b, max), wsl = moveWarnings("sell", s, max);
+        if (alive) impRef.current = { buyUsd, b, fracs, s, bal };
+        const wb = moveWarnings("buy", b.map((x) => x?.signed ?? null), max), wsl = moveWarnings("sell", s.map((x) => x?.signed ?? null), max);
         if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellPct ? wsl[4] : null });
       } catch { /* keep last */ }
     };
@@ -627,9 +707,28 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // 2+ presses with a status: every press's row (rapid tap), newest last — else the single line as before
   const rowsLine = rows.length > 1 ? rows.map((r) => r.txt).join("  ·  ") : "";
   const phoneHint = hint || (full ? COPY.inFlight : "") || shortLine || rowsLine || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
+  // SITE trade alert (wallet limit / > 10 % price impact): one tap to go ahead or buy the max allowed; plain copy only
+  const confirmAlert = (kind: "go" | "max") => {
+    const x = alert; setAlert(null); if (!x) return;
+    const confirmed = [...(x.o?.confirmed ?? []), x.a.kind];
+    if (kind === "max" && x.a.kind === "walletcap") void window.__discipleTrade?.("buy", x.a.maxUsd, { confirmed });
+    else void window.__discipleTrade?.(x.side, x.usd, { ...x.o, confirmed });
+  };
+  const alertStrip = alert ? (
+    <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
+      style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? 132 : 96, zIndex: 40, display: "flex", gap: 8, alignItems: "center",
+        maxWidth: "min(92vw, 520px)", padding: "8px 10px", borderRadius: 12, background: "rgba(28,10,18,.94)", border: "1px solid #ffb0c8", color: "#ffe7ef", fontSize: 12, fontFamily: "ui-monospace,monospace" }}>
+      <span style={{ flex: 1 }}>{alert.a.text}</span>
+      {alert.a.kind === "walletcap"
+        ? alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" onClick={() => confirmAlert("max")} style={{ ...btn, padding: "6px 10px", background: "#1f6b4a", color: "#d9ffe9" }}>{alert.a.actionLabel}</button>
+        : <button type="button" data-testid="trade-alert-go" onClick={() => confirmAlert("go")} style={{ ...btn, padding: "6px 10px", background: "#7a2236", color: "#ffd0dc" }}>{alert.a.actionLabel}</button>}
+      <button type="button" data-testid="trade-alert-cancel" onClick={() => setAlert(null)} style={{ ...btn, padding: "6px 10px", background: "rgba(255,255,255,.1)", color: "#eef0ff" }}>{alert.a.dismissLabel}</button>
+    </div>
+  ) : null;
   if (phone) return (
     <>
     <AmmoTierNotice />
+    {alertStrip}
     <PhoneTradeBar buyLabel={chipUsd(shotUsd)} sellLabel={customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()} boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
       buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
@@ -650,6 +749,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   return (
     <>
     <AmmoTierNotice />
+    {alertStrip}
     <div aria-label="trade bar" data-testid="trade-bar" className="ap-bc" style={{ bottom: 14, zIndex: 31, display: "flex", flexDirection: "column", gap: 3,
       padding: "6px 8px", borderRadius: 14, background: "rgba(8,10,28,.85)", border: "1px solid rgba(255,231,163,.3)", color: "#eef0ff", fontFamily: "ui-monospace,monospace" }}>
       <div style={{ display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>

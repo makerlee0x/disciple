@@ -6,9 +6,10 @@
  *  - bio: plain text, control / zero-width / bidi-override chars stripped, whitespace collapsed, ≤ BIO_MAX characters
  *    counted as grapheme clusters (an emoji, flag or ZWJ family is 1). Emoji and links allowed; links are rendered as
  *    text-only http(s) anchors by lib/linkify (never as HTML).
- *  - flag: optional. ISO 3166-1 alpha-2 country code, or a coin-community flag id from lib/flags/community.
+ *  - flag: optional. ISO 3166-1 alpha-2 country code. Coin-community flags became guilds (lib/guilds, Guilds V1): an old
+ *    stored "c-…" flag now reads as no flag and never fails a save (scripts/migrate-flags-to-guilds.mts clears them silently).
  */
-import { isCommunityFlag } from "./flags/community";
+import { PROFILE_COPY } from "./copy/profile";
 
 export const BIO_MAX = 160;
 /** Hard cap on the raw posted bio (UTF-16 units) before any counting: 160 of the longest emoji sequences fit easily. */
@@ -27,7 +28,8 @@ export const COUNTRY_CODES: readonly string[] = (
 ).split(" ");
 const COUNTRY_SET = new Set(COUNTRY_CODES);
 
-export type ProfileMeta = { pfp: string; bio: string; flag: string };
+/** title: optional chosen title id (lib/titles); "" / missing = the default title. Earned status is checked by the server. */
+export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string };
 export const EMPTY_META: ProfileMeta = { pfp: "", bio: "", flag: "" };
 
 // C0/C1 controls (newlines too: the bio is one line), zero-width, bidi embeddings/overrides/isolates, BOM.
@@ -48,13 +50,13 @@ export function bioLength(s: string): number {
   for (const _ of segmenter.segment(s)) n++; // eslint-disable-line @typescript-eslint/no-unused-vars
   return n;
 }
-/** Country codes are upper case (JP); community flag ids are lower case (c-pepe). */
+/** Country codes are upper case (JP). Anything else is lower-cased (an old c-… community flag, which isFlag rejects). */
 export const normalizeFlag = (s: unknown) => {
   const v = String(s ?? "").trim();
   return /^[a-z]{2}$/i.test(v) ? v.toUpperCase() : v.toLowerCase();
 };
 export const isCountryFlag = (s: string) => COUNTRY_SET.has(s);
-export const isFlag = (s: string) => s === "" || COUNTRY_SET.has(s) || isCommunityFlag(s);
+export const isFlag = (s: string) => s === "" || COUNTRY_SET.has(s);
 export const isPfpId = (s: string) => s === "" || PFP_ID_RE.test(s);
 export const pfpUrl = (id: string) => (PFP_ID_RE.test(id) ? `/api/image/${id}` : "");
 
@@ -63,9 +65,10 @@ export function validateMeta(m: ProfileMeta): string | null {
   if (m.bio.length > BIO_RAW_MAX || bioLength(m.bio) > BIO_MAX) return `Bio: max ${BIO_MAX} characters.`;
   if (!isFlag(m.flag)) return "Unknown flag.";
   if (!isPfpId(m.pfp)) return "Invalid picture.";
+  if (m.title && !/^[a-z_]{1,32}$/.test(m.title)) return PROFILE_COPY["edit.title.error.unknown"];
   return null;
 }
 
 /** Signed by the wallet; verified by /api/profile/meta. Covers every field so a signature can't be reused for other content. */
 export const profileMetaMessage = (address: string, m: ProfileMeta, nonce: string) =>
-  `DISCIPLE profile update\n\nWallet: ${address.toLowerCase()}\nPicture: ${m.pfp || "none"}\nFlag: ${m.flag || "none"}\nBio: ${m.bio || "none"}\nNonce: ${nonce}\n\nSigning proves you own this wallet. It costs nothing and sends no transaction.`;
+  `DISCIPLE profile update\n\nWallet: ${address.toLowerCase()}\nPicture: ${m.pfp || "none"}\nFlag: ${m.flag || "none"}\n${m.title ? `Title: ${m.title}\n` : ""}Bio: ${m.bio || "none"}\nNonce: ${nonce}\n\nSigning proves you own this wallet. It costs nothing and sends no transaction.`;

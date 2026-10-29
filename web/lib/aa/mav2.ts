@@ -114,7 +114,8 @@ const BUNDLER_METHODS = [
  * retries included. "submitted" = pending (op handed to the relay / tx known). "error" = the press failed (terminal);
  * `code` is the AAError code when known. confirmed.blockNumber: the receipt's block as the relay returned it
  * (lib/fillBook pins post-fill reads at ≥ it; SITE #137). */
-export type OpPhase = { phase: "submitted" | "confirmed" | "error"; userOpHash?: Hex; txHash?: Hex; timings?: unknown; pressId?: string; code?: string; message?: string; blockNumber?: string };
+/** "sent": the signed op left for the relay (SITE optimistic fill; TradeBridge shows it filled, reconciles on "confirmed"). */
+export type OpPhase = { phase: "sent" | "submitted" | "confirmed" | "error"; userOpHash?: Hex; txHash?: Hex; timings?: unknown; pressId?: string; code?: string; message?: string; blockNumber?: string };
 /** The receipt block from a returned receipt / its logs (hex, decimal or bigint) as a decimal string; undefined if absent. */
 function blockStr(...vs: unknown[]): string | undefined {
   for (const v of vs) {
@@ -518,6 +519,7 @@ export class Mav2Account {
     t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
   }): Promise<SendResult | null> {
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
+      opPhase({ phase: "sent", userOpHash: hash, pressId: c.opts.pressId });   // signed + sent: the optimistic fill starts here
       let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash, pressId: c.opts.pressId }), fetch, { pressId: c.opts.pressId });
       const t3 = now();
       // Post-broadcast relay error: the relay answers with the op's ids (error.data, lib/aa/relayOp). Keep OUR hash (the

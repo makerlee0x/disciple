@@ -45,3 +45,7 @@ Addresses: [Contract addresses](/docs/reference/contracts).
 - **Graduated liquidity has no remove function.** Tested by fuzzing: locked liquidity can never be removed.
 - **Fees always add up.** Tested: the fee router always holds at least what it owes creators and referrers.
 - **Non-upgradeable.** Deployed code can't be replaced.
+
+## Found a bug?
+
+Tell us first, privately. See [Security](/security) for how to report it and what happens next.

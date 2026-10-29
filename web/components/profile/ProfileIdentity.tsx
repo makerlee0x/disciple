@@ -111,7 +111,7 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
             {addr ? <>
               <span title={addr}>{short(addr)}</span>
               <button type="button" className="ds-btn" onClick={() => copy("addr", addr)}>{copied === "addr" ? "Copied" : "Copy"}</button>
-            </> : <span className="muted">Sign in (top right)</span>}
+            </> : <span className="muted">Sign in to see this.</span>}
           </div>
         </div>
 
@@ -134,7 +134,7 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
               <button type="button" className="ds-btn x" onClick={() => setXOpen(true)}>𝕏 Connect X</button>
             </div>
           )}
-          {!x && xOpen && <span className="muted tiny">OAuth verification is not live yet — we store the handle you paste and mark it self-reported.</span>}
+          {!x && xOpen && <span className="muted tiny">Linking accounts is coming soon.</span>}
         </div>
 
         <div className="pid-block">

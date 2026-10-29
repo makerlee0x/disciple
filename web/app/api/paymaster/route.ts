@@ -13,6 +13,7 @@ import { BUNDLER_LIMITS, clientIp, hitLimit, paymasterAllowanceLimits } from "@/
 import { allowanceQuote, finalQuote, PaymasterQuoteError, stubQuote } from "@/lib/server/paymasterCore";
 import { quoteConfig, quoteDeps } from "@/lib/server/paymasterQuote";
 import type { UserOp } from "@/lib/aa/core";
+import { inviteRequiredRpc, requireInviteWallet } from "@/lib/server/inviteGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,10 @@ export async function POST(req: Request) {
   const id = (body as { id?: unknown })?.id ?? null;
   const fail = (code: number, message: string, status = 400, data?: unknown) => NextResponse.json({ jsonrpc: "2.0", id, error: { code, message, data } }, { status });
   if (Array.isArray(body) || (body.method !== "pm_getPaymasterStubData" && body.method !== "pm_getPaymasterData" && body.method !== "pm_getPaymasterAllowance")) return fail(-32601, "method not allowed");
+  // invite-only beta (lib/server/invites), route entry only — the quote / signing code is untouched; off by default ⇒ no-op
+  const p0 = (body.params || [])[0] as UserOp | string | undefined;
+  const gateSender = String((typeof p0 === "string" ? p0 : p0?.sender) ?? "");
+  if (!(await requireInviteWallet(gateSender, "paymaster")).ok) return inviteRequiredRpc(id);
   if (body.method === "pm_getPaymasterAllowance") return allowance(req, id, body.params || [], fail);
   const [op, entryPoint, chainId] = (body.params || []) as [UserOp | undefined, string | undefined, string | number | undefined];
   if (!op || typeof op !== "object" || !ADDR.test(String(op.sender)) || typeof op.callData !== "string" || entryPoint === undefined || chainId === undefined)

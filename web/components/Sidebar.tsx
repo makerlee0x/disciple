@@ -241,6 +241,20 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
               <span className="lb">Settings</span>
             </button>
           )}
+          <Link
+            href="/security"
+            title="Security"
+            data-testid="side-security"
+            className={pathname === "/security" ? "on" : ""}
+            onClick={() => {
+              if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
+            }}
+          >
+            <span className="ic">
+              <NavIcon name="shield" />
+            </span>
+            <span className="lb">Security</span>
+          </Link>
           <button
             type="button"
             title="Help"
@@ -257,13 +271,13 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           </button>
           <button
             type="button"
-            title="Log out"
+            title="Sign out"
             onClick={() => setLogoutNote(true)}
           >
             <span className="ic">
               <NavIcon name="logout" />
             </span>
-            <span className="lb">Log out</span>
+            <span className="lb">Sign out</span>
           </button>
         </div>
       </aside>
@@ -287,10 +301,10 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             role="dialog"
           >
             <h2 className="m-0 mb-2 font-display text-2xl font-normal text-[#E8EAEE]">
-              Log out
+              Sign out
             </h2>
             <p className="text-sm opacity-75">
-              No account is connected yet (Privy TBD). Nothing to log out of.
+              You&rsquo;re not signed in.
             </p>
             <button
               type="button"

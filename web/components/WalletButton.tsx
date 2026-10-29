@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
-import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
+
+/** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
+const TEST_NETWORK_ID = 46630;
 import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
 import { balanceLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
@@ -26,6 +29,7 @@ import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
 import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
+import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
 import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
 import { CASH_ARRIVED_EVENT, TEST_CASH_COPY } from "@/lib/testCash";
@@ -124,7 +128,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       const list: { symbol: string; address: Address; role: BalancePart["role"] }[] = syms.map((t) => ({ symbol: t.symbol, address: t.address, role: (usdgPays ? t.address.toLowerCase() === deployment().usdg.toLowerCase() : !!meta && t.address.toLowerCase() === meta.quote.toLowerCase()) ? "spend" : "other" }));
       if (meta) list.unshift({ symbol: meta.symbol, address: coin!, role: "held" });
       // USDG is shown as dollar "cash" in its own card (never as "USDG" in the header); keep it out of the token line
-      if (usdgPays) for (let i = list.length - 1; i >= 0; i--) if (list[i].address.toLowerCase() === deployment().usdg.toLowerCase()) list.splice(i, 1);
+      // …except on a USDG-paired coin: USDG is that coin's quote, so the chip shows it (in dollars) as what pays
+      const usdgQuote = !!meta && meta.quote.toLowerCase() === deployment().usdg.toLowerCase();
+      if (usdgPays && !usdgQuote) for (let i = list.length - 1; i >= 0; i--) if (list[i].address.toLowerCase() === deployment().usdg.toLowerCase()) list.splice(i, 1);
       const extra = [...new Set([...(coin ? [coin] : []), ...fillBook.pendingTokens(a).filter((t) => t !== deployment().usdg.toLowerCase())])] as Address[];
       // one block for everything: ≥ our last receipt's block (fillBook.floor); a node that's behind errors ⇒ brief retry
       const { value, block } = await readAtOrAfter(pc, fillBook.floor(a), async (blockNumber) => {
@@ -255,11 +261,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     <div ref={rootRef} aria-label="wallet" style={{ position: "fixed", top: compact ? 12 : 10, right: 16, maxWidth: "calc(100vw - 32px)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4,
       fontFamily: "ui-monospace,monospace", color: "#E8EAEE" }}>
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+        {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
+        <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
+          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
               {pf && smart && (
-                <div aria-label="cash and portfolio" style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                <div aria-label="cash and portfolio" className="wb-cards" style={{ display: "flex", gap: 6, alignItems: "stretch", minWidth: 0 }}>
                   <div data-testid="cash-card" style={cardStyle} title="Your cash: what BOOST spends and DUMP pays out in.">
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
@@ -270,13 +278,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                       <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)}</span>
                       <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
                     </span>
-                    <IdentitySigil id="believer" size={26} />
+                    <span className="wb-sigil"><IdentitySigil id="believer" size={26} tip={false} /></span>
                   </a>
                 </div>
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} /></>}
               </button>
               {smart && SIGNER_MODE !== "local" && <button type="button" onClick={() => run("", disconnect)} style={{ ...pill, background: "rgba(255,255,255,.08)" }} aria-label="Disconnect"><Icon name="close" size={16} /></button>}
             </>
@@ -327,7 +335,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
               </>
             ) : oneTapAvailable() && oneTap.settingUp ? (
-              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading in the background… trades already go through without prompts (your wallet signs them silently).</span>
+              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading…</span>
             ) : oneTapAvailable() ? (
               <>
                 <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>
@@ -339,7 +347,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                 <span style={{ opacity: 0.7 }}>Optional: a 24h session key caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
               </>
             ) : (
-              <span style={{ opacity: 0.7 }}>Trades are signed by your Privy wallet in the background.</span>
+              <span style={{ opacity: 0.7 }}>One-tap trading is on.</span>
             )}
             <button type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>

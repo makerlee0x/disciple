@@ -18,6 +18,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
 import { LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "@/lib/aa/constants";
+import { inviteRequiredResponse, requireInviteUser } from "@/lib/server/inviteGate";
 import {
   AuthError, ZERO_ADDR, attestTtl, attesterAccount, fetchPrivyUser, isLoginVerified, loginGateMiniAbi, privyJwksFetcher,
   signLoginAttestation, verifyPrivyAccessToken, walletBelongsTo,
@@ -65,6 +66,8 @@ export async function POST(req: Request) {
     if (!ul.ok) return err(429, "rate_limited", { retryAfterSec: ul.retryAfterSec });
     const user = await fetchPrivyUser(claims.userId, id, secret);
     if (!isLoginVerified(user)) return err(403, "login_not_verified");
+    // invite-only beta (lib/server/invites); off by default ⇒ no-op
+    if (!(await requireInviteUser(claims.userId, "pve/attest")).ok) return inviteRequiredResponse();
     const client = pc();
     const owns = await walletBelongsTo(user, wallet, (owner) => Promise.all([
       client.readContract({ address: MAV2_FACTORY, abi: factoryAbi, functionName: "getAddressSemiModular", args: [owner, BigInt(0)] }).catch(() => null),

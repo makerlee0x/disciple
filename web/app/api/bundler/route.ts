@@ -8,8 +8,10 @@ import { selfBundle } from "@/lib/server/selfBundler";
 import { isRelayerNotConfigured } from "@/lib/server/relayer";
 import { kv } from "@/lib/server/kv";
 import { BUNDLER_LIMITS, clientIp, hitLimit, isSendLimitError, sendLimiter, type LimitResult, type SendLimiter } from "@/lib/server/limits";
+import { alchemyKey } from "@/lib/server/alchemyKey";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
+import { inviteRequiredRpc, requireInviteWallet } from "@/lib/server/inviteGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +50,7 @@ const limitedResponse = (id: unknown, method: string, retryAfterSec: number) =>
 const isSponsorMethod = (m: string) => m === "alchemy_requestGasAndPaymasterAndData" || m.startsWith("pm_") || m.startsWith("alchemy_requestPaymaster");
 
 export async function POST(req: Request) {
-  const key = process.env.ALCHEMY_API_KEY || process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
+  const key = alchemyKey();
   let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   if (!Array.isArray(body) && body.method && isSponsorMethod(body.method))
@@ -61,6 +63,8 @@ export async function POST(req: Request) {
   const sl = senderLimiter(req, body.method, body.params || []);
   const rl = await limited(req, body.method, sl);
   if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
+  // invite-only beta (lib/server/invites): sends need an invited sender; off by default ⇒ no-op
+  if (SEND.has(body.method) && !(await requireInviteWallet(senderOf(body.params || []), "bundler")).ok) return inviteRequiredRpc(body.id);
   if (key && process.env.AA_SELF_BUNDLER !== "1" && !selfOnly) {
     // forwarded to Alchemy (it validates; we can't hook before its submission): refuse when the sender's validated-sends
     // bucket is already full (read-only — junk ops never fill it), and count the send only once Alchemy accepted it

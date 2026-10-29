@@ -8,44 +8,41 @@ import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { evaluateAchievements } from "@/lib/achievements";
 import { lootFromAchievements, LOOT_SLOTS, type LootSlot } from "@/lib/profileLoot";
-import { PROFILE_TABS, useProfileUrlState, type ProfileTab } from "@/lib/profileUrlState";
-import { LOOT_ENABLED } from "@/lib/features";
+import { useProfileUrlState } from "@/lib/profileUrlState";
+import { LOOT_ENABLED, REAL_PROGRESS_ENABLED } from "@/lib/features";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
-import { PERSONAS, SAMPLE_DATA_LABEL, buildPersonaStats, type PersonaId } from "@/lib/mock/sample-trades";
+import { SAMPLE_DATA_LABEL } from "@/lib/mock/sample-trades";
+import { earnedTitlesFor, profileStatsFor, profileStatsSeed, shownTitle, titleDef, titleTooltip } from "@/lib/titles";
 import { fmtUsd } from "@/lib/config";
-import { PERSONA_BADGES, identityRuleText, personaBadge } from "@/lib/identity";
+import { NO_IDENTITY, PERSONA_BADGES, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
 import SettingsModal from "./SettingsModal";
-import { OPEN_CASH_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import EditProfileSheet from "./EditProfileSheet";
 import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
 import IdentitySigil from "./IdentitySigil";
 import Flag from "./Flag";
+import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import BioText from "./BioText";
 import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
 import type { RocketCardRow } from "./tabs/RocketsTab";
 import ProfileClaims from "@/components/claims/ProfileClaims";
+import InvitesCard from "@/components/invites/InvitesCard";
 import ShareModal, { type ShareTarget } from "@/components/share/ShareModal";
 import Icon from "@/components/icons/Icon";
+import Tooltip from "@/components/ui/Tooltip";
+import AchievementsCard from "./AchievementsCard";
 
-// Only the open tab mounts; each tab is its own chunk, prefetched on hover / touchstart of its tab button.
-const TAB_LOADERS = {
-  rockets: () => import("./tabs/RocketsTab"),
-  loot: () => import("./tabs/LootTab"),
-  achievements: () => import("./tabs/AchievementsTab"),
-  activity: () => import("./tabs/ActivityTab"),
-} as const;
+// One page (lee 2026-10-24: no tabs). Sections are their own chunks; Loot only behind LOOT_ENABLED.
 const Skeleton = () => <div className="pf-skeleton" aria-hidden />;
-const RocketsTab = dynamic(TAB_LOADERS.rockets, { loading: Skeleton });
-const LootTab = dynamic(TAB_LOADERS.loot, { loading: Skeleton });
-const AchievementsTab = dynamic(TAB_LOADERS.achievements, { loading: Skeleton });
-const ActivityTab = dynamic(TAB_LOADERS.activity, { loading: Skeleton });
+const RocketsTab = dynamic(() => import("./tabs/RocketsTab"), { loading: Skeleton });
+const LootTab = dynamic(() => import("./tabs/LootTab"), { loading: Skeleton });
+const ActivityTab = dynamic(() => import("./tabs/ActivityTab"), { loading: Skeleton });
 
-const PAGE = { rockets: 12, loot: 12, achievements: 12, activity: 20 } as const;
-const MAX_TAGS = 4;
+const PAGE = { rockets: 8, loot: 12, activity: 20 } as const;
 
 function fmtHours(v: number) {
   if (v < 1) return `${Math.round(v * 60)}m`;
@@ -54,19 +51,13 @@ function fmtHours(v: number) {
 }
 const signedUsd = (v: number) => `${v >= 0 ? "+" : "-"}${fmtUsd(Math.abs(v))}`;
 
-/** Deterministic sample stats for a username (until the indexer serves real history). */
-function samplePersonaFor(username?: string): PersonaId {
-  if (!username) return "believer";
-  const ids = Object.keys(PERSONAS) as PersonaId[];
-  let h = 0;
-  for (const c of username) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return ids[h % ids.length];
-}
-
 /**
- * /profile (private) and /u/[username] (public). Header (picture, @username, flag, rank + level, identity tags, bio,
- * 3 headline stats, actions) then four bounded tabs: Rockets · Loot · Achievements · Activity, paged, state in the URL.
- * Stats are SAMPLE until the indexer is live; live on-chain holdings replace the sample rockets when the wallet has any.
+ * /profile (private) and /u/[username] (public), one page (lee 2026-10-24):
+ *   header (picture, name, flag, rank + level, the ONE chosen title, bio, headline stats, actions) → claims →
+ *   main column: achievements progress card (links to /achievements) then Activity (record, PnL chart, feed), always open;
+ *   side column: rocket holdings. Mobile stacks header → achievements card → holdings → activity.
+ * Stats are SAMPLE until the indexer is live (lib/titles profileStatsFor); live on-chain holdings replace the sample rockets
+ * when the wallet has any.
  */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
   const isPrivate = mode === "private";
@@ -128,40 +119,33 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [toast, setToast] = useState("");
   const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
-  // #settings / #cash (the Deposit link, lib/cashLink) open Settings; #cash also scrolls to the Cash panel. On load, on
-  // hashchange, and on OPEN_CASH_EVENT (a Deposit click while already on /profile#cash fires no hashchange).
-  useEffect(() => {
-    if (!isPrivate) return;
-    const open = () => {
-      const h = window.location.hash;
-      if (!(SETTINGS_HASHES as readonly string[]).includes(h)) return;
-      setSettingsOpen(true);
-      if (h === "#cash") window.setTimeout(() => document.getElementById("cash")?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
-    };
-    open();
-    window.addEventListener("hashchange", open);
-    window.addEventListener(OPEN_CASH_EVENT, open);
-    return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_CASH_EVENT, open); };
-  }, [isPrivate]);
+  useEffect(() => { if (isPrivate && window.location.hash === "#settings") setSettingsOpen(true); }, [isPrivate]);
 
-  const persona = samplePersonaFor(username);
-  const data = useMemo(() => buildPersonaStats(persona), [persona]);
-  const { identity } = data;
+  const owner = (isPrivate ? me : publicUsername) || "";
+  // Same seed as the server's title check (/api/profile/meta): claimed username, else the wallet.
+  const seed = profileStatsSeed(owner, isPrivate ? wallet : slugAddr ?? wallet);
+  const data = useMemo(() => profileStatsFor(seed), [seed]);
+  // REAL_PROGRESS_ENABLED off (lib/features): the stats are sample, so the header hides them, the season tier and
+  // the level, and shows no earned title ("Normie"). The sample data below still feeds the labeled SAMPLE sections.
+  const real = REAL_PROGRESS_ENABLED;
+  const identity = real ? data.identity : NO_IDENTITY;
+  const earned = useMemo(() => earnedTitlesFor(seed), [seed]);
+  const title = shownTitle(meta.title, earned);
   const prestige = prestigeFromPoints(data.points);
   const kpi = (k: string) => data.kpis.find((x) => x.key === k)?.total ?? 0;
 
+  // Loot keeps its ?loot= / ?slot= deep links (only when LOOT_ENABLED); section pages are local.
   const [url, setUrl] = useProfileUrlState();
-  const tabBar = useRef<HTMLDivElement>(null);
-  const goPage = (p: number) => {
-    setUrl({ page: p, loot: null });
-    const el = tabBar.current;
+  const [pg, setPg] = useState({ rockets: 1, loot: 1, activity: 1 });
+  const refs = { rockets: useRef<HTMLElement>(null), loot: useRef<HTMLElement>(null), activity: useRef<HTMLElement>(null) };
+  const goPage = (k: keyof typeof pg) => (p: number) => {
+    setPg((x) => ({ ...x, [k]: p }));
+    const el = refs[k].current;
     if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
   };
-  const goTab = (t: ProfileTab) => setUrl({ tab: t, page: 1, loot: null, filter: null });
 
   // Rockets: live holdings when the wallet has any, otherwise the sample rows. Both capped at a page of 12.
   const live = useLiveHoldings(wallet);
-  const owner = (isPrivate ? me : publicUsername) || "";
   // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
   const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
   const rocketRows: RocketCardRow[] = useMemo(() => {
@@ -185,7 +169,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     const order = { unlocked: 0, in_progress: 1, locked: 2 } as const;
     return evaluateAchievements(data).sort((x, y) => order[x.state] - order[y.state]);
   }, [data]);
-  const unlocked = achievements.filter((a) => a.state === "unlocked").length;
   const loot = useMemo(() => lootFromAchievements(achievements), [achievements]);
   const lootFilter = (LOOT_SLOTS as readonly string[]).includes(url.filter ?? "") ? (url.filter as LootSlot) : null;
   const lootShown = useMemo(() => (lootFilter ? loot.filter((p) => p.slot === lootFilter) : loot), [loot, lootFilter]);
@@ -195,24 +178,22 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     return c;
   }, [loot]);
 
-  const total = { rockets: rocketRows.length, loot: lootShown.length, achievements: achievements.length, activity: data.activity.length }[url.tab];
-  const pages = pageCount(total, PAGE[url.tab]);
-  const page = Math.min(url.page, pages);
+  const pages = {
+    rockets: pageCount(rocketRows.length, PAGE.rockets), loot: pageCount(lootShown.length, PAGE.loot), activity: pageCount(data.activity.length, PAGE.activity),
+  };
+  const page = { rockets: Math.min(pg.rockets, pages.rockets), loot: Math.min(pg.loot, pages.loot), activity: Math.min(pg.activity, pages.activity) };
 
-  // Popup items = the open page of Loot / Achievements; ?loot=<id> deep-links one (and jumps to its page).
-  const popupItems: LootItem[] = useMemo(() => {
-    if (url.tab === "loot") return pageSlice(lootShown, page, PAGE.loot).map((part) => ({ kind: "part", part }));
-    if (url.tab === "achievements") return pageSlice(achievements, page, PAGE.achievements).map((a) => ({ kind: "ach", a }));
-    return [];
-  }, [url.tab, lootShown, achievements, page]);
+  // Loot popup = the open page of Loot; ?loot=<id> deep-links one (and jumps to its page).
+  const popupItems: LootItem[] = useMemo(
+    () => (LOOT_ENABLED ? pageSlice(lootShown, page.loot, PAGE.loot).map((part) => ({ kind: "part", part }) as LootItem) : []),
+    [lootShown, page.loot]);
   useEffect(() => {
-    if (!url.loot) return;
-    const list = url.tab === "loot" ? lootShown.map((p) => p.id) : url.tab === "achievements" ? achievements.map((a) => a.id) : [];
-    const i = list.indexOf(url.loot);
+    if (!url.loot || !LOOT_ENABLED) return;
+    const i = lootShown.map((p) => p.id).indexOf(url.loot);
     if (i < 0) return;
     const want = Math.floor(i / PAGE.loot) + 1;
-    if (want !== page) setUrl({ page: want }, "replace");
-  }, [url.loot, url.tab, lootShown, achievements, page, setUrl]);
+    setPg((x) => (x.loot === want ? x : { ...x, loot: want }));
+  }, [url.loot, lootShown]);
   const popupIndex = url.loot ? popupItems.findIndex((it) => lootItemId(it) === url.loot) : -1;
   const openPopup = (i: number) => setUrl({ loot: lootItemId(popupItems[i]) });
   const stepPopup = useCallback((i: number) => setUrl({ loot: lootItemId(popupItems[i]) }, "replace"), [popupItems, setUrl]);
@@ -222,8 +203,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     const path = owner ? profileUrl(owner) : window.location.pathname;
     try { navigator.clipboard?.writeText(`${window.location.origin}${withBase(path)}`); flash(C["profile.share.copied"]); } catch { /* no clipboard */ }
   };
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [tagInfo, setTagInfo] = useState<string | null>(null);
 
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
   if (isPrivate && !wallet) {
@@ -240,14 +219,12 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   // No username: the wallet's space-themed default call sign (never with an "@"); public /u/<0x…> slugs likewise.
   const handle = isPrivate ? (me ? `@${me}` : defaultUsername(wallet)) : publicName;
   const img = pfpUrl(meta.pfp);
-  const ring = data.rank.border;
+  const ring = real ? data.rank.border : undefined;
   const badge = PERSONA_BADGES[personaBadge(identity)];
-  const tags = [{ id: identity.primary.id, label: identity.primary.label, primary: true, rule: `${identityRuleText(identity.primary.id)}. ${badge.blurb}` },
-    ...identity.secondary.map((t) => ({ id: t.id, label: t.label, primary: false, rule: identityRuleText(t.id) }))];
-  const shownTags = tagsOpen ? tags : tags.slice(0, MAX_TAGS);
+  // Nothing earned: "Normie" (NO_TITLE; not a title, not pickable).
+  const titleD = title ? titleDef(title) : identity.primary;
+  const titleTip = title ? titleTooltip(title) : identity.primary.blurb;
   const rpnl = kpi("rpnl");
-  const tabCount = { rockets: String(rocketRows.length), loot: LOOT_ENABLED ? String(loot.length) : "", achievements: `${unlocked}/${achievements.length}`, activity: "" };
-  const prefetch = (t: ProfileTab) => { void TAB_LOADERS[t](); };
 
   return (
     <div className="profile-page pf-v3">
@@ -264,31 +241,26 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           {img
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={withBase(img)} alt="" width={112} height={112} fetchPriority="high" />
-            : <IdentitySigil id={identity.primary.id} size={64} />}
+            : <IdentitySigil id={title ?? identity.primary.id} size={64} tip={false} />}
         </button>
 
         <div className="pf-id">
-          <h1 className="pf-name"><span>{handle}</span>{meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
-          <div className="pf-rankrow">
+          <h1 className="pf-name"><span>{handle}</span><GuildTagFor address={wallet} size="lg" />{COUNTRY_FLAGS_ENABLED && meta.flag && <Flag cc={meta.flag} size={20} />}</h1>
+          {real && <div className="pf-rankrow" data-testid="profile-rankrow">
             <span className="pf-rank" style={{ color: ring, borderColor: ring }} aria-label={C["profile.rank.aria"](data.rank.label)}>{data.rank.label}</span>
             <span className="pf-lvl" aria-label={C["profile.level.aria"](prestige.level)}>{C["profile.level"](prestige.level)}</span>
-          </div>
-          <ul className="pf-tags" aria-label={C["profile.tags.aria"]}>
-            {shownTags.map((t) => (
-              <li key={t.id}>
-                <button type="button" className={`pf-tag ${t.primary ? "primary" : ""}`} title={t.rule} aria-expanded={tagInfo === t.id}
-                  onClick={() => setTagInfo((x) => (x === t.id ? null : t.id))}>
+          </div>}
+          {titleD && (
+            <div className="pf-tags">
+              <Tooltip content={<><strong>{titleD.label}</strong>{titleTip}</>}>
+                <span className="pf-tag primary" data-testid="profile-title">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {t.primary && <img src={withBase(badge.icon)} alt="" width={14} height={14} />}
-                  {t.label}
-                </button>
-              </li>
-            ))}
-            {!tagsOpen && tags.length > MAX_TAGS && (
-              <li><button type="button" className="pf-tag" onClick={() => setTagsOpen(true)}>{C["profile.tags.more"](tags.length - MAX_TAGS)}</button></li>
-            )}
-          </ul>
-          {tagInfo && <p className="pf-taginfo muted" role="status">{tags.find((t) => t.id === tagInfo)?.rule}</p>}
+                  {titleD === identity.primary && <img src={withBase(badge.icon)} alt="" width={14} height={14} />}
+                  {titleD.label}
+                </span>
+              </Tooltip>
+            </div>
+          )}
           {meta.bio ? <p className="pf-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
             : isPrivate ? <button type="button" className="pf-btn-text pf-addbio" onClick={() => setEdit({ focus: "bio" })}>{C["profile.bio.empty.own"]}</button> : null}
         </div>
@@ -303,54 +275,49 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
               <button type="button" className="ds-btn pf-btn-secondary pf-share-wide" onClick={shareProfile}><Icon name="share" size={16} /> {C["profile.action.share"]}</button>
             )}
           </div>
-          <div className="pf-stats" title={SAMPLE_DATA_LABEL}>
+          {real && <div className="pf-stats" title={SAMPLE_DATA_LABEL} data-testid="profile-stats">
             <div className={`pf-stat ${rpnl >= 0 ? "pos" : "neg"}`}><span>Realized PnL</span><strong>{signedUsd(rpnl)}</strong></div>
             <div className="pf-stat"><span>{C["profile.stat.winrate"]}</span><strong>{Math.round(kpi("wr"))}%</strong></div>
             <div className="pf-stat"><span>{C["profile.stat.bombs"]}</span><strong>{data.metrics.bombCount}</strong></div>
-          </div>
+          </div>}
         </div>
       </header>
 
       {isPrivate && <ProfileClaims />}
+      {isPrivate && <InvitesCard />}
 
-      <div className="pf-tabbar" ref={tabBar}>
-        <div className="pf-tabs" role="tablist">
-          {PROFILE_TABS.map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={url.tab === t} className={url.tab === t ? "on" : ""} data-testid={`tab-btn-${t}`}
-              onClick={() => goTab(t)} onMouseEnter={() => prefetch(t)} onTouchStart={() => prefetch(t)}>
-              {C[`profile.tab.${t}`]}{tabCount[t] && <span className={`pf-count ${t === "achievements" ? "pf-count-desk" : ""}`}>{tabCount[t]}</span>}
-            </button>
-          ))}
+      <div className="pf-body">
+        <div className="pf-main">
+          <AchievementsCard total={achievements.length} />
+          <section className="pf-section pf-activity" ref={refs.activity} aria-labelledby="pf-h-activity">
+            <h2 id="pf-h-activity" className="pf-section-h">{C["profile.tab.activity"]}</h2>
+            <ActivityTab record={[
+              { label: "Volume", value: fmtUsd(kpi("vol")) },
+              { label: "Avg hold", value: fmtHours(kpi("hold")) },
+              { label: "Biggest W", value: fmtUsd(data.ct.biggestW), tone: "pos" },
+              { label: "Biggest L", value: fmtUsd(data.ct.biggestL), tone: "neg" },
+              { label: C["activity.record.grads"], value: String(data.ct.graduationsWitnessed) },
+              { label: "Rugged count", value: String(data.ct.ruggedCount) },
+            ]} pnl={data.cumulativePnl} rows={pageSlice(data.activity, page.activity, PAGE.activity)} total={data.activity.length} page={page.activity} pages={pages.activity}
+              onPage={goPage("activity")} isPrivate={isPrivate} owner={ownerName} />
+          </section>
+          {LOOT_ENABLED && (
+            <section className="pf-section" ref={refs.loot} aria-labelledby="pf-h-loot">
+              <h2 id="pf-h-loot" className="pf-section-h">{C["profile.tab.loot"]}</h2>
+              <LootTab rows={pageSlice(lootShown, page.loot, PAGE.loot)} total={lootShown.length} counts={lootCounts} filter={lootFilter}
+                onFilter={(f) => { setUrl({ filter: f, loot: null }); setPg((x) => ({ ...x, loot: 1 })); }} page={page.loot} pages={pages.loot} onPage={goPage("loot")} onOpen={openPopup}
+                isPrivate={isPrivate} owner={ownerName} onSeeAchievements={() => { window.location.href = withBase("/achievements"); }} />
+            </section>
+          )}
         </div>
+        <aside className="pf-aside" aria-labelledby="pf-h-rockets">
+          <section className="pf-section pf-holdings" ref={refs.rockets}>
+            <h2 id="pf-h-rockets" className="pf-section-h">{C["profile.tab.rockets"]}</h2>
+            <RocketsTab rows={pageSlice(rocketRows, page.rockets, PAGE.rockets)} total={rocketRows.length} page={page.rockets} pages={pages.rockets} onPage={goPage("rockets")}
+              isPrivate={isPrivate} owner={ownerName} sample={rocketsSample} />
+          </section>
+        </aside>
       </div>
-
-      <section className="pf-panel" role="tabpanel">
-        {url.tab === "rockets" && (
-          <RocketsTab rows={pageSlice(rocketRows, page, PAGE.rockets)} total={rocketRows.length} page={page} pages={pages} onPage={goPage}
-            isPrivate={isPrivate} owner={ownerName} sample={rocketsSample} />
-        )}
-        {LOOT_ENABLED && url.tab === "loot" && (
-          <LootTab rows={pageSlice(lootShown, page, PAGE.loot)} total={lootShown.length} counts={lootCounts} filter={lootFilter}
-            onFilter={(f) => setUrl({ filter: f, page: 1, loot: null })} page={page} pages={pages} onPage={goPage} onOpen={openPopup}
-            isPrivate={isPrivate} owner={ownerName} onSeeAchievements={() => goTab("achievements")} />
-        )}
-        {url.tab === "achievements" && (
-          <AchievementsTab rows={pageSlice(achievements, page, PAGE.achievements)} unlocked={unlocked} total={achievements.length}
-            prestige={prestige} nextRank={data.rank.next.tier !== data.rank.tier ? { points: data.pointsToNextRank, label: data.rank.next.label } : null}
-            leaderboardRank={data.leaderboardRank} page={page} pages={pages} onPage={goPage} onOpen={openPopup} isPrivate={isPrivate} owner={ownerName} />
-        )}
-        {url.tab === "activity" && (
-          <ActivityTab record={[
-            { label: "Volume", value: fmtUsd(kpi("vol")) },
-            { label: "Avg hold", value: fmtHours(kpi("hold")) },
-            { label: "Biggest W", value: fmtUsd(data.ct.biggestW), tone: "pos" },
-            { label: "Biggest L", value: fmtUsd(data.ct.biggestL), tone: "neg" },
-            { label: C["activity.record.grads"], value: String(data.ct.graduationsWitnessed) },
-            { label: "Rugged count", value: String(data.ct.ruggedCount) },
-          ]} pnl={data.cumulativePnl} rows={pageSlice(data.activity, page, PAGE.activity)} total={data.activity.length} page={page} pages={pages} onPage={goPage}
-            isPrivate={isPrivate} owner={ownerName} />
-        )}
-      </section>
     </div>
   );
 }

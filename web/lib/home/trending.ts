@@ -41,6 +41,8 @@ export type HomeCoin = {
   pairSym: string;
   icon: string;
   creator: string;
+  /** Full creator wallet (lower case), for the guild tag lookup. */
+  creatorAddr?: string;
   mcapUsd: number;
   graduated: boolean;
   /** curve progressBps (tokens sold / curve supply, 1e4 = graduation) */

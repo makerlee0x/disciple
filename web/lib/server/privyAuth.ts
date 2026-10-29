@@ -113,11 +113,11 @@ export type AuthResult = { ok: true; user: PrivyUser } | { ok: false; status: 40
 /** Token → verified Privy user (with emails/wallets). */
 export async function authenticate(token: string | null, pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, nowMs = Date.now()): Promise<AuthResult> {
   if (!pe.appId) return { ok: false, status: 503, reason: "Login isn't configured." };
-  if (!token) return { ok: false, status: 401, reason: "Log in first." };
+  if (!token) return { ok: false, status: 401, reason: "Sign in first." };
   const keys = await verificationKeys(pe, f, nowMs);
   if (!keys.length) return { ok: false, status: 503, reason: "Login check isn't configured." };
   const c = verifyAccessToken(token, keys, pe.appId, Math.floor(nowMs / 1000));
-  if (!c) return { ok: false, status: 401, reason: "Session expired. Log in again." };
+  if (!c) return { ok: false, status: 401, reason: "Session expired. Sign in again." };
   if (!pe.appSecret) return { ok: false, status: 503, reason: "Login check isn't configured." };
   const user = await fetchPrivyUser(c.sub, pe, f, nowMs);
   if (!user) return { ok: false, status: 401, reason: "Couldn't load your account." };

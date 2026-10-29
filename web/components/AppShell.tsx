@@ -4,6 +4,7 @@ import Sidebar, { isCollapsibleRoute } from "./Sidebar";
 import RefCapture from "./RefCapture";
 import ReferralOnboarding from "./claims/ReferralOnboarding";
 import HowItWorksHost from "./home/HowItWorksHost";
+import InviteBanner from "./invites/InviteBanner";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
@@ -22,6 +23,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <ReferralOnboarding />
       <HowItWorksHost />
       {!isGame && <div className="ap-topbar" aria-hidden="true" />}
+      {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
+      {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       <WalletButton compact={!isGame} />
       {isGame ? children : <div className="main-offset main-offset-open min-h-screen">{children}</div>}
       {IS_STATIC_PREVIEW && (

@@ -18,7 +18,7 @@ export const PROFILE_COPY = {
   "profile.action.edit": "Edit profile",
   "profile.action.share": "Share profile",
   "profile.share.copied": "Profile link copied",
-  "profile.sample": "SAMPLE", // tooltip reuses the existing SAMPLE_DATA_LABEL
+  "profile.sample": "SAMPLE", // dev-only tag (`next dev` + ?sample=1); production never shows sample data
 
   // Tabs + paging
   "profile.tab.rockets": "Rockets",
@@ -64,7 +64,10 @@ export const PROFILE_COPY = {
   "ach.nextrank": (pts: string, next: string) => `${pts} pts to ${next}`,
   "ach.leaderboard": (rank: number) => `#${rank} on the leaderboard`,
   "ach.seeall": "See all achievements",
+  "ach.earned": (n: number) => `${n} earned`,
   "ach.empty.own": "No achievements yet. Your first BOOST starts the climb.",
+  "ach.empty.own.title": "No achievements yet",
+  "ach.empty.own.body": "Your first BOOST starts the climb.",
   "ach.empty.other": (u: string) => `${u} hasn't unlocked any achievements yet.`,
 
   // Activity
@@ -72,6 +75,8 @@ export const PROFILE_COPY = {
   "activity.record.grads": "Graduations",
   "activity.pnl.title": "Cumulative PnL", // existed on the old profile; moved here as the one PnL chart
   "activity.empty.own": "Nothing here yet. BOOST a rocket and your war log starts.",
+  "activity.empty.own.title": "No activity yet",
+  "activity.empty.own.body": "BOOST a rocket and your war log starts.",
   "activity.empty.other": (u: string) => `No activity from ${u} yet.`,
 
   // Edit profile (modal / bottom sheet)
@@ -80,9 +85,16 @@ export const PROFILE_COPY = {
   "edit.pfp.upload": "Upload photo",
   "edit.pfp.change": "Change photo",
   "edit.pfp.remove": "Remove",
-  "edit.pfp.helper": "Square works best. JPG, PNG or WebP, up to 2 MB.",
+  "edit.pfp.helper": "Square works best. JPG, PNG or WebP. Big pictures are shrunk for you.",
+  // Picture upload failures (lib/pfpUpload): plain words only, detail goes to console.warn.
+  "edit.pfp.error.big": "That picture is too big. Try a smaller one.",
+  "edit.pfp.error.format": "That file isn't a picture we can use. Try a JPG, PNG or WebP.",
+  "edit.pfp.error.rejected": "That picture can't be used. Try a different one.",
+  "edit.pfp.error.busy": "Too many uploads. Try again in a minute.",
+  "edit.pfp.error.failed": "Couldn't upload your picture. Try again.",
   "edit.username.label": "Username",
   "edit.username.checking": "Checking…",
+  "edit.username.error.short": "Usernames need at least 3 characters.",
   // Username: one change per 24h (lee 2026-10-24). `when` is the viewer's local date + time.
   "username.cooldown.note": (when: string) => `You can change your username again on ${when}.`,
   "username.cooldown.rule": "You can change your username once every 24 hours.",
@@ -102,6 +114,18 @@ export const PROFILE_COPY = {
   "edit.flag.section.country": "Countries",
   "edit.flag.empty": "No flags match.",
   "edit.flag.change": "Change",
+  // Title picker (one earned title shown next to your name)
+  "edit.title.label": "Title",
+  "edit.title.helper": "Pick the title shown next to your name. You can change it any time.",
+  "edit.title.empty": "No titles yet. Fly a few rockets to earn one.",
+  "edit.title.more": "See all titles",
+  "edit.title.error.unknown": "That title doesn't exist.",
+  "edit.title.error.locked": "You haven't earned that title yet.",
+  "ach.titles": "Titles",
+  "ach.titles.earned": "Earned",
+  "ach.titles.locked": "Not earned yet",
+  "ach.titles.shown": "Shown on your profile",
+  "ach.card.total": (t: number) => `${t} achievements to unlock`,
   "edit.save": "Save",
   "edit.saving": "Saving…",
   "edit.saved": "Profile saved",

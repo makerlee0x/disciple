@@ -15,6 +15,7 @@ import PairPicker from "@/components/create/PairPicker";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { protocolStub, type Address } from "@/lib/protocol";
 import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
+import { DEFAULT_MODE, MODE_COPY, MODE_DEFAULT_CHIP, MODE_HELPER, MODE_LABEL, MODE_ORDER, MODE_SELECTED_COPY, MODE_TOOLTIP, holdingCapRange } from "@/lib/modeRules";
 import { deployment, isDeployed } from "@/lib/chains";
 import { recommendedPairs } from "@/lib/pairs";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
@@ -32,12 +33,13 @@ const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
 const labelCls = "mb-1 block text-xs tracking-wider text-[#C9CED6]";
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
-/** v4 bonding modes (contracts/docs/bonding-modes.md, Constants.sol). Rules apply on the curve only, never after orbit. */
-const GAME_MODES = [
-  { id: LaunchMode.TRENCH_WARFARE, label: "TRENCH WARFARE", copy: "Classic curve. No mode caps." },
-  { id: LaunchMode.PVP, label: "PVP", copy: "Wallet cap grows 4% → 12% as the curve fills; max 3.33% per buy." },
-  { id: LaunchMode.PVE, label: "PVE", copy: "Verified logins only. 1% cap per wallet, small sells, 7.77% tax on >1.77× profits paid to holders." },
-] as const;
+/** Launch modes (mode rules v2). Names, caps and copy come from lib/modeRules (the one shared constant). Curve only. */
+const GAME_MODES = MODE_ORDER.map((id) => ({
+  id,
+  label: MODE_LABEL[id],
+  cap: holdingCapRange(id),
+  copy: MODE_COPY[id],
+}));
 
 /** Website field: prefix https:// when no scheme was typed (1g). */
 const withHttps = (w: string) => { const t = w.trim(); return !t || /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t.replace(/^\/+/, "")}`; };
@@ -52,8 +54,8 @@ export default function LaunchRocketPage() {
   const [contrast, setContrast] = useState<string | null>(null);
   const [mod, setMod] = useState<{ state: "idle" | "checking" | ModerationVerdict; uri?: string; note?: string }>({ state: "idle" });
   const [advanced, setAdvanced] = useState(false);
-  // v4 bonding mode (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP); immutable per rocket.
-  const [gameMode, setGameMode] = useState<number>(LaunchMode.TRENCH_WARFARE);
+  // Launch mode (Constants.MODE_*: 0 Trench, 1 Easy, 2 Hard); immutable per rocket. Easy is the default (lee 2026-10-26).
+  const [gameMode, setGameMode] = useState<number>(DEFAULT_MODE);
   const defaultPair = useMemo(() => recommendedPairs()[0], []);
   const [quote, setQuote] = useState<{ address: Address | null; label: string }>({ address: defaultPair?.address ?? null, label: defaultPair?.symbol ?? "" });
   const [twitter, setTwitter] = useState("");
@@ -61,11 +63,11 @@ export default function LaunchRocketPage() {
   const [feeReceiver, setFeeReceiver] = useState("");
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [tax, setTax] = useState(0);
-  // Private launch (AnonLauncher v2): stealth on-chain creator; TRENCH WARFARE only; fees claimed privately on /creator.
+  // Private launch (AnonLauncher v2): stealth on-chain creator; Trench only; fees claimed privately on /creator.
   const [privateLaunch, setPrivateLaunch] = useState(false);
-  // First BOOST (creator launch buy): $ amount, converted to the pair token at the live price by FirstBoostField.
+  // First BOOST (creator launch buy): $ amount paid from the player's USDG; the router buys the pair coin (FirstBoostField).
   const [boost, setBoost] = useState("");
-  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), error: null, ready: true });
+  const [boostState, setBoostState] = useState<FirstBoostState>({ raw: BigInt(0), usdgIn: null, error: null, ready: true });
   // Status line: `ok` = a launch went through (rocket icon + "ok" style); otherwise a validation/launch error.
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
@@ -139,7 +141,7 @@ export default function LaunchRocketPage() {
     setMsg(null);
     if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim() || !file) {
-      setMsg("Rocket name, call sign, and an uploaded rocket icon are required.");
+      setMsg("Add a rocket name, a call sign, and a picture to launch.");
       return;
     }
     if (mod.state !== "allow" || !mod.uri) {
@@ -198,7 +200,9 @@ export default function LaunchRocketPage() {
         imageUri, // absolute https URL of the moderated, stored square crop (lib/launchImage)
         quoteToken: quoteAddr,
         creatorTaxPct: effTax,
-        creatorBuyQuoteIn: boostState.raw > BigInt(0) ? boostState.raw : undefined, // First BOOST (0 = skip)
+        // First BOOST (0 = skip): paid in USDG via launchWithUsdg; pair-coin amount only on a network without USDG routing
+        creatorBuyUsdgIn: boostState.usdgIn != null && boostState.usdgIn > BigInt(0) ? boostState.usdgIn : undefined,
+        creatorBuyQuoteIn: boostState.usdgIn == null && boostState.raw > BigInt(0) ? boostState.raw : undefined,
         socials: twitter.trim() || web ? { twitter: twitter.trim().replace(/^@/, "") || undefined, website: web || undefined } : undefined,
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
@@ -292,7 +296,7 @@ export default function LaunchRocketPage() {
         <FirstBoostField
           pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round((advanced ? tax : 0) * 100)}
           ticker={callSign.trim().toUpperCase()} value={boost} onChange={setBoost} onState={setBoostState}
-          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE}
+          mode={LAUNCH_ABI_SHAPE === "modes" && !privateLaunch ? gameMode : LaunchMode.TRENCH_WARFARE} privateLaunch={privateLaunch}
         />
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -314,15 +318,17 @@ export default function LaunchRocketPage() {
 
         {LAUNCH_ABI_SHAPE === "modes" && !privateLaunch && (
           <fieldset className="block">
-            <legend className={labelCls}>GAME MODE <span className="normal-case opacity-70">(permanent, curve only)</span></legend>
+            <legend className={labelCls}>GAME MODE <span className="normal-case opacity-70">(permanent, curve only)</span> <span className="cursor-help normal-case opacity-70" title={MODE_TOOLTIP} aria-label={MODE_TOOLTIP}>ⓘ</span></legend>
             <div className="grid gap-2 md:grid-cols-3">
               {GAME_MODES.map((m) => (
                 <label key={m.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2 text-xs ${gameMode === m.id ? "border-[rgba(201,206,214,.6)]" : "border-[rgba(201,206,214,.2)]"}`}>
                   <input type="radio" name="game-mode" checked={gameMode === m.id} onChange={() => setGameMode(m.id)} />
-                  <span><span className="font-bold text-[#E8EAEE]">{m.label}</span><span className="block text-[rgba(232,234,238,.7)]">{m.copy}</span></span>
+                  <span><span className="font-bold text-[#E8EAEE]">{m.label}</span>{m.id === DEFAULT_MODE && <span className="ml-1 rounded border border-[rgba(201,206,214,.35)] px-1 text-[10px] tracking-wider opacity-80">{MODE_DEFAULT_CHIP}</span>}<span className="block text-[rgba(232,234,238,.7)]" data-mode-cap={m.cap ?? "none"}>{m.copy}</span></span>
                 </label>
               ))}
             </div>
+            <p className="mt-1 text-xs text-[rgba(232,234,238,.7)]">{MODE_SELECTED_COPY[gameMode]}</p>
+            <p className="mt-1 text-xs text-[rgba(232,234,238,.55)]">{MODE_HELPER}</p>
           </fieldset>
         )}
 
@@ -347,7 +353,7 @@ export default function LaunchRocketPage() {
               <span>
                 <span className={labelCls}>PRIVATE LAUNCH</span>
                 <span className="block text-[rgba(232,234,238,.7)]">{PRIVATE_COPY}</span>
-                {privateLaunch && <span className="block text-[rgba(232,234,238,.7)]">Private rockets fly in TRENCH WARFARE mode and pay creator fees to you, not a separate fee receiver. Claim them on your creator page. Includes a {PRIVATE_LAUNCH_FEE} private launch fee.</span>}
+                {privateLaunch && <span className="block text-[rgba(232,234,238,.7)]">Private rockets fly in Trench mode and pay creator fees to you, not a separate fee receiver. Claim them on your creator page. Includes a {PRIVATE_LAUNCH_FEE} private launch fee.</span>}
               </span>
             </label>
           </div>
@@ -372,12 +378,18 @@ export default function LaunchRocketPage() {
             Sign in to launch
           </button>
         ) : (
+          <>
           <button
             type="submit"
-            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A]"
+            disabled={!file}
+            aria-describedby={!file ? "create-image-hint" : undefined}
+            data-testid="create-launch"
+            className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:from-[#1F2228]"
           >
             <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
           </button>
+          {!file && <p id="create-image-hint" className="text-xs text-[#C9CED6]">Upload a picture to launch your rocket.</p>}
+          </>
         )}
         {status && (
           <p role="status" className={`ds-msg ${status.ok ? "ok" : "bad"}`}>{status.ok && <><Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> </>}{status.text}</p>

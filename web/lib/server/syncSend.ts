@@ -26,7 +26,8 @@ import { classifySendError } from "./relayerNonce";
 
 export type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
 export type RpcErr = Error & { code?: number; data?: unknown; txHash?: Hex; definitive?: boolean; unclear?: boolean };
-export type PendingReason = "sync-timeout" | "sync-error" | "sync-unsupported";
+/** "accepted": relayer tx signed and going out now (fastRelay early frame: the client shows the fill; the receipt follows on the same stream). */
+export type PendingReason = "accepted" | "sync-timeout" | "sync-error" | "sync-unsupported";
 
 /** -32602 (params rejected at parse) / -32601 (method missing): nothing was accepted ⇒ a plain send is safe. */
 export const isNotAccepted = (e: RpcErr) => e.code === -32602 || e.code === -32601;

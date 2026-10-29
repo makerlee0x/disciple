@@ -1,3 +1,4 @@
+import Tooltip from "@/components/ui/Tooltip";
 import type { AchievementDef } from "@/lib/achievements";
 import { achievementDisplay, achievementIconPath, rarityStyle } from "@/lib/achievements";
 import { withBase } from "@/lib/base-path";
@@ -7,9 +8,9 @@ export default function AchievementBadge({ a, size = 22 }: { a: AchievementDef; 
   const r = rarityStyle(a.rarity);
   const d = achievementDisplay(a.id);
   return (
+    <Tooltip content={<><strong>{a.name} · {r.label}</strong>{a.description}</>}>
     <span
       className="ach-sq"
-      title={`${a.name} · ${r.label} — ${a.description}`}
       style={{
         width: size,
         height: size,
@@ -25,6 +26,7 @@ export default function AchievementBadge({ a, size = 22 }: { a: AchievementDef; 
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={withBase(achievementIconPath(a.id))} alt={a.name} width={size} height={size} style={{ display: "block", width: "100%", height: "100%" }} />
     </span>
+    </Tooltip>
   );
 }
 

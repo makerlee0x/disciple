@@ -38,7 +38,8 @@ import { ensurePveLogin, PveError } from "./pve";
 import { seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
-import { markGradBuy, boundRebuiltMinOut, newPressId, tagPress } from "./aa/fastPath";
+import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
+import { holdInflightUntilSeen } from "./trade/queuePricing";
 import { GradHint } from "./trade/gradHint";
 import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
 export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
@@ -170,6 +171,16 @@ const SENT = new WeakSet<object>();
 /** The error is from an op that was sent (on-chain revert or unknown outcome); never auto-resend it. */
 export const wasSent = (e: unknown) => typeof e === "object" && e !== null && SENT.has(e);
 export const markSent = <T extends object>(e: T): T => { SENT.add(e); return e; };
+const REVERTED = new WeakSet<object>();
+/** The op EXECUTED on-chain and reverted (AAError "Reverted"): definitely nothing traded — unlike "Timeout" (may still land). */
+export const wasReverted = (e: unknown) => typeof e === "object" && e !== null && REVERTED.has(e);
+/** Block of a landed op's logs (bigint | hex | number), for releasing its in-flight amount once the RPC has seen it. */
+const logsBlock = (logs: unknown): bigint | undefined => {
+  for (const l of (Array.isArray(logs) ? logs : []) as { blockNumber?: unknown }[]) {
+    const b = l?.blockNumber; try { if (b != null && b !== "") return BigInt(b as string | number | bigint); } catch { /* next */ }
+  }
+  return undefined;
+};
 /**
  * A trade's pre-send read (quote / balance / coin facts / policy check) failed on the network: viem "HTTP request failed."
  * / "took too long" / fetch errors were shown raw to players (lee, Oct 26). Nothing was sent (the AA layer turns any
@@ -223,7 +234,7 @@ export function friendlyError(e: unknown): ProtocolError {
       ZeroAmount: "Amount is too small.",
       ZeroRecipient: "Missing recipient wallet.",
       // v4 bonding modes (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP)
-      NotVerified: "PVE rocket: this wallet needs a verified login first (email, Google or X).",
+      NotVerified: "Easy rocket: sign in with X, email or wallet to BOOST.",
       BuyTooLarge: "That buy is above this rocket's per-buy cap right now. Try a smaller shot.",
       SellTooLarge: "That sell is above this PVE rocket's per-sell cap (0.5% of supply). Sell in smaller chunks.",
       LaunchBlock: "PVE rocket just launched: buys open from the next block.",
@@ -529,13 +540,34 @@ export async function readQuote(pc: PublicClient, token: Address, side: "buy" | 
            mcapAfterUsd: wadToNum(q.mcapAfterUsd), profitTax: q.profitTax, venue: "curve" };
 }
 
-/** Launchpad.quoteCreatorBuy: preview the optional same-tx creator buy. quote = 0 ⇒ default quote. */
-export async function readCreatorBuyQuote(pc: PublicClient, quote: Address, quoteIn: bigint, creatorTaxBps: number) {
-  const [tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap] = await pc.readContract({
-    address: deployment().launchpad, abi: launchpadAbi, functionName: "quoteCreatorBuy", args: [quote, quoteIn, B(creatorTaxBps)],
-  });
+/**
+ * Launchpad.quoteCreatorBuy: preview the optional same-tx creator buy. quote = 0 ⇒ default quote. With `mode` on the modes
+ * ABI it calls the mode-aware overload, so exceedsCap / tokensOut use firstBoostMaxBps(mode) (Easy 1.2%, Hard 3.33%).
+ */
+export async function readCreatorBuyQuote(pc: PublicClient, quote: Address, quoteIn: bigint, creatorTaxBps: number, mode?: number) {
+  const args = mode != null && modesActive() ? ([quote, quoteIn, B(creatorTaxBps), mode] as const) : ([quote, quoteIn, B(creatorTaxBps)] as const);
+  const [tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap] = (await pc.readContract({
+    address: deployment().launchpad, abi: launchpadAbi, functionName: "quoteCreatorBuy", args,
+  } as never)) as readonly [bigint, bigint, bigint, bigint, boolean];
   return { tokensOut, fee, snipeFee, quotePriceUsd, exceedsCap };
 }
+
+/**
+ * USDG ⇄ pair coin on the router's registered USDG pool (DiscipleRouter.quoteUsdgQuoteSwap, eth_call). The pair IS USDG ⇒
+ * 1:1. toQuote = true: USDG in → pair out (what launchWithUsdg's swap leg gives); false: pair in → USDG out.
+ */
+export async function quoteUsdgPairSwap(pc: PublicClient, pair: Address, toQuote: boolean, amountIn: bigint): Promise<bigint> {
+  if (amountIn <= B(0)) return B(0);
+  if (pair.toLowerCase() === deployment().usdg.toLowerCase()) return amountIn;
+  const { result } = await pc.simulateContract({ address: deployment().router, abi: discipleRouterAbi, functionName: "quoteUsdgQuoteSwap", args: [pair, toQuote, amountIn] });
+  return (result as readonly [bigint, bigint])[0];
+}
+/** Router USDG for a USDG-funded First BOOST (launchWithUsdg), or null when this network's router can't (legacy pair-token path). */
+export async function launchUsdg(pc: PublicClient): Promise<Address | null> {
+  return payUsdg() && hasRouter() ? routerUsdg(pc, deployment().router) : null;
+}
+export const FIRST_BOOST_CASH_MSG = (needUsd: number, haveUsd: number) =>
+  `Not enough cash for a $${needUsd.toFixed(2)} First BOOST: you have $${haveUsd.toFixed(2)}. Lower it or deposit more.`;
 
 /** On-chain creator-buy supply cap in bps (v3 default 77 = 0.77%). Prefer this over any hardcoded UI limit. */
 export async function readCreatorBuyMaxBps(pc: PublicClient) {
@@ -639,12 +671,33 @@ export function createViemProtocol(): ProtocolClient {
    * quote and execution (busy curve, our own previous shot). Drop the cached quotes, re-quote and retry ONCE. A caller-
    * pinned minAmountOut is never retried (that is the user's explicit limit).
    */
+  /**
+   * Back-to-back trades: a landed op keeps counting as in flight until the public RPC's head has its block (the RPC lags
+   * ~0.7–1.3 s) — else the next press is quoted at the pre-trade price and its minOut can't clear (lee: 5 × 10% sells).
+   * Failed / no block ⇒ released now.
+   */
+  const releaseInflight = (done: () => void, landed: bigint | undefined) => {
+    if (landed === undefined) { done(); return; }
+    void holdInflightUntilSeen(done, landed, () => pc.getBlockNumber({ cacheTime: 0 }));
+  };
+  /**
+   * Rebuilt (re-quoted) minOut. Was boundRebuiltMinOut (never below the first quote's minOut ⇒ a rebuild after the
+   * price moved became a refusal). lee, Oct 26 10:50/10:51: buys and sells always go through at the fresh price; a big
+   * move is shown as a price-impact warning before the tap, never a block. AUDIT / Needs GAME review.
+   */
+  const freshMinOut = (first: bigint, fresh: bigint): bigint => {
+    if (fresh < first) console.warn("[disciple] re-quote is below the first quote; sending at the fresh price", { first: String(first), fresh: String(fresh) });
+    return fresh;
+  };
   async function trade(side: "buy" | "sell", t: TradeParams): Promise<TradeResult> {
     try { return await tradeOnce(side, t); }
     catch (e) {
-      // Only a PRE-SEND min-out failure (nothing was sent) is retried. An op that already ran on-chain (reverted with
-      // Slippage) or may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from this resend.
-      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || wasSent(e)) throw e;
+      // A min-out failure on a quote WE derived is retried ONCE with a fresh quote: pre-send, or (lee, Oct 26 10:50:
+      // "we can't stop them from selling") an op that definitely EXECUTED and reverted on-chain (nothing traded).
+      // An op that may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from that resend.
+      // AUDIT: the definite-revert resend is new (was: never resend anything sent).
+      if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || (wasSent(e) && !wasReverted(e))) throw e;
+      if (wasReverted(e)) console.warn("[disciple] trade reverted on price movement; resending once at a fresh quote", e.code);
       dropRouteQuotes(t.token);
       return tradeOnce(side, t);
     }
@@ -706,23 +759,25 @@ export function createViemProtocol(): ProtocolClient {
       const ik = ckey("coin", t.token, side);
       let done = addInflight(ik, t.amountIn);
       const pressId = t.pressId ?? newPressId();   // GAME reservation id: same on every retry of this press
-      const minOut0 = minOut;   // the press's bound: a rebuild never accepts less (boundRebuiltMinOut)
+      const minOut0 = minOut;   // the first quote's minOut (a rebuild may go lower: freshMinOut)
       // Rapid taps: the ONE transient-error retry in mav2.sendCalls re-quotes (fresh minOut) instead of re-sending a
       // quote taken before the preceding in-flight shots moved the curve. Same amountIn/approvals ⇒ same spend + shape.
       const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
         dropRouteQuotes(t.token); done();   // our own op hasn't landed: don't price it against itself
         try {
-          const mo = boundRebuiltMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+          const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
           const d2 = encodeTrade(mo);
           if (grad) markGradBuy(d2);
           minOut = mo;
           return [...calls.slice(0, -1), { to: target, data: d2 }];
         } finally { done = addInflight(ik, t.amountIn); }
       };
+      let landed: bigint | undefined;
       try {
         const r = await execCalls(calls, { rebuild, pressId });
+        landed = logsBlock(r.logs);
         return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, recipient) || minOut, pressId: r.pressId ?? pressId };
-      } finally { done(); dropRouteQuotes(t.token); }
+      } finally { releaseInflight(done, landed); dropRouteQuotes(t.token); }
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
@@ -731,6 +786,7 @@ export function createViemProtocol(): ProtocolClient {
       // the op went out (reverted on-chain / outcome unknown): mark it so trade() never resends it
       const ac = (e as { code?: unknown; constructor?: { name?: string } } | null);
       if ((e instanceof AAError || ac?.constructor?.name === "AAError") && (ac?.code === "Reverted" || ac?.code === "Timeout")) markSent(out);
+      if ((e instanceof AAError || ac?.constructor?.name === "AAError") && ac?.code === "Reverted") REVERTED.add(out);
       // sent, outcome unknown: hold the press and settle it from the chain (never resends); TradeBridge shows "confirming"
       if (pid && out.code === "Timeout") void watchPending(pid, pendingIds(e), { lookup: (ids) => lookupOp(pc, ids) });
       throw out;
@@ -781,12 +837,12 @@ export function createViemProtocol(): ProtocolClient {
     BALANCES.set(ckey(spend, c.me), have - t.amountIn);
     let done = addInflight(ik, t.amountIn);
     const pressId = t.pressId ?? newPressId();   // GAME reservation id
-    const minOut0 = minOut;   // the press's bound (boundRebuiltMinOut)
+    const minOut0 = minOut;   // the first quote's minOut (freshMinOut)
     // Rapid taps: transient-error retry re-quotes (see tradeOnce). Same usdgIn/tokensIn ⇒ same exact approve + shape.
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
       dropRouteQuotes(t.token); done();
       try {
-        const mo = boundRebuiltMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+        const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);
@@ -794,17 +850,26 @@ export function createViemProtocol(): ProtocolClient {
         return next;
       } finally { done = addInflight(ik, t.amountIn); }
     };
+    let landed: bigint | undefined;
     try {
       const r = await execCalls(calls, { rebuild, pressId });
+      landed = logsBlock(r.logs);
       return { ok: true, txHash: r.txHash, amountOut: received(r.logs, outAsset, c.me) || minOut, pressId: r.pressId ?? pressId };
-    } finally { done(); dropRouteQuotes(t.token); }
+    } finally { releaseInflight(done, landed); dropRouteQuotes(t.token); }
   }
 
   return {
     async launchCoin(lp: LaunchCoinParams): Promise<LaunchCoinResult> {
       if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
       const launchpad = deployment().launchpad;
-      const creatorBuy = lp.creatorBuyQuoteIn ?? B(0);
+      // lee 2026-10-26: no default rocket art; every launch needs an uploaded picture.
+      if (!lp.imageUri || !lp.imageUri.trim()) throw new ProtocolError("NoImage", "Upload a picture to launch your rocket.");
+      // First BOOST in USDG (lee 2026-10-26: every buy is paid in USDG; the router buys the pair coin): public launches
+      // go through DiscipleRouter.launchWithUsdg. creatorBuyQuoteIn (pair-token pull) is the legacy / no-router path only.
+      const usdgIn = !lp.private ? lp.creatorBuyUsdgIn ?? B(0) : B(0);
+      const usdg = usdgIn > B(0) ? await launchUsdg(pc) : null;
+      if (usdgIn > B(0) && !usdg) throw new ProtocolError("NoRouter", "Paying the First BOOST in dollars isn't available on this network yet.");
+      const creatorBuy = usdg ? B(0) : lp.creatorBuyQuoteIn ?? B(0);
       // Private launches go through AnonLauncher v2 (Launchpad.launch ⇒ TRENCH mode; it pulls the fee + First BOOST).
       const anonL = lp.private ? ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher : undefined;
       if (lp.private && !anonL) throw new ProtocolError("NotDeployed", "Private launches aren't available on this chain.");
@@ -823,17 +888,17 @@ export function createViemProtocol(): ProtocolClient {
         const calls: Call[] = [];
         if (creatorBuy > B(0)) {
           const [cq, launchpadCapBps] = await Promise.all([
-            readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps)), readCreatorBuyMaxBps(pc),
+            readCreatorBuyQuote(pc, lp.quoteToken, creatorBuy, Number(params.creatorTaxBps), mode), readCreatorBuyMaxBps(pc),
           ]);
-          // Mode caps stack on top of creatorBuyMaxBps (PVE 0.25% per buy in its launch window); quoteCreatorBuy can't see them.
+          // First BOOST cap = Launchpad.firstBoostMaxBps(mode) (lib/modeRules: Easy 1.2%, Hard 3.33%, Trench creatorBuyMaxBps).
           const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
           if (cq.exceedsCap) {
-            const pct = Math.min(launchpadCapBps, eff.bps, 700) / 100;   // 700 bps = the 7% wallet cap
+            const pct = Math.min(eff.bps, 700) / 100;   // 700 bps = the creatorBuyMaxBps ceiling
             logTradeError("launch buy over cap", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
             throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(pct > 0 ? pct : undefined));
           }
           if (eff.by === "mode" && cq.tokensOut > creatorBuyMaxTokens(eff.bps)) {
-            throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow at most ${eff.bps / 100}% of supply per buy. Lower the First BOOST.`);
+            throw new ProtocolError("BuyTooLarge", `${LAUNCH_MODE_NAME[mode]} launches allow a First BOOST of at most ${eff.bps / 100}% of the coins. Lower it.`);
           }
           // v4 PVE: the First BOOST is a curve buy by the creator ⇒ it needs a live GLOBAL LoginGate attestation.
           // ensurePveLogin (#99) gets one from /api/pve/attest (relayed on-chain) or prepends LoginGate.attest; it throws
@@ -852,7 +917,36 @@ export function createViemProtocol(): ProtocolClient {
             if (cur !== creatorBuy) calls.push({ to: q, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [launchpad, creatorBuy] }) });
           }
         }
-        if (anonL && lp.private) {
+        let launchCall: Call | null = null;
+        if (usdg) {
+          const router = deployment().router;
+          const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
+            : await pc.readContract({ address: launchpad, abi: launchpadAbi, functionName: "defaultQuote" });
+          // Balance check in dollars (USDG), never in the pair coin: the router buys the pair coin for you.
+          const [have, quoteAmt, launchpadCapBps] = await Promise.all([
+            pc.readContract({ address: usdg, abi: tokenAbi, functionName: "balanceOf", args: [me] }),
+            quoteUsdgPairSwap(pc, q, true, usdgIn),
+            readCreatorBuyMaxBps(pc),
+          ]);
+          if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
+          if (quoteAmt <= B(0)) throw new ProtocolError("ZeroQuote", "That First BOOST is too small. Try a bigger amount.");
+          const cq = await readCreatorBuyQuote(pc, q, quoteAmt, Number(params.creatorTaxBps), mode);
+          const eff = effectiveCreatorBuyCapBps(launchpadCapBps, mode);
+          if (cq.exceedsCap) {
+            logTradeError("launch buy over cap (usdg)", { launchpadCapBps, effectiveBps: eff.bps, by: eff.by });
+            throw new ProtocolError("CreatorBuyTooLarge", CREATOR_BUY_MSG(eff.bps / 100));
+          }
+          if (modesActive() && mode === LaunchMode.PVE) calls.unshift(...(await ensurePveLogin(pc, me)));
+          const slip = lp.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
+          params.quote = q;
+          params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
+          // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
+          calls.push({ to: usdg, data: encodeFunctionData({ abi: tokenAbi, functionName: "approve", args: [router, usdgIn] }) });
+          launchCall = { to: router, data: encodeFunctionData({ abi: discipleRouterAbi, functionName: "launchWithUsdg", args: [params, mode, usdgIn, applySlippage(quoteAmt, slip)] }) };
+        }
+        if (launchCall) {
+          calls.push(launchCall);
+        } else if (anonL && lp.private) {
           // AnonLauncher pulls launchFee (feeToken = USDG) + creatorBuyQuoteIn (quote) from this account: exact approvals
           // (summed when the pair IS the fee token), then launchAnon(params, stealthOwner, buyRecipient = me, eph, viewTag, maxFee = the fee just read: the exact
           // approve above already caps it; v5 AnonLauncher reverts FeeTooHigh if the owner raises it before inclusion).
@@ -896,7 +990,8 @@ export function createViemProtocol(): ProtocolClient {
             if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
             // private launch: the curve's trader is the AnonLauncher; it forwards the tokens to buyRecipient = this account
-            const recipient = anonL ? me : (ev.args.trader as Address);
+            // launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account)
+            const recipient = anonL || usdg ? me : (ev.args.trader as Address);
             launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
             seedCreatorBuyPosition(`disciple.pnl.${launched.token}`, Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
             bumpBalance(launched.token, recipient, tokens);

@@ -7,6 +7,8 @@ import "server-only";
  * a meta save keeps it.
  */
 import { kv } from "./kv";
+import { isTitleId } from "@/lib/titles";
+import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import { isFlag, isPfpId, sanitizeBio, type ProfileMeta, BIO_MAX, bioLength } from "@/lib/profileMeta";
 
 const metaKey = (a: string) => `user:meta:${a.toLowerCase()}`;
@@ -24,14 +26,15 @@ export async function metaOf(wallet: string): Promise<ProfileMeta> {
   return {
     pfp: typeof j.pfp === "string" && isPfpId(j.pfp) ? j.pfp : "",
     bio: bioLength(bio) <= BIO_MAX ? bio : "",
-    flag: typeof j.flag === "string" && isFlag(j.flag) ? j.flag : "",
+    flag: COUNTRY_FLAGS_ENABLED && typeof j.flag === "string" && isFlag(j.flag) ? j.flag : "",
+    title: typeof j.title === "string" && isTitleId(j.title) ? j.title : "",
   };
 }
 
 export async function setMeta(wallet: string, m: ProfileMeta): Promise<void> {
   const prev = await readStored(wallet);
   const keep = typeof prev.lastUsernameChangeAt === "number" ? { lastUsernameChangeAt: prev.lastUsernameChangeAt } : {};
-  await kv().set(metaKey(wallet), JSON.stringify({ pfp: m.pfp, bio: m.bio, flag: m.flag, ...keep }));
+  await kv().set(metaKey(wallet), JSON.stringify({ pfp: m.pfp, bio: m.bio, flag: m.flag, ...(m.title ? { title: m.title } : {}), ...keep }));
 }
 
 /** Last counted username change (ms epoch), or null. */

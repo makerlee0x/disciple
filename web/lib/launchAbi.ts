@@ -5,11 +5,13 @@
  *    included. Same LaunchParams struct, so First BOOST (creatorBuyQuoteIn / creatorBuyMinTokensOut) is unchanged.
  * The shape follows the generated Launchpad ABI (lib/abi): it is "modes" as soon as that ABI has launchWithMode, so
  * the ABI + address switch in #98 flips it with no extra flag. NEXT_PUBLIC_LAUNCH_ABI=modes|current overrides.
- * /create has no mode selector yet: the mode comes from DEFAULT_LAUNCH_MODE (NEXT_PUBLIC_LAUNCH_MODE, default TRENCH).
+ * /create picks the mode (Easy by default); DEFAULT_LAUNCH_MODE is the fallback (NEXT_PUBLIC_LAUNCH_MODE, default Easy).
+ * All mode caps come from lib/modeRules (one shared constant, checked against contracts/src/libraries/Constants.sol).
  */
 import { encodeFunctionData, parseAbi, type Hex, type PublicClient } from "viem";
 import { launchpadAbi } from "./abi";
 import type { Address } from "./protocol";
+import { DEFAULT_MODE, FIRST_BOOST_MAX_BPS, MODE_LABEL } from "./modeRules";
 
 export type LaunchAbiShape = "current" | "modes";
 /** True when the generated Launchpad ABI (lib/abi/Launchpad.ts) is the modes stack (has launchWithMode). */
@@ -26,33 +28,28 @@ export const modesActive = (shape: LaunchAbiShape = LAUNCH_ABI_SHAPE) => shape =
  */
 export const LaunchMode = { TRENCH_WARFARE: 0, PVE: 1, PVP: 2 } as const;
 export type LaunchModeId = (typeof LaunchMode)[keyof typeof LaunchMode];
-export const LAUNCH_MODE_NAME: Record<number, string> = { 0: "TRENCH WARFARE", 1: "PVE", 2: "PVP" };
+/** Player-facing mode names (Easy / Hard / Trench), from lib/modeRules. */
+export const LAUNCH_MODE_NAME: Record<number, string> = MODE_LABEL;
 
 function envMode(): LaunchModeId {
   const v = (process.env.NEXT_PUBLIC_LAUNCH_MODE || "").trim().toUpperCase();
-  if (v === "1" || v === "PVE") return LaunchMode.PVE;
-  if (v === "2" || v === "PVP") return LaunchMode.PVP;
-  return LaunchMode.TRENCH_WARFARE;
+  if (v === "0" || v === "TRENCH" || v === "TRENCH_WARFARE") return LaunchMode.TRENCH_WARFARE;
+  if (v === "1" || v === "PVE" || v === "EASY") return LaunchMode.PVE;
+  if (v === "2" || v === "PVP" || v === "HARD") return LaunchMode.PVP;
+  return DEFAULT_MODE;   // lee 2026-10-26: Easy is the default
 }
-/** Mode /create launches with until it has a selector (modes ABI only; the current ABI is always TRENCH). */
+/** Fallback launch mode when a caller passes none (modes ABI only; the current ABI is always TRENCH). */
 export const DEFAULT_LAUNCH_MODE: LaunchModeId = modesActive() ? envMode() : LaunchMode.TRENCH_WARFARE;
 
 /**
- * Per-buy token cap (bps of supply) a mode puts on the creator's launch buy, on top of Launchpad.creatorBuyMaxBps().
- * Caps stack; the strictest wins (FLOW: PVE 0.25%, PVP and TRENCH 0.77% with today's creatorBuyMaxBps = 77).
- * Mirrors BondingCurve.maxBuyNow()/netCapNow() at launch (sold = 0, inside the window):
- *  - PVE: PVE_WINDOW_BUY_CAP_BPS 25 (0.25%/buy for the first 7 min; NET cap 1% is looser) → 0.25%. The creator must
- *    also be login-verified (LoginGate), or the launch buy reverts NotVerified.
- *  - PVP: PVP_MAX_BUY_BPS 333 (3.33%/buy; NET cap 4% at launch) → looser, so creatorBuyMaxBps (0.77%) wins
- *  - TRENCH: none (walletCapBps 7% is looser) → creatorBuyMaxBps (0.77%)
- * quoteCreatorBuy().exceedsCap only knows creatorBuyMaxBps, so MAX and validation clamp to this client-side.
+ * First BOOST (creator launch buy) cap in bps of supply, exactly Launchpad.firstBoostMaxBps(mode) (mode rules v2):
+ * Easy 1.2% and Hard 3.33% are fixed per mode (lib/modeRules FIRST_BOOST_MAX_BPS); Trench uses the live, owner-settable
+ * creatorBuyMaxBps (default 0.77%). The mode cap REPLACES creatorBuyMaxBps, it does not stack. On the pre-modes ABI it is
+ * always creatorBuyMaxBps. Quote with the mode-aware quoteCreatorBuy overload so exceedsCap uses the same cap.
  */
-export const MODE_BUY_CAP_BPS: Record<number, number | null> = { 0: null, 1: 25, 2: 333 };
-
-/** Effective launch-buy cap in bps: min(creatorBuyMaxBps, mode cap) when modes are live, else creatorBuyMaxBps. */
 export function effectiveCreatorBuyCapBps(creatorBuyMaxBps: number, mode: number, shape: LaunchAbiShape = LAUNCH_ABI_SHAPE) {
-  const m = modesActive(shape) ? MODE_BUY_CAP_BPS[mode] ?? null : null;
-  return m == null ? { bps: creatorBuyMaxBps, by: "launchpad" as const } : m < creatorBuyMaxBps ? { bps: m, by: "mode" as const } : { bps: creatorBuyMaxBps, by: "launchpad" as const };
+  const m = modesActive(shape) ? FIRST_BOOST_MAX_BPS[mode] ?? null : null;
+  return m == null ? { bps: creatorBuyMaxBps, by: "launchpad" as const } : { bps: m, by: "mode" as const };
 }
 
 /** launchWithMode + loginGate from sdk/session-keys/src/modes.ts (feat/modes-gas). */
