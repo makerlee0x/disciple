@@ -103,7 +103,7 @@ contract LaunchpadTest is Test {
         assertEq(Token(r.token).decimals(), 18);
         assertEq(Token(r.token).balanceOf(r.curve), Constants.TOTAL_SUPPLY);
         assertEq(Token(r.token).creator(), alice);
-        assertEq(AntiSnipe(address(antiSnipe)).launchTimestamp(r.token), block.timestamp);
+        assertEq(BondingCurve(r.curve).launchTime(), block.timestamp); // v2: the curve owns the sniper clock
         assertFalse(BondingCurve(r.curve).graduated());
     }
 

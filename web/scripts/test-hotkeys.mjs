@@ -78,7 +78,17 @@ function engine(ls = null) {
   ok(/new CustomEvent\("disciple:custombuy", \{ detail: \{ usd: customUsd \} \}\)/.test(tb), "TradeBridge pushes the custom $ (disciple:custombuy) on change");
   ok(/disciple:custombuy", \{ detail: \{ usd: customRef\.current \} \}/.test(tb), "TradeBridge re-pushes the custom $ when the engine (re)boots");
   ok(!/addEventListener\("keydown"/.test(tb), "TradeBridge has no keydown listener (engine owns gameplay keys + bindings)");
-  ok(/onClick=\{\(\) => shoot\("buy"\)\}/.test(tb), "BOOST button still buys (custom $ wins)"); }
+  ok(/onClick=\{\(\) => shoot\("buy"\)\}/.test(tb), "BOOST button still buys (custom $ wins)");
+  // SPACE while typing in the custom $ field = BOOST that amount (the field stops propagation, so the engine's typing guard
+  // and the worker forwarder never see it; chat / other inputs keep the global typing guards)
+  const kd = (tb.match(/aria-label="custom amount"[\s\S]*?onKeyDown=\{(\(e\) => \{[\s\S]*?e\.stopPropagation\(\); \})\}/) || [])[1];
+  ok(!!kd, "custom $ field keydown handler found");
+  if (kd) { const shots = []; const run = (k, repeat, usd) => { const e = { key: k, repeat, p: 0, s: 0, preventDefault() { this.p = 1; }, stopPropagation() { this.s = 1; } };
+      new Function("shoot", "customUsd", "return " + kd + ";")((x) => shots.push(x), usd)(e); return e; };
+    let e = run(" ", false, 40); ok(shots.length === 1 && e.p && e.s, "SPACE in the custom $ field (custom $40 set) = BOOST $40, default prevented");
+    e = run(" ", true, 40); ok(shots.length === 1, "held SPACE in the field does not re-fire");
+    e = run(" ", false, 0); ok(shots.length === 1 && e.p, "SPACE in an empty custom field: no trade, no space typed"); }
+  ok(/isTyping\(e\) \|\| S\.menuOpen/.test(eng) && /if \(k\.type === "keydown" && typing\(e\)\) return;/.test(rd("lib/flight/workerBridge.ts")), "global typing guards kept (chat SPACE types a space)"); }
 // ---- ESC menu: capture-phase key gate + disciple:menu ------------------------------------------------------------
 { const m = rd("components/flight/SettingsMenu.tsx");
   ok(/addEventListener\("keydown", k, true\)/.test(m) && /stopImmediatePropagation\(\)/.test(m), "SettingsMenu swallows game keys in the capture phase while open");

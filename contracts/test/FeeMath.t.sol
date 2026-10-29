@@ -51,8 +51,8 @@ contract FeeMathTest is Test {
         return FeeMath.creatorTax(n, bps);
     }
 
-    function test_totalSupply_7B() public pure {
-        assertEq(Constants.TOTAL_SUPPLY, 7_000_000_000 * 1e18);
+    function test_totalSupply_1M() public pure {
+        assertEq(Constants.TOTAL_SUPPLY, 1_000_000 * 1e18);
         assertEq(Constants.TOKEN_DECIMALS, 18);
     }
 
@@ -60,20 +60,33 @@ contract FeeMathTest is Test {
         assertEq(FeeMath.walletCap(), (Constants.TOTAL_SUPPLY * 700) / 10_000);
     }
 
-    function test_curveSold_72pct() public pure {
-        assertEq(FeeMath.curveSoldSupply(), (Constants.TOTAL_SUPPLY * 7200) / 10_000);
+    function test_curveSold_8424bps() public pure {
+        assertEq(FeeMath.curveSoldSupply(), (Constants.TOTAL_SUPPLY * 8424) / 10_000);
     }
 
-    function test_outerSpace_33k() public pure {
-        assertEq(Constants.GRADUATION_MCAP_USD, 33_000 * 1e18);
+    function test_outerSpace_33333() public pure {
+        assertEq(Constants.GRADUATION_MCAP_USD, 33_333 * 1e18);
         assertEq(Constants.OUTER_SPACE_MCAP_USD, Constants.GRADUATION_MCAP_USD);
-        assertEq(Constants.START_MCAP_USD, 7_000 * 1e18);
+        assertEq(Constants.START_MCAP_USD, 3_333 * 1e18);
+        assertEq(Constants.CURVE_MID_MCAP_USD, 15_000 * 1e18);
     }
 
     function test_antiSnipe_constants() public pure {
-        assertEq(Constants.ANTI_SNIPE_START_BPS, 7770);
+        assertEq(Constants.ANTI_SNIPE_START_BPS, 9900);
         assertEq(Constants.ANTI_SNIPE_END_BPS, 0);
         assertEq(Constants.ANTI_SNIPE_DURATION, 7);
+        assertEq(Constants.SNIPE_ESCROW_TIMEOUT, 30 days);
+    }
+
+    /// lee 2026-10-24: 7s window, fast per-second decay (≈ Pons V2), hard 0 from 7s.
+    function test_snipeBps_schedule() public pure {
+        uint256[8] memory want = [uint256(9900), 2500, 300, 100, 30, 10, 3, 0];
+        for (uint256 e; e < 8; ++e) assertEq(FeeMath.snipeBps(e), want[e]);
+        assertEq(FeeMath.snipeBps(0), Constants.ANTI_SNIPE_START_BPS);
+        assertEq(FeeMath.snipeBps(Constants.ANTI_SNIPE_DURATION), 0);
+        assertEq(FeeMath.snipeBps(77), 0);
+        assertEq(FeeMath.snipeBps(type(uint64).max), 0);
+        for (uint256 e = 1; e < 8; ++e) assertLt(FeeMath.snipeBps(e), FeeMath.snipeBps(e - 1)); // strictly decreasing
     }
 
     function test_creatorBuyMax_0_77pct() public pure {

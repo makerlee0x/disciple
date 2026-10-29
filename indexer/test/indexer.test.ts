@@ -20,7 +20,7 @@ function mk(name: string, args: Record<string, any>, address: Hex, block = 1n): 
   return { address, topics: topics as any, data, blockNumber: block, transactionHash: `0x${(++li).toString(16).padStart(64, "0")}` as Hex, logIndex: li };
 }
 const trade = (trader: Hex, isBuy: boolean, quoteAmt: bigint, priceAfter: bigint, src: Hex, block: bigint) =>
-  mk("Trade", { token: TOKEN, trader, isBuy, quoteAmt, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: priceAfter, impactBps: 0n, mcapAfterUsd: priceAfter * 7_000_000_000n }, src, block); // mcap = price × 7B (quote $1)
+  mk("Trade", { token: TOKEN, trader, isBuy, quoteAmt, tokenAmt: 1n, fee: 0n, snipeFee: 0n, priceBeforeX18: 0n, priceAfterX18: priceAfter, impactBps: 0n, mcapAfterUsd: priceAfter * 1_000_000n }, src, block); // mcap = price × 1M (v5 default supply, quote $1)
 
 function seeded() {
   const db = openDb(":memory:");
@@ -58,13 +58,13 @@ describe("math", () => {
     expect(priceWadFromSqrt(Q96, true)).toBe(10n ** 18n);
     expect(priceWadFromSqrt(2n * Q96, true)).toBe(4n * 10n ** 18n);
     expect(priceWadFromSqrt(2n * Q96, false)).toBe(25n * 10n ** 16n);
-    expect(mcapUsdWad(10n ** 18n, 10n ** 18n)).toBe(7_000_000_000n * 10n ** 18n);
+    expect(mcapUsdWad(10n ** 18n, 10n ** 18n)).toBe(1_000_000n * 10n ** 18n);
     expect(virtualQuoteReserve(1000n, Q96, true)).toBe(1000n);
   });
   it("TRMP-like pool price ~ $45.3K", () => {
-    // live TRMP slot0 (token is currency1) and STRATEGY = $0.00245
+    // live TRMP slot0 (token is currency1) and STRATEGY = $0.00245 — legacy 7B-supply coin, supply passed explicitly
     const p = priceWadFromSqrt(1541825069166933097153735021859n, false);
-    const m = Number(mcapUsdWad(p, 2450000000000000n)) / 1e18;
+    const m = Number(mcapUsdWad(p, 2450000000000000n, 7_000_000_000n * 10n ** 18n)) / 1e18;
     expect(m).toBeGreaterThan(45_000);
     expect(m).toBeLessThan(45_600);
   });
@@ -130,17 +130,18 @@ describe("lp auto-compound", () => {
 
 describe("mcap precision", () => {
   const sqrt = (x: bigint) => { let z = x, y = (x + 1n) / 2n; while (y < z) { z = y; y = (x / y + y) / 2n; } return z; };
-  // $33K over 7B tokens; quote raw per token raw = 33000*10^dec / 7e27
+  // $33K over 1M tokens; quote raw per token raw = 33000*10^dec / 1e24
   const sqrtFor = (dec: bigint, c0: boolean) => {
-    const num = 33_000n * 10n ** dec, den = 7_000_000_000n * 10n ** 18n;
+    const num = 33_000n * 10n ** dec, den = 1_000_000n * 10n ** 18n;
     return c0 ? sqrt((num << 192n) / den) : sqrt((den << 192n) / num);
   };
   const near = (a: bigint, b: bigint) => expect(Number(a) / Number(b)).toBeCloseTo(1, 4);
-  it("6-dec quote: $33K exact from sqrt (priceWad path floors to ~$28K)", () => {
+  it("6-dec quote: $33K exact from sqrt (1M supply: priceWad path now within 0.01%; 7B floored it to ~$28K)", () => {
     for (const c0 of [true, false]) {
       const sp = sqrtFor(6n, c0);
       near(mcapUsdFromSqrt(sp, c0, 10n ** 30n), 33_000n * 10n ** 18n);
-      expect(mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 30n) < 30_000n * 10n ** 18n).toBe(true);
+      const viaPrice = Number(mcapUsdWad(priceWadFromSqrt(sp, c0), 10n ** 30n)) / 33_000e18;
+      expect(Math.abs(viaPrice - 1)).toBeLessThan(1e-4);
     }
   });
   it("18-dec quote: unchanged", () => {

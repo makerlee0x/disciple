@@ -122,7 +122,7 @@ contract MigrationTest is Test {
         vm.stopPrank();
         curve = BondingCurve(r.curve);
         tok = Token(r.token);
-        vm.warp(ts + 10);
+        vm.warp(ts + Constants.ANTI_SNIPE_DURATION + 1); // past the 7 s sniper tax (mode rules v2)
 
         // Buy to graduation across wallets
         for (uint256 i = 0; i < 40 && !curve.graduated(); i++) {

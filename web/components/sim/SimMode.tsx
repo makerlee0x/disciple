@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FlightCanvas from "@/components/FlightCanvas";
 import PnlHud from "@/components/PnlHud";
 import TradeBridge from "@/components/TradeBridge";
+import SnipeChip from "@/components/flight/SnipeChip";
+import { snipeState } from "@/lib/snipe";
+import { SIM_LAUNCH_TS } from "@/lib/game/snipeCountdown";
 import Icon from "@/components/ui/Icon";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import { ARCHETYPES, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
@@ -91,6 +94,11 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
   const lb = run && phase !== "select" ? run.leaderboard() : [];
   const me = lb.findIndex((r) => r.arch === "you");
   const D = cfg.difficulties[difficulty];
+  // SNIPER TAX chip: sim launch = run t 0 (SIM_LAUNCH_TS epoch: snipeState needs launchTs > 0); params = the run's launch config (lib/config CURVE.antiSnipe* via lib/sim/config), incl. the
+  // per-second table bpsBySec (0 from 7s), so it matches what SimMarket.antiSnipe() charges; run.t follows speed / pause. Curve phase only (buys after graduation pay none).
+  const snipe = run && phase === "run" && run.m.phase === "curve"
+    ? snipeState({ launchTs: SIM_LAUNCH_TS, nowSec: SIM_LAUNCH_TS + run.t, startPct: run.cfg.launch.antiSnipeStartBps / 100, windowSec: run.cfg.launch.antiSnipeDurationS, bpsBySec: run.cfg.launch.antiSnipeBpsBySec })
+    : null;
 
   return (
     <>
@@ -100,6 +108,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <PnlHud coin={`run-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="SIMULATOR" syncEvent={SIM_POS_EVENT} />
           <TrampWallPanel key={runN} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
+          <SnipeChip state={snipe} />
         </>
       )}
       {phase === "run" && run && (
@@ -135,7 +144,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
           <div style={{ ...mono, width: "min(980px, 94vw)", color: "#e8ecff", padding: 20 }}>
             <div style={{ fontSize: 13, color: "#8fd8ff", letterSpacing: 3 }}>DISCIPLE</div>
             <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: 2, margin: "2px 0 4px" }}>SIMULATOR</div>
-            <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free paper trading on a fully local market. A fresh coin launches on the real Launchpad curve ($7K → graduates at $33K) and bots trade it. Same ammo, BOOST/DUMP, bombs and orbs as the real game. After graduation, tramps (buy-support below the price) and walls (sell-resistance above it) are real limit liquidity in the sim pool: they absorb trades, fill, and a keeper closes them. Bots place their own and react to yours. No wallet cap, no gas, no wallet, no transactions.</div>
+            <div style={{ opacity: 0.8, marginBottom: 18, fontSize: 13 }}>Free paper trading on a fully local market. A fresh coin launches on the real Launchpad curve ($3,333 → graduates at $33,333) and bots trade it. Same ammo, BOOST/DUMP, bombs and orbs as the real game. After graduation, tramps (buy-support below the price) and walls (sell-resistance above it) are real limit liquidity in the sim pool: they absorb trades, fill, and a keeper closes them. Bots place their own and react to yours. No wallet cap, no gas, no wallet, no transactions.</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
               {DIFFS.map((id) => { const x = cfg.difficulties[id]; const on = id === difficulty; return (
                 <button key={id} data-testid={`sim-diff-${id}`} onClick={() => setDifficulty(id)} style={{ ...panel, textAlign: "left", padding: 16, cursor: "pointer", borderColor: on ? x.color : "rgba(255,255,255,.15)", boxShadow: on ? `0 0 0 2px ${x.color}55, 0 10px 40px rgba(0,0,0,.45)` : panel.boxShadow }}>

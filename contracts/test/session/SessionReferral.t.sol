@@ -115,7 +115,7 @@ contract SessionReferralTest is DiscipleSessionPolicyTest {
     }
 
     function test_revert_disabledWhenRegistryUnset() public {
-        P p0 = new P(address(0));
+        P p0 = new P(address(0), address(0));
         vm.startPrank(owner);
         acct.uninstallSession();
         acct.installSession(p0, E, key, _refCfg());

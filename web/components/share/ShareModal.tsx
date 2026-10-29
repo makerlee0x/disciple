@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { shareMediaFor, imageMedia, videoMedia, canEncodeVideo, type ShareMedia, type ShareParams } from "@/lib/share/media";
-import { refLabel, refLink } from "@/lib/referral";
+import { coinRefLink, refLabel } from "@/lib/referral";
 import { fmtMcap, fmtMoney, fmtPct, shareText } from "@/lib/share/format";
 import { localLoadoutIds, loadoutFromIds } from "@/lib/share/loadout";
 import type { PositionPnl } from "@/lib/sharePnl";
@@ -14,6 +14,8 @@ import Icon from "@/components/icons/Icon";
 
 export interface ShareTarget { coin: string; ticker: string; wallet: string | null; username: string | null; sample?: boolean }
 type Pnl = PositionPnl & { sample?: boolean };
+/** Sample share cards are `next dev` only; production shows the real position, or "no trades yet". */
+const DEV_DEMO = process.env.NODE_ENV === "development";
 
 export default function ShareModal({ target, onClose }: { target: ShareTarget; onClose: () => void }) {
   const [at] = useState(() => Date.now()); // "now" = the moment Share was pressed
@@ -21,8 +23,9 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
   const [msg, setMsg] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [ids] = useState(() => (typeof window !== "undefined" ? localLoadoutIds() : { skin: "chrome", coin: "halo", thruster: "stock" }));
-  // Real card once the wallet's indexed fills come back; SAMPLE card when there are none (or no wallet).
-  const [demo, setDemo] = useState<boolean | null>(target.sample || !target.wallet ? true : null);
+  // Real card once the wallet's indexed fills come back. None (or no wallet): the "no trades yet" card in production,
+  // the SAMPLE card only in `next dev`.
+  const [demo, setDemo] = useState<boolean | null>(target.sample || !target.wallet ? DEV_DEMO : null);
   const [video, setVideo] = useState<ShareMedia | null>(null);
   const [vp, setVp] = useState<{ p: number; stage: string } | null>(null);
   const [vNote, setVNote] = useState("");
@@ -30,14 +33,17 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
   const png = useMemo(() => shareMediaFor(params), [target.coin, target.wallet, target.username, demo, at]); // eslint-disable-line react-hooks/exhaustive-deps
   const og = useMemo(() => imageMedia(params, "og"), [png]); // eslint-disable-line react-hooks/exhaustive-deps
   const media = video ?? png;
-  const link = refLink(target.username, target.wallet);
+  const link = coinRefLink(target.coin, target.username, target.wallet); // opens this coin, not home; ?ref= keeps attribution
 
   useEffect(() => {
     if (demo === false || (demo === true && pnl)) return;
     const q = demo ? `demo=1&at=${at}&wallet=${target.wallet ?? ""}&coin=${target.coin}` : `wallet=${target.wallet}&coin=${target.coin}`;
     fetch(`/api/share/pnl?${q}`).then((r) => (r.ok ? r.json() : null))
-      .then((p: Pnl | null) => { if (demo) { setPnl(p); return; } if (!p || p.kind === "none") setDemo(true); else { setPnl(p); setDemo(false); } })
-      .catch(() => setDemo(true));
+      .then((p: Pnl | null) => {
+        if (demo) { setPnl(p); return; }
+        if ((!p || p.kind === "none") && DEV_DEMO) setDemo(true); else { setPnl(p); setDemo(false); }
+      })
+      .catch(() => setDemo(DEV_DEMO));
   }, [demo, pnl, at, target.wallet, target.coin]);
   useEffect(() => { const k = (e: KeyboardEvent) => e.key === "Escape" && onClose(); window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   useEffect(() => () => { if (video) URL.revokeObjectURL(video.url); }, [video]);
@@ -105,11 +111,11 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
               <div className="share-stats">
                 <div className={pnl.gainUsd >= 0 ? "pos big" : "neg big"}>{fmtMoney(pnl.gainUsd)}</div>
                 <div className={pnl.gainUsd >= 0 ? "pos" : "neg"}>{fmtPct(pnl.gainPct)} · {pnl.kind}</div>
-                <div className="muted tiny">mcap {fmtMcap(pnl.mcapEndUsd)} · {pnl.fills.length} fills{demo ? " · sample data" : ""}</div>
+                <div className="muted tiny">mcap {fmtMcap(pnl.mcapEndUsd)} · {pnl.fills.length} fills</div>
               </div>
-            ) : <p className="muted tiny">Loading position…</p>}
+            ) : <p className="muted tiny">{demo === null ? "Loading position…" : "No trades yet"}</p>}
             {canEncodeVideo() && !video && (
-              <button type="button" className="ds-btn share-video-btn" data-testid="share-make-video" onClick={makeVideo} disabled={!pnl || !!vp}>
+              <button type="button" className="ds-btn share-video-btn" data-testid="share-make-video" onClick={makeVideo} disabled={!pnl || pnl.kind === "none" || !!vp}>
                 {vp ? "Rendering video…" : <><Icon name="video" size={16} /> Make video (15s)</>}
               </button>
             )}

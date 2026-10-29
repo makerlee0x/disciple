@@ -1,5 +1,7 @@
 "use client";
 
+import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -18,9 +20,11 @@ import {
   type LeaderboardRow,
   type LeaderboardSort,
   type LeaderboardWindow,
+  emptyLeaderboardAdapter,
+  type LeaderboardAdapter,
 } from "@/lib/leaderboard";
 import { fmtUsd } from "@/lib/config";
-import { leaderboardAdapter } from "@/lib/mock/leaderboard";
+import { devSample } from "@/lib/devSample";
 import Icon from "@/components/icons/Icon";
 
 const SORTS: { key: LeaderboardSort; label: string }[] = [
@@ -86,9 +90,10 @@ function Row({ row }: { row: LeaderboardRow }) {
           <Link href={href} className="lb-name-link" title={`Open ${name}'s profile · ${row.address}`}>
             {name}
           </Link>
-          <span className="lb-flag" title={row.country}>
+          <GuildTagFor address={row.address} />
+          {COUNTRY_FLAGS_ENABLED && <span className="lb-flag" title={row.country}>
             {flagEmoji(row.country)}
-          </span>
+          </span>}
           {row.isSelf && <span className="lb-you">you</span>}
         </div>
         <div className="lb-id-label">{identityLabel(row.identity)}</div>
@@ -124,7 +129,7 @@ export default function LeaderboardView() {
   const [sort, setSort] = useState<LeaderboardSort>("pnl");
   const [timeframe, setTimeframe] = useState<LeaderboardWindow>("7d");
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
-  const [source, setSource] = useState<"mock" | "indexer">("mock");
+  const [source, setSource] = useState<"mock" | "indexer" | "none">("none");
   const [busy, setBusy] = useState(true);
 
   const query: LeaderboardQuery = useMemo(() => ({ sort, window: timeframe }), [sort, timeframe]);
@@ -132,7 +137,9 @@ export default function LeaderboardView() {
   const load = useCallback(async (q: LeaderboardQuery) => {
     setBusy(true);
     try {
-      const res = await leaderboardAdapter.getLeaderboard(q);
+      // Sample pilots only in `next dev` + ?sample=1 (constant false in production builds, so the mock isn't bundled)
+      const adapter: LeaderboardAdapter = process.env.NODE_ENV === "development" && devSample() ? (await import("@/lib/mock/leaderboard")).leaderboardAdapter : emptyLeaderboardAdapter;
+      const res = await adapter.getLeaderboard(q);
       setRows(res.rows);
       setSource(res.source);
     } finally {
@@ -144,13 +151,29 @@ export default function LeaderboardView() {
     void load(query);
   }, [query, load]);
 
+  if (!busy && rows.length === 0) {
+    return (
+      <div className="lb-page">
+        <header className="lb-head">
+          <div>
+            <h1>Leaderboard</h1>
+          </div>
+        </header>
+        <div className="pf-empty" data-testid="lb-empty">
+          <strong>No pilots yet</strong>
+          <Link href="/create" className="ds-btn">Launch a rocket</Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="lb-page">
       <header className="lb-head">
         <div>
           <h1>Leaderboard</h1>
           <div className="sub">PRESTIGE LADDER · TOP PILOTS</div>
-          {source === "mock" && <span className="tag mock">SAMPLE DATA</span>}
+          {source === "mock" && <span className="tag mock">SAMPLE DATA · DEV</span>}
         </div>
         <div className="lb-controls">
           <nav className="lb-seg" aria-label="Sort by">
@@ -198,7 +221,7 @@ export default function LeaderboardView() {
         </div>
       </div>
       <p className="lb-footnote">
-        Prestige tier = your rank on the heaven ladder: earn points, climb tiers (Pilgrim → Angels → Seraphim…), like
+        Prestige tier = your rank on the heaven ladder: earn points, climb tiers (Normie → Angels → Seraphim…), like
         CoD prestige. Hold = cumulative time held across positions. Click any row to open their public profile. Scores
         are SAMPLE until the indexer wires Trade events.
       </p>

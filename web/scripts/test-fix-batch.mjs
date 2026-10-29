@@ -38,14 +38,14 @@ console.log("— 1. no phantom gas");
   ok(v.uPnl < 0 && near(fee, 100 * P.FEE), `flat price right after a buy: uPnL ${v.uPnl.toFixed(2)} red only from the buy fee → note ${fee.toFixed(2)}`);
   const v2 = P.view(pos, 0.5e-5, 7e9, Date.now());
   ok(P.redFromBuyFees(pos, v2) === 0, "price really down: no buy-fee note (the loss is not just fees)");
-  ok(/pnl-buy-fees/.test(hud) && /redFromBuyFees\(pos, v\)/.test(hud) && /"pnl\.inclBuyFees": "incl\. \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD labels it 'incl. $X buy fees'"); }
+  ok(/pnl-buy-fees/.test(hud) && /redFromBuyFees\((pos, v|\{ \.\.\.pos, costBasis: basis \}, \{ size: tracked \? v\.size : 0, uPnl: v\.uPnl \})\)/.test(hud) && /"pnl\.inclBuyFees": "incl\. \{fee\} buy fees"/.test(rd("lib/game/i18n.ts")), "PnL HUD labels it 'incl. $X buy fees'"); }
 
 // ───────────── 2. BOOST vs cash ─────────────
 console.log("— 2. BOOST cash check");
 function tradeEnv({ live = false, balance = 100, liveCash = null, usd = 10, sim = false } = {}) {
   const E = { submits: [], flashes: [] };
   const S = { fuelers: { you: 0 }, hold: { tokens: 1e3, valueUsd: 5 }, liveBag: live ? { tokens: 100 } : null, flashes: E.flashes, mode: 0, balance, liveCash, confirmed: { mcap: 7e4 }, promoLeft: 0 };
-  const env = { S, MODES: [{ usd }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9, isSim: sim },
+  const env = { S, MAX_PENDING: 3, MODES: [{ usd }], hasTokens: () => true, noTokens() {}, isLive: () => live, markMcap: () => 7e4, source: { supply: 7e9, isSim: sim },
     MIN_SHOT: 0.2, PROMO_GAS: false, GAS_USD: 0, applyThrust() {}, srcImpact: () => 1, fmtShot: fmt, window: live ? { __discipleTrade() {} } : {},
     submit: (side, u, force, opt) => E.submits.push({ side, usd: u, opt }) };
   E.trade = new Function(...Object.keys(env), block("/* @trade", "/* @trade-end */") + "\nreturn trade;")(...Object.values(env));
@@ -63,7 +63,7 @@ function tradeEnv({ live = false, balance = 100, liveCash = null, usd = 10, sim 
 function cashEnv({ live = false, balance = 100, sim = false, usd = 10 } = {}) {
   const L = {}, out = [];
   const S = { feed: [], balance, mode: 0, customBuyUsd: 0 };
-  const env = { S, MODES: [{ usd }, { usd: 25 }], source: { isSim: sim }, window: live ? { __discipleTrade() {} } : {}, MIN_SHOT: 0.2, fmtMoney: fmt, fmtShot: fmt,
+  const env = { S, MAX_PENDING: 3, MODES: [{ usd }, { usd: 25 }], source: { isSim: sim }, window: live ? { __discipleTrade() {} } : {}, MIN_SHOT: 0.2, fmtMoney: fmt, fmtShot: fmt,
     keepIf: (arr, pred) => { const k = arr.filter(pred); arr.length = 0; arr.push(...k); return arr; },
     addEventListener: (t, f) => { (L[t] = L[t] || []).push(f); }, dispatchEvent: (e) => out.push(e), CustomEvent: class { constructor(type, o) { this.type = type; this.detail = o && o.detail; } } };
   const C = new Function(...Object.keys(env), block("/* @cash", "/* @cash-end */") + block("/* @rules", "/* @rules-end */") + "\nreturn {activeBuyUsd,cashNow,boostShort,noteBuyAmount,cashLineText,pushPaperCash,tierRulesText};")(...Object.values(env));
@@ -84,9 +84,9 @@ function cashEnv({ live = false, balance = 100, sim = false, usd = 10 } = {}) {
   ok(/noteBuyAmount\(\); pushPaperCash\(\);/.test(block("function pushAmmo", "function setAmmoTier")), "preset / tier changes run the amount check (pushAmmo)");
   const tb = rd("components/TradeBridge.tsx");
   const boostBtn = tb.slice(tb.indexOf('data-testid="buy-btn"'), tb.indexOf('data-testid="sell-btn"'));
-  ok(/aria-disabled=\{short\} disabled=\{short\}/.test(boostBtn) && /opacity: short \? 0\.4 : 1/.test(boostBtn) && /cursor: short \? "not-allowed"/.test(boostBtn), "BOOST button greys out + disables when short (same pattern as DUMP)");
-  ok(/const short = cashUsd != null && cashUsd \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance) < the active BOOST amount (custom $ wins)");
-  ok(/balanceHint\(pc, usdg, me, 4000\), decimalsOf\(pc, usdg\)/.test(tb) && /new CustomEvent\("disciple:cash"/.test(tb), "live cash = the account's USDG, pushed to the engine (disciple:cash)");
+  ok(/aria-disabled=\{short( \|\| full)?\} disabled=\{short( \|\| full)?\}/.test(boostBtn) && /opacity: short( \|\| full)? \? 0\.4 : 1/.test(boostBtn) && /cursor: short( \|\| full)? \? "not-allowed"/.test(boostBtn), "BOOST button greys out + disables when short (same pattern as DUMP; rapid-tap: also when 3 are in flight)");
+  ok(/const short = (rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd(, dec|, gasKindFor\("buy", shotUsd, gradRef\.current, markRef\.current\.mcap\))?\) : )?(cashUsd|spendable) != null && (cashUsd|spendable) \+ 1e-9 < shotUsd/.test(tb) && /const cashUsd = live \? liveCash : paperCash/.test(tb), "short = cash (live USDG / paper balance; live: minus pending reservations + gas) < the active BOOST amount (custom $ wins)");
+  ok(/ownBalance\(pc, usdg, me, \(\) => balanceHint\(pc, usdg, me, 4000\)\), decimalsOf\(pc, usdg\)/.test(tb) && /new CustomEvent\("disciple:cash"/.test(tb), "live cash = the account's USDG, pushed to the engine (disciple:cash)");
   ok(/setLast\(\(l\) => \(l\.startsWith\("✕"\) \? "" : l\)\); setHint\(""\); \}, \[amtKey\]\)/.test(tb), "trade bar drops a stale ✕ line when the amount changes");
   const wb = rd("lib/flight/workerBridge.ts");
   ok(['"disciple:cash"', '"disciple:coinrules"'].every((e) => wb.includes(e)), "worker render path forwards disciple:cash + disciple:coinrules to the engine"); }
@@ -118,7 +118,7 @@ console.log("— 4. jargon");
   ok(lits.length > 50 && jar.length === 0, `engine HUD text (${lits.length} strings) is jargon-free${jar.length ? ": " + jar.join(" | ") : ""}`);
   ok(/fuelers:\{'you':0\}/.test(eng) && /e\.trader\?short\(e\.trader\):null; if\(who\)/.test(eng), "no made-up wallets seeded or credited for unknown traders");
   const tb = rd("components/TradeBridge.tsx");
-  ok(!/b\.venue/.test(tb) && !/✓ \$\{r\.txHash/.test(tb), "trade bar: no venue name / tx hash in the status line");
+  ok(!/(setLast|setPreview)\([^;]*b\.venue/.test(tb) && !/✓ \$\{r\.txHash/.test(tb), "trade bar: no venue name / tx hash in the status line");
   const i18n = rd("lib/game/i18n.ts"), pctTitles = [...i18n.matchAll(/"pnl\.pctTitle": "([^"]*)"/g)].map((m) => m[1]);
   ok(pctTitles.length >= 5 && pctTitles.every((s) => !/gas|ガス|가스/i.test(s)), "PnL % tooltip (all languages) no longer mentions gas");
   ok(!/sell gas/.test(rd("components/PnlHud.tsx")), "PnL HUD exit-fee tooltip has no 'sell gas'");

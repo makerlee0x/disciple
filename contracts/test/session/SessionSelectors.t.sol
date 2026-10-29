@@ -5,11 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {DiscipleSessionPolicy} from "../../src/session/DiscipleSessionPolicy.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {TrampWallManager} from "../../src/TrampWallManager.sol";
-import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 
 contract SelectorHarness is DiscipleSessionPolicy {
-    constructor() DiscipleSessionPolicy(address(0)) {}
+    constructor() DiscipleSessionPolicy(address(0), address(0)) {}
 
     function usdgSels() external pure returns (bytes4, bytes4) {
         return (ROUTER_BUY_USDG, ROUTER_SELL_USDG);
@@ -31,7 +30,16 @@ contract SessionSelectorsTest is Test {
         assertEq(s[4], TrampWallManager.cancel.selector);
         assertEq(s[5], ILaunchpad.launch.selector);
         assertEq(s[6], ILaunchpad.launchCoin.selector);
-        assertEq(s[7], AnonLauncher.launchAnon.selector);
+        // AnonLauncher v2 launchAnon(..., maxFee): the contract change is on feat/redeploy-pack (combined tree checks
+        // AnonLauncher.launchAnon.selector there); this branch pins the v2 signature.
+        assertEq(
+            s[7],
+            bytes4(
+                keccak256(
+                    "launchAnon((string,string,string,string,string,address,uint256,uint256,uint256,uint256),address,address,bytes,bytes1,uint256)"
+                )
+            )
+        );
         assertEq(s[8], bytes4(keccak256("buy(uint256,uint256,uint256,address)")));
         (bytes4 b, bytes4 sl) = new SelectorHarness().usdgSels();
         assertEq(b, DiscipleRouter.buyWithUsdg.selector);
@@ -43,7 +51,7 @@ contract SessionSelectorsTest is Test {
 contract SessionSdkFixtureTest is Test {
     function test_sdkInstallDataDecodes() public {
         vm.warp(1_800_000_000);
-        DiscipleSessionPolicy p = new DiscipleSessionPolicy(address(0));
+        DiscipleSessionPolicy p = new DiscipleSessionPolicy(address(0), address(0));
         p.onInstall(
             hex"0000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000006b4b23800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000027f0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000064000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
         );

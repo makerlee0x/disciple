@@ -7,7 +7,7 @@ export class NeedLogin extends Error { code = "NeedLogin"; }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const t = await privyAccessToken();
-  if (!t) throw new NeedLogin("Log in with email or Google first.");
+  if (!t) throw new NeedLogin("Sign in first.");
   const r = await fetch(withBase(path), { ...init, headers: { ...(init?.headers || {}), authorization: `Bearer ${t}`, "content-type": "application/json" }, cache: "no-store" });
   const j = (await r.json().catch(() => ({}))) as T & { error?: string };
   if (!r.ok) throw Object.assign(new Error(j.error || `Error ${r.status}`), { status: r.status });

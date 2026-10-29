@@ -4,7 +4,7 @@
  */
 export const MAX_LEVEL = 50;
 export const PRESTIGE_NAMES = [
-  "Pilgrim", "Acolyte", "Disciple", "Herald", "Angel", "Archangel", "Seraph", "Throne", "Dominion", "Empyrean",
+  "Normie", "Acolyte", "Disciple", "Herald", "Angel", "Archangel", "Seraph", "Throne", "Dominion", "Empyrean",
 ] as const;
 
 const xpForLevel = (lv: number) => 100 + lv * 40; // per-level requirement

@@ -5,11 +5,11 @@ section: Fees and rewards
 ---
 # Rewards vault
 
-70% of the snipe fee goes to a community rewards vault, to be shared out later (how is still being decided). 30% goes to the treasury.
+The community rewards vault holds sniper tax from rockets that never graduated. To be shared out later (how is still being decided).
 
 ## What's in it
 
-The vault collects 70% of every anti-snipe fee: the extra fee on BOOSTs in a rocket's first 7 seconds. Nothing else goes in. It's held in each rocket's base coin.
+The sniper tax (on BOOSTs in a rocket's first 7 seconds) is held by the curve. If the rocket graduates, it goes into the locked liquidity instead. If it hasn't graduated 30 days after launch, anyone can send it here. Nothing else goes in. It's held in each rocket's base coin.
 
 ## How it's shared
 

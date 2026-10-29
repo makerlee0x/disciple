@@ -47,7 +47,7 @@
 
 ## SEC-03 (Medium): spot-price oracle at launch
 - `QuotePricer.quotePriceUsd(quote)` reads the STRATEGY/USDG v4 pool `slot0`, gated by `minLiquidity` (0 on testnet).
-- A flash swap around `Launchpad.launch` changes `quotePriceUsd`. That value is immutable per curve, so the coin's USD targets ($7K → $33K) end up mis-scaled.
+- A flash swap around `Launchpad.launch` changes `quotePriceUsd`. That value is immutable per curve, so the coin's USD targets ($7,777 → $33,333) end up mis-scaled.
 - The impact falls mostly on that coin's buyers, through mis-stated USD mcap and an earlier or later graduation.
 - **Recommendation:** set `minLiquidity` on mainnet; add a TWAP (an oracle hook or an observation ring) or a max-deviation bound against an owner-set reference.
 

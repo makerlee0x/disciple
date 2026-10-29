@@ -1,21 +1,39 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { erc20Abi, isAddress, type Address } from "viem";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import TradeBridge from "@/components/TradeBridge";
+import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
 import { PROTOCOL_META } from "@/lib/protocol";
+import { publicClient, readCurveState } from "@/lib/protocol-viem";
+import { basePair } from "@/lib/pairArt";
 
 function FlightInner({ address }: { address: string }) {
   const sp = useSearchParams();
+  const demo0 = address.toLowerCase() === DEMO_POOL.address;
+  // The coin's real quote token from its launch (curve state). The engine writes its params back into the URL, so a
+  // stale ?quote= (e.g. the old STRATEGY default on a USDG-paired coin) would otherwise stick forever.
+  const [realQuote, setRealQuote] = useState<string | null>(null);
+  useEffect(() => {
+    if (demo0 || !isDeployed() || !isAddress(address)) return;
+    let alive = true;
+    const pc = publicClient();
+    readCurveState(pc, address as Address)
+      .then((st) => pc.readContract({ address: st.quote as Address, abi: erc20Abi, functionName: "symbol" }))
+      .then((sym) => { if (alive && sym) setRealQuote(String(sym)); })
+      .catch((e) => console.warn("[disciple] coin page: quote token read failed; keeping URL quote", e));
+    return () => { alive = false; };
+  }, [address, demo0]);
   const search = useMemo(() => {
     const q = new URLSearchParams(sp.toString());
     if (!q.has("coin")) q.set("coin", address);
@@ -25,10 +43,13 @@ function FlightInner({ address }: { address: string }) {
     const demo = address.toLowerCase() === DEMO_POOL.address;
     // launchpad links carry ?cs=TICKER: hand it to the engine so its chart label names the coin instead of "COIN"
     if (!q.has("ticker") && q.get("cs")) q.set("ticker", q.get("cs") as string);
-    if (!q.has("quote")) q.set("quote", demo ? DEMO_POOL.ticker.split("/")[1].trim() : STRATEGY_TOKEN.symbol);
+    // real quote (launch data) > launchpad ?pair= > existing ?quote= > default. Plain label: mUSDG shows as USDG.
+    const known = realQuote ?? (demo ? null : sp.get("pair"));
+    if (known) q.set("quote", basePair(known)?.sym ?? known);
+    else if (!q.has("quote")) q.set("quote", demo ? DEMO_POOL.ticker.split("/")[1].trim() : STRATEGY_TOKEN.symbol);
     if (!q.has("feeBps")) q.set("feeBps", String(demo ? DEMO_POOL.fee / 100 : PROTOCOL_META.hookFeeBps + PROTOCOL_META.v4PoolFee / 100));
     return q.toString();
-  }, [sp, address]);
+  }, [sp, address, realQuote]);
 
   return (
     <>
@@ -38,6 +59,7 @@ function FlightInner({ address }: { address: string }) {
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />
       <TradeBridge token={address} />
+      <SnipeCountdown token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
       {/* Share (trade card + rocket card) lives in the ESC settings menu (FlightCanvas → SettingsMenu), not a floating pill */}

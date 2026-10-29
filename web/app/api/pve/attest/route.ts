@@ -18,6 +18,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
 import { LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "@/lib/aa/constants";
+import { inviteRequiredResponse, requireInviteUser } from "@/lib/server/inviteGate";
 import {
   AuthError, ZERO_ADDR, attestTtl, attesterAccount, fetchPrivyUser, isLoginVerified, loginGateMiniAbi, privyJwksFetcher,
   signLoginAttestation, verifyPrivyAccessToken, walletBelongsTo,
@@ -65,6 +66,8 @@ export async function POST(req: Request) {
     if (!ul.ok) return err(429, "rate_limited", { retryAfterSec: ul.retryAfterSec });
     const user = await fetchPrivyUser(claims.userId, id, secret);
     if (!isLoginVerified(user)) return err(403, "login_not_verified");
+    // invite-only beta (lib/server/invites); off by default ⇒ no-op
+    if (!(await requireInviteUser(claims.userId, "pve/attest")).ok) return inviteRequiredResponse();
     const client = pc();
     const owns = await walletBelongsTo(user, wallet, (owner) => Promise.all([
       client.readContract({ address: MAV2_FACTORY, abi: factoryAbi, functionName: "getAddressSemiModular", args: [owner, BigInt(0)] }).catch(() => null),
@@ -91,7 +94,7 @@ export async function POST(req: Request) {
       if (!wl.ok) return NextResponse.json({ ...out, relayed: false, relayError: "rate_limited" });
       try {
         const relayer = privateKeyToAccount(relayerKey());
-        const wc = createWalletClient({ chain: ACTIVE_CHAIN.id === 46630 ? robinhoodTestnet : ACTIVE_CHAIN, transport: http(), account: relayer });
+        const wc = createWalletClient({ chain: ACTIVE_CHAIN.id === 46630 ? robinhoodTestnet : ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });   // no transport-level resend (AUDIT Info)
         const hash = await withRelayer(() => wc.writeContract({ address: gate, abi: loginGateMiniAbi, functionName: "attest", args: [w, BigInt(expiry), coin, signature as Hex] }));
         const rc = await client.waitForTransactionReceipt({ hash, timeout: 20_000 });
         if (rc.status !== "success") return NextResponse.json({ ...out, relayed: false, relayError: "reverted", txHash: hash });

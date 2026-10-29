@@ -136,3 +136,36 @@ export class SenderTrust {
     return null;
   }
 }
+
+/**
+ * AUDIT #145 L-B: at most ONE unsimulated (fast-path) op in flight per sender. Concurrent junk ops naming a trusted
+ * sender all passed trusted() before the first strike landed (each signed + sent, charged to the victim). acquire()
+ * returns a release fn, or null when the sender already has a fast op in flight ⇒ the caller simulates instead.
+ * In-memory per instance, plus (optional) a shared SET NX lease with a TTL across instances; a store error ⇒ null
+ * (simulate: fail-safe, only slower).
+ * AUDIT #145 Info: each acquire stores a random owner token (crypto.randomUUID) for the sender, locally and as the
+ * lease value. release() deletes only while the stored token is still ours (local check + atomic compare-and-delete in
+ * the store), so a stale release (e.g. after the TTL lapsed and another op/instance took the slot) never frees
+ * someone else's slot.
+ */
+export interface LeaseStore { setNX(k: string, v: string, ttlSec?: number): Promise<boolean>; delIfEq(k: string, v: string): Promise<boolean> }
+export class FastInflight {
+  private held = new Map<string, string>();   // sender → owner token
+  constructor(private store?: LeaseStore, private ttlSec = 60) {}
+  async acquire(sender: string): Promise<(() => Promise<void>) | null> {
+    const k = sender.toLowerCase();
+    if (this.held.has(k)) return null;
+    const token = globalThis.crypto.randomUUID();
+    this.held.set(k, token);
+    if (this.store && !(await this.store.setNX(`relay:fast:${k}`, token, this.ttlSec).catch(() => false))) {
+      if (this.held.get(k) === token) this.held.delete(k);
+      return null;
+    }
+    let done = false;
+    return async () => {
+      if (done) return; done = true;
+      if (this.held.get(k) === token) this.held.delete(k);
+      await this.store?.delIfEq(`relay:fast:${k}`, token).catch(() => false);
+    };
+  }
+}

@@ -84,8 +84,8 @@ export default function CreatorDashboard() {
 
       {!me && !demo ? (
         <section className="cl-card cl-empty">
-          <h3 className="cl-display sm">Log in to see your rockets</h3>
-          <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Log in</button>
+          <h3 className="cl-display sm">Sign in to see your rockets</h3>
+          <button type="button" className="cl-btn primary" onClick={() => connectPrivy()}>Sign in</button>
         </section>
       ) : rows == null ? (
         <section className="cl-card cl-empty"><div className="cl-skel" /><div className="cl-skel short" /></section>
