@@ -250,7 +250,9 @@ test("GAME pressId: caller id reused across the TRANSIENT_SIM retry; on relay me
   try { r = await a.sendCalls(CALLS, { rebuild: async () => [approve, buy(9)], pressId: "game-res-1" }); } finally { globalThis.fetch = orig; cap.restore(); }
   assert.equal(r.pressId, "game-res-1");
   assert.deepEqual(bodies.map((b) => (b.params[2] as { pressId: string }).pressId), ["game-res-1", "game-res-1"]);
-  assert.deepEqual(cap.evs.map((e) => e.phase), ["submitted", "confirmed"]);
+  // "sent" (SITE optimistic fill: the signed op left for the relay) fires per send attempt, with the press id
+  assert.ok(cap.evs.filter((e) => e.phase === "sent").every((e) => e.pressId === cap.evs[0].pressId));
+  assert.deepEqual(cap.evs.map((e) => e.phase).filter((p) => p !== "sent"), ["submitted", "confirmed"]);
   assert.ok(cap.evs.every((e) => e.pressId === "game-res-1"));
 });
 test("GAME pressId: failure after a retry ⇒ ONE terminal 'error' event + AAError.extra.pressId (standard path too)", async () => {
@@ -263,7 +265,7 @@ test("GAME pressId: failure after a retry ⇒ ONE terminal 'error' event + AAErr
     try {
       await assert.rejects(a.sendCalls(CALLS, { pressId: "res-2" }), (e: { code?: string; extra?: { pressId?: string } }) => e.code === "Timeout" && e.extra?.pressId === "res-2");
     } finally { s.restore(); cap.restore(); }
-    assert.deepEqual(cap.evs.map((e) => [e.phase, e.pressId, e.code]), [["error", "res-2", "Timeout"]]);
+    assert.deepEqual(cap.evs.filter((e) => e.phase !== "sent").map((e) => [e.phase, e.pressId, e.code]), [["error", "res-2", "Timeout"]]);
   }
   {
     const { a } = fakeAccount({ deployed: false });   // standard path: 1st send TRANSIENT_SIM ⇒ retry, then a wait timeout
@@ -271,7 +273,7 @@ test("GAME pressId: failure after a retry ⇒ ONE terminal 'error' event + AAErr
     cl.waitForUserOperationTransaction = async () => { throw new Error("timeout"); };
     const cap = captureOps();
     try { await assert.rejects(a.sendCalls(CALLS, "owner", true, { pressId: "res-3" }), (e: { extra?: { pressId?: string } }) => e.extra?.pressId === "res-3"); } finally { cap.restore(); }
-    assert.deepEqual(cap.evs.map((e) => e.phase), ["submitted", "error"]); assert.ok(cap.evs.every((e) => e.pressId === "res-3"));
+    assert.deepEqual(cap.evs.map((e) => e.phase).filter((p) => p !== "sent"), ["submitted", "error"]); assert.ok(cap.evs.every((e) => e.pressId === "res-3"));
   }
 });
 test("GAME pressId: generated when absent (24 hex) and still echoed", async () => {

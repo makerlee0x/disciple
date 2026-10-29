@@ -283,6 +283,9 @@ async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, 
       const raw = await signRelayerTx(me, { nonce, data, gas, ...txFees });
       t.signTx = Date.now() - s;
       const h = (txHash = keccak256(raw)), n = (relayNonce = nonce);
+      // accepted: checks passed + signed ⇒ an early frame on the stream (client: optimistic fill). The sync send below
+      // still streams the receipt on the same response (RELAY_EARLY_ACCEPT=0 turns the early frame off).
+      if (onPending && process.env.RELAY_EARLY_ACCEPT !== "0") { try { onPending({ txHash: h, reason: "accepted", relayNonce: n }); } catch { /* stream closed */ } }
       return sendSync(raw, onPending && ((p) => onPending({ ...p, txHash: h, relayNonce: n })));
     }, 2, st.canSign);
   } catch (e) {

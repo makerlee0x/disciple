@@ -79,7 +79,7 @@ export type RelayPending = {
   userOpHash: Hex;
   txHash: Hex;
   /** why the receipt didn't come with the send */
-  reason: "sync-timeout" | "sync-error" | "sync-unsupported";
+  reason: "accepted" | "sync-timeout" | "sync-error" | "sync-unsupported";
   /** relayer EOA nonce the handleOps tx was signed with (NOT the op's EntryPoint nonce) */
   relayNonce?: number;
 };
