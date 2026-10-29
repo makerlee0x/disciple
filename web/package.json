@@ -28,6 +28,7 @@
     "test:phone-hud": "node scripts/test-phone-hud.mjs",
     "test:trades-order": "node scripts/test-trades-order.mjs",
     "test:snipe": "node scripts/test-snipe.mjs",
+    "test:snipe-countdown": "node scripts/test-snipe-countdown.mjs",
     "gen:flight": "node scripts/gen-flight-data.mjs",
     "test:flightdata": "node scripts/gen-flight-data.mjs --check && node scripts/test-sim-parity.mjs",
     "test:sim-parity": "node scripts/test-sim-parity.mjs",
