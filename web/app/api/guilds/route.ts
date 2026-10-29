@@ -14,6 +14,8 @@ import { guilds } from "@/lib/server/guilds";
 import { usernameOf } from "@/lib/server/usernames";
 import { guildNonce, guildResponse, isAddr, verifiedGuildAction } from "@/lib/server/guildAuth";
 import { GUILD_COPY, normalizeTag, sanitizeGuildName } from "@/lib/guilds";
+import { kv } from "@/lib/server/kv";
+import { clientIp, hitLimit } from "@/lib/server/limits";
 
 export const dynamic = "force-dynamic";
 const noStore = { headers: { "cache-control": "no-store" } };
@@ -25,6 +27,9 @@ export async function GET(req: Request) {
     if (!isAddr(address)) return NextResponse.json({ error: "address required" }, { status: 400 });
     return guildNonce(req, address);
   }
+  // list/tag/wallet reads: of-route is already capped; keep the same order of magnitude here
+  const rl = await hitLimit(kv(), `guild:get:ip:${clientIp(req.headers)}`, 60, 60);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } });
   try {
     if (q.get("list") !== null) return NextResponse.json({ guilds: await guilds().list() }, { headers: { "cache-control": "public, s-maxage=15, stale-while-revalidate=60" } });
     if (q.get("tag") !== null) {
