@@ -21,7 +21,7 @@ import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
 import { clampSlippage } from "@/lib/aa/slippage";
 import { NO_REFUSE_SLIPPAGE_BPS } from "@/lib/trade/queuePricing";
-import { nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
+import { impactAlert, nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
@@ -44,8 +44,10 @@ type Ammo = { tier: number | null; rocketTier?: number | null; name: string | nu
 type BridgeResult = { ok: boolean; reason?: string; txHash?: string; fillUsd?: number; fillTokens?: number; ms?: TradeMs; lateFill?: true; unknown?: true;
   /** SITE optimistic fill: resolved when the op was sent, at the quoted amount; `settled` = the real outcome (Needs GAME review) */
   optimistic?: true; settled?: Promise<BridgeResult>;
-  /** a wallet-limit / price-impact alert is showing instead (one tap: go ahead / buy max); nothing was sent */
-  needsConfirm?: TradeAlert["kind"] };
+  /** the wallet-limit alert is showing instead (Buy max / Cancel); nothing was sent. Never set for price impact. */
+  needsConfirm?: TradeAlert["kind"];
+  /** sent, with a non-blocking note (> 10 % price impact; engine: r.ok && r.warning). Price impact never holds a trade. */
+  warning?: string };
 type TradeOpts = { frac?: number; all?: boolean; confirmed?: TradeAlert["kind"][]; onPress?: (pressId: string) => void };
 /** pending: the send timed out — outcome UNKNOWN (may still land); `late` resolves to the real outcome (engine keeps hovering). */
 type Bridge = (side: "buy" | "sell", usd: number, o?: TradeOpts) => Promise<BridgeResult & { pending?: true; late?: Promise<BridgeResult> }>;
@@ -356,12 +358,18 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
      * (buys: the coin's mode cap from BondingCurve.netCapNow via coinRules), then > 10 % price impact. Cached reads; an
      * amount the 4 s loop didn't quote gets ONE quick quote (≤ 400 ms), else no alert (never blocks on a guess).
      */
-    const tradeAlert = async (side: "buy" | "sell", usd: number, o?: TradeOpts): Promise<TradeAlert | null> => {
+    // the wallet limit (buys) is the only alert that holds a trade; cached reads only (no RPC on the tap)
+    const holdAlert = (side: "buy" | "sell", usd: number, o?: TradeOpts): TradeAlert | null => {
       const m = markRef.current, price = m.mcap > 0 && m.supply > 0 ? m.mcap / m.supply : 0;
       const cap = side === "buy" && rulesRef.current ? { capBps: rulesRef.current.capBps, supply: m.supply, holding: liveTokens.current, pendingBuyTokens: price > 0 ? pendingBuyUsd.current / price : 0, priceUsd: price } : null;
+      return nextAlert(side, usd, { cap }, o?.confirmed ?? []);
+    };
+    // > 10 % price impact: a WARNING only (lee; GAME review #201). Runs alongside the send (never before it): the cached
+    // 4 s quote, else ONE quick quote (≤ 400 ms); its text rides on the trade's result.
+    const impactWarning = async (side: "buy" | "sell", usd: number, o?: TradeOpts): Promise<string | null> => {
       const c = impRef.current, frac = o?.all ? 1 : o?.frac;
       let hit = side === "buy" ? c.b[c.buyUsd.findIndex((u) => Math.abs(u - usd) < 1e-9)] : frac ? c.s[c.fracs.findIndex((f) => Math.abs(f - frac) < 1e-9)] : undefined;
-      if (!hit && !o?.confirmed?.includes("impact")) {
+      if (!hit) {
         const pc = publicClient(), tk = token as Address;
         const q = (async () => {
           const a = side === "buy" ? await usdToAmountIn(pc, tk, "buy", usd) : frac && c.bal > BigInt(0) ? sellAmountFor(c.bal, { frac, all: o?.all }) : await usdToAmountIn(pc, tk, "sell", usd);
@@ -369,7 +377,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         })().catch(() => null);
         hit = await Promise.race([q, new Promise<null>((r) => setTimeout(() => r(null), 400))]);
       }
-      return nextAlert(side, usd, { cap, impactBps: hit?.bps ?? null, expected: hit ? (side === "buy" ? { coinsOut: units(hit.out) } : { usdOut: rawToUsd(hit.out) }) : {} }, o?.confirmed ?? []);
+      return impactAlert(side, hit?.bps ?? null, hit ? (side === "buy" ? { coinsOut: units(hit.out) } : { usdOut: rawToUsd(hit.out) }) : {})?.text ?? null;
     };
     /**
      * OPTIMISTIC FILL: resolve as filled (at the quoted amount) the moment the signed op is sent ("sent" / "submitted"),
@@ -380,15 +388,21 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     window.__discipleTrade = async (side, usd, o) => {
       // the press starts here (before the alerts): tap → filled is measured from this mark
       tradeStart();   // click mark hook (#140): engine hotkeys reach here without a trade-bar click; no-throw
-      const a = await tradeAlert(side, usd, o).catch(() => null);
+      let a: TradeAlert | null = null;
+      try { a = holdAlert(side, usd, o); } catch { a = null; }
       if (a) {
         console.warn("[disciple] trade alert shown instead of sending", a.kind, side, usd);
         setAlert({ a, side, usd, o: o && { frac: o.frac, all: o.all, confirmed: o.confirmed } });
-        // Needs GAME review: `unknown: true` ⇒ engine.js onResult shows a calm flash instead of "✕ trade failed: High price
-        // impact…" + "That didn't go through." (lee, Oct 30: the > 10 % alert read as a refusal). The alert strip's
-        // Go ahead / Buy max sends it. Remove `unknown` once the engine handles needsConfirm itself.
-        return { ok: false, unknown: true, reason: a.text, needsConfirm: a.kind };
+        return { ok: false, unknown: true, reason: a.text, needsConfirm: a.kind };   // wallet limit only (Buy max / Cancel)
       }
+      // price impact never holds the trade: it is sent now; the warning (if any) rides on the result
+      const warnP = impactWarning(side, usd, o).catch(() => null);
+      const withWarn = async (r: BridgeResult): Promise<BridgeResult> => {
+        if (!r.ok) return r;
+        const w = await warnP;
+        if (w) console.warn("[disciple] high price impact (sent anyway; warning only)", side, usd);
+        return w ? { ...r, warning: w } : r;
+      };
       let pid: string | undefined, early: (r: BridgeResult) => void = () => undefined;
       const earlyP = new Promise<BridgeResult>((res) => { early = res; });
       const onSent = (e: Event) => {
@@ -402,7 +416,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, 1600);   // after the balance re-read
       });
       const first = await Promise.race([real.then((r) => ({ r, early: false })), earlyP.then((r) => ({ r, early: true }))]);
-      if (!first.early) return first.r;
+      if (!first.early) return withWarn(first.r);
       dispatchEvent(new CustomEvent("disciple:optimisticfill", { detail: { pressId: pid, side, usd, token } }));
       const rollback = (reason?: string) => {
         console.warn("[disciple] optimistic fill rolled back", pid, reason);
@@ -414,7 +428,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (!r.ok) rollback(r.reason);
         return r;
       }, (e) => { rollback(String(e)); return { ok: false, reason: REJECTED }; });
-      return { ...first.r, settled };
+      return withWarn({ ...first.r, settled });
     };
     return () => { delete window.__discipleTrade; removeEventListener("disciple:op", onOp); };
   }, [token, live]);
@@ -713,21 +727,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // 2+ presses with a status: every press's row (rapid tap), newest last — else the single line as before
   const rowsLine = rows.length > 1 ? rows.map((r) => r.txt).join("  ·  ") : "";
   const phoneHint = hint || (full ? COPY.inFlight : "") || shortLine || rowsLine || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
-  // SITE trade alert (wallet limit / > 10 % price impact): one tap to go ahead or buy the max allowed; plain copy only
-  const confirmAlert = (kind: "go" | "max") => {
-    const x = alert; setAlert(null); if (!x) return;
-    const confirmed = [...(x.o?.confirmed ?? []), x.a.kind];
-    if (kind === "max" && x.a.kind === "walletcap") void window.__discipleTrade?.("buy", x.a.maxUsd, { confirmed });
-    else void window.__discipleTrade?.(x.side, x.usd, { ...x.o, confirmed });
+  // SITE trade alert: the wallet limit only (one tap to buy the max allowed); price impact never shows a hold strip
+  const buyMax = () => {
+    const x = alert; setAlert(null); if (!x || x.a.kind !== "walletcap") return;
+    void window.__discipleTrade?.("buy", x.a.maxUsd, { confirmed: [...(x.o?.confirmed ?? []), "walletcap"] });
   };
-  const alertStrip = alert ? (
+  const alertStrip = alert && alert.a.kind === "walletcap" ? (
     <div role="alertdialog" aria-label="trade alert" data-testid="trade-alert" data-kind={alert.a.kind}
       style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: phone ? 132 : 96, zIndex: 40, display: "flex", gap: 8, alignItems: "center",
         maxWidth: "min(92vw, 520px)", padding: "8px 10px", borderRadius: 12, background: "rgba(28,10,18,.94)", border: "1px solid #ffb0c8", color: "#ffe7ef", fontSize: 12, fontFamily: "ui-monospace,monospace" }}>
       <span style={{ flex: 1 }}>{alert.a.text}</span>
-      {alert.a.kind === "walletcap"
-        ? alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" onClick={() => confirmAlert("max")} style={{ ...btn, padding: "6px 10px", background: "#1f6b4a", color: "#d9ffe9" }}>{alert.a.actionLabel}</button>
-        : <button type="button" data-testid="trade-alert-go" onClick={() => confirmAlert("go")} style={{ ...btn, padding: "6px 10px", background: "#7a2236", color: "#ffd0dc" }}>{alert.a.actionLabel}</button>}
+      {alert.a.actionLabel && <button type="button" data-testid="trade-alert-max" onClick={buyMax} style={{ ...btn, padding: "6px 10px", background: "#1f6b4a", color: "#d9ffe9" }}>{alert.a.actionLabel}</button>}
       <button type="button" data-testid="trade-alert-cancel" onClick={() => setAlert(null)} style={{ ...btn, padding: "6px 10px", background: "rgba(255,255,255,.1)", color: "#eef0ff" }}>{alert.a.dismissLabel}</button>
     </div>
   ) : null;

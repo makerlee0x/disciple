@@ -15,14 +15,15 @@ import {
   hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
-  DEV_WALLETS, SIGNER_MODE, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, aaSession, enableOneTap, endOneTap,
-  legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
+  DEV_WALLETS, SIGNER_MODE, aaSession, enableOneTap, endOneTap,
+  legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapSlippageBps, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
 import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
+import OneTapSlippagePicker from "@/components/trade/OneTapSlippagePicker";
 import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
@@ -63,7 +64,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const coin = (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(path)?.[1] ?? null) as Address | null;
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
-  const [slipPct, setSlipPct] = useState(String(SLIPPAGE_DEFAULT_BPS / 100));
   // Opt-in one-tap spend limit ($, Advanced). Blank = no limit (default, per spec 05).
   const [limitUsd, setLimitUsd] = useState("");
   useEffect(() => { const v = oneTapSpendLimitUsd(); setLimitUsd(v ? String(v) : ""); }, []);
@@ -311,7 +311,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
               <>
                 <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {limitLabel(oneTapSpendLimitUsd())} · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
                 <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
-                {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(sess.oneTap!.maxSlippageBps); }), "Apply (new session)")}
+                <OneTapSlippagePicker compact />
+                {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(oneTapSlippageBps()); }), "Apply (new session)")}
               </>
             ) : oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp ? (
               <>
@@ -325,12 +326,10 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             ) : oneTapAvailable() ? (
               <>
                 <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>
-                <label style={{ display: "flex", gap: 6, alignItems: "center" }}>Max slippage
-                  <input aria-label="session max slippage %" type="number" min={SLIPPAGE_MIN_BPS / 100} max={SLIPPAGE_MAX_BPS / 100} step={0.1} value={slipPct} onChange={(e) => setSlipPct(e.target.value)} style={{ ...input, minWidth: 0, width: 60 }} />%
-                </label>
-                <button type="button" disabled={!!busy} onClick={() => run("approve session", () => { saveLimit(); return enableOneTap({ maxSlippageBps: Math.round(Number(slipPct) * 100), spendLimitUsd: limitNum() }); })} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Enable one-tap trading</button>
+                <OneTapSlippagePicker compact />
+                <button type="button" disabled={!!busy} onClick={() => run("approve session", () => { saveLimit(); return enableOneTap({ maxSlippageBps: oneTapSlippageBps(), spendLimitUsd: limitNum() }); })} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Enable one-tap trading</button>
                 {advancedLimit(saveLimit, "Save")}
-                <span style={{ opacity: 0.7 }}>Optional: a 24h session key caps slippage on-chain. Trades above this slippage are rejected on-chain.</span>
+                <span style={{ opacity: 0.7 }}>A 24h session key protects each trade on-chain: a trade whose price moves more than this is cancelled.</span>
               </>
             ) : (
               <span style={{ opacity: 0.7 }}>One-tap trading is on.</span>
