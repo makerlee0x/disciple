@@ -16,6 +16,8 @@ import { clientFees, isLaunchCalls, INFRA_WORDING, NOT_ENOUGH_USDG, TRADING_UNAV
 import { launchTargets } from "./launchTargets";
 import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type UserOp, type UserOpReceipt } from "./core";
 import { ENTRYPOINT_V07 } from "./constants";
+import type { TradeTiming } from "../trade/timing";
+import { withBlock } from "../trade/readFloor";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend, relayUnclear } from "./relayClient";
@@ -263,7 +265,7 @@ export class Mav2Account {
         if (ev.length) {
           const l = ev[ev.length - 1];
           const rc = await this.o.pc.getTransactionReceipt({ hash: l.transactionHash! });
-          return { userOpHash: hash, txHash: rc.transactionHash, success: !!l.args.success, logs: rc.logs.map((x) => ({ address: x.address, data: x.data, topics: x.topics as Hex[] })) };
+          return { userOpHash: hash, txHash: rc.transactionHash, success: !!l.args.success, logs: withBlock(rc.logs.map((x) => ({ address: x.address, data: x.data, topics: x.topics as Hex[] })), rc.blockNumber) };
         }
       } catch { /* RPC hiccup: retry until the deadline */ }
       if (Date.now() > until) return null;
@@ -304,6 +306,32 @@ export class Mav2Account {
   }
 
   /**
+   * Op templates (latency plan #6): after the SDK has built one op of a kind (owner|session × call shape) for a deployed
+   * account, later ops of that kind copy its struct and replace only nonce, callData, gas and fees — the fields the SDK
+   * would fill from our overrides anyway (aa-sdk _initUserOperation: callData = account.encodeExecute/encodeBatchExecute,
+   * nonce = overrides.nonce, factory only while undeployed; our fee/gas middlewares just apply the overrides). A template
+   * is kept only if rebuilding the op it came from gives the identical struct; ops with factory/paymaster fields never
+   * template. The op is still signed by client.signUserOperation (same key, same hash) — nothing about the policy changes.
+   */
+  private tpl = new Map<string, Record<string, unknown>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async buildOp(client: any, kind: string, uo: Tx | Tx[], overrides: Record<string, unknown>): Promise<any> {
+    const key = `${kind}|${client.account.address}`;
+    const encode = () => (Array.isArray(uo) ? client.account.encodeBatchExecute(uo) : client.account.encodeExecute(uo));
+    const t = this.tpl.get(key);
+    if (t) return { ...t, ...overrides, callData: await encode() };
+    const struct = await client.buildUserOperation({ uo, overrides: overrides as never });
+    const s = struct as unknown as Record<string, unknown>;
+    if (s && !s.factory && !s.factoryData && !s.paymaster && !s.paymasterAndData && typeof client.account?.encodeExecute === "function") {
+      try {
+        const re = { ...s, ...overrides, callData: await encode() };
+        if (JSON.stringify(deepHexlify(re)) === JSON.stringify(deepHexlify(s))) this.tpl.set(key, s);
+      } catch { /* no template: keep building with the SDK */ }
+    }
+    return struct;
+  }
+
+  /**
    * Send calls as ONE userOp. `as: "session"` signs with the session key (no Privy prompt); default owner.
    * No queue: each op takes its own nonce key, so rapid shots are in flight at once. Fast path (warm preset):
    * nonce/fees/gas are local, the op is signed in memory and sent with ONE round trip to /api/bundler
@@ -337,6 +365,7 @@ export class Mav2Account {
   private async sendCalls1(calls: Call[], so: SendCallsOpts & { pressId: string }): Promise<SendResult> {
     const as = so.as ?? "owner", feeRetry = so.feeRetry ?? true;
     const o: SendOpts = { rebuild: so.rebuild, pressId: so.pressId };
+    const tt = so.tt;   // trade timing (lib/trade/timing): first attempt only, retries don't carry it
     const t0 = now();
     const session = as === "session" && this.sessionClient;
     const client = session ? await this.sessionClient!.c : await this.owned();
@@ -353,7 +382,10 @@ export class Mav2Account {
     const grad = !launch && isGradBuyCalls(calls);
     // self-bundler + deployed account ⇒ static conservative limits if this preset was never estimated (cold < 500 ms)
     const gas = launch || grad ? undefined : this.gas.get(kind) ?? (this.deployed && this.syncOk !== false && !this.o.noStaticGas ? STATIC_GAS : undefined);
-    const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined) : FEES.peek(() => fetchFees(client as unknown as FeeClient));
+    // latency: cold fee cache on the fast path ⇒ wait for ONE fee read (~0.1 s) instead of dropping to the multi-second
+    // standard flow (estimate + eth_sendUserOperation + receipt polling). Launches keep their fresh un-doubled fees.
+    const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
+      : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas && this.syncOk !== false ? await FEES.get(() => fetchFees(client as unknown as FeeClient)).catch(() => undefined) : undefined);
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
       const m = (e as { details?: string; shortMessage?: string; message?: string });
@@ -422,17 +454,19 @@ export class Mav2Account {
     // ---- fast path: warm preset + self-bundler sync method
     if (gas && fees && this.syncOk !== false) {
       let struct, signed;
-      try { struct = await client.buildUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides }); } catch (e) { return fail(e); }
+      try { struct = await this.buildOp(client, kind, uo.length === 1 ? uo[0] : uo, overrides); } catch (e) { return fail(e); }
       const t1 = now();
       try { signed = await client.signUserOperation({ uoStruct: struct }); } catch (e) { return fail(e); }
       const t2 = now();
       const wire = deepHexlify(signed) as UserOp;
       const hash = (() => { try { return userOpHash(wire, this.o.chain.id); } catch { return undefined; } })();
-      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient });
+      tt?.mark("send");
+      const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2, gasMode: "self-pay", feeClient: client as unknown as FeeClient, tt });
       if (r) return r;
     }
     // ---- standard path (first trade of a preset, or Alchemy): estimate once, then cache the limits
     let req;
+    tt?.mark("send"); tt?.note({ path: launch ? "standard (launch)" : !gas ? "standard (no gas preset)" : !fees ? "standard (no fees)" : "standard (relay unavailable)" });
     try { req = await client.sendUserOperation({ uo: uo.length === 1 ? uo[0] : uo, overrides }); }
     catch (e) {
       const m = String((e as { details?: string; shortMessage?: string; message?: string }).details || (e as Error).message || e);
@@ -450,6 +484,7 @@ export class Mav2Account {
       return fail(e);
     }
     const t1 = now();
+    tt?.mark("response");
     const rq = req.request as { callGasLimit?: Hex; verificationGasLimit?: Hex; preVerificationGas?: Hex };
     if (!gas && !launch && !grad && rq.callGasLimit && rq.verificationGasLimit && rq.preVerificationGas && !calls.some((c) => c.data.length < 10))
       this.gas.set(kind, { callGasLimit: BigInt(rq.callGasLimit), verificationGasLimit: BigInt(rq.verificationGasLimit), preVerificationGas: BigInt(rq.preVerificationGas) });
@@ -458,7 +493,7 @@ export class Mav2Account {
     try { txHash = await client.waitForUserOperationTransaction({ hash: req.hash, retries: { maxRetries: 120, intervalMs: 250, multiplier: 1 } }); }
     catch { logRelayOp("pending", { userOpHash: req.hash }); throw new AAError("Timeout", PENDING_MSG, unclearExtra({ unclear: true, reason: "receipt-timeout" }, req.hash, { sender, nonce: (req.request as { nonce?: Hex }).nonce })); }
     const rc = (await client.getUserOperationReceipt(req.hash)) as unknown as {
-      success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; logs: { address: Address; data: Hex; topics: Hex[] }[] };
+      success: boolean; actualGasCost?: bigint | Hex; receipt: { transactionHash: Hex; blockNumber?: bigint | Hex; logs: { address: Address; data: Hex; topics: Hex[]; blockNumber?: bigint | Hex }[] };
     } | null;
     if (rc && !rc.success) {
       this.gas.drop(kind);
@@ -466,8 +501,9 @@ export class Mav2Account {
       logTradeError("trade reverted", { userOpHash: req.hash, txHash, revertData });
       throw new AAError("Reverted", REJECTED_MSG, { rc, userOpHash: req.hash, txHash, revertData, ...revertGas(rc.receipt.logs ?? [], req.hash, (req.request as { callGasLimit?: unknown }).callGasLimit) });
     }
-    const logs = rc?.receipt.logs?.map((l) => ({ address: l.address, data: l.data, topics: l.topics })) ??
-      (await this.o.pc.getTransactionReceipt({ hash: txHash })).logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] }));
+    // receipt block on every log: post-trade reads pin to it (lib/trade/readFloor)
+    const logs = rc?.receipt.logs ? withBlock(rc.receipt.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics })), rc.receipt.blockNumber ?? rc.receipt.logs[0]?.blockNumber) :
+      await this.o.pc.getTransactionReceipt({ hash: txHash }).then((x) => withBlock(x.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics as Hex[] })), x.blockNumber));
     const timings: OpTimings = { build: Math.round(t1 - t0), sign: 0, rpc: Math.round(now() - t1), total: Math.round(now() - t0), fast: false };
     opPhase({ phase: "confirmed", userOpHash: req.hash, txHash, timings, pressId: o.pressId, blockNumber: blockStr((rc?.receipt as { blockNumber?: unknown } | undefined)?.blockNumber) });
     this.deployed = true;
@@ -516,12 +552,15 @@ export class Mav2Account {
   /** One round trip: disciple_sendUserOperationSync. null ⇒ the server doesn't support it (Alchemy): use the standard path. */
   private async relaySync(wire: UserOp, hash: Hex | undefined, c: {
     sender: Address; kind: string; calls: Call[]; as: "owner" | "session"; feeRetry: boolean; opts: SendOpts; fail: (e: unknown) => Promise<never>;
-    t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient;
+    t0: number; t1: number; t2: number; gasMode: GasMode; feeClient: FeeClient; tt?: TradeTiming;
   }): Promise<SendResult | null> {
+    const tt = c.tt;
       // one POST; the receipt (full, with logs) comes back on it — streamed after a RelayPending on the slow path
       opPhase({ phase: "sent", userOpHash: hash, pressId: c.opts.pressId });   // signed + sent: the optimistic fill starts here
       let j = await relaySend(absUrl(this.o.bundlerUrl), wire, ENTRYPOINT_V07, (p) => opPhase({ phase: "submitted", userOpHash: p.userOpHash, txHash: p.txHash, pressId: c.opts.pressId }), fetch, { pressId: c.opts.pressId });
       const t3 = now();
+      tt?.mark("response");
+      tt?.note({ path: "fast", build: Math.round(c.t1 - c.t0), sign: Math.round(c.t2 - c.t1), roundTrip: Math.round(t3 - c.t2), server: j.result?.t });
       // Post-broadcast relay error: the relay answers with the op's ids (error.data, lib/aa/relayOp). Keep OUR hash (the
       // op we signed); the relay's bundle tx hash only if it reports the same op (main #130 keptOpRef).
       const ref = j.error ? relayOpRef(j.error) : undefined;

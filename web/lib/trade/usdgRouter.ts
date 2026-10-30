@@ -13,7 +13,7 @@
  */
 import { encodeFunctionData, parseAbi, toFunctionSelector, type Address, type PublicClient } from "viem";
 import type { Call } from "../aa/core";
-import { LAST_QUOTE, QUOTES, key as ckey, scaledQuote } from "./hotCache";
+import { LAST_QUOTE, QUOTES, REQUOTE, key as ckey, scaledQuote } from "./hotCache";
 
 /* ---- mirror of sdk/session-keys (#65) ---- */
 export const usdgRouterAbi = parseAbi([
@@ -80,13 +80,15 @@ export async function useUsdgRouter(pc: PublicClient, router: Address): Promise<
  */
 export async function usdgRouteQuote(pc: PublicClient, router: Address, token: Address, isBuy: boolean, amountIn: bigint, maxAge = 1500, trader?: Address | null, exact = false): Promise<bigint> {
   const side = isBuy ? "buy" : "sell", k = ckey("usdg", token, side, amountIn), lk = ckey("usdg", token, side);
-  const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
-  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; }
-  return (await QUOTES.get(k, async () => {
+  const read = async () => {
     const { result } = trader
       ? await pc.simulateContract({ address: router, abi: usdgRouterAbi, functionName: "quoteUsdgRouteFor", args: [trader, token, isBuy, amountIn] })
       : await pc.simulateContract({ address: router, abi: usdgRouterAbi, functionName: "quoteUsdgRoute", args: [token, isBuy, amountIn] });
     LAST_QUOTE.set(lk, { amountIn, amountOut: result[0], at: Date.now() });
     return { amountOut: result[0] };
-  }, maxAge)).amountOut;
+  };
+  REQUOTE.remember(k, read, { lk, amountIn });   // re-read right after our own trade (latency plan #5)
+  const hit = QUOTES.fresh(k, maxAge); if (hit) return hit.amountOut;
+  if (!exact) { const sc = scaledQuote(LAST_QUOTE.get(lk), amountIn, maxAge); if (sc !== undefined) return sc; }
+  return (await QUOTES.get(k, read, maxAge)).amountOut;
 }

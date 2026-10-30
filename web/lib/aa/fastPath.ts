@@ -111,7 +111,8 @@ export type SendOpts = {
   pressId?: string;
 };
 /** SITE's shape (#144): sendCalls(calls, { rebuild }) — plus the signer / fee-retry switches as options. */
-export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean };
+/** tt: trade timing marks (lib/trade/timing, console only); the first attempt only. */
+export type SendCallsOpts = SendOpts & { as?: "owner" | "session"; feeRetry?: boolean; tt?: import("../trade/timing").TradeTiming };
 /** GAME: every error a press throws carries its pressId: AAError ⇒ extra.pressId; any object error ⇒ .pressId too.
  * Duck-typed (no AAError import) so this module stays light. */
 export function tagPress(e: unknown, pressId: string) {

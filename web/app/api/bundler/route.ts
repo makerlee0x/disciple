@@ -11,6 +11,7 @@ import { BUNDLER_LIMITS, clientIp, hitLimit, isSendLimitError, sendLimiter, type
 import { alchemyKey } from "@/lib/server/alchemyKey";
 import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/relayTypes";
 import { streamRelay } from "@/lib/server/relayStream";
+import { afterResponse } from "@/lib/server/defer";
 import { inviteRequiredRpc, requireInviteWallet } from "@/lib/server/inviteGate";
 
 export const runtime = "nodejs";
@@ -80,11 +81,15 @@ export async function POST(req: Request) {
     }
   }
   // AUDIT Low: a strike / verification recorded while relaying must reach the shared store before the lambda freezes
-  const flushTrust = async () => { if (SEND.has(body.method!) || SIM.has(body.method!)) await (await import("@/lib/server/fastRelay")).flushRelayTrust().catch(() => undefined); };
+  // Latency plan #4 (#140): the shared-store trust flush runs after the response (lib/server/defer afterResponse: Vercel
+  // waitUntil keeps the lambda alive for it; on Vercel without waitUntil it is awaited exactly as before).
+  const flushTrust = async () => {
+    if (SEND.has(body.method!) || SIM.has(body.method!)) await afterResponse(async () => (await import("@/lib/server/fastRelay")).flushRelayTrust().catch(() => undefined));
+  };
   // Receipt push (lib/aa/relayTypes): streaming clients get NDJSON frames on THIS response — normally one RelayConfirmed;
   // if the sync send timed out, a RelayPending (txHash) first and the RelayConfirmed when the receipt lands.
   if (body.method === RELAY_METHOD && (req.headers.get("accept") || "").includes(RELAY_STREAM_ACCEPT))
-    return streamRelay(body.params || [], flushTrust, async (e) => sl?.rejected(e), sl ? () => sl.beforeSend() : undefined);   // on #140: pass its finish()/afterResponse instead of flushTrust
+    return streamRelay(body.params || [], flushTrust, async (e) => sl?.rejected(e), sl ? () => sl.beforeSend() : undefined);
   try {
     const result = await selfBundle(body.method, body.params || [], { beforeSend: sl ? () => sl.beforeSend() : undefined });
     await flushTrust();

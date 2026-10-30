@@ -81,6 +81,8 @@
     "test:launch-image": "tsx --test scripts/test-launch-image.mts",
     "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
     "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
+    "test:trade-latency": "tsx --test scripts/test-trade-latency.mts",
+    "test:login-setup": "tsx --test scripts/test-login-setup.mts",
     "test:sync-send": "tsx --test scripts/test-sync-send.mts",
     "test:achievements-server": "tsx --conditions=react-server --test scripts/test-achievements-server.mts",
     "test:usdg-refund": "tsx --conditions=react-server --test scripts/test-usdg-refund.mts",

@@ -12,6 +12,17 @@ export class TtlCache<T> {
   set(k: string, v: T) { this.m.set(k, { v, at: this.clock() }); }
   drop(k: string) { this.m.delete(k); }
   dropWhere(f: (k: string) => boolean) { for (const k of [...this.m.keys()]) if (f(k)) this.m.delete(k); }
+  /**
+   * Re-quote instead of wipe (latency plan #5): forget the value now (it no longer passes fresh()) and start ONE
+   * shared read; a tap that arrives meanwhile joins it through get() instead of starting its own.
+   */
+  rewarm(k: string, read: () => Promise<T>): Promise<T> {
+    this.m.delete(k);
+    const p: Promise<T> = read().then((v) => { if (this.inflight.get(k) === p) this.set(k, v); return v; })
+      .finally(() => { if (this.inflight.get(k) === p) this.inflight.delete(k); });
+    this.inflight.set(k, p);
+    return p;
+  }
   /** Cached if fresh, else one shared in-flight read. */
   async get(k: string, read: () => Promise<T>, maxAge = this.ttlMs): Promise<T> {
     const f = this.fresh(k, maxAge); if (f !== undefined) return f;
@@ -28,6 +39,11 @@ export const QUOTES = new TtlCache<{ amountOut: bigint }>(1500);
 export const BALANCES = new TtlCache<bigint>(5000);
 /** Coin facts that never/rarely change. graduated=false is re-read after 5 s. */
 export const COIN = new TtlCache<unknown>(10 * 60_000);
+/**
+ * PVE/PVP pre-grad quotes are trader-specific (LoginGate / mode caps, PVE sells net of the profit tax): exact
+ * (trader, amount) keys only, same 1.5 s TTL, never down-scaled. Separate cache so nothing else can read them.
+ */
+export const TRADER_QUOTES = new TtlCache<{ amountOut: bigint }>(1500);
 
 /**
  * Last warmed quote per (token, side). A trade of amountIn ≤ the warmed amount can use a linear down-scale of it as a
@@ -54,3 +70,39 @@ export async function marginalQuote(k: string, amountIn: bigint, quote: (a: bigi
   const [all, base] = await Promise.all([quote(p + amountIn, 0), quote(p, 0)]);
   return all > base ? all - base : BigInt(0);
 }
+
+/**
+ * After our own trade lands, the quotes on its route describe the pre-trade state. Before: wiped (the next tap paid a
+ * live quote, ~0.1–0.4 s). Now: the few quotes taps actually used recently are re-read at once (TtlCache.rewarm, so a
+ * tap waits for that read instead of starting another), the rest are dropped, and the down-scaling base (LAST_QUOTE)
+ * is dropped and re-set from the fresh read. No value from before the trade is ever served after it.
+ */
+type Quote = { amountOut: bigint };
+type Refresher = { read: () => Promise<Quote>; last?: { lk: string; amountIn: bigint }; cache: TtlCache<Quote>; used: number };
+export class Requoter {
+  private reg = new Map<string, Refresher>();
+  constructor(private caches: TtlCache<Quote>[], private last: Map<string, { amountIn: bigint; amountOut: bigint; at: number }>, private clock: () => number = Date.now, private keepMs = 30_000, private maxKeys = 200) {}
+  /** Remember how to re-read quote `k` (called wherever a quote is read for a tap or a warm loop). */
+  remember(k: string, read: () => Promise<Quote>, last?: { lk: string; amountIn: bigint }, cache: TtlCache<Quote> = this.caches[0]) {
+    this.reg.set(k, { read, last, cache, used: this.clock() });
+    if (this.reg.size > this.maxKeys) {
+      const old = Array.from(this.reg).sort((a, b) => a[1].used - b[1].used).slice(0, this.reg.size - this.maxKeys);
+      for (const [ok] of old) this.reg.delete(ok);
+    }
+  }
+  /** Re-read the ≤ max most recently used quotes matching `match`; drop every other matching quote + `lastKeys`. */
+  requote(match: (k: string) => boolean, lastKeys: string[], max = 4): string[] {
+    const now = this.clock();
+    for (const lk of lastKeys) this.last.delete(lk);
+    const hot = Array.from(this.reg).filter(([k, r]) => match(k) && now - r.used <= this.keepMs).sort((a, b) => b[1].used - a[1].used).slice(0, max);
+    for (const c of this.caches) c.dropWhere(match);
+    for (const [k, r] of hot) {
+      r.cache.rewarm(k, () => r.read().then((v) => {
+        if (r.last) this.last.set(r.last.lk, { amountIn: r.last.amountIn, amountOut: v.amountOut, at: this.clock() });
+        return v;
+      })).catch(() => undefined);   // failed re-read ⇒ nothing cached ⇒ the next tap reads live
+    }
+    return hot.map(([k]) => k);
+  }
+}
+export const REQUOTE = new Requoter([QUOTES, TRADER_QUOTES], LAST_QUOTE);
