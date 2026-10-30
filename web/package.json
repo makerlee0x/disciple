@@ -73,6 +73,7 @@
     "test:rpc-proxy": "tsx --test scripts/test-rpc-proxy.mts",
     "test:read-transport": "tsx --conditions=react-server --test scripts/test-read-transport.mts",
     "test:minout-exec-time": "tsx --conditions=react-server --test scripts/test-minout-exec-time.mts",
+    "test:cross-side-minout": "tsx --test scripts/test-cross-side-minout.mts",
     "test:nonces": "tsx --test scripts/test-nonces.mts",
     "test:live-feed": "tsx --test scripts/test-live-feed.mts",
     "test:verify-api": "tsx --test scripts/test-verify-api.mts",
