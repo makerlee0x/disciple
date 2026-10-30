@@ -12,21 +12,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *   bottom  grab handle + quiet PnL line (this file) and BOOST [$10 ⌄] / DUMP [25% ⌄] (TradeBridge → PhoneTradeBar)
  *   drawer  swipe up / tap the handle: ONE drawer (~62% height) with segmented tabs; BOOST / DUMP stay usable under it.
  *           FEED / HOLDERS / CHART are engine-drawn inside the drawer's transparent body rect (window.__phoneHud.body);
- *           CREW / CHAT / RUN are the existing React panels, moved into the body by the html.ap-phone CSS below.
+ *           CREW / CHAT / POSITION are the existing React panels, moved into the body by the html.ap-phone CSS below.
  *           Closes on swipe down (header), tap on the dimmed sky above, or Esc.
  * Desktop (≥ PHONE_W) is untouched: no class, no global, nothing rendered.
  */
 export const PHONE_W = 740;   // = engine.js HUD_NARROW_W
 export type PhoneSheet = "feed" | "holders" | "chart" | "crew" | "chat" | "run";
 type Tab = { id: PhoneSheet; label: string; engine?: boolean };
-// tab labels are final (lee 11:29 CT): Feed / Holders / Chart / Crew / Chat / Run; tramps & walls live under Run (no T/W tab)
+// tab labels (lee 11:29 CT; "Run" → "Position" 2:38 PM CT): Feed / Holders / Chart / Crew / Chat / Position; tramps & walls live under Position (no T/W tab)
 export const DRAWER_TABS: Tab[] = [
   { id: "feed", label: "Feed", engine: true },
   { id: "holders", label: "Holders", engine: true },
   { id: "chart", label: "Chart", engine: true },
   { id: "crew", label: "Crew" },
   { id: "chat", label: "Chat" },
-  { id: "run", label: "Run" },
+  { id: "run", label: "Position" },   // label "Position" (lee 2:38 PM Oct 30; was "Run"); id stays "run" (internal)
 ];
 const AVAIL_SEL: Partial<Record<PhoneSheet, string>> = { crew: '[data-testid="crew-panel"]', chat: '[data-testid="chat-open"],[data-testid="chat-dock"]' };
 export const SIDE = 16, BTN_H = 68, BTN_H_OPEN = 60, BTN_BOTTOM = 22, PNL_H = 22, PNL_GAP = 14, HANDLE_H = 28, PILL_GAP = 14,
@@ -151,7 +151,7 @@ export default function PhoneHud() {
         background: "linear-gradient(to bottom, rgba(8,10,22,0) 0%, rgba(8,10,22,.72) 55%, rgba(8,10,22,.9) 100%)" }} />
       <div aria-hidden style={{ position: "fixed", left: 0, right: 0, top: 0, height: 150, zIndex: 24, pointerEvents: "none",
         background: "linear-gradient(to bottom, rgba(8,10,22,.55), rgba(8,10,22,0))" }} />
-      {!sheet && <div data-testid="phone-handle" role="button" tabIndex={0} aria-label="Open panels (feed, holders, chart, crew, chat, run)"
+      {!sheet && <div data-testid="phone-handle" role="button" tabIndex={0} aria-label="Open panels (feed, holders, chart, crew, chat, position)"
         onPointerDown={downOpen} onPointerMove={moveOpen} onPointerUp={upOpen} onPointerCancel={() => { g.current = null; }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSheet(lastTab.current); } }}
         style={{ position: "fixed", left: 0, right: 0, top: L.hudTop, height: HANDLE_H + PNL_H + 6, zIndex: 31, touchAction: "none", cursor: "pointer", outline: "none" }}>

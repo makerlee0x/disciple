@@ -124,10 +124,10 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(!/setGraduated\(false/.test(eng), "nothing ever un-graduates");
   ok(/else if\(e\.type==='Graduate'\)\{ this\.graduated=true; setGraduated\(true,e\);/.test(eng), "live Graduate event → same setGraduated(true)");
   ok(/if\(d\.graduated===true\) setGraduated\(true,d\)/.test(eng), "TradeBridge curve read (gradneed {graduated}) → setGraduated");
-  ok(/if ?\(S\.graduated\)\{[^\n]*S\.gradBadge=GRAD_BADGE[^\n]*drawGradBadgeDesk/.test(eng), "desktop tier bar → ASCENDED badge");
+  ok(/S\.gradBadge=S\.graduated\?GRAD_BADGE:''; if \(S\.graduated\) S\.tierNeedText='';/.test(eng) && !/function drawGradBadgeDesk/.test(eng), "desktop tier bar: ascended state flag only — ASCENDED shows ONCE, on the TIER line (pass 3 #2)");
   { const pp = grab(/function drawPhonePill[\s\S]*?\nfunction /);   // pass 2 (lee, Oct 30): the pill names the tier on ascended coins too + its '+X% to NEXT' bar
     ok(/b=tierName\(ti\)/.test(pp) && /if\(nx\)\{   \/\/ tier progress line/.test(pp) && /`\$\{ASCENDED\} · \$\{tl\}`/.test(pp) && /GRAD_BADGE/.test(pp), "phone pill: tier name + progress line (mcap / next lo), caption 'ASCENDED · +X% to NEXT'"); }
-  ok(/const GRAD_BADGE='ASCENDED · trading on Uniswap';\s*\/\/ PLACEHOLDER/.test(eng), "badge copy marked PLACEHOLDER");
+  ok(/const GRAD_BADGE='ASCENDED';/.test(eng) && !/=\s*'[^'\n]*trading on Uniswap/.test(eng), "badge copy: 'ASCENDED' only, no 'trading on Uniswap' (pass 3 #2)");
   ok(/'graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText'/.test(rd("public/flight/worker.js")), "worker renderer mirrors graduated / badge / need text");
   ok(/send\(live \? st\.usd : null, st\.graduated\)/.test(tb) && /\[valid, live, token\]/.test(tb), "curve read runs for every viewer; exact $ only when live");
   // 8) big-move warning: only the side being tapped / previewed

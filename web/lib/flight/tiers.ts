@@ -30,7 +30,7 @@ export const FLIGHT_TIERS: FlightTier[] = [
 /** The graduated badge, word for word everywhere (engine HUD badge = public/flight/engine.js GRAD_BADGE, the chat's
  *  graduation row). Players read the graduated state as ASCENDED (lee, Oct 30; identifiers keep "graduated").
  *  PLACEHOLDER copy (pending lee + BRAND). A graduated coin's sky still follows its current price. */
-export const GRAD_BADGE = "ASCENDED · trading on Uniswap";
+export const GRAD_BADGE = "ASCENDED";
 
 /** Index of the tier containing mcap (below $3,333 → 0; above the top → last). */
 export function tierIndexAt(mcap: number): number {

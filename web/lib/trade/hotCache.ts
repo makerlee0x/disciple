@@ -79,6 +79,62 @@ export async function marginalQuote(k: string, amountIn: bigint, quote: (a: bigi
 }
 
 /**
+ * Same-side shots in flight: the two orders they can land in bound the live output. Earlier shots first ⇒ the marginal
+ * out(p + a) − out(p); this one first ⇒ the plain out(a). Parallel AA nonces mean either order happens, so minOut is
+ * chosen inside the window that clears BOTH (lib/trade/queuePricing tradeMinOut). Nothing in flight ⇒ lo = hi = quote.
+ */
+export async function quoteRange(k: string, amountIn: bigint, quote: (a: bigint, maxAge?: number) => Promise<bigint>): Promise<{ lo: bigint; hi: bigint }> {
+  const p = INFLIGHT.get(k) ?? BigInt(0);
+  if (p <= BigInt(0)) { const q = await quote(amountIn); return { lo: q, hi: q }; }
+  const [plain, all, base] = await Promise.all([quote(amountIn, 0), quote(p + amountIn, 0), quote(p, 0)]);
+  const m = all > base ? all - base : BigInt(0);
+  return m < plain ? { lo: m, hi: plain } : { lo: plain, hi: m };
+}
+
+/**
+ * Cross-side taps (lee, Oct 30): a buy tapped while our own SELL of the same coin is still in flight was priced on the
+ * pre-sell pool; the sell landed first, the buy then got more than quoted and the session policy (minOut ≥ live ×
+ * (1 − max)) refused it — a FAVORABLE move. An opposite-side trade can't be composed from single-trade quotes (the
+ * path reverses through fees / hook / curve taxes), so a tap waits (bounded) for every EARLIER opposite-side tap on
+ * the same coin to settle — landed and seen by the RPC (holdInflightUntilSeen) — and then quotes the real post-trade
+ * state. Same-side bursts stay parallel (quoteRange). Only earlier taps are awaited ⇒ no cycles.
+ */
+export const OPPOSITE_WAIT_MS = 3500;
+type Tap = { side: string; settled: Promise<void> };
+const TAPS = new Map<string, Tap[]>();
+export function beginTap(token: string, side: "buy" | "sell") {
+  const tk = k(token), list = TAPS.get(tk) ?? [];
+  const prior = list.filter((x) => x.side !== side);
+  let settle = () => {};
+  const me: Tap = { side, settled: new Promise<void>((r) => { settle = r; }) };
+  list.push(me); TAPS.set(tk, list);
+  let ended = false;
+  return {
+    /** earlier opposite-side taps on this coin still open when this one began */
+    opposite: prior.length,
+    /** resolves once they all settled, or after maxMs (then the tap is priced as before; the min-out resend covers it) */
+    async waitOpposite(maxMs = OPPOSITE_WAIT_MS): Promise<{ waitedMs: number; timedOut: boolean }> {
+      if (!prior.length) return { waitedMs: 0, timedOut: false };
+      const t0 = Date.now(); let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = await Promise.race([
+        Promise.all(prior.map((x) => x.settled)).then(() => false),
+        new Promise<boolean>((r) => { timer = setTimeout(() => r(true), maxMs); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      return { waitedMs: Date.now() - t0, timedOut };
+    },
+    /** this tap is over (landed + seen, failed, or never sent). Idempotent. */
+    end() {
+      if (ended) return; ended = true; settle();
+      const l = TAPS.get(tk); if (!l) return;
+      const i = l.indexOf(me); if (i >= 0) l.splice(i, 1);
+      if (!l.length) TAPS.delete(tk);
+    },
+  };
+}
+export type CoinTap = ReturnType<typeof beginTap>;
+
+/**
  * After our own trade lands, the quotes on its route describe the pre-trade state. Before: wiped (the next tap paid a
  * live quote, ~0.1–0.4 s). Now: the few quotes taps actually used recently are re-read at once (TtlCache.rewarm, so a
  * tap waits for that read instead of starting another), the rest are dropped, and the down-scaling base (LAST_QUOTE)

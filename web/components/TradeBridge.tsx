@@ -21,7 +21,7 @@ import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
 import { clampSlippage } from "@/lib/aa/slippage";
 import { NO_REFUSE_SLIPPAGE_BPS } from "@/lib/trade/queuePricing";
-import { impactAlert, nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
+import { nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
@@ -299,11 +299,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
           reservePressTokens(pressId, token, amountIn);
         }
         quoteAt = performance.now();
-        // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote − slippage (Swap settings: Auto = 1% default, or Custom)
-        // One-tap session active ⇒ never exceed its on-chain max slippage (the policy would revert the trade).
-        // lee, Oct 26 10:50/10:51: buys and sells are never refused for price movement — a big move is the > 10 % impact
-        // alert before the tap (tradeAlert below). minOut = quote × (1 − 99.99 %) (overrides the Custom slippage setting);
-        // a one-tap session's on-chain policy still floors it at its max slippage (contract-enforced: FLOW / GAME flag).
+        // minAmountOut 0 ⇒ protocol-viem derives it from an on-chain quote. No session: quote × (1 − 99.99 %) (never
+        // refused on price; lee Oct 26). One-tap session: lib/trade/queuePricing tradeMinOut centers minOut in the
+        // policy's window (minOut ≥ live × (1 − max)), so a better price passes and only a move against the player
+        // beyond about half the session max fails (lee Oct 30). The clamp below is then always looser than that window.
         const slip = clampSlippage(NO_REFUSE_SLIPPAGE_BPS, sessionMaxSlippageBps());
         if (slip.capped) console.warn("[disciple] one-tap session policy floors minOut at", slip.sessionMaxBps, "bps (on-chain; not changeable from SITE)");
         // reservationId = this press id (SITE #144 TradeParams.reservationId): the trade layer merges into OUR reservation
@@ -364,21 +363,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       const cap = side === "buy" && rulesRef.current ? { capBps: rulesRef.current.capBps, supply: m.supply, holding: liveTokens.current, pendingBuyTokens: price > 0 ? pendingBuyUsd.current / price : 0, priceUsd: price } : null;
       return nextAlert(side, usd, { cap }, o?.confirmed ?? []);
     };
-    // > 10 % price impact: a WARNING only (lee; GAME review #201). Runs alongside the send (never before it): the cached
-    // 4 s quote, else ONE quick quote (≤ 400 ms); its text rides on the trade's result.
-    const impactWarning = async (side: "buy" | "sell", usd: number, o?: TradeOpts): Promise<string | null> => {
-      const c = impRef.current, frac = o?.all ? 1 : o?.frac;
-      let hit = side === "buy" ? c.b[c.buyUsd.findIndex((u) => Math.abs(u - usd) < 1e-9)] : frac ? c.s[c.fracs.findIndex((f) => Math.abs(f - frac) < 1e-9)] : undefined;
-      if (!hit) {
-        const pc = publicClient(), tk = token as Address;
-        const q = (async () => {
-          const a = side === "buy" ? await usdToAmountIn(pc, tk, "buy", usd) : frac && c.bal > BigInt(0) ? sellAmountFor(c.bal, { frac, all: o?.all }) : await usdToAmountIn(pc, tk, "sell", usd);
-          const r = await readQuote(pc, tk, side, a); return { bps: Math.abs(r.impactBps), out: r.amountOut };
-        })().catch(() => null);
-        hit = await Promise.race([q, new Promise<null>((r) => setTimeout(() => r(null), 400))]);
-      }
-      return impactAlert(side, hit?.bps ?? null, hit ? (side === "buy" ? { coinsOut: units(hit.out) } : { usdOut: rawToUsd(hit.out) }) : {})?.text ?? null;
-    };
+    // lee, Oct 30: no price-impact / slippage popup on a trade (was the > 10 % "High price impact" note on the result).
     /**
      * OPTIMISTIC FILL: resolve as filled (at the quoted amount) the moment the signed op is sent ("sent" / "submitted"),
      * so the next tap never waits on the receipt. The press keeps its reservation until the real outcome; the receipt
@@ -395,14 +380,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         setAlert({ a, side, usd, o: o && { frac: o.frac, all: o.all, confirmed: o.confirmed } });
         return { ok: false, unknown: true, reason: a.text, needsConfirm: a.kind };   // wallet limit only (Buy max / Cancel)
       }
-      // price impact never holds the trade: it is sent now; the warning (if any) rides on the result
-      const warnP = impactWarning(side, usd, o).catch(() => null);
-      const withWarn = async (r: BridgeResult): Promise<BridgeResult> => {
-        if (!r.ok) return r;
-        const w = await warnP;
-        if (w) console.warn("[disciple] high price impact (sent anyway; warning only)", side, usd);
-        return w ? { ...r, warning: w } : r;
-      };
       let pid: string | undefined, early: (r: BridgeResult) => void = () => undefined;
       const earlyP = new Promise<BridgeResult>((res) => { early = res; });
       const onSent = (e: Event) => {
@@ -416,7 +393,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, 1600);   // after the balance re-read
       });
       const first = await Promise.race([real.then((r) => ({ r, early: false })), earlyP.then((r) => ({ r, early: true }))]);
-      if (!first.early) return withWarn(first.r);
+      if (!first.early) return first.r;
       dispatchEvent(new CustomEvent("disciple:optimisticfill", { detail: { pressId: pid, side, usd, token } }));
       const rollback = (reason?: string) => {
         console.warn("[disciple] optimistic fill rolled back", pid, reason);
@@ -428,7 +405,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         if (!r.ok) rollback(r.reason);
         return r;
       }, (e) => { rollback(String(e)); return { ok: false, reason: REJECTED }; });
-      return withWarn({ ...first.r, settled });
+      return { ...first.r, settled };
     };
     return () => { delete window.__discipleTrade; removeEventListener("disciple:op", onOp); };
   }, [token, live]);

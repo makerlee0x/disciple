@@ -7,7 +7,7 @@
  */
 import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
-import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
+import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, addInflight, quoteRange, beginTap, type CoinTap, key as ckey } from "./trade/hotCache";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade, sessionMaxSlippageBps } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
@@ -44,7 +44,7 @@ import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
-import { holdInflightUntilSeen } from "./trade/queuePricing";
+import { holdInflightUntilSeen, tradeMinOut } from "./trade/queuePricing";
 import { GradHint } from "./trade/gradHint";
 import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
 export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
@@ -52,6 +52,8 @@ const erc20Events = parseAbi(["event Transfer(address indexed from, address inde
 
 const B = BigInt;
 const DEFAULT_SLIPPAGE_BPS = 100; // 1%
+/** A trade that truly missed on price (lee, Oct 30: no slippage alert, a plain failure line). */
+export const PRICE_MOVED_MSG = "Price moved, trade not sent. Try again.";
 const now = () => Math.floor(Date.now() / 1000);
 const wadToNum = (v: bigint) => Number(v) / 1e18;
 /** USD value of `raw` quote units given quotePriceUsd (USD WAD per 1e18 raw units). */
@@ -244,7 +246,7 @@ export function friendlyError(e: unknown): ProtocolError {
       TaxTooHigh: `Creator tax must be ≤ ${CURVE.creatorTaxMaxPct}%.`,
       InvalidMetadata: "Name, call sign and image are required.",
       CreatorBuyTooLarge: CREATOR_BUY_MSG(),
-      Slippage: "Price moved too much. Try again or raise slippage.",
+      Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
       Graduated: "This rocket has graduated, so trading moved to its pool.",
@@ -262,13 +264,13 @@ export function friendlyError(e: unknown): ProtocolError {
       BadMode: "Unknown game mode.",
       ERC20InsufficientBalance: "Not enough balance for that shot size — deposit more or pick a smaller ammo.",
       SpendCapExceeded: "One-tap budget for this session is used up — this trade will be signed by your wallet instead. Try again.",
-      MinOutTooLow: "Price moved past your one-tap max slippage. Try again or raise slippage.",
+      MinOutTooLow: PRICE_MOVED_MSG,
       QuoteFailed: NO_PRICE_MSG,   // approved by lee 2026-10-24; the target address goes to the console (below)
       SessionInactive: "One-tap session isn't active any more — retrying with your wallet.",
       SessionExpired: "One-tap session expired — retrying with your wallet.",
       ERC20InsufficientAllowance: "Approval too small for that shot size.",
-      V4TooLittleReceived: "Price moved too much. Try again or raise slippage.",
-      V4TooMuchRequested: "Price moved too much. Try again or raise slippage.",
+      V4TooLittleReceived: PRICE_MOVED_MSG,
+      V4TooMuchRequested: PRICE_MOVED_MSG,
       // raw reasons ("AA23 reverted", revert strings) → console only (below)
       FailedOp: REJECTED_MSG,
       Error: REJECTED_MSG,
@@ -842,7 +844,14 @@ export function createViemProtocol(): ProtocolClient {
   }
   async function tradeOnce(side: "buy" | "sell", t: TradeParams, tt?: TradeTiming): Promise<TradeResult> {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
+    // cross-side: settle after every earlier opposite-side tap on this coin (hotCache beginTap); ended once this one
+    // is over — landed + seen (releaseInflight), or failed / never sent (finally below)
+    const tap = beginTap(t.token, side), handoff = { done: false };
     try {
+      if (t.minAmountOut <= B(0) && tap.opposite) {
+        const w = await tap.waitOpposite();
+        if (w.timedOut) console.warn("[disciple] opposite-side trade still in flight; pricing now", { side, waitedMs: w.waitedMs });
+      }
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
       const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([labelRead("facts", coinFacts(pc, t.token)), labelRead("account", activeAddress())]);
       const recipient = t.recipient || me;
@@ -853,7 +862,7 @@ export function createViemProtocol(): ProtocolClient {
       const usdg = await labelRead("route", usdgRouteFor(pc, t.token));
       // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
       const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
-      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve }, tt);
+      if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve }, tt, tap, handoff);
       const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await labelRead("pve-login", ensurePveLogin(pc, recipient)) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
@@ -862,15 +871,17 @@ export function createViemProtocol(): ProtocolClient {
       const gradP = side === "buy" && !graduated ? labelRead("graduation", buyMayGraduate(pc, curve, mode, t.amountIn, recipient)) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
       // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s (traderQuote)
-      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age), sessionMaxSlippageBps() != null)
-        : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true), sessionMaxSlippageBps() != null);
+      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age))
+        : quoteRange(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true));
+      // minOut inside the session policy's window (favorable moves pass too): lib/trade/queuePricing tradeMinOut
+      const minOutOf = (r: { lo: bigint; hi: bigint }) => tradeMinOut(r, t.slippageBps, sessionMaxSlippageBps(), DEFAULT_SLIPPAGE_BPS);
       const [qOut, have, refCalls, approve] = await Promise.all([
-        t.minAmountOut > B(0) ? Promise.resolve(B(0)) : labelRead("quote", quoteNow()),
+        t.minAmountOut > B(0) ? Promise.resolve({ lo: B(0), hi: B(0) }) : labelRead("quote", quoteNow()),
         labelRead("balance", balanceHint(pc, spendAsset, me)),
         side === "buy" ? labelRead("referral", referralCallCached(me)) : Promise.resolve([]),
         smart ? Promise.resolve(null) : labelRead("allowance", approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn)),
       ]);
-      let minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(qOut, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+      let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(qOut);
       if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
       const target: Address = graduated ? deployment().router : curve;
       const encodeTrade = (mo: bigint): Hex => graduated
@@ -910,7 +921,7 @@ export function createViemProtocol(): ProtocolClient {
       const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
         dropRouteQuotes(t.token); done();   // our own op hasn't landed: don't price it against itself
         try {
-          const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+          const mo = freshMinOut(minOut0, minOutOf(await quoteNow()));
           const d2 = encodeTrade(mo);
           if (grad) markGradBuy(d2);
           minOut = mo;
@@ -926,7 +937,7 @@ export function createViemProtocol(): ProtocolClient {
         const out = received(r.logs, outAsset, recipient);
         bookFill(r.logs, spendAsset, me, t.amountIn, side === "sell" ? outAsset : undefined, recipient, out);
         return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
-      } finally { releaseInflight(done, landed); requoteRoute(t.token, logs, sentAt); }
+      } finally { handoff.done = true; releaseInflight(() => { done(); tap.end(); }, landed); requoteRoute(t.token, logs, sentAt); }
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
@@ -939,16 +950,16 @@ export function createViemProtocol(): ProtocolClient {
       // sent, outcome unknown: hold the press and settle it from the chain (never resends); TradeBridge shows "confirming"
       if (pid && out.code === "Timeout") void watchPending(pid, pendingIds(e), { lookup: (ids) => lookupOp(pc, ids) });
       throw out;
-    }
+    } finally { if (!handoff.done) tap.end(); }
   }
 
   /**
    * Pay-in-USDG through DiscipleRouter (lib/trade/usdgRouter, #65): ONE userOp = [exact approve, buyWithUsdg|sellToUsdg].
-   * t.amountIn is USDG on buys, coin on sells; minOut is end-to-end from quoteUsdgRoute − slippage (the caller clamps
-   * slippage to the session max − 0.5% headroom). Pre- and post-grad alike (the router picks curve or v4 pool).
+   * t.amountIn is USDG on buys, coin on sells; minOut is end-to-end from quoteUsdgRoute (under a one-tap session:
+   * centered in the policy window, queuePricing tradeMinOut). Pre- and post-grad alike (the router picks curve or v4 pool).
    * Recipient is pinned to the account on-chain, so t.recipient is ignored on this path.
    */
-  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address } }, tt?: TradeTiming): Promise<TradeResult> {
+  async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address } }, tt?: TradeTiming, tap?: CoinTap, handoff?: { done: boolean }): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
     const pveCalls = isBuy && c.pve ? await labelRead("pve-login", ensurePveLogin(pc, c.me)) : [];
@@ -964,9 +975,11 @@ export function createViemProtocol(): ProtocolClient {
     const ik = ckey("usdgroute", t.token, side);
     const held = holdSpend(t.pressId!, side, t.token, spend, t.amountIn, ik);
     // exact (no down-scaled warm quote): minOut must clear the session policy floor on the FIRST try
-    const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true), sessionMaxSlippageBps() != null);
+    const quoteNow = () => quoteRange(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true));
+    // minOut inside the session policy's window (favorable moves pass too): lib/trade/queuePricing tradeMinOut
+    const minOutOf = (r: { lo: bigint; hi: bigint }) => tradeMinOut(r, t.slippageBps, sessionMaxSlippageBps(), DEFAULT_SLIPPAGE_BPS);
     const [q, have] = await Promise.all([
-      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : labelRead("quote", quoteNow()),
+      t.minAmountOut > B(0) ? Promise.resolve({ lo: B(0), hi: B(0) }) : labelRead("quote", quoteNow()),
       labelRead("balance", balanceHint(pc, spend, c.me)),
     ]);
     if (spendable(have, held.others()) < held.need) {
@@ -979,7 +992,7 @@ export function createViemProtocol(): ProtocolClient {
         throw new ProtocolError("InsufficientBalance", heldMsg(isBuy, isBuy ? usdgRawToUsd(t.amountIn) : undefined));
       }
     }
-    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(q, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
+    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(q);
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
     const routerCalls = (mo: bigint): Call[] => isBuy
       ? toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: mo, deadline: c.deadline }))
@@ -996,7 +1009,7 @@ export function createViemProtocol(): ProtocolClient {
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
       dropRouteQuotes(t.token); done();
       try {
-        const mo = freshMinOut(minOut0, applySlippage(await quoteNow(), t.slippageBps ?? DEFAULT_SLIPPAGE_BPS));
+        const mo = freshMinOut(minOut0, minOutOf(await quoteNow()));
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);
@@ -1013,7 +1026,7 @@ export function createViemProtocol(): ProtocolClient {
       const out = received(r.logs, outAsset, c.me);
       bookFill(r.logs, spend, c.me, t.amountIn, isBuy ? undefined : outAsset, c.me, out);
       return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
-    } finally { releaseInflight(done, landed); requoteRoute(t.token, logs, sentAt); }
+    } finally { if (handoff) handoff.done = true; releaseInflight(() => { done(); tap?.end(); }, landed); requoteRoute(t.token, logs, sentAt); }
   }
 
   return {

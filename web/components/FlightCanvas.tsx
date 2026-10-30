@@ -264,7 +264,7 @@ export default function FlightCanvas({ search }: Props) {
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}
-      {/* phones (<740px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Run); desktop renders nothing */}
+      {/* phones (<740px): v3 HUD — mcap pill, handle + PnL line, one swipe-up drawer (Feed/Holders/Chart/Crew/Chat/Position); desktop renders nothing */}
       <PhoneHud />
       {/^0x[0-9a-fA-F]{40}$/.test(q0.get("coin") || "") && q0.get("source") !== "sim" && <HoldersBridge coin={q0.get("coin") as string} />}
       <div className="ap-bc" data-testid="flight-pills" style={{ bottom: 142, zIndex: 25, display: "flex", gap: 8 }}>
