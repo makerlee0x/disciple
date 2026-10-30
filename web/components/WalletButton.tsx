@@ -8,7 +8,7 @@ import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/li
 /** Robinhood Chain testnet: a plain "Test network" tag sits first in the wallet strip there (GAME play-test, Oct 26 2026). */
 const TEST_NETWORK_ID = 46630;
 import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/protocol-viem";
-import { balanceLine, type BalancePart } from "@/lib/balanceLine";
+import { cashLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
   aaAvailable, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
@@ -61,8 +61,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const [addr, setAddr] = useState<Address | null>(null);
   const [busy, setBusy] = useState("");
   const [, setEth] = useState<bigint | null>(null);
-  const [bal, setBal] = useState("");
-  const [balTitle, setBalTitle] = useState("");
+  const [cashText, setCashText] = useState("");
   const path = usePathname() || "";
   const coin = (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(path)?.[1] ?? null) as Address | null;
   const [err, setErr] = useState("");
@@ -112,8 +111,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     const r = lastRead.current;
     if (!r) return;
     const parts = r.parts.map(({ address, ...p }) => ({ ...p, amount: fillBook.display(a, address) ?? p.amount }));
-    const l = balanceLine(parts, { payUsdg: r.usdgPays });
-    setBal(l.text); setBalTitle(l.title);
+    setCashText(cashLine(parts));
     if (r.pf) setPf(bookedPortfolio(r.pf, a, deployment().usdg, fillPx.current));
   }
 
@@ -272,21 +270,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
                   </div>
-                  <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, flexDirection: "row", alignItems: "center", gap: 8, textDecoration: "none", color: "inherit" }}
-                    title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
-                    <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
-                    </span>
-                    <span className="wb-sigil"><IdentitySigil id="believer" size={26} tip={false} /></span>
-                  </a>
                 </div>
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
                 {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} /></>}
               </button>
-              {smart && SIGNER_MODE !== "local" && <button type="button" onClick={() => run("", disconnect)} style={{ ...pill, background: "rgba(255,255,255,.08)" }} aria-label="Disconnect"><Icon name="close" size={16} /></button>}
+              {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
             </>
           ) : (
             aaAvailable() && SIGNER_MODE === "local" ? (
@@ -320,7 +310,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
             <span style={{ wordBreak: "break-all" }}>Smart account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner (Privy wallet): {sess?.owner}</span>
-            {bal && <span title={balTitle}>{bal}</span>}
             {sess?.oneTap ? (
               <>
                 <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {limitLabel(oneTapSpendLimitUsd())} · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
@@ -357,7 +346,6 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             <span style={{ color: "#C9CED6" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
             <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
             <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
-            {bal && <span title={balTitle}>{bal}</span>}
             {oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp && (
               <>
                 <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
@@ -379,7 +367,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
           </div>
         )}
       </div>
-      {addr && bal && !compact && <span title={balTitle} style={{ fontSize: 10, opacity: 0.8 }}>{bal}</span>}
+      {/* top right stays minimal (lee, Oct 30): one cash figure + the account chip; no token / STRATEGY balance line */}
+      {addr && !pf && cashText && !compact && <span title="Your cash: what BOOST spends and DUMP pays out in." style={{ fontSize: 10, opacity: 0.8 }}>{cashText}</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
           Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}
