@@ -58,6 +58,25 @@ export function oneTapSpendLimitUsd(): number | null {
 export function setOneTapSpendLimitUsd(usd: number | null) {
   try { localStorage.setItem(SPEND_LIMIT_LS, usd && usd > 0 ? String(usd) : "0"); } catch { /* */ }
 }
+/**
+ * Player setting (lee, Oct 30 11:03 CDT): the one-tap session's max price move per trade. DiscipleSessionPolicy stores it
+ * per session at install (SessionConfig.maxSlippageBps; 10..MAX_SLIPPAGE_BPS_LIMIT = 5000 on-chain; 0 = its 5% default),
+ * so there is no "no limit": the top choice is the contract's ceiling, 50%. Default 15%. Saved in this browser.
+ */
+const ONE_TAP_SLIP_LS = "disciple.oneTap.maxSlippageBps";
+export const ONE_TAP_SLIPPAGE_CHOICES_BPS = [500, 1500, 3000, 5000] as const;
+export const ONE_TAP_SLIPPAGE_DEFAULT_BPS = 1500;
+/** The chosen max price move for one-tap sessions (bps). */
+export function oneTapSlippageBps(): number {
+  try { const v = Number(localStorage.getItem(ONE_TAP_SLIP_LS)); if (v > 0) return clampSlippageBps(v); } catch { /* SSR / private mode */ }
+  return ONE_TAP_SLIPPAGE_DEFAULT_BPS;
+}
+/** Save the choice. A live session with a different limit is replaced now (one owner-signed op, same as a renewal). */
+export async function setOneTapSlippageBps(bps: number): Promise<void> {
+  const b = clampSlippageBps(bps);
+  try { localStorage.setItem(ONE_TAP_SLIP_LS, String(b)); } catch { /* */ }
+  if (onchain && onchain.validUntil * 1000 > Date.now() + 30_000 && onchain.maxSlippageBps !== b) await restartOneTap(b);
+}
 /** Auto-install the one-tap session after sign-in (owner signs it silently). NEXT_PUBLIC_ONE_TAP_AUTO=0 disables. */
 const ONE_TAP_AUTO = process.env.NEXT_PUBLIC_ONE_TAP_AUTO !== "0";
 const sessionOfAbi = [{ type: "function", name: "sessionOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }, { name: "entityId", type: "uint32" }], outputs: [{ type: "tuple", components: [
@@ -232,7 +251,13 @@ async function sessionHealthFor(a: Address): Promise<SessionHealth> {
       chain = { active: r.active, validUntil: Number(r.cfg.validUntil) || undefined };
     } catch { chain = undefined; }
   }
-  const h = onchainHealth(cached, chain, { policy: SESSION_POLICY });
+  let h = onchainHealth(cached, chain, { policy: SESSION_POLICY });
+  // a live session at a different max price move than the player's setting (e.g. an old 5% session) is renewed like an
+  // expiring one: the background setup installs a new session at the setting (old key stays until replaced)
+  if (h === "live" && s0.maxSlippageBps !== oneTapSlippageBps()) {
+    console.warn("[disciple] one-tap: session slippage differs from the setting; renewing", { session: s0.maxSlippageBps, setting: oneTapSlippageBps() });
+    h = "expiring";
+  }
   if (h !== "live" && h !== "expiring" && onchain === s0) {
     // dead key (expired / inactive / other policy): drop it so the UI and the trade path don't use it meanwhile
     console.warn("[disciple] one-tap: session needs renewing", { health: h, cachedPolicy: s0.policy, policy: SESSION_POLICY });
@@ -259,8 +284,8 @@ const loginSetup = createLoginSetup({
     const acct = sa;
     if (!acct || (await acct.address()).toLowerCase() !== a.toLowerCase()) throw new Error("signed out meanwhile");
     console.warn("[disciple] one-tap setup at sign-in", { why: o.why, deploy: o.deploy, health: o.health ?? "undeployed" });
-    // renew keeps the player's slippage when we still know it; spend limit comes from their saved setting (unchanged)
-    await enableOneTap(onchain ? { maxSlippageBps: onchain.maxSlippageBps } : {});
+    // renew uses the player's one-tap max price move setting (default 15%); spend limit from their saved setting (unchanged)
+    await enableOneTap({ maxSlippageBps: oneTapSlippageBps() });
   },
   lease: storageLease(lsStore(), TAB_ID),
   warn: (m, d) => console.warn(m, d),
@@ -485,7 +510,7 @@ export async function enableOneTap(opts: { maxSlippageBps?: number; ttlSec?: num
   const id = await publicClient().readContract({ address: SESSION_POLICY, abi: moduleIdAbi, functionName: "moduleId" }).catch(() => "");
   if (id !== SESSION_POLICY_MODULE_ID) throw new AAError("Policy", `Session policy at ${SESSION_POLICY} reports "${id || "?"}", expected ${SESSION_POLICY_MODULE_ID}.`);
   const key = generatePrivateKey();
-  const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? SLIPPAGE_DEFAULT_BPS);
+  const maxSlippageBps = clampSlippageBps(opts.maxSlippageBps ?? oneTapSlippageBps());
   const account = await sa.address();
   const caps = await sessionCaps(opts.spendLimitUsd !== undefined ? opts.spendLimitUsd : oneTapSpendLimitUsd());
   // AUDIT #148 M-1: validUntil from the chain's clock (latest block), not the browser's; Date.now() only if the RPC fails.

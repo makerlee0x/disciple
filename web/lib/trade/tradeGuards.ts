@@ -3,8 +3,9 @@
  *  1. Wallet limit (buys): the coin's mode caps how much one wallet may hold (BondingCurve.netCapNow(), read by
  *     lib/flight/coinRules — never hardcoded). A buy that would go over it can't go through, so instead of letting it
  *     revert we say so and offer one tap to buy the max allowed.
- *  2. High price impact (buys and sells): over 10 % ⇒ a plain warning with one tap to go ahead. Never a block.
- * The wallet limit is checked first; the impact warning still shows after it when it applies.
+ *  2. High price impact (buys and sells): over 10 % ⇒ a plain warning carried on the trade's result. The trade is sent
+ *     immediately: never held, never a confirm tap (lee: price impact never blocks a trade; GAME review on #201).
+ * Only the wallet limit holds a trade (with Buy max).
  * COPY PENDING LEE APPROVAL (the strings below).
  */
 export const HIGH_IMPACT_BPS = 1000;   // 10 %
@@ -13,7 +14,7 @@ export const BUY_MAX_HEADROOM = 0.97;
 
 export type TradeAlert =
   | { kind: "walletcap"; text: string; capPct: string; maxUsd: number; actionLabel: string; dismissLabel: string }
-  | { kind: "impact"; text: string; impactBps: number; actionLabel: string; dismissLabel: string };
+  | { kind: "impact"; text: string; impactBps: number };
 
 const pct = (bps: number) => `${+(bps / 100).toFixed(2)}%`;
 const money = (usd: number) => (usd >= 1000 ? `$${(usd / 1000).toFixed(2)}K` : `$${usd.toFixed(2)}`);
@@ -26,7 +27,6 @@ export const COPY_PENDING_LEE = {
   buyMax: (maxUsd: number) => `Buy max (${money(maxUsd)})`,
   impactSell: (usd: number) => `High price impact: this sell moves the price over 10%. You'll get about ${money(usd)}.`,
   impactBuy: (coinsOut: number) => `High price impact: this buy moves the price over 10%. You'll get about ${coins(coinsOut)} coins.`,
-  goAhead: "Go ahead",
   cancel: "Cancel",
 };
 
@@ -50,17 +50,17 @@ export function walletCapAlert(usd: number, c: CapInput): Extract<TradeAlert, { 
     actionLabel: maxUsd >= 0.01 ? COPY_PENDING_LEE.buyMax(maxUsd) : "", dismissLabel: COPY_PENDING_LEE.cancel };
 }
 
-/** > 10 % price impact ⇒ the warning (one tap to go ahead). impactBps null/unknown ⇒ no alert (never blocks on a guess). */
+/** > 10 % price impact ⇒ the warning text (sent with the trade, never a hold). impactBps null/unknown ⇒ no alert (never blocks on a guess). */
 export function impactAlert(side: "buy" | "sell", impactBps: number | null | undefined, expected: { usdOut?: number; coinsOut?: number }): Extract<TradeAlert, { kind: "impact" }> | null {
   if (impactBps == null || !(impactBps > HIGH_IMPACT_BPS)) return null;
   const text = side === "sell" ? COPY_PENDING_LEE.impactSell(expected.usdOut ?? 0) : COPY_PENDING_LEE.impactBuy(expected.coinsOut ?? 0);
-  return { kind: "impact", impactBps, text, actionLabel: COPY_PENDING_LEE.goAhead, dismissLabel: COPY_PENDING_LEE.cancel };
+  return { kind: "impact", impactBps, text };
 }
 
-/** Order: wallet limit first (buys), then the impact warning. `confirmed` = kinds the player already tapped through. */
-export function nextAlert(side: "buy" | "sell", usd: number, i: { cap?: CapInput | null; impactBps?: number | null; expected: { usdOut?: number; coinsOut?: number } },
-  confirmed: ReadonlyArray<TradeAlert["kind"]> = []): TradeAlert | null {
-  if (side === "buy" && i.cap && !confirmed.includes("walletcap")) { const a = walletCapAlert(usd, i.cap); if (a) return a; }
-  if (!confirmed.includes("impact")) return impactAlert(side, i.impactBps, i.expected);
+/** The one alert that HOLDS a trade: the wallet limit (buys). `confirmed` = kinds the player already tapped through.
+ *  Price impact never holds (see impactAlert: a warning on the result). */
+export function nextAlert(side: "buy" | "sell", usd: number, i: { cap?: CapInput | null },
+  confirmed: ReadonlyArray<TradeAlert["kind"]> = []): Extract<TradeAlert, { kind: "walletcap" }> | null {
+  if (side === "buy" && i.cap && !confirmed.includes("walletcap")) return walletCapAlert(usd, i.cap);
   return null;
 }

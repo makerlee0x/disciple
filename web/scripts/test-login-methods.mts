@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { VERIFIED_LOGIN_TYPES, isLoginVerified } from "../lib/pveAttest";
+import { needsEmbeddedWallet, ownerWalletAddress } from "../lib/privyOwner";
 
 const mount = readFileSync(new URL("../components/PrivyMount.tsx", import.meta.url), "utf8");
 
@@ -15,9 +16,26 @@ test("Privy config: email, Google, X/Twitter and external wallet sign-in", () =>
   assert.deepEqual(methods.sort(), ["email", "google", "twitter", "wallet"]);
 });
 
-test("Privy config: every player gets an embedded wallet (it owns the smart account), external-wallet logins too", () => {
-  assert.match(mount, /createOnLogin:\s*"all-users"/);
+test("Privy config: ONE embedded wallet per user (it owns the smart account), external-wallet logins too", () => {
+  assert.match(mount, /createOnLogin:\s*"users-without-wallets"/, "never a second embedded wallet for a returning user (lee, Oct 30)");
+  assert.match(mount, /needsEmbeddedWallet\(/, "an external-wallet-only login still gets one (created only when none exists)");
   assert.match(mount, /walletClientType === "privy"/, "the embedded wallet is the smart-account owner, never the external one");
+  assert.match(mount, /ownerWalletAddress\(/, "owner = the user's original embedded wallet");
+});
+
+test("owner pick: the ORIGINAL embedded wallet (HD index 0, then earliest), never an external or newer one", () => {
+  const old = "0x" + "a".repeat(40), neu = "0x" + "b".repeat(40), ext = "0x" + "c".repeat(40);
+  const linked = [
+    { type: "wallet", address: ext, chainType: "ethereum", walletClientType: "metamask", firstVerifiedAt: "2026-01-01" },
+    { type: "wallet", address: neu, chainType: "ethereum", walletClientType: "privy", walletIndex: 1, firstVerifiedAt: "2026-10-30" },
+    { type: "twitter_oauth" },
+    { type: "wallet", address: old.toUpperCase().replace("0X", "0x"), chainType: "ethereum", walletClientType: "privy", walletIndex: 0, firstVerifiedAt: "2026-10-20" },
+  ];
+  assert.equal(ownerWalletAddress(linked), old);
+  assert.equal(ownerWalletAddress([linked[1], { ...linked[3], walletIndex: null, firstVerifiedAt: "2026-10-20" }].map((x) => ({ ...x, walletIndex: null }))), old, "no index ⇒ earliest linked");
+  assert.equal(needsEmbeddedWallet([linked[0]]), true, "external-only login ⇒ create one");
+  assert.equal(needsEmbeddedWallet(linked), false);
+  assert.equal(ownerWalletAddress([]), null);
 });
 
 test("PVE login-verified: X counts like email / Google; a wallet-only login does not", () => {

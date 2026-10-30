@@ -58,3 +58,13 @@ test("no userOpHash or press not held ⇒ nothing to watch", async () => {
   assert.equal(await watchPending("zz", { userOpHash: "0xh" }, { lookup: async () => null, reg: reg as never }), "gone");
   assert.deepEqual(ev, []);
 });
+
+test("aa-sdk's incomplete-op build error (fresh account, two first taps at once) is a retryable pre-send hiccup (Oct 30)", () => {
+  const restore = quiet();
+  try {
+    const e = new AAError("Estimate", "simulation failed: Request is missing parameters. All properties on UserOperationStruct must be set. uo is missing: callGasLimit");
+    const pe = tradeNetworkError(e)!;
+    assert.equal(pe.code, "Network"); assert.equal(pe.message, NETWORK_MSG); assert.ok(!wasSent(pe));
+    assert.equal(tradeNetworkError(new AAError("Estimate", "simulation failed: execution reverted")), null);   // real reverts keep friendlyError
+  } finally { restore(); }
+});

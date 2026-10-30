@@ -70,6 +70,12 @@ export const AMBIGUOUS_RELAY = /not confirmed|timeout|timed out|AA25|invalid acc
  * scan) and, if not found, report "still confirming" — NEVER resend / re-sign / retry. True when the relay reported a
  * txHash without notSent (it signed and can't prove the node refused), or the message / transport is ambiguous.
  */
+/** The relay says it did NOT broadcast (data.notSent) because its own EOA nonce raced another relay: safe to retry. */
+export const RELAYER_NONCE_RACE = /nonce too low|replacement transaction underpriced|already known/i;
+export function relayNotSentRace(err: { message: string; data?: unknown }): boolean {
+  const d = err.data as { notSent?: unknown } | undefined;
+  return !!d && typeof d === "object" && d.notSent === true && RELAYER_NONCE_RACE.test(err.message);
+}
 export function relayErrorUnclear(err: { code?: number; message: string; data?: unknown }): boolean {
   if (err.code === -32601 || err.code === -32005 || err.code === -32003) return false;   // method missing / rate limited / relayer off: nothing sent
   const d = err.data as { txHash?: unknown; notSent?: unknown } | undefined;
@@ -611,6 +617,13 @@ export class Mav2Account {
       if (j.error && c.feeRetry && TRANSIENT_SIM.test(`${j.error.message} ${j.error.data ?? ""}`)) {
         // the relay's pre-flight ran on a node that hasn't seen our previous op yet: nothing was sent; retry once
         await nextBlock();
+        return this.sendCalls(await retryCalls(c.calls, c.opts), c.as, false, c.opts);
+      }
+      if (j.error && c.feeRetry && relayNotSentRace(j.error)) {
+        // Oct 30 testnet repro: two relays at once raced the relayer EOA's nonce ("nonce too low: address 0xCE2B…, tx:
+        // 18730 state: 18732"); the relay reports notSent ⇒ our op was never broadcast. Retry once (fresh 2D nonce key,
+        // fresh quote via rebuild) instead of failing the tap. Root fix is relayer-side (Needs FLOW).
+        console.warn("[disciple] relay lost a relayer-nonce race (nothing sent); retrying once", { userOpHash: hash });
         return this.sendCalls(await retryCalls(c.calls, c.opts), c.as, false, c.opts);
       }
       if (j.error?.code === -32601) this.syncOk = false;   // Alchemy (or old server): fall through to the standard flow
