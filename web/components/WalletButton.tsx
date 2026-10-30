@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
@@ -294,7 +295,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
         {addr && acct && smart && (
           <div aria-label="account" role="menu" style={{ ...popover, minWidth: 160, fontSize: 11 }}>
             <a role="menuitem" href="/profile" onClick={() => setAcct(false)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Profile</a>
-            <a role="menuitem" href={SETTINGS_HREF} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</a>
+            <Link role="menuitem" href={SETTINGS_HREF} scroll={false} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</Link>
             <button role="menuitem" type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>
         )}
