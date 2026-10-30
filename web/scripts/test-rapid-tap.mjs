@@ -173,8 +173,9 @@ const G = GR.gasReservePerOp();
   ok(RT.pendingCashRaw() === BigInt(10) * E6 + G6 && Math.abs(RS.reservedCash() - (10 + Number(G6) / 1e6)) < 1e-9, "6 dec: raw pending + SITE reservedCash() both right"); RT.releasePress("d6", "cancel"); CH.D.dec = 18; }
 ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, shotUsd, gasKindFor\("buy", shotUsd, gradRef\.current, markRef\.current\.mcap\)\)/.test(tb) && /CASH_RAW\.v = raw;/.test(tb) && !/usdgDecimals \?\? (6|18)/.test(tb),
   "TradeBridge short check: raw bigint vs the raw balance (decimals from lib/usdg, none hard-coded)");
-{ const i = tb.indexOf("window.__discipleTrade = async"), c = tb.indexOf("!canSpend(CASH_RAW.v, usd, kind)", i), a = tb.indexOf("await ", i);
-  ok(c > i && c < a, "TradeBridge: raw cash check on top of pending presses at entry, before any await"); }
+// instant trades (#181): window.__discipleTrade awaits the impact / wallet-limit alert, then runs the press in runTrade
+{ const i = tb.indexOf("const runTrade: Bridge = async"), c = tb.indexOf("!canSpend(CASH_RAW.v, usd, kind)", i), a = tb.indexOf("await ", i);
+  ok(i > 0 && c > i && c < a, "TradeBridge: raw cash check on top of pending presses at entry, before any await"); }
 ok(/detail: \{ usd, gasPerOpUsd: gasUsd\(\) \}/.test(tb), "TradeBridge pushes the per-op gas reserve to the engine with disciple:cash");
 ok(/void warmGasPrice\(pc\);/.test(tb) && tb.indexOf("void warmGasPrice(pc)") > tb.indexOf("const poll = async"), "TradeBridge warms the live gas price in the cash poll (off the trade path)");
 { RT.reservePress("dg", "sell", "0xc"); ok(RS.RESERVATIONS.get("dg").gasReserve === GR.gasReservePerOp("trade"), "DUMP: no explicit gasReserve passed — SITE's gasSource() (01b27d97: both sides) holds one trade op's gas"); RT.releasePress("dg", "cancel");
@@ -193,7 +194,7 @@ console.log("— pressId (FLOW #145)");
 ok(/reservationId: pressId, pressId \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
 ok(/bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb) && /bookReceipt\(r\.txHash, side, rp, bag\)/.test(tb) && /const rp = r\.pressId \?\? pressId;/.test(tb), "bookReceipt(r.txHash, side, r.pressId) (press id fallback when the stack doesn't return it)");
 ok(/"disciple:fillreceipt", \{ detail: \{ txHash: hash, side, \.\.\.\(pressId \? \{ pressId \} : \{\}\)/.test(tb), "disciple:fillreceipt detail carries pressId");
-ok(/const mine = !d\?\.pressId \|\| d\.pressId === linePress\.current;/.test(tb) && /d\?\.phase === "submitted" && mine/.test(tb) && /linePress\.current = pressId;/.test(tb), "disciple:op → press by pressId (untagged = legacy)");
+ok(/const mine = !d\?\.pressId \|\| d\.pressId === linePress\.current;/.test(tb) && /const sent = d\?\.phase === "submitted" \|\| d\?\.phase === "sent";/.test(tb) && /if \(sent && mine\)/.test(tb) && /linePress\.current = pressId;/.test(tb), "disciple:op → press by pressId (untagged = legacy)");
 ok(/marks\.byPress\(rp\) \?\? marks\.byTx\(r\.txHash\)/.test(tb), "timing marks by pressId, txHash fallback");
 ok(!/GAS_RESERVE_COLD|\b10 \* |BigInt\(10\) \* BigInt\(10\) \*\* /.test(rd("lib/flight/gasReserve.ts")), "gasReserve.ts: no flat 10 USDG cold constant");
 
@@ -223,8 +224,8 @@ console.log("— 5. stacked ghosts, failed middle rolls back only its step");
 console.log("— 6. no await before aaSend; error copy");
 { const body = wal.slice(wal.indexOf("export async function execCalls"), wal.indexOf("handOffLogs(r.txHash", wal.indexOf("export async function execCalls")));
   ok(body.indexOf("await aaSend(") > 0 && (body.slice(0, body.indexOf("await aaSend(")).match(/await /g) || []).length === 0, "execCalls: no await before aaSend"); }
-{ const i = tb.indexOf("window.__discipleTrade = async"), r = tb.indexOf("reservePress(pressId", i), a = tb.indexOf("await ", i);
-  ok(r > i && a > r, "TradeBridge: the press is reserved before the first await of the trade"); }
+{ const i = tb.indexOf("const runTrade: Bridge = async"), r = tb.indexOf("reservePress(pressId", i), a = tb.indexOf("await ", i);
+  ok(i > 0 && r > i && a > r, "TradeBridge: the press is reserved before the first await of the trade"); }
 for (const [f, src] of [["reservationsShim", rd("lib/flight/reservationsShim.ts")], ["gasReserve", rd("lib/flight/gasReserve.ts").replace(/export function warmGasPrice[\s\S]*?\n\}\n/, "")]])
   ok(!/\bawait\b|\basync\b/.test(src.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, "")), `${f}.ts: no async / await (sync in the trade path)`);
 { const rt = rd("lib/flight/rapidTap.ts");
