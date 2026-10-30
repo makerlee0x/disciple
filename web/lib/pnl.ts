@@ -49,6 +49,15 @@ export function rebase(p: Position, supply: number): Position {
 export const emptyPosition = (): Position => ({ size: 0, costBasis: 0, realized: 0, fees: 0, holdStart: 0, sellScale: 1 });
 
 /**
+ * The PnL ledger's storage key: ONE signed-in account per coin (lee, Oct 30: "Other rockets −$84.32K" summed old paper /
+ * sim ledgers and other accounts from this browser). account null ⇒ "paper" (no wallet / the simulator). A sign-out or an
+ * account switch reads a different key, so another account's numbers never show.
+ */
+export function pnlKey(prefix: string, account: string | null | undefined, coin: string): string {
+  return `${prefix}${account ? account.toLowerCase() : "paper"}/${coin.toLowerCase()}`;
+}
+
+/**
  * Book a First BOOST (creator buy inside the launch tx) into the coin's PnL ledger with its EXACT fill: tokens received
  * and $ paid (fees included). Bug #4: it was never booked, so the creator's HUD showed nothing (or a stale/paper bag)
  * while the tokens sat in another wallet. Only seeds an empty ledger (never double-books).

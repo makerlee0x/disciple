@@ -14,7 +14,7 @@ for (const f of ["pnl", "config"]) {
   const src = fs.readFileSync(path.join(dir, `../lib/${f}.ts`), "utf8").replace(/from "\.\/config"/g, 'from "./config.mjs"');
   fs.writeFileSync(path.join(tmp, f + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }
-const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
 const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
@@ -161,3 +161,19 @@ if (fail) process.exit(1); else console.log("PASS");
     delete window.__discipleTrade; }
   if (bad) { console.error(bad + " #3 scenario(s) FAILED"); process.exit(1); }
   console.log("ok  #3 holdings vs PnL % scenarios"); }
+
+// #4 account-scoped ledger (lee, Oct 30: "Other rockets −$84.32K" summed old paper / sim ledgers + other accounts)
+{ let bad = 0; const ok = (c, m) => { if (!c) { bad++; console.error("FAIL " + m); } };
+  const A = "0xAbC0000000000000000000000000000000000001", B = "0x00000000000000000000000000000000000000b2", COIN = "0xC01N00000000000000000000000000000000000C";
+  ok(pnlKey("disciple.pnl.", A, COIN) === pnlKey("disciple.pnl.", A.toLowerCase(), COIN.toLowerCase()), "pnlKey: case-insensitive account / coin");
+  ok(pnlKey("disciple.pnl.", A, COIN) !== pnlKey("disciple.pnl.", B, COIN), "pnlKey: another account ⇒ another ledger");
+  ok(pnlKey("disciple.pnl.", null, COIN) === "disciple.pnl.paper/" + COIN.toLowerCase() && pnlKey("disciple.pnl.", null, COIN) !== pnlKey("disciple.pnl.", A, COIN), "pnlKey: signed out ⇒ the paper ledger, never an account's");
+  ok(pnlKey("disciple.sim.pnl.", null, "run-1").startsWith("disciple.sim.pnl."), "pnlKey: the simulator's prefix is kept (resetSimStorage clears by prefix)");
+  const hud = fs.readFileSync(path.join(dir, "../components/PnlHud.tsx"), "utf8");
+  ok(!/pnl\.other|sessionRealized|localStorage\.length|localStorage\.key\(/.test(hud), "PnlHud: no 'Other rockets' row, no scan of other ledgers in localStorage");
+  ok(/onWallet\(/.test(hud) && /const KEY = pnlKey\(storagePrefix, account, coin\)/.test(hud) && !/KEY \+ coin/.test(hud), "PnlHud: every read / write uses the signed-in account's key");
+  ok(/posRef\.current = next; setPos\(next\);\s*\}, \[KEY\]\)/.test(hud) && /let next = emptyPosition\(\)/.test(hud), "PnlHud: account switch / sign-out swaps the ledger (empty when that account has none)");
+  const pv = fs.readFileSync(path.join(dir, "../lib/protocol-viem.ts"), "utf8");
+  ok(/seedCreatorBuyPosition\(pnlKey\("disciple\.pnl\.", me, launched\.token\)/.test(pv), "First BOOST seed writes the same account-scoped key the HUD reads");
+  if (bad) { console.error(bad + " #4 account-ledger check(s) FAILED"); process.exit(1); }
+  console.log("ok  #4 PnL shows only the signed-in account's ledger"); }

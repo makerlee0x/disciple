@@ -105,6 +105,15 @@ export async function readCoinMcap(pc: PublicClient, token: Address, curve?: Add
     const mcapUsd = mcapUsdFromQuote(mq, b.launchQuoteUsd);
     return { mcapUsd, priceUsd: b.supplyTokens > 0 ? mcapUsd / b.supplyTokens : 0, priceWad: b.supplyRaw > BigInt(0) ? (mq * WAD) / b.supplyRaw : BigInt(0), graduated, supplyTokens: b.supplyTokens, source: "curve" };
   }
+  // A PINNED marketCapQuote that failed is not proof the curve lacks it: a load-balanced node can serve `graduated` at the
+  // block and not `marketCapQuote` (behind / pruned). Saying "no marketCapQuote" there made readMcapAt fall back to an
+  // UNPINNED curve read labelled with the fresh block ⇒ a stale mcap outranked newer Trades in the orderer and the HUD /
+  // chart froze (lee, Oct 26: ~$4.5K → $5.1K on chain, the HUD didn't follow). Probe `latest`: if it answers, this is a
+  // node-behind error (readMcapAt retries / skips the tick), never the legacy path.
+  if (blockNumber !== undefined) {
+    const hasMq = await pc.readContract({ ...c, functionName: "marketCapQuote" }).then(() => true, () => false);
+    if (hasMq) throw new Error(`marketCapQuote not served at block ${blockNumber} (node behind)`);
+  }
   // pre-v4 curve (no marketCapQuote): its post-grad mcapNow froze ⇒ MarketLens (live pricer) is the only correct read.
   if (!hasLens()) throw new Error("no marketCapQuote and no MarketLens");
   const [priceWad, m] = await pc.readContract({ address: deployment().marketLens, abi: marketLensAbi, functionName: "market", args: [token], ...at });
