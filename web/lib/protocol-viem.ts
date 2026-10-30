@@ -813,6 +813,8 @@ export function createViemProtocol(): ProtocolClient {
     const s = sent(logs, spend, me);
     void amountIn;
     if (s > B(0)) bumpBalance(spend, me, -s);
+    // what we received (bought coins / sell proceeds), from the same receipt: a sell right after a buy sizes from memory
+    // even when no RPC answers (allhang). Unknown prior balance ⇒ booked as a lower bound (never over-sells).
     if (proceeds && out > B(0)) bumpBalance(proceeds, recipient, out);
   }
 
@@ -1043,7 +1045,7 @@ export function createViemProtocol(): ProtocolClient {
         const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
         logs = r.logs; landed = logsBlock(r.logs);
         const out = received(r.logs, outAsset, recipient);
-        bookFill(r.logs, spendAsset, me, t.amountIn, side === "sell" ? outAsset : undefined, recipient, out);
+        bookFill(r.logs, spendAsset, me, t.amountIn, outAsset, recipient, out);
         return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
       } finally { handoff.done = true; releaseInflight(() => { done(); tap.end(); }, landed); requoteRoute(t.token, logs, sentAt); }
     } catch (e) {
@@ -1169,7 +1171,7 @@ export function createViemProtocol(): ProtocolClient {
       logs = r.logs; landed = logsBlock(r.logs);
       const out = received(r.logs, outAsset, c.me);
       if (mid) { MODEL.land(route, mid, out); mid = 0; }   // the receipt's amounts, applied to every quote read before now
-      bookFill(r.logs, spend, c.me, t.amountIn, isBuy ? undefined : outAsset, c.me, out);
+      bookFill(r.logs, spend, c.me, t.amountIn, outAsset, c.me, out);
       return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
     } catch (e) {
       // unknown outcome (Timeout): keep it in the model's range until it settles / ages out; anything else never traded
