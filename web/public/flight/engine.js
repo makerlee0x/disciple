@@ -1123,7 +1123,7 @@ function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
   if(P){ if(P.drawer||y>=P.hudTop) return false; const q=S.phonePill; if(q&&x>=q.x&&x<=q.x+q.w&&y>=q.y&&y<=q.y+q.h) return false; }
   return true; }
 cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; const [x,y]=canvasXY(e);
-  if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)||(typeof chartHit==='function'&&chartHit(e))))) return;   /* @chartnav: a drag on the chart pans it, never steers */
+  if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)))) return;
   S.drag={id:e.pointerId,x0:x,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
   try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch(_){} });
 cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
@@ -1707,7 +1707,7 @@ function cardPlace(id,x,y,w,h){ const c=cardState(id), o=c?cardOff({x,y,w,h},c,W
   if(!CLEAN&&!phoneHud(W,CLEAN)) CARD_RECTS[id]={x:x+o.dx,y:y+o.dy,w,h,dx:o.dx,dy:o.dy,min:!!(c&&c.min),closed:!!(c&&c.closed)};
   return hid?null:o; }
 function cardBegin(id,x,y,w,h){ const o=cardPlace(id,x,y,w,h); if(!o) return false; ctx.save(); ctx.translate(o.dx,o.dy); return true; }
-function cardPublish(){ if(CLEAN||phoneHud(W,CLEAN)) for(const k in CARD_RECTS) delete CARD_RECTS[k]; else if(!CH||!CH.on) delete CARD_RECTS.chart;
+function cardPublish(){ if(CLEAN||phoneHud(W,CLEAN)) for(const k in CARD_RECTS) delete CARD_RECTS[k]; else if(!CH||!CH.on||domChart()) delete CARD_RECTS.chart;
   const sig=W+'x'+H+JSON.stringify(CARD_RECTS); if(sig===CARD_SIG) return; CARD_SIG=sig;
   dispatchEvent(new CustomEvent('disciple:cardrects',{detail:{W,H,cards:JSON.parse(JSON.stringify(CARD_RECTS))}})); }
 /* @cards-end */
@@ -2557,8 +2557,9 @@ function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN|
     for(const f of fs) if(f.mine&&f.m>0&&(f.usd>0||f.side==='sell')) C.mine.push({t:f.t,side:f.side,m:f.m});   // own sells always marked
     C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
   }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
-function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
-function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.vEnd=null; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
+function setChartMap(on){ if(domChart()){ try{ dispatchEvent(new CustomEvent('disciple:chartmap',{detail:{toggle:on==null,on:on==null?null:!!on}})); }catch{ /* no window */ } return null; }   /* M → the DOM chart card (DexChart) */
+  const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
+function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
 const chartNow=()=>chartState().T0+S.t;
 /* one tick into every interval: price m (mcap), optional swap volume */
 function chartTick(m,usd,side){ if(!(m>0)) return; const C=chartState(), t=chartNow(), keep=CHART_STYLE.keep;
@@ -2619,9 +2620,12 @@ const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*864
 /* live: between the React PnL panel and the trades feed (H−172); shrinks to fit. The panel publishes its real bottom
    (components/PnlHud → window.__pnlBottom, wrap px; null on the phone / hidden): the chart always starts below it, so the
    "Your Position" card never covers the chart (lee, Oct 30; was a fixed 456 guess ⇒ overlap on short desktops). */
-const GRID_COLS='ABCDEFGH';
+/* @domchart: the coin page mounts the DOM DEX chart (window.__domChart, worker-mirrored) ⇒ the canvas chart is not drawn, hit-tested
+   or published as a card (its history fetch still runs: it seeds the TRADES feed + first mark). Never in CLEAN replays. */
+function domChart(){ return !CLEAN&&typeof window!=='undefined'&&!!window.__domChart; }
 const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
+  if(domChart()){ delete CARD_RECTS.chart; return {x:-1e4,y:-1e4,w:st.w,h:st.h,off:1}; }
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   { const b=chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); if(b.off){ delete CARD_RECTS.chart; return b; }   /* @cards: movable / minimizable */
@@ -2635,7 +2639,7 @@ function chartDeskRect(H,maxH,pb){ const top=Number.isFinite(+pb)&&+pb>0?+pb+CHA
   const h=Math.round(Math.min(room,maxH)); return {x:20,y:Math.round(Math.max(floor-h,top)),h}; }
 /* @chart-desk-end */
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
-function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
+function chartBtnAt(e){ const C=CH; if(!C||domChart()||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
   for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }
 function redrawChart(dt){
   const st=CHART_STYLE, C=chartState(), R0=chartRect(), h=R0.h, w=R0.w||st.w; if(!C.cv){ C.cv=document.createElement('canvas'); C.cv.width=w; } if(C.cv.width!==w) C.cv.width=w; if(C.cv.height!==h) C.cv.height=h;
@@ -2655,19 +2659,15 @@ function redrawChart(dt){
       if(on){ g.fillStyle=st.frameMid; g.fillRect(x,7,bw,st.title-8); g.strokeStyle=st.frameBevelLo; g.lineWidth=1; g.strokeRect(x+.5,7.5,bw-1,st.title-9); g.strokeStyle=st.frameBevelHi; g.beginPath(); g.moveTo(x+bw-.5,7.5); g.lineTo(x+bw-.5,st.title-1.5); g.lineTo(x+.5,st.title-1.5); g.stroke(); }   /* pressed bevel */
       g.fillStyle=on?st.btnOn:st.btn; g.textAlign='center'; g.fillText(t.l,x+bw/2,tyM); C.btn.push({s:t.s,x,y:5,w:bw,h:st.title-4}); x-=2; }
     g.textAlign='left'; }
-  // plot area (Warzone grid with lettered/numbered edges); bottom strip = time axis, bottom band of the plot = volume
+  // plot area (faint grid; the A–H / 1–5 spreadsheet edge labels are gone, Oct 30); bottom strip = time axis, bottom band = volume
   const px=5+st.gutter, py=st.title+3+st.top, pw=w-5-st.axis-px, xh=st.xaxis, ph=h-6-xh-py, vh=Math.round(ph*st.volFrac), pph=ph-vh-2;
   g.fillStyle=st.bg; g.fillRect(5,st.title+3,w-10,h-st.title-8);
-  g.font='8px ui-monospace,monospace'; g.fillStyle=st.edgeFg; g.textAlign='center';
-  const NC=GRID_COLS.length, NR=5;
-  for(let i=0;i<NC;i++) g.fillText(GRID_COLS[i],px+pw*(i+.5)/NC,st.title+3+st.top/2+3);
-  for(let j=0;j<NR;j++) g.fillText(String(j+1),5+st.gutter/2,py+ph*(j+.5)/NR+3);
+  const NC=8, NR=5;
   g.strokeStyle=st.grid; g.lineWidth=1; g.beginPath();
   for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }
   for(let j=0;j<=NR;j++){ const y=Math.round(py+ph*j/NR)+.5; g.moveTo(px,y); g.lineTo(px+pw,y); } g.stroke();
   g.textAlign='left';
-  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), n=C.vN||st.candles, cw=pw/n, RT=C.vEnd==null?now:Math.min(C.vEnd,now);   /* @chartnav: n candles wide, right edge RT (live ⇔ vEnd null) */
-  C.geo={px,py,pw,ph,cw,tf,n,tMin:all.length?all[0].b*tf+tf*Math.min(8,n):null};
+  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), n=st.candles, cw=pw/n, RT=now;   /* fixed live window: n candles, right edge = now */
   /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge (panned: the view's right edge RT) */
   const X=b=>px+pw-((RT+tf*0.6)-(b+0.5)*tf)/tf*cw;
   const cs=[]; for(const k of all){ const x=X(k.b); if(x>px-cw&&x<px+pw+cw) cs.push(k); }
@@ -2719,48 +2719,12 @@ function redrawChart(dt){
   const ax=px+pw+2; g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(ax,py,st.axis-7,ph); g.fillStyle=st.axisFg; g.font='8px ui-monospace,monospace';
   for(let j=0;j<=NT;j++){ const v=Math.exp(L1-(L1-L0)*j/NT), y=pt+pa*j/NT; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,pt+pa)); }
   g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
-  /* @chartnav: panned / zoomed ⇒ a "⟲ LIVE" button (click, or double-click the plot, snaps back to live + default zoom) */
-  C.liveBtn=null; if(!CLEAN&&(C.vEnd!=null||(C.vN&&C.vN!==st.candles))){ const bw2=44, bx=px+pw-bw2-2, by=py+14;
-    g.fillStyle='rgba(8,10,20,.78)'; g.fillRect(bx,by,bw2,12); g.strokeStyle=st.btnOn; g.lineWidth=1; g.strokeRect(bx+.5,by+.5,bw2-1,11);
-    g.fillStyle=st.btnOn; g.font='bold 8px ui-monospace,monospace'; g.textAlign='center'; g.fillText('⟲ LIVE',bx+bw2/2,by+9); g.textAlign='left'; C.liveBtn={x:bx,y:by,w:bw2,h:12}; }
 }
-/* @chartnav — pass 3 #3 (lee): the desktop chart navigates like DEX Screener / TradingView. Drag pans back in time, wheel /
-   trackpad pinch (ctrl+wheel) / two-finger pinch zooms around the cursor, double-click or ⟲ LIVE resets, and the view
-   follows live whenever its right edge is at "now" (vEnd null). Custom canvas chart (no chart library ⇒ no built-in
-   pan/zoom), so the view is two numbers on the chart state: vEnd (right-edge time, null = live) and vN (candles wide).
-   Chart gestures never reach the game: the touch drag-to-steer skips the chart rect (chartHit), mouse never steers, and the
-   wheel is preventDefault-ed only over the plot. Phone (drawer CHART tab) is unchanged. Pure math below (tests slice it). */
-const CHART_NAV_MIN=8;
-function chartPanEnd(vEnd,now,dx,cw,tf,tMin){ const r=(vEnd==null?now:vEnd)-dx/cw*tf; if(!(r<now-tf*0.25)) return null; return tMin!=null?Math.max(r,tMin):r; }
-function chartZoomView(n,vEnd,now,f,fromRight,pw,tf,maxN,tMin){ const n2=clamp(n*f,CHART_NAV_MIN,maxN); if(vEnd==null) return {n:n2,vEnd:null};
-  const tx=vEnd-fromRight/(pw/n)*tf, r=tx+fromRight/(pw/n2)*tf; return {n:n2,vEnd:r<now-tf*0.25?(tMin!=null?Math.max(r,tMin):r):null}; }
-/* @chartnav-math-end */
-function chartHit(e){ const C=CH; if(!C||CLEAN||!C.on||!C.geo||phoneHud(W,CLEAN)) return null; const r=chartRect(); if(r.off||r.x<-1e3) return null;
-  const [x,y]=canvasXY(e), lx=x-r.x, ly=y-r.y, g=C.geo; if(lx<g.px||lx>g.px+g.pw||ly<g.py||ly>g.py+g.ph) return null;
-  return {lx,ly,fromRight:g.px+g.pw-lx}; }
-function chartResetView(){ const C=CH; if(!C) return; C.vEnd=null; C.vN=null; C.nav=null; C.L0=C.L1=null; C.at=-1; }
-function chartNavState(){ const C=CH; return C?{live:C.vEnd==null,vEnd:C.vEnd==null?null:C.vEnd,n:C.vN||CHART_STYLE.candles,dragging:!!C.nav}:null; }
-cv.addEventListener('pointerdown',e=>{ const h=chartHit(e); if(!h||S.menuOpen) return; const C=CH; e.preventDefault();
-  const lb=C.liveBtn, tnow=performance.now(), dbl=C.lastTap&&tnow-C.lastTap.t<350&&Math.abs(h.lx-C.lastTap.x)<8&&Math.abs(h.ly-C.lastTap.y)<8;
-  C.lastTap={t:tnow,x:h.lx,y:h.ly};
-  if(dbl||(lb&&h.lx>=lb.x&&h.lx<=lb.x+lb.w&&h.ly>=lb.y&&h.ly<=lb.y+lb.h)){ chartResetView(); C.lastTap=null; return; }
-  (C.ptrs||(C.ptrs=new Map())).set(e.pointerId,h.lx);
-  if(C.ptrs.size>=2){ const xs=[...C.ptrs.values()]; C.pinch={d0:Math.abs(xs[0]-xs[1])||1,n0:C.vN||CHART_STYLE.candles,v0:C.vEnd,fr:C.geo.px+C.geo.pw-(xs[0]+xs[1])/2}; C.nav=null; return; }
-  C.nav={id:e.pointerId,x0:h.lx,v0:C.vEnd,cw:C.geo.cw,tf:C.geo.tf,tMin:C.geo.tMin};
-  try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch{ /* not capturable */ } cv.style.cursor='grabbing'; });
-cv.addEventListener('pointermove',e=>{ const C=CH; if(!C) return;
-  if(C.pinch&&C.ptrs&&C.ptrs.has(e.pointerId)){ const r=chartRect(); C.ptrs.set(e.pointerId,canvasXY(e)[0]-r.x); const xs=[...C.ptrs.values()]; if(xs.length<2) return;
-    const g=C.geo, z=chartZoomView(C.pinch.n0,C.pinch.v0,chartNow(),C.pinch.d0/(Math.abs(xs[0]-xs[1])||1),C.pinch.fr,g.pw,g.tf,CHART_STYLE.keep,g.tMin); C.vN=z.n; C.vEnd=z.vEnd; C.at=-1; return; }
-  const d=C.nav; if(d&&e.pointerId===d.id){ const r=chartRect(), dx=canvasXY(e)[0]-r.x-d.x0; C.vEnd=chartPanEnd(d.v0,chartNow(),dx,d.cw,d.tf,d.tMin); C.at=-1; cv.style.cursor='grabbing'; return; }
-  if(!d&&S.ammoHover<0&&chartHit(e)) cv.style.cursor='grab'; });
-function chartNavEnd(e){ const C=CH; if(!C) return; if(C.ptrs){ C.ptrs.delete(e.pointerId); if(C.ptrs.size<2) C.pinch=null; } if(C.nav&&e.pointerId===C.nav.id){ C.nav=null; cv.style.cursor=''; } }
-cv.addEventListener('pointerup',chartNavEnd); cv.addEventListener('pointercancel',chartNavEnd);
-cv.addEventListener('wheel',e=>{ const h=chartHit(e); if(!h) return; if(e.preventDefault) e.preventDefault(); const C=CH, g=C.geo;
-  const dy=clamp((+e.deltaY||0)*(e.deltaMode===1?16:e.deltaMode===2?400:1),-300,300), f=Math.exp(dy*(e.ctrlKey?0.01:0.0015));
-  const z=chartZoomView(C.vN||CHART_STYLE.candles,C.vEnd,chartNow(),f,h.fromRight,g.pw,g.tf,CHART_STYLE.keep,g.tMin); C.vN=z.n; C.vEnd=z.vEnd; C.at=-1; },{passive:false});
-/* @chartnav-end */
+/* @chartnav (pass 3 #3: hand-rolled drag pan / wheel zoom / ⟲ LIVE) retired Oct 30: the live coin page's chart is the DOM
+   DEX chart (components/flight/DexChart.tsx, lightweight-charts: pan / zoom / price-axis drag built in). The canvas chart
+   below only draws for CLEAN replays (share videos), the sim and pages without the DOM chart, at a fixed live window. */
 function drawChartMap(){
-  const C=chartState(); chartSample(); { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
+  const C=chartState(); chartSample(); if(domChart()) return; { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
   const r=chartRect(); if(r.off) return; ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
@@ -2893,7 +2857,7 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,chartNav:chartNavState,chartResetView,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 /* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
    usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier

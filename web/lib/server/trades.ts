@@ -177,11 +177,12 @@ export async function storeFills(fills: Fill[]) {
 
 const byOrder = (a: Fill, b: Fill) => a.block - b.block || a.logIndex - b.logIndex;
 export const TRADES_MAX_LIMIT = 5000;
-/** Fills oldest→newest. order "asc" (default) = the oldest `limit`; "desc" = the newest `limit` (ZRANGE … REV), still returned oldest→newest. */
-export async function tradesOf(coin: string, wallet?: string | null, limit = 1000, order: "asc" | "desc" = "asc"): Promise<Fill[]> {
+/** Fills oldest→newest. order "asc" (default) = the oldest `limit`; "desc" = the newest `limit` (ZRANGE … REV), still returned oldest→newest.
+ *  offset skips that many from the chosen end first (paging the full history: the coin chart reads asc pages of 5000). */
+export async function tradesOf(coin: string, wallet?: string | null, limit = 1000, order: "asc" | "desc" = "asc", offset = 0): Promise<Fill[]> {
   const k = wallet ? `trades:w:${wallet.toLowerCase()}:${coin.toLowerCase()}` : `trades:${coin.toLowerCase()}`;
   const n = Math.min(TRADES_MAX_LIMIT, Math.max(1, Math.floor(limit) || 1));
-  const raw = await kv().zrange(k, n, order === "desc");
+  const raw = await kv().zrange(k, n, order === "desc", Math.max(0, Math.floor(offset) || 0));
   const seen = new Set<string>();
   return raw.map((r) => JSON.parse(r) as Fill).filter((f) => (seen.has(f.id) ? false : (seen.add(f.id), true))).sort(byOrder);
 }

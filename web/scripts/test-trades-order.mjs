@@ -1,4 +1,4 @@
-// /api/trades order: kv zrange asc (default) vs rev, tradesOf/route limit clamp + order=desc (newest N, still oldest→newest).
+// /api/trades order: kv zrange asc (default) vs rev (+ offset paging), tradesOf/route limit clamp + order=desc (newest N, still oldest→newest).
 // Unit part: transpiles lib/server/kv.ts (local store). Optional e2e: BASE_URL=http://localhost:3000 COIN=0x… (a coin with > LIMIT fills).
 // Run: node scripts/test-trades-order.mjs
 import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { fileURLToPath, pathToFileURL } from "node:url";
@@ -15,13 +15,17 @@ const s = kv(); ok(s.kind === "local", "local kv");
 await s.zadd("z", Array.from({ length: 10 }, (_, i) => ({ score: 1000 + i, member: "m" + i })));
 ok(JSON.stringify(await s.zrange("z", 3)) === '["m0","m1","m2"]', "default asc = oldest N");
 ok(JSON.stringify(await s.zrange("z", 3, true)) === '["m9","m8","m7"]', "rev = newest N first");
+// paging (Oct 30, coin chart full history): offset skips from the chosen end
+ok(JSON.stringify(await s.zrange("z", 3, false, 3)) === '["m3","m4","m5"]', "asc offset 3 = the next page");
+ok(JSON.stringify(await s.zrange("z", 5, false, 8)) === '["m8","m9"]' && JSON.stringify(await s.zrange("z", 3, false, 20)) === "[]", "last page short, past the end empty");
+ok(JSON.stringify(await s.zrange("z", 2, true, 2)) === '["m7","m6"]', "rev offset");
 // tradesOf contract (source check: clamp + REV + order param wired through the route; sort keeps oldest→newest)
 const tr = fs.readFileSync(path.join(root, "lib/server/trades.ts"), "utf8"), rt = fs.readFileSync(path.join(root, "app/api/trades/route.ts"), "utf8");
 const kvs = fs.readFileSync(path.join(root, "lib/server/kv.ts"), "utf8");
 ok(/TRADES_MAX_LIMIT = 5000/.test(tr) && /Math\.min\(TRADES_MAX_LIMIT/.test(tr), "tradesOf clamps limit to 5000");
-ok(/zrange\(k, n, order === "desc"\)/.test(tr) && /\.sort\(byOrder\)/.test(tr), "tradesOf desc → rev, result sorted oldest→newest");
-ok(/"ZRANGE", k, 0, limit - 1, "REV"/.test(kvs), "upstash uses ZRANGE … REV");
-ok(rt.includes(`get("order") === "desc"`) && /tradesOf\(coin, wallet, limit, order\)/.test(rt), "route passes order (coin + wallet queries)");
+ok(/zrange\(k, n, order === "desc", Math\.max\(0, Math\.floor\(offset\) \|\| 0\)\)/.test(tr) && /\.sort\(byOrder\)/.test(tr), "tradesOf desc → rev, result sorted oldest→newest");
+ok(/"ZRANGE", k, o, o \+ limit - 1, "REV"/.test(kvs), "upstash uses ZRANGE … REV (from offset o)");
+ok(rt.includes(`get("order") === "desc"`) && /tradesOf\(coin, wallet, limit, order, offset\)/.test(rt), "route passes order + offset (coin + wallet queries)");
 const eng = fs.readFileSync(path.join(root, "public/flight/engine.js"), "utf8"); ok(/order=desc/.test(eng), "engine backfill uses order=desc");
 // optional e2e against a running server
 if (process.env.BASE_URL && process.env.COIN) {

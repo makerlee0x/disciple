@@ -8,13 +8,19 @@
  * and growing it back restores the spot you chose. Phones ignore the layout (their drawers / sheets own the screen).
  */
 export type CardId = "header" | "holders" | "trades" | "controls" | "chart" | "pnl" | "chat";
-export type CardState = { dx: number; dy: number; min?: boolean; closed?: boolean };
+/** w / h: a RESIZED card's size (resizable cards only — today the DEX chart); absent = the card's default size */
+export type CardState = { dx: number; dy: number; min?: boolean; closed?: boolean; w?: number; h?: number };
 export type Layout = Partial<Record<CardId, CardState>>;
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /** canvas cards = engine.js @cards (drawn on the canvas); DOM cards apply the offset themselves */
-export const CANVAS_CARDS: CardId[] = ["header", "holders", "trades", "controls", "chart"];
-export const DOM_CARDS: CardId[] = ["pnl", "chat"];
+export const CANVAS_CARDS: CardId[] = ["header", "holders", "trades", "controls"];
+/** chart: the DOM DEX chart (components/flight/DexChart.tsx, lightweight-charts) since Oct 30 — was the engine's canvas chart */
+export const DOM_CARDS: CardId[] = ["chart", "pnl", "chat"];
+/** cards with a resize handle (CardState.w / h) and their size limits (px) */
+export const RESIZABLE: Partial<Record<CardId, { minW: number; minH: number; defW: number; defH: number }>> = {
+  chart: { minW: 300, minH: 200, defW: 440, defH: 280 },
+};
 export const CARD_IDS: CardId[] = [...CANVAS_CARDS, ...DOM_CARDS];
 export const CARD_TITLES: Record<CardId, string> = {
   header: "Coin", holders: "Top holders", trades: "Trades", controls: "Controls", chart: "Chart", pnl: "Your position", chat: "Chat",
@@ -34,7 +40,9 @@ export function parseLayout(raw: string | null | undefined): Layout {
     const o = c as Record<string, unknown>, s: CardState = { dx: num(o.dx), dy: num(o.dy) };
     if (o.min === true) s.min = true;
     if (o.closed === true) s.closed = true;
-    if (s.dx || s.dy || s.min || s.closed) out[id] = s;
+    const rz = RESIZABLE[id];
+    if (rz) { const w = num(o.w), h = num(o.h); if (w > 0 && h > 0) { s.w = Math.max(rz.minW, w); s.h = Math.max(rz.minH, h); } }
+    if (s.dx || s.dy || s.min || s.closed || s.w) out[id] = s;
   }
   return out;
 }
@@ -51,11 +59,19 @@ export function setCard(l: Layout, id: CardId, patch: Partial<CardState>): Layou
   const out: Layout = { ...l };
   if (!next.min) delete next.min;
   if (!next.closed) delete next.closed;
-  if (!next.dx && !next.dy && !next.min && !next.closed) delete out[id]; else out[id] = next;
+  if (!(next.w && next.h && RESIZABLE[id])) { delete next.w; delete next.h; }
+  if (!next.dx && !next.dy && !next.min && !next.closed && !next.w) delete out[id]; else out[id] = next;
   return out;
 }
 export const restoreCard = (l: Layout, id: CardId) => setCard(l, id, { min: false, closed: false });
 export const resetLayout = (): Layout => ({});
+/** a resizable card's drawn size: the saved (or default) size, at least its minimum and at most the viewport minus a margin */
+export function clampSize(id: CardId, s: { w?: number; h?: number } | null | undefined, vw: number, vh: number, margin = 8): { w: number; h: number } {
+  const rz = RESIZABLE[id] ?? { minW: 100, minH: 60, defW: 300, defH: 200 };
+  const w = s?.w && s.w > 0 ? s.w : rz.defW, h = s?.h && s.h > 0 ? s.h : rz.defH;
+  const maxW = Math.max(rz.minW, vw - 2 * margin), maxH = Math.max(rz.minH, vh - 2 * margin);
+  return { w: Math.round(Math.min(maxW, Math.max(rz.minW, w))), h: Math.round(Math.min(maxH, Math.max(rz.minH, h))) };
+}
 export const hiddenCards = (l: Layout) => CARD_IDS.filter((id) => l[id]?.closed || l[id]?.min);
 
 /** the drawn offset: the raw offset clamped so the whole card stays inside vw × vh (a card larger than the viewport pins to

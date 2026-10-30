@@ -1,4 +1,4 @@
-// Coin screen pass 3 (lee, Oct 30): YOUR POSITION card, one ASCENDED, chart navigation, card layout (engine side), the
+// Coin screen pass 3 (lee, Oct 30): YOUR POSITION card, one ASCENDED, chart navigation (now the DOM DEX chart), card layout (engine side), the
 // Chat / Holders tab overlap, rocket height = f(price) only (no drift / snap-back), live own-sell bombs.
 // Static + pure-slice checks (no browser): node scripts/test-coin-pass3.mjs
 import { readFileSync } from "node:fs";
@@ -32,28 +32,16 @@ console.log("— 2. header card: ASCENDED once, no Uniswap, no mode text");
   const once = (s) => (s.match(/ASCENDED/g) || []).length;
   ok(once(tt({ graduated: true }, () => "OUTER SPACE", "ASCENDED")(4)) === 1 && once(tt({ graduated: false }, () => "OUTER SPACE", "ASCENDED")(4)) === 0, "tier line: ASCENDED exactly once when ascended, never otherwise"); }
 
-// ───────────── 3. chart navigation ─────────────
-console.log("— 3. chart: pan / zoom / reset / follow live");
-{ const blk = slice("const CHART_NAV_MIN=8;", "/* @chartnav-math-end */");
-  const M = new Function("clamp", blk + "\nreturn {chartPanEnd,chartZoomView,CHART_NAV_MIN};")((v, a, b) => Math.max(a, Math.min(b, v)));
-  const now = 10000, tf = 60, cw = 8, pw = 288;
-  ok(M.chartPanEnd(null, now, 0, cw, tf, null) === null, "no drag ⇒ stays live");
-  const back = M.chartPanEnd(null, now, 80, cw, tf, null); ok(back === now - 80 / cw * tf, `drag right 80 px ⇒ 10 candles back in time (${now - back}s)`);
-  ok(M.chartPanEnd(back, now, -80, cw, tf, null) === null, "drag back to the right edge ⇒ live again (auto-follow)");
-  ok(M.chartPanEnd(back, now, -400, cw, tf, null) === null, "dragging past live clamps to live");
-  ok(M.chartPanEnd(null, now, 1e6, cw, tf, 5000) === 5000, "can't pan before the oldest candle (tMin)");
-  const z = M.chartZoomView(36, null, now, 2, 100, pw, tf, 160, null); ok(z.n === 72 && z.vEnd === null, "zoom out while live: twice the candles, still following live");
-  ok(M.chartZoomView(36, null, now, 1e-3, 100, pw, tf, 160, null).n === M.CHART_NAV_MIN && M.chartZoomView(36, null, now, 1e3, 100, pw, tf, 160, null).n === 160, "zoom clamped [8 .. keep]");
-  { const vEnd = now - 3000, fr = 120, n0 = 36, z2 = M.chartZoomView(n0, vEnd, now, 0.5, fr, pw, tf, 160, null);
-    const tAt = (R, n) => R - fr / (pw / n) * tf; ok(Math.abs(tAt(vEnd, n0) - tAt(z2.vEnd, z2.n)) < 1e-9, "zoom while panned keeps the time under the cursor fixed"); }
-  ok(/RT=C\.vEnd==null\?now:Math\.min\(C\.vEnd,now\)/.test(eng) && /const X=b=>px\+pw-\(\(RT\+tf\*0\.6\)-\(b\+0\.5\)\*tf\)\/tf\*cw;/.test(eng), "redrawChart maps time through the view's right edge (live ⇔ vEnd null)");
-  ok(/cv\.addEventListener\('wheel',e=>\{ const h=chartHit\(e\); if\(!h\) return; if\(e\.preventDefault\) e\.preventDefault\(\);/.test(eng) && /\{passive:false\}\);/.test(eng), "wheel zooms only over the plot (preventDefault there only)");
-  ok(/dbl\|\|\(lb&&h\.lx>=lb\.x/.test(eng) && /chartResetView\(\)/.test(eng) && /'⟲ LIVE'/.test(eng), "double-click or ⟲ LIVE resets to live");
-  ok(/C\.ptrs\.size>=2/.test(eng) && /C\.pinch=/.test(eng), "two-finger pinch zoom");
-  ok(/\(typeof chartHit==='function'&&chartHit\(e\)\)\)\)\) return;   \/\* @chartnav: a drag on the chart pans it, never steers \*\//.test(eng), "a drag on the chart never starts drag-to-steer");
-  ok(/function chartHit\(e\)\{ const C=CH; if\(!C\|\|CLEAN\|\|!C\.on\|\|!C\.geo\|\|phoneHud\(W,CLEAN\)\) return null;/.test(eng), "phone (drawer chart) unchanged: no chart gestures there");
-  const wb = rd("lib/flight/workerBridge.ts"), wk = rd("public/flight/worker.js");
-  ok(/on\(o\.canvas, "wheel"/.test(wb) && /case 'wheel': if \(canvas\) canvas\.dispatchEvent\(mkEvent\('wheel'/.test(wk), "worker render: wheel forwarded to the engine"); }
+// ───────────── 3. chart navigation → the DOM DEX chart (Oct 30) ─────────────
+console.log("— 3. chart: hand-rolled pan / zoom retired; the DOM DEX chart (lightweight-charts) owns navigation");
+{ ok(!/CHART_NAV_MIN|chartPanEnd|chartZoomView|function chartHit|chartResetView|'⟲ LIVE'|C\.vEnd/.test(code), "engine @chartnav pan / zoom / LIVE code removed");
+  ok(!/GRID_COLS|'ABCDEFGH'/.test(code) && !/fillText\(String\(j\+1\)/.test(code), "no A–H / 1–5 spreadsheet grid labels");
+  ok(/function domChart\(\)\{ return !CLEAN&&typeof window!=='undefined'&&!!window\.__domChart; \}/.test(eng), "engine gate: window.__domChart (never in CLEAN replays)");
+  ok(/if\(domChart\(\)\)\{ delete CARD_RECTS\.chart; return \{x:-1e4,y:-1e4,w:st\.w,h:st\.h,off:1\}; \}/.test(eng) && /chartSample\(\); if\(domChart\(\)\) return;/.test(eng), "DOM chart mounted ⇒ canvas chart not drawn / hit / published (history fetch still seeds the feed)");
+  ok(/if\(domChart\(\)\)\{ try\{ dispatchEvent\(new CustomEvent\('disciple:chartmap'/.test(eng), "M toggles the DOM chart card");
+  ok(/"__domChart"/.test(rd("lib/flight/workerBridge.ts")), "worker render mirrors window.__domChart");
+  const dc = rd("components/flight/DexChart.tsx");
+  ok(/w\.__domChart = true/.test(dc) && /addEventListener\("disciple:chartmap"/.test(dc), "DexChart sets the gate and listens for M"); }
 
 // ───────────── 4. cards (engine side; persistence: scripts/test-card-layout.mts) ─────────────
 console.log("— 4. movable cards (engine)");
@@ -64,7 +52,7 @@ console.log("— 4. movable cards (engine)");
   ok(JSON.stringify(cardOff(r, { dx: -999, dy: -999 }, 1366, 768)) === JSON.stringify({ dx: -20, dy: -600 }), "past the left / top edge ⇒ clamped at 0,0");
   ok(cardOff({ x: 20, y: 18, w: 380, h: 190 }, { dx: 300, dy: 0 }, 300, 768).dx === -20, "card wider than the window pins to the left");
   for (const id of ["header", "holders", "trades", "controls"]) ok(new RegExp(`cardBegin\\('${id}',`).test(eng), `canvas card '${id}' drawn through cardBegin (offset / min / close)`);
-  ok(/const o=cardPlace\('chart',b\.x,b\.y,st\.w,b\.h\); return o\?\{x:b\.x\+o\.dx,y:b\.y\+o\.dy,h:b\.h\}:\{x:-1e4,y:-1e4,h:b\.h,off:1\};/.test(eng), "chart card: moved / hidden via chartRect (hit tests follow)");
+  ok(/data-card="chart"/.test(rd("components/flight/DexChart.tsx")) && /chart: '\[data-card="chart"\]'/.test(rd("components/flight/CardChrome.tsx")), "chart card: the DOM DexChart (data-card=chart) located by CardChrome");
   ok(/drawChartMap\(\); cardPublish\(\);/.test(eng) && /dispatchEvent\(new CustomEvent\('disciple:cardrects'/.test(eng), "engine publishes the drawn card rects (on change)");
   ok(/addEventListener\('disciple:cardlayout'/.test(eng) && /"disciple:cardlayout"/.test(rd("lib/flight/workerBridge.ts")) && /"__cardLayout"/.test(rd("lib/flight/workerBridge.ts")), "layout reaches the engine live (event, worker-forwarded) and at boot (global)");
   ok(/function cardState\(id\)\{ if\(CLEAN\|\|phoneHud\(W,CLEAN\)\) return null;/.test(eng), "phone / clean replay: no layout (drawers unchanged)");
