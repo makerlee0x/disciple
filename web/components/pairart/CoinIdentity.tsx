@@ -10,6 +10,7 @@ import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
 import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
+const MCAP_FMT = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
 
 export default function CoinIdentity({ address, sp }: { address: string; sp: URLSearchParams }) {
@@ -44,6 +45,13 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     ]).then(([name, symbol, pair]) => { if (alive) setChain({ name: String(name), symbol: String(symbol), pair: pair ? String(pair) : undefined }); }).catch(() => undefined);
     return () => { alive = false; };
   }, [needRead, address]);
+  // one header card (coin page cleanup, lee Oct 30): name + pair + market cap, from the engine's real mark (disciple:mark)
+  const [mcap, setMcap] = useState(0);
+  useEffect(() => {
+    const on = (e: Event) => { const m = Number((e as CustomEvent<{ mcap?: number }>).detail?.mcap); if (Number.isFinite(m) && m > 0) setMcap(m); };
+    addEventListener("disciple:mark", on);
+    return () => removeEventListener("disciple:mark", on);
+  }, []);
   const pair = sp.get("pair") || chain?.pair || (demo ? "ETH" : "STRATEGY");
   const tk = sp.get("cs") || chain?.symbol || (demo ? "AI" : "");
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
@@ -53,12 +61,15 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   // the chip is the coin's own art + name. Other pairs keep their badge.
   const ethPair = bp?.tk === "eth" || /^w?eth$/i.test(pair);
   const pairSym = ethPair ? "" : bp?.sym ?? pair;
+  // the ticker shows once: "$TK" only when the name isn't already the ticker
+  const sub = [name.trim().toUpperCase() !== tk.trim().toUpperCase() ? `$${tk}` : "", pairSym,
+    mcap > 0 ? `${MCAP_FMT.format(mcap)} mcap` : ""].filter(Boolean).join(" · ");   // Copy pending lee approval ("mcap")
   return (
     <div className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>
-        <span>${tk}{pairSym ? ` · ${pairSym}` : ""}</span>
+        {sub && <span data-testid="coin-id-sub">{sub}</span>}
       </div>
     </div>
   );

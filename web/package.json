@@ -13,6 +13,7 @@
     "test:pnl": "node scripts/test-pnl.mjs",
     "test:trail": "node scripts/test-trail.mjs",
     "test:gamechat": "node scripts/test-gamechat.mjs",
+    "test:tier-labels": "node scripts/test-tier-labels.mjs",
     "test:default-username": "node scripts/test-default-username.mjs",
     "test:chat": "node scripts/test-chat.mjs",
     "test:chat-no-trades": "tsx --conditions=react-server --test scripts/test-chat-no-trades.mts",

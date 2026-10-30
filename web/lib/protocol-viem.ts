@@ -39,7 +39,7 @@ import type {
 import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, isSmartMode, type ExecResult } from "./wallet";
 import { ensurePveLogin, PveError } from "./pve";
-import { seedCreatorBuyPosition } from "./pnl";
+import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
@@ -1143,7 +1143,7 @@ export function createViemProtocol(): ProtocolClient {
             // launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account)
             const recipient = anonL || usdg ? me : (ev.args.trader as Address);
             launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
-            seedCreatorBuyPosition(`disciple.pnl.${launched.token}`, Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
+            seedCreatorBuyPosition(pnlKey("disciple.pnl.", me, launched.token), Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);
             bumpBalance(launched.token, recipient, tokens);
           } catch { /* other event */ }
         }

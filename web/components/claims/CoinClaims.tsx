@@ -14,7 +14,6 @@ import { claimCrew, coinMode, crewClaimCall, crewFeed, crewPending, isPve, type 
 import { assetMeta, claimErrorText, fmtAmount, preflight, type Asset } from "@/lib/claims/common";
 import { demoFeed, demoRedeploy } from "@/lib/claims/demo";
 import { ConfirmSheet, TxLink, pc, useCaps, useWalletAddr } from "./ui";
-import CoinFloor from "@/components/floor/FloorBins";
 
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 
@@ -79,8 +78,7 @@ export default function CoinClaims({ token }: { token: string }) {
   return (
     <>
       <div className="cl-coin" data-testid="coin-claims">
-        {/* graduated coins: floor support pill → bins card (renders nothing otherwise) */}
-        <CoinFloor token={token} />
+        {/* Coin page cleanup (lee, Oct 30): no "Floor support · Bins" pill on the coin page */}
         {claims && quote && mine != null && (
           <div className="cl-coin-pill creator" data-testid="creator-badge">
             <span className="cl-dot" aria-hidden="true" />
