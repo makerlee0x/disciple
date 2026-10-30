@@ -14,7 +14,7 @@ import "server-only";
  * nonce rejection (incl. "nonce too high") ⇒ resync + re-sign, "already known" / unclear ⇒ wait on the SAME txHash,
  * never re-sign. Both the fast path and the standard eth_sendUserOperation path (standardRelayer) follow them.
  */
-import { createPublicClient, decodeEventLog, decodeFunctionData, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
+import { createPublicClient, decodeEventLog, decodeFunctionData, decodeFunctionResult, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
 import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type RpcErr } from "./syncSend";
 import { RelayerNonceCursor, sendWithCursor, classifySendError } from "./relayerNonce";
@@ -29,7 +29,7 @@ import { checkOpGas, maxPrefund, relayerPrice, relayerTxFees } from "../aa/gasPo
 import { launchTargets } from "../aa/launchTargets";
 import { chainGradReads, relayCaps } from "./gradBuy";
 import { checkPaymaster, RelayPolicyError } from "../aa/gasPolicy";
-import { bundleGas, BundleGasError } from "../aa/bundleGas";
+import { bundleGas, BundleGasError, L1_GAS_FALLBACK, l1Reserve } from "../aa/bundleGas";
 import { allowedPaymaster, debitPaymasterDeposit, paymasterDepositCached } from "./paymasterDeposit";
 import { TRADE_SELECTORS, TRY_ATTRIBUTE } from "../aa/oneTap";
 import { packUserOp } from "./selfBundler";
@@ -196,9 +196,19 @@ async function sendSync(raw: Hex, onPending?: OnPending) {
   return syncSend(raw, keccak256(raw), { send: SEND, getReceipt: receiptOf, onPending });
 }
 const PLAIN = jsonRpc(RPC_URL);
-/** bundleGas, or a RelayPolicyError (before anything is signed / charged) when the op cannot fit one relay tx. */
-export function relayGas(op: UserOp, data: Hex): bigint {
-  try { return bundleGas(op, data); }
+/** Arbitrum NodeInterface (virtual, eth_call only): the L1 calldata gas ArbOS takes from the relayer tx's gas limit. */
+const NODE_INTERFACE = "0x00000000000000000000000000000000000000C8" as const;
+const nodeIfaceAbi = parseAbi(["function gasEstimateL1Component(address to, bool contractCreation, bytes data) payable returns (uint64 gasEstimateForL1, uint256 baseFee, uint256 l1BaseFeeEstimate)"]);
+/** L1 gas units for a handleOps tx with this calldata (L1_GAS_FALLBACK if the node can't answer). Never throws. */
+export async function l1GasOf(data: Hex): Promise<bigint> {
+  try {
+    const r = await pc.call({ to: NODE_INTERFACE, data: encodeFunctionData({ abi: nodeIfaceAbi, functionName: "gasEstimateL1Component", args: [ENTRYPOINT_V07, false, data] }) });
+    return BigInt(decodeFunctionResult({ abi: nodeIfaceAbi, functionName: "gasEstimateL1Component", data: r.data! })[0]);
+  } catch (e) { console.warn("[relay] L1 gas estimate failed, using fallback:", (e as Error).message.split("\n")[0]); return L1_GAS_FALLBACK; }
+}
+/** bundleGas (+ the reserved L1 gas), or a RelayPolicyError (before anything is signed / charged) when the op cannot fit one relay tx. */
+export function relayGas(op: UserOp, data: Hex, l1Gas: bigint = BigInt(0)): bigint {
+  try { return bundleGas(op, data, undefined, l1Gas); }
   catch (e) { if (e instanceof BundleGasError) throw new RelayPolicyError("operation too large to relay", "gas", e.message); throw e; }
 }
 /** Sign a relayer tx; a local signing failure happened before any send ⇒ definitive (the nonce is released). */
@@ -261,7 +271,10 @@ async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, 
   const data = encodeFunctionData({ abi: epAbi, functionName: "handleOps", args: [[packUserOp(op)], me.address] });
   const hash = userOpHash(op, robinhoodTestnet.id);   // fixed by the signed op: returned on success AND on post-broadcast errors
   // outer gas sized for EntryPoint v0.7's 63/64 check (lib/aa/bundleGas; was totalGas + 120k ⇒ AA95 on launches)
-  const gas = relayGas(op, data);
+  // + the Arbitrum L1 calldata gas (lib/aa/bundleGas l1Gas; its absence ⇒ AA95 on setups 2026-10-30 07:31–07:36 CDT).
+  // The L1 estimate runs alongside the simulation / beforeSend; the cap check without it stays before both.
+  relayGas(op, data);
+  const l1P = l1GasOf(data);
   const fast = allowFast && trusted(op);
   if (!fast) {
     const s = Date.now();
@@ -273,6 +286,7 @@ async function relayOnce(op: UserOp, allowFast: boolean, onPending?: OnPending, 
     });
     t.simulate = Date.now() - s; TRUST.simulated(op.sender); void primeSender(op.sender).catch(() => undefined);
   } else t.simulate = 0;
+  const gas = relayGas(op, data, l1Reserve(await l1P));
   await beforeSend?.();   // validated ⇒ now the per-sender limit (and a press's free retry) may be charged
   const txFees = relayerTxFees(op, fee);   // never above the op's fees ⇒ the EntryPoint refund covers the relayer's cost per gas
   let txHash: Hex | undefined, relayNonce: number | undefined;

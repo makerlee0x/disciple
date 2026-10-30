@@ -21,6 +21,11 @@
  * ≈ 60–80k total ⇒ 100k with headroom. pvg is NOT relied on for the intrinsic/calldata cost (clients send a fixed 60k,
  * and a launch carries a data: image in calldata).
  *
+ * + l1Gas (Robinhood Chain is Arbitrum Orbit): ArbOS charges the L1 calldata cost as GAS UNITS taken from the tx gas
+ *   limit before execution (receipt.gasUsedForL1). It floats with the L1 price / L2 base fee: setup 0x605823b2…
+ *   (2026-10-30 07:33 CDT) had 598k L1 gas vs 174k at 07:28 for the same 2.7 KB, so `outer` without it hit AA95.
+ *   Callers pass l1Reserve(NodeInterface.gasEstimateL1Component(handleOps data)).
+ *
  * Applied to EVERY op. Over-sizing the limit costs nothing: the relayer pays for gas USED, and the EntryPoint prefund
  * is computed from the op's own limits, not the outer tx limit.
  */
@@ -45,14 +50,19 @@ export class BundleGasError extends Error {
   constructor(public needed: bigint, public cap: bigint) { super(`op too large to relay: needs ${needed} gas, relay max ${cap}`); }
 }
 
+/** L1 gas when NodeInterface can't be read: above the 07:33 CDT 2026-10-30 spike (598k) for a ~2.7 KB setup bundle. */
+export const L1_GAS_FALLBACK = BigInt(1_000_000);
+/** Headroom on the L1 estimate (the L1 price can step between estimate and inclusion): 2× + 20k. */
+export const l1Reserve = (estimate: bigint) => estimate * BigInt(2) + BigInt(20_000);
+
 /** Gas for handleOps([op]) so innerHandleOp never hits AA95. Throws BundleGasError above `cap`. */
-export function bundleGas(op: Lim, data: Hex, cap: bigint = MAX_RELAY_TX_GAS): bigint {
+export function bundleGas(op: Lim, data: Hex, cap: bigint = MAX_RELAY_TX_GAS, l1Gas: bigint = BigInt(0)): bigint {
   const pm = !!op.paymaster;
   const exec = big(op.callGasLimit) + (pm ? big(op.paymasterPostOpGasLimit) : BigInt(0)) + EP07_INNER_GAS_OVERHEAD;
   const den = BigInt(63 * 63);
   const inner = (exec * BigInt(64 * 64) + den - BigInt(1)) / den;   // ceil(exec × (64/63)²)
   const g = big(op.verificationGasLimit) + (pm ? big(op.paymasterVerificationGasLimit) : BigInt(0)) + big(op.preVerificationGas)
-    + inner + TX_BASE_GAS + calldataGas(data) + ENTRYPOINT_OVERHEAD;
+    + inner + TX_BASE_GAS + calldataGas(data) + ENTRYPOINT_OVERHEAD + l1Gas;
   if (g > cap) throw new BundleGasError(g, cap);
   return g;
 }
