@@ -15,6 +15,7 @@
     "test:gamechat": "node scripts/test-gamechat.mjs",
     "test:default-username": "node scripts/test-default-username.mjs",
     "test:chat": "node scripts/test-chat.mjs",
+    "test:chat-no-trades": "tsx --conditions=react-server --test scripts/test-chat-no-trades.mts",
     "test:sim": "node scripts/test-sim.mjs",
     "test:recenter": "node scripts/test-recenter.mjs",
     "test:audit": "node scripts/test-audit.mjs",
