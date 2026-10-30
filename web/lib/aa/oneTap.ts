@@ -133,14 +133,15 @@ export function usdCapRaw(usd: number, quotePriceUsdWad: bigint): bigint {
  * left (spent + delta ≤ cap). Unknown caps (older cache) ⇒ false ⇒ the owner signs (Privy, silently) instead of the
  * policy reverting with SpendCapExceeded / the client refusing with "spend limit reached".
  */
-export function sessionHasHeadroom(s: Pick<CachedSession, "caps" | "spent"> | null | undefined, delta: Record<string, bigint>): boolean {
+/** pending: session spend still in flight (lib/trade/reservations SESSION_PENDING), counted as already spent (#144 spec #9). */
+export function sessionHasHeadroom(s: Pick<CachedSession, "caps" | "spent"> | null | undefined, delta: Record<string, bigint>, pending: Record<string, bigint> = {}): boolean {
   const entries = Object.entries(delta).filter(([, d]) => d > BigInt(0));
   if (!entries.length) return true;
   if (!s?.caps) return false;
   return entries.every(([t, d]) => {
     const cap = s.caps![t.toLowerCase()];
     if (cap === undefined) return false;
-    return BigInt(s.spent?.[t.toLowerCase()] ?? "0") + d <= BigInt(cap);
+    return BigInt(s.spent?.[t.toLowerCase()] ?? "0") + (pending[t.toLowerCase()] ?? BigInt(0)) + d <= BigInt(cap);
   });
 }
 export function addSpent(s: CachedSession, delta: Record<string, bigint>): CachedSession {
