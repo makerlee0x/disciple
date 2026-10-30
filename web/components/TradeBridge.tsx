@@ -168,7 +168,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     addEventListener("disciple:presets-query", q); addEventListener("disciple:presets-set", set);
     return () => { removeEventListener("disciple:presets-query", q); removeEventListener("disciple:presets-set", set); };
   }, [scope]);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { const h = () => { if (!booted.current) { booted.current = true; pushCfg.current(); } }; addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, []);
+  // first announcement, and again whenever a (new) engine run announces boot:true (engine.js @boot-ammo; FlightCanvas
+  // re-runs the engine when its search changes). After this dispatch, so the buy-selection restore below sees the boot first.
+  useEffect(() => { const h = (e: Event) => { if (!booted.current || (e as CustomEvent<{ boot?: boolean }>).detail?.boot) { booted.current = true; queueMicrotask(() => pushCfg.current()); } }; addEventListener("disciple:ammo", h); return () => removeEventListener("disciple:ammo", h); }, []);
   useEffect(() => { const o = () => setShowCfg(true); const t = (e: Event) => { const on = !!(e as CustomEvent<{ on: boolean }>).detail?.on; if (on !== cfgRef.current.tag) { const n = { ...cfgRef.current, tag: on }; setCfg(n); saveSettings(scope, n); } };
     addEventListener("disciple:swapsettings", o); addEventListener("disciple:pnltag-state", t); return () => { removeEventListener("disciple:swapsettings", o); removeEventListener("disciple:pnltag-state", t); }; }, [scope]);
 
@@ -484,7 +486,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const pickUnit = (u: "%" | "$") => { setSellUnit(u); try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}"); localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, sellUnit: u })); } catch { /* */ } };
   useEffect(() => {   // restore the buy selection once the engine announces its ammo, then remember every change
     let restored = false, tries = 0;   // retry until the engine (maybe still booting in its worker) echoes the saved mode
-    const h = (e: Event) => { const m = (e as CustomEvent<{ mode: number }>).detail?.mode;
+    const h = (e: Event) => { const d = (e as CustomEvent<{ mode: number; boot?: boolean }>).detail, m = d?.mode;
+      if (d?.boot) { restored = false; tries = 0; }   // a fresh engine run starts at mode 0: re-apply the remembered preset
       try { const o = JSON.parse(localStorage.getItem(SEL_KEY) || "{}");
         if (!restored) { if (!(o.buy >= 0 && o.buy < MODES.length) || o.buy === m || ++tries > 20) restored = true; else { dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: o.buy } })); setMode(o.buy); return; } }
         if (typeof m === "number" && o.buy !== m) localStorage.setItem(SEL_KEY, JSON.stringify({ ...o, buy: m })); } catch { /* */ } };
