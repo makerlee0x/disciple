@@ -11,8 +11,9 @@ import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade, sessionMaxSlippageBps } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
+import { appReadTransport, labelRead, readFailure } from "./rpc/readTransport";
 import {
-  BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
+  BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, discipleRouterAbi, launchpadAbi, tokenAbi } from "./abi";
 import { readCoinMcap } from "./mcap";
@@ -205,7 +206,9 @@ export function tradeNetworkError(e: unknown): ProtocolError | null {
     return new ProtocolError("Network", NETWORK_MSG);
   }
   if (isAA || e instanceof ProtocolError || !isTransportError(e)) return null;
-  logTradeError("trade failed before sending (network)", { name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: (e as { url?: string })?.url });
+  // which pre-send read (labelRead in tradeOnce / tradeViaUsdg), the URL(s) tried and each attempt's error
+  const f = readFailure(e);
+  logTradeError("trade failed before sending (network)", { read: f.read ?? "unlabeled", name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: f.url, attempts: f.attempts });
   return new ProtocolError("Network", NETWORK_MSG);
 }
 export function friendlyError(e: unknown): ProtocolError {
@@ -300,10 +303,11 @@ export function friendlyError(e: unknown): ProtocolError {
 /**
  * App-wide public client. Its state reads are pinned to our last receipt's block for ~3 s after our own trade
  * (lib/trade/readFloor): the public RPC can lag the sequencer by ~0.7 s, and a "latest" read in that gap would return
- * pre-trade quotes / balances. Outside that window it is a plain http() client.
+ * pre-trade quotes / balances. Reads go to the public RPC directly and fail over to our same-origin /api/rpc
+ * (lib/rpc/readTransport: CORS / connection failures, lee Oct 30); retries live in that transport (outer: none).
  */
 export function publicClient(): PublicClient {
-  return createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(http()) }) as PublicClient;
+  return createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appReadTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0 }) }) as PublicClient;
 }
 
 /* ---------------- reads ---------------- */
@@ -838,31 +842,31 @@ export function createViemProtocol(): ProtocolClient {
     if (!isDeployed()) throw new ProtocolError("NotDeployed", "Contracts not deployed on this chain yet.");
     try {
       // Hot path: coin facts cached, quote/balance/referral/allowance in PARALLEL (warm tap ⇒ all cache hits, 0 RPCs).
-      const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([coinFacts(pc, t.token), activeAddress()]);
+      const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([labelRead("facts", coinFacts(pc, t.token)), labelRead("account", activeAddress())]);
       const recipient = t.recipient || me;
       const deadline = B(t.deadline || now() + 120);
       // v4 PVE: the curve checks LoginGate.verifiedUntil(trader) on buys (trader = token recipient; router: msg.sender).
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
-      const usdg = await usdgRouteFor(pc, t.token);
+      const usdg = await labelRead("route", usdgRouteFor(pc, t.token));
       // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
       const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
       if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve }, tt);
-      const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await ensurePveLogin(pc, recipient) : [];
+      const pveCalls = side === "buy" && !graduated && mode === MODE.PVE ? await labelRead("pve-login", ensurePveLogin(pc, recipient)) : [];
       const spendAsset = side === "buy" ? quoteAsset : t.token;
       const outAsset = side === "buy" ? t.token : quoteAsset;
       const held = holdSpend(t.pressId!, side, t.token, spendAsset, t.amountIn, ckey("coin", t.token, side));
       const smart = isSmartMode();
-      const gradP = side === "buy" && !graduated ? buyMayGraduate(pc, curve, mode, t.amountIn, recipient) : Promise.resolve(false);
+      const gradP = side === "buy" && !graduated ? labelRead("graduation", buyMayGraduate(pc, curve, mode, t.amountIn, recipient)) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
       // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s (traderQuote)
       const quoteNow = () => !graduated && mode !== MODE.TRENCH ? marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age), sessionMaxSlippageBps() != null)
         : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true), sessionMaxSlippageBps() != null);
       const [qOut, have, refCalls, approve] = await Promise.all([
-        t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
-        balanceHint(pc, spendAsset, me),
-        side === "buy" ? referralCallCached(me) : Promise.resolve([]),
-        smart ? Promise.resolve(null) : approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn),
+        t.minAmountOut > B(0) ? Promise.resolve(B(0)) : labelRead("quote", quoteNow()),
+        labelRead("balance", balanceHint(pc, spendAsset, me)),
+        side === "buy" ? labelRead("referral", referralCallCached(me)) : Promise.resolve([]),
+        smart ? Promise.resolve(null) : labelRead("allowance", approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn)),
       ]);
       let minOut = t.minAmountOut > B(0) ? t.minAmountOut : applySlippage(qOut, t.slippageBps ?? DEFAULT_SLIPPAGE_BPS);
       if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
@@ -876,7 +880,7 @@ export function createViemProtocol(): ProtocolClient {
       // Preflight: an underfunded spend otherwise surfaces only as an opaque estimate failure / on-chain revert.
       // rapid-tap: what other pending trades hold of this asset is not spendable (no extra read: `have` is the hint).
       if (spendable(have, held.others()) < held.need) {
-        const live = await pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] });   // hint may be stale-low
+        const live = await labelRead("balance-live", pc.readContract({ address: spendAsset, abi: tokenAbi, functionName: "balanceOf", args: [me] }));   // hint may be stale-low
         BALANCES.set(ckey(spendAsset, me), live);
         if (live < t.amountIn) {
           const [sym, dec] = await Promise.all([
@@ -914,7 +918,7 @@ export function createViemProtocol(): ProtocolClient {
       let landed: bigint | undefined;
       let logs: ExecResult["logs"] | undefined;
       try {
-        const r = await asTrade(tt, () => execCalls(calls, { rebuild, pressId }));
+        const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
         logs = r.logs; landed = logsBlock(r.logs);
         const out = received(r.logs, outAsset, recipient);
         bookFill(r.logs, spendAsset, me, t.amountIn, side === "sell" ? outAsset : undefined, recipient, out);
@@ -944,26 +948,26 @@ export function createViemProtocol(): ProtocolClient {
   async function tradeViaUsdg(side: "buy" | "sell", t: TradeParams, c: { usdg: Address; me: Address; recipient: Address; deadline: bigint; pve?: boolean; gradCurve?: { curve: Address; mode: number; quote: Address } }, tt?: TradeTiming): Promise<TradeResult> {
     const router = deployment().router, isBuy = side === "buy";
     // Router path: the curve trades for msg.sender (the account) ⇒ PVE login is checked for `me`.
-    const pveCalls = isBuy && c.pve ? await ensurePveLogin(pc, c.me) : [];
+    const pveCalls = isBuy && c.pve ? await labelRead("pve-login", ensurePveLogin(pc, c.me)) : [];
     // quoteUsdgRouteFor(me) reverts NotVerified until the attest is on-chain ⇒ this path needs the server relay.
     if (pveCalls.length) throw new ProtocolError("PveRelayUnavailable", "Couldn't record your PVE login right now — try again in a moment.");
     const spend = isBuy ? c.usdg : t.token, outAsset = isBuy ? t.token : c.usdg;
     const g = isBuy ? c.gradCurve : undefined;
     // USDG-quoted curve: usdgIn IS the curve's quoteIn. Other quote (STRATEGY …): the router swaps USDG → quote first ⇒
     // the same on-chain conversion + margin the relay applies (lib/trade/gradNeed, lib/server/gradBuy).
-    const gradP = !g ? Promise.resolve(false) : g.quote.toLowerCase() === c.usdg.toLowerCase()
+    const gradP = !g ? Promise.resolve(false) : labelRead("graduation", g.quote.toLowerCase() === c.usdg.toLowerCase()
       ? buyMayGraduate(pc, g.curve, g.mode, t.amountIn, c.me)
-      : usdgBuyGraduates(pc, { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn });
+      : usdgBuyGraduates(pc, { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn }));
     const ik = ckey("usdgroute", t.token, side);
     const held = holdSpend(t.pressId!, side, t.token, spend, t.amountIn, ik);
     // exact (no down-scaled warm quote): minOut must clear the session policy floor on the FIRST try
     const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true), sessionMaxSlippageBps() != null);
     const [q, have] = await Promise.all([
-      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
-      balanceHint(pc, spend, c.me),
+      t.minAmountOut > B(0) ? Promise.resolve(B(0)) : labelRead("quote", quoteNow()),
+      labelRead("balance", balanceHint(pc, spend, c.me)),
     ]);
     if (spendable(have, held.others()) < held.need) {
-      const live = await pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] }); BALANCES.set(ckey(spend, c.me), live);
+      const live = await labelRead("balance-live", pc.readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] })); BALANCES.set(ckey(spend, c.me), live);
       if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
         ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
         : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);
@@ -977,7 +981,7 @@ export function createViemProtocol(): ProtocolClient {
     const routerCalls = (mo: bigint): Call[] => isBuy
       ? toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: mo, deadline: c.deadline }))
       : toCalls(routerSellToUsdgCalls({ router, token: t.token, tokensIn: t.amountIn, minUsdgOut: mo, deadline: c.deadline }));
-    const prefix: Call[] = isBuy ? [...pveCalls, ...(await referralCallCached(c.me))] : [];
+    const prefix: Call[] = isBuy ? [...pveCalls, ...(await labelRead("referral", referralCallCached(c.me)))] : [];
     const calls: Call[] = [...prefix, ...routerCalls(minOut)];
     const grad = await gradP;
     if (grad) { const buy = calls[calls.length - 1]; markGradBuy(buy.data); GRAD.drop(c.gradCurve!.curve); }
@@ -1000,7 +1004,7 @@ export function createViemProtocol(): ProtocolClient {
     let landed: bigint | undefined;
     let logs: ExecResult["logs"] | undefined;
     try {
-      const r = await asTrade(tt, () => execCalls(calls, { rebuild, pressId }));
+      const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
       logs = r.logs; landed = logsBlock(r.logs);
       const out = received(r.logs, outAsset, c.me);
       bookFill(r.logs, spend, c.me, t.amountIn, isBuy ? undefined : outAsset, c.me, out);
