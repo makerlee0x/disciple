@@ -17,7 +17,7 @@ import "server-only";
 import { createPublicClient, decodeEventLog, decodeFunctionData, decodeFunctionResult, encodeFunctionData, http, keccak256, parseAbi, parseAbiItem, type Hex, type TransactionReceipt } from "viem";
 import type { RelayConfirmed, RelayReceipt } from "../aa/relayTypes";
 import { jsonRpc, plainSend, syncSend, waitReceipt, type PendingReason, type RpcErr } from "./syncSend";
-import { RelayerNonceCursor, sendWithCursor, classifySendError } from "./relayerNonce";
+import { RelayerNonceCursor, SharedNonceCursor, sendWithCursor, classifySendError, type NonceCursor, type NonceStore } from "./relayerNonce";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { robinhoodTestnet } from "../chains";
 import { userOpHash, type UserOp } from "../aa/core";
@@ -45,18 +45,37 @@ const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHas
 const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true } }) });
 
 /** One relayer EOA + its nonce cursor (one per key per process). */
-type RelayerState = { account: PrivateKeyAccount; nonces: RelayerNonceCursor; /** pool lease still held (checked before every signature) */ canSign?: () => boolean };
+type RelayerState = { account: PrivateKeyAccount; nonces: NonceCursor; /** pool lease still held (checked before every signature) */ canSign?: () => boolean };
 let single: RelayerState | undefined;
 /** Pool keys this process has signed with (by address): an in-flight send keeps its state across a lease change. */
 const pooled = new Map<string, RelayerState & { epoch: number }>();
 let base = { fee: BigInt(0), at: 0 }, baseInflight: Promise<void> | undefined;
 
+const pendingOf = (a: PrivateKeyAccount) => () => pc.getTransactionCount({ address: a.address, blockTag: "pending" });
+/** Pool keys: lease-exclusive (one instance signs per EOA) ⇒ a per-process cursor is enough. */
 function stateOf(account: PrivateKeyAccount): RelayerState {
-  return { account, nonces: new RelayerNonceCursor(() => pc.getTransactionCount({ address: account.address, blockTag: "pending" })) };
+  return { account, nonces: new RelayerNonceCursor(pendingOf(account)) };
 }
-/** The single RELAYER_PRIVATE_KEY state (the faucet-shared cursor when relayerIsFaucet). Fails closed in production. */
+/** kv.nonceAlloc / nonceRelease under relayer:nonce:<chain>:<addr> (+ :holes); TTL refreshed on every alloc. */
+const NONCE_TTL_SEC = 3600;
+export function kvNonceStore(address: string, chainId = robinhoodTestnet.id): NonceStore {
+  const k = `relayer:nonce:${chainId}:${address.toLowerCase()}`, h = `${k}:holes`;
+  return {
+    alloc: (floor) => kv().nonceAlloc(k, h, floor, NONCE_TTL_SEC),
+    release: (n) => kv().nonceRelease(k, h, n, NONCE_TTL_SEC),
+    claim: (tag, ttl) => kv().setNX(`${k}:${tag}`, "1", ttl),
+  };
+}
+/**
+ * The single RELAYER_PRIVATE_KEY state (the faucet-shared cursor when relayerIsFaucet). Fails closed in production.
+ * Every instance writes this EOA ⇒ nonces come from the shared KV allocator (SharedNonceCursor), not a per-process
+ * counter. RELAYER_NONCE_SHARED=0 restores the per-process cursor (escape hatch; not set anywhere).
+ */
 function singleState(): RelayerState {
-  return (single ??= stateOf(privateKeyToAccount(relayerKey())));
+  if (single) return single;
+  const account = privateKeyToAccount(relayerKey());
+  const nonces = process.env.RELAYER_NONCE_SHARED === "0" ? new RelayerNonceCursor(pendingOf(account)) : new SharedNonceCursor(kvNonceStore(account.address), pendingOf(account));
+  return (single = { account, nonces });
 }
 /**
  * Relayer key pool (lib/server/relayerPool), OFF unless RELAYER_KEY_POOL is set; never while the relayer is the faucet
@@ -100,7 +119,7 @@ function account() { return active().account; }
  * (~180 ms, seen on the first trade after "Get test funds"). Rules: lib/server/relayerNonce.sendWithCursor.
  */
 export async function sendWithRelayerNonce<T>(send: (nonce: number) => Promise<T>): Promise<T> {
-  return sendWithCursor(singleState().nonces, send);   // the faucet-shared key, never a pool key
+  return sendWithCursor(singleState().nonces, send, 3);   // the faucet-shared key, never a pool key
 }
 function refreshBase() {
   return (baseInflight ??= pc.getBlock().then((b) => { base = { fee: b.baseFeePerGas ?? BigInt(0), at: Date.now() }; }).finally(() => { baseInflight = undefined; }));
