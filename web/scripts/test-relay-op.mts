@@ -282,11 +282,11 @@ test("pre-send failures that already map to a specific message keep it (balance,
   const wrapped = encodeErrorResult({ abi: E2, errorName: "PreExecHookReverted", args: [`0x${"11".repeat(24)}`, mo] });
   const cases: [Hex, string][] = [
     [bal, "Not enough balance for that shot size — deposit more or pick a smaller ammo."],
-    [mo, "Price moved past your one-tap max slippage. Try again or raise slippage."],
-    [wrapped, "Price moved past your one-tap max slippage. Try again or raise slippage."],
+    [mo, "Price moved, trade not sent. Try again."],
+    [wrapped, "Price moved, trade not sent. Try again."],
   ];
   cases.push([encodeErrorResult({ abi: E2, errorName: "WalletCap" }), "Wallet cap reached: one wallet can hold at most 7% before orbit."]);
-  cases.push([encodeErrorResult({ abi: parseAbi(["error Slippage()"]), errorName: "Slippage" }), "Price moved too much. Try again or raise slippage."]);
+  cases.push([encodeErrorResult({ abi: parseAbi(["error Slippage()"]), errorName: "Slippage" }), "Price moved, trade not sent. Try again."]);
   for (const [rd, want] of cases) {
     const pe = friendlyError(new AAError("Estimate", "simulation failed: execution reverted", { revertData: rd }));
     assert.equal(pe.message, want);
