@@ -52,7 +52,7 @@ function metaOf(coin: Address) {
 }
 
 /**
- * Sign in once (Privy email / Google) → Privy embedded EOA owns an Alchemy MAv2 smart account (self-pay gas,
+ * Sign in once (Privy: email / Google / X / external wallet) → Privy embedded EOA owns an Alchemy MAv2 smart account (self-pay gas,
  * drip-funded on testnet) → "Enable one-tap" installs an on-chain session key → trades are one tap.
  * Dev options: an existing wallet as owner (one signature).
  * Legacy "plain wallet" path kept as fallback (one tx per action).

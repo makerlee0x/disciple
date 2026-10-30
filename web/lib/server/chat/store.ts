@@ -84,14 +84,17 @@ export function chatStore(): ChatStore {
   return inst;
 }
 
+/** Trade lines posted before trades left chat (event buy / sell / nuke, lib/server/chat/chain). Stored ones are hidden on read. */
+export const isTradeLine = (m: ChatMsg) => m.kind === "event" && m.meta?.event !== "graduate";
+
 /** History window: oldest→newest, ≤limit, strictly before `before` id if given. */
 export async function historyOf(coin: string, limit: number, before?: string): Promise<ChatMsg[]> {
-  const all = await chatStore().recent(coin, CHAT_LIMITS.keepPerCoin);
+  const all = (await chatStore().recent(coin, CHAT_LIMITS.keepPerCoin)).filter((m) => !isTradeLine(m));
   const f = before ? all.filter((m) => m.id < before) : all;
   return f.slice(0, Math.max(1, Math.min(limit, CHAT_LIMITS.historyMax))).reverse();
 }
 /** Messages newer than `after` id, oldest→newest. */
 export async function messagesAfter(coin: string, after: string): Promise<ChatMsg[]> {
   const all = await chatStore().recent(coin, 100);
-  return all.filter((m) => m.id > after).reverse();
+  return all.filter((m) => m.id > after && !isTradeLine(m)).reverse();
 }
