@@ -54,7 +54,7 @@ export const READ_FLOOR = new ReadFloor();
 /** State reads whose block tag sits at params[i]. */
 const BLOCK_PARAM: Record<string, number> = { eth_call: 1, eth_getBalance: 1, eth_getCode: 1, eth_getTransactionCount: 1, eth_getStorageAt: 2 };
 /** "This node doesn't have that block yet" (geth / nitro / reth / erigon wordings). */
-export const BEHIND = /header not found|unknown block|block not found|not found.*block|block.*not (?:found|available)|missing trie node|no state available|after last accepted block|requested block .* (?:is )?(?:greater|ahead|in the future)/i;
+export const BEHIND = /header not found|unsupported block number|unknown block|block not found|not found.*block|block.*not (?:found|available)|missing trie node|no state available|after last accepted block|requested block .* (?:is )?(?:greater|ahead|in the future)/i;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
