@@ -9,7 +9,7 @@ import { routerUsdg, payUsdg, usdgRouteQuote, routerBuyWithUsdgCalls, routerSell
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
 import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, scaledQuote, addInflight, marginalQuote, key as ckey } from "./trade/hotCache";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
-import { asTrade } from "./aa/session";
+import { asTrade, sessionMaxSlippageBps } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, http, maxUint256, parseAbi, type Hex, type PublicClient,
@@ -190,8 +190,20 @@ const logsBlock = (logs: unknown): bigint | undefined => {
  * / "took too long" / fetch errors were shown raw to players (lee, Oct 26). Nothing was sent (the AA layer turns any
  * post-send failure into "Timeout"). Plain line; raw text + url to the console. null = not a transport error.
  */
+/** Pause before the one pre-send network retry (trade()). */
+export const NETWORK_RETRY_MS = 250;
+/**
+ * aa-sdk's client-side "Request is missing parameters. All properties on UserOperationStruct must be set" — thrown by
+ * buildUserOperation BEFORE anything is signed or sent (seen on a fresh account's first two concurrent taps, Oct 30
+ * testnet repro). Wrapped by mav2 as AAError("Estimate", "simulation failed: …"); safe to retry like a network blip.
+ */
+export const INCOMPLETE_OP = /missing parameters|properties on UserOperationStruct must be set/i;
 export function tradeNetworkError(e: unknown): ProtocolError | null {
   const isAA = e instanceof AAError || (e as { constructor?: { name?: string } })?.constructor?.name === "AAError";
+  if (isAA && (e as AAError).code === "Estimate" && INCOMPLETE_OP.test(String((e as Error).message ?? ""))) {
+    logTradeError("trade op built incomplete before sending (retryable)", { message: String((e as Error).message).slice(0, 300) });
+    return new ProtocolError("Network", NETWORK_MSG);
+  }
   if (isAA || e instanceof ProtocolError || !isTransportError(e)) return null;
   logTradeError("trade failed before sending (network)", { name: (e as Error)?.name, message: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 300), url: (e as { url?: string })?.url });
   return new ProtocolError("Network", NETWORK_MSG);
@@ -778,6 +790,17 @@ export function createViemProtocol(): ProtocolClient {
         // "we can't stop them from selling") an op that definitely EXECUTED and reverted on-chain (nothing traded).
         // An op that may still land (Timeout) is NEVER resent: lee's Oct 26 test got an extra sell from that resend.
         // AUDIT: the definite-revert resend is new (was: never resend anything sent).
+        // Pre-send connection hiccup (a quote / balance / fee read failed, or the SDK built an incomplete op while two
+        // first taps raced): NOTHING was sent, so one quiet retry after a short pause is safe and usually lands (lee,
+        // Oct 30: "Connection hiccup" on buys that should have filled). Only "Network" (tradeNetworkError: never a sent op).
+        if (e instanceof ProtocolError && e.code === "Network" && !wasSent(e)) {
+          console.warn("[disciple] pre-send network error; retrying once (nothing was sent)");
+          tt.note({ networkRetry: true });
+          await new Promise((res) => setTimeout(res, NETWORK_RETRY_MS));
+          dropRouteQuotes(t.token);
+          r = await tradeOnce(side, t, tt);
+          tt.done("fill"); RESERVATIONS.release(rid, "filled"); return r;
+        }
         if (!(e instanceof ProtocolError) || t.minAmountOut > B(0) || !MINOUT_RETRY.test(e.code) || (wasSent(e) && !wasReverted(e))) throw e;
         if (wasReverted(e)) console.warn("[disciple] trade reverted on price movement; resending once at a fresh quote", e.code);
         tt.note({ minOutRetry: true });
@@ -833,8 +856,8 @@ export function createViemProtocol(): ProtocolClient {
       const gradP = side === "buy" && !graduated ? buyMayGraduate(pc, curve, mode, t.amountIn, recipient) : Promise.resolve(false);
       // PVE/PVP curve: always a live, trader-specific quote (mode caps; PVE sells net of the profit tax)
       // PVE/PVP curve: trader-specific quote (mode caps; PVE sells net of the profit tax), exact-key cache ≤ 1.5 s (traderQuote)
-      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age))
-        : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true));
+      const quoteNow = () => !graduated && mode !== MODE.TRENCH ? marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => traderQuote(pc, t.token, side, a, side === "buy" ? recipient : me, age), sessionMaxSlippageBps() != null)
+        : marginalQuote(ckey("coin", t.token, side), t.amountIn, (a, age) => quoteOut(pc, t.token, side, a, age, true), sessionMaxSlippageBps() != null);
       const [qOut, have, refCalls, approve] = await Promise.all([
         t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
         balanceHint(pc, spendAsset, me),
@@ -934,7 +957,7 @@ export function createViemProtocol(): ProtocolClient {
     const ik = ckey("usdgroute", t.token, side);
     const held = holdSpend(t.pressId!, side, t.token, spend, t.amountIn, ik);
     // exact (no down-scaled warm quote): minOut must clear the session policy floor on the FIRST try
-    const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true));
+    const quoteNow = () => marginalQuote(ik, t.amountIn, (a, age) => usdgRouteQuote(pc, router, t.token, isBuy, a, age, c.me, true), sessionMaxSlippageBps() != null);
     const [q, have] = await Promise.all([
       t.minAmountOut > B(0) ? Promise.resolve(B(0)) : quoteNow(),
       balanceHint(pc, spend, c.me),

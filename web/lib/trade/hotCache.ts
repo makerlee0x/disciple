@@ -64,9 +64,16 @@ export function scaledQuote(last: { amountIn: bigint; amountOut: bigint; at: num
  */
 export const INFLIGHT = new Map<string, bigint>();
 export function addInflight(k: string, a: bigint) { INFLIGHT.set(k, (INFLIGHT.get(k) ?? BigInt(0)) + a); return () => { const v = (INFLIGHT.get(k) ?? BigInt(0)) - a; if (v > BigInt(0)) INFLIGHT.set(k, v); else INFLIGHT.delete(k); }; }
-export async function marginalQuote(k: string, amountIn: bigint, quote: (a: bigint, maxAge?: number) => Promise<bigint>): Promise<bigint> {
+/**
+ * `floorAtPlain` (a one-tap session is active): never price below the PLAIN live quote. The session policy re-quotes at
+ * execution and reverts MinOutTooLow when minOut < live × (1 − maxSlippage); rapid taps land in any order, so a quote
+ * priced behind the in-flight shots ran ~5–15 % under live whenever this op landed first (Oct 30 testnet repro: $25 / $50
+ * / $100 rapid buys refused). The router's own min-out check + trade()'s one fresh-quote resend cover the other order.
+ */
+export async function marginalQuote(k: string, amountIn: bigint, quote: (a: bigint, maxAge?: number) => Promise<bigint>, floorAtPlain = false): Promise<bigint> {
   const p = INFLIGHT.get(k) ?? BigInt(0);
   if (p <= BigInt(0)) return quote(amountIn);
+  if (floorAtPlain) return quote(amountIn, 0);   // marginal ≤ plain on any curve / pool: max(marginal, plain) = plain
   const [all, base] = await Promise.all([quote(p + amountIn, 0), quote(p, 0)]);
   return all > base ? all - base : BigInt(0);
 }

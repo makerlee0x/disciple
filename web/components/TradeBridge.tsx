@@ -384,7 +384,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       if (a) {
         console.warn("[disciple] trade alert shown instead of sending", a.kind, side, usd);
         setAlert({ a, side, usd, o: o && { frac: o.frac, all: o.all, confirmed: o.confirmed } });
-        return { ok: false, reason: a.text, needsConfirm: a.kind };
+        // Needs GAME review: `unknown: true` ⇒ engine.js onResult shows a calm flash instead of "✕ trade failed: High price
+        // impact…" + "That didn't go through." (lee, Oct 30: the > 10 % alert read as a refusal). The alert strip's
+        // Go ahead / Buy max sends it. Remove `unknown` once the engine handles needsConfirm itself.
+        return { ok: false, unknown: true, reason: a.text, needsConfirm: a.kind };
       }
       let pid: string | undefined, early: (r: BridgeResult) => void = () => undefined;
       const earlyP = new Promise<BridgeResult>((res) => { early = res; });

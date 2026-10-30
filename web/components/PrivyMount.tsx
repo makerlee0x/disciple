@@ -12,6 +12,7 @@ import { PrivyProvider, toViemAccount, usePrivy, useWallets } from "@privy-io/re
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy } from "@/lib/aa/session";
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
+import { syncLocalIdentity } from "@/lib/profile";
 
 function PrivyBridge() {
   const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
@@ -32,6 +33,8 @@ function PrivyBridge() {
     linked.current = w.address.toLowerCase();
     toViemAccount({ wallet: w })
       .then((owner) => connectPrivyOwner(owner))
+      // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
+      .then((acct) => { void syncLocalIdentity(acct).catch(() => undefined); })
       .catch((e) => { linked.current = null; console.warn("[privy] owner setup failed", (e as Error).message); });
   }, [ready, walletsReady, authenticated, wallets]);
   return null;
