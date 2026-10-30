@@ -17,6 +17,17 @@ export async function freshSellBalance(read: () => Promise<bigint>, hint: () => 
   }
   return b;
 }
+/**
+ * Zero-wait sell sizing (lee, Oct 30: "Get rid of the delay entirely"): a tap sizes from the TRACKED balance — the own-
+ * receipt ledger (exact for our fills), else the polled balance at any age — and never waits on a read. Only when
+ * nothing is known, or it says 0 (maybe a stale ledger), one bounded read (`cold`, the caller's budget) decides.
+ * The router has no sell-all semantics (DiscipleRouter.sellToUsdg takes an exact tokensIn), so 100 % = this balance.
+ */
+export async function tapSellBalance(tracked: bigint | undefined, cold: () => Promise<bigint>): Promise<{ bal: bigint; src: "tracked" | "read" }> {
+  if (tracked !== undefined && tracked > BigInt(0)) return { bal: tracked, src: "tracked" };
+  const r = await cold().catch(() => undefined);
+  return r !== undefined ? { bal: r, src: "read" } : { bal: tracked ?? BigInt(0), src: "tracked" };
+}
 /** frac of a raw balance (1e-6 precision), same rounding everywhere so warmed sell quotes are cache hits. */
 export const sellAmount = (bal: bigint, frac: number) => (bal * BigInt(Math.round(Math.min(1, frac) * 1e6))) / BigInt(1e6);
 /** amountIn for a % / DUMP-ALL sell: all (or frac ≥ 1) = the whole real balance, no rounding dust left behind. */

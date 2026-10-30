@@ -42,7 +42,7 @@ const epAbi = parseAbi([
   "function handleOps(P[] ops, address beneficiary)",
 ]);
 const uoEvent = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)");
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true } }) });
+const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 
 /** One relayer EOA + its nonce cursor (one per key per process). */
 type RelayerState = { account: PrivateKeyAccount; nonces: NonceCursor; /** pool lease still held (checked before every signature) */ canSign?: () => boolean };

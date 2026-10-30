@@ -99,14 +99,21 @@ const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.c
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
 const NONCE_ALLOC_LUA = "local f=tonumber(ARGV[1]) while true do local h=redis.call('ZPOPMIN',KEYS[2]) if #h==0 then break end local n=tonumber(h[2]) if n>=f then return n end end local c=tonumber(redis.call('GET',KEYS[1]) or '0') if c<f then c=f end redis.call('SET',KEYS[1],c+1,'EX',ARGV[2]) return c";
 const NONCE_RELEASE_LUA = "local n=tonumber(ARGV[1]) local c=tonumber(redis.call('GET',KEYS[1]) or '-1') if c==n+1 then redis.call('SET',KEYS[1],n,'EX',ARGV[2]) return 1 end if c>n+1 then redis.call('ZADD',KEYS[2],n,ARGV[1]) redis.call('EXPIRE',KEYS[2],ARGV[2]) return 2 end return 0";
+/** Per Upstash REST command (a healthy one is ~5–30 ms from Vercel). */
+export const KV_TIMEOUT_MS = 1500;
 function upstash(url: string, token: string): Kv {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
-  const cmd = async <T = unknown>(...args: (string | number)[]): Promise<T> => {
-    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(args), cache: "no-store" });
+  // Bounded (job 9): a hung KV must not hold the relay's pre-send steps (limits / invite / fast-lease / beforeSend all
+  // fail safe on an error). EXCEPT the relayer nonce counter ops (cmdNonce): an aborted EVAL may still have run ⇒ a lost
+  // nonce = a hole that stalls the relayer EOA; those stay unbounded as before.
+  const cmdT = async <T = unknown>(timeoutMs: number | undefined, args: (string | number)[]): Promise<T> => {
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(args), cache: "no-store", ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
     const j = (await r.json()) as { result?: T; error?: string };
     if (!r.ok || j.error) throw new Error(`upstash: ${j.error || r.status}`);
     return j.result as T;
   };
+  const cmd = <T = unknown>(...args: (string | number)[]) => cmdT<T>(KV_TIMEOUT_MS, args);
+  const cmdNonce = <T = unknown>(...args: (string | number)[]) => cmdT<T>(undefined, args);
   return {
     kind: "upstash",
     get: (k) => cmd<string | null>("GET", k),
@@ -130,8 +137,8 @@ function upstash(url: string, token: string): Kv {
     async ttl(k) { return Number(await cmd<number>("TTL", k)); },
     async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
     async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },
-    async nonceAlloc(c, h, floor, ttl) { return Number(await cmd<number>("EVAL", NONCE_ALLOC_LUA, 2, c, h, floor, ttl)); },
-    async nonceRelease(c, h, n, ttl) { return Number(await cmd<number>("EVAL", NONCE_RELEASE_LUA, 2, c, h, n, ttl)); },
+    async nonceAlloc(c, h, floor, ttl) { return Number(await cmdNonce<number>("EVAL", NONCE_ALLOC_LUA, 2, c, h, floor, ttl)); },
+    async nonceRelease(c, h, n, ttl) { return Number(await cmdNonce<number>("EVAL", NONCE_RELEASE_LUA, 2, c, h, n, ttl)); },
   };
 }
 
