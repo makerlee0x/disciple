@@ -35,7 +35,7 @@ A wallet you referred launches a rocket. Someone BOOSTs it for $1,000. The fee i
 
 Referral earnings build up on-chain in the FeeRouter, per base. Claiming from the app is coming soon. Until then, call `claimReferrerFees(quote)` on the FeeRouter, one base at a time. See [Contract addresses](/docs/reference/contracts).
 
-After graduation, a reward taken in the rocket coin is sent straight to your wallet. There's nothing to claim.
+After ascension, a reward taken in the rocket coin is sent straight to your wallet. There's nothing to claim.
 
 ## On testnet
 

@@ -1,15 +1,15 @@
 ---
-title: Graduation
+title: Ascension
 slug: /docs/curve/graduation
-section: Bonding curve and graduation
+section: Bonding curve and ascension
 ---
-# Graduation
+# Ascension
 
-A rocket graduates when 84% of supply has sold on the curve and its market cap reaches $33,333. That's the Outer Space tier.
+A rocket ascends when 84% of supply has sold on the curve and its market cap reaches $33,333. That's the Outer Space tier.
 
 ## What happens
 
-The BOOST that crosses the line triggers graduation in the same transaction. There's no pause and no gap. [CONFIRM: FLOW — how the crossing BOOST is filled when it overshoots, e.g. partial fill and refund.]
+The BOOST that crosses the line triggers ascension in the same transaction. There's no pause and no gap. [CONFIRM: FLOW — how the crossing BOOST is filled when it overshoots, e.g. partial fill and refund.]
 
 1. **A Uniswap v4 pool opens** for the rocket and its base, at the curve's last price. No jump.
 2. **Liquidity goes into the pool**: the remaining 15.76% of supply plus the base the curve raised, as one full-range position.
@@ -30,7 +30,7 @@ The BOOST that crosses the line triggers graduation in the same transaction. The
 | Wallet cap | If set at launch | None |
 | Tramps and walls | No | Yes |
 
-## After graduation
+## After ascension
 
 - The pool's own LP fee is **0**. The DISCIPLE hook charges the 1%. Total fee stays 1%.
 - 33% of every fee still goes to the locked liquidity, added to the position as it builds up.

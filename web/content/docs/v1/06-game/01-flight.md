@@ -15,7 +15,7 @@ Open any rocket to fly it. The chart becomes the sky.
 - **DUMPs** as bombs, live, for everyone aboard. See [Bombs](/docs/trading/bombs).
 - **The HUD.** Market cap, 24h change, your position and PnL, the BOOST and DUMP controls.
 - **The crew panel.** Who's aboard, King of the Hill, crew chat. See [Crew](/docs/game/crew).
-- **Tramps and walls** on graduated rockets, drawn as lines on the sky.
+- **Tramps and walls** on ascended rockets, drawn as lines on the sky.
 
 ## Controls
 
@@ -32,7 +32,7 @@ Open any rocket to fly it. The chart becomes the sky.
 
 ## The Launchpad
 
-The Launchpad is the home page. It lists rockets, with filters such as trending, new, near orbit (close to graduation), graduated and verified.
+The Launchpad is the home page. It lists rockets, with filters such as trending, new, near orbit (close to ascension), ascended and verified.
 
 **Verified** rockets show a checkmark. The team reviews a rocket before granting the mark. On testnet, the checkmark is a preview and uses sample stats. [CONFIRM: lee — the code names the Verified tiers Blessed, Anointed and Glorified, which clash with the season ranks (Blessed, Anointed, Glorified, Divine). Pick new tier names or drop tiers.]
 

@@ -28,7 +28,7 @@ You can transfer a rocket to another wallet, anytime, as many times as you like.
 ## What you can't do
 
 - Mint more supply. Supply is fixed at 1M.
-- Pause trading. Curves and graduated pools are always live.
-- Remove graduated liquidity. It's locked forever.
+- Pause trading. Curves and ascended pools are always live.
+- Remove ascended liquidity. It's locked forever.
 
 As a holder, you can still sell your own coins, like anyone else.

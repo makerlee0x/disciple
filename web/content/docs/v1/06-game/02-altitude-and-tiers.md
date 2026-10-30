@@ -7,28 +7,28 @@ section: Game
 
 A rocket's **altitude** is its market cap. As it climbs, it passes through 18 tiers, from Launch Pad to Seventh Heaven. Each tier has its own sky.
 
-Graduation happens at **Outer Space**, $33,333.
+Ascension happens at **Outer Space**, $33,333.
 
-| # | Tier | Market cap from | Up to |
-|---|---|---|---|
-| 1 | **Launch Pad** | $3,333 | $12K |
-| 2 | **Ozone** | $12K | $18K |
-| 3 | **Stratosphere** | $18K | $25K |
-| 4 | **Kármán Line** | $25K | $33,333 |
-| 5 | **Outer Space** · graduation | $33,333 | $55K |
-| 6 | **Firmament** | $55K | $100K |
-| 7 | **Morning Stars** | $100K | $333K |
-| 8 | **Heavenly Host** | $333K | $777K |
-| 9 | **The Moon** | $777K | $1.2M |
-| 10 | **Uranus** | $1.2M | $3.3M |
-| 11 | **Limbo** | $3.3M | $7.7M |
-| 12 | **Gates of Heaven** | $7.7M | $33M |
-| 13 | **Throne Room** | $33M | $77M |
-| 14 | **Cherubim** | $77M | $120M |
-| 15 | **Seraphim** | $120M | $777M |
-| 16 | **Aether** | $777M | $1.2B |
-| 17 | **Empyrean** | $1.2B | $3.3B |
-| 18 | **Seventh Heaven** | $3.3B | $7.77B |
+| Tier | Market cap from | Up to |
+|---|---|---|
+| **Launch Pad** | $3,333 | $12K |
+| **Ozone** | $12K | $18K |
+| **Stratosphere** | $18K | $25K |
+| **Kármán Line** | $25K | $33,333 |
+| **Outer Space** · ascension | $33,333 | $55K |
+| **Firmament** | $55K | $100K |
+| **Morning Stars** | $100K | $333K |
+| **Heavenly Host** | $333K | $777K |
+| **The Moon** | $777K | $1.2M |
+| **Uranus** | $1.2M | $3.3M |
+| **Limbo** | $3.3M | $7.7M |
+| **Gates of Heaven** | $7.7M | $33M |
+| **Throne Room** | $33M | $77M |
+| **Cherubim** | $77M | $120M |
+| **Seraphim** | $120M | $777M |
+| **Aether** | $777M | $1.2B |
+| **Empyrean** | $1.2B | $3.3B |
+| **Seventh Heaven** | $3.3B | $7.77B |
 
 Each tier starts at its "from" value and runs up to, not including, the next tier. Seventh Heaven is the top.
 
