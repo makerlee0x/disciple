@@ -38,10 +38,13 @@ export class TtlCache<T> {
     this.inflight.set(k, p);
     return p;
   }
-  /** Cached if fresh, else one shared in-flight read. */
-  async get(k: string, read: () => Promise<T>, maxAge = this.ttlMs): Promise<T> {
+  /** Cached if fresh, else one shared in-flight read. race (tap clients): never just JOIN someone else's in-flight read
+   *  (a background warm on the sequential failover transport can sit ~2.5 s on a hung direct RPC) — run our own
+   *  bounded read beside it, first success wins. */
+  async get(k: string, read: () => Promise<T>, maxAge = this.ttlMs, race = false): Promise<T> {
     const f = this.fresh(k, maxAge); if (f !== undefined) return f;
     let p = this.inflight.get(k);
+    if (p && race) { const t0 = this.clock(); return firstOk([p, read().then((v) => { this.setRead(k, v, t0); return v; })]); }
     if (!p) { const t0 = this.clock(); p = read().then((v) => { this.setRead(k, v, t0); return v; }).finally(() => this.inflight.delete(k)); this.inflight.set(k, p); }
     return p;
   }
@@ -190,3 +193,11 @@ export class Requoter {
   }
 }
 export const REQUOTE = new Requoter([QUOTES, TRADER_QUOTES], LAST_QUOTE);
+
+/** Clients whose transport is the bounded tap race (fastClient / coldClient): shared memo reads race instead of joining. */
+export const TAP_CLIENTS = new WeakSet<object>();
+export const isTapClient = (pc: unknown) => !!pc && typeof pc === "object" && TAP_CLIENTS.has(pc as object);
+/** First fulfilled promise; rejects with the last error only when all reject. */
+export function firstOk<T>(ps: Promise<T>[]): Promise<T> {
+  return new Promise((res, rej) => { let n = ps.length; for (const p of ps) p.then(res, (e) => { if (--n === 0) rej(e); }); });
+}

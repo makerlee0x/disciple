@@ -8,7 +8,7 @@
 import { routerUsdg, routerUsdgNow, payUsdg, usdgRouteQuote, readUsdgRoute, usdgModelRoute, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
 import { MODEL } from "./trade/quoteModel";
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
-import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, OPPOSITE_WAIT, scaledQuote, addInflight, quoteRange, beginTap, type CoinTap, key as ckey } from "./trade/hotCache";
+import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, OPPOSITE_WAIT, scaledQuote, addInflight, quoteRange, beginTap, type CoinTap, key as ckey, TAP_CLIENTS, isTapClient } from "./trade/hotCache";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade, sessionMaxSlippageBps } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
@@ -357,7 +357,7 @@ export async function decimalsOf(pc: PublicClient, erc20: Address): Promise<numb
 
 const curveCache = new Map<string, Address>();
 export async function curveOf(pc: PublicClient, token: Address): Promise<Address> {
-  return COIN.get(ckey("curve", token), () => curveOfLive(pc, token)) as Promise<Address>;
+  return COIN.get(ckey("curve", token), () => curveOfLive(pc, token), undefined, isTapClient(pc)) as Promise<Address>;
 }
 async function curveOfLive(pc: PublicClient, token: Address): Promise<Address> {
   const hit = curveCache.get(token.toLowerCase());
@@ -420,7 +420,7 @@ export async function coinFacts(pc: PublicClient, token: Address): Promise<CoinF
   const c = { address: curve, abi: bondingCurveAbi } as const;
   const [graduated, quote, mode] = await Promise.all([
     pc.readContract({ ...c, functionName: "graduated" }), pc.readContract({ ...c, functionName: "quote" }),
-    (COIN.get(ckey("mode", curve), () => pc.readContract({ ...c, functionName: "mode" }).then(Number).catch(() => 0)) as Promise<number>),
+    (COIN.get(ckey("mode", curve), () => pc.readContract({ ...c, functionName: "mode" }).then(Number).catch(() => 0), undefined, isTapClient(pc)) as Promise<number>),
   ]);
   const v = { curve, graduated, quote, quoteDecimals: await decimalsOf(pc, quote), mode, at: Date.now() };
   COIN.set(kk, v); return v;
@@ -651,7 +651,7 @@ export async function readCreatorBuyMaxBps(pc: PublicClient) {
 export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy" | "sell", usd: number): Promise<bigint> {
   const curve = await curveOf(pc, token);
   const c = { address: curve, abi: bondingCurveAbi } as const;
-  const qp = await COIN.get(ckey("qp", curve), () => pc.readContract({ ...c, functionName: "quotePriceUsd" })) as bigint;   // launch-fixed
+  const qp = await COIN.get(ckey("qp", curve), () => pc.readContract({ ...c, functionName: "quotePriceUsd" }), undefined, isTapClient(pc)) as bigint;   // launch-fixed
   const usdMicro = B(Math.max(1, Math.round(usd * 1e6)));
   if (side === "buy") return (usdMicro * B(1e18) * B(1e18)) / (qp * B(1e6));
   const [mcapWad, p] = await Promise.all([pc.readContract({ ...c, functionName: "mcapNow" }), curveParams(pc, curve)]);
@@ -698,12 +698,14 @@ export async function balanceHint(pc: PublicClient, erc20: Address, owner: Addre
 let FAST: PublicClient | undefined;
 /** Tap-time reads only: hedged + bounded (lib/rpc/readTransport raceTransport), floored like publicClient. */
 export function fastClient(): PublicClient {
-  return FAST ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient;
+  if (!FAST) TAP_CLIENTS.add(FAST = createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient);
+  return FAST;
 }
 let COLD: PublicClient | undefined;
 /** Same race, wider per-request budget: only for reads with NO memory fallback (a coin's first tap). */
 export function coldClient(): PublicClient {
-  return COLD ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0], COLD_REQ_BUDGET_MS), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient;
+  if (!COLD) TAP_CLIENTS.add(COLD = createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0], COLD_REQ_BUDGET_MS), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient);
+  return COLD;
 }
 /** Where each tap read came from (timing log `reads`): memory (with its age) or a budgeted read (with its ms). */
 export type TapReads = Record<string, { src: "cache" | "model" | "exact" | "read" | "none" | "skip"; ageMs?: number; ms?: number; err?: string }>;

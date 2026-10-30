@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { QuoteModel, depthOf } from "../lib/trade/quoteModel";
-import { TtlCache, OPPOSITE_WAIT, OPPOSITE_WAIT_MS } from "../lib/trade/hotCache";
+import { TtlCache, OPPOSITE_WAIT, OPPOSITE_WAIT_MS, firstOk } from "../lib/trade/hotCache";
 import { raceRequest, withinBudget, ReadBudgetError, RouteState } from "../lib/rpc/readTransport";
 import { tapSellBalance, sellAmountFor } from "../lib/flight/liveSell";
 import { tradeMinOut } from "../lib/trade/queuePricing";
@@ -168,4 +168,19 @@ test("withinBudget bounds a shared (possibly hung) read", async () => {
   await assert.rejects(withinBudget(new Promise(() => {}), 100, "x"), ReadBudgetError);
   assert.ok(Date.now() - t < 250);
   assert.equal(await withinBudget(Promise.resolve(5), 100, "x"), 5);
+});
+
+test("TtlCache.get race: a tap read doesn't just join a hung background read", async () => {
+  const c = new TtlCache<number>(60_000);
+  const hung = c.get("k", () => new Promise<number>(() => {}));   // background warm stuck on a hung RPC
+  void hung;
+  const t0 = Date.now();
+  assert.equal(await c.get("k", async () => 7, undefined, true), 7);
+  assert.ok(Date.now() - t0 < 50);
+  assert.equal(c.fresh("k"), 7);
+  // without race it joins (the old behaviour): still pending after 50 ms
+  const c2 = new TtlCache<number>(60_000); void c2.get("k", () => new Promise<number>(() => {}));
+  const joined = await Promise.race([c2.get("k", async () => 7), new Promise((r) => setTimeout(() => r("pending"), 50))]);
+  assert.equal(joined, "pending");
+  await assert.rejects(firstOk([Promise.reject(new Error("a")), Promise.reject(new Error("b"))]), /b/);
 });

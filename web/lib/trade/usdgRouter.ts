@@ -13,7 +13,7 @@
  */
 import { encodeFunctionData, parseAbi, toFunctionSelector, type Address, type PublicClient } from "viem";
 import type { Call } from "../aa/core";
-import { LAST_QUOTE, QUOTES, REQUOTE, key as ckey, scaledQuote } from "./hotCache";
+import { LAST_QUOTE, QUOTES, REQUOTE, key as ckey, scaledQuote, isTapClient, firstOk } from "./hotCache";
 import { MODEL } from "./quoteModel";
 
 /* ---- mirror of sdk/session-keys (#65) ---- */
@@ -76,6 +76,12 @@ export function routerUsdg(pc: PublicClient, router: Address): Promise<Address |
     });
     p.then((v) => { ROUTER_USDG_V.set(k, v); }, () => undefined);
     ROUTER_USDG.set(k, p);
+  }
+  // a tap client never just joins a background read that may be stuck on the sequential failover (hung direct RPC)
+  else if (isTapClient(pc) && !ROUTER_USDG_V.has(k)) {
+    const own = pc.readContract({ address: router, abi: usdgRouterAbi, functionName: "usdg" }).then((u) => (u && !/^0x0{40}$/i.test(u) ? u : null), (e) => { if (!transportFailure(e)) return null; throw e; });
+    own.then((v) => { ROUTER_USDG_V.set(k, v); }, () => undefined);
+    return firstOk([p, own]).catch(() => null);
   }
   return p.catch(() => null);
 }
