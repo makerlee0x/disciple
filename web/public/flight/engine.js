@@ -6,8 +6,16 @@
 (function(){
 /* Hidden tab: interval ticks are skipped (sources, polls, paper decay) and the rAF loop stops; both resume on
    visibilitychange. Shadowing setInterval here covers every source class below without touching each one. */
+/* @gen — one live engine per window. FlightCanvas re-runs this script whenever its `search` changes (e.g. /coin/<addr>
+   without ?quote: the real quote resolves after mount), and the old run's window listeners stayed live ⇒ every BOOST
+   tap / Space traded TWICE, the stale run at its own preset ($10 default). Each run takes a generation; a superseded
+   run ignores window events and stops its intervals + rAF loop (test:boost-amount). */
+const GEN=window.__flightGen=(window.__flightGen||0)+1, isCurrent=()=>window.__flightGen===GEN;
+const _addEventListener=window.addEventListener.bind(window), _removeEventListener=window.removeEventListener.bind(window), _genWrap=new WeakMap();
+function addEventListener(t,f,o){ let w=_genWrap.get(f); if(!w){ w=function(e){ if(isCurrent()) return f.call(this,e); }; _genWrap.set(f,w); } return _addEventListener(t,w,o); }
+function removeEventListener(t,f,o){ return _removeEventListener(t,_genWrap.get(f)||f,o); }
 const _setInterval=window.setInterval.bind(window);
-function setInterval(fn,ms){ return _setInterval(()=>{ if(!document.hidden) fn(); }, ms); }
+function setInterval(fn,ms){ return _setInterval(()=>{ if(!document.hidden && isCurrent()) fn(); }, ms); }
 'use strict';
 /* =====================================================================
    DISCIPLE flight prototype — single file, no build step, runs offline.
@@ -722,8 +730,8 @@ function simTrade(){
 }
 setTimeout(pushSim,0);
 const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced)
-function pushAmmo(){ noteBuyAmount(); pushPaperCash(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
-  name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode}})); }catch(_){} }
+function pushAmmo(boot){ noteBuyAmount(); pushPaperCash(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
+  name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode, ...(boot===true?{boot:true}:{})}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
   const u=S.ammoOverride||AMMO_TIERS[t].usd; for(let i=0;i<MODES.length&&i<u.length;i++) MODES[i].usd=u[i]; pushAmmo(); }
 function ammoTierStep(){ if(!AMMO_TIERS) return; const m=S.confirmed.mcap; if(!(m>0)) return; const T=AMMO_TIERS;
@@ -2151,8 +2159,8 @@ function rocketScreenY(anchor, offPx, Hh){ const up=Hh*0.07, dn=Hh*0.08; const o
 let last=performance.now();
 const FIXED_DT=+Q.get('fixedDt')>0?1/+Q.get('fixedDt'):0, CAPTURE=Q.get('capture')==='1';   // ?fixedDt=30 deterministic step; ?capture=1 = manual __flight.step(n)
 let _rafOn=false;
-const RAF=f=>{ if(CAPTURE) return; if(document.hidden){ _rafOn=false; return; } _rafOn=true; requestAnimationFrame(f); };   // hidden tab: loop stops
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafOn && !CAPTURE){ last=performance.now(); acc=0; _rafOn=true; requestAnimationFrame(frame); } });
+const RAF=f=>{ if(CAPTURE||!isCurrent()) return; if(document.hidden){ _rafOn=false; return; } _rafOn=true; requestAnimationFrame(f); };   // hidden tab: loop stops
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && !_rafOn && !CAPTURE && isCurrent()){ last=performance.now(); acc=0; _rafOn=true; requestAnimationFrame(frame); } });
 /* Fixed-timestep simulation (60 Hz) decoupled from rendering. Each rAF accumulates real time, runs
    0..MAX_STEPS sim steps, then renders with visual state interpolated between the last two sim states
    (alpha = leftover/SIM_DT), so motion is identical at 30/60/120/144 Hz displays. */
@@ -2735,5 +2743,12 @@ function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
 window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+
+/* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
+   usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier
+   step ever pushes), so without this no disciple:ammo came at all: the remembered preset was never restored, the
+   custom $ / Swap-settings presets were never pushed, and every BOOST tap sent the React default mode 0 ⇒ $10.
+   boot:true tells TradeBridge a (new) engine is up so it re-sends its config (test:boost-amount). */
+pushAmmo(true);
 
 })();
