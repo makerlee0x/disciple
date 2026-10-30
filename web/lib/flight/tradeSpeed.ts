@@ -37,10 +37,10 @@ export function doneLine(side: "buy" | "sell", estUsd: number, r: { ok: boolean;
   const back = ok && side === "buy" ? refundLine(fill!.refundUsd, usd, fmt) : "";
   return `${arrow} ${fmt(usd)} ✓ done${back ? ` · ${back}` : ""}`;
 }
-/** Graduating BOOST overshoot (receipt UsdgRefund): "$80 back: only $6,520 was needed to graduate". "" when none / dust.
+/** Graduating BOOST overshoot (receipt UsdgRefund): "$80 back: only $6,520 was needed to ascend". "" when none / dust.
  *  PLACEHOLDER COPY (BRAND to finalise). */
 export function refundLine(refundUsd: number | undefined, spentUsd: number, fmt: (v: number) => string) {
-  return refundUsd !== undefined && Number.isFinite(refundUsd) && refundUsd >= 0.01 ? `${fmt(refundUsd)} back: only ${fmt(spentUsd)} was needed to graduate` : "";
+  return refundUsd !== undefined && Number.isFinite(refundUsd) && refundUsd >= 0.01 ? `${fmt(refundUsd)} back: only ${fmt(spentUsd)} was needed to ascend` : "";
 }
 
 /* ---------------- click mark hook (SITE #140 lib/trade/timing.ts markTradeClick) ---------------- */

@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import FlightCanvas from "@/components/FlightCanvas";
 import CrewPanel from "@/components/CrewPanel";
+import { CREW_CARD_ENABLED } from "@/lib/features";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
 import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
@@ -54,7 +55,8 @@ function FlightInner({ address }: { address: string }) {
   return (
     <>
       <FlightCanvas search={search} />
-      <CrewPanel coin={address} />
+      {/* CREW card: off by default since the Oct 30 cleanup (NEXT_PUBLIC_FEATURE_CREW_CARD=1 brings it back); its buy presets + orb-rain unlock are gone even then (pass 2) */}
+      {CREW_CARD_ENABLED && <CrewPanel coin={address} />}
       <PnlHud coin={address} />
       <DiscipleFeed token={address} />
       <TrampWallPanel token={address} />

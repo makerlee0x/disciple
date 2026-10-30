@@ -34,50 +34,57 @@ ok(/\[data-testid="phone-drawer"\]'\);/.test(sm), "Esc with the drawer open clos
 ok(/new URLSearchParams\(location\.search\)\.get\("clean"\) === "1"\) return/.test(hud) && /if \(!phone \|\| !L\) return null;/.test(hud), "?clean=1 / desktop render nothing");
 ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "drawer tint == engine body tint");
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
-ok(/html\.ap-phone #exitX \{ top: 12px !important; right: var\(--ph-x-right\)/.test(hud), "one glass ✕ in the top row");
+ok(!/#exitX/.test(hud), "no ✕ in the top row any more (coin-screen cleanup, lee Oct 30): no dead #exitX styling left");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
 const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };
 ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): phone only, never CLEAN / desktop");
-for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: MCAP \+ tier\n  panel\(20,18,380,130\);/, /if \(!PH\)\{\n  panel\(RX,RT,CW,92\);/,
-  /else if \(!S\.kothDocked\)\{ panel\(RX,RT\+100,CW,96\);/, /else \{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH\) \{ panel\(RX,H-104,310,84\);/,
+for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
+  /else if \(!S\.kothDocked\)\{ panel\(RX,RT\+STATUS_DY,CW,96\);/, /else \{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH\) \{ panel\(RX,H-104,310,84\);/,
   /PH\.sheet==='holders'\) drawPhoneHolders\(PH,top,kothTitle\)/, /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
 ok(/a 'SIM' tag in paper \/ simulated market \(final/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng) && eng.split("\n").filter((l) => /PLACEHOLDER/.test(l)).every((l) => /PLACEHOLDER copy \(pending lee \+ BRAND\)/.test(l)), "SIM tag (final) on paper / sim; only the post-grad copy is marked PLACEHOLDER (pending lee + BRAND)");
 ok(/\{ id: "run", label: "Run" \}/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "tramps & walls live under Run (no T/W tab)");
-// 3b) @tier-label: "X% to NEXT_TIER" from the same log progress as the bar (phone pill + desktop tier bar)
+// 3b) @tier-label / @tier-progress (lee, Oct 30): "+X% to NEXT_TIER" = the mcap increase still needed, pct = (next.lo / mcap − 1) × 100;
+//     bar fill = mcap / next.lo (the same number); phone pill + desktop tier bar, ascended coins too
 {
   const tiersSrc = rd("lib/flight/tiers.ts");
   const TIERS = [...tiersSrc.matchAll(/\{ name: "([^"]+)", lo: ([\d._e]+), hi: ([\d._e]+)/g)].map((m) => ({ name: m[1], lo: +m[2].replace(/_/g, ""), hi: +m[3].replace(/_/g, "") }));
   ok(TIERS.length >= 18 && TIERS[4].name === "OUTER SPACE", "tiers parsed");
+  const cfg = rd("lib/config.ts"); ok(/name: "LAUNCH PAD"[^\n]*lo: 3_?333/.test(cfg) && /name: "OZONE"[^\n]*lo: 12_?000|name: "OZONE"[^\n]*lo: 12e3/.test(cfg), "lib/config TIERS ladder agrees (LAUNCH PAD 3,333 → OZONE 12,000)");
   const blk = eng.slice(eng.indexOf("/* @tier-label ("), eng.indexOf("/* @tier-label-end */"));
   // monospace stub: 0.6em per glyph
   const ctx = { font: "", save() {}, restore() {}, measureText: (t) => ({ width: String(t).length * 0.6 * +(ctx.font.match(/(\d+)px/) || [0, 10])[1] }) };
-  let rules = "";
-  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", "S", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules, { graduated: false });
-  const lab = (m, ti) => { const p = TL.tierProgress(m, ti); return TL.tierLabel(p.f, p.next); };
-  // 34% of the KÁRMÁN LINE band (log) → "34% to OUTER SPACE"
-  const k = TIERS[3], m34 = k.lo * Math.pow(TIERS[4].lo / k.lo, 0.345);
-  ok(lab(m34, 3) === "34% to OUTER SPACE", `example label (${lab(m34, 3)})`);
-  ok(lab(TIERS[13].lo, 13) === "0% to SERAPHIM", "start of a tier → 0%");
-  ok(lab(TIERS[14].lo * 0.9999, 13) === "99% to SERAPHIM", "whole percent rounded down: never 100% before the tier is reached");
-  ok(lab(94.19e6, 13) === `${Math.floor((Math.log(94.19e6 / 77e6) / Math.log(120e6 / 77e6)) * 100)}% to SERAPHIM`, "same log progress as the bar fill");
-  ok(lab(1e3, 0) === "0% to OZONE", "below the floor clamps to 0%");
+  let rules = ""; const S0 = { graduated: false };
+  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", "S", "ASCENDED", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules, S0, "ASCENDED");
+  const tiAt = (m) => { let i = 0; while (i < TIERS.length - 1 && m >= TIERS[i + 1].lo) i++; return i; };
+  const lab = (m, ti = tiAt(m)) => TL.tierLabel(m, TL.tierProgress(m, ti).next);
+  ok(lab(7200) === "+67% to OZONE", `lee's example: $7.2K → (12000/7200 − 1)·100 = 66.7 → "${lab(7200)}"`);
+  ok(lab(15000) === "+20% to STRATOSPHERE", `$15K → (18000/15000 − 1) = 20% (${lab(15000)})`);
+  ok(lab(30000) === "+11% to OUTER SPACE", `$30K → (33333/30000 − 1) = 11.1% (${lab(30000)})`);
+  ok(lab(500e3) === "+55% to THE MOON", `$500K → (777K/500K − 1) = 55.4% (${lab(500e3)})`);
+  ok(lab(11000) === "+9.1% to OZONE" && lab(24000) === "+4.2% to KÁRMÁN LINE", `under 10%: one decimal (${lab(11000)}, ${lab(24000)})`);
+  ok(lab(11950) === "+0.5% to OZONE" && lab(11999.99) === "+0.1% to OZONE", "tiny gaps round UP to 0.1%: never '+0%' before the tier is reached");
+  ok(lab(TIERS[4].lo) === "+65% to FIRMAMENT", "exactly at a tier's floor: the full gap to the next floor");
+  ok(lab(2000, 0) === "+500% to OZONE", "below the LAUNCH PAD floor: still the increase to OZONE");
   const top = TIERS.length - 1; ok(lab(TIERS[top].lo * 1.5, top) === "", "top tier: no label (desktop keeps ★ TOP TIER)");
-  for (let i = 0; i < top; i++) { const L = lab(TIERS[i].lo * 1.01, i); ok(L.endsWith(" to " + TIERS[i + 1].name) && TIERS[i + 1].name === TIERS[i + 1].name.toUpperCase(), `tier ${i}: names the next tier in caps`); }
+  for (let i = 0; i < top; i++) { const m = TIERS[i].lo * 1.01, p = TL.tierProgress(m, i), L = lab(m, i), pct = (TIERS[i + 1].lo / m - 1) * 100;
+    ok(L.endsWith(" to " + TIERS[i + 1].name) && Math.abs(p.f - m / TIERS[i + 1].lo) < 1e-12 && Math.abs(parseFloat(L.slice(1)) - pct) <= Math.max(0.5, pct * 0.01) && Math.abs(1 / p.f - 1 - pct / 100) < 1e-9, `tier ${i}: "${L}" and the bar fill (${(p.f * 100).toFixed(1)}%) are the same number`); }
+  ok(TL.tierProgress(TIERS[top].lo * 2, top).f === 1, "top tier: full bar");
+  S0.graduated = true; ok(lab(7200) === "+67% to OZONE", "ascended coins get the same label"); S0.graduated = false;
   // desktop: right-aligned at 384 on the TIER line, never over the TIER text / rules text
   ok(/function drawTierBar\(m,ti,leftEnd\)\{\n  const t=TIERS\[ti\], \{f,next:nx\}=tierProgress\(m,ti\);/.test(eng), "desktop bar uses tierProgress");
-  ok(/let lb=tierLabel\(f,nx\); if\(lb&&\(leftEnd\|\|0\)\+12>384-ctx\.measureText\(lb\)\.width\) lb=lb\.slice\(0,lb\.indexOf\(' to '\)\);[^\n]*\n    if\(lb\) ctx\.fillText\(lb,384,108\);/.test(eng), "desktop: label at the bar's right end, falls back to the bare % if the TIER line is long");
+  ok(/let lb=tierLabel\(m,nx\); if\(lb&&\(leftEnd\|\|0\)\+12>384-ctx\.measureText\(lb\)\.width\) lb=lb\.slice\(0,lb\.indexOf\(' to '\)\);[^\n]*\n    if\(lb&&[^\n]*\) ctx\.fillText\(lb,384,108\);/.test(eng), "desktop: label at the bar's right end, falls back to the bare % if the TIER line is long");
   ok(/const tierEnd=tierLineEnd\(ti,t\);[^\n]*\n  drawTierBar\(m,ti,tierEnd\);/.test(eng), "desktop passes the TIER line end");
-  rules = ""; const e0 = TL.tierLineEnd(13, TIERS[13]); ctx.font = "10px"; const w0 = ctx.measureText("39% to SERAPHIM").width;
+  rules = ""; const e0 = TL.tierLineEnd(13, TIERS[13]); ctx.font = "10px"; const w0 = ctx.measureText("+39% to SERAPHIM").width;
   ok(e0 + 12 <= 384 - w0, "desktop: CHERUBIM line + label fit side by side");
-  let worst = 0; for (let i = 0; i < top; i++) { ctx.font = "10px"; const w = ctx.measureText("99% to " + TIERS[i + 1].name).width; worst = Math.max(worst, TL.tierLineEnd(i, TIERS[i]) + 12 + w); }
+  let worst = 0; for (let i = 0; i < top; i++) { ctx.font = "10px"; const w = ctx.measureText("+9.9% to " + TIERS[i + 1].name).width; worst = Math.max(worst, TL.tierLineEnd(i, TIERS[i]) + 12 + w); }
   ok(worst <= 384, `desktop: every tier's line + label fits without rules text (worst ${worst.toFixed(0)} ≤ 384)`);
-  rules = "EASY · cap 1% of supply per wallet".slice(0, 28); ok(TL.tierLineEnd(16, TIERS[16]) > 384 - 12 - 6 * "99% to SEVENTH HEAVEN".length, "long rules text triggers the bare-% fallback");
+  rules = "EASY · cap 1% of supply per wallet".slice(0, 28); ok(TL.tierLineEnd(16, TIERS[16]) > 384 - 12 - 6 * "+9.9% to SEVENTH HEAVEN".length, "long rules text triggers the bare-% fallback");
   // phone: one quiet caption centred under the pill; toasts move down to make room; fits 360/390 and the rocket room
-  ok(/const lb=P\.drawer\?'':S\.graduated\?GRAD_BADGE:tierLabel\(f,nx\); S\.phoneTierLabel=lb;/.test(eng) && /ctx\.fillText\(phFit\(lb,W-48\),x\+w\/2,y\+h\+13\)/.test(eng), "phone: caption under the pill, fitted to the width, hidden while the drawer is open");
+  ok(/const tl=tierLabel\(m,nx\), lb=P\.drawer\?'':S\.graduated\?\(tl\?`\$\{ASCENDED\} · \$\{tl\}`:ASCENDED\):tl; S\.phoneTierLabel=lb;/.test(eng) && /ctx\.fillText\(phFit\(lb,W-48\),x\+w\/2,y\+h\+13\)/.test(eng), "phone: caption under the pill, fitted to the width, hidden while the drawer is open");
   ok(/TOY=PH\?PH\.pillTop\+\(S\.phoneTierLabel\?76:58\):136/.test(eng), "phone: toasts sit below the caption");
   for (const [w, h] of [[390, 844], [360, 780]]) { const L = phoneLayout({ w, h, topBottom: 60 }); const capB = L.pillTop + 46 + 13 + 4;
     ok(capB + 60 < L.dTop && capB < L.hudTop - 200, `${w}x${h}: caption clear of the drawer and the bottom HUD`);
@@ -153,7 +160,7 @@ ok(/const o = \(\) => openMenu\(\); addEventListener\("disciple:settings-open", 
 const pillGap = +hud.match(/html\.ap-phone \.cl-coin \{ top: calc\(var\(--ph-pill-top\) \+ 46px \+ (\d+)px\) !important;/)[1];
 for (const [w, h] of [[360, 780], [390, 844], [430, 932]]) {
   const L = phoneLayout({ w, h, topBottom: 60 }), floorTop = L.pillTop + 46 + pillGap, floorBottom = floorTop + 30;
-  ok(floorTop >= L.pillTop + 46 + 22, `${w}: floor pill starts below the mcap pill + its caption / GRADUATED badge (${floorTop} vs pill ${L.pillTop}–${L.pillTop + 46})`);
+  ok(floorTop >= L.pillTop + 46 + 22, `${w}: floor pill starts below the mcap pill + its caption (${floorTop} vs pill ${L.pillTop}–${L.pillTop + 46})`);
   ok(floorBottom < L.dTop && floorBottom < L.hudTop - 200, `${w}: floor pill clear of the drawer and the rocket`);
 }
 ok(/"pill-top": L\.pillTop/.test(hud) && /"cash-top": cashTop/.test(hud), "--ph-pill-top / --ph-cash-top published");
@@ -184,12 +191,52 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
 { const blk = eng.slice(eng.indexOf("/* @chart-desk:"), eng.indexOf("/* @chart-desk-end */"));
   const consts = eng.match(/const CHART_PNL_BOTTOM=[^;]+;/)[0];
   const R = new Function("clamp", `${consts}\n${blk}\nreturn chartDeskRect;`)((v, a, b) => Math.max(a, Math.min(b, v)));
-  for (const [H, pb] of [[680, 448], [680, 282], [800, 448], [900, 448], [900, 282], [1080, 448]]) { const r = R(H, 196, pb);
-    ok(r.y >= pb + 8 && r.h >= 100 && r.h <= 196, `desktop ${H}px tall, card bottom ${pb}: chart y ${r.y} h ${r.h} starts under the card`); }
+  // every desktop height × every card bottom (collapsed ~282 … expanded ~448 and beyond): the chart is either fully between
+  // the card and the trades feed (H-172) with ≥100 px, or parked off-screen — never over the card, never over the feed
+  let parked = 0, drawn = 0;
+  for (let H = 560; H <= 1600; H += 4) for (let pb = 200; pb <= 760; pb += 4) { const r = R(H, 196, pb);
+    if (r.off) { parked++; if (!(r.x < -1000 && r.y < -1000 && H - 172 - (pb + 8) < 100)) { ok(false, `desktop ${H}/${pb}: parked although there is room`); } continue; }
+    drawn++; if (!(r.y >= pb + 8 && r.y + r.h <= H - 172 && r.h >= 100 && r.h <= 196)) ok(false, `desktop ${H}px, card bottom ${pb}: chart y ${r.y} h ${r.h} overlaps`); }
+  ok(drawn > 1000 && parked > 100, `desktop sweep: ${drawn} layouts drawn without overlap, ${parked} parked (no room)`);
+  { const r = R(680, 196, 448); ok(r.off === 1 && r.x < -1000, "1366×680, expanded card (bottom 448): chart parked, not drawn over the card or the feed"); }
+  { const r = R(680, 196, 282); ok(!r.off && r.y >= 290 && r.y + r.h === 508, `1366×680, collapsed card: chart ${r.y}..${r.y + r.h} between card and feed`); }
+  { const r = R(768, 196, 448); ok(!r.off && r.y === 456 && r.h === 140 && r.y + r.h === 596, "768 tall, expanded card: chart cut to the 140 px of room"); }
   ok(R(900, 196, 282).y + R(900, 196, 282).h === 900 - 172, "room to spare: the chart keeps its place right above the trades feed");
   ok(R(900, 196, null).y + R(900, 196, null).h === 728 && R(900, 196, null).y >= 456, "no card bottom published: the old 456 px budget");
   ok(/return chartDeskRect\(H,st\.h,typeof window!=='undefined'\?window\.__pnlBottom:null\); \}/.test(eng), "chartRect (desktop live) uses the card's published bottom");
   ok(wb.includes('"__pnlBottom"'), "worker render: __pnlBottom forwarded with the other globals");
   ok(/w\.__pnlBottom = !isPhone\(\) && r\.height > 0 \? Math\.round\(r\.bottom - top\) : null/.test(pnl) && /new ResizeObserver\(pub\)/.test(pnl), "PnlHud publishes its bottom (desktop only, tracks open / collapse)");
   ok(/matchMedia\?\.\("\(max-height: 767px\)"\)\.matches\) setOpenS\(false\)/.test(pnl), "short desktop: the card starts collapsed (chart keeps its full height)"); }
+// 390 px phone: the chart is a drawer TAB and the Your Run card is another tab → never on screen together
+{ ok(/return P\.sheet==='chart'&&B\?\{x:[^\n]*:\{x:-1e4,y:-1e4,w:st\.w,h:st\.h\}/.test(eng), "phone: chart drawn only in the Chart sheet (off-screen otherwise)");
+  ok(/html\.ap-phone \.pnl-hud \{ display: none !important; \}/.test(hud) && /html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud \{/.test(hud), "phone: Your Run only in the Run sheet");
+  for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, topBottom: 60 }); ok(L && L.body.h > 0, `${w}×844: one drawer body hosts either the chart or the run card`); } }
+// ONE header card (lee, Oct 30): coin icon · name · pair row inside the MARKET CAP card; card grows by that row
+{ const id = rd("components/pairart/CoinIdentity.tsx"), css = rd("app/globals.css");
+  const f = new Function("window", eng.match(/function coinIdRowH\(\)\{[^\n]*\}/)[0] + "\nreturn coinIdRowH;");
+  ok(f({ __coinIdH: 46 })() === 46 && f({})() === 0 && f({ __coinIdH: -3 })() === 0 && f({ __coinIdH: 900 })() === 64, "coinIdRowH: published row height, 0 when unset, clamped");
+  ok(/source instanceof DiscipleSource\?'MARKET CAP':/.test(eng), "coin page: the card has a MARKET CAP label");
+  ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n  ctx\.restore\(\); \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar");
+  ok(/w\.__coinIdH = window\.matchMedia\?\.\("\(max-width: 760px\)"\)\.matches \? 0 : Math\.ceil/.test(id) && !/mcap/.test(id.replace(/\/\/[^\n]*/g, "")), "CoinIdentity publishes its row height (0 on phones); no separate mcap in it");
+  ok(/\.coin-id \{ position: fixed; left: calc\(var\(--ap-rail-w, 64px\) \+ 28px\); top: 24px;/.test(css) && !/\.coin-id \{[^}]*backdrop-filter/.test(css), "name row sits inside the card (no own pill scrim)");
+  ok(wb.includes('"__coinIdH"'), "worker render: __coinIdH forwarded");
+  // header card bottom (18 + 130 + row ≤ 64) stays above the Your Run card top (212)
+  ok(18 + 130 + 64 <= 212, "header card (max) ends above the Your Run card");
+  // ascended: the '+X% to NEXT' label is drawn too (badge kept)
+  const gb = eng.slice(eng.indexOf("if (S.graduated){ S.tierNeedText=''"), eng.indexOf("if(!nx||curveTierProgress(nx)) return; }"));
+  ok(/let lb=tierLabel\(m,nx\)/.test(gb) && /ctx\.fillText\(lb,384,Y\+BH\+13\)/.test(gb) && /be<=384-ctx\.measureText\(lb\)\.width/.test(gb) && /drawGradBadgeDesk\(X,Y,BW,BH\)/.test(gb), "ascended: ASCENDED badge + '+X% to NEXT_TIER' right-aligned on the badge row, never over the badge");
+  ok(/if\(lb&&\(leftEnd\|\|0\)\+12<=384-ctx\.measureText\(lb\)\.width\) ctx\.fillText\(lb,384,108\);/.test(eng), "curve: the label is dropped rather than drawn over a long TIER line");
+  // DISCIPLE status box gone on coin pages, TOP HOLDERS + chat move up
+  ok(/const STATUS_BOX=!\(source instanceof DiscipleSource\), STATUS_DY=STATUS_BOX\?100:0;/.test(eng), "no DISCIPLE status box on coin pages");
+  const gc = rd("components/gamechat/GameChat.tsx");
+  ok(/--ap-status-h", new URLSearchParams\(search\)\.get\("source"\) === "disciple" \? "0px" : "100px"/.test(fc) && /var\(--ap-status-h, 100px\)/.test(gc), "GameChat follows the status box slot");
+  const pg = rd("app/coin/[address]/page.tsx");
+  ok(/\{CREW_CARD_ENABLED && <CrewPanel coin=\{address\} \/>\}/.test(pg), "CREW card behind CREW_CARD_ENABLED (off by default)");
+  // pass 2 (lee, Oct 30): no buy presets / orb-rain unlock on the coin screen even with the flag on — gone from the card itself,
+  // and nothing else the coin page mounts renders them
+  const noCmt = (t) => t.replace(/\/\*[\s\S]*?\*\/|\{\/\*[\s\S]*?\*\/\}|(^|[^:])\/\/[^\n]*/g, "$1");
+  const crew = noCmt(rd("components/CrewPanel.tsx"));
+  ok(!/BUY PRESETS|orb rain|nextUnlock|crew-unlock|Next unlock|ammoTxt/i.test(crew), "CrewPanel: no BUY PRESETS list, no 'Next unlock … orb rain' line");
+  const coinSrc = noCmt([pg, fc, rd("components/flight/PhoneHud.tsx"), rd("components/flight/SettingsMenu.tsx"), eng].join("\n"));
+  ok(!/orb rain|Next unlock|nextUnlock\(/i.test(coinSrc) && !/BUY PRESETS/.test(coinSrc), "coin page / FlightCanvas / PhoneHud / SettingsMenu / engine: no presets list or orb-rain unlock"); }
 console.log(`phone-hud: ${n} checks passed`);

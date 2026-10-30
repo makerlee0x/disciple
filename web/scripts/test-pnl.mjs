@@ -14,7 +14,7 @@ for (const f of ["pnl", "config"]) {
   const src = fs.readFileSync(path.join(dir, `../lib/${f}.ts`), "utf8").replace(/from "\.\/config"/g, 'from "./config.mjs"');
   fs.writeFileSync(path.join(tmp, f + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }
-const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey, positionFromFills, walletView, transfersFromLogs, transferPrice } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
 const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
@@ -177,3 +177,89 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(/seedCreatorBuyPosition\(pnlKey\("disciple\.pnl\.", me, launched\.token\)/.test(pv), "First BOOST seed writes the same account-scoped key the HUD reads");
   if (bad) { console.error(bad + " #4 account-ledger check(s) FAILED"); process.exit(1); }
   console.log("ok  #4 PnL shows only the signed-in account's ledger"); }
+
+// #5 (lee, Oct 30 coin-screen cleanup): avg entry / realized / uPnL rebuilt from the account's ON-CHAIN fills for the coin
+{ let bad = 0; const ok = (c, m) => { if (!c) { bad++; console.error("FAIL #5 " + m); } };
+  const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e * Math.max(1, Math.abs(b));
+  // curve buys, a curve sell, then post-grad Uniswap (hook) swaps; usdIn/usdOut (real USDG) win over usd; out-of-order input
+  const F = [
+    { side: "sell", tokens: 50, usd: 9, usdOut: 10, block: 12, logIndex: 0, ts: 3000 },         // curve sell 50 for $10
+    { side: "buy", tokens: 100, usd: 99, usdIn: 10, block: 10, logIndex: 1, ts: 1000 },          // curve buy 100 for $10
+    { side: "buy", tokens: 100, usd: 30, block: 11, logIndex: 0, ts: 2000 },                     // curve buy 100 for $30 (no usdIn)
+    { side: "buy", tokens: 50, usd: 0, usdIn: 20, block: 20, logIndex: 3, venue: "hook", ts: 4000 }, // post-grad swap buy
+    { side: "sell", tokens: 0, usd: 5, block: 21, logIndex: 0 },                                // zero-size: ignored
+  ];
+  const p = positionFromFills(F, DEFAULT_SUPPLY);
+  // 200 tokens cost $40 (avg $0.2) → sell 50 for $10 closes $10 of basis: realized 0 → 150 @ $30 + 50 @ $20 = 200 for $50
+  ok(near(p.size, 200) && near(p.costBasis, 50) && near(p.realized, 0), `curve + hook fills → size ${p.size}, basis ${p.costBasis}, realized ${p.realized}`);
+  ok(p.session === null && p.supply === DEFAULT_SUPPLY && p.holdStart === 1000, "rebuilt ledger: no paper session, real supply, holding since the first buy");
+  const v = view(p, 0.5, DEFAULT_SUPPLY);
+  ok(near(v.avgEntryUsd, 0.25) && near(v.entryMcap, 0.25 * DEFAULT_SUPPLY), `avg entry = $50 / 200 = $0.25 (${v.avgEntryUsd})`);
+  ok(near(v.uPnl, 200 * 0.5 - 50) && near(v.realized, 0), `uPnL at $0.5 = ${v.uPnl} (= 200 × 0.5 − 50)`);
+  // a profitable round trip: realized books the proceeds minus the closed basis
+  const q = positionFromFills([{ side: "buy", tokens: 10, usd: 1, block: 1 }, { side: "sell", tokens: 10, usd: 3, block: 2 }]);
+  ok(near(q.size, 0) && near(q.costBasis, 0) && near(q.realized, 2), `buy $1 → sell $3: realized ${q.realized} (= +2), flat`);
+  // a sell bigger than the known bag (a transfer the history missed) only closes the bag it knows
+  const t = positionFromFills([{ side: "buy", tokens: 100, usd: 10, block: 1 }, { side: "sell", tokens: 150, usd: 30, block: 2 }]);
+  ok(near(t.size, 0) && near(t.realized, 30 * (100 / 150) - 10), `oversell with no transfer seen: realized ${t.realized} = the known 100's proceeds − basis`);
+  // TRANSFERS (lee, Oct 30: "coins someone sent you should count in pnl, but at the market cap at the time of transfer")
+  // a) transfer-in priced at the block price: a buy at that price → in avg entry + uPnL
+  const a1 = positionFromFills([], DEFAULT_SUPPLY, [{ dir: "in", tokens: 1000, block: 50, priceUsd: 0.004 }]);
+  const va = view(a1, 0.006, DEFAULT_SUPPLY);
+  ok(near(a1.size, 1000) && near(a1.costBasis, 4) && near(va.avgEntryUsd, 0.004) && near(va.uPnl, 2) && near(va.entryMcap, 0.004 * DEFAULT_SUPPLY), `transfer-in of 1000 @ $0.004: basis ${a1.costBasis}, avg ${va.avgEntryUsd}, uPnL at $0.006 ${va.uPnl}`);
+  const wa = walletView(a1, 1000, 0.006, DEFAULT_SUPPLY);
+  ok(near(wa.untracked, 0) && near(wa.uPnl, 2) && near(wa.avgEntryUsd, 0.004), "wallet view: the sent coins are tracked (no holdings-only part left)");
+  // b) transfer-in then sell → realized against the transfer-block price
+  const b1 = positionFromFills([{ side: "sell", tokens: 400, usd: 3, block: 60 }], DEFAULT_SUPPLY, [{ dir: "in", tokens: 1000, block: 50, priceUsd: 0.004 }]);
+  ok(near(b1.size, 600) && near(b1.realized, 3 - 1.6) && near(b1.costBasis, 2.4), `transfer-in 1000 @ $0.004, sell 400 for $3: realized ${b1.realized} (= 3 − 1.6), 600 left at $2.40`);
+  // c) mix with buys (+ a transfer out at average cost, nothing realized)
+  const c1 = positionFromFills([
+    { side: "buy", tokens: 100, usd: 10, block: 10 },                          // $0.10
+    { side: "sell", tokens: 150, usd: 45, block: 40 },                         // closes 150 of 300 at avg $0.20 → +15
+  ], DEFAULT_SUPPLY, [
+    { dir: "in", tokens: 200, block: 20, priceUsd: 0.25 },                    // +$50 basis → 300 @ $60 (avg $0.20)
+    { dir: "out", tokens: 50, block: 30 },                                     // 250 left, basis $50 (avg cost out, no realized)
+  ]);
+  ok(near(c1.size, 100) && near(c1.costBasis, 20) && near(c1.realized, 45 - 150 * 0.2), `buys + transfer in/out + sell: size ${c1.size}, basis ${c1.costBasis}, realized ${c1.realized}`);
+  // same block: ordered by logIndex (a transfer received before the sell in that block is sellable)
+  const d1 = positionFromFills([{ side: "sell", tokens: 10, usd: 2, block: 5, logIndex: 4 }], DEFAULT_SUPPLY, [{ dir: "in", tokens: 10, block: 5, logIndex: 1, priceUsd: 0.1 }]);
+  ok(near(d1.size, 0) && near(d1.realized, 1), "same block: transfer (logIndex 1) then sell (logIndex 4) → realized +1");
+  // detection: own trade legs (same tx as a fill) and self-transfers are not transfers
+  const me = "0x00000000000000000000000000000000000000aa", other = "0x00000000000000000000000000000000000000bb";
+  const xs = transfersFromLogs([
+    { from: other, to: me, tokens: 5, block: 1, tx: "0xT1" },               // a buy's token leg → skipped
+    { from: other, to: me.toUpperCase().replace("0X", "0x"), tokens: 7, block: 2, tx: "0xS" },   // sent to me
+    { from: me, to: other, tokens: 2, block: 3, tx: "0xO" },                 // I sent away
+    { from: me, to: me, tokens: 9, block: 4, tx: "0xSelf" },                 // self-transfer → skipped
+    { from: other, to: me, tokens: 0, block: 5, tx: "0xZ" },                 // zero → skipped
+  ], me, ["0xt1"]);
+  ok(xs.length === 2 && xs[0].dir === "in" && xs[0].tokens === 7 && xs[1].dir === "out" && xs[1].tokens === 2, "transfersFromLogs: trade legs / self / zero skipped, in + out kept");
+  // pricing: pinned block read first; missing → nearest trade at/before; else first after; else curve start
+  const T = [{ block: 10, logIndex: 0, priceUsd: 0.01 }, { block: 20, logIndex: 2, priceUsd: 0.02 }, { block: 20, logIndex: 1, priceUsd: 0.015 }, { block: 30, priceUsd: 0 }, { block: 40, priceUsd: 0.04 }];
+  const pr = (b, pin) => transferPrice(b, pin, T, 0.0033);
+  ok(pr(25, 0.03).src === "block" && pr(25, 0.03).priceUsd === 0.03, "pinned block price wins");
+  ok(pr(25, null).src === "trade-before" && pr(25, null).priceUsd === 0.02, "no pinned read: nearest trade at/before (last log in the block)");
+  ok(pr(35, NaN).priceUsd === 0.02, "zero-price trades ignored");
+  ok(pr(5, undefined).src === "trade-after" && pr(5, undefined).priceUsd === 0.01, "transfer before any trade: first trade after it");
+  ok(transferPrice(5, null, [], 0.0033).src === "curve-start" && transferPrice(5, null, [], 0).src === "none", "no trades at all: the curve start price (else 0)");
+  // missing price on a transfer row (none known): counted with $0 basis, never NaN
+  const m1 = positionFromFills([], DEFAULT_SUPPLY, [{ dir: "in", tokens: 10, block: 1 }]);
+  ok(m1.size === 10 && m1.costBasis === 0 && Number.isFinite(view(m1, 0.1, DEFAULT_SUPPLY).uPnl), "transfer with no price at all: in holdings with $0 basis (no NaN)");
+  // no fills, no transfers → empty
+  const e = positionFromFills([]);
+  ok(e.size === 0 && e.costBasis === 0 && e.realized === 0, "no history → empty ledger");
+  // PnlHud wiring: rebuild from /api/trades for the signed-in account; no 'held before tracking' line; POINTS behind its flag
+  const hud = fs.readFileSync(path.join(dir, "../components/PnlHud.tsx"), "utf8");
+  ok(/\/api\/trades\?coin=\$\{coin\}&wallet=\$\{account\}&limit=5000/.test(hud) && /const fills = j\.fills;/.test(hud), "PnlHud rebuilds the ledger from the account's indexed on-chain fills");
+  ok(/if \(syncEvent \|\| !account \|\| !isDeployed\(\)\) return;/.test(hud), "chain rebuild only for a signed-in account on a deployed chain (paper / sim keep the local ledger)");
+  ok(/mine\.add\(/.test(hud) && /pending\.length/.test(hud), "waits for the indexer to see this tab's own fills (and no pending) before replacing the ledger");
+  ok(!/pnl-untracked/.test(hud) && !/held before tracking/i.test(hud) && !/transferTitle/.test(hud), "no 'held before tracking · no PnL' row, no 'cost unknown' tooltip");
+  ok(/positionFromFills\(fills, DEFAULT_SUPPLY, xs \?\? \[\]\)/.test(hud) && /import\("@\/lib\/chainTransfers"\)/.test(hud), "PnlHud: transfers (priced) go into the rebuild");
+  const ct = fs.readFileSync(path.join(dir, "../lib/chainTransfers.ts"), "utf8");
+  ok(/logsFor\(coin, \{ to: account \}/.test(ct) && /logsFor\(coin, \{ from: account \}/.test(ct) && /readCoinMcap\(client\(\), coin, undefined, BigInt\(b\)\)/.test(ct) && /transferPrice\(x\.block, pinned\.get\(x\.block\)/.test(ct), "chainTransfers: Transfer logs to / from the account, priced by a read pinned to the block, trade fallback");
+  ok(!/writeContract|sendTransaction|sendUserOperation|signMessage/.test(ct), "chainTransfers is read-only");
+  ok(/\{POINTS_ENABLED && /.test(hud), "POINTS section behind POINTS_ENABLED");
+  const feat = fs.readFileSync(path.join(dir, "../lib/features.ts"), "utf8");
+  ok(/POINTS_ENABLED: boolean = process\.env\.NEXT_PUBLIC_FEATURE_POINTS === "1"/.test(feat) && /CREW_CARD_ENABLED: boolean = process\.env\.NEXT_PUBLIC_FEATURE_CREW_CARD === "1"/.test(feat), "POINTS / CREW card flags: off unless set to 1");
+  if (bad) { console.error(bad + " #5 on-chain rebuild check(s) FAILED"); process.exit(1); }
+  console.log("ok  #5 PnL rebuilt from on-chain trades (curve + Uniswap), transfers handled"); }

@@ -132,7 +132,7 @@ export class SimRun {
     this.trades.push(tr); if (this.trades.length > 4000) this.trades.splice(0, 1000);
     this.notify({ trade: tr, player: !who });
     if (react && who) { this.reactLog.push({ t: this.t, usd: f.usd }); this.noteReact(react, who); }
-    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `GRADUATED → pool at ${fmt(this.m.mcap())}`);
+    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `ASCENDED → pool at ${fmt(this.m.mcap())}`);
     if (who && f.usd > Math.max(3000, this.m.depth() * 0.25) && side === "buy") this.emitEvent("whale", `${who.name} apes ${fmt(f.usd)}`);
     return f;
   }

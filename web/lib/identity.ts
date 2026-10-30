@@ -45,7 +45,7 @@ export const IDENTITIES: readonly IdentityDef[] = [
     test: (m) => m.roiPercentile >= T.smartMoneyRoiDecile && m.closedTrades >= T.smartMoneyMinTrades },
   { id: "kingmaker", label: "Kingmaker", blurb: "Early boosts on rockets that punched into Morning Stars+.", weight: 85,
     test: (m) => m.kingmakerCount >= T.kingmakerCount },
-  { id: "crew_captain", label: "Crew Captain", blurb: "Top booster on rockets that graduated.", weight: 84,
+  { id: "crew_captain", label: "Crew Captain", blurb: "Top booster on rockets that ascended.", weight: 84,
     test: (m) => m.crewCaptainGrads >= T.crewCaptainGradTop },
   { id: "gate_keeper", label: "Gate Keeper", blurb: "Helped shove rockets into Outer Space.", weight: 83,
     test: (m) => m.gateKeeperAssists >= T.gateKeeperAssists },
@@ -59,7 +59,7 @@ export const IDENTITIES: readonly IdentityDef[] = [
     test: (m) => m.sizePercentile >= T.whaleSizePercentile },
   { id: "launcher", label: "Launcher", blurb: "Lit the pad. Rockets with your name on the nose.", weight: 70,
     test: (m) => m.launches >= T.launcherMinLaunches },
-  { id: "dev_supporter", label: "Dev Supporter", blurb: "Launched rockets that actually graduated.", weight: 72,
+  { id: "dev_supporter", label: "Dev Supporter", blurb: "Launched rockets that actually ascended.", weight: 72,
     test: (m) => m.graduatedLaunches >= T.launcherGraduated },
   { id: "trencher", label: "Trencher", blurb: "Seconds in, seconds out. High trade count.", weight: 96,
     test: (m) => m.avgHoldHours * 60 <= T.trencherHoldMinutes && m.tradeCount >= T.trencherMinTrades },
@@ -112,10 +112,10 @@ export function identityRuleText(id: IdentityId): string {
     case "jeet": return `≥3 dumps within ${T.jeetDumpMinutes}m after ≥${T.jeetPumpMultiple}× pump`;
     case "bomber": return `≥ ${T.bomberMinBombs} bombs (impact ≥ grenade)`;
     case "nuker": return `≥ ${T.nukerMinNukes} nukes/atoms (impact ≥ 25%)`;
-    case "crew_captain": return `Top booster on ≥ ${T.crewCaptainGradTop} graduated rockets`;
+    case "crew_captain": return `Top booster on ≥ ${T.crewCaptainGradTop} ascended rockets`;
     case "gate_keeper": return `≥ ${T.gateKeeperAssists} Outer Space assists`;
     case "launcher": return `≥ ${T.launcherMinLaunches} rocket launched`;
-    case "dev_supporter": return `≥ ${T.launcherGraduated} graduated launch`;
+    case "dev_supporter": return `≥ ${T.launcherGraduated} ascended launch`;
     case "kingmaker": return `Early boosts on ≥ ${T.kingmakerCount} rockets that hit Morning Stars+`;
     case "farmer": return `≥ ${T.farmerMinPoints} points with realized PnL ≤ $${T.farmerMaxPnl}`;
     case "smart_money": return `Top ${(1 - T.smartMoneyRoiDecile) * 100}% ROI with ≥ ${T.smartMoneyMinTrades} closes`;

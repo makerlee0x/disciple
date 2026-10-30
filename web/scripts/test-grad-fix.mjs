@@ -92,7 +92,7 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   const TB_M1 = 33333;
   const tierNeedText = new Function("fmtNeed", "TB_M1", `${grab(/function tierNeedText\(m,nx,o\)\{[\s\S]*?\n  const need=o\.est;[^\n]*\n/)}\nreturn tierNeedText;`)(fmtNeed, TB_M1);
   const nx = { lo: TB_M1 };
-  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to graduate", "exact known ⇒ only '$X to graduate'");
+  ok(tierNeedText(30000, nx, { exact: 812.4, est: 900 }) === "$813 to ascend", "exact known ⇒ only '$X to ascend'");
   ok(!/≈|est/.test(tierNeedText(30000, nx, { exact: 812.4, est: 900 })), "exact ⇒ no estimate alongside");
   ok(tierNeedText(30000, nx, { exact: null, est: 900 }) === "≈$900 buys needed (est.)", "no exact ⇒ estimate, clearly marked ≈ … (est.)");
   ok(tierNeedText(30000, nx, { exact: null, est: 0 }) === "" && tierNeedText(30000, nx, { exact: 0, est: 0.0 }) === "" && tierNeedText(30000, nx, { exact: null, est: NaN }) === "", "never ≈$0 / ≈NaN");
@@ -124,9 +124,10 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(!/setGraduated\(false/.test(eng), "nothing ever un-graduates");
   ok(/else if\(e\.type==='Graduate'\)\{ this\.graduated=true; setGraduated\(true,e\);/.test(eng), "live Graduate event → same setGraduated(true)");
   ok(/if\(d\.graduated===true\) setGraduated\(true,d\)/.test(eng), "TradeBridge curve read (gradneed {graduated}) → setGraduated");
-  ok(/if ?\(S\.graduated\)\{[^\n]*S\.gradBadge=GRAD_BADGE[^\n]*drawGradBadgeDesk/.test(eng), "desktop tier bar → GRADUATED badge");
-  ok(/S\.graduated&&\(!nx\|\|curveTierProgress\(nx\)\)/.test(eng) && /GRAD_BADGE/.test(grab(/function drawPhonePill[\s\S]*?\nfunction /)), "phone pill: curve progress hidden, GRADUATED badge");
-  ok(/const GRAD_BADGE='GRADUATED · trading on Uniswap';\s*\/\/ PLACEHOLDER/.test(eng), "badge copy marked PLACEHOLDER");
+  ok(/if ?\(S\.graduated\)\{[^\n]*S\.gradBadge=GRAD_BADGE[^\n]*drawGradBadgeDesk/.test(eng), "desktop tier bar → ASCENDED badge");
+  { const pp = grab(/function drawPhonePill[\s\S]*?\nfunction /);   // pass 2 (lee, Oct 30): the pill names the tier on ascended coins too + its '+X% to NEXT' bar
+    ok(/b=tierName\(ti\)/.test(pp) && /if\(nx\)\{   \/\/ tier progress line/.test(pp) && /`\$\{ASCENDED\} · \$\{tl\}`/.test(pp) && /GRAD_BADGE/.test(pp), "phone pill: tier name + progress line (mcap / next lo), caption 'ASCENDED · +X% to NEXT'"); }
+  ok(/const GRAD_BADGE='ASCENDED · trading on Uniswap';\s*\/\/ PLACEHOLDER/.test(eng), "badge copy marked PLACEHOLDER");
   ok(/'graduated', 'phoneHolderTags', 'gradBadge', 'tierNeedText'/.test(rd("public/flight/worker.js")), "worker renderer mirrors graduated / badge / need text");
   ok(/send\(live \? st\.usd : null, st\.graduated\)/.test(tb) && /\[valid, live, token\]/.test(tb), "curve read runs for every viewer; exact $ only when live");
   // 8) big-move warning: only the side being tapped / previewed
