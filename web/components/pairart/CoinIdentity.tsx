@@ -8,6 +8,7 @@ import { publicClient, readCurveState } from "@/lib/protocol-viem";
 import { launchpadAbi } from "@/lib/abi";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
+import { useCanvasCards } from "@/lib/game/cardLayoutStore";
 import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
@@ -48,6 +49,8 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   // MARKET CAP label + big mcap). Publish its height so the card grows by it (engine.js coinIdRowH; 0 on phones, where the
   // row is art only next to the menu and the mcap lives in the phone pill).
   const ref = useRef<HTMLDivElement>(null);
+  // pass 3 #4 (GAME): this row rides with the engine's header card when it is dragged / minimized (engine-published rect)
+  const hc = useCanvasCards().cards.header;
   useEffect(() => {
     const el = ref.current, w = window as unknown as { __coinIdH?: number };
     if (!el) return;
@@ -70,7 +73,7 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   // (the market cap is the card's big number right under this row, so it is not repeated here)
   const sub = [name.trim().toUpperCase() !== tk.trim().toUpperCase() ? `$${tk}` : "", pairSym].filter(Boolean).join(" · ");
   return (
-    <div ref={ref} className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
+    <div ref={ref} className="coin-id" data-testid="coin-name" style={hc ? { transform: hc.dx || hc.dy ? `translate(${hc.dx}px, ${hc.dy}px)` : undefined, display: hc.min || hc.closed ? "none" : undefined } : undefined} title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>

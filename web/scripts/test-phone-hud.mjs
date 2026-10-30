@@ -39,8 +39,8 @@ ok(!/#exitX/.test(hud), "no ✕ in the top row any more (coin-screen cleanup, le
 const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };
 ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): phone only, never CLEAN / desktop");
-for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
-  /else if \(!S\.kothDocked\)\{ panel\(RX,RT\+STATUS_DY,CW,96\);/, /else \{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH\) \{ panel\(RX,H-104,310,84\);/,
+for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  if \(cardBegin\('header',20,18,380,130\+HY\)\)\{   \/\* @cards \*\/\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
+  /else if \(!docked&&cardBegin\('holders',RX,RT\+STATUS_DY,CW,96\)\)\{ panel\(RX,RT\+STATUS_DY,CW,96\);/, /else if \(cardBegin\('trades',20,H-160,310,140\)\)\{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH&&cardBegin\('controls',RX,H-104,310,84\)\) \{ panel\(RX,H-104,310,84\);/,
   /PH\.sheet==='holders'\) drawPhoneHolders\(PH,top,kothTitle\)/, /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
@@ -82,7 +82,9 @@ ok(/\{ id: "run", label: "Run" \}/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:h
   ok(e0 + 12 <= 384 - w0, "desktop: CHERUBIM line + label fit side by side");
   let worst = 0; for (let i = 0; i < top; i++) { ctx.font = "10px"; const w = ctx.measureText("+9.9% to " + TIERS[i + 1].name).width; worst = Math.max(worst, TL.tierLineEnd(i, TIERS[i]) + 12 + w); }
   ok(worst <= 384, `desktop: every tier's line + label fits without rules text (worst ${worst.toFixed(0)} ≤ 384)`);
-  rules = "EASY · cap 1% of supply per wallet".slice(0, 28); ok(TL.tierLineEnd(16, TIERS[16]) > 384 - 12 - 6 * "+9.9% to SEVENTH HEAVEN".length, "long rules text triggers the bare-% fallback");
+  // pass 3 #2 (lee): no mode / cap text on the TIER line any more ⇒ a long rules text never changes where the line ends
+  { rules = ""; const e1 = TL.tierLineEnd(16, TIERS[16]); rules = "EASY · cap 1% of supply per wallet".slice(0, 28);
+    ok(TL.tierLineEnd(16, TIERS[16]) === e1, "pass 3 #2: rules text is not on the TIER line (line end unchanged)"); rules = ""; }
   // phone: one quiet caption centred under the pill; toasts move down to make room; fits 360/390 and the rocket room
   ok(/const tl=tierLabel\(m,nx\), lb=P\.drawer\?'':S\.graduated\?\(tl\?`\$\{ASCENDED\} · \$\{tl\}`:ASCENDED\):tl; S\.phoneTierLabel=lb;/.test(eng) && /ctx\.fillText\(phFit\(lb,W-48\),x\+w\/2,y\+h\+13\)/.test(eng), "phone: caption under the pill, fitted to the width, hidden while the drawer is open");
   ok(/TOY=PH\?PH\.pillTop\+\(S\.phoneTierLabel\?76:58\):136/.test(eng), "phone: toasts sit below the caption");
@@ -203,9 +205,9 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   { const r = R(768, 196, 448); ok(!r.off && r.y === 456 && r.h === 140 && r.y + r.h === 596, "768 tall, expanded card: chart cut to the 140 px of room"); }
   ok(R(900, 196, 282).y + R(900, 196, 282).h === 900 - 172, "room to spare: the chart keeps its place right above the trades feed");
   ok(R(900, 196, null).y + R(900, 196, null).h === 728 && R(900, 196, null).y >= 456, "no card bottom published: the old 456 px budget");
-  ok(/return chartDeskRect\(H,st\.h,typeof window!=='undefined'\?window\.__pnlBottom:null\); \}/.test(eng), "chartRect (desktop live) uses the card's published bottom");
+  ok(/const b=chartDeskRect\(H,st\.h,typeof window!=='undefined'\?window\.__pnlBottom:null\);/.test(eng) && /const o=cardPlace\('chart',b\.x,b\.y,st\.w,b\.h\);/.test(eng), "chartRect (desktop live) uses the card's published bottom (+ the chart card's own offset, pass 3 #4)");
   ok(wb.includes('"__pnlBottom"'), "worker render: __pnlBottom forwarded with the other globals");
-  ok(/w\.__pnlBottom = !isPhone\(\) && r\.height > 0 \? Math\.round\(r\.bottom - top\) : null/.test(pnl) && /new ResizeObserver\(pub\)/.test(pnl), "PnlHud publishes its bottom (desktop only, tracks open / collapse)");
+  ok(/w\.__pnlBottom = !isPhone\(\) && !cardHidden && r\.height > 0 \? Math\.round\(r\.bottom - top - cardDy\) : null/.test(pnl) && /new ResizeObserver\(pub\)/.test(pnl), "PnlHud publishes its bottom (desktop only, tracks open / collapse)");
   ok(/matchMedia\?\.\("\(max-height: 767px\)"\)\.matches\) setOpenS\(false\)/.test(pnl), "short desktop: the card starts collapsed (chart keeps its full height)"); }
 // 390 px phone: the chart is a drawer TAB and the Your Run card is another tab → never on screen together
 { ok(/return P\.sheet==='chart'&&B\?\{x:[^\n]*:\{x:-1e4,y:-1e4,w:st\.w,h:st\.h\}/.test(eng), "phone: chart drawn only in the Chart sheet (off-screen otherwise)");
@@ -216,15 +218,15 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   const f = new Function("window", eng.match(/function coinIdRowH\(\)\{[^\n]*\}/)[0] + "\nreturn coinIdRowH;");
   ok(f({ __coinIdH: 46 })() === 46 && f({})() === 0 && f({ __coinIdH: -3 })() === 0 && f({ __coinIdH: 900 })() === 64, "coinIdRowH: published row height, 0 when unset, clamped");
   ok(/source instanceof DiscipleSource\?'MARKET CAP':/.test(eng), "coin page: the card has a MARKET CAP label");
-  ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n  ctx\.restore\(\); \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar");
+  ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n  ctx\.restore\(\); ctx\.restore\(\); \} \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar (+ the @cards translate)");
   ok(/w\.__coinIdH = window\.matchMedia\?\.\("\(max-width: 760px\)"\)\.matches \? 0 : Math\.ceil/.test(id) && !/mcap/.test(id.replace(/\/\/[^\n]*/g, "")), "CoinIdentity publishes its row height (0 on phones); no separate mcap in it");
   ok(/\.coin-id \{ position: fixed; left: calc\(var\(--ap-rail-w, 64px\) \+ 28px\); top: 24px;/.test(css) && !/\.coin-id \{[^}]*backdrop-filter/.test(css), "name row sits inside the card (no own pill scrim)");
   ok(wb.includes('"__coinIdH"'), "worker render: __coinIdH forwarded");
   // header card bottom (18 + 130 + row ≤ 64) stays above the Your Run card top (212)
   ok(18 + 130 + 64 <= 212, "header card (max) ends above the Your Run card");
-  // ascended: the '+X% to NEXT' label is drawn too (badge kept)
-  const gb = eng.slice(eng.indexOf("if (S.graduated){ S.tierNeedText=''"), eng.indexOf("if(!nx||curveTierProgress(nx)) return; }"));
-  ok(/let lb=tierLabel\(m,nx\)/.test(gb) && /ctx\.fillText\(lb,384,Y\+BH\+13\)/.test(gb) && /be<=384-ctx\.measureText\(lb\)\.width/.test(gb) && /drawGradBadgeDesk\(X,Y,BW,BH\)/.test(gb), "ascended: ASCENDED badge + '+X% to NEXT_TIER' right-aligned on the badge row, never over the badge");
+  // pass 3 #2 (lee): ascended shows ASCENDED once (TIER line); no separate badge, the normal bar + '+X% to NEXT' label
+  { const tb = eng.slice(eng.indexOf("function drawTierBar(m,ti,leftEnd){"), eng.indexOf("function drawTierBar(m,ti,leftEnd){") + 3000);
+    ok(/S\.gradBadge=S\.graduated\?GRAD_BADGE:''; if \(S\.graduated\) S\.tierNeedText='';/.test(tb) && ((c) => !/drawGradBadgeDesk/.test(c) && !/trading on Uniswap/.test(c))(eng.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")), "ascended: no second ASCENDED badge, no 'trading on Uniswap'"); }
   ok(/if\(lb&&\(leftEnd\|\|0\)\+12<=384-ctx\.measureText\(lb\)\.width\) ctx\.fillText\(lb,384,108\);/.test(eng), "curve: the label is dropped rather than drawn over a long TIER line");
   // DISCIPLE status box gone on coin pages, TOP HOLDERS + chat move up
   ok(/const STATUS_BOX=!\(source instanceof DiscipleSource\), STATUS_DY=STATUS_BOX\?100:0;/.test(eng), "no DISCIPLE status box on coin pages");

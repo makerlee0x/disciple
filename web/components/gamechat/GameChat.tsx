@@ -7,6 +7,8 @@ import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
 import { holderLabelText, type HolderLabel } from "@/lib/flight/holders";
 import { GRAD_BADGE } from "@/lib/flight/tiers";
+import { updateLayout, useDomCard } from "@/lib/game/cardLayoutStore";
+import { restoreCard } from "@/lib/game/cardLayout";
 
 /**
  * In-game live chat overlay (Twitch-style column, right side). DOM overlay only: the canvas never reads it.
@@ -38,7 +40,7 @@ export default function GameChat({ coin }: { coin: string }) {
   const [api, setApi] = useState<{ api: ChatApi; svg: boolean; source: string } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [conn, setConn] = useState<ChatState | "init">("init");
-  const [open, setOpen] = useState(false);   // closed by default: opens only from the chat toggle (stored choice is kept)
+  const [openS, setOpen] = useState(false);   // closed by default: opens only from the chat toggle (stored choice is kept)
   const [width, setWidth] = useState(W_DEF);
   const [unread, setUnread] = useState(0);
   const [text, setText] = useState("");
@@ -57,6 +59,9 @@ export default function GameChat({ coin }: { coin: string }) {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dockRef = useRef<HTMLElement>(null);
+  // pass 3 #4: the dock is a movable card (lib/game/cardLayoutStore); minimized / closed from its chrome ⇒ shown as the CHAT pill
+  const card = useDomCard("chat", dockRef);
+  const open = openS && !card.hidden;
   const c = coin.toLowerCase();
 
   useEffect(() => { try { setOpen(localStorage.getItem("disciple.gamechat.open") === "1"); const w = +(localStorage.getItem("disciple.gamechat.w") || 0); if (w) setWidth(Math.max(W_MIN, Math.min(W_MAX, w))); const t = localStorage.getItem("disciple.gamechat.tab"); if (t === "holders") { tabRef.current = "holders"; setTabS("holders"); } } catch { /* */ } }, []);
@@ -86,9 +91,13 @@ export default function GameChat({ coin }: { coin: string }) {
   useEffect(() => {
     const h = (e: Event) => { lastHolders.current = Date.now(); setHolders((e as CustomEvent<Holders>).detail); };
     addEventListener("disciple:holders", h);
-    const iv = window.setInterval(() => { if (api && open && Date.now() - lastHolders.current > 3000) dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); }, 3000);
+    // until the first holders push: re-announce every 400 ms (was 3 s ⇒ the stacked-lists window); then every 3 s
+    const iv = window.setInterval(() => { const quiet = Date.now() - lastHolders.current; if (api && open && (lastHolders.current === 0 || quiet > 3000)) dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); }, 400);
     return () => { removeEventListener("disciple:holders", h); clearInterval(iv); };
   }, [api, open]);
+  // pass 3 #5: also a window flag the engine reads every frame (worker-mirrored) ⇒ its canvas TOP HOLDERS box never draws
+  // under the open dock, even before the engine has heard disciple:chatdock
+  useEffect(() => { const w = window as unknown as { __chatDockOpen?: boolean }; w.__chatDockOpen = !!(api && open); return () => { w.__chatDockOpen = false; }; }, [api, open]);
   useEffect(() => { if (!api) return; dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open, holders: true } })); try { localStorage.setItem("disciple.gamechat.open", open ? "1" : "0"); } catch { /* */ } }, [open, api]);
   useEffect(() => () => { dispatchEvent(new CustomEvent("disciple:chatdock", { detail: { open: false } })); }, []);
   // Chat never opens itself and never takes keys while you trade. Keys act ONLY when the dock is already open AND has focus
@@ -133,7 +142,7 @@ export default function GameChat({ coin }: { coin: string }) {
   if (!api) return null;
   const st = STATE[conn];
   if (!open) return (
-    <button data-testid="chat-open" onClick={() => setOpen(true)} title="Open chat"
+    <button data-testid="chat-open" onClick={() => { if (card.hidden) updateLayout((l) => restoreCard(l, "chat")); setOpen(true); }} title="Open chat"
       style={{ position: "fixed", right: 344, bottom: 20, zIndex: 33, height: 30, padding: "0 12px", borderRadius: 15, cursor: "pointer", font: `bold 12px ${mono}`,
         color: "#e8ecff", background: "rgba(10,12,28,.72)", border: "1px solid rgba(255,231,163,.45)" }}>
       <span style={{ color: st.c }}>●</span> CHAT{unread > 0 ? ` · ${unread > 99 ? "99+" : unread}` : ""}
@@ -142,8 +151,8 @@ export default function GameChat({ coin }: { coin: string }) {
   const known = (code: string) => code in api.api.EMOTES || EMOTE_CODES.includes(code);
   const rl = err?.until ? Math.max(0, Math.ceil((err.until - Date.now()) / 1000)) : 0;
   return (
-    <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" aria-label="Live chat"
-      style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + var(--ap-status-h, 100px) + var(--ap-crew-h, 0px))", bottom: 20, width, zIndex: 32, display: "flex", flexDirection: "column",
+    <aside ref={dockRef} tabIndex={-1} data-testid="chat-dock" data-card="chat" aria-label="Live chat"
+      style={{ transform: card.transform, position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + var(--ap-status-h, 100px) + var(--ap-crew-h, 0px))", bottom: 20, width, zIndex: 32, display: "flex", flexDirection: "column",
         background: "linear-gradient(90deg, rgba(8,10,24,.38), rgba(8,10,24,.62))", border: "1px solid rgba(255,231,163,.22)", borderRadius: 12,
         font: `12.5px/1.38 ${mono}`, color: "#e8ecff", contain: "layout paint" }}>
       <div onPointerDown={drag} title="drag to resize" style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "ew-resize", zIndex: 2 }} />
@@ -222,8 +231,8 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
 
 function HoldersView({ h }: { h: Holders | null }) {
   return <div data-testid="holders-list" style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "thin" }}>
-    <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "KING OF THE HILL · top boosters"}</div>
-    {h?.items ? <RealHolders items={h.items} you={h.you} /> : !h || !h.rows.length ? <div style={{ opacity: 0.6 }}>no boosters yet</div> : h.rows.map(([w, v], i) =>
+    <div style={{ color: "#ffe7a3", fontWeight: 800, fontSize: 11.5, marginBottom: 6 }}>{h?.title || "TOP HOLDERS · loading…"}</div>
+    {!h ? null : h.items ? <RealHolders items={h.items} you={h.you} /> : !h.rows.length ? <div style={{ opacity: 0.6 }}>no boosters yet</div> : h.rows.map(([w, v], i) =>
       <div key={w} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", color: w === "you" ? "#9ff3c8" : "rgba(220,228,255,.9)", fontWeight: i === 0 ? 800 : 400 }}>
         <span>{i === 0 ? <Icon name="crown" size={12} style={{ width: "2ch" }} /> : String(i + 1).padStart(2, " ")} {w}</span><span>{fmtUsd(v)}</span></div>)}
     {h && !h.items && h.you > 0 && <div style={{ marginTop: 8, color: "#9ff3c8" }}>your BOOST: {fmtUsd(h.you)}</div>}

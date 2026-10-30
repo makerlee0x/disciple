@@ -136,7 +136,7 @@ console.log("— 5. mode + cap on the TIER line");
   C.emit("disciple:coinrules", { label: "EASY · cap 1%" }); ok(C.tierRulesText() === "EASY · cap 1%", "disciple:coinrules → TIER line text");
   C.emit("disciple:coinrules", null); ok(C.tierRulesText() === "", "cleared when the page drops it");
   const hud = block("function drawHud(){", "// progress to next tier");
-  ok(/ctx\.fillText\(tierText\(ti\),36,108\);\s*\{ const rl=tierRulesText\(\); if\(rl\)/.test(hud) && /function tierText\(ti\)\{ const n=tierName\(ti\); return S\.graduated\?\(n\?`\$\{ASCENDED\} · \$\{n\}`:ASCENDED\):n; \}/.test(eng) && /ctx\.fillText\('  ·  '\+rl,x,108\)/.test(hud), "TIER line: 'NAME  ·  <mode · cap>' (ascended: 'ASCENDED · NAME  ·  …'; no tier number)");
+  ok(/ctx\.fillText\(tierText\(ti\),36,108\);/.test(hud) && !/tierRulesText\(\)|'  ·  '\+rl/.test(hud) && /function tierText\(ti\)\{ const n=tierName\(ti\); return S\.graduated\?\(n\?`\$\{ASCENDED\} · \$\{n\}`:ASCENDED\):n; \}/.test(eng), "TIER line: the tier NAME only — no mode / cap text such as 'TRENCH · no cap' (pass 3 #2, lee); ascended: 'ASCENDED · NAME'; no tier number");
   const cr = rd("lib/flight/coinRules.ts");
   ok(/functionName: "netCapNow"/.test(cr) && /coinFacts\(pc, token\)/.test(cr) && /functionName: "symbol"/.test(cr), "rules are read from the coin: BondingCurve.mode() (coinFacts) + netCapNow() + symbol");
   ok(/readCoinRules\(pc, token as Address\)/.test(rd("components/TradeBridge.tsx")) && /setInterval\(poll, 15_000\)/.test(rd("components/TradeBridge.tsx")), "TradeBridge polls them (caps move with mcap after the mode-rules-v2 redeploy)"); }

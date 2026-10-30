@@ -84,13 +84,13 @@ ok(/dispatchEvent\(new CustomEvent\("disciple:fillreceipt"/.test(rd("components/
 
 // ───────────── Fix 2: chat closed by default, no H / Enter hijack ─────────────
 { const gc = rd("components/gamechat/GameChat.tsx");
-  ok(/const \[open, setOpen\] = useState\(false\)/.test(gc), "GameChat starts closed");
+  ok(/const \[openS, setOpen\] = useState\(false\)/.test(gc) && /const open = openS && !card\.hidden;/.test(gc), "GameChat starts closed");
   ok(/localStorage\.getItem\("disciple\.gamechat\.open"\) === "1"/.test(gc), "stored choice kept: opens at load only if the player left it open ('1')");
   ok(/localStorage\.setItem\("disciple\.gamechat\.open", open \? "1" : "0"\)/.test(gc), "open / closed choice is still persisted");
   const keyFx = gc.slice(gc.indexOf("Chat never opens itself"), gc.indexOf("// rate-limit countdown"));
   ok(keyFx.length > 0 && !/setOpen\(/.test(keyFx), "the key handler never calls setOpen (H / Enter cannot open chat)");
   ok(/if \(!api \|\| !open\) return;/.test(keyFx), "no key listener at all while chat is closed");
-  ok(/data-testid="chat-open" onClick=\{\(\) => setOpen\(true\)\}/.test(gc), "chat opens from the explicit toggle click");
+  ok(/data-testid="chat-open" onClick=\{\(\) => \{ if \(card\.hidden\) updateLayout\(\(l\) => restoreCard\(l, "chat"\)\); setOpen\(true\); \}\}/.test(gc), "chat opens from the explicit toggle click");
   ok(!/Open chat \(Enter\)/.test(gc), "toggle no longer advertises Enter");
   // the pure gate, transpiled from the component source
   const src = gc.slice(gc.indexOf("export function chatKeyApplies"), gc.indexOf("export default function GameChat")).replace("export ", "").replace(/: \{[^)]*\}\)/, ")");

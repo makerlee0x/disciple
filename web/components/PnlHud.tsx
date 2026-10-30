@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, fmtTokens, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
 import { onWallet } from "@/lib/wallet";
 import { isDeployed } from "@/lib/chains";
 import { withBase } from "@/lib/base-path";
 import { POINTS_ENABLED } from "@/lib/features";
+import { useDomCard } from "@/lib/game/cardLayoutStore";
 
 type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; /** always 0 (no per-trade gas line in the ledger) */ gas?: number; at?: number; frac?: number; session?: string | null; live?: boolean; txHash?: string };
 type Receipt = ExactFill & { txHash: string; side: "buy" | "sell" };
@@ -194,16 +195,18 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   // the engine's desktop chart starts under this card (engine.js chartDeskRect ← window.__pnlBottom, px from the canvas
   // wrap's top). null on the phone / when hidden (the RUN sheet and the CHART sheet are separate drawer tabs there).
   const asideRef = useRef<HTMLElement>(null);
+  const card = useDomCard("pnl", asideRef);   // pass 3 #4: movable / minimizable / closable card
+  const cardDy = card.dy, cardHidden = card.hidden;
   useEffect(() => {
     const el = asideRef.current, w = window as unknown as { __pnlBottom?: number | null };
     if (!el) return;
     const pub = () => { const r = el.getBoundingClientRect(), top = document.getElementById("wrap")?.getBoundingClientRect().top ?? 0;
-      w.__pnlBottom = !isPhone() && r.height > 0 ? Math.round(r.bottom - top) : null; };
+      w.__pnlBottom = !isPhone() && !cardHidden && r.height > 0 ? Math.round(r.bottom - top - cardDy) : null; };   // the card's BASE spot (a dragged card doesn't drag the chart)
     pub();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(pub) : null; ro?.observe(el);
     addEventListener("resize", pub);
     return () => { ro?.disconnect(); removeEventListener("resize", pub); w.__pnlBottom = null; };
-  }, []);
+  }, [cardDy, cardHidden]);
   const price = mark.mcap / mark.supply;
   // LIVE: holdings = the wallet's real balance × mark; PnL only on the tracked (known-cost) part. Paper / sim: the ledger.
   const wv: WalletView | null = wallet ? walletView(pos, wallet.tokens, price, mark.supply) : null;
@@ -236,13 +239,13 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const glow = (c: string) => `0 0 10px ${c}55`;
 
   return (
-    <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud"
-      style={{ position: "fixed", top: 212, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 31, width: 272, padding: "9px 12px 10px",
+    <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud" data-card="pnl"
+      style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", top: 212, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 31, width: 272, padding: "9px 12px 10px",
         borderRadius: 14, background: "linear-gradient(180deg,rgba(16,14,40,.88),rgba(8,10,26,.84))", backdropFilter: "blur(6px)",
         border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
         transition: "border-color .4s" }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", ...row, width: "100%", color: "#ffe7a3", fontWeight: "bold" }}>
-        <span>{t("pnl.yourRun")} <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || (wallet ? t("pnl.live") : t("pnl.paper"))}</span></span>
+        <span data-testid="pnl-title">{t("pnl.yourPosition")} <span style={{ color: modeLabel ? "#8fd8ff" : "#ffb0c8", fontWeight: modeLabel ? 700 : 400 }}>· {modeLabel || (wallet ? t("pnl.live") : t("pnl.paper"))}</span></span>
         <span style={{ color: "rgba(255,231,163,.7)" }}>{open ? "−" : "+"}</span>
       </button>
 
@@ -258,11 +261,10 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
 
       {open && (
         <div style={{ marginTop: 7, lineHeight: 1.6 }}>
-          <div style={row}><span style={label}>{t("pnl.mcap")}</span><Num value={mark.mcap} fmt={fmtUsd} style={{ fontWeight: 700 }} /></div>
-          {/* holdings in dollars only (live: the wallet's real balance × mark = exactly what DUMP 100% sells) */}
-          {/* tokens with no on-chain buy (received by transfer): in holdings, not in avg entry / PnL — said in the tooltip only */}
+          {/* YOUR POSITION (pass 3 #1, lee): no MCAP row (the header card shows it). HOLDINGS = token amount + its $ value
+              (live: the wallet's real balance × mark = exactly what DUMP 100% sells) */}
           <div style={row}><span style={label}>{t("pnl.holdings")}</span>
-            <span data-testid="pnl-holdings"><Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
+            <span data-testid="pnl-holdings"><span data-testid="pnl-holdings-tokens">{fmtTokens(v.size)}</span><span style={{ opacity: 0.55 }}> · </span><Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
           <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
           {v.fees > 0 && <div style={row} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}

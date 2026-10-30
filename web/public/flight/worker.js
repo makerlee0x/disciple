@@ -104,6 +104,7 @@ self.onmessage = async (m) => {
     case 'key': inbound(mkEvent(d.type, { code: d.code, key: d.key, repeat: d.repeat, ctrlKey: d.ctrlKey, metaKey: d.metaKey, shiftKey: d.shiftKey })); break;
     case 'blur': inbound(new Event('blur')); break;
     case 'ptr': if (canvas) canvas.dispatchEvent(mkEvent(d.type, { clientX: d.x, clientY: d.y, pointerId: d.id, pointerType: d.pt })); break;
+    case 'wheel': if (canvas) canvas.dispatchEvent(mkEvent('wheel', { clientX: d.x, clientY: d.y, deltaY: d.dy, deltaMode: d.dm, ctrlKey: d.ctrl })); break;   // chart zoom (pass 3 #3)
     case 'size': RECT = d.rect; WRAP.clientWidth = d.w; WRAP.clientHeight = d.h; self.devicePixelRatio = d.dpr; self.innerWidth = d.w; self.innerHeight = d.h; inbound(new Event('resize')); break;
     case 'vis': HIDDEN = d.hidden; for (const f of docListeners.visibilitychange || []) f(new Event('visibilitychange')); break;
     case 'glob': self[d.name] = d.value; break;

@@ -13,6 +13,7 @@ import TradeBridge from "@/components/TradeBridge";
 import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
 import CoinClaims from "@/components/claims/CoinClaims";
+import CardChrome from "@/components/flight/CardChrome";
 import { isDeployed } from "@/lib/chains";
 import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
 import { PROTOCOL_META } from "@/lib/protocol";
@@ -64,6 +65,8 @@ function FlightInner({ address }: { address: string }) {
       <SnipeCountdown token={address} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
       <CoinClaims token={address} />
+      {/* pass 3 #4 (GAME): drag / minimize / close every desktop card + LAYOUT menu (per-account, localStorage) */}
+      <CardChrome />
       {/* Share (trade card + rocket card) lives in the ESC settings menu (FlightCanvas → SettingsMenu), not a floating pill */}
     </>
   );

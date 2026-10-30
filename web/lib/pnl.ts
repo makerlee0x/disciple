@@ -195,6 +195,13 @@ export function fmtMoney(v: number): string {
   const n = a >= 1e12 ? (a / 1e12).toFixed(2) + "T" : a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(2) + "M" : a >= 1e3 ? (a / 1e3).toFixed(2) + "K" : a.toFixed(2);
   return s + "$" + n;
 }
+/** Token amount for the position card (pass 3 #1): < 1K up to 2 decimals ("12.5", "0.03"), ≥ 1K compact with 2 decimals
+ *  ("12.35K" / "1.20M" / "3.00B"); tiny non-zero bags never read "0" ("<0.01"). */
+export function fmtTokens(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return "0";
+  if (v < 0.01) return "<0.01";
+  return v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(2) + "K" : String(+v.toFixed(2));
+}
 /** Signed: "+$0.11" / "−$0.11"; zero (and −0.00 after rounding) shows "+$0.00". */
 export function fmtPnl(v: number): string { return (v < 0 && Math.abs(v) >= 0.005 ? "−" : "+") + fmtMoney(Math.abs(v)); }
 export function fmtPct(v: number): string { return (v < 0 && Math.abs(v) >= 0.05 ? "−" : "+") + Math.abs(v).toFixed(1) + "%"; }

@@ -458,8 +458,8 @@ class DiscipleSource {
   constructor(){ this.name='DISCIPLE'; this.supply=+(Q.get('supply')||1e6); this.mcap=null; this.block=0; this.paper=1; }
   shown(){ return this.mcap*this.paper; }
   start(emit){ this.emit=emit; emit({t:'status',source:this.name,ok:true,msg:'curve events'});
-    // paper shots (no wallet) move a multiplicative offset that decays like arbitrage would (τ 20 s), same as PoolV3Base
-    this.dv=setInterval(()=>{ if(this.mcap==null||this.paper===1) return; this.paper=1+(this.paper-1)*Math.exp(-0.25/20); if(Math.abs(this.paper-1)<1e-5) this.paper=1; emit({t:'mark',mcap:this.shown()}); },250);
+    // paper shots (no wallet) move a multiplicative offset that HOLDS (@altfollow, pass 3 #6). Was: it decayed toward the
+    // real price (τ 20 s), so after a paper sell the price — and the rocket — floated back up (and a buy sank back).
     this.h=(ev)=>{ const e=ev.detail; if(!e) return;
       // @graduated: SITE (#158 lib/events mcapOrderer) stamps every State / Trade / Graduate with { graduated, poolId, graduatedAt }
       // (lib/protocol GradState). graduated:true — on load or a late re-sent State — is the same as the live Graduate event.
@@ -784,7 +784,7 @@ addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradN
    tier progress bar, no "buys needed" / "to ascend" text, an ASCENDED badge instead (desktop tier bar). User-facing word since
    lee's Oct 30 rename: ASCENDED (identifiers / contract + API names keep "graduated"). */
 S.graduated=false; S.gradInfo=null;
-const GRAD_BADGE='ASCENDED · trading on Uniswap';   // PLACEHOLDER copy (pending lee + BRAND)
+const GRAD_BADGE='ASCENDED';   // pass 3 #2 (lee): the word only — no 'trading on Uniswap' (chat row = lib/flight/tiers GRAD_BADGE)
 const ASCENDED='ASCENDED';   // the graduated state, as players read it (tier line: 'ASCENDED · LAUNCH PAD')
 function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
     S.gradInfo={poolId:d&&typeof d.poolId==='string'?d.poolId:g.poolId||null,graduatedAt:d&&Number.isFinite(+d.graduatedAt)&&+d.graduatedAt>0?+d.graduatedAt:g.graduatedAt||null}; }
@@ -795,8 +795,6 @@ function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const
 function tierNeedText(m,nx,o){ if(!nx||o.graduated) return '';
   if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to ascend`;
   const need=o.est; return need>0&&isFinite(need)?`≈${fmtNeed(need)} buys needed (est.)`:''; }
-/* curve progress is meaningless once graduated: hide the bar while the next tier is still a curve tier (≤ graduation) */
-const curveTierProgress=(nx)=>!!nx&&nx.lo<=TB_M1;
 /* position tag near the rocket: values from PnlHud (lib/pnl.ts view()), P toggles */
 S.pnlTag=null; S.pnlTagOn=(()=>{ try{ return localStorage.getItem('disciple.pnltag')!=='off'; }catch(_){ return true; } })();
 addEventListener('disciple:pnlview',e=>{ S.pnlTag=e.detail||null; });
@@ -1060,6 +1058,7 @@ function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
    disciple:coinrules {ticker, mode, label}. Nothing is hardcoded here: no event → no rules text. */
 S.coinRules=null;
 addEventListener('disciple:coinrules',e=>{ const d=e.detail; S.coinRules=d&&typeof d==='object'?d:null; });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- no longer drawn on the TIER line (pass 3 #2); kept for the tier tests
 function tierRulesText(){ const r=S.coinRules; return r&&typeof r.label==='string'?r.label.slice(0,28):''; }
 /* @rules-end */
 addEventListener('keydown',onHotkey);
@@ -1124,7 +1123,7 @@ function skyAt(x,y){ if(S.grass) return true; const P=phoneHud(W,CLEAN);
   if(P){ if(P.drawer||y>=P.hudTop) return false; const q=S.phonePill; if(q&&x>=q.x&&x<=q.x+q.w&&y>=q.y&&y<=q.y+q.h) return false; }
   return true; }
 cv.addEventListener('pointerdown',e=>{ if(!dragPointer(e)||S.menuOpen) return; const [x,y]=canvasXY(e);
-  if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)))) return;
+  if(!skyAt(x,y)||(!S.grass&&(ammoAt(e)>=0||(typeof chartBtnAt==='function'&&chartBtnAt(e)!=null)||(typeof chartHit==='function'&&chartHit(e))))) return;   /* @chartnav: a drag on the chart pans it, never steers */
   S.drag={id:e.pointerId,x0:x,sx:S.steer?S.steer.x:S.x,tx:null,on:false};
   try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch(_){} });
 cv.addEventListener('pointermove',e=>{ const d=S.drag; if(!d||e.pointerId!==d.id) return; if(S.menuOpen){ S.drag=null; return; }
@@ -1506,6 +1505,10 @@ function fmtTag(v){ return v>=1e6?'$'+(v/1e6).toFixed(1).replace(/\.0$/,'')+'M':
 let _topT=-1, _top=[];
 /* chat dock with a HOLDERS tab (components/gamechat/GameChat.tsx) → the canvas KOTH panel steps aside; holders pushed ≤2 Hz on change */
 addEventListener('disciple:chatdock',e=>{ const d=e.detail||{}; S.kothDocked=!!(d.open&&d.holders); S._holdersSig=''; });
+/* @dockgate (pass 3 #5): the chat dock also publishes window.__chatDockOpen (mirrored into the worker), read every frame, so
+   the canvas TOP HOLDERS box never draws under an open dock — not even before the first disciple:chatdock reaches an engine
+   that booted after GameChat (was: up to the 3 s re-announce, 'TOP HOLDERS' + the dock's list stacked until it settled). */
+function kothDockedNow(){ return !!S.kothDocked||window.__chatDockOpen===true; }
 addEventListener('disciple:controlsdock',e=>{ S.controlsDocked=!!(e.detail&&e.detail.docked); S._ctlSig=''; });
 function pushControls(){ if(S.t-(S._ctlT??-9)<0.25) return; S._ctlT=S.t; const md=MODES[S.mode];
   const d={mode:fmtShot(md.usd),key:md.key,shot:fmtShot(md.usd),pending:S.pending.filter(p=>p.state==='pending').length,max:MAX_PENDING,turbo:source instanceof MockReplaySource?!!S.turbo:null,orbs:!!S.orbsOn,score:S.score,streak:S.streak,mult:S.mult};
@@ -1685,7 +1688,31 @@ function drawPhoneHolders(P,top,title){ const B=P.body, rh=46, n=Math.max(1,Math
     ctx.fillStyle='rgba(214,222,245,.62)'; ctx.font=`bold 13px ${PH_FONT}`; ctx.fillText(phFit(holderKindText(r.label)||String(r.label),iw-150),x0+38,cy);
     ctx.textAlign='right'; ctx.fillText(fmtUsd(r.usd),x0+iw,cy); ctx.textAlign='left'; });
   ctx.restore(); }
+/* @cards — pass 3 #4 (lee): every desktop coin-screen card (header, TOP HOLDERS, TRADES, controls, chart; the DOM PnL /
+   chat cards do the same in React) can be dragged by its handle, minimized or closed, and restored from the LAYOUT menu
+   (components/flight/CardChrome.tsx). The layout comes from the page (lib/game/cardLayoutStore: localStorage per account,
+   guest when signed out) as raw offsets {dx,dy,min,closed} per card id — disciple:cardlayout (live, worker-forwarded) or
+   window.__cardLayout (boot). Each card is drawn translated by its offset clamped to the canvas (cardOff = lib/game/cardLayout
+   clampOffset), so a resize never pushes a card off-screen; min / closed cards are skipped. The drawn rects (+ effective
+   offset) go back to the page as disciple:cardrects (on change) so the DOM chrome sits on the cards. Phone / clean: no layout.
+   The buy / sell ammo panel is NOT a movable card (its hit rects + buy / slippage warnings stay put — FLOW owns that path). */
+var CARD_L=null; const CARD_RECTS={}; let CARD_SIG='';
+addEventListener('disciple:cardlayout',e=>{ const d=e.detail; CARD_L=d&&typeof d==='object'?d:{}; });
+function cardOff(r,c,W,H){ const n=v=>typeof v==='number'&&Number.isFinite(v)?Math.round(v):0, ax=(lo,hi,v)=>hi<lo?lo:Math.min(hi,Math.max(lo,v));
+  return {dx:Math.round(ax(-r.x,W-r.w-r.x,n(c&&c.dx))),dy:Math.round(ax(-r.y,H-r.h-r.y,n(c&&c.dy)))}; }
+/* @cards-math-end */
+function cardState(id){ if(CLEAN||phoneHud(W,CLEAN)) return null; const L=CARD_L||(typeof window!=='undefined'?window.__cardLayout:null); const c=L&&typeof L==='object'?L[id]:null; return c&&typeof c==='object'?c:null; }
+/* base rect → the drawn rect (offset + clamp) and registers it for the chrome; null ⇒ minimized / closed (don't draw) */
+function cardPlace(id,x,y,w,h){ const c=cardState(id), o=c?cardOff({x,y,w,h},c,W,H):{dx:0,dy:0}, hid=!!(c&&(c.min||c.closed));
+  if(!CLEAN&&!phoneHud(W,CLEAN)) CARD_RECTS[id]={x:x+o.dx,y:y+o.dy,w,h,dx:o.dx,dy:o.dy,min:!!(c&&c.min),closed:!!(c&&c.closed)};
+  return hid?null:o; }
+function cardBegin(id,x,y,w,h){ const o=cardPlace(id,x,y,w,h); if(!o) return false; ctx.save(); ctx.translate(o.dx,o.dy); return true; }
+function cardPublish(){ if(CLEAN||phoneHud(W,CLEAN)) for(const k in CARD_RECTS) delete CARD_RECTS[k]; else if(!CH||!CH.on) delete CARD_RECTS.chart;
+  const sig=W+'x'+H+JSON.stringify(CARD_RECTS); if(sig===CARD_SIG) return; CARD_SIG=sig;
+  dispatchEvent(new CustomEvent('disciple:cardrects',{detail:{W,H,cards:JSON.parse(JSON.stringify(CARD_RECTS))}})); }
+/* @cards-end */
 function drawHud(){
+  for(const k in CARD_RECTS) if(k!=='chart') delete CARD_RECTS[k];   /* re-registered by this frame's cards (chart: chartRect) */
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
   ctx.save(); ctx.textBaseline='alphabetic';
   const PH=phoneHud(W,CLEAN);
@@ -1694,16 +1721,17 @@ function drawHud(){
   // window.__coinIdH = its height, laid inside this card's top) + MARKET CAP label + the big mcap + TIER line + tier bar.
   // The card grows by that row; everything under it is drawn shifted down (translate), so the rest stays as before.
   const HY=coinIdRowH();
+  if (cardBegin('header',20,18,380,130+HY)){   /* @cards */
   panel(20,18,380,130+HY); ctx.save(); ctx.translate(0,HY);
   { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:source instanceof DiscipleSource?'MARKET CAP':(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed';
     if(lbl){ ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(lbl,36,42); } }
   ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(tierText(ti),36,108);
-  { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(tierText(ti)).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
+  // pass 3 #2 (lee): no mode / cap text ('TRENCH · no cap') on the TIER line — the tier name (ASCENDED once, when ascended) only
   // progress to next tier
   const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
   drawTierBar(m,ti,tierEnd);   /* HUD+ block */
-  ctx.restore(); }
+  ctx.restore(); ctx.restore(); } }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
@@ -1721,25 +1749,25 @@ function drawHud(){
   else { ctx.fillText(`block #${S.confirmed.block}`,RX+16,RT+60); }
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle=holding?'#ffd98a':'#8ff0c0'; ctx.fillText(holding?`HOLDING · no trades ${sinceSwap.toFixed(1)}s`:'LIVE · trade flow',RX+16,RT+78); }
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
-  if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
+  const docked=kothDockedNow(); if (docked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
-  else if (!S.kothDocked){ panel(RX,RT+STATUS_DY,CW,96);
+  else if (!docked&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+STATUS_DY+20);
-  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
+  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); ctx.restore(); }
   // bottom-left: trade feed (compact)
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
-  else { const FX=20, FY=H, FW=310;
+  else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
-    if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; }
+    if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; ctx.restore(); }
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
-  if (S.controlsDocked) pushControls(); else if (!PH) { panel(RX,H-104,310,84);
+  if (S.controlsDocked) pushControls(); else if (!PH&&cardBegin('controls',RX,H-104,310,84)) { panel(RX,H-104,310,84);
   const md=MODES[S.mode]; ctx.fillStyle='#fff'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(`BUY ${fmtShot(md.usd)}/shot [${md.key}] · ${MODES[0].key}-${MODES[MODES.length-1].key} select / click`,RX+16,H-82);
   ctx.font='11px ui-monospace,monospace'; ctx.fillStyle='#9ff3c8'; ctx.fillText('SPACE turbo',RX+16,H-64); ctx.fillStyle='#ffb0c8'; ctx.fillText('ZXCV sell',RX+100,H-64);
   ctx.fillStyle='rgba(220,228,255,.8)'; ctx.fillText('W boost·A/D',RX+178,H-64);
   ctx.fillText(`pending ${S.pending.filter(p=>p.state==='pending').length}/${MAX_PENDING}${source instanceof MockReplaySource?'   T turbo '+(S.turbo?'ON':'off'):''}`,RX+16,H-46);
-  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } }
+  if (S.orbsOn){ ctx.fillStyle='#ffe7a3'; ctx.fillText(`POINTS ${S.score}  streak ${S.streak}${S.mult>1?'  ×'+S.mult:''}`,RX+16,H-28); } ctx.restore(); }
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
@@ -2171,6 +2199,7 @@ function stepHeadingOnce(st, wantAimDeg, bankDeg, dt){
    (price gaps, replay restarts, tab resume, sim impulses). A huge gap is tracked at capped speed while
    the rocket rides the soft edge of the safe band (rocketScreenY). */
 const CAM_W=1.6, CAM_VMAX=1500, CAM_AMAX=6000, CAM_SUB=1/120;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for scripts/test-camera.mjs (sliced); simStep now uses cameraFollow (pass 3 #6)
 function stepCamera(st, targetPx, dt){
   const cl=(v,a,b)=>v<a?a:v>b?b:v;
   if (!Number.isFinite(st.camPx)) st.camPx=Number.isFinite(targetPx)?targetPx:0;
@@ -2189,6 +2218,25 @@ function stepCamera(st, targetPx, dt){
   }
   return st.camPx;
 }
+/* @altfollow (pass 3 #6, lee Oct 30: "rocket height follows price ONLY — no drift, no snap-backs").
+   ROOT CAUSE of the three effects lee saw (stop buying → the jet stream glitched down; full sell → the rocket floated back
+   up; buy → zoomed up then sank): the chase camera (stepCamera, CAM_W 1.6 ≈ 1.5 s settle) LAGGED the rocket on purpose, so
+   S.ry = rocketScreenY(anchor, (displayAlt − camAlt)·PX) put the rocket above / below the anchor for ~1.5 s after every
+   price move and then slid it back to the anchor as the camera caught up — a buy rose then sank, a sell dropped then
+   floated back up, and the world-pinned contrail kinked when the camera settled after a burst of buys. On top: a buy
+   turbo hop (−34·buyBoost px, τ 0.8 s) and a W hop (−22·wBoost) that both decayed back, and paper shots' price offset
+   (DiscipleSource.paper) decaying toward the real price (τ 20 s) ⇒ a paper sell floated the price itself back up.
+   Now: altitude = a critically damped spring on the price (altSpring, no overshoot), the camera is LOCKED to that
+   altitude (cameraFollow), so after the spring settles the rocket sits at the anchor and the world's height is a pure
+   function of the price; no hops; the paper offset holds (no decay). */
+function altSpring(st, target, dt, W, Z){ W=W||10; Z=Z||1; if(!Number.isFinite(target)) return st.displayAlt;
+  if(!Number.isFinite(st.displayAlt)){ st.displayAlt=target; st.altVel=0; return target; }
+  const err=target-st.displayAlt; st.altVel=(st.altVel||0)+(W*W*err-2*Z*W*(st.altVel||0))*dt; st.displayAlt+=st.altVel*dt;
+  // critically damped: never past the target (float rounding / a big dt can't overshoot ⇒ no float-back)
+  if((target-st.displayAlt)*err<0||Math.abs(target-st.displayAlt)<2e-5&&Math.abs(st.altVel)<2e-4){ st.displayAlt=target; st.altVel=0; }
+  return st.displayAlt; }
+function cameraFollow(st, pxPerAlt, dt){ const t=st.displayAlt*pxPerAlt; if(!Number.isFinite(t)) return st.camPx;
+  st.camV=Number.isFinite(st.camPx)&&dt>0?(t-st.camPx)/dt:0; st.camPx=t; return st.camPx; }
 function rocketScreenY(anchor, offPx, Hh){ const up=Hh*0.07, dn=Hh*0.08; const o=Number.isFinite(offPx)?offPx:0;
   return anchor - (o>0? up*Math.tanh(o/up) : dn*Math.tanh(o/dn)); }
 /*CAMERA-END*/
@@ -2232,13 +2280,10 @@ function simStep(stepDt){
   /* SPRING — altitude tracks price. ω≈22 rad/s, ζ≈0.72 → ~150 ms rise with a little overshoot.
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
   const SPRING_W=10, SPRING_Z=1.0;   // critically damped (~0.35 s): no overshoot bounce, no screen snap
-  simMarketStep(dt);
+  simMarketStep(dt);   // (sim off on live coins: S.simF stays 1)
   const realAlt=mcapToAlt(shownMcap());   // = the price the HUD shows and PnL marks (paper: × sim offset; live: real)
   const target=realAlt+(S.boostAnim&&S.boostAnim.length?baOffset(S.boostAnim,realAlt,performance.now()):0);   // + pending shots' visual lead (@boostanim)
-  const altErr=target-S.displayAlt;
-  S.altVel=(S.altVel||0)+ (SPRING_W*SPRING_W*altErr - 2*SPRING_Z*SPRING_W*(S.altVel||0))*dt;
-  S.displayAlt+=(S.altVel||0)*dt;
-  if (Math.abs(altErr)<2e-5 && Math.abs(S.altVel)<2e-4){ S.displayAlt=target; S.altVel=0; }
+  altSpring(S, target, dt, SPRING_W, SPRING_Z);   // @altfollow
   // volume EMAs decay (τ≈6s) → exhaust intensity
   const dec=Math.exp(-dt/6); S.volEma*=dec; S.buyEma*=dec; S.sellEma*=dec;
   // lateral steering — cosmetic only. Laggy follow so A/D banks instead of teleporting.
@@ -2290,11 +2335,11 @@ function simStep(stepDt){
   S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0)-260*(S.dive||0);   // S/↓ dive noses down
   stepHeading(S, aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
-  // CAMERA — critically damped spring in pixel space, then hard caps on speed and acceleration.
-  // It lags the rocket on purpose, so the ROCKET visibly rises / drops on screen, then the view follows.
+  // CAMERA — locked to the price altitude (@altfollow). Was: stepCamera's lagging chase (the rocket rose / dropped on
+  // screen, then slid back to the anchor as the view caught up = the sink / float-back lee saw).
   if (S.camAlt==null) S.camAlt=S.displayAlt;
   if (S.camX==null) S.camX=S.x;
-  stepCamera(S, S.displayAlt*PX_PER_ALT, dt);
+  cameraFollow(S, PX_PER_ALT, dt);
   S.camAlt=S.camPx/PX_PER_ALT;
   /* CINEMATIC CAMERA (Touch Grass + cine flag only): a second, much slower critically-damped follow on top of the
      normal camera (~1.6 s settle vs ~0.4 s), softer lateral follow, the anchor a little higher (more sky under the
@@ -2306,7 +2351,7 @@ function simStep(stepDt){
   { const PD=phoneHud(W,CLEAN), ay=S.cine?H*0.55:PD&&PD.drawer&&PD.dTop>0?Math.min(ROCKET_Y,PD.dTop-44):ROCKET_Y;   // @phone-hud: drawer open ⇒ the rocket rides above it
     S.anch=S.anch==null?ROCKET_Y:lerp(S.anch,ay,1-Math.exp(-dt*(S.cine?0.8:5))); }
   // rocket screen y: true altitude vs camera, soft-limited to the safe band (tanh, never a hard stop)
-  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) - 22*(S.wBoost||0) - 34*(S.buyBoost||0) + 40*(S.dive||0);   // W nudge / buy turbo hop, decays back
+  S.ry=rocketScreenY(S.anch,(S.displayAlt-S.camAlt)*PX_PER_ALT,H) + 40*(S.dive||0);   // @altfollow: no buy/W hop (they decayed back = a sink); S/↓ dive only while held
   // idle bob / sway / micro-rot — attenuated during thrust so they don't fight heading
   const thrustHold=sinceThrust<1.2? clamp(1-sinceThrust/1.2,0,1) : 0;
   const amp=(1+(Math.abs(vUpRaw)/500))*(1-0.7*thrustHold);
@@ -2417,8 +2462,7 @@ function tierProgress(m,ti){ const nx=TIERS[ti+1]||null;
   return { f:nx?clamp((m>0?m:0)/nx.lo,0,1):1, next:nx }; }
 function tierUpPct(m,nx){ return nx&&m>0?Math.max(0,(nx.lo/m-1)*100):null; }
 function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.ceil(p*10)/10).toFixed(1); }   // ≥10: whole %, else 1 dp rounded UP (never "+0%")
-function tierLineEnd(ti){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(tierText(ti)).width;
-  const rl=tierRulesText(); if(rl){ ctx.font='bold 12px ui-monospace,monospace'; e+=ctx.measureText('  ·  '+rl).width; } ctx.restore(); return e; }
+function tierLineEnd(ti){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
 /* @tier-name — ONE tier label for the sky, used by the desktop HUD, the phone pill and the tier banner: the tier NAME only,
    never a number (lee, Oct 30: "LAUNCH PAD", never "Tier 0"), from the TIERS ladder. The sky follows the CURRENT price, no
    floor (lee, Oct 26: "No, keep the tier following price"); an ascended (graduated) coin always shows its current tier too:
@@ -2432,20 +2476,16 @@ function tierLabel(m,nx){ const p=tierUpPct(m,nx); return p==null?'':`+${fmtUpPc
 function drawTierBar(m,ti,leftEnd){
   const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
-  if (S.graduated){ S.tierNeedText=''; S.gradBadge=GRAD_BADGE; drawGradBadgeDesk(X,Y,BW,BH);   // @graduated: badge replaces the curve progress + need text
-    // …but the '+X% to NEXT_TIER' label stays (lee, Oct 30): the tier follows the current price either way. It sits on the badge
-    // row, right-aligned (the 'ASCENDED · NAME  ·  mode' TIER line has no room left for it)
-    { let lb=tierLabel(m,nx); ctx.save(); ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
-      const be=gradBadgeEnd(X,BW)+12; if(lb&&be>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));
-      if(lb&&be<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,Y+BH+13); ctx.restore(); }
-    if(!nx||curveTierProgress(nx)) return; }
-  else S.gradBadge='';
+  // @graduated (pass 3 #2, lee): ASCENDED shows ONCE — in the TIER line ('ASCENDED · LAUNCH PAD'). The separate gold
+  // 'ASCENDED · trading on Uniswap' badge under it (drawGradBadgeDesk) is gone; an ascended coin gets the same progress bar +
+  // '+X% to NEXT' label as any coin (no curve '$ to ascend' need text). S.gradBadge stays as the state flag (worker mirror).
+  S.gradBadge=S.graduated?GRAD_BADGE:''; if (S.graduated) S.tierNeedText='';
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
   const g=ctx.createLinearGradient(X,0,X+BW,0); g.addColorStop(0,'#c99b3c'); g.addColorStop(1,'#ffe7a3'); ctx.fillStyle=g; ctx.fillRect(X,Y,Math.max(2,BW*f),BH);
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
   ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
-  if(!S.graduated){ let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
+  { let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long tier text: fall back to the bare %
     if(lb&&(leftEnd||0)+12<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,108); }   // …and never over the TIER text
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; if(!S.graduated) ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
@@ -2456,11 +2496,6 @@ function drawTierBar(m,ti,leftEnd){
   else { ctx.fillStyle='#ffe7a3'; drawIcon('star',X,Y+BH+3,12,'#ffe7a3'); ctx.fillText('TOP TIER',X+15,Y+BH+13); }
 }
 
-/* @graduated badge, desktop: a gold pill on the tier-bar row (replaces the curve bar while the next tier is a curve tier) */
-function gradBadgeEnd(X,BW){ ctx.save(); ctx.font='bold 10px ui-monospace,monospace'; const e=X+Math.min(BW,ctx.measureText(GRAD_BADGE).width+16); ctx.restore(); return e; }
-function drawGradBadgeDesk(X,Y,BW,BH){ ctx.save(); ctx.font='bold 10px ui-monospace,monospace'; const tw=ctx.measureText(GRAD_BADGE).width, bw=Math.min(BW,tw+16), by=Y+BH+2;
-  ctx.fillStyle='rgba(255,216,115,.16)'; rrect(X,by,bw,16,8); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; ctx.lineWidth=1; rrect(X+.5,by+.5,bw-1,15,8); ctx.stroke();
-  ctx.fillStyle='#FFD873'; ctx.textAlign='left'; ctx.fillText(GRAD_BADGE,X+8,by+11.5); ctx.restore(); }
 /* ---- 2) chart-map: tiny dexscreener-style mcap candle chart in a game-map frame (M toggles) ----
    Real OHLC on fixed wall-clock buckets (1m / 5m / 1h / 4h / D; 5m default; toggles in the title bar).
    Every tick (each swap + the per-frame mark) feeds ALL intervals from the same history, so switching is instant.
@@ -2523,7 +2558,7 @@ function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN|
     C.mine.sort((a,b)=>a.t-b.t); if(C.mine.length>60) C.mine.splice(0,C.mine.length-60); C.L0=C.L1=null; C.at=-1;
   }).catch(e=>{ C.hist=0; console.warn('[chart] history failed',e&&e.message); }); }
 function setChartMap(on){ const C=chartState(); C.on=on==null?!C.on:!!on; try{ localStorage.setItem('disciple.chartmap',C.on?'on':'off'); }catch(_){} C.at=-1; return C.on; }
-function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
+function setChartTf(s){ const C=chartState(); if(!(s in C.k)) return C.tf; C.tf=s; C.vEnd=null; C.L0=C.L1=null; C.at=-1; try{ localStorage.setItem('disciple.chartmap.tf',String(s)); }catch(_){} return s; }
 const chartNow=()=>chartState().T0+S.t;
 /* one tick into every interval: price m (mcap), optional swap volume */
 function chartTick(m,usd,side){ if(!(m>0)) return; const C=chartState(), t=chartNow(), keep=CHART_STYLE.keep;
@@ -2551,13 +2586,21 @@ function ownSellSwap(e){ if(!e||(e.side!=='sell'&&e.side!=='buy')||!e.mine||!e.t
   if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,e.side); }catch(_){} return null; }
   const r=S.rcpt.get(k); if(!(e.usd>0)&&r&&r.usd>0) e={...e,usd:r.usd};
   S.rcptDrawn.add(k); return e; }
+/* @bombimpact — pass 3 #7: the receipt detail carries no impactPct and a DISCIPLE source has no pool `L`, so
+   estimateImpactPct() returned 0 ⇒ a PUFF (tier 0), and the feed swap that carries the real impactPct is skipped for that
+   tx (already drawn) ⇒ live own sells never showed a bomb. Use the receipt's impact when present, else the source's own
+   curve/pool impact for this $ at the current (pre-trade) mark — same estimate the BOOST ghost uses. */
+function rcptSellImpactPct(d,usd){ const x=d&&d.impactPct; if(typeof x==='number'&&Number.isFinite(x)) return Math.abs(x);
+  let r=1; try{ r=source&&source.impact?+source.impact(usd,'sell'):1; }catch{ r=1; }
+  return r>0&&Number.isFinite(r)?Math.abs(r-1)*100:0; }
+/* @bombimpact-end */
 function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
   S.rcpt.set(k,{usd}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
   if(S.rcptDrawn.has(k)) return;   // the feed swap already drew it
   S.rcptDrawn.add(k); if(S.rcptDrawn.size>400) S.rcptDrawn=new Set(Array.from(S.rcptDrawn).slice(-200));
   if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
-  if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:d.impactPct,trader:null,mine:true,fullStack:fs}); }
+  if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:rcptSellImpactPct(d,usd),trader:null,mine:true,fullStack:fs}); }
   S.feed.unshift({txt:`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#ffb0c8'}); S.feed.length=Math.min(S.feed.length,7); }
 /* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
    (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
@@ -2581,7 +2624,8 @@ const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
-  return chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); }
+  { const b=chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); if(b.off){ delete CARD_RECTS.chart; return b; }   /* @cards: movable / minimizable */
+    const o=cardPlace('chart',b.x,b.y,st.w,b.h); return o?{x:b.x+o.dx,y:b.y+o.dy,h:b.h}:{x:-1e4,y:-1e4,h:b.h,off:1}; } }
 /* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed (floor).
    Never overlaps either (lee, Oct 30): it starts at the card bottom + gap and is cut to the room left; when that room is
    under CHART_MIN_H (short window + expanded card, e.g. ~680px) the chart is parked off-screen until there is room again
@@ -2622,9 +2666,10 @@ function redrawChart(dt){
   for(let i=0;i<=NC;i++){ const x=Math.round(px+pw*i/NC)+.5; g.moveTo(x,py); g.lineTo(x,py+ph); }
   for(let j=0;j<=NR;j++){ const y=Math.round(py+ph*j/NR)+.5; g.moveTo(px,y); g.lineTo(px+pw,y); } g.stroke();
   g.textAlign='left';
-  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), cw=pw/st.candles;
-  /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge */
-  const X=b=>px+pw-((now+tf*0.6)-(b+0.5)*tf)/tf*cw;
+  const tf=C.tf, all=C.k[tf]||[], now=chartNow(), n=C.vN||st.candles, cw=pw/n, RT=C.vEnd==null?now:Math.min(C.vEnd,now);   /* @chartnav: n candles wide, right edge RT (live ⇔ vEnd null) */
+  C.geo={px,py,pw,ph,cw,tf,n,tMin:all.length?all[0].b*tf+tf*Math.min(8,n):null};
+  /* time → x: smooth scroll; latest bucket's centre sits ~1 candle in from the right edge (panned: the view's right edge RT) */
+  const X=b=>px+pw-((RT+tf*0.6)-(b+0.5)*tf)/tf*cw;
   const cs=[]; for(const k of all){ const x=X(k.b); if(x>px-cw&&x<px+pw+cw) cs.push(k); }
   g.font='8px ui-monospace,monospace';
   if (!cs.length){ g.fillStyle=st.edgeFg; g.fillText('waiting for trades…',px+8,py+pph/2); return; }
@@ -2640,8 +2685,8 @@ function redrawChart(dt){
   if(C.L0==null){ C.L0=T0; C.L1=T1; } else { const a=1-Math.exp(-(dt||0.125)*5); C.L0+=(T0-C.L0)*a; C.L1+=(T1-C.L1)*a; C.L0=Math.min(C.L0,lg(lo)); C.L1=Math.max(C.L1,lg(hi)); }
   const L0=C.L0, L1=C.L1, pt=py+12, pa=pph-12, Y=v=>pt+pa*(1-(lg(v)-L0)/(L1-L0));   /* price area below the OHLC readout */
   // time axis labels under the grid (wall clock live, elapsed m:ss in replay)
-  const NT=4, step=CHART_LABEL_STEP[tf]||tf*8; g.fillStyle=st.edgeFg; g.textAlign='center';
-  for(let t=Math.ceil((now-tf*st.candles)/step)*step;t<=now;t+=step){ const x=X(t/tf-0.5); if(x>px+12&&x<px+pw-12) g.fillText(chartTimeLabel(t,tf,C.live),x,py+ph+xh-1); }
+  const NT=4, step=(CHART_LABEL_STEP[tf]||tf*8)*Math.max(1,Math.ceil(n/st.candles)); g.fillStyle=st.edgeFg; g.textAlign='center';
+  for(let t=Math.ceil((RT-tf*n)/step)*step;t<=RT;t+=step){ const x=X(t/tf-0.5); if(x>px+12&&x<px+pw-12) g.fillText(chartTimeLabel(t,tf,C.live),x,py+ph+xh-1); }
   g.textAlign='left';
   g.save(); g.beginPath(); g.rect(px,py,pw,ph); g.clip();
   // tier thresholds (dashed, labelled)
@@ -2674,11 +2719,50 @@ function redrawChart(dt){
   const ax=px+pw+2; g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(ax,py,st.axis-7,ph); g.fillStyle=st.axisFg; g.font='8px ui-monospace,monospace';
   for(let j=0;j<=NT;j++){ const v=Math.exp(L1-(L1-L0)*j/NT), y=pt+pa*j/NT; if(Math.abs(y-cy)<10) continue; g.fillText(fmtUsd(v),ax+3,clamp(y+3,py+7,pt+pa)); }
   g.fillStyle=st.priceTag; g.fillRect(ax,cy-6,st.axis-7,12); g.fillStyle='#1a1630'; g.font='bold 8px ui-monospace,monospace'; g.fillText(fmtUsd(cur),ax+3,cy+3);
+  /* @chartnav: panned / zoomed ⇒ a "⟲ LIVE" button (click, or double-click the plot, snaps back to live + default zoom) */
+  C.liveBtn=null; if(!CLEAN&&(C.vEnd!=null||(C.vN&&C.vN!==st.candles))){ const bw2=44, bx=px+pw-bw2-2, by=py+14;
+    g.fillStyle='rgba(8,10,20,.78)'; g.fillRect(bx,by,bw2,12); g.strokeStyle=st.btnOn; g.lineWidth=1; g.strokeRect(bx+.5,by+.5,bw2-1,11);
+    g.fillStyle=st.btnOn; g.font='bold 8px ui-monospace,monospace'; g.textAlign='center'; g.fillText('⟲ LIVE',bx+bw2/2,by+9); g.textAlign='left'; C.liveBtn={x:bx,y:by,w:bw2,h:12}; }
 }
+/* @chartnav — pass 3 #3 (lee): the desktop chart navigates like DEX Screener / TradingView. Drag pans back in time, wheel /
+   trackpad pinch (ctrl+wheel) / two-finger pinch zooms around the cursor, double-click or ⟲ LIVE resets, and the view
+   follows live whenever its right edge is at "now" (vEnd null). Custom canvas chart (no chart library ⇒ no built-in
+   pan/zoom), so the view is two numbers on the chart state: vEnd (right-edge time, null = live) and vN (candles wide).
+   Chart gestures never reach the game: the touch drag-to-steer skips the chart rect (chartHit), mouse never steers, and the
+   wheel is preventDefault-ed only over the plot. Phone (drawer CHART tab) is unchanged. Pure math below (tests slice it). */
+const CHART_NAV_MIN=8;
+function chartPanEnd(vEnd,now,dx,cw,tf,tMin){ const r=(vEnd==null?now:vEnd)-dx/cw*tf; if(!(r<now-tf*0.25)) return null; return tMin!=null?Math.max(r,tMin):r; }
+function chartZoomView(n,vEnd,now,f,fromRight,pw,tf,maxN,tMin){ const n2=clamp(n*f,CHART_NAV_MIN,maxN); if(vEnd==null) return {n:n2,vEnd:null};
+  const tx=vEnd-fromRight/(pw/n)*tf, r=tx+fromRight/(pw/n2)*tf; return {n:n2,vEnd:r<now-tf*0.25?(tMin!=null?Math.max(r,tMin):r):null}; }
+/* @chartnav-math-end */
+function chartHit(e){ const C=CH; if(!C||CLEAN||!C.on||!C.geo||phoneHud(W,CLEAN)) return null; const r=chartRect(); if(r.off||r.x<-1e3) return null;
+  const [x,y]=canvasXY(e), lx=x-r.x, ly=y-r.y, g=C.geo; if(lx<g.px||lx>g.px+g.pw||ly<g.py||ly>g.py+g.ph) return null;
+  return {lx,ly,fromRight:g.px+g.pw-lx}; }
+function chartResetView(){ const C=CH; if(!C) return; C.vEnd=null; C.vN=null; C.nav=null; C.L0=C.L1=null; C.at=-1; }
+function chartNavState(){ const C=CH; return C?{live:C.vEnd==null,vEnd:C.vEnd==null?null:C.vEnd,n:C.vN||CHART_STYLE.candles,dragging:!!C.nav}:null; }
+cv.addEventListener('pointerdown',e=>{ const h=chartHit(e); if(!h||S.menuOpen) return; const C=CH; e.preventDefault();
+  const lb=C.liveBtn, tnow=performance.now(), dbl=C.lastTap&&tnow-C.lastTap.t<350&&Math.abs(h.lx-C.lastTap.x)<8&&Math.abs(h.ly-C.lastTap.y)<8;
+  C.lastTap={t:tnow,x:h.lx,y:h.ly};
+  if(dbl||(lb&&h.lx>=lb.x&&h.lx<=lb.x+lb.w&&h.ly>=lb.y&&h.ly<=lb.y+lb.h)){ chartResetView(); C.lastTap=null; return; }
+  (C.ptrs||(C.ptrs=new Map())).set(e.pointerId,h.lx);
+  if(C.ptrs.size>=2){ const xs=[...C.ptrs.values()]; C.pinch={d0:Math.abs(xs[0]-xs[1])||1,n0:C.vN||CHART_STYLE.candles,v0:C.vEnd,fr:C.geo.px+C.geo.pw-(xs[0]+xs[1])/2}; C.nav=null; return; }
+  C.nav={id:e.pointerId,x0:h.lx,v0:C.vEnd,cw:C.geo.cw,tf:C.geo.tf,tMin:C.geo.tMin};
+  try{ if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); }catch{ /* not capturable */ } cv.style.cursor='grabbing'; });
+cv.addEventListener('pointermove',e=>{ const C=CH; if(!C) return;
+  if(C.pinch&&C.ptrs&&C.ptrs.has(e.pointerId)){ const r=chartRect(); C.ptrs.set(e.pointerId,canvasXY(e)[0]-r.x); const xs=[...C.ptrs.values()]; if(xs.length<2) return;
+    const g=C.geo, z=chartZoomView(C.pinch.n0,C.pinch.v0,chartNow(),C.pinch.d0/(Math.abs(xs[0]-xs[1])||1),C.pinch.fr,g.pw,g.tf,CHART_STYLE.keep,g.tMin); C.vN=z.n; C.vEnd=z.vEnd; C.at=-1; return; }
+  const d=C.nav; if(d&&e.pointerId===d.id){ const r=chartRect(), dx=canvasXY(e)[0]-r.x-d.x0; C.vEnd=chartPanEnd(d.v0,chartNow(),dx,d.cw,d.tf,d.tMin); C.at=-1; cv.style.cursor='grabbing'; return; }
+  if(!d&&S.ammoHover<0&&chartHit(e)) cv.style.cursor='grab'; });
+function chartNavEnd(e){ const C=CH; if(!C) return; if(C.ptrs){ C.ptrs.delete(e.pointerId); if(C.ptrs.size<2) C.pinch=null; } if(C.nav&&e.pointerId===C.nav.id){ C.nav=null; cv.style.cursor=''; } }
+cv.addEventListener('pointerup',chartNavEnd); cv.addEventListener('pointercancel',chartNavEnd);
+cv.addEventListener('wheel',e=>{ const h=chartHit(e); if(!h) return; if(e.preventDefault) e.preventDefault(); const C=CH, g=C.geo;
+  const dy=clamp((+e.deltaY||0)*(e.deltaMode===1?16:e.deltaMode===2?400:1),-300,300), f=Math.exp(dy*(e.ctrlKey?0.01:0.0015));
+  const z=chartZoomView(C.vN||CHART_STYLE.candles,C.vEnd,chartNow(),f,h.fromRight,g.pw,g.tf,CHART_STYLE.keep,g.tMin); C.vN=z.n; C.vEnd=z.vEnd; C.at=-1; },{passive:false});
+/* @chartnav-end */
 function drawChartMap(){
   const C=chartState(); chartSample(); { const P=phoneHud(W,CLEAN); if(P?P.sheet!=='chart':!C.on) return; }   /* @phone-hud: the CHART sheet shows it even with M off */
   const st=CHART_STYLE; if(C.at<0||S.t-C.at>=1/st.hz||S.t<C.at){ const dt=C.at<0||S.t<C.at?0:S.t-C.at; C.at=S.t; redrawChart(dt); }   // cached: redrawn at st.hz (sim time), blitted every frame
-  const r=chartRect(); ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
+  const r=chartRect(); if(r.off) return; ctx.save(); ctx.globalAlpha=st.alpha; ctx.drawImage(C.cv,r.x,r.y); ctx.restore();
 }
 /* ---- rocket loadout (cosmetic only): skin tint, thruster flame colour/shape, nose coin. Ids = SITE's rocket upgrades
    (lib/rocketSkin.ts SKINS / THRUSTERS / COINS, embedded via the generated FLIGHT_COSMETICS block). Unknown ids → defaults. */
@@ -2796,7 +2880,7 @@ function render(dt){
   if (S.grass){ ctx.save(); drawBg(); drawClouds(); drawSpeedLines(); drawTickTrail(); drawRocket(dt); drawClouds(true); ctx.restore(); drawPost(); drawGrass(dt); return; }
   S._grassA=0;
   ctx.save();   // camera is stable: no shake of any kind
-  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap();
+  drawBg(); drawClouds(); drawSpeedLines(); drawLevels(); drawEntryLine(); drawTickTrail(); drawFx(dt); drawBombs(); drawRocket(dt); drawClouds(true); drawTrampWalls(); ctx.restore(); drawPost(); drawBombScreen(); drawPnlTag(); drawHud(); drawChartMap(); cardPublish();
   if (window.__flightLog){ const h=S.heading, prev=window.__flightLogPrevH; const dh=prev==null?0:Math.atan2(Math.sin(h-prev),Math.cos(h-prev)); window.__flightLogPrevH=h;
     window.__flightLog.push({t:S.t,dt,heading:h,headingDeg:h*180/Math.PI,dHeadingDeg:dh*180/Math.PI,aimDeg:S.aimDeg||0,aimDisp:S.aimDisp,drawAimDeg:90-rocketDrawAngle()*180/Math.PI,x:S.x,camX:S.camX,bob:S.bob||0,sway:S.sway||0,displayAlt:S.displayAlt,camAlt:S.camAlt,altVel:S.altVel||0,cruise:S.cruise||0}); }
 }
@@ -2809,7 +2893,7 @@ window.__flightMom=()=>({sec:TF.sec,pct:MOM.pct,press:MOM.press,buy:MOM.buy,sell
 function setMcap(m){ m=+m; if(!(m>0)) return; if(typeof source.mcap==='number'){ source.mcap=m; source.seedDepth&&source.seedDepth(); }
   else if(source.real!=null&&source.supply){ source.real=m/source.supply; source.paper=1; }
   S.simT=S.simF=1; S.simV=0; onEvent({t:'mark',mcap:m}); }   // debug/testing only: jump the feed to mcap m
-window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
+window.__flight={setMcap,markMcap,hasTokens,setPnlTag,replay:flightReplay,setLoadout,getLoadout,tiers:FLIGHT_TIERS,cosmetics:FLIGHT_COSMETICS,setChartMap,setChartTf,chartNav:chartNavState,chartResetView,usdToReach,assetsReady:()=>loaded>=names.length&&ACC.state!=='loading',accessoryStatus,PX_PER_ALT,trailHead:()=>nozzleXY(),trailY,bomb:(k,o)=>debugBomb(k,o),estimateImpactPct,BOMB_PCT,BOMB_TIERS,setBombs,setShake,step:n=>{ for(let i=0;i<(n||1);i++) frame(last+1000*SIM_DT); },ORB_SPAWN,setOrbs,MODES,MIN_SHOT,ORB,trade,autoMode,S,source,mcapToAlt,altToMcap,bandOf,plateOf,screenYToMcap,TIERS,CLOUDS,climbAngleDeg,applyThrust,queueThrust,flushThrustQueue};   // for tests / console
 
 /* @boot-ammo — announce the presets + mode once this run's listeners are live. TradeBridge's mount-time ammo-query
    usually fires BEFORE this script loads (FlightCanvas fetches /replay.json first) and AMMO_TIERS is null (no tier
