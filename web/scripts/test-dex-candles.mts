@@ -119,11 +119,12 @@ test("API paging: kv.zrange offset (mem + Upstash) and the route's ?offset=", ()
   assert.match(rt, /searchParams\.get\("offset"\)/); assert.match(rt, /tradesOf\(coin, wallet, limit, order, offset\)/);
 });
 
-test("DexChart: lightweight-charts loaded client-side only, attribution on, axis drag / dbl-click reset / pan / pinch", () => {
+test("DexChart: lightweight-charts loaded client-side only, attribution credited, axis drag / dbl-click reset / pan / pinch", () => {
   const src = readFileSync(new URL("../components/flight/DexChart.tsx", import.meta.url), "utf8"), page = readFileSync(new URL("../app/coin/[address]/page.tsx", import.meta.url), "utf8");
   assert.match(src, /import\("lightweight-charts"\)/);
   assert.doesNotMatch(src.replace(/import type[^\n]*/g, ""), /from "lightweight-charts"/, "no static value import");
-  assert.match(src, /attributionLogo: true/);
+  assert.match(src, /attributionLogo: false/); assert.doesNotMatch(src, /attributionLogo: true/);
+  assert.match(readFileSync(new URL("../app/how-it-works/page.tsx", import.meta.url), "utf8"), /href="https:\/\/www\.tradingview\.com\/"[^>]*>Charts by TradingView</, "TradingView credit on How it works");
   assert.match(src, /axisPressedMouseMove: \{ time: true, price: true \}, axisDoubleClickReset: \{ time: true, price: true \}/);
   assert.match(src, /handleScroll: \{ mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true/);
   assert.match(src, /pinch: true/); assert.match(src, /autoSize: true/);
@@ -135,7 +136,8 @@ test("DexChart reskin: the old chart-map game skin (CHART_STYLE palette, Georgia
   const src = readFileSync(new URL("../components/flight/DexChart.tsx", import.meta.url), "utf8");
   for (const c of ['up: "#3ddc97"', 'down: "#ff5c7a"', 'frameMid: "#2a2638"', 'titleBg: "rgba(24,20,36,.92)"', 'grid: "rgba(190,200,255,.10)"', 'marker: "#9ff3c8"', 'tagFg: "#1a1630"'])
     assert.ok(src.includes(c), c);
-  assert.match(src, /Georgia/); assert.match(src, /PriceScaleMode\.Logarithmic/);
+  assert.match(src, /Georgia/); assert.match(src, /PriceScaleMode\.Normal/); assert.doesNotMatch(src, /Logarithmic/, "straight (linear) scale");
+  assert.match(src, /minValue = Math\.max\(0, r\.priceRange\.minValue\)/, "autoscale floored at $0"); assert.match(src, /v < 0 \? "" : fmtMcap\(v\)/, "no negative mcap labels");
   assert.match(src, /axisLabelColor: C\.gold, axisLabelTextColor: C\.tagFg/, "gold current-value tag, dark text");
   assert.match(src, /for \(const t of FLIGHT_TIERS\) candle\.createPriceLine\(/, "tier thresholds as price lines");
   assert.match(src, /data-testid="dex-live-ring"/); assert.match(src, /@keyframes dexPulse/); assert.match(src, /prefers-reduced-motion/);

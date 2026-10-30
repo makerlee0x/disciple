@@ -1,8 +1,8 @@
 "use client";
 /**
  * Coin page price chart, DEX Screener style (lee, Oct 30 — replaces the engine's hand-drawn canvas chart-map and its
- * A–H / 1–5 grid + pass-3 pan code). TradingView lightweight-charts (Apache-2.0; attribution logo kept on, see
- * NOTICE in its package), loaded client-side only via dynamic import so the coin page's first JS stays small.
+ * A–H / 1–5 grid + pass-3 pan code). TradingView lightweight-charts (Apache-2.0; in-chart logo off per lee, credited in
+ * the How it works footer), loaded client-side only via dynamic import so the coin page's first JS stays small.
  *
  *  - candles = MARKET CAP OHLC from the coin's full indexed history (/api/trades, curve + post-ascension hook fills,
  *    paged by lib/chart/history) built by lib/chart/candles (open = previous close, empty buckets skipped)
@@ -15,11 +15,11 @@
  *    layout, clamped to the viewport). Phone: fills the drawer's CHART tab body (touch pan / pinch, chips, volume).
  *  - look (lee, Oct 30 reskin): the old engine chart-map's game skin (engine.js CHART_STYLE before #211) — Guild Wars
  *    bevelled frame + Georgia title bar, pressed-bevel interval buttons, translucent plot over the sky, 8–9 px mono labels,
- *    log mcap axis on a dark strip, gold current-value tag, dashed gold tier thresholds (FLIGHT_TIERS) and the pulsing
+ *    linear mcap axis (floored at $0) on a dark strip, gold current-value tag, dashed gold tier thresholds (FLIGHT_TIERS) and the pulsing
  *    mint ring on the live candle (a DOM overlay positioned from the chart's coordinates each frame).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { IChartApi, IPriceLine, ISeriesApi, MouseEventParams, Time, UTCTimestamp } from "lightweight-charts";
+import type { AutoscaleInfo, IChartApi, IPriceLine, ISeriesApi, MouseEventParams, Time, UTCTimestamp } from "lightweight-charts";
 import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
@@ -127,9 +127,12 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       chart = lc.createChart(el, {
         autoSize: true,
         // transparent canvas: the plot box behind it is the old translucent rgba(8,10,20,.62) ⇒ the sky shows through
-        layout: { background: { type: lc.ColorType.Solid, color: "rgba(0,0,0,0)" }, textColor: C.fg, fontFamily: mono, fontSize: 9, attributionLogo: true },
+        layout: { background: { type: lc.ColorType.Solid, color: "rgba(0,0,0,0)" }, textColor: C.fg, fontFamily: mono, fontSize: 9,
+          // lee, Oct 30: "remove the trading view symbol" — attribution moved to the How it works footer ("Charts by TradingView")
+          attributionLogo: false },
         grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
-        rightPriceScale: { mode: lc.PriceScaleMode.Logarithmic, borderColor: C.frameMid, scaleMargins: { top: 0.12, bottom: 0.24 } },
+        // lee, Oct 30: "straight scale not log" — linear mcap axis; autoscale floored at $0 + blank labels below $0
+        rightPriceScale: { mode: lc.PriceScaleMode.Normal, borderColor: C.frameMid, scaleMargins: { top: 0.12, bottom: 0.24 } },
         timeScale: { borderColor: C.frameMid, rightOffset: 4, barSpacing: 9, minBarSpacing: 0.5, timeVisible: true, secondsVisible: false,
           tickMarkFormatter: (t: Time, type: number) => tickLabel(Number(t), type) },
         crosshair: { mode: lc.CrosshairMode.Normal, vertLine: { color: C.cross, width: 1, style: lc.LineStyle.Dotted, labelBackgroundColor: C.frameMid },
@@ -141,6 +144,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       const candle = chart.addSeries(lc.CandlestickSeries, {
         upColor: C.up, downColor: C.down, wickUpColor: C.up, wickDownColor: C.down, borderVisible: false,
         priceFormat: { type: "custom", formatter: axisMcap, minMove: 0.01 },
+        autoscaleInfoProvider: (orig: () => AutoscaleInfo | null) => { const r = orig(); if (r?.priceRange) r.priceRange.minValue = Math.max(0, r.priceRange.minValue); return r; },
         // the live value is our own price line below (white dotted line + gold tag, dark text — the old current-value tag)
         lastValueVisible: false, priceLineVisible: false,
       });
