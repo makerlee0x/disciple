@@ -56,7 +56,7 @@ export async function catchUp(coinIn: string): Promise<number> {
     for (const l of evs) {
       const tx = l.transactionHash ?? "", li = l.logIndex ?? 0, blk = Number(l.blockNumber ?? 0);
       if (!(await st.setNX(`chat:seen:${tx}:${li}`, "1", 7 * 86400))) continue;
-      const msg: ChatMsg = { id: ulid(), coin, kind: "event", from: null, ts: Date.now(), text: "GRADUATED to Uniswap v4 :rocket:", meta: { event: "graduate", tx, logIndex: li, block: blk } };
+      const msg: ChatMsg = { id: ulid(), coin, kind: "event", from: null, ts: Date.now(), text: "ASCENDED to Uniswap v4 :rocket:", meta: { event: "graduate", tx, logIndex: li, block: blk } };
       await st.append(coin, msg); n++;
     }
     await st.set(`chat:cur:${coin}`, latest.toString());

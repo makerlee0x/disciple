@@ -55,7 +55,7 @@ function FlightInner({ address }: { address: string }) {
   return (
     <>
       <FlightCanvas search={search} />
-      {/* CREW card (buy presets, orb-rain unlock): off by default since the Oct 30 cleanup (NEXT_PUBLIC_FEATURE_CREW_CARD=1 brings it back) */}
+      {/* CREW card: off by default since the Oct 30 cleanup (NEXT_PUBLIC_FEATURE_CREW_CARD=1 brings it back); its buy presets + orb-rain unlock are gone even then (pass 2) */}
       {CREW_CARD_ENABLED && <CrewPanel coin={address} />}
       <PnlHud coin={address} />
       <DiscipleFeed token={address} />

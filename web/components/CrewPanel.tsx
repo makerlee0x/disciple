@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DEMO_POOL, MODES, fmtUsd, nextUnlock } from "@/lib/config";
+import { DEMO_POOL, fmtUsd } from "@/lib/config";
 import { isDeployed } from "@/lib/chains";
 import { isVerified } from "@/lib/verified";
 import VerifiedBadge from "./VerifiedBadge";
@@ -18,10 +18,6 @@ const MOCK_CREW = {
   you: 35,
 };
 
-const REWARDS = ["Crew orb rain", "Halo trail skin", "Orb airdrop ×2", "Choir soundtrack", "Golden wings"];
-
-type FlightWin = { __flight?: { S?: { confirmed?: { mcap?: number | null }; mode?: number } } };
-
 const NARROW_PX = 760;
 /** px below the HUD's right-column top: the status box (92 + 8) and, when the chat isn't docking it, the canvas TOP HOLDERS box (96 + 8). */
 export const crewTopOffset = (holdersDocked: boolean) => (holdersDocked ? 100 : 204);
@@ -29,8 +25,6 @@ export const crewTopOffset = (holdersDocked: boolean) => (holdersDocked ? 100 : 
 export default function CrewPanel({ coin, verified }: { coin?: string; verified?: boolean } = {}) {
   // 1d: on a live coin the sample crew numbers (aboard / top boosters / your contribution) are hidden, not labelled MOCK
   const sample = !isDeployed() || !coin || coin.toLowerCase() === DEMO_POOL.address.toLowerCase();
-  const [mcap, setMcap] = useState(21_400);
-  const [mode, setMode] = useState(2);
   // Card in the right HUD column right under the status block, ABOVE the CHAT | HOLDERS panel; expanded by default. Always visible (no longer hidden by
   // chat); its height is published as --ap-crew-h so the CHAT | HOLDERS panel ends above it. Expanded state remembered.
   const [open, setOpenS] = useState(true);
@@ -56,25 +50,10 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
     return () => { ro.disconnect(); st.removeProperty("--ap-crew-h"); };
   }, []);
 
-  const [ammoUsd, setAmmoUsd] = useState<number[]>(MODES.map((m) => m.usd));
-  // Engine pushes marks + scaled ammo presets on change (no 1 s poll).
-  useEffect(() => {
-    const S = (window as unknown as FlightWin).__flight?.S;
-    if (S?.confirmed?.mcap) setMcap(S.confirmed.mcap);
-    if (typeof S?.mode === "number") setMode(S.mode);
-    const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap: number }>).detail?.mcap; if (m) setMcap(m); };
-    const onAmmo = (e: Event) => { const d = (e as CustomEvent<{ usd: number[]; mode: number }>).detail; if (d?.usd) setAmmoUsd(d.usd); if (typeof d?.mode === "number") setMode(d.mode); };
-    addEventListener("disciple:mark", onMark);
-    addEventListener("disciple:ammo", onAmmo);
-    dispatchEvent(new Event("disciple:ammo-query"));
-    return () => { removeEventListener("disciple:mark", onMark); removeEventListener("disciple:ammo", onAmmo); };
-  }, []);
-
-  const u = nextUnlock(mcap);
+  // Lee, Oct 30 (coin-screen pass 2): no BUY PRESETS list and no "Next unlock … orb rain" loot line on the coin screen, even
+  // with NEXT_PUBLIC_FEATURE_CREW_CARD=1 — the card keeps only the crew itself (verified badge, sample top boosters).
   const isVer = isVerified(coin, verified);
-  const reward = REWARDS[(u.next.length + u.current.length) % REWARDS.length];
 
-  const ammoTxt = (i: number, d: number) => { const v = ammoUsd[i] ?? d; return "$" + (v < 1 ? v.toFixed(2) : v.toLocaleString()); };
   return (
     <aside
       ref={ref} aria-label="Crew" data-testid="crew-panel"
@@ -91,10 +70,6 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
         {sample && <span style={{ color: "#E8EAEE", fontWeight: 400 }}><Icon name="crew" size={16} style={{ verticalAlign: -4 }} /> {MOCK_CREW.aboard} aboard</span>}
         <span style={{ marginLeft: "auto", display: "inline-flex" }}><Icon name={open ? "minus" : "plus"} size={16} /></span>
       </button>
-      {/* Tier progress itself is the canvas tier bar (PR #50: fill + USD to next tier); Crew only names the crew reward */}
-      <div data-testid="crew-unlock" style={{ marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        <Icon name="gift" size={16} /> Next unlock at <b style={{ color: "#ffe7a3" }}>{u.next}</b>: {reward.replace(/^Crew /, "").toLowerCase()} for everyone aboard
-      </div>
       {open && (
         <>
           {isVer && <div style={{ marginTop: 6 }}><VerifiedBadge verified showLabel /></div>}
@@ -107,14 +82,6 @@ export default function CrewPanel({ coin, verified }: { coin?: string; verified?
             ))}
             <div style={{ marginTop: 4, color: "#9ff3c8" }}>Your contribution: {fmtUsd(MOCK_CREW.you)}</div>
           </>}
-          <div style={{ marginTop: 6, color: "#ffe7a3" }}>BUY PRESETS</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 14 }}>
-            {MODES.map((m, i) => (
-              <div key={m.key} style={{ display: "flex", justifyContent: "space-between", color: i === mode ? "#9ff3c8" : undefined }}>
-                <span>{m.key}</span><span>{ammoTxt(i, m.usd)}</span>
-              </div>
-            ))}
-          </div>
         </>
       )}
     </aside>

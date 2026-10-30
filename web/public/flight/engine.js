@@ -469,7 +469,7 @@ class DiscipleSource {
         emit({t:'block',block:this.block,ts:Date.now()});
         emit({t:'swap',block:this.block,ts:Date.now(),txHash:e.txHash,side:e.side,usd:e.usd,mcap:this.shown(),price:this.shown()/this.supply,
               prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader,mine:isMine(e.trader)}); }
-      else if(e.type==='Graduate'){ this.graduated=true; setGraduated(true,e); emit({t:'status',source:this.name,ok:true,msg:'GRADUATED → v4'}); }
+      else if(e.type==='Graduate'){ this.graduated=true; setGraduated(true,e); emit({t:'status',source:this.name,ok:true,msg:'ASCENDED → v4'}); }
       else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
     addEventListener('disciple:event',this.h); }
   stop(){ removeEventListener('disciple:event',this.h); clearInterval(this.dv); }
@@ -781,17 +781,19 @@ addEventListener('disciple:gradneed',e=>{ const d=e.detail||{}, u=d.usd; S.gradN
   if(d.graduated===true) setGraduated(true,d); });   // sticky: the curve read can only flip it on
 /* @graduated: one flag for the whole HUD. Sources: SITE's State payload (graduated / poolId / graduatedAt), the live Graduate
    event, TradeBridge's curve read (disciple:gradneed {graduated}). A graduated coin trades on its Uniswap v4 pool: no curve
-   tier progress, no "buys needed" / "to graduate" text, a GRADUATED badge instead (desktop tier bar + phone pill). */
+   tier progress bar, no "buys needed" / "to ascend" text, an ASCENDED badge instead (desktop tier bar). User-facing word since
+   lee's Oct 30 rename: ASCENDED (identifiers / contract + API names keep "graduated"). */
 S.graduated=false; S.gradInfo=null;
-const GRAD_BADGE='GRADUATED · trading on Uniswap';   // PLACEHOLDER copy (pending lee + BRAND)
+const GRAD_BADGE='ASCENDED · trading on Uniswap';   // PLACEHOLDER copy (pending lee + BRAND)
+const ASCENDED='ASCENDED';   // the graduated state, as players read it (tier line: 'ASCENDED · LAUNCH PAD')
 function setGraduated(on,d){ S.graduated=!!on; if(on){ S.gradNeedUsd=null; const g=S.gradInfo||{};
     S.gradInfo={poolId:d&&typeof d.poolId==='string'?d.poolId:g.poolId||null,graduatedAt:d&&Number.isFinite(+d.graduatedAt)&&+d.graduatedAt>0?+d.graduatedAt:g.graduatedAt||null}; }
   else S.gradInfo=null;
   try{ if(typeof source!=='undefined'&&source&&source instanceof DiscipleSource) source.graduated=!!on; }catch(_){ } }
-/* tier-bar need line (pure, tested in scripts/test-grad-fix.mjs): exact "$X to graduate" when the curve read has it, else the HUD
+/* tier-bar need line (pure, tested in scripts/test-grad-fix.mjs): exact "$X to ascend" when the curve read has it, else the HUD
    estimate marked "≈ … (est.)" — never both, never "≈$0", nothing once graduated. */
 function tierNeedText(m,nx,o){ if(!nx||o.graduated) return '';
-  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to graduate`;
+  if(o.exact!=null&&o.exact>0&&m<TB_M1) return `${fmtNeed(o.exact)} to ascend`;
   const need=o.est; return need>0&&isFinite(need)?`≈${fmtNeed(need)} buys needed (est.)`:''; }
 /* curve progress is meaningless once graduated: hide the bar while the next tier is still a curve tier (≤ graduation) */
 const curveTierProgress=(nx)=>!!nx&&nx.lo<=TB_M1;
@@ -1606,9 +1608,9 @@ function drawPhonePill(m,ti,P){
   const {f,next:nx}=tierProgress(m,ti);
   const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
-  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti)||`TIER ${ti}`, wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
+  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti), wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
-  const h=46, w=Math.round(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
+  const h=46, w=Math.ceil(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
   S.phonePill={x,y,w,h};
   ctx.save(); ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=30; ctx.shadowOffsetY=10; ctx.fillStyle='rgba(16,18,34,.66)'; rrect(x,y,w,h,20); ctx.fill(); ctx.restore();
   ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1; rrect(x+.5,y+.5,w-1,h-1,20); ctx.stroke();
@@ -1620,12 +1622,13 @@ function drawPhonePill(m,ti,P){
   if(sim){ const gx=tx+10, gy=ty-9; ctx.fillStyle='rgba(201,184,255,.16)'; rrect(gx,gy,wt,18,6); ctx.fill(); ctx.strokeStyle='rgba(201,184,255,.4)'; rrect(gx+.5,gy+.5,wt-1,17,6); ctx.stroke();
     ctx.font=`800 10px ${PH_FONT}`; ctx.fillStyle='#d9ccff'; ctx.fillText('SIM',gx+6,ty+.5); }
   const bx=x+20, bw=w-40, by=y+h-10;
-  if(!(S.graduated&&(!nx||curveTierProgress(nx)))){   // @graduated: no curve progress line once the coin trades on its pool
+  if(nx){   // tier progress line = mcap / next tier lo (same number as the '+X% to NEXT' caption), ascended coins too
   ctx.fillStyle='rgba(255,255,255,.12)'; rrect(bx,by,bw,2,1); ctx.fill();
   const g=ctx.createLinearGradient(bx,0,bx+bw*Math.max(f,.02),0); g.addColorStop(0,'#FFB547'); g.addColorStop(1,'#FFD873');
   ctx.save(); ctx.shadowColor='rgba(255,216,115,.7)'; ctx.shadowBlur=6; ctx.fillStyle=g; rrect(bx,by,Math.max(2,bw*f),2,1); ctx.fill(); ctx.restore(); }
   S.gradBadge=S.graduated?GRAD_BADGE:'';
-  const lb=P.drawer?'':S.graduated?GRAD_BADGE:tierLabel(f,nx); S.phoneTierLabel=lb;   // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
+  const tl=tierLabel(m,nx), lb=P.drawer?'':S.graduated?(tl?`${ASCENDED} · ${tl}`:ASCENDED):tl; S.phoneTierLabel=lb;   // ascended: 'ASCENDED · +X% to NEXT' (the pill itself is too narrow for 'ASCENDED · NAME' at 360–390 px)
+    // @tier-label: one quiet caption centred under the pill (hidden while the drawer is up: the rocket is lifted into that space)
   if(lb&&S.graduated){ ctx.font=`800 11px ${PH_FONT}`; const t2=phFit(lb,W-64), tw=ctx.measureText(t2).width, gx=Math.round(x+w/2-tw/2-10), gy=y+h+4;   // @graduated badge, phone
     ctx.fillStyle='rgba(255,216,115,.16)'; rrect(gx,gy,tw+20,18,9); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; rrect(gx+.5,gy+.5,tw+19,17,9); ctx.stroke();
     ctx.fillStyle='#FFD873'; ctx.textAlign='center'; ctx.fillText(t2,x+w/2,gy+9.5); ctx.textAlign='left'; }
@@ -1774,7 +1777,7 @@ function drawHud(){
   }   /* end !CLEAN */
   // tier banner
   if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
-    const BY=BANNER_Y, bn=tierName(S.tierShown)||`TIER ${S.tierShown}`; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(bn).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(bn,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
+    const BY=BANNER_Y, bn=tierName(S.tierShown); let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(bn).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(bn,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
     ctx.textAlign='left'; ctx.globalAlpha=1; }
   S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font='bold 18px ui-monospace,monospace'; ctx.fillText(fl.txt,W/2,H*0.40-i*24); ctx.textAlign='left'; ctx.globalAlpha=1; });
   ctx.restore();
@@ -2404,30 +2407,37 @@ function usdToReach(M,Mt){
   if (Mt>TB_M1) q+=poolQuote(Mt)-poolQuote(Math.max(M,TB_M1));
   return q/(1-TB_FEE);
 }
-/* @tier-label (maker lee 11:29 CT): "X% to NEXT_TIER" on the tier bar, phone + desktop. Same log progress as the bar fill;
-   whole percent rounded DOWN (never claims 100% before the tier is reached); next tier name as TIERS spells it (caps).
-   Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone pill already names the tier. */
-function tierProgress(m,ti){ const t=TIERS[ti], nx=TIERS[ti+1]||null, lo=t.lo, hi=nx?nx.lo:t.hi;
-  return { f:clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1), next:nx }; }
+/* @tier-label (maker lee 11:29 CT, reworked Oct 30): "+X% to NEXT_TIER" on the tier bar, phone + desktop, ascended coins too;
+   next tier name as TIERS spells it (caps). Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone
+   pill already names the tier.
+   @tier-progress (lee, Oct 30): progress = the mcap INCREASE still needed to reach the next tier, not the way through the band:
+   pct = (next.lo / mcap − 1) × 100 ($7.2K → +67% to OZONE). Bar fill f = mcap / next.lo, the same number (f = 1 / (1 + pct/100)),
+   so a bar at 60% reads "+67% to go". Top tier: no next, f = 1, no label. */
+function tierProgress(m,ti){ const nx=TIERS[ti+1]||null;
+  return { f:nx?clamp((m>0?m:0)/nx.lo,0,1):1, next:nx }; }
+function tierUpPct(m,nx){ return nx&&m>0?Math.max(0,(nx.lo/m-1)*100):null; }
+function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.ceil(p*10)/10).toFixed(1); }   // ≥10: whole %, else 1 dp rounded UP (never "+0%")
 function tierLineEnd(ti){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(tierText(ti)).width;
   const rl=tierRulesText(); if(rl){ ctx.font='bold 12px ui-monospace,monospace'; e+=ctx.measureText('  ·  '+rl).width; } ctx.restore(); return e; }
-/* @tier-name — ONE tier name + number for the sky, used by the desktop HUD, the phone pill and the tier banner. The sky
-   follows the CURRENT price, no floor (lee, Oct 26: "No, keep the tier following price"); a graduated coin back in the
-   tier-0 band is "TIER 0", never "LAUNCH PAD" next to the GRADUATED badge (it left the pad). */
-function tierName(ti){ const t=TIERS[ti]; return !t||(S.graduated&&ti===0)?'':t.name; }
-function tierText(ti){ const n=tierName(ti); return n?`TIER ${ti} · ${n}`:`TIER ${ti}`; }
+/* @tier-name — ONE tier label for the sky, used by the desktop HUD, the phone pill and the tier banner: the tier NAME only,
+   never a number (lee, Oct 30: "LAUNCH PAD", never "Tier 0"), from the TIERS ladder. The sky follows the CURRENT price, no
+   floor (lee, Oct 26: "No, keep the tier following price"); an ascended (graduated) coin always shows its current tier too:
+   "ASCENDED · LAUNCH PAD" (lee, Oct 30 — undoes #204's hiding of LAUNCH PAD). */
+function tierName(ti){ const t=TIERS[ti]; return t?t.name:''; }
+function tierText(ti){ const n=tierName(ti); return S.graduated?(n?`${ASCENDED} · ${n}`:ASCENDED):n; }
 /* @tier-name-end */
-function tierLabel(f,nx){ return nx ? `${Math.min(99,Math.max(0,Math.floor(f*100)))}% to ${nx.name}` : ''; }
+function tierLabel(m,nx){ const p=tierUpPct(m,nx); return p==null?'':`+${fmtUpPct(p)}% to ${nx.name}`; }
 /* @tier-label-end */
-/* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = log progress inside the tier band */
+/* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = mcap / next tier lo (@tier-progress) */
 function drawTierBar(m,ti,leftEnd){
   const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
   if (S.graduated){ S.tierNeedText=''; S.gradBadge=GRAD_BADGE; drawGradBadgeDesk(X,Y,BW,BH);   // @graduated: badge replaces the curve progress + need text
-    // …but the 'X% to NEXT_TIER' label stays on the TIER line (lee, Oct 30): the tier follows the current price either way
-    { let lb=tierLabel(f,nx); ctx.save(); ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
-      if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));
-      if(lb) ctx.fillText(lb,384,108); ctx.restore(); }
+    // …but the '+X% to NEXT_TIER' label stays (lee, Oct 30): the tier follows the current price either way. It sits on the badge
+    // row, right-aligned (the 'ASCENDED · NAME  ·  mode' TIER line has no room left for it)
+    { let lb=tierLabel(m,nx); ctx.save(); ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
+      const be=gradBadgeEnd(X,BW)+12; if(lb&&be>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));
+      if(lb&&be<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,Y+BH+13); ctx.restore(); }
     if(!nx||curveTierProgress(nx)) return; }
   else S.gradBadge='';
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
@@ -2435,11 +2445,11 @@ function drawTierBar(m,ti,leftEnd){
   ctx.fillStyle='rgba(255,255,255,.35)'; for(let i=1;i<4;i++) ctx.fillRect(X+BW*i/4,Y,1,BH);
   ctx.strokeStyle='rgba(255,231,163,.35)'; ctx.lineWidth=1; ctx.strokeRect(X+.5,Y+.5,BW-1,BH-1);
   ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
-  if(!S.graduated){ let lb=tierLabel(f,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
-    if(lb) ctx.fillText(lb,384,108); }
+  if(!S.graduated){ let lb=tierLabel(m,nx); if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));   // long rules text: fall back to the bare %
+    if(lb&&(leftEnd||0)+12<=384-ctx.measureText(lb).width) ctx.fillText(lb,384,108); }   // …and never over the TIER text
   ctx.textAlign='left'; ctx.font='bold 10px ui-monospace,monospace';
   if (nx){ ctx.fillStyle='rgba(220,228,255,.85)'; if(!S.graduated) ctx.fillText(`→ ${nx.name} ${fmtUsd(nx.lo)}`,X,Y+BH+13);
-    // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to graduate") and ONLY that; else
+    // need line (GAME post-grad fix 2): the exact curve amount when TradeBridge has it ("$0.29 to ascend") and ONLY that; else
     // the HUD estimate, marked ≈ … (est.); amounts round UP to the cent (fmtNeed) — never "≈$0"; nothing once graduated
     const nt=tierNeedText(m,nx,{graduated:S.graduated,exact:S.gradNeedUsd,est:S.gradNeedUsd!=null&&m<TB_M1?0:usdToReach(m,nx.lo)}); S.tierNeedText=nt;
     if(nt){ ctx.textAlign='right'; ctx.fillStyle=S.gradNeedUsd!=null&&m<TB_M1?'#9ff3c8':'rgba(159,243,200,.7)'; ctx.fillText(nt,384,Y+BH+13); ctx.textAlign='left'; } }
@@ -2447,6 +2457,7 @@ function drawTierBar(m,ti,leftEnd){
 }
 
 /* @graduated badge, desktop: a gold pill on the tier-bar row (replaces the curve bar while the next tier is a curve tier) */
+function gradBadgeEnd(X,BW){ ctx.save(); ctx.font='bold 10px ui-monospace,monospace'; const e=X+Math.min(BW,ctx.measureText(GRAD_BADGE).width+16); ctx.restore(); return e; }
 function drawGradBadgeDesk(X,Y,BW,BH){ ctx.save(); ctx.font='bold 10px ui-monospace,monospace'; const tw=ctx.measureText(GRAD_BADGE).width, bw=Math.min(BW,tw+16), by=Y+BH+2;
   ctx.fillStyle='rgba(255,216,115,.16)'; rrect(X,by,bw,16,8); ctx.fill(); ctx.strokeStyle='rgba(255,216,115,.55)'; ctx.lineWidth=1; rrect(X+.5,by+.5,bw-1,15,8); ctx.stroke();
   ctx.fillStyle='#FFD873'; ctx.textAlign='left'; ctx.fillText(GRAD_BADGE,X+8,by+11.5); ctx.restore(); }

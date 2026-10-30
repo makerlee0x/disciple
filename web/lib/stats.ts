@@ -304,7 +304,7 @@ export function computeStats(trades: StatsTrade[], o: StatsOptions): PlayerStats
     { key: "lpnl", label: "Lifetime PnL", value: cum + upnl, max: Math.max(1000, Math.abs(cum + upnl) * 1.4), format: "usd", sub: `${(roi * 100).toFixed(0)}% ROI` },
     { key: "fueled", label: "Rockets Boosted", value: pos.size, max: 20, format: "number", sub: `${buys} BOOSTs` },
     { key: "bombs", label: "Bombs Dropped", value: bombs, max: 25, format: "number", sub: `${nukes} nuke+` },
-    { key: "crews", label: "Crews Joined", value: all.filter((p) => p.entries > 0 && p.firstBuyTs - p.launchTs > 0).length, max: 20, format: "number", sub: `${grads} graduated` },
+    { key: "crews", label: "Crews Joined", value: all.filter((p) => p.entries > 0 && p.firstBuyTs - p.launchTs > 0).length, max: 20, format: "number", sub: `${grads} ascended` },
     { key: "bestx", label: "Best ×", value: bestX, max: 20, format: "multiple", sub: "biggest multiple" },
     { key: "rank", label: "Leaderboard", value: o.leaderboardRank, max: o.leaderboardSize, format: "rank", sub: `Top ${topPct.toFixed(1)}%` },
   ];

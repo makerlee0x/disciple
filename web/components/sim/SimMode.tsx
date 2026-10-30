@@ -185,7 +185,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
               <div>
                 <div style={{ opacity: 0.7, marginBottom: 4 }}>TOP TRADERS (PnL)</div>
                 {summary.top.slice(0, 8).map((r, i) => <Row key={r.name} i={i} name={r.name} arch={r.arch} total={r.total} me={r.arch === "you"} />)}
-                <div style={{ opacity: 0.6, marginTop: 8 }}>final {fmt(summary.finalMcap)} · {summary.bots} bots · {summary.trades} trades{summary.graduatedAtS != null ? ` · graduated at ${clock(summary.graduatedAtS)}` : ""}</div>
+                <div style={{ opacity: 0.6, marginTop: 8 }}>final {fmt(summary.finalMcap)} · {summary.bots} bots · {summary.trades} trades{summary.graduatedAtS != null ? ` · ascended at ${clock(summary.graduatedAtS)}` : ""}</div>
                 <div data-testid="sim-summary-tw" style={{ opacity: 0.6, marginTop: 4 }}>tramps/walls: you placed {summary.tw.placed.you} ({summary.tw.filled.you} filled) · bots placed {summary.tw.placed.bots} ({summary.tw.filled.bots} filled) · keeper pulls {summary.tw.keeperPulls}</div>
                 {summary.reactPnl !== 0 && <div style={{ opacity: 0.6, marginTop: 2 }}>bots made {usd(summary.reactPnl)} reacting to you</div>}
               </div>

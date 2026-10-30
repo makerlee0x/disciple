@@ -45,7 +45,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   A("seraphim_sight", "Seraphim Sight", "Reach Seraphim altitude.", "flight", "LEGENDARY", 1, { points: 2000, skin: "Seraph Chrome" }, (s) => s.rockets.filter((r) => r.tierIndex >= 14).length),
   A("best_x_10", "Tenfold Halo", "Book a 10× multiple on any rocket.", "flight", "EPIC", 10, { points: 1000, trail: "Golden Multipath" }, (s) => Math.floor(s.rings.find((r) => r.key === "bestx")?.value ?? 1)),
   A("best_x_50", "Fiftyfold Glory", "Book a 50× multiple.", "flight", "LEGENDARY", 50, { points: 4000, skin: "Glory Nosecone" }, (s) => Math.floor(s.rings.find((r) => r.key === "bestx")?.value ?? 1)),
-  A("crew_captain_ach", "Crew Captain", "Be the top booster on a graduated rocket.", "crew", "EPIC", 1, { points: 800, frame: "Captain Crest" }, (s) => s.metrics.crewCaptainGrads),
+  A("crew_captain_ach", "Crew Captain", "Be the top booster on an ascended rocket.", "crew", "EPIC", 1, { points: 800, frame: "Captain Crest" }, (s) => s.metrics.crewCaptainGrads),
   A("gate_keeper_ach", "Gate Keeper", "Help push 3 rockets into Outer Space.", "crew", "RARE", 3, { points: 600, trail: "Gate Spark" }, (s) => s.metrics.gateKeeperAssists),
   A("choir_of_three", "Choir of Three", "Join 3 different crews.", "crew", "COMMON", 3, { points: 100 }, (s) => s.rings.find((r) => r.key === "crews")?.value ?? 0),
   A("full_congregation", "Full Congregation", "Join 12 crews.", "crew", "EPIC", 12, { points: 900, frame: "Congregation" }, (s) => s.rings.find((r) => r.key === "crews")?.value ?? 0),
