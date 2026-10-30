@@ -157,6 +157,10 @@ export function appReadTransport(directUrl: string): Transport {
  * on either path is final. Background warming keeps using appReadTransport (no budget, no doubled proxy load).
  */
 export const TAP_READ_BUDGET_MS = 400;
+/** Nothing in memory at all (first tap on a coin before the warm loop answered): per request / whole read. Reads that
+ *  have a memory fallback keep TAP_READ_BUDGET_MS. */
+export const COLD_REQ_BUDGET_MS = 1500;
+export const COLD_READ_BUDGET_MS = 2500;
 export class ReadBudgetError extends Error {
   constructor(public method: string, public budgetMs: number, public rpcAttempts: RpcAttempt[] = []) { super(`tap read ${method} exceeded ${budgetMs} ms`); this.name = "TimeoutError"; }
 }

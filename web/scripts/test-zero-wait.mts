@@ -104,6 +104,21 @@ test("TtlCache.peek: any age, never reads", () => {
   assert.equal(c.fresh("k"), undefined, "fresh() still honours the TTL");
 });
 
+test("TtlCache own writes: a read that started before our receipt can't overwrite it", async () => {
+  let t = 0; const c = new TtlCache<bigint>(5000, () => t);
+  c.set("b", B(100));
+  // a balance read starts, our sell lands and is booked (−40), then the old read answers 100
+  let answer!: (v: bigint) => void;
+  const p = c.get("b", () => new Promise<bigint>((r) => { answer = r; }), -1);
+  t = 10; c.setOwn("b", B(60));
+  t = 20; answer(B(100)); await p;
+  assert.equal(c.peek("b")!.v, B(60), "pre-trade read dropped");
+  // a read started after the booking is taken
+  t = 30; await c.get("b", async () => B(55), -1);
+  assert.equal(c.peek("b")!.v, B(55));
+  assert.equal(c.setRead("b", B(1), 5), false);
+});
+
 test("opposite-side wait is off by default (#210's 3.5 s bound kept for A/B)", () => {
   assert.equal(OPPOSITE_WAIT.ms, 0);
   assert.equal(OPPOSITE_WAIT_MS, 3500);

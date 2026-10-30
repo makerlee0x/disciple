@@ -14,6 +14,16 @@ export class TtlCache<T> {
   pending(k: string): Promise<T> | undefined { return this.inflight.get(k); }
   fresh(k: string, maxAge = this.ttlMs): T | undefined { const e = this.m.get(k); return e && this.clock() - e.at <= maxAge ? e.v : undefined; }
   set(k: string, v: T) { this.m.set(k, { v, at: this.clock() }); }
+  private own = new Map<string, number>();
+  /** An own-receipt write (zero-wait balances): reads that STARTED before it can't overwrite it (setRead). */
+  setOwn(k: string, v: T) { const t = this.clock(); this.own.set(k, t); this.m.set(k, { v, at: t }); }
+  /** A read's result, unless an own write landed after the read started (it may predate our trade). */
+  setRead(k: string, v: T, startedAt: number): boolean {
+    if ((this.own.get(k) ?? -Infinity) >= startedAt) return false;
+    this.set(k, v); return true;
+  }
+  /** now on this cache's clock (read start stamps for setRead) */
+  now() { return this.clock(); }
   drop(k: string) { this.m.delete(k); }
   dropWhere(f: (k: string) => boolean) { for (const k of [...this.m.keys()]) if (f(k)) this.m.delete(k); }
   /**
@@ -22,7 +32,8 @@ export class TtlCache<T> {
    */
   rewarm(k: string, read: () => Promise<T>): Promise<T> {
     this.m.delete(k);
-    const p: Promise<T> = read().then((v) => { if (this.inflight.get(k) === p) this.set(k, v); return v; })
+    const t0 = this.clock();
+    const p: Promise<T> = read().then((v) => { if (this.inflight.get(k) === p) this.setRead(k, v, t0); return v; })
       .finally(() => { if (this.inflight.get(k) === p) this.inflight.delete(k); });
     this.inflight.set(k, p);
     return p;
@@ -31,7 +42,7 @@ export class TtlCache<T> {
   async get(k: string, read: () => Promise<T>, maxAge = this.ttlMs): Promise<T> {
     const f = this.fresh(k, maxAge); if (f !== undefined) return f;
     let p = this.inflight.get(k);
-    if (!p) { p = read().then((v) => { this.set(k, v); return v; }).finally(() => this.inflight.delete(k)); this.inflight.set(k, p); }
+    if (!p) { const t0 = this.clock(); p = read().then((v) => { this.setRead(k, v, t0); return v; }).finally(() => this.inflight.delete(k)); this.inflight.set(k, p); }
     return p;
   }
 }

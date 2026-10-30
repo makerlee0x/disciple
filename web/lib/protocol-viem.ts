@@ -12,7 +12,7 @@ import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, OPPOSITE_WA
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
 import { asTrade, sessionMaxSlippageBps } from "./aa/session";
 import { READ_FLOOR, flooredTransport, receiptBlock } from "./trade/readFloor";
-import { appReadTransport, appRaceTransport, labelRead, readFailure, withinBudget, TAP_READ_BUDGET_MS } from "./rpc/readTransport";
+import { appReadTransport, appRaceTransport, labelRead, readFailure, withinBudget, TAP_READ_BUDGET_MS, COLD_REQ_BUDGET_MS, COLD_READ_BUDGET_MS } from "./rpc/readTransport";
 import {
   BaseError, ContractFunctionRevertedError, createPublicClient, decodeErrorResult, decodeEventLog, encodeFunctionData, maxUint256, parseAbi, type Hex, type PublicClient,
 } from "viem";
@@ -667,17 +667,17 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
  */
 export async function tokenBalance(pc: PublicClient, erc20: Address, owner: Address) {
   const at = (blockNumber?: bigint) => pc.readContract({ address: erc20, abi: tokenAbi, functionName: "balanceOf", args: [owner], ...(blockNumber !== undefined ? { blockNumber } : {}) });
-  const f = fillBook.floor(owner);
+  const f = fillBook.floor(owner), t0 = BALANCES.now();
   const b = f === undefined ? await at() : await readAtOrAfter(pc, f, at).then((r) => r.value, () => at());
-  BALANCES.set(ckey(erc20, owner), b); return b;
+  BALANCES.setRead(ckey(erc20, owner), b, t0); return b;
 }
 /**
  * Apply a known delta (e.g. coin received, from the receipt logs) to the cached balance. Reading balanceOf right after
  * a sync receipt can hit an RPC node one block behind (0 after a first buy ⇒ "NO TOKENS IN WALLET" on the next sell).
  */
 export function bumpBalance(erc20: Address, owner: Address, delta: bigint) {
-  const k = ckey(erc20, owner), cur = BALANCES.fresh(k, 60_000);
-  if (cur !== undefined) BALANCES.set(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.set(k, delta);
+  const k = ckey(erc20, owner), cur = BALANCES.peek(k)?.v;   // any age: zero-wait taps read it at any age (balanceNow)
+  if (cur !== undefined) BALANCES.setOwn(k, cur + delta > B(0) ? cur + delta : B(0)); else if (delta > B(0)) BALANCES.setOwn(k, delta);
 }
 /** Balance hint ≤ maxAge ms old (polled / refreshed after trades), else a live read. */
 export async function balanceHint(pc: PublicClient, erc20: Address, owner: Address, maxAge = 5000) {
@@ -699,6 +699,11 @@ let FAST: PublicClient | undefined;
 /** Tap-time reads only: hedged + bounded (lib/rpc/readTransport raceTransport), floored like publicClient. */
 export function fastClient(): PublicClient {
   return FAST ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient;
+}
+let COLD: PublicClient | undefined;
+/** Same race, wider per-request budget: only for reads with NO memory fallback (a coin's first tap). */
+export function coldClient(): PublicClient {
+  return COLD ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appRaceTransport(ACTIVE_CHAIN.rpcUrls.default.http[0], COLD_REQ_BUDGET_MS), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient;
 }
 /** Where each tap read came from (timing log `reads`): memory (with its age) or a budgeted read (with its ms). */
 export type TapReads = Record<string, { src: "cache" | "model" | "exact" | "read" | "none" | "skip"; ageMs?: number; ms?: number; err?: string }>;
@@ -796,14 +801,16 @@ export function createViemProtocol(): ProtocolClient {
   }
   /**
    * Book a fill from its receipt logs (no balanceOf right after the receipt: the public RPC can lag ~0.7 s).
-   *  - spend asset: the optimistic `have − amountIn` set before the send is corrected by what the logs say actually
-   *    left the account (delta-based, so rapid shots' optimistic decrements stay intact);
+   *  - spend asset: what the logs say actually left the account is debited from the cached balance (zero-wait taps
+   *    size / preflight from this cache with no read, so it must not keep the pre-trade amount: a 100 % sell sized
+   *    from it reverts). An own write: a balance read that started before it can't overwrite it (TtlCache.setRead);
    *  - sell proceeds (quote / USDG) are added to the cached quote balance. Buys' coin side is booked by TradeBridge
    *    (bumpBalance(r.amountOut)) and lib/wallet noteReceipt (GAME #138) — not here, to avoid double counting.
    */
   function bookFill(logs: ExecResult["logs"], spend: Address, me: Address, amountIn: bigint, proceeds: Address | undefined, recipient: Address, out: bigint) {
     const s = sent(logs, spend, me);
-    if (s > B(0) && s !== amountIn) bumpBalance(spend, me, amountIn - s);
+    void amountIn;
+    if (s > B(0)) bumpBalance(spend, me, -s);
     if (proceeds && out > B(0)) bumpBalance(proceeds, recipient, out);
   }
 
@@ -949,7 +956,7 @@ export function createViemProtocol(): ProtocolClient {
       const fNow = coinFactsNow(pc, t.token);
       if (fNow) reads.facts = { src: "cache", ageMs: fNow.ageMs };
       const [{ curve, graduated, quote: quoteAsset, mode }, me] = await Promise.all([
-        fNow ? fNow.v : labelRead("facts", tapRead(reads, "facts", () => coinFacts(fastClient(), t.token), 2 * TAP_READ_BUDGET_MS)),
+        fNow ? fNow.v : labelRead("facts", tapRead(reads, "facts", () => coinFacts(coldClient(), t.token), COLD_READ_BUDGET_MS)),
         labelRead("account", activeAddress()),
       ]);
       const recipient = t.recipient || me;
@@ -958,7 +965,7 @@ export function createViemProtocol(): ProtocolClient {
       // USDG router (#65) when the flag is on — and ALWAYS for USDG-quoted coins once the router supports it, so we
       // never emit a USDG approve to a curve (policy 1.3.0 rejects those)
       const uNow = usdgRouteNow(pc, t.token, { curve, graduated, quote: quoteAsset, mode, quoteDecimals: 0 });
-      const usdg = uNow !== undefined ? uNow : await labelRead("route", tapRead(reads, "route", () => usdgRouteFor(fastClient(), t.token)));
+      const usdg = uNow !== undefined ? uNow : await labelRead("route", tapRead(reads, "route", () => usdgRouteFor(coldClient(), t.token), COLD_READ_BUDGET_MS));
       // graduation check for ANY quote: USDG-quoted ⇒ usdgIn is the curve's quoteIn; else converted on-chain (gradNeed)
       const gradCurve = usdg && side === "buy" && !graduated ? { curve, mode, quote: quoteAsset } : undefined;
       if (usdg) return await tradeViaUsdg(side, t, { usdg, me, recipient, deadline, pve: !graduated && mode === MODE.PVE, gradCurve, reads, fresh: o.fresh }, tt, tap, handoff);
@@ -1078,8 +1085,8 @@ export function createViemProtocol(): ProtocolClient {
       else if (gn) { grad = gn.v; reads.grad = { src: "cache", ageMs: gn.ageMs }; }
       else {
         bg(ckey("gradneed", t.token), () => warmGradNeed(pc, t.token));
-        grad = await tapRead(reads, "grad", () => usdgQuoted ? buyMayGraduate(fastClient(), g.curve, g.mode, t.amountIn, c.me)
-          : usdgBuyGraduates(fastClient(), { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn })).catch(() => false);
+        grad = await tapRead(reads, "grad", () => usdgQuoted ? buyMayGraduate(coldClient(), g.curve, g.mode, t.amountIn, c.me)
+          : usdgBuyGraduates(coldClient(), { router, curve: g.curve, quote: g.quote, usdgIn: t.amountIn }), COLD_READ_BUDGET_MS).catch(() => false);
       }
     }
     const ik = ckey("usdgroute", t.token, side), route = usdgModelRoute(t.token);
@@ -1095,7 +1102,8 @@ export function createViemProtocol(): ProtocolClient {
         return m;
       }
       try {
-        const v = await tapRead(reads, "quote", () => readUsdgRoute(fastClient(), router, t.token, isBuy, t.amountIn, c.me));
+        const v = m ? await tapRead(reads, "quote", () => readUsdgRoute(fastClient(), router, t.token, isBuy, t.amountIn, c.me))
+          : await tapRead(reads, "quote", () => readUsdgRoute(coldClient(), router, t.token, isBuy, t.amountIn, c.me), COLD_READ_BUDGET_MS);
         return MODEL.quote(route, side, t.amountIn) ?? { lo: v, hi: v };
       } catch (e) {
         if (m) { reads.quote = { ...reads.quote, src: m.src, ageMs: m.ageMs }; return m; }
@@ -1110,9 +1118,10 @@ export function createViemProtocol(): ProtocolClient {
     const have = balanceNow(pc, spend, c.me);
     reads.balance = have ? { src: "cache", ageMs: have.ageMs } : { src: "skip" };
     if (have && spendable(have.v, held.others()) < held.need) {
+      const t0 = BALANCES.now();
       const live = await tapRead(reads, "balance-live", () => fastClient().readContract({ address: spend, abi: tokenAbi, functionName: "balanceOf", args: [c.me] })).catch(() => undefined);
       if (live !== undefined) {
-        BALANCES.set(ckey(spend, c.me), live);
+        BALANCES.setRead(ckey(spend, c.me), live, t0);
         if (live < t.amountIn) throw new ProtocolError("InsufficientBalance", isBuy
           ? `Not enough cash for $${usdgRawToUsd(t.amountIn).toFixed(2)}: you have $${usdgRawToUsd(live).toFixed(2)}. Pick a smaller amount or deposit more.`
           : `not enough tokens: need ${fmtUnits(t.amountIn, COIN_DECIMALS)} have ${fmtUnits(live, COIN_DECIMALS)}`);

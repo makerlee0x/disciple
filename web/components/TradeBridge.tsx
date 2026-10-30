@@ -7,8 +7,8 @@ import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { tradeErrorKind, balanceHint, balanceNow, createViemProtocol, decimalsOf, fastClient, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance } from "@/lib/protocol-viem";
-import { withinBudget, TAP_READ_BUDGET_MS } from "@/lib/rpc/readTransport";
+import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance } from "@/lib/protocol-viem";
+import { withinBudget, COLD_READ_BUDGET_MS } from "@/lib/rpc/readTransport";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
@@ -284,15 +284,15 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         linePress.current = pressId;
         say(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
         // Zero-wait (lee Oct 30): $ shots from memory (USDG buys 1:1, $ sells at the last sell quote's price), % sells from
-        // the tracked balance; a cold value is ONE bounded race read (fastClient), never the sequential failover path
+        // the tracked balance; a cold value (nothing in memory) is ONE bounded race read (coldClient), never the sequential failover path
         const pct = side === "sell" && !!(o?.all || (o?.frac && o.frac > 0));
         let amountIn = pct ? BigInt(0) : shotAmountNow(pc, token as Address, side, usd)
-          ?? await withinBudget(shotAmountIn(fastClient(), token as Address, side, usd), 2 * TAP_READ_BUDGET_MS, "shot");
+          ?? await withinBudget(shotAmountIn(coldClient(), token as Address, side, usd), COLD_READ_BUDGET_MS, "shot");
         // bag (hoisted): sells: the wallet balance this sell was sized from → PnL HUD splits tracked / untracked pro-rata
         if (side === "sell") {
           const me = await activeAddress();
           const tracked = OWN.get(token as Address, me) ?? balanceNow(pc, token as Address, me)?.v;
-          const { bal } = await tapSellBalance(tracked, () => withinBudget(tokenBalance(fastClient(), token as Address, me), TAP_READ_BUDGET_MS, "sell-balance"));
+          const { bal } = await tapSellBalance(tracked, () => withinBudget(tokenBalance(coldClient(), token as Address, me), COLD_READ_BUDGET_MS, "sell-balance"));
           if (bal === BigInt(0)) { say("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
           bag = units(bal);
           // % of the UNRESERVED balance (wallet − tokens pending DUMPs are already selling): 50 % then 50 % = 75 % total, always.
