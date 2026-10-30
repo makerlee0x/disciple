@@ -97,3 +97,31 @@ test("store + chrome wiring: per-account load, engine publish, phone neutral", (
   assert.match(ch, /setPointerCapture/);
   assert.match(readFileSync(new URL("../app/coin/[address]/page.tsx", import.meta.url), "utf8"), /<CardChrome \/>/);
 });
+
+// ---- DEX chart card size (Oct 30): resizable, saved in the per-account layout, clamped to the viewport
+import { RESIZABLE, clampSize } from "../lib/game/cardLayout";
+test("chart card: a DOM card with a saved size (w / h) that round-trips per account", () => {
+  assert.ok(DOM_CARDS.includes("chart") && !CANVAS_CARDS.includes("chart"));
+  const ls = mem(), l = setCard({}, "chart", { w: 760, h: 420 });
+  assert.deepEqual(l.chart, { dx: 0, dy: 0, w: 760, h: 420 }, "size alone is kept (not a 'default' card)");
+  saveLayout(ls, A, l);
+  assert.deepEqual(loadLayout(ls, A).chart, { dx: 0, dy: 0, w: 760, h: 420 });
+  assert.deepEqual(loadLayout(ls, B), {}, "other accounts unaffected");
+  const moved = setCard(l, "chart", { dx: 40, dy: -10 });
+  assert.deepEqual(moved.chart, { dx: 40, dy: -10, w: 760, h: 420 }, "moving keeps the size");
+  assert.equal(setCard(l, "chart", { w: 0, h: 0 }).chart, undefined, "reset size ⇒ default card dropped");
+  assert.equal(setCard({}, "pnl", { w: 500, h: 500 }).pnl, undefined, "non-resizable cards never store a size");
+  assert.deepEqual(parseLayout(JSON.stringify({ chart: { dx: 0, dy: 0, w: 10, h: 5 } })).chart, { dx: 0, dy: 0, w: RESIZABLE.chart!.minW, h: RESIZABLE.chart!.minH }, "junk-small sizes raised to the minimum");
+  assert.equal(parseLayout(JSON.stringify({ pnl: { w: 400, h: 300 } })).pnl, undefined);
+});
+
+test("chart card size clamp: default, min, and never larger than the viewport", () => {
+  const z = RESIZABLE.chart!;
+  assert.deepEqual(clampSize("chart", undefined, 1440, 900), { w: z.defW, h: z.defH });
+  assert.deepEqual(clampSize("chart", { w: 5000, h: 5000 }, 1440, 900), { w: 1440 - 16, h: 900 - 16 });
+  assert.deepEqual(clampSize("chart", { w: 50, h: 50 }, 1440, 900), { w: z.minW, h: z.minH });
+  assert.deepEqual(clampSize("chart", { w: 800, h: 500 }, 1440, 900), { w: 800, h: 500 });
+  // a resized card near the edge: the offset clamp keeps the whole (bigger) card on screen
+  const s = clampSize("chart", { w: 900, h: 600 }, 1280, 720);
+  assert.deepEqual(clampOffset({ x: 84, y: 470, ...s }, { dx: 0, dy: 0 }, 1280, 720), { dx: 0, dy: 720 - 600 - 470 });
+});

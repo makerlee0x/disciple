@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *   middle  rocket + sky only — touch-drag on the sky steers (engine @drag-steer)
  *   bottom  grab handle + quiet PnL line (this file) and BOOST [$10 ⌄] / DUMP [25% ⌄] (TradeBridge → PhoneTradeBar)
  *   drawer  swipe up / tap the handle: ONE drawer (~62% height) with segmented tabs; BOOST / DUMP stay usable under it.
- *           FEED / HOLDERS / CHART are engine-drawn inside the drawer's transparent body rect (window.__phoneHud.body);
+ *           FEED / HOLDERS (and CHART where the DOM DexChart is not mounted) are engine-drawn inside the drawer's transparent body rect (window.__phoneHud.body);
  *           CREW / CHAT / POSITION are the existing React panels, moved into the body by the html.ap-phone CSS below.
  *           Closes on swipe down (header), tap on the dimmed sky above, or Esc.
  * Desktop (≥ PHONE_W) is untouched: no class, no global, nothing rendered.
@@ -141,7 +141,9 @@ export default function PhoneHud() {
   const tabs = DRAWER_TABS.filter((t) => !AVAIL_SEL[t.id] || avail[t.id]);
   const cur = DRAWER_TABS.find((t) => t.id === sheet);
   const by = L.body.y - L.dTop, bb = by + L.body.h;   // body band, relative to the drawer top
-  const bg = cur?.engine ? `linear-gradient(to bottom, ${DRAWER_BG} 0, ${DRAWER_BG} ${by}px, transparent ${by}px, transparent ${bb}px, ${DRAWER_BG} ${bb}px)` : DRAWER_BG;
+  // CHART tab: the DOM DEX chart (DexChart, window.__domChart) fills the body itself ⇒ opaque band; engine-drawn otherwise
+  const engineBody = !!cur?.engine && !(cur.id === "chart" && (window as unknown as { __domChart?: boolean }).__domChart);
+  const bg = engineBody ? `linear-gradient(to bottom, ${DRAWER_BG} 0, ${DRAWER_BG} ${by}px, transparent ${by}px, transparent ${bb}px, ${DRAWER_BG} ${bb}px)` : DRAWER_BG;
   const pos = !!pnl?.txt, neg = (pnl?.uPnl ?? 0) < 0;
   const pnlLine = pos ? <><b style={{ color: neg ? "#FF9EBE" : "#BFF5D9", fontWeight: 700 }}>{pnl!.txt!.pnl}</b> · {pnl!.txt!.pct}</> : <>No position yet</>;
   return (

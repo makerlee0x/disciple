@@ -339,6 +339,8 @@ export default function HowItWorksPage() {
         <span className={s.sp} />
         <span>{HIW_FINAL.footer}</span>
         <Link href="/security" className={s.footLink}>Security</Link>
+        {/* coin page price chart = TradingView lightweight-charts (Apache-2.0); its in-chart logo is off, credited here */}
+        <a href="https://www.tradingview.com/" className={s.footLink} target="_blank" rel="noopener noreferrer">Charts by TradingView</a>
       </footer>
     </main>
   );

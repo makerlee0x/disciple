@@ -4,8 +4,9 @@
  * × close), a pill per minimized card (click = restore) and a LAYOUT menu (bottom-left) that lists every card, brings
  * closed / minimized ones back and resets the layout. Desktop only (phones keep their drawers / sheets).
  *
- * Canvas cards (header, holders, trades, controls, chart) are drawn by engine.js @cards from the layout and report their
- * drawn rects (disciple:cardrects, canvas px from #wrap); DOM cards (pnl, chat) apply their offset themselves (useDomCard)
+ * Canvas cards (header, holders, trades, controls) are drawn by engine.js @cards from the layout and report their
+ * drawn rects (disciple:cardrects, canvas px from #wrap); DOM cards (chart = DexChart, pnl, chat) apply their offset themselves
+ * (useDomCard / DexChart; the chart also has its own resize handle, size saved in the same layout)
  * and are located by [data-card]. All pointer input here lands on DOM elements, so it never reaches the game (no steering).
  */
 import { useEffect, useRef, useState } from "react";
@@ -15,8 +16,8 @@ import { getLayout, isPhoneUI, updateLayout, useCanvasCards, useCardLayout } fro
 type R = { x: number; y: number; w: number; h: number };
 const mono = "ui-monospace, monospace";
 const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "0 5px", lineHeight: "16px", fontSize: 11, color: "#ffe7a3", fontFamily: mono };
-const DOM_SEL: Partial<Record<CardId, string>> = { pnl: '[data-card="pnl"]', chat: '[data-card="chat"]' };
-const DOM_HOME: Partial<Record<CardId, R>> = { pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 } };   // pill spot if never seen
+const DOM_SEL: Partial<Record<CardId, string>> = { chart: '[data-card="chart"]', pnl: '[data-card="pnl"]', chat: '[data-card="chat"]' };
+const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 } };   // pill spot if never seen
 
 export default function CardChrome() {
   const layout = useCardLayout(), canvas = useCanvasCards();
@@ -95,7 +96,7 @@ function LayoutMenu({ layout, close }: { layout: Layout; close: () => void }) {
   return (
     <div data-testid="layout-pop" style={{ position: "absolute", left: 0, bottom: 20, minWidth: 190, padding: 8, borderRadius: 10, background: "rgba(10,12,30,.96)",
       border: "1px solid rgba(255,231,163,.35)", font: `11px ${mono}`, color: "#e8ecff", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
-      {CARD_IDS.map((id) => { const s = layout[id], st = s?.closed ? "closed" : s?.min ? "minimized" : s?.dx || s?.dy ? "moved" : "";
+      {CARD_IDS.map((id) => { const s = layout[id], st = s?.closed ? "closed" : s?.min ? "minimized" : s?.dx || s?.dy ? "moved" : s?.w ? "resized" : "";
         return <div key={id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "2px 0" }}>
           <span>{CARD_TITLES[id]}{st && <span style={{ opacity: 0.55 }}> · {st}</span>}</span>
           {(s?.closed || s?.min) && <button data-testid={`layout-show-${id}`} onClick={() => updateLayout((l) => restoreCard(l, id))} style={{ ...btn, padding: 0 }}>show</button>}
