@@ -142,3 +142,12 @@ test("DexChart reskin: the old chart-map game skin (CHART_STYLE palette, Georgia
   assert.match(src, /pointerEvents: "none", zIndex: 2/, "overlay never eats pan / pinch / crosshair input");
   assert.doesNotMatch(src, /ABCDEFGH|GRID_COLS/, "no A–H / 1–5 grid labels");
 });
+
+test("chart title: exactly one $ whether or not the ticker carries one (desktop + phone share the title)", async () => {
+  const { chartTitle, chartTicker } = await import("../lib/chart/candles");
+  for (const t of ["SGRAD", "$SGRAD", "$$SGRAD", " $sgrad ", "sgrad"]) { assert.equal(chartTitle(t), "$SGRAD", t); assert.doesNotMatch(chartTitle(t), /\$\$/); }
+  assert.equal(chartTitle(null), "PRICE"); assert.equal(chartTitle("$"), "PRICE"); assert.equal(chartTicker("$ABCDEFGHIJKL"), "ABCDEFGHIJ");
+  const src = readFileSync(new URL("../components/flight/DexChart.tsx", import.meta.url), "utf8");
+  assert.match(src, /const label = chartTicker\(ticker\)/); assert.doesNotMatch(src, /`\$\$\{label\}`/);
+  assert.equal((src.match(/data-testid="dex-title-dollar"/g) || []).length, 1, "one $ glyph in the single (desktop + phone) title");
+});

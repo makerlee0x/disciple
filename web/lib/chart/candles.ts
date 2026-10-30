@@ -100,3 +100,8 @@ export function fmtMcap(v: number): string {
 }
 /** volume / readout $ (no decimals above $100) */
 export const fmtVol = (v: number) => (v >= 1000 ? fmtMcap(v) : "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2)));
+
+/** chart title ticker: bare, upper-case, ≤10 chars — every leading "$" / space stripped (tickers may arrive as "$SGRAD",
+ *  "$$SGRAD" or "SGRAD"); the chart adds exactly one "$". Empty ⇒ "" (title falls back to PRICE). */
+export function chartTicker(t?: string | null): string { return String(t ?? "").replace(/^[\s$]+/, "").trim().slice(0, 10).toUpperCase(); }
+export function chartTitle(t?: string | null): string { const k = chartTicker(t); return k ? `$${k}` : "PRICE"; }

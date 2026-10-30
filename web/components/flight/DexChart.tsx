@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, IPriceLine, ISeriesApi, MouseEventParams, Time, UTCTimestamp } from "lightweight-charts";
-import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
+import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
 import { getLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
@@ -250,7 +250,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
 
   const shown = hover ?? last, chg = shown ? (shown.close / shown.open - 1) * 100 : 0, up = shown ? shown.close >= shown.open : true;
   const col = up ? C.up : C.down;
-  const label = (ticker || "").replace(/^\$/, "").slice(0, 10).toUpperCase();
+  const label = chartTicker(ticker);   // bare ticker: a "$" in the prop never doubles up (title = one "$" + label)
   const style: React.CSSProperties = phone
     ? { position: "fixed", display: "flex" }
     : { position: "fixed", left: vp.x, top: vp.y, width: size.w, height: size.h, transform: off.dx || off.dy ? `translate(${off.dx}px, ${off.dy}px)` : undefined,
@@ -264,7 +264,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: phone ? "4px 8px" : "2px 6px", minHeight: phone ? 26 : 20, background: C.titleBg,
         borderBottom: `2px solid ${C.frameMid}` }}>
         <span style={{ color: C.title, font: `bold ${phone ? 13 : 11}px ${serif}`, letterSpacing: ".02em", textShadow: "0 0 6px rgba(255,231,163,.35)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {label ? `$${label}` : "PRICE"} <span style={{ color: C.dim, font: `${phone ? 10 : 8.5}px ${mono}`, letterSpacing: 0, textShadow: "none" }}>· MCAP</span></span>
+          {label ? <><span data-testid="dex-title-dollar" style={{ marginRight: 1.5 }}>$</span><span data-testid="dex-title">{label}</span></> : <span data-testid="dex-title">PRICE</span>} <span style={{ color: C.dim, font: `${phone ? 10 : 8.5}px ${mono}`, letterSpacing: 0, textShadow: "none" }}>· MCAP</span></span>
         <span style={{ flex: 1 }} />
         <div role="group" aria-label="Timeframe" style={{ display: "flex", gap: 2 }}>
           {TFS.map((t) => { const on = tf === t.s; return <button key={t.s} type="button" data-testid={`dex-tf-${t.l}`} aria-pressed={on} onClick={() => setTf(t.s)}
