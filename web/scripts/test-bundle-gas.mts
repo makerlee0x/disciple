@@ -56,3 +56,31 @@ test("above the relay max: clear BundleGasError", () => {
   assert.throws(() => bundleGas({ ...launch, callGasLimit: BigInt(40_000_000) }, data(100)), (e: unknown) => e instanceof BundleGasError && /too large to relay/.test((e as Error).message) && (e as BundleGasError).cap === MAX_RELAY_TX_GAS);
   assert.throws(() => bundleGas(launch, data(100), BigInt(5_000_000)), BundleGasError);
 });
+
+// Setup (first op: deploy + USDG approve + session install) on testnet, tx 0x605823b2… (2026-10-30 07:33 CDT):
+// FailedOp(0, "AA95 out of gas") at outer gas 2,304,520 = bundleGas exactly, with receipt.gasUsedForL1 597,946.
+// Arbitrum takes the L1 calldata gas out of the tx gas limit before execution; at 07:28 the same 2.7 KB cost 173,583.
+import { readFileSync } from "node:fs";
+import { l1Reserve, L1_GAS_FALLBACK } from "../lib/aa/bundleGas";
+const setupData = readFileSync(new URL("./fixtures/setup-aa95-0x605823b2.hex", import.meta.url), "utf8").trim() as `0x${string}`;
+const setup = { paymaster: PM, verificationGasLimit: BigInt(450_000), callGasLimit: BigInt(1_396_723), preVerificationGas: BigInt(60_000), paymasterVerificationGasLimit: BigInt(120_000), paymasterPostOpGasLimit: BigInt(80_000) };
+
+test("failing setup 0x605823b2: no-L1 formula reproduces its 2,304,520 gas limit", () => {
+  assert.equal(bundleGas(setup, setupData), BigInt(2_304_520));
+});
+
+test("L1 gas is added on top: execution budget after L1 stays ≥ the no-L1 formula, even at the 07:33 spike", () => {
+  const noL1 = bundleGas(setup, setupData);
+  for (const l1 of [BigInt(173_583), BigInt(597_946)]) {
+    const g = bundleGas(setup, setupData, MAX_RELAY_TX_GAS, l1Reserve(l1));
+    assert.ok(g - l1 >= noL1 + l1, `l1 ${l1}: gas ${g}, after L1 ${g - l1} < ${noL1}`);   // 2× reserve ⇒ the L1 price can double after the estimate
+    assert.ok(g - l1 - innerNeed(setup.callGasLimit, setup.paymasterPostOpGasLimit) >= setup.verificationGasLimit + setup.paymasterVerificationGasLimit);
+  }
+  assert.equal(bundleGas(setup, setupData, MAX_RELAY_TX_GAS, BigInt(0)), noL1, "l1Gas 0 ⇒ unchanged");
+});
+
+test("L1 fallback covers the spike and still fits the relay cap for a launch", () => {
+  assert.ok(L1_GAS_FALLBACK > BigInt(597_946));
+  assert.ok(bundleGas(launch, data(2628), MAX_RELAY_TX_GAS, l1Reserve(L1_GAS_FALLBACK)) <= MAX_RELAY_TX_GAS);
+  assert.throws(() => bundleGas(launch, data(2628), BigInt(10_000_000), l1Reserve(BigInt(500_000))), BundleGasError, "L1 gas counts toward the cap");
+});
