@@ -2618,7 +2618,7 @@ function chartTimeLabel(t,tf,live){ if(!live){ const s=Math.round(t); return Mat
 const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*86400};
 /* live: between the React PnL panel and the trades feed (H−172); shrinks to fit. The panel publishes its real bottom
    (components/PnlHud → window.__pnlBottom, wrap px; null on the phone / hidden): the chart always starts below it, so the
-   "Your Run" card never covers the chart (lee, Oct 30; was a fixed 456 guess ⇒ overlap on short desktops). */
+   "Your Position" card never covers the chart (lee, Oct 30; was a fixed 456 guess ⇒ overlap on short desktops). */
 const GRID_COLS='ABCDEFGH';
 const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};

@@ -73,7 +73,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
   const [open, setOpenS] = useState(true);
-  // phone HUD (components/flight/PhoneHud.tsx): the header asks for the RUN sheet instead of expanding in place
+  // phone HUD (components/flight/PhoneHud.tsx): the header asks for the POSITION sheet (id "run") instead of expanding in place
   const setOpen = (f: boolean | ((o: boolean) => boolean)) => (isPhone() && typeof f === "function" ? dispatchEvent(new CustomEvent("disciple:phonesheet-req", { detail: { req: "run" } })) : setOpenS(f));
   const posRef = useRef(pos);
   posRef.current = pos;
@@ -91,7 +91,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   useEffect(() => {
     // short desktop (lee, Oct 30: the open card covered the price chart): start collapsed; the chart sits under it either way
     if (window.matchMedia?.("(max-width: 760px)").matches || window.matchMedia?.("(max-height: 767px)").matches) setOpenS(false);
-    // phone HUD: the full card only while the RUN sheet is open, else the one-line strip
+    // phone HUD: the full card only while the POSITION sheet is open, else the one-line strip
     const onSheet = (e: Event) => { if (isPhone()) setOpenS(((e as CustomEvent).detail || {}).id === "run"); };
     addEventListener("disciple:phonesheet", onSheet);
     return () => { removeEventListener("disciple:phonesheet", onSheet); };
@@ -193,7 +193,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   }, [coin, KEY, syncEvent, account]);
 
   // the engine's desktop chart starts under this card (engine.js chartDeskRect ← window.__pnlBottom, px from the canvas
-  // wrap's top). null on the phone / when hidden (the RUN sheet and the CHART sheet are separate drawer tabs there).
+  // wrap's top). null on the phone / when hidden (the POSITION sheet and the CHART sheet are separate drawer tabs there).
   const asideRef = useRef<HTMLElement>(null);
   const card = useDomCard("pnl", asideRef);   // pass 3 #4: movable / minimizable / closable card
   const cardDy = card.dy, cardHidden = card.hidden;

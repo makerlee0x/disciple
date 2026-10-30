@@ -25,7 +25,7 @@ for (const [w, h, top] of [[390, 844, 60], [360, 780, 60], [375, 667, 60]]) {
 }
 // 2) drawer: Feed / Holders / Chart / Crew / Chat / Run (mockup copy), one at a time, closes on swipe down / dim tap / Esc
 const labels = [...hud.matchAll(/\{ id: "(\w+)", label: "([^"]+)"/g)].map((m) => m[2]);
-ok(labels.join() === "Feed,Holders,Chart,Crew,Chat,Run", "six drawer tabs from the mockup");
+ok(labels.join() === "Feed,Holders,Chart,Crew,Chat,Position", "six drawer tabs from the mockup (Run → Position, lee Oct 30)");
 ok(!/PHONE_TABS|phone-tabs|"STAT"|"T\/W"/.test(hud), "old 8 edge tabs removed");
 ok(/data-testid="phone-dim" onPointerDown=\{\(e\) => \{ e\.preventDefault\(\); setSheet\(null\); \}\}/.test(hud), "tap the dimmed sky closes");
 ok(/e\.clientY - s\.y > 36\) setSheet\(null\)/.test(hud) && /e\.key === "Escape" && sheetRef\.current\) setSheet\(null\)/.test(hud), "swipe down / Esc close");
@@ -46,7 +46,7 @@ for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left:
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
 ok(!/drawPhonePresets|drawPhoneMcap/.test(eng), "no canvas preset chips / big mcap card on phones");
 ok(/a 'SIM' tag in paper \/ simulated market \(final/.test(eng) && /const sim=source\.isSim\|\|!isLive\(\);/.test(eng) && eng.split("\n").filter((l) => /PLACEHOLDER/.test(l)).every((l) => /PLACEHOLDER copy \(pending lee \+ BRAND\)/.test(l)), "SIM tag (final) on paper / sim; only the post-grad copy is marked PLACEHOLDER (pending lee + BRAND)");
-ok(/\{ id: "run", label: "Run" \}/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "tramps & walls live under Run (no T/W tab)");
+ok(/\{ id: "run", label: "Position" \}/.test(hud) && !/label: "Run"/.test(hud) && /aria-label="Open panels \(feed, holders, chart, crew, chat, position\)"/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:has\(> \[data-testid="tw-open"\]\)/.test(hud) && /data-ph-sheet="run"\] \[data-testid="tw-list"\]/.test(hud), "drawer tab label Position (was Run; id stays run), tramps & walls live under it (no T/W tab)");
 // 3b) @tier-label / @tier-progress (lee, Oct 30): "+X% to NEXT_TIER" = the mcap increase still needed, pct = (next.lo / mcap − 1) × 100;
 //     bar fill = mcap / next.lo (the same number); phone pill + desktop tier bar, ascended coins too
 {
@@ -189,7 +189,7 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   ok(/fillText\(String\(i\+1\)/.test(f) && /fillText\('·',x0\+14/.test(f), "phone: ranked from #1, tagged rows have no rank number");
   ok(/ctx\.fillStyle='rgba\(214,222,245,\.62\)'; ctx\.font=`bold 13px \$\{PH_FONT\}`; ctx\.fillText\(phFit\(holderKindText\(r\.label\)/.test(f), "phone: tagged rows labelled + greyed (still readable)");
   ok(/Math\.min\(sysAll\.length,Math\.max\(0,n-1\),4\)/.test(f), "phone: at least one ranked row always fits"); }
-// desktop: the "Your Run" card never covers the live chart (lee, Oct 30; prod 1366×680: card bottom 448, chart top 376)
+// desktop: the "Your Position" card never covers the live chart (lee, Oct 30; prod 1366×680: card bottom 448, chart top 376)
 { const blk = eng.slice(eng.indexOf("/* @chart-desk:"), eng.indexOf("/* @chart-desk-end */"));
   const consts = eng.match(/const CHART_PNL_BOTTOM=[^;]+;/)[0];
   const R = new Function("clamp", `${consts}\n${blk}\nreturn chartDeskRect;`)((v, a, b) => Math.max(a, Math.min(b, v)));
@@ -209,9 +209,9 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   ok(wb.includes('"__pnlBottom"'), "worker render: __pnlBottom forwarded with the other globals");
   ok(/w\.__pnlBottom = !isPhone\(\) && !cardHidden && r\.height > 0 \? Math\.round\(r\.bottom - top - cardDy\) : null/.test(pnl) && /new ResizeObserver\(pub\)/.test(pnl), "PnlHud publishes its bottom (desktop only, tracks open / collapse)");
   ok(/matchMedia\?\.\("\(max-height: 767px\)"\)\.matches\) setOpenS\(false\)/.test(pnl), "short desktop: the card starts collapsed (chart keeps its full height)"); }
-// 390 px phone: the chart is a drawer TAB and the Your Run card is another tab → never on screen together
+// 390 px phone: the chart is a drawer TAB and the Your Position card is another tab → never on screen together
 { ok(/return P\.sheet==='chart'&&B\?\{x:[^\n]*:\{x:-1e4,y:-1e4,w:st\.w,h:st\.h\}/.test(eng), "phone: chart drawn only in the Chart sheet (off-screen otherwise)");
-  ok(/html\.ap-phone \.pnl-hud \{ display: none !important; \}/.test(hud) && /html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud \{/.test(hud), "phone: Your Run only in the Run sheet");
+  ok(/html\.ap-phone \.pnl-hud \{ display: none !important; \}/.test(hud) && /html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud \{/.test(hud), "phone: Your Position only in the Position sheet");
   for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, topBottom: 60 }); ok(L && L.body.h > 0, `${w}×844: one drawer body hosts either the chart or the run card`); } }
 // ONE header card (lee, Oct 30): coin icon · name · pair row inside the MARKET CAP card; card grows by that row
 { const id = rd("components/pairart/CoinIdentity.tsx"), css = rd("app/globals.css");
@@ -222,8 +222,8 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   ok(/w\.__coinIdH = window\.matchMedia\?\.\("\(max-width: 760px\)"\)\.matches \? 0 : Math\.ceil/.test(id) && !/mcap/.test(id.replace(/\/\/[^\n]*/g, "")), "CoinIdentity publishes its row height (0 on phones); no separate mcap in it");
   ok(/\.coin-id \{ position: fixed; left: calc\(var\(--ap-rail-w, 64px\) \+ 28px\); top: 24px;/.test(css) && !/\.coin-id \{[^}]*backdrop-filter/.test(css), "name row sits inside the card (no own pill scrim)");
   ok(wb.includes('"__coinIdH"'), "worker render: __coinIdH forwarded");
-  // header card bottom (18 + 130 + row ≤ 64) stays above the Your Run card top (212)
-  ok(18 + 130 + 64 <= 212, "header card (max) ends above the Your Run card");
+  // header card bottom (18 + 130 + row ≤ 64) stays above the Your Position card top (212)
+  ok(18 + 130 + 64 <= 212, "header card (max) ends above the Your Position card");
   // pass 3 #2 (lee): ascended shows ASCENDED once (TIER line); no separate badge, the normal bar + '+X% to NEXT' label
   { const tb = eng.slice(eng.indexOf("function drawTierBar(m,ti,leftEnd){"), eng.indexOf("function drawTierBar(m,ti,leftEnd){") + 3000);
     ok(/S\.gradBadge=S\.graduated\?GRAD_BADGE:''; if \(S\.graduated\) S\.tierNeedText='';/.test(tb) && ((c) => !/drawGradBadgeDesk/.test(c) && !/trading on Uniswap/.test(c))(eng.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")), "ascended: no second ASCENDED badge, no 'trading on Uniswap'"); }
