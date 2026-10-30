@@ -32,7 +32,18 @@ export async function pveVerifiedUntil(pc: PublicClient, trader: Address, coin: 
  * Calls to prepend before a PVE buy by `trader` ([] when already verified or the server relayed the attestation).
  * Throws PveError with user-facing copy when the user can't be attested (no Privy login, unverified login, …).
  */
-export async function ensurePveLogin(pc: PublicClient, trader: Address, opts: { fetchFn?: typeof fetch; token?: () => Promise<string | null> } = {}): Promise<Call[]> {
+/** Upper bound on the whole PVE login check (on-chain read + token + attest) before a trade gives up. */
+export const PVE_LOGIN_BUDGET_MS = 3000;
+export const PVE_SLOW_MSG = "Network is slow, trade not sent. Try again.";
+
+/** ensurePveLogin, bounded: a hung check throws PveError("Network", PVE_SLOW_MSG) instead of stalling the trade. */
+export async function ensurePveLogin(pc: PublicClient, trader: Address, opts: { fetchFn?: typeof fetch; token?: () => Promise<string | null>; budgetMs?: number } = {}): Promise<Call[]> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const ms = opts.budgetMs ?? PVE_LOGIN_BUDGET_MS;
+  return Promise.race([ensurePveLogin1(pc, trader, opts), new Promise<never>((_, rej) => { t = setTimeout(() => rej(new PveError("Network", PVE_SLOW_MSG)), ms); })]).finally(() => clearTimeout(t));
+}
+
+async function ensurePveLogin1(pc: PublicClient, trader: Address, opts: { fetchFn?: typeof fetch; token?: () => Promise<string | null> }): Promise<Call[]> {
   const gate = deployment().loginGate;
   if (gate === ZERO) throw new PveError("PveUnavailable", "Easy mode isn't open yet. Try Hard or Trench.");
   const k = trader.toLowerCase();
