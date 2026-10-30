@@ -299,23 +299,74 @@ export type ChainFill = { side: "buy" | "sell"; tokens: number; usd: number; usd
 const chainUsd = (f: ChainFill) => { const v = f.side === "sell" ? (f.usdOut ?? f.usd) : (f.usdIn ?? f.usd); return Number.isFinite(v) && v > 0 ? v : 0; };   // = lib/trades playerUsd (kept import-free)
 
 /**
- * The PnL ledger rebuilt from the account's ON-CHAIN trade history for the coin (lee, Oct 30: the per-account reset left
- * "held before tracking · no PnL" and no avg entry). Oldest → newest, every fill booked exactly (applyExactFill): buys add
- * tokens + the USDG really paid (fee inside); sells close the average cost pro-rata and book the USDG really received.
- *
- * Tokens with no on-chain buy behind them (received by TRANSFER / airdrop, or bought on a venue the index doesn't see):
- *   - a sell bigger than the traded bag only closes the traded share (bag = the sell's own size ⇒ trackedShare): realized
- *     gets the proceeds of the traded tokens only, the rest of that sell is treated as the transferred tokens leaving;
- *   - transferred tokens still in the wallet: walletView counts them in HOLDINGS (they are real money DUMP sells) but not in
- *     avg entry / uPnL / % (no cost basis ⇒ never invented).
+ * A token TRANSFER into / out of this account in this coin that is NOT part of one of its trades (no fill in the same tx):
+ * a coin someone sent you, an airdrop, or tokens you sent away. lib/chainTransfers.ts reads them (ERC-20 Transfer logs).
+ * priceUsd = the coin's token price at the transfer's block (mcap ÷ supply), see transferPrice.
  */
-export function positionFromFills(fills: ChainFill[], supply = DEFAULT_SUPPLY): Position {
-  const rows = [...fills].sort((a, b) => (a.block ?? 0) - (b.block ?? 0) || (a.logIndex ?? 0) - (b.logIndex ?? 0) || (a.ts ?? 0) - (b.ts ?? 0));
+export type ChainTransfer = { dir: "in" | "out"; tokens: number; block: number; logIndex?: number; tx?: string; ts?: number; priceUsd?: number; priceSrc?: PriceSrc };
+/** block = read pinned to the transfer's block (curve marketCapQuote: the curve price pre-grad, the pool price post-grad);
+ *  trade-before / trade-after = nearest indexed trade price of the coin at-or-before / after that block (pinned read
+ *  unavailable); curve-start = no read and no trade at all: the curve's start price; none = nothing known (0) */
+export type PriceSrc = "block" | "trade-before" | "trade-after" | "curve-start" | "none";
+export type PricePoint = { block?: number; logIndex?: number; priceUsd?: number };
+
+/** Raw Transfer rows (token units already whole tokens) → the non-trade transfers of `account`. Rows in a tx that has one of
+ *  the account's own fills are the trade's own token legs (curve / pool / router → you) and are skipped. */
+export function transfersFromLogs(rows: { from: string; to: string; tokens: number; block: number; logIndex?: number; tx?: string }[], account: string, tradeTxs: Iterable<string>): ChainTransfer[] {
+  const me = account.toLowerCase(), skip = new Set([...tradeTxs].map((t) => String(t).toLowerCase()));
+  const out: ChainTransfer[] = [];
+  for (const r of rows) {
+    const from = String(r.from).toLowerCase(), to = String(r.to).toLowerCase();
+    if (from === to || !(r.tokens > 0) || (r.tx && skip.has(r.tx.toLowerCase()))) continue;
+    if (to === me) out.push({ dir: "in", tokens: r.tokens, block: r.block, logIndex: r.logIndex, tx: r.tx });
+    else if (from === me) out.push({ dir: "out", tokens: r.tokens, block: r.block, logIndex: r.logIndex, tx: r.tx });
+  }
+  return out;
+}
+
+/** The token price for a transfer at `block`: the pinned read when there is one, else the nearest indexed trade of the coin
+ *  at or before the block (its post-fill price), else the first one after it, else the curve's start price. */
+export function transferPrice(block: number, pinned: number | null | undefined, coinTrades: PricePoint[], startPriceUsd = 0): { priceUsd: number; src: PriceSrc } {
+  if (Number.isFinite(pinned) && (pinned as number) > 0) return { priceUsd: pinned as number, src: "block" };
+  let before: PricePoint | null = null, after: PricePoint | null = null;
+  for (const t of coinTrades) {
+    const b = Number(t.block), px = Number(t.priceUsd);
+    if (!Number.isFinite(b) || !(px > 0)) continue;
+    if (b <= block) { if (!before || b > (before.block as number) || (b === before.block && (t.logIndex ?? 0) >= (before.logIndex ?? 0))) before = t; }
+    else if (!after || b < (after.block as number) || (b === after.block && (t.logIndex ?? 0) < (after.logIndex ?? 0))) after = t;
+  }
+  if (before) return { priceUsd: Number(before.priceUsd), src: "trade-before" };
+  if (after) return { priceUsd: Number(after.priceUsd), src: "trade-after" };
+  return startPriceUsd > 0 ? { priceUsd: startPriceUsd, src: "curve-start" } : { priceUsd: 0, src: "none" };
+}
+
+/**
+ * The PnL ledger rebuilt from the account's ON-CHAIN history for the coin (lee, Oct 30): its trade fills plus the tokens
+ * that came or went by TRANSFER, oldest → newest (block, logIndex):
+ *   - buys add tokens + the USDG really paid (fee inside); sells close the average cost pro-rata and book the USDG received;
+ *   - a coin someone SENT you counts like a buy at the coin's price at the transfer's block (lee: "coins someone sent you
+ *     should count in pnl, but at the market cap at the time of transfer") ⇒ it is in avg entry, uPnL and, once sold, realized;
+ *   - tokens you sent AWAY leave at their average cost (basis out pro-rata, nothing to realized: there are no proceeds);
+ *   - a sell bigger than the bag (a transfer the history missed) only closes the bag it knows (bag = the sell's own size).
+ */
+export function positionFromFills(fills: ChainFill[], supply = DEFAULT_SUPPLY, transfers: ChainTransfer[] = []): Position {
+  type Ev = { block: number; logIndex: number; ts: number; f?: ChainFill; t?: ChainTransfer };
+  const evs: Ev[] = [
+    ...fills.map((f) => ({ block: f.block ?? 0, logIndex: f.logIndex ?? 0, ts: f.ts ?? 0, f })),
+    ...transfers.map((t) => ({ block: t.block ?? 0, logIndex: t.logIndex ?? 0, ts: t.ts ?? 0, t })),
+  ].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex || a.ts - b.ts);
   let p: Position = { ...emptyPosition(), supply, session: null };
-  for (const f of rows) {
-    const tokens = Number(f.tokens), usd = chainUsd(f);
+  for (const e of evs) {
+    const at = e.ts || Date.now();
+    if (e.t) {
+      const tokens = Number(e.t.tokens);
+      if (!(tokens > 0)) continue;
+      if (e.t.dir === "in") { const px = Number(e.t.priceUsd); p = applyExactFill(p, "buy", { tokens, usd: px > 0 ? tokens * px : 0 }, 0, at); }
+      else if (p.size > 0) p = shrinkToWallet(p, Math.max(0, p.size - tokens));
+      continue;
+    }
+    const f = e.f as ChainFill, tokens = Number(f.tokens), usd = chainUsd(f);
     if (!(tokens > 0)) continue;
-    const at = f.ts ?? Date.now();
     p = f.side === "sell" && tokens > p.size ? applyExactFill(p, "sell", { tokens, usd }, 0, at, tokens) : applyExactFill(p, f.side, { tokens, usd }, 0, at);
   }
   return p;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, positionFromFills, type ChainFill, type ChainTransfer, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
 import { onWallet } from "@/lib/wallet";
 import { isDeployed } from "@/lib/chains";
@@ -130,11 +130,23 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
     };
     addEventListener("disciple:fillreceipt", onReceipt);
     // ON-CHAIN history (lee, Oct 30): avg entry / realized / uPnL rebuilt from this account's indexed trades in this coin
-    // (curve buys + sells, then the v4 pool swaps after graduation; /api/trades, read-only) — on load / account switch and
-    // after each own receipt. Applied only when nothing is in flight and every receipt seen this session is indexed
-    // (else retried), so a lagging index never rolls back a fill the HUD already booked exactly.
-    let alive = true, chainT: ReturnType<typeof setTimeout> | undefined;
+    // (curve buys + sells, then the v4 pool swaps after graduation; /api/trades, read-only) PLUS the coins that came or went
+    // by transfer, priced at the coin's price at the transfer block (lib/chainTransfers, read-only logs + pinned reads) —
+    // on load / account switch and after each own receipt. Applied only when nothing is in flight and every receipt seen
+    // this session is indexed (else retried), so a lagging index never rolls back a fill the HUD already booked exactly.
+    let alive = true, chainT: ReturnType<typeof setTimeout> | undefined, xferT: ReturnType<typeof setTimeout> | undefined;
     const mine = new Set<string>();
+    let xfers: ChainTransfer[] | null = null, xferTries = 0;   // read once per account (own trades never add transfers)
+    const coinTrades = () => fetch(withBase(`/api/trades?coin=${coin}&limit=5000`)).then((r) => (r.ok ? r.json() : null))
+      .then((j: { fills?: { block?: number; logIndex?: number; priceUsd?: number }[] } | null) => (Array.isArray(j?.fills) ? j!.fills : []));
+    const loadXfers = async (tradeTxs: Set<string>): Promise<ChainTransfer[] | null> => {
+      if (xfers) return xfers;
+      try { const { accountTransfers } = await import("@/lib/chainTransfers");
+        xfers = await accountTransfers(coin as `0x${string}`, account as `0x${string}`, tradeTxs, coinTrades); return xfers; }
+      catch { // logs unreadable right now: trades-only for now, retry the transfer scan (twice, 20 s apart)
+        if (xferTries++ < 2) { clearTimeout(xferT); xferT = setTimeout(() => chainLoad(), 20_000); }
+        return null; }
+    };
     const chainLoad = (tries = 0) => {
       if (syncEvent || !account || !isDeployed()) return;
       clearTimeout(chainT);
@@ -143,8 +155,12 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
           if (!alive || !j || !Array.isArray(j.fills)) return;
           const have = new Set(j.fills.map((f) => String(f.tx || "").toLowerCase()));
           if (pending.length || [...mine].some((h) => !have.has(h))) { if (tries < 5) chainT = setTimeout(() => chainLoad(tries + 1), 3000); return; }
-          const supply = posRef.current.supply || DEFAULT_SUPPLY;
-          commit(rebase(positionFromFills(j.fills, DEFAULT_SUPPLY), supply));
+          const fills = j.fills;
+          return loadXfers(have).then((xs) => {
+            if (!alive || pending.length) return;
+            const supply = posRef.current.supply || DEFAULT_SUPPLY;
+            commit(rebase(positionFromFills(fills, DEFAULT_SUPPLY, xs ?? []), supply));
+          });
         });
     };
     chainLoad();
@@ -172,7 +188,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
     const m0s = w.__flight?.markMcap?.() || m0;   // same shown price the HUD/rocket use (paper: × sim offset)
     if (m0s) setMark({ mcap: m0s, supply: w.__flight?.source?.supply || DEFAULT_SUPPLY });
     w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY); } };
-    return () => { alive = false; clearTimeout(chainT); removeEventListener("disciple:holdings", onHoldings); removeEventListener("disciple:fillreceipt", onReceipt); removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
+    return () => { alive = false; clearTimeout(chainT); clearTimeout(xferT); removeEventListener("disciple:holdings", onHoldings); removeEventListener("disciple:fillreceipt", onReceipt); removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
   }, [coin, KEY, syncEvent, account]);
 
   // the engine's desktop chart starts under this card (engine.js chartDeskRect ← window.__pnlBottom, px from the canvas
@@ -193,7 +209,6 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const wv: WalletView | null = wallet ? walletView(pos, wallet.tokens, price, mark.supply) : null;
   const v: PositionView = wv ?? view(pos, price, mark.supply);
   const basis = wv ? wv.costBasis : pos.costBasis;
-  const untrackedUsd = wv ? wv.untrackedUsd : 0;
   const tracked = wv ? wv.tracked > 0 : v.size > 0;
   useEffect(() => {
     (window as unknown as FlightWin).__entryMcap = tracked ? v.entryMcap : undefined;
@@ -246,7 +261,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
           <div style={row}><span style={label}>{t("pnl.mcap")}</span><Num value={mark.mcap} fmt={fmtUsd} style={{ fontWeight: 700 }} /></div>
           {/* holdings in dollars only (live: the wallet's real balance × mark = exactly what DUMP 100% sells) */}
           {/* tokens with no on-chain buy (received by transfer): in holdings, not in avg entry / PnL — said in the tooltip only */}
-          <div style={row} title={untrackedUsd >= 0.005 ? t("pnl.transferTitle", { usd: fmtMoney(untrackedUsd) }) : undefined}><span style={label}>{t("pnl.holdings")}</span>
+          <div style={row}><span style={label}>{t("pnl.holdings")}</span>
             <span data-testid="pnl-holdings"><Num value={v.valueUsd} fmt={fmtMoney} /></span></div>
           <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
