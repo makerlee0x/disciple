@@ -22,7 +22,6 @@ import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio"
 import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
-import IdentitySigil from "@/components/profile/IdentitySigil";
 import { pct } from "@/lib/aa/slippage";
 import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
@@ -37,8 +36,6 @@ import TestCashButton from "@/components/TestCashButton";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const signedUsd = (n: number) => `${n > 0.005 ? "+" : n < -0.005 ? "-" : ""}${usd2(Math.abs(n))}`;
-const GREEN = "#8ff0c0", RED = "#ff9fb8";
 /** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile → Settings → Cash panel; lib/cashLink). */
 
 const symAbi = parseAbi(["function symbol() view returns (string)"]);
