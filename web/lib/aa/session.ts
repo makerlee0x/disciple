@@ -244,9 +244,10 @@ const loginSetup = createLoginSetup({
   deployed: async (a) => {
     if (!sa) return undefined;
     if (sa.deployed === true) return true;   // set by our own landed op: no public-RPC read right after it (may lag)
-    const code = await publicClient().getCode({ address: a as Address }).catch(() => undefined);
-    if (code === undefined) return undefined;
-    sa.deployed = code !== "0x";
+    // viem getCode resolves undefined for an address with no code (not deployed); only a failed read is "unknown"
+    const code = await publicClient().getCode({ address: a as Address }).catch(() => null);
+    if (code === null) return undefined;
+    sa.deployed = !!code && code !== "0x";
     return sa.deployed;
   },
   health: (a) => sessionHealthFor(a as Address),
@@ -606,8 +607,8 @@ let userEndedOneTap = false;
 async function strictSessionTrades(me: Address): Promise<{ strict: boolean; deployed: boolean | undefined }> {
   if (TRADE_OWNER_FALLBACK || !ONE_TAP_AUTO || !oneTapAvailable() || !sa || !state || state.kind === "eoa" || userEndedOneTap) return { strict: false, deployed: sa?.deployed };
   if (sa.deployed === undefined) {
-    const code = await publicClient().getCode({ address: me }).catch(() => undefined);
-    if (code !== undefined) sa.deployed = code !== "0x";
+    const code = await publicClient().getCode({ address: me }).catch(() => null);   // undefined = no code (viem)
+    if (code !== null) sa.deployed = !!code && code !== "0x";
   }
   return { strict: true, deployed: sa.deployed };
 }
