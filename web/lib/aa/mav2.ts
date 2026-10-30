@@ -18,6 +18,7 @@ import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type Us
 import { ENTRYPOINT_V07 } from "./constants";
 import type { TradeTiming } from "../trade/timing";
 import { withBlock } from "../trade/readFloor";
+import { appReadTransport } from "../rpc/readTransport";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend, relayUnclear } from "./relayClient";
@@ -230,7 +231,7 @@ export class Mav2Account {
   }
 
   private transport() {
-    return split({ overrides: [{ methods: BUNDLER_METHODS, transport: http(absUrl(this.o.bundlerUrl)) }], fallback: http(this.o.chain.rpcUrls.default.http[0]) });
+    return split({ overrides: [{ methods: BUNDLER_METHODS, transport: http(absUrl(this.o.bundlerUrl)) }], fallback: appReadTransport(this.o.chain.rpcUrls.default.http[0]) });
   }
   private owned() {
     return (this.ownerClient ??= createModularAccountV2Client({

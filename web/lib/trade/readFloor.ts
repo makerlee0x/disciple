@@ -85,10 +85,10 @@ function errText(e: unknown): string {
 }
 
 /** viem transport: `base` (e.g. http()) with the post-trade floor applied to state reads. */
-export function flooredTransport(base: Transport, floor: ReadFloor = READ_FLOOR): Transport {
+export function flooredTransport(base: Transport, floor: ReadFloor = READ_FLOOR, o: { retryCount?: number } = {}): Transport {
   return (cfg) => {
     const inner = base({ ...cfg, retryCount: cfg.retryCount ?? 0 });
     const req = flooredRequest((a) => (inner.request as EIP1193RequestFn)(a as never), floor);
-    return custom({ request: req as never }, { key: "floored", name: "Floored", retryCount: cfg.retryCount })(cfg);
+    return custom({ request: req as never }, { key: "floored", name: "Floored", retryCount: o.retryCount ?? cfg.retryCount })(cfg);
   };
 }

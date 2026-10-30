@@ -9,7 +9,7 @@
  * Without a deployed policy (NEXT_PUBLIC_SESSION_POLICY unset) trades fall back to owner-signed userOps
  * (Privy signs silently: showWalletUIs=false). aa/policy.ts stays as a client-side UX pre-check.
  */
-import { createPublicClient, createWalletClient, custom, http, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { createPublicClient, createWalletClient, custom, keccak256, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, MINTABLE_TEST_TOKENS, deployment } from "../chains";
 import { ANON_ADDONS } from "../anon";
@@ -26,6 +26,7 @@ import type { TradeTiming } from "../trade/timing";
 import { SESSION_PENDING } from "../trade/reservations";
 import { SPEND_LIMIT_MSG } from "./relayOp";
 import { WATCH_MS } from "../trade/pendingWatch";
+import { appReadTransport } from "../rpc/readTransport";
 import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -40,7 +41,8 @@ export const SESSION_POLICY = sessionPolicyFor(ACTIVE_CHAIN.id);
 /** Dev-only: show external-wallet options (EOA owner / plain wallet). */
 export const DEV_WALLETS = process.env.NEXT_PUBLIC_DEV_WALLETS === "1";
 export const aaAvailable = () => !!BUNDLER_URL && ACTIVE_CHAIN.id === 46630;
-const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
+/** policy / session reads before a send (checkCalls, getCode, sessionOf): direct RPC with /api/rpc failover */
+const publicClient = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: appReadTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]) }) as PublicClient;
 /**
  * One-tap session spend limit. Maker (spec 05-gasless-wallet-pill): NO cap by default ⇒ cap0 = cap1 = uint128 max on both
  * quote slots (STRATEGY, USDG). The 5% on-chain price protection (maxSlippageBps) is unaffected. A user can opt in to a
