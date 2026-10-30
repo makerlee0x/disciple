@@ -1,6 +1,6 @@
 "use client";
-/** Coin page header art: pair art + name + ticker, docked right under the MARKET CAP panel (top-left next to the menu on mobile, art only), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels. */
-import { useEffect, useState } from "react";
+/** Coin page header art: pair art + name + ticker, the top row INSIDE the MARKET CAP card (desktop) (top-left next to the menu on mobile, art only), clear of the HUD panels. The page has no header band, so the 220px "header" size would cover HUD panels. */
+import { useEffect, useRef, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import { DEMO_POOL } from "@/lib/config";
 import { deployment, isDeployed } from "@/lib/chains";
@@ -10,7 +10,6 @@ import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
 import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
-const MCAP_FMT = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
 
 export default function CoinIdentity({ address, sp }: { address: string; sp: URLSearchParams }) {
@@ -45,13 +44,19 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     ]).then(([name, symbol, pair]) => { if (alive) setChain({ name: String(name), symbol: String(symbol), pair: pair ? String(pair) : undefined }); }).catch(() => undefined);
     return () => { alive = false; };
   }, [needRead, address]);
-  // one header card (coin page cleanup, lee Oct 30): name + pair + market cap, from the engine's real mark (disciple:mark)
-  const [mcap, setMcap] = useState(0);
+  // ONE header card (lee, Oct 30): this row sits INSIDE the engine's canvas card (icon · name · pair on top, then the card's
+  // MARKET CAP label + big mcap). Publish its height so the card grows by it (engine.js coinIdRowH; 0 on phones, where the
+  // row is art only next to the menu and the mcap lives in the phone pill).
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const on = (e: Event) => { const m = Number((e as CustomEvent<{ mcap?: number }>).detail?.mcap); if (Number.isFinite(m) && m > 0) setMcap(m); };
-    addEventListener("disciple:mark", on);
-    return () => removeEventListener("disciple:mark", on);
-  }, []);
+    const el = ref.current, w = window as unknown as { __coinIdH?: number };
+    if (!el) return;
+    const pub = () => { w.__coinIdH = window.matchMedia?.("(max-width: 760px)").matches ? 0 : Math.ceil(el.getBoundingClientRect().height); };
+    pub();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(pub) : null; ro?.observe(el);
+    addEventListener("resize", pub);
+    return () => { ro?.disconnect(); removeEventListener("resize", pub); w.__coinIdH = 0; };
+  });
   const pair = sp.get("pair") || chain?.pair || (demo ? "ETH" : "STRATEGY");
   const tk = sp.get("cs") || chain?.symbol || (demo ? "AI" : "");
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
@@ -62,10 +67,10 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const ethPair = bp?.tk === "eth" || /^w?eth$/i.test(pair);
   const pairSym = ethPair ? "" : bp?.sym ?? pair;
   // the ticker shows once: "$TK" only when the name isn't already the ticker
-  const sub = [name.trim().toUpperCase() !== tk.trim().toUpperCase() ? `$${tk}` : "", pairSym,
-    mcap > 0 ? `${MCAP_FMT.format(mcap)} mcap` : ""].filter(Boolean).join(" · ");   // Copy pending lee approval ("mcap")
+  // (the market cap is the card's big number right under this row, so it is not repeated here)
+  const sub = [name.trim().toUpperCase() !== tk.trim().toUpperCase() ? `$${tk}` : "", pairSym].filter(Boolean).join(" · ");
   return (
-    <div className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
+    <div ref={ref} className="coin-id" data-testid="coin-name" title={pairSym ? `${name} · $${tk} · ${pairSym}` : `${name} · $${tk}`} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
         <b>{name}</b>

@@ -5,8 +5,6 @@ import SettingsMenu from "./flight/SettingsMenu";
 import ExitConfirm from "./flight/ExitConfirm";
 import { useT } from "@/lib/game/i18n";
 import { LOADOUT_KEY } from "@/lib/rocketSkin";
-import Icon from "@/components/ui/Icon";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { brandedRocket } from "@/lib/decal";
 import { gateFlightIcon } from "@/lib/flight/iconGate";
@@ -186,8 +184,16 @@ export default function FlightCanvas({ search }: Props) {
     };
   }, [search]);
 
+  // The engine's DISCIPLE status box (top of the right column, 100px slot) is not drawn on coin pages (?source=disciple,
+  // lee Oct 30 cleanup: engine.js STATUS_BOX) → GameChat (stacked on --ap-hud-rt + --ap-status-h) moves up into its slot.
+  useEffect(() => {
+    const st = document.documentElement.style;
+    st.setProperty("--ap-status-h", new URLSearchParams(search).get("source") === "disciple" ? "0px" : "100px");
+    return () => { st.removeProperty("--ap-status-h"); };
+  }, [search]);
+
   // Top-right stacking: the site's wallet strip (top-right, height varies with its state) comes first,
-  // then the Settings(gear)/Exit row, then the in-canvas status column + crew panel. Measured, not hardcoded.
+  // then the in-canvas status column + crew panel (no Settings/Exit row since the Oct 30 cleanup). Measured, not hardcoded.
   useEffect(() => {
     let last = "";
     const tick = () => {
@@ -199,7 +205,7 @@ export default function FlightCanvas({ search }: Props) {
       const row = Math.max(12, b + 8);
       // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
       // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
-      const hudRT = vw < HUD_NARROW_W ? Math.max(row + 38 + 10, HUD_NARROW_TOP) : row + 38 + 10;
+      const hudRT = vw < HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : row + 10;   // +10 gap (the 38px gear/✕ row is gone)
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
       st.setProperty("--ap-hud-rt", hudRT + "px");
@@ -249,35 +255,12 @@ export default function FlightCanvas({ search }: Props) {
         className="flight-wrap"
       >
       </div>
-      <Link
-        id="exitX"
-        href="/"
-        title={t("exit")}
-        aria-label="Close flight and return to Launchpad"
-        style={{
-          position: "fixed",
-          top: "var(--ap-tr-top, 12px)",
-          right: 12,
-          zIndex: 35,
-          width: 38,
-          height: 38,
-          display: "grid",
-          placeItems: "center",
-          borderRadius: "50%",
-          textDecoration: "none",
-          font: "bold 18px system-ui,sans-serif",
-          color: "#fff7df",
-          background: "rgba(10,12,28,.82)",
-          border: "1px solid rgba(255,231,163,.7)",
-          boxShadow: "0 0 16px rgba(255,220,150,.35)",
-        }}
-      >
-        <Icon name="close" size={16} />
-      </Link>
-      {/* ✕ above, rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
+      {/* coin / game screen cleanup (lee, Oct 30): no ✕ or gear top right. Leave via the Sidebar (ExitConfirm still guards
+          every link off a running flight); Settings = Sidebar "Settings" (SETTINGS_OPEN_EVENT) or ESC. */}
+      {/* rail links, Back and tab close all go through the "Leave the mission?" confirm while flightActive */}
       <ExitConfirm active={flightActive} mode={isSimulator ? "sim" : "live"} />
       <TouchGrass />
-      {/* ESC settings menu + its gear button (top-right, left of the exit X): Share, Hotkeys, Sound, Language, Display
+      {/* ESC settings menu (ESC or the Sidebar's Settings; no gear button since the Oct 30 cleanup): Share, Hotkeys, Sound, Language, Display
           (Touch Grass, Orbs) and the Controls reference all live there now, not in the pill row below. */}
       <SettingsMenu coin={q0.get("coin") || ""} ticker={(q0.get("cs") || q0.get("ticker") || "").replace(/^\$/, "").toUpperCase()} icon={q0.get("icon")} simulator={isSimulator} />
       {chatCoin && <GameChat coin={chatCoin} />}

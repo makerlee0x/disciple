@@ -290,3 +290,33 @@ export function shrinkToWallet(p: Position, walletTokens: number): Position {
   const k = walletTokens / p.size;
   return { ...p, size: walletTokens, costBasis: p.costBasis * k, sellScale: p.sellScale * k };
 }
+
+/**
+ * One indexed on-chain fill of THIS account in THIS coin (lib/trades Fill, the /api/trades?coin=&wallet= rows): bonding-curve
+ * buys / sells and, after graduation, the coin's v4 pool swaps (DiscipleHook Trade events, venue "hook").
+ */
+export type ChainFill = { side: "buy" | "sell"; tokens: number; usd: number; usdIn?: number; usdOut?: number; ts?: number; block?: number; logIndex?: number };
+const chainUsd = (f: ChainFill) => { const v = f.side === "sell" ? (f.usdOut ?? f.usd) : (f.usdIn ?? f.usd); return Number.isFinite(v) && v > 0 ? v : 0; };   // = lib/trades playerUsd (kept import-free)
+
+/**
+ * The PnL ledger rebuilt from the account's ON-CHAIN trade history for the coin (lee, Oct 30: the per-account reset left
+ * "held before tracking · no PnL" and no avg entry). Oldest → newest, every fill booked exactly (applyExactFill): buys add
+ * tokens + the USDG really paid (fee inside); sells close the average cost pro-rata and book the USDG really received.
+ *
+ * Tokens with no on-chain buy behind them (received by TRANSFER / airdrop, or bought on a venue the index doesn't see):
+ *   - a sell bigger than the traded bag only closes the traded share (bag = the sell's own size ⇒ trackedShare): realized
+ *     gets the proceeds of the traded tokens only, the rest of that sell is treated as the transferred tokens leaving;
+ *   - transferred tokens still in the wallet: walletView counts them in HOLDINGS (they are real money DUMP sells) but not in
+ *     avg entry / uPnL / % (no cost basis ⇒ never invented).
+ */
+export function positionFromFills(fills: ChainFill[], supply = DEFAULT_SUPPLY): Position {
+  const rows = [...fills].sort((a, b) => (a.block ?? 0) - (b.block ?? 0) || (a.logIndex ?? 0) - (b.logIndex ?? 0) || (a.ts ?? 0) - (b.ts ?? 0));
+  let p: Position = { ...emptyPosition(), supply, session: null };
+  for (const f of rows) {
+    const tokens = Number(f.tokens), usd = chainUsd(f);
+    if (!(tokens > 0)) continue;
+    const at = f.ts ?? Date.now();
+    p = f.side === "sell" && tokens > p.size ? applyExactFill(p, "sell", { tokens, usd }, 0, at, tokens) : applyExactFill(p, f.side, { tokens, usd }, 0, at);
+  }
+  return p;
+}

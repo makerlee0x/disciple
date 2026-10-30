@@ -34,13 +34,13 @@ ok(/\[data-testid="phone-drawer"\]'\);/.test(sm), "Esc with the drawer open clos
 ok(/new URLSearchParams\(location\.search\)\.get\("clean"\) === "1"\) return/.test(hud) && /if \(!phone \|\| !L\) return null;/.test(hud), "?clean=1 / desktop render nothing");
 ok(hud.match(/DRAWER_BG = "([^"]+)"/)[1] === eng.match(/const PH_DRAWER_BG='([^']+)'/)[1], "drawer tint == engine body tint");
 ok(/html\.ap-phone \[data-testid="settings-btn"\]/.test(hud) && !/phone-settings/.test(hud), "gear hidden on phone; no interim Run-tab Settings button (SITE Sidebar 'Settings' item, #149)");
-ok(/html\.ap-phone #exitX \{ top: 12px !important; right: var\(--ph-x-right\)/.test(hud), "one glass ✕ in the top row");
+ok(!/#exitX/.test(hud), "no ✕ in the top row any more (coin-screen cleanup, lee Oct 30): no dead #exitX styling left");
 // 3) engine gating: desktop branches unchanged, phone draws pill + the open drawer tab only
 const ph = new Function("window", `const HUD_NARROW_W=740;\n${eng.match(/function phoneHud\(w,clean\)\{[^\n]+/)[0]}\nreturn phoneHud;`);
 const P = { on: true, sheet: null };
 ok(ph({ __phoneHud: P })(390, false) === P && ph({ __phoneHud: P })(1440, false) === null && ph({ __phoneHud: P })(390, true) === null && ph({})(390, false) == null, "phoneHud(): phone only, never CLEAN / desktop");
-for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: MCAP \+ tier\n  panel\(20,18,380,130\);/, /if \(!PH\)\{\n  panel\(RX,RT,CW,92\);/,
-  /else if \(!S\.kothDocked\)\{ panel\(RX,RT\+100,CW,96\);/, /else \{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH\) \{ panel\(RX,H-104,310,84\);/,
+for (const re of [/if \(PH\) drawPhonePill\(m,ti,PH\); else \{\n  \/\/ top-left: ONE header card[^\n]*\n[^\n]*\n[^\n]*\n  const HY=coinIdRowH\(\);\n  panel\(20,18,380,130\+HY\); ctx\.save\(\); ctx\.translate\(0,HY\);/, /if \(!PH&&STATUS_BOX\)\{\n  panel\(RX,RT,CW,92\);/,
+  /else if \(!S\.kothDocked\)\{ panel\(RX,RT\+STATUS_DY,CW,96\);/, /else \{ const FX=20, FY=H, FW=310;/, /if \(S\.controlsDocked\) pushControls\(\); else if \(!PH\) \{ panel\(RX,H-104,310,84\);/,
   /PH\.sheet==='holders'\) drawPhoneHolders\(PH,top,kothTitle\)/, /PH\.sheet==='feed'\) drawPhoneFeed\(PH\)/, /if \(PH\) AMMO_HIT\.forEach\(R=>\{ R\.x=-1e9;/,
   /return P\.sheet==='chart'&&B\?\{x:/, /if\(P\?P\.sheet!=='chart':!C\.on\) return;/, /PD&&PD\.drawer&&PD\.dTop>0\?Math\.min\(ROCKET_Y,PD\.dTop-44\):ROCKET_Y/])
   ok(re.test(eng), "engine: " + re.source.slice(0, 60));
@@ -184,12 +184,44 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
 { const blk = eng.slice(eng.indexOf("/* @chart-desk:"), eng.indexOf("/* @chart-desk-end */"));
   const consts = eng.match(/const CHART_PNL_BOTTOM=[^;]+;/)[0];
   const R = new Function("clamp", `${consts}\n${blk}\nreturn chartDeskRect;`)((v, a, b) => Math.max(a, Math.min(b, v)));
-  for (const [H, pb] of [[680, 448], [680, 282], [800, 448], [900, 448], [900, 282], [1080, 448]]) { const r = R(H, 196, pb);
-    ok(r.y >= pb + 8 && r.h >= 100 && r.h <= 196, `desktop ${H}px tall, card bottom ${pb}: chart y ${r.y} h ${r.h} starts under the card`); }
+  // every desktop height × every card bottom (collapsed ~282 … expanded ~448 and beyond): the chart is either fully between
+  // the card and the trades feed (H-172) with ≥100 px, or parked off-screen — never over the card, never over the feed
+  let parked = 0, drawn = 0;
+  for (let H = 560; H <= 1600; H += 4) for (let pb = 200; pb <= 760; pb += 4) { const r = R(H, 196, pb);
+    if (r.off) { parked++; if (!(r.x < -1000 && r.y < -1000 && H - 172 - (pb + 8) < 100)) { ok(false, `desktop ${H}/${pb}: parked although there is room`); } continue; }
+    drawn++; if (!(r.y >= pb + 8 && r.y + r.h <= H - 172 && r.h >= 100 && r.h <= 196)) ok(false, `desktop ${H}px, card bottom ${pb}: chart y ${r.y} h ${r.h} overlaps`); }
+  ok(drawn > 1000 && parked > 100, `desktop sweep: ${drawn} layouts drawn without overlap, ${parked} parked (no room)`);
+  { const r = R(680, 196, 448); ok(r.off === 1 && r.x < -1000, "1366×680, expanded card (bottom 448): chart parked, not drawn over the card or the feed"); }
+  { const r = R(680, 196, 282); ok(!r.off && r.y >= 290 && r.y + r.h === 508, `1366×680, collapsed card: chart ${r.y}..${r.y + r.h} between card and feed`); }
+  { const r = R(768, 196, 448); ok(!r.off && r.y === 456 && r.h === 140 && r.y + r.h === 596, "768 tall, expanded card: chart cut to the 140 px of room"); }
   ok(R(900, 196, 282).y + R(900, 196, 282).h === 900 - 172, "room to spare: the chart keeps its place right above the trades feed");
   ok(R(900, 196, null).y + R(900, 196, null).h === 728 && R(900, 196, null).y >= 456, "no card bottom published: the old 456 px budget");
   ok(/return chartDeskRect\(H,st\.h,typeof window!=='undefined'\?window\.__pnlBottom:null\); \}/.test(eng), "chartRect (desktop live) uses the card's published bottom");
   ok(wb.includes('"__pnlBottom"'), "worker render: __pnlBottom forwarded with the other globals");
   ok(/w\.__pnlBottom = !isPhone\(\) && r\.height > 0 \? Math\.round\(r\.bottom - top\) : null/.test(pnl) && /new ResizeObserver\(pub\)/.test(pnl), "PnlHud publishes its bottom (desktop only, tracks open / collapse)");
   ok(/matchMedia\?\.\("\(max-height: 767px\)"\)\.matches\) setOpenS\(false\)/.test(pnl), "short desktop: the card starts collapsed (chart keeps its full height)"); }
+// 390 px phone: the chart is a drawer TAB and the Your Run card is another tab → never on screen together
+{ ok(/return P\.sheet==='chart'&&B\?\{x:[^\n]*:\{x:-1e4,y:-1e4,w:st\.w,h:st\.h\}/.test(eng), "phone: chart drawn only in the Chart sheet (off-screen otherwise)");
+  ok(/html\.ap-phone \.pnl-hud \{ display: none !important; \}/.test(hud) && /html\.ap-phone\[data-ph-sheet="run"\] \.pnl-hud \{/.test(hud), "phone: Your Run only in the Run sheet");
+  for (const w of [360, 390, 430]) { const L = phoneLayout({ w, h: 844, topBottom: 60 }); ok(L && L.body.h > 0, `${w}×844: one drawer body hosts either the chart or the run card`); } }
+// ONE header card (lee, Oct 30): coin icon · name · pair row inside the MARKET CAP card; card grows by that row
+{ const id = rd("components/pairart/CoinIdentity.tsx"), css = rd("app/globals.css");
+  const f = new Function("window", eng.match(/function coinIdRowH\(\)\{[^\n]*\}/)[0] + "\nreturn coinIdRowH;");
+  ok(f({ __coinIdH: 46 })() === 46 && f({})() === 0 && f({ __coinIdH: -3 })() === 0 && f({ __coinIdH: 900 })() === 64, "coinIdRowH: published row height, 0 when unset, clamped");
+  ok(/source instanceof DiscipleSource\?'MARKET CAP':/.test(eng), "coin page: the card has a MARKET CAP label");
+  ok(/drawTierBar\(m,ti,tierEnd\);[^\n]*\n  ctx\.restore\(\); \}/.test(eng), "card contents shifted under the identity row, restored after the tier bar");
+  ok(/w\.__coinIdH = window\.matchMedia\?\.\("\(max-width: 760px\)"\)\.matches \? 0 : Math\.ceil/.test(id) && !/mcap/.test(id.replace(/\/\/[^\n]*/g, "")), "CoinIdentity publishes its row height (0 on phones); no separate mcap in it");
+  ok(/\.coin-id \{ position: fixed; left: calc\(var\(--ap-rail-w, 64px\) \+ 28px\); top: 24px;/.test(css) && !/\.coin-id \{[^}]*backdrop-filter/.test(css), "name row sits inside the card (no own pill scrim)");
+  ok(wb.includes('"__coinIdH"'), "worker render: __coinIdH forwarded");
+  // header card bottom (18 + 130 + row ≤ 64) stays above the Your Run card top (212)
+  ok(18 + 130 + 64 <= 212, "header card (max) ends above the Your Run card");
+  // graduated: the 'X% to NEXT' label is drawn too (badge kept)
+  const gb = eng.slice(eng.indexOf("if (S.graduated){ S.tierNeedText=''"), eng.indexOf("if(!nx||curveTierProgress(nx)) return; }"));
+  ok(/let lb=tierLabel\(f,nx\)/.test(gb) && /ctx\.fillText\(lb,384,108\)/.test(gb) && /drawGradBadgeDesk\(X,Y,BW,BH\)/.test(gb), "graduated: GRADUATED badge + 'X% to NEXT_TIER' label");
+  // DISCIPLE status box gone on coin pages, TOP HOLDERS + chat move up
+  ok(/const STATUS_BOX=!\(source instanceof DiscipleSource\), STATUS_DY=STATUS_BOX\?100:0;/.test(eng), "no DISCIPLE status box on coin pages");
+  const gc = rd("components/gamechat/GameChat.tsx");
+  ok(/--ap-status-h", new URLSearchParams\(search\)\.get\("source"\) === "disciple" \? "0px" : "100px"/.test(fc) && /var\(--ap-status-h, 100px\)/.test(gc), "GameChat follows the status box slot");
+  const pg = rd("app/coin/[address]/page.tsx");
+  ok(/\{CREW_CARD_ENABLED && <CrewPanel coin=\{address\} \/>\}/.test(pg), "CREW card behind CREW_CARD_ENABLED (off by default)"); }
 console.log(`phone-hud: ${n} checks passed`);

@@ -82,6 +82,7 @@ const en = {
   "pnl.pctTitle": "uPnL ÷ cost basis (incl. buy fee) = MCAP ÷ AVG ENTRY MC − 1. Marked at the current price, before exit fee and price impact.",
   "pnl.live": "LIVE",
   "pnl.untracked": "held before tracking · no PnL",
+  "pnl.transferTitle": "Includes {usd} of tokens received by transfer, with no on-chain buy behind them. They count in holdings (DUMP sells them) but not in avg entry or PnL, since their cost is unknown.",
   "pnl.untrackedTitle": "Part of your holdings was bought before this game tracked the coin (or somewhere else). Its entry price isn't known, so PnL and % only cover the part bought here. DUMP sells from all of your holdings.",
   "tb.boost": "BOOST",
   "tb.dump": "DUMP",
@@ -107,7 +108,7 @@ const en = {
 } as const;
 export type I18nKey = keyof typeof en;
 /** Keys that ship English-only on purpose (copy pending BRAND, then native review): other locales fall back to English. */
-export const ENGLISH_ONLY: readonly I18nKey[] = ["exitc.title", "exitc.body", "exitc.stay", "exitc.leave", "exitc.note.live", "exitc.note.sim", "exitc.note.boost", "exitc.note.dump"];
+export const ENGLISH_ONLY: readonly I18nKey[] = ["exitc.title", "exitc.body", "exitc.stay", "exitc.leave", "exitc.note.live", "exitc.note.sim", "exitc.note.boost", "exitc.note.dump", "pnl.transferTitle"];   // pnl.transferTitle: Oct 30 cleanup copy, pending lee + BRAND
 type Dict = Partial<Record<I18nKey, string>>;
 
 // NEEDS_REVIEW (BRAND + native speaker): draft translations below.

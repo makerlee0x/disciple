@@ -23,3 +23,15 @@ export const LOOT_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_LOOT === "1
  */
 export const REAL_PROGRESS_ENABLED: boolean =
   process.env.NEXT_PUBLIC_FEATURE_REAL_PROGRESS === "1" || process.env.NEXT_PUBLIC_FEATURE_REAL_PROGRESS === "true";
+
+/**
+ * Coin screen POINTS section (Your Run card: off-chain points multiplier bar, "hold to ramp" hint). Hidden until points
+ * are a real feature (lee, Oct 30 coin-screen cleanup). Override: NEXT_PUBLIC_FEATURE_POINTS=1 (build-time; not set anywhere).
+ */
+export const POINTS_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_POINTS === "1" || process.env.NEXT_PUBLIC_FEATURE_POINTS === "true";
+
+/**
+ * Coin screen CREW card (buy presets, "Next unlock … orb rain" loot line; components/CrewPanel). Hidden (lee, Oct 30 coin-screen
+ * cleanup: the presets duplicate the BUY tiles and the unlock line is not a live feature). Override: NEXT_PUBLIC_FEATURE_CREW_CARD=1.
+ */
+export const CREW_CARD_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_CREW_CARD === "1" || process.env.NEXT_PUBLIC_FEATURE_CREW_CARD === "true";

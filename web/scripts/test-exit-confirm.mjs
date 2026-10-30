@@ -80,7 +80,7 @@ const tb = rd("components/TradeBridge.tsx");
 ok(/__disciplePendingTrades/.test(tb) && /TRADE_PENDING_EVENT/.test(tb) && /finally \{\s*(if \(!keep\) \{[^\n]*\n\s*)?bump\(-1\);/.test(tb), "TradeBridge counts in-flight trades per side (+1 on tap, −1 in finally) and fires the pending event");
 ok(/addEventListener\(TRADE_PENDING_EVENT/.test(comp) && /window\.__disciplePendingTrades/.test(comp), "ExitConfirm reads pending trades on open and follows the event");
 ok(/flightActive = status === "Live" && !err && !isReplay/.test(fc), "armed only while the engine is Live, no error, not a replay");
-ok(/id="exitX"/.test(fc) && /href="\/"/.test(fc), "✕ (#exitX) is still a plain link to / (caught by the capture-phase click guard)");
+ok(!/id="exitX"/.test(fc) && !/data-testid="settings-btn"/.test(rd("components/flight/SettingsMenu.tsx")), "no ✕ / gear top right (lee, Oct 30 cleanup): leave via the rail (guarded), Settings via Sidebar or ESC");
 ok(/document\.addEventListener\("click", onClick, true\)/.test(comp) && /e\.preventDefault\(\); e\.stopPropagation\(\);/.test(comp), "document capture-phase click guard runs before next/link");
 ok(/addEventListener\("popstate", onPop\)/.test(comp) && /history\.pushState\(guardState\(history\.state\)/.test(comp), "Back: guard history entry + popstate");
 const bu = comp.slice(comp.indexOf('"beforeunload"') - 260, comp.indexOf('"beforeunload"') + 80);

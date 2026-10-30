@@ -37,6 +37,8 @@ import TestCashButton from "@/components/TestCashButton";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signedUsd = (n: number) => `${n > 0.005 ? "+" : n < -0.005 ? "-" : ""}${usd2(Math.abs(n))}`;
+const GREEN = "#8ff0c0", RED = "#ff9fb8";
 /** Where "Deposit more" goes: the existing deposit / withdraw flow (private profile → Settings → Cash panel; lib/cashLink). */
 
 const symAbi = parseAbi(["function symbol() view returns (string)"]);
@@ -258,7 +260,8 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
-          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && <span className="wb-testnet" role="note">Test network</span>}
+          {/* coin / game screen cleanup (lee, Oct 30): no "Test network" tag on a coin page */}
+          {ACTIVE_CHAIN.id === TEST_NETWORK_ID && !coin && <span className="wb-testnet" role="note">Test network</span>}
           {addr ? (
             <>
               {pf && smart && (
@@ -267,6 +270,12 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.cashUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>cash</span></span>
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} style={{ fontSize: 10, fontWeight: 700, color: "#C9CED6", textDecoration: "none" }}>Deposit more</a>
                   </div>
+                  {/* total holdings bubble next to cash (back on lee's request, Oct 30 coin-screen cleanup) */}
+                  <a href="/profile" data-testid="portfolio-card" style={{ ...cardStyle, textDecoration: "none", color: "inherit" }}
+                    title={`Total = cash ${usd2(pf.cashUsd)} + coins ${usd2(pf.holdingsUsd)} at current prices.\n24h: current holdings priced now vs 24h ago (no stored portfolio history; coins younger than 24h use their launch price).`}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "#E8EAEE" }}>{usd2(pf.totalUsd)} <span style={{ fontWeight: 600, opacity: 0.55 }}>total</span></span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: pf.change24hUsd > 0.005 ? GREEN : pf.change24hUsd < -0.005 ? RED : "#C9CED6" }}>{signedUsd(pf.change24hUsd)} <span style={{ opacity: 0.6, color: "#C9CED6" }}>24h</span></span>
+                  </a>
                 </div>
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}

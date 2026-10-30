@@ -1,6 +1,6 @@
 "use client";
 /**
- * ESC SETTINGS MENU (flight page). ESC (or the gear top-right, or / · F1 for Controls) opens it, ESC closes it.
+ * ESC SETTINGS MENU (flight page). ESC (or the Sidebar's Settings, or / · F1 for Controls) opens it, ESC closes it.
  * While it is open (or the Share modal it launched), gameplay hotkeys don't fire: a window capture-phase listener swallows
  * keys aimed at the game, and the engine also gets disciple:menu {open} (belt and braces, incl. the worker render path).
  * ESC is left to whatever owns it first: Touch Grass (exits), an open Swap settings / Share modal, a wallet popover, or a
@@ -134,13 +134,7 @@ export default function SettingsMenu({ coin, ticker, icon, simulator = false }: 
 
   return (
     <>
-      <button type="button" data-testid="settings-btn" aria-label={t("settings.open")} title={t("settings.open")} onClick={() => openMenu()}
-        /* Space is BOOST (engine): a focused gear must not ALSO re-open the menu on the same press (same guard as #103 BOOST/DUMP) */
-        onKeyDown={(e) => { if (e.key === " ") e.preventDefault(); }} onKeyUp={(e) => { if (e.key === " ") e.preventDefault(); }}
-        style={{ position: "fixed", top: "var(--ap-tr-top, 12px)", right: 60, zIndex: 35, width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: "50%", cursor: "pointer",
-          color: INK, background: "rgba(10,12,28,.82)", border: "1px solid rgba(255,231,163,.7)", boxShadow: "0 0 16px rgba(255,220,150,.35)", padding: 0 }}>
-        <Icon name="gear" size={18} />
-      </button>
+      {/* no gear button (lee, Oct 30 coin-screen cleanup): the Sidebar's "Settings" (SETTINGS_OPEN_EVENT) and ESC open this menu */}
       {open && (
         <div data-testid="settings-menu" role="dialog" aria-modal="true" aria-label={t("settings.title")}
           onPointerDown={(e) => { if (e.target === e.currentTarget) close(); }}

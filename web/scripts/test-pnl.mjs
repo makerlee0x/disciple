@@ -14,7 +14,7 @@ for (const f of ["pnl", "config"]) {
   const src = fs.readFileSync(path.join(dir, `../lib/${f}.ts`), "utf8").replace(/from "\.\/config"/g, 'from "./config.mjs"');
   fs.writeFileSync(path.join(tmp, f + ".mjs"), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText);
 }
-const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
+const { applyFill, emptyPosition, view, fmtMoney, fmtPnl, fmtPct, rebase, DEFAULT_SUPPLY, pnlKey, positionFromFills, walletView } = await import(pathToFileURL(path.join(tmp, "pnl.mjs")).href);
 const eng = fs.readFileSync(path.join(dir, "../public/flight/engine.js"), "utf8");
 const cls = eng.slice(eng.indexOf("class PoolV3Base {"), eng.indexOf("class ReplaySource"));
 const markSrc = eng.slice(eng.indexOf("const isLive="), eng.indexOf("function pushMark(){"));
@@ -177,3 +177,43 @@ if (fail) process.exit(1); else console.log("PASS");
   ok(/seedCreatorBuyPosition\(pnlKey\("disciple\.pnl\.", me, launched\.token\)/.test(pv), "First BOOST seed writes the same account-scoped key the HUD reads");
   if (bad) { console.error(bad + " #4 account-ledger check(s) FAILED"); process.exit(1); }
   console.log("ok  #4 PnL shows only the signed-in account's ledger"); }
+
+// #5 (lee, Oct 30 coin-screen cleanup): avg entry / realized / uPnL rebuilt from the account's ON-CHAIN fills for the coin
+{ let bad = 0; const ok = (c, m) => { if (!c) { bad++; console.error("FAIL #5 " + m); } };
+  const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e * Math.max(1, Math.abs(b));
+  // curve buys, a curve sell, then post-grad Uniswap (hook) swaps; usdIn/usdOut (real USDG) win over usd; out-of-order input
+  const F = [
+    { side: "sell", tokens: 50, usd: 9, usdOut: 10, block: 12, logIndex: 0, ts: 3000 },         // curve sell 50 for $10
+    { side: "buy", tokens: 100, usd: 99, usdIn: 10, block: 10, logIndex: 1, ts: 1000 },          // curve buy 100 for $10
+    { side: "buy", tokens: 100, usd: 30, block: 11, logIndex: 0, ts: 2000 },                     // curve buy 100 for $30 (no usdIn)
+    { side: "buy", tokens: 50, usd: 0, usdIn: 20, block: 20, logIndex: 3, venue: "hook", ts: 4000 }, // post-grad swap buy
+    { side: "sell", tokens: 0, usd: 5, block: 21, logIndex: 0 },                                // zero-size: ignored
+  ];
+  const p = positionFromFills(F, DEFAULT_SUPPLY);
+  // 200 tokens cost $40 (avg $0.2) → sell 50 for $10 closes $10 of basis: realized 0 → 150 @ $30 + 50 @ $20 = 200 for $50
+  ok(near(p.size, 200) && near(p.costBasis, 50) && near(p.realized, 0), `curve + hook fills → size ${p.size}, basis ${p.costBasis}, realized ${p.realized}`);
+  ok(p.session === null && p.supply === DEFAULT_SUPPLY && p.holdStart === 1000, "rebuilt ledger: no paper session, real supply, holding since the first buy");
+  const v = view(p, 0.5, DEFAULT_SUPPLY);
+  ok(near(v.avgEntryUsd, 0.25) && near(v.entryMcap, 0.25 * DEFAULT_SUPPLY), `avg entry = $50 / 200 = $0.25 (${v.avgEntryUsd})`);
+  ok(near(v.uPnl, 200 * 0.5 - 50) && near(v.realized, 0), `uPnL at $0.5 = ${v.uPnl} (= 200 × 0.5 − 50)`);
+  // a profitable round trip: realized books the proceeds minus the closed basis
+  const q = positionFromFills([{ side: "buy", tokens: 10, usd: 1, block: 1 }, { side: "sell", tokens: 10, usd: 3, block: 2 }]);
+  ok(near(q.size, 0) && near(q.costBasis, 0) && near(q.realized, 2), `buy $1 → sell $3: realized ${q.realized} (= +2), flat`);
+  // tokens received by TRANSFER (no on-chain buy): a sell bigger than the traded bag only closes the traded share
+  const t = positionFromFills([{ side: "buy", tokens: 100, usd: 10, block: 1 }, { side: "sell", tokens: 150, usd: 30, block: 2 }]);
+  ok(near(t.size, 0) && near(t.realized, 30 * (100 / 150) - 10), `oversell (50 came by transfer): realized ${t.realized} = only the traded 100's proceeds − basis`);
+  // transfer-only wallet: no fills → empty ledger; the wallet view keeps the tokens in holdings, without avg entry / PnL
+  const e = positionFromFills([]);
+  ok(e.size === 0 && e.costBasis === 0 && e.realized === 0, "no fills → empty ledger (no invented cost basis)");
+  if (typeof walletView === "function") { const w = walletView(e, 1000, 0.01, DEFAULT_SUPPLY); ok(near(w.untracked, 1000) && near(w.untrackedUsd, 10) && w.tracked === 0, "1000 transferred-in tokens: in holdings ($10), not in PnL"); }
+  // PnlHud wiring: rebuild from /api/trades for the signed-in account; no 'held before tracking' line; POINTS behind its flag
+  const hud = fs.readFileSync(path.join(dir, "../components/PnlHud.tsx"), "utf8");
+  ok(/\/api\/trades\?coin=\$\{coin\}&wallet=\$\{account\}&limit=5000/.test(hud) && /positionFromFills\(j\.fills, DEFAULT_SUPPLY\)/.test(hud), "PnlHud rebuilds the ledger from the account's indexed on-chain fills");
+  ok(/if \(syncEvent \|\| !account \|\| !isDeployed\(\)\) return;/.test(hud), "chain rebuild only for a signed-in account on a deployed chain (paper / sim keep the local ledger)");
+  ok(/mine\.add\(/.test(hud) && /pending\.length/.test(hud), "waits for the indexer to see this tab's own fills (and no pending) before replacing the ledger");
+  ok(!/pnl-untracked/.test(hud) && !/held before tracking/i.test(hud), "no 'held before tracking · no PnL' row");
+  ok(/\{POINTS_ENABLED && /.test(hud), "POINTS section behind POINTS_ENABLED");
+  const feat = fs.readFileSync(path.join(dir, "../lib/features.ts"), "utf8");
+  ok(/POINTS_ENABLED: boolean = process\.env\.NEXT_PUBLIC_FEATURE_POINTS === "1"/.test(feat) && /CREW_CARD_ENABLED: boolean = process\.env\.NEXT_PUBLIC_FEATURE_CREW_CARD === "1"/.test(feat), "POINTS / CREW card flags: off unless set to 1");
+  if (bad) { console.error(bad + " #5 on-chain rebuild check(s) FAILED"); process.exit(1); }
+  console.log("ok  #5 PnL rebuilt from on-chain trades (curve + Uniswap), transfers handled"); }

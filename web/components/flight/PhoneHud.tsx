@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * Phone HUD v3 (viewport < PHONE_W, not ?clean=1) — lee 10:36 CT: "build it with the new phone layout".
  * Mockups: phone-v3 frame1 (main) / frame3 (drawer). The rocket gets the screen:
- *   top     site menu + avatar (SITE) left, one glass ✕ (GAME, FlightCanvas #exitX restyled here) right; under it ONE floating
+ *   top     site menu + avatar (SITE) left (no ✕ since the Oct 30 cleanup: leave via the menu); under it ONE floating
  *           glass pill `$94.19M · TIER` + thin tier progress (engine-drawn, reads window.__phoneHud.pillTop)
  *   middle  rocket + sky only — touch-drag on the sky steers (engine @drag-steer)
  *   bottom  grab handle + quiet PnL line (this file) and BOOST [$10 ⌄] / DUMP [25% ⌄] (TradeBridge → PhoneTradeBar)
@@ -199,10 +199,6 @@ export default function PhoneHud() {
         html.ap-phone [data-testid="tw-list"],
         html.ap-phone [data-testid="flight-pills"],
         html.ap-phone .pnl-hud { display: none !important; }
-        /* the one ✕: 48px glass, in the site's top row */
-        html.ap-phone #exitX { top: 12px !important; right: var(--ph-x-right) !important; width: 48px !important; height: 48px !important; border-radius: 16px !important;
-          background: rgba(16,18,34,.52) !important; border: 1px solid rgba(255,255,255,.10) !important; box-shadow: 0 10px 30px rgba(0,0,0,.35) !important;
-          -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); color: #EEF1FA !important; }
         /* drawer tabs backed by the existing React panels: moved into the drawer body */
         html.ap-phone[data-ph-sheet="crew"] [data-testid="crew-panel"],
         html.ap-phone[data-ph-sheet="chat"] [data-testid="chat-dock"],

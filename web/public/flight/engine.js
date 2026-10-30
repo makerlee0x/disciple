@@ -360,6 +360,9 @@ function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).leng
    --ap-hud-rt / __hudRT so CrewPanel (+204 / +100 docked) and GameChat stay stacked under it. */
 const HUD_NARROW_W=740, HUD_NARROW_TOP=158;
 function hudColTop(W,rt){ return W<HUD_NARROW_W?Math.max(rt,HUD_NARROW_TOP):rt; }
+/* @coin-id-row: height of the coin's icon · name · pair row inside the desktop header card (CoinIdentity publishes
+   window.__coinIdH; 0 / unset = no row, e.g. /flight or the simulator). Clamped so a bad value can't eat the card. */
+function coinIdRowH(){ const h=typeof window!=='undefined'?+window.__coinIdH:0; return Number.isFinite(h)&&h>0?Math.round(Math.min(h,64)):0; }
 /* @phone-hud v3: phones (<HUD_NARROW_W, not CLEAN) — components/flight/PhoneHud.tsx publishes window.__phoneHud
    {on, sheet, drawer, pillTop, hudTop, dTop, body:{x,y,w,h}}: the floating MCAP · TIER pill at `pillTop`, the bottom HUD
    (handle / PnL line / BOOST · DUMP, DOM) from `hudTop` down, and — while the drawer is open (dTop = its top) — the drawer's
@@ -1684,10 +1687,12 @@ function drawHud(){
   ctx.save(); ctx.textBaseline='alphabetic';
   const PH=phoneHud(W,CLEAN);
   if (PH) drawPhonePill(m,ti,PH); else {
-  // top-left: MCAP + tier
-  panel(20,18,380,130);
-  // coin page (#202 header card: name · $TICKER · mcap): no duplicate '$TICKER · MARKET CAP' label here (lee, Oct 30)
-  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:source instanceof DiscipleSource?'':(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed';
+  // top-left: ONE header card (lee, Oct 30 coin-screen cleanup): the coin's icon · name · pair row (CoinIdentity, DOM,
+  // window.__coinIdH = its height, laid inside this card's top) + MARKET CAP label + the big mcap + TIER line + tier bar.
+  // The card grows by that row; everything under it is drawn shifted down (translate), so the rest stays as before.
+  const HY=coinIdRowH();
+  panel(20,18,380,130+HY); ctx.save(); ctx.translate(0,HY);
+  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:source instanceof DiscipleSource?'MARKET CAP':(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed';
     if(lbl){ ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(lbl,36,42); } }
   ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(tierText(ti),36,108);
@@ -1695,12 +1700,15 @@ function drawHud(){
   // progress to next tier
   const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
   drawTierBar(m,ti,tierEnd);   /* HUD+ block */
-  }
+  ctx.restore(); }
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
-  if (!PH){
+  // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
+  // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
+  const STATUS_BOX=!(source instanceof DiscipleSource), STATUS_DY=STATUS_BOX?100:0;
+  if (!PH&&STATUS_BOX){
   panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
   ctx.fillStyle=S.status.ok?'#8ff0c0':'#ff8f8f'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText('● '+(S.status.source||source.name),RX+16,RT+24);
@@ -1712,9 +1720,9 @@ function drawHud(){
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   if (S.kothDocked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
-  else if (!S.kothDocked){ panel(RX,RT+100,CW,96);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+120);
-  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+140+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
+  else if (!S.kothDocked){ panel(RX,RT+STATUS_DY,CW,96);
+  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+STATUS_DY+20);
+  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); }
   // bottom-left: trade feed (compact)
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else { const FX=20, FY=H, FW=310;
@@ -2416,6 +2424,10 @@ function drawTierBar(m,ti,leftEnd){
   const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
   const X=36, Y=114, BW=348, BH=7;
   if (S.graduated){ S.tierNeedText=''; S.gradBadge=GRAD_BADGE; drawGradBadgeDesk(X,Y,BW,BH);   // @graduated: badge replaces the curve progress + need text
+    // …but the 'X% to NEXT_TIER' label stays on the TIER line (lee, Oct 30): the tier follows the current price either way
+    { let lb=tierLabel(f,nx); ctx.save(); ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.6)';
+      if(lb&&(leftEnd||0)+12>384-ctx.measureText(lb).width) lb=lb.slice(0,lb.indexOf(' to '));
+      if(lb) ctx.fillText(lb,384,108); ctx.restore(); }
     if(!nx||curveTierProgress(nx)) return; }
   else S.gradBadge='';
   ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(X,Y,BW,BH);
@@ -2559,9 +2571,13 @@ function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
   return chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); }
-/* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed */
+/* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed (floor).
+   Never overlaps either (lee, Oct 30): it starts at the card bottom + gap and is cut to the room left; when that room is
+   under CHART_MIN_H (short window + expanded card, e.g. ~680px) the chart is parked off-screen until there is room again
+   (collapse the card or grow the window) instead of being drawn over the card or the feed. */
 function chartDeskRect(H,maxH,pb){ const top=Number.isFinite(+pb)&&+pb>0?+pb+CHART_PNL_GAP:CHART_PNL_BOTTOM, floor=H-172;
-  const h=Math.round(clamp(floor-top,CHART_MIN_H,maxH)); return {x:20,y:Math.round(Math.max(floor-h,top)),h}; }
+  const room=Math.floor(floor-top); if(!(room>=CHART_MIN_H)) return {x:-1e4,y:-1e4,h:CHART_MIN_H,off:1};
+  const h=Math.round(Math.min(room,maxH)); return {x:20,y:Math.round(Math.max(floor-h,top)),h}; }
 /* @chart-desk-end */
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
 function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
