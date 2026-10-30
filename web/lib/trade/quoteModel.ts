@@ -135,9 +135,10 @@ export class QuoteModel {
     const ref = B0 === undefined ? o0 : (A * a0) / (B + a0);
     const scale = ref > 0 ? o0 / ref : 1;
     const toBig = (x: number) => (x > 0 && Number.isFinite(x) ? BigInt(Math.floor(x * scale)) : BigInt(0));
-    const vals = outs.map(toBig);
+    const exactBase = src === "exact" && !definite.length;   // the read itself, bit-for-bit (floats lose the low bits)
+    const vals = outs.map((x, i) => (exactBase && !subsets[i].length ? base.out : toBig(x)));
     const lo = vals.reduce((m, v) => (v < m ? v : m)), hi = vals.reduce((m, v) => (v > m ? v : m));
-    const b = src === "exact" && !definite.length ? base.out : toBig(outAt(st0));
+    const b = exactBase ? base.out : toBig(outAt(st0));
     return { lo, hi, base: b, src, ageMs: now - base.at, landed: definite.length, inflight: pending.length };
   }
   /** Drop everything for a route (e.g. tests). */

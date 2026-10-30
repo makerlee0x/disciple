@@ -454,7 +454,8 @@ export class Mav2Account {
       const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       if (this.syncOk !== false) {
-        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
+        tt?.mark("send");   // tap → send (job 9): the USDG-gas path never marked it (ms.quote was missing on prod trades)
+        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient, tt });
         if (r) return r;
       }
       return this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);

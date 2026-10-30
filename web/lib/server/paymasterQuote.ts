@@ -26,7 +26,7 @@ import { chainGradReads, isGradBuyOp } from "./gradBuy";
 import { assertSignerMatches, PAYMASTER_CHAIN_ID, PaymasterQuoteError, paymasterSignerKey, rateFromEnv, type QuoteConfig, type QuoteDeps } from "./paymasterCore";
 
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"]);
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true } }) });
+const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const ZERO = "0x0000000000000000000000000000000000000000";
 

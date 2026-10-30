@@ -59,7 +59,7 @@ export function startTradeTiming(label: string, clock: () => number = nowMs, log
       const rt = at.send !== undefined && at.response !== undefined ? at.response - at.send : undefined;
       const mined = typeof srv.mined === "number" ? srv.mined : undefined;
       const ms: Record<string, number> = { total: Math.round(end - click) };
-      if (at.send !== undefined) ms.quote = Math.round(at.send - click);
+      if (at.send !== undefined) { ms.quote = Math.round(at.send - click); ms.tapToSend = ms.quote; ms.build = Math.round(at.send - t0); }
       if (rt !== undefined) { ms.confirm = Math.round(mined !== undefined ? Math.min(mined, rt) : 0); ms.submit = Math.round(rt - ms.confirm); }
       if (at.response !== undefined) ms.fill = Math.round(end - at.response);
       const row = { label, outcome, ms, preStart: Math.round(t0 - click), ...notes, ...(extra ?? {}) };

@@ -6,7 +6,7 @@
  *  - Quote decimals are read per token (USDG = 6, STRATEGY = 18); never assumed.
  */
 import { routerUsdg, routerUsdgNow, payUsdg, usdgRouteQuote, readUsdgRoute, usdgModelRoute, routerBuyWithUsdgCalls, routerSellToUsdgCalls, toCalls } from "./trade/usdgRouter";
-import { MODEL, type TapQuote } from "./trade/quoteModel";
+import { MODEL } from "./trade/quoteModel";
 import { COIN_DECIMALS, knownDecimals, usdgRawToUsd, usdToUsdgRaw } from "./usdg";
 import { BALANCES, COIN, QUOTES, LAST_QUOTE, TRADER_QUOTES, REQUOTE, OPPOSITE_WAIT, scaledQuote, addInflight, quoteRange, beginTap, type CoinTap, key as ckey } from "./trade/hotCache";
 import { startTradeTiming, type TradeTiming } from "./trade/timing";
