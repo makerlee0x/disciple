@@ -155,14 +155,16 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
   ok(H.holderLabelText("pool") === "Pool" && H.holderLabelText("burn") === "Burned" && H.holderLabelText("locker") === "Locked LP" && H.holderLabelText(null) === "", "friendly names");
   const un = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "842400000000000000000000", label: null }] }, base).rows;
   ok(un[0].label === null, "untagged unknown address left alone (no hard-coded guesses)");
-  const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "1", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
+  // a real balance: 1-wei rows are dust and hidden (44e23a0)
+  const known = H.normalizeApiHolders({ holders: [{ address: "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9", balance: "842400000000000000000000", label: null }] }, { ...base, labels: { "0xe320b53046b263e2b1cefc363aa78c1df5b70bf9": "locker" } }).rows;
   ok(known[0].label === "locker", "client-known pool / locker address labels an untagged row");
   ok(!/BURN_ADDRS|0x000000000000000000000000000000000000dead/i.test(rd("lib/flight/holders.ts")) && /kindOf\(a\) === "burn"/.test(rd("lib/flight/holders.ts")), "burn fallback = SITE kindOf / BURN_ADDRESSES (no GAME table)");
   ok(/holderKinds\(d, \{ lockers: anonLaunchers/.test(rd("components/flight/HoldersBridge.tsx")), "untagged-row fallback = SITE holderKinds");
+  // real balances: system rows under $1 / 0.01% are dust and hidden (44e23a0)
   const hk = H.normalizeApiHolders({ holders: [
-    { address: "0x3333333333333333333333333333333333333333", balance: "9", kind: "holder" },
-    { address: "0x4444444444444444444444444444444444444444", balance: "8", kind: "locker" },
-    { address: "0x0000000000000000000000000000000000000000", balance: "7" } ] }, { ...base, labels: { "0x3333333333333333333333333333333333333333": "locker" } }).rows;
+    { address: "0x3333333333333333333333333333333333333333", balance: "300000000000000000000000", kind: "holder" },
+    { address: "0x4444444444444444444444444444444444444444", balance: "200000000000000000000000", kind: "locker" },
+    { address: "0x0000000000000000000000000000000000000000", balance: "100000000000000000000000" } ] }, { ...base, labels: { "0x3333333333333333333333333333333333333333": "locker" } }).rows;
   ok(hk.map((x) => x.label || "-").join() === "locker,burn,-", `kind 'holder' is ranked unlabelled (API truth), locker tagged, 0x0 = burn (${hk.map((x) => x.label || "-").join()})`);
   { const gc = rd("components/gamechat/GameChat.tsx");
     ok(/\{r\.label \? holderLabelText\(r\.label\) : r\.mine \? "you" : r\.who\}/.test(gc), "desktop holders list: tagged rows show their name");

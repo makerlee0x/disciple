@@ -52,15 +52,16 @@ test("protocolLabels: FeeRouter + RewardsVault + AnonLaunchers are 'locker' (dat
   const d = DEPLOYMENTS[46630];
   const vault = "0x1f42909f1dea0f6bd0dbd19e05f2e9505d748b9e", curve = A(7);
   const l = protocolLabels(d, { curve: curve.toUpperCase().replace("0X", "0x"), lockers: [vault, undefined, Z] });
-  assert.equal(l["0xe7ab694edcf1c91c34be23baf493d45e83f752d9"], "locker");   // FeeRouter (RPGD holder 0xe7ab…52d9)
+  const feeRouter = d.feeRouter.toLowerCase();   // the active stack's FeeRouter (was 0xe7ab…52d9 before the v5 redeploy)
+  assert.equal(l[feeRouter], "locker");
   assert.equal(l[vault], "locker");
   assert.equal(l[d.lockedLP.toLowerCase()], "locker");
   assert.equal(l[d.poolManager.toLowerCase()], "pool");
   assert.equal(l[d.hook.toLowerCase()], "pool");
   assert.equal(l[curve], "curve");
   assert.equal(l[Z], undefined);
-  const h = rankHolders({ [A(2)]: "5", "0xe7ab694edcf1c91c34be23baf493d45e83f752d9": "1" }, { totalSupply: BigInt(6), mcapUsd: 6, labels: l, limit: 5 });
-  assert.equal(h.find((x) => x.address === "0xe7ab694edcf1c91c34be23baf493d45e83f752d9")!.label, "locker");
+  const h = rankHolders({ [A(2)]: "5", [feeRouter]: "1" }, { totalSupply: BigInt(6), mcapUsd: 6, labels: l, limit: 5 });
+  assert.equal(h.find((x) => x.address === feeRouter)!.label, "locker");
 });
 
 test("holderKinds (GAME contract): PoolManager + hook = pool; LockedLP + Migration = locker; 0x…dEaD + 0x0 = burn; others = holder", async () => {

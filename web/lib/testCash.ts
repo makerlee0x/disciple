@@ -1,7 +1,7 @@
 /**
  * Testnet-only "Get test cash" (SITE new-player cash). The button renders ONLY when the active chain is RH testnet
- * 46630 (TEST_CASH_ENABLED); mainnet config never shows it. The server route (/api/test-cash) mints test USDG + some
- * test STRATEGY to the player's smart account, rate-limited to once an hour per account.
+ * 46630 (TEST_CASH_ENABLED); mainnet config never shows it. The server route (/api/test-cash) mints test USDG (cash
+ * only, no pair coin) to the player's smart account, rate-limited to once an hour per account.
  * After the mints land we fire CASH_ARRIVED_EVENT: the one-tap watcher (lib/aa/session) retries the setup and the
  * wallet / cash panels re-read balances.
  * Copy strings: TEST_CASH_COPY (DRAFT, pending lee's approval). Plain, dollars only.
@@ -14,7 +14,6 @@ export const TEST_CASH_CHAIN_ID = 46630;
 /** Never true on mainnet config: keyed on the active chain id only. */
 export const TEST_CASH_ENABLED = ACTIVE_CHAIN.id === TEST_CASH_CHAIN_ID;
 export const TEST_CASH_USD = 500;
-export const TEST_CASH_STRATEGY_USD = 250;
 export const TEST_CASH_COOLDOWN_SEC = 3600;
 /** window event: new cash may have arrived (test cash minted). */
 export const CASH_ARRIVED_EVENT = "disciple:cash";

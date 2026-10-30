@@ -4,7 +4,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { FLAG_ALIASES, flagMatchRank, foldSearch, searchFlags } from "../lib/flags/search.ts";
 import { COUNTRY_CODES } from "../lib/profileMeta.ts";
-import { COMMUNITY_FLAGS } from "../lib/flags/community.ts";
 import { USERNAME_SHORT, validateUsername } from "../lib/profile.ts";
 import { PFP_ERROR, fitInside, pfpFailure, pfpPrecheck } from "../lib/pfpUpload.ts";
 import { defaultUsername } from "../lib/defaultUsername.ts";
@@ -35,7 +34,7 @@ test("flag search: names, codes and partial queries still work; no match → emp
   assert.ok(searchFlags("ameri", countries).some((f) => f.id === "AS"), "American Samoa still listed");
   assert.deepEqual(searchFlags("zzzz", countries), []);
   assert.equal(searchFlags("", countries).length, countries.length);
-  assert.equal(searchFlags("pepe", COMMUNITY_FLAGS)[0]?.id, "c-pepe");
+  // community flags (c-pepe …) were replaced by guilds in Guilds V1 (84730cc): countries only now
   assert.equal(foldSearch("  Côte d’Ivoire "), "cote d'ivoire");
   assert.equal(flagMatchRank("us", { id: "AU", label: "Australia" }), 2);
 });
