@@ -8,6 +8,10 @@ type Entry<T> = { v: T; at: number };
 export class TtlCache<T> {
   private m = new Map<string, Entry<T>>(); private inflight = new Map<string, Promise<T>>();
   constructor(private ttlMs: number, private clock: () => number = Date.now) {}
+  /** Any age, never reads (zero-wait taps): the value and how old it is. */
+  peek(k: string): { v: T; ageMs: number } | undefined { const e = this.m.get(k); return e ? { v: e.v, ageMs: this.clock() - e.at } : undefined; }
+  /** A read for `k` already in flight (rewarm / get)? */
+  pending(k: string): Promise<T> | undefined { return this.inflight.get(k); }
   fresh(k: string, maxAge = this.ttlMs): T | undefined { const e = this.m.get(k); return e && this.clock() - e.at <= maxAge ? e.v : undefined; }
   set(k: string, v: T) { this.m.set(k, { v, at: this.clock() }); }
   drop(k: string) { this.m.delete(k); }
@@ -100,6 +104,12 @@ export async function quoteRange(k: string, amountIn: bigint, quote: (a: bigint,
  * state. Same-side bursts stay parallel (quoteRange). Only earlier taps are awaited ⇒ no cycles.
  */
 export const OPPOSITE_WAIT_MS = 3500;
+/**
+ * lee, Oct 30 (job 9): "Get rid of the delay entirely." Taps no longer wait for an earlier opposite-side tap: the tap
+ * quote model (lib/trade/quoteModel) prices our own in-flight trades on BOTH sides into the [lo, hi] range instead.
+ * ms > 0 restores #210's bounded wait (harness A/B only; no env knob). beginTap still tracks taps.
+ */
+export const OPPOSITE_WAIT = { ms: 0 };
 type Tap = { side: string; settled: Promise<void> };
 const TAPS = new Map<string, Tap[]>();
 export function beginTap(token: string, side: "buy" | "sell") {

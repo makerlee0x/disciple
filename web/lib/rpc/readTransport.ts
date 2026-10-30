@@ -149,3 +149,55 @@ export function readFailure(e: unknown): { read?: string; url?: string; attempts
 export function appReadTransport(directUrl: string): Transport {
   return (cfg) => readTransport({ directUrl, proxyUrl: browserProxyUrl() })(cfg);
 }
+
+/* ---------- tap path: hedged + bounded reads (lee Oct 30: "Get rid of the delay entirely") ----------
+ * A tap never waits on the sequential direct → proxy failover above (worst case ≈ 2.5 s + 2 × 8 s). The few reads a tap
+ * may still need (a cold cache: first tap on a coin, a balance we never saw) race direct AND proxy in parallel and give
+ * up after `budgetMs` (default TAP_READ_BUDGET_MS). First answer wins; a deterministic node answer (revert, bad params)
+ * on either path is final. Background warming keeps using appReadTransport (no budget, no doubled proxy load).
+ */
+export const TAP_READ_BUDGET_MS = 400;
+export class ReadBudgetError extends Error {
+  constructor(public method: string, public budgetMs: number, public rpcAttempts: RpcAttempt[] = []) { super(`tap read ${method} exceeded ${budgetMs} ms`); this.name = "TimeoutError"; }
+}
+export type RaceOpts = { directUrl: string; proxyUrl?: string | null; budgetMs?: number; direct?: Req; proxy?: Req; clock?: () => number; state?: RouteState };
+/** The race request fn (exported for tests). Proxy only for READ_METHODS; no proxy ⇒ direct under the budget. */
+export function raceRequest(o: Omit<RaceOpts, "direct" | "proxy"> & { direct: Req; proxy: Req | null }): Req {
+  const budget = o.budgetMs ?? TAP_READ_BUDGET_MS, clock = o.clock ?? Date.now, state = o.state ?? ROUTE;
+  return (args) => new Promise((resolve, reject) => {
+    const proxy = o.proxy && READ_METHODS.has(args.method) ? o.proxy : null;
+    const legs: { via: RpcVia; fn: Req }[] = [{ via: "direct", fn: o.direct }, ...(proxy ? [{ via: "proxy" as const, fn: proxy }] : [])];
+    const attempts: RpcAttempt[] = [], t0 = clock();
+    let settled = false, failed = 0, lastErr: unknown;
+    const finish = (f: () => void) => { if (settled) return; settled = true; clearTimeout(timer); f(); };
+    const timer = setTimeout(() => finish(() => reject(new ReadBudgetError(args.method, budget, attempts))), budget);
+    for (const { via, fn } of legs) {
+      fn(args).then((r) => { if (via === "direct") state.directOk(); finish(() => resolve(r)); }, (e) => {
+        attempts.push({ via, url: via === "direct" ? o.directUrl : o.proxyUrl ?? RPC_PROXY_PATH, method: args.method, ms: clock() - t0, error: short(e), status: statusOf(e), code: codeOf(e) });
+        if (via === "direct" && shouldFailover(e)) state.directFailed(30_000);
+        lastErr = e;
+        if (!shouldFailover(e)) { finish(() => reject(e)); return; }   // the node answered: final on any path
+        if (++failed === legs.length) finish(() => { try { (e as { rpcAttempts?: RpcAttempt[] }).rpcAttempts = attempts; } catch {} reject(lastErr); });
+      });
+    }
+  });
+}
+/** viem transport for tap-path reads: direct ∥ proxy, first answer wins, hard budget. */
+export function raceTransport(o: RaceOpts): Transport {
+  return (cfg) => {
+    const budget = o.budgetMs ?? TAP_READ_BUDGET_MS;
+    const direct = o.direct ?? (http(o.directUrl, { retryCount: 0, timeout: budget })({ ...cfg, retryCount: 0 }).request as Req);
+    const proxy = o.proxyUrl === null || o.proxyUrl === undefined && !o.proxy ? null
+      : o.proxy ?? (http(o.proxyUrl!, { retryCount: 0, timeout: budget })({ ...cfg, retryCount: 0 }).request as Req);
+    return custom({ request: raceRequest({ ...o, direct, proxy }) as never }, { key: "tapRead", name: "Tap read (direct ∥ /api/rpc)", retryCount: 0 })(cfg);
+  };
+}
+/** The app's tap-path transport for `directUrl`. */
+export function appRaceTransport(directUrl: string, budgetMs = TAP_READ_BUDGET_MS): Transport {
+  return (cfg) => raceTransport({ directUrl, proxyUrl: browserProxyUrl(), budgetMs })(cfg);
+}
+/** Bound any promise (e.g. a cached shared read some other caller started): rejects with ReadBudgetError after ms. */
+export function withinBudget<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([p, new Promise<never>((_, rej) => { t = setTimeout(() => rej(new ReadBudgetError(label, ms)), ms); })]).finally(() => clearTimeout(t));
+}
