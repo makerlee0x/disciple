@@ -130,3 +130,15 @@ test("DexChart: lightweight-charts loaded client-side only, attribution on, axis
   assert.match(src, /data-card="chart"/); assert.match(src, /html\.ap-phone\[data-ph-sheet="chart"\] \.dex-chart/);
   assert.match(page, /<DexChart coin=\{address\}/);
 });
+
+test("DexChart reskin: the old chart-map game skin (CHART_STYLE palette, Georgia title, log axis, gold tag, tiers, live ring)", () => {
+  const src = readFileSync(new URL("../components/flight/DexChart.tsx", import.meta.url), "utf8");
+  for (const c of ['up: "#3ddc97"', 'down: "#ff5c7a"', 'frameMid: "#2a2638"', 'titleBg: "rgba(24,20,36,.92)"', 'grid: "rgba(190,200,255,.10)"', 'marker: "#9ff3c8"', 'tagFg: "#1a1630"'])
+    assert.ok(src.includes(c), c);
+  assert.match(src, /Georgia/); assert.match(src, /PriceScaleMode\.Logarithmic/);
+  assert.match(src, /axisLabelColor: C\.gold, axisLabelTextColor: C\.tagFg/, "gold current-value tag, dark text");
+  assert.match(src, /for \(const t of FLIGHT_TIERS\) candle\.createPriceLine\(/, "tier thresholds as price lines");
+  assert.match(src, /data-testid="dex-live-ring"/); assert.match(src, /@keyframes dexPulse/); assert.match(src, /prefers-reduced-motion/);
+  assert.match(src, /pointerEvents: "none", zIndex: 2/, "overlay never eats pan / pinch / crosshair input");
+  assert.doesNotMatch(src, /ABCDEFGH|GRID_COLS/, "no A–H / 1–5 grid labels");
+});

@@ -13,6 +13,10 @@
  *    live) move its close. A paper (guest) HUD mark that differs is shown as a dotted PAPER line, never folded into candles.
  *  - desktop: a CardChrome card ("chart": drag / minimize / close + M) with a resize handle (size saved in the per-account
  *    layout, clamped to the viewport). Phone: fills the drawer's CHART tab body (touch pan / pinch, chips, volume).
+ *  - look (lee, Oct 30 reskin): the old engine chart-map's game skin (engine.js CHART_STYLE before #211) — Guild Wars
+ *    bevelled frame + Georgia title bar, pressed-bevel interval buttons, translucent plot over the sky, 8–9 px mono labels,
+ *    log mcap axis on a dark strip, gold current-value tag, dashed gold tier thresholds (FLIGHT_TIERS) and the pulsing
+ *    mint ring on the live candle (a DOM overlay positioned from the chart's coordinates each frame).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, IPriceLine, ISeriesApi, MouseEventParams, Time, UTCTimestamp } from "lightweight-charts";
@@ -20,13 +24,16 @@ import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, fmtMcap, fmtVol
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
 import { getLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
+import { FLIGHT_TIERS } from "@/lib/flight/tiers";
 
-/* HUD palette (engine.js CHART_STYLE / PnlHud) */
+/* the old chart-map skin: engine.js CHART_STYLE (main before #211), same HUD palette as PnlHud / the tier bar */
 const C = {
-  bg: "rgba(8,10,24,.92)", plot: "#0a0c1c", frame: "rgba(255,231,163,.28)", fg: "rgba(220,228,255,.75)", dim: "rgba(220,228,255,.5)", title: "#f3e6c2",
-  grid: "rgba(190,200,255,.06)", up: "#3ddc97", down: "#ff5c7a", volUp: "rgba(61,220,151,.45)", volDown: "rgba(255,92,122,.45)", gold: "#ffe7a3", chipOn: "rgba(255,231,163,.16)",
+  frameOuter: "#0b0a12", frameMid: "#2a2638", bevelHi: "#3d3852", bevelLo: "#16131f", titleBg: "rgba(24,20,36,.92)", title: "#f3e6c2",
+  plot: "rgba(8,10,20,.68)", axis: "rgba(0,0,0,.35)", grid: "rgba(190,200,255,.10)", edge: "rgba(220,228,255,.55)", fg: "rgba(220,228,255,.75)", dim: "rgba(220,228,255,.5)",
+  up: "#3ddc97", down: "#ff5c7a", volUp: "rgba(61,220,151,.35)", volDown: "rgba(255,92,122,.35)", gold: "#ffe7a3", tagFg: "#1a1630",
+  tier: "rgba(255,231,163,.55)", cross: "rgba(255,255,255,.55)", marker: "#9ff3c8", btn: "rgba(243,230,194,.6)", grip: "rgba(243,230,194,.35)",
 };
-const mono = "ui-monospace, Menlo, monospace";
+const mono = "ui-monospace, Menlo, monospace", serif = "Georgia, 'Times New Roman', serif";
 const TF_KEY = "disciple.dexchart.tf";
 const GAP = 8, FEED_ROOM = 172, PNL_FALLBACK = 456;   // = engine chartDeskRect (top under the PnL card, above the trades feed)
 type Lc = typeof import("lightweight-charts");
@@ -50,6 +57,8 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const [hover, setHover] = useState<Candle | null>(null), [last, setLast] = useState<Candle | null>(null), [mark, setMark] = useState<number | null>(null);
   const [phone, setPhone] = useState(false), [ready, setReady] = useState(false), roRef = useRef<ResizeObserver | null>(null);
+  const liveRef = useRef<{ line: IPriceLine | null }>({ line: null });
+  const paneRef = useRef<HTMLDivElement>(null), stripRef = useRef<HTMLDivElement>(null), ringRef = useRef<HTMLDivElement>(null), vlineRef = useRef<HTMLDivElement>(null), tierRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const layout = useCardLayout(), card = layout.chart;
 
   // ---- mounted ⇒ the engine stops drawing its canvas chart (engine.js @domchart, worker-mirrored global)
@@ -117,12 +126,14 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       const el = plotRef.current; if (!alive || !el) return;
       chart = lc.createChart(el, {
         autoSize: true,
-        layout: { background: { type: lc.ColorType.Solid, color: C.plot }, textColor: C.fg, fontFamily: mono, fontSize: 10, attributionLogo: true },
+        // transparent canvas: the plot box behind it is the old translucent rgba(8,10,20,.62) ⇒ the sky shows through
+        layout: { background: { type: lc.ColorType.Solid, color: "rgba(0,0,0,0)" }, textColor: C.fg, fontFamily: mono, fontSize: 9, attributionLogo: true },
         grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
-        rightPriceScale: { borderColor: C.frame, scaleMargins: { top: 0.12, bottom: 0.24 } },
-        timeScale: { borderColor: C.frame, rightOffset: 4, barSpacing: 9, minBarSpacing: 0.5, timeVisible: true, secondsVisible: false,
+        rightPriceScale: { mode: lc.PriceScaleMode.Logarithmic, borderColor: C.frameMid, scaleMargins: { top: 0.12, bottom: 0.24 } },
+        timeScale: { borderColor: C.frameMid, rightOffset: 4, barSpacing: 9, minBarSpacing: 0.5, timeVisible: true, secondsVisible: false,
           tickMarkFormatter: (t: Time, type: number) => tickLabel(Number(t), type) },
-        crosshair: { mode: lc.CrosshairMode.Normal, vertLine: { color: "rgba(255,255,255,.35)", labelBackgroundColor: "#2a2638" }, horzLine: { color: "rgba(255,255,255,.35)", labelBackgroundColor: "#2a2638" } },
+        crosshair: { mode: lc.CrosshairMode.Normal, vertLine: { color: C.cross, width: 1, style: lc.LineStyle.Dotted, labelBackgroundColor: C.frameMid },
+          horzLine: { color: C.cross, width: 1, style: lc.LineStyle.Dotted, labelBackgroundColor: C.frameMid } },
         localization: { priceFormatter: axisMcap, timeFormatter: (t: Time) => tLabel(Number(t), tfRef.current) },
         handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true }, mouseWheel: true, pinch: true },
@@ -130,8 +141,11 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       const candle = chart.addSeries(lc.CandlestickSeries, {
         upColor: C.up, downColor: C.down, wickUpColor: C.up, wickDownColor: C.down, borderVisible: false,
         priceFormat: { type: "custom", formatter: axisMcap, minMove: 0.01 },
-        lastValueVisible: true, priceLineVisible: true, priceLineStyle: lc.LineStyle.Dashed, priceLineColor: C.gold,
+        // the live value is our own price line below (white dotted line + gold tag, dark text — the old current-value tag)
+        lastValueVisible: false, priceLineVisible: false,
       });
+      // tier thresholds (old chart: dashed gold, labelled); price lines never stretch the autoscale ⇒ only tiers in view show
+      for (const t of FLIGHT_TIERS) candle.createPriceLine({ price: t.lo, color: C.tier, lineWidth: 1, lineStyle: lc.LineStyle.Dashed, axisLabelVisible: false, title: "" });   // names: DOM labels (tierRefs)
       const vol = chart.addSeries(lc.HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
       chart.subscribeCrosshairMove((p: MouseEventParams) => { setHover(p.time != null ? byTime.current.get(Number(p.time)) ?? null : null); });
@@ -183,12 +197,39 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     return () => { removeEventListener("disciple:event", onEv); removeEventListener("disciple:mark", onMark); };
   }, [addr, paint, pushLast]);
 
+  // ---- live value: dotted white line + gold tag (old chart's current-value tag)
+  useEffect(() => {
+    const h = chartRef.current, L = liveRef.current; if (!h) return;
+    if (!last) { if (L.line) { h.candle.removePriceLine(L.line); L.line = null; } return; }
+    const o = { price: last.close, color: C.cross, lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dashed, axisLabelVisible: true, title: "", axisLabelColor: C.gold, axisLabelTextColor: C.tagFg };
+    if (L.line) L.line.applyOptions(o); else L.line = h.candle.createPriceLine(o);
+  }, [last, ready]);
+
+  // ---- per frame: the pulsing ring + vertical line on the live candle, the dark price-axis strip, the pane clip
+  useEffect(() => {
+    if (!ready) return;
+    let id = 0, prev = "";
+    const f = () => { id = requestAnimationFrame(f);
+      const h = chartRef.current, pane = paneRef.current, ring = ringRef.current, vl = vlineRef.current, strip = stripRef.current; if (!h || !pane || !ring || !vl || !strip) return;
+      const c = candlesRef.current[candlesRef.current.length - 1], aw = h.chart.priceScale("right").width(), th = h.chart.timeScale().height();
+      const x = c ? h.chart.timeScale().timeToCoordinate(c.time as UTCTimestamp) : null, y = c ? h.candle.priceToCoordinate(c.close) : null;
+      const ty = FLIGHT_TIERS.map((t) => h.candle.priceToCoordinate(t.lo)), ph = pane.clientHeight;
+      const k = `${aw}|${th}|${x}|${y}|${ph}|${ty.join(",")}`; if (k === prev) return; prev = k;
+      // tier names on their dashed thresholds, left-aligned above the line (old chart-map)
+      ty.forEach((v, i) => { const el = tierRefs.current[i]; if (!el) return; const ok = v != null && v > 22 && v < ph - 2;
+        el.style.display = ok ? "block" : "none"; if (ok) el.style.transform = `translateY(${Math.round(v!) - 11}px)`; });
+      strip.style.width = `${aw}px`; strip.style.bottom = `${th}px`; pane.style.right = `${aw}px`; pane.style.bottom = `${th}px`;
+      const on = x != null && y != null; ring.style.display = vl.style.display = on ? "block" : "none";
+      if (on) { ring.style.transform = `translate(${Math.round(x!)}px, ${Math.round(y!)}px)`; vl.style.transform = `translateX(${Math.round(x!)}px)`; } };
+    f(); return () => cancelAnimationFrame(id);
+  }, [ready]);
+
   // ---- paper (guest) HUD price ≠ the on-chain last close ⇒ a dotted PAPER line
   useEffect(() => {
     const h = chartRef.current; if (!h) return;
     const lc = last?.close, show = mark != null && lc != null && Math.abs(mark / lc - 1) > 0.001;
     if (!show) { if (h.paper) { h.candle.removePriceLine(h.paper); h.paper = null; } return; }
-    const o = { price: mark!, color: "rgba(255,231,163,.7)", lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dotted, axisLabelVisible: true, title: "PAPER" };
+    const o = { price: mark!, color: "rgba(255,231,163,.7)", lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dotted, axisLabelVisible: true, title: "PAPER", axisLabelColor: C.frameMid, axisLabelTextColor: C.gold };
     if (h.paper) h.paper.applyOptions(o); else h.paper = h.candle.createPriceLine(o);
   }, [mark, last]);
 
@@ -204,7 +245,8 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     updateLayout((l) => setCard(l, "chart", { dx: off.dx, dy: off.dy, w: s.w, h: s.h })); };
   const rsReset = () => updateLayout((l) => setCard(l, "chart", { w: 0, h: 0 }));
 
-  useLayoutEffect(() => { chartRef.current?.chart.timeScale().applyOptions({ rightOffset: phone ? 2 : 4 }); }, [phone, ready]);
+  useLayoutEffect(() => { const h = chartRef.current; if (!h) return;
+    h.chart.timeScale().applyOptions({ rightOffset: phone ? 2 : 4 }); h.chart.applyOptions({ layout: { fontSize: phone ? 10 : 9 } }); }, [phone, ready]);
 
   const shown = hover ?? last, chg = shown ? (shown.close / shown.open - 1) * 100 : 0, up = shown ? shown.close >= shown.open : true;
   const col = up ? C.up : C.down;
@@ -215,41 +257,65 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         display: hidden ? "none" : "flex" };
   return (
     <div ref={boxRef} className="dex-chart" data-card="chart" data-testid="dex-chart" data-tf={tf ?? ""} data-status={status}
-      style={{ ...style, zIndex: 31, flexDirection: "column", boxSizing: "border-box", background: C.bg, border: `1px solid ${C.frame}`, borderRadius: 10,
-        boxShadow: "0 8px 28px rgba(0,0,0,.45)", overflow: "hidden", font: `11px ${mono}`, color: C.fg, userSelect: "none" }}>
-      <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", minHeight: 24, borderBottom: "1px solid rgba(255,255,255,.06)" }}>
-        <span style={{ color: C.title, fontWeight: 700, letterSpacing: ".04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {label ? `$${label}` : "MCAP"} <span style={{ color: C.dim, fontWeight: 400 }}>· MCAP USD</span></span>
+      style={{ ...style, zIndex: 31, flexDirection: "column", boxSizing: "border-box", background: "transparent", borderRadius: 3, overflow: "hidden",
+        // Guild Wars window: 3 px bevelled mid frame (light top-left, dark bottom-right) in a 1 px near-black outer edge, soft gold glow
+        border: `3px solid ${C.frameMid}`, borderTopColor: C.bevelHi, borderLeftColor: C.bevelHi, borderRightColor: C.bevelLo, borderBottomColor: C.bevelLo,
+        boxShadow: `0 0 0 1px ${C.frameOuter}, 0 0 18px rgba(255,231,163,.10), 0 8px 28px rgba(0,0,0,.45)`, font: `9px ${mono}`, color: C.fg, userSelect: "none" }}>
+      <div className="dex-head" style={{ display: "flex", alignItems: "center", gap: 6, padding: phone ? "4px 8px" : "2px 6px", minHeight: phone ? 26 : 20, background: C.titleBg,
+        borderBottom: `2px solid ${C.frameMid}` }}>
+        <span style={{ color: C.title, font: `bold ${phone ? 13 : 11}px ${serif}`, letterSpacing: ".02em", textShadow: "0 0 6px rgba(255,231,163,.35)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {label ? `$${label}` : "PRICE"} <span style={{ color: C.dim, font: `${phone ? 10 : 8.5}px ${mono}`, letterSpacing: 0, textShadow: "none" }}>· MCAP</span></span>
         <span style={{ flex: 1 }} />
         <div role="group" aria-label="Timeframe" style={{ display: "flex", gap: 2 }}>
-          {TFS.map((t) => <button key={t.s} type="button" data-testid={`dex-tf-${t.l}`} aria-pressed={tf === t.s} onClick={() => setTf(t.s)}
-            style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 9px" : "1px 6px", borderRadius: 6, fontSize: phone ? 12 : 10.5, fontWeight: 700,
-              color: tf === t.s ? C.gold : C.dim, background: tf === t.s ? C.chipOn : "transparent" }}>{t.l}</button>)}
+          {TFS.map((t) => { const on = tf === t.s; return <button key={t.s} type="button" data-testid={`dex-tf-${t.l}`} aria-pressed={on} onClick={() => setTf(t.s)}
+            style={{ all: "unset", cursor: "pointer", padding: phone ? "3px 9px" : "1px 5px", borderRadius: 1, font: `${on ? "bold " : ""}${phone ? 12 : 9}px ${mono}`, minWidth: phone ? 0 : 8, textAlign: "center",
+              color: on ? C.gold : C.btn, background: on ? C.frameMid : "transparent", textShadow: on ? "0 0 6px rgba(255,231,163,.55)" : "none",
+              // pressed bevel on the active interval (old title-bar toggles)
+              boxShadow: on ? `inset 1px 1px 0 rgba(0,0,0,.6), inset -1px -1px 0 rgba(255,255,255,.18)` : "none" }}>{t.l}</button>; })}
         </div>
+        {!phone && <span title="M toggles the chart" style={{ color: C.btn, font: `9px ${mono}`, marginLeft: 2 }}>[M]</span>}
       </div>
-      <div style={{ position: "relative", flex: "1 1 auto", minHeight: 0 }}>
+      <div className="dex-body" style={{ position: "relative", flex: "1 1 auto", minHeight: 0, background: C.plot,
+        backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" /* sky still shows through; the rocket / feed text behind a big card stay quiet */ }}>
+        <div ref={stripRef} aria-hidden style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 0, background: C.axis, pointerEvents: "none" }} />
         <div ref={plotRef} data-testid="dex-plot" style={{ position: "absolute", inset: 0 }} />
-        {shown && <div data-testid="dex-ohlc" style={{ position: "absolute", left: 6, top: 4, zIndex: 3, pointerEvents: "none", display: "flex", flexWrap: "wrap", gap: "0 8px",
-          fontSize: phone ? 10.5 : 10.5, lineHeight: "14px", textShadow: "0 1px 2px #000", maxWidth: "calc(100% - 70px)" }}>
-          {!phone && <><span>O <b style={{ color: col, fontWeight: 500 }}>{fmtMcap(shown.open)}</b></span>
-            <span>H <b style={{ color: col, fontWeight: 500 }}>{fmtMcap(shown.high)}</b></span>
-            <span>L <b style={{ color: col, fontWeight: 500 }}>{fmtMcap(shown.low)}</b></span></>}
-          <span>C <b style={{ color: col, fontWeight: 500 }}>{fmtMcap(shown.close)}</b></span>
+        {/* live candle: old "Warzone" vertical line + glowing pulsing mint ring (clipped to the price pane) */}
+        <div ref={paneRef} aria-hidden style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, overflow: "hidden", pointerEvents: "none", zIndex: 2 }}>
+          <div ref={vlineRef} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 1, marginLeft: -0.5, background: "rgba(255,255,255,.22)", display: "none" }} />
+          {FLIGHT_TIERS.map((t, i) => <span key={t.name} ref={(el) => { tierRefs.current[i] = el; }} data-testid="dex-tier"
+            style={{ position: "absolute", left: 4, top: 0, display: "none", font: `${phone ? 9 : 8}px ${mono}`, color: "rgba(255,231,163,.85)", whiteSpace: "nowrap", textShadow: "0 1px 2px #000" }}>{t.name}</span>)}
+          <div ref={ringRef} data-testid="dex-live-ring" style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, display: "none" }}>
+            <span className="dex-ring" /><span className="dex-ring dex-ring2" /><span className="dex-dot" />
+          </div>
+        </div>
+        {shown && <div data-testid="dex-ohlc" style={{ position: "absolute", left: 4, top: 3, zIndex: 3, pointerEvents: "none", display: "flex", flexWrap: "wrap", gap: "0 6px",
+          fontSize: phone ? 10.5 : 9, lineHeight: phone ? "14px" : "12px", padding: "0 4px", borderRadius: 2, background: "rgba(8,10,20,.55)", maxWidth: "calc(100% - 70px)" }}>
+          {!phone && <><span style={{ color: C.edge }}>O <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.open)}</b></span>
+            <span style={{ color: C.edge }}>H <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.high)}</b></span>
+            <span style={{ color: C.edge }}>L <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.low)}</b></span></>}
+          <span style={{ color: C.edge }}>C <b style={{ color: col, fontWeight: 400 }}>{fmtMcap(shown.close)}</b></span>
           <span style={{ color: col }}>{(chg >= 0 ? "+" : "") + chg.toFixed(2)}%</span>
-          <span>Vol <b style={{ color: C.fg, fontWeight: 500 }}>{fmtVol(shown.volume)}</b></span>
+          <span style={{ color: C.edge }}>Vol <b style={{ color: C.fg, fontWeight: 400 }}>{fmtVol(shown.volume)}</b></span>
         </div>}
         {status !== "ready" && <div data-testid="dex-empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: C.dim, pointerEvents: "none", zIndex: 2 }}>
           {status === "loading" ? "loading trades…" : status === "error" ? "chart unavailable" : `no trades yet${mark ? ` · mcap ${fmtMcap(mark)}` : ""}`}</div>}
       </div>
       {!phone && <div data-testid="card-resize-chart" title="Drag to resize (double-click: default size)" onPointerDown={rsDown} onPointerMove={rsMove} onPointerUp={rsUp} onPointerCancel={rsUp}
         onDoubleClick={rsReset} style={{ position: "absolute", right: 0, bottom: 0, width: 14, height: 14, cursor: "nwse-resize", zIndex: 5, touchAction: "none",
-          background: `linear-gradient(135deg, transparent 0 50%, ${C.frame} 50% 58%, transparent 58% 70%, ${C.frame} 70% 78%, transparent 78%)` }} />}
+          background: `linear-gradient(135deg, transparent 0 50%, ${C.grip} 50% 58%, transparent 58% 70%, ${C.grip} 70% 78%, transparent 78%)` }} />}
       <style jsx global>{`
         html.ap-phone .dex-chart { display: none !important; }
         html.ap-phone[data-ph-sheet="chart"] .dex-chart {
           display: flex !important; left: var(--ph-bx) !important; top: var(--ph-by) !important; width: var(--ph-bw) !important; height: var(--ph-bh) !important;
-          transform: none !important; z-index: 32 !important; border-radius: 20px !important; box-shadow: none !important;
+          transform: none !important; z-index: 32 !important; border-radius: 4px !important; box-shadow: 0 0 0 1px ${C.frameOuter}, 0 0 14px rgba(255,231,163,.08) !important;
         }
+        .dex-ring, .dex-dot { position: absolute; border-radius: 50%; pointer-events: none; }
+        .dex-ring { left: -7px; top: -7px; width: 11px; height: 11px; border: 1.5px solid ${C.marker}; background: rgba(159,243,200,.18);
+          box-shadow: 0 0 8px rgba(159,243,200,.55), 0 0 2px rgba(159,243,200,.9) inset; animation: dexPulse 1.57s ease-in-out infinite; }
+        .dex-ring2 { left: -11px; top: -11px; width: 19px; height: 19px; border-width: 1.5px; opacity: .45; background: none; box-shadow: none; }
+        .dex-dot { left: -2.2px; top: -2.2px; width: 4.4px; height: 4.4px; background: #fff; box-shadow: 0 0 4px #fff; }
+        @keyframes dexPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.22); } }
+        @media (prefers-reduced-motion: reduce) { .dex-ring { animation: none; } }
       `}</style>
     </div>
   );
