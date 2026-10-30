@@ -51,6 +51,8 @@
     "test:boost-anim": "node scripts/test-boost-anim.mjs",
     "test:rapid-click": "node scripts/test-rapid-click.mjs",
     "test:boost-amount": "node scripts/test-boost-amount.mjs",
+    "test:coin-pass3": "node scripts/test-coin-pass3.mjs",
+    "test:card-layout": "tsx --test scripts/test-card-layout.mts",
     "test:mav2": "tsx scripts/test-mav2-e2e.mts",
     "test:slippage": "tsx --test scripts/test-slippage.mts",
     "test:verify-sig": "tsx --test scripts/test-verify-sig.mts",

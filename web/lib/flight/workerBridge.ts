@@ -41,8 +41,8 @@ export function chooseRenderMode(search: string): "main" | "worker" {
   return "main";
 }
 
-const INBOUND = ["disciple:event", "disciple:fillreceipt", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "disciple:hotkeys", "disciple:custombuy", "disciple:menu", "disciple:orbs", "disciple:holders-real", "disciple:wallet", "disciple:cash", "disciple:coinrules", "disciple:names", "disciple:buywarn", "disciple:gradneed", "apsidebar"];
-const GLOBALS = ["__trampWalls", "__twPreview", "__entryMcap", "__hudRT", "__phoneHud", "__pnlBottom", "__coinIdH"];
+const INBOUND = ["disciple:cardlayout", "disciple:event", "disciple:fillreceipt", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "disciple:hotkeys", "disciple:custombuy", "disciple:menu", "disciple:orbs", "disciple:holders-real", "disciple:wallet", "disciple:cash", "disciple:coinrules", "disciple:names", "disciple:buywarn", "disciple:gradneed", "apsidebar"];
+const GLOBALS = ["__trampWalls", "__twPreview", "__entryMcap", "__hudRT", "__phoneHud", "__pnlBottom", "__coinIdH", "__chatDockOpen", "__cardLayout"];
 const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim", "disciple.game.settings.v1"];   // last: ESC-menu hotkey bindings (lib/game/settings SETTINGS_KEY)
 
 export function startWorkerRender(o: {
@@ -135,9 +135,11 @@ export function startWorkerRender(o: {
   // pointerup / pointercancel + pointerId / pointerType: the engine's touch drag-to-steer (phones) needs the whole gesture; a touch / pen
   // pointerdown is captured on the real canvas so the moves keep arriving while the finger is held
   const ptr = (e: Event) => { const p = e as PointerEvent; if (p.type === "pointerdown") { p.preventDefault(); const a = document.activeElement as HTMLElement | null; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur();
-      if (p.pointerType === "touch" || p.pointerType === "pen") try { o.canvas.setPointerCapture(p.pointerId); } catch { /* not capturable */ } }
+      try { o.canvas.setPointerCapture(p.pointerId); } catch { /* not capturable */ } }   // pass 3 #3: mouse too (chart drag-pan keeps its moves over DOM cards)
     post({ k: "ptr", type: p.type, x: p.clientX, y: p.clientY, id: p.pointerId, pt: p.pointerType }); };
   for (const t of ["pointermove", "pointerleave", "pointerdown", "pointerup", "pointercancel"]) on(o.canvas, t, ptr);
+  // pass 3 #3: wheel → the engine's chart zoom (hit-tested in the worker). ctrl+wheel = trackpad pinch: keep the browser from zooming the page.
+  on(o.canvas, "wheel", (e) => { const w = e as WheelEvent; if (w.ctrlKey) w.preventDefault(); post({ k: "wheel", x: w.clientX, y: w.clientY, dy: w.deltaY, dm: w.deltaMode, ctrl: w.ctrlKey }); }, { passive: false });
   on(document, "visibilitychange", () => post({ k: "vis", hidden: document.hidden }));
   const orb = document.getElementById("orbBtn");
   if (orb) on(orb, "click", () => { post({ k: "orbClick" }); (orb as HTMLElement).blur(); });
