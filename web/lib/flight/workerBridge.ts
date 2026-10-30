@@ -42,7 +42,7 @@ export function chooseRenderMode(search: string): "main" | "worker" {
 }
 
 const INBOUND = ["disciple:event", "disciple:fillreceipt", "disciple:ammo-upgrade", "disciple:ammo-keep", "disciple:ammo-tier", "disciple:ammo-query", "disciple:shoot", "disciple:sim", "disciple:chatdock", "disciple:controlsdock", "disciple:ammo-override", "disciple:sellpresets", "disciple:pnlview", "disciple:pnltag", "disciple:grass", "disciple:position", "disciple:holdings", "disciple:hotkeys", "disciple:custombuy", "disciple:menu", "disciple:orbs", "disciple:holders-real", "disciple:wallet", "disciple:cash", "disciple:coinrules", "disciple:names", "disciple:buywarn", "disciple:gradneed", "apsidebar"];
-const GLOBALS = ["__trampWalls", "__twPreview", "__entryMcap", "__hudRT", "__phoneHud"];
+const GLOBALS = ["__trampWalls", "__twPreview", "__entryMcap", "__hudRT", "__phoneHud", "__pnlBottom"];
 const LS_KEYS = ["disciple.orbs", "disciple.bombs", "disciple.sim", "disciple.game.settings.v1"];   // last: ESC-menu hotkey bindings (lib/game/settings SETTINGS_KEY)
 
 export function startWorkerRender(o: {

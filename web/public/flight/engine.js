@@ -576,6 +576,7 @@ function onEvent(e){
   if (e.t==='block'){ S.confirmed.block=e.block; S.confirmed.lastBlockTs=performance.now(); if(source.isSim&&source.balance) S.balance=source.balance(); }   /* SIMULATOR: cash also moves on tramp/wall place, fill, cancel */
   else if (e.t==='swap'){
     if (e.removed){ S.feed.unshift({txt:'REORG: swap '+e.txHash.slice(0,10)+' removed',c:'#f96'}); return; }
+    if (goodMcap(e.mcap)&&S.boostAnim&&S.boostAnim.length) baConfirm(S.boostAnim,e.txHash,!!e.mine,performance.now());   // @boostanim: the confirmed price for a fill is in
     e=ownSellSwap(e); if(!e) return;   // @sellfill: own sell $ from the decoded receipt; already drawn from the receipt ⇒ skip
     // a swap with no usable mcap (0 / null / NaN, e.g. a hook Trade priced before the quote $ is known at graduation) keeps
     // the last good mcap: mcapToAlt() floors it to LAUNCH PAD ⇒ the VFIVE replay's "TIER WITNESS — crossed into LAUNCH PAD"
@@ -877,19 +878,34 @@ function trade(side,opt){
    BOOST_ANIM). pending: g = CAP·(1−e^(−t/τ)) ≤ CAP (a slow receipt = a short hover near CAP, never land-then-snap);
    ok: g eases on to 1 and the entry hands over to the real price as it catches up (c = share the mark already moved);
    fail: g eases back to 0 (only THIS trade's share). Adds to the spring TARGET only — PnL / HUD / ledger mark shownMcap,
-   never this; nothing here books, dispatches or broadcasts. */
-const BA_CAP=0.7, BA_TAU_UP=140, BA_TAU_DONE=90, BA_TAU_BACK=220, BA_HOLD=2500, BA_FADE=400, BA_STALE=30000;
+   never this; nothing here books, dispatches or broadcasts.
+   FOLLOW THE CONFIRMED PRICE (lee, Oct 30): after r.ok the boost HOLDS until a confirmed price for the fill arrives (the
+   indexed swap with this tx, or — no tx yet — the next own swap) or the real price reaches the ghost, then eases to it over BA_FADE. Was: a blind
+   fade after BA_HOLD (2.9 s) whether or not the price had caught up. BA_CONFIRM = the fallback when it never comes. */
+const BA_CAP=0.7, BA_TAU_UP=140, BA_TAU_DONE=90, BA_TAU_BACK=220, BA_CONFIRM=12000, BA_FADE=400, BA_STALE=30000;
+const baSeen=new Map();   // tx → ms: a confirmed swap that landed BEFORE its trade's result (fast indexer)
+const baTx=tx=>typeof tx==='string'&&/^0x[0-9a-f]{64}$/i.test(tx)?tx.toLowerCase():'';
+/** A confirmed swap arrived (indexed feed / paper fill). It confirms the ok entry with the same tx; an entry with no tx (the
+ *  optimistic 'sent' result has none yet) is confirmed by the next OWN swap. Pinned State / other traders' swaps don't
+ *  confirm (they may predate the fill) — they still hand over through the real-price progress term in baOffset. */
+function baConfirm(list,tx,mine,now){ tx=baTx(tx);
+  if(tx){ baSeen.set(tx,now); if(baSeen.size>64) baSeen.delete(baSeen.keys().next().value); }
+  let used=!mine;   // an own swap whose press has no tx yet (optimistic 'sent') confirms ONE press, oldest first (own fills land in press order)
+  for(const e of list||[]) if(e.st==='ok'&&e.ct==null){ if(e.tx){ if(e.tx===tx){ e.ct=now; used=true; } } else if(!used){ e.ct=now; used=true; } }
+  if(!used) for(const e of list||[]) if(e.st==='pending'&&e.ms==null){ e.ms=now; break; } }   // landed before its result (paper fills)
 function baStart(list,base,projAlt,now){ const d=projAlt-base; if(!Number.isFinite(d)||d===0) return null;
   const e={d,base,t0:now,st:'pending',tr:0,gr:0}; list.push(e); return e; }
 function baG(e,now){ if(e.st==='pending') return BA_CAP*(1-Math.exp(-Math.max(0,now-e.t0)/BA_TAU_UP));
   const dt=Math.max(0,now-e.tr); return e.st==='ok' ? 1-(1-e.gr)*Math.exp(-dt/BA_TAU_DONE) : e.gr*Math.exp(-dt/BA_TAU_BACK); }
-function baResolve(e,ok,now,list){ if(!e||e.st!=='pending') return; e.gr=baG(e,now); e.st=ok?'ok':'fail'; e.tr=now;
+function baResolve(e,ok,now,list,tx){ if(!e||e.st!=='pending') return; e.gr=baG(e,now); e.st=ok?'ok':'fail'; e.tr=now;
+  if(ok){ e.tx=baTx(tx); if(e.tx?baSeen.has(e.tx):e.ms!=null) e.ct=now; }   // its swap was already in: ease now
   // a failed segment never happens: the later segments (stacked on it) start where it started
   if(!ok&&list){ const i=list.indexOf(e); if(i>=0) for(let k=i+1;k<list.length;k++) list[k].base-=e.d; } }
 function pendingTip(){ for(let i=S.pending.length-1;i>=0;i--) if(S.pending[i].state==='pending') return S.pending[i]; return null; }
 function baOffset(list,realAlt,now){ let off=0;
   for (let i=list.length-1;i>=0;i--){ const e=list[i], g=baG(e,now); let o;
-    if (e.st==='ok'){ const dt=now-e.tr, c=Math.max(clamp((realAlt-e.base)/e.d,0,1), clamp((dt-BA_HOLD)/BA_FADE,0,1));
+    if (e.st==='ok'){ const t1=e.ct!=null?Math.max(e.ct,e.tr):e.tr+BA_CONFIRM;   // hold until the confirmed price (or the fallback), then ease
+      const c=Math.max(clamp((realAlt-e.base)/e.d,0,1), clamp((now-t1)/BA_FADE,0,1));
       o=e.d*Math.max(0,g-c); if(c>=1){ list.splice(i,1); continue; } }
     else if (e.st==='fail'){ o=e.d*g; if(g<0.004){ list.splice(i,1); continue; } }
     else { if(!e.unk&&now-e.t0>BA_STALE){ baResolve(e,false,now,list); continue; } o=e.d*Math.min(g,BA_CAP); }   // a send that never answers: ease back (visual only)
@@ -929,8 +945,14 @@ function submit(side,usd,force,opt,pct){
     // AUDIT: SITE 'pending_unknown' (a timed-out send can still land) ⇒ NOT failed: keep the ghost + its slot, keep the rocket
     // hovering (calm 'Still confirming your last trade…'), and resolve on the LATE outcome (SITE's watcher: resolved/release)
     if(r&&r.pending&&r.late&&typeof r.late.then==='function'){ stillConfirming(p,ba,r.reason); r.late.then(onResult,()=>onResult({ok:false,unknown:1})); return; }
+    // PRICE IMPACT NEVER FAILS A TRADE (lee): a pre-send note (TradeBridge: high price impact / wallet limit, needsConfirm)
+    // means nothing was sent and nothing failed — a calm amber note, no ✕ row, no "That didn't go through.", the boost eases
+    // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
+    if(r&&!r.ok&&r.needsConfirm){ p.state='held'; baResolve(ba,false,performance.now(),S.boostAnim);
+      if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
+      tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
     p.state=r.ok?'confirmed':'failed';
-    baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim);
+    baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
     if(r.ok&&r.sim){ S.balance=r.balance; pushPaperCash(); dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:r.usd,mcap:r.fillMcap,supply:source.supply||1e6,gas:0,at:r.at,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION}})); }   // SIMULATOR: exact sim fill (frac: a % sell closes exactly that share of the bag)
@@ -949,15 +971,19 @@ function submit(side,usd,force,opt,pct){
     // PnL HUD replaces this estimate with the exact USDG / token amounts (lib/pnl reconcileFill, keyed by txHash)
     const live=isLive()&&!!r.txHash;
     dispatchEvent(new CustomEvent('disciple:paperfill',{detail:{side,usd:p.usd,mcap:fm,supply:source.supply||1e6,gas:0,frac:side==='sell'&&opt&&opt.frac>0?Math.min(1,opt.frac):undefined,session:SESSION,live,txHash:live?r.txHash:undefined}})); }   // → PnL HUD ledger   // mock ledger (sell proceeds net of 1% fee) p.t1=performance.now(); p.reason=r.reason;
+    if(r.ok&&r.warning) tradeNote(r.warning);   // sent with a non-blocking warning (e.g. high price impact): never a failure
     if(!r.ok&&r.unknown){ if(r.reason) S.flashes.push({txt:String(r.reason),life:1.8}); }   // hold ended without an outcome (logout): calm, no failure row (balances re-read)
     else if(!r.ok){ const why=String(r.reason||'failed'), pre=isOnchainRevert(why);   // only real on-chain reverts say "reverted"
       { const txt=(pre?'✕ trade failed: ':'✕ ')+why; if(!(S.feed[0]&&S.feed[0].err&&S.feed[0].txt===txt)) S.feed.unshift({txt,c:'#ff8f8f',err:1}); }   /* the same failure again doesn't stack rows */ S.flashes.push({txt:"That didn't go through.",life:1.6}); }   // final copy (lee, 11:25 CT): failure status; the reason stays in the TRADES row
     S.pending=S.pending.filter(q=>q!==p); pushInFlight();   // frees its slot NOW (was a 450 ms linger that still counted toward the 3)
   });
 }
+/** Non-blocking trade note (price impact / wallet limit): calm amber flash, never the failure row. Same text not stacked. */
+function tradeNote(txt){ txt=String(txt||'').trim(); if(!txt) return; const f=S.flashes[S.flashes.length-1]; if(f&&f.txt===txt){ f.life=Math.max(f.life,2.4); return; }
+  S.flashes.push({txt,life:2.4,c:'#ffd98a'}); }
 // Pre-flight failures (gas estimate / simulation / balance) are not reverts — show the reason as-is.
 // GAME plain copy (TradeBridge → lib/flight/tradeGate GAME_COPY) is already a full sentence — no "trade failed:" prefix either.
-function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient|too big|price moved|that didn't go through)/i.test(reason); }
+function isOnchainRevert(reason){ return !/^\s*(simulation|estimate|not enough|insufficient|too big|price moved|that didn't go through|high price impact|wallet limit)/i.test(reason); }
 // DOM ammo buttons (TradeBridge) → same path as keyboard shots.
 addEventListener('disciple:shoot',e=>{ const d=e.detail||{}; if(typeof d.mode==='number') S.mode=Math.max(0,Math.min(MODES.length-1,d.mode|0));
   if(typeof d.mode==='number'&&!d.side) pushAmmo();
@@ -1574,10 +1600,10 @@ function panel(x,y,w,h){ ctx.save(); ctx.fillStyle='rgba(8,10,28,.62)'; ctx.stro
 const PH_FONT='ui-monospace,Menlo,"DejaVu Sans Mono",monospace';
 function rrect(x,y,w,h,r){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
 function drawPhonePill(m,ti,P){
-  const t=TIERS[ti], {f,next:nx}=tierProgress(m,ti);
+  const {f,next:nx}=tierProgress(m,ti);
   const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
-  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=t.name, wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
+  ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti)||`TIER ${ti}`, wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
   const h=46, w=Math.round(Math.min(W-32,20+wa+10+wd+10+wb+(sim?10+wt:0)+20)), x=Math.round((W-w)/2), y=Math.round(P.pillTop);
   S.phonePill={x,y,w,h};
@@ -1660,10 +1686,12 @@ function drawHud(){
   if (PH) drawPhonePill(m,ti,PH); else {
   // top-left: MCAP + tier
   panel(20,18,380,130);
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed',36,42);
+  // coin page (#202 header card: name · $TICKER · mcap): no duplicate '$TICKER · MARKET CAP' label here (lee, Oct 30)
+  { const lbl=IS_POOL&&source.real?`PRICE $${(S.confirmed.mcap/source.supply).toFixed(5)}${source.paper!==1?' (incl. paper '+((source.paper-1)*100).toFixed(2)+'%)':''}`:source instanceof DiscipleSource?'':(coinTicker()?'$'+coinTicker()+' · ':'')+'MARKET CAP · confirmed';
+    if(lbl){ ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='12px ui-monospace,monospace'; ctx.fillText(lbl,36,42); } }
   ctx.fillStyle='#fff'; ctx.font='bold 40px ui-monospace,monospace'; glowText(fmtUsd(m),34,84,'rgb(180,200,255)',8,0.3);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(`TIER ${ti} · ${t.name}`,36,108);
-  { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
+  ctx.fillStyle='#ffe7a3'; ctx.font='bold 14px ui-monospace,monospace'; ctx.fillText(tierText(ti),36,108);
+  { const rl=tierRulesText(); if(rl){ const x=36+ctx.measureText(tierText(ti)).width; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillStyle='#9fd8ff'; ctx.fillText('  ·  '+rl,x,108); } }   // mode + wallet cap, read from the coin (disciple:coinrules)
   // progress to next tier
   const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
   drawTierBar(m,ti,tierEnd);   /* HUD+ block */
@@ -1738,7 +1766,7 @@ function drawHud(){
   }   /* end !CLEAN */
   // tier banner
   if (S.tierBanner>0){ ctx.globalAlpha=clamp(S.tierBanner,0,1); ctx.textAlign='center'; ctx.fillStyle='#fff7df';
-    const BY=BANNER_Y; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(TIERS[S.tierShown].name).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(TIERS[S.tierShown].name,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
+    const BY=BANNER_Y, bn=tierName(S.tierShown)||`TIER ${S.tierShown}`; let fs=54; ctx.font=`bold ${fs}px Georgia,serif`; while(ctx.measureText(bn).width>W-120&&fs>24){ fs-=4; ctx.font=`bold ${fs}px Georgia,serif`; } glowText(bn,W/2,BY,'rgb(255,220,150)',14,0.3); ctx.font='16px ui-monospace,monospace'; glowText('ENTERED · '+fmtUsd(TIERS[S.tierShown].lo)+'+ MCAP',W/2,BY+30,'rgb(255,220,150)',6,0.3);
     ctx.textAlign='left'; ctx.globalAlpha=1; }
   S.flashes.forEach((fl,i)=>{ ctx.globalAlpha=clamp(fl.life,0,1); ctx.textAlign='center'; ctx.fillStyle=fl.c||'#fff'; ctx.font='bold 18px ui-monospace,monospace'; ctx.fillText(fl.txt,W/2,H*0.40-i*24); ctx.textAlign='left'; ctx.globalAlpha=1; });
   ctx.restore();
@@ -2373,8 +2401,14 @@ function usdToReach(M,Mt){
    Top tier (no next tier): no label — desktop keeps its ★ TOP TIER line, the phone pill already names the tier. */
 function tierProgress(m,ti){ const t=TIERS[ti], nx=TIERS[ti+1]||null, lo=t.lo, hi=nx?nx.lo:t.hi;
   return { f:clamp(Math.log(Math.max(m,lo)/lo)/Math.log(hi/lo),0,1), next:nx }; }
-function tierLineEnd(ti,t){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(`TIER ${ti} · ${t.name}`).width;
+function tierLineEnd(ti){ ctx.save(); ctx.font='bold 14px ui-monospace,monospace'; let e=36+ctx.measureText(tierText(ti)).width;
   const rl=tierRulesText(); if(rl){ ctx.font='bold 12px ui-monospace,monospace'; e+=ctx.measureText('  ·  '+rl).width; } ctx.restore(); return e; }
+/* @tier-name — ONE tier name + number for the sky, used by the desktop HUD, the phone pill and the tier banner. The sky
+   follows the CURRENT price, no floor (lee, Oct 26: "No, keep the tier following price"); a graduated coin back in the
+   tier-0 band is "TIER 0", never "LAUNCH PAD" next to the GRADUATED badge (it left the pad). */
+function tierName(ti){ const t=TIERS[ti]; return !t||(S.graduated&&ti===0)?'':t.name; }
+function tierText(ti){ const n=tierName(ti); return n?`TIER ${ti} · ${n}`:`TIER ${ti}`; }
+/* @tier-name-end */
 function tierLabel(f,nx){ return nx ? `${Math.min(99,Math.max(0,Math.floor(f*100)))}% to ${nx.name}` : ''; }
 /* @tier-label-end */
 /* drawn inside the top-left MCAP panel (36..384 × 112..142): fill = log progress inside the tier band */
@@ -2516,13 +2550,19 @@ const p2=n=>String(n).padStart(2,'0'), MON=['Jan','Feb','Mar','Apr','May','Jun',
 function chartTimeLabel(t,tf,live){ if(!live){ const s=Math.round(t); return Math.floor(s/60)+':'+p2(s%60); }
   const d=new Date(t*1000); return tf>=86400?MON[d.getMonth()]+' '+d.getDate():tf>=14400&&d.getHours()===0?MON[d.getMonth()]+' '+d.getDate():tf<60?p2(d.getMinutes())+':'+p2(d.getSeconds()):p2(d.getHours())+':'+p2(d.getMinutes()); }   /* sub-minute: mm:ss */
 const CHART_LABEL_STEP={5:30,60:900,300:3600,3600:6*3600,14400:86400,86400:7*86400};
-/* live: between the React PnL panel (top 212, ~240 tall when open) and the trades feed (H−160); shrinks to fit, min 132 */
+/* live: between the React PnL panel and the trades feed (H−172); shrinks to fit. The panel publishes its real bottom
+   (components/PnlHud → window.__pnlBottom, wrap px; null on the phone / hidden): the chart always starts below it, so the
+   "Your Run" card never covers the chart (lee, Oct 30; was a fixed 456 guess ⇒ overlap on short desktops). */
 const GRID_COLS='ABCDEFGH';
-const CHART_PNL_BOTTOM=456;
+const CHART_PNL_BOTTOM=456, CHART_PNL_GAP=8, CHART_MIN_H=100;
 function chartRect(){ const st=CHART_STYLE; if(CLEAN) return {x:20,y:H-20-st.h,h:st.h};
   { const P=phoneHud(W,CLEAN); if(P){ const B=P.body; return P.sheet==='chart'&&B?{x:Math.round(B.x),y:Math.round(B.y+4),w:Math.round(Math.max(st.w*0.8,B.w)),h:Math.round(Math.max(132,B.h-8))}:{x:-1e4,y:-1e4,w:st.w,h:st.h}; } }   /* post-grad fix 4: the CHART tab fills the drawer body */   /* @phone-hud: chart only inside the drawer's CHART tab */
   if (source.isSim){ const y=Math.round(hudColTop(W,S.hudRT||18)+204), h=Math.round(clamp(H-116-y,132,st.h)); return {x:W-320,y,h}; }   /* /flight/sim: SimMode panel owns bottom-left; right column is free (no crew/chat) */
-  const h=Math.round(clamp(H-172-CHART_PNL_BOTTOM,132,st.h)); return {x:20,y:H-172-h,h}; }
+  return chartDeskRect(H,st.h,typeof window!=='undefined'?window.__pnlBottom:null); }
+/* @chart-desk: desktop live chart box under the PnL card (pb = its bottom, wrap px) and above the trades feed */
+function chartDeskRect(H,maxH,pb){ const top=Number.isFinite(+pb)&&+pb>0?+pb+CHART_PNL_GAP:CHART_PNL_BOTTOM, floor=H-172;
+  const h=Math.round(clamp(floor-top,CHART_MIN_H,maxH)); return {x:20,y:Math.round(Math.max(floor-h,top)),h}; }
+/* @chart-desk-end */
 /* title-bar interval buttons → canvas hit-test (pointerdown) */
 function chartBtnAt(e){ const C=CH; if(!C||!(C.on||(phoneHud(W,CLEAN)||{}).sheet==='chart')||CLEAN||!C.btn.length) return null; const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*W/r.width, y=(e.clientY-r.top)*H/r.height, R=chartRect();
   for(const b of C.btn) if(x>=R.x+b.x&&x<=R.x+b.x+b.w&&y>=R.y+b.y&&y<=R.y+b.y+b.h) return b.s; return null; }

@@ -6,6 +6,7 @@ import { EMOTE_CODES, EMOTE_EMOJI, MAX_LEN, resolveChat, stressRate, synthMsg, t
 import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
 import { holderLabelText, type HolderLabel } from "@/lib/flight/holders";
+import { GRAD_BADGE } from "@/lib/flight/tiers";
 
 /**
  * In-game live chat overlay (Twitch-style column, right side). DOM overlay only: the canvas never reads it.
@@ -203,7 +204,7 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
   if (m.kind === "event") {
     const ev = m.meta?.event, g = row.group, bps = m.meta?.impactBps || 0, tier = ev === "sell" ? bombTier(m.meta) : null;   // impact-based, same tier as the in-game blast (lib/flight/bombTier)
     const who = m.from ? (m.from.name || shortAddr(m.from.addr)) : "";
-    if (ev === "graduate") return <div data-kind="graduate" style={{ ...rowStyle, margin: "3px 0", padding: "4px 6px", borderRadius: 6, background: "rgba(255,231,163,.14)", color: "#ffe7a3", fontWeight: 800 }}><Icon name="graduation" size={14} /> GRADUATED · Outer Space {m.meta?.usd ? fmtUsd(m.meta.usd) : ""}</div>;
+    if (ev === "graduate") return <div data-kind="graduate" style={{ ...rowStyle, margin: "3px 0", padding: "4px 6px", borderRadius: 6, background: "rgba(255,231,163,.14)", color: "#ffe7a3", fontWeight: 800 }}><Icon name="graduation" size={14} /> {GRAD_BADGE}</div>;   // same words as the HUD badge: no tier name or mcap here (the HUD carries the live tier)
     const buy = ev === "buy", col = buy ? "#8ff0c0" : "#ffb0c8";
     if (g) return <div data-kind="group" style={{ ...rowStyle, fontSize: 11, color: col, opacity: 0.85, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}><Icon name={buy ? "rocket" : "dump"} size={12} /> {g.n} {buy ? "buys" : "sells"} · {fmtUsd(g.usd)}</div>;
     if (tier) return <div data-kind="bomb" style={{ ...rowStyle, margin: "2px 0", padding: "3px 6px", borderRadius: 6, background: `${tier.color}22`, borderLeft: `3px solid ${tier.color}`, fontSize: 11.5 }}>

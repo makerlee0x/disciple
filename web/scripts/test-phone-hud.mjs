@@ -56,7 +56,7 @@ ok(/\{ id: "run", label: "Run" \}/.test(hud) && /data-ph-sheet="run"\] \.ap-bc:h
   // monospace stub: 0.6em per glyph
   const ctx = { font: "", save() {}, restore() {}, measureText: (t) => ({ width: String(t).length * 0.6 * +(ctx.font.match(/(\d+)px/) || [0, 10])[1] }) };
   let rules = "";
-  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules);
+  const TL = new Function("TIERS", "clamp", "ctx", "tierRulesText", "S", blk + "\nreturn {tierProgress,tierLabel,tierLineEnd};")(TIERS, (v, a, b) => Math.max(a, Math.min(b, v)), ctx, () => rules, { graduated: false });
   const lab = (m, ti) => { const p = TL.tierProgress(m, ti); return TL.tierLabel(p.f, p.next); };
   // 34% of the KÁRMÁN LINE band (log) → "34% to OUTER SPACE"
   const k = TIERS[3], m34 = k.lo * Math.pow(TIERS[4].lo / k.lo, 0.345);
@@ -180,4 +180,16 @@ ok(!/setPointerCapture/.test(hud.match(/const down = [^\n]*/)[0]) && /data-testi
   ok(/fillText\(String\(i\+1\)/.test(f) && /fillText\('·',x0\+14/.test(f), "phone: ranked from #1, tagged rows have no rank number");
   ok(/ctx\.fillStyle='rgba\(214,222,245,\.62\)'; ctx\.font=`bold 13px \$\{PH_FONT\}`; ctx\.fillText\(phFit\(holderKindText\(r\.label\)/.test(f), "phone: tagged rows labelled + greyed (still readable)");
   ok(/Math\.min\(sysAll\.length,Math\.max\(0,n-1\),4\)/.test(f), "phone: at least one ranked row always fits"); }
+// desktop: the "Your Run" card never covers the live chart (lee, Oct 30; prod 1366×680: card bottom 448, chart top 376)
+{ const blk = eng.slice(eng.indexOf("/* @chart-desk:"), eng.indexOf("/* @chart-desk-end */"));
+  const consts = eng.match(/const CHART_PNL_BOTTOM=[^;]+;/)[0];
+  const R = new Function("clamp", `${consts}\n${blk}\nreturn chartDeskRect;`)((v, a, b) => Math.max(a, Math.min(b, v)));
+  for (const [H, pb] of [[680, 448], [680, 282], [800, 448], [900, 448], [900, 282], [1080, 448]]) { const r = R(H, 196, pb);
+    ok(r.y >= pb + 8 && r.h >= 100 && r.h <= 196, `desktop ${H}px tall, card bottom ${pb}: chart y ${r.y} h ${r.h} starts under the card`); }
+  ok(R(900, 196, 282).y + R(900, 196, 282).h === 900 - 172, "room to spare: the chart keeps its place right above the trades feed");
+  ok(R(900, 196, null).y + R(900, 196, null).h === 728 && R(900, 196, null).y >= 456, "no card bottom published: the old 456 px budget");
+  ok(/return chartDeskRect\(H,st\.h,typeof window!=='undefined'\?window\.__pnlBottom:null\); \}/.test(eng), "chartRect (desktop live) uses the card's published bottom");
+  ok(wb.includes('"__pnlBottom"'), "worker render: __pnlBottom forwarded with the other globals");
+  ok(/w\.__pnlBottom = !isPhone\(\) && r\.height > 0 \? Math\.round\(r\.bottom - top\) : null/.test(pnl) && /new ResizeObserver\(pub\)/.test(pnl), "PnlHud publishes its bottom (desktop only, tracks open / collapse)");
+  ok(/matchMedia\?\.\("\(max-height: 767px\)"\)\.matches\) setOpenS\(false\)/.test(pnl), "short desktop: the card starts collapsed (chart keeps its full height)"); }
 console.log(`phone-hud: ${n} checks passed`);

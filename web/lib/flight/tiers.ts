@@ -27,6 +27,10 @@ export const FLIGHT_TIERS: FlightTier[] = [
   { name: "SEVENTH HEAVEN", lo: 3.3e9, hi: 7.77e9, bg: "tier17", sky: "/assets/tier17.webp" },
 ];
 
+/** The graduated badge, word for word everywhere (engine HUD badge = public/flight/engine.js GRAD_BADGE, the chat's
+ *  graduation row). PLACEHOLDER copy (pending lee + BRAND). A graduated coin's sky still follows its current price. */
+export const GRAD_BADGE = "GRADUATED · trading on Uniswap";
+
 /** Index of the tier containing mcap (below $3,333 → 0; above the top → last). */
 export function tierIndexAt(mcap: number): number {
   let i = 0; while (i < FLIGHT_TIERS.length - 1 && mcap >= FLIGHT_TIERS[i + 1].lo) i++; return i;

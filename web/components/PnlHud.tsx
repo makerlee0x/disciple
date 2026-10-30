@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtUsd, HOLD_BONUS } from "@/lib/config";
-import { applyExactFill, applyFill, bookPending, emptyPosition, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
+import { applyExactFill, applyFill, bookPending, emptyPosition, pnlKey, reconcileFill, shrinkToWallet, view, walletView, type ExactFill, type PendingFill, type Position, type PositionView, type WalletView, fmtMoney, fmtPct, fmtPnl, DEFAULT_SUPPLY, rebase, redFromBuyFees } from "@/lib/pnl";
 import { useT } from "@/lib/game/i18n";
+import { onWallet } from "@/lib/wallet";
 
 type Fill = { side: "buy" | "sell"; usd: number; mcap: number; supply: number; /** always 0 (no per-trade gas line in the ledger) */ gas?: number; at?: number; frac?: number; session?: string | null; live?: boolean; txHash?: string };
 type Receipt = ExactFill & { txHash: string; side: "buy" | "sell" };
@@ -49,34 +50,27 @@ function Num({ value, fmt, style }: { value: number; fmt: (v: number) => string;
   return <span ref={ref} style={style}>{fmt(shown.current)}</span>;
 }
 
-function sessionRealized(coin: string, KEY: string) {
-  let tot = 0;
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k?.startsWith(KEY) && k !== KEY + coin) try { tot += JSON.parse(localStorage.getItem(k) || "{}").realized || 0; } catch { /* ignore */ }
-    }
-  } catch { /* ignore */ }
-  return tot;
-}
-
 /**
  * Holdings / PnL HUD — PnL is the game. PAPER ledger now; ProtocolClient.getPosition later.
- * Marks are pushed by the engine (`disciple:mark`, on change, ≤10/s); no polling. Other rockets' realized
- * total is read from localStorage once on mount and on cross-tab `storage` events only.
+ * Marks are pushed by the engine (`disciple:mark`, on change, ≤10/s); no polling. ONLY the signed-in account's own
+ * ledger for this coin (lib/pnl pnlKey): no cross-coin / cross-account "Other rockets" total (lee, Oct 30), and a sign-out
+ * or account switch swaps the ledger (the previous account's numbers never stay on screen).
  */
 /** storagePrefix: the SIMULATOR passes its own namespace so sim positions never mix with real/paper profiles.
  *  syncEvent: the SIMULATOR's ledger is authoritative (tramp/wall fills and wall escrow move tokens without a swap),
  *  so it pushes the whole position on this event ({ pos, supply }) and paper fills are not re-booked here. */
 export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, syncEvent }: { coin: string; storagePrefix?: string; modeLabel?: string; syncEvent?: string }) {
-  const KEY = storagePrefix;
   const t = useT();
+  // the signed-in account (lib/wallet onWallet: the smart account, null when signed out). The SIMULATOR (syncEvent) keeps
+  // its own run ledger, not per account.
+  const [account, setAccount] = useState<string | null>(null);
+  useEffect(() => (syncEvent ? undefined : onWallet((a) => setAccount(a ? a.toLowerCase() : null))), [syncEvent]);
+  const KEY = pnlKey(storagePrefix, account, coin);
   const [pos, setPos] = useState<Position>(emptyPosition);
   const [mark, setMark] = useState<Mark>({ mcap: 0, supply: DEFAULT_SUPPLY });
   const [open, setOpenS] = useState(true);
   // phone HUD (components/flight/PhoneHud.tsx): the header asks for the RUN sheet instead of expanding in place
   const setOpen = (f: boolean | ((o: boolean) => boolean)) => (isPhone() && typeof f === "function" ? dispatchEvent(new CustomEvent("disciple:phonesheet-req", { detail: { req: "run" } })) : setOpenS(f));
-  const [session, setSession] = useState(0);
   const posRef = useRef(pos);
   posRef.current = pos;
   // LIVE: the position is the WALLET (maker lee: "should be from actual wallet balance"); null ⇒ paper / sim ledger
@@ -84,21 +78,24 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const walletRef = useRef(wallet);
   walletRef.current = wallet;
 
+  // this account's ledger for this coin; another account / signed out ⇒ its own (often empty) ledger, never the last one's
   useEffect(() => {
-    try { const s = localStorage.getItem(KEY + coin); if (s) setPos(JSON.parse(s)); } catch { /* ignore */ }
-    if (window.matchMedia?.("(max-width: 760px)").matches) setOpenS(false);
+    let next = emptyPosition();
+    try { const s = localStorage.getItem(KEY); if (s) next = JSON.parse(s); } catch { /* ignore */ }
+    posRef.current = next; setPos(next);
+  }, [KEY]);
+  useEffect(() => {
+    // short desktop (lee, Oct 30: the open card covered the price chart): start collapsed; the chart sits under it either way
+    if (window.matchMedia?.("(max-width: 760px)").matches || window.matchMedia?.("(max-height: 767px)").matches) setOpenS(false);
     // phone HUD: the full card only while the RUN sheet is open, else the one-line strip
     const onSheet = (e: Event) => { if (isPhone()) setOpenS(((e as CustomEvent).detail || {}).id === "run"); };
     addEventListener("disciple:phonesheet", onSheet);
-    setSession(sessionRealized(coin, KEY));
-    const onStorage = (e: StorageEvent) => { if (!e.key || (e.key.startsWith(KEY) && e.key !== KEY + coin)) setSession(sessionRealized(coin, KEY)); };
-    addEventListener("storage", onStorage);
-    return () => { removeEventListener("storage", onStorage); removeEventListener("disciple:phonesheet", onSheet); };
-  }, [coin, KEY]);
+    return () => { removeEventListener("disciple:phonesheet", onSheet); };
+  }, []);
 
   useEffect(() => {
     const w = window as unknown as FlightWin;
-    const commit = (next: Position) => { posRef.current = next; setPos(next); try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ } };
+    const commit = (next: Position) => { posRef.current = next; setPos(next); try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ } };
     // Fix 3 — LIVE fills (txHash): book the optimistic estimate now, keep it pending, and replace it with the EXACT receipt
     // amounts (USDG in/out, tokens; lib/flight/fills via TradeBridge 'disciple:fillreceipt') when the receipt lands.
     // A receipt that beats its fill event waits in `early`. Paper / sim fills keep applyFill's curve-average booking.
@@ -138,23 +135,36 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
     const h = (e: Event) => { if (!syncEvent) onFill((e as CustomEvent<Fill>).detail); };
     const onSync = (e: Event) => { const d = (e as CustomEvent<{ pos: Position; supply: number }>).detail; if (!d?.pos) return;
       const next = { ...d.pos, supply: d.supply || DEFAULT_SUPPLY, session: null }; posRef.current = next; setPos(next);
-      try { localStorage.setItem(KEY + coin, JSON.stringify(next)); } catch { /* ignore */ } };
+      try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ } };
     if (syncEvent) addEventListener(syncEvent, onSync);
     const onMark = (e: Event) => { const d = (e as CustomEvent<Mark>).detail; if (!(d && d.mcap > 0)) return;
       const supply = d.supply || DEFAULT_SUPPLY; setMark({ mcap: d.mcap, supply, session: d.session });
       const p = posRef.current;
       // ephemeral mock market restarted since this bag was booked → drop it (its entry belongs to another price history)
-      if (p.size > 0 && d.session && p.session !== d.session) { const n = emptyPosition(); posRef.current = n; setPos(n); try { localStorage.removeItem(KEY + coin); } catch { /* */ } return; }
+      if (p.size > 0 && d.session && p.session !== d.session) { const n = emptyPosition(); posRef.current = n; setPos(n); try { localStorage.removeItem(KEY); } catch { /* */ } return; }
       if (p.size > 0 && (p.supply || supply) !== supply) { const n = rebase(p, supply); posRef.current = n; setPos(n); } };
     addEventListener("disciple:paperfill", h);
     addEventListener("disciple:mark", onMark);
     const m0 = w.__flight?.S?.confirmed?.mcap;
     const m0s = w.__flight?.markMcap?.() || m0;   // same shown price the HUD/rocket use (paper: × sim offset)
     if (m0s) setMark({ mcap: m0s, supply: w.__flight?.source?.supply || DEFAULT_SUPPLY });
-    w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY + coin); } };
+    w.__pnl = { fill: onFill, reset: () => { posRef.current = emptyPosition(); setPos(posRef.current); localStorage.removeItem(KEY); } };
     return () => { removeEventListener("disciple:holdings", onHoldings); removeEventListener("disciple:fillreceipt", onReceipt); removeEventListener("disciple:paperfill", h); removeEventListener("disciple:mark", onMark); if (syncEvent) removeEventListener(syncEvent, onSync); };
   }, [coin, KEY, syncEvent]);
 
+  // the engine's desktop chart starts under this card (engine.js chartDeskRect ← window.__pnlBottom, px from the canvas
+  // wrap's top). null on the phone / when hidden (the RUN sheet and the CHART sheet are separate drawer tabs there).
+  const asideRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = asideRef.current, w = window as unknown as { __pnlBottom?: number | null };
+    if (!el) return;
+    const pub = () => { const r = el.getBoundingClientRect(), top = document.getElementById("wrap")?.getBoundingClientRect().top ?? 0;
+      w.__pnlBottom = !isPhone() && r.height > 0 ? Math.round(r.bottom - top) : null; };
+    pub();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(pub) : null; ro?.observe(el);
+    addEventListener("resize", pub);
+    return () => { ro?.disconnect(); removeEventListener("resize", pub); w.__pnlBottom = null; };
+  }, []);
   const price = mark.mcap / mark.supply;
   // LIVE: holdings = the wallet's real balance × mark; PnL only on the tracked (known-cost) part. Paper / sim: the ledger.
   const wv: WalletView | null = wallet ? walletView(pos, wallet.tokens, price, mark.supply) : null;
@@ -188,7 +198,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const glow = (c: string) => `0 0 10px ${c}55`;
 
   return (
-    <aside aria-label="Holdings and PnL" className="pnl-hud"
+    <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud"
       style={{ position: "fixed", top: 212, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 31, width: 272, padding: "9px 12px 10px",
         borderRadius: 14, background: "linear-gradient(180deg,rgba(16,14,40,.88),rgba(8,10,26,.84))", backdropFilter: "blur(6px)",
         border: `1px solid ${holding ? col(v.uPnl) + "88" : "rgba(255,231,163,.45)"}`, color: "#fff7df", font: "11px ui-monospace,monospace",
@@ -219,7 +229,6 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
           <div style={row}><span style={label}>{t("pnl.avgEntry")}</span><span>{tracked ? `MC ${fmtUsd(v.entryMcap)}` : "—"}</span></div>
           <div style={row}><span style={label}>{t("pnl.realized")}</span><Num value={v.realized} fmt={usd} style={{ color: col(v.realized), fontWeight: 700 }} /></div>
           {v.fees > 0 && <div style={row} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
-          <div style={row}><span style={label}>{t("pnl.other")}</span><span style={{ color: col(session) }}>{usd(session)}</span></div>
 
           {/* points hook: off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with
               unrealized PnL + hold time. Never money: it scales season points, not payouts or fees. */}
