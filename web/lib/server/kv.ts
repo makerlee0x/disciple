@@ -34,6 +34,17 @@ export interface Kv {
   expireIfEq(k: string, v: string, ttlSec: number): Promise<boolean>;
   /** Atomic compare-and-delete: DEL k only while k == v (lease release by its owner token). true if deleted. */
   delIfEq(k: string, v: string): Promise<boolean>;
+  /**
+   * Shared relayer nonce allocator (lib/server/relayerNonce.SharedNonceCursor), ONE atomic step: pop the lowest released
+   * nonce >= floor from the sorted set `holes` (stale ones below floor are dropped), else n = max(counter, floor) and the
+   * counter becomes n + 1. Both keys expire ttlSec after the last write.
+   */
+  nonceAlloc(counter: string, holes: string, floor: number, ttlSec: number): Promise<number>;
+  /**
+   * Nonce n was handed out but never accepted. Atomic: counter == n + 1 ⇒ roll back (1); counter > n + 1 ⇒ n joins
+   * `holes` for the next alloc (2); else nothing (0: already below the counter's view).
+   */
+  nonceRelease(counter: string, holes: string, n: number, ttlSec: number): Promise<number>;
 }
 
 /* ---------------- local ---------------- */
@@ -65,6 +76,20 @@ function local(): Kv {
     async ttl(k) { await ready; const e = live(k); return !e ? -2 : e.exp ? Math.ceil((e.exp - Date.now()) / 1000) : -1; },
     async expireIfEq(k, v, ttl) { await ready; const e = live(k); if (!e || e.v !== v) return false; e.exp = Date.now() + ttl * 1000; save(); return true; },
     async delIfEq(k, v) { await ready; const e = live(k); if (!e || e.v !== v) return false; delete st.kv[k]; save(); return true; },
+    async nonceAlloc(c, h, floor, ttl) {
+      await ready;
+      const z = (st.z[h] ??= {}), exp = Date.now() + ttl * 1000;
+      for (const [m, n] of Object.entries(z).sort((a, b) => a[1] - b[1])) { delete z[m]; if (n >= floor) { save(); return n; } }
+      const n = Math.max(Number(live(c)?.v ?? 0) || 0, floor);
+      st.kv[c] = { v: String(n + 1), exp }; save(); return n;
+    },
+    async nonceRelease(c, h, n, ttl) {
+      await ready;
+      const e = live(c), cur = e ? Number(e.v) : -1;
+      if (cur === n + 1) { st.kv[c] = { v: String(n), exp: Date.now() + ttl * 1000 }; save(); return 1; }
+      if (cur > n + 1) { (st.z[h] ??= {})[String(n)] = n; save(); return 2; }
+      return 0;
+    },
   };
 }
 
@@ -72,6 +97,8 @@ function local(): Kv {
 const EXPIRE_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('EXPIRE',KEYS[1],ARGV[2]) else return 0 end";
 const DEL_IF_EQ_LUA = "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end";
 const INCR_EX_LUA = "local c=redis.call('INCR',KEYS[1]) if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end return c";
+const NONCE_ALLOC_LUA = "local f=tonumber(ARGV[1]) while true do local h=redis.call('ZPOPMIN',KEYS[2]) if #h==0 then break end local n=tonumber(h[2]) if n>=f then return n end end local c=tonumber(redis.call('GET',KEYS[1]) or '0') if c<f then c=f end redis.call('SET',KEYS[1],c+1,'EX',ARGV[2]) return c";
+const NONCE_RELEASE_LUA = "local n=tonumber(ARGV[1]) local c=tonumber(redis.call('GET',KEYS[1]) or '-1') if c==n+1 then redis.call('SET',KEYS[1],n,'EX',ARGV[2]) return 1 end if c>n+1 then redis.call('ZADD',KEYS[2],n,ARGV[1]) redis.call('EXPIRE',KEYS[2],ARGV[2]) return 2 end return 0";
 function upstash(url: string, token: string): Kv {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const cmd = async <T = unknown>(...args: (string | number)[]): Promise<T> => {
@@ -103,6 +130,8 @@ function upstash(url: string, token: string): Kv {
     async ttl(k) { return Number(await cmd<number>("TTL", k)); },
     async expireIfEq(k, v, ttl) { return Number(await cmd<number>("EVAL", EXPIRE_IF_EQ_LUA, 1, k, v, ttl)) === 1; },
     async delIfEq(k, v) { return Number(await cmd<number>("EVAL", DEL_IF_EQ_LUA, 1, k, v)) === 1; },
+    async nonceAlloc(c, h, floor, ttl) { return Number(await cmd<number>("EVAL", NONCE_ALLOC_LUA, 2, c, h, floor, ttl)); },
+    async nonceRelease(c, h, n, ttl) { return Number(await cmd<number>("EVAL", NONCE_RELEASE_LUA, 2, c, h, n, ttl)); },
   };
 }
 

@@ -95,7 +95,8 @@ export async function POST(req: Request) {
       try {
         const relayer = privateKeyToAccount(relayerKey());
         const wc = createWalletClient({ chain: ACTIVE_CHAIN.id === 46630 ? robinhoodTestnet : ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });   // no transport-level resend (AUDIT Info)
-        const hash = await withRelayer(() => wc.writeContract({ address: gate, abi: loginGateMiniAbi, functionName: "attest", args: [w, BigInt(expiry), coin, signature as Hex] }));
+        // shared relayer nonce allocator (same EOA as the relay paths; see lib/server/fastRelay.sendWithRelayerNonce)
+        const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ address: gate, abi: loginGateMiniAbi, functionName: "attest", args: [w, BigInt(expiry), coin, signature as Hex], nonce })), 0);
         const rc = await client.waitForTransactionReceipt({ hash, timeout: 20_000 });
         if (rc.status !== "success") return NextResponse.json({ ...out, relayed: false, relayError: "reverted", txHash: hash });
         return NextResponse.json({ ...out, relayed: true, txHash: hash, verifiedUntil: expiry });

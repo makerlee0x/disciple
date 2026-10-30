@@ -69,7 +69,9 @@ export async function GET(req: Request) {
     for (const base of order) {
       try {
         const { request } = await pc.simulateContract({ account: relayer, address: d.quotePricer, abi: quotePricerAbi, functionName: "poke", args: [base as Address] });
-        const hash = await withRelayer(() => wc.writeContract(request));
+        // the relayer EOA's shared nonce allocator (lib/server/fastRelay.sendWithRelayerNonce): every instance and route
+        // writing this EOA takes nonces from ONE KV counter (viem's auto nonce here raced the relay paths: "nonce too low")
+        const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ ...request, nonce })), 0);
         const rc = await pc.waitForTransactionReceipt({ hash, timeout: 15_000 });
         gasUsed += rc.gasUsed;
         results[base] = rc.status === "success" ? hash : `reverted ${hash}`;
