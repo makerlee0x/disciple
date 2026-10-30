@@ -18,6 +18,7 @@ import { NO_IDENTITY, PERSONA_BADGES, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
+import { OPEN_CASH_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
 import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
@@ -119,7 +120,19 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [toast, setToast] = useState("");
   const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
-  useEffect(() => { if (isPrivate && window.location.hash === "#settings") setSettingsOpen(true); }, [isPrivate]);
+  // Settings opens on #settings / #cash (lib/cashLink): on load, on hashchange, and on the in-place link event
+  useEffect(() => {
+    if (!isPrivate) return;
+    const open = () => {
+      if (!(SETTINGS_HASHES as readonly string[]).includes(window.location.hash)) return;
+      setSettingsOpen(true);
+      if (window.location.hash === "#cash") window.setTimeout(() => document.getElementById("cash")?.scrollIntoView({ block: "start" }), 0);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    window.addEventListener(OPEN_CASH_EVENT, open);
+    return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_CASH_EVENT, open); };
+  }, [isPrivate]);
 
   const owner = (isPrivate ? me : publicUsername) || "";
   // Same seed as the server's title check (/api/profile/meta): claimed username, else the wallet.

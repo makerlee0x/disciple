@@ -11,29 +11,26 @@ import { decimalsOf, publicClient, readCurveState, usdgRouteFor } from "@/lib/pr
 import { cashLine, type BalancePart } from "@/lib/balanceLine";
 import { payUsdg, routerUsdg } from "@/lib/trade/usdgRouter";
 import {
-  aaAvailable, connectLocal, importLocal, resetLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
+  aaAvailable, connectLocal, connectPrivy, connectSmartWithWallet, connectWallet, disconnect,
   hasWallet, isSmartMode, onWallet, restoreSmart,
 } from "@/lib/wallet";
 import {
-  DEV_WALLETS, SIGNER_MODE, aaSession, enableOneTap, endOneTap,
-  legacyBalances, localExport, onSessionChange, sweepLegacy, oneTapAvailable, restartOneTap, oneTapSlippageBps, oneTapStatus, oneTapSpendLimitUsd, setOneTapSpendLimitUsd,
+  DEV_WALLETS, SIGNER_MODE, aaSession,
+  legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
 import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
-import OneTapSlippagePicker from "@/components/trade/OneTapSlippagePicker";
-import { fmtSessionExpiry } from "@/lib/aa/oneTap";
 import type { Address } from "@/lib/protocol";
 import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
 import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
-import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
-import { CASH_ARRIVED_EVENT, TEST_CASH_COPY } from "@/lib/testCash";
-import TestCashButton from "@/components/TestCashButton";
+import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
+import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -66,27 +63,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   const coin = (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(path)?.[1] ?? null) as Address | null;
   const [err, setErr] = useState("");
   const [menu, setMenu] = useState(false);
-  // Opt-in one-tap spend limit ($, Advanced). Blank = no limit (default, per spec 05).
-  const [limitUsd, setLimitUsd] = useState("");
-  useEffect(() => { const v = oneTapSpendLimitUsd(); setLimitUsd(v ? String(v) : ""); }, []);
-  const limitNum = () => { const n = Number(limitUsd.replace(/[$,\s]/g, "")); return Number.isFinite(n) && n > 0 ? n : null; };
-  const saveLimit = () => setOneTapSpendLimitUsd(limitNum());
-  const limitLabel = (v: number | null) => v ? `$${v.toLocaleString("en-US")} spend limit` : "no spend limit";
-  const advancedLimit = (onApply: () => void, applyLabel: string) => (
-    <details>
-      <summary style={{ cursor: "pointer", opacity: 0.8 }}>Advanced</summary>
-      <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>Spend limit $
-        <input aria-label="one-tap spend limit $" inputMode="decimal" placeholder="none" value={limitUsd} onChange={(e) => setLimitUsd(e.target.value)} style={{ ...input, minWidth: 0, width: 80 }} />
-        <button type="button" disabled={!!busy} onClick={onApply} style={{ ...pill, padding: "1px 6px", fontSize: 9, background: "#C9CED6", color: "#0B0C0E" }}>{applyLabel}</button>
-      </label>
-      <span style={{ opacity: 0.7 }}>Optional cap on what one-tap can spend per session. Leave blank for no limit. Price protection (max slippage) always applies.</span>
-    </details>
-  );
   const [, bump] = useState(0);
   const [copied, setCopied] = useState(false);
   const [acct, setAcct] = useState(false);
-  const [shownKey, setShownKey] = useState("");
-  const [imp, setImp] = useState("");
   const [pf, setPf] = useState<Portfolio | null>(null);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
@@ -241,11 +220,9 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
   if (!isDeployed()) return null;
   const smart = isSmartMode();
   const sess = aaSession();
-  const oneTap = oneTapStatus();
   const cardStyle: CSSProperties = { display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, padding: compact ? "3px 9px" : "5px 11px",
     borderRadius: 12, background: "rgba(22,24,28,.88)", border: "1px solid rgba(201,206,214,.22)", lineHeight: 1.15 };
   const pill = { all: "unset" as const, cursor: "pointer", padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, letterSpacing: ".04em" };
-  const input = { all: "unset" as const, padding: "5px 8px", borderRadius: 8, fontSize: 11, background: "rgba(255,255,255,.1)", minWidth: 180 };
   // Popover panel: out of flow so [aria-label=wallet] layout height stays the trigger strip
   // (GAME / FlightCanvas measures that bottom edge to stack Share/Exit).
   const popover: CSSProperties = {
@@ -312,63 +289,13 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
             )}
           </div>
         )}
-        {addr && acct && smart && sess?.kind !== "local" && (
-          <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
-            <span style={{ wordBreak: "break-all" }}>Smart account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
-            <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner (Privy wallet): {sess?.owner}</span>
-            {sess?.oneTap ? (
-              <>
-                <span style={{ color: "#c8ffe4" }}>One-tap on · max slippage {(sess.oneTap.maxSlippageBps / 100).toString()}% · {limitLabel(oneTapSpendLimitUsd())} · {fmtSessionExpiry(sess.oneTap.validUntil)}</span>
-                <button type="button" disabled={!!busy} onClick={() => run("ending session", endOneTap)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>End one-tap session</button>
-                <OneTapSlippagePicker compact />
-                {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(oneTapSlippageBps()); }), "Apply (new session)")}
-              </>
-            ) : oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp ? (
-              <>
-                <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
-                  <a href={DEPOSIT_HREF} onClick={(e) => { setAcct(false); onDepositClick(e); }} style={{ color: "#E8EAEE", fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
-                </span>
-                <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
-              </>
-            ) : oneTapAvailable() && oneTap.settingUp ? (
-              <span style={{ color: "#C9CED6" }}>Setting up one-tap trading…</span>
-            ) : oneTapAvailable() ? (
-              <>
-                <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>
-                <OneTapSlippagePicker compact />
-                <button type="button" disabled={!!busy} onClick={() => run("approve session", () => { saveLimit(); return enableOneTap({ maxSlippageBps: oneTapSlippageBps(), spendLimitUsd: limitNum() }); })} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }}>Enable one-tap trading</button>
-                {advancedLimit(saveLimit, "Save")}
-                <span style={{ opacity: 0.7 }}>A 24h session key protects each trade on-chain: a trade whose price moves more than this is cancelled.</span>
-              </>
-            ) : (
-              <span style={{ opacity: 0.7 }}>One-tap trading is on.</span>
-            )}
-            <button type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
-          </div>
-        )}
-        {addr && acct && smart && sess?.kind === "local" && (
-          <div aria-label="account" role="menu" style={{ ...popover, width: 300, fontSize: 10 }}>
-            <span style={{ color: "#C9CED6" }}>Testnet wallet stored in this browser. Clearing site data loses it — export the key to back it up.</span>
-            <span style={{ wordBreak: "break-all" }}>Account: {addr} <button type="button" onClick={() => navigator.clipboard?.writeText(addr)} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>copy</button></span>
-            <span style={{ opacity: 0.7, wordBreak: "break-all" }}>Owner key address: {sess?.owner}</span>
-            {oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp && (
-              <>
-                <span role="status" data-testid="onetap-needs-cash" style={{ color: "#C9CED6" }}>{TEST_CASH_COPY.needsCash}{" "}
-                  <a href={DEPOSIT_HREF} onClick={(e) => { setAcct(false); onDepositClick(e); }} style={{ color: "#E8EAEE", fontWeight: 700 }}>{TEST_CASH_COPY.deposit}</a>
-                </span>
-                <TestCashButton account={addr} style={{ ...pill, background: "#C9CED6", color: "#0B0C0E", textAlign: "center" }} />
-              </>
-            )}
-            {shownKey ? (
-              <span style={{ wordBreak: "break-all", color: "#ffb0c0" }}>{shownKey} <button type="button" onClick={() => setShownKey("")} style={{ ...pill, padding: "1px 6px", fontSize: 9 }}>hide</button></span>
-            ) : (
-              <button type="button" onClick={() => { if (confirm("Reveal your private key? Anyone with it controls this account. Never share it.")) setShownKey(localExport() || ""); }} style={{ ...pill, background: "#2E323A", textAlign: "center" }}>Export key</button>
-            )}
-            <div style={{ display: "flex", gap: 4 }}>
-              <input aria-label="import key" placeholder="0x… private key" value={imp} onChange={(e) => setImp(e.target.value)} style={{ ...input, minWidth: 0, flex: 1 }} />
-              <button type="button" disabled={!imp || !!busy} onClick={() => { if (confirm("Replace this browser's wallet with the imported key? Export the current key first if it holds funds.")) run("importing", async () => { await importLocal(imp); setImp(""); setAcct(false); }); }} style={{ ...pill, background: "#2E323A" }}>Import</button>
-            </div>
-            <button type="button" onClick={() => { if (confirm("Reset wallet? This deletes the key from this browser. Funds are lost unless you exported the key.")) run("", async () => { await resetLocal(); setAcct(false); setShownKey(""); }); }} style={{ ...pill, background: "#7a1f2f", color: "#ffd0d8", textAlign: "center" }}>Reset wallet</button>
+        {/* account settings (one-tap session, max price move, Advanced, sign out) moved to Profile → Settings
+            (components/account/AccountSettings, SITE Oct 30); the chip opens this slim menu */}
+        {addr && acct && smart && (
+          <div aria-label="account" role="menu" style={{ ...popover, minWidth: 160, fontSize: 11 }}>
+            <a role="menuitem" href="/profile" onClick={() => setAcct(false)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Profile</a>
+            <a role="menuitem" href={SETTINGS_HREF} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</a>
+            <button role="menuitem" type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>
         )}
       </div>

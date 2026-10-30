@@ -15,3 +15,12 @@ export function onDepositClick(e: { preventDefault(): void }) {
   if (window.location.hash !== "#cash") window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#cash`);
   window.dispatchEvent(new Event(OPEN_CASH_EVENT));
 }
+
+/** The account menu's "Settings" link (SITE, Oct 30): opens the same Settings modal; on /profile, in place (no reload). */
+export const SETTINGS_HREF = "/profile#settings";
+export function onSettingsClick(e: { preventDefault(): void }) {
+  if (typeof window === "undefined" || window.location.pathname !== "/profile") return;
+  e.preventDefault();
+  if (window.location.hash !== "#settings") window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#settings`);
+  window.dispatchEvent(new Event(OPEN_CASH_EVENT));
+}

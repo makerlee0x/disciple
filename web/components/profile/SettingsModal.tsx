@@ -4,9 +4,11 @@ import { useEffect } from "react";
 import ProfileIdentity from "./ProfileIdentity";
 import CashPanel from "./CashPanel";
 import SettingsPanel from "./SettingsPanel";
+import AccountSettings from "@/components/account/AccountSettings";
 import Icon from "@/components/icons/Icon";
 
-/** Private account settings (username lives in Edit profile): wallet / X / referral, Cash (deposit + withdraw), preferences. */
+/** Private account settings (username lives in Edit profile): wallet / X / referral, Account (one-tap session, max price
+ * move, sign out; moved here from the @name dropdown), Cash (deposit + withdraw), preferences. */
 export default function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
     if (!open) return;
@@ -29,6 +31,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
         </header>
         <div className="ds-modal-body">
           <ProfileIdentity hideUsername />
+          <AccountSettings onClose={onClose} />
           <CashPanel />
           <SettingsPanel />
         </div>
