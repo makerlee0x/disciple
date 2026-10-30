@@ -305,9 +305,11 @@ export function friendlyError(e: unknown): ProtocolError {
  * (lib/trade/readFloor): the public RPC can lag the sequencer by ~0.7 s, and a "latest" read in that gap would return
  * pre-trade quotes / balances. Reads go to the public RPC directly and fail over to our same-origin /api/rpc
  * (lib/rpc/readTransport: CORS / connection failures, lee Oct 30); retries live in that transport (outer: none).
+ * Pinned eth_calls run at the next tx's second (ReadFloor.execTime), not the receipt block's: a buy quoted in a coin's
+ * first seconds otherwise prices an older second's sniper tax and the session policy refuses its minOut (MinOutTooLow).
  */
 export function publicClient(): PublicClient {
-  return createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appReadTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0 }) }) as PublicClient;
+  return createPublicClient({ chain: ACTIVE_CHAIN, transport: flooredTransport(appReadTransport(ACTIVE_CHAIN.rpcUrls.default.http[0]), READ_FLOOR, { retryCount: 0, execTime: true }) }) as PublicClient;
 }
 
 /* ---------------- reads ---------------- */
@@ -519,10 +521,10 @@ export async function readAmountOut(pc: PublicClient, token: Address, side: "buy
  * actually use (presets, the last custom amounts, the trader quote) right away instead of wiping them all and making
  * the next tap pay a live read. Nothing from before the trade is served after it (lib/trade/hotCache Requoter).
  */
-function requoteRoute(token: Address, logs?: ExecResult["logs"]) {
+function requoteRoute(token: Address, logs?: ExecResult["logs"], sentAt?: number) {
   // our receipt's block first: the re-reads below (and any balance read in the next ~3 s) are pinned to it, so a public
   // node that hasn't caught up retries briefly instead of answering with the pre-trade state
-  READ_FLOOR.raise(receiptBlock(logs));
+  READ_FLOOR.raise(receiptBlock(logs), sentAt);
   const pre = [ckey(token), ckey("usdg", token), ckey("pvq", token)];
   REQUOTE.requote((k) => pre.some((p) => k.startsWith(p)), ["buy", "sell"].flatMap((sd) => [ckey(token, sd), ckey("usdg", token, sd)]));
 }
@@ -917,13 +919,14 @@ export function createViemProtocol(): ProtocolClient {
       };
       let landed: bigint | undefined;
       let logs: ExecResult["logs"] | undefined;
+    const sentAt = Date.now();   // its block is produced after this (READ_FLOOR clock bounds)
       try {
         const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
         logs = r.logs; landed = logsBlock(r.logs);
         const out = received(r.logs, outAsset, recipient);
         bookFill(r.logs, spendAsset, me, t.amountIn, side === "sell" ? outAsset : undefined, recipient, out);
         return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
-      } finally { releaseInflight(done, landed); requoteRoute(t.token, logs); }
+      } finally { releaseInflight(done, landed); requoteRoute(t.token, logs, sentAt); }
     } catch (e) {
       // GAME: the press's reservation id survives the friendly re-wrap (aaSend tagged the original error)
       const pid = (e as { pressId?: string } | null)?.pressId ?? t.pressId;
@@ -1003,13 +1006,14 @@ export function createViemProtocol(): ProtocolClient {
     };
     let landed: bigint | undefined;
     let logs: ExecResult["logs"] | undefined;
+    const sentAt = Date.now();   // its block is produced after this (READ_FLOOR clock bounds)
     try {
       const r = await asTrade(tt, () => labelRead("send-prep", execCalls(calls, { rebuild, pressId })));
       logs = r.logs; landed = logsBlock(r.logs);
       const out = received(r.logs, outAsset, c.me);
       bookFill(r.logs, spend, c.me, t.amountIn, isBuy ? undefined : outAsset, c.me, out);
       return { ok: true, txHash: r.txHash, amountOut: out || minOut, pressId: r.pressId ?? pressId };
-    } finally { releaseInflight(done, landed); requoteRoute(t.token, logs); }
+    } finally { releaseInflight(done, landed); requoteRoute(t.token, logs, sentAt); }
   }
 
   return {
@@ -1123,7 +1127,10 @@ export function createViemProtocol(): ProtocolClient {
           // launchCoin on the pre-modes ABI; launchWithMode(params, mode) for every launch on the modes (v4) ABI (lib/launchAbi.ts).
           calls.push({ to: launchpad, data: encodeLaunchCall(params, mode) });
         }
+        const sentAt = Date.now();
         const r = await execCalls(calls);
+        // a buy right after the launch reads (and is quoted at the execution second of) the launch block, like after a trade
+        READ_FLOOR.raise(receiptBlock(r.logs), sentAt);
         let launched: LaunchCoinResult | null = null, qp = B(0), supply = 0;
         for (const l of r.logs) {
           if (l.address.toLowerCase() !== launchpad.toLowerCase()) continue;
