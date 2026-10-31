@@ -352,14 +352,18 @@ body.side-hidden #apReopen {
 @media (max-width: 760px) {
   body.side-hidden:not(.game) [aria-label="wallet"] { max-width: calc(100vw - 160px) !important; }
 }
-/* Game routes (coin / flight), desktop: the open sidebar docks and pushes the game, like the docked sidebar everywhere
- * else. FlightCanvas already moves the canvas (body.side-open .flight-wrap) and the engine re-lays its cards on resize;
- * the overlays pinned to the rail edge (coin name, position card, sim bar, ammo notice) key off --ap-rail-w, so point it
- * at the open width and they move with the game instead of drawing over the menu. Phones keep the overlay drawer.
- * (premium sidebar: --ap-side-w is now 248px; this follows it.) */
+/* Game routes (coin / flight), desktop (GAME #221 / lee): the open sidebar OVERLAYS the game. No push: body.side-open is
+ * not set there (Sidebar.tsx), so the canvas and the rail-pinned cards stay put (the #219 --ap-rail-w push is gone); the
+ * panel slides over the left edge above the HUD, with its premium shadow. No backdrop (it dimmed the game). GAME keeps the
+ * left 248px of its HUD clear via <html data-sidebar-overlay="open"> / the disciple:sidebar-overlay event. */
 @media (min-width: 761px) {
-  body.game.side-open { --ap-rail-w: var(--ap-side-w); }
+  body.side-overlay #apSide:not(.collapsed) {
+    z-index: 62; /* above the coin name (60) and card chrome (61); below GAME modals (75, 80) */
+    box-shadow: inset -1px 0 0 var(--ap-hair-2), 24px 0 64px rgba(0, 0, 0, .55);
+    animation: ap-overlay-in var(--dsc-duration-base, 180ms) var(--dsc-easing-standard, ease-out);
+  }
 }
+@keyframes ap-overlay-in { from { transform: translateX(-24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (max-width: 760px) {
   #apSide.collapsed {
     width: 0;

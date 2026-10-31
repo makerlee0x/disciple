@@ -59,6 +59,9 @@ export function isCollapsibleRoute(pathname: string) {
   return pathname.startsWith("/coin/") || pathname.startsWith("/flight");
 }
 
+/** Game-route overlay signal for GAME (#221): window event, detail { open: boolean, width: 248 }. */
+export const SIDEBAR_OVERLAY_EVENT = "disciple:sidebar-overlay";
+const OVERLAY_W = 248; // = --ap-side-w
 const isMobile = () => typeof window !== "undefined" && window.matchMedia("(max-width:760px)").matches;
 
 /** The account's picture (profile meta), else its initial. Real data only: no sample picture. */
@@ -132,9 +135,34 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     setReady(true);
   }, [storageKey, isGame, forceCollapsed]);
 
+  // Game routes, desktop (GAME #221 / lee): the open sidebar OVERLAYS the game instead of pushing it. The canvas and HUD
+  // stay full width (no body.side-open there, so FlightCanvas keeps the rail offset); the panel slides over the left edge.
+  // GAME reads <html data-sidebar-overlay="open"> or the SIDEBAR_OVERLAY_EVENT to keep the left OVERLAY_W px of its HUD clear.
+  const [desktop, setDesktop] = useState(() => !isMobile());
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width:760px)");
+    const f = () => setDesktop(!mq.matches);
+    f(); mq.addEventListener("change", f);
+    return () => mq.removeEventListener("change", f);
+  }, []);
+  const overlay = ready && isGame && desktop && open;
+  useEffect(() => {
+    const root = document.documentElement;
+    if (overlay) root.dataset.sidebarOverlay = "open"; else delete root.dataset.sidebarOverlay;
+    document.body.classList.toggle("side-overlay", overlay);
+    window.dispatchEvent(new CustomEvent(SIDEBAR_OVERLAY_EVENT, { detail: { open: overlay, width: OVERLAY_W } }));
+    return () => {
+      if (!overlay) return;
+      delete root.dataset.sidebarOverlay;
+      document.body.classList.remove("side-overlay");
+      window.dispatchEvent(new CustomEvent(SIDEBAR_OVERLAY_EVENT, { detail: { open: false, width: OVERLAY_W } }));
+    };
+  }, [overlay]);
+
   useEffect(() => {
     if (!ready) return;
-    document.body.classList.toggle("side-open", open);
+    // overlay mode (game + desktop): not "side-open", which would push the canvas / rail-pinned cards right
+    document.body.classList.toggle("side-open", open && !(isGame && desktop));
     document.body.classList.toggle("game", isGame);
     document.body.classList.toggle("side-hidden", !open && isMobile());
     try {
@@ -145,7 +173,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     window.dispatchEvent(new CustomEvent("apsidebar", { detail: { open } }));
     const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 240);
     return () => clearTimeout(t);
-  }, [open, ready, storageKey, isGame]);
+  }, [open, ready, storageKey, isGame, desktop]);
 
   const toggle = useCallback((force?: boolean) => {
     if (!isGame && !isMobile()) return; // not collapsible here
