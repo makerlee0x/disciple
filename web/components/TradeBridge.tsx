@@ -21,8 +21,9 @@ import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
 import { clampSlippage } from "@/lib/aa/slippage";
-import { NO_REFUSE_SLIPPAGE_BPS } from "@/lib/trade/queuePricing";
-import { nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
+import { NO_REFUSE_SLIPPAGE_BPS, tokensToWei } from "@/lib/trade/queuePricing";
+import { COIN_DECIMALS } from "@/lib/usdg";
+import { buyFill, nextAlert, type BuyFill, type CapInput, type TradeAlert } from "@/lib/trade/tradeGuards";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
 import SwapSettingsModal from "./trade/SwapSettingsModal";
@@ -49,7 +50,9 @@ type BridgeResult = { ok: boolean; reason?: string; txHash?: string; fillUsd?: n
   needsConfirm?: TradeAlert["kind"];
   /** sent, with a non-blocking note (> 10 % price impact; engine: r.ok && r.warning). Price impact never holds a trade. */
   warning?: string };
-type TradeOpts = { frac?: number; all?: boolean; confirmed?: TradeAlert["kind"][]; onPress?: (pressId: string) => void };
+type TradeOpts = { frac?: number; all?: boolean; confirmed?: TradeAlert["kind"][]; onPress?: (pressId: string) => void;
+  /** fill-to-limit (buy over the wallet's room): minOut ceiling in token units (tradeGuards buyFill roomOut) */
+  roomOut?: number };
 /** pending: the send timed out — outcome UNKNOWN (may still land); `late` resolves to the real outcome (engine keeps hovering). */
 type Bridge = (side: "buy" | "sell", usd: number, o?: TradeOpts) => Promise<BridgeResult & { pending?: true; late?: Promise<BridgeResult> }>;
 declare global {
@@ -144,6 +147,19 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const rulesRef = useRef<{ capBps: number | null } | null>(null);
   const impRef = useRef<{ buyUsd: number[]; b: ({ bps: number; out: bigint } | null)[]; fracs: number[]; s: ({ bps: number; out: bigint } | null)[]; bal: bigint }>({ buyUsd: [], b: [], fracs: [], s: [], bal: BigInt(0) });
   const pendingBuyUsd = useRef(0);   // sent buys not yet in liveTokens (wallet-limit room)
+  // wallet-limit input from cached reads only (coinRules cap, the engine's mark, the last balanceOf, sent buys): no RPC
+  const buyCap = (): CapInput | null => {
+    const m = markRef.current, price = m.mcap > 0 && m.supply > 0 ? m.mcap / m.supply : 0;
+    return rulesRef.current ? { capBps: rulesRef.current.capBps, supply: m.supply, holding: liveTokens.current, pendingBuyTokens: price > 0 ? pendingBuyUsd.current / price : 0, priceUsd: price } : null;
+  };
+  // fill-to-limit sizing (sync): buyFill on the cached room, the overshoot capped at spendable cash (after pending +
+  // this op's gas, same reserve kind as runTrade's cash check) ⇒ a short cash balance still fills what it can
+  const fillFor = (usd: number): BuyFill => {
+    const f = buyFill(usd, buyCap());
+    if (!f.capped || CASH_RAW.v === null) return f;
+    const cash = rawToUsd(spendableRaw(CASH_RAW.v, true, gasKindFor("buy", f.usd, gradRef.current, markRef.current.mcap)));
+    return buyFill(usd, buyCap(), cash);
+  };
   const [alert, setAlert] = useState<{ a: TradeAlert; side: "buy" | "sell"; usd: number; o?: TradeOpts } | null>(null);
   // Swap settings, per scope (sim / paper / live)
   const scope = storagePrefix + (live ? "live" : "paper");
@@ -314,7 +330,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         // instead of adding its own (else the press is counted twice). pressId = the same id (FLOW #145 TradeParams.pressId):
         // the AA layer tags its disciple:op events / errors / result with it. Both optional + ignored by a stack without them.
         // TODO(#144/#145): plain fields once TradeParams has them.
-        const params = { token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps, reservationId: pressId, pressId };
+        // fill-to-limit: maxOut = the wallet's room − 0.5 % (buyFill roomOut) ⇒ minOut is never above what the cap lets fill
+        const maxOut = side === "buy" && o?.roomOut ? tokensToWei(o.roomOut, COIN_DECIMALS) : BigInt(0);
+        const params = { token: token as Address, side, amountIn, minAmountOut: BigInt(0), deadline: 0, slippageBps: slip.bps, reservationId: pressId, pressId, ...(maxOut > BigInt(0) ? { maxOut } : {}) };
         const r: Awaited<ReturnType<typeof client.buy>> & { pressId?: string } = await (side === "buy" ? client.buy : client.sell)(params);
         const rp = r.pressId ?? pressId;
         const resultAt = performance.now(); if (r.ok) rel = "filled";
@@ -362,12 +380,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
      * (buys: the coin's mode cap from BondingCurve.netCapNow via coinRules), then > 10 % price impact. Cached reads; an
      * amount the 4 s loop didn't quote gets ONE quick quote (≤ 400 ms), else no alert (never blocks on a guess).
      */
-    // the wallet limit (buys) is the only alert that holds a trade; cached reads only (no RPC on the tap)
-    const holdAlert = (side: "buy" | "sell", usd: number, o?: TradeOpts): TradeAlert | null => {
-      const m = markRef.current, price = m.mcap > 0 && m.supply > 0 ? m.mcap / m.supply : 0;
-      const cap = side === "buy" && rulesRef.current ? { capBps: rulesRef.current.capBps, supply: m.supply, holding: liveTokens.current, pendingBuyTokens: price > 0 ? pendingBuyUsd.current / price : 0, priceUsd: price } : null;
-      return nextAlert(side, usd, { cap }, o?.confirmed ?? []);
-    };
+    // a FULL wallet (buys) is the only alert that holds a trade; cached reads only (no RPC on the tap)
+    const holdAlert = (side: "buy" | "sell", usd: number, o?: TradeOpts): TradeAlert | null =>
+      nextAlert(side, usd, { cap: side === "buy" ? buyCap() : null }, o?.confirmed ?? []);
     // lee, Oct 30: no price-impact / slippage popup on a trade (was the > 10 % "High price impact" note on the result).
     /**
      * OPTIMISTIC FILL: resolve as filled (at the quoted amount) the moment the signed op is sent ("sent" / "submitted"),
@@ -383,19 +398,26 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       if (a) {
         console.warn("[disciple] trade alert shown instead of sending", a.kind, side, usd);
         setAlert({ a, side, usd, o: o && { frac: o.frac, all: o.all, confirmed: o.confirmed } });
-        return { ok: false, unknown: true, reason: a.text, needsConfirm: a.kind };   // wallet limit only (Buy max / Cancel)
+        return { ok: false, unknown: true, reason: a.text, needsConfirm: a.kind };   // full wallet only (Cancel)
       }
+      // fill-to-limit (lee, Oct 31: fill the whole room, no copy): a buy over the wallet's room sends a bit more than the
+      // room costs (≤ typed, ≤ spendable cash; tradeGuards buyFill, sync, cached reads) with minOut priced on the room;
+      // the curve fills to the cap and refunds the rest. Cash check + reservation use the $ SENT; display uses the fill.
+      let fill: BuyFill = { usd, capped: false, fillUsd: usd };
+      if (side === "buy") { try { fill = fillFor(usd); } catch { /* unknown ⇒ as typed */ } }
+      if (fill.capped) { console.info("[disciple] buy fills the wallet limit", usd, "→ send", fill.usd, "fill ≈", fill.fillUsd); usd = fill.usd; }
+      const fillUsd = fill.fillUsd;
       let pid: string | undefined, early: (r: BridgeResult) => void = () => undefined;
       const earlyP = new Promise<BridgeResult>((res) => { early = res; });
       const onSent = (e: Event) => {
         const d = (e as CustomEvent<{ phase?: string; pressId?: string; txHash?: string }>).detail;
-        if (pid && d?.pressId === pid && (d.phase === "sent" || d.phase === "submitted")) early({ ok: true, optimistic: true, fillUsd: usd, ...(d.txHash ? { txHash: d.txHash } : {}) });
+        if (pid && d?.pressId === pid && (d.phase === "sent" || d.phase === "submitted")) early({ ok: true, optimistic: true, fillUsd, ...(d.txHash ? { txHash: d.txHash } : {}) });
       };
       addEventListener("disciple:op", onSent);
-      if (side === "buy") pendingBuyUsd.current += usd;
-      const real = runTrade(side, usd, { ...o, onPress: (id) => { pid = id; } }).finally(() => {
+      if (side === "buy") pendingBuyUsd.current += fillUsd;   // room bookkeeping: what fills, not the refunded overshoot
+      const real = runTrade(side, usd, { ...o, ...(fill.roomOut ? { roomOut: fill.roomOut } : {}), onPress: (id) => { pid = id; } }).finally(() => {
         removeEventListener("disciple:op", onSent);
-        if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - usd); }, 1600);   // after the balance re-read
+        if (side === "buy") setTimeout(() => { pendingBuyUsd.current = Math.max(0, pendingBuyUsd.current - fillUsd); }, 1600);   // after the balance re-read
       });
       const first = await Promise.race([real.then((r) => ({ r, early: false })), earlyP.then((r) => ({ r, early: true }))]);
       if (!first.early) return first.r;
@@ -424,7 +446,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       if (!alive || document.hidden) return;
       try {
         // the ACTIVE amount: the custom $ when filled (what BOOST / SPACE spends), else the selected preset
-        const usd = customRef.current || (ammo.usd[mode] ?? MODES[mode].usd);
+        // over the wallet's room ⇒ what the tap will send (buyFill: room × overshoot, ≤ cash), so that quote is the warm one
+        const usd = fillFor(customRef.current || (ammo.usd[mode] ?? MODES[mode].usd)).usd;
         const me = await activeAddress();
         const bal = me ? await ownHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
         const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
@@ -688,8 +711,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // spendable = cash − Σ pending (spend + gas reserve) − this op's gas (live: the reservation registry; paper: the engine checks)
   const rawLive = live && CASH_RAW.v !== null;   // live: raw bigint compare (decimals from config); $ only for the label
   const spendable = rawLive ? rawToUsd(spendableRaw(CASH_RAW.v!)) : cashUsd;
-  const short = rawLive ? !canSpend(CASH_RAW.v!, shotUsd, gasKindFor("buy", shotUsd, gradRef.current, markRef.current.mcap)) : spendable != null && spendable + 1e-9 < shotUsd;   // BOOST greyed out: the amount is more than the spendable cash
-  const shortMsg = short ? `Not enough cash: ${fmtShot(shotUsd)} BOOST, you have ${fmtShot(Math.max(0, spendable ?? 0))}${inFlight.n ? ` (${inFlight.n} pending)` : ""}` : "";
+  // over the wallet's room a BOOST sends what buyFill sends (room × overshoot, ≤ cash): the cash check is on that
+  const sendUsd = live ? fillFor(shotUsd).usd : shotUsd;
+  const short = rawLive ? !canSpend(CASH_RAW.v!, sendUsd, gasKindFor("buy", sendUsd, gradRef.current, markRef.current.mcap)) : spendable != null && spendable + 1e-9 < sendUsd;   // BOOST greyed out: the amount is more than the spendable cash
+  const shortMsg = short ? `Not enough cash: ${fmtShot(sendUsd)} BOOST, you have ${fmtShot(Math.max(0, spendable ?? 0))}${inFlight.n ? ` (${inFlight.n} pending)` : ""}` : "";
   // 3 in flight: BOOST + DUMP look greyed and READ "3 IN FLIGHT" until one resolves. They stay clickable (aria-disabled only):
   // a press over the cap reaches the engine, which shows the '3 IN FLIGHT' pulse — a disabled button would swallow it silently.
   const full = inFlight.n >= inFlight.max;
@@ -713,7 +738,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // 2+ presses with a status: every press's row (rapid tap), newest last — else the single line as before
   const rowsLine = rows.length > 1 ? rows.map((r) => r.txt).join("  ·  ") : "";
   const phoneHint = hint || (full ? COPY.inFlight : "") || shortLine || rowsLine || (inFlight.n > 0 || last.includes(COPY.confirming) ? last : "");
-  // SITE trade alert: the wallet limit only (one tap to buy the max allowed); price impact never shows a hold strip
+  // SITE trade alert: a full wallet only (Cancel; over-room buys fill to the limit, tradeGuards buyFill); price impact never shows a hold strip
   const buyMax = () => {
     const x = alert; setAlert(null); if (!x || x.a.kind !== "walletcap") return;
     void window.__discipleTrade?.("buy", x.a.maxUsd, { confirmed: [...(x.o?.confirmed ?? []), "walletcap"] });

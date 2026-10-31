@@ -45,7 +45,7 @@ import { pnlKey, seedCreatorBuyPosition } from "./pnl";
 import { AAError, type Call } from "./aa/core";
 import type { RelayTimeoutExtra } from "./aa/relayTypes";
 import { markGradBuy, newPressId, tagPress } from "./aa/fastPath";
-import { holdInflightUntilSeen, tradeMinOut } from "./trade/queuePricing";
+import { holdInflightUntilSeen, roomCappedRange, tradeMinOut } from "./trade/queuePricing";
 import { GradHint } from "./trade/gradHint";
 import { readGradNeed, usdgBuyGraduates, type GradNeed } from "./trade/gradNeed";
 export { readRouterMaxImpactBps, readGradNeed, type GradNeed } from "./trade/gradNeed";
@@ -991,7 +991,9 @@ export function createViemProtocol(): ProtocolClient {
         side === "buy" ? labelRead("referral", referralCallCached(me)) : Promise.resolve([]),
         smart ? Promise.resolve(null) : labelRead("allowance", approveCall(me, spendAsset, graduated ? deployment().router : curve, t.amountIn)),
       ]);
-      let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(qOut);
+      // fill-to-limit: an over-room buy (t.maxOut = the wallet's room − 0.5 %) is priced on min(quote, room) — TRENCH's
+      // quoteBuy is cap-unaware; the curve partial-fills to the cap and refunds the rest (BondingCurve._quoteBuy)
+      let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(roomCappedRange(qOut, t.maxOut));
       if (graduated && !hasRouter()) throw new ProtocolError("NoRouter", "This rocket reached orbit; the router isn't configured on this network yet.");
       const target: Address = graduated ? deployment().router : curve;
       const encodeTrade = (mo: bigint): Hex => graduated
@@ -1031,7 +1033,8 @@ export function createViemProtocol(): ProtocolClient {
       const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
         dropRouteQuotes(t.token); done();   // our own op hasn't landed: don't price it against itself
         try {
-          const mo = freshMinOut(minOut0, minOutOf(await quoteNow()));
+          // fresh PVE/PVP traderQuote is the trader's capped quote (quoteBuyFor) ⇒ the room ceiling only for TRENCH
+          const mo = freshMinOut(minOut0, minOutOf(roomCappedRange(await quoteNow(), !graduated && mode === MODE.TRENCH ? t.maxOut : undefined)));
           const d2 = encodeTrade(mo);
           if (grad) markGradBuy(d2);
           minOut = mo;
@@ -1135,7 +1138,9 @@ export function createViemProtocol(): ProtocolClient {
         }
       }
     }
-    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(q);
+    // fill-to-limit: an over-room buy (t.maxOut = the wallet's room − 0.5 %) is priced on min(quote, room) — a
+    // model-scaled quote doesn't know the cap; the curve partial-fills and the router refunds the rest (UsdgRefund)
+    let minOut = t.minAmountOut > B(0) ? t.minAmountOut : minOutOf(roomCappedRange(q, t.maxOut));
     if (minOut <= B(0)) throw new ProtocolError("ZeroQuote", "Route quote is zero — amount too small.");
     const routerCalls = (mo: bigint): Call[] => isBuy
       ? toCalls(routerBuyWithUsdgCalls({ router, usdg: c.usdg, token: t.token, usdgIn: t.amountIn, minTokensOut: mo, deadline: c.deadline }))
@@ -1155,7 +1160,7 @@ export function createViemProtocol(): ProtocolClient {
     const rebuild = t.minAmountOut > B(0) ? undefined : async (): Promise<Call[]> => {
       dropRouteQuotes(t.token); done(); if (mid) MODEL.end(route, mid);   // our own op hasn't landed: don't price it against itself
       try {
-        const mo = freshMinOut(minOut0, minOutOf(await quoteNow()));
+        const mo = freshMinOut(minOut0, minOutOf(roomCappedRange(await quoteNow(), t.maxOut)));   // memory quote may be cap-unaware
         if (mo <= B(0)) throw new Error("re-quote is zero");
         const next = [...prefix, ...routerCalls(mo)];
         if (grad) markGradBuy(next[next.length - 1].data);
