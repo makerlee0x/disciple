@@ -13,7 +13,7 @@ function cell(d: PaperDifficulty, who: Persona) {
     const L = paperLobby(d); applyHandicap(L.brain, r); const run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain, endOnGraduate: true }), st = newPersonaState(); let next = 0;
     while (run.t < 600 && run.endedAt == null) { if (run.t >= next) { personaAct(run, L.brain, who, st, rand); next += 1; } run.step(run.cfg.market.blockS); }
     const S = roundSummary(run, L.brain); if (S.player.rank === 1) win++; if (S.player.rank <= 10) top10++;
-    r = updateRating(r, d, { rank: S.player.rank, s: behaviourScore(run, L.brain) }); }
+    r = updateRating(r, d, { rank: S.player.rank, s: behaviourScore(run, L.brain), ascended: S.graduated }); }
   return { win: win / N, top10: top10 / N, R: r.R };
 }
 const P: Persona[] = ["novice", "decent", "strong"], D: PaperDifficulty[] = ["easy", "medium", "hard"];

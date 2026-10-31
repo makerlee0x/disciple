@@ -48,7 +48,7 @@ export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], 
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
 /** tuning-script override only (scripts/paper-tune.mts botCashK); empty in the app */
 export const BOT_CASH_K_OVERRIDE: Record<string, number> = {};
-export const ELITE_N = 5, ELITE_MAX = 40, ELITE_STAKE = 1.5, SHARP_TP = 0.15, SHARP_SL = 0.3;   // eliteK > 1: round(ELITE_N·E) elites (≤ ELITE_MAX), each with E× stack, take an early position
+export const ELITE_N = 5, ELITE_MAX = 40, ELITE_STAKE = 1.5, SHARP_TP = 0.15, SHARP_SL = 0.3;   // eliteK > 1: round(ELITE_N·E) sharps (≤ ELITE_MAX) open ELITE_STAKE × start cash once the anti-snipe tax ends, then take +SHARP_TP / stop −SHARP_SL
 export const LEADERS_N = 10;
 export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.5, medium: 0.18, hard: 0.23 }; // v3 (round ends at ascension): 0.5 / 0.18 / 0.23; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
 export const NOISE_TRADE_SHARE = 0.25;
@@ -173,6 +173,8 @@ export class PaperBrain implements SimBrain {
   /** mcap after every 100 ms block (index = block) */
   hist: number[] = [];
   phases: { id: string; start: number; mood: number; vol: number }[] = [];
+  /** adaptive backdrop-mood offset (lib/sim/rating ascension controller) */
+  moodShift = 0;
   mood = 0; vol = 1; phaseIdx = -1; phaseLog: { id: string; t: number }[] = [];
   vwapNum = 0; vwapDen = 0;
   totals = { fees: 0, gas: 0, snipeTax: 0, snipeHits: 0, trades: 0, buys: 0, sells: 0 };
@@ -210,7 +212,7 @@ export class PaperBrain implements SimBrain {
       }
     });
     if (this.eliteK > 1) [...run.bots].sort((x, y) => this.meta.get(y.id)!.agg - this.meta.get(x.id)!.agg || x.id - y.id).slice(0, Math.min(ELITE_MAX, Math.round(ELITE_N * this.eliteK))).forEach((b) => this.elite.add(b.id));
-    this.phases = PHASES.map((ph, i) => ({ id: ph.id, start: i === 0 ? 0 : ph.start + (run.rng() * 30 - 15), mood: ph.mood[0] + run.rng() * (ph.mood[1] - ph.mood[0]) + TUNE.moodBias[this.difficulty], vol: ph.vol }));
+    this.phases = PHASES.map((ph, i) => ({ id: ph.id, start: i === 0 ? 0 : ph.start + (run.rng() * 30 - 15), mood: ph.mood[0] + run.rng() * (ph.mood[1] - ph.mood[0]) + TUNE.moodBias[this.difficulty] + this.moodShift, vol: ph.vol }));
     this.hist.push(run.m.mcap());
     run.on(({ trade }) => { if (trade) this.onTrade(run, trade); });
   }

@@ -24,10 +24,10 @@ export const BANDS: Record<Skill, Record<PaperDifficulty, { win: [number, number
 export const ANCHOR_R: Record<Skill, number> = { novice: 950, decent: 1500, strong: 1940 };
 /** within ±PLATEAU of an anchor the target is that tier's band exactly */
 export const PLATEAU = 200;
-export const RATING = { ema: 0.35, eta: 0.25, couple: 1.5, clamp: 4, kMin: 0.05, kMax: 8, start: 1500 };
+export const RATING = { ema: 0.35, eta: 0.25, couple: 1.5, clamp: 4, kMin: 0.05, kMax: 8, start: 1500, chase: 1, ascT: 0.5, etaM: 0.04, moodMax: 0.4, easyNoviceMood: 0.5 };
 
-export interface PlayerRating { R: number; n: number; /** log handicaps per lobby (integral state) */ logK: Record<PaperDifficulty, number>; logE: Record<PaperDifficulty, number> }
-export const newRating = (): PlayerRating => ({ R: RATING.start, n: 0, logK: { easy: 0, medium: 0, hard: 0 }, logE: { easy: 0, medium: 0, hard: 0 } });
+export interface PlayerRating { R: number; n: number; /** log handicaps per lobby (integral state) */ logK: Record<PaperDifficulty, number>; logE: Record<PaperDifficulty, number>; /** backdrop mood offset per lobby (ascension controller) */ mood?: Record<PaperDifficulty, number> }
+export const newRating = (): PlayerRating => ({ R: RATING.start, n: 0, logK: { easy: 0, medium: 0, hard: 0 }, logE: { easy: 0, medium: 0, hard: 0 }, mood: { easy: 0, medium: 0, hard: 0 } });
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 const mid = (b: [number, number]) => (b[0] + b[1]) / 2;
@@ -50,28 +50,31 @@ export function behaviourScore(run: SimRun, brain: PaperBrain): number | null {
   if (!buys.length) return null;
   let mom = 0; for (const x of buys) { const k = Math.round(x.t / B), p = h[Math.max(0, k - Math.round(10 / B))] ?? x.preMcap; mom += x.preMcap / p - 1; }
   mom /= buys.length;
-  const entry = clamp(1 - mom / 0.3, 0, 1), exit = clamp(sells.length / buys.length, 0, 1);
+  // chasing is judged against this round's own 10 s swings (a calm, handicapped market must not make a pump-chaser look disciplined)
+  const w = Math.round(10 / B); let sw = 0, nw = 0; for (let k = w; k < h.length; k += w) if (h[k - w] > 0) { sw += Math.abs(h[k] / h[k - w] - 1); nw++; }
+  const scale = Math.max(0.02, nw ? sw / nw : 0.1) * RATING.chase;
+  const entry = clamp(1 - mom / scale, 0, 1), exit = clamp(sells.length / buys.length, 0, 1);
   return 0.5 * entry + 0.5 * exit;
 }
 
 /** the handicap for the next round in lobby d */
 export function handicapFor(r: PlayerRating, d: PaperDifficulty) {
-  const E = Math.exp(BASE_LOGE[d](r.R) + r.logE[d]);
-  return { botCashK: clamp(Math.exp(BASE_LOGK[d](r.R) + r.logK[d]), RATING.kMin, RATING.kMax), eliteK: E };
+  const E = Math.exp(BASE_LOGE[d](r.R) + r.logE[d]), wN = clamp((ANCHOR_R.decent - r.R) / (ANCHOR_R.decent - ANCHOR_R.novice), 0, 1);
+  return { botCashK: clamp(Math.exp(BASE_LOGK[d](r.R) + r.logK[d]), RATING.kMin, RATING.kMax), eliteK: E, moodShift: (r.mood?.[d] ?? 0) + (d === "easy" ? wN * RATING.easyNoviceMood : 0) };
 }
 /** starting bankroll multiple per lobby by rating (rough calibration, v4); the controllers correct from here */
 const lerp3 = (n: number, dd: number, s: number) => (R: number) => R <= ANCHOR_R.decent ? Math.log(n) + (Math.log(dd) - Math.log(n)) * clamp((R - ANCHOR_R.novice) / (ANCHOR_R.decent - ANCHOR_R.novice), 0, 1)
   : Math.log(dd) + (Math.log(s) - Math.log(dd)) * clamp((R - ANCHOR_R.decent) / (ANCHOR_R.strong - ANCHOR_R.decent), 0, 1);
 /** starting elite multiple by rating (Hard novice starts with richer elites so an early lucky round is rarer) */
 export const BASE_LOGE: Record<PaperDifficulty, (R: number) => number> = { easy: lerp3(1, 1, 1), medium: lerp3(1, 1, 1), hard: lerp3(3, 1, 1) };
-export const BASE_LOGK: Record<PaperDifficulty, (R: number) => number> = { easy: lerp3(0.65, 1.2, 0.6), medium: lerp3(1, 1, 0.55), hard: lerp3(1, 0.85, 0.6) };
+export const BASE_LOGK: Record<PaperDifficulty, (R: number) => number> = { easy: lerp3(0.45, 1.2, 0.6), medium: lerp3(1, 1, 0.55), hard: lerp3(1, 0.3, 0.6) };
 
 /** set the handicap on a fresh brain (before SimRun init) */
-export function applyHandicap(brain: PaperBrain, r: PlayerRating) { const h = handicapFor(r, brain.difficulty); brain.botCashK = h.botCashK; brain.eliteK = h.eliteK; return h; }
+export function applyHandicap(brain: PaperBrain, r: PlayerRating) { const h = handicapFor(r, brain.difficulty); brain.botCashK = h.botCashK; brain.eliteK = h.eliteK; brain.moodShift = h.moodShift; return h; }
 
 /** after a round: update R from behaviour, then the two controllers from the result vs the target */
-export function updateRating(r: PlayerRating, d: PaperDifficulty, res: { rank: number; s: number | null }): PlayerRating {
-  const o: PlayerRating = { R: r.R, n: r.n + 1, logK: { ...r.logK }, logE: { ...r.logE } };
+export function updateRating(r: PlayerRating, d: PaperDifficulty, res: { rank: number; s: number | null; ascended?: boolean }): PlayerRating {
+  const o: PlayerRating = { R: r.R, n: r.n + 1, logK: { ...r.logK }, logE: { ...r.logE }, mood: { easy: 0, medium: 0, hard: 0, ...r.mood } };
   if (res.s != null) { const Rs = 800 + 1200 * res.s; o.R = r.n === 0 ? Rs : r.R + RATING.ema * (Rs - r.R); }
   const t = targetFor(d, o.R), win = res.rank === 1 ? 1 : 0, top10 = res.rank <= 10 ? 1 : 0;
   // novice side (wN: 1 at novice → 0 at decent): bankroll can't push a buy-and-hold novice down under PnL ranking (richer bots ⇒ the coin ascends ⇒
@@ -79,7 +82,13 @@ export function updateRating(r: PlayerRating, d: PaperDifficulty, res: { rank: n
   const wN = clamp((ANCHOR_R.decent - o.R) / (ANCHOR_R.decent - ANCHOR_R.novice), 0, 1);
   const sW = clamp((o.R - ANCHOR_R.decent) / (ANCHOR_R.strong - ANCHOR_R.decent), 0, 1);
   const dK = RATING.eta * ((top10 - t.top10) + RATING.couple * sW * (win - t.win));   // player too high → richer (bigger-sizing) bots
-  o.logK[d] = clamp(o.logK[d] + dK, -RATING.clamp, RATING.clamp);
-  o.logE[d] = clamp(o.logE[d] + RATING.eta * (2 * (win - t.win) + 3 * wN * (top10 - t.top10)), -RATING.clamp, RATING.clamp);
+  // Easy novice: the integrators are off (fixed calibrated handicap: BASE_LOGK 0.45 + RATING.easyNoviceMood). Under PnL ranking a
+  // novice's Easy result is knife-edge in the bankroll: K ≲ 0.08 → a dead coin, the novice never buys, PnL 0 ranks #1 every round;
+  // K ≳ 0.7 → ~0–10% top-10. An integrator there settles on the degenerate idle-#1 rounds, so it is pinned in the narrow live band.
+  const gE = d === "easy" ? 1 - wN : 1;
+  o.logK[d] = clamp(o.logK[d] + gE * dK, -RATING.clamp, RATING.clamp);
+  o.logE[d] = clamp(o.logE[d] + gE * RATING.eta * (2 * (win - t.win) + (d === "easy" ? 0 : 3 * wN) * (top10 - t.top10)), -RATING.clamp, RATING.clamp);
+  // ascension controller: the backdrop mood (every wallet equally) steers the coin's ascension rate toward ascT, so the pool bonus stays part of every lobby
+  if (res.ascended != null) o.mood![d] = clamp(o.mood![d] + RATING.etaM * ((res.ascended ? 0 : 1) - (1 - RATING.ascT)) * 1, -RATING.moodMax, RATING.moodMax);
   return o;
 }

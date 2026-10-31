@@ -214,3 +214,40 @@ It loses money everywhere.
 | Hard | 0.0 / 5.8 / 40.8 / $153 | 1.7 / 11.7 / 29.2 / $0 | 12.5 / 50.0 / 24.2 / $57 |
 
 **Tests.** `npm run test:paper-elo` uses seeds 7000–7119, which are separate from the tuning seeds. It checks every band with a ±2-round tolerance and all orderings. Hard decent and novice wins are both 0–2 of 120 rounds, so that one ordering is checked only within the same tolerance.
+
+## v5 (Oct 31, #225) — rank by PnL everywhere
+
+**Ranking.** Leaderboard, results rank, wins, top-10 and the round result all rank by **PnL = worth − that wallet's own starting stack** (the ascension bonus is included). Ties go to higher worth, then higher realized, then fewer fees. The ascension-pool top-3 is unchanged (cost basis + 10% of volume).
+
+**Why v4 broke.** Under PnL, a wallet with PnL ≈ 0 ranks near #1 whenever most bots lose. A holder also profits whenever richer bots pump the coin to ascension. So the v4 levers (bankroll K, the elite stack E) moved the novice the wrong way.
+
+**Controller changes (bots only; the personas are untouched):**
+- **Bot sizing:** bots size off their own stack (`cash0`), so K scales their PnL as well as their impact.
+- **Sharps replace the elites.** `round(5·E)` sharps (at most 40) buy 1.5× the starting cash in the block the launch anti-snipe tax ends. They sell everything at +15% or −30% versus their entry, then sit out. They are the profitable bots a passive or lucky player has to beat, so E caps the wins.
+- **Rating:** the entry score is now judged against the round's own mean 10 s swing (× `chase` = 1), not a fixed 30%. Before this, a calm, handicapped market made a pump-chaser look disciplined: the Easy novice drifted to R ≈ 1350 and got a decent-tier target.
+- **Integrators:** K tracks top-10, with a win term only on the strong side. E tracks wins, plus 3× the novice-weighted top-10 term (except in Easy).
+- **Easy novice is pinned:** K base 0.45 and backdrop mood +0.5·wN, with both integrators gated by (1 − wN). Under PnL, the Easy novice result is knife-edge in K:
+  - K ≲ 0.08: the coin is dead and the novice never buys (no ≥ 5% momentum), so PnL 0 ranks #1 in 100% of rounds.
+  - K 0.1–0.13: 0–2% top-10.
+  - K ≳ 0.7: ≤ 11% top-10.
+  - A free integrator settles on the degenerate idle-#1 rounds, so the novice is pinned in the narrow live band (fixed-K sweep: K 0.45–0.5 with mood +0.9 gives roughly 3–11% wins / 20–29% top-10).
+- **Ascension controller:** a per-lobby backdrop-mood offset steers toward 50% ascension, clamped to ±0.4.
+- **Other constants:** Hard decent K base 0.3; the log clamp is ±4, with K limits of 0.05–8.
+
+**Results (120 held-out seeds 30000–30119, rating carried; wins / top-10 / ascend %):**
+
+| Lobby | Novice | Decent | Strong |
+|---|---|---|---|
+| Easy | 6.7 / 20.0 / 0.8 | 22.5 / 50.8 / 1.7 | 37.5 / 80.0 / 0.8 |
+| Medium | 0 / 17.5 / 89 | 7.5 / 33.3 / 55 | 18.3 / 71.7 / 70 |
+| Hard | 0 / 5.0 / 99 | 1.7 / 11.7 / 0 | 14.2 / 46.7 / 27 |
+
+All 9 cells are in band, and the orders hold. test:paper-elo (seeds 7000–7119, ±2 rounds tolerance) passes 10/10.
+
+**Caveats:**
+- **Easy novice sits on its band edges** (20.0% top-10 exactly on the held-out seeds; 10.8% wins on the test seeds, inside the ±2-round tolerance). The cell is pinned, not adaptive.
+- **The ascension target (30–70%) is not met in most cells, and it conflicts with the win bands.** Ascension is set by total bot buy volume (K). The mood offset saturates at ±0.4 with almost no effect: Easy stays at about 1% even at mood +0.9.
+  - Easy decent and Easy strong need small bots for their win rates.
+  - Hard decent needs K ≈ 0.3–0.8, and at K 1.0 its top-10 falls to 8%.
+  - Medium and Hard novice need rich bots (89–99% ascension).
+  - Hitting 30–70% everywhere would push at least Easy decent/novice and Hard decent out of band.
