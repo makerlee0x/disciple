@@ -598,7 +598,7 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
+      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()||window.__paperCoin?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
     if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
@@ -1058,7 +1058,7 @@ function pushPaperCash(){ try{ dispatchEvent(new CustomEvent('disciple:papercash
 function noteBuyAmount(){ const u=activeBuyUsd(); if(S._buyAmt!==undefined&&u!==S._buyAmt) keepIf(S.feed,r=>!r.err); S._buyAmt=u; }
 /* "PAPER $139.98" / "CASH $42.10" / "SIM $250.00", then the reason BOOST is blocked, if any — dollars only */
 function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
-  const head=source.isSim?`SIM ${fmtMoney(S.balance)}`:window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
+  const head=source.isSim?(window.__paperCoin?fmtMoney(S.balance):`SIM ${fmtMoney(S.balance)}`):window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
   if(!source.isSim&&u<MIN_SHOT) return `${head} · minimum buy ${fmtShot(MIN_SHOT)}`;
   if(boostShort()) return `${head} · not enough cash for ${fmtShot(u)}`;
   return head; }
@@ -1619,7 +1619,7 @@ const PH_FONT='ui-monospace,Menlo,"DejaVu Sans Mono",monospace';
 function rrect(x,y,w,h,r){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
 function drawPhonePill(m,ti,P){
   const {f,next:nx}=tierProgress(m,ti);
-  const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
+  const sim=(source.isSim||!isLive())&&!window.__paperCoin;   // 'SIM' tag: paper / sim mode (not on paper coin: no disclaimers)
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
   ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti), wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
@@ -1769,7 +1769,7 @@ function drawHud(){
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
-  const STATUS_BOX=!(source instanceof DiscipleSource), STATUS_DY=STATUS_BOX?100:0;
+  const STATUS_BOX=!(source instanceof DiscipleSource)&&!(window.__paperCoin&&!window.__paperDev), STATUS_DY=STATUS_BOX?100:0;
   if (!PH&&STATUS_BOX){
   panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
@@ -1782,7 +1782,7 @@ function drawHud(){
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   const docked=kothDockedNow(); if (docked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
-  else if (!docked&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
+  else if (!docked&&!window.__paperCoin&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+STATUS_DY+20);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); ctx.restore(); }
   // bottom-left: trade feed (compact)
@@ -2826,7 +2826,7 @@ function flightReplay(o){ const w=window; if(w.__flightReplay) return w.__flight
   return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=(w.__DISCIPLE_BASE_PATH__||'')+'/flight/replay.js'; s.onload=()=>res(w.__flightReplay(o)); s.onerror=()=>rej(new Error('replay.js failed to load')); document.head.appendChild(s); }); }
 /* POSITION TAG — compact label beside the rocket (perpendicular to its axis, so never on the nose or the trail),
    eased toward its target each frame; values = PnlHud's lib/pnl.ts view() via disciple:pnlview. Shown only with a position. */
-function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.size>0)){ S._tagXY=null; return; }
+function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.size>0)||(PH&&window.__paperCoin)){   /* paper coin on phone: PnL lives in the bottom-edge line above BOOST/DUMP, rocket lane stays clear */ S._tagXY=null; return; }
   const [nx,ny]=nozzleXY(), h=S.heading, dx=Math.cos(h), dy=-Math.sin(h), cx=nx+dx*55, cy=ny+dy*55;   // body centre
   let px=-dy, py=dx; if(px<0){ px=-px; py=-py; } if(cx>W-360){ px=-px; py=-py; }                          // side away from the right HUD column
   const TW=196, TH=58, off=78; let tx=cx+px*off-(px<0?TW:0), ty=cy+py*off-TH/2;

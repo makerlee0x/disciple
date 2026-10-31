@@ -194,7 +194,8 @@ export const MARKET = {
 };
 
 // ── Player, points, achievements (sim-only scoring layer) ───────────────────────────────────────────
-export const PLAYER = { startBalanceUsd: 1000, gasUsd: 0 /* free mode: no gas */, defaultMinutes: 10 };
+export const PLAYER: { startBalanceUsd: number; gasUsd: number; defaultMinutes: number; /** PAPER TRADING: sample gas every bot pays per trade (absent = 0, the SIMULATOR) */ botGasUsd?: number } =
+  { startBalanceUsd: 1000, gasUsd: 0 /* free mode: no gas */, defaultMinutes: 10 };
 export const POINTS = {
   perTier: 100,                      // per tier index reached (peak)
   graduation: 500,
