@@ -1,15 +1,13 @@
 "use client";
 /**
  * Coin page claim pills (floating, outside the HUD):
- *  - creator: "Your fees: X · Claim" when the viewer is this rocket's creator (FeeRouter quote + launch-token side)
+ *  - (no creator fee pill here: it covered the top bar right after launch; creators claim on /creator + profile, in $)
  *  - crew (PVE only): "Crew rewards: X · Claim" (BondingCurve.pendingRewards → Launchpad.claim) + "Crew earned X from
  *    this DUMP" feed from ProfitTaxCharged
  */
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
 import { coinFacts } from "@/lib/protocol-viem";
-import { creatorClaimable, creatorClaimCalls, creatorTokenClaimable, isCreatorOf, sendCreatorClaims } from "@/lib/claims/creatorFees";
 import { claimCrew, coinMode, crewClaimCall, crewFeed, crewPending, isPve, type CrewFeedRow } from "@/lib/claims/crew";
 import { assetMeta, claimErrorText, fmtAmount, preflight, type Asset } from "@/lib/claims/common";
 import { demoFeed, demoRedeploy } from "@/lib/claims/demo";
@@ -21,11 +19,9 @@ export default function CoinClaims({ token }: { token: string }) {
   const me = useWalletAddr();
   const { caps, ready, demo } = useCaps();
   const [quote, setQuote] = useState<Asset | null>(null);
-  const [mine, setMine] = useState<bigint | null>(null);
-  const [mineTok, setMineTok] = useState<{ raw: bigint; asset: Asset } | null>(null);
   const [crew, setCrew] = useState<bigint | null>(null);
   const [feed, setFeed] = useState<CrewFeedRow[]>([]);
-  const [sheet, setSheet] = useState<"creator" | "crew" | null>(null);
+  const [sheet, setSheet] = useState<"crew" | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<Hex | null>(null);
@@ -37,7 +33,7 @@ export default function CoinClaims({ token }: { token: string }) {
     if (demo) {
       const { demoRockets } = await import("@/lib/claims/demo");
       const r = demoRockets(demoRedeploy())[0];
-      setQuote(r.quote); setMine(r.claimable);
+      setQuote(r.quote);
       if (caps.crew) { setCrew(BigInt("640250000000000000000")); setFeed(demoFeed()); }
       return;
     }
@@ -47,10 +43,6 @@ export default function CoinClaims({ token }: { token: string }) {
       const f = await coinFacts(c, t);
       const q = await assetMeta(c, f.quote as Address);
       setQuote(q);
-      if (me && caps.creatorFees && (await isCreatorOf(c, t, me))) {
-        setMine(await creatorClaimable(c, t, me));
-        if (caps.creatorTokenFees) { const [raw, asset] = await Promise.all([creatorTokenClaimable(c, t, me), assetMeta(c, t)]); setMineTok(raw > BigInt(0) ? { raw, asset } : null); }
-      } else { setMine(null); setMineTok(null); }
       if (caps.crew && isPve(await coinMode(c, t))) {
         if (me) setCrew((await crewPending(c, t, me))?.pending ?? null);
         setFeed(await crewFeed(c, t, 5));
@@ -63,31 +55,18 @@ export default function CoinClaims({ token }: { token: string }) {
     setBusy(true); setErr(null);
     try {
       if (demo) { await new Promise((r) => setTimeout(r, 500)); setDone(`0x${"ef".repeat(32)}` as Hex); return; }
-      if (sheet === "creator" && mine != null) {
-        const calls = creatorClaimCalls([{ token: token as Address, claimable: mine, tokenSide: mineTok ? { asset: mineTok.asset, claimable: mineTok.raw, claimed: BigInt(0) } : null }], caps, me ?? undefined);
-        if (me) await preflight(pc(), calls, me);
-        setDone((await sendCreatorClaims(calls)).txHash);
-      }
       if (sheet === "crew") { if (me) await preflight(pc(), [crewClaimCall(token as Address)], me); setDone((await claimCrew([token as Address])).txHash); }
       void load();
     } catch (e) { setErr(claimErrorText(e)); } finally { setBusy(false); }
   };
 
   if (!valid) return null;
-  const claims = !!quote && (mine != null || crew != null || feed.length > 0);
+  const claims = !!quote && (crew != null || feed.length > 0);
   return (
     <>
       <div className="cl-coin" data-testid="coin-claims">
         {/* Coin page cleanup (lee, Oct 30): no "Floor support · Bins" pill on the coin page */}
-        {claims && quote && mine != null && (
-          <div className="cl-coin-pill creator" data-testid="creator-badge">
-            <span className="cl-dot" aria-hidden="true" />
-            <span className="lbl">Your fees</span>
-            <strong>{fmtAmount(mine, quote, 2)}</strong>
-            {mineTok && <strong>+ {fmtAmount(mineTok.raw, mineTok.asset, 2)}</strong>}
-            {mine > BigInt(0) || mineTok ? <button type="button" onClick={() => { setErr(null); setDone(null); setSheet("creator"); }}>Claim</button> : <Link href="/creator">Dashboard</Link>}
-          </div>
-        )}
+        {/* Fix batch (lee, Oct 31): no creator "Your fees · Claim" pill on the coin screen (it covered the top bar right after launch) */}
         {claims && quote && crew != null && (
           <div className="cl-coin-pill crew" data-testid="crew-pill">
             <span className="lbl">Crew rewards</span>
@@ -102,9 +81,8 @@ export default function CoinClaims({ token }: { token: string }) {
         ))}
       </div>
       {sheet && quote && (
-        <ConfirmSheet title={sheet === "creator" ? "Claim creator fees" : "Claim crew rewards"}
-          lines={[{ label: sheet === "creator" ? "Creator fees" : "Crew rewards", raw: (sheet === "creator" ? mine : crew) ?? BigInt(0), asset: quote },
-            ...(sheet === "creator" && mineTok ? [{ label: "Token share", raw: mineTok.raw, asset: mineTok.asset }] : [])]}
+        <ConfirmSheet title="Claim crew rewards"
+          lines={[{ label: "Crew rewards", raw: crew ?? BigInt(0), asset: quote }]}
           to={me} busy={busy} error={err} done={done} onConfirm={confirm} onClose={() => setSheet(null)} />
       )}
     </>
