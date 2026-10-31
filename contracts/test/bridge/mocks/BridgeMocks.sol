@@ -27,6 +27,9 @@ contract MockERC20 is ERC20 {
 contract MockVault is ERC4626 {
     bool public live = true;
     bool public redeemLive = true;
+    /// @dev Raw assets still available to `withdraw`. `type(uint256).max` means the whole position.
+    ///      A finite budget falls as withdrawals land, so one unwind cannot drain more than this call's cash.
+    uint256 public cash = type(uint256).max;
 
     constructor(IERC20 usdg_) ERC20("Steakhouse USDG", "stUSDG") ERC4626(usdg_) {}
 
@@ -38,6 +41,15 @@ contract MockVault is ERC4626 {
         redeemLive = v;
     }
 
+    function setCash(uint256 assets) external {
+        cash = assets;
+    }
+
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        uint256 m = super.maxWithdraw(owner);
+        return m > cash ? cash : m;
+    }
+
     function redeem(uint256 shares, address receiver, address owner) public override returns (uint256) {
         require(redeemLive, "redeem-down");
         return super.redeem(shares, receiver, owner);
@@ -45,7 +57,9 @@ contract MockVault is ERC4626 {
 
     function withdraw(uint256 assets, address receiver, address owner) public override returns (uint256) {
         require(live, "vault-down");
-        return super.withdraw(assets, receiver, owner);
+        uint256 out = super.withdraw(assets, receiver, owner);
+        if (cash != type(uint256).max) cash -= assets;
+        return out;
     }
 
     /// @dev Destroy assets so `previewRedeem` falls. Simulates a vault that cannot pay in full.

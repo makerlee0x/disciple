@@ -73,9 +73,9 @@ library BridgeConstants {
     uint16 internal constant MORPHO_CAP_BPS = 5_000;
     /// @dev Public wait before a vault admin's replacement vault can be executed.
     uint256 internal constant VAULT_TIMELOCK = 48 hours;
-    /// @dev Continuous time at or above the live target before graduated status turns on.
-    ///      The flag latches. Band, fee, boost, and Dutch size keep using live progress after that,
-    ///      including when the reference TVL later moves.
+    /// @dev Continuous time on one side of the live target before status flips. The same wait
+    ///      turns it on (pool TVL at or above the target) and off (pool TVL strictly below it).
+    ///      There is no percent band. Depth, fee, boost, and Dutch size do not wait on it.
     uint256 internal constant GRADUATION_WINDOW = 77 minutes;
 
     // ── Dutch quotes ────────────────────────────────────────────────────────

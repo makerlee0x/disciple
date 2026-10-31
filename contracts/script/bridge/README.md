@@ -4,6 +4,8 @@ This script deploys `DiscipleEngine`, `DiscipleAdminFacet`, `DiscipleLpFacet`, `
 
 It has not been run against Robinhood Chain testnet or Ethereum Sepolia.
 
+Graduation is not a deploy-time parameter. After a pool is created, status turns on once pool TVL has stayed at or above 12% of that pool's smoothed reference TVL for 77 continuous minutes, and it turns off once pool TVL has stayed below that same line for 77 continuous minutes. There is no percent band to set. Turning it off pulls the vault back to idle and pauses the creator's fee cut. The script does not perform either step.
+
 The hook address is mined with `HookMiner` (the same flags as the tests: `beforeInitialize`, `beforeAddLiquidity`, `beforeRemoveLiquidity`, `beforeSwap`, `beforeSwapReturnsDelta`). The CREATE2 deployer is a helper this script deploys, so the chain does not need the Arachnid proxy at `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
 
 ## Env

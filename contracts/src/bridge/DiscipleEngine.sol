@@ -116,6 +116,57 @@ contract DiscipleEngine {
         return BridgeFee.decayed(amount, dt, halfLife);
     }
 
+    /// @notice One step of the graduation flag. `edge` is 1 when status turns on and 2 when it turns off.
+    ///         The only buffer is time. Status turns on after `GRADUATION_WINDOW` continuously at or
+    ///         above `target`, and off after the same window strictly below `target`. The observation
+    ///         that starts a window does not flip in that call. Crossing back to the other side clears
+    ///         that clock. There is no percent band around the target.
+    function stepGrad(
+        uint256 poolTvl,
+        uint256 target,
+        bool graduated,
+        uint64 aboveSince,
+        uint64 belowSince,
+        uint256 timestamp
+    ) external pure returns (bool newGrad, uint64 newAbove, uint64 newBelow, uint8 edge) {
+        uint256 nowTs = timestamp == 0 ? 1 : timestamp;
+        newGrad = graduated;
+        newAbove = aboveSince;
+        newBelow = belowSince;
+        bool over = target != 0 && poolTvl >= target;
+        if (!newGrad) {
+            if (!over) {
+                newAbove = 0;
+                return (newGrad, newAbove, newBelow, 0);
+            }
+            if (newAbove == 0) {
+                newAbove = uint64(nowTs);
+                return (newGrad, newAbove, newBelow, 0);
+            }
+            if (nowTs >= uint256(newAbove) + C.GRADUATION_WINDOW) {
+                newGrad = true;
+                newBelow = 0;
+                edge = 1;
+            }
+            return (newGrad, newAbove, newBelow, edge);
+        }
+        if (over || target == 0) {
+            newBelow = 0;
+            return (newGrad, newAbove, newBelow, 0);
+        }
+        if (newBelow == 0) {
+            newBelow = uint64(nowTs);
+            return (newGrad, newAbove, newBelow, 0);
+        }
+        if (nowTs >= uint256(newBelow) + C.GRADUATION_WINDOW) {
+            newGrad = false;
+            newAbove = 0;
+            newBelow = 0;
+            edge = 2;
+        }
+        return (newGrad, newAbove, newBelow, edge);
+    }
+
     /// @dev The progress fee. Same number the curve charges.
     function feeBps(uint256 tvl, uint256 gradTvl) external pure returns (uint256) {
         return BridgeFee.baseFeeBps(tvl, gradTvl);

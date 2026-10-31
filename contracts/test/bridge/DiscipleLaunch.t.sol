@@ -81,54 +81,154 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertGe(hook.curve(id).x, hook.curve(id).seedFloor, "the seed guard still binds");
     }
 
-    function test_graduationLatchesAndReferenceGrowthReopensIncentives() public {
-        _fresh(10_000e18);
-        _climb();
-        usdg.mint(address(this), 3_000e18);
-        hook.deposit(id, 0, 2_500e18);
-        // The first observation starts the window. It does not graduate.
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated);
+    function test_graduationReversesAndIncentivesFollowProgress() public {
+        _openBook();
         uint256 lowFee = hook.bridgeQuote(id).suggestedFeeBps;
         assertLt(lowFee, 80, "over the line, the fee is already the low end");
-
-        skip(76 minutes);
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated, "76 minutes does not flip status");
-        skip(1 minutes);
-        hook.poke(id);
+        _finishWindow(true);
         assertTrue(hook.bridgeQuote(id).graduated);
-        assertGt(hook.curve(id).y, 0);
-        uint256 shares = _vaultShares();
-        assertGt(shares, 0, "graduation puts idle USDG in the vault");
+        assertGt(_shares(), 0, "graduation puts idle USDG in the vault");
 
-        // Same one-hour gap, measured at the target and again after the reference has grown.
+        usdg.mint(address(this), 5e18);
         _buy(key, address(coin), 1e18);
+        uint256 cut = hook.creatorFees(id);
+        assertGt(cut, 0, "the creator cut is on while status is on");
         skip(1 hours);
         (,,, uint256 tight,,) = hook.dutchQuote(id);
-        uint256 tightFee = hook.bridgeQuote(id).suggestedFeeBps;
 
-        // Six hours is twelve half-lives, so the smooth sits on the new $2M reading.
+        // Twelve half-lives put the reference smooth on $2M. Status is still on: this call only
+        // starts the off-window. The fee and the Dutch slice have already stepped back up.
         skip(6 hours);
         _price(id, hook.curve(id).anchor, 2_000_000e18);
-        assertTrue(hook.bridgeQuote(id).graduated, "a larger reference does not turn status off");
+        assertTrue(hook.bridgeQuote(id).graduated, "the first reading under the target does not flip");
         uint256 highFee = hook.bridgeQuote(id).suggestedFeeBps;
-        assertGt(highFee, 150, "falling back through the target raises the fee immediately");
+        assertGt(highFee, 150, "progress raises the fee before status turns off");
         assertGt(highFee, lowFee);
-        assertGt(highFee, tightFee);
-
         _buy(key, address(coin), 1e18);
+        // The hour that opens the Dutch quote is part of the off-window. 60 minutes does not flip.
         skip(1 hours);
         (,,, uint256 reopened,,) = hook.dutchQuote(id);
         assertGt(reopened, tight, "lower progress reopens the Dutch slice");
+        hook.poke(id);
+        assertTrue(hook.bridgeQuote(id).graduated, "one hour under the target does not flip");
 
-        vault.setRedeemLive(false);
+        skip(16 minutes);
+        hook.poke(id);
+        assertTrue(hook.bridgeQuote(id).graduated, "76 minutes under the target does not flip");
+        skip(1 minutes);
+        uint256 poker = usdg.balanceOf(address(this));
+        hook.poke(id);
+        assertFalse(hook.bridgeQuote(id).graduated, "77 minutes under the target turns status off");
+        assertEq(_shares(), 0, "status off returns the vault position to idle");
+        assertEq(usdg.balanceOf(address(this)), poker, "the unwind pays the pool, not the caller");
+        uint256 paused = hook.creatorFees(id);
+        _buy(key, address(coin), 1e18);
+        assertEq(hook.creatorFees(id), paused, "the creator cut pauses while status is off");
+
+        // A deposit that crosses the target in this block only starts the 77-minute clock.
+        usdg.mint(address(this), 300_000e18);
+        hook.deposit(id, 0, 250_000e18);
+        hook.poke(id);
+        assertFalse(hook.bridgeQuote(id).graduated, "the first reading back over the target does not flip");
+        skip(76 minutes);
+        hook.poke(id);
+        assertFalse(hook.bridgeQuote(id).graduated, "76 minutes over the target does not re-graduate");
+        skip(1 minutes);
+        hook.poke(id);
+        assertTrue(hook.bridgeQuote(id).graduated, "77 minutes over the target turns status back on");
+        assertGt(_shares(), 0, "re-graduation deposits idle USDG again");
+    }
+
+    function test_timeBufferResetsWhenThePoolCrossesBack() public {
+        _openBook();
+        _finishWindow(true);
+        uint256 v = BridgeCurve.tvl(hook.curve(id));
+        // Any amount under the target is the other side. There is no percent cushion.
+        skip(6 hours);
+        _price(id, hook.curve(id).anchor, _refFor(v, 0.99e18));
+        assertTrue(hook.bridgeQuote(id).graduated, "the first reading under the target starts the off-window");
+        skip(76 minutes);
+        hook.poke(id);
+        assertTrue(hook.bridgeQuote(id).graduated, "76 minutes under the target does not flip");
+
+        v = BridgeCurve.tvl(hook.curve(id));
+        skip(6 hours);
+        _price(id, hook.curve(id).anchor, _refFor(v, 1.01e18));
         skip(77 minutes);
         hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "status stays on with no vault redeem");
-        // Later pokes keep depositing idle USDG. The position may grow. It is not redeemed.
-        assertGe(_vaultShares(), shares, "the vault position is not redeemed");
-        assertGe(hook.bridgeQuote(id).suggestedFeeBps, highFee);
+        assertTrue(hook.bridgeQuote(id).graduated, "crossing back above the target clears the off-window");
+
+        v = BridgeCurve.tvl(hook.curve(id));
+        skip(6 hours);
+        _price(id, hook.curve(id).anchor, _refFor(v, 0.99e18));
+        skip(77 minutes);
+        hook.poke(id);
+        assertFalse(hook.bridgeQuote(id).graduated, "77 continuous minutes under the target turns status off");
+    }
+
+    function test_illiquidVaultUnwindsInPiecesAndADeadVaultRetries() public {
+        _openBook();
+        _finishWindow(true);
+        uint256 shares = _shares();
+        uint256 assets = vault.convertToAssets(shares);
+        vault.setCash(assets / 2);
+        _dropUnder();
+        assertFalse(hook.bridgeQuote(id).graduated);
+        uint256 left = _shares();
+        assertGt(left, 0, "cash the vault will not release stays in shares");
+        assertLt(left, shares);
+        vault.setCash(type(uint256).max);
+        hook.poke(id);
+        assertEq(_shares(), 0, "the next poke takes the rest");
+        assertFalse(hook.bridgeQuote(id).graduated);
+
+        skip(6 hours);
+        _price(id, hook.curve(id).anchor, 10_000e18);
+        _finishWindow(true);
+        assertTrue(hook.bridgeQuote(id).graduated);
+        shares = _shares();
+        assertGt(shares, 0);
+        vault.setLive(false);
+        _dropUnder();
+        assertFalse(hook.bridgeQuote(id).graduated, "status turns off even when withdraw reverts");
+        assertEq(_shares(), shares, "a reverting vault keeps the shares");
+        vault.setLive(true);
+        hook.poke(id);
+        assertEq(_shares(), 0, "a later poke retries the unwind");
+    }
+
+    function test_unwindLossFreezesDepositsLikeTheLossPull() public {
+        _openBook();
+        _finishWindow(true);
+        uint256 inVault = usdg.balanceOf(address(vault));
+        vault.slash(inVault / 2);
+        _dropUnder();
+        assertFalse(hook.bridgeQuote(id).graduated);
+        assertEq(_shares(), 0, "the remaining cash is withdrawn");
+
+        // Back over the line. A frozen vault does not take the idle USDG again.
+        skip(6 hours);
+        _price(id, 1e18, 10_000e18);
+        _finishWindow(true);
+        assertTrue(hook.bridgeQuote(id).graduated);
+        assertEq(_shares(), 0, "a loss on the unwind freezes new vault deposits");
+        assertGt(hook.curve(id).y, 0, "the idle USDG is back in the book");
+    }
+
+    function test_regraduationRestoresTheCreatorCut() public {
+        _openBook();
+        _finishWindow(true);
+        _dropUnder();
+        assertFalse(hook.bridgeQuote(id).graduated);
+        uint256 paused = hook.creatorFees(id);
+        skip(6 hours);
+        _price(id, 1e18, 10_000e18);
+        _finishWindow(true);
+        assertTrue(hook.bridgeQuote(id).graduated, "crossing back above the target re-graduates");
+        assertGt(_shares(), 0, "re-graduation deposits idle USDG again");
+        usdg.mint(address(this), 2e18);
+        _buy(key, address(coin), 1e18);
+        assertGt(hook.creatorFees(id), paused, "the creator cut resumes");
     }
 
     function test_crossingBackResetsTheGraduationTimer() public {
@@ -136,12 +236,13 @@ contract DiscipleLaunchTest is BridgeFixture {
         _climb();
         usdg.mint(address(this), 3_000e18);
         hook.deposit(id, 0, 2_500e18);
-        hook.poke(id);
+        _catchUp();
+        assertFalse(hook.bridgeQuote(id).graduated, "the catch-up starts the window");
         skip(30 minutes);
         hook.poke(id);
         assertFalse(hook.bridgeQuote(id).graduated);
 
-        // Wall-clock from the first over-observation passes 77 minutes while the pool is under.
+        // The next reading is already under the line, so the elapsed 77 minutes do not graduate.
         skip(6 hours);
         _price(id, 1e18, 2_000_000e18);
         assertFalse(hook.bridgeQuote(id).graduated);
@@ -275,7 +376,7 @@ contract DiscipleLaunchTest is BridgeFixture {
         p.refCoinIs0 = coin0;
     }
 
-    function _target() internal view returns (uint256) {
+    function _target() internal pure returns (uint256) {
         return (725_000e18 * C.GRAD_NUM) / C.GRAD_DEN;
     }
 
@@ -293,6 +394,47 @@ contract DiscipleLaunchTest is BridgeFixture {
         coin = _newCoin("GRAD", 18);
         (key, id) = _create(coin, 77e18, 0, C.FLOOR_BPS, C.DISCOUNT_BPS, 0, 0);
         _price(id, 1e18, refTvl);
+    }
+
+    /// @dev Six hours is twelve half-lives, so the reference smooth sits on the latest reading and
+    ///      the on-window starts if spot pool TVL is over the target. It does not graduate in this call.
+    function _catchUp() internal {
+        skip(6 hours);
+        hook.poke(id);
+    }
+
+    function _openBook() internal {
+        _fresh(10_000e18);
+        _climb();
+        usdg.mint(address(this), 3_000e18);
+        hook.deposit(id, 0, 2_500e18);
+        _catchUp();
+        assertFalse(hook.bridgeQuote(id).graduated, "the first over-reading starts the window");
+    }
+
+    /// @dev The window is already running. `turningOn` is the side this wait should reach.
+    function _finishWindow(bool turningOn) internal {
+        skip(76 minutes);
+        hook.poke(id);
+        assertEq(hook.bridgeQuote(id).graduated, !turningOn, "76 minutes does not flip status");
+        skip(1 minutes);
+        hook.poke(id);
+        assertEq(hook.bridgeQuote(id).graduated, turningOn);
+    }
+
+    function _dropUnder() internal {
+        skip(6 hours);
+        _price(id, hook.curve(id).anchor, 2_000_000e18);
+        assertTrue(hook.bridgeQuote(id).graduated, "the off-window starts on the first under-reading");
+        skip(77 minutes);
+        hook.poke(id);
+        assertFalse(hook.bridgeQuote(id).graduated);
+    }
+
+    /// @dev Reference TVL that puts `poolTvl / target` at `ratioWad` (1e18 = right on the target).
+    function _refFor(uint256 poolTvl, uint256 ratioWad) internal pure returns (uint256) {
+        uint256 target = (poolTvl * 1e18) / ratioWad;
+        return (target * 100) / 12;
     }
 
     function _climb() internal {

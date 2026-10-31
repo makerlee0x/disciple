@@ -186,26 +186,17 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         freshBlock[id][user] = 0;
     }
 
-    /// @dev Start or complete the 77-minute timer. The first observation never flips in the same call.
-    ///      Once `graduated` is set it stays set. Fee, band, boost, and Dutch size do not wait on
-    ///      this timer and do not freeze when the flag latches.
+    /// @dev Advance the status flag. The math lives on the engine so this stub stays small in every
+    ///      facet. Depth, fee, boost, and Dutch size do not wait on the 77-minute clock.
     function _touchGrad(PoolId id, Pool storage p) internal {
-        if (p.graduated) return;
-        uint256 target = _gradTvl(p);
         uint256 v = BridgeCurve.tvl(p.curve);
-        if (target == 0 || v < target) {
-            p.aboveSince = 0;
-            return;
-        }
-        if (p.aboveSince == 0) {
-            p.aboveSince = _stamp();
-            return;
-        }
-        if (block.timestamp >= uint256(p.aboveSince) + C.GRADUATION_WINDOW) {
-            p.graduated = true;
-            p.belowSince = 0;
-            emit Graduated(id, v, p.smoothedTvl);
-        }
+        (bool grad, uint64 above, uint64 below, uint8 edge) =
+            engine.stepGrad(v, _gradTvl(p), p.graduated, p.aboveSince, p.belowSince, block.timestamp);
+        p.graduated = grad;
+        p.aboveSince = above;
+        p.belowSince = below;
+        if (edge == 1) emit Graduated(id, v, p.smoothedTvl);
+        else if (edge == 2) emit Ungraduated(id, v, _gradTvl(p));
     }
 
     /// @dev Timestamp 0 would look like "not started", so a zero clock is stored as 1.

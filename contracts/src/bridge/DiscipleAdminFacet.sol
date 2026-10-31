@@ -62,8 +62,9 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         _locked = false;
     }
 
-    /// @notice Permissionless. Sync a same-chain anchor, then turn graduated status on if its
-    ///         77-minute window has elapsed. Time alone does not write storage. Status does not turn off.
+    /// @notice Permissionless. Sync a same-chain anchor, then move graduated status if its
+    ///         77-minute window has elapsed. Time alone does not write storage. Turning status off
+    ///         withdraws the vault position back to idle, partially if the vault is short on cash.
     function poke(PoolId id) external {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
@@ -146,7 +147,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         return _withdrawVault(pools[id], shortNorm);
     }
 
-    /// @dev Swap path. The 77-minute timer, then the vault. Status latches, so a later dip does not exit.
+    /// @dev Swap path. The 77-minute timer, then the vault. Status off pulls the vault back to idle.
     function afterTrade(PoolId id) external {
         _onlyDelegate();
         _settleGrad(id, pools[id]);
@@ -191,7 +192,64 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
     function _settleGrad(PoolId id, Pool storage p) internal {
         if (!p.exists) return;
         _touchGrad(id, p);
+        if (!p.graduated && p.vaultShares != 0) _unwindVault(id, p);
         _rebalance(id, p);
+    }
+
+    /// @dev Same loss rule as `pullVaultOnLoss`: a share price below the books is socialized and
+    ///      freezes new deposits. Cash that the vault will not release this call stays in shares
+    ///      and the next poke or trade tries again. A full admin pull still reverts if `redeem` fails.
+    function _unwindVault(PoolId id, Pool storage p) internal {
+        if (p.vaultShares == 0 || p.poolVault == address(0)) return;
+        // A reverting view leaves the shares for the next poke. Status is already off.
+        uint256 previewRaw;
+        try IERC4626(p.poolVault).previewRedeem(p.vaultShares) returns (uint256 assetsRaw) {
+            previewRaw = assetsRaw;
+        } catch {
+            return;
+        }
+        uint256 preview = _toNorm(previewRaw, usdgDec);
+        uint256 loss = p.vaultAssets > preview ? p.vaultAssets - preview : 0;
+        _syncVault(p);
+        if (loss > 0) p.vaultFrozen = true;
+        uint256 got = 0;
+        for (uint256 i; i < 4 && p.vaultShares != 0; ++i) {
+            uint256 capRaw;
+            try IERC4626(p.poolVault).maxWithdraw(address(this)) returns (uint256 m) {
+                capRaw = m;
+            } catch {
+                break;
+            }
+            uint256 accountedRaw = _toRaw(p.vaultAssets, usdgDec);
+            if (capRaw > accountedRaw) capRaw = accountedRaw;
+            if (capRaw == 0) break;
+            uint256 beforeShares = p.vaultShares;
+            if (!_withdrawExact(p, capRaw)) break;
+            got += _toNorm(capRaw, usdgDec);
+            if (p.vaultShares == beforeShares) break;
+        }
+        if (loss > 0) emit VaultLossPulled(id, got, loss);
+    }
+
+    /// @dev `withdraw` of an exact raw amount. False when the vault reverts. Dust shares stay put.
+    function _withdrawExact(Pool storage p, uint256 raw) internal returns (bool) {
+        if (raw == 0 || p.vaultShares == 0 || p.poolVault == address(0)) return false;
+        uint256 burned;
+        try IERC4626(p.poolVault).withdraw(raw, address(this), address(this)) returns (uint256 sharesBurned) {
+            burned = sharesBurned;
+        } catch {
+            return false;
+        }
+        if (burned > p.vaultShares) revert Invariant();
+        p.vaultShares -= burned;
+        uint256 gotNorm = _toNorm(raw, usdgDec);
+        if (p.vaultShares == 0) p.vaultAssets = 0;
+        else if (gotNorm >= p.vaultAssets) p.vaultAssets = 0;
+        else p.vaultAssets -= gotNorm;
+        _walletToClaims(usdgC, raw);
+        usdgClaimsNorm += gotNorm;
+        emit VaultWithdraw(_id(p), gotNorm);
+        return true;
     }
 
     function _readCallData(Pool storage p) internal view returns (bytes memory) {
@@ -293,6 +351,9 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
             uint256 loss = p.vaultAssets - assets;
             p.vaultAssets = assets;
             _socializeLoss(p, loss);
+            // Same freeze as `pullVaultOnLoss`. A loss observed on a trade or a poke must not
+            // be followed by a fresh deposit, including during the 77 minutes before status turns off.
+            p.vaultFrozen = true;
         }
     }
 

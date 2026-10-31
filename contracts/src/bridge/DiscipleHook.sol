@@ -32,8 +32,10 @@ interface IBridgeHandle {
 ///         30-minute ring this hook samples from a v4 pool's `slot0`. v4 concentrated liquidity is
 ///         disabled, and every swap is quoted in `beforeSwap`. See `DESIGN.md`. This contract is
 ///         `DiscipleHook`. The post-graduation 1% fee hook in this repo is `AscensionHook`. Graduated
-///         status latches. The band, the fee, the boost, and Dutch size keep following live progress.
-///         Pools are not migrated onto `AscensionHook`.
+///         status turns on after 77 minutes at or above the live target and turns off after 77
+///         minutes below it. The depth band, the fee, the boost, and Dutch size keep following
+///         live progress either way. Pools are not migrated onto `AscensionHook`, so turning
+///         status off has nothing to undo there.
 /// @dev Storage lives here. Writes `delegatecall` a facet whose address is fixed at construction:
 ///      swaps, LP accounting, and the vault admin. Views run here so they stay `staticcall`-able.
 ///      No facet can be replaced. The v4 `slot0` price is a dummy and is never read.

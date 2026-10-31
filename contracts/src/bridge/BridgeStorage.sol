@@ -88,9 +88,9 @@ abstract contract BridgeStorage {
         uint64 dutchAt;
         /// @dev Wad of gap per second. Fixed at creation.
         uint64 dutchDrift;
-        /// @dev First timestamp the pool was seen at or above the live target. 0 means not running.
+        /// @dev First timestamp pool TVL was seen at or above the live target. 0 means not running.
         uint64 aboveSince;
-        /// @dev Cleared when status latches. Status does not turn off, so this is not a countdown.
+        /// @dev First timestamp pool TVL was seen strictly below the live target. 0 means not running.
         uint64 belowSince;
         /// @dev Last time `smoothedTvl` was updated. The raw reading stays in `ethTvl`.
         uint64 smoothAt;
@@ -233,6 +233,7 @@ abstract contract BridgeStorage {
     event PriceRequested(PoolId indexed id, bytes32 indexed guid, address indexed caller);
     event PriceUpdated(PoolId indexed id, uint256 anchor, uint256 ethTvl, uint256 tip);
     event Graduated(PoolId indexed id, uint256 poolTvl, uint256 ethTvl);
+    event Ungraduated(PoolId indexed id, uint256 poolTvl, uint256 target);
     event VaultDeposit(PoolId indexed id, uint256 assets);
     event VaultWithdraw(PoolId indexed id, uint256 assets);
     event CreatorSet(PoolId indexed id, address indexed creator);
