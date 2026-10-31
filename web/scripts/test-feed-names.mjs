@@ -52,7 +52,8 @@ const B40 = "0xef21000000000000000000000000000000008e30";
   ok(E.nameOf("bot_alice") === "bot_alice", "sim bot names pass through");
   win.__discipleNames = { [A]: "@verylongusername99" }; ok(E.nameOf(A.toUpperCase().replace("0X", "0x")) === "@verylonguse", "site map, case-insensitive, one @, ≤11 chars: " + E.nameOf(A));
   const r = E.feedTradeRow("buy", 25, null, B40); ok(r.txt.endsWith("0xef21…8e30") && r.tr === B40, "live row keeps its trader for relabel");
-  const you = E.feedTradeRow("sell", 4, "(you)", ME); ok(you.txt.endsWith("(you)") && !you.tr, "player row: '(you)', never relabelled");
+  const you = E.feedTradeRow("sell", 4, "(you)", ME); ok(you.txt.endsWith("(you)") && you.own === 1 && you.tr === ME, "player row: '(you)', keeps its wallet (un-tagged on sign-out / switch)");
+  E.feedRelabel([you]); ok(you.txt.endsWith("(you)"), "player row never relabelled by names");
   E.NAMES[B40] = "whale"; E.feedRelabel([r, you]); ok(r.txt.endsWith("@whale") && you.txt.endsWith("(you)"), "late name (disciple:names) relabels the row: " + r.txt);
   ok(r.txt.length <= 38, "named row fits the 38-char feed width"); }
 ok(/addEventListener\('disciple:names',[^\n]*NAMES\[[^\n]*feedRelabel\(S\.feed\)/.test(eng), "engine listens to disciple:names → NAMES + relabel");
