@@ -138,9 +138,7 @@
 
   /* gradient */
   --dsc-gradient-signature: linear-gradient(90deg, #0B0C0E 0%, #2E323A 30%, #4A505C 50%, #8A3A1C 70%, #C2552A 86%, #FF7A3D 100%);
-  --dsc-gradient-signature-glow: radial-gradient(70% 90% at 85% 100%, rgba(194,85,42,0.55) 0%, rgba(138,58,28,0.35) 30%, rgba(74,80,92,0.18) 55%, rgba(11,12,14,0) 80%);
   --dsc-gradient-ascent: linear-gradient(180deg, #121327 0%, #202141 30%, #44426A 62%, #8585AA 86%, #F3DFA8 100%);
-  --dsc-gradient-gold-glow: radial-gradient(closest-side, rgba(242,193,78,0.38) 0%, rgba(242,193,78,0.12) 55%, rgba(242,193,78,0) 100%);
   --dsc-gradient-scrim-bottom: linear-gradient(0deg, rgba(11,12,14,0.86) 0%, rgba(11,12,14,0.72) 22%, rgba(11,12,14,0) 58%);
   --dsc-gradient-scrim-top: linear-gradient(180deg, rgba(11,12,14,0.82) 0%, rgba(11,12,14,0.72) 14%, rgba(11,12,14,0) 42%);
   --dsc-gradient-scrim-side: linear-gradient(90deg, rgba(11,12,14,0.84) 0%, rgba(11,12,14,0.72) 26%, rgba(11,12,14,0) 48%);
@@ -164,7 +162,9 @@
   --dsc-space-24: 96px;
   --dsc-space-32: 128px;
 
-  /* radius */
+  /* radius — three steps used by shared CSS. Older names stay so component CSS outside this pass still resolves. */
+  --dsc-radius-6: 6px;
+  --dsc-radius-12: 12px;
   --dsc-radius-xs: 6px;
   --dsc-radius-sm: 8px;
   --dsc-radius-md: 10px;
@@ -191,12 +191,7 @@
   --dsc-shadow-xl: 0 30px 80px rgba(0,0,0,0.60);
   --dsc-shadow-inset-hairline: inset 0 0 0 1px rgba(201,206,214,0.06);
 
-  /* glow */
-  --dsc-glow-silver: 0 0 14px rgba(201,206,214,0.35);
-  --dsc-glow-silver-soft: 0 0 20px rgba(201,206,214,0.12);
-  --dsc-glow-gold: 0 0 24px rgba(242,193,78,0.35), 0 0 64px rgba(242,193,78,0.12);
-  --dsc-glow-up: 0 0 16px rgba(95,240,160,0.30);
-  --dsc-glow-down: 0 0 16px rgba(240,48,127,0.30);
+  /* focus ring (not a decorative glow) */
   --dsc-glow-focus-ring: 0 0 0 2px #0B0C0E, 0 0 0 4px rgba(201,206,214,0.8);
 
   /* duration */
