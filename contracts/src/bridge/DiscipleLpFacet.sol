@@ -14,15 +14,22 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
+import {BridgeV4Anchor} from "./libraries/BridgeV4Anchor.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
 /// @title Disciple LP facet
 /// @notice Create, deposit, redeem, and the keeper callback for Disciple (`DiscipleHook`).
 ///         Runs as the hook via `delegatecall`. v4 still sees the hook address.
+interface IBridgeReference {
+    function onReference(PoolId id) external;
+}
+
 contract DiscipleLpFacet is DiscipleFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
+
+    address internal immutable adminFacet;
 
     constructor(
         IPoolManager manager_,
@@ -30,8 +37,12 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        DiscipleEngine engine_
-    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {}
+        DiscipleEngine engine_,
+        address adminFacet_
+    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
+        if (adminFacet_ == address(0)) revert BadCreate();
+        adminFacet = adminFacet_;
+    }
 
     function createPool(CreateParams calldata c) external returns (PoolKey memory key, PoolId id) {
         _onlyDelegate();
@@ -40,16 +51,9 @@ contract DiscipleLpFacet is DiscipleFacetBase {
 
         if (c.coin == address(0) || c.coin == usdg || c.coin.code.length == 0) revert BadCreate();
         if (c.creator == address(0)) revert BadCreate();
-        if (c.anchorKind == C.ANCHOR_LZ) {
-            if (c.remoteOracle == address(0) || c.v3Pool != address(0)) revert BadCreate();
-        } else if (c.anchorKind == C.ANCHOR_V3) {
-            // No keeper, so a tip seed would sit in a budget nobody is paid from.
-            if (c.v3Pool == address(0) || c.tipSeed != 0 || c.remoteOracle != address(0) || c.remoteEid != 0) {
-                revert BadCreate();
-            }
-        } else {
-            revert BadCreate();
-        }
+        if (
+            !engine.anchorOk(c.anchorKind, c.remoteOracle, c.v3Pool, c.refPoolId, c.refHook, c.tipSeed, c.remoteEid)
+        ) revert BadCreate();
         if (c.floorBps < 100 || c.floorBps > 5_000) revert BadCreate();
         if (c.discountBps < 1_000 || c.discountBps > 5_000) revert BadCreate();
         if (c.coinSeed == 0) revert BadCreate();
@@ -58,10 +62,8 @@ contract DiscipleLpFacet is DiscipleFacetBase {
             if (c.outflowCapBps == 0 || c.outflowCapBps > C.BPS) revert BadCreate();
         }
         if (c.morphoCapBps > C.BPS) revert BadCreate();
-        uint64 half = c.revHalfLife == 0 ? uint64(C.REV_HALF_LIFE) : c.revHalfLife;
-        if (half < C.REV_HALF_LIFE_MIN || half > C.REV_HALF_LIFE_MAX) revert BadCreate();
-        uint256 red = c.revRedLineWad == 0 ? C.REV_RED_LINE_WAD : c.revRedLineWad;
-        if (red < C.REV_RED_LINE_MIN || red > C.REV_RED_LINE_MAX) revert BadCreate();
+        uint64 drift = engine.normalizeDrift(c.dutchDrift);
+        if (drift == 0) revert BadCreate();
 
         uint8 coinDec = IERC20Metadata(c.coin).decimals();
         if (coinDec > 18) revert BadCreate();
@@ -100,19 +102,21 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         p.poolVault = vault;
         p.morphoCapBps = c.morphoCapBps;
         p.vaultAdmin = c.vaultAdmin;
-        p.revHalfLife = half;
-        p.revRedLineWad = red;
-        p.revAt = uint64(block.timestamp);
+        p.dutchDrift = drift;
+        p.dutchAt = block.timestamp == 0 ? 1 : uint64(block.timestamp);
+        p.refPoolId = c.refPoolId;
+        p.refHook = c.refHook;
+        p.refCoinIs0 = c.refCoinIs0;
         p.key = key;
         // `init` takes memory. Assigning the copy is what actually stores the seed.
         BridgeCurve.S memory seeded;
         BridgeCurve.init(seeded, coinNorm, uint256(c.discountBps) * 1e14); // bps → WAD (3300 bps = 0.33e18)
         p.curve = seeded;
-        if (c.anchorKind == C.ANCHOR_V3) {
-            // Reads `observe`. Reverts if the pair is wrong or the pool has no 30-minute history.
-            // There is no spot fallback.
+        if (_sameChain(c.anchorKind)) {
+            // v3 `observe` reverts when the pair is wrong or the pool has no 30-minute history.
+            // A v4 self-sample that is not warm yet leaves the anchor at 0. Swaps revert until it is.
             _persistReference(p);
-            _maybeGraduate(id, p);
+            _touchGrad(id, p);
         }
 
         // Self-call: v4 skips beforeInitialize when the hook is msg.sender. Anyone else hits the revert below.
@@ -148,7 +152,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         if (_locked) revert Reentrancy();
         Pool storage p = pools[id];
         if (!p.exists || raw == 0) revert BadCreate();
-        if (p.anchorKind != C.ANCHOR_LZ) revert SameChain();
+        if (_sameChain(p.anchorKind)) revert SameChain();
         _locked = true;
         uint256 got = _pull(usdg, msg.sender, raw);
         poolManager.unlock(abi.encode(OP_TIP, PoolId.unwrap(id), got, msg.sender));
@@ -166,7 +170,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         sharesMinted = abi.decode(ret, (uint256));
     }
 
-    /// @notice Redeem `shares` now. Pays the rev fee (plus staleness) on the value removed.
+    /// @notice Redeem `shares` now. Pays the progress fee on the value removed.
     function redeem(PoolId id, uint256 shares) external returns (uint256 coinRaw, uint256 usdgRaw) {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
@@ -319,16 +323,28 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         PendingRead memory pend = pendingReads[guid];
         if (pend.caller == address(0)) revert UnknownRead();
         delete pendingReads[guid];
-        (uint256 price, uint256 ethTvl) = abi.decode(result, (uint256, uint256));
-        if (price == 0) revert BadPrice();
 
         Pool storage p = pools[pend.poolId];
-        BridgeCurve.S memory anchored = p.curve;
-        BridgeCurve.onAnchor(anchored, price);
-        p.curve = anchored;
-        p.ethTvl = ethTvl;
-        p.updatedAt = block.timestamp;
-        _maybeGraduate(pend.poolId, p);
+        uint256 price;
+        uint256 ethTvl;
+        if (p.anchorKind == C.ANCHOR_LZ_V4_SLOT) {
+            (uint160 sqrtP, int24 tick, uint128 liq) = abi.decode(result, (uint160, int24, uint128));
+            bytes32 raw = PoolId.unwrap(pend.poolId);
+            BridgeV4Anchor.record(rings[raw], obs[raw], tick);
+            (bool ready, uint256 px, uint256 tvl) =
+                BridgeV4Anchor.read(rings[raw], obs[raw], sqrtP, liq, p.refCoinIs0, p.coinDec, usdgDec);
+            // A cold ring is not a bad read. The callback records the tick and leaves the anchor.
+            if (ready && px != 0) {
+                _applyAnchor(p, px, tvl);
+                price = px;
+                ethTvl = tvl;
+            }
+        } else {
+            (price, ethTvl) = abi.decode(result, (uint256, uint256));
+            if (price == 0) revert BadPrice();
+            _applyAnchor(p, price, ethTvl);
+        }
+        _delegate(adminFacet, abi.encodeCall(IBridgeReference.onReference, (pend.poolId)));
 
         uint256 tip;
         if (p.tipBudget > 0) {
@@ -438,23 +454,13 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         uint256 outY,
         uint256 credit,
         uint256 spotP
-    ) internal returns (uint256 userX, uint256 userY, uint256 paidCredit, uint256 wfee) {
+    ) internal view returns (uint256 userX, uint256 userY, uint256 paidCredit, uint256 wfee) {
         if (outX > s.x) outX = s.x;
         uint256 principal = s.protoY + s.lpY;
         if (outY > principal) outY = principal;
 
         uint256 value = outY + credit + (spotP == 0 ? 0 : Math.mulDiv(outX, spotP, C.WAD));
-        uint256 age = p.anchorKind == C.ANCHOR_V3 ? 0 : _age(p);
-        uint256 vNow = BridgeCurve.tvl(s);
-        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
-        uint256 vol = engine.decayed(p.revVolume, dt, p.revHalfLife);
-        uint256 bps = BridgeFee.applyStale(
-            engine.feeBps(vNow, _gradTvl(p), vol + value, p.revRedLineWad, _revDenom(p, vNow)), age
-        );
-        if (value != 0) {
-            p.revVolume = vol + value;
-            p.revAt = uint64(block.timestamp);
-        }
+        uint256 bps = BridgeFee.baseFeeBps(BridgeCurve.tvl(s), _gradTvl(p));
         wfee = value == 0 ? 0 : Math.mulDiv(value, bps, C.BPS, Math.Rounding.Ceil);
 
         uint256 left = wfee;

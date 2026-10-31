@@ -71,14 +71,14 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
 
         (bool mintLp, address recipient) = _decodeHookData(hookData, sender);
         BridgeCurve.S memory s = p.curve;
-        uint256 age = p.anchorKind == C.ANCHOR_V3 ? 0 : _age(p);
-        BridgeCurve.Ctx memory ctx = _ctx(p, s, p.ethTvl, age);
+        BridgeCurve.Ctx memory ctx = _ctx(p, s);
         _rollOutflow(p);
 
         uint256 specNorm = _toNorm(specRaw, specIsCoin ? p.coinDec : usdgDec);
+        uint256 gap = _gap(p);
         BridgeCurve.Fill memory f;
-        if (specIsCoin) (s, f) = engine.sell(s, ctx, specNorm);
-        else (s, f) = engine.buy(s, ctx, specNorm);
+        if (specIsCoin) (s, f) = engine.trade(s, ctx, specNorm, true, gap);
+        else (s, f) = engine.trade(s, ctx, specNorm, false, gap);
 
         if (f.capped) revert ExceedsCap();
         if (specIsCoin) {
@@ -88,8 +88,9 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         }
 
         p.curve = s;
-        // Gross USDG of the fill. Buys: the input. Sells: proceeds before the fee. Decay cannot go backwards.
-        _noteRev(p, specIsCoin ? f.usdgOut + f.fee : f.usdgIn);
+        // One clock for both quotes. The next trade in this second sees no gap, so the launch
+        // discount is not replaced by a Dutch price that has not had time to drift.
+        p.dutchAt = block.timestamp == 0 ? 1 : uint64(block.timestamp);
         // Park the LP's fee until the next block so shares minted in this one cannot collect it.
         if (f.toLp > 0) p.blockFee += f.toLp;
         p.tipBudget += f.tip;

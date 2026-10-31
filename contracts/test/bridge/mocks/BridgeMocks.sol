@@ -26,11 +26,21 @@ contract MockERC20 is ERC20 {
 /// @notice ERC-4626 whose `withdraw` can be switched off. Donations (raw transfers in) raise the share price.
 contract MockVault is ERC4626 {
     bool public live = true;
+    bool public redeemLive = true;
 
     constructor(IERC20 usdg_) ERC20("Steakhouse USDG", "stUSDG") ERC4626(usdg_) {}
 
     function setLive(bool v) external {
         live = v;
+    }
+
+    function setRedeemLive(bool v) external {
+        redeemLive = v;
+    }
+
+    function redeem(uint256 shares, address receiver, address owner) public override returns (uint256) {
+        require(redeemLive, "redeem-down");
+        return super.redeem(shares, receiver, owner);
     }
 
     function withdraw(uint256 assets, address receiver, address owner) public override returns (uint256) {
@@ -72,6 +82,26 @@ contract MockLzRead is ILzRead {
     function fulfill(bytes32 guid, uint256 priceWad, uint256 tvlWad) external {
         require(guid == lastGuid, "guid");
         ILzReadConsumer(consumer).onLzRead(guid, abi.encode(priceWad, tvlWad));
+    }
+
+    function fulfillBytes(bytes32 guid, bytes calldata result) external {
+        require(guid == lastGuid, "guid");
+        ILzReadConsumer(consumer).onLzRead(guid, result);
+    }
+}
+
+/// @notice Reference hook whose `consult` is a stored USDG price and TVL.
+contract MockV4Oracle {
+    uint256 public priceWad = 1e18;
+    uint256 public tvlWad = 1_000_000e18;
+
+    function set(uint256 price, uint256 tvl) external {
+        priceWad = price;
+        tvlWad = tvl;
+    }
+
+    function consult(bytes32, uint32) external view returns (uint256, uint256) {
+        return (priceWad, tvlWad);
     }
 }
 

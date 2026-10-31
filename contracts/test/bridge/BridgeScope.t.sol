@@ -192,8 +192,10 @@ contract BridgeVaultAdminTest is BridgeFixture {
                 tipSeed: 5e18,
                 morphoCapBps: 1_000,
                 vaultAdmin: admin,
-                revHalfLife: 0,
-                revRedLineWad: 0
+                dutchDrift: 0,
+                refPoolId: bytes32(0),
+                refHook: address(0),
+                refCoinIs0: false
             })
         );
         _price(pid, 1e18, 725_000e18);
@@ -340,9 +342,14 @@ contract BridgeVaultAdminTest is BridgeFixture {
         assertGe(hook.spotPrice(pid), 1e18);
         usdg.mint(address(this), 3_000e18);
         hook.deposit(pid, 0, 2_500e18);
-        vm.warp(block.timestamp + 31 minutes);
+        // Twelve half-lives of the 30-minute TVL smooth, so $725k can fall to about $10k
+        // before the 77-minute graduation window starts. A 31-minute warp leaves the
+        // target near 12% of $725k, and this book is not over that line.
+        skip(6 hours);
         _price(pid, hook.curve(pid).anchor, 10_000e18);
-        hook.rebalance(pid);
+        assertFalse(hook.bridgeQuote(pid).graduated);
+        skip(77 minutes);
+        hook.poke(pid);
         assertTrue(hook.bridgeQuote(pid).graduated);
     }
 }

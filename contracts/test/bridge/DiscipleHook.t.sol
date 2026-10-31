@@ -13,6 +13,7 @@ import {IEthAnchor} from "../../src/bridge/interfaces/IEthAnchor.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
+import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
 import {MockERC20} from "./mocks/BridgeMocks.sol";
@@ -41,8 +42,11 @@ contract DiscipleHookTest is BridgeFixture {
         assertEq(hook.curve(id).x, 77e18);
         BridgeStorage.BridgeQuote memory q = hook.bridgeQuote(id);
         assertLt(q.priceGapBps, 0);
-        // Quiet book, either side of the anchor: the floor. Not a discount for bridging coin in.
-        assertEq(q.suggestedFeeBps, C.FEE_FLOOR_BPS);
+        // $77 against 12% of $725k is still the top of the slide, not the 0.3% end.
+        uint256 expect = BridgeFee.baseFeeBps(BridgeCurve.tvl(hook.curve(id)), _target());
+        assertEq(q.suggestedFeeBps, expect);
+        assertGt(q.suggestedFeeBps, 190);
+        assertLt(q.suggestedFeeBps, C.FEE_TINY_BPS);
         assertFalse(q.stale);
         assertFalse(q.graduated);
         assertEq(bytes4(lz.lastCallData()), IEthAnchor.latest.selector);
@@ -101,10 +105,11 @@ contract DiscipleHookTest is BridgeFixture {
         assertGt(k.fee, 0);
     }
 
-    function test_buyClimbsAndRevFeePilesIn() public {
+    function test_buyClimbsAndFeeDoesNotRiseWithVolume() public {
         (, uint256 buyFee,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
-        assertGt(buyFee, (10e18 * C.FEE_FLOOR_BPS) / 10_000, "the clip itself revs off the floor");
-        assertLt(buyFee, (10e18 * C.FEE_TINY_BPS) / 10_000, "one clip on the seed does not pin the cap");
+        uint256 tiny = (10e18 * C.FEE_TINY_BPS) / 10_000;
+        assertGt(buyFee, (10e18 * C.FEE_FLOOR_BPS) / 10_000);
+        assertLt(buyFee, tiny, "the seed is nowhere near the live target");
 
         usdg.mint(address(this), 20e18);
         _buy(key, address(coin), 10e18);
@@ -112,40 +117,31 @@ contract DiscipleHookTest is BridgeFixture {
         assertLt(hook.spotPrice(id), 1e18);
 
         (, uint256 second,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
-        assertGt(second, buyFee, "a pile-in in the same block pays more");
-        (uint256 vol,,,,) = hook.revState(id);
-        assertGt(vol, 9e18);
+        assertLe(second, buyFee, "a second clip in the same block does not pay more");
 
         coin.mint(address(this), 5e18);
         (uint256 sellOut, uint256 sellFee,, uint256 used) = hook.quoteExactIn(key, _sellZfo(), 2e18);
         assertGt(used, 0);
         uint256 sellBps = (sellFee * 10_000) / (sellOut + sellFee);
         uint256 buyBps = (buyFee * 10_000) / 10e18;
-        assertGt(sellBps, buyBps, "later volume pays more; direction is not a discount");
+        assertApproxEqAbs(sellBps, buyBps, 3, "direction is not a discount");
         _solvent(id, address(coin));
     }
 
-    function test_washOnlyRaisesTheAccumulator() public {
-        (, uint256 quiet,,) = hook.quoteExactIn(key, _buyZfo(), 5e18);
+    function test_washDoesNotRaiseTheFee() public {
+        uint256 before = hook.bridgeQuote(id).suggestedFeeBps;
         usdg.mint(address(this), 15e18);
         _buy(key, address(coin), 10e18);
-        (uint256 vol1,,,,) = hook.revState(id);
-        (, uint256 afterBuy,,) = hook.quoteExactIn(key, _buyZfo(), 5e18);
-        assertGt(afterBuy, quiet);
         uint256 got = coin.balanceOf(address(this));
         assertGt(got, 0);
-        // A slice of the fill. Dumping the whole purchase back into the 20% floor is a
-        // different question; any positive sell is enough to show the accumulator only rises.
         uint256 piece = got / 5;
         (,, bool capped, uint256 used) = hook.quoteExactIn(key, _sellZfo(), piece);
         uint256 sellAmt = capped ? used : piece;
         assertGt(sellAmt, 0);
-        assertLe(sellAmt, got);
         _sell(key, address(coin), sellAmt);
-        (uint256 vol2,,,,) = hook.revState(id);
-        assertGt(vol2, vol1, "selling the coins back only adds volume");
-        (, uint256 afterRound,,) = hook.quoteExactIn(key, _buyZfo(), 5e18);
-        assertGe(afterRound, afterBuy);
+        uint256 afterFee = hook.bridgeQuote(id).suggestedFeeBps;
+        assertLe(afterFee, before, "volume cannot raise the progress fee");
+        assertGt(afterFee, C.FEE_FLOOR_BPS);
         _solvent(id, address(coin));
     }
 
@@ -158,37 +154,34 @@ contract DiscipleHookTest is BridgeFixture {
         hook.deposit(id2, 0, 40e18);
         bool zfo = Currency.unwrap(k2.currency0) != address(c2);
         (, uint256 feeB,,) = hook.quoteExactIn(k2, zfo, 10e18);
-        // Open TVL is the seed. A $40 deposit in this block must not dilute the clip toward ~0.6%.
+        // Both books are tiny against the same target, so a $40 deposit barely moves a ~2% fee.
         assertApproxEqAbs(feeB, feeA, 0.002e18);
-        assertGt(feeB, 0.065e18);
-        (,,,, uint256 openTvl) = hook.revState(id2);
-        assertLt(openTvl, 90e18);
-        assertGt(BridgeCurve.tvl(hook.curve(id2)), openTvl);
+        assertGt(feeB, 0.15e18);
     }
 
-    function test_revKnobsAreFixedAtCreation() public {
-        (,, uint64 half, uint256 red,) = hook.revState(id);
-        assertEq(half, uint64(C.REV_HALF_LIFE));
-        assertEq(red, C.REV_RED_LINE_WAD);
+    function test_dutchDriftIsFixedAtCreation() public {
+        (uint64 drift, uint64 at_) = hook.dutchState(id);
+        assertEq(drift, uint64(C.DUTCH_DRIFT_DEFAULT));
+        assertEq(at_, uint64(block.timestamp));
         usdg.mint(address(this), 5e18);
         _buy(key, address(coin), 5e18);
-        (,, uint64 half2, uint256 red2,) = hook.revState(id);
-        assertEq(half2, half);
-        assertEq(red2, red);
+        (uint64 drift2, uint64 at2) = hook.dutchState(id);
+        assertEq(drift2, drift);
+        assertEq(at2, uint64(block.timestamp));
 
         MockERC20 bad = _newCoin("SHORT", 18);
         bad.mint(address(this), 10e18);
         bad.approve(address(hook), type(uint256).max);
         vm.expectRevert(BridgeStorage.BadCreate.selector);
-        hook.createPool(_params(address(bad), 10e18, 30, 0));
+        hook.createPool(_params(address(bad), 10e18, 1));
 
         MockERC20 custom = _newCoin("CUSTOM", 18);
         custom.mint(address(this), 10e18);
         custom.approve(address(hook), type(uint256).max);
-        (, PoolId cid) = hook.createPool(_params(address(custom), 10e18, uint64(2 hours), 1e18));
-        (,, uint64 ch, uint256 cr,) = hook.revState(cid);
-        assertEq(ch, uint64(2 hours));
-        assertEq(cr, 1e18);
+        uint64 want = uint64(C.DUTCH_DRIFT_DEFAULT) * 2;
+        (, PoolId cid) = hook.createPool(_params(address(custom), 10e18, want));
+        (uint64 ch,) = hook.dutchState(cid);
+        assertEq(ch, want);
     }
 
     function test_noDirectionDiscountOnceAboveTheAnchor() public {
@@ -199,17 +192,27 @@ contract DiscipleHookTest is BridgeFixture {
         _price(id, hook.curve(id).anchor, 725_000e18);
         BridgeStorage.BridgeQuote memory q = hook.bridgeQuote(id);
         assertGe(q.poolPriceWad, q.anchorPriceWad);
-        // Eight half-lives forget the climb. The suggested fee is the floor, not half the cap.
-        assertLe(q.suggestedFeeBps, C.FEE_FLOOR_BPS + 5);
-        assertGe(q.suggestedFeeBps, C.FEE_FLOOR_BPS);
+        // The book is still far under the live target, so the fee stays near 2%. Eight hours of
+        // silence, and the Dutch gap those hours open, do not change it.
+        uint256 expect = BridgeFee.baseFeeBps(BridgeCurve.tvl(hook.curve(id)), _target());
+        assertEq(q.suggestedFeeBps, expect);
+        assertGt(expect, 150);
+        (uint256 sellOut, uint256 sellFee,,) = hook.quoteExactIn(key, _sellZfo(), 1e18);
+        (, uint256 buyFee,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
+        uint256 sellBps = sellOut + sellFee == 0 ? 0 : (sellFee * 10_000) / (sellOut + sellFee);
+        uint256 buyBps = (buyFee * 10_000) / 10e18;
+        assertApproxEqAbs(buyBps, expect, 3);
+        assertApproxEqAbs(sellBps, buyBps, 3);
     }
 
-    function test_staleFeedRaisesTheFee() public {
+    function test_staleFeedDoesNotRaiseTheFee() public {
         (, uint256 freshFee,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
         vm.warp(block.timestamp + 30 minutes + 2 hours);
         (, uint256 staleFee,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
-        assertGt(staleFee, freshFee * 4);
-        assertLe(staleFee, 2e18); // 20% cap on a $10 trade
+        assertLt(staleFee, (freshFee * 12) / 10, "staleness is not a fee multiplier");
+        assertGt(staleFee, 0);
+        assertTrue(hook.bridgeQuote(id).stale);
+        assertEq(hook.bridgeQuote(id).suggestedFeeBps, BridgeFee.baseFeeBps(BridgeCurve.tvl(hook.curve(id)), _target()));
     }
 
     function test_floorCutsHugeSellAndOversizedSwapReverts() public {
@@ -491,7 +494,7 @@ contract DiscipleHookTest is BridgeFixture {
         return Currency.unwrap(key.currency0) == address(coin);
     }
 
-    function _params(address c, uint256 coinSeed, uint64 half, uint256 red)
+    function _params(address c, uint256 coinSeed, uint64 drift)
         internal
         view
         returns (BridgeStorage.CreateParams memory)
@@ -511,9 +514,15 @@ contract DiscipleHookTest is BridgeFixture {
             tipSeed: 0,
             morphoCapBps: 10_000,
             vaultAdmin: address(0),
-            revHalfLife: half,
-            revRedLineWad: red
+            dutchDrift: drift,
+            refPoolId: bytes32(0),
+            refHook: address(0),
+            refCoinIs0: false
         });
+    }
+
+    function _target() internal view returns (uint256) {
+        return (hook.curve(id).anchor == 0) ? 0 : (725_000e18 * C.GRAD_NUM) / C.GRAD_DEN;
     }
 
     function _climb() internal {
@@ -528,9 +537,14 @@ contract DiscipleHookTest is BridgeFixture {
         _climb();
         usdg.mint(address(this), 3_000e18);
         hook.deposit(id, 0, 2_500e18);
-        vm.warp(block.timestamp + 31 minutes);
+        // The first reading snapped the smooth near $725k. A later reading only pulls that
+        // error with a 30-minute half-life, so the book is over 12% of $10k only after the
+        // smooth has actually fallen. Twelve half-lives leave about $175 of the gap.
+        skip(6 hours);
         _price(id, hook.curve(id).anchor, 10_000e18);
-        hook.rebalance(id);
+        assertFalse(_graduated(), "the window starts when the pool is first seen over the line");
+        skip(77 minutes);
+        hook.poke(id);
         assertTrue(_graduated());
     }
 

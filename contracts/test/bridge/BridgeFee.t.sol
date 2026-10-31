@@ -17,25 +17,16 @@ contract BridgeFeeTest is Test {
         assertGt(BridgeFee.baseFeeBps(10_000e18, 87_000e18), 150);
     }
 
-    function test_revFloorCapAndMonotone() public pure {
+    function test_feeIsOnlyTheProgressSlide() public pure {
         uint256 grad = 86_520e18;
-        uint256 tvl = 4_000e18;
-        uint256 red = C.REV_RED_LINE_WAD;
-        uint256 cap = BridgeFee.baseFeeBps(tvl, grad);
-        assertEq(BridgeFee.revBps(tvl, grad, 0, red, tvl), C.FEE_FLOOR_BPS, "quiet volume is the floor");
-        assertGt(cap, C.FEE_FLOOR_BPS);
-        // Decayed volume equal to the red line (half of TVL) pins the cap.
-        assertEq(BridgeFee.revBps(tvl, grad, tvl / 2, red, tvl), cap);
-        assertEq(BridgeFee.revBps(tvl, grad, tvl, red, tvl), cap);
-        uint256 mid = BridgeFee.revBps(tvl, grad, tvl / 8, red, tvl);
-        assertGt(mid, C.FEE_FLOOR_BPS);
-        assertLt(mid, cap);
-        assertGe(BridgeFee.revBps(tvl, grad, 200e18, red, tvl), BridgeFee.revBps(tvl, grad, 100e18, red, tvl));
-        // A caller that does not set a red line keeps the sliding cap, so round-trips still pay it.
-        assertEq(BridgeFee.revBps(tvl, grad, 1, 0, tvl), cap);
-        // At graduation the cap has already reached the floor.
-        assertEq(BridgeFee.revBps(grad, grad, 0, red, grad), C.FEE_FLOOR_BPS);
-        assertEq(BridgeFee.revBps(grad, grad, grad, red, grad), C.FEE_FLOOR_BPS);
+        uint256 quiet = BridgeFee.baseFeeBps(4_000e18, grad);
+        uint256 same = BridgeFee.baseFeeBps(4_000e18, grad);
+        assertEq(quiet, same);
+        assertGt(quiet, C.FEE_FLOOR_BPS);
+        assertLt(quiet, C.FEE_TINY_BPS);
+        assertEq(BridgeFee.baseFeeBps(grad, grad), C.FEE_FLOOR_BPS);
+        // Halfway to the target is halfway from 2% to 0.3%.
+        assertEq(BridgeFee.baseFeeBps(grad / 2, grad), (C.FEE_TINY_BPS + C.FEE_GRAD_BPS) / 2);
     }
 
     function test_decayHalfLifeOnlyShrinks() public pure {
@@ -50,32 +41,6 @@ contract BridgeFeeTest is Test {
         assertApproxEqRel(halfHour, 707_106_781_186_547_524 * 1000, 1e14);
         assertLt(halfHour, v);
         assertGt(BridgeFee.decayed(v, 1, 1 hours), BridgeFee.decayed(v, 30 minutes, 1 hours));
-    }
-
-    function test_washCannotLowerAndPileInRaises() public pure {
-        uint256 grad = 86_520e18;
-        uint256 tvl = 1_000e18;
-        uint256 red = C.REV_RED_LINE_WAD;
-        uint256 quiet = BridgeFee.revBps(tvl, grad, 0, red, tvl);
-        uint256 pumped = BridgeFee.revBps(tvl, grad, 400e18, red, tvl);
-        assertGt(pumped, quiet);
-        // The pump only raises the next clip. Decaying that volume cannot jump past the pumped fee.
-        uint256 later = BridgeFee.revBps(tvl, grad, BridgeFee.decayed(400e18, 30 minutes, 1 hours), red, tvl);
-        assertLt(later, pumped);
-        assertGe(later, quiet);
-        uint256 first = BridgeFee.revBps(tvl, grad, 20e18, red, tvl);
-        uint256 second = BridgeFee.revBps(tvl, grad, 40e18, red, tvl);
-        assertGt(second, first, "the next clip in a burst pays more");
-    }
-
-    function test_staleRampAndCap() public pure {
-        assertEq(BridgeFee.applyStale(200, 30 minutes), 200);
-        assertEq(BridgeFee.applyStale(200, 30 minutes + 2 hours), 1_000);
-        assertEq(BridgeFee.applyStale(200, 30 days), 1_000);
-        assertEq(BridgeFee.applyStale(500, 30 days), C.FEE_ABS_CAP_BPS);
-        uint256 mid = BridgeFee.applyStale(200, 30 minutes + 1 hours);
-        assertGt(mid, 200);
-        assertLt(mid, 1_000);
     }
 
     function test_boostDecaysToFloor() public pure {

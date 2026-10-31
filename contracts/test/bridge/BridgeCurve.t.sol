@@ -93,17 +93,17 @@ contract BridgeCurveTest is Test {
         assertEq(BridgeCurve.bandWad(grad * 2, grad), C.BAND_END_WAD);
         assertEq(BridgeCurve.bandWad(50_000e18, 0), C.BAND_START_WAD, "no reference TVL stays wide");
         // Geometric mean of $100 and $86,520 is the halfway point on a log TVL axis.
-        // Linear-in-ln puts the band at the arithmetic mean of 25% and 1.2% there.
+        // Linear-in-ln puts the band at the arithmetic mean of 25% and 3.33% there.
         uint256 midTvl = 2_941e18;
         uint256 mid = BridgeCurve.bandWad(midTvl, grad);
         uint256 expect = (C.BAND_START_WAD + C.BAND_END_WAD) / 2;
         assertApproxEqRel(mid, expect, 0.02e18);
-        // $10k is still a wide book. The old curve was already at ±3.33% here.
+        // $10k is still a wide book. ±3.33% is the graduation end, not the $10k band.
         assertGt(BridgeCurve.bandWad(10_000e18, grad), 0.05e18);
         assertLt(BridgeCurve.bandWad(10_000e18, grad), C.BAND_START_WAD);
     }
 
-    function test_graduationDepthIsAboutOnePointTwoPercent() public pure {
+    function test_graduationDepthIsAboutThreePointThreePercent() public pure {
         uint256 grad = 86_520e18;
         BridgeCurve.S memory s = _fresh();
         s.x = grad / 2;

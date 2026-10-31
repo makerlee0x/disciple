@@ -205,8 +205,11 @@ contract DiscipleSimTest is Test {
         assertEq(dripSubsidy, 0);
         s.x += 5e18;
         s.protoX += 5e18;
-        s.y += 20e18;
-        s.protoY += 20e18;
+        // The fee is only the progress slide. On a $77 book against an $86.5k target it is
+        // about 2%, and a lot sized off that slack walks through the discount, so the mark
+        // is not positive. Fund the book to the target so the fee is the 0.3% end.
+        s.y += 20e18 + GRAD;
+        s.protoY += 20e18 + GRAD;
         // Half an hour into the hour, so the dutch price has already passed the searcher's cost.
         clock = 2 hours + 30 minutes;
         _drip();
@@ -972,16 +975,11 @@ contract DiscipleSimTest is Test {
 
     function _decayedVol() internal view returns (uint256) {
         uint256 dt = revAt == 0 || clock <= revAt ? 0 : clock - revAt;
-        return BridgeFee.decayed(revVolume, dt, C.REV_HALF_LIFE);
+        return BridgeFee.decayed(revVolume, dt, 1 hours);
     }
 
-    function _revBps(uint256 extra) internal view returns (uint256) {
-        uint256 v = BridgeCurve.tvl(s);
-        return BridgeFee.revBps(v, GRAD, _decayedVol() + extra, _red(), v);
-    }
-
-    function _red() internal view returns (uint256) {
-        return mode == MODE_BASE ? 0 : C.REV_RED_LINE_WAD;
+    function _revBps(uint256) internal view returns (uint256) {
+        return BridgeFee.baseFeeBps(BridgeCurve.tvl(s), GRAD);
     }
 
     function _ctx(BridgeCurve.S memory m) internal view returns (BridgeCurve.Ctx memory c) {
@@ -991,9 +989,6 @@ contract DiscipleSimTest is Test {
         c.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(m), GRAD);
         c.tipRoom = tipBudget >= C.TIP_BUDGET_CAP ? 0 : C.TIP_BUDGET_CAP - tipBudget;
         c.graduated = graduated;
-        c.revVolume = _decayedVol();
-        c.revRedLineWad = _red();
-        c.revTvl = BridgeCurve.tvl(m);
     }
 
     function _spot() internal view returns (uint256) {

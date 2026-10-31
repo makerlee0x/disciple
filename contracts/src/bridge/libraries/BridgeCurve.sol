@@ -36,20 +36,13 @@ library BridgeCurve {
 
     /// @dev Inputs that do not depend on the curve iteration itself.
     struct Ctx {
-        uint256 gradTvl; // 0 until the Ethereum TVL has been read
-        uint256 age; // seconds since the last good anchor
+        uint256 gradTvl; // 0 until the reference TVL has been read
         bool graduated;
         uint256 tipRoom; // room left under the keeper-budget cap
         uint256 floorBps;
         uint256 maxUsdgOut; // min(floor room, outflow room); type(uint256).max if uncapped by the caller
         uint256 totalShares;
         uint256 boostWad;
-        /// @dev Volume accumulator already decayed to this timestamp. Does not include the trade being quoted.
-        uint256 revVolume;
-        /// @dev 0 keeps the sliding cap and skips the rev floor. Hooks set this at pool creation.
-        uint256 revRedLineWad;
-        /// @dev Denominator for volume / TVL. 0 uses the curve TVL inside `revBps`.
-        uint256 revTvl;
     }
 
     struct Fill {
@@ -135,7 +128,7 @@ library BridgeCurve {
     }
 
     /// @notice Once spot is at or above the anchor, grow virtual depth with the TVL high-water.
-    ///         The full-pool band is ±25% at or below $100 TVL and narrows to ±1.2% only at `gradTvl`.
+    ///         The full-pool band is ±25% at or below $100 TVL and narrows to ±3.33% only at `gradTvl`.
     ///         Never shallows: a flash deposit cannot flatten the book, and a later withdrawal cannot
     ///         re-open the discount. `gradTvl == 0` (anchor TVL not read yet) does not deepen.
     ///         One call walks all the way to the band. Trades use `_deepenForTrade` so a single clip
@@ -442,11 +435,10 @@ library BridgeCurve {
 
     // ───────────────────────────── internals ─────────────────────────
 
-    /// @dev Same bps either direction. `notion` is this clip's USDG gross, so a burst revs inside the clip.
-    function _tradeFee(S memory s, Ctx memory ctx, uint256 notion) private pure returns (uint256) {
-        return BridgeFee.applyStale(
-            BridgeFee.revBps(tvl(s), ctx.gradTvl, ctx.revVolume + notion, ctx.revRedLineWad, ctx.revTvl), ctx.age
-        );
+    /// @dev Same bps either direction. Progress only: pool TVL against the live target. The gap, the
+    ///      clip size, and a stale anchor do not change it.
+    function _tradeFee(S memory s, Ctx memory ctx, uint256) private pure returns (uint256) {
+        return BridgeFee.baseFeeBps(tvl(s), ctx.gradTvl);
     }
 
     function _grossFromNet(uint256 net, uint256 bps) private pure returns (uint256) {
@@ -502,6 +494,10 @@ library BridgeCurve {
         s.feePot += toLp;
         s.y += amount;
         return toLp;
+    }
+
+    function clone(S memory s) internal pure returns (S memory) {
+        return _clone(s);
     }
 
     function _clone(S memory s) private pure returns (S memory c) {

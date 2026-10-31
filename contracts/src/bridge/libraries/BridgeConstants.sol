@@ -17,41 +17,31 @@ library BridgeConstants {
     address internal constant MORPHO_STEAKHOUSE_USDG = 0xBeEff033F34C046626B8D0A041844C5d1A5409dd;
 
     // ── Fees ────────────────────────────────────────────────────────────────
-    /// @dev 2% while the pool is tiny.
+    /// @dev 2% while the pool is tiny. This is the fee, not a ceiling on some other fee.
     uint256 internal constant FEE_TINY_BPS = 200;
-    /// @dev 0.3% once pool TVL reaches the graduation threshold (12% of the Ethereum pool).
-    ///      Also the quiet floor of the rev fee: a pool with no recent volume pays this at any size.
+    /// @dev 0.3% once pool TVL reaches the live graduation target (12% of smoothed reference TVL).
     uint256 internal constant FEE_GRAD_BPS = 30;
     uint256 internal constant FEE_FLOOR_BPS = FEE_GRAD_BPS;
-    /// @dev Hard cap after the staleness multiplier, so a dead oracle cannot turn the pool into a honeypot.
-    uint256 internal constant FEE_ABS_CAP_BPS = 2_000;
-
-    // ── Rev fee (volume) ────────────────────────────────────────────────────
-    /// @dev Default half-life of the volume accumulator. One hour of quiet forgets half the recent flow.
-    uint256 internal constant REV_HALF_LIFE = 1 hours;
-    uint256 internal constant REV_HALF_LIFE_MIN = 60;
-    uint256 internal constant REV_HALF_LIFE_MAX = 7 days;
-    /// @dev Decayed volume equal to half the fee-denominator TVL pins the fee at the growth cap.
-    ///      A steady $1,000/day on a few-thousand-dollar pool stays near the floor. A burst of about
-    ///      half the pool inside the window hits the cap and cools until the accumulator decays.
-    uint256 internal constant REV_RED_LINE_WAD = 0.5e18;
-    uint256 internal constant REV_RED_LINE_MIN = 0.01e18;
-    uint256 internal constant REV_RED_LINE_MAX = 10e18;
-    /// @dev ln(2) in WAD, for the fractional half of an exponential decay.
+    /// @dev ln(2) in WAD. Used to smooth the reference TVL. Not a fee input.
     uint256 internal constant LN2_WAD = 693_147_180_559_945_309;
 
     // ── Stale anchor ────────────────────────────────────────────────────────
     /// @dev The anchor is a 30-minute TWAP. Cross-chain, a stored quote older than this is stale.
-    ///      Same-chain reads the window directly and is never stale.
+    ///      Same-chain reads the window directly and is never stale. Staleness pays the keeper tip.
+    ///      It does not change the swap fee.
     uint256 internal constant TWAP_WINDOW = 30 minutes;
     uint256 internal constant STALE_AFTER = TWAP_WINDOW;
 
-    /// @dev Chosen once per pool. 0 = LayerZero lzRead. 1 = same-chain Uniswap v3 `observe`.
+    /// @dev Chosen once per pool.
+    ///      0 lzRead of `IEthAnchor.latest`. 1 same-chain v3 `observe`.
+    ///      2 same-chain v4 hook `consult`. 3 same-chain v4 slot0 ring kept by this hook.
+    ///      4 lzRead of a remote v4 `consult`. 5 lzRead of a remote v4 slot0, sampled into the local ring.
     uint8 internal constant ANCHOR_LZ = 0;
     uint8 internal constant ANCHOR_V3 = 1;
-    /// @dev Linear ramp from 1x to STALE_MAX_MULT over the two hours after STALE_AFTER.
-    uint256 internal constant STALE_RAMP = 2 hours;
-    uint256 internal constant STALE_MAX_MULT = 5;
+    uint8 internal constant ANCHOR_V4_ORACLE = 2;
+    uint8 internal constant ANCHOR_V4_SAMPLE = 3;
+    uint8 internal constant ANCHOR_LZ_V4_ORACLE = 4;
+    uint8 internal constant ANCHOR_LZ_V4_SLOT = 5;
 
     // ── Keeper tip ──────────────────────────────────────────────────────────
     /// @dev $1 of normalized USDG. Paid only when an update was actually stale (or the first read).
@@ -67,8 +57,8 @@ library BridgeConstants {
     // ── Price band ──────────────────────────────────────────────────────────
     /// @dev Full-pool move at or below BAND_TINY_TVL. Trading the whole book moves spot about 25%.
     uint256 internal constant BAND_START_WAD = 0.25e18;
-    /// @dev Full-pool move once TVL reaches the pool's own graduation target. About ±1.2%.
-    uint256 internal constant BAND_END_WAD = 0.012e18;
+    /// @dev Full-pool move once TVL reaches the pool's own graduation target. About ±3.33%.
+    uint256 internal constant BAND_END_WAD = 0.0333e18;
     /// @dev "Tiny". At or below this TVL the band stays at BAND_START. The $77 seed is under it.
     uint256 internal constant BAND_TINY_TVL = 100e18;
 
@@ -83,6 +73,25 @@ library BridgeConstants {
     uint16 internal constant MORPHO_CAP_BPS = 5_000;
     /// @dev Public wait before a vault admin's replacement vault can be executed.
     uint256 internal constant VAULT_TIMELOCK = 48 hours;
+    /// @dev Continuous time on the other side of the 100% progress line before graduated status flips.
+    ///      Band, fee, boost, and Dutch size use progress immediately. Only the status flag waits.
+    uint256 internal constant GRADUATION_WINDOW = 77 minutes;
+
+    // ── Dutch quotes ────────────────────────────────────────────────────────
+    /// @dev Wad of gap per second. 0 at creation selects the default, about 1% of the anchor per hour.
+    ///      Allowed range is about 0.1% to 10% of the anchor per hour. Fixed for the life of the pool.
+    ///      Integer division, so an hour of the default is 2800 wei under 0.01e18.
+    uint256 internal constant DUTCH_DRIFT_DEFAULT = uint256(0.01e18) / 1 hours;
+    uint256 internal constant DUTCH_DRIFT_MIN = uint256(0.001e18) / 1 hours;
+    uint256 internal constant DUTCH_DRIFT_MAX = uint256(0.1e18) / 1 hours;
+    /// @dev USDG offered at a gap of 1.0 (100% of the anchor), before the slice cap. Size = edge / gap.
+    uint256 internal constant DUTCH_EDGE_WAD = 0.25e18;
+    /// @dev One taker cannot buy or sell more than this much USDG of the drifted quote.
+    uint256 internal constant DUTCH_MAX_SLICE = 50e18;
+    /// @dev And not more than 5% of pool TVL. The cap is at least $1, so a tiny pool still quotes.
+    uint256 internal constant DUTCH_MIN_SLICE = 1e18;
+    /// @dev The ask price stops at 1% of the anchor. The size keeps using the raw gap, so it still shrinks.
+    uint256 internal constant DUTCH_ASK_CAP = 0.99e18;
 
     // ── Curve shape ─────────────────────────────────────────────────────────
     /// @dev Recommended launch discount. 33% below the anchor = 0.67x. Creators pass this explicitly.

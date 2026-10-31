@@ -12,6 +12,8 @@ import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {ILzRead} from "./interfaces/ILzRead.sol";
 import {IEthAnchor} from "./interfaces/IEthAnchor.sol";
+import {IV4OracleHook} from "./interfaces/IV4OracleHook.sol";
+import {V4SlotReader} from "./V4SlotReader.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
@@ -31,15 +33,15 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         DiscipleEngine engine_
     ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {}
 
-    /// @notice Ask LayerZero to read `IEthAnchor.latest` on the pool's remote oracle.
-    ///         The caller pays the native lzRead fee and never submits a price.
-    ///         A tip is escrowed only when the stored quote is stale (or missing). Spam of a fresh quote reverts.
+    /// @notice Ask LayerZero to read the pool's remote anchor. The caller pays the native lzRead fee
+    ///         and never submits a price. Same-chain pools revert. A fresh quote reverts.
+    ///         Calldata is `latest`, `consult`, or `V4SlotReader.read`, chosen by the anchor kind.
     function updatePrice(PoolId id) external payable {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
-        if (p.anchorKind != C.ANCHOR_LZ) revert SameChain();
+        if (_sameChain(p.anchorKind)) revert SameChain();
         bool stale = p.curve.anchor == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER;
         if (!stale) revert Fresh();
 
@@ -47,7 +49,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         ILzRead.EvmRead memory read = ILzRead.EvmRead({
             targetEid: p.remoteEid,
             target: p.remoteOracle,
-            callData: abi.encodeWithSelector(IEthAnchor.latest.selector),
+            callData: _readCallData(p),
             minConfirmations: 1
         });
         uint256 nativeFee = ILzRead(lz).quoteRead(read);
@@ -60,6 +62,18 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
             if (!ok) revert RefundFailed();
         }
         emit PriceRequested(id, guid, msg.sender);
+        _locked = false;
+    }
+
+    /// @notice Permissionless. Sync a same-chain anchor, then flip graduated status if its 77-minute
+    ///         window has elapsed. Time alone does not write storage. A vault that cannot be emptied
+    ///         keeps the pool graduated.
+    function poke(PoolId id) external {
+        _onlyDelegate();
+        if (_locked) revert Reentrancy();
+        if (!pools[id].exists) revert UnknownPool();
+        _locked = true;
+        poolManager.unlock(abi.encode(OP_POKE, PoolId.unwrap(id)));
         _locked = false;
     }
 
@@ -136,12 +150,16 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         return _withdrawVault(pools[id], shortNorm);
     }
 
-    /// @dev Swap path. Graduates, then deposits idle USDG up to the cap.
+    /// @dev Swap path. The 77-minute timer, then the vault. Unwinding a dead vault leaves status on.
     function afterTrade(PoolId id) external {
         _onlyDelegate();
-        Pool storage p = pools[id];
-        _maybeGraduate(id, p);
-        _rebalance(id, p);
+        _settleGrad(id, pools[id]);
+    }
+
+    /// @dev lzRead path, after the anchor has been written. Same timer and vault rules as a trade.
+    function onReference(PoolId id) external {
+        _onlyDelegate();
+        _settleGrad(id, pools[id]);
     }
 
     function handle(bytes calldata data) external returns (bytes memory) {
@@ -152,7 +170,17 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         if (op == OP_LOSS) return _onLoss(data);
         if (op == OP_PULL) return _onPull(data);
         if (op == OP_EXEC) return _onExec(data);
+        if (op == OP_POKE) return _onPoke(data);
         revert HookNotImplemented();
+    }
+
+    function _onPoke(bytes calldata data) internal returns (bytes memory) {
+        (, bytes32 rawId) = abi.decode(data, (uint8, bytes32));
+        PoolId id = PoolId.wrap(rawId);
+        Pool storage p = pools[id];
+        _persistReference(p);
+        _settleGrad(id, p);
+        return "";
     }
 
     function _onRebalance(bytes calldata data) internal returns (bytes memory) {
@@ -160,9 +188,29 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         PoolId id = PoolId.wrap(rawId);
         _persistReference(pools[id]);
         _rollBlock(pools[id], id);
-        _maybeGraduate(id, pools[id]);
-        _rebalance(id, pools[id]);
+        _settleGrad(id, pools[id]);
         return "";
+    }
+
+    function _settleGrad(PoolId id, Pool storage p) internal {
+        if (!p.exists) return;
+        if (_touchGrad(id, p)) {
+            if (!_tryExit(p)) return;
+            p.graduated = false;
+            emit Ungraduated(id, BridgeCurve.tvl(p.curve), p.smoothedTvl);
+            return;
+        }
+        _rebalance(id, p);
+    }
+
+    function _readCallData(Pool storage p) internal view returns (bytes memory) {
+        uint8 k = p.anchorKind;
+        if (k == C.ANCHOR_LZ) return abi.encodeWithSelector(IEthAnchor.latest.selector);
+        if (k == C.ANCHOR_LZ_V4_ORACLE) {
+            return abi.encodeWithSelector(IV4OracleHook.consult.selector, p.refPoolId, uint32(C.TWAP_WINDOW));
+        }
+        if (k == C.ANCHOR_LZ_V4_SLOT) return abi.encodeWithSelector(V4SlotReader.read.selector, p.refPoolId);
+        revert SameChain();
     }
 
     function _onLoss(bytes calldata data) internal returns (bytes memory) {
@@ -282,12 +330,30 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
     }
 
     /// @dev Redeem every share this pool holds. Yield accrues to protocol inventory. A shortfall is a loss.
+    ///      Reverts if the vault refuses. Admin pulls use this. Ungraduation uses `_tryExit`.
     function _exitAll(Pool storage p) internal returns (uint256 gotNorm) {
         uint256 sh = p.vaultShares;
         if (sh == 0 || p.poolVault == address(0)) return 0;
         uint256 beforeBal = IERC20(usdg).balanceOf(address(this));
         IERC4626(p.poolVault).redeem(sh, address(this), address(this));
         uint256 gotRaw = IERC20(usdg).balanceOf(address(this)) - beforeBal;
+        return _accountExit(p, gotRaw);
+    }
+
+    /// @dev Same as `_exitAll`, but a vault that reverts leaves the shares where they are.
+    function _tryExit(Pool storage p) internal returns (bool) {
+        uint256 sh = p.vaultShares;
+        if (sh == 0 || p.poolVault == address(0)) return true;
+        uint256 beforeBal = IERC20(usdg).balanceOf(address(this));
+        try IERC4626(p.poolVault).redeem(sh, address(this), address(this)) returns (uint256) {}
+        catch {
+            return false;
+        }
+        _accountExit(p, IERC20(usdg).balanceOf(address(this)) - beforeBal);
+        return true;
+    }
+
+    function _accountExit(Pool storage p, uint256 gotRaw) internal returns (uint256 gotNorm) {
         gotNorm = _toNorm(gotRaw, usdgDec);
         if (gotNorm >= p.vaultAssets) {
             uint256 yld = gotNorm - p.vaultAssets;

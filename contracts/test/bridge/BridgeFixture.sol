@@ -46,8 +46,10 @@ contract BridgeFixture is Test {
         lz = new MockLzRead();
         manager = IPoolManager(address(new PoolManager(address(this))));
         engine = new DiscipleEngine();
-        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
         adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
+        lpFacet = new DiscipleLpFacet(
+            manager, address(usdg), address(vault), address(lz), usdgDec, engine, address(adminFacet)
+        );
         swapFacet = new DiscipleSwapFacet(
             manager, address(usdg), address(vault), address(lz), usdgDec, engine, address(adminFacet)
         );
@@ -114,8 +116,10 @@ contract BridgeFixture is Test {
                 tipSeed: tipSeed,
                 morphoCapBps: 10_000,
                 vaultAdmin: address(0),
-                revHalfLife: 0,
-                revRedLineWad: 0
+                dutchDrift: 0,
+                refPoolId: bytes32(0),
+                refHook: address(0),
+                refCoinIs0: false
             })
         );
     }

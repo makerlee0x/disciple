@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -11,6 +11,8 @@ import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
+import {BridgeV4Anchor} from "./libraries/BridgeV4Anchor.sol";
+import {IV4OracleHook} from "./interfaces/IV4OracleHook.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 
 /// @title Shared storage for Disciple (`DiscipleHook`) and its facets
@@ -19,6 +21,8 @@ import {DiscipleEngine} from "./DiscipleEngine.sol";
 ///      with the same manager, USDG, default vault, lzRead endpoint, and engine as the hook.
 ///      The order of the variables below is the storage layout. Do not reorder them.
 abstract contract BridgeStorage {
+    using PoolIdLibrary for PoolKey;
+
     uint8 internal constant OP_SEED = 1;
     uint8 internal constant OP_DEPOSIT = 2;
     uint8 internal constant OP_REDEEM = 3;
@@ -29,6 +33,7 @@ abstract contract BridgeStorage {
     uint8 internal constant OP_LOSS = 8;
     uint8 internal constant OP_PULL = 9;
     uint8 internal constant OP_EXEC = 10;
+    uint8 internal constant OP_POKE = 11;
 
     IPoolManager public immutable poolManager;
     address public immutable usdg;
@@ -51,8 +56,8 @@ abstract contract BridgeStorage {
         uint32 outflowWindow; // 0 off, 1 per block, 3600 per hour
         uint32 remoteEid;
         address remoteOracle;
-        uint8 anchorKind; // ANCHOR_LZ or ANCHOR_V3, fixed at creation
-        address v3Pool; // same-chain reference. Zero for an lzRead pool.
+        uint8 anchorKind; // fixed at creation. See BridgeConstants.ANCHOR_*.
+        address v3Pool; // same-chain v3 reference. Zero unless ANCHOR_V3.
         uint256 updatedAt;
         uint256 ethTvl;
         uint256 vaultShares;
@@ -79,13 +84,20 @@ abstract contract BridgeStorage {
         uint256 openTakenY;
         uint256 blockFee; // LP fee from this block, not yet in `feeIndex`
         uint256 redeemedEligible; // opening shares burned this block (excluded from the fee denominator)
-        /// @dev Decayed-and-added USDG volume. Only trades and time move it. Time is the only decrease.
-        uint256 revVolume;
-        uint64 revAt;
-        uint64 revHalfLife;
-        uint256 revRedLineWad;
-        /// @dev TVL at the first touch of this block. A later deposit cannot enlarge the fee denominator.
-        uint256 revOpenTvl;
+        /// @dev Both Dutch quotes share this clock. A trade sets it to `block.timestamp`, which closes the gap.
+        uint64 dutchAt;
+        /// @dev Wad of gap per second. Fixed at creation.
+        uint64 dutchDrift;
+        /// @dev First timestamp the pool was seen on this side of the graduation line. 0 means not running.
+        uint64 aboveSince;
+        uint64 belowSince;
+        /// @dev Last time `smoothedTvl` was updated. The raw reading stays in `ethTvl`.
+        uint64 smoothAt;
+        uint256 smoothedTvl;
+        bytes32 refPoolId;
+        address refHook;
+        /// @dev Self-sample only. True when the coin is currency0 of the reference v4 pool.
+        bool refCoinIs0;
         BridgeCurve.S curve;
         PoolKey key;
     }
@@ -99,7 +111,7 @@ abstract contract BridgeStorage {
         uint32 outflowWindow; // 0, 1 (block), or 3600 (hour)
         uint32 remoteEid;
         address remoteOracle;
-        /// @dev `ANCHOR_LZ` (0) or `ANCHOR_V3` (1). Fixed for the life of the pool.
+        /// @dev Anchor kind. Fixed for the life of the pool. See `BridgeConstants`.
         uint8 anchorKind;
         /// @dev Uniswap v3 pool of `coin` / this hook's quote token. Required for `ANCHOR_V3`, zero otherwise.
         address v3Pool;
@@ -110,10 +122,14 @@ abstract contract BridgeStorage {
         uint16 morphoCapBps;
         /// @dev May replace the vault after 48h or pull it immediately. Zero disables the key.
         address vaultAdmin;
-        /// @dev 0 selects REV_HALF_LIFE. Fixed for the life of the pool. Allowed 60 seconds to 7 days.
-        uint64 revHalfLife;
-        /// @dev 0 selects REV_RED_LINE_WAD. Fixed for the life of the pool. Volume / TVL, WAD.
-        uint256 revRedLineWad;
+        /// @dev Wad per second. 0 selects `DUTCH_DRIFT_DEFAULT` (about 1% of the anchor per hour).
+        uint64 dutchDrift;
+        /// @dev Reference v4 pool id. Required for every v4 anchor kind. Zero otherwise.
+        bytes32 refPoolId;
+        /// @dev Reference hook exposing `consult`. Required for `ANCHOR_V4_ORACLE`. Zero otherwise.
+        address refHook;
+        /// @dev Self-sample only. True when the coin is currency0 of `refPoolId`.
+        bool refCoinIs0;
     }
 
     /// @notice Exact size and direction that maximizes mark-to-anchor profit after the current fee.
@@ -136,8 +152,8 @@ abstract contract BridgeStorage {
         uint256 poolPriceWad;
         int256 priceGapBps; // (pool − anchor) / anchor, signed bps
         int256 imbalanceBps; // (coin at anchor − USDG) / TVL, signed bps
-        /// @dev Rev fee a dust swap would pay right now, after staleness. Same in both directions.
-        ///      Not a subsidy for bridging coin in.
+        /// @dev Progress fee a swap would pay right now. Same in both directions.
+        ///      It does not rise with the gap, with volume, or because the anchor is stale.
         uint256 suggestedFeeBps;
         bool stale;
         bool graduated;
@@ -155,6 +171,9 @@ abstract contract BridgeStorage {
     /// @dev Fee index after the named block's fees were rolled. Fresh shares from that block start here.
     mapping(PoolId => mapping(uint64 => uint256)) internal indexAtBlock;
     mapping(bytes32 => PendingRead) internal pendingReads;
+    /// @dev Self-sampled v4 rings, keyed by this hook's pool id. One ring per pool.
+    mapping(bytes32 => BridgeV4Anchor.Ring) internal rings;
+    mapping(bytes32 => mapping(uint16 => uint256)) internal obs;
     /// @dev Normalized USDG the hook's ERC-6909 claims must cover (curve liquid + tips + creator fees).
     uint256 public usdgClaimsNorm;
 
@@ -213,6 +232,7 @@ abstract contract BridgeStorage {
     event PriceRequested(PoolId indexed id, bytes32 indexed guid, address indexed caller);
     event PriceUpdated(PoolId indexed id, uint256 anchor, uint256 ethTvl, uint256 tip);
     event Graduated(PoolId indexed id, uint256 poolTvl, uint256 ethTvl);
+    event Ungraduated(PoolId indexed id, uint256 poolTvl, uint256 smoothedTvl);
     event VaultDeposit(PoolId indexed id, uint256 assets);
     event VaultWithdraw(PoolId indexed id, uint256 assets);
     event CreatorSet(PoolId indexed id, address indexed creator);
@@ -243,49 +263,58 @@ abstract contract BridgeStorage {
     }
 
     /// @dev `s` is the book the trade will use (already recentered, for a same-chain pool).
-    ///      `refTvl` is the reference pool's TVL. `age` is ignored for same-chain: that mode has no stale fee
-    ///      and no keeper tip, so the only fee cut is the creator's 10% after graduation.
-    function _ctx(Pool storage p, BridgeCurve.S memory s, uint256 refTvl, uint256 age)
-        internal
-        view
-        returns (BridgeCurve.Ctx memory ctx)
-    {
+    ///      The fee and the band use the smoothed graduation target, not the raw reference TVL.
+    function _ctx(Pool storage p, BridgeCurve.S memory s) internal view returns (BridgeCurve.Ctx memory ctx) {
         uint256 room = BridgeCurve.floorRoom(s, p.floorBps);
         uint256 cap = _outflowLeft(p, BridgeCurve.principalY(s));
-        ctx.gradTvl = refTvl == 0 ? 0 : Math.mulDiv(refTvl, C.GRAD_NUM, C.GRAD_DEN);
-        bool sameChain = p.anchorKind == C.ANCHOR_V3;
-        ctx.age = sameChain ? 0 : age;
+        ctx.gradTvl = _gradTvl(p);
+        bool sameChain = _sameChain(p.anchorKind);
         ctx.graduated = p.graduated;
         ctx.tipRoom = sameChain || p.tipBudget >= C.TIP_BUDGET_CAP ? 0 : C.TIP_BUDGET_CAP - p.tipBudget;
         ctx.floorBps = p.floorBps;
         ctx.maxUsdgOut = cap < room ? cap : room;
         ctx.totalShares = p.totalShares;
-        uint256 vNow = BridgeCurve.tvl(s);
-        ctx.boostWad = BridgeFee.boostWad(vNow, ctx.gradTvl);
-        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
-        ctx.revVolume = engine.decayed(p.revVolume, dt, p.revHalfLife);
-        ctx.revRedLineWad = p.revRedLineWad;
-        ctx.revTvl = _revDenom(p, vNow);
-    }
-
-    /// @dev Same-block deposit must not enlarge the denominator. A same-block shrink uses the smaller TVL,
-    ///      which only raises the fee. Across blocks a deposit that is still here is the real denominator.
-    function _revDenom(Pool storage p, uint256 current) internal view returns (uint256) {
-        if (p.openBlock == uint64(block.number) && p.revOpenTvl != 0 && p.revOpenTvl < current) {
-            return p.revOpenTvl;
-        }
-        return current;
+        ctx.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(s), ctx.gradTvl);
     }
 
     /// @notice Memory book priced off the live anchor. Does not write storage.
     function _referenced(Pool storage p) internal view returns (BridgeCurve.S memory s, uint256 refTvl, uint256 age) {
         s = p.curve;
-        if (p.anchorKind == C.ANCHOR_V3) {
+        uint8 k = p.anchorKind;
+        if (k == C.ANCHOR_V3) {
             (uint256 price, uint256 tvl) = BridgeV3Anchor.read(p.v3Pool, p.coin, usdg, p.coinDec, usdgDec);
             if (price != s.anchor) BridgeCurve.onAnchor(s, price);
             return (s, tvl, 0);
         }
+        if (k == C.ANCHOR_V4_ORACLE) {
+            (uint256 price, uint256 tvl) = IV4OracleHook(p.refHook).consult(p.refPoolId, uint32(C.TWAP_WINDOW));
+            if (price != 0 && price != s.anchor) BridgeCurve.onAnchor(s, price);
+            return (s, tvl, 0);
+        }
+        if (k == C.ANCHOR_V4_SAMPLE) {
+            (bool ready, uint256 price, uint256 tvl) = BridgeV4Anchor.peek(
+                poolManager, p.refPoolId, rings[_rawId(p)], obs[_rawId(p)], p.refCoinIs0, p.coinDec, usdgDec
+            );
+            if (ready && price != 0) {
+                if (price != s.anchor) BridgeCurve.onAnchor(s, price);
+                return (s, tvl, 0);
+            }
+        }
         return (s, p.ethTvl, _age(p));
+    }
+
+    function _sameChain(uint8 kind) internal pure returns (bool) {
+        return kind == C.ANCHOR_V3 || kind == C.ANCHOR_V4_ORACLE || kind == C.ANCHOR_V4_SAMPLE;
+    }
+
+    /// @dev Gap in WAD. Both quotes share `dutchAt`. Zero until time has passed since the last trade.
+    function _gap(Pool storage p) internal view returns (uint256) {
+        if (p.dutchAt == 0 || p.dutchDrift == 0 || block.timestamp <= uint256(p.dutchAt)) return 0;
+        return (block.timestamp - uint256(p.dutchAt)) * uint256(p.dutchDrift);
+    }
+
+    function _rawId(Pool storage p) internal view returns (bytes32) {
+        return PoolId.unwrap(p.key.toId());
     }
 
     function _outflowLeft(Pool storage p, uint256 principal) internal view returns (uint256) {
@@ -298,9 +327,10 @@ abstract contract BridgeStorage {
         return cap > p.outflowUsed ? cap - p.outflowUsed : 0;
     }
 
+    /// @dev 12% of the smoothed reference TVL. A one-block donation barely moves this.
     function _gradTvl(Pool storage p) internal view returns (uint256) {
-        if (p.ethTvl == 0) return 0;
-        return Math.mulDiv(p.ethTvl, C.GRAD_NUM, C.GRAD_DEN);
+        if (p.smoothedTvl == 0) return 0;
+        return Math.mulDiv(p.smoothedTvl, C.GRAD_NUM, C.GRAD_DEN);
     }
 
     function _age(Pool storage p) internal view returns (uint256) {

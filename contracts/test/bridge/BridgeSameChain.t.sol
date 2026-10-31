@@ -74,9 +74,11 @@ contract BridgeSameChainTest is BridgeFixture {
 
     function test_noStaleFeeAndNoTipSkim() public {
         (, uint256 fresh,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
+        uint256 bps = hook.bridgeQuote(id).suggestedFeeBps;
         vm.warp(block.timestamp + 3 hours);
         (, uint256 later,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
-        assertEq(later, fresh, "same-chain quotes do not get more expensive with time");
+        assertLt(later, (fresh * 12) / 10, "same-chain time does not multiply the fee");
+        assertEq(hook.bridgeQuote(id).suggestedFeeBps, bps);
 
         uint256 yBefore = hook.curve(id).y;
         usdg.mint(address(this), 10e18);
@@ -93,7 +95,11 @@ contract BridgeSameChainTest is BridgeFixture {
         c.mint(address(small), 100e18);
         vm.warp(block.timestamp + 30 minutes);
         (PoolKey memory k, PoolId pid) = _createV3(c, small, 77e18, 0);
-        // Reference TVL = 200. Graduation is 12% = 24. The $77 seed is already over that.
+        // Reference TVL = 200. Graduation is 12% = 24. The $77 seed is already over that,
+        // but status waits 77 minutes and a poke.
+        assertFalse(hook.bridgeQuote(pid).graduated);
+        skip(77 minutes);
+        hook.poke(pid);
         assertTrue(hook.bridgeQuote(pid).graduated);
 
         uint256 yBefore = hook.curve(pid).y;
@@ -142,8 +148,10 @@ contract BridgeSameChainTest is BridgeFixture {
                 tipSeed: 0,
                 morphoCapBps: 10_000,
                 vaultAdmin: address(0),
-                revHalfLife: 0,
-                revRedLineWad: 0
+                dutchDrift: 0,
+                refPoolId: bytes32(0),
+                refHook: address(0),
+                refCoinIs0: false
             })
         );
 
@@ -170,8 +178,10 @@ contract BridgeSameChainTest is BridgeFixture {
                 tipSeed: 0,
                 morphoCapBps: 10_000,
                 vaultAdmin: address(0),
-                revHalfLife: 0,
-                revRedLineWad: 0
+                dutchDrift: 0,
+                refPoolId: bytes32(0),
+                refHook: address(0),
+                refCoinIs0: false
             })
         );
     }
@@ -199,8 +209,10 @@ contract BridgeSameChainTest is BridgeFixture {
                 tipSeed: 0,
                 morphoCapBps: 10_000,
                 vaultAdmin: address(0),
-                revHalfLife: 0,
-                revRedLineWad: 0
+                dutchDrift: 0,
+                refPoolId: bytes32(0),
+                refHook: address(0),
+                refCoinIs0: false
             })
         );
     }

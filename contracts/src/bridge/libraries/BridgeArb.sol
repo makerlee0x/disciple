@@ -98,9 +98,9 @@ library BridgeArb {
         uint256 dxCap = BridgeCurve.maxCoinOut(s);
         if (dxCap == 0) return 0;
         uint256 net = BridgeCurve.buyCost(s, dxCap);
-        // Fees are at most FEE_ABS_CAP_BPS, so this gross is a safe search ceiling.
-        if (C.FEE_ABS_CAP_BPS >= C.BPS) return net;
-        return Math.mulDiv(net, C.BPS, C.BPS - C.FEE_ABS_CAP_BPS, Math.Rounding.Ceil);
+        // The progress fee never exceeds FEE_TINY_BPS, so this gross is a safe search ceiling.
+        if (C.FEE_TINY_BPS >= C.BPS) return net;
+        return Math.mulDiv(net, C.BPS, C.BPS - C.FEE_TINY_BPS, Math.Rounding.Ceil);
     }
 
     function _maxSellIn(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx) private pure returns (uint256) {

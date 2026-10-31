@@ -13,6 +13,8 @@ import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
+import {BridgeV4Anchor} from "./libraries/BridgeV4Anchor.sol";
+import {IV4OracleHook} from "./interfaces/IV4OracleHook.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {BridgeStorage} from "./BridgeStorage.sol";
 
@@ -52,17 +54,56 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         }
     }
 
-    /// @notice Persist a same-chain TWAP into the book. No-op for an lzRead pool.
+    /// @notice Persist a same-chain anchor into the book. No-op for an lzRead pool.
+    ///         A v4 self-sample that is not warm yet leaves the anchor at 0.
     function _persistReference(Pool storage p) internal {
-        if (p.anchorKind != C.ANCHOR_V3) return;
-        (uint256 price, uint256 tvl) = BridgeV3Anchor.read(p.v3Pool, p.coin, usdg, p.coinDec, usdgDec);
-        if (price != p.curve.anchor) {
+        uint8 k = p.anchorKind;
+        if (k == C.ANCHOR_V3) {
+            (uint256 price, uint256 tvl) = BridgeV3Anchor.read(p.v3Pool, p.coin, usdg, p.coinDec, usdgDec);
+            _applyAnchor(p, price, tvl);
+            return;
+        }
+        if (k == C.ANCHOR_V4_ORACLE) {
+            (uint256 price, uint256 tvl) = IV4OracleHook(p.refHook).consult(p.refPoolId, uint32(C.TWAP_WINDOW));
+            if (price == 0) revert NoAnchor();
+            _applyAnchor(p, price, tvl);
+            return;
+        }
+        if (k == C.ANCHOR_V4_SAMPLE) {
+            bytes32 raw = _rawId(p);
+            (bool ready, uint256 price, uint256 tvl) =
+                BridgeV4Anchor.sample(poolManager, p.refPoolId, rings[raw], obs[raw], p.refCoinIs0, p.coinDec, usdgDec);
+            if (ready && price != 0) _applyAnchor(p, price, tvl);
+        }
+    }
+
+    /// @dev Write the anchor, keep the raw TVL, and pull the smoothed TVL toward it.
+    function _applyAnchor(Pool storage p, uint256 price, uint256 tvl) internal {
+        if (price != 0 && price != p.curve.anchor) {
             BridgeCurve.S memory s = p.curve;
             BridgeCurve.onAnchor(s, price);
             p.curve = s;
         }
+        if (price != 0) p.updatedAt = block.timestamp;
         p.ethTvl = tvl;
-        p.updatedAt = block.timestamp;
+        _smooth(p, tvl);
+    }
+
+    /// @dev First reading snaps. Later readings close the error with a 30-minute half-life.
+    ///      A zero `dt` does not move the smooth, so two reads in one second cannot jump it.
+    function _smooth(Pool storage p, uint256 next) internal {
+        uint256 prev = p.smoothedTvl;
+        if (prev == 0) {
+            p.smoothedTvl = next;
+            p.smoothAt = uint64(block.timestamp);
+            return;
+        }
+        uint256 dt = p.smoothAt == 0 || block.timestamp <= uint256(p.smoothAt) ? 0 : block.timestamp - uint256(p.smoothAt);
+        if (dt == 0) return;
+        uint256 mag = prev > next ? prev - next : next - prev;
+        uint256 left = engine.decayed(mag, dt, C.TWAP_WINDOW);
+        p.smoothedTvl = prev > next ? next + left : (next > left ? next - left : 0);
+        p.smoothAt = uint64(block.timestamp);
     }
 
     /// @dev First touch of a block rolls the previous block's LP fee onto shares that existed at its open,
@@ -90,15 +131,6 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         p.openTakenX = 0;
         p.openTakenY = 0;
         p.redeemedEligible = 0;
-        p.revOpenTvl = BridgeCurve.tvl(p.curve);
-    }
-
-    /// @dev Add `notion` after decaying. No path subtracts volume except the time decay inside `engine.decayed`.
-    function _noteRev(Pool storage p, uint256 notion) internal {
-        if (notion == 0) return;
-        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
-        p.revVolume = engine.decayed(p.revVolume, dt, p.revHalfLife) + notion;
-        p.revAt = uint64(block.timestamp);
     }
 
     function _mintShares(Pool storage p, PoolId id, address to, uint256 added, uint256 coinNorm, uint256 usdgNorm)
@@ -153,13 +185,38 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         freshBlock[id][user] = 0;
     }
 
-    function _maybeGraduate(PoolId id, Pool storage p) internal {
-        if (p.graduated || p.ethTvl == 0) return;
+    /// @dev Start or reset the 77-minute timer. Returns true when status should turn off and the
+    ///      vault must be emptied first. The first observation never flips in the same call.
+    ///      Progress (fee, band, boost) does not wait on this timer. Only `graduated` does.
+    function _touchGrad(PoolId id, Pool storage p) internal returns (bool unwind) {
+        uint256 target = _gradTvl(p);
         uint256 v = BridgeCurve.tvl(p.curve);
-        if (Math.mulDiv(v, C.GRAD_DEN, C.GRAD_NUM) >= p.ethTvl) {
-            p.graduated = true;
-            emit Graduated(id, v, p.ethTvl);
+        bool over = target != 0 && v >= target;
+        if (over) {
+            p.belowSince = 0;
+            if (p.graduated) return false;
+            if (p.aboveSince == 0) {
+                p.aboveSince = _stamp();
+                return false;
+            }
+            if (block.timestamp >= uint256(p.aboveSince) + C.GRADUATION_WINDOW) {
+                p.graduated = true;
+                emit Graduated(id, v, p.smoothedTvl);
+            }
+            return false;
         }
+        p.aboveSince = 0;
+        if (!p.graduated || target == 0) return false;
+        if (p.belowSince == 0) {
+            p.belowSince = _stamp();
+            return false;
+        }
+        return block.timestamp >= uint256(p.belowSince) + C.GRADUATION_WINDOW;
+    }
+
+    /// @dev Timestamp 0 would look like "not started", so a zero clock is stored as 1.
+    function _stamp() internal view returns (uint64) {
+        return block.timestamp == 0 ? 1 : uint64(block.timestamp);
     }
 
     function _pull(address token, address from, uint256 raw) internal returns (uint256 got) {
