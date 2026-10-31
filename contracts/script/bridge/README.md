@@ -1,6 +1,6 @@
 # Deploy DiscipleHook
 
-This script deploys `DiscipleEngine`, `DiscipleAdminFacet`, `DiscipleLpFacet`, `DiscipleSwapFacet`, a small CREATE2 helper, and the mined `DiscipleHook`. When `LZ` is unset it also deploys `DiscipleLzRead` against `LZ_ENDPOINT`. It deploys `AnchorLens` unless `DEPLOY_LENS=0`. It does not create a pool. It does not set the endpoint's read library or DVN config. It does not broadcast by itself. `forge script` sends transactions only when you add `--broadcast`.
+This script deploys `DiscipleEngine`, `DiscipleAdminFacet`, `DiscipleCreateFacet`, `DiscipleLpFacet`, `DiscipleSwapFacet`, a small CREATE2 helper, and the mined `DiscipleHook`. When `LZ` is unset it also deploys `DiscipleLzRead` against `LZ_ENDPOINT`. It deploys `AnchorLens` unless `DEPLOY_LENS=0`. It does not create a pool. It does not set the endpoint's read library or DVN config. It does not broadcast by itself. `forge script` sends transactions only when you add `--broadcast`.
 
 It has not been run against Robinhood Chain testnet or Ethereum Sepolia.
 
@@ -22,8 +22,9 @@ When this script deploys the adapter, the order is: adapter with the hook unset,
 | `LZ_ENDPOINT` | one of | Endpoint V2 on this chain, used when `LZ` is unset. The public CREATE2 endpoint on Ethereum and on Sepolia is `0x1a44076050125825900e736c501f859c50fE728c`. Robinhood Chain testnet is not in the public LayerZero registry. Supply the endpoint address if one is deployed there. |
 | `READ_CHANNEL` | with endpoint | Channel the adapter sends to and accepts results from. LayerZero read channel 1 is `4294967295`. |
 | `LZ_CONFIRMATIONS` | no | Confirmation floor on the adapter. Default `15`. A read request can raise it. It cannot lower it. |
-| `DEPLOY_LENS` | no | Unset deploys `AnchorLens` and logs the address. `0` skips it. That address is `remoteOracle` for a pool whose reference pool lives on this chain. |
-| `DEPLOY_MOCKS` | rejected | A permissionless `fulfill` push exists only under `test/`. Setting this to `1` makes the script revert. |
+| `DEPLOY_LENS` | no | Unset deploys `AnchorLens` and logs the address. `0` skips it. That address is `remoteOracle` for a pool whose reference pool lives on this chain. The builder must allowlist it before a cross-chain pool can use it. |
+| `V3_FACTORY` | no | Uniswap v3 factory. Same-chain v3 anchors must equal `getPool(coin, USDG, fee)`. Unset stores address zero, and those creates revert. |
+| `DEPLOY_MOCKS` | local only | `1` deploys an owner-gated adapter stand-in, and only when the chain id is 31337 or 1337. Any other chain reverts. `fulfill` is owner-only. |
 
 ## What you still configure on the endpoint
 
