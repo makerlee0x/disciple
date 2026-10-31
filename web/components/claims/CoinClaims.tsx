@@ -1,11 +1,10 @@
 "use client";
 /**
  * Coin page claim pills (floating, outside the HUD):
- *  - creator: "Your fees: X · Claim" when the viewer is this rocket's creator (FeeRouter quote + launch-token side)
+ *  - (creator "Your fees · Claim" pill removed from the coin screen, de-slop Oct 30: it lives on /creator + profile)
  *  - crew (PVE only): "Crew rewards: X · Claim" (BondingCurve.pendingRewards → Launchpad.claim) + "Crew earned X from
  *    this DUMP" feed from ProfitTaxCharged
  */
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
 import { coinFacts } from "@/lib/protocol-viem";
@@ -74,20 +73,12 @@ export default function CoinClaims({ token }: { token: string }) {
   };
 
   if (!valid) return null;
-  const claims = !!quote && (mine != null || crew != null || feed.length > 0);
+  const claims = !!quote && (crew != null || feed.length > 0);
   return (
     <>
       <div className="cl-coin" data-testid="coin-claims">
         {/* Coin page cleanup (lee, Oct 30): no "Floor support · Bins" pill on the coin page */}
-        {claims && quote && mine != null && (
-          <div className="cl-coin-pill creator" data-testid="creator-badge">
-            <span className="cl-dot" aria-hidden="true" />
-            <span className="lbl">Your fees</span>
-            <strong>{fmtAmount(mine, quote, 2)}</strong>
-            {mineTok && <strong>+ {fmtAmount(mineTok.raw, mineTok.asset, 2)}</strong>}
-            {mine > BigInt(0) || mineTok ? <button type="button" onClick={() => { setErr(null); setDone(null); setSheet("creator"); }}>Claim</button> : <Link href="/creator">Dashboard</Link>}
-          </div>
-        )}
+        {/* de-slop (lee, Oct 30): no creator "Your fees · Claim" pill on the coin screen; creators claim on /creator and their profile */}
         {claims && quote && crew != null && (
           <div className="cl-coin-pill crew" data-testid="crew-pill">
             <span className="lbl">Crew rewards</span>

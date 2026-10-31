@@ -35,8 +35,15 @@ export function useCaps(): { caps: Caps; ready: boolean; demo: boolean } {
   return st;
 }
 
-export function Money({ raw, asset, big }: { raw: bigint; asset: Asset; big?: boolean }) {
+/** Amount display. Default (de-slop, Oct 30): the dollar value first (e.g. "$12.40"), the token amount in the tooltip, so a
+ *  fee doesn't read as "12.4 STRATEGY". `exact` (confirm sheets) keeps the token amount + "≈ $" line. No USD price → token amount. */
+export function Money({ raw, asset, big, exact }: { raw: bigint; asset: Asset; big?: boolean; exact?: boolean }) {
   const usd = toUsd(raw, asset);
+  if (!exact && usd != null) return (
+    <span className={"cl-money" + (big ? " big" : "")} title={fmtAmount(raw, asset)}>
+      <span className="amt">{fmtUsd(usd)}</span>
+    </span>
+  );
   return (
     <span className={"cl-money" + (big ? " big" : "")}>
       <span className="amt">{fmtAmount(raw, asset)}</span>
@@ -64,7 +71,7 @@ export function ConfirmSheet({ title, lines, to, note, busy, error, done, onConf
         <h3 className="cl-display">{done ? "Claimed" : title}</h3>
         <ul className="cl-lines">
           {lines.map((l, i) => (
-            <li key={i}><span className="muted">{l.label}</span><Money raw={l.raw} asset={l.asset} /></li>
+            <li key={i}><span className="muted">{l.label}</span><Money raw={l.raw} asset={l.asset} exact /></li>
           ))}
         </ul>
         {to && <div className="cl-to"><span className="muted">To</span><code>{shortA(to)}</code></div>}

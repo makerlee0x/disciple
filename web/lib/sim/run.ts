@@ -98,7 +98,7 @@ export class SimRun {
     const nm = A.names[Math.floor(this.rng() * A.names.length)];
     let wallet = "0x"; for (let i = 0; i < 40; i++) wallet += Math.floor(this.rng() * 16).toString(16);
     if (cluster) wallet = "0xb0b" + (wallet.slice(5, 38)) + "c" + cluster.toString(16);   // clustered wallets share a visible prefix/suffix
-    const name = arch === "bundler" ? `Bundle#${cluster}·${nm}` : arch === "rugger" ? "DEV" : arch === "cto" ? "CTO Council" : `${A.label.split(" ")[0]}·${nm}${id}`;
+    const name = arch === "bundler" ? `Bundle#${cluster}·${nm}` : arch === "rugger" ? "DEV" : arch === "cto" ? "Community takeover" : `${A.label.split(" ")[0]}·${nm}${id}`;
     const launchy = arch === "sniper" || arch === "bundler" || arch === "rugger";
     // launch wallets act in the first blocks after the sniper tax reaches 0 (antiSnipeDurationS = 7 s: 7.2–11 s; the dev 7.2–7.6 s)
     const b: Bot = { id, name, wallet, arch, cash, cash0: cash, pos: emptyPosition(), cluster, joinT: t, active: arch !== "cto",
@@ -390,7 +390,7 @@ export class SimRun {
     const D = this.diff(), M = this.cfg.market;
     if (this.ctoAt != null && !this.ctoActive && this.t >= this.ctoAt) {
       this.ctoActive = true; const c = this.bots.find((b) => b.arch === "cto") || this.spawn("cto", this.t); c.active = true; c.nextT = this.t;
-      this.emitEvent("cto", `CTO · community takeover at ${fmt(this.m.mcap())}`);
+      this.emitEvent("cto", `Community takeover at ${fmt(this.m.mcap())}`);
     }
     if (D.waves && this.t >= this.waveAt) { const W = D.waves; this.waves++;
       this.waveUntil = this.t + this.r(W.durS[0], W.durS[1]); this.waveAt = this.waveUntil + this.r(W.everyS[0], W.everyS[1]); }

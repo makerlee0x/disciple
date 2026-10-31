@@ -743,7 +743,11 @@ function simTrade(){
   S.feed.length=Math.min(S.feed.length,7);
 }
 setTimeout(pushSim,0);
-const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced)
+/* key legend on the BUY/SELL strip (de-slop): shown on the first run only, then hidden behind a '?' (remembered in localStorage) */
+const KEYHELP={show:(()=>{ try{ return localStorage.getItem('disciple.keyhelp')!=='seen'; }catch(_){ return false; } })(), t0:performance.now()};
+function keyHelpSeen(){ try{ localStorage.setItem('disciple.keyhelp','seen'); }catch(_){} }
+if(KEYHELP.show) keyHelpSeen();   // first run counts once it has been shown; '?' reopens it
+const AMMO_HIT=[0,1,2,3,4,5,6,7,8,9,10,11].map(()=>({x:-1e9,y:-1e9,w:0,h:0}));   // 0–3 buy presets (4–5 unused) · 6–9 SELL sizes · 10 gear (Advanced) · 11 '?' key-help toggle
 function pushAmmo(boot){ noteBuyAmount(); pushPaperCash(); try{ dispatchEvent(new CustomEvent('disciple:ammo',{detail:{tier:S.ammoTier, rocketTier:S.rocketAmmoTier,
   name:AMMO_TIERS&&S.ammoTier!=null?AMMO_TIERS[S.ammoTier].name:null, usd:MODES.map(m=>m.usd), names:MODES.map(m=>m.name), mode:S.mode, ...(boot===true?{boot:true}:{})}})); }catch(_){} }
 function setAmmoTier(t){ if(!AMMO_TIERS) return; t=clamp(t|0,0,AMMO_TIERS.length-1); S.ammoTier=t;
@@ -963,7 +967,7 @@ function submit(side,usd,force,opt,pct){
     // back (no fill), the slot frees. The note's own strip offers the one tap to go ahead. (Also with SITE #201's unknown:true.)
     if(r&&!r.ok&&r.needsConfirm){ p.state='held'; baResolve(ba,false,performance.now(),S.boostAnim);
       if(p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }
-      tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
+      if(r.needsConfirm!=='walletcap') tradeNote(r.reason);   /* de-slop: the wallet limit shows ONCE, in TradeBridge's alert strip (with Buy max) — no duplicate canvas flash */ S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }
     p.state=r.ok?'confirmed':'failed';
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
@@ -1117,6 +1121,7 @@ cv.addEventListener('pointermove',e=>{ const i=ammoAt(e); if(i!==S.ammoHover){ S
 cv.addEventListener('pointerleave',()=>{ S.ammoHover=-1; cv.style.cursor=''; });
 cv.addEventListener('pointerdown',e=>{ if(S.grass) return; const ctf=typeof chartBtnAt==='function'?chartBtnAt(e):null; if(ctf!=null){ e.preventDefault(); setChartTf(ctf); return; } const i=ammoAt(e); if(i<0) return; e.preventDefault();
   if(i===10){ dispatchEvent(new CustomEvent('disciple:swapsettings',{detail:{open:true}})); return; }
+  if(i===11){ KEYHELP.show=!KEYHELP.show; keyHelpSeen(); return; }
   if(i>=6){ S.pressFx={i,t:S.t}; dispatchEvent(new CustomEvent('disciple:sellselect',{detail:{i:i-6}})); return; }   // click = SELECT only (DUMP / Shift sells it)
   if(i>=MODES.length) return; S.pressFx={i,t:S.t}; S.mode=i; pushAmmo(); });   // click a $ tile = SELECT only (BOOST / Space buys it)
 /* @drag-steer (maker lee, phone v3): a touch / pen drag on the SKY steers — horizontal finger movement sets a target x that the
@@ -1673,6 +1678,9 @@ function drawPhoneFeed(P){ const B0=P.body, B={x:B0.x,y:B0.y+28,w:B0.w,h:B0.h-28
     ctx.textAlign='right'; ctx.fillStyle='#EEF1FA'; ctx.font=`bold 14px ${PH_FONT}`; ctx.fillText(mt[2],cx+cUsd,cy); cx+=cUsd+gap;
     ctx.fillStyle='rgba(214,222,245,.56)'; ctx.font=`12.5px ${PH_FONT}`; ctx.fillText(phAgo(r.at),cx+cAgo,cy); ctx.textAlign='left'; });
   ctx.restore(); }
+/* de-slop #3: ONE header style for the desktop TOP HOLDERS and TRADES cards (font, size, colour, spacing, divider) */
+function cardHeader(title,x,baseY,w){ ctx.save(); ctx.fillStyle='#ffe7a3'; ctx.font='bold 11px ui-monospace,monospace'; ctx.textAlign='left'; ctx.fillText(title,x+16,baseY);
+  ctx.fillStyle='rgba(255,231,163,.18)'; ctx.fillRect(x+16,baseY+6,w-32,1); ctx.restore(); }
 /* HOLDERS tab: the same topFuelers() list as the desktop TOP HOLDERS / KOTH panel, as rows */
 /* post-grad fix 5: tagged rows (pool / locker / burn / curve) are never ranked — shown ON TOP of the list (lee 9:19 PM CT), labelled,
    greyed a little, no rank number; real holders are ranked from #1 below them.
@@ -1783,13 +1791,13 @@ function drawHud(){
   const docked=kothDockedNow(); if (docked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
   else if (!docked&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
-  ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+STATUS_DY+20);
+  cardHeader(kothTitle,RX,RT+STATUS_DY+20,CW);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); ctx.restore(); }
   // bottom-left: trade feed (compact)
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
   panel(FX,FY-160,FW,140); ctx.font='12px ui-monospace,monospace';
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.fillText('TRADES',FX+16,FY-138);
+  cardHeader('TRADES',FX,FY-138,FW);
   S.feed.slice(0,6).forEach((r,i)=>{ ctx.fillStyle=r.c; ctx.globalAlpha=1-i*0.12; const fy=FY-116+i*17;
     if(r.ic){ drawIcon(r.ic,FX+16,fy-11,14,r.c); ctx.fillText(r.txt.slice(0,36),FX+16+18,fy); } else ctx.fillText(r.txt.slice(0,38),FX+16,fy); }); ctx.globalAlpha=1; ctx.restore(); }
   // bottom-right: controls (compact) — only without the React '? CONTROLS' pill (components/ControlsPill.tsx), which shows them on demand
@@ -1803,11 +1811,13 @@ function drawHud(){
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
   const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
-  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
+  ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; if(KEYHELP.show) ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
+  { const R=AMMO_HIT[11], hv=S.ammoHover===11; R.x=ax+AW-24; R.y=ay+4; R.w=18; R.h=16; ctx.fillStyle=hv?'#fff':KEYHELP.show?'rgba(255,231,163,.8)':'rgba(200,210,255,.55)'; ctx.font='bold 11px ui-monospace,monospace'; ctx.textAlign='center'; ctx.fillText('?',ax+AW-15,ay+16); ctx.textAlign='left'; }
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<MODES.length){ const wt=S.buyWarn.texts[hv]; ctx.fillStyle=wt?(S.buyWarn.over[hv]?'#ffb0c8':'#ffe7a3'):'#9ff3c8'; ctx.fillText(wt||`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
     else if(hv>=6&&hv<10){ const p=S.sellPresets[hv-6]; ctx.fillStyle=p&&p.on?(p.warnText?(p.over?'#ffb0c8':'#ffe7a3'):'#ffb0c8'):'rgba(255,176,200,.6)'; ctx.fillText(p&&p.on?(p.warnText||`click to select ${p.label}`):'NO TOKENS IN WALLET',ax+AW-12,ay+16); }
-    else { ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText(HOTKEYS.sell.join()==='KeyZ,KeyX,KeyC,KeyV'?'SELL · Z/X/C/V select, SHIFT dump':'SELL · '+HOTKEYS.sell.map(hotkeyLabel).join('/')+' select, SHIFT dump',ax+AW-12,ay+16); }
+    else if(hv===11){ ctx.fillStyle='rgba(255,231,163,.8)'; ctx.fillText(KEYHELP.show?'hide keys':'show keys',ax+AW-30,ay+16); }
+    else if(KEYHELP.show){ ctx.fillStyle='rgba(255,176,200,.5)'; ctx.fillText(HOTKEYS.sell.join()==='KeyZ,KeyX,KeyC,KeyV'?'SELL · Z/X/C/V select, SHIFT dump':'SELL · '+HOTKEYS.sell.map(hotkeyLabel).join('/')+' select, SHIFT dump',ax+AW-30,ay+16); }
     ctx.textAlign='left'; }
   MODES.forEach((q,i)=>{ const TW=82, bx=ax+50+i*86, by=ay+24, below=q.usd<MIN_SHOT&&!source.isSim, hov=i===S.ammoHover, sel=i===S.mode; const R=AMMO_HIT[i]; R.x=bx; R.y=by; R.w=TW; R.h=30;   // 4 tiles, aligned over the 4 SELL tiles
     ctx.fillStyle=sel?'rgba(255,231,163,.9)':hov?'rgba(255,255,255,.22)':'rgba(255,255,255,.08)'; ctx.fillRect(bx,by,TW,30);
@@ -2841,7 +2851,7 @@ function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.si
   ctx.font='10px ui-monospace,monospace'; ctx.fillStyle='rgba(230,236,255,.85)';
   ctx.fillText(`POS ${T.pos} · ${fmtTok(v.size)} tok`,x+10,y+31);
   ctx.fillText(`ENTRY MC ${fmtUsd(v.entryMcap)}`,x+10,y+44);
-  ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`REALIZED ${T.realized}`,x+10,y+55);
+  ctx.fillStyle=v.realized>=0?'#8ff0c0':'#ff9fb8'; ctx.fillText(`Locked-in profit ${T.realized}`,x+10,y+55);
   ctx.restore(); }
 /* fallback mirror of lib/pnl.ts fmtMoney/fmtPnl (React normally sends preformatted txt) */
 function fmtMoney(v){ const a=Math.abs(v); return (v<0?'−':'')+'$'+(a>=1e12?(a/1e12).toFixed(2)+'T':a>=1e9?(a/1e9).toFixed(2)+'B':a>=1e6?(a/1e6).toFixed(2)+'M':a>=1e3?(a/1e3).toFixed(2)+'K':a.toFixed(2)); }

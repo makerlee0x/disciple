@@ -151,7 +151,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
                   <div style={{ color: x.color, fontWeight: 900, fontSize: 18 }}>{x.label}</div>
                   <div style={{ fontSize: 11, letterSpacing: 2, opacity: 0.8, marginBottom: 8 }}>{x.tag}</div>
                   <div style={{ fontSize: 12, lineHeight: 1.5, opacity: 0.9, minHeight: 90 }}>{x.blurb}</div>
-                  <div style={{ fontSize: 11, opacity: 0.65, marginTop: 8 }}>bots: {Object.entries(x.mix).map(([a]) => ARCHETYPES[a as ArchetypeId].label).join(", ")}{x.rug ? ", sniper, bundler, dev, CTO" : ""}</div>
+                  <div style={{ fontSize: 11, opacity: 0.65, marginTop: 8 }}>bots: {Object.entries(x.mix).map(([a]) => ARCHETYPES[a as ArchetypeId].label).join(", ")}{x.rug ? ", sniper, bundler, dev, community takeover" : ""}</div>
                 </button>); })}
             </div>
             <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 18, flexWrap: "wrap", fontSize: 12 }}>
@@ -238,7 +238,7 @@ function TunePanel({ cfg, difficulty, onApply, onReset, onExport, live, onClose 
         {num("hype σ (variance)", D.hypeSigma, (c, x) => { c.difficulties[difficulty].hypeSigma = x; }, 0.05)}
         {num("max bots", D.maxBots, (c, x) => { c.difficulties[difficulty].maxBots = x; }, 5)}
         {D.rug && num("rug chance", D.rug.chance, (c, x) => { c.difficulties[difficulty].rug!.chance = x; }, 0.05)}
-        {D.rug && num("CTO chance", D.rug.ctoChance, (c, x) => { c.difficulties[difficulty].rug!.ctoChance = x; }, 0.05)}
+        {D.rug && num("Community takeover chance", D.rug.ctoChance, (c, x) => { c.difficulties[difficulty].rug!.ctoChance = x; }, 0.05)}
         {num("start balance $", cfg.player.startBalanceUsd, (c, x) => { c.player.startBalanceUsd = x; }, 100)}
         {num("points / tier", cfg.points.perTier, (c, x) => { c.points.perTier = x; }, 10)}
         {num("points / $ PnL", cfg.points.perPnlUsd, (c, x) => { c.points.perPnlUsd = x; }, 0.5)}

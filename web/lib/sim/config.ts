@@ -77,7 +77,7 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   sniper:    { label: "Sniper", blurb: "buys the launch block, dumps at 2–4×", cash: 1500, cashSigma: 0.5, rate: 3, buyFrac: [0.6, 0.9], tp: 2.0, sellFrac: [0.6, 1], sl: -0.4, dip: 0, chase: 0.2, resist: 0.3, followPlayer: 0, style: "insider", names: ["Scope", "Deadeye", "Ghost", "Viper", "Hawk", "Tracer"] },
   bundler:   { label: "Bundler", blurb: "clustered wallets holding bundled supply; drip-sells, joins the rug", cash: 800, cashSigma: 0.3, rate: 1.5, buyFrac: [0.9, 1], tp: 1.5, sellFrac: [0.08, 0.2], sl: -9, dip: 0, chase: 0, resist: 0.2, followPlayer: 0, style: "insider", names: ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"] },
   rugger:    { label: "Dev (rugger)", blurb: "dev wallet; pulls the rug when the chart looks juicy", cash: 2600, cashSigma: 0.2, rate: 1, buyFrac: [0.9, 1], tp: 99, sellFrac: [1, 1], sl: -9, dip: 0, chase: 0, resist: 0, followPlayer: 0, style: "insider", names: ["dev"] },
-  cto:       { label: "CTO", blurb: "community takeover: revives a rugged chart", cash: 7000, cashSigma: 0.3, rate: 4, buyFrac: [0.05, 0.12], tp: 3, sellFrac: [0.1, 0.2], sl: -9, dip: 1, chase: 0, resist: 0.1, followPlayer: 0.5, style: "support", names: ["CTO Council"] },
+  cto:       { label: "Community takeover", blurb: "the community takes over and revives a rugged chart", cash: 7000, cashSigma: 0.3, rate: 4, buyFrac: [0.05, 0.12], tp: 3, sellFrac: [0.1, 0.2], sl: -9, dip: 1, chase: 0, resist: 0.1, followPlayer: 0.5, style: "support", names: ["Community takeover"] },
   momentum:  { label: "Momentum", blurb: "chases green candles, bails on red", cash: 700, cashSigma: 0.6, rate: 3, buyFrac: [0.2, 0.45], tp: 0.5, sellFrac: [0.5, 1], sl: -0.12, dip: 0, chase: 1.4, resist: 0.3, followPlayer: 1.2, style: "compete", names: ["Rocket", "Chad", "Degen", "Pump", "FOMO", "Ape", "Send"] },
   paperhand: { label: "Paper hand", blurb: "buys hype, panics at −6%, sells at +15%", cash: 160, cashSigma: 0.6, rate: 2.5, buyFrac: [0.4, 0.8], tp: 0.15, sellFrac: [1, 1], sl: -0.06, dip: 0.2, chase: 0.8, resist: 0.4, followPlayer: 0.8, style: "compete", names: ["Shaky", "Jitter", "Panic", "Wobble", "Flinch"] },
   diamond:   { label: "Diamond hand", blurb: "buys and holds; sells a slice only at 10×", cash: 900, cashSigma: 0.6, rate: 1.2, buyFrac: [0.2, 0.5], tp: 9, sellFrac: [0.2, 0.3], sl: -9, dip: 0.8, chase: 0.3, resist: 0, followPlayer: 0.4, style: "support", names: ["Gem", "Rock", "Iron", "Stone", "Steel"] },
@@ -168,7 +168,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   },
   trench: {
     label: "TRENCH WARFARE", tag: "MERCENARY", color: "#ff6b7d",
-    blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a CTO might revive it. Huge swings: altitude is possible, but hard.",
+    blurb: "Snipers buy the launch. Bundled supply sits in clustered wallets. The dev may rug and crater the chart, and a community takeover might revive it. Huge swings: altitude is possible, but hard.",
     initial: { sniper: 4, bundler: 6, rugger: 1, cto: 1, momentum: 2, scalper: 2, paperhand: 3, whale: 1 }, arrivalsPerMin: 4,
     mix: { momentum: 0.28, scalper: 0.26, paperhand: 0.32, whale: 0.04, diamond: 0.05, crew: 0.05 },
     activity: 2.4, size: 0.42, maxBots: 100, hypeSigma: 0.7,   // size: pre-#127 0.55 × ~0.76 (unchanged for the 7 s table: graduation rate holds, 32/48 seeds either way; the launch
@@ -210,7 +210,7 @@ export const SIM_ACHIEVEMENTS: SimAchievement[] = [
   { id: "green", title: "IN THE GREEN", sub: "finished with positive PnL" },
   { id: "top3", title: "PODIUM", sub: "top 3 by PnL vs the bots" },
   { id: "survivor", title: "RUG SURVIVOR", sub: "finished green in a run with a rug" },
-  { id: "cto", title: "COMMUNITY", sub: "witnessed a CTO revival" },
+  { id: "cto", title: "COMMUNITY", sub: "witnessed a community takeover revival" },
   { id: "early", title: "EARLY BIRD", sub: "bought within the first 30 s" },
   { id: "filled", title: "LIMIT LEGEND", sub: "one of your tramps/walls filled" },
 ];

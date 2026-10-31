@@ -119,20 +119,20 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
   return (
     <>
       <div className="ap-bc z-30 flex gap-2" style={{ bottom: 96 }}>
-        <button data-testid="tw-open" onClick={openFlow}
+        <button data-testid="tw-open" onClick={openFlow} title="Tramp: buy if the price drops to a level you pick. Wall: sell if it rises to one."
           className="rounded-full border border-[#ffe7a3]/70 bg-gradient-to-b from-[#3a2a07]/90 to-[#120d02]/90 px-5 py-2 font-display text-sm font-bold tracking-wider text-[#ffe7a3] shadow-[0_0_24px_rgba(255,215,110,.45)] transition hover:scale-105">
           <Icon name="tramp" size={16} /> TRAMP / <Icon name="wall" size={16} /> WALL
         </button>
-        <button data-testid="tw-mine" onClick={() => setListOpen((v) => !v)}
+        <button data-testid="tw-mine" onClick={() => setListOpen((v) => !v)} title="Your open tramps and walls"
           className="rounded-full border border-white/20 bg-black/60 px-4 py-2 font-mono text-xs text-white/80 hover:text-white">
-          My tramps & walls ({mine.filter((m) => m.status === "active").length})
+          Mine ({mine.filter((m) => m.status === "active").length})
         </button>
       </div>
 
       {listOpen && (
         <div data-testid="tw-list" style={{ bottom: 190 }} className="ap-bc z-40 w-[420px] rounded-2xl border border-[#ffe7a3]/30 bg-[#07070f]/95 p-4 font-mono text-xs text-white shadow-2xl">
           <div className="mb-2 font-display text-base text-[#ffe7a3]">My tramps & walls</div>
-          {mine.length === 0 && <div className="text-white/50">None yet — place a trampoline under the rocket.</div>}
+          {mine.length === 0 && <div className="text-white/50">None yet. Place a tramp below the rocket.</div>}
           {mine.map((t) => (
             <div key={t.id} className="flex items-center justify-between border-t border-white/10 py-2">
               <div>
@@ -161,15 +161,15 @@ export default function TrampWallPanel({ token, adapter: ext, owner, supply, sim
           <div data-testid="tw-modal" onClick={(e) => e.stopPropagation()}
             className="relative w-[440px] rounded-3xl border border-[#ffe7a3]/50 bg-gradient-to-b from-[#1b1630] via-[#0c0a18] to-[#05040a] p-6 text-white shadow-[0_0_60px_rgba(255,215,110,.35)]">
             <div className="pointer-events-none absolute -top-5 left-1/2 h-8 w-40 -translate-x-1/2 rounded-[50%] border-4 border-[#ffe7a3]/80 shadow-[0_0_30px_#ffe7a3]" />
-            <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Trampoline" : "Wall"}</h2>
-            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}a limit order — no fee share; once the price fully crosses it a keeper closes it (0.1% tip)
+            <h2 className="text-center font-display text-2xl font-bold tracking-wide text-[#ffe7a3]">Place a {kind === "tramp" ? "Tramp" : "Wall"}</h2>
+            <p className="mb-4 text-center font-mono text-[11px] text-white/60">current mcap {fmt(cur)} · {simulator ? "SIM: " : ""}an order at a price you pick. It fills when the price gets there (0.1% fee)
               <br />points: {TRAMP_WALL_POINTS_PER_USD} per $1 of order size, only when filled · cancelled or partly filled = 0</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {(["tramp", "wall"] as const).map((k) => (
                 <button key={k} data-testid={`tw-kind-${k}`} onClick={() => { chooseKind(k); setStep("preset"); }}
                   className={`rounded-xl border-2 px-3 py-3 text-left transition ${step !== "kind" && kind === k ? (k === "tramp" ? "border-[#ffd76e] bg-[#ffd76e]/15 shadow-[0_0_20px_rgba(255,215,110,.4)]" : "border-[#ff8a7a] bg-[#ff8a7a]/15 shadow-[0_0_20px_rgba(255,120,100,.4)]") : "border-white/15 bg-white/5 hover:border-white/40"}`}>
                   <div className="font-display text-lg"><Icon name={k === "tramp" ? "tramp" : "wall"} size={18} /> {k === "tramp" ? "Tramp" : "Wall"}</div>
-                  <div className="font-mono text-[10px] text-white/60">{k === "tramp" ? "Quote LP below · support" : "Token LP above · resistance"}</div>
+                  <div className="font-mono text-[10px] text-white/60">{k === "tramp" ? "Buy if the price drops here" : "Sell if the price rises here"}</div>
                 </button>
               ))}
             </div>
