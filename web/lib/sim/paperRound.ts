@@ -51,7 +51,7 @@ export function standings(run: SimRun, brain: PaperBrain): Standing[] {
   const px = run.m.price(), sc = START_CASH[brain.difficulty];
   const ordersVal = (owner: string) => { if (!run.m.pool) return 0; let v = 0; for (const o of run.ordersOf(owner)) { const g = run.m.pool.amounts(o); v += g.quote + g.tokens * px; } return v; };
   const rows: Standing[] = run.bots.map((b) => { const M = brain.meta.get(b.id), value = b.pos.size * px, bonus = brain.bonus.get(b.wallet) ?? 0, worth = b.cash + value + ordersVal(b.wallet);   // bonus is already in cash
-    return { rank: 0, wallet: b.wallet, name: botDisplayName(b.wallet), kind: "bot", tier: M?.tier ?? "easy", arch: M ? ARCH_LABEL[M.arch] : b.arch, cash: b.cash, value, bonus, worth, pnl: worth - sc, realized: b.pos.realized, fees: b.pos.fees ?? 0, trades: b.buys + b.sells }; });
+    return { rank: 0, wallet: b.wallet, name: botDisplayName(b.wallet), kind: "bot", tier: M?.tier ?? "easy", arch: M ? ARCH_LABEL[M.arch] : b.arch, cash: b.cash, value, bonus, worth, pnl: worth - b.cash0, realized: b.pos.realized, fees: b.pos.fees ?? 0, trades: b.buys + b.sells }; });
   const P = run.player, value = P.pos.size * px, bonus = brain.bonus.get(YOU) ?? 0, worth = P.cash + value + ordersVal(YOU);
   rows.push({ rank: 0, wallet: YOU, name: "you", kind: "human", tier: "player", arch: "you", cash: P.cash, value, bonus, worth, pnl: worth - P.cash0, realized: P.pos.realized, fees: P.pos.fees ?? 0, trades: P.buys + P.sells });
   rows.sort((a, b) => b.worth - a.worth || b.realized - a.realized || a.fees - b.fees);

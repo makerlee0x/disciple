@@ -46,6 +46,10 @@ export const ARCH_LABEL: Record<PaperArchetype, string> = {
 export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], medium: [1300, 1700], hard: [1900, 2400] };
 /** TUNE (ASSUMPTION, #224): bots size buys as size × SIZE_SCALE × startCash so the richer lobbies don't graduate in ~2 min
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
+/** tuning-script override only (scripts/paper-tune.mts botCashK); empty in the app */
+export const BOT_CASH_K_OVERRIDE: Record<string, number> = {};
+export const ELITE_N = 5;
+export const LEADERS_N = 10;
 export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.5, medium: 0.18, hard: 0.23 }; // v3 (round ends at ascension): 0.5 / 0.18 / 0.23; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
 export const NOISE_TRADE_SHARE = 0.25;
 /** PAPER-ONLY practice bonus (lee, Oct 31; NOT a feature of the real game): a fixed USDG pool per lobby, paid only if the coin
@@ -179,7 +183,13 @@ export class PaperBrain implements SimBrain {
   /** public top-3 race, refreshed every block; payouts once the coin ASCENDS (empty otherwise) */
   race: { wallet: string; contrib: number; payout: number }[] = []; bonus = new Map<string, number>(); bonusPaid = false;
   get pool() { return ASCENSION_POOL[this.difficulty]; }
-  constructor(public difficulty: PaperDifficulty, public botCount = 200) {}
+  /** adaptive (Elo-style) handicap: bot start stacks × botCashK (sizing still keys off the lobby stack). Set before init. */
+  botCashK = BOT_CASH_K_OVERRIDE["_"] ?? 1;
+  /** eliteK < 1: the current top-LEADERS_N bots by worth get careful (skip / bank), the adaptive lever for the #1 spot */
+  leaders = new Set<number>();
+  /** extra stack multiple (eliteK > 1) for the ELITE_N highest-aggression bots (the adaptive win-rate lever; botCashK steers top-10) */
+  eliteK = 1;
+  constructor(public difficulty: PaperDifficulty, public botCount = 200) { this.botCashK = BOT_CASH_K_OVERRIDE[difficulty] ?? this.botCashK; }
   get startCash() { return START_CASH[this.difficulty]; }
   init(run: SimRun) {
     const n = Math.min(200, Math.max(0, this.botCount)), mix = LOBBY_MIX[this.difficulty], tiers: Tier[] = ["easy", "medium", "hard"];
@@ -190,13 +200,14 @@ export class PaperBrain implements SimBrain {
         let x = run.rng(), a: PaperArchetype = arch[arch.length - 1][0];
         for (const [aa, w] of arch) { if (x < w) { a = aa; break; } x -= w; }
         const b = run.spawn(paperArchId(a), 0);
-        b.cash = b.cash0 = this.startCash;   // equal start (spawn's lognormal is σ 0, hype 1 — pinned anyway)
+        b.cash = b.cash0 = this.startCash * this.botCashK;   // botCashK: adaptive handicap (lib/sim/rating), 1 = equal start; equal start (spawn's lognormal is σ 0, hype 1 — pinned anyway)
         const p = this.jitter(run, brainFor(tier, a, this.difficulty)), [r0, r1] = RATING_BAND[tier];
         b.nextT = p.activeFrom[0] + run.rng() * (p.activeFrom[1] - p.activeFrom[0]);
-        const sg = TUNE.aggSigma[this.difficulty], z = Math.sqrt(-2 * Math.log(1 - run.rng())) * Math.cos(2 * Math.PI * run.rng()), agg = sg > 0 ? Math.exp(sg * z - sg * sg / 2) : 1;
+        const sg = TUNE.aggSigma[this.difficulty] * Math.min(1, this.eliteK), z = Math.sqrt(-2 * Math.log(1 - run.rng())) * Math.cos(2 * Math.PI * run.rng()), agg = sg > 0 ? Math.exp(sg * z - sg * sg / 2) : 1;
         this.meta.set(b.id, { agg, tier, arch: a, rating: Math.round(r0 + run.rng() * (r1 - r0)), p, react: p.reactS[0] + run.rng() * (p.reactS[1] - p.reactS[0]), peak: 0, pos0: 0, ladderHit: 0, entryT: 0, lastTradeT: -1e9 });
       }
     });
+    if (this.eliteK > 1) [...run.bots].sort((x, y) => this.meta.get(y.id)!.agg - this.meta.get(x.id)!.agg || x.id - y.id).slice(0, ELITE_N).forEach((b) => { b.cash *= this.eliteK; b.cash0 = b.cash; });
     this.phases = PHASES.map((ph, i) => ({ id: ph.id, start: i === 0 ? 0 : ph.start + (run.rng() * 30 - 15), mood: ph.mood[0] + run.rng() * (ph.mood[1] - ph.mood[0]) + TUNE.moodBias[this.difficulty], vol: ph.vol }));
     this.hist.push(run.m.mcap());
     run.on(({ trade }) => { if (trade) this.onTrade(run, trade); });
@@ -239,6 +250,7 @@ export class PaperBrain implements SimBrain {
   afterBlock(run: SimRun) {
     if (!this.bonusPaid && run.m.phase === "curve") this.race = splitPool(this.contributors(run), this.pool);
     this.hist.push(run.m.mcap());
+    if (this.eliteK < 1 && this.hist.length % 10 === 0) { const px = run.m.price(); this.leaders = new Set([...run.bots].sort((x, y) => (y.cash + y.pos.size * px) - (x.cash + x.pos.size * px)).slice(0, LEADERS_N).map((b) => b.id)); }
     let i = 0; for (let k = 0; k < this.phases.length; k++) if (run.t >= this.phases[k].start) i = k;
     if (i !== this.phaseIdx) { this.phaseIdx = i; const ph = this.phases[i]; this.mood = ph.mood; this.vol = ph.vol; this.phaseLog.push({ id: ph.id, t: run.t }); }
   }
@@ -259,7 +271,8 @@ export class PaperBrain implements SimBrain {
     if (b.pos.size > 0) M.peak = Math.max(M.peak, price);
     if (run.t - M.lastTradeT < p.cooldownS) return;
     const n0 = run.trades.length, had = b.pos.size;
-    this.inner(run, b, M, now, price);
+    if (this.eliteK < 1 && this.leaders.has(b.id) && run.rng() < 1 - this.eliteK) { if (b.pos.size > 0 && run.rng() < 0.15) this.sell(run, b, b.pos.size * 0.3); }   // a leader gets careful: skips, trims
+    else this.inner(run, b, M, now, price);
     if (run.trades.length !== n0) { M.lastTradeT = run.t; if (had <= 0 && b.pos.size > 0) { M.pos0 = b.pos.size; M.ladderHit = 0; M.entryT = run.t; M.peak = run.m.price(); } else if (b.pos.size > had && M.ladderHit === 0) M.pos0 = b.pos.size; }
   }
   private inner(run: SimRun, b: Bot, M: BotMeta, now: number, price: number) {
