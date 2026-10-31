@@ -14,33 +14,16 @@ import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
-interface IBridgeAdminOps {
-    function pullShortfall(PoolId id, uint256 shortNorm) external returns (bool);
-    function afterTrade(PoolId id) external;
-}
-
 /// @title Disciple swap facet
 /// @notice `beforeSwap` for Disciple (`DiscipleHook`). Quotes the curve and settles ERC-6909 claims.
-///         Vault pulls and the post-trade rebalance `delegatecall` the admin facet so this contract
-///         stays deployable.
+///         A sell pays only this pool's USDG.
 contract DiscipleSwapFacet is DiscipleFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
 
-    address internal immutable adminFacet;
-
-    constructor(
-        IPoolManager manager_,
-        address usdg_,
-        address vault_,
-        address lz_,
-        uint8 usdgDecimals_,
-        DiscipleEngine engine_,
-        address adminFacet_
-    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
-        if (adminFacet_ == address(0)) revert BadCreate();
-        adminFacet = adminFacet_;
-    }
+    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
+        DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_)
+    {}
 
     function beforeSwap(
         address sender,
@@ -95,20 +78,21 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         if (f.toLp > 0) p.blockFee += f.toLp;
         p.tipBudget += f.tip;
         p.creatorAccrued += f.creator;
+        p.builderAccrued += f.builder;
         if (specIsCoin) _consumeOutflow(p, f.usdgOut);
 
         uint256 unspecRaw;
         if (!mintLp) {
             unspecRaw = specIsCoin ? _toRaw(f.usdgOut, usdgDec) : _toRaw(f.coinOut, p.coinDec);
             if (unspecRaw == 0) revert ZeroOutput();
-            if (specIsCoin) _ensureUsdgLiquid(p, f.usdgOut);
         } else {
             _parkProceeds(p, id, recipient, f);
         }
 
         _settleSwap(p, specIsCoin, specRaw, unspecRaw);
-        _noteClaims(specIsCoin, specRaw, unspecRaw);
-        _afterTrade(id);
+        _noteClaims(p, specIsCoin, specRaw, unspecRaw);
+        _requireReserve(p);
+        _touchGrad(id, p);
 
         emit Swapped(
             id,
@@ -144,31 +128,14 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         if (unspecRaw > 0) unspec.settle(poolManager, address(this), unspecRaw, true);
     }
 
-    /// @dev Keep `usdgClaimsNorm` aligned with the claim mint/burn `_settleSwap` just did.
-    function _noteClaims(bool specIsCoin, uint256 specRaw, uint256 unspecRaw) internal {
+    /// @dev Keep this pool's USDG claims aligned with the mint or burn `_settleSwap` just did.
+    ///      A sell cannot draw another pool's USDG: the debit reverts when it exceeds `usdgHeld`.
+    function _noteClaims(Pool storage p, bool specIsCoin, uint256 specRaw, uint256 unspecRaw) internal {
         if (specIsCoin) {
-            if (unspecRaw > 0) usdgClaimsNorm -= _toNorm(unspecRaw, usdgDec);
+            if (unspecRaw > 0) _debitPoolUsdg(p, _toNorm(unspecRaw, usdgDec));
         } else {
-            usdgClaimsNorm += _toNorm(specRaw, usdgDec);
+            _creditPoolUsdg(p, _toNorm(specRaw, usdgDec));
         }
-    }
-
-    /// @dev `needNorm` has already left principal in the curve update, but the ERC-6909 claims
-    ///      are burned afterwards. Pull from the vault only when it would otherwise hold more
-    ///      USDG than the remaining principal (that excess is the part of the payout that was
-    ///      invested). Comparing `needNorm` to post-trade principal double-counts the payout and
-    ///      makes every floor-sized sell look unbacked when nothing is in the vault.
-    function _ensureUsdgLiquid(Pool storage p, uint256 needNorm) internal {
-        if (needNorm == 0) return;
-        uint256 principal = p.curve.protoY + p.curve.lpY;
-        if (p.vaultAssets <= principal) return;
-        uint256 shortNorm = p.vaultAssets - principal;
-        bytes memory ret = _delegate(adminFacet, abi.encodeCall(IBridgeAdminOps.pullShortfall, (_id(p), shortNorm)));
-        if (!abi.decode(ret, (bool))) revert ExceedsCap();
-    }
-
-    function _afterTrade(PoolId id) internal {
-        _delegate(adminFacet, abi.encodeCall(IBridgeAdminOps.afterTrade, (id)));
     }
 
     function _rollOutflow(Pool storage p) internal {

@@ -12,10 +12,6 @@ library BridgeConstants {
     /// @dev Reference only. The hook does not special-case this address.
     address internal constant JESUS = 0x777A8DD86f0E29A28DAcf548Aebf42BB484daBBa;
 
-    /// @dev Morpho Steakhouse USDG (ERC-4626) on Robinhood Chain. Passed into the constructor at deploy;
-    ///      tests substitute a mock. Not read from this constant at runtime so the hook stays chain-agnostic.
-    address internal constant MORPHO_STEAKHOUSE_USDG = 0xBeEff033F34C046626B8D0A041844C5d1A5409dd;
-
     // ── Fees ────────────────────────────────────────────────────────────────
     /// @dev 2% while the pool is tiny. This is the fee, not a ceiling on some other fee.
     uint256 internal constant FEE_TINY_BPS = 200;
@@ -62,20 +58,19 @@ library BridgeConstants {
     /// @dev "Tiny". At or below this TVL the band stays at BAND_START. The $77 seed is under it.
     uint256 internal constant BAND_TINY_TVL = 100e18;
 
-    // ── Graduation / creator / Morpho ───────────────────────────────────────
+    // ── Graduation / fee split ──────────────────────────────────────────────
     uint256 internal constant GRAD_NUM = 12;
     uint256 internal constant GRAD_DEN = 100;
-    uint256 internal constant CREATOR_FEE_BPS = 1_000; // 10% of LP fees, only after graduation
-    uint256 internal constant BUFFER_MIN = 500e18; // $500 trading buffer kept out of Morpho
-    uint256 internal constant BUFFER_TVL_BPS = 500; // or 5% of TVL, whichever is larger
-    /// @dev Recommended cap on the share of USDG principal that may sit in the ERC-4626 vault.
-    ///      100% disables the extra cap (the floor and the trading buffer still apply). Creators set this.
-    uint16 internal constant MORPHO_CAP_BPS = 5_000;
-    /// @dev Public wait before a vault admin's replacement vault can be executed.
-    uint256 internal constant VAULT_TIMELOCK = 48 hours;
-    /// @dev Continuous time on one side of the live target before status flips. The same wait
-    ///      turns it on (pool TVL at or above the target) and off (pool TVL strictly below it).
-    ///      There is no percent band. Depth, fee, boost, and Dutch size do not wait on it.
+    /// @dev Of a graduated fee. 33% + 33% + 33% + 1% = 100%. The LP share is the remainder, so
+    ///      rounding dust is not taken from the creator, the locked liquidity, or the builder.
+    uint256 internal constant FEE_CREATOR_BPS = 3_300;
+    uint256 internal constant FEE_LOCKED_BPS = 3_300;
+    uint256 internal constant FEE_BUILDER_BPS = 100;
+    /// @dev Fixed. Status turns on after spot pool TVL has stayed at or above the live target for
+    ///      this long, and off after it has stayed strictly below that target for the same wait.
+    ///      One threshold, 100%. Not set per pool. Longer than a flash loan or a same-block round
+    ///      trip, so those cannot toggle the fee split. Depth, fee, boost, and Dutch size do not
+    ///      wait on it.
     uint256 internal constant GRADUATION_WINDOW = 77 minutes;
 
     // ── Dutch quotes ────────────────────────────────────────────────────────

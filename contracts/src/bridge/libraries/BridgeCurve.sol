@@ -14,12 +14,12 @@ import {BridgeFee} from "./BridgeFee.sol";
 ///         curve sells a new coin to a graduation mcap. This one quotes an already-issued coin against
 ///         an Ethereum TWAP.
 /// @dev Reserves are 18-dec normalized. `anchor` is normalized USDG per coin, WAD. Virtual reserves
-///      (`vx`, `vy`) are not owned by anyone. `feePot` sits inside `y` so fees compound into the price,
-///      but sells cannot spend it (LP fee credits stay solvent).
+///      (`vx`, `vy`) are not owned by anyone. `feePot` and `lockedY` sit inside `y` so they raise the
+///      price, but sells cannot spend them. `lockedY` is permanent: it is not an LP share.
 library BridgeCurve {
     struct S {
         uint256 x; // coin reserve (protocol + LP)
-        uint256 y; // USDG reserve, includes feePot and USDG sitting in Morpho
+        uint256 y; // USDG reserve, includes feePot. Held as this pool's claims, not another pool's.
         uint256 vx;
         uint256 vy;
         uint256 anchor;
@@ -27,6 +27,9 @@ library BridgeCurve {
         uint256 discountWad;
         uint256 depthUsd; // high-water TVL; depth never ratchets down
         uint256 feePot;
+        /// @dev Graduated-fee liquidity inside `y`. Not LP shares, not principal, so nobody can redeem
+        ///      it and a sell cannot spend it. It still raises the price and the depth.
+        uint256 lockedY;
         uint256 protoX;
         uint256 protoY;
         uint256 lpX;
@@ -43,9 +46,6 @@ library BridgeCurve {
         uint256 maxUsdgOut; // min(floor room, outflow room); type(uint256).max if uncapped by the caller
         uint256 totalShares;
         uint256 boostWad;
-        /// @dev Simulator override. Production leaves `quoteFeeSet` false and the progress slide applies.
-        bool quoteFeeSet;
-        uint256 quoteFeeBps;
     }
 
     struct Fill {
@@ -56,6 +56,10 @@ library BridgeCurve {
         uint256 fee;
         uint256 tip;
         uint256 creator;
+        /// @dev 1% of a graduated fee. Claimable by the hook builder, not by the pool creator.
+        uint256 builder;
+        /// @dev 33% of a graduated fee. Stays in `lockedY`.
+        uint256 locked;
         uint256 compound;
         uint256 toLp; // portion of `compound` credited to the LP fee index
         uint256 spotBefore;
@@ -174,9 +178,9 @@ library BridgeCurve {
 
     /// @notice Width of the full-pool move, in WAD. Trading inventory worth `tvl` moves spot by about this.
     /// @dev Linear in ln(TVL), not in TVL. From `BAND_TINY_TVL` ($100) to `gradTvl` the band falls in a
-    ///      straight line on a log TVL axis, from 25% to 1.2%. That stays wider through the middle than
+    ///      straight line on a log TVL axis, from ±25% to ±3.33%. That stays wider through the middle than
     ///      the old `1/TVL` depth (which was already at 3.33% by $10k) and wider than interpolating
-    ///      log(band) itself. Below $100 the band stays at 25%. At and above graduation it stays at 1.2%.
+    ///      log(band) itself. Below $100 the band stays at ±25%. At and above the live target it stays at ±3.33%.
     function bandWad(uint256 v, uint256 gradTvl) internal pure returns (uint256) {
         if (gradTvl == 0 || v <= C.BAND_TINY_TVL) return C.BAND_START_WAD;
         if (v >= gradTvl) return C.BAND_END_WAD;
@@ -340,6 +344,7 @@ library BridgeCurve {
         uint256 pVal = protoValue(s);
         _absorb(s, -_i(dx), _i(net), lVal, pVal);
         f.toLp = _allocate(s, f.compound, lVal, pVal, ctx.boostWad, ctx.totalShares);
+        _lock(s, f.locked);
         f.spotAfter = spot(s);
         return (s, f);
     }
@@ -379,11 +384,12 @@ library BridgeCurve {
         f.fee = fee;
         f.usdgOut = gross - fee;
         _slices(f, ctx);
-        // `compound` stays in the pool; the rest of `gross` leaves principal.
+        // `compound` and `locked` stay in the pool; the rest of `gross` leaves principal.
         uint256 lVal = lpValue(s);
         uint256 pVal = protoValue(s);
         _absorb(s, _i(dx), -_i(gross), lVal, pVal);
         f.toLp = _allocate(s, f.compound, lVal, pVal, ctx.boostWad, ctx.totalShares);
+        _lock(s, f.locked);
         f.spotAfter = spot(s);
         return (s, f);
     }
@@ -441,7 +447,6 @@ library BridgeCurve {
     /// @dev Same bps either direction. Progress only: pool TVL against the live target. The gap, the
     ///      clip size, and a stale anchor do not change it.
     function _tradeFee(S memory s, Ctx memory ctx, uint256) private pure returns (uint256) {
-        if (ctx.quoteFeeSet) return ctx.quoteFeeBps > C.BPS ? C.BPS : ctx.quoteFeeBps;
         return BridgeFee.baseFeeBps(tvl(s), ctx.gradTvl);
     }
 
@@ -450,14 +455,35 @@ library BridgeCurve {
         return Math.mulDiv(net, C.BPS, C.BPS - bps, Math.Rounding.Ceil);
     }
 
+    /// @dev Before graduation the whole fee compounds for LPs. While graduated it is 33% creator,
+    ///      33% LPs, 33% locked, 1% builder. Dust from the floored shares stays in the LP bucket.
+    ///      The keeper tip, if the budget has room, is taken from that LP bucket.
     function _slices(Fill memory f, Ctx memory ctx) private pure {
-        uint256 tip = Math.mulDiv(f.fee, C.TIP_SLICE_BPS, C.BPS);
+        uint256 fee = f.fee;
+        uint256 creator;
+        uint256 locked;
+        uint256 builder;
+        if (ctx.graduated) {
+            creator = Math.mulDiv(fee, C.FEE_CREATOR_BPS, C.BPS);
+            locked = Math.mulDiv(fee, C.FEE_LOCKED_BPS, C.BPS);
+            builder = Math.mulDiv(fee, C.FEE_BUILDER_BPS, C.BPS);
+        }
+        uint256 lp = fee - creator - locked - builder;
+        uint256 tip = Math.mulDiv(fee, C.TIP_SLICE_BPS, C.BPS);
         if (tip > ctx.tipRoom) tip = ctx.tipRoom;
-        uint256 creator = ctx.graduated ? Math.mulDiv(f.fee, C.CREATOR_FEE_BPS, C.BPS) : 0;
-        if (tip + creator > f.fee) creator = f.fee - tip;
+        if (tip > lp) tip = lp;
         f.tip = tip;
         f.creator = creator;
-        f.compound = f.fee - tip - creator;
+        f.builder = builder;
+        f.locked = locked;
+        f.compound = lp - tip;
+    }
+
+    /// @dev Park graduated-fee USDG where sells and redeems cannot take it.
+    function _lock(S memory s, uint256 amount) private pure {
+        if (amount == 0) return;
+        s.lockedY += amount;
+        s.y += amount;
     }
 
     /// @param dxCoin signed change in coin reserve (negative = coin leaves)
@@ -480,7 +506,7 @@ library BridgeCurve {
             s.protoY = principal - s.lpY;
         }
         s.x = x2;
-        s.y = s.protoY + s.lpY + s.feePot;
+        s.y = s.protoY + s.lpY + s.feePot + s.lockedY;
     }
 
     /// @dev Adds `amount` of fresh USDG into `y` and splits it between protocol principal and the LP fee pot.
@@ -514,6 +540,7 @@ library BridgeCurve {
         c.discountWad = s.discountWad;
         c.depthUsd = s.depthUsd;
         c.feePot = s.feePot;
+        c.lockedY = s.lockedY;
         c.protoX = s.protoX;
         c.protoY = s.protoY;
         c.lpX = s.lpX;

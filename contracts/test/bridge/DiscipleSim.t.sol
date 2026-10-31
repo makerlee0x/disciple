@@ -7,6 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
+import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
 
 /// @notice Simulator only. Nothing in this file is part of the hook.
 ///
@@ -38,10 +39,11 @@ import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.s
 ///
 /// V2 (`test_simV2`) is a different experiment from `SIM_RESULTS_PARTIAL.md`. The anchor
 /// mean-reverts around $1. Daily organic volume is max(base, k × TVL). The objective is
-/// days until pool TVL reaches 12% of the live reference, then TVL at day 365. The main
-/// reference is fixed at $721k. One path grows it to $1M and one shrinks it to $500k.
-/// Searcher profit has to stay positive in every progress bucket the pool occupies before
-/// status latches: 0–10%, 10–30%, 30–60%, and 60–100% of that live target.
+/// the first day status turns on, then TVL at day 365. Status uses one threshold, 100% of
+/// the live target, and the fixed 77-minute window in both directions. Crossing back clears
+/// the clock. The main reference is fixed at $721k. One path grows it to $1M and one shrinks
+/// it to $500k. Searcher profit has to stay positive in every progress bucket occupied while
+/// status is off, including after an ungraduation: 0–10%, 10–30%, 30–60%, and 60–100%.
 contract DiscipleSimTest is Test {
     uint256 internal constant START = 1e18;
     uint256 internal constant SEED = 77e18;
@@ -167,7 +169,9 @@ contract DiscipleSimTest is Test {
     uint256 internal feeTinyBps;
     uint256 internal feeGradBps;
     uint256 internal aboveSince;
-    uint256 internal morphoYield;
+    uint256 internal belowSince;
+    uint256 internal offN;
+    DiscipleEngine internal engine;
     uint256 internal bucketClock;
     /// @dev Bucket the pool was in at the start of the current interval. 4 means "do not record".
     uint256 internal openBucket;
@@ -181,6 +185,10 @@ contract DiscipleSimTest is Test {
     uint256[3] internal pickTiny;
     bool[3] internal pickAlt;
     Cand internal cand;
+
+    function setUp() public {
+        engine = new DiscipleEngine();
+    }
 
     function test_recommendedSeedIsAllCoin() public pure {
         BridgeCurve.S memory m;
@@ -291,6 +299,36 @@ contract DiscipleSimTest is Test {
         _applyBuy(5e18, ACT_ARB);
         _levammRetarget();
         assertGt(arbMark, mark1, "buying coin back toward the mix is paid");
+    }
+
+    /// @dev A reference that outgrows the pool turns status off after the window. A later shrink turns it back on.
+    function test_statusTurnsOffWhenTheReferenceOutgrowsThePool() public {
+        _reset(COST_OUTSIDE, MODE_BASE, VOL_ACTIVE, false);
+        s.y = GRAD;
+        s.anchor = 1e18;
+        graduated = true;
+        gradDay = 1;
+        refPath = 1;
+        clock = 300 days;
+        _touchGrad();
+        assertTrue(graduated, "the first reading under the target starts the off-window");
+        clock += C.GRADUATION_WINDOW - 1 minutes;
+        _touchGrad();
+        assertTrue(graduated, "inside the window, status stays on");
+        clock += 2 minutes;
+        _touchGrad();
+        assertFalse(graduated, "a full window under a grown reference turns status off");
+        assertEq(offN, 1);
+
+        refPath = 2;
+        clock = 365 days;
+        _touchGrad();
+        assertFalse(graduated, "the first reading back over the target starts the on-window");
+        clock += C.GRADUATION_WINDOW;
+        _touchGrad();
+        assertTrue(graduated, "a shrunk reference re-graduates the same pool");
+        assertEq(offN, 1);
+        assertEq(gradDay, 1, "grad day stays the first time status turned on");
     }
 
     /// @dev Two days of every shape, so a revert is caught before the year-long run.
@@ -442,7 +480,8 @@ contract DiscipleSimTest is Test {
         feeTinyBps = C.FEE_TINY_BPS;
         feeGradBps = C.FEE_GRAD_BPS;
         aboveSince = 0;
-        morphoYield = 0;
+        belowSince = 0;
+        offN = 0;
         bucketClock = 0;
         openBucket = 0;
         for (uint256 i; i < 4; ++i) {
@@ -509,12 +548,12 @@ contract DiscipleSimTest is Test {
                 arbNotional += _arb();
                 _drip();
             }
-            // Status flips before the bucket clock moves, so the interval that completes the
-            // 77-minute hold is still pre-graduation and the next interval is not recorded.
+            // Status flips before the bucket clock moves. Completing the on-window is still
+            // pre-graduation and is recorded. Completing the off-window happens while the open
+            // bucket is "graduated", so that interval is not recorded; later intervals are.
             _touchGrad();
             _noteTime();
         }
-        _morpho();
     }
 
     function _budgetForDay() internal view returns (uint256) {
@@ -563,8 +602,8 @@ contract DiscipleSimTest is Test {
             vm.toString(gapN),
             " on ",
             graduated ? "1" : "0",
-            " morpho ",
-            vm.toString(morphoYield),
+            " offN ",
+            vm.toString(offN),
             " b0 ",
             vm.toString(bucketP[0]),
             " b1 ",
@@ -1206,8 +1245,6 @@ contract DiscipleSimTest is Test {
         c.boostWad = _boostAt(BridgeCurve.tvl(m));
         c.tipRoom = tipBudget >= C.TIP_BUDGET_CAP ? 0 : C.TIP_BUDGET_CAP - tipBudget;
         c.graduated = graduated;
-        c.quoteFeeSet = true;
-        c.quoteFeeBps = _fillBps(0);
     }
 
     function _spot() internal view returns (uint256) {
@@ -1307,8 +1344,9 @@ contract DiscipleSimTest is Test {
         return _boostAt(BridgeCurve.tvl(s));
     }
 
-    /// @dev Progress buckets before status latches: 0–10%, 10–30%, 30–60%, and 60% through the
-    ///      moment status turns on, including time above the live target. Index 4 is not recorded.
+    /// @dev Progress buckets while status is off: 0–10%, 10–30%, 30–60%, and 60% through the
+    ///      moment status turns on, including time above the live target. After an ungraduation
+    ///      the same buckets resume. Index 4 is not recorded.
     function _preGradBucket() internal view returns (uint256) {
         if (graduated) return 4;
         uint256 target = _target();
@@ -1347,24 +1385,19 @@ contract DiscipleSimTest is Test {
         }
     }
 
-    /// @dev Status latches. Crossing back under the target before the 77 minutes clears the window.
-    ///      Fee, boost, and Dutch size keep using the live target after the latch.
+    /// @dev Same machine as `DiscipleEngine.stepGrad`, on the sim clock and the fixed 77-minute window.
+    ///      Fee, boost, and Dutch size keep using live progress either way.
+    ///      `gradDay` stays the first day status turns on. `offN` counts later turns off.
     function _touchGrad() internal {
-        if (graduated) return;
-        uint256 target = _target();
-        uint256 v = BridgeCurve.tvl(s);
-        if (target == 0 || v < target) {
-            aboveSince = 0;
-            return;
-        }
-        if (aboveSince == 0) {
-            aboveSince = clock == 0 ? 1 : clock;
-            return;
-        }
-        if (clock >= aboveSince + 77 minutes) {
-            graduated = true;
-            if (gradDay == 0) gradDay = _dayNow();
-        }
+        uint8 edge;
+        uint64 above;
+        uint64 below;
+        (graduated, above, below, edge) =
+            engine.stepGrad(BridgeCurve.tvl(s), _target(), graduated, uint64(aboveSince), uint64(belowSince), clock);
+        aboveSince = above;
+        belowSince = below;
+        if (edge == 1 && gradDay == 0) gradDay = _dayNow();
+        if (edge == 2) offN += 1;
     }
 
     function _dayNow() internal view returns (uint256) {
@@ -1372,25 +1405,6 @@ contract DiscipleSimTest is Test {
         uint256 d = clock / 1 days;
         if (clock % 1 days != 0) d += 1;
         return d == 0 ? 1 : d;
-    }
-
-    /// @dev 5% APR on the idle slice the vault would hold. Yield stays in the book.
-    function _morpho() internal {
-        if (!graduated) return;
-        uint256 y = s.y;
-        uint256 floorAmt = (y * C.FLOOR_BPS) / C.BPS;
-        uint256 buf = (y * 500) / C.BPS;
-        if (buf < 500e18) buf = 500e18;
-        uint256 locked = floorAmt + buf;
-        if (y <= locked) return;
-        uint256 idle = y - locked;
-        uint256 cap = (y * 5_000) / C.BPS;
-        if (idle > cap) idle = cap;
-        uint256 yld = (idle * 5) / 100 / 365;
-        if (yld == 0) return;
-        s.y += yld;
-        s.protoY += yld;
-        morphoYield += yld;
     }
 
     function _applyPick(uint256 ki) internal {
@@ -1401,7 +1415,8 @@ contract DiscipleSimTest is Test {
         if (pickTiny[ki] != 0) feeTinyBps = pickTiny[ki];
     }
 
-    /// @dev Occupied buckets with searcher profit at or below zero. Time after graduation is not counted.
+    /// @dev Occupied buckets with searcher profit at or below zero. Time while status is on is
+    ///      not counted. Time after an ungraduation is.
     function _fails() internal view returns (uint256 n) {
         for (uint256 i; i < 4; ++i) {
             if (bucketS[i] > 0 && bucketP[i] <= 0) ++n;
@@ -1440,10 +1455,11 @@ contract DiscipleSimTest is Test {
         else if (i == 10) tiny = 300;
     }
 
-    /// @dev For each k, minimize days to graduation on the active fixed-reference book. A set counts
-    ///      only when every occupied pre-graduation progress bucket has searcher profit above zero.
-    ///      Otherwise keep the one with fewer failing buckets. The netted quote is scored at the
-    ///      winning knobs and becomes COMBO when it graduates sooner under the same rule.
+    /// @dev For each k, minimize days to the first graduation on the active fixed-reference book.
+    ///      A set counts only when every occupied off-status progress bucket has searcher profit
+    ///      above zero, including buckets reopened by an ungraduation. Otherwise keep the one with
+    ///      fewer failing buckets. The netted quote is scored at the winning knobs and becomes
+    ///      COMBO when it graduates sooner under the same rule.
     function _pickCombo() internal {
         uint256 keep = horizon;
         horizon = keep < 240 ? keep : 240;

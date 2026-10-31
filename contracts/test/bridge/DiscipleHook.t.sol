@@ -359,19 +359,66 @@ contract DiscipleHookTest is BridgeFixture {
         assertLe(usdg.balanceOf(address(this)), beforeBal);
     }
 
+    /// @dev ERC-6909 claims are one balance on the hook. `usdgHeld` is what keeps a redeem or a
+    ///      swap in one pool from spending the other pool's USDG.
     function test_twoPoolsDoNotShareReserves() public {
         MockERC20 other = _newCoin("OTHER", 18);
-        (PoolKey memory k2, PoolId id2) = _create(other, 40e18, 0, C.FLOOR_BPS, C.DISCOUNT_BPS, 0, 0);
-        _price(id2, 2e18, 725_000e18);
-        uint256 y2 = hook.curve(id2).y;
-        uint256 x2 = hook.curve(id2).x;
-        usdg.mint(address(this), 5e18);
+        (, PoolId id2) = _create(other, 40e18, 0, C.FLOOR_BPS, C.DISCOUNT_BPS, 0, 0);
+        _price(id2, 1e18, 725_000e18);
+
+        usdg.mint(address(this), 40e18);
+        uint256 sharesA = hook.deposit(id, 0, 15e18);
+        uint256 sharesB = hook.deposit(id2, 0, 20e18);
         _buy(key, address(coin), 5e18);
-        assertEq(hook.curve(id2).y, y2);
-        assertEq(hook.curve(id2).x, x2);
+
+        uint256 heldA = hook.usdgHeld(id);
+        uint256 heldB = hook.usdgHeld(id2);
+        uint256 yB = hook.curve(id2).y;
+        uint256 xB = hook.curve(id2).x;
+        assertGt(heldA, 0);
+        assertGt(heldB, 0);
+        assertGt(yB, 0);
+        assertEq(heldA + heldB, hook.usdgClaimsNorm());
+
+        uint256 bal = usdg.balanceOf(address(this));
+        (uint256 coinOut, uint256 usdgOut) = hook.redeem(id, sharesA);
+        assertEq(coinOut, 0, "the deposit was USDG");
+        assertGt(usdgOut, 0);
+        assertLe(usdg.balanceOf(address(this)) - bal, heldA, "A's redeem cannot pay more than A holds");
+        assertEq(hook.usdgHeld(id2), heldB);
+        assertEq(hook.curve(id2).y, yB);
+        assertEq(hook.curve(id2).x, xB);
+
+        coin.mint(address(this), 30e18);
+        (uint256 quoted,, bool capped, uint256 used) = hook.quoteExactIn(key, _sellZfo(), 30e18);
+        uint256 heldAfterRedeem = hook.usdgHeld(id);
+        if (used == 0) {
+            vm.expectRevert();
+            this.execSwap(key, _sellZfo(), 30e18);
+        } else {
+            assertLe(quoted, heldAfterRedeem, "the quote cannot promise the other pool's USDG");
+            uint256 beforeSell = usdg.balanceOf(address(this));
+            _sell(key, address(coin), used);
+            assertLe(usdg.balanceOf(address(this)) - beforeSell, heldAfterRedeem);
+            if (capped) {
+                vm.expectRevert();
+                this.execSwap(key, _sellZfo(), 30e18);
+            }
+        }
+        assertEq(hook.usdgHeld(id2), heldB, "a sell in A does not draw B");
+        assertEq(hook.curve(id2).y, yB);
+        assertEq(hook.curve(id2).x, xB);
+        assertTrue(hook.reserveOk(id));
+        assertTrue(hook.reserveOk(id2));
+
+        uint256 beforeB = usdg.balanceOf(address(this));
+        (, uint256 paidB) = hook.redeem(id2, sharesB);
+        assertGt(paidB, 0, "B can still pay its own USDG");
+        assertGt(usdg.balanceOf(address(this)), beforeB);
+        assertLt(hook.usdgHeld(id2), heldB);
+        assertTrue(hook.reserveOk(id2));
         _solvent(id, address(coin));
         _solvent(id2, address(other));
-        k2;
     }
 
     function test_creatorCutOnlyAfterGraduationAndWalletIsRotatable() public {
@@ -397,53 +444,6 @@ contract DiscipleHookTest is BridgeFixture {
         hook.setCreator(id, creator);
         vm.prank(creator);
         hook.setCreator(id, address(this));
-        _solvent(id, address(coin));
-    }
-
-    function test_graduationAndMorphoIncludingAVaultThatFails() public {
-        _graduate();
-        assertTrue(_graduated());
-        uint256 inVault = usdg.balanceOf(address(vault));
-        assertGt(inVault, 500e18, "idle USDG above the floor and buffer is deposited");
-
-        BridgeCurve.S memory s = hook.curve(id);
-        uint256 principal = s.protoY + s.lpY;
-        uint256 inVaultNorm = usdg.balanceOf(address(vault));
-        uint256 liquid = principal - inVaultNorm;
-        assertGe(liquid, (principal * C.FLOOR_BPS) / C.BPS, "floor stays liquid");
-
-        coin.mint(address(this), 5_000e18);
-        (uint256 smallOut,, bool smallCap, uint256 smallUsed) = hook.quoteExactIn(key, _sellZfo(), 20e18);
-        assertFalse(smallCap);
-        assertLt(smallOut, liquid);
-
-        uint256 bigIn = 2_500e18;
-        (uint256 bigOut,, bool bigCap, uint256 bigUsed) = hook.quoteExactIn(key, _sellZfo(), bigIn);
-        if (bigCap) bigIn = bigUsed;
-        assertGt(bigOut, liquid, "this sell has to pull from the vault");
-
-        uint256 snap = vm.snapshotState();
-        uint256 vaultBefore = usdg.balanceOf(address(vault));
-        _sell(key, address(coin), bigIn);
-        assertLt(usdg.balanceOf(address(vault)), vaultBefore, "live vault paid the sell");
-
-        vm.revertToState(snap);
-        vault.setLive(false);
-        vm.expectRevert();
-        this.execSwap(key, _sellZfo(), bigIn);
-        _sell(key, address(coin), smallUsed);
-        _solvent(id, address(coin));
-    }
-
-    function test_vaultYieldGoesToProtocolNotLpBoost() public {
-        _graduate();
-        uint256 proto = hook.curve(id).protoY;
-        uint256 lpY = hook.curve(id).lpY;
-        usdg.mint(address(this), 100e18);
-        usdg.transfer(address(vault), 100e18);
-        hook.rebalance(id);
-        assertGt(hook.curve(id).protoY, proto);
-        assertEq(hook.curve(id).lpY, lpY);
         _solvent(id, address(coin));
     }
 
@@ -512,8 +512,6 @@ contract DiscipleHookTest is BridgeFixture {
             v3Pool: address(0),
             coinSeed: coinSeed,
             tipSeed: 0,
-            morphoCapBps: 10_000,
-            vaultAdmin: address(0),
             dutchDrift: drift,
             refPoolId: bytes32(0),
             refHook: address(0),
@@ -543,7 +541,7 @@ contract DiscipleHookTest is BridgeFixture {
         skip(6 hours);
         _price(id, hook.curve(id).anchor, 10_000e18);
         assertFalse(_graduated(), "the window starts when the pool is first seen over the line");
-        skip(77 minutes);
+        skip(C.GRADUATION_WINDOW);
         hook.poke(id);
         assertTrue(_graduated());
     }

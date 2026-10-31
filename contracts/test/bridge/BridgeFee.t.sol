@@ -56,9 +56,4 @@ contract BridgeFeeTest is Test {
         // $10k of an $86.5k graduation is still most of the way toward 5x (about 4.6x).
         assertGt(BridgeFee.boostWad(10_000e18, grad), 4e18);
     }
-
-    function test_buffer() public pure {
-        assertEq(BridgeFee.buffer(1_000e18), 500e18);
-        assertEq(BridgeFee.buffer(20_000e18), 1_000e18);
-    }
 }

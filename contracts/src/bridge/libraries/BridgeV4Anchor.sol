@@ -19,8 +19,10 @@ import {BridgeConstants as C} from "./BridgeConstants.sol";
 ///
 ///         TVL for the self-sample is a zero-width liquidity proxy: `2 * in-range quote`. It is
 ///         manipulable by adding in-range liquidity. The stored TVL is then smoothed with a
-///         30-minute half-life, and graduated status waits another 77 minutes. The price itself
-///         is a 30-minute TWAP with no spot fallback. One block cannot overwrite the sample.
+///         30-minute half-life, and graduated status then waits out the 77-minute window. The price
+///         itself is a 30-minute TWAP with no spot fallback. A sample writes the tick carried from
+///         a prior block, not this transaction's `slot0`, so a push, poke, and push-back in one
+///         transaction cannot weight the TWAP.
 ///
 /// @dev Public functions are linked with DELEGATECALL so this code is not copied into every facet.
 library BridgeV4Anchor {
@@ -32,21 +34,35 @@ library BridgeV4Anchor {
         uint32 lastTs;
         int24 lastTick;
         int56 cum;
+        /// @dev Slot0 seen in `observedBlock`. It becomes `lastTick` only on a later block, and
+        ///      only if the pool is still at that price. This transaction's tick does not accrue.
+        int24 observedTick;
+        uint64 observedBlock;
     }
 
-    /// @notice Record `tick` if this timestamp has not been sampled yet. The first point stores a
-    ///         cumulative of 0. Later points advance the cumulative by the tick that was in force
-    ///         since the previous sample, which is the tick a TWAP has to use.
+    /// @notice Record the price as of the end of a previous block. At most one cumulative point
+    ///         per timestamp. The tick argument is this transaction's `slot0` and is stored only
+    ///         as a candidate. The cumulative advances by `lastTick`, which is a price that was
+    ///         already observed in an earlier block and is still the pool's price. A push, sample,
+    ///         and push-back in one transaction therefore cannot weight the TWAP.
     function record(Ring storage ring, mapping(uint16 => uint256) storage obs, int24 tick) public {
         uint32 nowT = uint32(block.timestamp);
+        uint64 bn = uint64(block.number);
         if (ring.count == 0) {
             ring.lastTs = nowT;
             ring.lastTick = tick;
+            ring.observedTick = tick;
+            ring.observedBlock = bn;
             ring.cum = 0;
             obs[0] = _pack(nowT, 0);
             ring.next = 1;
             ring.count = 1;
             return;
+        }
+        // Promote a prior block's tick only when this block still shows it. A one-transaction
+        // spike fails the equality on the next block, after the price has been put back.
+        if (ring.observedBlock != 0 && ring.observedBlock < bn && tick == ring.observedTick) {
+            ring.lastTick = tick;
         }
         if (nowT == ring.lastTs) return;
         int256 projected = _project(ring, nowT);
@@ -56,8 +72,9 @@ library BridgeV4Anchor {
         ring.next = uint16((uint256(ring.next) + 1) % CARD);
         if (ring.count < CARD) ring.count += 1;
         ring.cum = cumNow;
-        ring.lastTick = tick;
         ring.lastTs = nowT;
+        ring.observedTick = tick;
+        ring.observedBlock = bn;
     }
 
     /// @notice 30-minute mean tick, converted to quote-per-coin, plus the liquidity TVL proxy.

@@ -143,6 +143,7 @@ library BridgeArb {
         c.discountWad = s.discountWad;
         c.depthUsd = s.depthUsd;
         c.feePot = s.feePot;
+        c.lockedY = s.lockedY;
         c.protoX = s.protoX;
         c.protoY = s.protoY;
         c.lpX = s.lpX;

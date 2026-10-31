@@ -117,10 +117,10 @@ contract DiscipleEngine {
     }
 
     /// @notice One step of the graduation flag. `edge` is 1 when status turns on and 2 when it turns off.
-    ///         The only buffer is time. Status turns on after `GRADUATION_WINDOW` continuously at or
-    ///         above `target`, and off after the same window strictly below `target`. The observation
-    ///         that starts a window does not flip in that call. Crossing back to the other side clears
-    ///         that clock. There is no percent band around the target.
+    ///         The only buffer is `GRADUATION_WINDOW` (77 minutes). Status turns on after that long
+    ///         continuously at or above `target`, and off after the same wait strictly below `target`.
+    ///         The observation that starts a window does not flip in that call. Crossing back to the
+    ///         other side clears that clock. One threshold, 100%. There is no percent band.
     function stepGrad(
         uint256 poolTvl,
         uint256 target,
@@ -133,6 +133,7 @@ contract DiscipleEngine {
         newGrad = graduated;
         newAbove = aboveSince;
         newBelow = belowSince;
+        uint256 wait = C.GRADUATION_WINDOW;
         bool over = target != 0 && poolTvl >= target;
         if (!newGrad) {
             if (!over) {
@@ -143,7 +144,7 @@ contract DiscipleEngine {
                 newAbove = uint64(nowTs);
                 return (newGrad, newAbove, newBelow, 0);
             }
-            if (nowTs >= uint256(newAbove) + C.GRADUATION_WINDOW) {
+            if (nowTs >= uint256(newAbove) + wait) {
                 newGrad = true;
                 newBelow = 0;
                 edge = 1;
@@ -158,7 +159,7 @@ contract DiscipleEngine {
             newBelow = uint64(nowTs);
             return (newGrad, newAbove, newBelow, 0);
         }
-        if (nowTs >= uint256(newBelow) + C.GRADUATION_WINDOW) {
+        if (nowTs >= uint256(newBelow) + wait) {
             newGrad = false;
             newAbove = 0;
             newBelow = 0;
@@ -170,6 +171,21 @@ contract DiscipleEngine {
     /// @dev The progress fee. Same number the curve charges.
     function feeBps(uint256 tvl, uint256 gradTvl) external pure returns (uint256) {
         return BridgeFee.baseFeeBps(tvl, gradTvl);
+    }
+
+    /// @notice Split one fee. Before graduation the whole amount is the LP share. While graduated:
+    ///         33% creator, 33% LP, 33% locked, 1% builder. The LP share is the remainder, so dust
+    ///         is not shaved off the other three. The keeper tip is not part of this split.
+    function splitFee(uint256 fee, bool graduated)
+        external
+        pure
+        returns (uint256 creator, uint256 lp, uint256 locked, uint256 builder)
+    {
+        if (!graduated || fee == 0) return (0, fee, 0, 0);
+        creator = Math.mulDiv(fee, C.FEE_CREATOR_BPS, C.BPS);
+        locked = Math.mulDiv(fee, C.FEE_LOCKED_BPS, C.BPS);
+        builder = Math.mulDiv(fee, C.FEE_BUILDER_BPS, C.BPS);
+        lp = fee - creator - locked - builder;
     }
 
     /// @dev 0 means the drift is outside the allowed range. 0 input selects the default.
@@ -315,6 +331,8 @@ contract DiscipleEngine {
         f.fee = a.fee + b.fee;
         f.tip = a.tip + b.tip;
         f.creator = a.creator + b.creator;
+        f.builder = a.builder + b.builder;
+        f.locked = a.locked + b.locked;
         f.compound = a.compound + b.compound;
         f.toLp = a.toLp + b.toLp;
         f.spotBefore = a.spotBefore;
@@ -330,7 +348,5 @@ contract DiscipleEngine {
         o.maxUsdgOut = c.maxUsdgOut;
         o.totalShares = c.totalShares;
         o.boostWad = c.boostWad;
-        o.quoteFeeSet = c.quoteFeeSet;
-        o.quoteFeeBps = c.quoteFeeBps;
     }
 }

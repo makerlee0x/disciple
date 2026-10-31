@@ -25,19 +25,21 @@ interface IBridgeHandle {
 
 /// @title Disciple
 /// @notice Disciple is a Uniswap v4 hook that bootstraps a new liquidity pool from a tiny seed through
-///         incentivized arbitrage. It uses an onchain bonding curve anchored to an existing pool's price,
-///         compounds every fee back into the pool, and earns Morpho yield on idle USDG once the pool
-///         graduates. One deployment quotes many coin/USDG pools. Each pool picks an anchor once, at
-///         creation: lzRead of a remote TWAP, a same-chain v3 `observe`, a v4 hook `consult`, or a
-///         30-minute ring this hook samples from a v4 pool's `slot0`. v4 concentrated liquidity is
-///         disabled, and every swap is quoted in `beforeSwap`. See `DESIGN.md`. This contract is
-///         `DiscipleHook`. The post-graduation 1% fee hook in this repo is `AscensionHook`. Graduated
-///         status turns on after 77 minutes at or above the live target and turns off after 77
-///         minutes below it. The depth band, the fee, the boost, and Dutch size keep following
-///         live progress either way. Pools are not migrated onto `AscensionHook`, so turning
-///         status off has nothing to undo there.
+///         incentivized arbitrage. It uses an onchain bonding curve anchored to an existing pool's price.
+///         One deployment quotes many coin/USDG pools. Each
+///         pool picks an anchor once, at creation: lzRead of a remote TWAP, a same-chain v3 `observe`,
+///         a v4 hook `consult`, or a 30-minute ring this hook samples from a v4 pool's `slot0`.
+///         v4 concentrated liquidity is disabled, and every swap is quoted in `beforeSwap`. See
+///         `DESIGN.md`. This contract is `DiscipleHook`. The post-graduation 1% fee hook in this
+///         repo is `AscensionHook`. Graduated status turns on after 77 continuous minutes at or
+///         above the live target and turns off after 77 continuous minutes below it. One threshold,
+///         100%. The depth band, the fee, the boost, and Dutch size keep following live progress
+///         either way. Before graduation the whole fee compounds for LPs. While status is on, each
+///         fee is 33% creator, 33% LPs, 33% permanent locked liquidity, and 1% hook builder.
+///         Turning status off returns new fees to LPs. The builder is one address, set here, and
+///         only that address can hand it off. Pools are not migrated onto `AscensionHook`.
 /// @dev Storage lives here. Writes `delegatecall` a facet whose address is fixed at construction:
-///      swaps, LP accounting, and the vault admin. Views run here so they stay `staticcall`-able.
+///      swaps, LP accounting, and price updates. Views run here so they stay `staticcall`-able.
 ///      No facet can be replaced. The v4 `slot0` price is a dummy and is never read.
 contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
     using PoolIdLibrary for PoolKey;
@@ -49,20 +51,19 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
     constructor(
         IPoolManager manager_,
         address usdg_,
-        address vault_,
         address lz_,
         uint8 usdgDecimals_,
         DiscipleEngine engine_,
         address swapFacet_,
         address lpFacet_,
-        address adminFacet_
-    ) BridgeStorage(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
-        if (swapFacet_ == address(0) || lpFacet_ == address(0) || adminFacet_ == address(0)) {
-            revert BadCreate();
-        }
+        address adminFacet_,
+        address builder_
+    ) BridgeStorage(manager_, usdg_, lz_, usdgDecimals_, engine_) {
+        if (swapFacet_ == address(0) || lpFacet_ == address(0) || adminFacet_ == address(0) || builder_ == address(0)) revert BadCreate();
         swapFacet = swapFacet_;
         lpFacet = lpFacet_;
         adminFacet = adminFacet_;
+        builder = builder_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -108,38 +109,29 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         _forward(lpFacet);
     }
 
-    function rebalance(PoolId) external {
-        _forward(adminFacet);
-    }
-
-    function pullVaultOnLoss(PoolId) external {
-        _forward(adminFacet);
-    }
-
-    function proposeVault(PoolId, address) external {
-        _forward(adminFacet);
-    }
-
-    function executeVault(PoolId) external {
-        _forward(adminFacet);
-    }
-
-    function pullAllFromVault(PoolId) external {
-        _forward(adminFacet);
-    }
-
-    function renounceVaultAdmin(PoolId) external {
-        _forward(adminFacet);
-    }
-
     function poke(PoolId) external {
+        _forward(adminFacet);
+    }
+
+    /// @notice Current builder names the next recipient. Pool creators cannot call this.
+    function proposeBuilder(address) external {
+        _forward(adminFacet);
+    }
+
+    /// @notice Pending address takes the builder role and clears the pending slot.
+    function acceptBuilder() external {
+        _forward(adminFacet);
+    }
+
+    /// @notice Pull this pool's accrued builder share. Only the current builder.
+    function claimBuilderFees(PoolId) external returns (uint256) {
         _forward(adminFacet);
     }
 
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         uint8 op = abi.decode(data, (uint8));
-        address facet = op >= OP_REBALANCE ? adminFacet : lpFacet;
+        address facet = op == OP_POKE || op == OP_BUILDER ? adminFacet : lpFacet;
         bytes memory ret = _delegate(facet, abi.encodeCall(IBridgeHandle.handle, (data)));
         return abi.decode(ret, (bytes));
     }
@@ -252,6 +244,11 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         return pools[id].creatorAccrued;
     }
 
+    /// @notice Accrued 1% share for this pool. Claimable by `builder`, not by the pool creator.
+    function builderFees(PoolId id) external view returns (uint256) {
+        return pools[id].builderAccrued;
+    }
+
     /// @notice Fee credit an LP would have if they still hold through this block's parked fees.
     ///         Shares minted in the current block are excluded. They start earning next block.
     function pendingFee(PoolId id, address user) external view returns (uint256) {
@@ -262,20 +259,9 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         return pools[id].feeIndex;
     }
 
-    function poolVault(PoolId id) external view returns (address) {
-        return pools[id].poolVault;
-    }
-
-    function vaultAdmin(PoolId id) external view returns (address) {
-        return pools[id].vaultAdmin;
-    }
-
-    function vaultFrozen(PoolId id) external view returns (bool) {
-        return pools[id].vaultFrozen;
-    }
-
-    function pendingVaultOf(PoolId id) external view returns (address next, uint256 eta) {
-        return (pools[id].pendingVault, pools[id].vaultEta);
+    /// @notice Normalized USDG this pool may spend. A redeem or swap cannot draw another pool's balance.
+    function usdgHeld(PoolId id) external view returns (uint256) {
+        return pools[id].usdgHeld;
     }
 
     /// @notice Best arb against the live anchor and the fee a swap would charge right now.
@@ -311,9 +297,10 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
     }
 
     function reserveOk(PoolId id) external view returns (bool) {
-        BridgeCurve.S memory s = pools[id].curve;
-        return
-            s.protoX + s.lpX == s.x && s.protoY + s.lpY + s.feePot == s.y && pools[id].vaultAssets <= s.protoY + s.lpY;
+        Pool storage p = pools[id];
+        BridgeCurve.S memory s = p.curve;
+        return s.protoX + s.lpX == s.x && s.protoY + s.lpY + s.feePot + s.lockedY == s.y
+            && p.usdgHeld >= s.y + p.creatorAccrued + p.builderAccrued + p.tipBudget;
     }
 
     // ───────────────────────────── hooks ─────────────────────────────

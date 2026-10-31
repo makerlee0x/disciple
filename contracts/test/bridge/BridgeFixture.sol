@@ -17,7 +17,7 @@ import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
 import {DiscipleLpFacet} from "../../src/bridge/DiscipleLpFacet.sol";
 import {DiscipleAdminFacet} from "../../src/bridge/DiscipleAdminFacet.sol";
 import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
-import {MockERC20, MockVault, MockLzRead} from "./mocks/BridgeMocks.sol";
+import {MockERC20, MockLzRead} from "./mocks/BridgeMocks.sol";
 
 contract BridgeFixture is Test {
     uint160 internal constant HOOK_FLAGS = uint160(
@@ -30,7 +30,6 @@ contract BridgeFixture is Test {
     PoolSwapTest public swapper;
     MockERC20 public usdg;
     MockERC20 public coin;
-    MockVault public vault;
     MockLzRead public lz;
     DiscipleEngine public engine;
     DiscipleLpFacet public lpFacet;
@@ -41,39 +40,34 @@ contract BridgeFixture is Test {
 
     function _deployStack(uint8 usdgDec) internal {
         usdg = new MockERC20("USDG", "USDG", usdgDec);
-        vault = new MockVault(usdg);
         lz = new MockLzRead();
         manager = IPoolManager(address(new PoolManager(address(this))));
         engine = new DiscipleEngine();
-        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
-        lpFacet = new DiscipleLpFacet(
-            manager, address(usdg), address(vault), address(lz), usdgDec, engine, address(adminFacet)
-        );
-        swapFacet = new DiscipleSwapFacet(
-            manager, address(usdg), address(vault), address(lz), usdgDec, engine, address(adminFacet)
-        );
+        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(lz), usdgDec, engine);
+        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(lz), usdgDec, engine);
+        swapFacet = new DiscipleSwapFacet(manager, address(usdg), address(lz), usdgDec, engine);
         bytes memory args = abi.encode(
             manager,
             address(usdg),
-            address(vault),
             address(lz),
             usdgDec,
             address(engine),
             address(swapFacet),
             address(lpFacet),
-            address(adminFacet)
+            address(adminFacet),
+            address(this)
         );
         (address predicted, bytes32 salt) = _mineHook(args);
         hook = new DiscipleHook{salt: salt}(
             manager,
             address(usdg),
-            address(vault),
             address(lz),
             usdgDec,
             engine,
             address(swapFacet),
             address(lpFacet),
-            address(adminFacet)
+            address(adminFacet),
+            address(this)
         );
         require(address(hook) == predicted, "hook addr");
         swapper = new PoolSwapTest(manager);
@@ -139,8 +133,6 @@ contract BridgeFixture is Test {
                 v3Pool: address(0),
                 coinSeed: coinSeed,
                 tipSeed: tipSeed,
-                morphoCapBps: 10_000,
-                vaultAdmin: address(0),
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),

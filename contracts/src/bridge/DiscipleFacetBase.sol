@@ -18,7 +18,7 @@ import {IV4OracleHook} from "./interfaces/IV4OracleHook.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {BridgeStorage} from "./BridgeStorage.sol";
 
-/// @dev Write-side helpers shared by Disciple's swap, LP, and vault facets. No state variables.
+/// @dev Write-side helpers shared by Disciple's swap, LP, and admin facets. No state variables.
 abstract contract DiscipleFacetBase is BridgeStorage {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
@@ -28,14 +28,9 @@ abstract contract DiscipleFacetBase is BridgeStorage {
     /// @dev This facet's own address. Under `delegatecall`, `address(this)` is the hook.
     address internal immutable self;
 
-    constructor(
-        IPoolManager manager_,
-        address usdg_,
-        address vault_,
-        address lz_,
-        uint8 usdgDecimals_,
-        DiscipleEngine engine_
-    ) BridgeStorage(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
+    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
+        BridgeStorage(manager_, usdg_, lz_, usdgDecimals_, engine_)
+    {
         self = address(this);
     }
 
@@ -187,7 +182,7 @@ abstract contract DiscipleFacetBase is BridgeStorage {
     }
 
     /// @dev Advance the status flag. The math lives on the engine so this stub stays small in every
-    ///      facet. Depth, fee, boost, and Dutch size do not wait on the 77-minute clock.
+    ///      facet. Depth, fee, boost, and Dutch size do not wait on the status window.
     function _touchGrad(PoolId id, Pool storage p) internal {
         uint256 v = BridgeCurve.tvl(p.curve);
         (bool grad, uint64 above, uint64 below, uint8 edge) =
@@ -210,13 +205,36 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         got = IERC20(token).balanceOf(address(this)) - beforeBal;
     }
 
+    /// @dev USDG that entered this pool. It is not available to any other pool.
+    function _creditPoolUsdg(Pool storage p, uint256 norm) internal {
+        if (norm == 0) return;
+        p.usdgHeld += norm;
+        usdgClaimsNorm += norm;
+    }
+
+    /// @dev Pay USDG out of this pool only. Reverts when the amount is not this pool's.
+    function _debitPoolUsdg(Pool storage p, uint256 norm) internal {
+        if (norm == 0) return;
+        if (norm > p.usdgHeld) revert Invariant();
+        p.usdgHeld -= norm;
+        usdgClaimsNorm -= norm;
+    }
+
+    /// @dev The curve splits match, and this pool's claims cover its book, creator accrual, builder
+    ///      accrual, and tip. Locked liquidity sits inside the curve's USDG.
+    function _requireReserve(Pool storage p) internal view {
+        BridgeCurve.S memory s = p.curve;
+        if (s.protoX + s.lpX != s.x || s.protoY + s.lpY + s.feePot + s.lockedY != s.y) revert Invariant();
+        if (p.usdgHeld < s.y + p.creatorAccrued + p.builderAccrued + p.tipBudget) revert Invariant();
+    }
+
     function _payout(Pool storage p, uint256 coinNorm, uint256 usdgNorm, address to) internal {
         uint256 coinRaw = _toRaw(coinNorm, p.coinDec);
         uint256 usdgRaw = _toRaw(usdgNorm, usdgDec);
         if (coinRaw > 0) _claimsTo(Currency.wrap(p.coin), coinRaw, to);
         if (usdgRaw > 0) {
+            _debitPoolUsdg(p, _toNorm(usdgRaw, usdgDec));
             _claimsTo(usdgC, usdgRaw, to);
-            usdgClaimsNorm -= _toNorm(usdgRaw, usdgDec);
         }
     }
 

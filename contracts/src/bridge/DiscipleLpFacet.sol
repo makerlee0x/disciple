@@ -21,28 +21,13 @@ import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 /// @title Disciple LP facet
 /// @notice Create, deposit, redeem, and the keeper callback for Disciple (`DiscipleHook`).
 ///         Runs as the hook via `delegatecall`. v4 still sees the hook address.
-interface IBridgeReference {
-    function onReference(PoolId id) external;
-}
-
 contract DiscipleLpFacet is DiscipleFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
 
-    address internal immutable adminFacet;
-
-    constructor(
-        IPoolManager manager_,
-        address usdg_,
-        address vault_,
-        address lz_,
-        uint8 usdgDecimals_,
-        DiscipleEngine engine_,
-        address adminFacet_
-    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
-        if (adminFacet_ == address(0)) revert BadCreate();
-        adminFacet = adminFacet_;
-    }
+    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
+        DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_)
+    {}
 
     function createPool(CreateParams calldata c) external returns (PoolKey memory key, PoolId id) {
         _onlyDelegate();
@@ -61,7 +46,6 @@ contract DiscipleLpFacet is DiscipleFacetBase {
             if (c.outflowWindow != C.OUTFLOW_PER_BLOCK && c.outflowWindow != C.OUTFLOW_PER_HOUR) revert BadCreate();
             if (c.outflowCapBps == 0 || c.outflowCapBps > C.BPS) revert BadCreate();
         }
-        if (c.morphoCapBps > C.BPS) revert BadCreate();
         uint64 drift = engine.normalizeDrift(c.dutchDrift);
         if (drift == 0) revert BadCreate();
 
@@ -99,9 +83,6 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         p.anchorKind = c.anchorKind;
         p.v3Pool = c.v3Pool;
         p.tipBudget = tipNorm;
-        p.poolVault = vault;
-        p.morphoCapBps = c.morphoCapBps;
-        p.vaultAdmin = c.vaultAdmin;
         p.dutchDrift = drift;
         p.dutchAt = block.timestamp == 0 ? 1 : uint64(block.timestamp);
         p.refPoolId = c.refPoolId;
@@ -123,7 +104,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         poolManager.initialize(key, TickMath.getSqrtPriceAtTick(0));
         poolManager.unlock(abi.encode(OP_SEED, PoolId.unwrap(id), coinGot, tipGot));
 
-        if (tipNorm > 0) usdgClaimsNorm += tipNorm;
+        if (tipNorm > 0) _creditPoolUsdg(p, tipNorm);
         emit PoolCreated(id, c.coin, c.creator, c.floorBps, c.discountBps, coinNorm, c.anchorKind);
         _locked = false;
     }
@@ -239,7 +220,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         if (usdgGot > 0) {
             usdgC.settle(poolManager, address(this), usdgGot, false);
             usdgC.take(poolManager, address(this), usdgGot, true);
-            usdgClaimsNorm += usdgNorm;
+            _creditPoolUsdg(p, usdgNorm);
         }
 
         uint256 added = usdgNorm + Math.mulDiv(coinNorm, p.curve.anchor, C.WAD);
@@ -248,6 +229,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         p.curve = deposited;
         // Share price is the block's opening NAV, so a same-block buy cannot cheapen or enrich the mint.
         uint256 minted = _mintShares(p, id, lp, added, coinNorm, usdgNorm);
+        _requireReserve(p);
         emit Deposited(id, lp, minted, coinNorm, usdgNorm);
         return abi.encode(minted);
     }
@@ -297,6 +279,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         }
 
         _payout(p, userX, userY, lp);
+        _requireReserve(p);
         emit Redeemed(id, lp, sh, userX, userY, wfee);
         return abi.encode(_toRaw(userX, p.coinDec), _toRaw(userY, usdgDec));
     }
@@ -312,8 +295,9 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         uint256 norm = _toNorm(raw, usdgDec);
         p.creatorAccrued = amt - norm;
         if (raw == 0) return abi.encode(uint256(0));
+        _debitPoolUsdg(p, norm);
         _claimsTo(usdgC, raw, caller);
-        usdgClaimsNorm -= norm;
+        _requireReserve(p);
         emit CreatorClaimed(id, caller, norm);
         return abi.encode(raw);
     }
@@ -344,7 +328,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
             if (price == 0) revert BadPrice();
             _applyAnchor(p, price, ethTvl);
         }
-        _delegate(adminFacet, abi.encodeCall(IBridgeReference.onReference, (pend.poolId)));
+        _touchGrad(pend.poolId, p);
 
         uint256 tip;
         if (p.tipBudget > 0) {
@@ -355,8 +339,8 @@ contract DiscipleLpFacet is DiscipleFacetBase {
             p.tipBudget -= norm;
             tip = norm;
             if (raw > 0 && norm > 0) {
+                _debitPoolUsdg(p, norm);
                 _claimsTo(usdgC, raw, pend.caller);
-                usdgClaimsNorm -= norm;
             }
         }
         emit PriceUpdated(pend.poolId, price, ethTvl, tip);
@@ -371,7 +355,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         usdgC.take(poolManager, address(this), raw, true);
         // Donations above the per-update tip still sit in the budget for the next stale read.
         p.tipBudget += norm;
-        usdgClaimsNorm += norm;
+        _creditPoolUsdg(p, norm);
         emit TipFunded(PoolId.wrap(rawId), funder, norm);
         return "";
     }
@@ -386,7 +370,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         // so it isn't orphaned. Outstanding feeCredit was paid in this redeem (the last holder).
         s.protoY += s.feePot;
         s.feePot = 0;
-        s.y = s.protoY + s.lpY + s.feePot;
+        s.y = s.protoY + s.lpY + s.feePot + s.lockedY;
         s.x = s.protoX + s.lpX;
         p.curve = s;
     }
@@ -445,8 +429,9 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         p.redeemedEligible += settledBurn;
     }
 
-    /// @dev Remove `outX`/`outY` from LP reserves (proto covers a same-block reshuffle). The fee slice stays
-    ///      as protocol principal. `spotP` prices the fee. Retarget is the caller's job.
+    /// @dev Remove `outX`/`outY` from LP reserves (proto covers a same-block reshuffle). The USDG fee
+    ///      uses the same split as a swap: all of it to LPs before graduation, and 33/33/33/1 while
+    ///      graduated. Coin taken as a fee stays in protocol inventory. `spotP` prices the fee.
     function _applyRedeem(
         Pool storage p,
         BridgeCurve.S memory s,
@@ -454,7 +439,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         uint256 outY,
         uint256 credit,
         uint256 spotP
-    ) internal view returns (uint256 userX, uint256 userY, uint256 paidCredit, uint256 wfee) {
+    ) internal returns (uint256 userX, uint256 userY, uint256 paidCredit, uint256 wfee) {
         if (outX > s.x) outX = s.x;
         uint256 principal = s.protoY + s.lpY;
         if (outY > principal) outY = principal;
@@ -488,10 +473,22 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         uint256 takePY = outY - takeLY;
         if (takePY > s.protoY) revert Invariant();
         s.lpY -= takeLY;
-        s.protoY = s.protoY - takePY + feeY;
+        s.protoY = s.protoY - takePY;
         if (paidCredit > s.feePot) paidCredit = s.feePot;
         s.feePot -= paidCredit;
-        s.y -= userY + paidCredit;
+        uint256 toCreator;
+        uint256 toLp;
+        uint256 toLocked;
+        uint256 toBuilder;
+        if (feeY > 0) {
+            (toCreator, toLp, toLocked, toBuilder) = engine.splitFee(feeY, p.graduated);
+            s.feePot += toLp;
+            s.lockedY += toLocked;
+            if (toLp > 0) p.blockFee += toLp;
+            p.creatorAccrued += toCreator;
+            p.builderAccrued += toBuilder;
+        }
+        s.y -= userY + paidCredit + toCreator + toBuilder;
         userY += paidCredit;
     }
 }

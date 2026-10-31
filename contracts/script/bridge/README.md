@@ -4,7 +4,7 @@ This script deploys `DiscipleEngine`, `DiscipleAdminFacet`, `DiscipleLpFacet`, `
 
 It has not been run against Robinhood Chain testnet or Ethereum Sepolia.
 
-Graduation is not a deploy-time parameter. After a pool is created, status turns on once pool TVL has stayed at or above 12% of that pool's smoothed reference TVL for 77 continuous minutes, and it turns off once pool TVL has stayed below that same line for 77 continuous minutes. There is no percent band to set. Turning it off pulls the vault back to idle and pauses the creator's fee cut. The script does not perform either step.
+Graduation is not a deploy-time parameter. Status turns on once pool TVL has stayed at or above 12% of that pool's smoothed reference TVL for 77 continuous minutes, and it turns off once pool TVL has stayed below that same line for 77 continuous minutes. The window is fixed. There is no percent band. Before graduation, and again after status turns off, the whole fee compounds for LPs. While status is on, each fee is 33% creator, 33% LPs, 33% permanent locked liquidity, and 1% hook builder. The builder address is the `BUILDER` deploy parameter. Only that address can hand the role off, in two steps. Pool creators cannot. Idle USDG stays in the pool. The script does not create a pool and does not perform either step.
 
 The hook address is mined with `HookMiner` (the same flags as the tests: `beforeInitialize`, `beforeAddLiquidity`, `beforeRemoveLiquidity`, `beforeSwap`, `beforeSwapReturnsDelta`). The CREATE2 deployer is a helper this script deploys, so the chain does not need the Arachnid proxy at `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
 
@@ -15,12 +15,10 @@ The hook address is mined with `HookMiner` (the same flags as the tests: `before
 | `POOL_MANAGER` | yes | Uniswap v4 PoolManager on the chain you are deploying to. Supply it. The script does not guess one. |
 | `USDG` | yes | Quote token. |
 | `USDG_DECIMALS` | yes | Must match `USDG.decimals()` when the token has that function. |
-| `VAULT` | unless mocks | ERC-4626 whose `asset()` is `USDG`. The hook checks this in the constructor. |
+| `BUILDER` | yes | Address that receives the 1% graduated-fee share. Set once, in the hook constructor. The current builder can propose a replacement; the pending address must accept. Pool creators cannot change it. Accrued fees are pulled with `claimBuilderFees`. |
 | `LZ` | unless mocks | Adapter that implements `ILzRead`. Cross-chain anchors call it. Same-chain anchors never do. |
-| `DEPLOY_MOCKS` | no | `1` deploys a mock ERC-4626 and a mock lz reader for whichever of `VAULT` / `LZ` you left unset. The mock reader records the read and does not deliver a callback. Call `fulfill(guid, priceWad, tvlWad)` or `fulfillBytes` on it to complete a read. |
+| `DEPLOY_MOCKS` | no | `1` deploys a mock lz reader when `LZ` is unset. The mock reader records the read and does not deliver a callback. Call `fulfill(guid, priceWad, tvlWad)` or `fulfillBytes` on it to complete a read. |
 | `DEPLOY_SLOT_READER` | no | Unset deploys `V4SlotReader` against `POOL_MANAGER` and logs it. `0` skips it. That contract is the lzRead target for anchor kind 5 (`ANCHOR_LZ_V4_SLOT`). Deploy it on the chain that holds the reference v4 pool, which may be a different chain from the hook. |
-
-`VAULT` is not defaulted to Morpho Steakhouse USDG (`0xBeEff033F34C046626B8D0A041844C5d1A5409dd`). That address is the Robinhood Chain vault. A testnet that does not have it needs another ERC-4626 of the same USDG, or `DEPLOY_MOCKS=1`.
 
 ## Chains
 
@@ -37,14 +35,14 @@ Ethereum Sepolia:
 
 ## Command
 
-Robinhood Chain testnet, with a real PoolManager, USDG, vault, and lz adapter:
+Robinhood Chain testnet, with a real PoolManager, USDG, and lz adapter:
 
 ```bash
 cd contracts && \
 POOL_MANAGER=$POOL_MANAGER \
 USDG=$USDG \
 USDG_DECIMALS=$USDG_DECIMALS \
-VAULT=$VAULT \
+BUILDER=$BUILDER \
 LZ=$LZ \
 forge script script/bridge/DeployDisciple.s.sol:DeployDisciple \
   --rpc-url https://rpc.testnet.chain.robinhood.com \
@@ -52,13 +50,14 @@ forge script script/bridge/DeployDisciple.s.sol:DeployDisciple \
   --broadcast
 ```
 
-The same script against Sepolia, including mock vault and lz reader when those contracts are not deployed there:
+The same script against Sepolia, including a mock lz reader when that contract is not deployed there:
 
 ```bash
 cd contracts && \
 POOL_MANAGER=$POOL_MANAGER \
 USDG=$USDG \
 USDG_DECIMALS=$USDG_DECIMALS \
+BUILDER=$BUILDER \
 DEPLOY_MOCKS=1 \
 forge script script/bridge/DeployDisciple.s.sol:DeployDisciple \
   --rpc-url <sepolia-rpc> \
@@ -66,8 +65,8 @@ forge script script/bridge/DeployDisciple.s.sol:DeployDisciple \
   --broadcast
 ```
 
-The `:DeployDisciple` suffix is required. The file also contains the CREATE2 helper and the mock vault and reader.
+The `:DeployDisciple` suffix is required. The file also contains the CREATE2 helper and the mock reader.
 
-Drop `--broadcast` to simulate. The script prints the hook, the facets, the engine, the vault, the lz adapter, and the slot reader.
+Drop `--broadcast` to simulate. The script prints the hook, the facets, the engine, the builder, the lz adapter, and the slot reader.
 
 Neither command has been run. The same script was run on a local anvil, with a freshly deployed PoolManager and a mock USDG, to check that the hook mines and the constructor accepts the address. That run is not a testnet deploy.

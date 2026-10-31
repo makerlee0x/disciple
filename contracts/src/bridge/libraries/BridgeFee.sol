@@ -59,12 +59,6 @@ library BridgeFee {
         if (cap == 0) cap = 1;
     }
 
-    /// @notice max($500, 5% of TVL). Kept liquid so a vault outage does not stop ordinary sells.
-    function buffer(uint256 tvl) internal pure returns (uint256) {
-        uint256 pct = (tvl * C.BUFFER_TVL_BPS) / C.BPS;
-        return pct > C.BUFFER_MIN ? pct : C.BUFFER_MIN;
-    }
-
     /// @dev exp(-z) for z in WAD, z < ln(2). Twelve terms. If a term would underflow the sum, stop
     ///      and keep the larger sum (less decay).
     function _expNeg(uint256 z) private pure returns (uint256) {

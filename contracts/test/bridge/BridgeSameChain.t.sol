@@ -84,11 +84,13 @@ contract BridgeSameChainTest is BridgeFixture {
         usdg.mint(address(this), 10e18);
         _buy(key, address(coin), 10e18);
         assertEq(hook.creatorFees(id), 0);
+        assertEq(hook.builderFees(id), 0);
+        assertEq(hook.curve(id).lockedY, 0);
         assertEq(hook.curve(id).y - yBefore, 10e18, "the whole payment stays in the book");
         assertFalse(hook.bridgeQuote(id).stale);
     }
 
-    function test_graduationUsesReferenceTvlAndOnlyTheCreatorCut() public {
+    function test_graduationUsesReferenceTvlAndSplitsTheFee() public {
         MockERC20 c = _newCoin("GRAD", 18);
         MockV3Pool small = new MockV3Pool(address(c), address(usdg), 0);
         usdg.mint(address(small), 100e18);
@@ -96,9 +98,9 @@ contract BridgeSameChainTest is BridgeFixture {
         vm.warp(block.timestamp + 30 minutes);
         (PoolKey memory k, PoolId pid) = _createV3(c, small, 77e18, 0);
         // Reference TVL = 200. Graduation is 12% = 24. The $77 seed is already over that,
-        // but status waits 77 minutes and a poke.
+        // but status waits out the pool's window and a poke.
         assertFalse(hook.bridgeQuote(pid).graduated);
-        skip(77 minutes);
+        skip(C.GRADUATION_WINDOW);
         hook.poke(pid);
         assertTrue(hook.bridgeQuote(pid).graduated);
 
@@ -106,9 +108,16 @@ contract BridgeSameChainTest is BridgeFixture {
         usdg.mint(address(this), 10e18);
         _buy(k, address(c), 10e18);
         uint256 creator = hook.creatorFees(pid);
+        uint256 builderCut = hook.builderFees(pid);
         assertGt(creator, 0);
+        assertGt(builderCut, 0);
+        assertGt(hook.curve(pid).lockedY, 0);
         assertLt(creator, 0.3e18, "creator cut is a slice of the fee, not the notional");
-        assertEq(hook.curve(pid).y - yBefore + creator, 10e18, "creator is the only skim");
+        assertEq(
+            hook.curve(pid).y - yBefore + creator + builderCut,
+            10e18,
+            "creator and builder leave the book; locked liquidity stays"
+        );
     }
 
     function test_inversePairAndYoungPool() public {
@@ -146,8 +155,6 @@ contract BridgeSameChainTest is BridgeFixture {
                 v3Pool: address(young),
                 coinSeed: 10e18,
                 tipSeed: 0,
-                morphoCapBps: 10_000,
-                vaultAdmin: address(0),
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),
@@ -176,8 +183,6 @@ contract BridgeSameChainTest is BridgeFixture {
                 v3Pool: address(wrong),
                 coinSeed: 10e18,
                 tipSeed: 0,
-                morphoCapBps: 10_000,
-                vaultAdmin: address(0),
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),
@@ -207,8 +212,6 @@ contract BridgeSameChainTest is BridgeFixture {
                 v3Pool: address(pool),
                 coinSeed: coinSeed,
                 tipSeed: 0,
-                morphoCapBps: 10_000,
-                vaultAdmin: address(0),
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),

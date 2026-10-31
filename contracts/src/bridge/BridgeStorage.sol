@@ -5,7 +5,6 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
@@ -18,7 +17,7 @@ import {DiscipleEngine} from "./DiscipleEngine.sol";
 /// @title Shared storage for Disciple (`DiscipleHook`) and its facets
 /// @dev Facets `delegatecall` into the hook, so every facet inherits this and adds no state
 ///      variables of its own. Immutables live in the executing bytecode: construct each facet
-///      with the same manager, USDG, default vault, lzRead endpoint, and engine as the hook.
+///      with the same manager, USDG, lzRead endpoint, and engine as the hook.
 ///      The order of the variables below is the storage layout. Do not reorder them.
 abstract contract BridgeStorage {
     using PoolIdLibrary for PoolKey;
@@ -29,16 +28,12 @@ abstract contract BridgeStorage {
     uint8 internal constant OP_CLAIM = 4;
     uint8 internal constant OP_READ = 5;
     uint8 internal constant OP_TIP = 6;
-    uint8 internal constant OP_REBALANCE = 7;
-    uint8 internal constant OP_LOSS = 8;
-    uint8 internal constant OP_PULL = 9;
-    uint8 internal constant OP_EXEC = 10;
-    uint8 internal constant OP_POKE = 11;
+    uint8 internal constant OP_POKE = 7;
+    uint8 internal constant OP_BUILDER = 8;
 
     IPoolManager public immutable poolManager;
     address public immutable usdg;
     uint8 public immutable usdgDec;
-    address public immutable vault;
     address public immutable lz;
     /// @dev Stateless math. Immutable. Holds nothing.
     DiscipleEngine public immutable engine;
@@ -60,8 +55,8 @@ abstract contract BridgeStorage {
         address v3Pool; // same-chain v3 reference. Zero unless ANCHOR_V3.
         uint256 updatedAt;
         uint256 ethTvl;
-        uint256 vaultShares;
-        uint256 vaultAssets; // norm USDG currently in the vault (subset of principal)
+        /// @dev Normalized USDG this pool may draw from the hook's claims. Other pools cannot spend it.
+        uint256 usdgHeld;
         uint256 tipBudget;
         uint256 creatorAccrued;
         uint256 totalShares;
@@ -69,12 +64,6 @@ abstract contract BridgeStorage {
         uint32 outflowStart;
         uint256 outflowUsed;
         uint256 outflowBasis;
-        address poolVault;
-        uint16 morphoCapBps;
-        bool vaultFrozen; // set when a loss is pulled; cleared only by a timelocked vault change
-        address vaultAdmin;
-        address pendingVault;
-        uint256 vaultEta;
         uint64 openBlock;
         uint256 openSpot;
         uint256 openLpX;
@@ -101,6 +90,8 @@ abstract contract BridgeStorage {
         bool refCoinIs0;
         BridgeCurve.S curve;
         PoolKey key;
+        /// @dev 1% of graduated fees, claimable only by the hook builder.
+        uint256 builderAccrued;
     }
 
     struct CreateParams {
@@ -118,11 +109,6 @@ abstract contract BridgeStorage {
         address v3Pool;
         uint256 coinSeed;
         uint256 tipSeed; // optional USDG, escrowed for keepers, not curve inventory. Zero for same-chain.
-        /// @dev Max share of USDG principal that may sit in the vault. 10_000 = no extra cap.
-        ///      Recommended: BridgeConstants.MORPHO_CAP_BPS (50%). The floor and buffer still apply.
-        uint16 morphoCapBps;
-        /// @dev May replace the vault after 48h or pull it immediately. Zero disables the key.
-        address vaultAdmin;
         /// @dev Wad per second. 0 selects `DUTCH_DRIFT_DEFAULT` (about 1% of the anchor per hour).
         uint64 dutchDrift;
         /// @dev Reference v4 pool id. Required for every v4 anchor kind. Zero otherwise.
@@ -175,10 +161,15 @@ abstract contract BridgeStorage {
     /// @dev Self-sampled v4 rings, keyed by this hook's pool id. One ring per pool.
     mapping(bytes32 => BridgeV4Anchor.Ring) internal rings;
     mapping(bytes32 => mapping(uint16 => uint256)) internal obs;
-    /// @dev Normalized USDG the hook's ERC-6909 claims must cover (curve liquid + tips + creator fees).
+    /// @dev Normalized USDG the hook's ERC-6909 claims must cover
+    ///      (curve liquid + tips + creator fees + builder fees).
     uint256 public usdgClaimsNorm;
 
     bool internal _locked;
+    /// @dev Global recipient of the 1% graduated-fee share. Set at deployment. Pool creators cannot move it.
+    address public builder;
+    /// @dev Two-step handoff. Only `builder` can set it. Only this address can accept.
+    address public pendingBuilder;
 
     error OnlyPoolManager();
     error OnlyLz();
@@ -196,7 +187,7 @@ abstract contract BridgeStorage {
     error ExactOutUnsupported();
     error BadCreate();
     error OnlyCreator();
-    error VaultAsset();
+    error OnlyBuilder();
     error LzFee();
     error RefundFailed();
     error Amount();
@@ -204,9 +195,6 @@ abstract contract BridgeStorage {
     error Invariant();
     /// @dev Keeper reads and the keeper tip exist only for cross-chain pools.
     error SameChain();
-    error NoLoss();
-    error OnlyVaultAdmin();
-    error Timelock();
     error OnlyDelegate();
 
     event PoolCreated(
@@ -234,30 +222,18 @@ abstract contract BridgeStorage {
     event PriceUpdated(PoolId indexed id, uint256 anchor, uint256 ethTvl, uint256 tip);
     event Graduated(PoolId indexed id, uint256 poolTvl, uint256 ethTvl);
     event Ungraduated(PoolId indexed id, uint256 poolTvl, uint256 target);
-    event VaultDeposit(PoolId indexed id, uint256 assets);
-    event VaultWithdraw(PoolId indexed id, uint256 assets);
     event CreatorSet(PoolId indexed id, address indexed creator);
     event CreatorClaimed(PoolId indexed id, address indexed to, uint256 amount);
+    event BuilderProposed(address indexed next);
+    event BuilderAccepted(address indexed builder);
+    event BuilderClaimed(PoolId indexed id, address indexed to, uint256 amount);
     event TipFunded(PoolId indexed id, address indexed from, uint256 amount);
-    event VaultProposed(PoolId indexed id, address indexed next, uint256 eta);
-    event VaultSet(PoolId indexed id, address indexed vault);
-    event VaultAdminRenounced(PoolId indexed id);
-    event VaultLossPulled(PoolId indexed id, uint256 assetsOut, uint256 loss);
 
-    constructor(
-        IPoolManager manager_,
-        address usdg_,
-        address vault_,
-        address lz_,
-        uint8 usdgDecimals_,
-        DiscipleEngine engine_
-    ) {
+    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_) {
         if (usdgDecimals_ > 18 || address(engine_) == address(0)) revert BadCreate();
-        if (IERC4626(vault_).asset() != usdg_) revert VaultAsset();
         poolManager = manager_;
         usdg = usdg_;
         usdgDec = usdgDecimals_;
-        vault = vault_;
         lz = lz_;
         engine = engine_;
         usdgC = Currency.wrap(usdg_);
