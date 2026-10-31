@@ -23,9 +23,9 @@ export class SimDriver {
   /** PAPER TRADING (opts.brain): trades carry the bot's wallet as trader (named via 'disciple:feednames') and a unique
    *  tx id; absent ⇒ the SIMULATOR's exact behaviour */
   private paper: boolean; private nTrades = 0;
-  constructor(cfg: SimConfig, public difficulty: DifficultyId, public seed: number, public minutes: number, opts: { brain?: SimBrain } = {}) {
+  constructor(cfg: SimConfig, public difficulty: DifficultyId, public seed: number, public minutes: number, opts: { brain?: SimBrain; endOnGraduate?: boolean } = {}) {
     this.paper = !!opts.brain;
-    this.run = new SimRun(cfg, difficulty, seed, opts.brain ? { brain: opts.brain } : {});
+    this.run = new SimRun(cfg, difficulty, seed, opts.brain ? { brain: opts.brain, endOnGraduate: opts.endOnGraduate } : {});
     this.run.on(({ trade, event, player }) => { if (trade) this.toEngine(trade); if (event) this.eventSubs.forEach((f) => f(event)); if (player) this.syncPos(); });
   }
   /** push the authoritative sim position to the HUD */
@@ -41,7 +41,7 @@ export class SimDriver {
       if (this.paused || this.ended) return;
       const dt = 0.1 * this.speed; this.run.step(dt); this.block++;
       this.emit?.({ t: "block", block: this.block, ts: Date.now() });
-      if (this.run.t >= this.minutes * 60) { this.ended = true; }
+      if (this.run.t >= this.minutes * 60 || this.run.endedAt != null) { this.ended = true; }   // paper: ASCEND ends the round (spec Sec. 2)
       this.listeners.forEach((f) => f());
     };
     this.iv = window.setInterval(tick, 100);

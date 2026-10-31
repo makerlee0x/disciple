@@ -48,6 +48,8 @@ export interface SimBrain {
   init(run: SimRun): void;
   decide(run: SimRun, b: Bot): void;
   afterBlock?(run: SimRun): void;
+  /** called once, right after the trade that ASCENDS the curve (paper: score the round, pay the ascension pool) */
+  onGraduate?(run: SimRun): void;
 }
 export interface SimEvent { t: number; kind: "launch" | "graduate" | "rug" | "cto" | "whale" | "tier" | "react" | "tw"; text: string; mcap: number; mine?: boolean }
 export type PlayerInput =
@@ -81,8 +83,11 @@ export class SimRun {
   tw = { placed: { you: 0, bots: 0 }, filled: { you: 0, bots: 0 }, cancelled: 0, youPoints: 0 };
   private byWallet = new Map<string, Bot>();
   brain: SimBrain | null;
-  constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number; brain?: SimBrain } = {}) {
-    this.brain = opts.brain ?? null;
+  /** PAPER (spec Sec. 2 'End condition'): with opts.endOnGraduate the round ends at ASCEND — time stops at `endedAt` and every
+   *  later trade fails. Off (the SIMULATOR) ⇒ unchanged. */
+  endOnGraduate: boolean; endedAt: number | null = null;
+  constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number; brain?: SimBrain; endOnGraduate?: boolean } = {}) {
+    this.brain = opts.brain ?? null; this.endOnGraduate = !!opts.endOnGraduate;
     this.rng = mulberry32(seed);
     this.m = new Market(cfg);
     const p0 = this.m.price(); this.emaF = this.emaS = p0; this.peak = this.m.mcap();
@@ -131,6 +136,7 @@ export class SimRun {
   }
   private acct(owner: string): Acct | undefined { return owner === YOU ? this.player : this.byWallet.get(owner); }
   private exec(side: "buy" | "sell", who: Bot | null, usdOrTokens: number, react?: ReactKind): Fill {
+    if (this.endedAt != null) return this.fail("round over");
     const pre = this.m.mcap(), wasCurve = this.m.phase === "curve", depth0 = this.m.depth();
     const holding = who ? who.pos.size : this.player.pos.size;
     const f = side === "buy" ? this.m.buy(usdOrTokens, this.t, holding) : this.m.sell(usdOrTokens);
@@ -144,7 +150,8 @@ export class SimRun {
     this.trades.push(tr); if (this.trades.length > 4000) this.trades.splice(0, 1000);
     this.notify({ trade: tr, player: !who });
     if (react && who) { this.reactLog.push({ t: this.t, usd: f.usd }); this.noteReact(react, who); }
-    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `ASCENDED → pool at ${fmt(this.m.mcap())}`);
+    if (wasCurve && this.m.phase === "pool") { this.emitEvent("graduate", `ASCENDED → pool at ${fmt(this.m.mcap())}`);
+      if (this.endOnGraduate) { this.endedAt = this.t; this.brain?.onGraduate?.(this); } }
     if (who && f.usd > Math.max(3000, this.m.depth() * 0.25) && side === "buy") this.emitEvent("whale", `${who.name} apes ${fmt(f.usd)}`);
     return f;
   }
@@ -184,11 +191,11 @@ export class SimRun {
     this.close(o, "cancel", YOU); return { ok: true };
   }
   /** re-run a recorded player log: identical (cfg, difficulty, seed, inputs) ⇒ identical run */
-  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number; brain?: SimBrain } = {}) {
+  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number; brain?: SimBrain; endOnGraduate?: boolean } = {}) {
     const r = new SimRun(cfg, difficulty, seed, opts), N = Math.round(seconds / cfg.market.blockS); let i = 0;
     for (;;) {
       while (i < inputs.length && inputs[i].blk === r.blk) r.apply(inputs[i++]);
-      if (r.blk >= N) break; r.step(cfg.market.blockS);
+      if (r.blk >= N || r.endedAt != null) break; r.step(cfg.market.blockS);
     }
     return r;
   }
@@ -398,7 +405,7 @@ export class SimRun {
   step(dt: number) {
     const B = this.cfg.market.blockS; this.acc += dt;
     const n = Math.floor((this.acc + 1e-9) / B); this.acc = Math.max(0, this.acc - n * B);
-    for (let i = 0; i < n; i++) this.block(B);
+    for (let i = 0; i < n && this.endedAt == null; i++) this.block(B);
   }
   private block(dt: number) {
     this.blk++; this.t = this.blk * this.cfg.market.blockS;
@@ -411,6 +418,7 @@ export class SimRun {
       this.waveUntil = this.t + this.r(W.durS[0], W.durS[1]); this.waveAt = this.waveUntil + this.r(W.everyS[0], W.everyS[1]); }
     const F = this.feat();
     for (const b of this.bots) {
+      if (this.endedAt != null) return;
       if (!b.active || this.t < b.nextT) continue;
       const A = this.cfg.archetypes[b.arch];
       b.nextT = this.t + (60 / Math.max(0.05, A.rate * D.activity)) * (-Math.log(this.rng() + 1e-12));

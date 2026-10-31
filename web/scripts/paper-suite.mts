@@ -8,8 +8,8 @@ let sr = 12345; const rand = () => ((sr = (sr * 1103515245 + 12345) % 2 ** 31) /
 for (const d of PAPER_DIFFS) {
   let grad = 0, gradT = 0, win = 0, top10 = 0, fees = 0, trades = 0; const tier: Record<string, number[]> = {}; const t0 = Date.now();
   for (let i = 0; i < N; i++) {
-    const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, 1000 + i, { brain: L.brain }), st = newPersonaState();
-    let next = 0; while (run.t < L.minutes * 60 - 1e-9) { if (run.t >= next) { personaAct(run, L.brain, who, st, rand); next += 1; } run.step(run.cfg.market.blockS); }
+    const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, 1000 + i, { brain: L.brain, endOnGraduate: true }), st = newPersonaState();
+    let next = 0; while (run.t < L.minutes * 60 - 1e-9 && run.endedAt == null) { if (run.t >= next) { personaAct(run, L.brain, who, st, rand); next += 1; } run.step(run.cfg.market.blockS); }
     const s = roundSummary(run, L.brain);
     if (s.graduated) { grad++; gradT += s.graduationSec!; }
     if (s.player.rank === 1) win++; if (s.player.rank <= 10) top10++; fees += s.fees; trades += s.trades;

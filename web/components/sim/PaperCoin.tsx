@@ -24,7 +24,7 @@ import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
 import { createSimTrampWallAdapter, SIM_ME } from "@/lib/sim/twAdapter";
 import { fmt, seedOf } from "@/lib/sim/run";
 import { LOBBY_MIX, PAPER_BLURB, PAPER_COLOR, PAPER_DIFFS, PAPER_LABEL, START_CASH, paperLobby, type PaperBrain, type PaperDifficulty } from "@/lib/sim/paper";
-import { feedNames, holdersSnapshot, PAPER_TRADE_EVENT, roundJson, roundSummary, standings, tradesCsv, tradeTick, type Standing } from "@/lib/sim/paperRound";
+import { botDisplayName, feedNames, holdersSnapshot, PAPER_TRADE_EVENT, playerPoolStatus, roundJson, roundSummary, standings, tradesCsv, tradeTick, type Standing } from "@/lib/sim/paperRound";
 
 const SPEEDS = [1, 2, 4, 10];
 const mono: React.CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" };
@@ -55,7 +55,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
     const seed = seedOverride ?? (s0 ? seedOf(/^\d+$/.test(s0) ? +s0 : s0) : (Math.random() * 2 ** 31) >>> 0);
     const L = paperLobby(difficulty, initial.bots ?? 200); minutes.current = initial.minutes || L.minutes;
     try { resetSimStorage(localStorage); } catch { /* ignore */ }
-    const d = new SimDriver(L.cfg, L.difficulty, seed, minutes.current, { brain: L.brain }); d.speed = speed;
+    const d = new SimDriver(L.cfg, L.difficulty, seed, minutes.current, { brain: L.brain, endOnGraduate: true }); d.speed = speed;
     // coin-screen feeds: DexChart ticks (simulated time), Trades-card names (default names, like live wallets)
     let n = 0; const names = feedNames(d.run);
     d.run.on(({ trade }) => { if (trade) dispatchEvent(new CustomEvent(PAPER_TRADE_EVENT, { detail: tradeTick(trade, ++n) })); });
@@ -92,6 +92,9 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
     ? snipeState({ launchTs: SIM_LAUNCH_TS, nowSec: SIM_LAUNCH_TS + run.t, startPct: run.cfg.launch.antiSnipeStartBps / 100, windowSec: run.cfg.launch.antiSnipeDurationS, bpsBySec: run.cfg.launch.antiSnipeBpsBySec })
     : null;
   const left = run ? minutes.current * 60 - run.t : 0;
+  // paper-only practice ascension pool (lib/sim/paper ASCENSION_POOL): live top-3 race + your score / rank
+  const ps = run && b && phase === "run" ? playerPoolStatus(run, b) : null;
+  const raceName = (w: string) => (w === "you" ? "you" : botDisplayName(w));
 
   return (
     <>
@@ -112,6 +115,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
           <b data-testid="paper-clock" style={{ fontSize: 14, color: left < 60 ? "#ff9fb8" : "#e8ecff" }}>⏱ {clock(left)}</b>
           <span data-testid="paper-board" style={{ color: "#8fd8ff", fontWeight: 800 }}>#{me?.rank}/{st.length}</span>
           <span style={{ opacity: 0.75, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>1. {top?.kind === "human" ? "YOU" : top?.name} {top ? money(top.worth) : ""}</span>
+          {b && <span data-testid="paper-pool" style={{ color: "#ffd24a", whiteSpace: "nowrap" }}>Practice pool {money(b.pool)}{ps?.rank ? ` · #${ps.rank}` : ""}</span>}
           <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 6px", fontSize: 11 }} onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>
         </div>); })()}
       {phase === "run" && run && !phone && (
@@ -123,6 +127,13 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
           <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "2px 6px", fontSize: 11 }} title="end the round now" onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>
           {dev && <button style={{ ...btn(false, "#ffd24a"), padding: "2px 6px", fontSize: 11 }} onClick={exportJson}>JSON</button>}
           <span style={{ opacity: 0.5, fontSize: 10 }}>simulated</span>
+        </div>
+      )}
+      {phase === "run" && run && b && !phone && (
+        <div data-testid="paper-pool" style={{ ...panel, position: "fixed", top: 46, left: "50%", transform: "translateX(-50%)", zIndex: 32, padding: "4px 10px", fontSize: 11, display: "flex", gap: 10, alignItems: "center", borderColor: "#ffd24a" }}>
+          <b style={{ color: "#ffd24a" }}>Practice ascension pool {money(b.pool)}</b>
+          <span style={{ opacity: 0.8 }}>Top 3: {b.race.length ? b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} ${money(x.payout)}`).join(" · ") : "—"}</span>
+          <span data-testid="paper-pool-me" style={{ color: "#8fd8ff" }}>You: {money(ps?.contrib ?? 0)}{ps?.rank ? ` · #${ps.rank}` : ""}{ps?.est ? ` · est. +${money(ps.est).slice(1)}` : ""}</span>
         </div>
       )}
       {phase === "pick" && (
@@ -162,6 +173,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
               {st.slice(0, 5).map((r) => <BoardRow key={r.wallet} r={r} />)}
               {st.findIndex((r) => r.kind === "human") >= 5 && <BoardRow r={st.find((r) => r.kind === "human")!} />}
             </div>
+            {results.player.bonus > 0 && <div data-testid="paper-bonus" style={{ fontSize: 13, fontWeight: 800, color: "#ffd24a", marginBottom: 6 }}>Ascension bonus +{money(results.player.bonus).slice(1)} <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>(practice only)</span></div>}
             <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>peak {fmt(results.peakMcap)} · {results.graduated ? `ASCENDED at ${clock(results.graduationSec!)}` : "never ascended"} · {results.trades} trades</div>
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button data-testid="paper-again" style={btn(true)} onClick={() => start()}>⟲ Play again</button>

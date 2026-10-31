@@ -48,7 +48,25 @@ export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], 
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
 export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.7, medium: 0.225, hard: 0.171 }; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
 export const NOISE_TRADE_SHARE = 0.25;
-
+/** PAPER-ONLY practice bonus (lee, Oct 31; NOT a feature of the real game): a fixed USDG pool per lobby, paid only if the coin
+ *  ASCENDS, at that moment, as CASH (never tokens, so it can't move the chart) to the TOP 3 wallets — bots and the player alike —
+ *  by score = held contribution + VOLUME_CREDIT × traded volume $, where held contribution = the cost basis of the tokens still held
+ *  (heldTokens × avgEntry, average cost: a sell removes avgEntry × tokens sold, never the proceeds — profit-taking isn't penalised,
+ *  dumping is), floored at 0. Score > 0 qualifies; ties → earlier first buy. */
+export const ASCENSION_POOL: Record<PaperDifficulty, number> = { easy: 135, medium: 500, hard: 1000 };   // 1 × the lobby stack (2× let a wash trader beat its fees in Medium, see docs)
+export const ASCENSION_TOP = 3;
+export const ASCENSION_VOLUME_CREDIT = 0.1;
+/** how the pool is split among the top wallets: "prorata" (to score) or fixed shares, e.g. [0.5, 0.3, 0.2] */
+export const ASCENSION_SPLIT: "prorata" | number[] = "prorata";
+export interface Contributor { wallet: string; contrib: number; firstT: number }
+/** rank contributors (> 0, desc, ties → earlier firstT) */
+export const rankContrib = (c: Contributor[]) => c.filter((x) => x.contrib > 1e-9).sort((a, b) => b.contrib - a.contrib || a.firstT - b.firstT);
+/** top-N payouts; Σ = pool whenever anyone qualifies (fewer than N ⇒ the qualifiers split it all) */
+export function splitPool(c: Contributor[], pool: number, split: "prorata" | number[] = ASCENSION_SPLIT, top = ASCENSION_TOP): { wallet: string; contrib: number; payout: number }[] {
+  const w = rankContrib(c).slice(0, top); if (!w.length || !(pool > 0)) return [];
+  const sh = split === "prorata" ? w.map((x) => x.contrib) : w.map((_, i) => split[i] ?? 0), S = sh.reduce((a, x) => a + x, 0);
+  return w.map((x, i) => ({ wallet: x.wallet, contrib: x.contrib, payout: S > 0 ? pool * sh[i] / S : pool / w.length }));
+}
 /** One brain, parameterised (spec Sec. 5) */
 export interface BrainParams {
   reactS: [number, number]; intervalS: number; noise: number; windows: number[]; vwap: boolean;
@@ -56,17 +74,23 @@ export interface BrainParams {
   stop: "none" | "panic" | "fixed" | "trail"; stopPct: number; ladder: [number, number][]; scaleOutNearGrad: boolean; dipPct: number;
   size: [number, number]; maxPos: number; maxEntries: number; roundAmounts: boolean; minTradeUsd: number; curveAware: 0 | 1 | 2;
   maxHoldS: number; firstRed: boolean; neverSell: boolean; cooldownS: number; activeFrom: [number, number];
+  /** ascension pool awareness (public: pool size + rule): above curve progress poolG a holder skips profit-taking sells
+   *  (selling cuts its held contribution; stops still fire) when poolHold, and buys get +wPool × curve closeness to ASCEND when the
+   *  bot is in, or within reach of, the public top-3 race (its contribution + one buy ≥ #3's) */
+  poolG: number; poolHold: boolean; wPool: number;
+  /** near ASCEND (g > poolG) a bot's max position is × poolPosK (it loads up for the finish / the race) */
+  poolPosK: number;
 }
 const TIER_BASE: Record<Tier, BrainParams> = {
   easy: { reactS: [2, 3], intervalS: 2, noise: 0.27, windows: [2], vwap: false, wMom: 1, wRev: 0, wCurve: 0, wMood: 0.5, buyTh: 0.25, sellTh: -0.6,
     stop: "panic", stopPct: 0.35, ladder: [[0.15, 1]], scaleOutNearGrad: false, dipPct: 0, size: [0.2, 0.5], maxPos: 0.8, maxEntries: 1, roundAmounts: true,
-    minTradeUsd: 0, curveAware: 0, maxHoldS: 0, firstRed: false, neverSell: false, cooldownS: 3, activeFrom: [0, 420] },
+    minTradeUsd: 0, curveAware: 0, maxHoldS: 0, firstRed: false, neverSell: false, cooldownS: 3, activeFrom: [0, 420], poolG: 0.75, poolHold: false, wPool: 0, poolPosK: 1 },
   medium: { reactS: [0.8, 1.2], intervalS: 1, noise: 0.1, windows: [5, 30], vwap: false, wMom: 0.8, wRev: 0.3, wCurve: 0.2, wMood: 0.4, buyTh: 0.3, sellTh: -0.35,
     stop: "fixed", stopPct: 0.12, ladder: [[0.25, 1 / 3], [0.5, 1 / 3]], scaleOutNearGrad: false, dipPct: 0.1, size: [0.1, 0.25], maxPos: 0.5, maxEntries: 1.4,
-    roundAmounts: false, minTradeUsd: 5, curveAware: 1, maxHoldS: 0, firstRed: false, neverSell: false, cooldownS: 4, activeFrom: [8, 300] },
+    roundAmounts: false, minTradeUsd: 5, curveAware: 1, maxHoldS: 0, firstRed: false, neverSell: false, cooldownS: 4, activeFrom: [8, 300], poolG: 0.75, poolHold: false, wPool: 0, poolPosK: 1 },
   hard: { reactS: [0.15, 0.25], intervalS: 0.5, noise: 0.025, windows: [3, 20, 60], vwap: true, wMom: 0.7, wRev: 0.6, wCurve: 0.5, wMood: 0.3, buyTh: 0.35, sellTh: -0.3,
     stop: "trail", stopPct: 0.08, ladder: [[0.2, 0.25], [0.4, 0.25], [0.7, 0.25]], scaleOutNearGrad: true, dipPct: 0.03, size: [0.3, 0.5], maxPos: 0.35, maxEntries: 2.6,
-    roundAmounts: false, minTradeUsd: 12, curveAware: 2, maxHoldS: 0, firstRed: false, neverSell: false, cooldownS: 5, activeFrom: [8, 240] },
+    roundAmounts: false, minTradeUsd: 12, curveAware: 2, maxHoldS: 0, firstRed: false, neverSell: false, cooldownS: 5, activeFrom: [8, 240], poolG: 0.75, poolHold: false, wPool: 0, poolPosK: 1 },
 };
 const ARCH_OVERRIDE: Record<PaperArchetype, Partial<BrainParams>> = {
   fomo: { wMom: 1.4, buyTh: 0.35, activeFrom: [0, 360] },
@@ -150,6 +174,11 @@ export class PaperBrain implements SimBrain {
   totals = { fees: 0, gas: 0, snipeTax: 0, snipeHits: 0, trades: 0, buys: 0, sells: 0 };
   /** every trade of the round (SimRun keeps only the last ~3–4K) */
   log: SimTrade[] = [];
+  /** ascension pool bookkeeping: traded volume $ and first-buy time per wallet ("you" = the player) */
+  volBy = new Map<string, number>(); firstBuyT = new Map<string, number>();
+  /** public top-3 race, refreshed every block; payouts once the coin ASCENDS (empty otherwise) */
+  race: { wallet: string; contrib: number; payout: number }[] = []; bonus = new Map<string, number>(); bonusPaid = false;
+  get pool() { return ASCENSION_POOL[this.difficulty]; }
   constructor(public difficulty: PaperDifficulty, public botCount = 200) {}
   get startCash() { return START_CASH[this.difficulty]; }
   init(run: SimRun) {
@@ -173,6 +202,9 @@ export class PaperBrain implements SimBrain {
     run.on(({ trade }) => { if (trade) this.onTrade(run, trade); });
   }
   private onTrade(run: SimRun, tr: SimTrade) {
+    const w = tr.wallet ?? "you";
+    this.volBy.set(w, (this.volBy.get(w) ?? 0) + tr.usd);
+    if (tr.side === "buy" && !this.firstBuyT.has(w)) this.firstBuyT.set(w, tr.t);
     this.log.push(tr); this.totals.trades++; this.totals[tr.side === "buy" ? "buys" : "sells"]++;
     this.totals.fees += tr.usd * run.m.fee; this.totals.gas += tr.gas ?? 0;
     // sniper tax: buys on the curve inside the 7 s table (the market charged it on this same block)
@@ -191,7 +223,21 @@ export class PaperBrain implements SimBrain {
     }
     return out as unknown as BrainParams;
   }
+  /** a wallet's pool score: cost basis still held (≥ 0) + VOLUME_CREDIT × volume $ */
+  scoreOf(wallet: string, costBasis: number) { return Math.max(0, costBasis) + ASCENSION_VOLUME_CREDIT * (this.volBy.get(wallet) ?? 0); }
+  /** every wallet that traded, with its pool score (field `contrib`) */
+  contributors(run: SimRun): Contributor[] {
+    const out: Contributor[] = [], add = (w: string, cb: number) => { if (this.volBy.has(w)) out.push({ wallet: w, contrib: this.scoreOf(w, cb), firstT: this.firstBuyT.get(w) ?? 1e9 }); };
+    for (const b of run.bots) add(b.wallet, b.pos.size > 0 ? b.pos.costBasis : 0);
+    add("you", run.player.pos.size > 0 ? run.player.pos.costBasis : 0);
+    return out;
+  }
+  onGraduate(run: SimRun) {
+    this.race = splitPool(this.contributors(run), this.pool); this.bonusPaid = true;
+    for (const x of this.race) { this.bonus.set(x.wallet, x.payout); const a = x.wallet === "you" ? run.player : run.bots.find((b) => b.wallet === x.wallet)!; a.cash += x.payout; }   // USDG cash
+  }
   afterBlock(run: SimRun) {
+    if (!this.bonusPaid && run.m.phase === "curve") this.race = splitPool(this.contributors(run), this.pool);
     this.hist.push(run.m.mcap());
     let i = 0; for (let k = 0; k < this.phases.length; k++) if (run.t >= this.phases[k].start) i = k;
     if (i !== this.phaseIdx) { this.phaseIdx = i; const ph = this.phases[i]; this.mood = ph.mood; this.vol = ph.vol; this.phaseLog.push({ id: ph.id, t: run.t }); }
@@ -223,11 +269,13 @@ export class PaperBrain implements SimBrain {
       else if (b.cash > 1) this.buy(run, b, this.sizeBuy(run, b, M, 0.3 + r() * 0.7));
       return;
     }
+    const nearAsc = p.poolG < 1 && m.phase === "curve" && m.g > p.poolG;
     if (b.pos.size > 0 && !p.neverSell) {
       const value = b.pos.size * price, gain = b.pos.costBasis > 0 ? value * (1 - m.fee) / b.pos.costBasis - 1 : 0;
       const stopHit = p.stop === "panic" || p.stop === "fixed" ? gain < -p.stopPct : p.stop === "trail" ? price < M.peak * (1 - p.stopPct) && gain > -0.5 : false;
       if (stopHit && !(p.stop === "panic" && M.arch === "fomo")) { this.sell(run, b, b.pos.size); return; }
       if (p.firstRed && now < this.seen(run, M.react, 0.5) * 0.997) { this.sell(run, b, b.pos.size); return; }
+      if (nearAsc && p.poolHold) return;   // holding for the ascension pool: no profit-taking (stops above still fire)
       if (M.ladderHit < p.ladder.length && gain > p.ladder[M.ladderHit][0]) {
         const frac = p.ladder[M.ladderHit][1]; M.ladderHit++;
         this.sell(run, b, frac >= 0.999 ? b.pos.size : Math.min(b.pos.size, M.pos0 * frac)); return;
@@ -235,7 +283,11 @@ export class PaperBrain implements SimBrain {
       if (p.maxHoldS > 0 && run.t - M.entryT > p.maxHoldS) { this.sell(run, b, b.pos.size); return; }
       if (p.scaleOutNearGrad && m.phase === "curve" && m.g > 0.8 && now < this.seen(run, M.react, 3) && r() < 0.5) { this.sell(run, b, b.pos.size / 3); return; }
     }
-    const s = this.score(run, M, now);
+    let s = this.score(run, M, now);
+    if (nearAsc && p.wPool > 0) {   // the public top-3 race: in it, or one buy away
+      const mine = this.scoreOf(b.wallet, b.pos.size > 0 ? b.pos.costBasis : 0), third = this.race.length >= ASCENSION_TOP ? this.race[ASCENSION_TOP - 1].contrib : 0;
+      if (mine + (1 + ASCENSION_VOLUME_CREDIT) * this.sizeBuy(run, b, M, 1) >= third) s += p.wPool * clamp((m.g - p.poolG) / (1 - p.poolG), 0, 1);
+    }
     if (s > p.buyTh && b.cash > p.minTradeUsd + gas) {
       if (p.curveAware >= 1 && run.t < run.cfg.launch.antiSnipeDurationS + 1) return;   // knows the sniper tax
       if (p.curveAware >= 2 && m.phase === "curve" && m.g > 0.9) return;                 // no fresh entries at the top
@@ -257,7 +309,8 @@ export class PaperBrain implements SimBrain {
   }
   private sizeBuy(run: SimRun, b: Bot, M: BotMeta, conviction: number) {
     const p = M.p, price = run.m.price(), gas = run.cfg.player.botGasUsd ?? 0, sc = this.startCash;
-    const room = Math.max(0, p.maxPos * p.maxEntries * sc - b.pos.size * price);
+    const near = p.poolPosK !== 1 && run.m.phase === "curve" && run.m.g > p.poolG;
+    const room = Math.max(0, p.maxPos * (near ? p.poolPosK : 1) * p.maxEntries * sc - b.pos.size * price);
     let usd = Math.min(b.cash - gas, room, sc * SIZE_SCALE[this.difficulty] * M.agg * (p.size[0] + (p.size[1] - p.size[0]) * conviction));
     const mi = TUNE.maxImpact[M.tier];
     if (mi > 0 && usd > 0 && run.m.impact(usd, "buy") > 1 + mi) { let lo = 0, hi = usd; for (let k = 0; k < 16; k++) { const mid = (lo + hi) / 2; if (run.m.impact(mid, "buy") <= 1 + mi) lo = mid; else hi = mid; } usd = lo; }
@@ -267,4 +320,4 @@ export class PaperBrain implements SimBrain {
 }
 
 /** a new paper lobby's SimRun pieces (the caller builds SimRun / SimDriver with them) */
-export function paperLobby(d: PaperDifficulty, botCount = 200) { return { cfg: paperConfig(d), difficulty: paperDiffId(d), brain: new PaperBrain(d, botCount), minutes: ROUND_MINUTES }; }
+export function paperLobby(d: PaperDifficulty, botCount = 200) { return { cfg: paperConfig(d), difficulty: paperDiffId(d), brain: new PaperBrain(d, botCount), minutes: ROUND_MINUTES, endOnGraduate: true as const }; }

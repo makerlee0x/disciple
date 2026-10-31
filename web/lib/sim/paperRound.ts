@@ -6,7 +6,7 @@
  */
 import { defaultUsername } from "@/lib/defaultUsername";
 import { YOU, type SimRun, type SimTrade } from "./run";
-import { ARCH_LABEL, START_CASH, type PaperBrain, type Tier } from "./paper";
+import { ARCH_LABEL, ASCENSION_POOL, START_CASH, type PaperBrain, type Tier } from "./paper";
 
 /** the player's row id in holders / standings / trades */
 export const PAPER_ME = YOU;
@@ -45,15 +45,15 @@ export function tradeTick(tr: SimTrade, i: number) {
 /** 'disciple:feednames' map {lc wallet → default name} so the Trades card names bots like live wallets */
 export function feedNames(run: SimRun) { const o: Record<string, string> = {}; for (const b of run.bots) o[b.wallet.toLowerCase()] = botDisplayName(b.wallet); return o; }
 
-export interface Standing { rank: number; wallet: string; name: string; kind: "human" | "bot"; tier: Tier | "player"; arch: string; cash: number; value: number; worth: number; pnl: number; realized: number; fees: number; trades: number }
-/** ranked by cash + position value (mark; open tramps/walls at pool value); ties → higher realized, then fewer fees */
+export interface Standing { rank: number; wallet: string; name: string; kind: "human" | "bot"; tier: Tier | "player"; arch: string; cash: number; value: number; bonus: number; worth: number; pnl: number; realized: number; fees: number; trades: number }
+/** ranked by cash (incl. any paper-only ascension bonus) + position value (mark; open tramps/walls at pool value); ties → higher realized, then fewer fees */
 export function standings(run: SimRun, brain: PaperBrain): Standing[] {
   const px = run.m.price(), sc = START_CASH[brain.difficulty];
   const ordersVal = (owner: string) => { if (!run.m.pool) return 0; let v = 0; for (const o of run.ordersOf(owner)) { const g = run.m.pool.amounts(o); v += g.quote + g.tokens * px; } return v; };
-  const rows: Standing[] = run.bots.map((b) => { const M = brain.meta.get(b.id), value = b.pos.size * px, worth = b.cash + value + ordersVal(b.wallet);
-    return { rank: 0, wallet: b.wallet, name: botDisplayName(b.wallet), kind: "bot", tier: M?.tier ?? "easy", arch: M ? ARCH_LABEL[M.arch] : b.arch, cash: b.cash, value, worth, pnl: worth - sc, realized: b.pos.realized, fees: b.pos.fees ?? 0, trades: b.buys + b.sells }; });
-  const P = run.player, value = P.pos.size * px, worth = P.cash + value + ordersVal(YOU);
-  rows.push({ rank: 0, wallet: YOU, name: "you", kind: "human", tier: "player", arch: "you", cash: P.cash, value, worth, pnl: worth - P.cash0, realized: P.pos.realized, fees: P.pos.fees ?? 0, trades: P.buys + P.sells });
+  const rows: Standing[] = run.bots.map((b) => { const M = brain.meta.get(b.id), value = b.pos.size * px, bonus = brain.bonus.get(b.wallet) ?? 0, worth = b.cash + value + ordersVal(b.wallet);   // bonus is already in cash
+    return { rank: 0, wallet: b.wallet, name: botDisplayName(b.wallet), kind: "bot", tier: M?.tier ?? "easy", arch: M ? ARCH_LABEL[M.arch] : b.arch, cash: b.cash, value, bonus, worth, pnl: worth - sc, realized: b.pos.realized, fees: b.pos.fees ?? 0, trades: b.buys + b.sells }; });
+  const P = run.player, value = P.pos.size * px, bonus = brain.bonus.get(YOU) ?? 0, worth = P.cash + value + ordersVal(YOU);
+  rows.push({ rank: 0, wallet: YOU, name: "you", kind: "human", tier: "player", arch: "you", cash: P.cash, value, bonus, worth, pnl: worth - P.cash0, realized: P.pos.realized, fees: P.pos.fees ?? 0, trades: P.buys + P.sells });
   rows.sort((a, b) => b.worth - a.worth || b.realized - a.realized || a.fees - b.fees);
   rows.forEach((r, i) => (r.rank = i + 1));
   return rows;
@@ -61,14 +61,15 @@ export function standings(run: SimRun, brain: PaperBrain): Standing[] {
 
 /** money check: start money = Σ cash + curve reserve (or pool quote + floor after ASCEND) + fees + sniper tax + gas — tested both sides of ASCEND */
 export function moneyCheck(run: SimRun, brain: PaperBrain) {
-  const start = START_CASH[brain.difficulty] * (run.bots.length) + run.player.cash0;
+  // + the paper-only ascension pool once paid (new USDG minted into cash at ASCEND)
+  const paid = [...brain.bonus.values()].reduce((a, x) => a + x, 0), start = START_CASH[brain.difficulty] * (run.bots.length) + run.player.cash0 + paid;
   const cash = run.bots.reduce((a, b) => a + b.cash, 0) + run.player.cash;
   // after ASCEND the curve reserve lives in the pool: full-range quote (L0·√p) + the locked floor bands' USDG
   const P = run.m.pool, fl = P ? P.floorState() : null;
   const reserve = run.m.phase === "curve" || !P ? run.m.reserveAt(run.m.g) : P.L0 * P.s + fl!.quote;
   /** tokens outside wallets: unsold curve supply, or the pool's full-range + floor-band tokens */
   const unheld = run.m.phase === "curve" || !P ? run.m.S - run.m.sold : P.L0 / P.s + fl!.tokens;
-  return { start, cash, fees: brain.totals.fees, gas: brain.totals.gas, snipeTax: brain.totals.snipeTax, reserve, unheld, phase: run.m.phase };
+  return { start, paid, cash, fees: brain.totals.fees, gas: brain.totals.gas, snipeTax: brain.totals.snipeTax, reserve, unheld, phase: run.m.phase };
 }
 
 /** the player's best round trip: largest realized PnL booked on a single sell */
@@ -96,13 +97,15 @@ export function roundSummary(run: SimRun, brain: PaperBrain) {
     simulated: true, difficulty: brain.difficulty, seed: run.seed, simSeconds: +run.t.toFixed(1), bots: run.bots.length, startCash: START_CASH[brain.difficulty],
     graduated: run.m.gradAt != null, graduationSec: run.m.gradAt != null ? +run.m.gradAt.toFixed(1) : null, peakMcap: Math.round(run.peak), finalMcap: Math.round(run.m.mcap()),
     trades: brain.totals.trades, fees: +brain.totals.fees.toFixed(2), gas: +brain.totals.gas.toFixed(2), sniperTax: +brain.totals.snipeTax.toFixed(2), sniperTaxHits: brain.totals.snipeHits,
-    player: { rank: me.rank, of: st.length, worth: +me.worth.toFixed(2), pnl: +me.pnl.toFixed(2), trades: me.trades, bestTrade: bestTrade(run, brain) },
+    endedAtS: run.endedAt != null ? +run.endedAt.toFixed(1) : null,
+    pool: { size: ASCENSION_POOL[brain.difficulty], paid: brain.bonusPaid, top3: brain.race.map((x) => ({ wallet: x.wallet, name: x.wallet === YOU ? "you" : botDisplayName(x.wallet), contrib: +x.contrib.toFixed(2), payout: +x.payout.toFixed(2) })) },
+    player: { rank: me.rank, of: st.length, worth: +me.worth.toFixed(2), pnl: +me.pnl.toFixed(2), bonus: +me.bonus.toFixed(2), poolRank: brain.race.findIndex((x) => x.wallet === YOU) + 1, trades: me.trades, bestTrade: bestTrade(run, brain) },
     byTier, byArchetype: byArch, phases: brain.phaseLog,
   };
 }
 /** dev-only export (?dev=1 / non-prod) */
 export function roundJson(run: SimRun, brain: PaperBrain) {
-  return { summary: roundSummary(run, brain), standings: standings(run, brain).map((s) => ({ ...s, cash: +s.cash.toFixed(4), value: +s.value.toFixed(4), worth: +s.worth.toFixed(4), pnl: +s.pnl.toFixed(4) })), inputs: run.inputs };
+  return { summary: roundSummary(run, brain), standings: standings(run, brain).map((s) => ({ ...s, bonus: +s.bonus.toFixed(4), cash: +s.cash.toFixed(4), value: +s.value.toFixed(4), worth: +s.worth.toFixed(4), pnl: +s.pnl.toFixed(4) })), inputs: run.inputs };
 }
 export function tradesCsv(run: SimRun, brain: PaperBrain) {
   const tierOf = new Map(run.bots.map((b) => [b.wallet, brain.meta.get(b.id)]));
@@ -158,4 +161,11 @@ export function personaAct(run: SimRun, brain: PaperBrain, who: Persona, s: Pers
   if (run.t > 8 && m < hi * 0.9 && P.cash > 11 && value < sc * 0.6 && run.t - s.last > 10) { buy(size(0.2)); s.last = run.t; return; }
   if (P.pos.size > 0 && m < s.peak * 0.9) { sell(1); s.peak = 0; return; }
   if (P.pos.size > 0 && run.m.phase === "curve" && run.m.g > 0.7) sell(0.25);
+}
+
+/** the player's live race position (UI): held contribution, rank among all contributors (0 = none), payout estimate if ASCEND now */
+export function playerPoolStatus(run: SimRun, brain: PaperBrain) {
+  const c = brain.contributors(run), mine = c.find((x) => x.wallet === YOU)?.contrib ?? 0, ranked = c.filter((x) => x.contrib > 1e-9).sort((a, b) => b.contrib - a.contrib || a.firstT - b.firstT);
+  const rank = ranked.findIndex((x) => x.wallet === YOU) + 1, est = brain.race.find((x) => x.wallet === YOU)?.payout ?? 0;
+  return { contrib: mine, rank, est };
 }

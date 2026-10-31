@@ -5,7 +5,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SimRun } from "../lib/sim/run";
 import { cloneConfig, DIFFICULTIES as SIM_DIFFS } from "../lib/sim/config";
-import { LOBBY_MIX, PAPER_DIFFS, START_CASH, paperLobby, type PaperDifficulty } from "../lib/sim/paper";
+import { ASCENSION_POOL, ASCENSION_VOLUME_CREDIT, LOBBY_MIX, PAPER_DIFFS, START_CASH, PaperBrain, paperLobby, splitPool, type PaperDifficulty } from "../lib/sim/paper";
+import { applyFill, emptyPosition } from "../lib/pnl";
 import { feedNames, holdersSnapshot, moneyCheck, newPersonaState, personaAct, roundJson, roundSummary, standings, tradesCsv, tradeTick, PAPER_EPOCH_MS } from "../lib/sim/paperRound";
 import { defaultUsername } from "../lib/defaultUsername";
 import { curveMcapAtFrac } from "../lib/curveMath";
@@ -13,9 +14,9 @@ import { CURVE } from "../lib/config";
 
 const near = (a: number, b: number, rel = 1e-6) => Math.abs(a - b) <= rel * Math.max(1, Math.abs(a), Math.abs(b));
 function play(d: PaperDifficulty, seed: number, seconds = 600, persona = true) {
-  const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain }), st = newPersonaState();
+  const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain, endOnGraduate: true }), st = newPersonaState();
   let sr = seed; const rand = () => ((sr = (sr * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
-  let next = 0; while (run.t < seconds - 1e-9) { if (persona && run.t >= next) { personaAct(run, L.brain, "decent", st, rand); next += 1; } run.step(run.cfg.market.blockS); }
+  let next = 0; while (run.t < seconds - 1e-9 && run.endedAt == null) { if (persona && run.t >= next) { personaAct(run, L.brain, "decent", st, rand); next += 1; } run.step(run.cfg.market.blockS); }
   return { run, brain: L.brain };
 }
 
@@ -39,7 +40,7 @@ test("determinism: same seed + same inputs → identical round", () => {
     assert.equal(tradesCsv(a.run, a.brain), tradesCsv(b.run, b.brain));
     assert.notEqual(tradesCsv(a.run, a.brain), tradesCsv(c.run, c.brain));
     // replay from the input log reproduces the round (SimRun.replay with the same brain)
-    const L = paperLobby(d), r = SimRun.replay(L.cfg, L.difficulty, 77, a.run.inputs, 240, { brain: L.brain });
+    const L = paperLobby(d), r = SimRun.replay(L.cfg, L.difficulty, 77, a.run.inputs, 240, { brain: L.brain, endOnGraduate: true });
     assert.equal(JSON.stringify(standings(r, L.brain)), JSON.stringify(standings(a.run, a.brain)));
   }
 });
@@ -47,12 +48,13 @@ test("determinism: same seed + same inputs → identical round", () => {
 test("money + tokens conserved on the curve AND after ASCEND (pool + floor); no negative balances", () => {
   let pool = 0;
   for (const d of PAPER_DIFFS) for (const seed of [2, 3]) {
-    const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain });
+    const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain, endOnGraduate: true });
     let checked = 0;
-    while (run.t < 600 - 1e-9) {
+    while (run.t < 600 - 1e-9 && run.endedAt == null) {
       run.step(0.1);
-      if (run.blk % 50) continue;
-      const m = moneyCheck(run, L.brain), acc = m.cash + m.fees + m.gas + m.snipeTax + m.reserve;
+      if (run.blk % 50 && run.endedAt == null) continue;
+      const m = moneyCheck(run, L.brain); if (m.paid) assert.ok(near(m.paid, ASCENSION_POOL[d], 1e-9), `${d} pool paid ${m.paid}`);
+      const acc = m.cash + m.fees + m.gas + m.snipeTax + m.reserve;
       assert.ok(near(acc, m.start, 1e-7), `${d}/${seed} t${run.t.toFixed(1)} ${m.phase} money ${acc} vs ${m.start}`);
       const held = run.bots.reduce((a, b) => a + b.pos.size, 0) + run.player.pos.size;
       assert.ok(near(held + m.unheld, run.m.S, 1e-7), `${m.phase} tokens ${held} + ${m.unheld} vs supply ${run.m.S}`);
@@ -82,9 +84,9 @@ test("win-rate bands (tuning v2, docs/paper-tuning.md): 30 fixed seeds per lobby
   for (const d of PAPER_DIFFS) for (const who of ["decent", "strong", "novice"] as const) {
     let win = 0, top10 = 0, grad = 0;
     for (let i = 0; i < N; i++) {
-      const seed = 7000 + i, L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain }), st = newPersonaState();
+      const seed = 7000 + i, L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, seed, { brain: L.brain, endOnGraduate: true }), st = newPersonaState();
       let sr = seed; const rand = () => ((sr = (sr * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
-      let next = 0; while (run.t < L.minutes * 60 - 1e-9) { if (run.t >= next) { personaAct(run, L.brain, who, st, rand); next += 1; } run.step(run.cfg.market.blockS); }
+      let next = 0; while (run.t < L.minutes * 60 - 1e-9 && run.endedAt == null) { if (run.t >= next) { personaAct(run, L.brain, who, st, rand); next += 1; } run.step(run.cfg.market.blockS); }
       const sum = roundSummary(run, L.brain), rank = sum.player.rank; if (sum.graduated) grad++; if (rank === 1) win++; if (rank <= 10) top10++;
     }
     r[`${d}.${who}`] = { win: win / N, top10: top10 / N, grad: grad / N };
@@ -101,11 +103,50 @@ test("win-rate bands (tuning v2, docs/paper-tuning.md): 30 fixed seeds per lobby
   for (const d of PAPER_DIFFS) assert.ok(r[`${d}.strong`].top10 >= r[`${d}.decent`].top10 && r[`${d}.decent`].top10 >= r[`${d}.novice`].top10 - (d === "hard" ? 0.07 : 0), `${d}: strong ≥ decent ≥ novice top-10`);
 });
 
+test("ascension: the round ends at ASCEND (time stops, trades fail), the pool is paid in cash, Σ = pool or 0", () => {
+  let asc = 0, no = 0;
+  for (const d of PAPER_DIFFS) for (let s = 0; s < 12; s++) {
+    const { run, brain } = play(d, 300 + s, 600, true), paid = [...brain.bonus.values()].reduce((a, x) => a + x, 0);
+    if (run.endedAt != null) { asc++; assert.ok(run.m.phase === "pool" && near(run.t, run.endedAt)); assert.ok(brain.bonus.size >= 1 && brain.bonus.size <= 3); assert.ok(near(paid, ASCENSION_POOL[d], 1e-9));
+      const n = brain.log.length, t = run.t; run.step(5); assert.equal(run.t, t); assert.equal(run.playerTrade("buy", 5).ok, false); assert.equal(brain.log.length, n);
+      const st = standings(run, brain), sum = roundSummary(run, brain); assert.equal(sum.endedAtS, +run.endedAt.toFixed(1)); assert.equal(sum.pool.top3.length, brain.bonus.size);
+      for (const x of brain.race) assert.ok(st.find((r) => r.wallet === x.wallet)!.bonus === x.payout); }
+    else { no++; assert.equal(paid, 0); assert.ok(run.t >= 600 - 1e-9); }
+  }
+  assert.ok(asc > 0 && no > 0, `${asc} ascended, ${no} not`);
+});
+
+test("ascension pool split: top 3 pro-rata, Σ = pool, fewer qualifiers split it all, dumpers / zero score get nothing", () => {
+  const c = (w: string, contrib: number, firstT = 0) => ({ wallet: w, contrib, firstT });
+  const p = splitPool([c("a", 50), c("b", 30), c("c", 20), c("d", 10), c("e", 0), c("f", -5)], 100);
+  assert.deepEqual(p.map((x) => x.wallet), ["a", "b", "c"]); assert.ok(near(p.reduce((a, x) => a + x.payout, 0), 100)); assert.ok(near(p[0].payout, 50));
+  const two = splitPool([c("a", 3), c("b", 1), c("z", 0)], 100); assert.equal(two.length, 2); assert.ok(near(two[0].payout, 75) && near(two[1].payout, 25));
+  assert.deepEqual(splitPool([c("a", 0)], 100), []);
+  assert.deepEqual(splitPool([c("x", 5, 9), c("y", 5, 2), c("z", 5, 4), c("w", 5, 1)], 90).map((x) => x.wallet), ["w", "y", "z"]);   // ties → earlier first buy
+  assert.deepEqual(splitPool([c("a", 5), c("b", 3), c("c", 2)], 100, [0.5, 0.3, 0.2]).map((x) => x.payout), [50, 30, 20]);          // swappable fixed split
+  // score = cost basis still held (average cost) + VOLUME_CREDIT × volume
+  const B = new PaperBrain("medium");
+  let pos = applyFill(emptyPosition(), "buy", 100, 1, 0, 0); pos = applyFill(pos, "sell", 247.5, 5, 0, 1000, 0.5);   // buy $100, 5×, sell half the tokens
+  B.volBy.set("taker", 347.5); assert.ok(near(pos.costBasis, 50, 1e-9)); assert.ok(near(B.scoreOf("taker", pos.costBasis), 50 + ASCENSION_VOLUME_CREDIT * 347.5, 1e-9));
+  // pump-and-dump: bought $400, sold it all ⇒ holds no basis; only its volume credit, beaten by three holders ⇒ 0
+  B.volBy.set("dumper", 800); const dump = B.scoreOf("dumper", 0); assert.ok(near(dump, ASCENSION_VOLUME_CREDIT * 800));
+  const hp = splitPool([c("dumper", dump), c("h1", 200), c("h2", 150), c("h3", 100)], 500); assert.ok(!hp.some((x) => x.wallet === "dumper"));
+});
+
+test("ascension pool: a wash trader pays more in fees + gas than the volume credit earns it (20 seeds per lobby)", () => {
+  for (const d of PAPER_DIFFS) { let paid = 0, fees = 0;
+    for (let s = 0; s < 20; s++) { const L = paperLobby(d), run = new SimRun(L.cfg, L.difficulty, 7000 + s, { brain: L.brain, endOnGraduate: true });
+      let next = 0; while (run.t < 600 && run.endedAt == null) { if (run.t >= next) { next += 2; if (run.player.pos.size > 0) run.playerTrade("sell", 0, { frac: 1 }); else run.playerTrade("buy", START_CASH[d] * 0.1); } run.step(0.1); }
+      paid += L.brain.bonus.get("you") ?? 0; for (const t of L.brain.log) if (t.mine) fees += t.usd * run.m.fee + (t.gas ?? 0); }
+    assert.ok(fees > paid, `${d}: wash fees ${fees} vs bonus ${paid}`);
+  }
+});
+
 test("curve parity with main: same launch params, curve, fee, sniper tax as the SIMULATOR / lib/curveMath", () => {
   const L = paperLobby("medium"), base = cloneConfig();
   assert.deepEqual(L.cfg.launch, base.launch);
   assert.deepEqual(L.cfg.market, base.market);
-  const run = new SimRun(L.cfg, L.difficulty, 1, { brain: L.brain });
+  const run = new SimRun(L.cfg, L.difficulty, 1, { brain: L.brain, endOnGraduate: true });
   assert.ok(near(run.m.mcap(), CURVE.startMcap, 1e-9));
   for (const g of [0.1, 0.3, 0.5, 0.8, 0.95]) assert.ok(near(run.m.mcapAt(g), curveMcapAtFrac(g), 1e-9));
   assert.ok(Math.abs(run.m.reserveAt(1) - 6454.55) < 1);
