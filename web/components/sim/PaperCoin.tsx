@@ -36,6 +36,9 @@ const money = (v: number) => (v < 0 ? "−$" : "$") + Math.abs(v).toFixed(2);
 const signed = (v: number) => (v < 0 ? "−$" : "+$") + Math.abs(v).toFixed(2);
 type Results = ReturnType<typeof roundSummary>;
 
+/** last BUY/SELL card rect from the engine (it only re-publishes on layout change, so listen from module load) */
+let lastAmmo: { right: number } | null = null;
+if (typeof window !== "undefined") addEventListener("disciple:hudcol", (e) => { const a = (e as CustomEvent).detail?.ammo; if (a) lastAmmo = { right: a.x + a.w }; });
 export default function PaperCoin({ initial }: { initial: { difficulty?: string; seed?: string; speed?: number; minutes?: number; bots?: number; autostart?: boolean; dev?: boolean } }) {
   const dev = !!initial.dev || process.env.NODE_ENV !== "production";
   const [difficulty, setDifficulty] = useState<PaperDifficulty>(PAPER_DIFFS.includes(initial.difficulty as PaperDifficulty) ? (initial.difficulty as PaperDifficulty) : "easy");
@@ -46,6 +49,26 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
   const drv = useRef<SimDriver | null>(null), brain = useRef<PaperBrain | null>(null), minutes = useRef(10);
   const [, force] = useState(0);
   const [phone, setPhone] = useState(false);
+  // engine: paper coin ⇒ no SIM / paper disclaimers; status card only with ?dev=1
+  if (typeof window !== "undefined") { const w = window as unknown as Record<string, unknown>; w.__paperCoin = true; w.__paperDev = !!initial.dev; }
+  useEffect(() => () => { const w = window as unknown as Record<string, unknown>; delete w.__paperCoin; delete w.__paperDev; }, []);
+  // desktop pill slot: just left of the site's wallet strip (TEST NETWORK pill) if it fits beside the trade panel, else tucked under it (no card overlap)
+  const pillRef = useRef<HTMLDivElement>(null), ammo = useRef<{ right: number } | null>(null);
+  const [pillAt, setPillAt] = useState({ top: 10, right: 210 });
+  useEffect(() => {
+    const place = () => {
+      const el = pillRef.current; if (!el) return;
+      const tn = document.querySelector('[aria-label="wallet"]') as HTMLElement | null;   // site wallet strip (TEST NETWORK pill + Play)
+      const t = tn?.getBoundingClientRect(), pr = ammo.current ?? lastAmmo, w = el.offsetWidth;   // pr: the canvas BUY/SELL card (engine disciple:hudcol)
+      if (!t) return;
+      const right = Math.round(innerWidth - t.left + 8), fits = pr ? innerWidth - right - w > pr.right + (Number((window as unknown as { __wrapL?: number }).__wrapL) || 0) + 12 : innerWidth >= 1400;   // card rect not published yet ⇒ width heuristic
+      const next = fits ? { top: Math.round(t.top + (t.height - el.offsetHeight) / 2), right } : { top: Math.round(t.bottom + 6), right: Math.round(innerWidth - t.right) };
+      setPillAt((p) => (p.top === next.top && p.right === next.right ? p : next));
+    };
+    const onCol = (e: Event) => { const a = (e as CustomEvent).detail?.ammo; if (a) { ammo.current = { right: a.x + a.w }; place(); } };
+    place(); const id = setInterval(place, 1000); addEventListener("resize", place); addEventListener("disciple:hudcol", onCol);
+    return () => { clearInterval(id); removeEventListener("resize", place); removeEventListener("disciple:hudcol", onCol); };
+  }, [phase, phone]);
   useEffect(() => { const f = () => setPhone(isPhoneUI()); f(); addEventListener("resize", f); return () => removeEventListener("resize", f); }, []);
   const twAdapter = useMemo(() => (runN > 0 ? createSimTrampWallAdapter(() => drv.current?.run ?? null, typeof window !== "undefined" ? localStorage : undefined) : undefined), [runN]);
 
@@ -101,28 +124,29 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
       {phase !== "pick" && (
         <>
           <FlightCanvas key={runN} search={search} />
-          <PnlHud coin={`paper-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="PAPER" syncEvent={SIM_POS_EVENT} />
-          <DexChart key={`c${runN}`} coin="SIMULATOR" ticker="PAPER" simEvent={PAPER_TRADE_EVENT} />
+          {/* no mode tag by the cash on paper coin (TradeBridge untouched: trade code) */}
+          <style>{`[title="paper trades — connect wallet to trade"]{display:none!important}`}</style>
+          <PnlHud coin={`paper-${runN}`} storagePrefix={SIM_STORAGE.pnlPrefix} modeLabel="" syncEvent={SIM_POS_EVENT} />
+          <DexChart key={`c${runN}`} coin="SIMULATOR" ticker="SIMULATOR" simEvent={PAPER_TRADE_EVENT} />
           <TrampWallPanel key={`tw${runN}`} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
           <SnipeChip state={snipe} />
-          {!phone && <LeaderboardCard rows={st} clock={phase === "run" && run ? clock(left) : undefined} low={left < 60}
-            pool={phase === "run" && b ? { size: b.pool, top: b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} ${money(x.payout)}`).join(" · "), rank: ps?.rank, est: ps?.est } : undefined} />}
+          {!phone && <LeaderboardCard rows={st}             pool={phase === "run" && b ? { size: b.pool, top: b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} ${money(x.payout)}`).join(" · "), rank: ps?.rank, est: ps?.est } : undefined} />}
           <CardChrome extraCards={PAPER_CARDS} />
         </>
       )}
       {phase === "run" && run && phone && (() => { const me = st.find((r) => r.kind === "human"), top = st[0]; return (
         <div data-testid="paper-countdown" style={{ ...panel, position: "fixed", left: 8, right: 8, bottom: 128, zIndex: 32, padding: "4px 8px", fontSize: 11, display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", borderColor: PAPER_COLOR[difficulty] }}>
-          <b data-testid="paper-clock" style={{ fontSize: 14, color: left < 60 ? "#ff9fb8" : "#e8ecff" }}>⏱ {clock(left)}</b>
           <span data-testid="paper-board" style={{ color: "#8fd8ff", fontWeight: 800 }}>#{me?.rank}/{st.length}</span>
-          <span style={{ opacity: 0.75, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>1. {top?.kind === "human" ? "YOU" : top?.name} {top ? money(top.worth) : ""}</span>
+          <span style={{ opacity: 0.75, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>1. {top?.kind === "human" ? "YOU" : top?.name} {top ? signed(top.pnl) : ""}</span>
           {b && <span data-testid="paper-pool" style={{ color: "#ffd24a", whiteSpace: "nowrap" }}>Pool {money(b.pool)}{ps?.rank ? ` · #${ps.rank}` : ""}</span>}
           {dev && <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 6px", fontSize: 11 }} onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>}
         </div>); })()}
-      {phase === "run" && run && phone && <span data-testid="paper-badge" style={{ ...mono, position: "fixed", top: 18, left: 52, zIndex: 32, background: "linear-gradient(90deg, #ffd24a, #ff5c8a)", color: "#14121f", borderRadius: 999, padding: "2px 9px", fontSize: 10, fontWeight: 900, letterSpacing: 1.5, whiteSpace: "nowrap" }}>FLIGHT SIMULATOR</span>}
+      {phase === "run" && run && phone && <span style={{ position: "fixed", top: 18, left: 52, zIndex: 32, display: "flex", gap: 6, alignItems: "center" }}><span data-testid="paper-badge" style={{ ...mono, background: "linear-gradient(90deg, #ffd24a, #ff5c8a)", color: "#14121f", borderRadius: 999, padding: "2px 9px", fontSize: 10, fontWeight: 900, letterSpacing: 1.5, whiteSpace: "nowrap" }}>FLIGHT SIMULATOR</span><span data-testid="paper-clock" style={{ ...mono, fontSize: 11, fontWeight: 700, color: left < 30 ? "#ff9fb8" : "rgba(232,236,255,.55)" }}>{clock(left)}</span></span>}
       {phase === "run" && run && !phone && (
-        <div style={{ position: "fixed", top: 6, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 32, display: "flex", gap: 6, alignItems: "center" }}>
+        <div ref={pillRef} style={{ position: "fixed", top: pillAt.top, right: pillAt.right, zIndex: 32, display: "flex", gap: 6, alignItems: "center" }}>
           <span data-testid="paper-badge" style={{ ...mono, background: "linear-gradient(90deg, #ffd24a, #ff5c8a)", color: "#14121f", borderRadius: 999, padding: "2px 10px", fontSize: 10, fontWeight: 900, letterSpacing: 1.5, whiteSpace: "nowrap" }}>FLIGHT SIMULATOR</span>
+          <span data-testid="paper-clock" style={{ ...mono, fontSize: 11, fontWeight: 700, color: left < 30 ? "#ff9fb8" : "rgba(232,236,255,.55)" }}>{clock(left)}</span>
           {dev && <>
             {SPEEDS.map((s) => <button key={s} data-testid={`paper-speed-${s}`} style={{ ...btn(speed === s), padding: "1px 5px", fontSize: 10 }} onClick={() => setSpeed(s)}>{s}×</button>)}
             <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 5px", fontSize: 10 }} title="end the round now" onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>
@@ -200,10 +224,10 @@ function LeaderboardCard({ rows, clock, low, pool }: { rows: Standing[]; clock?:
   );
 }
 function BoardRow({ r }: { r: Standing }) {
-  const you = r.kind === "human";
+  const you = r.kind === "human", z = Math.abs(r.pnl) < 0.005, up = r.pnl > 0;   // PnL (rank stays by worth)
   return <div style={{ display: "flex", justifyContent: "space-between", gap: 6, color: you ? "#8fd8ff" : undefined, fontWeight: you ? 800 : 400 }}>
     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.rank}. {you ? "YOU" : r.name}</span>
-    <span>{money(r.worth)} <span style={{ color: r.pnl >= 0 ? "#8ff0c0" : "#ff9fb8" }}>{r.pnl >= 0 ? "▲" : "▼"}</span></span></div>;
+    <span style={{ color: z ? undefined : up ? "#8ff0c0" : "#ff9fb8" }}>{z ? "$0.00" : signed(r.pnl)}{!z && <> {up ? "▲" : "▼"}</>}</span></div>;
 }
 function Stat({ k, v, sub, c }: { k: string; v: string; sub?: string; c?: string }) {
   return <div style={{ background: "rgba(255,255,255,.04)", borderRadius: 10, padding: 10 }}><div style={{ fontSize: 10, opacity: 0.65, letterSpacing: 1 }}>{k}</div>

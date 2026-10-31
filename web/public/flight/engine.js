@@ -598,7 +598,7 @@ function onEvent(e){
     S.volEma+=e.usd; if(e.side==='buy') S.buyEma+=e.usd; else S.sellEma+=e.usd;
     if (e.usd>0&&!e.mine) SIM.realRate+=1/30;   // real flow → simulated flow backs off
     if (e.usd>0){ if(!e.mine) queueThrust(e.side, e.usd, estimateImpactPct(e)); else momNote(e.side,e.usd);
-      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
+      S.feed.unshift(feedTradeRow(e.side,e.usd,e.mine?(isLive()||window.__paperCoin?'(you)':'(you·paper)'):e.trader?null:'#'+e.block,e.trader)); }   // names: nameOf (relabelled on disciple:names)
     if (e.usd>0 && !e.mine && e.trader && !CLEAN && (!source.isSim || e.usd>=Math.max(60,(S.confirmed.mcap||0)*0.003))){ const up=e.side==='buy';   /* sim: only notable bot trades float */ S.floaters.push({x:S.x+(up?120:-120)+(Math.random()-.5)*40,y:S.ry+(up?30:-30),txt:`${up?'▲':'▼'} ${nameOf(e.trader)} ${e.usd<10?fmtShot(e.usd):fmtUsd(e.usd)}`,c:up?'#9ff3c8':'#ffb0c8',life:2.2,small:true}); }
     S.feed.length=Math.min(S.feed.length,7);
   }
@@ -1058,7 +1058,7 @@ function pushPaperCash(){ try{ dispatchEvent(new CustomEvent('disciple:papercash
 function noteBuyAmount(){ const u=activeBuyUsd(); if(S._buyAmt!==undefined&&u!==S._buyAmt) keepIf(S.feed,r=>!r.err); S._buyAmt=u; }
 /* "PAPER $139.98" / "CASH $42.10" / "SIM $250.00", then the reason BOOST is blocked, if any — dollars only */
 function cashLineText(){ const c=cashNow(), u=activeBuyUsd();
-  const head=source.isSim?`SIM ${fmtMoney(S.balance)}`:window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
+  const head=source.isSim?(window.__paperCoin?fmtMoney(S.balance):`SIM ${fmtMoney(S.balance)}`):window.__discipleTrade?(typeof c==='number'?`CASH ${fmtMoney(c)}`:'CASH …'):`PAPER ${fmtMoney(S.balance)}`;
   if(!source.isSim&&u<MIN_SHOT) return `${head} · minimum buy ${fmtShot(MIN_SHOT)}`;
   if(boostShort()) return `${head} · not enough cash for ${fmtShot(u)}`;
   return head; }
@@ -1619,7 +1619,7 @@ const PH_FONT='ui-monospace,Menlo,"DejaVu Sans Mono",monospace';
 function rrect(x,y,w,h,r){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
 function drawPhonePill(m,ti,P){
   const {f,next:nx}=tierProgress(m,ti);
-  const sim=source.isSim||!isLive();   // 'SIM' tag: paper / sim mode
+  const sim=(source.isSim||!isLive())&&!window.__paperCoin;   // 'SIM' tag: paper / sim mode (not on paper coin: no disclaimers)
   ctx.save(); ctx.textBaseline='middle'; if('letterSpacing' in ctx) ctx.letterSpacing='0.6px';
   ctx.font=`bold 15px ${PH_FONT}`; const a=fmtUsd(m), b=tierName(ti), wa=ctx.measureText(a).width, wd=ctx.measureText('·').width, wb=ctx.measureText(b).width;
   ctx.font=`800 10px ${PH_FONT}`; const wt=sim?ctx.measureText('SIM').width+12:0;
@@ -1769,7 +1769,7 @@ function drawHud(){
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
-  const STATUS_BOX=!(source instanceof DiscipleSource), STATUS_DY=STATUS_BOX?100:0;
+  const STATUS_BOX=!(source instanceof DiscipleSource)&&!(window.__paperCoin&&!window.__paperDev), STATUS_DY=STATUS_BOX?100:0;
   if (!PH&&STATUS_BOX){
   panel(RX,RT,CW,92);
   const sinceSwap=(performance.now()-S.confirmed.lastSwapTs)/1000, holding=sinceSwap>1.5;
