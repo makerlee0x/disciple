@@ -258,7 +258,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} /></>}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} markOnly /></>}
               </button>
               {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
             </>

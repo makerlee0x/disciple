@@ -276,6 +276,13 @@ body.game {
 body.side-hidden #apReopen {
   display: grid;
 }
+/* Game routes (coin / flight), desktop: the open sidebar docks and pushes the game, like the docked sidebar everywhere
+ * else. FlightCanvas already moves the canvas (body.side-open .flight-wrap) and the engine re-lays its cards on resize;
+ * the overlays pinned to the rail edge (coin name, position card, sim bar, ammo notice) key off --ap-rail-w, so point it
+ * at the open width and they move with the game instead of drawing over the menu. Phones keep the overlay drawer. */
+@media (min-width: 761px) {
+  body.game.side-open { --ap-rail-w: var(--ap-side-w); }
+}
 @media (max-width: 760px) {
   #apSide.collapsed {
     width: 0;
@@ -1608,6 +1615,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .guild-chip-lg { height: 28px; padding: 0 10px; font-size: 13px; gap: 7px; }
 .guild-chip-word { font-weight: 500; color: rgba(232,234,238,.6); }
 .guild-chip-tag { font-weight: 600; }
+.guild-chip-markonly { padding: 0 3px; gap: 0; }
 .guild-mark { position: relative; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 4px; vertical-align: middle; }
 .guild-mark-ring { box-shadow: inset 0 0 0 1px rgba(201,206,214,.35); }
 .guild-mark-logo { width: 100%; height: 100%; object-fit: cover; display: block; }
