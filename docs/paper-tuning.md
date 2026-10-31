@@ -100,3 +100,27 @@ Bands that can't be hit with bot knobs alone (why):
 - **Strong ordering Easy > Medium > Hard**: strong wins only ~3.5% on Easy (its dip buys are $25 presets, ≈20% of its $135 stack, so it can't
   out-ride the pump), so it cannot sit above Medium (16%) or Hard (17%) there; Medium vs Hard strong are tied.
 - Searches overfit badly to their seed set (in-sample 5%/33% → out-of-sample 1%/30%); results also move a lot with knob rounding.
+
+## v2.3 (Oct 31) — Medium/Hard via bot mechanics only (approach A)
+
+The decent/strong/novice personas are unchanged from v2.2 (PERSONA_TUNE untouched); no price manipulation. Only bot behaviour changed, via `TUNE.lobby.medium` / `TUNE.lobby.hard` plus per-lobby sizeScale / moodBias / aggSigma:
+- every tier in Medium and Hard lobbies takes profit with a 2-step ladder (e.g. sell ~25–57% at +57–87%, more at +128–233%), and `neverSell` is off (Diamond hands scale out too);
+- late entries curbed: `activeFrom` ends at ~250–380 s;
+- Hard-lobby Hard bots pile onto momentum less (wMom 0.43); Easy/Medium tiers there are pickier (buyTh 0.54–0.59, maxPos 0.28–0.38);
+- sizeScale medium 0.225 / hard 0.171, moodBias 0.038 / −0.049, aggSigma 1.226 / 0.804.
+Easy lobby: no change. Found by random search (seeds 3000/5000), validated on held-out seeds 7000–7059 + 9000–9059 (120 rounds):
+
+| lobby | persona | win % | top-10 % | ascend % | target |
+|---|---|---|---|---|---|
+| easy | decent | 21.5 | 52 | 58.5 | 10–40 / 40–70 (unchanged) |
+| easy | strong | 3.5 | 79 | 67.5 | |
+| easy | novice | 0 | 1 | 70.5 | |
+| medium | decent | 1 | 29 | 77 | 5–10 / 30–35 |
+| medium | strong | 14 | 95 | 73.5 | |
+| medium | novice | 1.5 | 20.5 | 83 | |
+| hard | decent | 2.5 | 14 | 2.5 | 0–3 / 10–15 ✓ |
+| hard | strong | 14 | 50 | 1 | 10–20 ✓ |
+| hard | novice | 3 | 9 | 4.5 | rare |
+
+Misses: Medium decent wins ≈1% (target 5–10%) and top-10 29% (just under 30). #1 in Medium is usually a bot or strong riding the ASCEND run; decent's fixed stop/trail exits before that. Every bot config that made the winner's gain small enough for decent to win pushed decent's top-10 above 35%. Alternative (search candidate #4 Medium): 1.5% / 36.5%, strong 22%.
+Caveats: Hard lobby now rarely ascends (~2%); Easy/Medium-tier bots lose money in Hard; Medium novice top-10 ≈20%; strong wins Easy 3.5 < Medium 14 ≈ Hard 14; test bands use 30 seeds (7000–7029), so Hard decent top-10 band is 5–25% and the Hard top-10 order check allows 7 pts noise; graduated-round adapter check now uses the Medium lobby.

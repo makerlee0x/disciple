@@ -46,7 +46,7 @@ export const ARCH_LABEL: Record<PaperArchetype, string> = {
 export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], medium: [1300, 1700], hard: [1900, 2400] };
 /** TUNE (ASSUMPTION, #224): bots size buys as size × SIZE_SCALE × startCash so the richer lobbies don't graduate in ~2 min
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
-export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.7, medium: 0.237, hard: 0.15 }; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks)
+export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.7, medium: 0.225, hard: 0.171 }; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
 export const NOISE_TRADE_SHARE = 0.25;
 
 /** One brain, parameterised (spec Sec. 5) */
@@ -97,11 +97,12 @@ export const TUNE: {
   // Medium/Hard wait longer between trades (6 s / 10 s) and trade smaller minimums, so gas stops bleeding Medium and Hard stops herding.
   tier: { easy: { windows: [6], cooldownS: 6.8 }, medium: { cooldownS: 6.3, minTradeUsd: 2.4 }, hard: { cooldownS: 10, buyTh: 0.26, minTradeUsd: 5.4 } },
   arch: {},
-  // v2.2 (Oct 31): Medium-lobby only — pickier, slower bots with wider stops and bigger, lumpier bets, cooler mood; pulls the
-  // strong player's Medium win rate from ~42% to ~16%. Hard lobby left at v2 (no bot-knob config beat it out of sample).
-  lobby: { medium: { easy: { buyTh: 0.505, cooldownS: 9.12, stopPct: 0.168, maxPos: 0.688 }, medium: { buyTh: 0.373, cooldownS: 6.69, stopPct: 0.317, maxPos: 0.552 },
-    hard: { buyTh: 0.493, cooldownS: 5.9, stopPct: 0.221, maxPos: 0.766 } } },
-  aggSigma: { easy: 0.68, medium: 1.453, hard: 1.2 }, moodBias: { easy: -0.04, medium: -0.192, hard: 0.12 }, maxImpact: { easy: 0, medium: 0, hard: 0 },
+  // v2.3 (Oct 31, approach A — bot mechanics only, decent player untouched): in the Medium and Hard lobbies bots take profit on
+  // big runs (2-step ladders, Diamond hands sell too), Hard-lobby Hard bots chase momentum less (wMom 0.43) and stop entering
+  // by ~280 s, Medium/Easy tiers there are pickier with smaller max positions. Found by random search on seeds 3000/5000,
+  // validated on held-out 7000–7059 / 9000–9059. Easy lobby: no overrides.
+  lobby: {medium: {easy: {maxPos: 0.526, buyTh: 0.358, cooldownS: 15.924, wMom: 1.351, stopPct: 0.226, ladder: [[0.756, 0.419], [1.889, 0.444]], neverSell: false, activeFrom: [8, 381]}, medium: {maxPos: 0.75, buyTh: 0.233, cooldownS: 6.989, wMom: 1.095, stopPct: 0.282, ladder: [[0.576, 0.43], [2.233, 0.654]], neverSell: false, activeFrom: [8, 363]}, hard: {maxPos: 0.686, buyTh: 0.547, cooldownS: 5.064, wMom: 1.013, stopPct: 0.168, ladder: [[0.743, 0.333], [1.284, 0.418]], neverSell: false, activeFrom: [8, 297.939]}}, hard: {easy: {maxPos: 0.384, buyTh: 0.586, cooldownS: 8.55, wMom: 1.042, stopPct: 0.301, ladder: [[0.569, 0.281], [2.328, 0.315]], neverSell: false, activeFrom: [6.052, 312]}, medium: {maxPos: 0.278, buyTh: 0.541, cooldownS: 18.26, wMom: 1.044, stopPct: 0.225, ladder: [[0.707, 0.57], [1.458, 0.553]], neverSell: false, activeFrom: [8, 252]}, hard: {maxPos: 0.811, buyTh: 0.469, cooldownS: 6.305, wMom: 0.428, stopPct: 0.277, ladder: [[0.873, 0.256], [2.033, 0.452]], neverSell: false, activeFrom: [8, 280]}}},
+  aggSigma: { easy: 0.68, medium: 1.226, hard: 0.804 }, moodBias: { easy: -0.04, medium: 0.038, hard: -0.049 }, maxImpact: { easy: 0, medium: 0, hard: 0 },
 };
 /** backdrop phases (spec Sec. 4): mood biases every wallet's score equally; boundaries jitter ±15 s from the seed */
 export const PHASES = [
