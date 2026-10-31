@@ -176,3 +176,41 @@ It loses money everywhere.
 - Cause: with the round ending at ascension, buy-and-hold rides the curve to the finish. In ascended rounds the novice's early momentum buys win and the strong player's profit ladder exits too early. Pool-aware bot knobs (holding near ascension, sizing up for the race) all pushed Hard ascension to 100% without stopping the novice. Raising Hard bot cash would put the player out of the top 10 by net worth.
 - The difficulty test now asserts Hard > Easy bot PnL only in the Hard lobby; Easy diamond-hands also win the Easy lobby.
 - The band test uses seeds 7000–7059, which overlap the validation set.
+
+## v4 — adaptive (Elo-style) bots
+
+**Goal (lee, Oct 31):** hit the spec v0.2 §6 rates for each skill level, with the bots adapting to the player the way chess Elo does. Only the bot mechanics changed. The test personas are untouched.
+
+**Bands.** Decent comes from spec v0.2 §6. Strong and novice are *derived* so that strong > decent > novice and Easy > Medium > Hard hold for each.
+
+| tier | Easy win / top-10 | Medium | Hard |
+|---|---|---|---|
+| strong (derived) | 30–45 / 70–90 | 15–25 / 55–75 | 10–20 / 35–55 |
+| decent (spec) | 15–25 / 50–60 | 5–10 / 30–35 | 0–3 / 10–15 |
+| novice (derived) | 3–10 / 20–35 | 0–4 / 10–20 | 0–2 / 2–8 |
+
+**Rating (lib/sim/rating.ts).**
+- The behaviour score is s = ½·entry + ½·exit.
+  - entry = 1 − (average 10 s momentum at each buy) / 0.3. A buyer who chases pumps scores low.
+  - exit = sells / buys.
+- R = 800 + 1200·s, smoothed as an EMA (0.35) across rounds. Anchors: novice 950, decent 1500, strong 1940.
+- The target is the centre of a band. Within ±200 of an anchor the target snaps to that tier's band; between anchors it interpolates linearly.
+
+**Controllers (one pair per lobby, carried across rounds).**
+- **logK** sets the bot bankroll multiple, clamped to 0.5–4×. It is driven by (top-10 − target). It also takes a term proportional to strong-weight × (win − target).
+- **logE** sets the elite multiple and is driven by (win − target).
+  - E > 1 gives the 5 most aggressive bots extra cash.
+  - E < 1 narrows the dispersion of bot aggression, and the current top-10 bots by worth trim 30% of a position 15% of the time.
+- Starting multiples come from R (BASE_LOGK, BASE_LOGE).
+
+**Ranking.** Players are ranked by worth = cash (the bonus is already in cash) + tokens × final price + open orders. Bot P&L = worth − starting cash, so taking profit ranks the same as holding at the same value.
+
+**Results.** Held-out seeds 30000–30119, 120 sequential rounds per cell, rating carried across rounds. Values are win / top-10 / ascend / avg bonus.
+
+| | novice | decent | strong |
+|---|---|---|---|
+| Easy | 5.8 / 20.8 / 0 / $0 | 20.0 / 53.3 / 15.8 / $0.7 | 39.2 / 75.8 / 0 / $0 |
+| Medium | 3.3 / 15.0 / 20 / $31.5 | 6.7 / 33.3 / 52.5 / $6.8 | 19.2 / 70.0 / 37.5 / $54.2 |
+| Hard | 0.0 / 5.8 / 40.8 / $153 | 1.7 / 11.7 / 29.2 / $0 | 12.5 / 50.0 / 24.2 / $57 |
+
+**Tests.** `npm run test:paper-elo` uses seeds 7000–7119, which are separate from the tuning seeds. It checks every band with a ±2-round tolerance and all orderings. Hard decent and novice wins are both 0–2 of 120 rounds, so that one ordering is checked only within the same tolerance.

@@ -34,7 +34,7 @@ const mid = (b: [number, number]) => (b[0] + b[1]) / 2;
 /** target (centre of band) for rating R in lobby d: piecewise-linear between the anchors */
 export function targetFor(d: PaperDifficulty, R: number) {
   const pts: [number, Skill][] = [[ANCHOR_R.novice, "novice"], [ANCHOR_R.decent, "decent"], [ANCHOR_R.strong, "strong"]];
-  for (const [r0, k] of pts) if (Math.abs(R - r0) <= PLATEAU) R = r0;
+  for (const [r0] of pts) if (Math.abs(R - r0) <= PLATEAU) R = r0;
   const at = (k: Skill) => ({ win: mid(BANDS[k][d].win), top10: mid(BANDS[k][d].top10) });
   if (R <= pts[0][0]) return at("novice"); if (R >= pts[2][0]) return at("strong");
   const i = R < pts[1][0] ? 0 : 1, [r0, a] = pts[i], [r1, b] = pts[i + 1], f = (R - r0) / (r1 - r0), A = at(a), B = at(b);

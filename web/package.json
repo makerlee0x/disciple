@@ -128,6 +128,7 @@
     "test:coin-fixes4": "tsx --test scripts/test-coin-fixes4.mts",
     "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts",
     "test:paper-sim": "tsx --test scripts/test-paper-sim.mts",
+    "test:paper-elo": "tsx --test scripts/test-paper-elo.mts",
     "paper:suite": "tsx scripts/paper-suite.mts"
   },
   "dependencies": {

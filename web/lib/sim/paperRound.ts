@@ -48,7 +48,7 @@ export function feedNames(run: SimRun) { const o: Record<string, string> = {}; f
 export interface Standing { rank: number; wallet: string; name: string; kind: "human" | "bot"; tier: Tier | "player"; arch: string; cash: number; value: number; bonus: number; worth: number; pnl: number; realized: number; fees: number; trades: number }
 /** ranked by cash (incl. any paper-only ascension bonus) + position value (mark; open tramps/walls at pool value); ties → higher realized, then fewer fees */
 export function standings(run: SimRun, brain: PaperBrain): Standing[] {
-  const px = run.m.price(), sc = START_CASH[brain.difficulty];
+  const px = run.m.price();
   const ordersVal = (owner: string) => { if (!run.m.pool) return 0; let v = 0; for (const o of run.ordersOf(owner)) { const g = run.m.pool.amounts(o); v += g.quote + g.tokens * px; } return v; };
   const rows: Standing[] = run.bots.map((b) => { const M = brain.meta.get(b.id), value = b.pos.size * px, bonus = brain.bonus.get(b.wallet) ?? 0, worth = b.cash + value + ordersVal(b.wallet);   // bonus is already in cash
     return { rank: 0, wallet: b.wallet, name: botDisplayName(b.wallet), kind: "bot", tier: M?.tier ?? "easy", arch: M ? ARCH_LABEL[M.arch] : b.arch, cash: b.cash, value, bonus, worth, pnl: worth - b.cash0, realized: b.pos.realized, fees: b.pos.fees ?? 0, trades: b.buys + b.sells }; });
