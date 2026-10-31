@@ -17,8 +17,9 @@ import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {BridgeEngine} from "./BridgeEngine.sol";
 import {BridgeFacetBase} from "./BridgeFacetBase.sol";
 
-/// @title Create, deposit, redeem, and keeper-callback facet
-/// @notice Runs as the hook via `delegatecall`. v4 still sees the hook address.
+/// @title Disciple LP facet
+/// @notice Create, deposit, redeem, and the keeper callback for Disciple (`BridgeLaunchHook`).
+///         Runs as the hook via `delegatecall`. v4 still sees the hook address.
 contract BridgeLpFacet is BridgeFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;

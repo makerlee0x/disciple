@@ -37,12 +37,16 @@ contract BridgeFeeTest is Test {
     }
 
     function test_boostDecaysToFloor() public pure {
-        assertEq(BridgeFee.boostWad(0), C.BOOST_START_WAD);
-        assertEq(BridgeFee.boostWad(C.FLAT_TVL), C.BOOST_END_WAD);
-        assertEq(BridgeFee.boostWad(C.FLAT_TVL * 5), C.BOOST_END_WAD);
-        uint256 mid = BridgeFee.boostWad(C.FLAT_TVL / 2);
+        uint256 grad = 86_520e18;
+        assertEq(BridgeFee.boostWad(0, grad), C.BOOST_START_WAD);
+        assertEq(BridgeFee.boostWad(0, 0), C.BOOST_START_WAD, "unknown graduation stays at 3.3x");
+        assertEq(BridgeFee.boostWad(grad, grad), C.BOOST_END_WAD);
+        assertEq(BridgeFee.boostWad(grad * 5, grad), C.BOOST_END_WAD);
+        uint256 mid = BridgeFee.boostWad(grad / 2, grad);
         assertGt(mid, C.BOOST_END_WAD);
         assertLt(mid, C.BOOST_START_WAD);
+        // $10k is not graduation. The boost is still near 3.3x there.
+        assertGt(BridgeFee.boostWad(10_000e18, grad), 3e18);
     }
 
     function test_buffer() public pure {

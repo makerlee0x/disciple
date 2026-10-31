@@ -18,8 +18,8 @@ interface IUniswapV3PoolLike {
         returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s);
 }
 
-/// @title Same-chain anchor: 30-minute v3 TWAP and balance TVL
-/// @notice The reference pool must be `coin` paired with this hook's quote token (USDG on Robinhood
+/// @title Disciple's same-chain anchor: 30-minute v3 TWAP and balance TVL
+/// @notice The reference pool must be `coin` paired with Disciple's quote token (USDG on Robinhood
 ///         Chain, or whatever quote the hook was deployed with). A WETH pair is not treated as dollars.
 ///         TVL is the pool's token balances valued at the TWAP, so a spot donation moves TVL and not the
 ///         price. `observe` reverts when the pool has less than 30 minutes of oracle history; this

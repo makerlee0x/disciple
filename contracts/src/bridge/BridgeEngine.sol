@@ -5,10 +5,10 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeArb} from "./libraries/BridgeArb.sol";
 
-/// @title Stateless curve and arb math for the bridge hook
-/// @notice The hook keeps custody and calls here so the hook itself deploys under the 24kb limit.
-///         This contract holds no tokens, has no admin, and its address is fixed on the hook at
-///         construction. Calling it directly only runs the quote.
+/// @title Disciple curve and arb math
+/// @notice Stateless quotes for Disciple (`BridgeLaunchHook`). The hook keeps custody and calls here so
+///         Disciple deploys under the 24kb limit. This contract holds no tokens, has no admin, and its
+///         address is fixed on the hook at construction. Calling it directly only runs the quote.
 contract BridgeEngine {
     function buy(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 usdgGross)
         external

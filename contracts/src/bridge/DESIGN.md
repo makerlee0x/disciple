@@ -1,6 +1,10 @@
-# DISCIPLE Bridge Launch Hook (v1)
+# Disciple
 
-One immutable Uniswap v4 hook. Many coin/USDG pools. The first coin is JESUS
+Disciple is a Uniswap v4 hook that bootstraps a new liquidity pool from a tiny seed through incentivized arbitrage. It uses an onchain bonding curve anchored to an existing pool's price, compounds every fee back into the pool, and earns Morpho yield on idle USDG once the pool graduates.
+
+The contract is `BridgeLaunchHook`. This repo already has a `DiscipleHook` (the post-graduation 1% fee hook), so this hook, its engine, and its facets keep the `Bridge*` names.
+
+One immutable hook. Many coin/USDG pools. The first coin is JESUS
 (`0x777A8DD86f0E29A28DAcf548Aebf42BB484daBBa` on Robinhood Chain). The hook does not
 special-case that address.
 
@@ -13,8 +17,9 @@ coin is one that bridged in (JESUS is the first). The same hook also launches a 
 chain where the coin already trades, anchored to a Uniswap v3 pool there, with no cross-chain
 read. The team seeds about $77 of inventory. The hook quotes every trade. The quote starts
 33% below the reference 30-minute TWAP and climbs to that anchor as buyers add USDG. When the
-pool is large enough, the book flattens until trading the whole pool moves the price about
-3.33%. A separate per-trade tail makes emptying either side expensive at every size.
+pool is large enough, the book flattens. The full-pool band starts at about ±25% and reaches
+about ±1.2% only at graduation (12% of the reference pool's TVL, about $86.5k for JESUS).
+A separate per-trade tail makes emptying either side expensive at every size.
 
 There is no upgrade and no key that can move user funds, fees, or the price. Per-pool
 settings (floor, launch discount, creator wallet, outflow cap, Morpho cap) are fixed at
@@ -62,8 +67,16 @@ Reserves are 18-decimal normalized. `spot = (y + vy) / (x + vx)`.
   anchor. On the launch virtuals this does not bind (the anchor is hit at ~18%). It binds if
   something makes the book so deep that the price cannot reach the anchor in time.
 - Depth: once spot is at or above the anchor, virtual reserves grow with the TVL high-water
-  and never shrink. At $10k TVL the effective USDG book is about `TVL / 3.33%`, so moving the
-  whole real pool is one 3.33% band.
+  and never shrink. The band is how far trading inventory worth the whole TVL moves the
+  price. It is ±25% at or below $100 TVL and ±1.2% at that pool's graduation TVL. In between
+  it is linear in ln(TVL): each doubling of TVL takes the same bite out of the band. With
+  graduation at $86,520 the log midpoint (~$2,941) is still ±13.1%, and $10k is about ±8.8%,
+  not the old ±3.33%. The effective USDG book is `TVL / band`. A $100 pool is about a $400
+  book. Graduation is `TVL / 1.2%`, about $7.2M of virtual USDG on an $86.5k pool. A swap
+  walks toward that book by at most the clip's USDG notional divided by the current band.
+  One buy cannot jump the launch virtuals to the target and sell the difference back. Sells
+  quote the book the last buy already traded. Enough flow settles on the band. Direct
+  `deepen` still applies the whole step.
 - Tail: extra cost `base · (TAIL_K / WAD) · f^31 / 31`, with `f = amount / side` and
   `TAIL_K = 8`. Same 1e36 power style as `CurveMath`. Negligible until a trade is most of a
   side, then sharp. Buys round cost up, sells round proceeds down.
@@ -145,7 +158,7 @@ the 3.3× fee weight. The parked fee is visible from `pendingFee` for shares tha
 already settled. If nobody eligible still holds when the block rolls, that fee moves to
 protocol inventory.
 
-The 3.3× → 1.2× boost (linear down to $10k TVL, then stuck at 1.2×) multiplies the LP's
+The 3.3× → 1.2× boost (linear in TVL, finished at graduation, then stuck at 1.2×) multiplies the LP's
 weight when a fee is split into the fee index. It is not applied to principal and not applied
 when a swap re-splits inventory. Redeeming charges the base fee (plus staleness), not the
 directional fee. That fee stays with the protocol and the remaining LPs as principal. It is
@@ -224,15 +237,14 @@ of the anchor the pool is on.
 | Discount | 33% (0.67×), allowed 10–50% | The agreed launch gap. Explicit at creation. |
 | Seed floor | 50% of the original coin seed | Backstop so a deep book cannot give away the whole seed under the anchor. The natural climb hits the anchor at ~18%, so day-one buys are not stuck. |
 | USDG floor | 20%, allowed 1–50% | Agreed dump backstop. 0% is not offered. |
-| Flat TVL | $10,000 | Where the band and the boost finish their slide. |
-| Band | 3.33% (`BAND_WAD = 0.0333e18`) | At the flat TVL, effective USDG ≈ TVL / 3.33%. |
+| Band | ±25% at or below $100 TVL, ±1.2% at graduation | Linear in ln(TVL): `0.25 − 0.238 · ln(v / 100) / ln(grad / 100)`. Equal TVL ratios take equal bites, so the band is still wide in the middle (±13.1% near $2,941, about ±8.8% at $10k) and hits ±1.2% only at graduation. Linear in TVL would still be about ±22% at $10k and then drop most of the remaining width near $86k. Linear in ln(band) would already be about ±5.5% at that log midpoint. The old 1/TVL depth was ±3.33% by $10k and then stuck. Unknown graduation does not deepen. |
 | Tail | `TAIL_K = 8e18`, exponent 30 | Emptying a side costs about 8/31 ≈ 26% extra on top of constant product. The g^30 shape matches the launchpad curve's steep tail. |
-| Base fee | 200 bps → 30 bps | 2% while tiny, 0.3% at graduation. Not at $10k. |
+| Base fee | 200 bps → 30 bps | 2% while tiny, linear in TVL to 0.3% at graduation. Not at $10k. This was already tied to graduation; it is unchanged. |
 | Direction | 0.5× toward, 1.5× away | Pays traders who close the gap, charges traders who open it. |
 | Stale | 30 min, then 2 hours up to 5×, cap 20% | Matches the TWAP window. The pool stays open. The cap stops a dead oracle becoming a 100% fee. |
 | Tip | $1, 10% of fees, $10 budget | Covers a keeper's gas plus an lzRead fee with a small margin, and stops spam. |
-| Boost | 3.3× → 1.2× by $10k | Early LPs earn more of the fee. 1.2× never goes away. Principal is excluded. |
-| Graduation | 12% of Ethereum TVL | About $87k if the Ethereum JESUS pool is ~$725k. Latched. |
+| Boost | 3.3× → 1.2× at graduation | Linear in TVL, same endpoint as the fee. Early LPs earn more of the fee. 1.2× never goes away. Principal is excluded. |
+| Graduation | 12% of reference TVL | About $86.5k if the Ethereum JESUS pool is ~$721k (12% × $721k = $86,520). Latched. The band, the base fee, and the boost all finish here. |
 | Creator | 10% of fees after graduation | Only a redirectable claim. Not principal. |
 | Buffer | max($500, 5% TVL) | Ordinary sells survive a vault outage. $500 is the floor because a $77 book has no idle USDG yet. |
 | Morpho cap | 50% of USDG principal, allowed 0–100% | Caps how much of the book can sit in one vault. 100% leaves only the floor and the buffer. Set per pool. |
@@ -246,34 +258,102 @@ of the anchor the pool is on.
 
 100% coin, 0 USDG inside the curve. At a $1 anchor that is `77e18` coin units and `0` USDG.
 
+For JESUS at $0.0000000136 that seed is `77e18 / 13_600_000_000` =
+`5,661,764,705.882353` tokens (`5661764705882352941176470588` in 18-decimal wad, about
+5.6618e9 JESUS). The curve still stores `77e18`, because the anchor in the sim is normalized
+to $1 and a coin unit is one dollar of JESUS.
+
 The 0.67× price is virtual USDG (`vy ≈ 0.67 × anchor × coin`). Putting real USDG in the $77
 does not set the discount, and it is the first thing a dump tries to take. A keeper tip, if
 any, is a separate `tipSeed` and is not inventory.
 
-## Seven-day simulator
+## Simulator
 
-`test/bridge/BridgeLaunchSim.t.sol` runs the real curve (not the constant-product sketch in
-`sim7.py`) with a $77 all-coin seed, a 33% discount, a $1 anchor, and $1,000/day of $5–$50
-retail flow for 7 days. Arb trades when the gap exceeds the base fee plus 0.5%. The fee
-schedule is the real one: 0.3% at graduation ($87k, 12% of a $725k Ethereum pool), so this
-week stays near 2%. `script/bridge/sim_bridge.py` prints the rows.
+`test/bridge/BridgeLaunchSim.t.sol` runs the real curve. Seed is $77, all coin. Discount is
+33%. Anchor is $1. Graduation is $86,520 (12% of a $721,000 reference pool). Retail is a full
+$1,000/day of $5–$50, 50/50, and does not count toward the arb. A sell is forced into a buy
+while the pool holds under $1 of USDG. Arb trades when `|spot − anchor| / anchor` exceeds the
+base fee plus 0.5%, in clips of $1–$5,000, up to 16 per retail trade. Arb volume is the USDG
+that actually filled, not the clip that was attempted. The gap is sampled after each retail
+trade and before arb. `script/bridge/sim_bridge.py` prints the 7-day rows.
 
-Anchor price is $1. Arb is mark-to-anchor (coin valued at $1 minus USDG spent), not cash
-pulled out of the pool. Coin inventory grows over the week.
+The base fee is still about 2% at these sizes (it reaches 0.3% only at $86,520), so a trade
+has to move the quote by about 2.5% before arb steps in. A $50 clip does that while the book
+is a few hundred dollars. It does not do it later. At $1,000 TVL the band is still ±16.9%
+(effective book about $5,900) and a $50 clip moves the quote about 0.8%, under the 2.5%
+slack. At graduation the ±1.2% band is a ~$7.2M book, and clearing 0.3% + 0.5% takes on the
+order of $58k of imbalance. $1,000/day of mixed retail cannot keep that gap open. The fade
+below is that fee, not the band collapsing back to the old ±3.33%-by-$10k curve.
 
-| Day | Coin | USDG | TVL | Price | Fees | Arb mark |
+### Seven days
+
+| Day | Coin | USDG | TVL | Price | Band | Avg gap | Arb | Fees |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 76.37 | 20.95 | 97.32 | 1.0001 | 25.0% | 14.9% | 643.14 | 26.64 |
+| 2 | 91.90 | 34.78 | 126.68 | 0.9972 | 24.2% | 9.9% | 802.24 | 32.93 |
+| 3 | 109.11 | 50.46 | 159.58 | 0.9965 | 23.4% | 9.5% | 893.03 | 36.82 |
+| 4 | 129.26 | 66.86 | 196.12 | 0.9934 | 22.6% | 5.8% | 822.05 | 36.91 |
+| 5 | 143.39 | 90.93 | 234.32 | 1.0043 | 22.0% | 5.7% | 913.42 | 38.58 |
+| 6 | 164.81 | 107.69 | 272.50 | 1.0001 | 21.5% | 4.4% | 918.27 | 38.09 |
+| 7 | 175.04 | 135.02 | 310.06 | 1.0120 | 21.0% | 3.6% | 817.18 | 37.39 |
+
+Day 7 in wei: coin `175035768170176235164`, USDG `135021204793116739138`, TVL
+`310056972963292974302`, price `1011982407540918504`, fees `247360205008365748740`,
+arb volume `5809337970429528682376`, arb mark `214277382892961884537`, average pre-arb
+gap `75312949485880234` (7.53% over 264 samples).
+
+The closing print is 1.2% above the anchor, at about $310 TVL, with $135 of real USDG in
+the pool. That is the post-arb price. The gaps arb traded during the week averaged 7.5%,
+and day 7's own pre-arb average was 3.6%. It does not settle 1.2% under the way the old
+±3.33%-by-$10k curve did at $187. Arb volume averages about $830/day. Fees average about
+$35/day. The pool does not graduate. The arb mark ($214) is coin valued at the $1 anchor
+minus USDG spent, held by arbers, not a drain of the pool's USDG.
+
+### Ninety days and one year
+
+The same path, continued. "Avg gap", "Arb / day", and "Fees / day" are that week's pre-arb
+mean and that week's totals divided by 7. Day 365 is a one-day bucket.
+
+| Day | TVL | Price | Band | Avg gap | Arb / day | Fees / day |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 69.37 | 16.43 | 85.80 | 0.9805 | 15.31 | 115.26 |
-| 2 | 75.30 | 25.40 | 100.69 | 1.0224 | 32.05 | 216.80 |
-| 3 | 82.81 | 33.25 | 116.07 | 1.0245 | 50.32 | 347.18 |
-| 4 | 92.32 | 41.15 | 133.47 | 1.0046 | 68.32 | 504.51 |
-| 5 | 101.68 | 47.82 | 149.50 | 0.9777 | 87.01 | 630.29 |
-| 6 | 110.49 | 56.68 | 167.18 | 0.9799 | 105.76 | 759.63 |
-| 7 | 120.03 | 66.98 | 187.01 | 0.9879 | 125.10 | 862.57 |
+| 7 | 310 | 1.012 | 21.0% | 7.53% | 830 | 35.34 |
+| 14 | 556 | 1.006 | 19.0% | 2.77% | 748 | 35.14 |
+| 21 | 771 | 1.001 | 17.8% | 1.76% | 542 | 30.72 |
+| 28 | 966 | 1.019 | 17.0% | 1.33% | 394 | 27.73 |
+| 35 | 1,147 | 0.977 | 16.4% | 1.13% | 298 | 25.74 |
+| 42 | 1,316 | 1.001 | 15.9% | 1.03% | 232 | 24.25 |
+| 49 | 1,495 | 1.002 | 15.5% | 1.07% | 296 | 25.57 |
+| 56 | 1,663 | 1.001 | 15.1% | 1.14% | 231 | 24.01 |
+| 63 | 1,825 | 1.005 | 14.8% | 1.01% | 181 | 23.13 |
+| 70 | 1,977 | 0.987 | 14.5% | 0.92% | 103 | 21.68 |
+| 77 | 2,129 | 0.995 | 14.2% | 0.90% | 126 | 21.93 |
+| 84 | 2,294 | 0.977 | 14.0% | 0.95% | 176 | 23.15 |
+| 112 | 2,912 | 0.992 | 13.1% | 0.78% | 78 | 21.01 |
+| 140 | 3,502 | 0.984 | 12.5% | 0.68% | 47 | 20.31 |
+| 168 | 4,081 | 0.995 | 11.9% | 0.66% | 0 | 19.18 |
+| 196 | 4,641 | 0.998 | 11.5% | 0.57% | 0 | 19.05 |
+| 224 | 5,241 | 0.986 | 11.1% | 0.67% | 157 | 22.04 |
+| 252 | 5,818 | 1.018 | 10.7% | 0.58% | 0 | 19.41 |
+| 280 | 6,360 | 1.007 | 10.4% | 0.27% | 0 | 18.84 |
+| 308 | 6,881 | 1.000 | 10.1% | 0.36% | 0 | 18.36 |
+| 336 | 7,405 | 0.991 | 9.9% | 0.81% | 0 | 18.54 |
+| 364 | 7,951 | 1.018 | 9.6% | 1.04% | 0 | 19.08 |
+| 365 | 7,970 | 1.019 | 9.6% | 1.81% | 0 | 18.62 |
 
-The quote finishes about 1.2% under the anchor. TVL is about $187. The pool does not graduate,
-and more than half the seed is still there. The $862 arb mark is discounted coin valued at the
-$1 anchor, held by arbers, not a drain of the $67 of USDG.
+Ninety days ends at TVL $2,434.72, price 0.9861 (1.4% under the anchor), band ±13.8%. Over
+3,309 samples the average pre-arb gap is 1.74%. Arb volume is $30,441.04 ($338.23/day).
+Fees are $2,371.17 ($26.35/day). Arb mark is $373.24. Not graduated.
+
+One year ends at TVL $7,970.06 (9.2% of graduation), price 1.0188, band ±9.6%. Over 13,514
+samples the average pre-arb gap is 0.99%. Arb volume is $46,787.09 ($128.18/day). Fees are
+$7,900.38 ($21.64/day). Arb mark is $425.26. Not graduated. Stopped at day 365.
+
+Arb stays about $750–$830/day for the first two weeks, while TVL is under about $560 and the
+pre-arb gap is still a few percent. It is a few hundred dollars a day through roughly $1,700
+TVL, then mostly $50–$180 a day through roughly $3,500. After about $4,000 many weeks have no
+arb, with an occasional week still clearing $150 (day 224). The band is still ±9.6% at day
+365, so the book is not flat. A day's mixed $1,000 flow just no longer opens a gap wider than
+the fee (still about 1.8%) plus 0.5%. Reaching $86,520 on this flow takes longer than a year.
 
 ## Deviations from the wording of the spec
 

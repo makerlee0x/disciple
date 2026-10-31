@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-/// @title Defaults for the DISCIPLE Bridge Launch Hook (v1)
+/// @title Defaults for Disciple (`BridgeLaunchHook`)
 /// @notice One immutable hook, many coin/USDG pools. Nothing here is an admin knob.
 ///         Reasoning for each value lives in `../DESIGN.md`.
 library BridgeConstants {
@@ -47,11 +47,15 @@ library BridgeConstants {
 
     // ── LP boost (fee weight only) ──────────────────────────────────────────
     uint256 internal constant BOOST_START_WAD = 33e17; // 3.3x
-    uint256 internal constant BOOST_END_WAD = 12e17; // 1.2x
-    /// @dev TVL at which the curve is flat (±3.33%) and the boost has finished decaying.
-    uint256 internal constant FLAT_TVL = 10_000e18;
-    /// @dev Half-band at the flat TVL: 3.33% = 333 / 10_000.
-    uint256 internal constant BAND_WAD = 333e14; // 0.0333e18
+    uint256 internal constant BOOST_END_WAD = 12e17; // 1.2x, reached at graduation TVL and then stuck
+
+    // ── Price band ──────────────────────────────────────────────────────────
+    /// @dev Full-pool move at or below BAND_TINY_TVL. Trading the whole book moves spot about 25%.
+    uint256 internal constant BAND_START_WAD = 0.25e18;
+    /// @dev Full-pool move once TVL reaches the pool's own graduation target. About ±1.2%.
+    uint256 internal constant BAND_END_WAD = 0.012e18;
+    /// @dev "Tiny". At or below this TVL the band stays at BAND_START. The $77 seed is under it.
+    uint256 internal constant BAND_TINY_TVL = 100e18;
 
     // ── Graduation / creator / Morpho ───────────────────────────────────────
     uint256 internal constant GRAD_NUM = 12;

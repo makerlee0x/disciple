@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./BridgeConstants.sol";
 
-/// @title Fee, staleness, boost, and bridge-fee helpers for the launch hook
+/// @title Fee, staleness, boost, and bridge-fee helpers for Disciple
 /// @notice Fees are denominated in USDG on both buys and sells. Direction is "toward the anchor"
 ///         when the trade reduces |spot − anchor|, and "away" when it increases it.
 library BridgeFee {
@@ -39,10 +39,12 @@ library BridgeFee {
         return _cap(Math.mulDiv(bps, multWad, C.WAD));
     }
 
-    /// @notice 3.3x at TVL 0, linear to a permanent 1.2x at FLAT_TVL ($10k).
-    function boostWad(uint256 tvl) internal pure returns (uint256) {
-        if (tvl >= C.FLAT_TVL) return C.BOOST_END_WAD;
-        return C.BOOST_END_WAD + ((C.BOOST_START_WAD - C.BOOST_END_WAD) * (C.FLAT_TVL - tvl)) / C.FLAT_TVL;
+    /// @notice 3.3x at TVL 0, linear to a permanent 1.2x at `gradTvl`. Unknown graduation stays at 3.3x.
+    function boostWad(uint256 tvl, uint256 gradTvl) internal pure returns (uint256) {
+        if (gradTvl == 0 || tvl >= gradTvl) {
+            return gradTvl == 0 ? C.BOOST_START_WAD : C.BOOST_END_WAD;
+        }
+        return C.BOOST_END_WAD + ((C.BOOST_START_WAD - C.BOOST_END_WAD) * (gradTvl - tvl)) / gradTvl;
     }
 
     /// @notice max($500, 5% of TVL). Kept liquid so a vault outage does not stop ordinary sells.

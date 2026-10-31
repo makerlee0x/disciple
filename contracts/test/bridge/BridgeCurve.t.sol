@@ -85,25 +85,39 @@ contract BridgeCurveTest is Test {
         assertGe(BridgeCurve.spot(s), s.anchor);
     }
 
-    function test_flattensNearTenThousand() public pure {
+    function test_bandIsWideWhenTinyAndTightOnlyAtGraduation() public pure {
+        uint256 grad = 86_520e18; // 12% of a ~$721k reference pool
+        assertEq(BridgeCurve.bandWad(0, grad), C.BAND_START_WAD);
+        assertEq(BridgeCurve.bandWad(C.BAND_TINY_TVL, grad), C.BAND_START_WAD);
+        assertEq(BridgeCurve.bandWad(grad, grad), C.BAND_END_WAD);
+        assertEq(BridgeCurve.bandWad(grad * 2, grad), C.BAND_END_WAD);
+        assertEq(BridgeCurve.bandWad(50_000e18, 0), C.BAND_START_WAD, "no reference TVL stays wide");
+        // Geometric mean of $100 and $86,520 is the halfway point on a log TVL axis.
+        // Linear-in-ln puts the band at the arithmetic mean of 25% and 1.2% there.
+        uint256 midTvl = 2_941e18;
+        uint256 mid = BridgeCurve.bandWad(midTvl, grad);
+        uint256 expect = (C.BAND_START_WAD + C.BAND_END_WAD) / 2;
+        assertApproxEqRel(mid, expect, 0.02e18);
+        // $10k is still a wide book. The old curve was already at ±3.33% here.
+        assertGt(BridgeCurve.bandWad(10_000e18, grad), 0.05e18);
+        assertLt(BridgeCurve.bandWad(10_000e18, grad), C.BAND_START_WAD);
+    }
+
+    function test_graduationDepthIsAboutOnePointTwoPercent() public pure {
+        uint256 grad = 86_520e18;
         BridgeCurve.S memory s = _fresh();
-        // Sit on the anchor with $10k of TVL split across both sides, then let depth grow.
-        s.x = 5_000e18;
-        s.protoX = 5_000e18;
-        s.y = 5_000e18;
-        s.protoY = 5_000e18;
+        s.x = grad / 2;
+        s.protoX = s.x;
+        s.y = grad / 2;
+        s.protoY = s.y;
         s.vx = 0;
         s.vy = 0;
         s.depthUsd = 0;
-        assertEq(BridgeCurve.spot(s), s.anchor);
-        uint256 tvl = BridgeCurve.tvl(s);
-        assertEq(tvl, 10_000e18);
-        BridgeCurve.deepen(s);
+        BridgeCurve.retarget(s, s.anchor);
+        BridgeCurve.deepen(s, grad);
         uint256 yEff = s.y + s.vy;
-        // Trading the whole real USDG side is about one 3.33% band of the effective book.
-        uint256 impact = Math.mulDiv(s.y, C.WAD, yEff);
-        assertLe(impact, C.BAND_WAD);
-        assertGt(impact, C.BAND_WAD / 3);
+        uint256 full = Math.mulDiv(BridgeCurve.tvl(s), C.WAD, yEff);
+        assertApproxEqRel(full, C.BAND_END_WAD, 0.02e18);
     }
 
     function test_shallowBookMovesMoreThanFlatBook() public pure {
@@ -121,7 +135,7 @@ contract BridgeCurveTest is Test {
         flat.vx = 0;
         flat.vy = 0;
         flat.depthUsd = 0;
-        BridgeCurve.deepen(flat);
+        BridgeCurve.deepen(flat, c.gradTvl);
         uint256 f0 = BridgeCurve.spot(flat);
         (flat,) = BridgeCurve.buyExactIn(flat, 5e18, c);
         uint256 flatMove = BridgeCurve.spot(flat) - f0;
@@ -168,6 +182,30 @@ contract BridgeCurveTest is Test {
         t.y = s.y - proceeds;
         t.protoY = t.y;
         assertGt(BridgeCurve.buyCost(t, dx), proceeds);
+    }
+
+    /// @dev A sell quotes the book as it stands. The buy that follows may deepen. That deepen must
+    ///      not make the coins cheaper to repurchase than the sale paid out.
+    function test_sellThenBuyDoesNotProfitFromDeepen() public pure {
+        BridgeCurve.S memory s = _fresh();
+        s.y = 200e18;
+        s.protoY = 200e18;
+        BridgeCurve.Ctx memory c = _ctx();
+        uint256 i;
+        while (BridgeCurve.spot(s) < s.anchor && i < 40) {
+            (s,) = BridgeCurve.buyExactIn(s, 5e18, c);
+            unchecked {
+                ++i;
+            }
+        }
+        assertGe(BridgeCurve.spot(s), s.anchor);
+        uint256 dx = 5e18;
+        BridgeCurve.Fill memory sellF;
+        (s, sellF) = BridgeCurve.sellExactIn(s, dx, c);
+        assertGt(sellF.usdgOut, 0);
+        BridgeCurve.Fill memory buyF;
+        (s, buyF) = BridgeCurve.buyExactIn(s, sellF.usdgOut, c);
+        assertLt(buyF.coinOut, dx, "selling then buying the proceeds back yields fewer coins");
     }
 
     function test_roundTripWithFeesDoesNotProfit() public pure {
@@ -243,13 +281,13 @@ contract BridgeCurveTest is Test {
         s.protoX = s.x;
         s.depthUsd = 0;
         BridgeCurve.retarget(s, s.anchor);
-        BridgeCurve.deepen(s);
+        BridgeCurve.deepen(s, 87_000e18);
         uint256 yEff = s.y + s.vy;
         s.depthUsd = BridgeCurve.tvl(s);
         // A later smaller TVL must not be fed to deepen as a new high. Call with the same state.
         uint256 vx = s.vx;
         uint256 vy = s.vy;
-        BridgeCurve.deepen(s);
+        BridgeCurve.deepen(s, 87_000e18);
         assertEq(s.vx, vx);
         assertEq(s.vy, vy);
         assertGt(yEff, s.y);

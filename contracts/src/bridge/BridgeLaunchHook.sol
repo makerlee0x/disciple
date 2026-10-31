@@ -21,12 +21,15 @@ interface IBridgeHandle {
     function handle(bytes calldata data) external returns (bytes memory);
 }
 
-/// @title DISCIPLE Bridge Launch Hook
-/// @notice Immutable Uniswap v4 hook. One deployment quotes many coin/USDG pools. Each pool picks an
-///         anchor once, at creation: a LayerZero lzRead of a remote 30-minute TWAP, or a same-chain read
-///         of a Uniswap v3 pool's `observe`. The hook is the LP of record: v4 concentrated liquidity is
-///         disabled, and every swap is quoted in `beforeSwap` via a return delta (the same pattern as
-///         OpenZeppelin's `BaseCustomCurve`). See `DESIGN.md`.
+/// @title Disciple
+/// @notice Disciple is a Uniswap v4 hook that bootstraps a new liquidity pool from a tiny seed through
+///         incentivized arbitrage. It uses an onchain bonding curve anchored to an existing pool's price,
+///         compounds every fee back into the pool, and earns Morpho yield on idle USDG once the pool
+///         graduates. One deployment quotes many coin/USDG pools. Each pool picks an anchor once, at
+///         creation: a LayerZero lzRead of a remote 30-minute TWAP, or a same-chain read of a Uniswap v3
+///         pool's `observe`. v4 concentrated liquidity is disabled, and every swap is quoted in
+///         `beforeSwap`. See `DESIGN.md`. The contract name stays `BridgeLaunchHook` because `DiscipleHook`
+///         is already the post-graduation fee hook in this repo.
 /// @dev Storage lives here. Writes `delegatecall` a facet whose address is fixed at construction:
 ///      swaps, LP accounting, and the vault admin. Views run here so they stay `staticcall`-able.
 ///      No facet can be replaced. The v4 `slot0` price is a dummy and is never read.

@@ -15,10 +15,10 @@ import {IEthAnchor} from "./interfaces/IEthAnchor.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BridgeFacetBase} from "./BridgeFacetBase.sol";
 
-/// @title Vault and keeper facet
-/// @notice Price updates, the Morpho cap, the loss pull, and the narrow vault admin.
-///         Called through the hook. `pullShortfall` and `afterTrade` are how a swap
-///         reaches the vault without copying this code into the swap facet.
+/// @title Disciple vault facet
+/// @notice Price updates, the Morpho cap, the loss pull, and the narrow vault admin for Disciple
+///         (`BridgeLaunchHook`). Called through the hook. `pullShortfall` and `afterTrade` are how a
+///         swap reaches the vault without copying this code into the swap facet.
 contract BridgeAdminFacet is BridgeFacetBase {
     using SafeERC20 for IERC20;
 

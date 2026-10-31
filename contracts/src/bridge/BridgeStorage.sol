@@ -13,7 +13,7 @@ import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
 import {BridgeEngine} from "./BridgeEngine.sol";
 
-/// @title Shared storage for the bridge hook and its facets
+/// @title Shared storage for Disciple (`BridgeLaunchHook`) and its facets
 /// @dev Facets `delegatecall` into the hook, so every facet inherits this and adds no state
 ///      variables of its own. Immutables live in the executing bytecode: construct each facet
 ///      with the same manager, USDG, default vault, lzRead endpoint, and engine as the hook.
@@ -247,7 +247,7 @@ abstract contract BridgeStorage {
         ctx.floorBps = p.floorBps;
         ctx.maxUsdgOut = cap < room ? cap : room;
         ctx.totalShares = p.totalShares;
-        ctx.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(s));
+        ctx.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(s), ctx.gradTvl);
     }
 
     /// @notice Memory book priced off the live anchor. Does not write storage.

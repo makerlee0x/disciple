@@ -2,6 +2,7 @@
 """Run the 7-day launch sim against the Solidity curve and print the SIM_ lines.
 
 The math lives in BridgeCurve / BridgeFee. This wrapper does not reimplement it.
+The 90-day and 365-day runs are test_sim90Days and test_simUntilGraduationOrYear.
 """
 
 import os

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-/// @title Minimal LayerZero lzRead surface used by the launch hook
+/// @title Minimal LayerZero lzRead surface used by Disciple
 /// @notice The production adapter is a thin wrapper over LayerZero OAppRead. The hook builds `callData`
 ///         itself (the caller never supplies a price). `onLzRead` is delivered by the endpoint, not the user.
 ///         Tests use MockLzRead. The full lzRead stack is not vendored: it does not match this repo's solc pin

@@ -19,9 +19,10 @@ interface IBridgeAdminOps {
     function afterTrade(PoolId id) external;
 }
 
-/// @title Swap facet for the bridge hook
-/// @notice `beforeSwap` quotes the curve and settles ERC-6909 claims. Vault pulls and the
-///         post-trade rebalance `delegatecall` the admin facet so this contract stays deployable.
+/// @title Disciple swap facet
+/// @notice `beforeSwap` for Disciple (`BridgeLaunchHook`). Quotes the curve and settles ERC-6909 claims.
+///         Vault pulls and the post-trade rebalance `delegatecall` the admin facet so this contract
+///         stays deployable.
 contract BridgeSwapFacet is BridgeFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;

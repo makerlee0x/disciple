@@ -16,7 +16,7 @@ import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
 import {BridgeEngine} from "./BridgeEngine.sol";
 import {BridgeStorage} from "./BridgeStorage.sol";
 
-/// @dev Write-side helpers shared by the swap, LP, and vault facets. No state variables.
+/// @dev Write-side helpers shared by Disciple's swap, LP, and vault facets. No state variables.
 abstract contract BridgeFacetBase is BridgeStorage {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;

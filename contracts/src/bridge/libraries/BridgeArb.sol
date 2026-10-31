@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./BridgeConstants.sol";
 import {BridgeCurve} from "./BridgeCurve.sol";
 
-/// @title Exact-in arb size against the anchor
+/// @title Disciple's exact-in arb size against the anchor
 /// @notice Picks the buy or the sell that maximizes mark-to-anchor profit after the hook's real fee.
 ///         Amounts are 18-dec normalized. The hook floors them to raw units before returning.
 library BridgeArb {
