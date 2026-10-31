@@ -12,6 +12,7 @@ import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { fetchHolders, overlayOwn, type BuildOpts, type HolderLabel, type HoldersSnapshot } from "@/lib/flight/holders";
 import { OWN, ownRead } from "@/lib/flight/ownLedger";
 import { holderNameNow, resolveHolderNames } from "@/lib/flight/holderNames";
+import { feedNameMap } from "@/lib/flight/feedNames";
 
 /**
  * Live coin pages: feeds the engine REAL holders (window 'disciple:holders-real' → engine S.holders → KOTH panel + the chat
@@ -49,6 +50,12 @@ export default function HoldersBridge({ coin }: { coin: string }) {
       dispatchEvent(new CustomEvent("disciple:holders-real", { detail: named(snap) }));
       void resolveHolderNames(snap.rows.filter((r) => !r.label).map((r) => r.address)).then((n) => { if (n && alive && last) dispatchEvent(new CustomEvent("disciple:holders-real", { detail: named(snap) })); });
     };
+    // TRADES card names (same cache / cap as the holders): the engine asks for its history traders ('disciple:names-want'),
+    // live traders come in on 'disciple:event'; the answer is 'disciple:feednames' { lc: "@name" | "Default Name" }.
+    const wantNames = (addrs: string[]) => { const a = addrs.filter(isAddr); if (!a.length) return;
+      void resolveHolderNames(a).then(() => { if (alive) dispatchEvent(new CustomEvent("disciple:feednames", { detail: feedNameMap(a) })); }); };
+    const onWant = (e: Event) => wantNames(((e as CustomEvent<{ addresses?: string[] }>).detail?.addresses) || []);
+    addEventListener("disciple:names-want", onWant);
     const run = async () => {
       if (!alive || busy) return; busy = true;
       try {
@@ -70,7 +77,7 @@ export default function HoldersBridge({ coin }: { coin: string }) {
     const soon = (ms: number) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; void run(); }, ms); };
     const onEvent = (e: Event) => { const x = (e as CustomEvent<{ type?: string; token?: string; trader?: string }>).detail;
       if (x?.type !== "Trade" || (x.token && x.token.toLowerCase() !== coin.toLowerCase())) return;
-      if (x.trader && isAddr(x.trader)) seen.add(x.trader.toLowerCase());
+      if (x.trader && isAddr(x.trader)) { seen.add(x.trader.toLowerCase()); wantNames([x.trader]); }
       soon(2000); };
     const onMark = (e: Event) => { const m = (e as CustomEvent<{ mcap: number; supply?: number }>).detail; if (m?.mcap > 0) { supply = m.supply || supply; price = m.mcap / supply; } };
     const onTrade = () => soon(2500);
@@ -82,7 +89,7 @@ export default function HoldersBridge({ coin }: { coin: string }) {
     const iv = setInterval(() => { if (!document.hidden) void run(); }, REFRESH_MS);
     soon(800);
     return () => { alive = false; clearInterval(iv); if (timer) clearTimeout(timer); off?.();
-      removeEventListener("disciple:event", onEvent); removeEventListener("disciple:mark", onMark); removeEventListener("disciple:livetrade", onTrade); removeEventListener("disciple:ownbalance", onOwn); removeEventListener("disciple:ammo", onBoot); };
+      removeEventListener("disciple:event", onEvent); removeEventListener("disciple:mark", onMark); removeEventListener("disciple:livetrade", onTrade); removeEventListener("disciple:ownbalance", onOwn); removeEventListener("disciple:ammo", onBoot); removeEventListener("disciple:names-want", onWant); };
   }, [coin]);
   return null;
 }

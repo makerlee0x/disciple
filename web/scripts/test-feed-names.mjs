@@ -60,7 +60,7 @@ ok(/addEventListener\('disciple:names',[^\n]*NAMES\[[^\n]*feedRelabel\(S\.feed\)
 ok(/S\.feed\.unshift\(feedTradeRow\(e\.side,e\.usd,e\.mine\?/.test(eng) && !/\?short\(e\.trader\):'#'\+e\.block/.test(eng), "live feed row uses names (no short(e.trader))");
 ok(/txt:`\$\{up\?'▲':'▼'\} \$\{nameOf\(e\.trader\)\}/.test(eng), "trade floater uses names");
 ok(/chartSeedK\(C\.k,fs,keep\); C\.hist=2;\s*\n\s*feedHistNames\(feedSeedFills\(S\.feed,fills,/.test(eng), "chartBackfill seeds the TRADES feed");
-ok(/\/api\/profile\/username\?address='\+a/.test(eng), "seeded rows look up their names (same API as lib/nameLookup)");
+ok(/dispatchEvent\(new CustomEvent\('disciple:names-want'/.test(eng) && !/fetch\('\/api\/profile\/username/.test(eng), "seeded rows ask the site for names (lib/nameLookup cache via 'disciple:names-want'), no direct fetch");
 ok(/"disciple:names"/.test(wb.match(/const INBOUND = \[[^\]]*\]/)[0]), "worker renderer receives disciple:names");
 // ── 3. narrow HUD column
 { const E = mk();

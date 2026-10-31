@@ -342,9 +342,9 @@ const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4
    Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
    event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
    that arrives after the row was drawn relabels it. */
-const NAMES={};
+const NAMES={}, DEFNAMES={};   // DEFNAMES: default call signs (no @) from the site's 'disciple:feednames' (lib/flight/holderNames)
 function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
-  return n?'@'+String(n).replace(/^@/,'').slice(0,11):short(a); }
+  return n?'@'+String(n).replace(/^@/,'').slice(0,11):DEFNAMES[k]?String(DEFNAMES[k]).slice(0,16):short(a); }
 function feedTradeRow(side,usd,who,trader){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
   const own=who!=null&&/^\(you/.test(who), r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at:Date.now()};
   if(trader&&(who==null||own)){ r.tr=String(trader).toLowerCase(); r.pre=pre; } if(own){ r.own=1; r.pre=pre; } return r; }
@@ -575,6 +575,7 @@ S.holders=null; S.wallet='';
 addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
 addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address, prev=S.wallet; S.wallet=typeof a==='string'?a.toLowerCase():'';
   if(prev&&S.wallet!==prev){ feedUnown(S.feed,S.wallet); if(S.fuelers) delete S.fuelers.you; const C=chartState(); C.mine.length=0; if(C.mineTx) C.mineTx.clear(); _topT=-1; } });   // own-wallet state follows the wallet
+addEventListener('disciple:feednames',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m){ const v=m[k]; if(typeof v!=='string'||!v) continue; if(v[0]==='@') NAMES[k.toLowerCase()]=v.slice(1); else DEFNAMES[k.toLowerCase()]=v; } feedRelabel(S.feed); });
 addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m) if(typeof m[k]==='string'&&m[k]) NAMES[k.toLowerCase()]=m[k]; feedRelabel(S.feed); });
 function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
 function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
@@ -662,10 +663,12 @@ function applyThrust(side, usd, pct){
   // sells into a pump push it over. Decays τ1.6 s; the heading spring + rate cap make it a gradual turn.
   const kn=impactNorm(Number.isFinite(pct)?pct:(source.impact&&S.confirmed.mcap?Math.abs(source.impact(usd,side)-1)*100:0.1));
   if (side==='buy'){ S.flare=Math.min(2.6,(S.flare||0)+0.6); } 
-  if (side==='buy'){ const diving=Math.abs(90-(S.aimDisp??AIM_REST))>60; S.fight=clamp((S.fight||0)+(10+28*kn)*(diving?1.6:1),-60,60); S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
+  // buys add NO nose-up push either (lee: the rocket's angle follows the price only; was S.fight +10..+60° τ1.6 s). The
+  // flare (exhaust glow) stays: it's a visual, not the heading.
+  if (side==='buy'){ const diving=Math.abs(90-(S.aimDisp??AIM_REST))>60; S.fight=0; S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
   // sells add NO nose-down push (lee: the rocket moves only with price). Was S.fight −(4..28)° decaying τ1.6 s: after a
   // 100% DUMP the nose stayed pinned down ~2–3 s with the price already flat. The price drop itself still tips it via vyAtt.
-  else if ((S.fight||0)>0) S.fight=0;   // a sell ends any buy push-back (never holds the nose up against a falling price)
+  else S.fight=0;
   S.thrustT = S.t;
   S.flatSince = 0;
   S.cruise = Math.min(S.cruise||0, 0.25);
@@ -2551,7 +2554,7 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
 /* real USDG of an indexed fill (/api/trades, SITE #113): sells usdOut (received), buys usdIn (paid); older fills lack them ⇒ usd */
 function fillUsd(f){ const v=f&&(f.side==='sell'?(f.usdOut??f.usd):(f.usdIn??f.usd)); return +v>0?+v:0; }
 function feedHistNames(rows){ const want=[...new Set(rows.filter(r=>r.tr&&/^0x[0-9a-f]{40}$/.test(r.tr)&&!NAMES[r.tr]&&!(window.__discipleNames&&window.__discipleNames[r.tr])).map(r=>r.tr))];
-  for(const a of want) fetch('/api/profile/username?address='+a,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ const n=j&&typeof j.username==='string'&&j.username.trim(); if(n){ NAMES[a]=n; feedRelabel(S.feed); } }).catch(()=>{}); }
+  if(want.length) try{ dispatchEvent(new CustomEvent('disciple:names-want',{detail:{addresses:want}})); }catch(_){} }   // the site resolves them (lib/nameLookup cache, ≤3 at a time) → 'disciple:feednames'
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
   fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
