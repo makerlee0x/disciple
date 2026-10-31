@@ -7,44 +7,65 @@ import {BridgeArb} from "./libraries/BridgeArb.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 
-/// @title Disciple curve, Dutch quote, and arb math
-/// @notice Stateless quotes for Disciple (`DiscipleHook`). The hook keeps custody and calls here so
-///         Disciple deploys under the 24kb limit. This contract holds no tokens, has no admin, and its
-///         address is fixed on the hook at construction. Calling it directly only runs the quote.
-contract DiscipleEngine {
-    function buy(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 usdgGross)
-        external
-        pure
-        returns (BridgeCurve.S memory, BridgeCurve.Fill memory)
-    {
-        return BridgeCurve.buyExactIn(s, usdgGross, ctx);
+/// @title Fixed curve, Dutch, and fee library
+/// @notice Pure math. No state and no token custody. Linked into the hook. The address is baked into
+///         the hook bytecode and cannot be replaced.
+library DiscipleMath {
+    function init(uint256 coin, uint256 discountWad) public pure returns (BridgeCurve.S memory s) {
+        BridgeCurve.init(s, coin, discountWad);
     }
 
-    function sell(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 coinIn)
-        external
-        pure
-        returns (BridgeCurve.S memory, BridgeCurve.Fill memory)
-    {
-        return BridgeCurve.sellExactIn(s, coinIn, ctx);
+    function onAnchor(BridgeCurve.S memory s, uint256 price) public pure returns (BridgeCurve.S memory) {
+        BridgeCurve.onAnchor(s, price);
+        return s;
     }
 
-    /// @notice Exact-in. `gap` is the Dutch gap in WAD (0 trades the curve). A positive gap sells coin
-    ///         at `anchor * (1 - gap)` and buys coin at `anchor * (1 + gap)`, for a capped slice, and
-    ///         only when that price is better than the resting spot. The remainder, if the slice clears,
-    ///         trades the curve after the book is put back on the pre-trade spot. Seed guard, floor,
-    ///         and tail still bind inside the curve fill.
+    function addLiquidity(BridgeCurve.S memory s, uint256 dx, uint256 dy) public pure returns (BridgeCurve.S memory) {
+        BridgeCurve.addLiquidity(s, dx, dy);
+        return s;
+    }
+
+    function retarget(BridgeCurve.S memory s, uint256 targetSpot) public pure returns (BridgeCurve.S memory) {
+        BridgeCurve.retarget(s, targetSpot);
+        return s;
+    }
+
+    function spotOf(BridgeCurve.S memory s) public pure returns (uint256) {
+        return BridgeCurve.spot(s);
+    }
+
+    function tvlOf(BridgeCurve.S memory s) public pure returns (uint256) {
+        return BridgeCurve.tvl(s);
+    }
+
+    function principalOf(BridgeCurve.S memory s) public pure returns (uint256) {
+        return BridgeCurve.principalY(s);
+    }
+
+    /// @dev Spot, floor room, principal, the TVL the fee uses, and the LP boost. One call so the book
+    ///      encodes the curve once.
+    function measures(BridgeCurve.S memory s, uint256 floorAmt, bool graduated, uint256 target)
+        public
+        pure
+        returns (uint256 spotPx, uint256 room, uint256 principal, uint256 bookTvl, uint256 boost)
+    {
+        spotPx = BridgeCurve.spot(s);
+        principal = BridgeCurve.principalY(s);
+        room = BridgeCurve.floorRoomAbs(s, floorAmt);
+        bookTvl = graduated ? BridgeCurve.lpValue(s) : BridgeCurve.tvl(s);
+        boost = BridgeFee.boostWad(bookTvl, target);
+    }
+
     function trade(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 amount, bool sellCoin, uint256 gap)
-        external
+        public
         pure
         returns (BridgeCurve.S memory, BridgeCurve.Fill memory)
     {
         return _trade(s, ctx, amount, sellCoin, gap);
     }
 
-    /// @notice Bid, ask, and the USDG size of each. A zero gap returns the anchor and a zero size,
-    ///         which means "do not override the curve". The two gaps are independent.
     function preview(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 bidGap, uint256 askGap)
-        external
+        public
         pure
         returns (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg)
     {
@@ -52,11 +73,8 @@ contract DiscipleEngine {
         (ask, askUsdg) = _side(anchor, tvl, gradTvl, askGap, false);
     }
 
-    /// @dev Normalized amounts. `buyCoin` is set even when `amountIn` is zero.
-    ///      When `gap` is positive the Dutch slice is compared with a curve search re-priced through
-    ///      `trade`, so the returned size is one `beforeSwap` would accept.
     function quote(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 bidGap, uint256 askGap)
-        external
+        public
         pure
         returns (bool buyCoin, uint256 amountIn, uint256 amountOut, uint256 profitWad)
     {
@@ -100,30 +118,20 @@ contract DiscipleEngine {
         return (bestBuy, bestIn, bestOut, bestP);
     }
 
-    /// @dev Profit of one exact-in size through the same path as `trade`. Zero when the fill is capped.
     function fill(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 amount, bool buyCoin, uint256 gap)
-        external
+        public
         pure
         returns (uint256 amountOut, uint256 profitWad)
     {
         if (amount == 0) return (0, 0);
-        if (buyCoin) {
-            (profitWad,, amountOut) = _markBuy(s, ctx, amount, gap);
-        } else {
-            (profitWad,, amountOut) = _markSell(s, ctx, amount, gap);
-        }
+        if (buyCoin) (profitWad,, amountOut) = _markBuy(s, ctx, amount, gap);
+        else (profitWad,, amountOut) = _markSell(s, ctx, amount, gap);
     }
 
-    /// @dev External so the hook and the LP facet do not inline the decay series into their bytecode.
-    function decayed(uint256 amount, uint256 dt, uint256 halfLife) external pure returns (uint256) {
+    function decayed(uint256 amount, uint256 dt, uint256 halfLife) public pure returns (uint256) {
         return BridgeFee.decayed(amount, dt, halfLife);
     }
 
-    /// @notice One step of the graduation flag. `edge` is 1 when status turns on and 2 when it turns off.
-    ///         The only buffer is `GRADUATION_WINDOW` (77 minutes). Status turns on after that long
-    ///         continuously at or above `target`, and off after the same wait strictly below `target`.
-    ///         The observation that starts a window does not flip in that call. Crossing back to the
-    ///         other side clears that clock. One threshold, 100%. There is no percent band.
     function stepGrad(
         uint256 poolTvl,
         uint256 target,
@@ -131,7 +139,7 @@ contract DiscipleEngine {
         uint64 aboveSince,
         uint64 belowSince,
         uint256 timestamp
-    ) external pure returns (bool newGrad, uint64 newAbove, uint64 newBelow, uint8 edge) {
+    ) public pure returns (bool newGrad, uint64 newAbove, uint64 newBelow, uint8 edge) {
         uint256 nowTs = timestamp == 0 ? 1 : timestamp;
         newGrad = graduated;
         newAbove = aboveSince;
@@ -154,7 +162,6 @@ contract DiscipleEngine {
             }
             return (newGrad, newAbove, newBelow, edge);
         }
-        // A zero or unknown target is below the line once status is already on, so the off-clock runs.
         if (over) {
             newBelow = 0;
             return (newGrad, newAbove, newBelow, 0);
@@ -169,76 +176,26 @@ contract DiscipleEngine {
             newBelow = 0;
             edge = 2;
         }
-        return (newGrad, newAbove, newBelow, edge);
     }
 
-    /// @notice True when `next` may replace `prev`. A zero `prev` is the first quote and any non-zero
-    ///         price is allowed. Later quotes have to stay within `ANCHOR_MOVE_BPS` of `prev`.
-    function anchorMoveOk(uint256 prev, uint256 next) external pure returns (bool) {
-        if (next == 0) return false;
-        if (prev == 0) return true;
-        uint256 delta = prev > next ? prev - next : next - prev;
-        return delta * C.BPS <= prev * C.ANCHOR_MOVE_BPS;
+    /// @dev Before graduation the whole fee is the LP share. While graduated: 3,333 creator, 3,333
+    ///      locked, remainder LPs.
+    function splitFee(uint256 fee, bool graduated) public pure returns (uint256 creator, uint256 lp, uint256 locked) {
+        if (!graduated || fee == 0) return (0, fee, 0);
+        creator = Math.mulDiv(fee, C.FEE_CREATOR_BPS, C.BPS);
+        locked = Math.mulDiv(fee, C.FEE_LOCKED_BPS, C.BPS);
+        lp = fee - creator - locked;
     }
 
-    /// @dev The progress fee. Same number the curve charges.
-    function feeBps(uint256 tvl, uint256 gradTvl) external pure returns (uint256) {
+    function feeBps(uint256 tvl, uint256 gradTvl) public pure returns (uint256) {
         return BridgeFee.baseFeeBps(tvl, gradTvl);
     }
 
-    /// @notice Split one fee. Before graduation the whole amount is the LP share. While graduated:
-    ///         33% creator, 33% LP, 33% locked, 1% builder. The LP share is the remainder, so dust
-    ///         is not shaved off the other three. The keeper tip is not part of this split.
-    function splitFee(uint256 fee, bool graduated)
-        external
-        pure
-        returns (uint256 creator, uint256 lp, uint256 locked, uint256 builder)
-    {
-        if (!graduated || fee == 0) return (0, fee, 0, 0);
-        creator = Math.mulDiv(fee, C.FEE_CREATOR_BPS, C.BPS);
-        locked = Math.mulDiv(fee, C.FEE_LOCKED_BPS, C.BPS);
-        builder = Math.mulDiv(fee, C.FEE_BUILDER_BPS, C.BPS);
-        lp = fee - creator - locked - builder;
-    }
-
-    /// @dev 0 means the drift is outside the allowed range. 0 input selects the default.
-    function normalizeDrift(uint64 dutchDrift) external pure returns (uint64) {
+    /// @dev 0 input selects the default. 0 output means the value is outside the allowed range.
+    function normalizeDrift(uint64 dutchDrift) public pure returns (uint64) {
         if (dutchDrift == 0) return uint64(C.DUTCH_DRIFT_DEFAULT);
         if (uint256(dutchDrift) < C.DUTCH_DRIFT_MIN || uint256(dutchDrift) > C.DUTCH_DRIFT_MAX) return 0;
         return dutchDrift;
-    }
-
-    /// @dev False when this anchor kind's addresses do not match. The hook reverts `BadCreate`.
-    function anchorOk(
-        uint8 kind,
-        address remoteOracle,
-        address v3Pool,
-        bytes32 refPoolId,
-        address refHook,
-        uint256 tipSeed,
-        uint32 remoteEid
-    ) external pure returns (bool) {
-        if (kind == C.ANCHOR_LZ) {
-            return remoteOracle != address(0) && v3Pool != address(0) && refPoolId == bytes32(0)
-                && refHook == address(0);
-        }
-        if (kind == C.ANCHOR_V3) {
-            return v3Pool != address(0) && tipSeed == 0 && remoteOracle == address(0) && remoteEid == 0
-                && refPoolId == bytes32(0) && refHook == address(0);
-        }
-        if (kind == C.ANCHOR_V4_ORACLE) {
-            return refHook != address(0) && refPoolId != bytes32(0) && v3Pool == address(0) && tipSeed == 0
-                && remoteOracle == address(0) && remoteEid == 0;
-        }
-        if (kind == C.ANCHOR_V4_SAMPLE) {
-            return refPoolId != bytes32(0) && refHook == address(0) && v3Pool == address(0) && tipSeed == 0
-                && remoteOracle == address(0) && remoteEid == 0;
-        }
-        if (kind == C.ANCHOR_LZ_V4_ORACLE || kind == C.ANCHOR_LZ_V4_SLOT) {
-            return
-                remoteOracle != address(0) && refHook != address(0) && refPoolId != bytes32(0) && v3Pool == address(0);
-        }
-        return false;
     }
 
     function _trade(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 amount, bool sellCoin, uint256 gap)
@@ -268,9 +225,6 @@ contract DiscipleEngine {
             BridgeCurve.retarget(trial, resting);
             a.spotAfter = BridgeCurve.spot(trial);
             if (slice == amount) return (trial, a);
-            if (a.tip < local.tipRoom) local.tipRoom -= a.tip;
-            else local.tipRoom = 0;
-            // The first leg already spent floor and outflow room. The second leg must not see it again.
             if (a.usdgOut < local.maxUsdgOut) local.maxUsdgOut -= a.usdgOut;
             else local.maxUsdgOut = 0;
             BridgeCurve.Fill memory b;
@@ -289,8 +243,6 @@ contract DiscipleEngine {
         BridgeCurve.retarget(book, resting);
         bought.spotAfter = BridgeCurve.spot(book);
         if (buySlice == amount) return (book, bought);
-        if (bought.tip < local.tipRoom) local.tipRoom -= bought.tip;
-        else local.tipRoom = 0;
         BridgeCurve.Fill memory rest;
         (book, rest) = BridgeCurve.buyExactIn(book, amount - buySlice, local);
         return (book, _merge(bought, rest));
@@ -336,7 +288,6 @@ contract DiscipleEngine {
         askUsdg = offered;
     }
 
-    /// @dev One side of the Dutch quote. `bid` uses `anchor * (1 + gap)`. The ask stops at `DUTCH_ASK_CAP`.
     function _side(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap, bool bid)
         private
         pure
@@ -365,9 +316,7 @@ contract DiscipleEngine {
         f.usdgIn = a.usdgIn + b.usdgIn;
         f.usdgOut = a.usdgOut + b.usdgOut;
         f.fee = a.fee + b.fee;
-        f.tip = a.tip + b.tip;
         f.creator = a.creator + b.creator;
-        f.builder = a.builder + b.builder;
         f.locked = a.locked + b.locked;
         f.compound = a.compound + b.compound;
         f.toLp = a.toLp + b.toLp;
@@ -379,7 +328,6 @@ contract DiscipleEngine {
     function _copy(BridgeCurve.Ctx memory c) private pure returns (BridgeCurve.Ctx memory o) {
         o.gradTvl = c.gradTvl;
         o.graduated = c.graduated;
-        o.tipRoom = c.tipRoom;
         o.floorBps = c.floorBps;
         o.principalFloor = c.principalFloor;
         o.maxUsdgOut = c.maxUsdgOut;

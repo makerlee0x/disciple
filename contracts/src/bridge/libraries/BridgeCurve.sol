@@ -472,28 +472,17 @@ library BridgeCurve {
         return Math.mulDiv(net, C.BPS, C.BPS - bps, Math.Rounding.Ceil);
     }
 
-    /// @dev Before graduation the whole fee compounds for LPs. While graduated it is 33% creator,
-    ///      33% LPs, 33% locked, 1% builder. Dust from the floored shares stays in the LP bucket.
-    ///      The keeper tip, if the budget has room, is taken from that LP bucket.
+    /// @dev Before graduation the whole fee compounds for LPs. While graduated it is 3,333 bps
+    ///      creator, 3,333 bps locked, and the remainder to LPs. Dust stays in the LP bucket.
     function _slices(Fill memory f, Ctx memory ctx) private pure {
         uint256 fee = f.fee;
-        uint256 creator;
-        uint256 locked;
-        uint256 builder;
-        if (ctx.graduated) {
-            creator = Math.mulDiv(fee, C.FEE_CREATOR_BPS, C.BPS);
-            locked = Math.mulDiv(fee, C.FEE_LOCKED_BPS, C.BPS);
-            builder = Math.mulDiv(fee, C.FEE_BUILDER_BPS, C.BPS);
+        if (!ctx.graduated || fee == 0) {
+            f.compound = fee;
+            return;
         }
-        uint256 lp = fee - creator - locked - builder;
-        uint256 tip = Math.mulDiv(fee, C.TIP_SLICE_BPS, C.BPS);
-        if (tip > ctx.tipRoom) tip = ctx.tipRoom;
-        if (tip > lp) tip = lp;
-        f.tip = tip;
-        f.creator = creator;
-        f.builder = builder;
-        f.locked = locked;
-        f.compound = lp - tip;
+        f.creator = Math.mulDiv(fee, C.FEE_CREATOR_BPS, C.BPS);
+        f.locked = Math.mulDiv(fee, C.FEE_LOCKED_BPS, C.BPS);
+        f.compound = fee - f.creator - f.locked;
     }
 
     /// @dev Park graduated-fee USDG where sells and redeems cannot take it.

@@ -21,7 +21,7 @@ contract BridgeCurveTest is Test {
         c.floorBps = 2_000;
         c.maxUsdgOut = type(uint256).max;
         c.boostWad = C.BOOST_START_WAD;
-        c.tipRoom = C.TIP_BUDGET_CAP;
+        c.tipRoom = 0;
     }
 
     function test_launchPriceIsThirtyThreePercentBelow() public pure {

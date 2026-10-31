@@ -15,9 +15,8 @@ import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
-import {AnchorLens} from "../../src/bridge/AnchorLens.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
-import {MockERC20, MockV4Oracle} from "./mocks/BridgeMocks.sol";
+import {MockERC20, MockV2Pair} from "./mocks/BridgeMocks.sol";
 
 /// @notice Dutch quotes, the progress-only fee, the status time window, and v4 anchors.
 contract DiscipleLaunchTest is BridgeFixture {
@@ -188,38 +187,34 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertFalse(hook.bridgeQuote(id).graduated);
         uint256 amount = 1e18;
         (, uint256 fee,,) = hook.quoteExactIn(key, _buyZfo(), amount);
-        uint256 tip = (fee * C.TIP_SLICE_BPS) / C.BPS;
         uint256 yBefore = hook.curve(id).y;
         usdg.mint(address(this), amount);
         _buy(key, address(coin), amount);
         assertEq(hook.creatorFees(id), 0);
-        assertEq(hook.builderFees(id), 0);
         assertEq(hook.curve(id).lockedY, 0);
-        assertGt(fee, tip);
-        assertEq(hook.curve(id).y - yBefore, amount - tip, "only the keeper tip leaves the book");
+        assertGt(fee, 0);
+        assertEq(hook.curve(id).y - yBefore, amount, "before graduation the whole payment stays in the book");
     }
 
     function test_graduatedSplitLocksLiquidityAndRevertsWhenStatusTurnsOff() public {
         _openBook();
         _finishWindow(true);
         assertTrue(hook.bridgeQuote(id).graduated);
-        assertEq(hook.builder(), address(this));
 
         uint256 amount = 1e18;
         (, uint256 fee,,) = hook.quoteExactIn(key, _buyZfo(), amount);
-        (uint256 creator, uint256 lp, uint256 locked, uint256 builderCut, uint256 tip) = _graduatedSlices(fee);
-        assertEq(creator + locked + builderCut + lp, fee);
-        assertGe(lp, (fee * C.FEE_LOCKED_BPS) / C.BPS, "dust stays with LPs");
-        assertGt(tip, 0, "a cross-chain pool still escrows a keeper tip from the LP share");
-        assertLt(tip, lp);
+        (uint256 creator, uint256 lp, uint256 locked) = _graduatedSlices(fee);
+        assertEq(creator + locked + lp, fee);
+        assertEq(creator, (fee * C.FEE_CREATOR_BPS) / C.BPS);
+        assertEq(locked, (fee * C.FEE_LOCKED_BPS) / C.BPS);
+        assertGe(lp, locked, "the remainder, including dust, stays with LPs");
 
         uint256 yBefore = hook.curve(id).y;
         usdg.mint(address(this), amount);
         _buy(key, address(coin), amount);
         assertEq(hook.creatorFees(id), creator);
-        assertEq(hook.builderFees(id), builderCut);
         assertEq(hook.curve(id).lockedY, locked);
-        assertEq(hook.curve(id).y - yBefore, amount - creator - builderCut - tip);
+        assertEq(hook.curve(id).y - yBefore, amount - creator, "only the creator share leaves the book");
 
         uint256 lockedAfterBuy = hook.curve(id).lockedY;
         uint256 held = coin.balanceOf(address(this));
@@ -228,19 +223,17 @@ contract DiscipleLaunchTest is BridgeFixture {
         uint256 sellAmt = capped ? used : held;
         assertGt(sellAmt, 0);
         (, uint256 sellFee,,) = hook.quoteExactIn(key, _sellZfo(), sellAmt);
-        (,, uint256 sellLocked,,) = _graduatedSlices(sellFee);
+        (,, uint256 sellLocked) = _graduatedSlices(sellFee);
         _sell(key, address(coin), sellAmt);
         assertEq(hook.curve(id).lockedY, lockedAfterBuy + sellLocked, "a sell adds locked fees and cannot spend them");
 
         _dropUnder();
         assertFalse(hook.bridgeQuote(id).graduated);
         uint256 pausedCreator = hook.creatorFees(id);
-        uint256 pausedBuilder = hook.builderFees(id);
         uint256 pausedLocked = hook.curve(id).lockedY;
         usdg.mint(address(this), amount);
         _buy(key, address(coin), amount);
         assertEq(hook.creatorFees(id), pausedCreator, "ungraduation stops the creator share");
-        assertEq(hook.builderFees(id), pausedBuilder, "ungraduation stops the builder share");
         assertEq(hook.curve(id).lockedY, pausedLocked, "ungraduation stops new locked liquidity");
 
         // A swap does not mint shares. Deposit coin, then exit, and the locked fees stay.
@@ -255,60 +248,43 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertGe(s.y, s.lockedY);
     }
 
-    function test_onlyTheBuilderCanTransferAndClaim() public {
+    function test_noBuilderRoleAndCreatorStaysPut() public {
         _openBook();
         _finishWindow(true);
         usdg.mint(address(this), 1e18);
         _buy(key, address(coin), 1e18);
-        assertGt(hook.builderFees(id), 0);
         uint256 locked = hook.curve(id).lockedY;
+        assertGt(hook.creatorFees(id), 0);
+        assertGt(locked, 0);
 
-        address creator = address(0xCAFE);
-        hook.setCreator(id, creator);
-        vm.prank(creator);
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.proposeBuilder(address(0xBEEF));
+        bytes32 raw = PoolId.unwrap(id);
+        assertFalse(_call("builder()"));
+        assertFalse(_call("proposeBuilder(address)", address(0xBEEF)));
+        assertFalse(_call("acceptBuilder()"));
+        assertFalse(_call("claimBuilderFees(bytes32)", raw));
+        assertFalse(_call("setCreator(bytes32,address)", raw, address(0xCAFE)));
+        assertFalse(_call("rescueEth(address)", address(this)));
 
-        vm.prank(address(0xBEEF));
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.proposeBuilder(address(0xBEEF));
+        uint256 before = usdg.balanceOf(address(this));
+        hook.claimCreatorFees(id);
+        assertGt(usdg.balanceOf(address(this)), before);
+        assertEq(hook.curve(id).lockedY, locked, "a creator claim does not touch locked liquidity");
+    }
 
-        vm.expectRevert(BridgeStorage.BadCreate.selector);
-        hook.proposeBuilder(address(0));
+    function _call(string memory sig) internal returns (bool ok) {
+        (ok,) = address(hook).call(abi.encodeWithSignature(sig));
+    }
 
-        hook.proposeBuilder(address(0xBEEF));
-        assertEq(hook.pendingBuilder(), address(0xBEEF));
-        hook.proposeBuilder(address(0xB0B));
-        assertEq(hook.pendingBuilder(), address(0xB0B), "a second propose overwrites");
+    function _call(string memory sig, address a) internal returns (bool ok) {
+        (ok,) = address(hook).call(abi.encodeWithSignature(sig, a));
+    }
 
-        vm.prank(address(0xBEEF));
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.acceptBuilder();
+    function _call(string memory sig, bytes32 a) internal returns (bool ok) {
+        (ok,) = address(hook).call(abi.encodeWithSignature(sig, a));
+    }
 
-        vm.prank(address(0xB0B));
-        hook.acceptBuilder();
-        assertEq(hook.builder(), address(0xB0B));
-        assertEq(hook.pendingBuilder(), address(0));
-
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.claimBuilderFees(id);
-        vm.prank(creator);
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.claimBuilderFees(id);
-
-        uint256 before = usdg.balanceOf(address(0xB0B));
-        vm.prank(address(0xB0B));
-        uint256 raw = hook.claimBuilderFees(id);
-        assertGt(raw, 0);
-        assertEq(hook.builderFees(id), 0);
-        assertEq(usdg.balanceOf(address(0xB0B)), before + raw);
-        assertEq(hook.curve(id).lockedY, locked, "a builder claim does not touch locked liquidity");
-
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.proposeBuilder(creator);
-        vm.prank(address(0xB0B));
-        hook.proposeBuilder(address(0xBEEF));
-        assertEq(hook.pendingBuilder(), address(0xBEEF));
+    function _call(string memory sig, bytes32 a, address b) internal returns (bool ok) {
+        (ok,) = address(hook).call(abi.encodeWithSignature(sig, a, b));
     }
 
     function test_crossingBackResetsTheGraduationTimer() public {
@@ -332,28 +308,25 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertTrue(hook.bridgeQuote(id).graduated);
     }
 
-    function test_v4OracleHookIsSameChain() public {
-        MockERC20 c = _newCoin("AI", 18);
-        MockV4Oracle oracle = new MockV4Oracle();
-        oracle.set(2e18, 500_000e18);
+    function test_v2ReservesFeedTheRing() public {
+        MockERC20 c = _newCoin("V2", 18);
+        MockV2Pair pair = new MockV2Pair(address(c), address(usdg));
+        pair.setReserves(1_000_000e18, 1_000_000e18);
+        usdg.mint(address(pair), 50_000e18);
+        v2Factory.setPair(address(c), address(usdg), address(pair));
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
-        bytes32 refId = bytes32(uint256(42));
-        hook.setOracleAllowed(address(oracle), true);
-        (, PoolId pid) = hook.createPool(_anchor(address(c), 10e18, C.ANCHOR_V4_ORACLE, address(oracle), refId, false));
-        assertEq(hook.curve(pid).anchor, 2e18);
-        assertEq(hook.spotPrice(pid), 1.34e18);
-        assertFalse(hook.bridgeQuote(pid).stale);
-        assertFalse(hook.bridgeQuote(pid).graduated);
-        vm.expectRevert(BridgeStorage.SameChain.selector);
-        hook.updatePrice(pid);
+        (, PoolId pid) = hook.createPool(_v2(address(c), address(pair), 10e18));
+        assertEq(hook.anchorKind(pid), C.ANCHOR_V2);
+        assertEq(hook.curve(pid).anchor, 0, "a cold ring is not a 30-minute TWAP");
+        _warmSample(pid);
+        assertEq(hook.curve(pid).anchor, 1e18);
+        assertEq(hook.spotPrice(pid), 0.67e18);
+        (uint256 price, uint256 tvl) = hook.liveAnchor(pid);
+        assertEq(price, 1e18);
+        assertGt(tvl, 40_000e18);
         skip(3 hours);
         assertTrue(hook.bridgeQuote(pid).stale, "a same-chain anchor ages out too");
-        uint256 grad = (500_000e18 * C.GRAD_NUM) / C.GRAD_DEN;
-        assertEq(hook.bridgeQuote(pid).suggestedFeeBps, BridgeFee.baseFeeBps(BridgeCurve.tvl(hook.curve(pid)), grad));
-        (uint256 price, uint256 tvl) = hook.liveAnchor(pid);
-        assertEq(price, 2e18);
-        assertEq(tvl, 500_000e18);
     }
 
     function test_v4SelfSampleWaitsForItsOwnRing() public {
@@ -378,13 +351,8 @@ contract DiscipleLaunchTest is BridgeFixture {
 
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
-        (, PoolId pid) = hook.createPool(
-            _anchor(address(c), 10e18, C.ANCHOR_V4_SAMPLE, address(0), PoolId.unwrap(ref.toId()), coin0)
-        );
+        (, PoolId pid) = hook.createPool(_v4(address(c), 10e18, PoolId.unwrap(ref.toId()), address(0)));
         assertEq(hook.curve(pid).anchor, 0, "one sample is not a 30-minute TWAP");
-        vm.expectRevert(BridgeStorage.SameChain.selector);
-        hook.updatePrice(pid);
-
         _warmSample(pid);
         assertEq(hook.curve(pid).anchor, 1e18);
         assertEq(hook.spotPrice(pid), 0.67e18);
@@ -421,9 +389,7 @@ contract DiscipleLaunchTest is BridgeFixture {
 
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
-        (, PoolId pid) = hook.createPool(
-            _anchor(address(c), 10e18, C.ANCHOR_V4_SAMPLE, address(0), PoolId.unwrap(ref.toId()), coin0)
-        );
+        (, PoolId pid) = hook.createPool(_v4(address(c), 10e18, PoolId.unwrap(ref.toId()), address(0)));
         _warmSample(pid);
         assertEq(hook.curve(pid).anchor, 1e18);
 
@@ -446,77 +412,47 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertEq(hook.curve(pid).anchor, 1e18, "a later sample does not accrue the reverted tick");
     }
 
-    function test_lzReadOfV4OracleAndSlot() public {
-        MockERC20 c = _newCoin("REMOTE", 18);
-        c.mint(address(this), 20e18);
+    function test_nonCanonicalV2AndUnknownKindRevert() public {
+        MockERC20 c = _newCoin("FAKEV2", 18);
+        MockV2Pair pair = new MockV2Pair(address(c), address(usdg));
+        pair.setReserves(1e18, 1e18);
+        c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
-        bytes32 refId = bytes32(uint256(7));
-        hook.setOracleAllowed(address(0xBEEF), true);
-        hook.setLensAllowed(address(0xBEEF), true);
-        (, PoolId oracleId) =
-            hook.createPool(_anchor(address(c), 10e18, C.ANCHOR_LZ_V4_ORACLE, address(0xBEEF), refId, true));
-        vm.deal(address(this), 1 ether);
-        hook.updatePrice{value: lz.fee()}(oracleId);
-        assertEq(lz.lastTarget(), address(0xBEEF));
-        assertEq(lz.lastCallData(), abi.encodeWithSelector(AnchorLens.readV4Oracle.selector, address(0xBEEF), refId));
-        lz.fulfill(lz.lastGuid(), 1e18, 100_000e18);
-        assertEq(hook.spotPrice(oracleId), 0.67e18);
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
+        hook.createPool(_v2(address(c), address(pair), 10e18));
 
-        MockERC20 s = _newCoin("SLOT", 18);
-        s.mint(address(this), 10e18);
-        s.approve(address(hook), type(uint256).max);
-        bool coin0 = address(s) < address(usdg);
-        hook.setOracleAllowed(address(0x51), true);
-        hook.setLensAllowed(address(0x51), true);
-        (, PoolId slotId) =
-            hook.createPool(_anchor(address(s), 10e18, C.ANCHOR_LZ_V4_SLOT, address(0x51), refId, coin0));
-        hook.updatePrice{value: lz.fee()}(slotId);
-        assertEq(lz.lastCallData(), abi.encodeWithSelector(AnchorLens.readV4Slot.selector, address(0x51), refId));
-        uint160 sqrtP = TickMath.getSqrtPriceAtTick(0);
-        lz.fulfillBytes(lz.lastGuid(), abi.encode(sqrtP, int24(0), uint128(1e18)));
-        assertEq(hook.curve(slotId).anchor, 0, "the first remote slot does not invent a TWAP");
-
-        vm.roll(block.number + 1);
-        hook.updatePrice{value: lz.fee()}(slotId);
-        lz.fulfillBytes(lz.lastGuid(), abi.encode(sqrtP, int24(0), uint128(1e18)));
-        assertEq(hook.curve(slotId).anchor, 0, "the confirming sample only starts the ring");
-        vm.roll(block.number + 1);
-        skip(1);
-        hook.updatePrice{value: lz.fee()}(slotId);
-        lz.fulfillBytes(lz.lastGuid(), abi.encode(sqrtP, int24(0), uint128(1e18)));
-        skip(30 minutes);
-        vm.roll(block.number + 1);
-        hook.updatePrice{value: lz.fee()}(slotId);
-        lz.fulfillBytes(lz.lastGuid(), abi.encode(sqrtP, int24(0), uint128(1e18)));
-        assertEq(hook.curve(slotId).anchor, 1e18);
-        assertEq(hook.spotPrice(slotId), 0.67e18);
-        (uint256 slotPrice,) = hook.liveAnchor(slotId);
-        assertEq(slotPrice, 1e18);
+        v2Factory.setPair(address(c), address(usdg), address(pair));
+        BridgeStorage.CreateParams memory bad = _v2(address(c), address(pair), 10e18);
+        bad.anchorKind = 9;
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
+        hook.createPool(bad);
     }
 
-    function _anchor(address c, uint256 seed, uint8 kind, address refHook, bytes32 refPool, bool coin0)
-        internal
-        view
-        returns (BridgeStorage.CreateParams memory p)
-    {
-        bool lz = kind == C.ANCHOR_LZ || kind == C.ANCHOR_LZ_V4_ORACLE || kind == C.ANCHOR_LZ_V4_SLOT;
+    function _v2(address c, address pair, uint256 seed) internal view returns (BridgeStorage.CreateParams memory p) {
         p.coin = c;
         p.creator = address(this);
         p.floorBps = C.FLOOR_BPS;
         p.discountBps = C.DISCOUNT_BPS;
-        p.remoteEid = lz ? 30101 : 0;
-        p.remoteOracle = lz ? refHook : address(0);
-        p.anchorKind = kind;
+        p.anchorKind = C.ANCHOR_V2;
+        p.refPool = pair;
+        p.coinSeed = seed;
+    }
+
+    function _v4(address c, uint256 seed, bytes32 refPool, address refHooks)
+        internal
+        view
+        returns (BridgeStorage.CreateParams memory p)
+    {
+        p.coin = c;
+        p.creator = address(this);
+        p.floorBps = C.FLOOR_BPS;
+        p.discountBps = C.DISCOUNT_BPS;
+        p.anchorKind = C.ANCHOR_V4;
         p.coinSeed = seed;
         p.refPoolId = refPool;
-        p.refHook = kind == C.ANCHOR_V4_ORACLE || kind == C.ANCHOR_LZ_V4_ORACLE || kind == C.ANCHOR_LZ_V4_SLOT
-            ? refHook
-            : address(0);
-        p.refCoinIs0 = coin0;
-        if (kind == C.ANCHOR_V4_SAMPLE) {
-            p.refFee = 3000;
-            p.refTickSpacing = 60;
-        }
+        p.refFee = 3000;
+        p.refTickSpacing = 60;
+        p.refHooks = refHooks;
     }
 
     /// @dev Several later blocks, then a 30-minute span, before the self-sample mean is trusted.
@@ -554,20 +490,11 @@ contract DiscipleLaunchTest is BridgeFixture {
         return Currency.unwrap(key.currency0) == address(coin);
     }
 
-    /// @dev Graduated split of a gross fee. The keeper tip is taken from the LP share, and only up to
-    ///      the remaining tip budget. This pool was created with no tip seed, so the room is $10.
-    function _graduatedSlices(uint256 fee)
-        internal
-        pure
-        returns (uint256 creator, uint256 lp, uint256 locked, uint256 builderCut, uint256 tip)
-    {
+    /// @dev Graduated split of a gross fee. 3,333 creator, 3,333 locked, remainder LPs.
+    function _graduatedSlices(uint256 fee) internal pure returns (uint256 creator, uint256 lp, uint256 locked) {
         creator = (fee * C.FEE_CREATOR_BPS) / C.BPS;
         locked = (fee * C.FEE_LOCKED_BPS) / C.BPS;
-        builderCut = (fee * C.FEE_BUILDER_BPS) / C.BPS;
-        lp = fee - creator - locked - builderCut;
-        tip = (fee * C.TIP_SLICE_BPS) / C.BPS;
-        if (tip > C.TIP_BUDGET_CAP) tip = C.TIP_BUDGET_CAP;
-        if (tip > lp) tip = lp;
+        lp = fee - creator - locked;
     }
 
     function _fresh(uint256 refTvl) internal {

@@ -7,7 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
-import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
+import {DiscipleMath} from "../../src/bridge/DiscipleMath.sol";
 
 /// @notice Simulator only. Nothing in this file is part of the hook.
 ///
@@ -171,7 +171,6 @@ contract DiscipleSimTest is Test {
     uint256 internal aboveSince;
     uint256 internal belowSince;
     uint256 internal offN;
-    DiscipleEngine internal engine;
     uint256 internal bucketClock;
     /// @dev Bucket the pool was in at the start of the current interval. 4 means "do not record".
     uint256 internal openBucket;
@@ -186,9 +185,7 @@ contract DiscipleSimTest is Test {
     bool[3] internal pickAlt;
     Cand internal cand;
 
-    function setUp() public {
-        engine = new DiscipleEngine();
-    }
+    function setUp() public {}
 
     function test_recommendedSeedIsAllCoin() public pure {
         BridgeCurve.S memory m;
@@ -1188,7 +1185,6 @@ contract DiscipleSimTest is Test {
         fees += fee;
         if (mode == MODE_DRIP && fee != 0) dripBudget += fee;
         tipBudget += tip;
-        if (tipBudget > C.TIP_BUDGET_CAP) tipBudget = C.TIP_BUDGET_CAP;
     }
 
     function _commitRev(uint256 notion) internal {
@@ -1243,7 +1239,7 @@ contract DiscipleSimTest is Test {
         c.floorBps = C.FLOOR_BPS;
         c.maxUsdgOut = type(uint256).max;
         c.boostWad = _boostAt(BridgeCurve.tvl(m));
-        c.tipRoom = tipBudget >= C.TIP_BUDGET_CAP ? 0 : C.TIP_BUDGET_CAP - tipBudget;
+        c.tipRoom = 0;
         c.graduated = graduated;
     }
 
@@ -1385,15 +1381,16 @@ contract DiscipleSimTest is Test {
         }
     }
 
-    /// @dev Same machine as `DiscipleEngine.stepGrad`, on the sim clock and the fixed 77-minute window.
+    /// @dev Same machine as `DiscipleMath.stepGrad`, on the sim clock and the fixed 77-minute window.
     ///      Fee, boost, and Dutch size keep using live progress either way.
     ///      `gradDay` stays the first day status turns on. `offN` counts later turns off.
     function _touchGrad() internal {
         uint8 edge;
         uint64 above;
         uint64 below;
-        (graduated, above, below, edge) =
-            engine.stepGrad(BridgeCurve.tvl(s), _target(), graduated, uint64(aboveSince), uint64(belowSince), clock);
+        (graduated, above, below, edge) = DiscipleMath.stepGrad(
+            BridgeCurve.tvl(s), _target(), graduated, uint64(aboveSince), uint64(belowSince), clock
+        );
         aboveSince = above;
         belowSince = below;
         if (edge == 1 && gradDay == 0) gradDay = _dayNow();
