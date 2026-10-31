@@ -91,7 +91,7 @@ function engine({ live = true, result, sell = false }) {
 
 // ───────────── 3. warm the active amount ─────────────
 console.log("— 3. warm quote for the active amount");
-ok(/const usd = customRef\.current \|\| \(ammo\.usd\[mode\] \?\? MODES\[mode\]\.usd\);/.test(tb), "warm tick quotes the custom $ when filled, else the selected preset");
+ok(/const usd = buyFill\(customRef\.current \|\| \(ammo\.usd\[mode\] \?\? MODES\[mode\]\.usd\), buyCap\(\)\)\.usd;/.test(tb), "warm tick quotes the custom $ when filled, else the selected preset (sized to the wallet limit, like the tap)");
 ok(/warmRef\.current = tick;/.test(tb) && /setTimeout\(\(\) => void warmRef\.current\(\), 0\);/.test(tb), "re-warmed right after our own trade completes");
 ok(/if \(!customUsd\) return; const id = setTimeout\(\(\) => void warmRef\.current\(\), 150\)/.test(tb), "a newly typed custom $ is warmed right away (debounced)");
 
