@@ -1,9 +1,9 @@
 // PAPER TRADING tuning harness: every lobby × persona over N fixed seeds; wins / top-10 / ascend / avg PnL per tier.
 // Run: npx tsx scripts/paper-tune.mts [N=30] [lobby=all] [personas=decent,strong,novice] [seed0=1000]
 import { SimRun } from "../lib/sim/run";
-import { paperLobby, PAPER_DIFFS, SIZE_SCALE, TUNE, type PaperDifficulty } from "../lib/sim/paper";
+import { paperLobby, PAPER_DIFFS, SIZE_SCALE, START_CASH, TUNE, type PaperDifficulty } from "../lib/sim/paper";
 // optional overrides: PAPER_TUNE='{"aggSigma":{"hard":1},"sizeScale":{"hard":0.2},"tier":{"medium":{"minTradeUsd":10}}}'
-if (process.env.PAPER_TUNE) { const o = JSON.parse(process.env.PAPER_TUNE); for (const k of ["aggSigma", "moodBias", "maxImpact"] as const) Object.assign(TUNE[k], o[k] ?? {}); Object.assign(SIZE_SCALE, o.sizeScale ?? {}); Object.assign(PERSONA_TUNE, o.persona ?? {});
+if (process.env.PAPER_TUNE) { const o = JSON.parse(process.env.PAPER_TUNE); for (const k of ["aggSigma", "moodBias", "maxImpact"] as const) Object.assign(TUNE[k], o[k] ?? {}); Object.assign(SIZE_SCALE, o.sizeScale ?? {}); Object.assign(PERSONA_TUNE, o.persona ?? {}); Object.assign(START_CASH, o.startCash ?? {}); Object.assign(TUNE.lobby, o.lobby ?? {});
   for (const k of ["tier", "arch"] as const) for (const [t, v] of Object.entries(o[k] ?? {})) (TUNE[k] as Record<string, object>)[t] = { ...((TUNE[k] as Record<string, object>)[t] ?? {}), ...(v as object) }; }
 import { personaAct, newPersonaState, roundSummary, standings, PERSONA_TUNE, type Persona } from "../lib/sim/paperRound";
 const N = +(process.argv[2] || 30), only = process.argv[3] && process.argv[3] !== "all" ? [process.argv[3] as PaperDifficulty] : PAPER_DIFFS;

@@ -54,3 +54,49 @@ Spec ranges for reaction times, noise, stops, ladders, archetype mix and lobby m
 - Novice wins ≤ ~3% everywhere. Strong still wins 42% on Medium.
 - 30–60 seed estimates have ±5–7 pt noise; results are sensitive to small knob changes (rng draws shift).
 - Rounds run the full 600 s after ASCEND (not ended at graduation), as before.
+
+## v2.1 — Easy lobby stacks $100 → $135 (Oct 31, 6:15 AM CT, lee's decision)
+Fixes "Easy never ascends". Graduation amount unchanged ($6.45K net raise); Medium and Hard untouched (identical results on the same seeds).
+- `START_CASH.easy` 100 → **135** for the player and every bot tier (Easy, Medium, Hard bots in the Easy lobby all start equal).
+- `SIZE_SCALE.easy` 0.87 → **0.7** (Easy-lobby only), so per-trade bets stay ≈ $95 × size like before; the extra cash is dry powder.
+- Sweep (30 seeds, decent): $110 → 0% ascend, $120 → 33%, $130 → 73%, $150+ → ~100%. The ascend rate is a steep step, so small changes swing it.
+
+Easy lobby, 120 seeds (60 from 7000 + 60 from 9000), round runs 600 s:
+| Persona | Win % | Top-10 % | Ascend % | Avg PnL $ E / M / H tier |
+|---|---|---|---|---|
+| decent | 21.5 | 52 | 58.5 | −0.7 / 25.1 / 69.8 |
+| strong | 3.5 | 79 | 67.5 | −0.2 / 23.9 / 55.8 |
+| novice | 0 | 1 | 70.5 | −1.4 / 25.8 / 72.8 |
+Spec decent targets 15–25% / 50–60%: both met. Ascend ≈ 58–70% (target 40–70%).
+Caveats: strong only wins ~3.5% on Easy (top-10 79%) — its dip buys are $25 presets (≈20% of stack), so bigger bots out-ride the pump; Hard-tier bots
+beat Easy bots in the Easy lobby (+70 vs −1 $). Bot size presets ($10/25/50/100) unchanged.
+`test:paper-sim` asserts Easy ascend 40–85% and decent win 10–40% / top-10 40–70% on seeds 7000–7029.
+
+## v2.2 — Medium lobby bot knobs (Oct 31, lee 6:17 AM CT: Medium + Hard to spec bands)
+New `TUNE.lobby[d][tier]` (per-lobby, per-tier overrides) so one lobby can be tuned without moving the others.
+Medium lobby only: `SIZE_SCALE.medium` 0.15 → 0.237, `aggSigma.medium` 0.79 → 1.45, `moodBias.medium` −0.09 → −0.19, and in that lobby
+Easy bots buyTh 0.25 → 0.505, cooldown 6.8 → 9.1 s, stop 0.35 → 0.17, maxPos 0.8 → 0.69; Medium bots buyTh 0.3 → 0.37, cooldown 6.3 → 6.7 s,
+stop 0.12 → 0.32, maxPos 0.5 → 0.55; Hard bots buyTh 0.26 → 0.49, cooldown 10 → 5.9 s, stop 0.08 → 0.22, maxPos 0.35 → 0.77.
+Hard lobby: unchanged from v2 — ~500 searched configs (2 rounds × 2 lobbies, incl. 2-seed-set scoring) never beat it out of sample.
+
+All lobbies, 120 seeds (60 from 7000 + 60 from 9000):
+| Lobby | Persona | Win % | Top-10 % | Ascend % | Target (decent) |
+|---|---|---|---|---|---|
+| Easy | decent | 21.5 | 52 | 58.5 | 15–25 / 50–60 ✔ |
+| Easy | strong | 3.5 | 79 | 67.5 | |
+| Easy | novice | 0 | 1 | 70.5 | |
+| Medium | decent | 0 | 28.5 | 91 | 5–10 ✘ / 30–35 (just under) |
+| Medium | strong | 16 | 86 | 96 | (was 42) |
+| Medium | novice | 1 | 11 | 91.5 | |
+| Hard | decent | 0 | 6 | 89 | 0–3 ✔ / 10–15 ✘ |
+| Hard | strong | 17 | 96 | 91.5 | 10–20 ✔ |
+| Hard | novice | 1 | 7 | 91 | |
+
+Bands that can't be hit with bot knobs alone (why):
+- **Medium decent wins 5–10%** with top-10 30–35%: the decent persona's per-round returns are too narrow (it ladders out at +40/+100% with a
+  −16% stop) to finish #1 while the #1 bot makes +400%; every config that raised its wins also pushed top-10 to 50–70%. Out-of-sample best was ~1–3%.
+- **Hard decent top-10 10–15%**: decent loses money in the Hard lobby (stopped out by fast Hard bots); best out-of-sample 5–6%, while the novice
+  (small dip buys) places top-10 more often. Hitting it needs a Hard-aware decent persona, not bot knobs (persona was kept the same everywhere).
+- **Strong ordering Easy > Medium > Hard**: strong wins only ~3.5% on Easy (its dip buys are $25 presets, ≈20% of its $135 stack, so it can't
+  out-ride the pump), so it cannot sit above Medium (16%) or Hard (17%) there; Medium vs Hard strong are tied.
+- Searches overfit badly to their seed set (in-sample 5%/33% → out-of-sample 1%/30%); results also move a lot with knob rounding.

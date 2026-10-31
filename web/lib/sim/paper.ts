@@ -24,7 +24,7 @@ export const PAPER_BLURB: Record<PaperDifficulty, string> = {
 };
 
 /** spec Sec. 2: equal start inside a lobby */
-export const START_CASH: Record<PaperDifficulty, number> = { easy: 100, medium: 500, hard: 1000 };
+export const START_CASH: Record<PaperDifficulty, number> = { easy: 135, medium: 500, hard: 1000 }; // Easy $100 → $135 (Oct 31, lee): the $100 lobby could not hold the $6.45K graduation raise; see docs/paper-tuning.md
 /** spec Sec. 2: sample gas, $ flat per trade, out of cash (every wallet, bots too) */
 export const GAS_USD = 0.25;
 export const ROUND_MINUTES = 10;
@@ -46,7 +46,7 @@ export const ARCH_LABEL: Record<PaperArchetype, string> = {
 export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], medium: [1300, 1700], hard: [1900, 2400] };
 /** TUNE (ASSUMPTION, #224): bots size buys as size × SIZE_SCALE × startCash so the richer lobbies don't graduate in ~2 min
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
-export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.87, medium: 0.15, hard: 0.15 }; // v1: 1 / 0.13 / 0.11
+export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.7, medium: 0.237, hard: 0.15 }; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks)
 export const NOISE_TRADE_SHARE = 0.25;
 
 /** One brain, parameterised (spec Sec. 5) */
@@ -78,10 +78,12 @@ const ARCH_OVERRIDE: Record<PaperArchetype, Partial<BrainParams>> = {
   exit: { ladder: [[0.12, 0.25], [0.25, 0.25], [0.4, 0.25], [0.6, 0.25]], wCurve: 0.9 },
   dip: { wMom: 0.2, wRev: 1.2, dipPct: 0.05, size: [0.25, 0.35] },
 };
-export const brainFor = (tier: Tier, arch: PaperArchetype): BrainParams => ({ ...TIER_BASE[tier], ...TUNE.tier[tier], ...ARCH_OVERRIDE[arch], ...TUNE.arch[arch] });
+export const brainFor = (tier: Tier, arch: PaperArchetype, d?: PaperDifficulty): BrainParams => ({ ...TIER_BASE[tier], ...TUNE.tier[tier], ...ARCH_OVERRIDE[arch], ...TUNE.arch[arch], ...(d ? TUNE.lobby[d]?.[tier] : undefined) });
 /** TUNING layer (balance as a config diff, spec Sec. 5 note): overrides on top of the spec table above, plus lobby-level knobs.
  *  Everything here is listed against the spec in docs/paper-tuning.md. Mutable only for scripts/paper-tune.mts. */
 export const TUNE: {
+  /** per-lobby, per-tier overrides (applied last): tune one lobby without moving the others */
+  lobby: Partial<Record<PaperDifficulty, Partial<Record<Tier, Partial<BrainParams>>>>>;
   tier: Partial<Record<Tier, Partial<BrainParams>>>; arch: Partial<Record<PaperArchetype, Partial<BrainParams>>>;
   /** per-bot size multiplier ~ lognormal(σ), mean-normalised to 1: a few bots bet big (whales / degens), most bet small */
   aggSigma: Record<PaperDifficulty, number>;
@@ -95,7 +97,11 @@ export const TUNE: {
   // Medium/Hard wait longer between trades (6 s / 10 s) and trade smaller minimums, so gas stops bleeding Medium and Hard stops herding.
   tier: { easy: { windows: [6], cooldownS: 6.8 }, medium: { cooldownS: 6.3, minTradeUsd: 2.4 }, hard: { cooldownS: 10, buyTh: 0.26, minTradeUsd: 5.4 } },
   arch: {},
-  aggSigma: { easy: 0.68, medium: 0.79, hard: 1.2 }, moodBias: { easy: -0.04, medium: -0.09, hard: 0.12 }, maxImpact: { easy: 0, medium: 0, hard: 0 },
+  // v2.2 (Oct 31): Medium-lobby only — pickier, slower bots with wider stops and bigger, lumpier bets, cooler mood; pulls the
+  // strong player's Medium win rate from ~42% to ~16%. Hard lobby left at v2 (no bot-knob config beat it out of sample).
+  lobby: { medium: { easy: { buyTh: 0.505, cooldownS: 9.12, stopPct: 0.168, maxPos: 0.688 }, medium: { buyTh: 0.373, cooldownS: 6.69, stopPct: 0.317, maxPos: 0.552 },
+    hard: { buyTh: 0.493, cooldownS: 5.9, stopPct: 0.221, maxPos: 0.766 } } },
+  aggSigma: { easy: 0.68, medium: 1.453, hard: 1.2 }, moodBias: { easy: -0.04, medium: -0.192, hard: 0.12 }, maxImpact: { easy: 0, medium: 0, hard: 0 },
 };
 /** backdrop phases (spec Sec. 4): mood biases every wallet's score equally; boundaries jitter ±15 s from the seed */
 export const PHASES = [
@@ -121,7 +127,7 @@ export function paperConfig(d: PaperDifficulty, base: SimConfig = cloneConfig())
   D.orders = { ...D.orders, rate: 0 };
   (c.difficulties as Record<string, SimDifficulty>)[paperDiffId(d) as string] = D;
   for (const a of Object.keys(ARCH_LABEL) as PaperArchetype[]) {
-    const tier = (Object.keys(TIER_ARCHETYPES) as Tier[]).find((t) => TIER_ARCHETYPES[t].some(([x]) => x === a))!, p = brainFor(tier, a);
+    const tier = (Object.keys(TIER_ARCHETYPES) as Tier[]).find((t) => TIER_ARCHETYPES[t].some(([x]) => x === a))!, p = brainFor(tier, a, d);
     const A: SimArchetype = { label: ARCH_LABEL[a], blurb: ARCH_LABEL[a], cash: START_CASH[d], cashSigma: 0, rate: 60 / p.intervalS, buyFrac: [0.1, 0.2], tp: 1, sellFrac: [1, 1], sl: -9,
       dip: 0, chase: 0, resist: 0, followPlayer: 0, style: "compete", names: ["bot"] };
     (c.archetypes as Record<string, SimArchetype>)[paperArchId(a) as string] = A;
@@ -155,7 +161,7 @@ export class PaperBrain implements SimBrain {
         for (const [aa, w] of arch) { if (x < w) { a = aa; break; } x -= w; }
         const b = run.spawn(paperArchId(a), 0);
         b.cash = b.cash0 = this.startCash;   // equal start (spawn's lognormal is σ 0, hype 1 — pinned anyway)
-        const p = this.jitter(run, brainFor(tier, a)), [r0, r1] = RATING_BAND[tier];
+        const p = this.jitter(run, brainFor(tier, a, this.difficulty)), [r0, r1] = RATING_BAND[tier];
         b.nextT = p.activeFrom[0] + run.rng() * (p.activeFrom[1] - p.activeFrom[0]);
         const sg = TUNE.aggSigma[this.difficulty], z = Math.sqrt(-2 * Math.log(1 - run.rng())) * Math.cos(2 * Math.PI * run.rng()), agg = sg > 0 ? Math.exp(sg * z - sg * sg / 2) : 1;
         this.meta.set(b.id, { agg, tier, arch: a, rating: Math.round(r0 + run.rng() * (r1 - r0)), p, react: p.reactS[0] + run.rng() * (p.reactS[1] - p.reactS[0]), peak: 0, pos0: 0, ladderHit: 0, entryT: 0, lastTradeT: -1e9 });
