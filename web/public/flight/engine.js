@@ -1763,7 +1763,7 @@ function drawHud(){
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
   const AW=472, AH=108, HB=(CARD_RECTS.header?CARD_RECTS.header.y+CARD_RECTS.header.h:148+coinIdRowH());
-  const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
+  const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:Math.max(0,(+window.__hudLeft||0)-(+window.__wrapL||0))+400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
   if (LY){ RT=LY.colTop; RX=LY.RX; }
   if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body

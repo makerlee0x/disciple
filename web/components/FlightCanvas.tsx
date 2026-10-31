@@ -203,9 +203,11 @@ export default function FlightCanvas({ search }: Props) {
       // the wallet strip's left edge in canvas px (engine hudTopLayout keeps the BUY panel clear of the cash / total cards);
       // the canvas starts at the sidebar edge, whatever its width (measured, not --ap-side-w)
       const wl = w ? Math.floor(w.getBoundingClientRect().left - (wrapRef.current?.getBoundingClientRect().left || 0)) : 0;
-      if (`${b}:${vw}:${wl}:${colTop}` === last) return;
-      last = `${b}:${vw}:${wl}:${colTop}`;
+      const hl = Number((window as unknown as { __hudLeft?: number }).__hudLeft) || 0;   // overlay sidebar (lib/game/sidebarOverlay)
+      if (`${b}:${vw}:${wl}:${colTop}:${hl}` === last) return;
+      last = `${b}:${vw}:${wl}:${colTop}:${hl}`;
       (window as unknown as { __walletL?: number }).__walletL = wl;
+      (window as unknown as { __wrapL?: number }).__wrapL = Math.round(wrapRef.current?.getBoundingClientRect().left || 0);
       const row = Math.max(12, b + 8);
       // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
       // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.

@@ -12,7 +12,8 @@ export type CardId = "header" | "holders" | "trades" | "controls" | "chart" | "p
 /** w / h: a RESIZED card's size (resizable cards only — today the DEX chart); absent = the card's default size */
 /** slot / order (PR #221 snap-to-grid, lib/game/slots): where a moved card lives — the slot it was dropped in and its place in
  *  that slot's stack. dx / dy: legacy raw offsets (migrated to a slot on first sight) or the live offset while dragging. */
-export type CardState = { dx: number; dy: number; min?: boolean; closed?: boolean; w?: number; h?: number; slot?: SlotId; order?: number };
+export type CardState = { dx: number; dy: number; min?: boolean; closed?: boolean; w?: number; h?: number; slot?: SlotId; order?: number; pin?: boolean };
+/* pin: the player opened a secondary card (TOP HOLDERS / TRADES) from its tab on a small screen — keep it open there */
 export type Layout = Partial<Record<CardId, CardState>>;
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -22,7 +23,7 @@ export const CANVAS_CARDS: CardId[] = ["header", "holders", "trades", "controls"
 export const DOM_CARDS: CardId[] = ["chart", "pnl", "chat"];
 /** cards with a resize handle (CardState.w / h) and their size limits (px) */
 export const RESIZABLE: Partial<Record<CardId, { minW: number; minH: number; defW: number; defH: number }>> = {
-  chart: { minW: 300, minH: 200, defW: 440, defH: 280 },
+  chart: { minW: 260, minH: 180, defW: 440, defH: 280 },   // + the canvas-relative cap in lib/game/slots chartCap
 };
 export const CARD_IDS: CardId[] = [...CANVAS_CARDS, ...DOM_CARDS];
 export const CARD_TITLES: Record<CardId, string> = {
@@ -46,7 +47,8 @@ export function parseLayout(raw: string | null | undefined): Layout {
     const rz = RESIZABLE[id];
     if (rz) { const w = num(o.w), h = num(o.h); if (w > 0 && h > 0) { s.w = Math.max(rz.minW, w); s.h = Math.max(rz.minH, h); } }
     if (typeof o.slot === "string" && (SLOT_IDS as string[]).includes(o.slot)) { s.slot = o.slot as SlotId; s.order = num(o.order); s.dx = 0; s.dy = 0; }
-    if (s.dx || s.dy || s.min || s.closed || s.w || s.slot) out[id] = s;
+    if (o.pin === true) s.pin = true;
+    if (s.dx || s.dy || s.min || s.closed || s.w || s.slot || s.pin) out[id] = s;
   }
   return out;
 }
@@ -65,7 +67,8 @@ export function setCard(l: Layout, id: CardId, patch: Partial<CardState>): Layou
   if (!next.closed) delete next.closed;
   if (!(next.w && next.h && RESIZABLE[id])) { delete next.w; delete next.h; }
   if (!next.slot) { delete next.slot; delete next.order; }
-  if (!next.dx && !next.dy && !next.min && !next.closed && !next.w && !next.slot) delete out[id]; else out[id] = next;
+  if (!next.pin) delete next.pin;
+  if (!next.dx && !next.dy && !next.min && !next.closed && !next.w && !next.slot && !next.pin) delete out[id]; else out[id] = next;
   return out;
 }
 export const restoreCard = (l: Layout, id: CardId) => setCard(l, id, { min: false, closed: false });

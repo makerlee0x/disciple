@@ -22,6 +22,11 @@ for (const vw of [1280, 1366, 1440, 1536, 1680, 1920]) for (const side of [64, 2
   ok(ammo.x >= 20 && ammo.x + ammo.w <= W - 20 && col.x + col.w <= W, "on screen · " + tag);
   n++;
 }
+// overlay sidebar (SITE #222): canvas full width, left 248 blocked while open → header column starts at 248+20 (hdrR = 248+400)
+for (const vw of [1280, 1440, 1920]) for (const walletW of [0, 430]) { const W = vw, colTop = walletW ? 70 : 28, walletL = walletW ? W - 20 - walletW : 0;
+  const L = hudTopLayout({ W, AW: 472, AH: 108, CW: 310, hdrR: 248 + 400, hdrB: 176, colTop, colH: 96, walletL });
+  const hdr = { x: 268, y: 18, w: 380, h: 158 }, ammo = { x: L.ax, y: L.ay, w: 472, h: 108 }, col = { x: L.RX, y: L.colTop, w: 310, h: 96 };
+  ok(!hit(hdr, ammo) && !hit(ammo, col) && ammo.x >= 248 && ammo.x + 472 <= W - 20, `overlay vw ${vw} wallet ${walletW}: ${JSON.stringify(ammo)} ${JSON.stringify(col)}`); n++; }
 // unchanged where it already fit: wide canvas, no wallet → centred between header and column, top row
 { const W = 1920 - 64, L = hudTopLayout({ W, AW: 472, AH: 108, CW: 310, hdrR: 400, hdrB: 148, colTop: 28, colH: 96, walletL: 0 });
   ok(L.ay === 18 && L.colTop === 28 && L.ax === Math.round((W - 472) / 2), "wide screen: same layout as before " + JSON.stringify(L)); }
