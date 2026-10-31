@@ -35,9 +35,7 @@ Organic volume each day is `max(base, k × pool TVL)`. The active base is $1,000
 
 Reference TVL is read as the sim's stand-in for the smoothed anchor path. Fixed stays at $721,000. Grow and shrink move linearly with the day count, from $721,000 to $1,000,000 or $500,000. The contract smooths the raw reading with a 30-minute half-life after the first snap, on the same read as the price (lzRead, the v3 30-minute TWAP, or a v4 consult or sample). The sim applies the path level directly. It does not add a second flash-deposit game on top of that smooth.
 
-Graduation matches the contract. The first observation at or above the live target starts `aboveSince` and does not flip status. Status turns on when a later clip is still over the line and 77 minutes have passed. Crossing back under the line before that clears the window. Once status is on it stays on, including when the reference later grows through the pool. In this grid every profile that graduated was still graduated on day 365.
-
-Morpho yield is 5% APR on the idle slice while status is on (at most half of USDG, above the 20% floor and the buffer). The yield is added to the book. The latch means a later dip does not stop it.
+Graduation matches the contract as it was when this study was published. The first observation at or above the live target starts `aboveSince` and does not flip status. Status turns on when a later clip is still over the line and 77 minutes have passed. Crossing back under the line before that clears the window. Once status is on it stays on, including when the reference later grows through the pool. In this grid every profile that graduated was still graduated on day 365.
 
 Searcher profit is mark-to-anchor minus the 0.5% cost, attributed to the bucket the pool was in before the fill. The Dutch searcher trades only when the rested gap clears the fee plus that cost, so a Dutch bucket at $0 is a bucket where the searcher stood aside. Curve books can print a loss after a quote that cleared, because the fill walks the curve.
 
