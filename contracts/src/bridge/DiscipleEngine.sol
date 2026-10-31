@@ -105,9 +105,9 @@ contract DiscipleEngine {
     {
         if (amount == 0) return (0, 0);
         if (buyCoin) {
-            (profitWad, , amountOut) = _markBuy(s, ctx, amount, gap);
+            (profitWad,, amountOut) = _markBuy(s, ctx, amount, gap);
         } else {
-            (profitWad, , amountOut) = _markSell(s, ctx, amount, gap);
+            (profitWad,, amountOut) = _markSell(s, ctx, amount, gap);
         }
     }
 
@@ -139,7 +139,8 @@ contract DiscipleEngine {
         uint32 remoteEid
     ) external pure returns (bool) {
         if (kind == C.ANCHOR_LZ) {
-            return remoteOracle != address(0) && v3Pool == address(0) && refPoolId == bytes32(0) && refHook == address(0);
+            return remoteOracle != address(0) && v3Pool == address(0) && refPoolId == bytes32(0)
+                && refHook == address(0);
         }
         if (kind == C.ANCHOR_V3) {
             return v3Pool != address(0) && tipSeed == 0 && remoteOracle == address(0) && remoteEid == 0
@@ -279,5 +280,7 @@ contract DiscipleEngine {
         o.maxUsdgOut = c.maxUsdgOut;
         o.totalShares = c.totalShares;
         o.boostWad = c.boostWad;
+        o.quoteFeeSet = c.quoteFeeSet;
+        o.quoteFeeBps = c.quoteFeeBps;
     }
 }

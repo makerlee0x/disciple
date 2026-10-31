@@ -211,9 +211,11 @@ The 0.67× price is virtual USDG (`vy ≈ 0.67 × anchor × coin`). Putting real
 
 The constant `GRAD = 86520e18` in `test_recommendedSeedIsAllCoin` is that example target (12% of $721k). The live target in the hook is 12% of the smoothed reference, not this constant.
 
-## Earlier simulator
+## Simulator
 
-`test/bridge/DiscipleSim.t.sol` still runs the real curve, including the Dutch quotes and a fee-funded drip that exists only in that file. `SIM_RESULTS_PARTIAL.md` is the record of an earlier moving-anchor campaign. That campaign's recommendation was to ship a volume-based fee and leave the Dutch auction in the simulator. That recommendation is not the product. The hook ships the progress-only fee and the two-sided Dutch auction described above. Do not read those tables as the fee or the quote the contract uses. The year-long `test_simActive` and `test_simDead` runs are not part of the contract tests.
+`test/bridge/DiscipleSim.t.sol` runs the real curve. `SIM_RESULTS_PARTIAL.md` is an earlier moving-anchor campaign. That campaign's recommendation was to ship a volume-based fee and leave the Dutch auction in the simulator. That recommendation is not the product. The hook ships the progress-only fee and the two-sided Dutch auction described above.
+
+`SIM_RESULTS_V2.md` is a later study. It asks what would happen if the Dutch quotes, the progress slide, a volume fee, and the early LP boost ran together. The volume fee in that file is not charged by the hook. `test_simV2` runs only when `SIM_V2=1`. It is not part of the contract tests.
 
 ## Deviations from the wording of the spec
 

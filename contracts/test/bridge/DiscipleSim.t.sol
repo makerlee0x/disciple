@@ -10,33 +10,37 @@ import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.s
 
 /// @notice Simulator only. Nothing in this file is part of the hook.
 ///
-/// Every profile shares one retail stream and one oracle path. The oracle is a geometric
-/// random walk of the JESUS price: 3% a day in the active scenario, 0.1% a day when the
-/// coin is dead. Retail is $5–$50. Active days are $1,000. Dead days are $100–$200.
-/// The walk and the daily budget use their own seeds, so a variant cannot knock the path
-/// off the one the others see.
+/// Every profile shares one retail stream and one oracle path. The anchor mean-reverts
+/// around $1 (7-day half-life of the log deviation) with no trend. Daily volatility is 3%
+/// active and 0.1% dead. Seeds are shared, so a variant cannot knock the path off the one
+/// the others see.
 ///
-/// Two searchers are run as separate profiles. OUT pays the pool fee plus 0.5%. LOW pays
-/// the pool fee plus gas, about 0.05%. LOW is a public searcher. The hook is generic, so
-/// the launch team is not assumed to run it.
+/// `test_simV2` runs one searcher, OUT, who pays the pool fee plus 0.5%. That is the
+/// binding cost. LOW (fee plus about 0.05%) stays in the unit tests and the smoke run.
+/// The hook is generic, so the launch team is not assumed to run the searcher.
+///
+/// Dutch-family books are parked on the anchor after each quote and on each anchor move,
+/// so the gap is only the time quote. The shipped hook instead returns the curve to its
+/// pre-trade spot, and a zero gap leaves the launch discount on the curve.
 ///
 /// Modes:
 ///   0 rev fee, the book keeps its spot/anchor ratio when the oracle moves
-///   BASE the pre-rev schedule (the sliding 2%→0.3% cap on every trade)
-///   A–D overshoot / relist, on the rev-fee book
-///   LEV  50/50 value mix. The quote is the oracle adjusted by the mix error times an
-///        amplification that slides from 3x at launch to 1x at graduation, so an oracle
-///        move of size r opens a gap of about 3r while the pool is small and about r
-///        once it graduates. Only the trade that walks the mix back is rich.
-///   DUTCH two independent quotes, bid and ask. Each drifts off the anchor at 1% per hour
-///        and resets only when that side trades. There is no max gap. Size is
-///        edge/gap, also capped at $50 and at 5% of TVL, so a late fill is a small slice
-///        and never the pool. The bid price stops at 1% of the anchor so it stays
-///        positive; past that the slice keeps shrinking. The tail, the seed guard, and
-///        the 20% floor still bind inside every fill. Active and dead both use this.
-///   DRIP once an hour, a dutch sale of JESUS funded only by fees. The coin has to be
-///        surplus above the seed. The discount is sniped at the searcher's cost and the
-///        subsidy cannot exceed fees already earned.
+///   BASE the sliding 2%→0.3% schedule on every trade, no rev discount
+///   A–D overshoot / relist, on the rev-fee book. Not in the V2 grid.
+///   LEV  50/50 value mix. Not in the V2 grid.
+///   DUTCH independent bid and ask. Each resets only when that side trades.
+///   DRIP once an hour, a dutch sale of surplus coin funded only by fees, on the rev book.
+///   DUTCHBASE shared-reset Dutch quotes plus the sliding fee and no rev discount.
+///   COMBO shared-reset Dutch, the rev fee charged on top of the gap, and the 5×→1.2×
+///        LP boost. This is the primary V2 variant. A search may retune its knobs.
+///   COMBOALT the same book, but the rev fee is subtracted from the gap and is not also
+///        charged on the fill.
+///
+/// V2 (`test_simV2`) is a different experiment from `SIM_RESULTS_PARTIAL.md`. The anchor
+/// mean-reverts around $1. Daily organic volume is max(base, k × TVL). The graduation
+/// target is 12% of a reference TVL that can be fixed, rising, or falling. Graduated
+/// status waits 77 minutes and can turn back off. Progress moves the fee, the boost, and
+/// the band immediately.
 contract DiscipleSimTest is Test {
     uint256 internal constant START = 1e18;
     uint256 internal constant SEED = 77e18;
@@ -57,6 +61,11 @@ contract DiscipleSimTest is Test {
     uint8 internal constant MODE_LEV = 6;
     uint8 internal constant MODE_DUTCH = 7;
     uint8 internal constant MODE_DRIP = 8;
+    uint8 internal constant MODE_DUTCH_BASE = 9;
+    uint8 internal constant MODE_COMBO = 10;
+    uint8 internal constant MODE_COMBO_ALT = 11;
+    uint256 internal constant REV_HALF = 1 hours;
+    uint256 internal constant REV_RED = 0.5e18;
     uint8 internal constant ACT_RETAIL = 0;
     uint8 internal constant ACT_ARB = 1;
     uint8 internal constant ACT_LOOP = 2;
@@ -133,6 +142,27 @@ contract DiscipleSimTest is Test {
     uint256 internal dripFilledHour;
     uint256 internal horizon = 365;
     string internal tag;
+    uint256 internal kWad;
+    uint8 internal refPath;
+    uint256 internal driftPerSec;
+    uint256 internal edgeWad;
+    uint256 internal redLineWad;
+    uint256 internal boostStartWad;
+    uint256 internal feeTinyBps;
+    uint256 internal feeGradBps;
+    uint256 internal aboveSince;
+    uint256 internal belowSince;
+    uint256 internal morphoYield;
+    uint256 internal bucketClock;
+    int256[4] internal bucketP;
+    uint256[4] internal bucketS;
+    uint256 internal useDrift;
+    uint256 internal useEdge;
+    uint256 internal useRed;
+    uint256 internal useBoost;
+    uint256 internal useTiny;
+    uint256 internal useGradBps;
+    bool internal comboAltWins;
 
     function test_recommendedSeedIsAllCoin() public pure {
         BridgeCurve.S memory m;
@@ -257,36 +287,69 @@ contract DiscipleSimTest is Test {
         _profile("ACT", "OUT", "D", COST_OUTSIDE, MODE_D, VOL_ACTIVE, false);
         _profile("ACT", "OUT", "LEV", COST_OUTSIDE, MODE_LEV, VOL_ACTIVE, false);
         _profile("ACT", "OUT", "DUTCH", COST_OUTSIDE, MODE_DUTCH, VOL_ACTIVE, false);
+        _profile("ACT", "OUT", "COMBO", COST_OUTSIDE, MODE_COMBO, VOL_ACTIVE, false);
+        _profile("ACT", "OUT", "COMBOALT", COST_OUTSIDE, MODE_COMBO_ALT, VOL_ACTIVE, false);
         _profile("DEAD", "LOW", "DRIP", COST_LOW, MODE_DRIP, VOL_DEAD, true);
     }
 
-    function test_simActive() public {
-        _campaign(VOL_ACTIVE, false, "ACT");
+    /// @dev Full V2 grid. Skipped unless `SIM_V2=1`, so `forge test` does not run the year.
+    ///      `SIM_DAYS` shortens every profile (the knob search stays at 30 days or less).
+    function test_simV2() public {
+        if (vm.envOr("SIM_V2", uint256(0)) == 0) {
+            vm.skip(true);
+            return;
+        }
+        uint256 saved = horizon;
+        try vm.envUint("SIM_DAYS") returns (uint256 d) {
+            if (d != 0) horizon = d;
+        } catch {}
+        saved = horizon;
+        _pickCombo();
+        horizon = saved;
+        _v2Grid();
     }
 
-    function test_simDead() public {
-        _campaign(VOL_DEAD, true, "DEAD");
+    function _v2Grid() internal {
+        uint8 combo = comboAltWins ? MODE_COMBO_ALT : MODE_COMBO;
+        uint8 alt = comboAltWins ? MODE_COMBO : MODE_COMBO_ALT;
+        uint8[7] memory modes = [combo, alt, MODE_BASE, 0, MODE_DUTCH, MODE_DRIP, MODE_DUTCH_BASE];
+        string[7] memory names = ["COMBO", "COMBOALT", "BASE", "REV", "DUTCH", "DRIP", "DUTCHBASE"];
+        uint256[3] memory ks = [uint256(0.25e18), uint256(0.5e18), uint256(1e18)];
+        string[3] memory kName = ["k0.25", "k0.50", "k1.00"];
+        string[3] memory refName = ["FIX", "GROW", "SHRINK"];
+        for (uint256 v; v < modes.length; ++v) {
+            for (uint256 s_; s_ < 2; ++s_) {
+                bool dead_ = s_ == 1;
+                string memory scene = dead_ ? "DEAD" : "ACT";
+                uint256 vol = dead_ ? VOL_DEAD : VOL_ACTIVE;
+                for (uint256 ki; ki < ks.length; ++ki) {
+                    for (uint256 r; r < 3; ++r) {
+                        _profileV2(scene, names[v], modes[v], vol, dead_, ks[ki], kName[ki], uint8(r), refName[r]);
+                    }
+                }
+            }
+        }
     }
 
-    function _campaign(uint256 vol, bool dead_, string memory scene) internal {
-        _profile(scene, "OUT", "BASE", COST_OUTSIDE, MODE_BASE, vol, dead_);
-        _profile(scene, "LOW", "BASE", COST_LOW, MODE_BASE, vol, dead_);
-        _profile(scene, "OUT", "REV", COST_OUTSIDE, 0, vol, dead_);
-        _profile(scene, "LOW", "REV", COST_LOW, 0, vol, dead_);
-        _profile(scene, "OUT", "A", COST_OUTSIDE, MODE_A, vol, dead_);
-        _profile(scene, "LOW", "A", COST_LOW, MODE_A, vol, dead_);
-        _profile(scene, "OUT", "B", COST_OUTSIDE, MODE_B, vol, dead_);
-        _profile(scene, "LOW", "B", COST_LOW, MODE_B, vol, dead_);
-        _profile(scene, "OUT", "C", COST_OUTSIDE, MODE_C, vol, dead_);
-        _profile(scene, "LOW", "C", COST_LOW, MODE_C, vol, dead_);
-        _profile(scene, "OUT", "D", COST_OUTSIDE, MODE_D, vol, dead_);
-        _profile(scene, "LOW", "D", COST_LOW, MODE_D, vol, dead_);
-        _profile(scene, "OUT", "LEV", COST_OUTSIDE, MODE_LEV, vol, dead_);
-        _profile(scene, "LOW", "LEV", COST_LOW, MODE_LEV, vol, dead_);
-        _profile(scene, "OUT", "DUTCH", COST_OUTSIDE, MODE_DUTCH, vol, dead_);
-        _profile(scene, "LOW", "DUTCH", COST_LOW, MODE_DUTCH, vol, dead_);
-        _profile(scene, "OUT", "DRIP", COST_OUTSIDE, MODE_DRIP, vol, dead_);
-        _profile(scene, "LOW", "DRIP", COST_LOW, MODE_DRIP, vol, dead_);
+    function _profileV2(
+        string memory scene,
+        string memory variant,
+        uint8 mode_,
+        uint256 vol,
+        bool dead_,
+        uint256 k,
+        string memory kName,
+        uint8 ref_,
+        string memory refName
+    ) internal {
+        tag = string.concat(scene, " OUT ", variant, " ", kName, " ", refName);
+        _reset(COST_OUTSIDE, mode_, vol, dead_);
+        kWad = k;
+        refPath = ref_;
+        if (mode_ == MODE_COMBO || mode_ == MODE_COMBO_ALT) _applyPick();
+        _run();
+        if (mode_ == MODE_DRIP) assertLe(dripSubsidy, fees, "drip subsidy stays inside fees");
+        assertGe(s.x, s.seedFloor, "seed guard holds");
     }
 
     function _profile(
@@ -309,7 +372,7 @@ contract DiscipleSimTest is Test {
         BridgeCurve.S memory m;
         BridgeCurve.init(m, SEED, 0.33e18);
         BridgeCurve.onAnchor(m, START);
-        if (mode_ == MODE_DUTCH) BridgeCurve.retarget(m, START);
+        if (_dutchFamily(mode_)) BridgeCurve.retarget(m, START);
         s = m;
         fees = 0;
         arbMark = 0;
@@ -349,6 +412,30 @@ contract DiscipleSimTest is Test {
         dripBudget = 0;
         dripSubsidy = 0;
         dripFilledHour = type(uint256).max;
+        kWad = 0;
+        refPath = 0;
+        driftPerSec = DUTCH_PER_SEC;
+        edgeWad = DUTCH_EDGE;
+        redLineWad = REV_RED;
+        boostStartWad = C.BOOST_START_WAD;
+        feeTinyBps = C.FEE_TINY_BPS;
+        feeGradBps = C.FEE_GRAD_BPS;
+        aboveSince = 0;
+        belowSince = 0;
+        morphoYield = 0;
+        bucketClock = 0;
+        for (uint256 i; i < 4; ++i) {
+            bucketP[i] = 0;
+            bucketS[i] = 0;
+        }
+    }
+
+    function _dutchFamily(uint8 mode_) internal pure returns (bool) {
+        return mode_ == MODE_DUTCH || mode_ == MODE_DUTCH_BASE || mode_ == MODE_COMBO || mode_ == MODE_COMBO_ALT;
+    }
+
+    function _sharedDutch() internal view returns (bool) {
+        return mode == MODE_DUTCH_BASE || mode == MODE_COMBO || mode == MODE_COMBO_ALT;
     }
 
     function _run() internal {
@@ -357,11 +444,8 @@ contract DiscipleSimTest is Test {
             // profiles in one call grows memory until MemoryLimitOOG.
             this.runDay();
             if (drainDay == 0 && BridgeCurve.tvl(s) < SEED / 2) drainDay = day;
-            if (gradDay == 0 && BridgeCurve.tvl(s) >= GRAD) {
-                graduated = true;
-                gradDay = day;
-            }
-            if (day == 7 || day == 90 || day == 365) _milestone(day);
+            if (day == 7 || day == 30 || day == 90 || day == 365) _milestone(day);
+            else if (day == horizon) _milestone(day);
         }
     }
 
@@ -369,13 +453,16 @@ contract DiscipleSimTest is Test {
     function runDay() external {
         require(msg.sender == address(this));
         uint256 budget = _budgetForDay();
+        _lpInflow(budget);
         uint256 vol;
         uint256 guard;
-        while (vol < budget && guard < 500) {
+        uint256 guardMax = kWad == 0 ? 500 : 24;
+        while (vol < budget && guard < guardMax) {
             unchecked {
                 ++guard;
             }
-            uint256 amt = 5e18 + (_rnd() % (45e18 + 1));
+            uint256 amt = kWad == 0 ? 5e18 + (_rnd() % (45e18 + 1)) : budget / 24;
+            if (amt == 0) amt = budget - vol;
             if (vol + amt > budget) amt = budget - vol;
             if (amt == 0) break;
             uint256 step = (1 days * amt) / budget;
@@ -383,22 +470,35 @@ contract DiscipleSimTest is Test {
             clock += step;
             _moveAnchor(step);
             _decayOvershoot();
+            // A shared-reset quote is zero after the clip's own trade. Sample the gap that has
+            // been open since the previous clip, and let the searcher take it before retail.
+            if (_dutchFamily(mode)) {
+                _recordGap();
+                arbNotional += _arb();
+            }
             bool buy = _rnd() % 2 == 0;
             if (!buy && s.y < 1e18) buy = true;
             if (buy) _routeBuy(amt, ACT_RETAIL);
             else _routeSell(Math.mulDiv(amt, C.WAD, _spot() == 0 ? s.anchor : _spot()), ACT_RETAIL);
             _relist(buy);
             vol += amt;
-            _recordGap();
-            _attack();
-            arbNotional += _arb();
-            _drip();
+            _noteTime();
+            if (!_dutchFamily(mode)) {
+                _recordGap();
+                _attack();
+                arbNotional += _arb();
+                _drip();
+            }
+            _touchGrad();
         }
+        _morpho();
     }
 
-    function _budgetForDay() internal returns (uint256) {
-        if (!dead) return DAILY_ACTIVE;
-        return 100e18 + (_dayRnd() % (100e18 + 1));
+    function _budgetForDay() internal view returns (uint256) {
+        uint256 base = dead ? 150e18 : DAILY_ACTIVE;
+        if (kWad == 0) return base;
+        uint256 scaled = Math.mulDiv(BridgeCurve.tvl(s), kWad, C.WAD);
+        return scaled > base ? scaled : base;
     }
 
     function _milestone(uint256 day) internal view {
@@ -437,23 +537,43 @@ contract DiscipleSimTest is Test {
             " anchor ",
             vm.toString(s.anchor),
             " samples ",
-            vm.toString(gapN)
+            vm.toString(gapN),
+            " on ",
+            graduated ? "1" : "0",
+            " morpho ",
+            vm.toString(morphoYield),
+            " b0 ",
+            vm.toString(bucketP[0]),
+            " b1 ",
+            vm.toString(bucketP[1]),
+            " b2 ",
+            vm.toString(bucketP[2]),
+            " b3 ",
+            vm.toString(bucketP[3]),
+            " s0 ",
+            vm.toString(bucketS[0]),
+            " s1 ",
+            vm.toString(bucketS[1]),
+            " s2 ",
+            vm.toString(bucketS[2]),
+            " s3 ",
+            vm.toString(bucketS[3])
         );
         console2.log(line);
     }
 
     function _routeBuy(uint256 usdgIn, uint8 actor) internal returns (uint256) {
-        if (mode == MODE_DUTCH) return _dutchBuy(usdgIn, actor);
+        if (_dutchFamily(mode)) return _dutchBuy(usdgIn, actor);
         return _applyBuy(usdgIn, actor);
     }
 
     function _routeSell(uint256 dx, uint8 actor) internal returns (uint256) {
-        if (mode == MODE_DUTCH) return _dutchSell(dx, actor);
+        if (_dutchFamily(mode)) return _dutchSell(dx, actor);
         return _applySell(dx, actor);
     }
 
     function _recordGap() internal {
-        if (mode == MODE_DUTCH) {
+        if (_dutchFamily(mode)) {
             // Price distance, saturated at 100% so a year of silence does not dominate the
             // average. Size still uses the raw gap and keeps shrinking past that.
             uint256 gb = _dutchBidGap(_dutchGap(bidAt));
@@ -472,7 +592,7 @@ contract DiscipleSimTest is Test {
     }
 
     function _arb() internal returns (uint256 added) {
-        if (mode == MODE_DUTCH) return _arbDutch();
+        if (_dutchFamily(mode)) return _arbDutch();
         for (uint256 i; i < 16; ++i) {
             uint256 p = _spot();
             uint256 a = s.anchor;
@@ -513,6 +633,7 @@ contract DiscipleSimTest is Test {
     }
 
     function _arbDutch() internal returns (uint256 added) {
+        if (_sharedDutch()) return _arbShared();
         uint256 bidGap = _dutchGap(bidAt);
         uint256 bidSize = bidGap == 0 ? 0 : _dutchOffer(bidGap);
         if (bidSize > 0 && bidGap > _slack(bidSize)) added += _dutchBuy(bidSize, ACT_ARB);
@@ -525,6 +646,25 @@ contract DiscipleSimTest is Test {
         }
     }
 
+    /// @dev One clock. A fill resets both quotes, so a timestamp can take only one side.
+    function _arbShared() internal returns (uint256) {
+        uint256 raw = _dutchGap(bidAt);
+        if (raw == 0) return 0;
+        uint256 size = _dutchOffer(raw);
+        if (size == 0) return 0;
+        uint256 quoted = _priceGap(raw, size);
+        if (quoted == 0) return 0;
+        uint256 need = mode == MODE_COMBO_ALT ? _baseFee(BridgeCurve.tvl(s), _target()) * 1e14 + costWad : _slack(size);
+        if (quoted <= need) return 0;
+        uint256 coinVal = Math.mulDiv(s.x, s.anchor, C.WAD);
+        if (s.y > 1e18 && coinVal < s.y) {
+            uint256 px = Math.mulDiv(s.anchor, C.WAD + _dutchBidGap(quoted), C.WAD);
+            uint256 dx = Math.mulDiv(size, C.WAD, px);
+            if (dx > 0) return _dutchSell(dx, ACT_ARB);
+        }
+        return _dutchBuy(size, ACT_ARB);
+    }
+
     function _clears(uint256 p, uint256 notion, bool buying) internal view returns (bool) {
         uint256 slack = _slack(notion);
         if (slack >= C.WAD || s.anchor == 0) return false;
@@ -533,7 +673,7 @@ contract DiscipleSimTest is Test {
     }
 
     function _slack(uint256 notion) internal view returns (uint256) {
-        return _revBps(notion) * 1e14 + costWad;
+        return _fillBps(notion) * 1e14 + costWad;
     }
 
     function _missedBuy(uint256 usdgIn) internal {
@@ -568,6 +708,7 @@ contract DiscipleSimTest is Test {
         _book(f.fee, f.tip);
         _commitRev(f.usdgIn);
         grossNotional += f.usdgIn;
+        _stampShared();
         int256 mark = int256(Math.mulDiv(f.coinOut, s.anchor, C.WAD)) - int256(f.usdgIn);
         lastMark = mark;
         _attribute(actor, mark, f.usdgIn);
@@ -591,6 +732,7 @@ contract DiscipleSimTest is Test {
         uint256 gross = f.usdgOut + f.fee;
         _commitRev(gross);
         grossNotional += gross;
+        _stampShared();
         int256 mark;
         if (f.coinIn > 0) {
             mark = int256(f.usdgOut) - int256(Math.mulDiv(f.coinIn, s.anchor, C.WAD));
@@ -604,12 +746,14 @@ contract DiscipleSimTest is Test {
     function _attribute(uint8 actor, int256 mark, uint256 gross) internal {
         if (actor == ACT_ARB) {
             arbMark += mark;
-            arbProfit += mark - int256(Math.mulDiv(gross, costWad, C.WAD));
+            int256 profit = mark - int256(Math.mulDiv(gross, costWad, C.WAD));
+            arbProfit += profit;
+            bucketP[_bucket()] += profit;
         } else if (actor == ACT_LOOP) {
             loopMark += mark;
             loopProfit += mark - int256(Math.mulDiv(gross, COST_LOW, C.WAD));
             loopNotional += gross;
-        } else if (actor == ACT_RETAIL && mode == MODE_DUTCH) {
+        } else if (actor == ACT_RETAIL && _dutchFamily(mode)) {
             retailMark += mark;
         }
     }
@@ -667,7 +811,9 @@ contract DiscipleSimTest is Test {
     }
 
     function _attack() internal {
-        if (mode == 0 || mode == MODE_BASE || mode == MODE_DRIP || mode == MODE_DUTCH) return;
+        // A–D are the overshoot loop. LEV is the restoring loop. Every other book, including
+        // COMBO, is quoted only by the retail flow and the single OUT searcher.
+        if (mode != MODE_A && mode != MODE_B && mode != MODE_C && mode != MODE_D && mode != MODE_LEV) return;
         if (mode == MODE_LEV) {
             _attackLev();
             return;
@@ -757,7 +903,7 @@ contract DiscipleSimTest is Test {
 
     function _dutchGap(uint256 since) internal view returns (uint256) {
         if (clock <= since) return 0;
-        return (clock - since) * DUTCH_PER_SEC;
+        return (clock - since) * driftPerSec;
     }
 
     /// @dev Numerical floor for the bid price only. A quote cannot print below zero.
@@ -767,7 +913,7 @@ contract DiscipleSimTest is Test {
 
     function _dutchOffer(uint256 gap) internal view returns (uint256) {
         if (gap == 0) return 0;
-        uint256 offered = Math.mulDiv(DUTCH_EDGE, C.WAD, gap);
+        uint256 offered = Math.mulDiv(edgeWad, C.WAD, gap);
         if (offered > DUTCH_MAX_SLICE) offered = DUTCH_MAX_SLICE;
         uint256 cap = BridgeCurve.tvl(s) / 20;
         if (cap < 1e18) cap = 1e18;
@@ -778,13 +924,15 @@ contract DiscipleSimTest is Test {
     function _dutchBuy(uint256 usdgIn, uint8 actor) internal returns (uint256 filled) {
         uint256 gap = _dutchGap(bidAt);
         uint256 offered = gap == 0 ? 0 : _dutchOffer(gap);
-        if (gap > 0 && offered > 0 && (actor == ACT_RETAIL || gap > _slack(offered))) {
+        uint256 quoted = _priceGap(gap, offered);
+        if (gap > 0 && offered > 0 && quoted > 0 && (actor == ACT_RETAIL || quoted > _dutchNeed(offered))) {
             uint256 slice = usdgIn < offered ? usdgIn : offered;
-            uint256 bid = Math.mulDiv(s.anchor, C.WAD - _dutchBidGap(gap), C.WAD);
+            uint256 bid = Math.mulDiv(s.anchor, C.WAD - _dutchBidGap(quoted), C.WAD);
             if (bid == 0) bid = 1;
             _setSpot(bid);
             filled = _applyBuy(slice, actor);
             bidAt = clock;
+            if (_sharedDutch()) askAt = clock;
             _setSpot(s.anchor);
             if (actor == ACT_RETAIL && usdgIn > slice) filled += _applyBuy(usdgIn - slice, actor);
             return filled;
@@ -795,14 +943,19 @@ contract DiscipleSimTest is Test {
     function _dutchSell(uint256 dx, uint8 actor) internal returns (uint256 filled) {
         uint256 gap = _dutchGap(askAt);
         uint256 offered = gap == 0 ? 0 : _dutchOffer(gap);
-        if (gap > 0 && offered > 0 && (actor == ACT_RETAIL || gap > _slack(offered)) && s.anchor != 0) {
-            uint256 ask = Math.mulDiv(s.anchor, C.WAD + gap, C.WAD);
+        uint256 quoted = _priceGap(gap, offered);
+        if (
+            gap > 0 && offered > 0 && quoted > 0 && (actor == ACT_RETAIL || quoted > _dutchNeed(offered))
+                && s.anchor != 0
+        ) {
+            uint256 ask = Math.mulDiv(s.anchor, C.WAD + quoted, C.WAD);
             uint256 maxDx = Math.mulDiv(offered, C.WAD, ask);
             uint256 slice = dx < maxDx ? dx : maxDx;
             if (slice == 0) return _applySell(dx, actor);
             _setSpot(ask);
             filled = _applySell(slice, actor);
             askAt = clock;
+            if (_sharedDutch()) bidAt = clock;
             _setSpot(s.anchor);
             if (actor == ACT_RETAIL && dx > slice) filled += _applySell(dx - slice, actor);
             return filled;
@@ -879,17 +1032,25 @@ contract DiscipleSimTest is Test {
         dripFilledHour = hourStart;
     }
 
+    /// @dev Ornstein-Uhlenbeck around $1. Log-deviation half-life is 7 days, so there is no trend.
+    ///      The shock is the same daily volatility as the old walk (3% active, 0.1% dead).
     function _moveAnchor(uint256 dt) internal {
         if (dt == 0 || volWad == 0 || s.anchor == 0) return;
+        int256 logP = _lnWad(s.anchor);
+        uint256 mag = uint256(logP < 0 ? -logP : logP);
+        uint256 left = BridgeFee.decayed(mag, dt, 7 days);
+        int256 pulled = logP < 0 ? -int256(left) : int256(left);
         int256 z = _gauss();
         uint256 uWad = Math.mulDiv(dt, C.WAD, 1 days);
         uint256 sqrtU = Math.sqrt(uWad * C.WAD);
-        int256 expo = z * int256(volWad) / int256(C.WAD);
-        expo = expo * int256(sqrtU) / int256(C.WAD);
-        if (expo > 0.2e18) expo = 0.2e18;
-        if (expo < -0.2e18) expo = -0.2e18;
-        uint256 factor = _expWad(expo);
-        uint256 next = Math.mulDiv(s.anchor, factor, C.WAD);
+        int256 shock = z * int256(volWad) / int256(C.WAD);
+        shock = shock * int256(sqrtU) / int256(C.WAD);
+        if (shock > 0.2e18) shock = 0.2e18;
+        if (shock < -0.2e18) shock = -0.2e18;
+        int256 nextLog = pulled + shock;
+        if (nextLog > 0.7e18) nextLog = 0.7e18;
+        if (nextLog < -0.7e18) nextLog = -0.7e18;
+        uint256 next = _expWad(nextLog);
         if (next < 1e12) next = 1e12;
         _applyAnchor(next);
     }
@@ -901,7 +1062,7 @@ contract DiscipleSimTest is Test {
             _levammRetarget();
             return;
         }
-        if (mode == MODE_DUTCH) {
+        if (_dutchFamily(mode)) {
             s.anchor = next;
             _setSpot(next);
             return;
@@ -975,20 +1136,40 @@ contract DiscipleSimTest is Test {
 
     function _decayedVol() internal view returns (uint256) {
         uint256 dt = revAt == 0 || clock <= revAt ? 0 : clock - revAt;
-        return BridgeFee.decayed(revVolume, dt, 1 hours);
+        return BridgeFee.decayed(revVolume, dt, REV_HALF);
     }
 
-    function _revBps(uint256) internal view returns (uint256) {
-        return BridgeFee.baseFeeBps(BridgeCurve.tvl(s), GRAD);
+    /// @dev Quiet floor 30 bps, up to the sliding cap once decayed volume reaches the red line.
+    function _revBps(uint256 extra) internal view returns (uint256) {
+        uint256 v = BridgeCurve.tvl(s);
+        uint256 cap = _baseFee(v, _target());
+        if (cap <= C.FEE_FLOOR_BPS) return C.FEE_FLOOR_BPS;
+        uint256 denom = v == 0 ? 1 : v;
+        uint256 red = redLineWad == 0 ? REV_RED : redLineWad;
+        uint256 intensity = Math.mulDiv(_decayedVol() + extra, C.WAD, denom);
+        if (intensity >= red) return cap;
+        return C.FEE_FLOOR_BPS + Math.mulDiv(cap - C.FEE_FLOOR_BPS, intensity, red);
+    }
+
+    function _chargesRev() internal view returns (bool) {
+        return mode == 0 || mode == MODE_DUTCH || mode == MODE_DRIP || mode == MODE_COMBO;
+    }
+
+    function _fillBps(uint256 extra) internal view returns (uint256) {
+        if (mode == MODE_COMBO_ALT) return 0;
+        if (_chargesRev()) return _revBps(extra);
+        return _baseFee(BridgeCurve.tvl(s), _target());
     }
 
     function _ctx(BridgeCurve.S memory m) internal view returns (BridgeCurve.Ctx memory c) {
-        c.gradTvl = GRAD;
+        c.gradTvl = _target();
         c.floorBps = C.FLOOR_BPS;
         c.maxUsdgOut = type(uint256).max;
-        c.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(m), GRAD);
+        c.boostWad = _boostAt(BridgeCurve.tvl(m));
         c.tipRoom = tipBudget >= C.TIP_BUDGET_CAP ? 0 : C.TIP_BUDGET_CAP - tipBudget;
         c.graduated = graduated;
+        c.quoteFeeSet = true;
+        c.quoteFeeBps = _fillBps(0);
     }
 
     function _spot() internal view returns (uint256) {
@@ -1040,5 +1221,371 @@ contract DiscipleSimTest is Test {
         if (v < lo) return lo;
         if (v > hi) return hi;
         return v;
+    }
+
+    function _dutchNeed(uint256 notion) internal view returns (uint256) {
+        if (mode == MODE_COMBO_ALT) return _baseFee(BridgeCurve.tvl(s), _target()) * 1e14 + costWad;
+        return _slack(notion);
+    }
+
+    /// @dev COMBO-alt quotes a tighter gap and does not also charge the rev fee.
+    function _priceGap(uint256 raw, uint256 notion) internal view returns (uint256) {
+        if (mode != MODE_COMBO_ALT || raw == 0) return raw;
+        uint256 feeWad = _revBps(notion) * 1e14;
+        return raw > feeWad ? raw - feeWad : 0;
+    }
+
+    function _refTvl() internal view returns (uint256) {
+        if (refPath == 0) return REF_TVL;
+        uint256 day = clock / 1 days;
+        if (day > 365) day = 365;
+        if (refPath == 1) return REF_TVL + ((1_000_000e18 - REF_TVL) * day) / 365;
+        uint256 drop = ((REF_TVL - 500_000e18) * day) / 365;
+        return REF_TVL > drop ? REF_TVL - drop : 500_000e18;
+    }
+
+    function _target() internal view returns (uint256) {
+        return (_refTvl() * 12) / 100;
+    }
+
+    function _baseFee(uint256 tvl, uint256 grad) internal view returns (uint256) {
+        uint256 hi = feeTinyBps == 0 ? C.FEE_TINY_BPS : feeTinyBps;
+        uint256 lo = feeGradBps == 0 ? C.FEE_GRAD_BPS : feeGradBps;
+        if (hi < lo) hi = lo;
+        if (grad == 0 || tvl >= grad) return grad == 0 ? hi : lo;
+        return lo + ((hi - lo) * (grad - tvl)) / grad;
+    }
+
+    function _boostAt(uint256 v) internal view returns (uint256) {
+        uint256 start = boostStartWad == 0 ? C.BOOST_START_WAD : boostStartWad;
+        uint256 end = C.BOOST_END_WAD;
+        if (start < end) start = end;
+        uint256 grad = _target();
+        if (grad == 0 || v >= grad) return grad == 0 ? start : end;
+        return end + ((start - end) * (grad - v)) / grad;
+    }
+
+    function _boost() internal view returns (uint256) {
+        return _boostAt(BridgeCurve.tvl(s));
+    }
+
+    function _bucket() internal view returns (uint256) {
+        uint256 t = _target();
+        if (t == 0) return 0;
+        uint256 prog = Math.mulDiv(BridgeCurve.tvl(s), C.WAD, t);
+        if (prog < 0.1e18) return 0;
+        if (prog < 0.3e18) return 1;
+        if (prog < 0.6e18) return 2;
+        return 3;
+    }
+
+    function _noteTime() internal {
+        uint256 dt = bucketClock == 0 || clock <= bucketClock ? 0 : clock - bucketClock;
+        bucketClock = clock;
+        if (dt > 0) bucketS[_bucket()] += dt;
+    }
+
+    /// @dev External LP so the boost knob can move TVL. Fee-split weight alone cannot, because both
+    ///      sides compound in the same book. Inflow is `budget * (boost - 1) / 5 / 5`. At 5× that is
+    ///      16% of the day's organic budget. It is added as coin while spot is under the anchor, and
+    ///      as USDG otherwise. Every mode gets it. Only COMBO's search changes the 5× start.
+    function _lpInflow(uint256 budget) internal {
+        if (budget == 0 || s.anchor == 0) return;
+        uint256 b = _boost();
+        if (b <= C.WAD) return;
+        uint256 usdgIn = Math.mulDiv(budget, b - C.WAD, 5 * C.WAD) / 5;
+        if (usdgIn == 0) return;
+        if (_spot() < s.anchor) {
+            uint256 coin = Math.mulDiv(usdgIn, C.WAD, s.anchor);
+            s.x += coin;
+            s.lpX += coin;
+        } else {
+            s.y += usdgIn;
+            s.lpY += usdgIn;
+        }
+    }
+
+    function _touchGrad() internal {
+        uint256 target = _target();
+        uint256 v = BridgeCurve.tvl(s);
+        bool over = target != 0 && v >= target;
+        if (over) {
+            belowSince = 0;
+            if (graduated) return;
+            if (aboveSince == 0) {
+                aboveSince = clock == 0 ? 1 : clock;
+                return;
+            }
+            if (clock >= aboveSince + 77 minutes) {
+                graduated = true;
+                if (gradDay == 0) gradDay = _dayNow();
+            }
+            return;
+        }
+        aboveSince = 0;
+        if (!graduated) return;
+        if (belowSince == 0) {
+            belowSince = clock == 0 ? 1 : clock;
+            return;
+        }
+        if (clock >= belowSince + 77 minutes) graduated = false;
+    }
+
+    function _dayNow() internal view returns (uint256) {
+        if (clock == 0) return 1;
+        uint256 d = clock / 1 days;
+        if (clock % 1 days != 0) d += 1;
+        return d == 0 ? 1 : d;
+    }
+
+    /// @dev 5% APR on the idle slice the vault would hold. Yield stays in the book.
+    function _morpho() internal {
+        if (!graduated) return;
+        uint256 y = s.y;
+        uint256 floorAmt = (y * C.FLOOR_BPS) / C.BPS;
+        uint256 buf = (y * 500) / C.BPS;
+        if (buf < 500e18) buf = 500e18;
+        uint256 locked = floorAmt + buf;
+        if (y <= locked) return;
+        uint256 idle = y - locked;
+        uint256 cap = (y * 5_000) / C.BPS;
+        if (idle > cap) idle = cap;
+        uint256 yld = (idle * 5) / 100 / 365;
+        if (yld == 0) return;
+        s.y += yld;
+        s.protoY += yld;
+        morphoYield += yld;
+    }
+
+    function _applyPick() internal {
+        if (useDrift != 0) driftPerSec = useDrift;
+        if (useEdge != 0) edgeWad = useEdge;
+        if (useRed != 0) redLineWad = useRed;
+        if (useBoost != 0) boostStartWad = useBoost;
+        if (useTiny != 0) feeTinyBps = useTiny;
+        if (useGradBps != 0) feeGradBps = useGradBps;
+    }
+
+    function _bucketsOk() internal view returns (bool) {
+        for (uint256 i; i < 4; ++i) {
+            if (bucketS[i] >= 1 days && bucketP[i] <= 0) return false;
+        }
+        return true;
+    }
+
+    /// @dev A shared-reset fill parks both quotes. Independent Dutch (MODE_DUTCH) resets only the
+    ///      side that was quoted, inside `_dutchBuy` / `_dutchSell`.
+    function _stampShared() internal {
+        if (!_sharedDutch()) return;
+        bidAt = clock;
+        askAt = clock;
+    }
+
+    function _cfg(uint256 i)
+        internal
+        pure
+        returns (uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny)
+    {
+        drift = DUTCH_PER_SEC;
+        edge = DUTCH_EDGE;
+        red = REV_RED;
+        boost = C.BOOST_START_WAD;
+        tiny = C.FEE_TINY_BPS;
+        if (i == 1) drift = uint256(0.005e18) / 1 hours;
+        else if (i == 2) drift = uint256(0.02e18) / 1 hours;
+        else if (i == 11) drift = uint256(0.05e18) / 1 hours;
+        else if (i == 12) drift = uint256(0.1e18) / 1 hours;
+        else if (i == 3) edge = 0.1e18;
+        else if (i == 4) edge = 0.5e18;
+        else if (i == 5) red = 0.25e18;
+        else if (i == 6) red = 1e18;
+        else if (i == 7) boost = 3e18;
+        else if (i == 8) boost = 8e18;
+        else if (i == 9) tiny = 100;
+        else if (i == 10) tiny = 300;
+    }
+
+    /// @dev One-at-a-time grid on the on-top book. A set is kept when arb profit is positive in every
+    ///      progress bucket occupied for at least a day; otherwise the closest TVL-growth candidate.
+    ///      The rev-fee interaction is then rescored at those knobs over the full horizon. The one
+    ///      that reaches graduation sooner (else the higher TVL) is COMBO. The other is COMBO-alt.
+    function _pickCombo() internal {
+        uint256 keep = horizon;
+        horizon = keep < 30 ? keep : 30;
+        uint256 bestTvl;
+        uint256 bestGrad;
+        bool bestOk;
+        bool seeded;
+        uint256 bd = DUTCH_PER_SEC;
+        uint256 be = DUTCH_EDGE;
+        uint256 br = REV_RED;
+        uint256 bb = C.BOOST_START_WAD;
+        uint256 bt = C.FEE_TINY_BPS;
+        for (uint256 i; i < 13; ++i) {
+            (uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny) = _cfg(i);
+            (uint256 tvl, bool ok, uint256 grad) = _score(false, drift, edge, red, boost, tiny);
+            _logPick("ontop", i, tvl, ok, grad, drift, edge, red, boost, tiny);
+            if (_prefers(ok, grad, tvl, bestOk, bestGrad, bestTvl, seeded)) {
+                seeded = true;
+                bestTvl = tvl;
+                bestGrad = grad;
+                bestOk = ok;
+                bd = drift;
+                be = edge;
+                br = red;
+                bb = boost;
+                bt = tiny;
+            }
+        }
+        horizon = keep;
+        (uint256 onTvl, bool onOk, uint256 onGrad) = _score(false, bd, be, br, bb, bt);
+        _logPick("ontop-full", 0, onTvl, onOk, onGrad, bd, be, br, bb, bt);
+        (uint256 altTvl, bool altOk, uint256 altGrad) = _score(true, bd, be, br, bb, bt);
+        _logPick("netted-full", 0, altTvl, altOk, altGrad, bd, be, br, bb, bt);
+        bool altWins = _growthBetter(altGrad, altTvl, onGrad, onTvl);
+        useDrift = bd;
+        useEdge = be;
+        useRed = br;
+        useBoost = bb;
+        useTiny = bt;
+        useGradBps = C.FEE_GRAD_BPS;
+        comboAltWins = altWins;
+        uint256 winTvl = altWins ? altTvl : onTvl;
+        bool winOk = altWins ? altOk : onOk;
+        uint256 winGrad = altWins ? altGrad : onGrad;
+        console2.log(
+            string.concat(
+                "PICK winner ",
+                altWins ? "netted" : "ontop",
+                " tvl ",
+                vm.toString(winTvl),
+                " ok ",
+                winOk ? "1" : "0",
+                " grad ",
+                vm.toString(winGrad),
+                " drift ",
+                vm.toString(bd),
+                " edge ",
+                vm.toString(be),
+                " red ",
+                vm.toString(br),
+                " boost ",
+                vm.toString(bb),
+                " tiny ",
+                vm.toString(bt)
+            )
+        );
+    }
+
+    function _logPick(
+        string memory which,
+        uint256 i,
+        uint256 tvl,
+        bool ok,
+        uint256 grad,
+        uint256 drift,
+        uint256 edge,
+        uint256 red,
+        uint256 boost,
+        uint256 tiny
+    ) internal pure {
+        console2.log(
+            string.concat(
+                "PICKCFG ",
+                which,
+                " i ",
+                vm.toString(i),
+                " tvl ",
+                vm.toString(tvl),
+                " ok ",
+                ok ? "1" : "0",
+                " grad ",
+                vm.toString(grad),
+                " drift ",
+                vm.toString(drift),
+                " edge ",
+                vm.toString(edge),
+                " red ",
+                vm.toString(red),
+                " boost ",
+                vm.toString(boost),
+                " tiny ",
+                vm.toString(tiny)
+            )
+        );
+    }
+
+    /// @dev Positive arb profit in every occupied bucket beats a violation. Within that, earlier
+    ///      graduation, then higher TVL.
+    function _prefers(bool ok, uint256 grad, uint256 tvl, bool bestOk, uint256 bestGrad, uint256 bestTvl, bool seeded)
+        internal
+        pure
+        returns (bool)
+    {
+        if (!seeded) return true;
+        if (ok != bestOk) return ok;
+        return _growthBetter(grad, tvl, bestGrad, bestTvl);
+    }
+
+    /// @dev Graduation is the objective. A profile that reaches it beats one that does not.
+    ///      Otherwise the higher TVL is closer to the target.
+    function _growthBetter(uint256 grad, uint256 tvl, uint256 otherGrad, uint256 otherTvl)
+        internal
+        pure
+        returns (bool)
+    {
+        bool reached = grad != 0;
+        bool otherReached = otherGrad != 0;
+        if (reached != otherReached) return reached;
+        if (reached && grad != otherGrad) return grad < otherGrad;
+        return tvl > otherTvl;
+    }
+
+    function _score(bool alt, uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny)
+        internal
+        returns (uint256 tvl, bool ok, uint256 grad)
+    {
+        tag = "PICK";
+        _reset(COST_OUTSIDE, alt ? MODE_COMBO_ALT : MODE_COMBO, VOL_ACTIVE, false);
+        kWad = 0.5e18;
+        refPath = 0;
+        driftPerSec = drift;
+        edgeWad = edge;
+        redLineWad = red;
+        boostStartWad = boost;
+        feeTinyBps = tiny;
+        _run();
+        return (BridgeCurve.tvl(s), _bucketsOk(), gradDay);
+    }
+
+    function _lnWad(uint256 x) internal pure returns (int256) {
+        if (x == 0) return -1e18;
+        if (x == C.WAD) return 0;
+        if (x > C.WAD) return int256(_lnAbove(x));
+        return -int256(_lnAbove(Math.mulDiv(C.WAD, C.WAD, x)));
+    }
+
+    function _lnAbove(uint256 x) internal pure returns (uint256) {
+        if (x <= C.WAD) return 0;
+        return Math.mulDiv(_log2Wad(x), C.LN2_WAD, C.WAD);
+    }
+
+    function _log2Wad(uint256 x) internal pure returns (uint256 result) {
+        uint256 integer;
+        while (x >= 2 * C.WAD) {
+            x >>= 1;
+            integer += C.WAD;
+        }
+        uint256 y = x;
+        uint256 bit = C.WAD / 2;
+        for (uint256 i; i < 40 && bit > 0; ++i) {
+            y = Math.mulDiv(y, y, C.WAD);
+            if (y >= 2 * C.WAD) {
+                result += bit;
+                y >>= 1;
+            }
+            bit >>= 1;
+        }
+        result += integer;
     }
 }

@@ -43,6 +43,9 @@ library BridgeCurve {
         uint256 maxUsdgOut; // min(floor room, outflow room); type(uint256).max if uncapped by the caller
         uint256 totalShares;
         uint256 boostWad;
+        /// @dev Simulator override. Production leaves `quoteFeeSet` false and the progress slide applies.
+        bool quoteFeeSet;
+        uint256 quoteFeeBps;
     }
 
     struct Fill {
@@ -438,6 +441,7 @@ library BridgeCurve {
     /// @dev Same bps either direction. Progress only: pool TVL against the live target. The gap, the
     ///      clip size, and a stale anchor do not change it.
     function _tradeFee(S memory s, Ctx memory ctx, uint256) private pure returns (uint256) {
+        if (ctx.quoteFeeSet) return ctx.quoteFeeBps > C.BPS ? C.BPS : ctx.quoteFeeBps;
         return BridgeFee.baseFeeBps(tvl(s), ctx.gradTvl);
     }
 
