@@ -126,7 +126,9 @@
     "test:bounded-steps": "tsx --conditions=react-server --test scripts/test-bounded-steps.mts",
     "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts",
     "test:coin-fixes4": "tsx --test scripts/test-coin-fixes4.mts",
-    "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts"
+    "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts",
+    "test:paper-sim": "tsx --test scripts/test-paper-sim.mts",
+    "paper:suite": "tsx scripts/paper-suite.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

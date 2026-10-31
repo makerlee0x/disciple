@@ -8,7 +8,7 @@
  * and growing it back restores the spot you chose. Phones ignore the layout (their drawers / sheets own the screen).
  */
 import { SLOT_IDS, type SlotId } from "@/lib/game/slots";
-export type CardId = "header" | "holders" | "trades" | "controls" | "chart" | "pnl" | "chat";
+export type CardId = "header" | "holders" | "trades" | "controls" | "chart" | "pnl" | "chat" | "board";
 /** w / h: a RESIZED card's size (resizable cards only — today the DEX chart); absent = the card's default size */
 /** slot / order (PR #221 snap-to-grid, lib/game/slots): where a moved card lives — the slot it was dropped in and its place in
  *  that slot's stack. dx / dy: legacy raw offsets (migrated to a slot on first sight) or the live offset while dragging. */
@@ -26,8 +26,10 @@ export const RESIZABLE: Partial<Record<CardId, { minW: number; minH: number; def
   chart: { minW: 260, minH: 180, defW: 440, defH: 280 },   // + the canvas-relative cap in lib/game/slots chartCap
 };
 export const CARD_IDS: CardId[] = [...CANVAS_CARDS, ...DOM_CARDS];
+/** PAPER TRADING-only DOM cards (/flight/sim?view=coin passes them to CardChrome as extraCards); never on live coin pages */
+export const PAPER_CARDS: CardId[] = ["board"];
 export const CARD_TITLES: Record<CardId, string> = {
-  header: "Coin", holders: "Top holders", trades: "Trades", controls: "Controls", chart: "Chart", pnl: "Your position", chat: "Chat",
+  header: "Coin", holders: "Top holders", trades: "Trades", controls: "Controls", chart: "Chart", pnl: "Your position", chat: "Chat", board: "Leaderboard",
 };
 export const LAYOUT_PREFIX = "disciple.layout.v1:";
 export const layoutKey = (account: string | null | undefined) => LAYOUT_PREFIX + (account && /^0x[0-9a-fA-F]{40}$/.test(account) ? account.toLowerCase() : "guest");
@@ -38,7 +40,7 @@ export function parseLayout(raw: string | null | undefined): Layout {
   let j: unknown; try { j = raw ? JSON.parse(raw) : null; } catch { return {}; }
   if (!j || typeof j !== "object") return {};
   const out: Layout = {};
-  for (const id of CARD_IDS) {
+  for (const id of [...CARD_IDS, ...PAPER_CARDS]) {
     const c = (j as Record<string, unknown>)[id];
     if (!c || typeof c !== "object") continue;
     const o = c as Record<string, unknown>, s: CardState = { dx: num(o.dx), dy: num(o.dy) };

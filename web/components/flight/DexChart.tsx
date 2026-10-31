@@ -59,7 +59,11 @@ const tLabel = (t: number, tf: number) => { const d = new Date(t * 1000);
 const tickLabel = (t: number, type: number) => { const d = new Date(t * 1000);   // TickMarkType: 0 Year, 1 Month, 2 DayOfMonth, 3 Time, 4 TimeWithSeconds
   return type === 0 ? String(d.getFullYear()) : type === 1 ? MON[d.getMonth()] : type === 2 ? `${MON[d.getMonth()]} ${d.getDate()}` : `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 
-export default function DexChart({ coin, ticker }: { coin: string; ticker?: string | null }) {
+/** simEvent (PAPER TRADING, /flight/sim?view=coin): read trades from that window event instead of /api/trades +
+ *  "disciple:event", stamped with the simulated time d.ts; absent (every live coin page) ⇒ unchanged */
+export default function DexChart({ coin, ticker, simEvent }: { coin: string; ticker?: string | null; simEvent?: string }) {
+  const simTs = useRef(0);
+  const nowTs = useCallback(() => (simEvent ? simTs.current || Date.now() : Date.now()), [simEvent]);
   const addr = coin.toLowerCase();
   const boxRef = useRef<HTMLDivElement>(null), plotRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<{ lc: Lc; chart: IChartApi; candle: ISeriesApi<"Candlestick">; vol: ISeriesApi<"Histogram">; paper: IPriceLine | null } | null>(null);
@@ -176,6 +180,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   // ---- full history (paged), then the default / remembered timeframe
   useEffect(() => {
     if (!ready) return;
+    if (simEvent) { setTf(TFS[0].s, false); return; }   // simulated market (10-min round): no indexed history, finest timeframe
     let alive = true;
     fetchHistory(addr, (u) => fetch(u, { cache: "no-store" })).then(({ ticks }) => {
       if (!alive) return;
@@ -184,32 +189,34 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       setTf(s ?? defaultTf(ticksRef.current), false);
     }).catch((e) => { console.warn("[chart] history failed", e); if (alive) { setTf(tfRef.current, false); if (!ticksRef.current.length) setStatus("error"); } });
     return () => { alive = false; };
-  }, [ready, addr, setTf]);
+  }, [ready, addr, setTf, simEvent]);
 
   // ---- live: this coin's trades + real mcap reads + the HUD mark
   useEffect(() => {
     const seen = new Set<string>();
     const onEv = (e: Event) => {
-      const d = (e as CustomEvent).detail as { type?: string; token?: string; mcapUsd?: number; usd?: number; side?: string; txHash?: string; logIndex?: number; block?: string | number } | null;
+      const d = (e as CustomEvent).detail as { type?: string; token?: string; mcapUsd?: number; usd?: number; side?: string; txHash?: string; logIndex?: number; block?: string | number; ts?: number } | null;
       if (!d) return;
+      if (simEvent && Number(d.ts) > 0) simTs.current = Number(d.ts);
       if (d.type === "Trade") {
         if (String(d.token || "").toLowerCase() !== addr || !(Number(d.mcapUsd) > 0)) return;
         const id = d.txHash ? `${d.txHash.toLowerCase()}:${d.logIndex ?? 0}` : undefined;
         if (id && (seen.has(id) || ticksRef.current.some((t) => t.id?.toLowerCase() === id))) return;
         if (id) seen.add(id);
-        const t: Tick = { id, ts: Date.now(), mcapUsd: Number(d.mcapUsd), usd: Number(d.usd) || 0, side: d.side === "sell" ? "sell" : "buy", block: d.block != null ? Number(d.block) : undefined, logIndex: d.logIndex };
+        const t: Tick = { id, ts: nowTs(), mcapUsd: Number(d.mcapUsd), usd: Number(d.usd) || 0, side: d.side === "sell" ? "sell" : "buy", block: d.block != null ? Number(d.block) : undefined, logIndex: d.logIndex };
         ticksRef.current.push(t);
         const cs = addTick(candlesRef.current, t, tfRef.current);
         if (cs[cs.length - 1]?.time === bucketOf(t.ts, tfRef.current)) pushLast(); else paint(false);   // an older bucket (clock skew): redraw all
       } else if (d.type === "State" && Number(d.mcapUsd) > 0) {
-        if (markLast(candlesRef.current, Number(d.mcapUsd), Date.now(), tfRef.current)) pushLast();
+        if (markLast(candlesRef.current, Number(d.mcapUsd), nowTs(), tfRef.current)) pushLast();
       }
     };
     const onMark = (e: Event) => { const m = Number((e as CustomEvent<{ mcap?: number }>).detail?.mcap); if (!(m > 0)) return;
-      if ((window as unknown as W).__discipleTrade) { if (markLast(candlesRef.current, m, Date.now(), tfRef.current)) pushLast(); setMark(null); } else setMark(m); };
-    addEventListener("disciple:event", onEv); addEventListener("disciple:mark", onMark);
-    return () => { removeEventListener("disciple:event", onEv); removeEventListener("disciple:mark", onMark); };
-  }, [addr, paint, pushLast]);
+      if ((window as unknown as W).__discipleTrade) { if (markLast(candlesRef.current, m, nowTs(), tfRef.current)) pushLast(); setMark(null); } else setMark(m); };
+    const evName = simEvent || "disciple:event";
+    addEventListener(evName, onEv); addEventListener("disciple:mark", onMark);
+    return () => { removeEventListener(evName, onEv); removeEventListener("disciple:mark", onMark); };
+  }, [addr, paint, pushLast, simEvent, nowTs]);
 
   // ---- live value: dotted white line + gold tag (old chart's current-value tag)
   useEffect(() => {
