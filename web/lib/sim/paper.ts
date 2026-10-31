@@ -80,7 +80,7 @@ const ARCH_OVERRIDE: Record<PaperArchetype, Partial<BrainParams>> = {
 };
 export const brainFor = (tier: Tier, arch: PaperArchetype): BrainParams => ({ ...TIER_BASE[tier], ...TUNE.tier[tier], ...ARCH_OVERRIDE[arch], ...TUNE.arch[arch] });
 /** TUNING layer (balance as a config diff, spec Sec. 5 note): overrides on top of the spec table above, plus lobby-level knobs.
- *  Everything here is listed against the spec in /workspace/paper-trading/tuning.md. Mutable only for scripts/paper-tune.mts. */
+ *  Everything here is listed against the spec in docs/paper-tuning.md. Mutable only for scripts/paper-tune.mts. */
 export const TUNE: {
   tier: Partial<Record<Tier, Partial<BrainParams>>>; arch: Partial<Record<PaperArchetype, Partial<BrainParams>>>;
   /** per-bot size multiplier ~ lognormal(σ), mean-normalised to 1: a few bots bet big (whales / degens), most bet small */
