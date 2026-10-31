@@ -41,25 +41,26 @@ contract DiscipleEngine {
         return _trade(s, ctx, amount, sellCoin, gap);
     }
 
-    /// @notice Bid, ask, and the USDG size of each. Gap 0 returns the anchor and a zero size,
-    ///         which means "do not override the curve".
-    function preview(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap)
+    /// @notice Bid, ask, and the USDG size of each. A zero gap returns the anchor and a zero size,
+    ///         which means "do not override the curve". The two gaps are independent.
+    function preview(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 bidGap, uint256 askGap)
         external
         pure
         returns (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg)
     {
-        return _sizes(anchor, tvl, gradTvl, gap);
+        (bid, bidUsdg) = _side(anchor, tvl, gradTvl, bidGap, true);
+        (ask, askUsdg) = _side(anchor, tvl, gradTvl, askGap, false);
     }
 
     /// @dev Normalized amounts. `buyCoin` is set even when `amountIn` is zero.
     ///      When `gap` is positive the Dutch slice is compared with a curve search re-priced through
     ///      `trade`, so the returned size is one `beforeSwap` would accept.
-    function quote(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 gap)
+    function quote(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 bidGap, uint256 askGap)
         external
         pure
         returns (bool buyCoin, uint256 amountIn, uint256 amountOut, uint256 profitWad)
     {
-        if (gap == 0 || s.anchor == 0) {
+        if ((bidGap == 0 && askGap == 0) || s.anchor == 0) {
             if (s.anchor == 0) return (true, 0, 0, 0);
             BridgeArb.Quote memory q = BridgeArb.quote(s, ctx);
             return (q.buyCoin, q.amountIn, q.amountOut, q.profitWad);
@@ -68,14 +69,16 @@ contract DiscipleEngine {
         bool bestBuy = true;
         uint256 bestIn;
         uint256 bestOut;
-        if (gap > 0) {
-            (uint256 bid,, uint256 bidUsdg, uint256 askUsdg) = _sizes(s.anchor, BridgeCurve.tvl(s), ctx.gradTvl, gap);
-            if (askUsdg > 0) {
-                (bestP, bestIn, bestOut) = _markBuy(s, ctx, askUsdg, gap);
-            }
+        uint256 tvl = BridgeCurve.tvl(s);
+        if (askGap > 0) {
+            (, uint256 askUsdg) = _side(s.anchor, tvl, ctx.gradTvl, askGap, false);
+            if (askUsdg > 0) (bestP, bestIn, bestOut) = _markBuy(s, ctx, askUsdg, askGap);
+        }
+        if (bidGap > 0) {
+            (uint256 bid, uint256 bidUsdg) = _side(s.anchor, tvl, ctx.gradTvl, bidGap, true);
             if (bid > 0 && bidUsdg > 0) {
                 uint256 maxCoin = Math.mulDiv(bidUsdg, C.WAD, bid);
-                (uint256 pft, uint256 inn, uint256 out) = _markSell(s, ctx, maxCoin, gap);
+                (uint256 pft, uint256 inn, uint256 out) = _markSell(s, ctx, maxCoin, bidGap);
                 if (pft > bestP) {
                     bestP = pft;
                     bestIn = inn;
@@ -87,10 +90,10 @@ contract DiscipleEngine {
         BridgeArb.Quote memory curve = BridgeArb.quote(s, ctx);
         if (curve.amountIn > 0 && curve.profitWad > bestP) {
             if (curve.buyCoin) {
-                (uint256 pft, uint256 inn, uint256 out) = _markBuy(s, ctx, curve.amountIn, gap);
+                (uint256 pft, uint256 inn, uint256 out) = _markBuy(s, ctx, curve.amountIn, askGap);
                 if (pft > bestP) return (true, inn, out, pft);
             } else {
-                (uint256 pft, uint256 inn, uint256 out) = _markSell(s, ctx, curve.amountIn, gap);
+                (uint256 pft, uint256 inn, uint256 out) = _markSell(s, ctx, curve.amountIn, bidGap);
                 if (pft > bestP) return (false, inn, out, pft);
             }
         }
@@ -151,7 +154,8 @@ contract DiscipleEngine {
             }
             return (newGrad, newAbove, newBelow, edge);
         }
-        if (over || target == 0) {
+        // A zero or unknown target is below the line once status is already on, so the off-clock runs.
+        if (over) {
             newBelow = 0;
             return (newGrad, newAbove, newBelow, 0);
         }
@@ -266,6 +270,9 @@ contract DiscipleEngine {
             if (slice == amount) return (trial, a);
             if (a.tip < local.tipRoom) local.tipRoom -= a.tip;
             else local.tipRoom = 0;
+            // The first leg already spent floor and outflow room. The second leg must not see it again.
+            if (a.usdgOut < local.maxUsdgOut) local.maxUsdgOut -= a.usdgOut;
+            else local.maxUsdgOut = 0;
             BridgeCurve.Fill memory b;
             (trial, b) = BridgeCurve.sellExactIn(trial, amount - slice, local);
             return (trial, _merge(a, b));
@@ -329,6 +336,25 @@ contract DiscipleEngine {
         askUsdg = offered;
     }
 
+    /// @dev One side of the Dutch quote. `bid` uses `anchor * (1 + gap)`. The ask stops at `DUTCH_ASK_CAP`.
+    function _side(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap, bool bid)
+        private
+        pure
+        returns (uint256 price, uint256 usdg)
+    {
+        if (anchor == 0 || gap == 0) return (anchor, 0);
+        if (bid) {
+            price = Math.mulDiv(anchor, C.WAD + gap, C.WAD);
+        } else {
+            uint256 priceGap = gap > C.DUTCH_ASK_CAP ? C.DUTCH_ASK_CAP : gap;
+            price = Math.mulDiv(anchor, C.WAD - priceGap, C.WAD);
+        }
+        uint256 cap = BridgeFee.dutchCap(tvl, gradTvl);
+        uint256 offered = Math.mulDiv(C.DUTCH_EDGE_WAD, C.WAD, gap);
+        if (offered > cap) offered = cap;
+        usdg = offered;
+    }
+
     function _merge(BridgeCurve.Fill memory a, BridgeCurve.Fill memory b)
         private
         pure
@@ -355,8 +381,12 @@ contract DiscipleEngine {
         o.graduated = c.graduated;
         o.tipRoom = c.tipRoom;
         o.floorBps = c.floorBps;
+        o.principalFloor = c.principalFloor;
         o.maxUsdgOut = c.maxUsdgOut;
         o.totalShares = c.totalShares;
+        o.useOpen = c.useOpen;
+        o.openLpVal = c.openLpVal;
+        o.openShares = c.openShares;
         o.boostWad = c.boostWad;
     }
 }

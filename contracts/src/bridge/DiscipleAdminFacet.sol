@@ -15,9 +15,41 @@ import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 ///         fee claim for Disciple (`DiscipleHook`). Called through the hook. There is no vault.
 ///         The builder address is global. Pool creators cannot change it.
 contract DiscipleAdminFacet is DiscipleFacetBase {
-    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
-        DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_)
-    {}
+    constructor(
+        IPoolManager manager_,
+        address usdg_,
+        address lz_,
+        uint8 usdgDecimals_,
+        DiscipleEngine engine_,
+        address v3Factory_
+    ) DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_, v3Factory_) {}
+
+    /// @notice Allow or revoke a v4 oracle hook, or the remote PoolManager used by an lzRead slot.
+    ///         Only the builder. Pool creators cannot add a reference.
+    function setOracleAllowed(address oracle, bool ok) external {
+        _onlyDelegate();
+        if (msg.sender != builder) revert OnlyBuilder();
+        if (oracle == address(0)) revert BadCreate();
+        allowedOracle[oracle] = ok;
+    }
+
+    /// @notice Allow or revoke a remote lens address (`remoteOracle` on a cross-chain pool).
+    function setLensAllowed(address lens, bool ok) external {
+        _onlyDelegate();
+        if (msg.sender != builder) revert OnlyBuilder();
+        if (lens == address(0)) revert BadCreate();
+        allowedLens[lens] = ok;
+    }
+
+    /// @notice Send this contract's ETH to `to`. Only the builder. Does not move tokens.
+    function rescueEth(address to) external {
+        _onlyDelegate();
+        if (msg.sender != builder) revert OnlyBuilder();
+        if (to == address(0)) revert BadCreate();
+        uint256 bal = address(this).balance;
+        (bool sent,) = to.call{value: bal}("");
+        if (!sent) revert RefundFailed();
+    }
 
     /// @notice Ask LayerZero to read the pool's remote anchor. The caller pays the native lzRead fee
     ///         and never submits a price. Same-chain pools revert. A fresh quote reverts.
@@ -180,6 +212,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         PoolId id = PoolId.wrap(rawId);
         Pool storage p = pools[id];
         _persistReference(p);
+        _touchMark(p);
         _touchGrad(id, p);
         return "";
     }

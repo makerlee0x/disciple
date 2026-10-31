@@ -15,9 +15,10 @@ import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
 import {DiscipleLpFacet} from "../../src/bridge/DiscipleLpFacet.sol";
+import {DiscipleCreateFacet} from "../../src/bridge/DiscipleCreateFacet.sol";
 import {DiscipleAdminFacet} from "../../src/bridge/DiscipleAdminFacet.sol";
 import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
-import {MockERC20, MockLzRead} from "./mocks/BridgeMocks.sol";
+import {MockERC20, MockLzRead, MockV3Factory} from "./mocks/BridgeMocks.sol";
 
 contract BridgeFixture is Test {
     using PoolIdLibrary for PoolKey;
@@ -33,8 +34,10 @@ contract BridgeFixture is Test {
     MockERC20 public usdg;
     MockERC20 public coin;
     MockLzRead public lz;
+    MockV3Factory public v3Factory;
     DiscipleEngine public engine;
     DiscipleLpFacet public lpFacet;
+    DiscipleCreateFacet public createFacet;
     DiscipleAdminFacet public adminFacet;
     DiscipleSwapFacet public swapFacet;
     PoolKey public key;
@@ -43,11 +46,13 @@ contract BridgeFixture is Test {
     function _deployStack(uint8 usdgDec) internal {
         usdg = new MockERC20("USDG", "USDG", usdgDec);
         lz = new MockLzRead();
+        v3Factory = new MockV3Factory();
         manager = IPoolManager(address(new PoolManager(address(this))));
         engine = new DiscipleEngine();
-        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(lz), usdgDec, engine);
-        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(lz), usdgDec, engine);
-        swapFacet = new DiscipleSwapFacet(manager, address(usdg), address(lz), usdgDec, engine);
+        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
+        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
+        createFacet = new DiscipleCreateFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
+        swapFacet = new DiscipleSwapFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
         bytes memory args = abi.encode(
             manager,
             address(usdg),
@@ -56,8 +61,10 @@ contract BridgeFixture is Test {
             address(engine),
             address(swapFacet),
             address(lpFacet),
+            address(createFacet),
             address(adminFacet),
-            address(this)
+            address(this),
+            address(v3Factory)
         );
         (address predicted, bytes32 salt) = _mineHook(args);
         hook = new DiscipleHook{salt: salt}(
@@ -68,9 +75,12 @@ contract BridgeFixture is Test {
             engine,
             address(swapFacet),
             address(lpFacet),
+            address(createFacet),
             address(adminFacet),
-            address(this)
+            address(this),
+            address(v3Factory)
         );
+        hook.setLensAllowed(address(0xE7E7), true);
         require(address(hook) == predicted, "hook addr");
         swapper = new PoolSwapTest(manager);
     }
@@ -138,7 +148,12 @@ contract BridgeFixture is Test {
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),
-                refCoinIs0: false
+                refCoinIs0: false,
+                tickSpacing: 0,
+                v3Fee: 0,
+                refFee: 0,
+                refTickSpacing: 0,
+                refHooks: address(0)
             })
         );
     }
@@ -162,7 +177,12 @@ contract BridgeFixture is Test {
     }
 
     function _swap(PoolKey memory k, bool zeroForOne, uint256 amountIn, bool mintLp) internal returns (BalanceDelta) {
-        _freshen(k.toId());
+        PoolId poolId = k.toId();
+        // A stale same-chain anchor is refreshed by poke. Cross-chain poke does not write a price.
+        if (hook.curve(poolId).anchor != 0 && hook.bridgeQuote(poolId).stale) {
+            try hook.poke(poolId) {} catch {}
+        }
+        _freshen(poolId);
         Currency input = zeroForOne ? k.currency0 : k.currency1;
         MockERC20(Currency.unwrap(input)).approve(address(swapper), type(uint256).max);
         bytes memory hookData = mintLp ? abi.encode(true, address(this)) : bytes("");

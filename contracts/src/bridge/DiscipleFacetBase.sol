@@ -28,9 +28,14 @@ abstract contract DiscipleFacetBase is BridgeStorage {
     /// @dev This facet's own address. Under `delegatecall`, `address(this)` is the hook.
     address internal immutable self;
 
-    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
-        BridgeStorage(manager_, usdg_, lz_, usdgDecimals_, engine_)
-    {
+    constructor(
+        IPoolManager manager_,
+        address usdg_,
+        address lz_,
+        uint8 usdgDecimals_,
+        DiscipleEngine engine_,
+        address v3Factory_
+    ) BridgeStorage(manager_, usdg_, lz_, usdgDecimals_, engine_, v3Factory_) {
         self = address(this);
     }
 
@@ -96,6 +101,8 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         uint256 dt =
             p.smoothAt == 0 || block.timestamp <= uint256(p.smoothAt) ? 0 : block.timestamp - uint256(p.smoothAt);
         if (dt == 0) return;
+        // Cap the step so one reading after idle time, or one donation, cannot close the whole gap.
+        if (dt > C.SMOOTH_STEP) dt = C.SMOOTH_STEP;
         uint256 mag = prev > next ? prev - next : next - prev;
         uint256 left = engine.decayed(mag, dt, C.TWAP_WINDOW);
         p.smoothedTvl = prev > next ? next + left : (next > left ? next - left : 0);
@@ -181,10 +188,34 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         freshBlock[id][user] = 0;
     }
 
+    /// @dev Snap the principal baseline up, or decay the gap toward the live principal.
+    ///      A zero `dt` does not decay, so several sells in one second share one floor.
+    function _touchMark(Pool storage p) internal {
+        uint256 principal = BridgeCurve.principalY(p.curve);
+        uint256 mark = p.principalMark;
+        uint64 nowS = _stamp();
+        if (mark == 0 || principal >= mark) {
+            p.principalMark = principal;
+            p.principalMarkAt = nowS;
+            return;
+        }
+        uint256 dt = block.timestamp > uint256(p.principalMarkAt) ? block.timestamp - uint256(p.principalMarkAt) : 0;
+        if (dt == 0) return;
+        p.principalMark = principal + engine.decayed(mark - principal, dt, C.MARK_HALF_LIFE);
+        p.principalMarkAt = nowS;
+    }
+
+    /// @dev Graduation looks at protocol inventory only. An LP deposit is not inventory, so
+    ///      deposit-wait-poke-withdraw cannot cross the target.
+    function _statusTvl(Pool storage p) internal view returns (uint256) {
+        BridgeCurve.S memory s = p.curve;
+        return Math.mulDiv(s.protoX, s.anchor, C.WAD) + s.protoY + s.lockedY + s.feePot;
+    }
+
     /// @dev Advance the status flag. The math lives on the engine so this stub stays small in every
     ///      facet. Depth, fee, boost, and Dutch size do not wait on the status window.
     function _touchGrad(PoolId id, Pool storage p) internal {
-        uint256 v = BridgeCurve.tvl(p.curve);
+        uint256 v = _statusTvl(p);
         (bool grad, uint64 above, uint64 below, uint8 edge) =
             engine.stepGrad(v, _gradTvl(p), p.graduated, p.aboveSince, p.belowSince, block.timestamp);
         p.graduated = grad;
@@ -192,6 +223,15 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         p.belowSince = below;
         if (edge == 1) emit Graduated(id, v, p.smoothedTvl);
         else if (edge == 2) emit Ungraduated(id, v, _gradTvl(p));
+    }
+
+    /// @dev Principal that arrives during an open window (a buy or a deposit) raises the cap.
+    ///      Outflows do not lower it until the window rolls. Without this, the first buy snapshots
+    ///      a zero baseline and every sell in that window quotes nothing.
+    function _bumpOutflowBasis(Pool storage p) internal {
+        if (p.outflowWindow == 0 || p.outflowCapBps == 0) return;
+        uint256 principal = BridgeCurve.principalY(p.curve);
+        if (principal > p.outflowBasis) p.outflowBasis = principal;
     }
 
     /// @dev Timestamp 0 would look like "not started", so a zero clock is stored as 1.

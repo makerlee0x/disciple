@@ -32,6 +32,7 @@ contract DiscipleHookTest is BridgeFixture {
         assertLe(address(hook).code.length, 24_576);
         assertLe(address(engine).code.length, 24_576);
         assertLe(address(lpFacet).code.length, 24_576);
+        assertLe(address(createFacet).code.length, 24_576);
         assertLe(address(adminFacet).code.length, 24_576);
         assertLe(address(swapFacet).code.length, 24_576);
     }
@@ -160,14 +161,16 @@ contract DiscipleHookTest is BridgeFixture {
     }
 
     function test_dutchDriftIsFixedAtCreation() public {
-        (uint64 drift, uint64 at_) = hook.dutchState(id);
+        (uint64 drift, uint64 bidAt, uint64 askAt) = hook.dutchState(id);
         assertEq(drift, uint64(C.DUTCH_DRIFT_DEFAULT));
-        assertEq(at_, uint64(block.timestamp));
+        assertEq(bidAt, uint64(block.timestamp));
+        assertEq(askAt, uint64(block.timestamp));
         usdg.mint(address(this), 5e18);
         _buy(key, address(coin), 5e18);
-        (uint64 drift2, uint64 at2) = hook.dutchState(id);
+        (uint64 drift2, uint64 bidAt2, uint64 askAt2) = hook.dutchState(id);
         assertEq(drift2, drift);
-        assertEq(at2, uint64(block.timestamp));
+        assertEq(bidAt2, bidAt, "a buy does not reset the bid clock");
+        assertEq(askAt2, uint64(block.timestamp));
 
         MockERC20 bad = _newCoin("SHORT", 18);
         bad.mint(address(this), 10e18);
@@ -180,7 +183,7 @@ contract DiscipleHookTest is BridgeFixture {
         custom.approve(address(hook), type(uint256).max);
         uint64 want = uint64(C.DUTCH_DRIFT_DEFAULT) * 2;
         (, PoolId cid) = hook.createPool(_params(address(custom), 10e18, want));
-        (uint64 ch,) = hook.dutchState(cid);
+        (uint64 ch,,) = hook.dutchState(cid);
         assertEq(ch, want);
     }
 
@@ -259,7 +262,7 @@ contract DiscipleHookTest is BridgeFixture {
 
         uint256 coinBefore = coin.balanceOf(address(this));
         uint256 usdgBefore = usdg.balanceOf(address(this));
-        (uint256 cOut, uint256 uOut) = hook.redeem(id, sh);
+        (uint256 cOut, uint256 uOut) = hook.redeem(id, sh / 2);
         assertEq(cOut, 0, "redeem does not pay seed coin");
         assertLt(uOut, 20e18, "redeem fee comes out of principal, not a 5x boost");
         assertEq(coin.balanceOf(address(this)), coinBefore);
@@ -381,7 +384,7 @@ contract DiscipleHookTest is BridgeFixture {
         assertEq(heldA + heldB, hook.usdgClaimsNorm());
 
         uint256 bal = usdg.balanceOf(address(this));
-        (uint256 coinOut, uint256 usdgOut) = hook.redeem(id, sharesA);
+        (uint256 coinOut, uint256 usdgOut) = hook.redeem(id, sharesA / 2);
         assertEq(coinOut, 0, "the deposit was USDG");
         assertGt(usdgOut, 0);
         assertLe(usdg.balanceOf(address(this)) - bal, heldA, "A's redeem cannot pay more than A holds");
@@ -412,7 +415,7 @@ contract DiscipleHookTest is BridgeFixture {
         assertTrue(hook.reserveOk(id2));
 
         uint256 beforeB = usdg.balanceOf(address(this));
-        (, uint256 paidB) = hook.redeem(id2, sharesB);
+        (, uint256 paidB) = hook.redeem(id2, sharesB / 2);
         assertGt(paidB, 0, "B can still pay its own USDG");
         assertGt(usdg.balanceOf(address(this)), beforeB);
         assertLt(hook.usdgHeld(id2), heldB);
@@ -465,13 +468,15 @@ contract DiscipleHookTest is BridgeFixture {
         (,,, uint256 used2) = hook.quoteExactIn(k, zfo, 3e18);
         _swap(k, zfo, used2, false);
 
-        // Default pool has no outflow window: two sells in one block both clear.
+        // 0,0 at create is 20% per hour. Two small sells clear. A sell past that hour's cap does not.
         _climb();
         usdg.mint(address(this), 80e18);
         hook.deposit(id, 0, 50e18);
-        coin.mint(address(this), 20e18);
+        coin.mint(address(this), 200e18);
         _sell(key, address(coin), 2e18);
         _sell(key, address(coin), 2e18);
+        vm.expectRevert();
+        this.execSwap(key, Currency.unwrap(key.currency0) == address(coin), 80e18);
     }
 
     function test_onlyLzCanDeliverTheRead() public {
@@ -515,7 +520,12 @@ contract DiscipleHookTest is BridgeFixture {
             dutchDrift: drift,
             refPoolId: bytes32(0),
             refHook: address(0),
-            refCoinIs0: false
+            refCoinIs0: false,
+            tickSpacing: 0,
+            v3Fee: 0,
+            refFee: 0,
+            refTickSpacing: 0,
+            refHooks: address(0)
         });
     }
 
@@ -533,17 +543,26 @@ contract DiscipleHookTest is BridgeFixture {
 
     function _graduate() internal {
         _climb();
-        usdg.mint(address(this), 3_000e18);
-        hook.deposit(id, 0, 2_500e18);
-        // The first reading snapped the smooth near $725k. A later reading only pulls that
-        // error with a 30-minute half-life, so the book is over 12% of $10k only after the
-        // smooth has actually fallen. Twelve half-lives leave about $175 of the gap.
-        skip(6 hours);
-        _price(id, hook.curve(id).anchor, 10_000e18);
+        // LP deposits are not inventory. Walk the smoothed reference down until the seed is
+        // over 12% of it. The crossing write starts the clock and does not flip status.
+        uint256 px = hook.curve(id).anchor;
+        if (px == 0) px = 1e18;
+        for (uint256 i; i < 64 && !_inventoryOver(); ++i) {
+            skip(31 minutes);
+            _price(id, px, 400e18);
+        }
+        assertTrue(_inventoryOver());
         assertFalse(_graduated(), "the window starts when the pool is first seen over the line");
         skip(C.GRADUATION_WINDOW);
         hook.poke(id);
         assertTrue(_graduated());
+    }
+
+    function _inventoryOver() internal view returns (bool) {
+        BridgeCurve.S memory s = hook.curve(id);
+        uint256 v = Math.mulDiv(s.protoX, s.anchor, C.WAD) + s.protoY + s.lockedY + s.feePot;
+        uint256 target = (hook.smoothedReference(id) * C.GRAD_NUM) / C.GRAD_DEN;
+        return target != 0 && v >= target;
     }
 
     function _floorAmt() internal view returns (uint256) {

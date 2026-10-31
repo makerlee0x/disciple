@@ -39,13 +39,14 @@ interface IBridgeHandle {
 ///         Turning status off returns new fees to LPs. The builder is one address, set here, and
 ///         only that address can hand it off. Pools are not migrated onto `AscensionHook`.
 /// @dev Storage lives here. Writes `delegatecall` a facet whose address is fixed at construction:
-///      swaps, LP accounting, and price updates. Views run here so they stay `staticcall`-able.
+///      swaps, pool creation, LP accounting, and price updates. Views run here so they stay `staticcall`-able.
 ///      No facet can be replaced. The v4 `slot0` price is a dummy and is never read.
 contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
     using PoolIdLibrary for PoolKey;
 
     address public immutable swapFacet;
     address public immutable lpFacet;
+    address public immutable createFacet;
     address public immutable adminFacet;
 
     constructor(
@@ -56,12 +57,18 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         DiscipleEngine engine_,
         address swapFacet_,
         address lpFacet_,
+        address createFacet_,
         address adminFacet_,
-        address builder_
-    ) BridgeStorage(manager_, usdg_, lz_, usdgDecimals_, engine_) {
-        if (swapFacet_ == address(0) || lpFacet_ == address(0) || adminFacet_ == address(0) || builder_ == address(0)) revert BadCreate();
+        address builder_,
+        address v3Factory_
+    ) BridgeStorage(manager_, usdg_, lz_, usdgDecimals_, engine_, v3Factory_) {
+        if (
+            swapFacet_ == address(0) || lpFacet_ == address(0) || createFacet_ == address(0)
+                || adminFacet_ == address(0) || builder_ == address(0)
+        ) revert BadCreate();
         swapFacet = swapFacet_;
         lpFacet = lpFacet_;
+        createFacet = createFacet_;
         adminFacet = adminFacet_;
         builder = builder_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
@@ -77,8 +84,10 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
 
     // ───────────────────────────── writes (forwarded) ────────────────
 
+    /// @notice Permissionless, multiple pools per coin. Anyone can create a pool for any coin.
+    ///         Creator identity is not checked. `tickSpacing` distinguishes pools for one coin.
     function createPool(CreateParams calldata) external returns (PoolKey memory, PoolId) {
-        _forward(lpFacet);
+        _forward(createFacet);
     }
 
     function setCreator(PoolId, address) external {
@@ -128,6 +137,21 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         _forward(adminFacet);
     }
 
+    /// @notice Builder allowlist for v4 oracle hooks and the remote PoolManager of an lzRead slot.
+    function setOracleAllowed(address, bool) external {
+        _forward(adminFacet);
+    }
+
+    /// @notice Builder allowlist for remote lenses.
+    function setLensAllowed(address, bool) external {
+        _forward(adminFacet);
+    }
+
+    /// @notice Builder-only. Sends stray ETH. Does not move pool tokens.
+    function rescueEth(address) external {
+        _forward(adminFacet);
+    }
+
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         uint8 op = abi.decode(data, (uint8));
@@ -165,8 +189,8 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         return (p.curve.anchor, p.ethTvl);
     }
 
-    /// @notice The Dutch bid and ask, the USDG size of each, and the progress fee. `gapWad` of 0 means
-    ///         the curve is quoting and the launch discount is intact. A trade resets both sides together.
+    /// @notice The Dutch bid and ask, the USDG size of each, and the progress fee. `gapWad` is the ask
+    ///         gap. A zero gap means that side is not overriding the curve. Each side has its own clock.
     function dutchQuote(PoolId id)
         external
         view
@@ -175,8 +199,9 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
         (BridgeCurve.S memory s,,) = _referenced(p);
-        gapWad = _gap(p);
-        (bidWad, askWad, bidUsdg, askUsdg) = engine.preview(s.anchor, BridgeCurve.tvl(s), _gradTvl(p), gapWad);
+        uint256 bidGap = _gapAt(p, p.dutchBidAt);
+        gapWad = _gapAt(p, p.dutchAskAt);
+        (bidWad, askWad, bidUsdg, askUsdg) = engine.preview(s.anchor, BridgeCurve.tvl(s), _gradTvl(p), bidGap, gapWad);
         feeBps = BridgeFee.baseFeeBps(BridgeCurve.tvl(s), _gradTvl(p));
     }
 
@@ -185,21 +210,38 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         return pools[id].ethTvl;
     }
 
-    /// @notice Drift fixed at creation, and the timestamp both quotes last reset.
-    function dutchState(PoolId id) external view returns (uint64 drift, uint64 at_) {
+    /// @notice Drift fixed at creation, and each side's last reset. A side resets only on its own fill.
+    function dutchState(PoolId id) external view returns (uint64 drift, uint64 bidAt, uint64 askAt) {
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
-        return (p.dutchDrift, p.dutchAt);
+        return (p.dutchDrift, p.dutchBidAt, p.dutchAskAt);
+    }
+
+    /// @notice Principal baseline the USDG floor is measured against, and the live principal.
+    function floorState(PoolId id) external view returns (uint256 mark, uint256 principal) {
+        Pool storage p = pools[id];
+        mark = _markNow(p);
+        principal = BridgeCurve.principalY(p.curve);
+    }
+
+    /// @notice Smoothed reference TVL. Graduation's target is 12% of this, not of the raw reading.
+    function smoothedReference(PoolId id) external view returns (uint256) {
+        return pools[id].smoothedTvl;
+    }
+
+    /// @notice Stored fee credit. The sum across LPs fits in `feePot`.
+    function feeCredit(PoolId id, address user) external view returns (uint256) {
+        return feeCreditOf[id][user];
     }
 
     function bridgeQuote(PoolId id) external view returns (BridgeQuote memory q) {
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
-        (BridgeCurve.S memory s,, uint256 age) = _referenced(p);
+        (BridgeCurve.S memory s,,) = _referenced(p);
         q.anchorPriceWad = s.anchor;
         q.poolPriceWad = BridgeCurve.spot(s);
         q.graduated = p.graduated;
-        q.stale = !_sameChain(p.anchorKind) && (s.anchor == 0 || age >= C.STALE_AFTER);
+        q.stale = p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER;
         if (s.anchor > 0) q.priceGapBps = _signedBps(q.poolPriceWad, s.anchor);
         uint256 v = BridgeCurve.tvl(s);
         if (v > 0) {
@@ -226,8 +268,9 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         BridgeCurve.Ctx memory ctx = _ctx(p, s);
         uint8 decIn = exactCoinIn ? p.coinDec : usdgDec;
         uint256 norm = _toNorm(amountIn, decIn);
+        uint256 gap = exactCoinIn ? _gapAt(p, p.dutchBidAt) : _gapAt(p, p.dutchAskAt);
         BridgeCurve.Fill memory f;
-        (, f) = engine.trade(s, ctx, norm, exactCoinIn, _gap(p));
+        (, f) = engine.trade(s, ctx, norm, exactCoinIn, gap);
         capped = f.capped;
         if (exactCoinIn) {
             amountInUsed = _toRaw(f.coinIn, p.coinDec);
@@ -277,20 +320,21 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         (BridgeCurve.S memory s,,) = _referenced(p);
         if (s.anchor == 0) return q;
         BridgeCurve.Ctx memory ctx = _ctx(p, s);
-        uint256 gap = _gap(p);
-        (bool buyCoin, uint256 normIn,, uint256 profit) = engine.quote(s, ctx, gap);
+        uint256 bidGap = _gapAt(p, p.dutchBidAt);
+        uint256 askGap = _gapAt(p, p.dutchAskAt);
+        (bool buyCoin, uint256 normIn,, uint256 profit) = engine.quote(s, ctx, bidGap, askGap);
         q.buyCoin = buyCoin;
         if (normIn == 0 || profit == 0) return q;
         if (buyCoin) {
             q.amountIn = _toRaw(normIn, usdgDec);
             uint256 norm = _toNorm(q.amountIn, usdgDec);
-            (uint256 out, uint256 profitRaw) = engine.fill(s, ctx, norm, true, gap);
+            (uint256 out, uint256 profitRaw) = engine.fill(s, ctx, norm, true, askGap);
             q.amountOut = _toRaw(out, p.coinDec);
             q.profitWad = profitRaw;
         } else {
             q.amountIn = _toRaw(normIn, p.coinDec);
             uint256 norm = _toNorm(q.amountIn, p.coinDec);
-            (uint256 out, uint256 profitRaw) = engine.fill(s, ctx, norm, false, gap);
+            (uint256 out, uint256 profitRaw) = engine.fill(s, ctx, norm, false, bidGap);
             q.amountOut = _toRaw(out, usdgDec);
             q.profitWad = profitRaw;
         }

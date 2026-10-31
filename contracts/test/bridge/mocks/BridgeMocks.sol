@@ -127,8 +127,25 @@ contract MockV4Oracle {
         tvlWad = tvl;
     }
 
+    bool public broken;
+
+    function setBroken(bool on) external {
+        broken = on;
+    }
+
     function consult(bytes32, uint32) external view returns (uint256, uint256) {
+        require(!broken, "oracle");
         return (priceWad, tvlWad);
+    }
+}
+
+/// @notice Stand-in for a Uniswap v3 factory. Tests register the pool they want `getPool` to return.
+contract MockV3Factory {
+    mapping(address => mapping(address => mapping(uint24 => address))) public getPool;
+
+    function setPool(address a, address b, uint24 fee, address pool) external {
+        getPool[a][b][fee] = pool;
+        getPool[b][a][fee] = pool;
     }
 }
 
@@ -156,9 +173,22 @@ contract MockV3Pool {
         points.push(Point({t: uint32(block.timestamp), cum: 0, tick: tick_}));
     }
 
-    /// @dev Spot price. The hook does not call this.
-    function slot0() external view returns (uint160 sqrtPriceX96, int24 tick) {
-        return (TickMath.getSqrtPriceAtTick(spotTick), spotTick);
+    /// @dev Full Uniswap v3 `slot0`. Cardinality is the number of stored points.
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        )
+    {
+        uint16 card = uint16(points.length);
+        return (TickMath.getSqrtPriceAtTick(spotTick), spotTick, 0, card, card, 0, true);
     }
 
     /// @notice Move the spot. A change in the same timestamp has zero duration, so the TWAP does not move.

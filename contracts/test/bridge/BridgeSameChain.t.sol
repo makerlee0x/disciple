@@ -22,6 +22,8 @@ contract BridgeSameChainTest is BridgeFixture {
         // Coin is token0 when its address sorts below USDG. Tick 0 is price 1 either way.
         v3 = new MockV3Pool(address(coin), address(usdg), 0);
         vm.warp(block.timestamp + 30 minutes);
+        v3.setTick(0);
+        v3Factory.setPool(address(coin), address(usdg), 3000, address(v3));
         (key, id) = _createV3(coin, v3, 77e18, 1_000_000e18);
     }
 
@@ -42,7 +44,7 @@ contract BridgeSameChainTest is BridgeFixture {
 
     function test_spotSpikeDoesNotMoveTheTwap() public {
         v3.setTick(MOVED);
-        (uint160 sqrtSpot, int24 spot) = v3.slot0();
+        (uint160 sqrtSpot, int24 spot,,,,,) = v3.slot0();
         assertEq(spot, MOVED);
         assertGt(sqrtSpot, 0);
         (uint256 price,) = hook.liveAnchor(id);
@@ -96,6 +98,8 @@ contract BridgeSameChainTest is BridgeFixture {
         usdg.mint(address(small), 100e18);
         c.mint(address(small), 100e18);
         vm.warp(block.timestamp + 30 minutes);
+        small.setTick(0);
+        v3Factory.setPool(address(c), address(usdg), 3000, address(small));
         (PoolKey memory k, PoolId pid) = _createV3(c, small, 77e18, 0);
         // Reference TVL = 200. Graduation is 12% = 24. The $77 seed is already over that,
         // but status waits out the pool's window and a poke.
@@ -127,6 +131,8 @@ contract BridgeSameChainTest is BridgeFixture {
         // `skip` reads the clock inside another call. Repeating `vm.warp(block.timestamp + 30 minutes)`
         // in this function gets constant-folded to the first timestamp under via_ir.
         skip(30 minutes);
+        flipped.setTick(0);
+        v3Factory.setPool(address(flippedCoin), address(usdg), 3000, address(flipped));
         (, PoolId pid) = _createV3(flippedCoin, flipped, 10e18, 1_000_000e18);
         assertEq(hook.curve(pid).anchor, 1e18);
 
@@ -138,9 +144,10 @@ contract BridgeSameChainTest is BridgeFixture {
 
         MockERC20 youngCoin = _newCoin("YOUNG", 18);
         MockV3Pool young = new MockV3Pool(address(youngCoin), address(usdg), 0);
+        v3Factory.setPool(address(youngCoin), address(usdg), 3000, address(young));
         youngCoin.mint(address(this), 10e18);
         youngCoin.approve(address(hook), type(uint256).max);
-        vm.expectRevert(MockV3Pool.OldObservation.selector);
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
         hook.createPool(
             BridgeStorage.CreateParams({
                 coin: address(youngCoin),
@@ -158,7 +165,12 @@ contract BridgeSameChainTest is BridgeFixture {
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),
-                refCoinIs0: false
+                refCoinIs0: false,
+                tickSpacing: 0,
+                v3Fee: 3000,
+                refFee: 0,
+                refTickSpacing: 0,
+                refHooks: address(0)
             })
         );
 
@@ -166,6 +178,8 @@ contract BridgeSameChainTest is BridgeFixture {
         MockERC20 fresh = _newCoin("FRESH", 18);
         MockV3Pool wrong = new MockV3Pool(address(other), address(usdg), 0);
         skip(30 minutes);
+        wrong.setTick(0);
+        v3Factory.setPool(address(fresh), address(usdg), 3000, address(wrong));
         fresh.mint(address(this), 10e18);
         fresh.approve(address(hook), type(uint256).max);
         vm.expectRevert(BridgeV3Anchor.BadPair.selector);
@@ -186,7 +200,12 @@ contract BridgeSameChainTest is BridgeFixture {
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),
-                refCoinIs0: false
+                refCoinIs0: false,
+                tickSpacing: 0,
+                v3Fee: 3000,
+                refFee: 0,
+                refTickSpacing: 0,
+                refHooks: address(0)
             })
         );
     }
@@ -215,7 +234,12 @@ contract BridgeSameChainTest is BridgeFixture {
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
                 refHook: address(0),
-                refCoinIs0: false
+                refCoinIs0: false,
+                tickSpacing: 0,
+                v3Fee: 3000,
+                refFee: 0,
+                refTickSpacing: 0,
+                refHooks: address(0)
             })
         );
     }

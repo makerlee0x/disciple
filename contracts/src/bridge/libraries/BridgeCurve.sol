@@ -43,8 +43,16 @@ library BridgeCurve {
         bool graduated;
         uint256 tipRoom; // room left under the keeper-budget cap
         uint256 floorBps;
+        /// @dev Absolute principal that must remain, from the baseline mark. Zero falls back to
+        ///      `floorBps` of the live principal so a bare curve test still has a floor.
+        uint256 principalFloor;
         uint256 maxUsdgOut; // min(floor room, outflow room); type(uint256).max if uncapped by the caller
         uint256 totalShares;
+        /// @dev Block-open LP value and share count. Fee weight uses these, not a same-block deposit.
+        ///      `useOpen` is set by the hook. A bare curve test leaves it false and keeps the live weight.
+        bool useOpen;
+        uint256 openLpVal;
+        uint256 openShares;
         uint256 boostWad;
     }
 
@@ -99,11 +107,20 @@ library BridgeCurve {
         return s.protoY + s.lpY;
     }
 
-    /// @notice USDG a sell may remove from principal. `feePot` is senior and is not spendable.
+    /// @notice USDG a sell may remove above `floorBps` of the live principal.
     function floorRoom(S memory s, uint256 floorBps) internal pure returns (uint256) {
+        return floorRoomAbs(s, (principalY(s) * floorBps) / C.BPS);
+    }
+
+    /// @notice USDG a sell may remove above an absolute principal floor.
+    function floorRoomAbs(S memory s, uint256 floorAmt) internal pure returns (uint256) {
         uint256 p = principalY(s);
-        uint256 floorAmt = (p * floorBps) / C.BPS;
         return p > floorAmt ? p - floorAmt : 0;
+    }
+
+    function _floorAmt(S memory s, Ctx memory ctx) private pure returns (uint256) {
+        if (ctx.principalFloor != 0) return ctx.principalFloor;
+        return (principalY(s) * ctx.floorBps) / C.BPS;
     }
 
     // ───────────────────────────── lifecycle ─────────────────────────
@@ -343,7 +360,7 @@ library BridgeCurve {
         uint256 lVal = lpValue(s);
         uint256 pVal = protoValue(s);
         _absorb(s, -_i(dx), _i(net), lVal, pVal);
-        f.toLp = _allocate(s, f.compound, lVal, pVal, ctx.boostWad, ctx.totalShares);
+        f.toLp = _allocate(s, f.compound, _feeLp(ctx, lVal), pVal, ctx.boostWad, _feeShares(ctx));
         _lock(s, f.locked);
         f.spotAfter = spot(s);
         return (s, f);
@@ -353,7 +370,7 @@ library BridgeCurve {
     function sellExactIn(S memory s, uint256 dx, Ctx memory ctx) internal pure returns (S memory, Fill memory f) {
         f.spotBefore = spot(s);
         if (dx == 0 || s.anchor == 0 || principalY(s) == 0) return (s, f);
-        uint256 room = floorRoom(s, ctx.floorBps);
+        uint256 room = floorRoomAbs(s, _floorAmt(s, ctx));
         if (ctx.maxUsdgOut < room) room = ctx.maxUsdgOut;
         uint256 gross = sellProceeds(s, dx);
         if (gross > room) {
@@ -388,7 +405,7 @@ library BridgeCurve {
         uint256 lVal = lpValue(s);
         uint256 pVal = protoValue(s);
         _absorb(s, _i(dx), -_i(gross), lVal, pVal);
-        f.toLp = _allocate(s, f.compound, lVal, pVal, ctx.boostWad, ctx.totalShares);
+        f.toLp = _allocate(s, f.compound, _feeLp(ctx, lVal), pVal, ctx.boostWad, _feeShares(ctx));
         _lock(s, f.locked);
         f.spotAfter = spot(s);
         return (s, f);
@@ -438,7 +455,7 @@ library BridgeCurve {
         uint256 pVal = protoValue(s);
         s.lpY -= amount;
         // `_allocate` also increases `y`. This USDG is already in `y`, so undo that.
-        toLp = _allocate(s, amount, lVal, pVal, boostWad, totalShares);
+        toLp = _allocate(s, amount, lVal, pVal, boostWad, totalShares == 0 ? 0 : totalShares);
         s.y -= amount;
     }
 
@@ -507,6 +524,16 @@ library BridgeCurve {
         }
         s.x = x2;
         s.y = s.protoY + s.lpY + s.feePot + s.lockedY;
+    }
+
+    /// @dev Fee weight uses the block-open LP value when the caller recorded one. Otherwise the
+    ///      pre-trade value, so a bare curve test that never opens a block still splits.
+    function _feeLp(Ctx memory ctx, uint256 live) private pure returns (uint256) {
+        return ctx.useOpen ? ctx.openLpVal : live;
+    }
+
+    function _feeShares(Ctx memory ctx) private pure returns (uint256) {
+        return ctx.useOpen ? ctx.openShares : ctx.totalShares;
     }
 
     /// @dev Adds `amount` of fresh USDG into `y` and splits it between protocol principal and the LP fee pot.
