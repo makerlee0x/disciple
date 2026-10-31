@@ -116,6 +116,12 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [wallet]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // closing clears #settings / #cash in place (no navigation or scroll), so the next Settings click opens it again
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    if ((SETTINGS_HASHES as readonly string[]).includes(window.location.hash))
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+  }, []);
   const [edit, setEdit] = useState<{ focus: "bio" | null } | null>(null);
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [toast, setToast] = useState("");
@@ -221,6 +227,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   if (isPrivate && !wallet) {
     return (
       <div className="profile-page pf-v3">
+        {/* Settings opens right away, before the wallet resolves; its sections show their own loading / signed-out state */}
+        <SettingsModal open={settingsOpen} onClose={closeSettings} />
         <header className="pf-head pf-signedout" data-testid="profile-identity">
           <h1 className="pf-name">Your Profile</h1>
           <p className="muted">Sign in (top right)</p>
@@ -242,7 +250,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   return (
     <div className="profile-page pf-v3">
       {share && <ShareModal target={share} onClose={() => setShare(null)} />}
-      {isPrivate && <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
+      {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         onClose={(saved) => { setEdit(null); if (saved) flash(C["edit.saved"]); }} />}
       <LootPopup items={popupItems} index={popupIndex >= 0 ? popupIndex : null} onIndex={stepPopup} onClose={closePopup} />
