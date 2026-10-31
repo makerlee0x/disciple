@@ -200,20 +200,27 @@ export default function FlightCanvas({ search }: Props) {
       const w = document.querySelector('[aria-label="wallet"]') as HTMLElement | null;
       const b = w ? Math.ceil(w.getBoundingClientRect().bottom) : 0;
       const vw = Math.round(wrapRef.current?.clientWidth || innerWidth);
-      if (`${b}:${vw}` === last) return;
-      last = `${b}:${vw}`;
+      // the wallet strip's left edge in canvas px (engine hudTopLayout keeps the BUY panel clear of the cash / total cards);
+      // the canvas starts at the sidebar edge, whatever its width (measured, not --ap-side-w)
+      const wl = w ? Math.floor(w.getBoundingClientRect().left - (wrapRef.current?.getBoundingClientRect().left || 0)) : 0;
+      if (`${b}:${vw}:${wl}:${colTop}` === last) return;
+      last = `${b}:${vw}:${wl}:${colTop}`;
+      (window as unknown as { __walletL?: number }).__walletL = wl;
       const row = Math.max(12, b + 8);
       // Phones: the in-canvas status column starts below the MARKET CAP panel (engine.js hudColTop, same 740/158 numbers),
       // so CrewPanel / GameChat (stacked on --ap-hud-rt) move down with it. Desktop unchanged.
       const hudRT = vw < HUD_NARROW_W ? Math.max(row + 10, HUD_NARROW_TOP) : row + 10;   // +10 gap (the 38px gear/✕ row is gone)
       const st = document.documentElement.style;
       st.setProperty("--ap-tr-top", row + "px");
-      st.setProperty("--ap-hud-rt", hudRT + "px");
+      st.setProperty("--ap-hud-rt", Math.max(hudRT, colTop) + "px");   // the engine may move the column below the BUY panel
       (window as unknown as { __hudRT?: number }).__hudRT = hudRT;
     };
+    let colTop = 0;
+    const onCol = (e: Event) => { const t = +((e as CustomEvent<{ top?: number }>).detail?.top || 0); if (t !== colTop) { colTop = t; tick(); } };
+    addEventListener("disciple:hudcol", onCol);
     tick();
     const id = window.setInterval(tick, 400);
-    return () => window.clearInterval(id);
+    return () => { window.clearInterval(id); removeEventListener("disciple:hudcol", onCol); };
   }, []);
 
   // Simulated-market toggle (engine owns the state; this just mirrors + flips it).
