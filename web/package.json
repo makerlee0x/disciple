@@ -87,6 +87,7 @@
     "test:coin-images": "tsx --test scripts/test-coin-images.mts",
     "test:coin-page-image": "tsx --test scripts/test-coin-page-image.mts",
     "test:launch-image": "tsx --test scripts/test-launch-image.mts",
+    "test:launch-guard": "tsx --test scripts/test-launch-guard.mts",
     "test:relayer-key": "tsx --conditions=react-server --test scripts/test-relayer-key.mts",
     "test:relay-trust": "tsx --test scripts/test-relay-trust.mts",
     "test:trade-latency": "tsx --test scripts/test-trade-latency.mts",
