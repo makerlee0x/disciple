@@ -39,7 +39,18 @@ export interface Bot { id: number; name: string; wallet: string; arch: Archetype
   ride?: { tp: number; since: number } | null;
   /** sold into your dump: buys back at/below this price */
   rebuy?: { below: number; until: number } | null }
-export interface SimTrade { t: number; side: "buy" | "sell"; usd: number; tokens: number; mcap: number; preMcap: number; trader: string; arch: ArchetypeId | "you"; mine: boolean; react?: ReactKind }
+export interface SimTrade { t: number; side: "buy" | "sell"; usd: number; tokens: number; mcap: number; preMcap: number; trader: string; arch: ArchetypeId | "you"; mine: boolean; react?: ReactKind;
+  /** the trader's wallet ("you" for the player) — PAPER TRADING names bots from it (lib/defaultUsername) */
+  wallet?: string; /** gas charged on this trade ($, out of cash) */ gas?: number }
+/** PAPER TRADING (lib/sim/paper.ts): an optional bot brain that replaces the archetype switch for every bot. Absent (the
+ *  /flight/sim SIMULATOR) ⇒ SimRun behaves exactly as before. It uses the run's own RNG, so runs stay deterministic. */
+export interface SimBrain {
+  init(run: SimRun): void;
+  decide(run: SimRun, b: Bot): void;
+  afterBlock?(run: SimRun): void;
+  /** called once, right after the trade that ASCENDS the curve (paper: score the round, pay the ascension pool) */
+  onGraduate?(run: SimRun): void;
+}
 export interface SimEvent { t: number; kind: "launch" | "graduate" | "rug" | "cto" | "whale" | "tier" | "react" | "tw"; text: string; mcap: number; mine?: boolean }
 export type PlayerInput =
   | { blk: number; op: "trade"; side: "buy" | "sell"; usd: number; frac?: number }
@@ -71,7 +82,12 @@ export class SimRun {
   keeper = { tips: 0, pulls: 0 };
   tw = { placed: { you: 0, bots: 0 }, filled: { you: 0, bots: 0 }, cancelled: 0, youPoints: 0 };
   private byWallet = new Map<string, Bot>();
-  constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number } = {}) {
+  brain: SimBrain | null;
+  /** PAPER (spec Sec. 2 'End condition'): with opts.endOnGraduate the round ends at ASCEND — time stops at `endedAt` and every
+   *  later trade fails. Off (the SIMULATOR) ⇒ unchanged. */
+  endOnGraduate: boolean; endedAt: number | null = null;
+  constructor(public cfg: SimConfig, public difficulty: DifficultyId, public seed: number, opts: { balance?: number; brain?: SimBrain; endOnGraduate?: boolean } = {}) {
+    this.brain = opts.brain ?? null; this.endOnGraduate = !!opts.endOnGraduate;
     this.rng = mulberry32(seed);
     this.m = new Market(cfg);
     const p0 = this.m.price(); this.emaF = this.emaS = p0; this.peak = this.m.mcap();
@@ -85,6 +101,7 @@ export class SimRun {
     if (D.waves) this.waveAt = this.r(D.waves.everyS[0], D.waves.everyS[1]);
     let cluster = 0;
     for (const [a, n] of Object.entries(D.initial) as [ArchetypeId, number][]) for (let i = 0; i < n; i++) this.spawn(a, 0, a === "bundler" ? (cluster || (cluster = 1)) : undefined);
+    this.brain?.init(this);
     this.emitEvent("launch", `LAUNCH · ${D.label} · seed ${seed}`);
   }
   /** difficulty with defaults filled in (a stale saved tune may lack newer knobs) */
@@ -119,23 +136,27 @@ export class SimRun {
   }
   private acct(owner: string): Acct | undefined { return owner === YOU ? this.player : this.byWallet.get(owner); }
   private exec(side: "buy" | "sell", who: Bot | null, usdOrTokens: number, react?: ReactKind): Fill {
+    if (this.endedAt != null) return this.fail("round over");
     const pre = this.m.mcap(), wasCurve = this.m.phase === "curve", depth0 = this.m.depth();
     const holding = who ? who.pos.size : this.player.pos.size;
     const f = side === "buy" ? this.m.buy(usdOrTokens, this.t, holding) : this.m.sell(usdOrTokens);
     if (!f.ok) return f;
-    const at = this.t * 1000, gas = who ? 0 : this.cfg.player.gasUsd;
-    if (who) { const r0 = who.pos.realized; who.pos = applyFill(who.pos, side, f.usd, f.price, 0, at); if (react && side === "sell") { const d = who.pos.realized - r0; this.reactPnl += d; this.reactPnlBy[react] = (this.reactPnlBy[react] || 0) + d; } who.cash += side === "buy" ? -f.usd : f.usd * (1 - this.m.fee); who[side === "buy" ? "buys" : "sells"]++; who.volume += f.usd; }
+    const at = this.t * 1000, gas = who ? this.cfg.player.botGasUsd ?? 0 : this.cfg.player.gasUsd;
+    if (who) { const r0 = who.pos.realized; who.pos = applyFill(who.pos, side, f.usd, f.price, gas, at); who.cash -= gas; if (react && side === "sell") { const d = who.pos.realized - r0; this.reactPnl += d; this.reactPnlBy[react] = (this.reactPnlBy[react] || 0) + d; } who.cash += side === "buy" ? -f.usd : f.usd * (1 - this.m.fee); who[side === "buy" ? "buys" : "sells"]++; who.volume += f.usd; }
     else { const P = this.player; P.pos = applyFill(P.pos, side, f.usd, f.price, gas, at); P.cash += (side === "buy" ? -f.usd : f.usd * (1 - this.m.fee)) - gas; P[side === "buy" ? "buys" : "sells"]++; P.volume += f.usd;
       if (side === "buy" && P.firstBuyT == null) P.firstBuyT = this.t;
       this.tape.push({ t: this.t, side, dp: f.usd / Math.max(1, depth0) }); if (this.tape.length > 400) this.tape.splice(0, 100); }
-    const tr: SimTrade = { t: this.t, side, usd: f.usd, tokens: f.tokens, mcap: f.postMcap, preMcap: pre, trader: who ? who.name : "you", arch: who ? who.arch : "you", mine: !who, react };
+    const tr: SimTrade = { t: this.t, side, usd: f.usd, tokens: f.tokens, mcap: f.postMcap, preMcap: pre, trader: who ? who.name : "you", arch: who ? who.arch : "you", mine: !who, react, wallet: who ? who.wallet : YOU, gas };
     this.trades.push(tr); if (this.trades.length > 4000) this.trades.splice(0, 1000);
     this.notify({ trade: tr, player: !who });
     if (react && who) { this.reactLog.push({ t: this.t, usd: f.usd }); this.noteReact(react, who); }
-    if (wasCurve && this.m.phase === "pool") this.emitEvent("graduate", `ASCENDED → pool at ${fmt(this.m.mcap())}`);
+    if (wasCurve && this.m.phase === "pool") { this.emitEvent("graduate", `ASCENDED → pool at ${fmt(this.m.mcap())}`);
+      if (this.endOnGraduate) { this.endedAt = this.t; this.brain?.onGraduate?.(this); } }
     if (who && f.usd > Math.max(3000, this.m.depth() * 0.25) && side === "buy") this.emitEvent("whale", `${who.name} apes ${fmt(f.usd)}`);
     return f;
   }
+  /** a brain's bot trade (buy: $ in, sell: tokens) through the same exec path as every other trade */
+  botTrade(b: Bot, side: "buy" | "sell", usdOrTokens: number): Fill { return this.exec(side, b, usdOrTokens); }
   private noteReact(k: ReactKind, b: Bot) { this.reacts[k]++; if (this.t - this.lastReactEvT >= 3) { this.lastReactEvT = this.t; this.emitEvent("react", `${b.name} ${REACT_TEXT[k]}`); } }
   private fail(reason: string) { const m = this.m.mcap(); return { ok: false, reason, tokens: 0, usd: 0, price: 0, preMcap: m, postMcap: m, mcap: m }; }
 
@@ -170,11 +191,11 @@ export class SimRun {
     this.close(o, "cancel", YOU); return { ok: true };
   }
   /** re-run a recorded player log: identical (cfg, difficulty, seed, inputs) ⇒ identical run */
-  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number } = {}) {
+  static replay(cfg: SimConfig, difficulty: DifficultyId, seed: number, inputs: PlayerInput[], seconds: number, opts: { balance?: number; brain?: SimBrain; endOnGraduate?: boolean } = {}) {
     const r = new SimRun(cfg, difficulty, seed, opts), N = Math.round(seconds / cfg.market.blockS); let i = 0;
     for (;;) {
       while (i < inputs.length && inputs[i].blk === r.blk) r.apply(inputs[i++]);
-      if (r.blk >= N) break; r.step(cfg.market.blockS);
+      if (r.blk >= N || r.endedAt != null) break; r.step(cfg.market.blockS);
     }
     return r;
   }
@@ -321,6 +342,7 @@ export class SimRun {
     return false;
   }
   private decide(b: Bot, F: ReturnType<SimRun["feat"]>) {
+    if (this.brain) return this.brain.decide(this, b);
     const A = this.cfg.archetypes[b.arch], R = () => this.rng(), D = this.diff();
     const u = b.pos.size > 0 ? F.p / (b.pos.costBasis / b.pos.size) - 1 : 0, has = b.pos.size > 0, ts = D.tradeScale ?? 1, bf = () => this.r(A.buyFrac[0], A.buyFrac[1]) * ts, sf = () => this.r(A.sellFrac[0], A.sellFrac[1]);
     const age = this.t - b.joinT;
@@ -383,7 +405,7 @@ export class SimRun {
   step(dt: number) {
     const B = this.cfg.market.blockS; this.acc += dt;
     const n = Math.floor((this.acc + 1e-9) / B); this.acc = Math.max(0, this.acc - n * B);
-    for (let i = 0; i < n; i++) this.block(B);
+    for (let i = 0; i < n && this.endedAt == null; i++) this.block(B);
   }
   private block(dt: number) {
     this.blk++; this.t = this.blk * this.cfg.market.blockS;
@@ -396,6 +418,7 @@ export class SimRun {
       this.waveUntil = this.t + this.r(W.durS[0], W.durS[1]); this.waveAt = this.waveUntil + this.r(W.everyS[0], W.everyS[1]); }
     const F = this.feat();
     for (const b of this.bots) {
+      if (this.endedAt != null) return;
       if (!b.active || this.t < b.nextT) continue;
       const A = this.cfg.archetypes[b.arch];
       b.nextT = this.t + (60 / Math.max(0.05, A.rate * D.activity)) * (-Math.log(this.rng() + 1e-12));
@@ -412,6 +435,7 @@ export class SimRun {
     const p = this.m.price(), kF = 1 - Math.exp(-dt / M.emaFastS), kS = 1 - Math.exp(-dt / M.emaSlowS);
     this.emaF += (p - this.emaF) * kF; this.emaS += (p - this.emaS) * kS;
     if (this.t - this.histT >= 1) { this.histT = this.t; this.hist.push(p); if (this.hist.length > M.srWindowS) this.hist.shift(); }
+    this.brain?.afterBlock?.(this);
     const mc = this.m.mcap(); if (mc > this.peak) { this.peak = mc; this.peakT = this.t; }
     const ti = tierOf(this.peak); if (ti > this.peakTier) { this.peakTier = ti; if (ti >= 4) this.emitEvent("tier", `${TIERS[ti].name} reached`); }
   }

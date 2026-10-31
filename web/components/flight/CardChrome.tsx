@@ -18,10 +18,12 @@ import { overlayBlocked, startSidebarOverlay } from "@/lib/game/sidebarOverlay";
 type R = { x: number; y: number; w: number; h: number };
 const mono = "ui-monospace, monospace";
 const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "0 5px", lineHeight: "16px", fontSize: 11, color: "#ffe7a3", fontFamily: mono };
-const DOM_SEL: Partial<Record<CardId, string>> = { chart: '[data-card="chart"]', pnl: '[data-card="pnl"]', chat: '[data-card="chat"]' };
-const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 } };   // pill spot if never seen
+const DOM_SEL: Partial<Record<CardId, string>> = { chart: '[data-card="chart"]', pnl: '[data-card="pnl"]', chat: '[data-card="chat"]', board: '[data-card="board"]' };
+const DOM_HOME: Partial<Record<CardId, R>> = { chart: { x: 84, y: 470, w: 440, h: 40 }, pnl: { x: 86, y: 212, w: 272, h: 40 }, chat: { x: 0, y: 160, w: 300, h: 40 }, board: { x: 86, y: 520, w: 272, h: 40 } };   // pill spot if never seen
 
-export default function CardChrome() {
+/** extraCards: PAPER TRADING's extra DOM cards (lib/game/cardLayout PAPER_CARDS); absent on live coin pages ⇒ CARD_IDS only */
+export default function CardChrome({ extraCards }: { extraCards?: CardId[] } = {}) {
+  const ids = extraCards?.length ? [...CARD_IDS, ...extraCards] : CARD_IDS;
   const layout = useCardLayout(), canvas = useCanvasCards();
   const [phone, setPhone] = useState(true), [hover, setHover] = useState<CardId | null>(null), [menu, setMenu] = useState(false), [, tick] = useState(0);
   const lastDom = useRef<Partial<Record<CardId, R>>>({});
@@ -53,7 +55,7 @@ export default function CardChrome() {
       (window as unknown as { __hudLane?: Box }).__hudLane = lane;
       envRef.current = env;
       const saved = getSavedLayout(), d = drag.current, cards: FlowCard[] = [], cur = getLayout();
-      for (const id of CARD_IDS) {
+      for (const id of ids) {
         const sv = saved[id]; if (sv?.min || sv?.closed || (d && d.id === id)) continue;
         const r = rectOf(id);
         let base: Box;
@@ -71,7 +73,7 @@ export default function CardChrome() {
       }
       const fixed = [wallet, bar, ammo.current].filter((b): b is Box => !!b);
       if (d) { const r = rectOf(d.id); if (r) fixed.push(r); }   // the card in your hand is not flowed (others avoid it)
-      const compact = innerWidth - left < COMPACT_W, pinned = CARD_IDS.filter((id) => saved[id]?.pin);
+      const compact = innerWidth - left < COMPACT_W, pinned = ids.filter((id) => saved[id]?.pin);
       const res = layoutCards(env, cards, fixed, { compact, pinned }), out = res.pos, offs: FlowOffsets = {};
       for (const c of cards) { const o = out[c.id]; if (!o) continue;
         if (o.tab) {   // a tab: hidden, unless it is the one popped open (a popover under the tab row, over the layout)
@@ -80,9 +82,9 @@ export default function CardChrome() {
         } else if (o.x !== c.base.x || o.y !== c.base.y || c.slot) offs[c.id as CardId] = { dx: o.x - c.base.x, dy: o.y - c.base.y }; }
       setFlowOffsets(offs);
       (window as unknown as { __slotDebug?: unknown }).__slotDebug = { env, cards, tabs: res.tabs, tabRow: res.tabRow };   // read by the overlap check
-      const ids = res.tabs as CardId[];
-      setTabs((t) => (t.ids.join() === ids.join() && JSON.stringify(t.row) === JSON.stringify(res.tabRow) ? t : { ids, row: res.tabRow }));
-      if (popRef.current && !ids.includes(popRef.current)) setPop(null);
+      const tabIds = res.tabs as CardId[];
+      setTabs((t) => (t.ids.join() === tabIds.join() && JSON.stringify(t.row) === JSON.stringify(res.tabRow) ? t : { ids: tabIds, row: res.tabRow }));
+      if (popRef.current && !tabIds.includes(popRef.current)) setPop(null);
     };
     run(); const iv = setInterval(run, 700);
     const ro = new ResizeObserver(run); const w = document.getElementById("wrap"); if (w) ro.observe(w);   // content width changes (sidebar)
@@ -108,7 +110,7 @@ export default function CardChrome() {
     const mv = (e: PointerEvent) => {
       if (drag.current) return;
       let hit: CardId | null = null;
-      for (const id of CARD_IDS) { const l = getLayout()[id]; if (l?.min || l?.closed) continue; const r = rectOf(id); if (!r) continue;
+      for (const id of ids) { const l = getLayout()[id]; if (l?.min || l?.closed) continue; const r = rectOf(id); if (!r) continue;
         if (e.clientX >= r.x && e.clientX <= r.x + r.w && e.clientY >= r.y - 20 && e.clientY <= r.y + r.h) { hit = id; break; } }
       setHover((h) => (h === hit ? h : hit));
     };
@@ -135,7 +137,7 @@ export default function CardChrome() {
   const act = (id: CardId, patch: { min?: boolean; closed?: boolean }) => { updateLayout((l) => setCard(l, id, patch)); setHover(null); };
 
   const hov = hover && !layout[hover]?.min && !layout[hover]?.closed ? rectOf(hover) : null;
-  const pills = CARD_IDS.filter((id) => layout[id]?.min);
+  const pills = ids.filter((id) => layout[id]?.min);
   const hidden = hiddenCards(layout);
   return (
     <div data-testid="card-chrome" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 61 }}>
@@ -165,17 +167,17 @@ export default function CardChrome() {
       <div style={{ position: "fixed", left: wrapXY().x + 20, bottom: 3, pointerEvents: "auto" }}>
         <button data-testid="layout-menu" onClick={() => setMenu((m) => !m)} title="Cards: restore closed ones or reset the layout"
           style={{ ...btn, fontSize: 9.5, opacity: menu || hidden.length ? 0.95 : 0.55, letterSpacing: ".08em" }}>⧉ LAYOUT{hidden.length ? ` · ${hidden.length} hidden` : ""}</button>
-        {menu && <LayoutMenu layout={layout} close={() => setMenu(false)} />}
+        {menu && <LayoutMenu layout={layout} close={() => setMenu(false)} ids={ids} />}
       </div>
     </div>
   );
 }
 
-function LayoutMenu({ layout, close }: { layout: Layout; close: () => void }) {
+function LayoutMenu({ layout, close, ids = CARD_IDS }: { layout: Layout; close: () => void; ids?: CardId[] }) {
   return (
     <div data-testid="layout-pop" style={{ position: "absolute", left: 0, bottom: 20, minWidth: 190, padding: 8, borderRadius: 10, background: "rgba(10,12,30,.96)",
       border: "1px solid rgba(255,231,163,.35)", font: `11px ${mono}`, color: "#e8ecff", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
-      {CARD_IDS.map((id) => { const s = layout[id], st = s?.closed ? "closed" : s?.min ? "minimized" : s?.dx || s?.dy ? "moved" : s?.w ? "resized" : "";
+      {ids.map((id) => { const s = layout[id], st = s?.closed ? "closed" : s?.min ? "minimized" : s?.dx || s?.dy ? "moved" : s?.w ? "resized" : "";
         return <div key={id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "2px 0" }}>
           <span>{CARD_TITLES[id]}{st && <span style={{ opacity: 0.55 }}> · {st}</span>}</span>
           {(s?.closed || s?.min) && <button data-testid={`layout-show-${id}`} onClick={() => updateLayout((l) => restoreCard(l, id))} style={{ ...btn, padding: 0 }}>show</button>}
