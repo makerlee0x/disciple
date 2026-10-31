@@ -228,7 +228,7 @@ body.game {
 }
 #apSide .ap-me-id:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: 2px; }
 #apSide .ap-me-who { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-#apSide .ap-me-nm { font-size: 14px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#apSide .ap-me-nm { font-size: 14px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 #apSide .ap-me-gear {
   all: unset;
   box-sizing: border-box;
@@ -283,7 +283,6 @@ body.game {
   border: 1px solid var(--ap-hair);
   border-radius: var(--dsc-radius-lg);
 }
-#apSide .ap-join-t { font-size: 14px; font-weight: 500; white-space: nowrap; }
 #apSide .ap-join-p { margin: 0; font-size: 13px; line-height: 18px; color: var(--dsc-muted); }
 #apSide .ap-join-btn {
   all: unset;

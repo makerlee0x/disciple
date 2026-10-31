@@ -4,7 +4,7 @@
  * App navigation, premium-ui-r1 (BRAND mockups/premium-ui-r1, DIRECTION.md "Sidebar"):
  * one silver "Launch a Rocket" button on top, six places in two groups (Launchpad / Leaderboard / Achievements, then
  * You: Profile / Your rockets / Wallet), How it works near the bottom, and who you are at the bottom (picture, name,
- * guild tag, settings) or, signed out, one "Join the war" card with one Sign in button. Sign out lives in Settings.
+ * guild tag, settings) or, signed out, one card with one Sign in button. Sign out lives in Settings.
  * Game routes collapse to the 64px rail (silver + for Launch). Phones: a drawer; Launch sits in the top bar.
  * Upgrade Rocket is hidden from the menu until it does something (the /rocket route stays).
  */
@@ -43,10 +43,11 @@ const NAV_YOU: readonly NavItem[] = [
 
 // Copy pending lee approval: "You" (group label)
 const YOU_LABEL = "You";
-// Copy pending lee approval: "Join the war" (signed-out card title, from the r1 mock)
-const JOIN_TITLE = "Join the war";
-// Copy pending lee approval: signed-out line (lee's approved sign-in line, as edited in home-r2/CHANGES.md)
-const JOIN_LINE = "Sign in with email, Google, X or wallet to BOOST, DUMP and launch.";
+// Copy pending lee approval: signed-out card line (lee's approved sign-in line; no title)
+const JOIN_LINE = "Sign in with email, Google, X or wallet";
+// Copy pending lee approval: signed-out card button. Local-signer (guest) builds keep the pill's own "Play" label,
+// because there the button creates a guest account instead of opening sign-in.
+const JOIN_BTN = "Sign in";
 // Copy pending lee approval: "How it works" (replaces "Help")
 const HIW_LABEL = "How it works";
 // Copy pending lee approval: "Launch" (phone top-bar button)
@@ -235,9 +236,9 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           <div className="ap-me" data-testid="side-account">
             <Link href="/profile" className="ap-me-id" title={name} onClick={closeIfMobile}>
               <Avatar address={me.address} name={name} size={36} />
+              {/* the name once (lee): no text guild chip here, just the small guild mark like the wallet pill (#219) */}
               <span className="ap-me-who">
-                <span className="ap-me-nm">{name}</span>
-                <GuildTagFor address={me.address} />
+                <span className="ap-me-nm">{name}<GuildTagFor address={me.address} markOnly /></span>
               </span>
             </Link>
             {settingsProps
@@ -251,7 +252,6 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
           </div>
         ) : !you ? (
           <div className="ap-join" data-testid="side-join">
-            <div className="ap-join-t">{JOIN_TITLE}</div>
             <p className="ap-join-p">{JOIN_LINE}</p>
             {/* the wallet pill's own action ("Play" = guest account, else its sign-in menu); #149 phone Play */}
             <button
@@ -263,7 +263,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
                 window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT));
               }}
             >
-              {cta ?? "Sign in"}
+              {cta === "Play" ? cta : JOIN_BTN}
             </button>
           </div>
         ) : null}
