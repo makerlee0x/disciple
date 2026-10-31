@@ -191,7 +191,7 @@ console.log("— phone trade bar (#139 PhoneTradeBar) keeps the rapid-tap states
     "phone hint bubble: 3 IN FLIGHT / pending-hold short msg / per-press rows (2+) / the trade line while pending or 'Still confirming your last trade…'");
   ok(/const short = rawLive \? !canSpend\(CASH_RAW\.v!, sendUsd, gasKindFor/.test(tb) && (tb.match(/const short = /g) || []).length === 1, "one short (rapid-tap raw + gas kind), #139's float short dropped"); }
 console.log("— pressId (FLOW #145)");
-ok(/reservationId: pressId, pressId \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
+ok(/reservationId: pressId, pressId(, \.\.\.\(maxOut > BigInt\(0\) \? \{ maxOut \} : \{\}\))? \}/.test(tb), "client.buy/sell params carry pressId (same value as reservationId)");
 ok(/bookReceipt\(r\.txHash, side, rp, bag, logs\)/.test(tb) && /bookReceipt\(r\.txHash, side, rp, bag\)/.test(tb) && /const rp = r\.pressId \?\? pressId;/.test(tb), "bookReceipt(r.txHash, side, r.pressId) (press id fallback when the stack doesn't return it)");
 ok(/"disciple:fillreceipt", \{ detail: \{ txHash: hash, side, \.\.\.\(pressId \? \{ pressId \} : \{\}\)/.test(tb), "disciple:fillreceipt detail carries pressId");
 ok(/const mine = !d\?\.pressId \|\| d\.pressId === linePress\.current;/.test(tb) && /const sent = d\?\.phase === "submitted" \|\| d\?\.phase === "sent";/.test(tb) && /if \(sent && mine\)/.test(tb) && /linePress\.current = pressId;/.test(tb), "disciple:op → press by pressId (untagged = legacy)");

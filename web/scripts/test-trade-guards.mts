@@ -1,56 +1,86 @@
 // SITE pre-send alerts + no-refuse pricing (lee, Oct 26 10:50–10:52 CDT). npm run test:trade-guards
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nextAlert, walletCapAlert, impactAlert, buyFill, BUY_MAX_HEADROOM, COPY_PENDING_LEE } from "../lib/trade/tradeGuards";
-import { noRefuseMinOut, holdInflightUntilSeen, sendWithRequote } from "../lib/trade/queuePricing";
+import { nextAlert, walletCapAlert, impactAlert, buyFill, FILL_OVERSHOOT, ROOM_MARGIN_BPS, COPY_PENDING_LEE } from "../lib/trade/tradeGuards";
+import { noRefuseMinOut, holdInflightUntilSeen, sendWithRequote, roomCappedRange, tokensToWei, tradeMinOut } from "../lib/trade/queuePricing";
 
 // EASY coin: 1 B supply, mcap $5,000 ⇒ $0.000005 / coin; cap 1 % (100 bps) = 10 M coins ≈ $50
 const easy = { capBps: 100, supply: 1e9, holding: 0, priceUsd: 5e-6 };
-test("over-room buy is not held: it fills to the wallet limit (buyFill sends the room's $) with a plain note", () => {
-  // the alert never holds an over-room buy any more (lee, Oct 31); only a full wallet holds
+const noCopy = (f: object) => assert.ok(!("note" in f) && !("warning" in f), "no copy (lee, Oct 31: fill silently)");
+test("over-room buy is not held: it fills the WHOLE room silently (sends room × overshoot, minOut ceiling = room − 0.5 %)", () => {
   assert.equal(walletCapAlert(80, easy), null);
   const f = buyFill(80, easy);
-  assert.equal(f.capped, true);
-  assert.ok(f.usd > 45 && f.usd < 50, String(f.usd));
-  assert.equal(f.usd, Math.floor(1e7 * 5e-6 * BUY_MAX_HEADROOM * 100) / 100, "97 % of the room at the mark, floored to the cent");
-  assert.equal(f.note, COPY_PENDING_LEE.walletFill("1%", f.usd));
-  assert.match(f.note!, /^Wallet limit: this coin's mode caps each wallet at 1%\. Buying \$4\d\.\d\d to fill it; the rest stays in your cash\.$/);
-  assert.doesNotMatch(f.note!, /revert|tx|0x|HTTP|relay|refund|graduat/i);
-  assert.deepEqual(buyFill(f.usd, easy), { usd: f.usd, capped: false }, "the room itself is sent as typed");
+  assert.equal(f.capped, true); noCopy(f);
+  assert.equal(f.usd, 62.5, "room $50 × 1.25 = $62.50 (≤ typed $80)");
+  assert.equal(f.fillUsd, 50, "the whole room fills");
+  assert.equal(f.roomOut, 1e7 * (10_000 - ROOM_MARGIN_BPS) / 10_000, "minOut ceiling 0.5 % under the room");
+  assert.equal((COPY_PENDING_LEE as Record<string, unknown>).walletFill, undefined, "the fill note copy is gone");
 });
-// $24.30 of room: 97 % × room × mark = 24.30 ⇒ room = 24.30 / 0.97 / 5e-6 coins; holding = cap − room
-const room2430 = { ...easy, holding: 1e7 - 24.30 / BUY_MAX_HEADROOM / 5e-6 + 1 };
-test("$24.30 of room: $25 and $50 buys go through and send ~$24.30 (no hold); a $10 buy is unchanged", () => {
+// $24.30 of room at the mark: room = 24.30 / 5e-6 = 4.86 M coins; holding = cap − room
+const room2430 = { ...easy, holding: 1e7 - 24.30 / 5e-6 };
+const ROOM = 24.30 / 5e-6;
+test("$24.30 of room: $25 and $50 buys fill the full room (no hold, no note); a $10 buy is unchanged", () => {
   for (const usd of [25, 50]) {
     assert.equal(nextAlert("buy", usd, { cap: room2430 }), null, `$${usd}: not held`);
     const f = buyFill(usd, room2430);
-    assert.equal(f.capped, true);
-    assert.ok(f.usd >= 24.29 && f.usd <= 24.30, `$${usd} ⇒ ${f.usd}`);
-    assert.ok(f.usd / room2430.priceUsd <= (1e7 - room2430.holding) * BUY_MAX_HEADROOM + 1e-6, "coins at the mark stay under the on-chain room");
-    assert.equal(f.note, `Wallet limit: this coin's mode caps each wallet at 1%. Buying ${"$" + f.usd.toFixed(2)} to fill it; the rest stays in your cash.`);
+    assert.equal(f.capped, true); noCopy(f);
+    assert.equal(f.usd, Math.min(usd, 30.38), `$${usd} ⇒ sends ${f.usd} (covers fees + impact; the curve refunds the rest)`);
+    assert.ok(f.usd >= 24.30, "sends at least the room's cost at the mark ⇒ fills ~100 % of the room");
+    assert.ok(Math.abs(f.fillUsd - 24.30) < 1e-9, String(f.fillUsd));
+    assert.ok(Math.abs(f.roomOut! - ROOM * 0.995) < 1e-3, String(f.roomOut));
   }
-  assert.deepEqual(buyFill(10, room2430), { usd: 10, capped: false });
+  assert.equal(buyFill(50, room2430).usd, 30.38, "$50 typed ⇒ $30.38 sent (24.30 × 1.25), $19.62 never leaves the wallet");
+  assert.deepEqual(buyFill(10, room2430), { usd: 10, capped: false, fillUsd: 10 });
   assert.equal(nextAlert("buy", 10, { cap: room2430 }), null);
+});
+test("overshoot is capped at spendable cash (a short balance still fills what it can); unknown cash ⇒ not limited", () => {
+  assert.equal(buyFill(50, room2430, 27.5).usd, 27.5);
+  assert.equal(buyFill(50, room2430, 20).usd, 20);
+  assert.equal(buyFill(50, room2430, 20).fillUsd, 20);
+  assert.equal(buyFill(50, room2430, null).usd, 30.38);
+  assert.equal(buyFill(50, room2430, 0).usd, 30.38, "no cash ⇒ the cash check refuses it (not sized to $0)");
+});
+test("minOut never exceeds the room: priced on min(quote, room − 0.5 %), with and without a one-tap session", () => {
+  const f = buyFill(50, room2430);
+  const cap = tokensToWei(f.roomOut!, 18), room = tokensToWei(ROOM, 18);
+  assert.ok(cap < room && cap > (room * BigInt(9949)) / BigInt(10000));
+  // cap-unaware quotes for $30.38 (model-scaled / TRENCH quoteBuy): ~6 M coins > the 4.86 M room
+  for (const q of [{ lo: tokensToWei(6e6, 18), hi: tokensToWei(6.1e6, 18) }, { lo: tokensToWei(5e6, 18), hi: tokensToWei(5e6, 18) }]) {
+    const r = roomCappedRange(q, cap);
+    assert.ok(r.lo <= cap && r.hi <= cap);
+    for (const [slip, sess] of [[9999, null], [1500, 1500], [500, 500], [100, null]] as const) {
+      const mo = tradeMinOut(r, slip, sess, 100);
+      assert.ok(mo <= cap && mo < room, `slip ${slip} session ${sess}: minOut ${mo} ≤ room`);
+      if (sess) assert.ok(mo * BigInt(10_000) >= room * BigInt(10_000 - sess) * BigInt(9949) / BigInt(10_000), "still inside the session policy's window vs the capped on-chain quote");
+    }
+  }
+  // a capped (trader-aware) quote already under the ceiling is untouched; no ceiling ⇒ unchanged
+  const under = { lo: tokensToWei(4e6, 18), hi: tokensToWei(4.1e6, 18) };
+  assert.deepEqual(roomCappedRange(under, cap), under);
+  assert.deepEqual(roomCappedRange(under, undefined), under);
+  assert.deepEqual(roomCappedRange(under, BigInt(0)), under);
+  assert.equal(tokensToWei(1.5, 18), BigInt("1500000000000000000"));
+  assert.equal(tokensToWei(0, 18), BigInt(0));
 });
 test("holdings + pending buys count against the room; full wallet (room 0) ⇒ held, no Buy max, nothing sent", () => {
   assert.ok(buyFill(30, { ...easy, holding: 5e6 }).capped);
   const p = buyFill(30, { ...easy, holding: 2e6, pendingBuyTokens: 3e6 });
-  assert.ok(p.capped && p.usd < 25, String(p.usd));
+  assert.ok(p.capped && p.fillUsd === 25 && p.usd === 30, JSON.stringify(p));
   for (const c of [{ ...easy, holding: 1e7 }, { ...easy, holding: 6e6, pendingBuyTokens: 4e6 }, { ...easy, holding: 2e7 }]) {
     const full = walletCapAlert(5, c)!;
     assert.equal(full.kind, "walletcap");
     assert.equal(full.maxUsd, 0); assert.equal(full.actionLabel, "");
     assert.equal(full.text, COPY_PENDING_LEE.walletFull("1%"));
     assert.equal(nextAlert("buy", 5, { cap: c })!.kind, "walletcap");
-    assert.deepEqual(buyFill(5, c), { usd: 5, capped: false }, "buyFill never sizes a full wallet (the hold shows instead)");
+    assert.deepEqual(buyFill(5, c), { usd: 5, capped: false, fillUsd: 5 }, "buyFill never sizes a full wallet (the hold shows instead)");
   }
 });
 test("no cap (Trench / graduated) or unknown price ⇒ no wallet alert", () => {
   assert.equal(walletCapAlert(1e6, { ...easy, capBps: null }), null);
   assert.equal(walletCapAlert(1e6, { ...easy, priceUsd: 0 }), null);
-  assert.deepEqual(buyFill(1e6, { ...easy, capBps: null }), { usd: 1e6, capped: false });
-  assert.deepEqual(buyFill(1e6, { ...easy, priceUsd: 0 }), { usd: 1e6, capped: false });
-  assert.deepEqual(buyFill(50, null), { usd: 50, capped: false });
+  assert.deepEqual(buyFill(1e6, { ...easy, capBps: null }), { usd: 1e6, capped: false, fillUsd: 1e6 });
+  assert.deepEqual(buyFill(1e6, { ...easy, priceUsd: 0 }), { usd: 1e6, capped: false, fillUsd: 1e6 });
+  assert.deepEqual(buyFill(50, null), { usd: 50, capped: false, fillUsd: 50 });
 });
 test("> 10 % impact ⇒ warning (buy coins / sell $); ≤ 10 % or unknown ⇒ none", () => {
   assert.equal(impactAlert("sell", 1001, { usdOut: 12.345 })!.text, "High price impact: this sell moves the price over 10%. You'll get about $12.35.");
