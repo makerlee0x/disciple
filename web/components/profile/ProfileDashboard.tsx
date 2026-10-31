@@ -18,7 +18,7 @@ import { NO_IDENTITY, PERSONA_BADGES, personaBadge } from "@/lib/identity";
 import { prestigeFromPoints } from "@/lib/prestige";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/wallet";
-import { OPEN_CASH_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
+import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
 import SettingsModal from "./SettingsModal";
 import EditProfileSheet from "./EditProfileSheet";
 import LootPopup, { lootItemId, type LootItem } from "./LootPopup";
@@ -29,6 +29,7 @@ import { COUNTRY_FLAGS_ENABLED } from "@/lib/guilds";
 import BioText from "./BioText";
 import { pageCount, pageSlice } from "./Pager";
 import { useLiveHoldings } from "./LiveHoldings";
+import { useRealActivity } from "./RealActivity";
 import type { RocketCardRow } from "./tabs/RocketsTab";
 import ProfileClaims from "@/components/claims/ProfileClaims";
 import InvitesCard from "@/components/invites/InvitesCard";
@@ -45,11 +46,6 @@ const ActivityTab = dynamic(() => import("./tabs/ActivityTab"), { loading: Skele
 
 const PAGE = { rockets: 8, loot: 12, activity: 20 } as const;
 
-function fmtHours(v: number) {
-  if (v < 1) return `${Math.round(v * 60)}m`;
-  if (v < 48) return `${v.toFixed(1)}h`;
-  return `${(v / 24).toFixed(1)}d`;
-}
 const signedUsd = (v: number) => `${v >= 0 ? "+" : "-"}${fmtUsd(Math.abs(v))}`;
 
 /**
@@ -116,7 +112,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [wallet]);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // closing clears #settings / #cash in place (no navigation or scroll), so the next Settings click opens it again
+  // closing clears #settings in place (no navigation or scroll), so the next Settings click opens it again
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     if ((SETTINGS_HASHES as readonly string[]).includes(window.location.hash))
@@ -126,18 +122,19 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [share, setShare] = useState<ShareTarget | null>(null);
   const [toast, setToast] = useState("");
   const flash = (t: string) => { setToast(t); window.setTimeout(() => setToast(""), 1800); };
-  // Settings opens on #settings / #cash (lib/cashLink): on load, on hashchange, and on the in-place link event
+  // Settings opens on #settings (lib/cashLink): on load, on hashchange, and on the in-place link event. Old Deposit links
+  // (/profile#cash) go to Cash on /wallet, where it lives now.
   useEffect(() => {
     if (!isPrivate) return;
     const open = () => {
+      if (window.location.hash === LEGACY_CASH_HASH) { window.location.replace(withBase(DEPOSIT_HREF)); return; }
       if (!(SETTINGS_HASHES as readonly string[]).includes(window.location.hash)) return;
       setSettingsOpen(true);
-      if (window.location.hash === "#cash") window.setTimeout(() => document.getElementById("cash")?.scrollIntoView({ block: "start" }), 0);
     };
     open();
     window.addEventListener("hashchange", open);
-    window.addEventListener(OPEN_CASH_EVENT, open);
-    return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_CASH_EVENT, open); };
+    window.addEventListener(OPEN_SETTINGS_EVENT, open);
+    return () => { window.removeEventListener("hashchange", open); window.removeEventListener(OPEN_SETTINGS_EVENT, open); };
   }, [isPrivate]);
 
   const owner = (isPrivate ? me : publicUsername) || "";
@@ -163,7 +160,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
   };
 
-  // Rockets: live holdings when the wallet has any, otherwise the sample rows. Both capped at a page of 12.
+  // Rockets: live on-chain holdings only (no sample rows); none ⇒ the empty state.
   const live = useLiveHoldings(wallet);
   // Display name for the tabs' empty-state copy: the username, else the default call sign (address slug / no username yet).
   const ownerName = owner || defaultUsername(isPrivate ? wallet : slugAddr);
@@ -176,12 +173,11 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           share: () => setShare({ coin: h.coin, ticker: tk, wallet, username: owner || null }) };
       });
     }
-    return [...data.rockets].sort((a, b) => b.pnl - a.pnl).map((r) => ({
-      key: r.token, href: `/coin/${r.token}`, ticker: r.ticker, name: r.name, tier: r.tierName, amount: r.pnl, signed: true,
-      share: () => setShare({ coin: r.token, ticker: r.ticker, wallet, username: owner || null }),
-    }));
-  }, [live, data.rockets, wallet, owner]);
-  const rocketsSample = !(live && live.length);
+    return [];
+  }, [live, wallet, owner]);
+  // Activity: the wallet's real trades on the current contracts (lib/mock sample trades used to fill this list).
+  const activity = useRealActivity(wallet);
+  const activityRows = activity ?? [];
 
   // Achievements (unlocked → in progress → locked) and the loot they grant.
   const achievements = useMemo(() => {
@@ -198,7 +194,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, [loot]);
 
   const pages = {
-    rockets: pageCount(rocketRows.length, PAGE.rockets), loot: pageCount(lootShown.length, PAGE.loot), activity: pageCount(data.activity.length, PAGE.activity),
+    rockets: pageCount(rocketRows.length, PAGE.rockets), loot: pageCount(lootShown.length, PAGE.loot), activity: pageCount(activityRows.length, PAGE.activity),
   };
   const page = { rockets: Math.min(pg.rockets, pages.rockets), loot: Math.min(pg.loot, pages.loot), activity: Math.min(pg.activity, pages.activity) };
 
@@ -312,15 +308,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <AchievementsCard total={achievements.length} />
           <section className="pf-section pf-activity" ref={refs.activity} aria-labelledby="pf-h-activity">
             <h2 id="pf-h-activity" className="pf-section-h">{C["profile.tab.activity"]}</h2>
-            <ActivityTab record={[
-              { label: "Volume", value: fmtUsd(kpi("vol")) },
-              { label: "Avg hold", value: fmtHours(kpi("hold")) },
-              { label: "Biggest W", value: fmtUsd(data.ct.biggestW), tone: "pos" },
-              { label: "Biggest L", value: fmtUsd(data.ct.biggestL), tone: "neg" },
-              { label: C["activity.record.grads"], value: String(data.ct.graduationsWitnessed) },
-              { label: "Rugged count", value: String(data.ct.ruggedCount) },
-            ]} pnl={data.cumulativePnl} rows={pageSlice(data.activity, page.activity, PAGE.activity)} total={data.activity.length} page={page.activity} pages={pages.activity}
-              onPage={goPage("activity")} isPrivate={isPrivate} owner={ownerName} />
+            {/* real trades only; the sample Record tiles + PnL chart are gone until real stats exist */}
+            <ActivityTab rows={pageSlice(activityRows, page.activity, PAGE.activity)} total={activityRows.length} page={page.activity} pages={pages.activity}
+              onPage={goPage("activity")} isPrivate={isPrivate} owner={ownerName} loading={!!wallet && activity === null} />
           </section>
           {LOOT_ENABLED && (
             <section className="pf-section" ref={refs.loot} aria-labelledby="pf-h-loot">
@@ -335,7 +325,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
           <section className="pf-section pf-holdings" ref={refs.rockets}>
             <h2 id="pf-h-rockets" className="pf-section-h">{C["profile.tab.rockets"]}</h2>
             <RocketsTab rows={pageSlice(rocketRows, page.rockets, PAGE.rockets)} total={rocketRows.length} page={page.rockets} pages={pages.rockets} onPage={goPage("rockets")}
-              isPrivate={isPrivate} owner={ownerName} sample={rocketsSample} />
+              isPrivate={isPrivate} owner={ownerName} />
           </section>
         </aside>
       </div>
