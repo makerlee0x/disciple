@@ -215,7 +215,7 @@ The constant `GRAD = 86520e18` in `test_recommendedSeedIsAllCoin` is that exampl
 
 `test/bridge/DiscipleSim.t.sol` runs the real curve. `SIM_RESULTS_PARTIAL.md` is an earlier moving-anchor campaign. That campaign's recommendation was to ship a volume-based fee and leave the Dutch auction in the simulator. That recommendation is not the product. The hook ships the progress-only fee and the two-sided Dutch auction described above.
 
-`SIM_RESULTS_V2.md` is a later study. It asks what would happen if the Dutch quotes, the progress slide, a volume fee, and the early LP boost ran together. The volume fee in that file is not charged by the hook. `test_simV2` runs only when `SIM_V2=1`. It is not part of the contract tests.
+`SIM_RESULTS_V2.md` is a later study. It ranks shared-reset Dutch quotes, the progress slide, a volume fee, and the early LP boost by days to graduation, and it keeps the outside searcher's profit positive in every pre-graduation TVL bucket. The volume fee in that file is a study input. The hook charges the progress slide. `test_simV2` runs only when `SIM_V2=1`. It is outside the contract tests.
 
 ## Deviations from the wording of the spec
 

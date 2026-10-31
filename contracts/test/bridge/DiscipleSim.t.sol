@@ -37,10 +37,10 @@ import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.s
 ///        charged on the fill.
 ///
 /// V2 (`test_simV2`) is a different experiment from `SIM_RESULTS_PARTIAL.md`. The anchor
-/// mean-reverts around $1. Daily organic volume is max(base, k × TVL). The graduation
-/// target is 12% of a reference TVL that can be fixed, rising, or falling. Graduated
-/// status waits 77 minutes and can turn back off. Progress moves the fee, the boost, and
-/// the band immediately.
+/// mean-reverts around $1. Daily organic volume is max(base, k × TVL). The objective is
+/// days to a pool TVL of $86,520 (12% of a $721k reference), then TVL at day 365.
+/// Searcher profit has to stay positive in every dollar bucket the pool occupies before
+/// graduation: $0–1k, $1–5k, $5–20k, $20–50k, and $50k through graduation.
 contract DiscipleSimTest is Test {
     uint256 internal constant START = 1e18;
     uint256 internal constant SEED = 77e18;
@@ -79,6 +79,21 @@ contract DiscipleSimTest is Test {
     uint256 internal constant DUTCH_MAX_SLICE = 50e18;
     uint256 internal constant AMP_START = 3e18;
     uint256 internal constant AMP_END = 1e18;
+
+    /// @dev Running champion inside the knob search. Fields live in memory-backed storage so the
+    ///      search loop does not hold them all on the stack.
+    struct Cand {
+        uint256 drift;
+        uint256 edge;
+        uint256 red;
+        uint256 boost;
+        uint256 tiny;
+        uint256 tvl;
+        uint256 grad;
+        uint256 fails;
+        bool ok;
+        bool seeded;
+    }
 
     struct Snap {
         BridgeCurve.S s;
@@ -154,15 +169,18 @@ contract DiscipleSimTest is Test {
     uint256 internal belowSince;
     uint256 internal morphoYield;
     uint256 internal bucketClock;
-    int256[4] internal bucketP;
-    uint256[4] internal bucketS;
-    uint256 internal useDrift;
-    uint256 internal useEdge;
-    uint256 internal useRed;
-    uint256 internal useBoost;
-    uint256 internal useTiny;
-    uint256 internal useGradBps;
-    bool internal comboAltWins;
+    /// @dev Bucket the pool was in at the start of the current interval. 5 means "do not record".
+    uint256 internal openBucket;
+    int256[5] internal bucketP;
+    uint256[5] internal bucketS;
+    /// @dev Best COMBO knobs for k = 0.25, 0.5, and 1, from the active fixed-reference search.
+    uint256[3] internal pickDrift;
+    uint256[3] internal pickEdge;
+    uint256[3] internal pickRed;
+    uint256[3] internal pickBoost;
+    uint256[3] internal pickTiny;
+    bool[3] internal pickAlt;
+    Cand internal cand;
 
     function test_recommendedSeedIsAllCoin() public pure {
         BridgeCurve.S memory m;
@@ -293,7 +311,8 @@ contract DiscipleSimTest is Test {
     }
 
     /// @dev Full V2 grid. Skipped unless `SIM_V2=1`, so `forge test` does not run the year.
-    ///      `SIM_DAYS` shortens every profile (the knob search stays at 30 days or less).
+    ///      `SIM_DAYS` shortens every profile. The knob search uses at most 240 days, long enough
+    ///      to see graduation on the active book.
     function test_simV2() public {
         if (vm.envOr("SIM_V2", uint256(0)) == 0) {
             vm.skip(true);
@@ -310,9 +329,7 @@ contract DiscipleSimTest is Test {
     }
 
     function _v2Grid() internal {
-        uint8 combo = comboAltWins ? MODE_COMBO_ALT : MODE_COMBO;
-        uint8 alt = comboAltWins ? MODE_COMBO : MODE_COMBO_ALT;
-        uint8[7] memory modes = [combo, alt, MODE_BASE, 0, MODE_DUTCH, MODE_DRIP, MODE_DUTCH_BASE];
+        uint8[7] memory modes = [MODE_COMBO, MODE_COMBO_ALT, MODE_BASE, 0, MODE_DUTCH, MODE_DRIP, MODE_DUTCH_BASE];
         string[7] memory names = ["COMBO", "COMBOALT", "BASE", "REV", "DUTCH", "DRIP", "DUTCHBASE"];
         uint256[3] memory ks = [uint256(0.25e18), uint256(0.5e18), uint256(1e18)];
         string[3] memory kName = ["k0.25", "k0.50", "k1.00"];
@@ -323,8 +340,11 @@ contract DiscipleSimTest is Test {
                 string memory scene = dead_ ? "DEAD" : "ACT";
                 uint256 vol = dead_ ? VOL_DEAD : VOL_ACTIVE;
                 for (uint256 ki; ki < ks.length; ++ki) {
+                    uint8 mode_ = modes[v];
+                    if (v == 0) mode_ = pickAlt[ki] ? MODE_COMBO_ALT : MODE_COMBO;
+                    else if (v == 1) mode_ = pickAlt[ki] ? MODE_COMBO : MODE_COMBO_ALT;
                     for (uint256 r; r < 3; ++r) {
-                        _profileV2(scene, names[v], modes[v], vol, dead_, ks[ki], kName[ki], uint8(r), refName[r]);
+                        _profileV2(scene, names[v], mode_, vol, dead_, ks[ki], kName[ki], uint8(r), refName[r], ki);
                     }
                 }
             }
@@ -340,13 +360,14 @@ contract DiscipleSimTest is Test {
         uint256 k,
         string memory kName,
         uint8 ref_,
-        string memory refName
+        string memory refName,
+        uint256 ki
     ) internal {
         tag = string.concat(scene, " OUT ", variant, " ", kName, " ", refName);
         _reset(COST_OUTSIDE, mode_, vol, dead_);
         kWad = k;
         refPath = ref_;
-        if (mode_ == MODE_COMBO || mode_ == MODE_COMBO_ALT) _applyPick();
+        if (mode_ == MODE_COMBO || mode_ == MODE_COMBO_ALT) _applyPick(ki);
         _run();
         if (mode_ == MODE_DRIP) assertLe(dripSubsidy, fees, "drip subsidy stays inside fees");
         assertGe(s.x, s.seedFloor, "seed guard holds");
@@ -424,7 +445,8 @@ contract DiscipleSimTest is Test {
         belowSince = 0;
         morphoYield = 0;
         bucketClock = 0;
-        for (uint256 i; i < 4; ++i) {
+        openBucket = 0;
+        for (uint256 i; i < 5; ++i) {
             bucketP[i] = 0;
             bucketS[i] = 0;
         }
@@ -482,14 +504,16 @@ contract DiscipleSimTest is Test {
             else _routeSell(Math.mulDiv(amt, C.WAD, _spot() == 0 ? s.anchor : _spot()), ACT_RETAIL);
             _relist(buy);
             vol += amt;
-            _noteTime();
             if (!_dutchFamily(mode)) {
                 _recordGap();
                 _attack();
                 arbNotional += _arb();
                 _drip();
             }
+            // Status flips before the bucket clock moves, so the interval that completes the
+            // 77-minute hold is still pre-graduation and the next interval is not recorded.
             _touchGrad();
+            _noteTime();
         }
         _morpho();
     }
@@ -550,6 +574,8 @@ contract DiscipleSimTest is Test {
             vm.toString(bucketP[2]),
             " b3 ",
             vm.toString(bucketP[3]),
+            " b4 ",
+            vm.toString(bucketP[4]),
             " s0 ",
             vm.toString(bucketS[0]),
             " s1 ",
@@ -557,7 +583,9 @@ contract DiscipleSimTest is Test {
             " s2 ",
             vm.toString(bucketS[2]),
             " s3 ",
-            vm.toString(bucketS[3])
+            vm.toString(bucketS[3]),
+            " s4 ",
+            vm.toString(bucketS[4])
         );
         console2.log(line);
     }
@@ -697,6 +725,7 @@ contract DiscipleSimTest is Test {
 
     function _applyBuy(uint256 usdgIn, uint8 actor) internal returns (uint256 filled) {
         if (usdgIn == 0) return 0;
+        uint256 band = _preGradBucket();
         BridgeCurve.S memory m = s;
         BridgeCurve.Fill memory f;
         (m, f) = BridgeCurve.buyExactIn(m, usdgIn, _ctx(m));
@@ -711,13 +740,14 @@ contract DiscipleSimTest is Test {
         _stampShared();
         int256 mark = int256(Math.mulDiv(f.coinOut, s.anchor, C.WAD)) - int256(f.usdgIn);
         lastMark = mark;
-        _attribute(actor, mark, f.usdgIn);
+        _attribute(actor, mark, f.usdgIn, band);
         if (actor == ACT_LOOP) attackerHold += f.coinOut;
         return f.usdgIn;
     }
 
     function _applySell(uint256 dx, uint8 actor) internal returns (uint256 filled) {
         if (dx == 0) return 0;
+        uint256 band = _preGradBucket();
         BridgeCurve.S memory m = s;
         BridgeCurve.Ctx memory c = _ctx(m);
         c.maxUsdgOut = BridgeCurve.floorRoom(m, c.floorBps);
@@ -736,19 +766,19 @@ contract DiscipleSimTest is Test {
         int256 mark;
         if (f.coinIn > 0) {
             mark = int256(f.usdgOut) - int256(Math.mulDiv(f.coinIn, s.anchor, C.WAD));
-            _attribute(actor, mark, gross);
+            _attribute(actor, mark, gross, band);
             if (actor == ACT_LOOP) attackerHold = attackerHold > f.coinIn ? attackerHold - f.coinIn : 0;
         }
         lastMark = mark;
         return f.usdgOut;
     }
 
-    function _attribute(uint8 actor, int256 mark, uint256 gross) internal {
+    function _attribute(uint8 actor, int256 mark, uint256 gross, uint256 band) internal {
         if (actor == ACT_ARB) {
             arbMark += mark;
             int256 profit = mark - int256(Math.mulDiv(gross, costWad, C.WAD));
             arbProfit += profit;
-            bucketP[_bucket()] += profit;
+            if (band < 5) bucketP[band] += profit;
         } else if (actor == ACT_LOOP) {
             loopMark += mark;
             loopProfit += mark - int256(Math.mulDiv(gross, COST_LOW, C.WAD));
@@ -1269,20 +1299,23 @@ contract DiscipleSimTest is Test {
         return _boostAt(BridgeCurve.tvl(s));
     }
 
-    function _bucket() internal view returns (uint256) {
-        uint256 t = _target();
-        if (t == 0) return 0;
-        uint256 prog = Math.mulDiv(BridgeCurve.tvl(s), C.WAD, t);
-        if (prog < 0.1e18) return 0;
-        if (prog < 0.3e18) return 1;
-        if (prog < 0.6e18) return 2;
-        return 3;
+    /// @dev Dollar buckets before graduation: $0–1k, $1–5k, $5–20k, $20–50k, and $50k through
+    ///      the moment status turns on. Index 5 is not recorded (already graduated).
+    function _preGradBucket() internal view returns (uint256) {
+        if (graduated) return 5;
+        uint256 v = BridgeCurve.tvl(s);
+        if (v < 1_000e18) return 0;
+        if (v < 5_000e18) return 1;
+        if (v < 20_000e18) return 2;
+        if (v < 50_000e18) return 3;
+        return 4;
     }
 
     function _noteTime() internal {
         uint256 dt = bucketClock == 0 || clock <= bucketClock ? 0 : clock - bucketClock;
         bucketClock = clock;
-        if (dt > 0) bucketS[_bucket()] += dt;
+        if (dt > 0 && openBucket < 5) bucketS[openBucket] += dt;
+        openBucket = _preGradBucket();
     }
 
     /// @dev External LP so the boost knob can move TVL. Fee-split weight alone cannot, because both
@@ -1357,20 +1390,19 @@ contract DiscipleSimTest is Test {
         morphoYield += yld;
     }
 
-    function _applyPick() internal {
-        if (useDrift != 0) driftPerSec = useDrift;
-        if (useEdge != 0) edgeWad = useEdge;
-        if (useRed != 0) redLineWad = useRed;
-        if (useBoost != 0) boostStartWad = useBoost;
-        if (useTiny != 0) feeTinyBps = useTiny;
-        if (useGradBps != 0) feeGradBps = useGradBps;
+    function _applyPick(uint256 ki) internal {
+        if (pickDrift[ki] != 0) driftPerSec = pickDrift[ki];
+        if (pickEdge[ki] != 0) edgeWad = pickEdge[ki];
+        if (pickRed[ki] != 0) redLineWad = pickRed[ki];
+        if (pickBoost[ki] != 0) boostStartWad = pickBoost[ki];
+        if (pickTiny[ki] != 0) feeTinyBps = pickTiny[ki];
     }
 
-    function _bucketsOk() internal view returns (bool) {
-        for (uint256 i; i < 4; ++i) {
-            if (bucketS[i] >= 1 days && bucketP[i] <= 0) return false;
+    /// @dev Occupied buckets with searcher profit at or below zero. Time after graduation is not counted.
+    function _fails() internal view returns (uint256 n) {
+        for (uint256 i; i < 5; ++i) {
+            if (bucketS[i] > 0 && bucketP[i] <= 0) ++n;
         }
-        return true;
     }
 
     /// @dev A shared-reset fill parks both quotes. Independent Dutch (MODE_DUTCH) resets only the
@@ -1405,57 +1437,57 @@ contract DiscipleSimTest is Test {
         else if (i == 10) tiny = 300;
     }
 
-    /// @dev One-at-a-time grid on the on-top book. A set is kept when arb profit is positive in every
-    ///      progress bucket occupied for at least a day; otherwise the closest TVL-growth candidate.
-    ///      The rev-fee interaction is then rescored at those knobs over the full horizon. The one
-    ///      that reaches graduation sooner (else the higher TVL) is COMBO. The other is COMBO-alt.
+    /// @dev For each k, minimize days to graduation on the active fixed-reference book. A set counts
+    ///      only when every occupied pre-graduation dollar bucket has searcher profit above zero.
+    ///      Otherwise keep the one with fewer failing buckets. The netted quote is scored at the
+    ///      winning knobs and becomes COMBO when it graduates sooner under the same rule.
     function _pickCombo() internal {
         uint256 keep = horizon;
-        horizon = keep < 30 ? keep : 30;
-        uint256 bestTvl;
-        uint256 bestGrad;
-        bool bestOk;
-        bool seeded;
-        uint256 bd = DUTCH_PER_SEC;
-        uint256 be = DUTCH_EDGE;
-        uint256 br = REV_RED;
-        uint256 bb = C.BOOST_START_WAD;
-        uint256 bt = C.FEE_TINY_BPS;
-        for (uint256 i; i < 13; ++i) {
-            (uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny) = _cfg(i);
-            (uint256 tvl, bool ok, uint256 grad) = _score(false, drift, edge, red, boost, tiny);
-            _logPick("ontop", i, tvl, ok, grad, drift, edge, red, boost, tiny);
-            if (_prefers(ok, grad, tvl, bestOk, bestGrad, bestTvl, seeded)) {
-                seeded = true;
-                bestTvl = tvl;
-                bestGrad = grad;
-                bestOk = ok;
-                bd = drift;
-                be = edge;
-                br = red;
-                bb = boost;
-                bt = tiny;
-            }
+        horizon = keep < 240 ? keep : 240;
+        uint256[3] memory ks = [uint256(0.25e18), uint256(0.5e18), uint256(1e18)];
+        for (uint256 ki; ki < 3; ++ki) {
+            _searchK(ki, ks[ki]);
         }
         horizon = keep;
-        (uint256 onTvl, bool onOk, uint256 onGrad) = _score(false, bd, be, br, bb, bt);
-        _logPick("ontop-full", 0, onTvl, onOk, onGrad, bd, be, br, bb, bt);
-        (uint256 altTvl, bool altOk, uint256 altGrad) = _score(true, bd, be, br, bb, bt);
-        _logPick("netted-full", 0, altTvl, altOk, altGrad, bd, be, br, bb, bt);
-        bool altWins = _growthBetter(altGrad, altTvl, onGrad, onTvl);
-        useDrift = bd;
-        useEdge = be;
-        useRed = br;
-        useBoost = bb;
-        useTiny = bt;
-        useGradBps = C.FEE_GRAD_BPS;
-        comboAltWins = altWins;
-        uint256 winTvl = altWins ? altTvl : onTvl;
-        bool winOk = altWins ? altOk : onOk;
-        uint256 winGrad = altWins ? altGrad : onGrad;
+    }
+
+    function _searchK(uint256 ki, uint256 k) internal {
+        cand.seeded = false;
+        cand.ok = false;
+        cand.fails = type(uint256).max;
+        cand.grad = 0;
+        cand.tvl = 0;
+        cand.drift = DUTCH_PER_SEC;
+        cand.edge = DUTCH_EDGE;
+        cand.red = REV_RED;
+        cand.boost = C.BOOST_START_WAD;
+        cand.tiny = C.FEE_TINY_BPS;
+        for (uint256 i; i < 13; ++i) {
+            (uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny) = _cfg(i);
+            _try(k, i, "ontop", drift, edge, red, boost, tiny);
+        }
+        _refine(k);
+        (uint256 altTvl, bool altOk, uint256 altGrad, uint256 altFails) =
+            _score(true, k, cand.drift, cand.edge, cand.red, cand.boost, cand.tiny);
+        _logPick(
+            "netted", k, 0, altTvl, altOk, altGrad, altFails, cand.drift, cand.edge, cand.red, cand.boost, cand.tiny
+        );
+        bool altWins = _prefers(altOk, altFails, altGrad, altTvl, cand.ok, cand.fails, cand.grad, cand.tvl, true);
+        pickDrift[ki] = cand.drift;
+        pickEdge[ki] = cand.edge;
+        pickRed[ki] = cand.red;
+        pickBoost[ki] = cand.boost;
+        pickTiny[ki] = cand.tiny;
+        pickAlt[ki] = altWins;
+        uint256 winTvl = altWins ? altTvl : cand.tvl;
+        bool winOk = altWins ? altOk : cand.ok;
+        uint256 winGrad = altWins ? altGrad : cand.grad;
+        uint256 winFails = altWins ? altFails : cand.fails;
         console2.log(
             string.concat(
-                "PICK winner ",
+                "PICK winner k ",
+                vm.toString(k),
+                " ",
                 altWins ? "netted" : "ontop",
                 " tvl ",
                 vm.toString(winTvl),
@@ -1463,26 +1495,122 @@ contract DiscipleSimTest is Test {
                 winOk ? "1" : "0",
                 " grad ",
                 vm.toString(winGrad),
+                " fails ",
+                vm.toString(winFails),
                 " drift ",
-                vm.toString(bd),
+                vm.toString(cand.drift),
                 " edge ",
-                vm.toString(be),
+                vm.toString(cand.edge),
                 " red ",
-                vm.toString(br),
+                vm.toString(cand.red),
                 " boost ",
-                vm.toString(bb),
+                vm.toString(cand.boost),
                 " tiny ",
-                vm.toString(bt)
+                vm.toString(cand.tiny)
             )
         );
     }
 
+    /// @dev One coordinate at a time, starting from the current champion. Drift is last so it is
+    ///      rechecked after the other knobs have moved.
+    function _refine(uint256 k) internal {
+        for (uint256 n; n < 5; ++n) {
+            uint256 axis = n == 4 ? 0 : n + 1;
+            uint256 bd = cand.drift;
+            uint256 be = cand.edge;
+            uint256 br = cand.red;
+            uint256 bb = cand.boost;
+            uint256 bt = cand.tiny;
+            for (uint256 j; j < 5; ++j) {
+                (uint256 value, bool live) = _axis(axis, j);
+                if (!live) continue;
+                uint256 drift = bd;
+                uint256 edge = be;
+                uint256 red = br;
+                uint256 boost = bb;
+                uint256 tiny = bt;
+                if (axis == 0) {
+                    if (value == bd) continue;
+                    drift = value;
+                } else if (axis == 1) {
+                    if (value == be) continue;
+                    edge = value;
+                } else if (axis == 2) {
+                    if (value == br) continue;
+                    red = value;
+                } else if (axis == 3) {
+                    if (value == bb) continue;
+                    boost = value;
+                } else {
+                    if (value == bt) continue;
+                    tiny = value;
+                }
+                _try(k, j, "refine", drift, edge, red, boost, tiny);
+            }
+        }
+    }
+
+    function _try(
+        uint256 k,
+        uint256 i,
+        string memory which,
+        uint256 drift,
+        uint256 edge,
+        uint256 red,
+        uint256 boost,
+        uint256 tiny
+    ) internal {
+        (uint256 tvl, bool ok, uint256 grad, uint256 fails) = _score(false, k, drift, edge, red, boost, tiny);
+        _logPick(which, k, i, tvl, ok, grad, fails, drift, edge, red, boost, tiny);
+        if (_prefers(ok, fails, grad, tvl, cand.ok, cand.fails, cand.grad, cand.tvl, cand.seeded)) {
+            cand.seeded = true;
+            cand.ok = ok;
+            cand.fails = fails;
+            cand.grad = grad;
+            cand.tvl = tvl;
+            cand.drift = drift;
+            cand.edge = edge;
+            cand.red = red;
+            cand.boost = boost;
+            cand.tiny = tiny;
+        }
+    }
+
+    function _axis(uint256 axis, uint256 j) internal pure returns (uint256 value, bool live) {
+        if (axis == 0) {
+            if (j == 0) return (uint256(0.005e18) / 1 hours, true);
+            if (j == 1) return (DUTCH_PER_SEC, true);
+            if (j == 2) return (uint256(0.02e18) / 1 hours, true);
+            if (j == 3) return (uint256(0.05e18) / 1 hours, true);
+            if (j == 4) return (uint256(0.1e18) / 1 hours, true);
+        } else if (axis == 1) {
+            if (j == 0) return (uint256(0.1e18), true);
+            if (j == 1) return (DUTCH_EDGE, true);
+            if (j == 2) return (uint256(0.5e18), true);
+        } else if (axis == 2) {
+            if (j == 0) return (uint256(0.25e18), true);
+            if (j == 1) return (REV_RED, true);
+            if (j == 2) return (uint256(1e18), true);
+        } else if (axis == 3) {
+            if (j == 0) return (uint256(3e18), true);
+            if (j == 1) return (C.BOOST_START_WAD, true);
+            if (j == 2) return (uint256(8e18), true);
+        } else if (axis == 4) {
+            if (j == 0) return (uint256(100), true);
+            if (j == 1) return (C.FEE_TINY_BPS, true);
+            if (j == 2) return (uint256(300), true);
+        }
+        return (0, false);
+    }
+
     function _logPick(
         string memory which,
+        uint256 k,
         uint256 i,
         uint256 tvl,
         bool ok,
         uint256 grad,
+        uint256 fails,
         uint256 drift,
         uint256 edge,
         uint256 red,
@@ -1493,6 +1621,8 @@ contract DiscipleSimTest is Test {
             string.concat(
                 "PICKCFG ",
                 which,
+                " k ",
+                vm.toString(k),
                 " i ",
                 vm.toString(i),
                 " tvl ",
@@ -1501,6 +1631,8 @@ contract DiscipleSimTest is Test {
                 ok ? "1" : "0",
                 " grad ",
                 vm.toString(grad),
+                " fails ",
+                vm.toString(fails),
                 " drift ",
                 vm.toString(drift),
                 " edge ",
@@ -1515,15 +1647,22 @@ contract DiscipleSimTest is Test {
         );
     }
 
-    /// @dev Positive arb profit in every occupied bucket beats a violation. Within that, earlier
-    ///      graduation, then higher TVL.
-    function _prefers(bool ok, uint256 grad, uint256 tvl, bool bestOk, uint256 bestGrad, uint256 bestTvl, bool seeded)
-        internal
-        pure
-        returns (bool)
-    {
+    /// @dev A solvent set beats a violation. Fewer failing buckets is the closest violation.
+    ///      Within that, earlier graduation, then higher TVL.
+    function _prefers(
+        bool ok,
+        uint256 fails,
+        uint256 grad,
+        uint256 tvl,
+        bool bestOk,
+        uint256 bestFails,
+        uint256 bestGrad,
+        uint256 bestTvl,
+        bool seeded
+    ) internal pure returns (bool) {
         if (!seeded) return true;
         if (ok != bestOk) return ok;
+        if (!ok && fails != bestFails) return fails < bestFails;
         return _growthBetter(grad, tvl, bestGrad, bestTvl);
     }
 
@@ -1541,13 +1680,13 @@ contract DiscipleSimTest is Test {
         return tvl > otherTvl;
     }
 
-    function _score(bool alt, uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny)
+    function _score(bool alt, uint256 k, uint256 drift, uint256 edge, uint256 red, uint256 boost, uint256 tiny)
         internal
-        returns (uint256 tvl, bool ok, uint256 grad)
+        returns (uint256 tvl, bool ok, uint256 grad, uint256 fails)
     {
         tag = "PICK";
         _reset(COST_OUTSIDE, alt ? MODE_COMBO_ALT : MODE_COMBO, VOL_ACTIVE, false);
-        kWad = 0.5e18;
+        kWad = k;
         refPath = 0;
         driftPerSec = drift;
         edgeWad = edge;
@@ -1555,7 +1694,10 @@ contract DiscipleSimTest is Test {
         boostStartWad = boost;
         feeTinyBps = tiny;
         _run();
-        return (BridgeCurve.tvl(s), _bucketsOk(), gradDay);
+        fails = _fails();
+        grad = gradDay;
+        ok = fails == 0 && grad != 0;
+        return (BridgeCurve.tvl(s), ok, grad, fails);
     }
 
     function _lnWad(uint256 x) internal pure returns (int256) {
