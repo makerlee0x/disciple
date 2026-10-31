@@ -13,6 +13,8 @@ import { RELAY_METHOD, RELAY_STREAM_ACCEPT, relayErrorData } from "@/lib/aa/rela
 import { streamRelay } from "@/lib/server/relayStream";
 import { afterResponse } from "@/lib/server/defer";
 import { inviteRequiredRpc, requireInviteWallet } from "@/lib/server/inviteGate";
+import { launchPairRefusal } from "@/lib/aa/launchQuote";
+import { ACTIVE_CHAIN } from "@/lib/chains";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +68,11 @@ export async function POST(req: Request) {
   if (rl) return limitedResponse(body.id, body.method, rl.retryAfterSec);
   // invite-only beta (lib/server/invites): sends need an invited sender; off by default ⇒ no-op
   if (SEND.has(body.method) && !(await requireInviteWallet(senderOf(body.params || []), "bundler")).ok) return inviteRequiredRpc(body.id);
+  // launch pair whitelist (lib/pairWhitelist): checked here so it holds whichever bundler (ours or Alchemy) sends the op
+  if (SEND.has(body.method)) {
+    const refusal = launchPairRefusal(String((body.params?.[0] as { callData?: unknown } | undefined)?.callData ?? ""), ACTIVE_CHAIN.id);
+    if (refusal) return NextResponse.json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: refusal } }, { status: 400 });
+  }
   if (key && process.env.AA_SELF_BUNDLER !== "1" && !selfOnly) {
     // forwarded to Alchemy (it validates; we can't hook before its submission): refuse when the sender's validated-sends
     // bucket is already full (read-only — junk ops never fill it), and count the send only once Alchemy accepted it

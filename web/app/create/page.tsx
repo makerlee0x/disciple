@@ -155,7 +155,7 @@ export default function LaunchRocketPage() {
     }
     const quoteAddr = quote.address;
     if (!quoteAddr) {
-      setMsg("Pick a pair or paste a valid ERC-20 address.");
+      setMsg("Pick a pair.");
       return;
     }
     const fr = feeReceiver.trim();
