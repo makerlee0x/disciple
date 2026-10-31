@@ -131,7 +131,7 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         uint8 op = abi.decode(data, (uint8));
-        address facet = op == OP_POKE || op == OP_BUILDER ? adminFacet : lpFacet;
+        address facet = op == OP_POKE || op == OP_BUILDER || op == OP_READ ? adminFacet : lpFacet;
         bytes memory ret = _delegate(facet, abi.encodeCall(IBridgeHandle.handle, (data)));
         return abi.decode(ret, (bytes));
     }
@@ -178,6 +178,11 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         gapWad = _gap(p);
         (bidWad, askWad, bidUsdg, askUsdg) = engine.preview(s.anchor, BridgeCurve.tvl(s), _gradTvl(p), gapWad);
         feeBps = BridgeFee.baseFeeBps(BridgeCurve.tvl(s), _gradTvl(p));
+    }
+
+    /// @notice Last raw reference TVL from an anchor update. The smoothed value is what graduation uses.
+    function referenceTvl(PoolId id) external view returns (uint256) {
+        return pools[id].ethTvl;
     }
 
     /// @notice Drift fixed at creation, and the timestamp both quotes last reset.

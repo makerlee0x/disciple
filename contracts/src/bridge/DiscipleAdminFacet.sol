@@ -6,9 +6,8 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {ILzRead} from "./interfaces/ILzRead.sol";
-import {IEthAnchor} from "./interfaces/IEthAnchor.sol";
-import {IV4OracleHook} from "./interfaces/IV4OracleHook.sol";
-import {V4SlotReader} from "./V4SlotReader.sol";
+import {AnchorLens} from "./AnchorLens.sol";
+import {BridgeV4Anchor} from "./libraries/BridgeV4Anchor.sol";
 import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
 /// @title Disciple admin facet
@@ -22,7 +21,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
 
     /// @notice Ask LayerZero to read the pool's remote anchor. The caller pays the native lzRead fee
     ///         and never submits a price. Same-chain pools revert. A fresh quote reverts.
-    ///         Calldata is `latest`, `consult`, or `V4SlotReader.read`, chosen by the anchor kind.
+    ///         Calldata is `AnchorLens.readV3`, `readV4Oracle`, or `readV4Slot`, chosen by the anchor kind.
     function updatePrice(PoolId id) external payable {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
@@ -39,7 +38,13 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         uint256 nativeFee = ILzRead(lz).quoteRead(read);
         if (msg.value < nativeFee) revert LzFee();
         bytes32 guid = ILzRead(lz).sendRead{value: nativeFee}(read, msg.sender);
-        pendingReads[guid] = PendingRead({poolId: id, caller: msg.sender});
+        p.readNonce += 1;
+        pendingReads[guid] = PendingRead({
+            poolId: id,
+            caller: msg.sender,
+            nonce: p.readNonce,
+            requestedAt: block.timestamp == 0 ? 1 : uint64(block.timestamp)
+        });
         uint256 extra = msg.value - nativeFee;
         if (extra > 0) {
             (bool ok,) = msg.sender.call{value: extra}("");
@@ -95,7 +100,61 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         uint8 op = abi.decode(data, (uint8));
         if (op == OP_POKE) return _onPoke(data);
         if (op == OP_BUILDER) return _onBuilder(data);
+        if (op == OP_READ) return _onRead(data);
         revert HookNotImplemented();
+    }
+
+    /// @dev Accept a read only when its nonce is newer than the last one applied, and only when the
+    ///      price stays inside the move bound. The keeper tip is paid once for a stale quote: a
+    ///      second result that lands after the quote is already fresh pays nothing.
+    function _onRead(bytes calldata data) internal returns (bytes memory) {
+        (, bytes32 guid, bytes memory result) = abi.decode(data, (uint8, bytes32, bytes));
+        PendingRead memory pend = pendingReads[guid];
+        if (pend.caller == address(0) || pend.nonce == 0) revert UnknownRead();
+        delete pendingReads[guid];
+
+        Pool storage p = pools[pend.poolId];
+        if (pend.nonce <= p.appliedNonce) revert OutOfOrder();
+        bool wasStale = p.curve.anchor == 0 || p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER;
+
+        uint256 price;
+        uint256 ethTvl;
+        if (p.anchorKind == C.ANCHOR_LZ_V4_SLOT) {
+            (uint160 sqrtP, int24 tick, uint128 liq) = abi.decode(result, (uint160, int24, uint128));
+            bytes32 raw = PoolId.unwrap(pend.poolId);
+            BridgeV4Anchor.record(rings[raw], obs[raw], tick);
+            (bool ready, uint256 px, uint256 tvl) =
+                BridgeV4Anchor.read(rings[raw], obs[raw], sqrtP, liq, p.refCoinIs0, p.coinDec, usdgDec);
+            if (ready && px != 0) {
+                if (!engine.anchorMoveOk(p.curve.anchor, px)) revert AnchorMove();
+                _applyAnchor(p, px, tvl);
+                price = px;
+                ethTvl = tvl;
+            }
+        } else {
+            (price, ethTvl) = abi.decode(result, (uint256, uint256));
+            if (price == 0) revert BadPrice();
+            if (!engine.anchorMoveOk(p.curve.anchor, price)) revert AnchorMove();
+            _applyAnchor(p, price, ethTvl);
+        }
+        p.appliedNonce = pend.nonce;
+        _touchGrad(pend.poolId, p);
+
+        uint256 tip;
+        if (wasStale && price != 0 && p.tipBudget > 0) {
+            tip = p.tipBudget < C.TIP_USDG ? p.tipBudget : C.TIP_USDG;
+            uint256 raw = _toRaw(tip, usdgDec);
+            uint256 norm = _toNorm(raw, usdgDec);
+            if (norm > p.tipBudget) norm = p.tipBudget;
+            p.tipBudget -= norm;
+            tip = norm;
+            if (raw > 0 && norm > 0) {
+                _debitPoolUsdg(p, norm);
+                _claimsTo(usdgC, raw, pend.caller);
+            }
+        }
+        emit PriceUpdated(pend.poolId, price, ethTvl, tip);
+        return "";
     }
 
     function _onBuilder(bytes calldata data) internal returns (bytes memory) {
@@ -127,11 +186,15 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
 
     function _readCallData(Pool storage p) internal view returns (bytes memory) {
         uint8 k = p.anchorKind;
-        if (k == C.ANCHOR_LZ) return abi.encodeWithSelector(IEthAnchor.latest.selector);
-        if (k == C.ANCHOR_LZ_V4_ORACLE) {
-            return abi.encodeWithSelector(IV4OracleHook.consult.selector, p.refPoolId, uint32(C.TWAP_WINDOW));
+        if (k == C.ANCHOR_LZ) {
+            return abi.encodeWithSelector(AnchorLens.readV3.selector, p.v3Pool, p.coin, usdg, p.coinDec, usdgDec);
         }
-        if (k == C.ANCHOR_LZ_V4_SLOT) return abi.encodeWithSelector(V4SlotReader.read.selector, p.refPoolId);
+        if (k == C.ANCHOR_LZ_V4_ORACLE) {
+            return abi.encodeWithSelector(AnchorLens.readV4Oracle.selector, p.refHook, p.refPoolId);
+        }
+        if (k == C.ANCHOR_LZ_V4_SLOT) {
+            return abi.encodeWithSelector(AnchorLens.readV4Slot.selector, p.refHook, p.refPoolId);
+        }
         revert SameChain();
     }
 }

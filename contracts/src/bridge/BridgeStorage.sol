@@ -92,6 +92,10 @@ abstract contract BridgeStorage {
         PoolKey key;
         /// @dev 1% of graduated fees, claimable only by the hook builder.
         uint256 builderAccrued;
+        /// @dev Monotonic id of the latest lzRead request. 0 means none has been sent.
+        uint64 readNonce;
+        /// @dev Highest request nonce whose result was accepted. A lower nonce is out of order.
+        uint64 appliedNonce;
     }
 
     struct CreateParams {
@@ -105,7 +109,8 @@ abstract contract BridgeStorage {
         address remoteOracle;
         /// @dev Anchor kind. Fixed for the life of the pool. See `BridgeConstants`.
         uint8 anchorKind;
-        /// @dev Uniswap v3 pool of `coin` / this hook's quote token. Required for `ANCHOR_V3`, zero otherwise.
+        /// @dev Reference v3 pool of `coin` / the quote token. Required for `ANCHOR_V3` (read on this
+        ///      chain) and `ANCHOR_LZ` (passed to the remote lens). Zero for every other kind.
         address v3Pool;
         uint256 coinSeed;
         uint256 tipSeed; // optional USDG, escrowed for keepers, not curve inventory. Zero for same-chain.
@@ -113,7 +118,8 @@ abstract contract BridgeStorage {
         uint64 dutchDrift;
         /// @dev Reference v4 pool id. Required for every v4 anchor kind. Zero otherwise.
         bytes32 refPoolId;
-        /// @dev Reference hook exposing `consult`. Required for `ANCHOR_V4_ORACLE`. Zero otherwise.
+        /// @dev Oracle hook for `ANCHOR_V4_ORACLE` and `ANCHOR_LZ_V4_ORACLE`. For `ANCHOR_LZ_V4_SLOT`
+        ///      this is the remote PoolManager. Zero for the other kinds.
         address refHook;
         /// @dev Self-sample only. True when the coin is currency0 of `refPoolId`.
         bool refCoinIs0;
@@ -131,6 +137,10 @@ abstract contract BridgeStorage {
     struct PendingRead {
         PoolId poolId;
         address caller;
+        /// @dev `readNonce` at the moment this request was sent. Newer wins.
+        uint64 nonce;
+        /// @dev Timestamp the request was sent. Stored so a late result can be told from a new one.
+        uint64 requestedAt;
     }
 
     /// @notice What a future OFT can read from `_debitView`. All fields are hook-computed.
@@ -196,6 +206,12 @@ abstract contract BridgeStorage {
     /// @dev Keeper reads and the keeper tip exist only for cross-chain pools.
     error SameChain();
     error OnlyDelegate();
+    /// @dev Cross-chain anchor is missing or older than `STALE_AFTER`. Swaps stop until a read lands.
+    error Stale();
+    /// @dev This result's nonce is older than one already applied.
+    error OutOfOrder();
+    /// @dev The new anchor is more than `ANCHOR_MOVE_BPS` away from the stored one.
+    error AnchorMove();
 
     event PoolCreated(
         PoolId indexed id,

@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
@@ -20,6 +20,8 @@ import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
 import {MockERC20, MockLzRead} from "./mocks/BridgeMocks.sol";
 
 contract BridgeFixture is Test {
+    using PoolIdLibrary for PoolKey;
+
     uint160 internal constant HOOK_FLAGS = uint160(
         Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
@@ -130,7 +132,7 @@ contract BridgeFixture is Test {
                 remoteEid: 30101,
                 remoteOracle: address(0xE7E7),
                 anchorKind: 0,
-                v3Pool: address(0),
+                v3Pool: address(0xB333),
                 coinSeed: coinSeed,
                 tipSeed: tipSeed,
                 dutchDrift: 0,
@@ -152,7 +154,15 @@ contract BridgeFixture is Test {
         lz.fulfill(lz.lastGuid(), priceWad, ethTvl);
     }
 
+    /// @dev A cross-chain swap reverts once the stored quote is stale. Tests that trade after the
+    ///      window re-post the current anchor so the swap is about the book, not about staleness.
+    function _freshen(PoolId poolId) internal {
+        if (hook.curve(poolId).anchor == 0 || !hook.bridgeQuote(poolId).stale) return;
+        _price(poolId, hook.curve(poolId).anchor, hook.referenceTvl(poolId));
+    }
+
     function _swap(PoolKey memory k, bool zeroForOne, uint256 amountIn, bool mintLp) internal returns (BalanceDelta) {
+        _freshen(k.toId());
         Currency input = zeroForOne ? k.currency0 : k.currency1;
         MockERC20(Currency.unwrap(input)).approve(address(swapper), type(uint256).max);
         bytes memory hookData = mintLp ? abi.encode(true, address(this)) : bytes("");

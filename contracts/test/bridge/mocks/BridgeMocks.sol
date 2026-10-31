@@ -77,6 +77,7 @@ contract MockLzRead is ILzRead {
     uint32 public lastEid;
     address public consumer;
     uint256 public n;
+    mapping(bytes32 => bool) public known;
 
     function quoteRead(EvmRead calldata) external view returns (uint256 nativeFee) {
         return fee;
@@ -91,15 +92,27 @@ contract MockLzRead is ILzRead {
         lastTarget = read.target;
         lastEid = read.targetEid;
         consumer = msg.sender;
+        known[guid] = true;
     }
 
     function fulfill(bytes32 guid, uint256 priceWad, uint256 tvlWad) external {
         require(guid == lastGuid, "guid");
-        ILzReadConsumer(consumer).onLzRead(guid, abi.encode(priceWad, tvlWad));
+        _callback(guid, abi.encode(priceWad, tvlWad));
     }
 
     function fulfillBytes(bytes32 guid, bytes calldata result) external {
         require(guid == lastGuid, "guid");
+        _callback(guid, result);
+    }
+
+    /// @dev Deliver any request this mock has seen, including one that is no longer `lastGuid`.
+    function deliver(bytes32 guid, bytes calldata result) external {
+        require(known[guid], "guid");
+        _callback(guid, result);
+    }
+
+    function _callback(bytes32 guid, bytes memory result) internal {
+        known[guid] = false;
         ILzReadConsumer(consumer).onLzRead(guid, result);
     }
 }
