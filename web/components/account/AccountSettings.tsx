@@ -94,9 +94,10 @@ export default function AccountSettings({ onClose }: { onClose?: () => void } = 
                 {advancedLimit(() => run("restarting session", async () => { saveLimit(); await restartOneTap(oneTapSlippageBps()); }), "Apply (new session)")}
               </>
             ) : oneTapAvailable() && oneTap.needsCash && !oneTap.settingUp ? (
-              needsCash
+              // no one-tap session yet: the picker only saves the local preference (setOneTapSlippageBps restarts a session only if one is live)
+              <>{needsCash}<OneTapSlippagePicker /></>
             ) : oneTapAvailable() && oneTap.settingUp ? (
-              <span>Setting up one-tap trading…</span>
+              <><span>Setting up one-tap trading…</span><OneTapSlippagePicker /></>
             ) : oneTapAvailable() ? (
               <>
                 <span style={{ opacity: 0.8 }}>Trades go through without prompts (your wallet signs them silently).{oneTap.error ? ` One-tap session setup failed: ${oneTap.error}` : ""}</span>

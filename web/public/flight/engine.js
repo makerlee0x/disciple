@@ -342,12 +342,16 @@ const short=a=>!a?'?':/^0x[0-9a-f]{8,}$/i.test(a)? a.slice(0,6)+'…'+a.slice(-4
    Names: the SITE publishes window.__discipleNames[lc] + "disciple:names" (lib/nameLookup); NAMES is the engine's copy (the
    event also reaches the worker renderer). "@name" when claimed, the short address otherwise. Feed rows keep tr/pre so a name
    that arrives after the row was drawn relabels it. */
-const NAMES={};
+const NAMES={}, DEFNAMES={};   // DEFNAMES: default call signs (no @) from the site's 'disciple:feednames' (lib/flight/holderNames)
 function nameOf(a){ const k=String(a||'').toLowerCase(), g=typeof window!=='undefined'&&window.__discipleNames, n=NAMES[k]||(g&&g[k]);
-  return n?'@'+String(n).replace(/^@/,'').slice(0,11):short(a); }
+  return n?'@'+String(n).replace(/^@/,'').slice(0,11):DEFNAMES[k]?String(DEFNAMES[k]).slice(0,16):short(a); }
 function feedTradeRow(side,usd,who,trader){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `;
-  const r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at:Date.now()}; if(who==null&&trader){ r.tr=String(trader).toLowerCase(); r.pre=pre; } return r; }
-function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null) r.txt=r.pre+nameOf(r.tr); }
+  const own=who!=null&&/^\(you/.test(who), r={txt:pre+(who!=null?who:nameOf(trader)),c:side==='buy'?'#9ff3c8':'#ffb0c8',t:1,at:Date.now()};
+  if(trader&&(who==null||own)){ r.tr=String(trader).toLowerCase(); r.pre=pre; } if(own){ r.own=1; r.pre=pre; } return r; }
+function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null&&!r.own) r.txt=r.pre+nameOf(r.tr); }
+/* sign-out / account switch: '(you)' rows that aren't the current wallet's become plain trader rows (name / short address;
+   '?' when the row never knew its trader). Keyed to the wallet address: me='' (signed out) un-tags every own row. */
+function feedUnown(feed,me){ for(const r of feed) if(r.own&&!(me&&r.tr===me)){ r.own=0; r.txt=r.pre+(r.tr?nameOf(r.tr):'?'); } }
 /* after a reload the feed is empty (since #113 it lists live swaps only): seed it from the newest indexed fills (/api/trades,
    newest first), below any live rows already there, deduped by tx[:logIndex]; dollars only (fillUsd = USDG paid/received). */
 function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
@@ -569,7 +573,9 @@ if (IS_POOL||source.isSim) S.fuelers={'you':0};
 if (source instanceof DiscipleSource) S.fuelers={'you':0};   // live coin: no fake seed wallets
 S.holders=null; S.wallet='';
 addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
-addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address; S.wallet=typeof a==='string'?a.toLowerCase():''; });
+addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address, prev=S.wallet; S.wallet=typeof a==='string'?a.toLowerCase():'';
+  if(prev&&S.wallet!==prev){ feedUnown(S.feed,S.wallet); if(S.fuelers) delete S.fuelers.you; const C=chartState(); C.mine.length=0; if(C.mineTx) C.mineTx.clear(); _topT=-1; } });   // own-wallet state follows the wallet
+addEventListener('disciple:feednames',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m){ const v=m[k]; if(typeof v!=='string'||!v) continue; if(v[0]==='@') NAMES[k.toLowerCase()]=v.slice(1); else DEFNAMES[k.toLowerCase()]=v; } feedRelabel(S.feed); });
 addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m) if(typeof m[k]==='string'&&m[k]) NAMES[k.toLowerCase()]=m[k]; feedRelabel(S.feed); });
 function myWallet(){ return S.wallet||String(window.__flightWallet||'').toLowerCase(); }
 function isMine(trader){ const me=myWallet(); return !!me&&typeof trader==='string'&&trader.toLowerCase()===me; }
@@ -657,8 +663,12 @@ function applyThrust(side, usd, pct){
   // sells into a pump push it over. Decays τ1.6 s; the heading spring + rate cap make it a gradual turn.
   const kn=impactNorm(Number.isFinite(pct)?pct:(source.impact&&S.confirmed.mcap?Math.abs(source.impact(usd,side)-1)*100:0.1));
   if (side==='buy'){ S.flare=Math.min(2.6,(S.flare||0)+0.6); } 
-  if (side==='buy'){ const diving=Math.abs(90-(S.aimDisp??AIM_REST))>60; S.fight=clamp((S.fight||0)+(10+28*kn)*(diving?1.6:1),-60,60); S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
-  else { const pumping=(S.vyAtt||0)>0; S.fight=clamp((S.fight||0)-(4+16*kn)*(pumping?1.4:1),-60,60); }   // a single small sell nudges; a heavy sell wave tips a pump over
+  // buys add NO nose-up push either (lee: the rocket's angle follows the price only; was S.fight +10..+60° τ1.6 s). The
+  // flare (exhaust glow) stays: it's a visual, not the heading.
+  if (side==='buy'){ const diving=Math.abs(90-(S.aimDisp??AIM_REST))>60; S.fight=0; S.flare=Math.min(2.2,(S.flare||0)+(0.35+0.9*kn)*(diving?1.7:1)); }
+  // sells add NO nose-down push (lee: the rocket moves only with price). Was S.fight −(4..28)° decaying τ1.6 s: after a
+  // 100% DUMP the nose stayed pinned down ~2–3 s with the price already flat. The price drop itself still tips it via vyAtt.
+  else S.fight=0;
   S.thrustT = S.t;
   S.flatSince = 0;
   S.cruise = Math.min(S.cruise||0, 0.25);
@@ -1520,7 +1530,7 @@ function pushHolders(top,title){ if(S.t-(S._holdersT??-9)<0.5) return; S._holder
    moves with the price between balance refreshes. items = ranked holders, system = labelled pool / curve / locker rows. */
 function realHolders(){ const h=S.holders; if(!h) return null; const m=markMcap()||0, me=myWallet();
   const map=r=>{ const mine=!!r.mine||(!!me&&r.address===me); const usd=r.pct>0&&m>0?r.pct/100*m:(+r.usd||0);
-    return {who:mine?'you':short(r.address),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
+    return {who:mine?'you':(r.name||short(r.address)),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
   return {items:h.rows.filter(r=>!r.label).map(map), system:h.rows.filter(r=>r.label).map(map), asOfBlock:h.asOfBlock??null}; }
 function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t;
   const h=realHolders(); _top=h?h.items.map(r=>[r.who,r.usd]):Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
@@ -1711,6 +1721,23 @@ function cardPublish(){ if(CLEAN||phoneHud(W,CLEAN)) for(const k in CARD_RECTS) 
   const sig=W+'x'+H+JSON.stringify(CARD_RECTS); if(sig===CARD_SIG) return; CARD_SIG=sig;
   dispatchEvent(new CustomEvent('disciple:cardrects',{detail:{W,H,cards:JSON.parse(JSON.stringify(CARD_RECTS))}})); }
 /* @cards-end */
+/* @hud-layout:start — desktop top row (header card · BUY/SELL ammo panel · right column) inside the AVAILABLE canvas
+   width, so nothing overlaps whatever the sidebar's width is (the canvas already starts at the sidebar edge: W is the
+   content width, never a hard-coded 270 / 220) or the site's wallet strip (cash / total cards; walletL = its left edge
+   in canvas px, colTop = the top below it). Pure (test: scripts/test-hud-layout.mjs).
+   1. ammo panel: centred between the header card and the right column when there's room (as before);
+   2. else right of the header card, as far right as the canvas allows; if that still runs under the wallet strip it
+      drops below the strip, and if it runs into the right column the column moves down below the panel;
+   3. a canvas too narrow even for header + panel side by side: the panel goes under the header card. */
+function hudTopLayout(o){ const W=o.W, AW=o.AW, AH=o.AH, CW=o.CW, G=o.gap??14, M=20, hdrR=o.hdrR, hdrB=o.hdrB, top=o.top??18;
+  const RX=W-M-CW, colTop0=o.colTop, wl=Number.isFinite(o.walletL)&&o.walletL>0?o.walletL:W;
+  let ax=Math.round(Math.max(hdrR+10,Math.min((W-AW)/2,RX-G-AW))), ay=top, colTop=colTop0;
+  if (ax+AW>W-M) ax=Math.max(M,W-M-AW);
+  if (ax<hdrR+10) ay=Math.max(ay,hdrB+10);                                     // 3. no room beside the header card
+  else if (ax+AW>wl-8) ay=Math.max(ay,colTop0-4);                               // 2. under the wallet strip (cash / total)
+  if (ax+AW>RX-G+1&&ay<colTop+o.colH&&ay+AH>colTop) colTop=Math.max(colTop,ay+AH+10);   // column below the panel
+  return {ax,ay,RX,colTop}; }
+/* @hud-layout:end */
 function drawHud(){
   for(const k in CARD_RECTS) if(k!=='chart') delete CARD_RECTS[k];   /* re-registered by this frame's cards (chart: chartRect) */
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
@@ -1735,6 +1762,10 @@ function drawHud(){
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
+  const AW=472, AH=108, HB=(CARD_RECTS.header?CARD_RECTS.header.y+CARD_RECTS.header.h:148+coinIdRowH());
+  const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:Math.max(0,(+window.__hudLeft||0)-(+window.__wrapL||0))+400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
+  if (LY){ RT=LY.colTop; RX=LY.RX; }
+  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
@@ -1771,7 +1802,7 @@ function drawHud(){
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
-  const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
+  const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<MODES.length){ const wt=S.buyWarn.texts[hv]; ctx.fillStyle=wt?(S.buyWarn.over[hv]?'#ffb0c8':'#ffe7a3'):'#9ff3c8'; ctx.fillText(wt||`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }
@@ -2544,7 +2575,7 @@ if(!CLEAN) setTimeout(()=>{ try{ chartState(); }catch(_){} },0);   /* live: crea
 /* real USDG of an indexed fill (/api/trades, SITE #113): sells usdOut (received), buys usdIn (paid); older fills lack them ⇒ usd */
 function fillUsd(f){ const v=f&&(f.side==='sell'?(f.usdOut??f.usd):(f.usdIn??f.usd)); return +v>0?+v:0; }
 function feedHistNames(rows){ const want=[...new Set(rows.filter(r=>r.tr&&/^0x[0-9a-f]{40}$/.test(r.tr)&&!NAMES[r.tr]&&!(window.__discipleNames&&window.__discipleNames[r.tr])).map(r=>r.tr))];
-  for(const a of want) fetch('/api/profile/username?address='+a,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ const n=j&&typeof j.username==='string'&&j.username.trim(); if(n){ NAMES[a]=n; feedRelabel(S.feed); } }).catch(()=>{}); }
+  if(want.length) try{ dispatchEvent(new CustomEvent('disciple:names-want',{detail:{addresses:want}})); }catch(_){} }   // the site resolves them (lib/nameLookup cache, ≤3 at a time) → 'disciple:feednames'
 function chartBackfill(){ const C=CH, coin=Q.get('coin'); if(!C||!C.live||CLEAN||C.hist||!/^0x[0-9a-fA-F]{40}$/.test(coin||'')) return; C.hist=1;
   fetch('/api/trades?coin='+coin+'&limit=5000&order=desc').then(r=>r.ok?r.json():null).then(j=>{ const fills=j&&Array.isArray(j.fills)?j.fills:[]; if(!fills.length) return;
     const me=String(window.__flightWallet||Q.get('wallet')||'').toLowerCase(), keep=CHART_STYLE.keep;
@@ -2602,12 +2633,12 @@ function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) 
   if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
   if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:rcptSellImpactPct(d,usd),trader:null,mine:true,fullStack:fs}); }
-  S.feed.unshift({txt:`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#ffb0c8'}); S.feed.length=Math.min(S.feed.length,7); }
+  { const pre=`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({txt:pre+'(you)',c:'#ffb0c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
 /* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
    (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
 function ownBuyReceipt(usd,k){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
   if(!(usd>0)) return; S.fuelers.you=(S.fuelers.you||0)+usd; award('first','FIRST FLAME','first confirmed thrust'); momNote('buy',usd); S.volEma+=usd; S.buyEma+=usd;
-  S.feed.unshift({txt:`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  (you)`,c:'#9ff3c8'}); S.feed.length=Math.min(S.feed.length,7); }
+  { const pre=`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({txt:pre+'(you)',c:'#9ff3c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */

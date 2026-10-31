@@ -9,7 +9,7 @@ As a creator you earn from every trade on your rocket.
 
 | Source | Size | When |
 |---|---|---|
-| Creator share of the trade fee | 33% of the 1% fee | Every BOOST and DUMP, before and after graduation |
+| Creator share of the trade fee | 33% of the 1% fee | Every BOOST and DUMP, before and after ascension |
 | Creator tax | 0–7% of the trade, if you set one | Bonding-curve trades only |
 
 On a $100 trade that's $0.33 from the fee, plus your creator tax on the curve.

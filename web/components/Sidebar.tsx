@@ -1,69 +1,57 @@
 "use client";
 
+/**
+ * App navigation, premium-ui-r1 (BRAND mockups/premium-ui-r1, DIRECTION.md "Sidebar"):
+ * one silver "Launch a Rocket" button on top, six places in two groups (Launchpad / Leaderboard / Achievements, then
+ * You: Profile / Your rockets / Wallet), How it works near the bottom, and who you are at the bottom (picture, name,
+ * guild tag, settings) or, signed out, one card with one Sign in button. Sign out lives in Settings.
+ * Game routes collapse to the 64px rail (silver + for Launch). Phones: a drawer; Launch sits in the top bar.
+ * Upgrade Rocket is hidden from the menu until it does something (the /rocket route stays).
+ */
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
+import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/session";
 import Icon, { type IconName } from "@/components/icons/Icon";
-import { SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, walletCtaLabel } from "@/lib/walletCta";
+import { GuildTagFor } from "@/components/guilds/GuildChip";
+import { withBase } from "@/lib/base-path";
+import { SETTINGS_HREF, onSettingsClick } from "@/lib/cashLink";
+import { defaultUsername } from "@/lib/defaultUsername";
+import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
+import { pfpUrl } from "@/lib/profileMeta";
+import { fetchProfileMeta } from "@/lib/profileMetaClient";
+import {
+  SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId,
+} from "@/lib/walletCta";
 
-const NAV = [
+type NavItem = { href: string; key: string; label: string; icon: IconName };
+
+const NAV: readonly NavItem[] = [
   { href: "/", key: "home", label: "Launchpad", icon: "home" },
-  { href: "/profile", key: "profile", label: "Profile", icon: "profile" },
-  { href: "/rocket", key: "upgrade", label: "Upgrade Rocket", icon: "rocket" },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
   { href: "/achievements", key: "ach", label: "Achievements", icon: "achievement" },
-] as const;
+];
+/** "You" group: signed in only (nothing of yours to show signed out). Upgrade Rocket (/rocket) is hidden, not deleted. */
+const NAV_YOU: readonly NavItem[] = [
+  { href: "/profile", key: "profile", label: "Profile", icon: "profile" },
+  // Copy pending lee approval: "Your rockets"
+  { href: "/creator", key: "creator", label: "Your rockets", icon: "rocket" },
+  // Copy pending lee approval: "Wallet"
+  { href: "/wallet", key: "wallet", label: "Wallet", icon: "wallet" },
+];
 
-/** Nav icons: BRAND icons v1 + v1.1 ("create" → plus, "logout" → log-out). */
-function NavIcon({ name }: { name: string }) {
-  const n = name === "create" ? "plus" : name === "logout" ? "log-out" : name;
-  return <Icon name={n as IconName} size={20} />;
-}
-
-function Wings() {
-  return (
-    <svg viewBox="0 0 80 64" aria-hidden="true" width={80} height={64}>
-      <defs>
-        <radialGradient id="apHalo" cx="50%" cy="50%">
-          <stop offset="0" stopColor="#E8EAEE" />
-          <stop offset="1" stopColor="#FF7A3D" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <circle cx="40" cy="34" r="26" fill="url(#apHalo)" opacity=".45" />
-      <ellipse
-        cx="40"
-        cy="12"
-        rx="12"
-        ry="3.4"
-        fill="none"
-        stroke="#C9CED6"
-        strokeWidth="2.2"
-      />
-      <path
-        d="M36 34C26 24 12 22 4 28c8 1 12 5 14 9-6-1-10 1-12 4 8 0 14 2 20 0z"
-        fill="#E8EAEE"
-        stroke="#C9CED6"
-        strokeWidth="1"
-      />
-      <path
-        d="M44 34c10-10 24-12 32-6-8 1-12 5-14 9 6-1 10 1 12 4-8 0-14 2-20 0z"
-        fill="#E8EAEE"
-        stroke="#C9CED6"
-        strokeWidth="1"
-      />
-      <path
-        d="M40 18c4 4 5 12 4 22l-4 6-4-6c-1-10 0-18 4-22z"
-        fill="#e8ecf5"
-        stroke="#9aa6c0"
-        strokeWidth="1"
-      />
-      <circle cx="40" cy="30" r="2.4" fill="#9fd0ff" />
-    </svg>
-  );
-}
-
-
+// Copy pending lee approval: "You" (group label)
+const YOU_LABEL = "You";
+// Copy pending lee approval: signed-out card line (lee's approved sign-in line; no title)
+const JOIN_LINE = "Sign in with email, Google, X or wallet";
+// Copy pending lee approval: signed-out card button. Local-signer (guest) builds keep the pill's own "Play" label,
+// because there the button creates a guest account instead of opening sign-in.
+const JOIN_BTN = "Sign in";
+// Copy pending lee approval: "How it works" (replaces "Help")
+const HIW_LABEL = "How it works";
+// Copy pending lee approval: "Launch" (phone top-bar button)
+const PHONE_LAUNCH = "Launch";
 
 /** Only chart / flight (game) routes may collapse the sidebar. Launchpad, create, profile,
  * leaderboard, achievements etc. are always expanded on desktop (mobile keeps a drawer). */
@@ -71,16 +59,47 @@ export function isCollapsibleRoute(pathname: string) {
   return pathname.startsWith("/coin/") || pathname.startsWith("/flight");
 }
 
+/** Game-route overlay signal for GAME (#221): window event, detail { open: boolean, width: 248 }. */
+export const SIDEBAR_OVERLAY_EVENT = "disciple:sidebar-overlay";
+const OVERLAY_W = 248; // = --ap-side-w
+const isMobile = () => typeof window !== "undefined" && window.matchMedia("(max-width:760px)").matches;
+
+/** The account's picture (profile meta), else its initial. Real data only: no sample picture. */
+function Avatar({ address, name, size }: { address: string; name: string; size: number }) {
+  const [img, setImg] = useState("");
+  useEffect(() => {
+    let alive = true;
+    const load = () => { fetchProfileMeta(address).then((m) => { if (alive) setImg(pfpUrl(m.pfp)); }).catch(() => {}); };
+    load();
+    addEventListener(PROFILE_CHANGED_EVENT, load);
+    return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, load); };
+  }, [address]);
+  return (
+    <span className="ap-av" style={{ width: size, height: size }} aria-hidden="true">
+      {img
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img src={withBase(img)} alt="" width={size} height={size} />
+        : <span className="ap-av-in">{(name.replace(/^@/, "")[0] || "?").toUpperCase()}</span>}
+    </span>
+  );
+}
+
 export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }) {
   const pathname = usePathname();
-  const router = useRouter();
   const isGame = isCollapsibleRoute(pathname);
   const storageKey = isGame ? SETTINGS_KEYS.sidebarGame : SETTINGS_KEYS.sidebarHome;
 
   const [open, setOpen] = useState(!isGame);
   const [ready, setReady] = useState(false);
-  const [logoutNote, setLogoutNote] = useState(false);
-  // Phones: the wallet pill's signed-out action ("Play") lives here instead of the top bar (see lib/walletCta.ts).
+  // Sign out only while signed in: false until Privy reports ready+authenticated (or a session exists), so no flash on load
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    const sync = () => setSignedIn(privyAuthenticated() || !!aaSession());
+    sync();
+    const a = onPrivy(sync), b = onSessionChange(sync);
+    return () => { a(); b(); };
+  }, []);
+  // The wallet pill's signed-out action ("Play" / "Sign in") also runs from the Sidebar's Sign in card (see lib/walletCta.ts).
   const [cta, setCta] = useState<string | null>(null);
   useEffect(() => {
     setCta(walletCtaLabel());
@@ -88,6 +107,16 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     window.addEventListener(WALLET_CTA_EVENT, f);
     return () => window.removeEventListener(WALLET_CTA_EVENT, f);
   }, []);
+  // Who you are (address + claimed name), published by the wallet pill.
+  const [me, setMe] = useState<WalletId | null>(null);
+  useEffect(() => {
+    setMe(walletId());
+    const f = (e: Event) => setMe((e as CustomEvent<WalletId | null>).detail ?? null);
+    window.addEventListener(WALLET_ID_EVENT, f);
+    return () => window.removeEventListener(WALLET_ID_EVENT, f);
+  }, []);
+  const hasMe = !!me?.address;
+  const you = signedIn || hasMe;
 
   useEffect(() => {
     let saved: string | null = null;
@@ -96,9 +125,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     } catch {
       /* ignore */
     }
-    const mobile =
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width:760px)").matches;
+    const mobile = isMobile();
     let next = saved ? saved === "open" : !isGame;
     if (forceCollapsed) next = false;
     if (mobile && !saved) next = false;
@@ -108,45 +135,83 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
     setReady(true);
   }, [storageKey, isGame, forceCollapsed]);
 
+  // Game routes, desktop (GAME #221 / lee): the open sidebar OVERLAYS the game instead of pushing it. The canvas and HUD
+  // stay full width (no body.side-open there, so FlightCanvas keeps the rail offset); the panel slides over the left edge.
+  // GAME reads <html data-sidebar-overlay="open"> or the SIDEBAR_OVERLAY_EVENT to keep the left OVERLAY_W px of its HUD clear.
+  const [desktop, setDesktop] = useState(() => !isMobile());
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width:760px)");
+    const f = () => setDesktop(!mq.matches);
+    f(); mq.addEventListener("change", f);
+    return () => mq.removeEventListener("change", f);
+  }, []);
+  const overlay = ready && isGame && desktop && open;
+  useEffect(() => {
+    const root = document.documentElement;
+    if (overlay) root.dataset.sidebarOverlay = "open"; else delete root.dataset.sidebarOverlay;
+    document.body.classList.toggle("side-overlay", overlay);
+    window.dispatchEvent(new CustomEvent(SIDEBAR_OVERLAY_EVENT, { detail: { open: overlay, width: OVERLAY_W } }));
+    return () => {
+      if (!overlay) return;
+      delete root.dataset.sidebarOverlay;
+      document.body.classList.remove("side-overlay");
+      window.dispatchEvent(new CustomEvent(SIDEBAR_OVERLAY_EVENT, { detail: { open: false, width: OVERLAY_W } }));
+    };
+  }, [overlay]);
+
   useEffect(() => {
     if (!ready) return;
-    document.body.classList.toggle("side-open", open);
+    // overlay mode (game + desktop): not "side-open", which would push the canvas / rail-pinned cards right
+    document.body.classList.toggle("side-open", open && !(isGame && desktop));
     document.body.classList.toggle("game", isGame);
-    document.body.classList.toggle(
-      "side-hidden",
-      !open && window.matchMedia("(max-width:760px)").matches,
-    );
+    document.body.classList.toggle("side-hidden", !open && isMobile());
     try {
       if (isGame) localStorage.setItem(storageKey, open ? "open" : "collapsed");
     } catch {
       /* ignore */
     }
-    window.dispatchEvent(
-      new CustomEvent("apsidebar", { detail: { open } }),
-    );
+    window.dispatchEvent(new CustomEvent("apsidebar", { detail: { open } }));
     const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 240);
     return () => clearTimeout(t);
-  }, [open, ready, storageKey, isGame]);
+  }, [open, ready, storageKey, isGame, desktop]);
 
   const toggle = useCallback((force?: boolean) => {
-    const mobile = window.matchMedia("(max-width:760px)").matches;
-    if (!isGame && !mobile) return; // not collapsible here
+    if (!isGame && !isMobile()) return; // not collapsible here
     setOpen((o) => (typeof force === "boolean" ? force : !o));
   }, [isGame]);
   const canCollapse = isGame;
-
+  /** Phones: the drawer closes once you pick something. */
+  const closeIfMobile = useCallback(() => { if (isMobile()) setOpen(false); }, []);
 
   if (!ready) return null;
 
+  const isOn = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+  const navLink = (item: NavItem) => (
+    <Link key={item.key} href={item.href} className={isOn(item.href) ? "on" : ""} title={item.label}
+      aria-current={isOn(item.href) ? "page" : undefined} onClick={closeIfMobile}>
+      <span className="ic"><Icon name={item.icon} size={20} /></span>
+      <span className="lb">{item.label}</span>
+    </Link>
+  );
+  const name = me ? (me.name ? me.name.replace(/^@/, "") : defaultUsername(me.address)) : "";
+  // Settings: on game routes GAME's settings menu (SETTINGS_OPEN_EVENT, #149: sound etc., also signed out); elsewhere the
+  // account Settings popup (/profile#settings, #216), which holds Sign out, so it shows signed in only.
+  const showSettings = isGame || you;
+  const settingsProps = isGame
+    ? { onClick: () => { closeIfMobile(); window.dispatchEvent(new Event(SETTINGS_OPEN_EVENT)); } }
+    : null;
+  const settingsInner = (
+    <>
+      <span className="ic"><Icon name="settings" size={20} /></span>
+      <span className="lb">Settings</span>
+    </>
+  );
+
   return (
     <>
-      <aside
-        id="apSide"
-        className={open ? "" : "collapsed"}
-        aria-label="Main menu"
-      >
+      <aside id="apSide" className={open ? "" : "collapsed"} aria-label="Main menu">
         <div className="ap-brand">
-          <Link href="/" className="ap-logo" aria-label="DISCIPLE home">
+          <Link href="/" className="ap-logo" aria-label="DISCIPLE home" onClick={closeIfMobile}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="ap-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={176} height={45} />
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -159,165 +224,89 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             aria-label="Toggle menu"
             onClick={() => toggle()}
           >
-            <Icon name="menu" size={20} />
+            <span className="ap-tog-menu"><Icon name="menu" size={20} /></span>
+            <span className="ap-tog-close"><Icon name="close" size={20} /></span>
           </button>
         </div>
-        <nav className="ap-nav">
-          {NAV.map((item) => {
-            const on =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.key}
-                href={item.href}
-                className={on ? "on" : ""}
-                title={item.label}
-              >
-                <span className="ic">
-                  <NavIcon name={item.icon} />
-                </span>
-                <span className="lb">{item.label}</span>
-              </Link>
-            );
-          })}
-          <Link
-            href="/create"
-            className={pathname === "/create" ? "on" : ""}
-            title="Launch a Rocket"
-          >
-            <span className="ic">
-              <NavIcon name="create" />
-            </span>
-            <span className="lb">Launch a Rocket</span>
-          </Link>
-        </nav>
-        <div className="ap-promo">
-          <div className="ap-illu">
-            <Wings />
-          </div>
-          <h3>Launch a Rocket</h3>
-          <p>
-            Pair your coin with any ERC-20, pick a call sign, and put it on the
-            pad. Everyone aboard flies together.
-          </p>
-          <Link href="/create" className="ap-cta">
-            Launch
-          </Link>
-        </div>
+
+        {/* One Launch button (the old nav item + winged promo card are gone); the silver + on the rail */}
+        <Link href="/create" className={`ap-launch${isGame ? " ap-launch-game" : ""}`} title="Launch a Rocket"
+          data-testid="side-launch" onClick={closeIfMobile}>
+          <Icon name="plus" size={18} />
+          <span className="lb">Launch a Rocket</span>
+        </Link>
+
+        <nav className="ap-nav" aria-label="Main">{NAV.map(navLink)}</nav>
+        {you && (
+          <nav className="ap-nav ap-nav-you" aria-label={YOU_LABEL}>
+            <div className="ap-grp">{YOU_LABEL}</div>
+            {NAV_YOU.map(navLink)}
+          </nav>
+        )}
+
+        <div className="ap-spacer" />
+
         <div className="ap-foot">
-          {cta && (
+          <button type="button" title={HIW_LABEL} aria-haspopup="dialog" data-testid="side-hiw"
+            onClick={() => { closeIfMobile(); window.dispatchEvent(new Event("dsc:hiw")); }}>
+            <span className="ic"><Icon name="info" size={20} /></span>
+            <span className="lb">{HIW_LABEL}</span>
+          </button>
+          {showSettings && (settingsProps
+            ? <button type="button" title="Settings" data-testid="side-settings" aria-haspopup="dialog"
+                className={`ap-set${hasMe ? " has-me" : ""}`} {...settingsProps}>{settingsInner}</button>
+            : <Link href={SETTINGS_HREF} title="Settings" data-testid="side-settings"
+                className={`ap-set${hasMe ? " has-me" : ""}`}
+                onClick={(e) => { closeIfMobile(); onSettingsClick(e); }}>{settingsInner}</Link>)}
+        </div>
+
+        {me && hasMe ? (
+          <div className="ap-me" data-testid="side-account">
+            <Link href="/profile" className="ap-me-id" title={name} onClick={closeIfMobile}>
+              <Avatar address={me.address} name={name} size={36} />
+              {/* the name once (lee): no text guild chip here, just the small guild mark like the wallet pill (#219) */}
+              <span className="ap-me-who">
+                <span className="ap-me-nm">{name}<GuildTagFor address={me.address} markOnly /></span>
+              </span>
+            </Link>
+            {settingsProps
+              ? <button type="button" className="ap-me-gear" title="Settings" aria-label="Settings" aria-haspopup="dialog" {...settingsProps}>
+                  <Icon name="settings" size={18} />
+                </button>
+              : <Link href={SETTINGS_HREF} className="ap-me-gear" title="Settings" aria-label="Settings"
+                  onClick={(e) => { closeIfMobile(); onSettingsClick(e); }}>
+                  <Icon name="settings" size={18} />
+                </Link>}
+          </div>
+        ) : !you ? (
+          <div className="ap-join" data-testid="side-join">
+            <p className="ap-join-p">{JOIN_LINE}</p>
+            {/* the wallet pill's own action ("Play" = guest account, else its sign-in menu); #149 phone Play */}
             <button
               type="button"
-              className="ap-side-cta"
-              title={cta}
+              className="ap-join-btn ap-side-cta"
               data-testid="side-wallet-cta"
               onClick={() => {
                 setOpen(false);
                 window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT));
               }}
             >
-              <span className="ic">
-                <NavIcon name={cta === "Play" ? "play" : "wallet"} />
-              </span>
-              <span className="lb">{cta}</span>
-            </button>
-          )}
-          {isGame && (
-            <button
-              type="button"
-              title="Settings"
-              data-testid="side-settings"
-              aria-haspopup="dialog"
-              onClick={() => {
-                if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
-                window.dispatchEvent(new Event(SETTINGS_OPEN_EVENT));
-              }}
-            >
-              <span className="ic">
-                <NavIcon name="settings" />
-              </span>
-              <span className="lb">Settings</span>
-            </button>
-          )}
-          <Link
-            href="/security"
-            title="Security"
-            data-testid="side-security"
-            className={pathname === "/security" ? "on" : ""}
-            onClick={() => {
-              if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
-            }}
-          >
-            <span className="ic">
-              <NavIcon name="shield" />
-            </span>
-            <span className="lb">Security</span>
-          </Link>
-          <button
-            type="button"
-            title="Help"
-            aria-haspopup="dialog"
-            onClick={() => {
-              if (window.matchMedia("(max-width:760px)").matches) setOpen(false);
-              window.dispatchEvent(new Event("dsc:hiw"));
-            }}
-          >
-            <span className="ic">
-              <NavIcon name="info" />
-            </span>
-            <span className="lb">Help</span>
-          </button>
-          <button
-            type="button"
-            title="Sign out"
-            onClick={() => setLogoutNote(true)}
-          >
-            <span className="ic">
-              <NavIcon name="logout" />
-            </span>
-            <span className="lb">Sign out</span>
-          </button>
-        </div>
-      </aside>
-      <button
-        type="button"
-        id="apReopen"
-        title="Open menu"
-        onClick={() => toggle(true)}
-      >
-        <Icon name="menu" size={20} />
-      </button>
-      {logoutNote && (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 backdrop-blur-sm"
-          onClick={() => setLogoutNote(false)}
-          role="presentation"
-        >
-          <div
-            className="w-[min(420px,90vw)] rounded-2xl border border-[rgba(201,206,214,.55)] bg-[radial-gradient(120%_80%_at_50%_0%,rgba(232,234,238,.22),rgba(22,24,28,.94)_60%)] p-6 text-[#E8EAEE] shadow-[0_0_60px_rgba(201,206,214,.25)]"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-          >
-            <h2 className="m-0 mb-2 font-display text-2xl font-normal text-[#E8EAEE]">
-              Sign out
-            </h2>
-            <p className="text-sm opacity-75">
-              You&rsquo;re not signed in.
-            </p>
-            <button
-              type="button"
-              className="mt-4 rounded-xl border border-[rgba(201,206,214,.5)] px-4 py-2 text-[#C9CED6]"
-              onClick={() => {
-                setLogoutNote(false);
-                router.push("/");
-              }}
-            >
-              Close
+              {cta === "Play" ? cta : JOIN_BTN}
             </button>
           </div>
-        </div>
+        ) : null}
+      </aside>
+      {/* phones: the dimmed page behind the open drawer; tapping it closes the drawer (CSS shows it on phones only) */}
+      {open && <div className="ap-scrim" aria-hidden="true" onClick={() => toggle(false)} />}
+      <button type="button" id="apReopen" title="Open menu" aria-label="Open menu" onClick={() => toggle(true)}>
+        <Icon name="menu" size={20} />
+      </button>
+      {/* Phones (non-game routes): the one Launch button sits in the top bar, so the drawer doesn't repeat it */}
+      {!isGame && (
+        <Link href="/create" className="ap-phone-launch" data-testid="topbar-launch" title="Launch a Rocket">
+          <Icon name="plus" size={16} />
+          <span>{PHONE_LAUNCH}</span>
+        </Link>
       )}
     </>
   );

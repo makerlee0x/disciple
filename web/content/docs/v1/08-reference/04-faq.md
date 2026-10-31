@@ -28,18 +28,18 @@ Sign in with X, email or a wallet. Then get test funds and a little test ETH for
 Pick a supported base: STRATEGY by default, USDG always. Other coins work once they have an on-chain USDG price pool.
 
 **What does pairing do for my coin?**
-Your rocket is priced and traded in its base. At graduation, the base is locked permanently in the rocket's Uniswap v4 LP.
+Your rocket is priced and traded in its base. At ascension, the base is locked permanently in the rocket's Uniswap v4 LP.
 
-## Curve and graduation
+## Curve and ascension
 
-**When does a rocket graduate?**
+**When does a rocket ascend?**
 At a $33,333 market cap, when 84% of supply has sold on the bonding curve. It moves to Uniswap v4 in the same transaction.
 
 **Is the liquidity really locked?**
-Yes. At graduation, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.
+Yes. At ascension, the liquidity is locked forever in a full-range Uniswap v4 position owned by the LockedLP contract, which has no function to remove it. Contracts are non-upgradeable; admin controls are held by the team during testnet.
 
 **Can a creator rug?**
-There's no further mint, the name and call sign are locked at launch, and graduated liquidity has no withdraw function. Creators can still sell their own coins, like anyone else. [CONFIRM: lee — keep this question?]
+There's no further mint, the name and call sign are locked at launch, and ascended liquidity has no withdraw function. Creators can still sell their own coins, like anyone else. [CONFIRM: lee — keep this question?]
 
 ## Fees
 
@@ -69,7 +69,7 @@ Free paper trading against bots on a private market, with no wallet and no trans
 Not yet. The contracts have had internal security reviews only, no third-party audit. A professional audit is required before mainnet.
 
 **Can the team pause trading?**
-No. There's no pause. Curves and graduated pools are always live.
+No. There's no pause. Curves and ascended pools are always live.
 
 **What can the team change?**
 Some settings for new launches, fee routing addresses and router limits. See [Admin controls](/docs/safety/admin).

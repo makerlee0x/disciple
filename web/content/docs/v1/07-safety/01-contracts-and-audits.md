@@ -20,17 +20,17 @@ Findings and fixes are tracked openly in the repository. [CONFIRM: FLOW — link
 | Contract | Job |
 |---|---|
 | **Launchpad** | Creates rockets and their curves. Holds launch settings. |
-| **BondingCurve** | One per rocket. The pre-graduation market. |
-| **Migration** | Moves a graduating rocket to Uniswap v4, in the same transaction. |
-| **DiscipleHook** | Uniswap v4 hook on every graduated pool. Charges the 1% fee and reports trades and altitude. |
-| **DiscipleRouter** | The app's router for graduated trades. Adds slippage and price-impact checks. |
-| **LockedLP** | Owns every graduated liquidity position. No remove function. |
+| **BondingCurve** | One per rocket. The pre-ascension market. |
+| **Migration** | Moves an ascending rocket to Uniswap v4, in the same transaction. |
+| **DiscipleHook** | Uniswap v4 hook on every ascended pool. Charges the 1% fee and reports trades and altitude. |
+| **DiscipleRouter** | The app's router for ascended trades. Adds slippage and price-impact checks. |
+| **LockedLP** | Owns every ascended liquidity position. No remove function. |
 | **FeeRouter** | Splits every fee 33 / 33 / 33 / 1. Holds claimable balances. The anti-snipe fee doesn't pass through it: the curve escrows it. |
 | **ReferralRegistry** | Records who referred whom. |
-| **RewardsVault** | Gets the escrowed anti-snipe fee of rockets that haven't graduated 30 days after launch. |
+| **RewardsVault** | Gets the escrowed anti-snipe fee of rockets that haven't ascended 30 days after launch. |
 | **QuotePricer** | Prices a base in dollars at launch. |
 | **QuoteProbe** | Checks a base before launch. |
-| **TrampWallManager** | Tramps and walls on graduated pools. |
+| **TrampWallManager** | Tramps and walls on ascended pools. |
 | **AntiSnipe** | Legacy launch fee schedule. The curve now applies the 7-second sniper tax itself. |
 | **AnonLauncher** | Pseudonymous launches. |
 | **MarketLens** | Read-only market data. |
@@ -42,7 +42,7 @@ Addresses: [Contract addresses](/docs/reference/contracts).
 - **Fixed supply.** 1M per rocket, no mint after launch.
 - **Name and call sign are locked.**
 - **No pause.** Curves and pools are always live.
-- **Graduated liquidity has no remove function.** Tested by fuzzing: locked liquidity can never be removed.
+- **Ascended liquidity has no remove function.** Tested by fuzzing: locked liquidity can never be removed.
 - **Fees always add up.** Tested: the fee router always holds at least what it owes creators and referrers.
 - **Non-upgradeable.** Deployed code can't be replaced.
 
