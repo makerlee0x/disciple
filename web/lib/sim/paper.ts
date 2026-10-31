@@ -46,7 +46,7 @@ export const ARCH_LABEL: Record<PaperArchetype, string> = {
 export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], medium: [1300, 1700], hard: [1900, 2400] };
 /** TUNE (ASSUMPTION, #224): bots size buys as size × SIZE_SCALE × startCash so the richer lobbies don't graduate in ~2 min
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
-export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.7, medium: 0.225, hard: 0.171 }; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
+export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.5, medium: 0.18, hard: 0.23 }; // v3 (round ends at ascension): 0.5 / 0.18 / 0.23; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
 export const NOISE_TRADE_SHARE = 0.25;
 /** PAPER-ONLY practice bonus (lee, Oct 31; NOT a feature of the real game): a fixed USDG pool per lobby, paid only if the coin
  *  ASCENDS, at that moment, as CASH (never tokens, so it can't move the chart) to the TOP 3 wallets — bots and the player alike —
