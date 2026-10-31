@@ -4,7 +4,7 @@
  * × close), a pill per minimized card (click = restore) and a LAYOUT menu (bottom-left) that lists every card, brings
  * closed / minimized ones back and resets the layout. Desktop only (phones keep their drawers / sheets).
  *
- * Canvas cards (header, holders, trades, controls) are drawn by engine.js @cards from the layout and report their
+ * Canvas cards (header, trades, controls) are drawn by engine.js @cards from the layout and report their
  * drawn rects (disciple:cardrects, canvas px from #wrap); DOM cards (chart = DexChart, pnl, chat) apply their offset themselves
  * (useDomCard / DexChart; the chart also has its own resize handle, size saved in the same layout)
  * and are located by [data-card]. All pointer input here lands on DOM elements, so it never reaches the game (no steering).
@@ -31,9 +31,9 @@ export default function CardChrome() {
   // PR #221 snap-to-grid: measure the content area + fixed obstacles, flow the cards into the slots (lib/game/slots)
   const [tabs, setTabs] = useState<{ ids: CardId[]; row: Box | null }>({ ids: [], row: null }), [pop, setPop] = useState<CardId | null>(null), popRef = useRef<CardId | null>(null);
   popRef.current = pop;
-  const bases = useRef<Partial<Record<CardId, Box>>>({}), ammo = useRef<Box | null>(null), envRef = useRef<SlotEnv | null>(null), [preview, setPreview] = useState<Slot | null>(null);
+  const bases = useRef<Partial<Record<CardId, Box>>>({}), ammo = useRef<Box | null>(null), envRef = useRef<SlotEnv | null>(null), colTopRef = useRef<number | null>(null), [preview, setPreview] = useState<Slot | null>(null);
   useEffect(() => {
-    const onCol = (e: Event) => { const d = (e as CustomEvent<{ ammo?: Box }>).detail; const o = wrapXY(); ammo.current = d?.ammo ? { ...d.ammo, x: d.ammo.x + o.x, y: d.ammo.y + o.y } : null; };
+    const onCol = (e: Event) => { const d = (e as CustomEvent<{ top?: number; ammo?: Box }>).detail; const o = wrapXY(); colTopRef.current = Number.isFinite(d?.top) ? d!.top! : null; ammo.current = d?.ammo ? { ...d.ammo, x: d.ammo.x + o.x, y: d.ammo.y + o.y } : null; };
     addEventListener("disciple:hudcol", onCol); return () => removeEventListener("disciple:hudcol", onCol);
   }, []);
   useEffect(() => {
@@ -45,11 +45,13 @@ export default function CardChrome() {
       const wrap = document.getElementById("wrap")?.getBoundingClientRect(); if (!wrap || !(wrap.width > 0)) return;
       const wallet = dom('[aria-label="wallet"]');   // real height: the strip can wrap to 3 rows (testnet)
       const bar = union([dom('[data-testid="trade-bar"]'), dom('[data-testid="tw-open"]'), dom('[data-testid="tw-mine"]')]);
-      const holders = canvas.cards.holders;
+      // right-column top (lee Oct 31: the TOP HOLDERS card is gone): the engine's column top (disciple:hudcol, canvas px) + the
+      // status box (--ap-status-h) — where the old card sat, so the column's next card (the chat dock) starts there, no gap
+      const ct = colTopRef.current, statusH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ap-status-h")) || 0;
       // usable area = the canvas wrapper's MEASURED box, minus an overlay sidebar while it is open (lib/game/sidebarOverlay)
       const left = Math.max(wrap.left, overlayBlocked()), lane = centerLane(wrap.left, wrap.width, left, innerHeight, wrap.top);
       const env: SlotEnv = { vw: innerWidth, vh: innerHeight, left, top: wrap.top, wallet, bar, ammo: ammo.current, canvasL: wrap.left, canvasW: wrap.width, lane,
-        colTop: holders && !holders.dx && !holders.dy && holders.x + wrap.left >= left ? holders.y + wrap.top : undefined };
+        colTop: ct != null ? ct + statusH + wrap.top : undefined };
       (window as unknown as { __hudLane?: Box }).__hudLane = lane;
       envRef.current = env;
       const saved = getSavedLayout(), d = drag.current, cards: FlowCard[] = [], cur = getLayout();

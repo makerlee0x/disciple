@@ -12,7 +12,7 @@ const mem = () => { const m = new Map<string, string>(); return { m, getItem: (k
 const A = "0xAbCdEf0123456789abcdef0123456789ABCDEF01", B = "0x1111111111111111111111111111111111111111";
 
 test("every coin-screen card is covered (canvas + DOM)", () => {
-  assert.deepEqual([...CARD_IDS].sort(), ["chart", "chat", "controls", "header", "holders", "pnl", "trades"]);
+  assert.deepEqual([...CARD_IDS].sort(), ["chart", "chat", "controls", "header", "pnl", "trades"]);
   assert.equal(CANVAS_CARDS.length + DOM_CARDS.length, CARD_IDS.length);
 });
 
@@ -48,14 +48,14 @@ test("tolerant parse: junk, unknown ids, non-numbers, a throwing storage", () =>
 
 test("minimize / close / restore / reset are immutable and drop default cards", () => {
   const l0: Layout = {};
-  const l1 = setCard(l0, "holders", { min: true });
+  const l1 = setCard(l0, "header", { min: true });
   assert.deepEqual(l0, {}, "input untouched");
-  assert.deepEqual(hiddenCards(l1), ["holders"]);
+  assert.deepEqual(hiddenCards(l1), ["header"]);
   const l2 = setCard(l1, "trades", { closed: true, dx: 30, dy: 0 });
-  assert.deepEqual(hiddenCards(l2), ["holders", "trades"]);
+  assert.deepEqual(hiddenCards(l2), ["header", "trades"]);
   const l3 = restoreCard(l2, "trades");
   assert.deepEqual(l3.trades, { dx: 30, dy: 0 }, "restore keeps the position, clears the flags");
-  assert.equal(restoreCard(l3, "holders").holders, undefined, "restored at 0,0 ⇒ default (not stored)");
+  assert.equal(restoreCard(l3, "header").header, undefined, "restored at 0,0 ⇒ default (not stored)");
   assert.deepEqual(resetLayout(), {});
 });
 

@@ -39,7 +39,7 @@ export function chartCap(canvasW: number, canvasH: number, x?: number, lane?: Bo
 }
 /** secondary cards fold into tabs on a small content area (< COMPACT_W px usable) unless the player opened them there */
 export const COMPACT_W = 1200;
-export const SECONDARY = ["holders", "trades"];
+export const SECONDARY = ["trades"];
 export type Slot = Box & { id: SlotId; side: "l" | "r"; limit: number };
 export type FlowOut = { x: number; y: number; slot?: SlotId; tab?: boolean };
 export type FlowOpts = { compact?: boolean; secondary?: string[]; pinned?: string[] };

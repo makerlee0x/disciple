@@ -17,10 +17,10 @@ for (const [vw, vh] of [[1280, 800], [1366, 768], [1440, 900], [1680, 1050], [19
   const env: SlotEnv = { vw, vh, left: L, colTop, wallet, bar, ammo, canvasL, canvasW, lane };
   const fixed = [wallet, bar, ammo], compact = vw - L < COMPACT_W;
   const cap = chartCap(canvasW, vh, L + 20, lane, vw);
-  const sizes: Record<string, [number, number]> = { header: [380, 176], pnl: [216, 105], chart: [cap.w, cap.h], trades: [310, 140], holders: [310, 96], controls: [310, 84], chat: [300, 420] };
+  const sizes: Record<string, [number, number]> = { header: [380, 176], pnl: [216, 105], chart: [cap.w, cap.h], trades: [310, 140], controls: [310, 84], chat: [300, 420] };
   const base = (id: string): Box => { const [w, h] = sizes[id];
     return id === "header" ? { x: L + 20, y: 18, w, h } : id === "pnl" ? { x: L + 20, y: 200, w, h } : id === "chart" ? { x: L + 20, y: 315, w, h }
-      : id === "trades" ? { x: L + 20, y: vh - 160, w, h } : id === "holders" ? { x: vw - 330, y: colTop, w, h } : id === "chat" ? { x: vw - 320, y: colTop + 110, w, h } : { x: vw - 330, y: vh - 104, w, h }; };
+      : id === "trades" ? { x: L + 20, y: vh - 160, w, h } : id === "chat" ? { x: vw - 320, y: colTop, w, h } : { x: vw - 330, y: vh - 104, w, h }; };
   const tag0 = `${vw}x${vh} ${mode} ${side} wallet ${rows}r`;
   ok(lane.w >= 180 && lane.x + lane.w / 2 === canvasL + canvasW / 2 || Math.abs(lane.x + lane.w / 2 - (canvasL + canvasW / 2)) <= 1, `${tag0}: lane centred on the rocket ${JSON.stringify(lane)}`);
   ok(cap.w <= Math.max(260, Math.round(canvasW * 0.34)) && cap.h <= Math.max(180, Math.round(vh * 0.45)) && L + 20 + cap.w <= lane.x, `${tag0}: chart cap ${JSON.stringify(cap)}`);
@@ -34,7 +34,7 @@ for (const [vw, vh] of [[1280, 800], [1366, 768], [1440, 900], [1680, 1050], [19
     const res = layoutCards(env, cards, fixed, { compact }), tag = `${tag0} trial ${trial}`;
     const shown = cards.filter((c) => !res.pos[c.id].tab).map((c) => ({ id: c.id, x: res.pos[c.id].x, y: res.pos[c.id].y, w: c.base.w, h: c.base.h }));
     ok(shown.length + res.tabs.length === cards.length, `${tag}: every card is shown or a tab (none hidden)`);
-    if (compact) ok(["holders", "trades"].every((id) => !cards.some((c) => c.id === id) || res.tabs.includes(id)), `${tag}: secondary cards folded into tabs`);
+    if (compact) ok(["trades"].every((id) => !cards.some((c) => c.id === id) || res.tabs.includes(id)), `${tag}: secondary cards folded into tabs`);
     if (res.tabs.length) ok(!!res.tabRow && !hit(res.tabRow!, lane) && !fixed.some((f) => hit(res.tabRow!, f)) && res.tabRow!.x >= L, `${tag}: tab row clear ${JSON.stringify(res.tabRow)}`);
     const all = res.tabRow ? [...shown, { id: "tab-row", ...res.tabRow }] : shown;
     for (let i = 0; i < all.length; i++) {
@@ -49,8 +49,8 @@ for (const [vw, vh] of [[1280, 800], [1366, 768], [1440, 900], [1680, 1050], [19
 }
 // pinned (player opened it on a small screen) → shown, not a tab
 { const env: SlotEnv = { vw: 1280, vh: 800, left: 270, colTop: 136, canvasL: 270, canvasW: 1010, lane: centerLane(270, 1010, 270, 800) };
-  const r = layoutCards(env, [{ id: "holders", base: { x: 950, y: 136, w: 310, h: 96 } }], [], { compact: true, pinned: ["holders"] });
-  ok(!r.tabs.length && !r.pos.holders.tab, "pinned secondary card stays open " + JSON.stringify(r)); }
+  const r = layoutCards(env, [{ id: "trades", base: { x: 290, y: 640, w: 310, h: 140 } }], [], { compact: true, pinned: ["trades"] });
+  ok(!r.tabs.length && !r.pos.trades.tab, "pinned secondary card stays open " + JSON.stringify(r)); }
 // the default layout is kept when it is clear (wide screen, nothing moved)
 { const env: SlotEnv = { vw: 1920, vh: 1080, left: 64, colTop: 55, canvasL: 64, canvasW: 1856, lane: centerLane(64, 1856, 64, 1080) };
   const r = layoutCards(env, [{ id: "header", base: { x: 84, y: 18, w: 380, h: 176 } }, { id: "trades", base: { x: 84, y: 920, w: 310, h: 140 } }], []);
