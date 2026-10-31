@@ -43,12 +43,12 @@ contract DiscipleEngine {
 
     /// @notice Bid, ask, and the USDG size of each. Gap 0 returns the anchor and a zero size,
     ///         which means "do not override the curve".
-    function preview(uint256 anchor, uint256 tvl, uint256 gap)
+    function preview(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap)
         external
         pure
         returns (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg)
     {
-        return _sizes(anchor, tvl, gap);
+        return _sizes(anchor, tvl, gradTvl, gap);
     }
 
     /// @dev Normalized amounts. `buyCoin` is set even when `amountIn` is zero.
@@ -69,7 +69,7 @@ contract DiscipleEngine {
         uint256 bestIn;
         uint256 bestOut;
         if (gap > 0) {
-            (uint256 bid,, uint256 bidUsdg, uint256 askUsdg) = _sizes(s.anchor, BridgeCurve.tvl(s), gap);
+            (uint256 bid,, uint256 bidUsdg, uint256 askUsdg) = _sizes(s.anchor, BridgeCurve.tvl(s), ctx.gradTvl, gap);
             if (askUsdg > 0) {
                 (bestP, bestIn, bestOut) = _markBuy(s, ctx, askUsdg, gap);
             }
@@ -172,7 +172,8 @@ contract DiscipleEngine {
         }
         uint256 resting = BridgeCurve.spot(s);
         if (resting == 0) resting = s.anchor;
-        (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg) = _sizes(s.anchor, BridgeCurve.tvl(s), gap);
+        (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg) =
+            _sizes(s.anchor, BridgeCurve.tvl(s), ctx.gradTvl, gap);
         if (sellCoin) {
             if (bid <= resting || bidUsdg == 0) return BridgeCurve.sellExactIn(s, amount, local);
             uint256 maxCoin = Math.mulDiv(bidUsdg, C.WAD, bid);
@@ -235,7 +236,7 @@ contract DiscipleEngine {
         return (f.usdgOut - cost, f.coinIn, f.usdgOut);
     }
 
-    function _sizes(uint256 anchor, uint256 tvl, uint256 gap)
+    function _sizes(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap)
         private
         pure
         returns (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg)
@@ -244,9 +245,7 @@ contract DiscipleEngine {
         bid = Math.mulDiv(anchor, C.WAD + gap, C.WAD);
         uint256 priceGap = gap > C.DUTCH_ASK_CAP ? C.DUTCH_ASK_CAP : gap;
         ask = Math.mulDiv(anchor, C.WAD - priceGap, C.WAD);
-        uint256 cap = tvl / 20;
-        if (cap < C.DUTCH_MIN_SLICE) cap = C.DUTCH_MIN_SLICE;
-        if (cap > C.DUTCH_MAX_SLICE) cap = C.DUTCH_MAX_SLICE;
+        uint256 cap = BridgeFee.dutchCap(tvl, gradTvl);
         uint256 offered = Math.mulDiv(C.DUTCH_EDGE_WAD, C.WAD, gap);
         if (offered > cap) offered = cap;
         bidUsdg = offered;

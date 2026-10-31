@@ -81,7 +81,7 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertGe(hook.curve(id).x, hook.curve(id).seedFloor, "the seed guard still binds");
     }
 
-    function test_graduationWaitsSeventySevenMinutesAndCanReverse() public {
+    function test_graduationLatchesAndReferenceGrowthReopensIncentives() public {
         _fresh(10_000e18);
         _climb();
         usdg.mint(address(this), 3_000e18);
@@ -102,28 +102,32 @@ contract DiscipleLaunchTest is BridgeFixture {
         uint256 shares = _vaultShares();
         assertGt(shares, 0, "graduation puts idle USDG in the vault");
 
-        // A much larger reference pulls the smooth up. Progress (the fee) moves now. Status waits.
+        // Same one-hour gap, measured at the target and again after the reference has grown.
+        _buy(key, address(coin), 1e18);
+        skip(1 hours);
+        (,,, uint256 tight,,) = hook.dutchQuote(id);
+        uint256 tightFee = hook.bridgeQuote(id).suggestedFeeBps;
+
+        // Six hours is twelve half-lives, so the smooth sits on the new $2M reading.
         skip(6 hours);
         _price(id, hook.curve(id).anchor, 2_000_000e18);
-        assertTrue(hook.bridgeQuote(id).graduated, "status is still on while the under-timer runs");
+        assertTrue(hook.bridgeQuote(id).graduated, "a larger reference does not turn status off");
         uint256 highFee = hook.bridgeQuote(id).suggestedFeeBps;
         assertGt(highFee, 150, "falling back through the target raises the fee immediately");
         assertGt(highFee, lowFee);
+        assertGt(highFee, tightFee);
 
-        skip(30 minutes);
-        hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "a dip inside the window does not ungraduate");
+        _buy(key, address(coin), 1e18);
+        skip(1 hours);
+        (,,, uint256 reopened,,) = hook.dutchQuote(id);
+        assertGt(reopened, tight, "lower progress reopens the Dutch slice");
 
         vault.setRedeemLive(false);
         skip(77 minutes);
         hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "a vault that cannot repay keeps the status");
-        assertEq(_vaultShares(), shares);
-
-        vault.setRedeemLive(true);
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated);
-        assertEq(_vaultShares(), 0, "ungraduation empties the vault");
+        assertTrue(hook.bridgeQuote(id).graduated, "status stays on with no vault redeem");
+        // Later pokes keep depositing idle USDG. The position may grow. It is not redeemed.
+        assertGe(_vaultShares(), shares, "the vault position is not redeemed");
         assertGe(hook.bridgeQuote(id).suggestedFeeBps, highFee);
     }
 

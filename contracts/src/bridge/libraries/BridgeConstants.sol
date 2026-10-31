@@ -73,8 +73,9 @@ library BridgeConstants {
     uint16 internal constant MORPHO_CAP_BPS = 5_000;
     /// @dev Public wait before a vault admin's replacement vault can be executed.
     uint256 internal constant VAULT_TIMELOCK = 48 hours;
-    /// @dev Continuous time on the other side of the 100% progress line before graduated status flips.
-    ///      Band, fee, boost, and Dutch size use progress immediately. Only the status flag waits.
+    /// @dev Continuous time at or above the live target before graduated status turns on.
+    ///      The flag latches. Band, fee, boost, and Dutch size keep using live progress after that,
+    ///      including when the reference TVL later moves.
     uint256 internal constant GRADUATION_WINDOW = 77 minutes;
 
     // ── Dutch quotes ────────────────────────────────────────────────────────
@@ -86,10 +87,14 @@ library BridgeConstants {
     uint256 internal constant DUTCH_DRIFT_MAX = uint256(0.1e18) / 1 hours;
     /// @dev USDG offered at a gap of 1.0 (100% of the anchor), before the slice cap. Size = edge / gap.
     uint256 internal constant DUTCH_EDGE_WAD = 0.25e18;
-    /// @dev One taker cannot buy or sell more than this much USDG of the drifted quote.
+    /// @dev One taker cannot buy or sell more than this much USDG of the drifted quote, before
+    ///      progress scales the cap down.
     uint256 internal constant DUTCH_MAX_SLICE = 50e18;
     /// @dev And not more than 5% of pool TVL. The cap is at least $1, so a tiny pool still quotes.
     uint256 internal constant DUTCH_MIN_SLICE = 1e18;
+    /// @dev Share of the safety cap still offered at 100% progress. The rest closes linearly with
+    ///      `poolTVL / gradTvl` and reopens when the live target rises.
+    uint256 internal constant DUTCH_PROGRESS_FLOOR_WAD = 0.2e18;
     /// @dev The ask price stops at 1% of the anchor. The size keeps using the raw gap, so it still shrinks.
     uint256 internal constant DUTCH_ASK_CAP = 0.99e18;
 

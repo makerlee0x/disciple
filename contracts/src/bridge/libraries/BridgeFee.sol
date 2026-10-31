@@ -11,7 +11,8 @@ import {BridgeConstants as C} from "./BridgeConstants.sol";
 ///         and the same bps applies to buys, sells, and redeems.
 library BridgeFee {
     /// @notice 2% at TVL 0, sliding to 0.3% as `tvl` approaches `gradTvl`. Unknown graduation stays at 2%.
-    ///         This is the fee a swap pays. `gradTvl` is 12% of the smoothed reference TVL.
+    ///         This is the fee a swap pays. `gradTvl` is 12% of the smoothed reference TVL. If that
+    ///         target later rises above `tvl`, the fee steps back up the same line.
     function baseFeeBps(uint256 tvl, uint256 gradTvl) internal pure returns (uint256) {
         if (gradTvl == 0 || tvl >= gradTvl) {
             return gradTvl == 0 ? C.FEE_TINY_BPS : C.FEE_GRAD_BPS;
@@ -33,13 +34,29 @@ library BridgeFee {
         return Math.mulDiv(v, _expNeg(z), C.WAD);
     }
 
-    /// @notice 5x at TVL 0, linear to a permanent 1.2x at `gradTvl`. Unknown graduation stays at 5x.
-    ///         Fee weight only. Never applied to principal.
+    /// @notice 5x at TVL 0, linear to 1.2x at `gradTvl`. Unknown graduation stays at 5x.
+    ///         While pool TVL is at or above the live target the weight stays 1.2x. A higher target
+    ///         puts it back on the line. Fee weight only. Never applied to principal.
     function boostWad(uint256 tvl, uint256 gradTvl) internal pure returns (uint256) {
         if (gradTvl == 0 || tvl >= gradTvl) {
             return gradTvl == 0 ? C.BOOST_START_WAD : C.BOOST_END_WAD;
         }
         return C.BOOST_END_WAD + ((C.BOOST_START_WAD - C.BOOST_END_WAD) * (gradTvl - tvl)) / gradTvl;
+    }
+
+    /// @notice Safety cap on one Dutch slice, then scaled by progress toward the live target.
+    ///         The safety cap is `min($50, max(TVL/20, $1))`. Progress `poolTVL / gradTvl` multiplies
+    ///         it from 100% at a new pool down to `DUTCH_PROGRESS_FLOOR_WAD` (20%) at the target.
+    ///         `gradTvl == 0` does not scale down. A larger reference lowers progress and reopens the cap.
+    function dutchCap(uint256 tvl, uint256 gradTvl) internal pure returns (uint256 cap) {
+        cap = tvl / 20;
+        if (cap < C.DUTCH_MIN_SLICE) cap = C.DUTCH_MIN_SLICE;
+        if (cap > C.DUTCH_MAX_SLICE) cap = C.DUTCH_MAX_SLICE;
+        if (gradTvl == 0 || tvl == 0) return cap;
+        uint256 progress = tvl >= gradTvl ? C.WAD : Math.mulDiv(tvl, C.WAD, gradTvl);
+        uint256 keep = C.WAD - Math.mulDiv(progress, C.WAD - C.DUTCH_PROGRESS_FLOOR_WAD, C.WAD);
+        cap = Math.mulDiv(cap, keep, C.WAD);
+        if (cap == 0) cap = 1;
     }
 
     /// @notice max($500, 5% of TVL). Kept liquid so a vault outage does not stop ordinary sells.

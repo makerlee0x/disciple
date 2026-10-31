@@ -47,10 +47,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
 
         _locked = true;
         ILzRead.EvmRead memory read = ILzRead.EvmRead({
-            targetEid: p.remoteEid,
-            target: p.remoteOracle,
-            callData: _readCallData(p),
-            minConfirmations: 1
+            targetEid: p.remoteEid, target: p.remoteOracle, callData: _readCallData(p), minConfirmations: 1
         });
         uint256 nativeFee = ILzRead(lz).quoteRead(read);
         if (msg.value < nativeFee) revert LzFee();
@@ -65,9 +62,8 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         _locked = false;
     }
 
-    /// @notice Permissionless. Sync a same-chain anchor, then flip graduated status if its 77-minute
-    ///         window has elapsed. Time alone does not write storage. A vault that cannot be emptied
-    ///         keeps the pool graduated.
+    /// @notice Permissionless. Sync a same-chain anchor, then turn graduated status on if its
+    ///         77-minute window has elapsed. Time alone does not write storage. Status does not turn off.
     function poke(PoolId id) external {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
@@ -150,7 +146,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         return _withdrawVault(pools[id], shortNorm);
     }
 
-    /// @dev Swap path. The 77-minute timer, then the vault. Unwinding a dead vault leaves status on.
+    /// @dev Swap path. The 77-minute timer, then the vault. Status latches, so a later dip does not exit.
     function afterTrade(PoolId id) external {
         _onlyDelegate();
         _settleGrad(id, pools[id]);
@@ -194,12 +190,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
 
     function _settleGrad(PoolId id, Pool storage p) internal {
         if (!p.exists) return;
-        if (_touchGrad(id, p)) {
-            if (!_tryExit(p)) return;
-            p.graduated = false;
-            emit Ungraduated(id, BridgeCurve.tvl(p.curve), p.smoothedTvl);
-            return;
-        }
+        _touchGrad(id, p);
         _rebalance(id, p);
     }
 
@@ -330,7 +321,7 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
     }
 
     /// @dev Redeem every share this pool holds. Yield accrues to protocol inventory. A shortfall is a loss.
-    ///      Reverts if the vault refuses. Admin pulls use this. Ungraduation uses `_tryExit`.
+    ///      Reverts if the vault refuses. Admin pulls use this.
     function _exitAll(Pool storage p) internal returns (uint256 gotNorm) {
         uint256 sh = p.vaultShares;
         if (sh == 0 || p.poolVault == address(0)) return 0;
@@ -338,19 +329,6 @@ contract DiscipleAdminFacet is DiscipleFacetBase {
         IERC4626(p.poolVault).redeem(sh, address(this), address(this));
         uint256 gotRaw = IERC20(usdg).balanceOf(address(this)) - beforeBal;
         return _accountExit(p, gotRaw);
-    }
-
-    /// @dev Same as `_exitAll`, but a vault that reverts leaves the shares where they are.
-    function _tryExit(Pool storage p) internal returns (bool) {
-        uint256 sh = p.vaultShares;
-        if (sh == 0 || p.poolVault == address(0)) return true;
-        uint256 beforeBal = IERC20(usdg).balanceOf(address(this));
-        try IERC4626(p.poolVault).redeem(sh, address(this), address(this)) returns (uint256) {}
-        catch {
-            return false;
-        }
-        _accountExit(p, IERC20(usdg).balanceOf(address(this)) - beforeBal);
-        return true;
     }
 
     function _accountExit(Pool storage p, uint256 gotRaw) internal returns (uint256 gotNorm) {

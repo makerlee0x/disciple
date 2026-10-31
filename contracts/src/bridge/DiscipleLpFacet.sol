@@ -51,9 +51,9 @@ contract DiscipleLpFacet is DiscipleFacetBase {
 
         if (c.coin == address(0) || c.coin == usdg || c.coin.code.length == 0) revert BadCreate();
         if (c.creator == address(0)) revert BadCreate();
-        if (
-            !engine.anchorOk(c.anchorKind, c.remoteOracle, c.v3Pool, c.refPoolId, c.refHook, c.tipSeed, c.remoteEid)
-        ) revert BadCreate();
+        if (!engine.anchorOk(c.anchorKind, c.remoteOracle, c.v3Pool, c.refPoolId, c.refHook, c.tipSeed, c.remoteEid)) {
+            revert BadCreate();
+        }
         if (c.floorBps < 100 || c.floorBps > 5_000) revert BadCreate();
         if (c.discountBps < 1_000 || c.discountBps > 5_000) revert BadCreate();
         if (c.coinSeed == 0) revert BadCreate();

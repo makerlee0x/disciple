@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
+import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 
 contract BridgeCurveTest is Test {
@@ -101,6 +102,11 @@ contract BridgeCurveTest is Test {
         // $10k is still a wide book. ±3.33% is the graduation end, not the $10k band.
         assertGt(BridgeCurve.bandWad(10_000e18, grad), 0.05e18);
         assertLt(BridgeCurve.bandWad(10_000e18, grad), C.BAND_START_WAD);
+        // A larger reference is a larger target, so the same pool TVL is less progress and a wider band.
+        assertGt(BridgeCurve.bandWad(50_000e18, 120_000e18), BridgeCurve.bandWad(50_000e18, grad));
+        assertGt(BridgeFee.baseFeeBps(50_000e18, 120_000e18), BridgeFee.baseFeeBps(50_000e18, grad));
+        assertGt(BridgeFee.dutchCap(50_000e18, 120_000e18), BridgeFee.dutchCap(50_000e18, grad));
+        assertLt(BridgeFee.dutchCap(grad, grad), BridgeFee.dutchCap(grad / 10, grad));
     }
 
     function test_graduationDepthIsAboutThreePointThreePercent() public pure {

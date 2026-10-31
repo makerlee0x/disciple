@@ -31,8 +31,9 @@ interface IBridgeHandle {
 ///         creation: lzRead of a remote TWAP, a same-chain v3 `observe`, a v4 hook `consult`, or a
 ///         30-minute ring this hook samples from a v4 pool's `slot0`. v4 concentrated liquidity is
 ///         disabled, and every swap is quoted in `beforeSwap`. See `DESIGN.md`. This contract is
-///         `DiscipleHook`. The post-graduation 1% fee hook in this repo is `AscensionHook`. Graduation
-///         here is reversible. Pools are not migrated onto `AscensionHook`.
+///         `DiscipleHook`. The post-graduation 1% fee hook in this repo is `AscensionHook`. Graduated
+///         status latches. The band, the fee, the boost, and Dutch size keep following live progress.
+///         Pools are not migrated onto `AscensionHook`.
 /// @dev Storage lives here. Writes `delegatecall` a facet whose address is fixed at construction:
 ///      swaps, LP accounting, and the vault admin. Views run here so they stay `staticcall`-able.
 ///      No facet can be replaced. The v4 `slot0` price is a dummy and is never read.
@@ -181,7 +182,7 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
         if (!p.exists) revert UnknownPool();
         (BridgeCurve.S memory s,,) = _referenced(p);
         gapWad = _gap(p);
-        (bidWad, askWad, bidUsdg, askUsdg) = engine.preview(s.anchor, BridgeCurve.tvl(s), gapWad);
+        (bidWad, askWad, bidUsdg, askUsdg) = engine.preview(s.anchor, BridgeCurve.tvl(s), _gradTvl(p), gapWad);
         feeBps = BridgeFee.baseFeeBps(BridgeCurve.tvl(s), _gradTvl(p));
     }
 

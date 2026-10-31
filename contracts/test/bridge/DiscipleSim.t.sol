@@ -38,9 +38,10 @@ import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.s
 ///
 /// V2 (`test_simV2`) is a different experiment from `SIM_RESULTS_PARTIAL.md`. The anchor
 /// mean-reverts around $1. Daily organic volume is max(base, k × TVL). The objective is
-/// days to a pool TVL of $86,520 (12% of a $721k reference), then TVL at day 365.
-/// Searcher profit has to stay positive in every dollar bucket the pool occupies before
-/// graduation: $0–1k, $1–5k, $5–20k, $20–50k, and $50k through graduation.
+/// days until pool TVL reaches 12% of the live reference, then TVL at day 365. The main
+/// reference is fixed at $721k. One path grows it to $1M and one shrinks it to $500k.
+/// Searcher profit has to stay positive in every progress bucket the pool occupies before
+/// status latches: 0–10%, 10–30%, 30–60%, and 60–100% of that live target.
 contract DiscipleSimTest is Test {
     uint256 internal constant START = 1e18;
     uint256 internal constant SEED = 77e18;
@@ -166,13 +167,12 @@ contract DiscipleSimTest is Test {
     uint256 internal feeTinyBps;
     uint256 internal feeGradBps;
     uint256 internal aboveSince;
-    uint256 internal belowSince;
     uint256 internal morphoYield;
     uint256 internal bucketClock;
-    /// @dev Bucket the pool was in at the start of the current interval. 5 means "do not record".
+    /// @dev Bucket the pool was in at the start of the current interval. 4 means "do not record".
     uint256 internal openBucket;
-    int256[5] internal bucketP;
-    uint256[5] internal bucketS;
+    int256[4] internal bucketP;
+    uint256[4] internal bucketS;
     /// @dev Best COMBO knobs for k = 0.25, 0.5, and 1, from the active fixed-reference search.
     uint256[3] internal pickDrift;
     uint256[3] internal pickEdge;
@@ -442,11 +442,10 @@ contract DiscipleSimTest is Test {
         feeTinyBps = C.FEE_TINY_BPS;
         feeGradBps = C.FEE_GRAD_BPS;
         aboveSince = 0;
-        belowSince = 0;
         morphoYield = 0;
         bucketClock = 0;
         openBucket = 0;
-        for (uint256 i; i < 5; ++i) {
+        for (uint256 i; i < 4; ++i) {
             bucketP[i] = 0;
             bucketS[i] = 0;
         }
@@ -574,8 +573,6 @@ contract DiscipleSimTest is Test {
             vm.toString(bucketP[2]),
             " b3 ",
             vm.toString(bucketP[3]),
-            " b4 ",
-            vm.toString(bucketP[4]),
             " s0 ",
             vm.toString(bucketS[0]),
             " s1 ",
@@ -583,9 +580,7 @@ contract DiscipleSimTest is Test {
             " s2 ",
             vm.toString(bucketS[2]),
             " s3 ",
-            vm.toString(bucketS[3]),
-            " s4 ",
-            vm.toString(bucketS[4])
+            vm.toString(bucketS[3])
         );
         console2.log(line);
     }
@@ -778,7 +773,7 @@ contract DiscipleSimTest is Test {
             arbMark += mark;
             int256 profit = mark - int256(Math.mulDiv(gross, costWad, C.WAD));
             arbProfit += profit;
-            if (band < 5) bucketP[band] += profit;
+            if (band < 4) bucketP[band] += profit;
         } else if (actor == ACT_LOOP) {
             loopMark += mark;
             loopProfit += mark - int256(Math.mulDiv(gross, COST_LOW, C.WAD));
@@ -941,12 +936,11 @@ contract DiscipleSimTest is Test {
         return gap > 0.99e18 ? 0.99e18 : gap;
     }
 
+    /// @dev Same cap as `BridgeFee.dutchCap`: the safety cap, scaled down to 20% at the live target.
     function _dutchOffer(uint256 gap) internal view returns (uint256) {
         if (gap == 0) return 0;
         uint256 offered = Math.mulDiv(edgeWad, C.WAD, gap);
-        if (offered > DUTCH_MAX_SLICE) offered = DUTCH_MAX_SLICE;
-        uint256 cap = BridgeCurve.tvl(s) / 20;
-        if (cap < 1e18) cap = 1e18;
+        uint256 cap = BridgeFee.dutchCap(BridgeCurve.tvl(s), _target());
         if (offered > cap) offered = cap;
         return offered;
     }
@@ -1169,13 +1163,27 @@ contract DiscipleSimTest is Test {
         return BridgeFee.decayed(revVolume, dt, REV_HALF);
     }
 
+    /// @dev The searched knob is the red line at 100% progress. At 0% it is a quarter of that,
+    ///      so the same volume intensity collects more of the cap while progress is low. The cap
+    ///      itself is the live progress slide. A larger reference lowers progress, tightens the
+    ///      line, and raises the cap together.
+    function _redLine() internal view returns (uint256) {
+        uint256 knob = redLineWad == 0 ? REV_RED : redLineWad;
+        uint256 target = _target();
+        uint256 v = BridgeCurve.tvl(s);
+        uint256 progress = target == 0 ? 0 : (v >= target ? C.WAD : Math.mulDiv(v, C.WAD, target));
+        uint256 floorLine = knob / 4;
+        if (floorLine == 0) floorLine = 1;
+        return floorLine + Math.mulDiv(knob - floorLine, progress, C.WAD);
+    }
+
     /// @dev Quiet floor 30 bps, up to the sliding cap once decayed volume reaches the red line.
     function _revBps(uint256 extra) internal view returns (uint256) {
         uint256 v = BridgeCurve.tvl(s);
         uint256 cap = _baseFee(v, _target());
         if (cap <= C.FEE_FLOOR_BPS) return C.FEE_FLOOR_BPS;
         uint256 denom = v == 0 ? 1 : v;
-        uint256 red = redLineWad == 0 ? REV_RED : redLineWad;
+        uint256 red = _redLine();
         uint256 intensity = Math.mulDiv(_decayedVol() + extra, C.WAD, denom);
         if (intensity >= red) return cap;
         return C.FEE_FLOOR_BPS + Math.mulDiv(cap - C.FEE_FLOOR_BPS, intensity, red);
@@ -1299,22 +1307,23 @@ contract DiscipleSimTest is Test {
         return _boostAt(BridgeCurve.tvl(s));
     }
 
-    /// @dev Dollar buckets before graduation: $0–1k, $1–5k, $5–20k, $20–50k, and $50k through
-    ///      the moment status turns on. Index 5 is not recorded (already graduated).
+    /// @dev Progress buckets before status latches: 0–10%, 10–30%, 30–60%, and 60% through the
+    ///      moment status turns on, including time above the live target. Index 4 is not recorded.
     function _preGradBucket() internal view returns (uint256) {
-        if (graduated) return 5;
-        uint256 v = BridgeCurve.tvl(s);
-        if (v < 1_000e18) return 0;
-        if (v < 5_000e18) return 1;
-        if (v < 20_000e18) return 2;
-        if (v < 50_000e18) return 3;
-        return 4;
+        if (graduated) return 4;
+        uint256 target = _target();
+        if (target == 0) return 0;
+        uint256 progress = Math.mulDiv(BridgeCurve.tvl(s), C.WAD, target);
+        if (progress < 0.1e18) return 0;
+        if (progress < 0.3e18) return 1;
+        if (progress < 0.6e18) return 2;
+        return 3;
     }
 
     function _noteTime() internal {
         uint256 dt = bucketClock == 0 || clock <= bucketClock ? 0 : clock - bucketClock;
         bucketClock = clock;
-        if (dt > 0 && openBucket < 5) bucketS[openBucket] += dt;
+        if (dt > 0 && openBucket < 4) bucketS[openBucket] += dt;
         openBucket = _preGradBucket();
     }
 
@@ -1338,30 +1347,24 @@ contract DiscipleSimTest is Test {
         }
     }
 
+    /// @dev Status latches. Crossing back under the target before the 77 minutes clears the window.
+    ///      Fee, boost, and Dutch size keep using the live target after the latch.
     function _touchGrad() internal {
+        if (graduated) return;
         uint256 target = _target();
         uint256 v = BridgeCurve.tvl(s);
-        bool over = target != 0 && v >= target;
-        if (over) {
-            belowSince = 0;
-            if (graduated) return;
-            if (aboveSince == 0) {
-                aboveSince = clock == 0 ? 1 : clock;
-                return;
-            }
-            if (clock >= aboveSince + 77 minutes) {
-                graduated = true;
-                if (gradDay == 0) gradDay = _dayNow();
-            }
+        if (target == 0 || v < target) {
+            aboveSince = 0;
             return;
         }
-        aboveSince = 0;
-        if (!graduated) return;
-        if (belowSince == 0) {
-            belowSince = clock == 0 ? 1 : clock;
+        if (aboveSince == 0) {
+            aboveSince = clock == 0 ? 1 : clock;
             return;
         }
-        if (clock >= belowSince + 77 minutes) graduated = false;
+        if (clock >= aboveSince + 77 minutes) {
+            graduated = true;
+            if (gradDay == 0) gradDay = _dayNow();
+        }
     }
 
     function _dayNow() internal view returns (uint256) {
@@ -1400,7 +1403,7 @@ contract DiscipleSimTest is Test {
 
     /// @dev Occupied buckets with searcher profit at or below zero. Time after graduation is not counted.
     function _fails() internal view returns (uint256 n) {
-        for (uint256 i; i < 5; ++i) {
+        for (uint256 i; i < 4; ++i) {
             if (bucketS[i] > 0 && bucketP[i] <= 0) ++n;
         }
     }
@@ -1438,7 +1441,7 @@ contract DiscipleSimTest is Test {
     }
 
     /// @dev For each k, minimize days to graduation on the active fixed-reference book. A set counts
-    ///      only when every occupied pre-graduation dollar bucket has searcher profit above zero.
+    ///      only when every occupied pre-graduation progress bucket has searcher profit above zero.
     ///      Otherwise keep the one with fewer failing buckets. The netted quote is scored at the
     ///      winning knobs and becomes COMBO when it graduates sooner under the same rule.
     function _pickCombo() internal {

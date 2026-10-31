@@ -98,7 +98,8 @@ abstract contract DiscipleFacetBase is BridgeStorage {
             p.smoothAt = uint64(block.timestamp);
             return;
         }
-        uint256 dt = p.smoothAt == 0 || block.timestamp <= uint256(p.smoothAt) ? 0 : block.timestamp - uint256(p.smoothAt);
+        uint256 dt =
+            p.smoothAt == 0 || block.timestamp <= uint256(p.smoothAt) ? 0 : block.timestamp - uint256(p.smoothAt);
         if (dt == 0) return;
         uint256 mag = prev > next ? prev - next : next - prev;
         uint256 left = engine.decayed(mag, dt, C.TWAP_WINDOW);
@@ -185,33 +186,26 @@ abstract contract DiscipleFacetBase is BridgeStorage {
         freshBlock[id][user] = 0;
     }
 
-    /// @dev Start or reset the 77-minute timer. Returns true when status should turn off and the
-    ///      vault must be emptied first. The first observation never flips in the same call.
-    ///      Progress (fee, band, boost) does not wait on this timer. Only `graduated` does.
-    function _touchGrad(PoolId id, Pool storage p) internal returns (bool unwind) {
+    /// @dev Start or complete the 77-minute timer. The first observation never flips in the same call.
+    ///      Once `graduated` is set it stays set. Fee, band, boost, and Dutch size do not wait on
+    ///      this timer and do not freeze when the flag latches.
+    function _touchGrad(PoolId id, Pool storage p) internal {
+        if (p.graduated) return;
         uint256 target = _gradTvl(p);
         uint256 v = BridgeCurve.tvl(p.curve);
-        bool over = target != 0 && v >= target;
-        if (over) {
+        if (target == 0 || v < target) {
+            p.aboveSince = 0;
+            return;
+        }
+        if (p.aboveSince == 0) {
+            p.aboveSince = _stamp();
+            return;
+        }
+        if (block.timestamp >= uint256(p.aboveSince) + C.GRADUATION_WINDOW) {
+            p.graduated = true;
             p.belowSince = 0;
-            if (p.graduated) return false;
-            if (p.aboveSince == 0) {
-                p.aboveSince = _stamp();
-                return false;
-            }
-            if (block.timestamp >= uint256(p.aboveSince) + C.GRADUATION_WINDOW) {
-                p.graduated = true;
-                emit Graduated(id, v, p.smoothedTvl);
-            }
-            return false;
+            emit Graduated(id, v, p.smoothedTvl);
         }
-        p.aboveSince = 0;
-        if (!p.graduated || target == 0) return false;
-        if (p.belowSince == 0) {
-            p.belowSince = _stamp();
-            return false;
-        }
-        return block.timestamp >= uint256(p.belowSince) + C.GRADUATION_WINDOW;
     }
 
     /// @dev Timestamp 0 would look like "not started", so a zero clock is stored as 1.

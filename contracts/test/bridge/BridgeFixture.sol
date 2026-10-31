@@ -11,7 +11,6 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
@@ -64,8 +63,7 @@ contract BridgeFixture is Test {
             address(lpFacet),
             address(adminFacet)
         );
-        (address predicted, bytes32 salt) =
-            HookMiner.find(address(this), HOOK_FLAGS, type(DiscipleHook).creationCode, args);
+        (address predicted, bytes32 salt) = _mineHook(args);
         hook = new DiscipleHook{salt: salt}(
             manager,
             address(usdg),
@@ -79,6 +77,33 @@ contract BridgeFixture is Test {
         );
         require(address(hook) == predicted, "hook addr");
         swapper = new PoolSwapTest(manager);
+    }
+
+    /// @dev `HookMiner` stops at 160,444 salts. Five exact flag bits is 1 in 16,384, so some deployer
+    ///      addresses (this test contract included) miss that window after a bytecode change.
+    ///      Search two million salts with a tight hash. The deployed address is checked by the caller.
+    function _mineHook(bytes memory args) internal view returns (address predicted, bytes32 salt) {
+        bytes32 initHash = keccak256(abi.encodePacked(type(DiscipleHook).creationCode, args));
+        address deployer = address(this);
+        uint256 flags = HOOK_FLAGS;
+        uint256 mask = uint256(Hooks.ALL_HOOK_MASK);
+        uint256 found = type(uint256).max;
+        assembly {
+            let ptr := mload(0x40)
+            // 85-byte CREATE2 preimage: 0xff ++ deployer ++ salt ++ initHash.
+            mstore(ptr, or(shl(248, 0xff), shl(88, deployer)))
+            mstore(add(ptr, 53), initHash)
+            for { let i := 0 } lt(i, 2000000) { i := add(i, 1) } {
+                mstore(add(ptr, 21), i)
+                if eq(and(keccak256(ptr, 85), mask), flags) {
+                    found := i
+                    predicted := and(keccak256(ptr, 85), 0xffffffffffffffffffffffffffffffffffffffff)
+                    break
+                }
+            }
+        }
+        require(found != type(uint256).max, "HookMiner: could not find salt");
+        salt = bytes32(found);
     }
 
     function _newCoin(string memory name, uint8 dec) internal returns (MockERC20 c) {
