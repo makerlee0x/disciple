@@ -16,12 +16,13 @@ import {LzReadCmd} from "../../src/bridge/libraries/LzReadCmd.sol";
 import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
 import {DiscipleAdminFacet} from "../../src/bridge/DiscipleAdminFacet.sol";
 import {DiscipleLpFacet} from "../../src/bridge/DiscipleLpFacet.sol";
+import {DiscipleCreateFacet} from "../../src/bridge/DiscipleCreateFacet.sol";
 import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
-import {MockERC20, MockV3Pool, MockV4Oracle} from "./mocks/BridgeMocks.sol";
+import {MockERC20, MockV3Factory, MockV3Pool, MockV4Oracle} from "./mocks/BridgeMocks.sol";
 
 /// @notice Endpoint stand-in. It records the send and delivers only when the test asks it to.
 contract MockEndpoint is ILayerZeroEndpointV2 {
@@ -202,6 +203,8 @@ contract DiscipleReadSafetyTest is BridgeFixture {
         usdg.mint(address(this), 2e18);
         usdg.approve(address(hook), type(uint256).max);
         bytes32 refId = bytes32(uint256(9));
+        hook.setLensAllowed(address(0x51), true);
+        hook.setOracleAllowed(address(0x51), true);
         (, PoolId slotId) = hook.createPool(
             BridgeStorage.CreateParams({
                 coin: address(s),
@@ -219,7 +222,12 @@ contract DiscipleReadSafetyTest is BridgeFixture {
                 dutchDrift: 0,
                 refPoolId: refId,
                 refHook: address(0x51),
-                refCoinIs0: address(s) < address(usdg)
+                refCoinIs0: address(s) < address(usdg),
+                tickSpacing: 0,
+                v3Fee: 0,
+                refFee: 0,
+                refTickSpacing: 0,
+                refHooks: address(0)
             })
         );
         uint256 before = usdg.balanceOf(address(this));
@@ -256,9 +264,11 @@ contract DiscipleLzAdapterTest is BridgeFixture {
         usdg = new MockERC20("USDG", "USDG", 18);
         manager = IPoolManager(address(new PoolManager(address(this))));
         engine = new DiscipleEngine();
-        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(adapter), 18, engine);
-        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(adapter), 18, engine);
-        swapFacet = new DiscipleSwapFacet(manager, address(usdg), address(adapter), 18, engine);
+        v3Factory = new MockV3Factory();
+        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(adapter), 18, engine, address(v3Factory));
+        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(adapter), 18, engine, address(v3Factory));
+        createFacet = new DiscipleCreateFacet(manager, address(usdg), address(adapter), 18, engine, address(v3Factory));
+        swapFacet = new DiscipleSwapFacet(manager, address(usdg), address(adapter), 18, engine, address(v3Factory));
         bytes memory args = abi.encode(
             manager,
             address(usdg),
@@ -267,8 +277,10 @@ contract DiscipleLzAdapterTest is BridgeFixture {
             address(engine),
             address(swapFacet),
             address(lpFacet),
+            address(createFacet),
             address(adminFacet),
-            address(this)
+            address(this),
+            address(v3Factory)
         );
         (address predicted, bytes32 salt) = _mineHook(args);
         hook = new DiscipleHook{salt: salt}(
@@ -279,9 +291,14 @@ contract DiscipleLzAdapterTest is BridgeFixture {
             engine,
             address(swapFacet),
             address(lpFacet),
+            address(createFacet),
             address(adminFacet),
-            address(this)
+            address(this),
+            address(v3Factory)
         );
+        hook.setLensAllowed(address(0xE7E7), true);
+        hook.setLensAllowed(address(0x51), true);
+        hook.setOracleAllowed(address(0x51), true);
         require(address(hook) == predicted, "hook addr");
         adapter.setHook(address(hook));
         swapper = new PoolSwapTest(manager);
