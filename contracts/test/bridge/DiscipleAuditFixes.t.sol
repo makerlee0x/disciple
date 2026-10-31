@@ -299,6 +299,17 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         assertEq(askAfter, askAt, "under the minimum notional, neither clock resets");
     }
 
+    function test_onlyTheBuilderCanRescueStrayEth() public {
+        vm.deal(address(hook), 1 ether);
+        vm.prank(address(0xBAD));
+        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
+        hook.rescueEth(address(0xBAD));
+        uint256 before = address(this).balance;
+        hook.rescueEth(address(this));
+        assertEq(address(this).balance, before + 1 ether);
+        assertEq(address(hook).balance, 0);
+    }
+
     function test_quoteMatchesTheSwap() public {
         usdg.mint(address(this), 20e18);
         bool zfo = Currency.unwrap(key.currency0) != address(coin);
