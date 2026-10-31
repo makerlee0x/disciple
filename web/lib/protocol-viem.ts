@@ -250,7 +250,7 @@ export function friendlyError(e: unknown): ProtocolError {
       Slippage: PRICE_MOVED_MSG,
       Expired: "The trade took too long and expired. Try again.",
       WalletCap: "Wallet cap reached: one wallet can hold at most 7% before orbit.",
-      Graduated: "This rocket has graduated, so trading moved to its pool.",
+      Graduated: "This rocket has ASCENDED, so trading moved to its pool.",
       NotGraduated: "This rocket is still on the curve.",
       InsufficientLiquidity: "Not enough left on the curve for that size.",
       ZeroAmount: "Amount is too small.",

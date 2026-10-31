@@ -189,7 +189,7 @@ export function createOnchainAdapter(pc: PublicClient = publicClient()): Onchain
 
     async place(p: PlaceTrampWallParams) {
       try {
-        if (!(await adapter.isGraduated(p.token))) return { ok: false, reason: "Tramps & walls open after graduation." };
+        if (!(await adapter.isGraduated(p.token))) return { ok: false, reason: "Tramps & walls open once the rocket has ASCENDED." };
         const c = await ctx(p.token);
         const w = (p.rangeWidthPct ?? 2) / 100;
         const [lo, hi] = rangeFor(c, p.kind, p.mcapUsd * (1 - w / 2), p.mcapUsd * (1 + w / 2));

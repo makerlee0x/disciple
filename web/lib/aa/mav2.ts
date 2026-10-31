@@ -211,6 +211,9 @@ function absUrl(u: string) {
   return /^https?:/.test(u) ? u : new URL(u, typeof location !== "undefined" ? location.origin : "http://localhost:3000").toString();
 }
 
+/** Upper bound on the graduation-buy estimateGas before falling back to the fixed grad gas. */
+export const GRAD_GAS_BUDGET_MS = 2000;
+
 export class Mav2Account {
   gasMode: GasMode | "unknown";
   /** Parallel nonce keys: every op gets a fresh 152-bit key (seq 0) ⇒ the nonce is known locally, ops never collide. */
@@ -367,7 +370,8 @@ export class Mav2Account {
   /** gradSessionGas(eth_estimateGas of the calls as the EntryPoint runs them); never cached (curve state moves). */
   private async gradGas(sender: Address, calls: Call[]): Promise<GasLimits> {
     const data = encodeFunctionData({ abi: execAbi, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to, value: c.value ?? BigInt(0), data: c.data }))] });
-    const est = await this.o.pc.estimateGas({ account: ENTRYPOINT_V07, to: sender, data }).catch(() => null);
+    // bounded: a hung estimate falls back to the fixed GRAD_STATIC_GAS (gradSessionGas(null)) instead of stalling the tap
+    const est = await withinBudget(this.o.pc.estimateGas({ account: ENTRYPOINT_V07, to: sender, data }), GRAD_GAS_BUDGET_MS, "grad-gas").catch(() => null);
     return gradSessionGas(est);
   }
 

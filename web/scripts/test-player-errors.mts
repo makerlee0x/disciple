@@ -23,7 +23,7 @@ const { plainText, JARGON } = await import("../lib/aa/relayOp");
 const REJECTED = "That didn't go through. Try again.";
 const PENDING = "Still confirming. Check back in a moment.";
 // pending lee's approval (PR body)
-const GRADUATED = "This rocket has graduated, so trading moved to its pool.";
+const GRADUATED = "This rocket has ASCENDED, so trading moved to its pool.";
 const CREATOR_BUY = "Your launch buy is over the max for this rocket. Try a smaller amount.";
 const QUOTE_REJECTED = "That pair token can't be used. Pick another quote token.";
 
