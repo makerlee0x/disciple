@@ -23,15 +23,21 @@ library BridgeConstants {
 
     // ── Stale anchor ────────────────────────────────────────────────────────
     /// @dev The anchor is a 30-minute TWAP. Cross-chain, a stored quote older than this is stale.
-    ///      Same-chain reads the window directly and is never stale. Staleness pays the keeper tip.
-    ///      It does not change the swap fee.
+    ///      Same-chain reads the window directly and is never stale. A stale cross-chain anchor
+    ///      refuses the swap. Staleness does not change the swap fee. It pays the keeper tip,
+    ///      once, for the refresh that clears it.
     uint256 internal constant TWAP_WINDOW = 30 minutes;
     uint256 internal constant STALE_AFTER = TWAP_WINDOW;
+    /// @dev Largest move a later lzRead may apply, in bps of the stored anchor. The first quote
+    ///      has no previous price and is not clamped. 20% is wider than a quiet half hour and
+    ///      tighter than a bad read that would reset the book.
+    uint256 internal constant ANCHOR_MOVE_BPS = 2_000;
 
     /// @dev Chosen once per pool.
-    ///      0 lzRead of `IEthAnchor.latest`. 1 same-chain v3 `observe`.
+    ///      0 lzRead of `AnchorLens.readV3`. 1 same-chain v3 `observe`.
     ///      2 same-chain v4 hook `consult`. 3 same-chain v4 slot0 ring kept by this hook.
-    ///      4 lzRead of a remote v4 `consult`. 5 lzRead of a remote v4 slot0, sampled into the local ring.
+    ///      4 lzRead of `AnchorLens.readV4Oracle`. 5 lzRead of `AnchorLens.readV4Slot`,
+    ///      sampled into the local ring.
     uint8 internal constant ANCHOR_LZ = 0;
     uint8 internal constant ANCHOR_V3 = 1;
     uint8 internal constant ANCHOR_V4_ORACLE = 2;

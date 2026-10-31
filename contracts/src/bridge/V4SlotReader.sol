@@ -5,10 +5,10 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
-/// @title Remote v4 slot0 reader for LayerZero lzRead
-/// @notice Deploy this next to the reference PoolManager, on the chain that holds the v4 pool.
-///         Disciple's lzRead target calls `read`. The local hook records the tick into its own
-///         ring and builds the 30-minute TWAP there. This contract stores nothing.
+/// @title Standalone v4 slot0 reader
+/// @notice `AnchorLens.readV4Slot` is the view Disciple's lzRead calls. This contract is the same
+///         sample against one immutable PoolManager, for a caller that already holds that manager.
+///         A single sample is not a 30-minute TWAP. The pool-chain ring builds the mean.
 contract V4SlotReader {
     IPoolManager public immutable manager;
 

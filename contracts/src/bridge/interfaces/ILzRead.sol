@@ -2,10 +2,10 @@
 pragma solidity 0.8.26;
 
 /// @title Minimal LayerZero lzRead surface used by Disciple
-/// @notice The production adapter is a thin wrapper over LayerZero OAppRead. The hook builds `callData`
-///         itself (the caller never supplies a price). `onLzRead` is delivered by the endpoint, not the user.
-///         Tests use MockLzRead. The full lzRead stack is not vendored: it does not match this repo's solc pin
-///         cleanly and we are not deploying. See DESIGN.md.
+/// @notice Production wiring is `DiscipleLzRead`. It sends a ReadCodecV1 command through Endpoint V2
+///         and accepts the response only from that endpoint, on the configured read channel. The hook
+///         builds `callData` itself. The caller never supplies a price. Tests use `MockLzRead`. The full
+///         OApp library is not vendored. See DESIGN.md.
 interface ILzRead {
     struct EvmRead {
         uint32 targetEid;

@@ -168,6 +168,15 @@ contract DiscipleEngine {
         return (newGrad, newAbove, newBelow, edge);
     }
 
+    /// @notice True when `next` may replace `prev`. A zero `prev` is the first quote and any non-zero
+    ///         price is allowed. Later quotes have to stay within `ANCHOR_MOVE_BPS` of `prev`.
+    function anchorMoveOk(uint256 prev, uint256 next) external pure returns (bool) {
+        if (next == 0) return false;
+        if (prev == 0) return true;
+        uint256 delta = prev > next ? prev - next : next - prev;
+        return delta * C.BPS <= prev * C.ANCHOR_MOVE_BPS;
+    }
+
     /// @dev The progress fee. Same number the curve charges.
     function feeBps(uint256 tvl, uint256 gradTvl) external pure returns (uint256) {
         return BridgeFee.baseFeeBps(tvl, gradTvl);
@@ -206,7 +215,7 @@ contract DiscipleEngine {
         uint32 remoteEid
     ) external pure returns (bool) {
         if (kind == C.ANCHOR_LZ) {
-            return remoteOracle != address(0) && v3Pool == address(0) && refPoolId == bytes32(0)
+            return remoteOracle != address(0) && v3Pool != address(0) && refPoolId == bytes32(0)
                 && refHook == address(0);
         }
         if (kind == C.ANCHOR_V3) {
@@ -222,7 +231,8 @@ contract DiscipleEngine {
                 && remoteOracle == address(0) && remoteEid == 0;
         }
         if (kind == C.ANCHOR_LZ_V4_ORACLE || kind == C.ANCHOR_LZ_V4_SLOT) {
-            return remoteOracle != address(0) && refPoolId != bytes32(0) && v3Pool == address(0);
+            return
+                remoteOracle != address(0) && refHook != address(0) && refPoolId != bytes32(0) && v3Pool == address(0);
         }
         return false;
     }

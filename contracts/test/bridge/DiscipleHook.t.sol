@@ -9,7 +9,7 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC6909Claims} from "@uniswap/v4-core/src/interfaces/external/IERC6909Claims.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
-import {IEthAnchor} from "../../src/bridge/interfaces/IEthAnchor.sol";
+import {AnchorLens} from "../../src/bridge/AnchorLens.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
@@ -49,7 +49,7 @@ contract DiscipleHookTest is BridgeFixture {
         assertLt(q.suggestedFeeBps, C.FEE_TINY_BPS);
         assertFalse(q.stale);
         assertFalse(q.graduated);
-        assertEq(bytes4(lz.lastCallData()), IEthAnchor.latest.selector);
+        assertEq(bytes4(lz.lastCallData()), AnchorLens.readV3.selector);
         assertEq(lz.lastTarget(), address(0xE7E7));
         _solvent(id, address(coin));
     }
@@ -509,7 +509,7 @@ contract DiscipleHookTest is BridgeFixture {
             remoteEid: 30101,
             remoteOracle: address(0xE7E7),
             anchorKind: 0,
-            v3Pool: address(0),
+            v3Pool: address(0xB333),
             coinSeed: coinSeed,
             tipSeed: 0,
             dutchDrift: drift,

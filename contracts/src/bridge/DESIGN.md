@@ -6,7 +6,7 @@ The contract is `DiscipleHook`. Its engine is `DiscipleEngine`. Writes go throug
 
 One immutable hook. Many coin/USDG pools. The hook is generic and permissionless. It does not assume a team-owned flow, and it does not special-case any coin address. JESUS (`0x777A8DD86f0E29A28DAcf548Aebf42BB484daBBa` on Robinhood Chain) is the reference seed in the docs and in `test_recommendedSeedIsAllCoin` only.
 
-Nothing here is deployed. The deploy script is `script/bridge/DeployDisciple.s.sol`. It has not been run. Tests use mocks for LayerZero and the reference pool. v1 does not set a bridge fee and does not run an arb bot. Docs and tests assume a 0% bridge fee. `suggestedFeeBps` is the pool's own progress fee, not a subsidy for bridging coin in.
+Nothing here is deployed. The deploy script is `script/bridge/DeployDisciple.s.sol`. It has not been run. Tests use `MockLzRead` and a mock endpoint. Production reads go through `DiscipleLzRead` and `AnchorLens`. v1 does not set a bridge fee and does not run an arb bot. Docs and tests assume a 0% bridge fee. `suggestedFeeBps` is the pool's own progress fee, not a subsidy for bridging coin in.
 
 ## What it does
 
@@ -14,7 +14,7 @@ A coin that already trades somewhere gets a new fee-earning book. The anchor is 
 
 The curve starts 33% below the anchor (0.67×) and climbs toward it as buyers add USDG. After every trade both Dutch quotes reset to the anchor. Then, until someone trades, the bid (USDG the pool pays for the coin) rises above the anchor and the ask (coin sold for USDG) falls below it. There is no cap on that gap. One taker can only lift a shrinking slice. The seed guard, the tail, the USDG floor, and the same-block LP rules bind on that slice too.
 
-The fee is only the progress slide: 2% while the pool is tiny, 0.3% once pool TVL reaches the live graduation target. It does not rise with the gap, with volume, or because the anchor is stale. The gap is the incentive. The keeper still earns a $1 tip when a cross-chain quote is stale.
+The fee is only the progress slide: 2% while the pool is tiny, 0.3% once pool TVL reaches the live graduation target. It does not rise with the gap, with volume, or because the anchor is stale. The gap is the incentive. A stale cross-chain anchor refuses the swap. The keeper earns a $1 tip once, when a refresh writes a new price.
 
 Graduation status turns on after pool TVL has stayed at or above the live target for 77 continuous minutes, and it turns off after pool TVL has stayed strictly below that same target for 77 continuous minutes. The window is one fixed constant. It is not set per pool, and there is no percent band. A band under 100% would leave a stretch where status stayed on and nothing was pulling the pool back up to the line. The target is 12% of the reference pool's smoothed TVL, read on the same path as the anchor and smoothed with a 30-minute half-life. It moves. It is not frozen at $86,520. The depth band, the fee, the LP boost, and Dutch size use spot pool TVL against that live target on the next trade, poke, or price update, the moment progress drops under 100%. They do not wait for the status window. Only the status flag waits. While it is on, each fee is 33% creator, 33% LPs (auto-compounded), 33% permanent locked liquidity, and 1% hook builder. While it is off, the whole fee compounds for LPs. Fees already accrued stay claimable. Locked liquidity already in the book stays locked. Idle USDG stays in the pool.
 
@@ -67,8 +67,8 @@ There is no volume multiplier, no red line, no half-life on a fee accumulator, a
 | At the target | 0.3% |
 | Gap | Does not change the fee |
 | Volume | Does not change the fee |
-| Stale | Does not change the fee. Cross-chain staleness pays the keeper tip. |
-| Keeper tip | Cross-chain only. 10% of each fee, budget capped at $10, paid $1 only when a read was stale. Taken from the LP share, so the other three percentages of the gross fee stay exact |
+| Stale | Does not change the fee. A stale cross-chain anchor reverts the swap. Quotes still return. The keeper tip pays once for the refresh that writes a price. |
+| Keeper tip | Cross-chain only. 10% of each fee, budget capped at $10, paid $1 once per stale refresh that writes a price. Taken from the LP share, so the other three percentages of the gross fee stay exact |
 | Creator | 33% of the fee, only while graduated. Claimable by the pool creator. Not principal |
 | LPs | 100% before graduation. While graduated, 33% plus rounding dust, auto-compounded. The keeper tip comes out of this share |
 | Locked liquidity | 33% of a graduated fee. Stays in the book, raises depth, and cannot be sold or redeemed. Nobody holds a share of it |
@@ -76,7 +76,7 @@ There is no volume multiplier, no red line, no half-life on a fee accumulator, a
 
 In same-chain mode the keeper tip is zero. Before graduation, and again after status turns off, the whole fee compounds into the book.
 
-The keeper calls `updatePrice()` and pays the native lzRead fee. The hook builds the read calldata. The sender never supplies a price. A fresh quote reverts, so the tip cannot be farmed. The first read is allowed with a zero tip if nobody seeded the budget; an optional `tipSeed` on create (or `fundTip`) covers that. Tip seed is not part of the $77. `updatePrice` and `fundTip` revert on a same-chain pool (`SameChain`).
+The keeper calls `updatePrice()` and pays the native lzRead fee. The hook builds the read calldata (`AnchorLens.readV3`, `readV4Oracle`, or `readV4Slot`). The sender never supplies a price. `DiscipleLzRead` sends the command and accepts the response only from the endpoint, on the configured read channel, from the adapter's own peer. A fresh quote reverts, so the tip cannot be farmed. Two requests in flight share one tip: the first accepted price clears staleness, and a later result pays nothing. A cold v4-slot sample that has not produced a TWAP pays nothing. The first read is allowed with a zero tip if nobody seeded the budget; an optional `tipSeed` on create (or `fundTip`) covers that. Tip seed is not part of the $77. `updatePrice` and `fundTip` revert on a same-chain pool (`SameChain`).
 
 The builder address is a deploy parameter (`BUILDER`). It is not an immutable, because the current builder can hand it to a new address: `proposeBuilder` then `acceptBuilder`. Proposing again overwrites the pending address. Zero is rejected. Accrued builder fees stay on the pool until the current builder calls `claimBuilderFees`. A pool creator's `setCreator` does not touch this address.
 
@@ -105,16 +105,24 @@ Chosen once, in `createPool`, and never changed. `engine.anchorOk` checks the ad
 
 | Kind | Value | Where the 30-minute price comes from |
 | --- | --- | --- |
-| `ANCHOR_LZ` | 0 | lzRead calls `IEthAnchor.latest` on `remoteOracle`. Returns `(priceWad, tvlWad)`. |
+| `ANCHOR_LZ` | 0 | lzRead calls `AnchorLens.readV3` on `remoteOracle`. The v3 pool is `v3Pool`. Returns `(priceWad, tvlWad)`. |
 | `ANCHOR_V3` | 1 | Same-chain `observe` on `v3Pool`. No spot fallback. Reverts if the pool has less than 30 minutes of history. |
 | `ANCHOR_V4_ORACLE` | 2 | Same-chain `consult(refPoolId, 30 minutes)` on `refHook`. The hook owns the units. |
 | `ANCHOR_V4_SAMPLE` | 3 | Same-chain ring. This hook reads `StateLibrary.getSlot0` / `getLiquidity` on its own PoolManager. The cumulative uses a tick observed in a previous block. |
-| `ANCHOR_LZ_V4_ORACLE` | 4 | lzRead calls `consult(refPoolId, 30 minutes)` on the remote hook. Same `(uint256, uint256)` decode as `latest`. |
-| `ANCHOR_LZ_V4_SLOT` | 5 | lzRead calls `V4SlotReader.read(refPoolId)` on the remote chain. The local ring records the tick. |
+| `ANCHOR_LZ_V4_ORACLE` | 4 | lzRead calls `AnchorLens.readV4Oracle(refHook, refPoolId)` on `remoteOracle`. Same `(uint256, uint256)` decode. |
+| `ANCHOR_LZ_V4_SLOT` | 5 | lzRead calls `AnchorLens.readV4Slot(refHook, refPoolId)` on `remoteOracle`. `refHook` is the remote PoolManager. The local ring records the tick. One remote view is a sample. The 30-minute TWAP is built on the pool chain. |
 
-`updatePrice` calldata is `IEthAnchor.latest` for kind 0, `IV4OracleHook.consult(refPoolId, 30 minutes)` for kind 4, and `V4SlotReader.read(refPoolId)` for kind 5. Kinds 1–3 revert `SameChain`. A v4 self-sample is refreshed by `poke`, by swaps, and by the other same-chain reads, not by `updatePrice`.
+`updatePrice` builds that calldata. The keeper pays the native fee and does not submit a price. Kinds 1–3 revert `SameChain`. A v4 self-sample is refreshed by `poke`, by swaps, and by the other same-chain reads.
 
-Same-chain kinds (1, 2, 3) are never stale. Time passing does not pay a tip. A `tipSeed` on those creates is rejected so USDG cannot sit in a budget nobody is paid. Cross-chain kinds may take a tip. A stored quote older than 30 minutes, or an anchor that is still 0, is stale: the pool stays open, the fee does not change, and the next successful update pays the keeper from the tip budget.
+`DiscipleLzRead` is the adapter on the pool's chain. `sendRead` is only the hook. `lzReceive` is only the LayerZero endpoint, and only when `origin.srcEid` is the configured read channel and `origin.sender` is this adapter. The read peer is the adapter itself. The reference chain's endpoint id sits inside the ReadCodecV1 command. The message destination is the read channel. The command is one view, in timestamp mode, with the adapter's confirmation floor. A request can raise that floor. It cannot lower it. The response bytes are the lens return data. DVNs and the read library are endpoint config set by the owner, who is the endpoint delegate. The adapter does not pick a DVN, and it has no function an account can use to push a price.
+
+Each `updatePrice` stores `readNonce` and `requestedAt` on the pending read. An accepted result stores `appliedNonce`. A result whose nonce is less than or equal to `appliedNonce` reverts `OutOfOrder`, and that revert restores the pending entry, so the executor can retry a message that can never apply. A newer nonce is the one that counts. The first quote, while the stored anchor is 0, accepts any non-zero price. Later quotes have to stay within `ANCHOR_MOVE_BPS` (20%) of the stored anchor. A wider move reverts `AnchorMove` and the stored quote stays. A zero price on the `(price, tvl)` path reverts `BadPrice`. A real move larger than 20% inside one 30-minute window leaves the pool stale until a later read lands inside the band.
+
+A cross-chain swap reverts `Stale` when `updatedAt` is 0 or the stored quote is 30 minutes old or older. `quoteExactIn` and `bridgeQuote` still return, and the fee does not change. Deposits and redeems are not gated by that check. Same-chain kinds (1, 2, 3) are never stale. Time passing does not pay a tip. A `tipSeed` on those creates is rejected so USDG cannot sit in a budget nobody is paid.
+
+The keeper tip is $1, taken from the LP share, and only when the quote was stale at the start of a callback that wrote a price. Two in-flight requests share that one tip. The budget cap stays $10.
+
+The owner supplies the endpoint address, the read channel, and the confirmation floor. The public CREATE2 Endpoint V2 on Ethereum and on Sepolia is `0x1a44076050125825900e736c501f859c50fE728c`. LayerZero read channel 1 is `4294967295`. The adapter's default confirmation floor is 15. Sepolia's endpoint id is `40161`. Ethereum's is `30101`. Robinhood Chain testnet (chain id `46630`) is not in the public LayerZero registry, so the endpoint, the endpoint id, the ReadLib, and the DVNs for that chain are whatever the owner has for it. After deploy, the delegate calls `setSendLibrary` and `setReceiveLibrary` for the read channel, and `endpoint.setConfig` with the DVN allowlist. The lens address on the reference chain is `remoteOracle`. Deploy the adapter first, then the mined hook, then `setHook` once. The deploy script does those three when `LZ_ENDPOINT` and `READ_CHANNEL` are set.
 
 **v3.** The reference is a Uniswap v3 pool of this coin and the hook's quote token. Every quote and every state change calls `observe([30 minutes, 0])` and uses the average tick. It does not read `slot0`. A spot print with no duration does not move the anchor. TVL is the reference pool's token balances valued at that TWAP. The pool needs 30 minutes of oracle history already. `observe` reverts when the cardinality does not cover the window, and the hook does not fall back to spot, so swaps revert until the window exists. `increaseObservationCardinalityNext` on the reference pool is a launch prerequisite. A WETH-quoted v3 pool is not priced as dollars. Deploy the hook with the numeraire that pool quotes.
 
@@ -128,7 +136,7 @@ TVL on this path is a proxy, not the PoolManager's token balances. It is the quo
 
 Someone can inflate in-range liquidity, donate into the tick, or print a spot that persists into the next block. The price still has to sit in the ring for 30 minutes before it is the anchor. A same-transaction push does not enter the cumulative. The TVL reading is then smoothed with a 30-minute half-life, and graduated status then waits out the 77-minute window. A one-block donation barely moves the smooth. A sustained manipulation has to outlast the smooth and the status window. It can still move the target if it is held.
 
-**Cross-chain v4 slot.** `V4SlotReader` is a separate contract with an immutable PoolManager. Deploy it on the chain that holds the reference pool. `read(bytes32)` returns `(sqrtPriceX96, tick, liquidity)`. The hook's lzRead callback records the tick into the local ring and does not revert if the TWAP is not warm yet. The anchor stays 0 until 30 minutes of samples exist. The keeper tip can still pay on that read. A second read 30 minutes later is what turns the anchor on.
+**Cross-chain v4 slot.** `AnchorLens.readV4Slot` runs on the reference chain and returns `(sqrtPriceX96, tick, liquidity)` from that chain's PoolManager. The hook records the tick into the local ring. The anchor stays 0 until 30 minutes of samples exist, and that first sample pays no keeper tip. A later read that produces a price pays the tip when the quote is still stale. The same previous-block rule as the same-chain ring applies: a tick enters the mean on a later timestamp that still shows it.
 
 ## Reference TVL
 
@@ -190,8 +198,9 @@ Disciple pools are not migrated onto `AscensionHook`. That contract is the 1% fe
 | Dutch edge | $0.25 at a 100% gap | Size is edge/gap, then capped. |
 | Dutch slice | min($50, max(TVL/20, $1)), then × progress | Safety cap first. Progress scales it from 100% at a new pool to 20% at the live target, and a higher target scales it back up. The ask price stops at 1% of the anchor. The size uses the raw gap. |
 | Direction | none | Buys and sells pay the same fee. Closing a gap is not discounted. The gap itself is the incentive. |
-| Stale | 30 minutes | Matches the TWAP window. The pool stays open. The fee does not change. Cross-chain only. |
-| Tip | $1, 10% of fees, $10 budget | Covers a keeper's gas plus an lzRead fee with a small margin, and stops spam. Not a fee multiplier. |
+| Stale | 30 minutes | Matches the TWAP window. Quotes still return. A cross-chain swap reverts until a read lands. The fee does not change. Same-chain is never stale. |
+| Anchor move | 20% of the stored anchor | Later lzRead quotes outside this band revert. The first quote is unbounded aside from a non-zero price. |
+| Tip | $1, 10% of fees, $10 budget, once per refresh | Covers a keeper's gas plus an lzRead fee with a small margin, and stops spam. A second in-flight result pays nothing. Not a fee multiplier. |
 | Boost | 5× → 1.2× at the live target | Linear in progress. Early LPs earn more of the fee. While pool TVL is at or above the live target the weight stays 1.2×. A higher target puts it back on the line. Principal is excluded. |
 | Graduation target | 12% of smoothed reference TVL | Moves with the reference. $86,520 is only the example for a $721k reference, and the seed test still asserts that constant. |
 | Graduation window | 77 minutes, fixed | Continuous time on one side of the live target before status flips. At or above turns it on. Strictly below turns it off. The same wait either way. One threshold, 100%. Not set per pool. Progress curves do not wait on it. |
@@ -224,13 +233,13 @@ The constant `GRAD = 86520e18` in `test_recommendedSeedIsAllCoin` is that exampl
 These are called out here rather than quietly "fixed."
 
 1. OpenZeppelin's single-pool hook bases are not used. Same accounting pattern, multi-pool, on the pinned v4-core.
-2. The full LayerZero OAppRead stack is not vendored. The hook talks to a narrow `ILzRead`. Production wiring is an adapter over lzRead. Tests use `MockLzRead`, and the callback is async.
+2. The full LayerZero OApp library is not vendored. `DiscipleLzRead` speaks Endpoint V2 directly: ReadCodecV1 for one view, and the executor lzRead option (type 3, worker 1, option type 5). The hook talks to `ILzRead`. Tests use `MockLzRead` and a mock endpoint. The callback is async. DVNs are endpoint config, set by the delegate after deploy.
 3. A v4 swap cannot be partial-filled without moving `slot0`. Oversized exact-in reverts. `quoteExactIn` returns the capped size so a router can cut the dump short. Exact-out reverts.
 4. USDG deposits that would freeze the launch discount revert until spot reaches the anchor. Smaller USDG deposits that only replace virtual USDG are accepted. This blocks "deposit depth, buy the seed at a stuck 0.67×, withdraw the depth."
 5. A redeem's USDG fee uses the same split as a swap. Before graduation the whole USDG fee goes to the LP fee pot. While graduated it is 33% creator, 33% LP, 33% locked, and 1% builder, and dust stays in the LP share. The LP share is the part that enters the fee index. The coin portion of a redeem fee stays in protocol coin inventory. Locked USDG from the redeem is not folded into principal when the last LP leaves.
 6. Graduated status is reversible on a fixed 77-minute window, the same in both directions, and not set per pool. The line is 100% of the live target both ways. There is no percent band, because a band under 100% would leave a stretch with status still on and no arb pull back to the line. Spot TVL drives the depth band, the fee, the boost, and Dutch size immediately on either side of the flag. The window gates the fee split: 33% creator, 33% LPs, 33% locked liquidity, 1% builder while status is on, and 100% to LPs while it is off. A Disciple pool stays on `DiscipleHook`. `test_graduation_creates_v4_pool` belongs to the bonding-curve migration onto `AscensionHook` and is not a Disciple path.
 7. Depth only grows, and only once spot is at or above the anchor.
-8. There is no max-deviation clamp on an anchor update. A clamp would freeze the pool on a real crash. A bad read can set any price. See risks.
+8. A later anchor update has to stay within 20% of the stored price (`ANCHOR_MOVE_BPS`). The first quote can be any non-zero price. A move outside the band reverts and the pool stays stale, so a crash larger than 20% in one 30-minute window does not land until a later read is inside the band. See risks.
 9. The g^30 tail is ~0 until a trade is most of a side. On USDG, the 20% floor binds first.
 10. Same-block LP protection does not roll the live spot back. A dust deposit must not erase a trade. Fresh liquidity is escrowed for the block; the trade's price stays.
 11. The Dutch auction is in the contract. An earlier simulation left it out and shipped a volume fee instead. The volume fee is not in the contract.
@@ -238,7 +247,9 @@ These are called out here rather than quietly "fixed."
 
 ## Open risks
 
-- Oracle and DVN trust. `onLzRead` accepts whatever the endpoint delivers. There is no admin circuit breaker, on purpose.
+- Oracle and DVN trust. The hook trusts the adapter. The adapter trusts the endpoint on the configured read channel. Which DVNs must sign is the delegate's `setConfig`. A view those DVNs accept is the price the hook applies, inside the 20% band. There is no admin circuit breaker, on purpose.
+- An anchor move wider than 20% is rejected. Swaps stay reverted at `Stale` until a read inside the band arrives.
+- An out-of-order result reverts `OutOfOrder` and stays pending, so an executor may retry a message that can never apply.
 - The lzRead callback sits in the mempool. Someone can sandwich it. The 30-minute TWAP limits how far one update moves, and the anchor update keeps the spot/anchor ratio instead of snapping the pool to the new price. It does not remove the sandwich.
 - `slot0` of a Disciple pool is meaningless. Integrators that price off the pool's sqrt price will be wrong. The self-sample path does read `slot0` of a different, reference v4 pool.
 - No token rescue. Tokens sent to the hook by mistake stay there.
@@ -255,7 +266,7 @@ These are called out here rather than quietly "fixed."
 
 The following were asked about and are deliberately not built:
 
-- A price-jump circuit breaker.
+- An admin pause. A cross-chain update wider than 20% of the stored anchor is rejected. That bound is the read check above.
 - A lower fee for small trades.
 - On-chain progress or milestone tracking.
 - Gap events.

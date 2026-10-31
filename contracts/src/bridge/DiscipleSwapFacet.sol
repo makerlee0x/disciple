@@ -46,6 +46,9 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         // Same-chain recenters on the live TWAP before the quote. Cross-chain keeps the stored anchor.
         _persistReference(p);
         if (p.curve.anchor == 0) revert NoAnchor();
+        if (!_sameChain(p.anchorKind) && (p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER)) {
+            revert Stale();
+        }
         // Snapshot the block's opening LP book before this trade can move it.
         _rollBlock(p, id);
 

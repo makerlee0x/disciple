@@ -14,8 +14,7 @@ import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
-import {IV4OracleHook} from "../../src/bridge/interfaces/IV4OracleHook.sol";
-import {V4SlotReader} from "../../src/bridge/V4SlotReader.sol";
+import {AnchorLens} from "../../src/bridge/AnchorLens.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
 import {MockERC20, MockV4Oracle} from "./mocks/BridgeMocks.sol";
 
@@ -453,9 +452,7 @@ contract DiscipleLaunchTest is BridgeFixture {
         vm.deal(address(this), 1 ether);
         hook.updatePrice{value: lz.fee()}(oracleId);
         assertEq(lz.lastTarget(), address(0xBEEF));
-        assertEq(
-            lz.lastCallData(), abi.encodeWithSelector(IV4OracleHook.consult.selector, refId, uint32(C.TWAP_WINDOW))
-        );
+        assertEq(lz.lastCallData(), abi.encodeWithSelector(AnchorLens.readV4Oracle.selector, address(0xBEEF), refId));
         lz.fulfill(lz.lastGuid(), 1e18, 100_000e18);
         assertEq(hook.spotPrice(oracleId), 0.67e18);
 
@@ -466,7 +463,7 @@ contract DiscipleLaunchTest is BridgeFixture {
         (, PoolId slotId) =
             hook.createPool(_anchor(address(s), 10e18, C.ANCHOR_LZ_V4_SLOT, address(0x51), refId, coin0));
         hook.updatePrice{value: lz.fee()}(slotId);
-        assertEq(lz.lastCallData(), abi.encodeWithSelector(V4SlotReader.read.selector, refId));
+        assertEq(lz.lastCallData(), abi.encodeWithSelector(AnchorLens.readV4Slot.selector, address(0x51), refId));
         uint160 sqrtP = TickMath.getSqrtPriceAtTick(0);
         lz.fulfillBytes(lz.lastGuid(), abi.encode(sqrtP, int24(0), uint128(1e18)));
         assertEq(hook.curve(slotId).anchor, 0, "the first remote slot does not invent a TWAP");
@@ -495,7 +492,9 @@ contract DiscipleLaunchTest is BridgeFixture {
         p.anchorKind = kind;
         p.coinSeed = seed;
         p.refPoolId = refPool;
-        p.refHook = kind == C.ANCHOR_V4_ORACLE ? refHook : address(0);
+        p.refHook = kind == C.ANCHOR_V4_ORACLE || kind == C.ANCHOR_LZ_V4_ORACLE || kind == C.ANCHOR_LZ_V4_SLOT
+            ? refHook
+            : address(0);
         p.refCoinIs0 = coin0;
     }
 

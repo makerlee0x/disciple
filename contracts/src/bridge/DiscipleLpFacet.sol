@@ -14,7 +14,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
-import {BridgeV4Anchor} from "./libraries/BridgeV4Anchor.sol";
 import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
@@ -179,7 +178,6 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         if (op == OP_DEPOSIT) return _onDeposit(data);
         if (op == OP_REDEEM) return _onRedeem(data);
         if (op == OP_CLAIM) return _onClaim(data);
-        if (op == OP_READ) return _onRead(data);
         if (op == OP_TIP) return _onTip(data);
         revert HookNotImplemented();
     }
@@ -300,51 +298,6 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         _requireReserve(p);
         emit CreatorClaimed(id, caller, norm);
         return abi.encode(raw);
-    }
-
-    function _onRead(bytes calldata data) internal returns (bytes memory) {
-        (, bytes32 guid, bytes memory result) = abi.decode(data, (uint8, bytes32, bytes));
-        PendingRead memory pend = pendingReads[guid];
-        if (pend.caller == address(0)) revert UnknownRead();
-        delete pendingReads[guid];
-
-        Pool storage p = pools[pend.poolId];
-        uint256 price;
-        uint256 ethTvl;
-        if (p.anchorKind == C.ANCHOR_LZ_V4_SLOT) {
-            (uint160 sqrtP, int24 tick, uint128 liq) = abi.decode(result, (uint160, int24, uint128));
-            bytes32 raw = PoolId.unwrap(pend.poolId);
-            BridgeV4Anchor.record(rings[raw], obs[raw], tick);
-            (bool ready, uint256 px, uint256 tvl) =
-                BridgeV4Anchor.read(rings[raw], obs[raw], sqrtP, liq, p.refCoinIs0, p.coinDec, usdgDec);
-            // A cold ring is not a bad read. The callback records the tick and leaves the anchor.
-            if (ready && px != 0) {
-                _applyAnchor(p, px, tvl);
-                price = px;
-                ethTvl = tvl;
-            }
-        } else {
-            (price, ethTvl) = abi.decode(result, (uint256, uint256));
-            if (price == 0) revert BadPrice();
-            _applyAnchor(p, price, ethTvl);
-        }
-        _touchGrad(pend.poolId, p);
-
-        uint256 tip;
-        if (p.tipBudget > 0) {
-            tip = p.tipBudget < C.TIP_USDG ? p.tipBudget : C.TIP_USDG;
-            uint256 raw = _toRaw(tip, usdgDec);
-            uint256 norm = _toNorm(raw, usdgDec);
-            if (norm > p.tipBudget) norm = p.tipBudget;
-            p.tipBudget -= norm;
-            tip = norm;
-            if (raw > 0 && norm > 0) {
-                _debitPoolUsdg(p, norm);
-                _claimsTo(usdgC, raw, pend.caller);
-            }
-        }
-        emit PriceUpdated(pend.poolId, price, ethTvl, tip);
-        return "";
     }
 
     function _onTip(bytes calldata data) internal returns (bytes memory) {
