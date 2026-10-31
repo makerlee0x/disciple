@@ -72,7 +72,7 @@ library BridgeV3Anchor {
         if (mean < int256(TickMath.MIN_TICK) || mean > int256(TickMath.MAX_TICK)) revert BadTwap();
         uint160 sqrtPriceX96 = TickMath.getSqrtPriceAtTick(int24(mean));
         // Keep the Q64.96 fraction. Dividing by 2^192 first floors a 1.02 price to 1.
-        priceWad = _priceWad(sqrtPriceX96, coin0, coinDec, quoteDec);
+        priceWad = priceFromSqrt(sqrtPriceX96, coin0, coinDec, quoteDec);
         if (priceWad == 0) revert BadTwap();
 
         uint256 coinBal = _norm(IERC20(coin).balanceOf(pool), coinDec);
@@ -80,7 +80,29 @@ library BridgeV3Anchor {
         tvlWad = Math.mulDiv(coinBal, priceWad, C.WAD) + quoteBal;
     }
 
+    /// @dev Mean tick over `TWAP_WINDOW` from two cumulatives. Zero when the mean is not a tick.
+    function priceFromDelta(int56 newer, int56 older, bool coin0, uint8 coinDec, uint8 quoteDec)
+        internal
+        pure
+        returns (uint256)
+    {
+        int256 delta = int256(newer) - int256(older);
+        int256 window = int256(uint256(C.TWAP_WINDOW));
+        int256 mean = delta / window;
+        if (delta < 0 && delta % window != 0) mean -= 1;
+        if (mean < int256(TickMath.MIN_TICK) || mean > int256(TickMath.MAX_TICK)) return 0;
+        return priceFromSqrt(TickMath.getSqrtPriceAtTick(int24(mean)), coin0, coinDec, quoteDec);
+    }
+
     /// @dev quote-per-coin in WAD. `coin0` means the coin is token0 (the quote is token1).
+    function priceFromSqrt(uint160 sqrtPriceX96, bool coin0, uint8 coinDec, uint8 quoteDec)
+        internal
+        pure
+        returns (uint256)
+    {
+        return _priceWad(sqrtPriceX96, coin0, coinDec, quoteDec);
+    }
+
     function _priceWad(uint160 sqrtPriceX96, bool coin0, uint8 coinDec, uint8 quoteDec) private pure returns (uint256) {
         uint256 sqrtP = uint256(sqrtPriceX96);
         uint256 q96 = uint256(1) << 96;

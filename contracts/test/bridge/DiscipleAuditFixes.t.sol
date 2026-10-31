@@ -13,13 +13,9 @@ import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeV4Anchor} from "../../src/bridge/libraries/BridgeV4Anchor.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
-import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
-import {DiscipleAdminFacet} from "../../src/bridge/DiscipleAdminFacet.sol";
-import {DiscipleLpFacet} from "../../src/bridge/DiscipleLpFacet.sol";
-import {DiscipleCreateFacet} from "../../src/bridge/DiscipleCreateFacet.sol";
-import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
+import {DiscipleMath} from "../../src/bridge/DiscipleMath.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
-import {MockERC20, MockV3Pool, MockV4Oracle} from "./mocks/BridgeMocks.sol";
+import {MockERC20, MockV3Pool} from "./mocks/BridgeMocks.sol";
 
 /// @dev Storage for the self-sample ring. The hook uses the same library.
 contract RingHarness {
@@ -178,21 +174,19 @@ contract DiscipleAuditFixesTest is BridgeFixture {
     }
 
     function test_redeemSurvivesARevertingOracle() public {
-        (PoolId pid,) = _oraclePool();
+        (PoolId pid,) = _liveV3();
         usdg.mint(address(this), 20e18);
         uint256 sh = hook.deposit(pid, 0, 4e18);
-        _lastOracle.setBroken(true);
+        v3Of[pid].setBroken(true);
         (uint256 cOut, uint256 uOut) = hook.redeem(pid, sh / 2);
         assertGt(cOut + uOut, 0);
     }
 
-    MockV4Oracle internal _lastOracle;
-
     function test_redeemSurvivesAZeroOracle() public {
-        (PoolId pid,) = _oraclePool();
+        (PoolId pid,) = _liveV3();
         usdg.mint(address(this), 20e18);
         uint256 sh = hook.deposit(pid, 0, 4e18);
-        _lastOracle.set(0, 0);
+        v3Of[pid].setAbsurd(true);
         (uint256 cOut, uint256 uOut) = hook.redeem(pid, sh / 2);
         assertGt(cOut + uOut, 0);
     }
@@ -200,24 +194,24 @@ contract DiscipleAuditFixesTest is BridgeFixture {
     function test_lowCardinalityV3CannotBeAReference() public {
         MockERC20 c = _newCoin("YOUNG", 18);
         MockV3Pool young = new MockV3Pool(address(c), address(usdg), 0);
-        skip(1);
-        young.setTick(0);
+        young.dropToOne();
         v3Factory.setPool(address(c), address(usdg), 3000, address(young));
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
-        vm.expectRevert(MockV3Pool.OldObservation.selector);
-        hook.createPool(_v3(c, young, 10e18));
+        BridgeStorage.CreateParams memory youngParams = _v3(c, young, 10e18);
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
+        hook.createPool(youngParams);
     }
 
     function test_fakeV3PoolIsRejected() public {
         MockERC20 c = _newCoin("FAKE", 18);
         MockV3Pool pool = new MockV3Pool(address(c), address(usdg), 0);
-        skip(30 minutes);
-        pool.setTick(0);
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
+        BridgeStorage.CreateParams memory unregistered = _v3(c, pool, 10e18);
+        v3Factory.setPool(address(c), address(usdg), 3000, address(0));
         vm.expectRevert(BridgeStorage.BadCreate.selector);
-        hook.createPool(_v3(c, pool, 10e18));
+        hook.createPool(unregistered);
     }
 
     function test_hostileHookAndWrongPairAreRejected() public {
@@ -236,8 +230,9 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         PoolKey memory wrong = _refPool(other, other0);
         other.mint(address(this), 10e18);
         other.approve(address(hook), type(uint256).max);
+        BridgeStorage.CreateParams memory wrongPair = _sample(c, PoolId.unwrap(wrong.toId()), coin0);
         vm.expectRevert(BridgeStorage.BadCreate.selector);
-        hook.createPool(_sample(c, PoolId.unwrap(wrong.toId()), coin0));
+        hook.createPool(wrongPair);
     }
 
     /// @notice Permissionless, multiple pools per coin. A second caller, who is not the fee wallet,
@@ -281,12 +276,12 @@ contract DiscipleAuditFixesTest is BridgeFixture {
     }
 
     function test_zeroTargetIsBelowOnceGraduated() public view {
-        (bool on,, uint64 below,) = engine.stepGrad(100e18, 0, true, 0, 0, 1_000);
+        (bool on,, uint64 below,) = DiscipleMath.stepGrad(100e18, 0, true, 0, 0, 1_000);
         assertTrue(on);
         assertEq(below, 1_000);
-        (bool off,,,) = engine.stepGrad(100e18, 0, true, 0, 1_000, 1_000 + C.GRADUATION_WINDOW);
+        (bool off,,,) = DiscipleMath.stepGrad(100e18, 0, true, 0, 1_000, 1_000 + C.GRADUATION_WINDOW);
         assertFalse(off);
-        (bool still,,,) = engine.stepGrad(100e18, 0, false, 0, 0, 1_000);
+        (bool still,,,) = DiscipleMath.stepGrad(100e18, 0, false, 0, 0, 1_000);
         assertFalse(still);
     }
 
@@ -309,15 +304,12 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         assertEq(askAfter, askAt, "under the minimum notional, neither clock resets");
     }
 
-    function test_onlyTheBuilderCanRescueStrayEth() public {
-        vm.deal(address(hook), 1 ether);
-        vm.prank(address(0xBAD));
-        vm.expectRevert(BridgeStorage.OnlyBuilder.selector);
-        hook.rescueEth(address(0xBAD));
-        uint256 before = address(this).balance;
-        hook.rescueEth(address(this));
-        assertEq(address(this).balance, before + 1 ether);
+    function test_hookCannotHoldOrRescueEth() public {
+        (bool ok,) = address(hook).call{value: 1 ether}("");
+        assertFalse(ok);
         assertEq(address(hook).balance, 0);
+        (bool rescued,) = address(hook).call(abi.encodeWithSignature("rescueEth(address)", address(this)));
+        assertFalse(rescued);
     }
 
     function test_quoteMatchesTheSwap() public {
@@ -331,47 +323,20 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         assertEq(coin.balanceOf(address(this)) - before, quoted);
     }
 
-    function test_lzUnsetRejectsCrossChainKinds() public {
-        DiscipleEngine eng = engine;
-        DiscipleAdminFacet adminC =
-            new DiscipleAdminFacet(manager, address(usdg), address(0), 18, eng, address(v3Factory));
-        DiscipleLpFacet lpC = new DiscipleLpFacet(manager, address(usdg), address(0), 18, eng, address(v3Factory));
-        DiscipleCreateFacet createC =
-            new DiscipleCreateFacet(manager, address(usdg), address(0), 18, eng, address(v3Factory));
-        DiscipleSwapFacet swapC = new DiscipleSwapFacet(manager, address(usdg), address(0), 18, eng, address(v3Factory));
-        bytes memory args = abi.encode(
-            manager,
-            address(usdg),
-            address(0),
-            uint8(18),
-            address(eng),
-            address(swapC),
-            address(lpC),
-            address(createC),
-            address(adminC),
-            address(this),
-            address(v3Factory)
-        );
-        (address predicted, bytes32 salt) = _mineHook(args);
-        DiscipleHook bare = new DiscipleHook{salt: salt}(
-            manager,
-            address(usdg),
-            address(0),
-            18,
-            eng,
-            address(swapC),
-            address(lpC),
-            address(createC),
-            address(adminC),
-            address(this),
-            address(v3Factory)
-        );
-        require(address(bare) == predicted, "hook addr");
+    function test_unknownKindAndUnregisteredV3Revert() public {
         MockERC20 c = _newCoin("NOLZ", 18);
-        c.mint(address(this), 10e18);
-        c.approve(address(bare), type(uint256).max);
+        c.mint(address(this), 20e18);
+        c.approve(address(hook), type(uint256).max);
+        BridgeStorage.CreateParams memory kind = _plain(c, 10e18, 0);
+        kind.anchorKind = 7;
         vm.expectRevert(BridgeStorage.BadCreate.selector);
-        bare.createPool(_plain(c, 10e18, 0));
+        hook.createPool(kind);
+
+        MockV3Pool pool = new MockV3Pool(address(c), address(usdg), 0);
+        BridgeStorage.CreateParams memory missing = _v3(c, pool, 10e18);
+        v3Factory.setPool(address(c), address(usdg), 3000, address(0));
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
+        hook.createPool(missing);
     }
 
     function _maxSell() internal view returns (uint256 used) {
@@ -399,22 +364,10 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         );
     }
 
-    function _oraclePool() internal returns (PoolId pid, PoolKey memory k) {
+    function _liveV3() internal returns (PoolId pid, PoolKey memory k) {
         MockERC20 c = _newCoin("ORACLE", 18);
-        _lastOracle = new MockV4Oracle();
-        _lastOracle.set(1e18, 100_000e18);
-        hook.setOracleAllowed(address(_lastOracle), true);
-        c.mint(address(this), 20e18);
-        c.approve(address(hook), type(uint256).max);
-        BridgeStorage.CreateParams memory p = _plain(c, 10e18, 0);
-        p.anchorKind = C.ANCHOR_V4_ORACLE;
-        p.remoteEid = 0;
-        p.remoteOracle = address(0);
-        p.v3Pool = address(0);
-        p.tipSeed = 0;
-        p.refHook = address(_lastOracle);
-        p.refPoolId = bytes32(uint256(9));
-        (k, pid) = hook.createPool(p);
+        (k, pid) = _create(c, 10e18, 0, C.FLOOR_BPS, C.DISCOUNT_BPS, 10_000, C.OUTFLOW_PER_BLOCK);
+        _price(pid, 1e18, 100_000e18);
     }
 
     function _refPool(MockERC20 c, bool coin0) internal returns (PoolKey memory ref) {
@@ -428,52 +381,39 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         manager.initialize(ref, TickMath.getSqrtPriceAtTick(0));
     }
 
-    function _sample(MockERC20 c, bytes32 refId, bool coin0)
-        internal
-        view
-        returns (BridgeStorage.CreateParams memory p)
-    {
+    function _sample(MockERC20 c, bytes32 refId, bool coin0) internal returns (BridgeStorage.CreateParams memory p) {
         p = _plain(c, 10e18, 0);
-        p.anchorKind = C.ANCHOR_V4_SAMPLE;
-        p.remoteEid = 0;
-        p.remoteOracle = address(0);
-        p.v3Pool = address(0);
-        p.tipSeed = 0;
-        p.refPoolId = refId;
-        p.refCoinIs0 = coin0;
+        p.anchorKind = C.ANCHOR_V4;
+        p.refPool = address(0);
         p.refFee = 3000;
+        p.refPoolId = refId;
         p.refTickSpacing = 60;
+        p.refHooks = address(0);
+        coin0;
     }
 
-    function _v3(MockERC20 c, MockV3Pool pool, uint256 seed)
-        internal
-        view
-        returns (BridgeStorage.CreateParams memory p)
-    {
+    function _v3(MockERC20 c, MockV3Pool pool, uint256 seed) internal returns (BridgeStorage.CreateParams memory p) {
         p = _plain(c, seed, 0);
         p.anchorKind = C.ANCHOR_V3;
-        p.remoteEid = 0;
-        p.remoteOracle = address(0);
-        p.v3Pool = address(pool);
-        p.tipSeed = 0;
-        p.v3Fee = 3000;
+        p.refPool = address(pool);
+        p.refFee = 3000;
+        v3Factory.setPool(address(c), address(usdg), 3000, address(pool));
     }
 
-    function _plain(MockERC20 c, uint256 seed, int24 spacing)
-        internal
-        view
-        returns (BridgeStorage.CreateParams memory p)
-    {
+    function _plain(MockERC20 c, uint256 seed, int24 spacing) internal returns (BridgeStorage.CreateParams memory p) {
+        address t0 = address(c) < address(usdg) ? address(c) : address(usdg);
+        address t1 = address(c) < address(usdg) ? address(usdg) : address(c);
+        MockV3Pool pool = new MockV3Pool(t0, t1, 0);
+        v3Factory.setPool(address(c), address(usdg), 3000, address(pool));
         p.coin = address(c);
         p.creator = address(this);
         p.floorBps = C.FLOOR_BPS;
         p.discountBps = C.DISCOUNT_BPS;
         p.outflowCapBps = 10_000;
         p.outflowWindow = C.OUTFLOW_PER_BLOCK;
-        p.remoteEid = 30101;
-        p.remoteOracle = address(0xE7E7);
-        p.anchorKind = 0;
-        p.v3Pool = address(0xB333);
+        p.anchorKind = C.ANCHOR_V3;
+        p.refPool = address(pool);
+        p.refFee = 3000;
         p.coinSeed = seed;
         p.tickSpacing = spacing;
     }

@@ -5,7 +5,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {ILzRead, ILzReadConsumer} from "../../../src/bridge/interfaces/ILzRead.sol";
 
 contract MockERC20 is ERC20 {
     uint8 private immutable _dec;
@@ -68,74 +67,36 @@ contract MockVault is ERC4626 {
     }
 }
 
-/// @notice Async lzRead. `sendRead` does not call back; tests call `fulfill` in a later transaction.
-contract MockLzRead is ILzRead {
-    uint256 public fee = 0.001 ether;
-    bytes32 public lastGuid;
-    bytes public lastCallData;
-    address public lastTarget;
-    uint32 public lastEid;
-    address public consumer;
-    uint256 public n;
-    mapping(bytes32 => bool) public known;
+/// @notice Stand-in for a Uniswap v2 factory. Tests register the pair they want `getPair` to return.
+contract MockV2Factory {
+    mapping(address => mapping(address => address)) public getPair;
 
-    function quoteRead(EvmRead calldata) external view returns (uint256 nativeFee) {
-        return fee;
-    }
-
-    function sendRead(EvmRead calldata read, address) external payable returns (bytes32 guid) {
-        require(msg.value >= fee, "lz fee");
-        n += 1;
-        guid = bytes32(n);
-        lastGuid = guid;
-        lastCallData = read.callData;
-        lastTarget = read.target;
-        lastEid = read.targetEid;
-        consumer = msg.sender;
-        known[guid] = true;
-    }
-
-    function fulfill(bytes32 guid, uint256 priceWad, uint256 tvlWad) external {
-        require(guid == lastGuid, "guid");
-        _callback(guid, abi.encode(priceWad, tvlWad));
-    }
-
-    function fulfillBytes(bytes32 guid, bytes calldata result) external {
-        require(guid == lastGuid, "guid");
-        _callback(guid, result);
-    }
-
-    /// @dev Deliver any request this mock has seen, including one that is no longer `lastGuid`.
-    function deliver(bytes32 guid, bytes calldata result) external {
-        require(known[guid], "guid");
-        _callback(guid, result);
-    }
-
-    function _callback(bytes32 guid, bytes memory result) internal {
-        known[guid] = false;
-        ILzReadConsumer(consumer).onLzRead(guid, result);
+    function setPair(address a, address b, address pair) external {
+        getPair[a][b] = pair;
+        getPair[b][a] = pair;
     }
 }
 
-/// @notice Reference hook whose `consult` is a stored USDG price and TVL.
-contract MockV4Oracle {
-    uint256 public priceWad = 1e18;
-    uint256 public tvlWad = 1_000_000e18;
+/// @notice Minimal v2 pair. Reserves set the tick. Token balances set the TVL the hook reads.
+contract MockV2Pair {
+    address public immutable token0;
+    address public immutable token1;
+    uint112 public reserve0;
+    uint112 public reserve1;
 
-    function set(uint256 price, uint256 tvl) external {
-        priceWad = price;
-        tvlWad = tvl;
+    constructor(address a, address b) {
+        require(a != address(0) && b != address(0) && a != b, "pair");
+        token0 = a < b ? a : b;
+        token1 = a < b ? b : a;
     }
 
-    bool public broken;
-
-    function setBroken(bool on) external {
-        broken = on;
+    function setReserves(uint112 r0, uint112 r1) external {
+        reserve0 = r0;
+        reserve1 = r1;
     }
 
-    function consult(bytes32, uint32) external view returns (uint256, uint256) {
-        require(!broken, "oracle");
-        return (priceWad, tvlWad);
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (reserve0, reserve1, uint32(block.timestamp));
     }
 }
 
@@ -150,7 +111,8 @@ contract MockV3Factory {
 }
 
 /// @notice Minimal Uniswap v3 pool. `observe` is the cumulative tick. `slot0` is the spot, which the hook must ignore.
-///         History starts at construction. A query older than that reverts, the same way a short cardinality does.
+///         Two points exist at construction so cardinality is 2, but both are at `block.timestamp`, so a
+///         30-minute `observe` still reverts until `pin` rewrites the window.
 contract MockV3Pool {
     struct Point {
         uint32 t;
@@ -161,6 +123,8 @@ contract MockV3Pool {
     address public immutable token0;
     address public immutable token1;
     int24 public spotTick;
+    bool public broken;
+    bool public absurd;
     Point[] internal points;
 
     error OldObservation();
@@ -170,7 +134,39 @@ contract MockV3Pool {
         token0 = token0_;
         token1 = token1_;
         spotTick = tick_;
-        points.push(Point({t: uint32(block.timestamp), cum: 0, tick: tick_}));
+        uint32 nowT = uint32(block.timestamp);
+        points.push(Point({t: nowT, cum: 0, tick: tick_}));
+        points.push(Point({t: nowT, cum: 0, tick: tick_}));
+    }
+
+    /// @dev Leave a single observation so `slot0` cardinality is below the hook's minimum.
+    function dropToOne() external {
+        while (points.length > 1) points.pop();
+    }
+
+    function setBroken(bool on) external {
+        broken = on;
+    }
+
+    /// @dev `observe` returns a cumulative the hook cannot turn into a tick.
+    function setAbsurd(bool on) external {
+        absurd = on;
+    }
+
+    /// @dev Rewrite history so the whole 31-minute window is `tick_`. The TWAP is that tick immediately.
+    function pin(int24 tick_) external {
+        while (points.length > 0) points.pop();
+        uint32 nowT = uint32(block.timestamp);
+        uint32 start = nowT - uint32(31 minutes);
+        points.push(Point({t: start, cum: 0, tick: tick_}));
+        int56 cumNow;
+        unchecked {
+            cumNow = int56(tick_) * int56(uint56(nowT - start));
+        }
+        points.push(Point({t: nowT, cum: cumNow, tick: tick_}));
+        spotTick = tick_;
+        broken = false;
+        absurd = false;
     }
 
     /// @dev Full Uniswap v3 `slot0`. Cardinality is the number of stored points.
@@ -210,8 +206,15 @@ contract MockV3Pool {
         view
         returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s)
     {
+        if (broken) revert OldObservation();
         tickCumulatives = new int56[](secondsAgos.length);
         secondsPerLiquidityCumulativeX128s = new uint160[](secondsAgos.length);
+        if (absurd) {
+            for (uint256 i; i < secondsAgos.length; ++i) {
+                tickCumulatives[i] = i == 0 ? type(int56).min : type(int56).max;
+            }
+            return (tickCumulatives, secondsPerLiquidityCumulativeX128s);
+        }
         uint32 nowT = uint32(block.timestamp);
         for (uint256 i; i < secondsAgos.length; ++i) {
             if (secondsAgos[i] > nowT) revert OldObservation();

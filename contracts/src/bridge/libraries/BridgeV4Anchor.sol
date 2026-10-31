@@ -32,11 +32,11 @@ import {BridgeConstants as C} from "./BridgeConstants.sol";
 ///         the oldest is at least `TWAP_WINDOW` old. `peek` applies the same accrual in memory, so
 ///         a quote matches the sample a swap would write.
 ///
-/// @dev Public functions are linked with DELEGATECALL so this code is not copied into every facet.
+/// @dev Internal. `DiscipleAnchor` is the deployed library. This file is inlined there, not on its own.
 library BridgeV4Anchor {
     uint16 internal constant CARD = 2048;
     /// @dev The confirming sample plus two later points. One observation is not a TWAP.
-    uint16 public constant MIN_SAMPLES = 3;
+    uint16 internal constant MIN_SAMPLES = 3;
 
     struct Ring {
         uint16 next;
@@ -60,7 +60,7 @@ library BridgeV4Anchor {
     }
 
     /// @notice Record the pre-sample tick. At most one cumulative point per timestamp.
-    function record(Ring storage ring, mapping(uint16 => uint256) storage obs, int24 tick) public {
+    function record(Ring storage ring, mapping(uint16 => uint256) storage obs, int24 tick) internal {
         Ring memory cur = ring;
         (Ring memory next, Write memory w) = _advance(cur, tick, uint32(block.timestamp), uint64(block.number));
         if (w.wrote) obs[w.index] = w.word;
@@ -77,7 +77,7 @@ library BridgeV4Anchor {
         bool coinIs0,
         uint8 coinDec,
         uint8 quoteDec
-    ) public view returns (bool ready, uint256 priceWad, uint256 tvlWad) {
+    ) internal view returns (bool ready, uint256 priceWad, uint256 tvlWad) {
         Write memory none;
         return _consult(ring, obs, none, sqrtPriceX96, liquidity, coinIs0, coinDec, quoteDec);
     }
@@ -92,7 +92,7 @@ library BridgeV4Anchor {
         bool coinIs0,
         uint8 coinDec,
         uint8 quoteDec
-    ) public returns (bool ready, uint256 priceWad, uint256 tvlWad) {
+    ) internal returns (bool ready, uint256 priceWad, uint256 tvlWad) {
         (uint160 sqrtP, int24 tick, uint128 liq) = _slot(manager, refPoolId);
         if (sqrtP == 0) return (false, 0, 0);
         record(ring, obs, tick);
@@ -109,7 +109,7 @@ library BridgeV4Anchor {
         bool coinIs0,
         uint8 coinDec,
         uint8 quoteDec
-    ) public view returns (bool ready, uint256 priceWad, uint256 tvlWad) {
+    ) internal view returns (bool ready, uint256 priceWad, uint256 tvlWad) {
         (uint160 sqrtP, int24 tick, uint128 liq) = _slot(manager, refPoolId);
         if (sqrtP == 0) return (false, 0, 0);
         (Ring memory next, Write memory w) = _advance(ring, tick, uint32(block.timestamp), uint64(block.number));
@@ -120,6 +120,14 @@ library BridgeV4Anchor {
     ///      sees, discarding the unconfirmed candidate. After that, a new block accrues the prior
     ///      block's tick for the elapsed time and the current tick becomes the next candidate.
     ///      The same block only replaces the candidate.
+    function advance(Ring memory ring, int24 tick, uint32 nowT, uint64 bn)
+        internal
+        pure
+        returns (Ring memory, Write memory)
+    {
+        return _advance(ring, tick, nowT, bn);
+    }
+
     function _advance(Ring memory ring, int24 tick, uint32 nowT, uint64 bn)
         private
         pure
@@ -181,7 +189,7 @@ library BridgeV4Anchor {
         bool coinIs0,
         uint8 coinDec,
         uint8 quoteDec
-    ) private view returns (bool ready, uint256 priceWad, uint256 tvlWad) {
+    ) internal view returns (bool ready, uint256 priceWad, uint256 tvlWad) {
         if (ring.count < MIN_SAMPLES) return (false, 0, 0);
         uint32 nowT = uint32(block.timestamp);
         if (nowT < uint32(C.TWAP_WINDOW)) return (false, 0, 0);
@@ -236,6 +244,14 @@ library BridgeV4Anchor {
         uint256 quoteRaw = (coinIs0 ? amount1 : amount0) * 2;
         if (quoteDec >= 18) return quoteRaw / 10 ** (quoteDec - 18);
         return quoteRaw * 10 ** (18 - quoteDec);
+    }
+
+    function slot(IPoolManager manager, bytes32 refPoolId)
+        internal
+        view
+        returns (uint160 sqrtPriceX96, int24 tick, uint128 liquidity)
+    {
+        return _slot(manager, refPoolId);
     }
 
     function _slot(IPoolManager manager, bytes32 refPoolId)

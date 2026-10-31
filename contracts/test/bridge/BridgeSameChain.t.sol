@@ -6,7 +6,6 @@ import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
-import {BridgeV3Anchor} from "../../src/bridge/libraries/BridgeV3Anchor.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
 import {MockERC20, MockV3Pool} from "./mocks/BridgeMocks.sol";
@@ -35,11 +34,11 @@ contract BridgeSameChainTest is BridgeFixture {
         assertGt(tvl, 0);
         assertFalse(hook.bridgeQuote(id).stale);
         assertFalse(hook.bridgeQuote(id).graduated);
-
-        vm.expectRevert(BridgeStorage.SameChain.selector);
-        hook.updatePrice(id);
-        vm.expectRevert(BridgeStorage.SameChain.selector);
-        hook.fundTip(id, 1e18);
+        (bool priced,) = address(hook).call(abi.encodeWithSignature("updatePrice(bytes32)", PoolId.unwrap(id)));
+        assertFalse(priced);
+        (bool tipped,) =
+            address(hook).call(abi.encodeWithSignature("fundTip(bytes32,uint256)", PoolId.unwrap(id), 1e18));
+        assertFalse(tipped);
     }
 
     function test_spotSpikeDoesNotMoveTheTwap() public {
@@ -86,7 +85,6 @@ contract BridgeSameChainTest is BridgeFixture {
         usdg.mint(address(this), 10e18);
         _buy(key, address(coin), 10e18);
         assertEq(hook.creatorFees(id), 0);
-        assertEq(hook.builderFees(id), 0);
         assertEq(hook.curve(id).lockedY, 0);
         assertEq(hook.curve(id).y - yBefore, 10e18, "the whole payment stays in the book");
         assertFalse(hook.bridgeQuote(id).stale);
@@ -112,16 +110,11 @@ contract BridgeSameChainTest is BridgeFixture {
         usdg.mint(address(this), 10e18);
         _buy(k, address(c), 10e18);
         uint256 creator = hook.creatorFees(pid);
-        uint256 builderCut = hook.builderFees(pid);
         assertGt(creator, 0);
-        assertGt(builderCut, 0);
         assertGt(hook.curve(pid).lockedY, 0);
-        assertLt(creator, 0.3e18, "creator cut is a slice of the fee, not the notional");
-        assertEq(
-            hook.curve(pid).y - yBefore + creator + builderCut,
-            10e18,
-            "creator and builder leave the book; locked liquidity stays"
-        );
+        assertLt(creator, 0.4e18, "creator cut is a slice of the fee, not the notional");
+        assertEq(hook.curve(pid).y - yBefore + creator, 10e18, "only the creator share leaves the book");
+        assertEq(hook.curve(pid).lockedY, creator, "locked matches the creator third");
     }
 
     function test_inversePairAndYoungPool() public {
@@ -144,6 +137,7 @@ contract BridgeSameChainTest is BridgeFixture {
 
         MockERC20 youngCoin = _newCoin("YOUNG", 18);
         MockV3Pool young = new MockV3Pool(address(youngCoin), address(usdg), 0);
+        young.dropToOne();
         v3Factory.setPool(address(youngCoin), address(usdg), 3000, address(young));
         youngCoin.mint(address(this), 10e18);
         youngCoin.approve(address(hook), type(uint256).max);
@@ -156,19 +150,13 @@ contract BridgeSameChainTest is BridgeFixture {
                 discountBps: C.DISCOUNT_BPS,
                 outflowCapBps: 0,
                 outflowWindow: 0,
-                remoteEid: 0,
-                remoteOracle: address(0),
                 anchorKind: C.ANCHOR_V3,
-                v3Pool: address(young),
+                refPool: address(young),
                 coinSeed: 10e18,
-                tipSeed: 0,
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
-                refHook: address(0),
-                refCoinIs0: false,
                 tickSpacing: 0,
-                v3Fee: 3000,
-                refFee: 0,
+                refFee: 3000,
                 refTickSpacing: 0,
                 refHooks: address(0)
             })
@@ -182,7 +170,7 @@ contract BridgeSameChainTest is BridgeFixture {
         v3Factory.setPool(address(fresh), address(usdg), 3000, address(wrong));
         fresh.mint(address(this), 10e18);
         fresh.approve(address(hook), type(uint256).max);
-        vm.expectRevert(BridgeV3Anchor.BadPair.selector);
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
         hook.createPool(
             BridgeStorage.CreateParams({
                 coin: address(fresh),
@@ -191,19 +179,13 @@ contract BridgeSameChainTest is BridgeFixture {
                 discountBps: C.DISCOUNT_BPS,
                 outflowCapBps: 0,
                 outflowWindow: 0,
-                remoteEid: 0,
-                remoteOracle: address(0),
                 anchorKind: C.ANCHOR_V3,
-                v3Pool: address(wrong),
+                refPool: address(wrong),
                 coinSeed: 10e18,
-                tipSeed: 0,
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
-                refHook: address(0),
-                refCoinIs0: false,
                 tickSpacing: 0,
-                v3Fee: 3000,
-                refFee: 0,
+                refFee: 3000,
                 refTickSpacing: 0,
                 refHooks: address(0)
             })
@@ -225,19 +207,13 @@ contract BridgeSameChainTest is BridgeFixture {
                 discountBps: C.DISCOUNT_BPS,
                 outflowCapBps: 0,
                 outflowWindow: 0,
-                remoteEid: 0,
-                remoteOracle: address(0),
                 anchorKind: C.ANCHOR_V3,
-                v3Pool: address(pool),
+                refPool: address(pool),
                 coinSeed: coinSeed,
-                tipSeed: 0,
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
-                refHook: address(0),
-                refCoinIs0: false,
                 tickSpacing: 0,
-                v3Fee: 3000,
-                refFee: 0,
+                refFee: 3000,
                 refTickSpacing: 0,
                 refHooks: address(0)
             })

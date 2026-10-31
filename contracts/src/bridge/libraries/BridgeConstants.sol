@@ -28,35 +28,18 @@ library BridgeConstants {
     uint256 internal constant MARK_HALF_LIFE = 1 days;
 
     // ── Stale anchor ────────────────────────────────────────────────────────
-    /// @dev The anchor is a 30-minute TWAP. A stored quote older than this is stale for every kind,
-    ///      including a same-chain read and a self-sample. Curve trades stop until a poke or a read
-    ///      refreshes it. Redeems do not. Staleness does not change the swap fee. It pays the keeper
-    ///      tip, once, for the cross-chain refresh that clears it.
+    /// @dev The anchor is a 30-minute TWAP. A stored quote older than this is stale for every kind.
+    ///      Curve trades stop until a poke refreshes it. Redeems do not. Staleness does not change the fee.
     uint256 internal constant TWAP_WINDOW = 30 minutes;
     uint256 internal constant STALE_AFTER = TWAP_WINDOW;
-    /// @dev Largest move a later lzRead may apply, in bps of the stored anchor. The first quote
-    ///      has no previous price and is not clamped. 20% is wider than a quiet half hour and
-    ///      tighter than a bad read that would reset the book.
-    uint256 internal constant ANCHOR_MOVE_BPS = 2_000;
 
-    /// @dev Chosen once per pool.
-    ///      0 lzRead of `AnchorLens.readV3`. 1 same-chain v3 `observe`.
-    ///      2 same-chain v4 hook `consult`. 3 same-chain v4 slot0 ring kept by this hook.
-    ///      4 lzRead of `AnchorLens.readV4Oracle`. 5 lzRead of `AnchorLens.readV4Slot`,
-    ///      sampled into the local ring.
-    uint8 internal constant ANCHOR_LZ = 0;
+    /// @dev Chosen once per pool. Same chain only.
+    ///      0 Uniswap v2 pair, verified with `factory.getPair`, sampled into the ring.
+    ///      1 Uniswap v3 pool, verified with `factory.getPool`, priced with `observe`.
+    ///      2 Uniswap v4 pool, verified with `PoolKey.toId`, sampled into the ring.
+    uint8 internal constant ANCHOR_V2 = 0;
     uint8 internal constant ANCHOR_V3 = 1;
-    uint8 internal constant ANCHOR_V4_ORACLE = 2;
-    uint8 internal constant ANCHOR_V4_SAMPLE = 3;
-    uint8 internal constant ANCHOR_LZ_V4_ORACLE = 4;
-    uint8 internal constant ANCHOR_LZ_V4_SLOT = 5;
-
-    // ── Keeper tip ──────────────────────────────────────────────────────────
-    /// @dev $1 of normalized USDG. Paid only when an update was actually stale (or the first read).
-    uint256 internal constant TIP_USDG = 1e18;
-    /// @dev Slice of each trade fee escrowed for keepers, until the budget cap.
-    uint256 internal constant TIP_SLICE_BPS = 1_000; // 10% of the fee
-    uint256 internal constant TIP_BUDGET_CAP = 10e18; // $10
+    uint8 internal constant ANCHOR_V4 = 2;
 
     // ── LP boost (fee weight only) ──────────────────────────────────────────
     uint256 internal constant BOOST_START_WAD = 5e18; // 5x at launch, fee weight only
@@ -73,11 +56,10 @@ library BridgeConstants {
     // ── Graduation / fee split ──────────────────────────────────────────────
     uint256 internal constant GRAD_NUM = 12;
     uint256 internal constant GRAD_DEN = 100;
-    /// @dev Of a graduated fee. 33% + 33% + 33% + 1% = 100%. The LP share is the remainder, so
-    ///      rounding dust is not taken from the creator, the locked liquidity, or the builder.
-    uint256 internal constant FEE_CREATOR_BPS = 3_300;
-    uint256 internal constant FEE_LOCKED_BPS = 3_300;
-    uint256 internal constant FEE_BUILDER_BPS = 100;
+    /// @dev Of a graduated fee. 3,333 creator + 3,333 locked, and the remainder (3,334) to LPs.
+    ///      Before graduation the whole fee compounds for LPs. There is no builder share.
+    uint256 internal constant FEE_CREATOR_BPS = 3_333;
+    uint256 internal constant FEE_LOCKED_BPS = 3_333;
     /// @dev Fixed. Status turns on after spot pool TVL has stayed at or above the live target for
     ///      this long, and off after it has stayed strictly below that target for the same wait.
     ///      One threshold, 100%. Not set per pool. Longer than a flash loan or a same-block round

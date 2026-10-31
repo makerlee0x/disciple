@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -13,12 +14,9 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
-import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
-import {DiscipleLpFacet} from "../../src/bridge/DiscipleLpFacet.sol";
-import {DiscipleCreateFacet} from "../../src/bridge/DiscipleCreateFacet.sol";
-import {DiscipleAdminFacet} from "../../src/bridge/DiscipleAdminFacet.sol";
-import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
-import {MockERC20, MockLzRead, MockV3Factory} from "./mocks/BridgeMocks.sol";
+import {BridgeV3Anchor} from "../../src/bridge/libraries/BridgeV3Anchor.sol";
+import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
+import {MockERC20, MockV2Factory, MockV3Factory, MockV3Pool} from "./mocks/BridgeMocks.sol";
 
 contract BridgeFixture is Test {
     using PoolIdLibrary for PoolKey;
@@ -27,60 +25,28 @@ contract BridgeFixture is Test {
         Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
     );
+    uint24 internal constant V3_FEE = 3000;
 
     IPoolManager public manager;
     DiscipleHook public hook;
     PoolSwapTest public swapper;
     MockERC20 public usdg;
     MockERC20 public coin;
-    MockLzRead public lz;
+    MockV2Factory public v2Factory;
     MockV3Factory public v3Factory;
-    DiscipleEngine public engine;
-    DiscipleLpFacet public lpFacet;
-    DiscipleCreateFacet public createFacet;
-    DiscipleAdminFacet public adminFacet;
-    DiscipleSwapFacet public swapFacet;
     PoolKey public key;
     PoolId public id;
+    mapping(PoolId => MockV3Pool) internal v3Of;
 
     function _deployStack(uint8 usdgDec) internal {
         usdg = new MockERC20("USDG", "USDG", usdgDec);
-        lz = new MockLzRead();
+        v2Factory = new MockV2Factory();
         v3Factory = new MockV3Factory();
         manager = IPoolManager(address(new PoolManager(address(this))));
-        engine = new DiscipleEngine();
-        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
-        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
-        createFacet = new DiscipleCreateFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
-        swapFacet = new DiscipleSwapFacet(manager, address(usdg), address(lz), usdgDec, engine, address(v3Factory));
-        bytes memory args = abi.encode(
-            manager,
-            address(usdg),
-            address(lz),
-            usdgDec,
-            address(engine),
-            address(swapFacet),
-            address(lpFacet),
-            address(createFacet),
-            address(adminFacet),
-            address(this),
-            address(v3Factory)
-        );
+        if (block.timestamp < 31 minutes) vm.warp(31 minutes);
+        bytes memory args = abi.encode(manager, address(usdg), usdgDec, address(v2Factory), address(v3Factory));
         (address predicted, bytes32 salt) = _mineHook(args);
-        hook = new DiscipleHook{salt: salt}(
-            manager,
-            address(usdg),
-            address(lz),
-            usdgDec,
-            engine,
-            address(swapFacet),
-            address(lpFacet),
-            address(createFacet),
-            address(adminFacet),
-            address(this),
-            address(v3Factory)
-        );
-        hook.setLensAllowed(address(0xE7E7), true);
+        hook = new DiscipleHook{salt: salt}(manager, address(usdg), usdgDec, address(v2Factory), address(v3Factory));
         require(address(hook) == predicted, "hook addr");
         swapper = new PoolSwapTest(manager);
     }
@@ -116,6 +82,7 @@ contract BridgeFixture is Test {
         c = new MockERC20(name, name, dec);
     }
 
+    /// @dev `tipSeed` is ignored. The hook has no keeper budget. The parameter stays so older call sites compile.
     function _create(
         MockERC20 c,
         uint256 coinSeed,
@@ -125,12 +92,11 @@ contract BridgeFixture is Test {
         uint16 outflowCapBps,
         uint32 outflowWindow
     ) internal returns (PoolKey memory k, PoolId poolId) {
+        tipSeed;
         c.mint(address(this), coinSeed);
         c.approve(address(hook), type(uint256).max);
-        if (tipSeed > 0) {
-            usdg.mint(address(this), tipSeed);
-            usdg.approve(address(hook), type(uint256).max);
-        }
+        usdg.approve(address(hook), type(uint256).max);
+        MockV3Pool pool = _registerV3(c);
         (k, poolId) = hook.createPool(
             BridgeStorage.CreateParams({
                 coin: address(c),
@@ -139,23 +105,25 @@ contract BridgeFixture is Test {
                 discountBps: discountBps,
                 outflowCapBps: outflowCapBps,
                 outflowWindow: outflowWindow,
-                remoteEid: 30101,
-                remoteOracle: address(0xE7E7),
-                anchorKind: 0,
-                v3Pool: address(0xB333),
+                anchorKind: C.ANCHOR_V3,
+                refPool: address(pool),
                 coinSeed: coinSeed,
-                tipSeed: tipSeed,
                 dutchDrift: 0,
                 refPoolId: bytes32(0),
-                refHook: address(0),
-                refCoinIs0: false,
                 tickSpacing: 0,
-                v3Fee: 0,
-                refFee: 0,
+                refFee: V3_FEE,
                 refTickSpacing: 0,
                 refHooks: address(0)
             })
         );
+        v3Of[poolId] = pool;
+    }
+
+    function _registerV3(MockERC20 c) internal returns (MockV3Pool pool) {
+        address t0 = address(c) < address(usdg) ? address(c) : address(usdg);
+        address t1 = address(c) < address(usdg) ? address(usdg) : address(c);
+        pool = new MockV3Pool(t0, t1, 0);
+        v3Factory.setPool(address(c), address(usdg), V3_FEE, address(pool));
     }
 
     /// @dev External so a test can advance the block without via_ir reusing a cached `block.number + 1`.
@@ -163,14 +131,49 @@ contract BridgeFixture is Test {
         vm.roll(block.number + 1);
     }
 
+    /// @dev Pin the v3 window to `priceWad` and put `ethTvl` of quote tokens on the reference pool, then poke.
     function _price(PoolId poolId, uint256 priceWad, uint256 ethTvl) internal {
-        vm.deal(address(this), 1 ether);
-        hook.updatePrice{value: lz.fee()}(poolId);
-        lz.fulfill(lz.lastGuid(), priceWad, ethTvl);
+        MockV3Pool pool = v3Of[poolId];
+        require(address(pool) != address(0), "no v3");
+        address quote = address(usdg);
+        address coinAddr = pool.token0() == quote ? pool.token1() : pool.token0();
+        bool coin0 = pool.token0() == coinAddr;
+        int24 tick = _tickFor(priceWad, coin0, IERC20Metadata(coinAddr).decimals(), usdg.decimals());
+        pool.pin(tick);
+        deal(coinAddr, address(pool), 0);
+        deal(quote, address(pool), _quoteRaw(ethTvl));
+        hook.poke(poolId);
     }
 
-    /// @dev A cross-chain swap reverts once the stored quote is stale. Tests that trade after the
-    ///      window re-post the current anchor so the swap is about the book, not about staleness.
+    function _quoteRaw(uint256 wad) internal view returns (uint256) {
+        uint8 dec = usdg.decimals();
+        if (dec >= 18) return wad / 10 ** (dec - 18);
+        return wad / 10 ** (18 - dec);
+    }
+
+    function _tickFor(uint256 priceWad, bool coin0, uint8 coinDec, uint8 quoteDec) internal pure returns (int24) {
+        int24 lo = TickMath.MIN_TICK;
+        int24 hi = TickMath.MAX_TICK;
+        while (lo < hi) {
+            int24 mid = int24((int256(lo) + int256(hi)) >> 1);
+            uint256 p = BridgeV3Anchor.priceFromSqrt(TickMath.getSqrtPriceAtTick(mid), coin0, coinDec, quoteDec);
+            if (p == priceWad) return mid;
+            // Coin as token0: price rises with the tick. Coin as token1: price falls with the tick.
+            bool below = coin0 ? p < priceWad : p > priceWad;
+            if (below) lo = int24(int256(mid) + 1);
+            else hi = mid;
+        }
+        if (lo == TickMath.MIN_TICK) return lo;
+        int24 prev = int24(int256(lo) - 1);
+        uint256 atLo = BridgeV3Anchor.priceFromSqrt(TickMath.getSqrtPriceAtTick(lo), coin0, coinDec, quoteDec);
+        uint256 atPrev = BridgeV3Anchor.priceFromSqrt(TickMath.getSqrtPriceAtTick(prev), coin0, coinDec, quoteDec);
+        uint256 dLo = atLo > priceWad ? atLo - priceWad : priceWad - atLo;
+        uint256 dPrev = atPrev > priceWad ? atPrev - priceWad : priceWad - atPrev;
+        return dPrev <= dLo ? prev : lo;
+    }
+
+    /// @dev A stale anchor is refreshed by poke. Tests that trade after the window re-post the
+    ///      current anchor so the swap is about the book, not about staleness.
     function _freshen(PoolId poolId) internal {
         if (hook.curve(poolId).anchor == 0 || !hook.bridgeQuote(poolId).stale) return;
         _price(poolId, hook.curve(poolId).anchor, hook.referenceTvl(poolId));
@@ -178,7 +181,6 @@ contract BridgeFixture is Test {
 
     function _swap(PoolKey memory k, bool zeroForOne, uint256 amountIn, bool mintLp) internal returns (BalanceDelta) {
         PoolId poolId = k.toId();
-        // A stale same-chain anchor is refreshed by poke. Cross-chain poke does not write a price.
         if (hook.curve(poolId).anchor != 0 && hook.bridgeQuote(poolId).stale) {
             try hook.poke(poolId) {} catch {}
         }
@@ -212,6 +214,4 @@ contract BridgeFixture is Test {
         bool zeroForOne = Currency.unwrap(k.currency0) != c;
         return _swap(k, zeroForOne, usdgIn, true);
     }
-
-    receive() external payable {}
 }

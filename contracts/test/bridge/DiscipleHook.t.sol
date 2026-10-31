@@ -9,14 +9,18 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC6909Claims} from "@uniswap/v4-core/src/interfaces/external/IERC6909Claims.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
-import {AnchorLens} from "../../src/bridge/AnchorLens.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
+import {DiscipleMath} from "../../src/bridge/DiscipleMath.sol";
+import {DiscipleAnchor} from "../../src/bridge/DiscipleAnchor.sol";
+import {DiscipleBook} from "../../src/bridge/DiscipleBook.sol";
+import {DiscipleLp} from "../../src/bridge/DiscipleLp.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeFee} from "../../src/bridge/libraries/BridgeFee.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
-import {MockERC20} from "./mocks/BridgeMocks.sol";
+import {MockERC20, MockV3Pool} from "./mocks/BridgeMocks.sol";
 
 contract DiscipleHookTest is BridgeFixture {
     using CurrencyLibrary for Currency;
@@ -30,11 +34,12 @@ contract DiscipleHookTest is BridgeFixture {
 
     function test_runtimeFitsEip170() public view {
         assertLe(address(hook).code.length, 24_576);
-        assertLe(address(engine).code.length, 24_576);
-        assertLe(address(lpFacet).code.length, 24_576);
-        assertLe(address(createFacet).code.length, 24_576);
-        assertLe(address(adminFacet).code.length, 24_576);
-        assertLe(address(swapFacet).code.length, 24_576);
+        assertLe(address(DiscipleMath).code.length, 24_576);
+        assertLe(address(DiscipleAnchor).code.length, 24_576);
+        assertLe(address(DiscipleBook).code.length, 24_576);
+        assertLe(address(DiscipleLp).code.length, 24_576);
+        assertGt(address(hook).code.length, 0);
+        assertGt(address(DiscipleBook).code.length, 0);
     }
 
     function test_startsAtDiscountWithNoUsdg() public view {
@@ -50,8 +55,7 @@ contract DiscipleHookTest is BridgeFixture {
         assertLt(q.suggestedFeeBps, C.FEE_TINY_BPS);
         assertFalse(q.stale);
         assertFalse(q.graduated);
-        assertEq(bytes4(lz.lastCallData()), AnchorLens.readV3.selector);
-        assertEq(lz.lastTarget(), address(0xE7E7));
+        assertEq(hook.anchorKind(id), C.ANCHOR_V3);
         _solvent(id, address(coin));
     }
 
@@ -76,23 +80,27 @@ contract DiscipleHookTest is BridgeFixture {
         this.execSwap(k, Currency.unwrap(k.currency0) != address(c), 1e18);
     }
 
-    function test_keeperTipOnlyWhenStaleAndCallerDoesNotSetPrice() public {
-        // setUp already consumed the first (missing) quote and paid $1 of the $5 tip seed.
-        assertEq(usdg.balanceOf(address(this)), 1e18);
-
-        uint256 lzFee = lz.fee();
-        vm.expectRevert(BridgeStorage.Fresh.selector);
-        hook.updatePrice{value: lzFee}(id);
-        assertEq(usdg.balanceOf(address(this)), 1e18, "fresh update pays nothing");
-
-        vm.warp(block.timestamp + 30 minutes + 1);
+    function test_stalePokeReadsThePoolAndPaysNothing() public {
         uint256 before = usdg.balanceOf(address(this));
-        hook.updatePrice{value: lz.fee()}(id);
-        // The keeper still does not choose the number. The endpoint does.
-        lz.fulfill(lz.lastGuid(), 1.1e18, 725_000e18);
-        assertEq(usdg.balanceOf(address(this)), before + 1e18);
-        // 10% anchor move, same discount ratio: 0.67 * 1.1
-        assertApproxEqAbs(hook.spotPrice(id), 0.737e18, 2);
+        vm.warp(block.timestamp + 30 minutes + 1);
+        usdg.mint(address(this), 1e18);
+        usdg.approve(address(swapper), type(uint256).max);
+        // PoolManager wraps the hook revert. The swap must revert; the caller does not get to pick the price.
+        vm.expectRevert();
+        swapper.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: _buyZfo(),
+                amountSpecified: -int256(1e18),
+                sqrtPriceLimitX96: _buyZfo() ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        _price(id, 1.1e18, 725_000e18);
+        assertEq(usdg.balanceOf(address(this)), before + 1e18, "a poke pays no keeper");
+        // 10% anchor move, same discount ratio: 0.67 * 1.1. One tick of rounding.
+        assertApproxEqRel(hook.spotPrice(id), 0.737e18, 0.001e18);
         _solvent(id, address(coin));
     }
 
@@ -175,8 +183,9 @@ contract DiscipleHookTest is BridgeFixture {
         MockERC20 bad = _newCoin("SHORT", 18);
         bad.mint(address(this), 10e18);
         bad.approve(address(hook), type(uint256).max);
+        BridgeStorage.CreateParams memory tooSmall = _params(address(bad), 10e18, 1);
         vm.expectRevert(BridgeStorage.BadCreate.selector);
-        hook.createPool(_params(address(bad), 10e18, 1));
+        hook.createPool(tooSmall);
 
         MockERC20 custom = _newCoin("CUSTOM", 18);
         custom.mint(address(this), 10e18);
@@ -288,8 +297,8 @@ contract DiscipleHookTest is BridgeFixture {
         _buy(key, address(coin), 10e18);
         uint256 credit = hook.pendingFee(id, lp);
         uint256 lw = Math.mulDiv(lVal, C.BOOST_START_WAD, C.WAD);
-        // 10% of the fee is the keeper slice. The rest is what the boost splits.
-        uint256 compound = fee - (fee * C.TIP_SLICE_BPS) / C.BPS;
+        // Before graduation the whole fee is what the boost splits.
+        uint256 compound = fee;
         uint256 boosted = Math.mulDiv(compound, lw, lw + pVal);
         uint256 unboosted = Math.mulDiv(compound, lVal, lVal + pVal);
         assertGt(credit, unboosted);
@@ -424,11 +433,10 @@ contract DiscipleHookTest is BridgeFixture {
         _solvent(id2, address(other));
     }
 
-    function test_creatorCutOnlyAfterGraduationAndWalletIsRotatable() public {
-        address creator = address(0xCAFE);
-        vm.prank(address(0xBAD));
-        vm.expectRevert(BridgeStorage.OnlyCreator.selector);
-        hook.setCreator(id, creator);
+    function test_creatorCutOnlyAfterGraduationAndWalletIsFixed() public {
+        (bool moved,) = address(hook)
+            .call(abi.encodeWithSignature("setCreator(bytes32,address)", PoolId.unwrap(id), address(0xCAFE)));
+        assertFalse(moved, "the creator wallet is fixed at creation");
 
         _graduate();
         address stranger = address(0xBAD);
@@ -443,10 +451,6 @@ contract DiscipleHookTest is BridgeFixture {
         uint256 bal = usdg.balanceOf(address(this));
         hook.claimCreatorFees(id);
         assertGt(usdg.balanceOf(address(this)), bal);
-
-        hook.setCreator(id, creator);
-        vm.prank(creator);
-        hook.setCreator(id, address(this));
         _solvent(id, address(coin));
     }
 
@@ -479,12 +483,10 @@ contract DiscipleHookTest is BridgeFixture {
         this.execSwap(key, Currency.unwrap(key.currency0) == address(coin), 80e18);
     }
 
-    function test_onlyLzCanDeliverTheRead() public {
-        vm.expectRevert(BridgeStorage.OnlyLz.selector);
-        hook.onLzRead(bytes32(uint256(1)), abi.encode(uint256(1e18), uint256(1)));
-        vm.prank(address(lz));
-        vm.expectRevert(BridgeStorage.UnknownRead.selector);
-        hook.onLzRead(bytes32(uint256(99)), abi.encode(uint256(1e18), uint256(1)));
+    function test_hookTakesNoEth() public {
+        (bool ok,) = address(hook).call{value: 1}("");
+        assertFalse(ok);
+        assertEq(address(hook).balance, 0);
     }
 
     function execSwap(PoolKey calldata k, bool zeroForOne, uint256 amountIn) external {
@@ -499,11 +501,8 @@ contract DiscipleHookTest is BridgeFixture {
         return Currency.unwrap(key.currency0) == address(coin);
     }
 
-    function _params(address c, uint256 coinSeed, uint64 drift)
-        internal
-        view
-        returns (BridgeStorage.CreateParams memory)
-    {
+    function _params(address c, uint256 coinSeed, uint64 drift) internal returns (BridgeStorage.CreateParams memory) {
+        MockV3Pool pool = _registerV3(MockERC20(c));
         return BridgeStorage.CreateParams({
             coin: c,
             creator: address(this),
@@ -511,19 +510,13 @@ contract DiscipleHookTest is BridgeFixture {
             discountBps: C.DISCOUNT_BPS,
             outflowCapBps: 0,
             outflowWindow: 0,
-            remoteEid: 30101,
-            remoteOracle: address(0xE7E7),
-            anchorKind: 0,
-            v3Pool: address(0xB333),
+            anchorKind: C.ANCHOR_V3,
+            refPool: address(pool),
             coinSeed: coinSeed,
-            tipSeed: 0,
             dutchDrift: drift,
             refPoolId: bytes32(0),
-            refHook: address(0),
-            refCoinIs0: false,
             tickSpacing: 0,
-            v3Fee: 0,
-            refFee: 0,
+            refFee: V3_FEE,
             refTickSpacing: 0,
             refHooks: address(0)
         });
@@ -591,7 +584,8 @@ contract DiscipleHookDec6Test is BridgeFixture {
         coin = _newCoin("JESUS", 18);
         (key, id) = _create(coin, 77e18, 5e6, C.FLOOR_BPS, C.DISCOUNT_BPS, 0, 0);
         _price(id, 1e18, 725_000e18);
-        assertEq(hook.spotPrice(id), 0.67e18);
+        // Six-decimal quote prices land on a tick, so the anchor is within one tick of $1.
+        assertApproxEqRel(hook.spotPrice(id), 0.67e18, 0.0002e18);
         usdg.mint(address(this), 20e6);
         _buy(key, address(coin), 10e6);
         assertGt(coin.balanceOf(address(this)), 0);
