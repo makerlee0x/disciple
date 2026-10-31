@@ -24,13 +24,15 @@ import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fm
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
 import { chartCap, type Box } from "@/lib/game/slots";
+import { overlayBlocked } from "@/lib/game/sidebarOverlay";
 
 /** PR #221: the chart never grows past its cap (≤34% of the canvas width, ≤45% of its height) nor into the centre lane */
 function capChart(s: { w: number; h: number }, x?: number): { w: number; h: number } {
   if (typeof window === "undefined") return s;
   const r = document.getElementById("wrap")?.getBoundingClientRect(), lane = (window as unknown as { __hudLane?: Box }).__hudLane;
   if (!r || !(r.width > 0)) return s;
-  const c = chartCap(r.width, r.height, x, lane, innerWidth);
+  // an open overlay sidebar covers the left edge: the chart is laid out from its right edge (where the slots start)
+  const c = chartCap(r.width, r.height, x == null ? x : Math.max(x, overlayBlocked() + 20), lane, innerWidth);
   return { w: Math.min(s.w, c.w), h: Math.min(s.h, c.h) };
 }
 import { getSavedLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
