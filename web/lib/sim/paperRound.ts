@@ -46,7 +46,7 @@ export function tradeTick(tr: SimTrade, i: number) {
 export function feedNames(run: SimRun) { const o: Record<string, string> = {}; for (const b of run.bots) o[b.wallet.toLowerCase()] = botDisplayName(b.wallet); return o; }
 
 export interface Standing { rank: number; wallet: string; name: string; kind: "human" | "bot"; tier: Tier | "player"; arch: string; cash: number; value: number; bonus: number; worth: number; pnl: number; realized: number; fees: number; trades: number }
-/** ranked by cash (incl. any paper-only ascension bonus) + position value (mark; open tramps/walls at pool value); ties → higher realized, then fewer fees */
+/** ranked by PnL = worth − that wallet's starting stack (worth = cash incl. any paper-only ascension bonus + position value at mark, open tramps/walls at pool value); ties → higher worth, higher realized, then fewer fees */
 export function standings(run: SimRun, brain: PaperBrain): Standing[] {
   const px = run.m.price();
   const ordersVal = (owner: string) => { if (!run.m.pool) return 0; let v = 0; for (const o of run.ordersOf(owner)) { const g = run.m.pool.amounts(o); v += g.quote + g.tokens * px; } return v; };

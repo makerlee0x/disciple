@@ -131,7 +131,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
           <TrampWallPanel key={`tw${runN}`} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
           <SnipeChip state={snipe} />
-          {!phone && <LeaderboardCard rows={st}             pool={phase === "run" && b ? { size: b.pool, top: b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} ${money(x.payout)}`).join(" · "), rank: ps?.rank, est: ps?.est } : undefined} />}
+          {!phone && <LeaderboardCard rows={st}             pool={phase === "run" && b ? { size: b.pool, top: b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} +${money(x.payout).slice(1)}`).join(" · "), rank: ps?.rank, est: ps?.est } : undefined} />}
           <CardChrome extraCards={PAPER_CARDS} />
         </>
       )}
@@ -139,7 +139,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
         <div data-testid="paper-countdown" style={{ ...panel, position: "fixed", left: 8, right: 8, bottom: 128, zIndex: 32, padding: "4px 8px", fontSize: 11, display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", borderColor: PAPER_COLOR[difficulty] }}>
           <span data-testid="paper-board" style={{ color: "#8fd8ff", fontWeight: 800 }}>#{me?.rank}/{st.length}</span>
           <span style={{ opacity: 0.75, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>1. {top?.kind === "human" ? "YOU" : top?.name} {top ? signed(top.pnl) : ""}</span>
-          {b && <span data-testid="paper-pool" style={{ color: "#ffd24a", whiteSpace: "nowrap" }}>Pool {money(b.pool)}{ps?.rank ? ` · #${ps.rank}` : ""}</span>}
+          {b && !!ps?.rank && <span data-testid="paper-pool" style={{ color: "#ffd24a", whiteSpace: "nowrap" }}>{ps?.rank ? (ps.rank <= 3 ? `#${ps.rank} · +${money(ps.est).slice(1)}` : `#${ps.rank}`) : ""}</span>}
           {dev && <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 6px", fontSize: 11 }} onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>}
         </div>); })()}
       {phase === "run" && run && phone && <span style={{ position: "fixed", top: 18, left: 52, zIndex: 32, display: "flex", gap: 6, alignItems: "center" }}><span data-testid="paper-badge" style={{ ...mono, background: "linear-gradient(90deg, #ffd24a, #ff5c8a)", color: "#14121f", borderRadius: 999, padding: "2px 9px", fontSize: 10, fontWeight: 900, letterSpacing: 1.5, whiteSpace: "nowrap" }}>FLIGHT SIMULATOR</span><span data-testid="paper-clock" style={{ ...mono, fontSize: 11, fontWeight: 700, color: left < 30 ? "#ff9fb8" : "rgba(232,236,255,.55)" }}>{clock(left)}</span></span>}
@@ -184,14 +184,13 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
             <div style={{ display: "flex", justifyContent: "space-between" }}><b style={{ color: "#8fd8ff", letterSpacing: 2 }}>ROUND OVER</b><span style={{ color: PAPER_COLOR[results.difficulty], fontWeight: 800 }}>{PAPER_LABEL[results.difficulty]} · seed {results.seed}</span></div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, margin: "14px 0" }}>
               <Stat k="RANK" v={`#${results.player.rank}`} sub={`of ${results.player.of}`} c={results.player.rank <= 10 ? "#ffd24a" : undefined} />
-              <Stat k="PnL" v={signed(results.player.pnl)} sub={`worth ${money(results.player.worth)}`} c={results.player.pnl >= 0 ? "#8ff0c0" : "#ff9fb8"} />
+              <Stat k="PnL" v={signed(results.player.pnl)} sub={results.player.bonus > 0 ? <>worth {money(results.player.worth)}<div data-testid="paper-bonus" style={{ color: "#ffd24a" }}>incl. +{money(results.player.bonus).slice(1)} ascension bonus</div></> : `worth ${money(results.player.worth)}`} c={results.player.pnl >= 0 ? "#8ff0c0" : "#ff9fb8"} />
               <Stat k="BEST TRADE" v={results.player.bestTrade ? signed(results.player.bestTrade.pnl) : "—"} sub={results.player.bestTrade ? `sell at ${clock(results.player.bestTrade.t)}` : "no sells"} />
             </div>
             <div style={{ fontSize: 12 }}>
               {st.slice(0, 5).map((r) => <BoardRow key={r.wallet} r={r} />)}
               {st.findIndex((r) => r.kind === "human") >= 5 && <BoardRow r={st.find((r) => r.kind === "human")!} />}
             </div>
-            {results.player.bonus > 0 && <div data-testid="paper-bonus" style={{ fontSize: 13, fontWeight: 800, color: "#ffd24a", marginBottom: 6 }}>Ascension bonus +{money(results.player.bonus).slice(1)}</div>}
             <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>peak {fmt(results.peakMcap)} · {results.graduated ? `ASCENDED at ${clock(results.graduationSec!)}` : "never ascended"} · {results.trades} trades</div>
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button data-testid="paper-again" style={btn(true)} onClick={() => start()}>⟲ Play again</button>
@@ -216,7 +215,7 @@ function LeaderboardCard({ rows, clock, low, pool }: { rows: Standing[]; clock?:
         transform: card.transform, display: card.hidden ? "none" : undefined }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><b style={{ letterSpacing: 1, color: "#ffd24a" }}>LEADERBOARD</b><span style={{ opacity: 0.6 }}>{clock && <b data-testid="paper-clock" style={{ opacity: 1, color: low ? "#ff9fb8" : "#e8ecff", marginRight: 6 }}>⏱ {clock}</b>}{me ? `you #${me.rank}/${rows.length}` : ""}</span></div>
       {pool && <div data-testid="paper-pool" style={{ color: "#ffd24a", fontSize: 10, marginBottom: 4, lineHeight: "13px" }}>
-        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Pool {money(pool.size)} · {pool.top || "—"}</div>
+        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>TOP 3 · {pool.top || "—"}</div>
         <div data-testid="paper-pool-me" style={{ color: "#8fd8ff" }}>You {pool.rank ? `#${pool.rank}` : "—"}{pool.est ? ` · est. +${money(pool.est).slice(1)}` : ""}</div></div>}
       {rows.slice(0, 8).map((r) => <BoardRow key={r.wallet} r={r} />)}
       {me && me.rank > 8 && <><div style={{ opacity: 0.4, textAlign: "center", lineHeight: "8px" }}>⋯</div><BoardRow r={me} /></>}
@@ -229,7 +228,7 @@ function BoardRow({ r }: { r: Standing }) {
     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.rank}. {you ? "YOU" : r.name}</span>
     <span style={{ color: z ? undefined : up ? "#8ff0c0" : "#ff9fb8" }}>{z ? "$0.00" : signed(r.pnl)}{!z && <> {up ? "▲" : "▼"}</>}</span></div>;
 }
-function Stat({ k, v, sub, c }: { k: string; v: string; sub?: string; c?: string }) {
+function Stat({ k, v, sub, c }: { k: string; v: string; sub?: import("react").ReactNode; c?: string }) {
   return <div style={{ background: "rgba(255,255,255,.04)", borderRadius: 10, padding: 10 }}><div style={{ fontSize: 10, opacity: 0.65, letterSpacing: 1 }}>{k}</div>
     <div style={{ fontSize: 20, fontWeight: 900, color: c || "#e8ecff" }}>{v}</div><div style={{ fontSize: 10, opacity: 0.65 }}>{sub}</div></div>;
 }

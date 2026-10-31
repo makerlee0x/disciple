@@ -1782,7 +1782,7 @@ function drawHud(){
   const top=topFuelers(), kothTitle=S.holders?'TOP HOLDERS':source instanceof DiscipleSource?'TOP HOLDERS · reading balances…':IS_POOL?'TOP BUYERS · real wallets in feed':source.isSim?'KING OF THE HILL · top boosters (sim)':'KING OF THE HILL · top boosters (mock)';
   const docked=kothDockedNow(); if (docked) pushHolders(top,kothTitle);   /* HOLDERS tab of the chat panel (GameChat) shows it instead */
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
-  else if (!docked&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
+  else if (!docked&&!window.__paperCoin&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+STATUS_DY+20);
   top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); ctx.restore(); }
   // bottom-left: trade feed (compact)
@@ -2826,7 +2826,7 @@ function flightReplay(o){ const w=window; if(w.__flightReplay) return w.__flight
   return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=(w.__DISCIPLE_BASE_PATH__||'')+'/flight/replay.js'; s.onload=()=>res(w.__flightReplay(o)); s.onerror=()=>rej(new Error('replay.js failed to load')); document.head.appendChild(s); }); }
 /* POSITION TAG — compact label beside the rocket (perpendicular to its axis, so never on the nose or the trail),
    eased toward its target each frame; values = PnlHud's lib/pnl.ts view() via disciple:pnlview. Shown only with a position. */
-function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.size>0)){ S._tagXY=null; return; }
+function drawPnlTag(){ const v=S.pnlTag; if(!S.pnlTagOn||CLEAN_TAG()||!v||!(v.size>0)||(PH&&window.__paperCoin)){   /* paper coin on phone: PnL lives in the bottom-edge line above BOOST/DUMP, rocket lane stays clear */ S._tagXY=null; return; }
   const [nx,ny]=nozzleXY(), h=S.heading, dx=Math.cos(h), dy=-Math.sin(h), cx=nx+dx*55, cy=ny+dy*55;   // body centre
   let px=-dy, py=dx; if(px<0){ px=-px; py=-py; } if(cx>W-360){ px=-px; py=-py; }                          // side away from the right HUD column
   const TW=196, TH=58, off=78; let tx=cx+px*off-(px<0?TW:0), ty=cy+py*off-TH/2;
