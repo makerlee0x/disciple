@@ -1,10 +1,10 @@
-"use client";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import CashPanel from "@/components/profile/CashPanel";
 
-/** Wallet / deposit moved under the private profile (Cash panel). */
-export default function WalletRedirect() {
-  const router = useRouter();
-  useEffect(() => { router.replace("/profile#cash"); }, [router]);
-  return <div className="page-shell"><p className="note">Deposit &amp; withdraw live on your profile now — redirecting…</p></div>;
+/** Cash: dollar balance, Deposit and Withdraw (lee, Oct 30: moved here from the profile's Settings popup). */
+export default function WalletPage() {
+  return (
+    <div className="page-shell" data-testid="wallet-page">
+      <CashPanel />
+    </div>
+  );
 }

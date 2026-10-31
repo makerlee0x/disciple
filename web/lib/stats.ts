@@ -47,6 +47,8 @@ export interface RocketRow {
 export interface ActivityItem {
   id: string; ts: number; kind: "buy" | "sell" | "bomb";
   text: string; usd?: number; ticker?: string;
+  /** real rows (profile activity, components/profile/RealActivity): the coin, so the row links to its page */
+  coin?: string;
   /** bomb rows only: BOMB_TIERS key + index (0 puff … 5 atom), drives the v2 --dsc-bomb-* color, icon and orb meter */
   bomb?: { k: (typeof BOMB_TIERS)[number]["k"]; tier: number };
 }
