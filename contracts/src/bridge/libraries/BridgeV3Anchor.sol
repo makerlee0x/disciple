@@ -18,6 +18,25 @@ interface IUniswapV3PoolLike {
         returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s);
 }
 
+interface IUniswapV3FactoryView {
+    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
+}
+
+interface IUniswapV3Slot0 {
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
+}
+
 /// @title Disciple's same-chain anchor: 30-minute v3 TWAP and balance TVL
 /// @notice The reference pool must be `coin` paired with Disciple's quote token (USDG on Robinhood
 ///         Chain, or whatever quote the hook was deployed with). A WETH pair is not treated as dollars.

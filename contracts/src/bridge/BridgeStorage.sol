@@ -35,6 +35,9 @@ abstract contract BridgeStorage {
     address public immutable usdg;
     uint8 public immutable usdgDec;
     address public immutable lz;
+    /// @dev Uniswap v3 factory. Same-chain v3 references must be `getPool(coin, USDG, fee)`.
+    ///      Zero means this deployment does not accept same-chain v3 anchors.
+    address public immutable v3Factory;
     /// @dev Stateless math. Immutable. Holds nothing.
     DiscipleEngine public immutable engine;
     Currency internal immutable usdgC;
@@ -73,8 +76,10 @@ abstract contract BridgeStorage {
         uint256 openTakenY;
         uint256 blockFee; // LP fee from this block, not yet in `feeIndex`
         uint256 redeemedEligible; // opening shares burned this block (excluded from the fee denominator)
-        /// @dev Both Dutch quotes share this clock. A trade sets it to `block.timestamp`, which closes the gap.
-        uint64 dutchAt;
+        /// @dev Bid clock. A coin-in fill at or above `DUTCH_MIN_SLICE` sets it. The ask has its own clock.
+        uint64 dutchBidAt;
+        /// @dev Ask clock. A USDG-in fill at or above `DUTCH_MIN_SLICE` sets it.
+        uint64 dutchAskAt;
         /// @dev Wad of gap per second. Fixed at creation.
         uint64 dutchDrift;
         /// @dev First timestamp pool TVL was seen at or above the live target. 0 means not running.
@@ -96,15 +101,18 @@ abstract contract BridgeStorage {
         uint64 readNonce;
         /// @dev Highest request nonce whose result was accepted. A lower nonce is out of order.
         uint64 appliedNonce;
+        /// @dev Principal high-water. Decays toward live principal with `MARK_HALF_LIFE`. The floor is 20% of this.
+        uint256 principalMark;
+        uint64 principalMarkAt;
     }
 
     struct CreateParams {
         address coin;
         address creator;
-        uint16 floorBps; // 100–5000 (1%–50%). Recommended: BridgeConstants.FLOOR_BPS (20%).
+        uint16 floorBps; // must be BridgeConstants.FLOOR_BPS (20%). Pinned.
         uint16 discountBps; // 1000–5000 (10%–50% below the anchor). Recommended: 3300 → 0.67x.
-        uint16 outflowCapBps; // 0 = off
-        uint32 outflowWindow; // 0, 1 (block), or 3600 (hour)
+        uint16 outflowCapBps; // 0 with window 0 selects 20% per hour. Cannot be turned off.
+        uint32 outflowWindow; // 0 (default hour), 1 (block), or 3600 (hour)
         uint32 remoteEid;
         address remoteOracle;
         /// @dev Anchor kind. Fixed for the life of the pool. See `BridgeConstants`.
@@ -121,8 +129,16 @@ abstract contract BridgeStorage {
         /// @dev Oracle hook for `ANCHOR_V4_ORACLE` and `ANCHOR_LZ_V4_ORACLE`. For `ANCHOR_LZ_V4_SLOT`
         ///      this is the remote PoolManager. Zero for the other kinds.
         address refHook;
-        /// @dev Self-sample only. True when the coin is currency0 of `refPoolId`.
+        /// @dev Self-sample only. Ignored: the hook derives it from `coin < USDG`.
         bool refCoinIs0;
+        /// @dev 0 selects `TICK_SPACING` (60). A second pool for the same coin picks another spacing.
+        int24 tickSpacing;
+        /// @dev Uniswap v3 fee tier. Required for `ANCHOR_V3`. The pool must be the factory's pool for it.
+        uint24 v3Fee;
+        /// @dev Self-sample reference pool. The hook rebuilds the PoolKey and requires `toId() == refPoolId`.
+        uint24 refFee;
+        int24 refTickSpacing;
+        address refHooks;
     }
 
     /// @notice Exact size and direction that maximizes mark-to-anchor profit after the current fee.
@@ -180,6 +196,10 @@ abstract contract BridgeStorage {
     address public builder;
     /// @dev Two-step handoff. Only `builder` can set it. Only this address can accept.
     address public pendingBuilder;
+    /// @dev v4 oracle hooks (and the remote PoolManager for an lzRead slot) the builder has allowed.
+    mapping(address => bool) public allowedOracle;
+    /// @dev Remote lenses (`remoteOracle`) the builder has allowed. A same-chain pool does not use one.
+    mapping(address => bool) public allowedLens;
 
     error OnlyPoolManager();
     error OnlyLz();
@@ -206,7 +226,8 @@ abstract contract BridgeStorage {
     /// @dev Keeper reads and the keeper tip exist only for cross-chain pools.
     error SameChain();
     error OnlyDelegate();
-    /// @dev Cross-chain anchor is missing or older than `STALE_AFTER`. Swaps stop until a read lands.
+    /// @dev Stored anchor is missing or older than `STALE_AFTER`. Curve trades stop until a refresh.
+    ///      Redeems do not read this.
     error Stale();
     /// @dev This result's nonce is older than one already applied.
     error OutOfOrder();
@@ -245,29 +266,58 @@ abstract contract BridgeStorage {
     event BuilderClaimed(PoolId indexed id, address indexed to, uint256 amount);
     event TipFunded(PoolId indexed id, address indexed from, uint256 amount);
 
-    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_) {
+    constructor(
+        IPoolManager manager_,
+        address usdg_,
+        address lz_,
+        uint8 usdgDecimals_,
+        DiscipleEngine engine_,
+        address v3Factory_
+    ) {
         if (usdgDecimals_ > 18 || address(engine_) == address(0)) revert BadCreate();
         poolManager = manager_;
         usdg = usdg_;
         usdgDec = usdgDecimals_;
         lz = lz_;
         engine = engine_;
+        v3Factory = v3Factory_;
         usdgC = Currency.wrap(usdg_);
     }
 
     /// @dev `s` is the book the trade will use (already recentered, for a same-chain pool).
     ///      The fee and the band use the smoothed graduation target, not the raw reference TVL.
     function _ctx(Pool storage p, BridgeCurve.S memory s) internal view returns (BridgeCurve.Ctx memory ctx) {
-        uint256 room = BridgeCurve.floorRoom(s, p.floorBps);
+        uint256 floorAmt = (_markNow(p) * C.FLOOR_BPS) / C.BPS;
+        uint256 room = BridgeCurve.floorRoomAbs(s, floorAmt);
         uint256 cap = _outflowLeft(p, BridgeCurve.principalY(s));
         ctx.gradTvl = _gradTvl(p);
         bool sameChain = _sameChain(p.anchorKind);
         ctx.graduated = p.graduated;
         ctx.tipRoom = sameChain || p.tipBudget >= C.TIP_BUDGET_CAP ? 0 : C.TIP_BUDGET_CAP - p.tipBudget;
         ctx.floorBps = p.floorBps;
+        ctx.principalFloor = floorAmt;
         ctx.maxUsdgOut = cap < room ? cap : room;
         ctx.totalShares = p.totalShares;
+        ctx.useOpen = true;
+        if (p.openBlock == uint64(block.number)) {
+            ctx.openLpVal = p.openLpY + Math.mulDiv(p.openLpX, s.anchor, C.WAD);
+            ctx.openShares = p.openShares;
+        } else {
+            ctx.openLpVal = BridgeCurve.lpValue(s);
+            ctx.openShares = p.totalShares;
+        }
         ctx.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(s), ctx.gradTvl);
+    }
+
+    /// @dev The mark a write would store. Views use this so a quote matches the next trade.
+    function _markNow(Pool storage p) internal view returns (uint256) {
+        uint256 principal = BridgeCurve.principalY(p.curve);
+        uint256 mark = p.principalMark;
+        if (mark == 0 || principal >= mark) return principal;
+        uint256 at = uint256(p.principalMarkAt);
+        uint256 dt = at == 0 || block.timestamp <= at ? 0 : block.timestamp - at;
+        if (dt == 0) return mark;
+        return principal + engine.decayed(mark - principal, dt, C.MARK_HALF_LIFE);
     }
 
     /// @notice Memory book priced off the live anchor. Does not write storage.
@@ -300,10 +350,10 @@ abstract contract BridgeStorage {
         return kind == C.ANCHOR_V3 || kind == C.ANCHOR_V4_ORACLE || kind == C.ANCHOR_V4_SAMPLE;
     }
 
-    /// @dev Gap in WAD. Both quotes share `dutchAt`. Zero until time has passed since the last trade.
-    function _gap(Pool storage p) internal view returns (uint256) {
-        if (p.dutchAt == 0 || p.dutchDrift == 0 || block.timestamp <= uint256(p.dutchAt)) return 0;
-        return (block.timestamp - uint256(p.dutchAt)) * uint256(p.dutchDrift);
+    /// @dev Gap in WAD for one Dutch clock. Zero until time has passed since that side last filled.
+    function _gapAt(Pool storage p, uint64 stamp) internal view returns (uint256) {
+        if (stamp == 0 || p.dutchDrift == 0 || block.timestamp <= uint256(stamp)) return 0;
+        return (block.timestamp - uint256(stamp)) * uint256(p.dutchDrift);
     }
 
     function _rawId(Pool storage p) internal view returns (bytes32) {
@@ -312,9 +362,12 @@ abstract contract BridgeStorage {
 
     function _outflowLeft(Pool storage p, uint256 principal) internal view returns (uint256) {
         if (p.outflowWindow == 0 || p.outflowCapBps == 0) return type(uint256).max;
-        bool expired = p.outflowWindow == C.OUTFLOW_PER_BLOCK
-            ? block.number != p.outflowStart
-            : block.timestamp >= uint256(p.outflowStart) + p.outflowWindow;
+        // `outflowStart == 0` is a window that has not opened. The allowance is the full cap.
+        // A zero start must not look "inside the hour" when `block.timestamp` is still small.
+        bool expired = p.outflowStart == 0
+            || (p.outflowWindow == C.OUTFLOW_PER_BLOCK
+                    ? block.number != p.outflowStart
+                    : block.timestamp >= uint256(p.outflowStart) + p.outflowWindow);
         if (expired) return (principal * p.outflowCapBps) / C.BPS;
         uint256 cap = (p.outflowBasis * p.outflowCapBps) / C.BPS;
         return cap > p.outflowUsed ? cap - p.outflowUsed : 0;

@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {CurrencySettler} from "../libraries/CurrencySettler.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
@@ -18,95 +13,20 @@ import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
 /// @title Disciple LP facet
-/// @notice Create, deposit, redeem, and the keeper callback for Disciple (`DiscipleHook`).
+/// @notice Deposit, redeem, and the keeper callback for Disciple (`DiscipleHook`). Creation lives on
+///         `DiscipleCreateFacet`.
 ///         Runs as the hook via `delegatecall`. v4 still sees the hook address.
 contract DiscipleLpFacet is DiscipleFacetBase {
-    using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
 
-    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
-        DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_)
-    {}
-
-    function createPool(CreateParams calldata c) external returns (PoolKey memory key, PoolId id) {
-        _onlyDelegate();
-        if (_locked) revert Reentrancy();
-        _locked = true;
-
-        if (c.coin == address(0) || c.coin == usdg || c.coin.code.length == 0) revert BadCreate();
-        if (c.creator == address(0)) revert BadCreate();
-        if (!engine.anchorOk(c.anchorKind, c.remoteOracle, c.v3Pool, c.refPoolId, c.refHook, c.tipSeed, c.remoteEid)) {
-            revert BadCreate();
-        }
-        if (c.floorBps < 100 || c.floorBps > 5_000) revert BadCreate();
-        if (c.discountBps < 1_000 || c.discountBps > 5_000) revert BadCreate();
-        if (c.coinSeed == 0) revert BadCreate();
-        if (c.outflowWindow != 0 || c.outflowCapBps != 0) {
-            if (c.outflowWindow != C.OUTFLOW_PER_BLOCK && c.outflowWindow != C.OUTFLOW_PER_HOUR) revert BadCreate();
-            if (c.outflowCapBps == 0 || c.outflowCapBps > C.BPS) revert BadCreate();
-        }
-        uint64 drift = engine.normalizeDrift(c.dutchDrift);
-        if (drift == 0) revert BadCreate();
-
-        uint8 coinDec = IERC20Metadata(c.coin).decimals();
-        if (coinDec > 18) revert BadCreate();
-
-        uint256 coinGot = _pull(c.coin, msg.sender, c.coinSeed);
-        uint256 tipGot = c.tipSeed == 0 ? 0 : _pull(usdg, msg.sender, c.tipSeed);
-        uint256 coinNorm = _toNorm(coinGot, coinDec);
-        uint256 tipNorm = _toNorm(tipGot, usdgDec);
-        if (coinNorm == 0) revert Dust();
-
-        bool coinIs0 = c.coin < usdg;
-        key = PoolKey({
-            currency0: Currency.wrap(coinIs0 ? c.coin : usdg),
-            currency1: Currency.wrap(coinIs0 ? usdg : c.coin),
-            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: C.TICK_SPACING,
-            hooks: IHooks(address(this))
-        });
-        id = key.toId();
-        if (pools[id].exists) revert BadCreate();
-
-        Pool storage p = pools[id];
-        p.exists = true;
-        p.coinIs0 = coinIs0;
-        p.coinDec = coinDec;
-        p.coin = c.coin;
-        p.creator = c.creator;
-        p.floorBps = c.floorBps;
-        p.outflowCapBps = c.outflowCapBps;
-        p.outflowWindow = c.outflowWindow;
-        p.remoteEid = c.remoteEid;
-        p.remoteOracle = c.remoteOracle;
-        p.anchorKind = c.anchorKind;
-        p.v3Pool = c.v3Pool;
-        p.tipBudget = tipNorm;
-        p.dutchDrift = drift;
-        p.dutchAt = block.timestamp == 0 ? 1 : uint64(block.timestamp);
-        p.refPoolId = c.refPoolId;
-        p.refHook = c.refHook;
-        p.refCoinIs0 = c.refCoinIs0;
-        p.key = key;
-        // `init` takes memory. Assigning the copy is what actually stores the seed.
-        BridgeCurve.S memory seeded;
-        BridgeCurve.init(seeded, coinNorm, uint256(c.discountBps) * 1e14); // bps → WAD (3300 bps = 0.33e18)
-        p.curve = seeded;
-        if (_sameChain(c.anchorKind)) {
-            // v3 `observe` reverts when the pair is wrong or the pool has no 30-minute history.
-            // A v4 self-sample that is not warm yet leaves the anchor at 0. Swaps revert until it is.
-            _persistReference(p);
-            _touchGrad(id, p);
-        }
-
-        // Self-call: v4 skips beforeInitialize when the hook is msg.sender. Anyone else hits the revert below.
-        poolManager.initialize(key, TickMath.getSqrtPriceAtTick(0));
-        poolManager.unlock(abi.encode(OP_SEED, PoolId.unwrap(id), coinGot, tipGot));
-
-        if (tipNorm > 0) _creditPoolUsdg(p, tipNorm);
-        emit PoolCreated(id, c.coin, c.creator, c.floorBps, c.discountBps, coinNorm, c.anchorKind);
-        _locked = false;
-    }
+    constructor(
+        IPoolManager manager_,
+        address usdg_,
+        address lz_,
+        uint8 usdgDecimals_,
+        DiscipleEngine engine_,
+        address v3Factory_
+    ) DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_, v3Factory_) {}
 
     function setCreator(PoolId id, address next) external {
         _onlyDelegate();
@@ -225,8 +145,13 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         BridgeCurve.S memory deposited = p.curve;
         BridgeCurve.addLiquidity(deposited, coinNorm, usdgNorm);
         p.curve = deposited;
+        // The deposit is principal. The open outflow window has to see it or the cap stays at the
+        // pre-deposit baseline and a later sell in the same hour quotes nothing.
+        _bumpOutflowBasis(p);
         // Share price is the block's opening NAV, so a same-block buy cannot cheapen or enrich the mint.
         uint256 minted = _mintShares(p, id, lp, added, coinNorm, usdgNorm);
+        _touchMark(p);
+        _touchGrad(id, p);
         _requireReserve(p);
         emit Deposited(id, lp, minted, coinNorm, usdgNorm);
         return abi.encode(minted);
@@ -238,8 +163,8 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
         if (sh == 0 || sh > sharesOf[id][lp]) revert Amount();
-        _persistReference(p);
-        if (p.curve.anchor == 0) revert NoAnchor();
+        // Redeems do not read the oracle. A dead or zero reference cannot freeze withdrawals.
+        _touchMark(p);
         _rollBlock(p, id);
         _promote(p, id, lp);
         _checkpoint(p, id, lp);
@@ -277,6 +202,7 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         }
 
         _payout(p, userX, userY, lp);
+        _touchGrad(id, p);
         _requireReserve(p);
         emit Redeemed(id, lp, sh, userX, userY, wfee);
         return abi.encode(_toRaw(userX, p.coinDec), _toRaw(userY, usdgDec));
@@ -396,6 +322,9 @@ contract DiscipleLpFacet is DiscipleFacetBase {
         if (outX > s.x) outX = s.x;
         uint256 principal = s.protoY + s.lpY;
         if (outY > principal) outY = principal;
+        uint256 floorAmt = (p.principalMark * C.FLOOR_BPS) / C.BPS;
+        uint256 floorRoom = principal > floorAmt ? principal - floorAmt : 0;
+        if (outY > floorRoom) revert ExceedsCap();
 
         uint256 value = outY + credit + (spotP == 0 ? 0 : Math.mulDiv(outX, spotP, C.WAD));
         uint256 bps = BridgeFee.baseFeeBps(BridgeCurve.tvl(s), _gradTvl(p));
@@ -440,6 +369,18 @@ contract DiscipleLpFacet is DiscipleFacetBase {
             if (toLp > 0) p.blockFee += toLp;
             p.creatorAccrued += toCreator;
             p.builderAccrued += toBuilder;
+        }
+        if (feeCreditTaken > 0) {
+            (uint256 cCreator, uint256 cLp, uint256 cLocked, uint256 cBuilder) =
+                engine.splitFee(feeCreditTaken, p.graduated);
+            // The taken credit is still in `feePot`. The LP share stays and is indexed. The rest leaves.
+            s.feePot -= cCreator + cLocked + cBuilder;
+            s.lockedY += cLocked;
+            if (cLp > 0) p.blockFee += cLp;
+            p.creatorAccrued += cCreator;
+            p.builderAccrued += cBuilder;
+            toCreator += cCreator;
+            toBuilder += cBuilder;
         }
         s.y -= userY + paidCredit + toCreator + toBuilder;
         userY += paidCredit;

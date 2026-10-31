@@ -20,12 +20,18 @@ library BridgeConstants {
     uint256 internal constant FEE_FLOOR_BPS = FEE_GRAD_BPS;
     /// @dev ln(2) in WAD. Used to smooth the reference TVL. Not a fee input.
     uint256 internal constant LN2_WAD = 693_147_180_559_945_309;
+    /// @dev One smooth step closes at most this much of the half-life. A reading after idle time,
+    ///      or one donation, cannot jump the stored TVL the rest of the way.
+    uint256 internal constant SMOOTH_STEP = 10 minutes;
+    /// @dev The principal high-water mark decays toward the live principal with this half-life.
+    ///      A same-second sequence does not decay, so repeated sells cannot walk under the floor.
+    uint256 internal constant MARK_HALF_LIFE = 1 days;
 
     // ── Stale anchor ────────────────────────────────────────────────────────
-    /// @dev The anchor is a 30-minute TWAP. Cross-chain, a stored quote older than this is stale.
-    ///      Same-chain reads the window directly and is never stale. A stale cross-chain anchor
-    ///      refuses the swap. Staleness does not change the swap fee. It pays the keeper tip,
-    ///      once, for the refresh that clears it.
+    /// @dev The anchor is a 30-minute TWAP. A stored quote older than this is stale for every kind,
+    ///      including a same-chain read and a self-sample. Curve trades stop until a poke or a read
+    ///      refreshes it. Redeems do not. Staleness does not change the swap fee. It pays the keeper
+    ///      tip, once, for the cross-chain refresh that clears it.
     uint256 internal constant TWAP_WINDOW = 30 minutes;
     uint256 internal constant STALE_AFTER = TWAP_WINDOW;
     /// @dev Largest move a later lzRead may apply, in bps of the stored anchor. The first quote
@@ -102,8 +108,10 @@ library BridgeConstants {
     // ── Curve shape ─────────────────────────────────────────────────────────
     /// @dev Recommended launch discount. 33% below the anchor = 0.67x. Creators pass this explicitly.
     uint16 internal constant DISCOUNT_BPS = 3_300;
-    /// @dev Recommended USDG floor. Creators pass this explicitly (allowed 1%–50%).
+    /// @dev USDG floor, pinned. 20% of the principal baseline must remain. Not a creator range.
     uint16 internal constant FLOOR_BPS = 2_000;
+    /// @dev Same-chain v3 `observe` history. A pool with a shorter cardinality cannot be a reference.
+    uint16 internal constant MIN_V3_CARDINALITY = 2;
     /// @dev The last half of the original seed cannot be bought while the marginal price is below the anchor.
     uint256 internal constant SEED_FLOOR_BPS = 5_000;
     /// @dev g^30 tail strength. At f = 1 the extra cost is about TAIL_K/31 of the CP cost (~26% when TAIL_K = 8).
@@ -113,7 +121,10 @@ library BridgeConstants {
     int24 internal constant TICK_SPACING = 60;
     uint256 internal constant MAX_NEWTON = 96;
 
-    /// @dev Per-pool outflow window sentinels. 0 = off, 1 = per block, 3600 = per hour. Anything else is rejected.
+    /// @dev Per-pool outflow window. 1 = per block, 3600 = per hour. Anything else is rejected.
+    ///      Passing 0 for both the window and the cap selects 20% per hour. The cap cannot be turned off.
     uint32 internal constant OUTFLOW_PER_BLOCK = 1;
     uint32 internal constant OUTFLOW_PER_HOUR = 3600;
+    /// @dev Default outflow cap when the creator passes zeros. 20% of principal per window.
+    uint16 internal constant OUTFLOW_CAP_DEFAULT_BPS = 2_000;
 }

@@ -21,9 +21,14 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
 
-    constructor(IPoolManager manager_, address usdg_, address lz_, uint8 usdgDecimals_, DiscipleEngine engine_)
-        DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_)
-    {}
+    constructor(
+        IPoolManager manager_,
+        address usdg_,
+        address lz_,
+        uint8 usdgDecimals_,
+        DiscipleEngine engine_,
+        address v3Factory_
+    ) DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_, v3Factory_) {}
 
     function beforeSwap(
         address sender,
@@ -43,12 +48,13 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         PoolId id = key.toId();
         Pool storage p = pools[id];
         if (!p.exists) revert UnknownPool();
+        // Stale before the refresh, for every kind. A same-chain swap cannot poke itself out of the revert.
+        if (p.curve.anchor != 0 && (p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER)) {
+            revert Stale();
+        }
         // Same-chain recenters on the live TWAP before the quote. Cross-chain keeps the stored anchor.
         _persistReference(p);
         if (p.curve.anchor == 0) revert NoAnchor();
-        if (!_sameChain(p.anchorKind) && (p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER)) {
-            revert Stale();
-        }
         // Snapshot the block's opening LP book before this trade can move it.
         _rollBlock(p, id);
 
@@ -56,12 +62,13 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         bool specIsCoin = params.zeroForOne ? p.coinIs0 : !p.coinIs0;
 
         (bool mintLp, address recipient) = _decodeHookData(hookData, sender);
+        _touchMark(p);
         BridgeCurve.S memory s = p.curve;
         BridgeCurve.Ctx memory ctx = _ctx(p, s);
         _rollOutflow(p);
 
         uint256 specNorm = _toNorm(specRaw, specIsCoin ? p.coinDec : usdgDec);
-        uint256 gap = _gap(p);
+        uint256 gap = specIsCoin ? _gapAt(p, p.dutchBidAt) : _gapAt(p, p.dutchAskAt);
         BridgeCurve.Fill memory f;
         if (specIsCoin) (s, f) = engine.trade(s, ctx, specNorm, true, gap);
         else (s, f) = engine.trade(s, ctx, specNorm, false, gap);
@@ -74,9 +81,17 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         }
 
         p.curve = s;
-        // One clock for both quotes. The next trade in this second sees no gap, so the launch
-        // discount is not replaced by a Dutch price that has not had time to drift.
-        p.dutchAt = block.timestamp == 0 ? 1 : uint64(block.timestamp);
+        // A buy adds principal after the window snapshot. Raise the baseline so the hour is not
+        // stuck at the pre-buy principal (often zero on the first trade).
+        if (!specIsCoin) _bumpOutflowBasis(p);
+        // Each side resets only when that side fills at least `DUTCH_MIN_SLICE`. A dust clip, or the
+        // other side, leaves this clock drifting.
+        uint64 nowS = _stamp();
+        if (specIsCoin) {
+            if (f.usdgOut >= C.DUTCH_MIN_SLICE) p.dutchBidAt = nowS;
+        } else if (f.usdgIn >= C.DUTCH_MIN_SLICE) {
+            p.dutchAskAt = nowS;
+        }
         // Park the LP's fee until the next block so shares minted in this one cannot collect it.
         if (f.toLp > 0) p.blockFee += f.toLp;
         p.tipBudget += f.tip;
@@ -157,6 +172,9 @@ contract DiscipleSwapFacet is DiscipleFacetBase {
         p.outflowUsed += norm;
     }
 
+    /// @dev The swap initiator chooses who receives the parked LP. `address(0)` means the initiator.
+    ///      The input is paid by that swap, so the recipient is a gift of the initiator's own proceeds.
+    ///      A third party cannot redirect someone else's swap: they do not supply this hookData.
     function _decodeHookData(bytes calldata hookData, address sender) internal pure returns (bool mintLp, address to) {
         if (hookData.length == 0) return (false, sender);
         (mintLp, to) = abi.decode(hookData, (bool, address));
