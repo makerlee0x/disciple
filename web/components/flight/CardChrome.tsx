@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CARD_IDS, CARD_TITLES, CANVAS_CARDS, hiddenCards, resetLayout, restoreCard, setCard, type CardId, type Layout } from "@/lib/game/cardLayout";
 import { getLayout, getSavedLayout, isPhoneUI, setFlowOffsets, updateLayout, useCanvasCards, useCardLayout, type FlowOffsets } from "@/lib/game/cardLayoutStore";
-import { centerLane, COMPACT_W, computeSlots, layoutCards, nearestSlot, type Box, type FlowCard, type Slot, type SlotEnv, type SlotId } from "@/lib/game/slots";
+import { centerLane, chartCap, COMPACT_W, computeSlots, layoutCards, nearestSlot, type Box, type FlowCard, type Slot, type SlotEnv, type SlotId } from "@/lib/game/slots";
 import { overlayBlocked, startSidebarOverlay } from "@/lib/game/sidebarOverlay";
 
 type R = { x: number; y: number; w: number; h: number };
@@ -60,6 +60,7 @@ export default function CardChrome() {
         if (r) { const e = effOffset(id); base = { x: Math.round(r.x - e.dx), y: Math.round(r.y - e.dy), w: Math.round(r.w), h: Math.round(r.h) }; bases.current[id] = base; }
         else if (cur[id]?.closed && bases.current[id]) base = bases.current[id]!;   // folded into a tab by the flow: keep it in the flow
         else continue;
+        if (id === "chart") { const cap = chartCap(wrap.width, wrap.height, left + 20, lane, innerWidth); base = { ...base, w: Math.min(base.w, cap.w), h: Math.min(base.h, cap.h) }; }   // DexChart applies the same cap
         if (sv && !sv.slot && (sv.dx || sv.dy)) {   // migrate a legacy raw x / y to the nearest slot (saved once)
           const sl = computeSlots(env), at = { x: base.x + sv.dx, y: base.y + sv.dy };
           const slot = nearestSlot(sl, at.x + base.w / 2, at.y + base.h / 2);
@@ -78,6 +79,7 @@ export default function CardChrome() {
           else offs[c.id as CardId] = { dx: 0, dy: 0, hide: true };
         } else if (o.x !== c.base.x || o.y !== c.base.y || c.slot) offs[c.id as CardId] = { dx: o.x - c.base.x, dy: o.y - c.base.y }; }
       setFlowOffsets(offs);
+      (window as unknown as { __slotDebug?: unknown }).__slotDebug = { env, cards, tabs: res.tabs, tabRow: res.tabRow };   // read by the overlap check
       const ids = res.tabs as CardId[];
       setTabs((t) => (t.ids.join() === ids.join() && JSON.stringify(t.row) === JSON.stringify(res.tabRow) ? t : { ids, row: res.tabRow }));
       if (popRef.current && !ids.includes(popRef.current)) setPop(null);
