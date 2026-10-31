@@ -113,6 +113,7 @@ export default function CardChrome() {
     addEventListener("pointermove", mv); return () => removeEventListener("pointermove", mv);
   });
 
+  useEffect(() => { if (!pop) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setPop(null); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [pop]);
   if (phone) return null;
   const startDrag = (id: CardId) => (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -122,7 +123,6 @@ export default function CardChrome() {
   // drag = live offset (no slot) in memory; the drop snaps to the nearest slot and saves {slot, order}
   const targetSlot = (id: CardId): Slot | null => { const env = envRef.current, r = rectOf(id); if (!env || !r) return null;
     const sl = computeSlots(env); return sl[nearestSlot(sl, r.x + r.w / 2, r.y + r.h / 2)]; };
-  useEffect(() => { if (!pop) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setPop(null); }; addEventListener("keydown", k); return () => removeEventListener("keydown", k); }, [pop]);
   const onMove = (e: React.PointerEvent) => { const d = drag.current; if (!d || e.pointerId !== d.pid) return;
     updateLayout((l) => setCard(l, d.id, { dx: d.dx + e.clientX - d.x0, dy: d.dy + e.clientY - d.y0, slot: undefined }), false); tick((x) => x + 1);
     const t = targetSlot(d.id); setPreview((p) => (p?.id === t?.id && p?.y === t?.y ? p : t)); };
