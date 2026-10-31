@@ -147,13 +147,14 @@ export default function GameChat({ coin }: { coin: string }) {
   useEffect(() => {
     const place = () => {
       const c = canvasCards.cards.controls, wrap = document.querySelector(".flight-wrap")?.getBoundingClientRect();
-      const bar = c && !c.min && !c.closed && wrap ? { x: c.x + wrap.left, y: c.y + wrap.top, w: c.w, h: c.h } : null;
+      const card = c && !c.min && !c.closed && wrap ? { x: c.x + wrap.left, y: c.y + wrap.top, w: c.w, h: c.h } : null;
+      const dom = (sel: string) => { const r = document.querySelector(sel)?.getBoundingClientRect(); return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null; };
       const b = pillRef.current?.getBoundingClientRect();
-      const next = chatPillPlace(innerWidth, innerHeight, b?.width || 120, b?.height || 30, bar);
+      const next = chatPillPlace(innerWidth, innerHeight, b?.width || 120, b?.height || 30, [card, dom('[data-testid="trade-bar"]'), dom('[data-testid="tw-open"]'), dom('[data-testid="tw-mine"]')]);
       setPillPos((p) => (p.right === next.right && p.bottom === next.bottom ? p : next));
     };
-    place(); addEventListener("resize", place); addEventListener("apsidebar", place);
-    return () => { removeEventListener("resize", place); removeEventListener("apsidebar", place); };
+    place(); const iv = setInterval(place, 1000); addEventListener("resize", place); addEventListener("apsidebar", place);
+    return () => { clearInterval(iv); removeEventListener("resize", place); removeEventListener("apsidebar", place); };
   }, [canvasCards, open, unread]);
   if (!api) return null;
   const st = STATE[conn];
