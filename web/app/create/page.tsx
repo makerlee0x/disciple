@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PRIVATE_COPY } from "@/lib/anon";
 import { newStealthOwner } from "@/lib/privateLaunch";
 
@@ -26,8 +26,9 @@ import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
-import { CANCELLED_MSG, playerError } from "@/lib/playerError";
-import { IMAGE_COPY, LAUNCH_FAILED_MSG, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { playerError } from "@/lib/playerError";
+import { IMAGE_COPY, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
+import { launchErrorMessage } from "@/lib/launchError";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -72,6 +73,12 @@ export default function LaunchRocketPage() {
   const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null);
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
+  // One click = one launch: the ref blocks re-entry synchronously (state alone lags a render, so rapid clicks / Enter
+  // presses got through and an Easy launch fired 4 times). Held from the first await until the launch fails; after a
+  // launch went through it stays held (the page is leaving for the rocket).
+  const launchingRef = useRef(false);
+  const launchedRef = useRef(false);
+  const [launching, setLaunching] = useState(false);
   // #103 follow-up: sign in BEFORE launching (the launch, First BOOST and fees must land on the DISCIPLE account).
   // Signed out ⇒ the submit button opens sign-in instead of failing at launch time with SignInRequired.
   const [signedIn, setSignedIn] = useState(false);
@@ -138,6 +145,17 @@ export default function LaunchRocketPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (launchingRef.current || launchedRef.current) return;
+    launchingRef.current = true;
+    setLaunching(true);
+    try {
+      await launch();
+    } finally {
+      if (!launchedRef.current) { launchingRef.current = false; setLaunching(false); }
+    }
+  }
+
+  async function launch() {
     setMsg(null);
     if (needsSignIn) { signIn(); return; }
     if (!name.trim() || !callSign.trim() || !file) {
@@ -207,6 +225,7 @@ export default function LaunchRocketPage() {
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
       });
+      launchedRef.current = true;
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
@@ -224,9 +243,8 @@ export default function LaunchRocketPage() {
       setTimeout(() => router.push(`/coin/${res.token}?cs=${encodeURIComponent(callSign.trim().toUpperCase())}`), 1200);
     } catch (err) {
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
-      const shown = playerError(err);
       console.warn("[disciple] launch failed", { private: privateLaunch, imageUri, message: String((err as Error)?.message ?? err).slice(0, 500), code: (err as { code?: unknown })?.code });
-      setMsg(shown === CANCELLED_MSG ? shown : LAUNCH_FAILED_MSG);
+      setMsg(launchErrorMessage(err));
     }
   }
 
@@ -381,12 +399,13 @@ export default function LaunchRocketPage() {
           <>
           <button
             type="submit"
-            disabled={!file}
+            disabled={!file || launching}
+            aria-busy={launching}
             aria-describedby={!file ? "create-image-hint" : undefined}
             data-testid="create-launch"
             className="w-full rounded-xl border border-[rgba(201,206,214,.5)] bg-gradient-to-b from-[#1F2228] to-[#16181C] py-3 font-bold text-[#E8EAEE] shadow-[0_0_20px_rgba(201,206,214,.15)] hover:from-[#2E323A] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:from-[#1F2228]"
           >
-            <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> Launch Rocket
+            <Icon name="rocket" size={16} style={{ verticalAlign: -3 }} /> {launching ? (status?.ok ? "Launched" : "Launching…") : "Launch Rocket"}
           </button>
           {!file && <p id="create-image-hint" className="text-xs text-[#C9CED6]">Upload a picture to launch your rocket.</p>}
           </>
