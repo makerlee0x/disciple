@@ -46,7 +46,7 @@ export const ARCH_LABEL: Record<PaperArchetype, string> = {
 export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], medium: [1300, 1700], hard: [1900, 2400] };
 /** TUNE (ASSUMPTION, #224): bots size buys as size × SIZE_SCALE × startCash so the richer lobbies don't graduate in ~2 min
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
-export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 1, medium: 0.13, hard: 0.11 };
+export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.87, medium: 0.15, hard: 0.15 }; // v1: 1 / 0.13 / 0.11
 export const NOISE_TRADE_SHARE = 0.25;
 
 /** One brain, parameterised (spec Sec. 5) */
@@ -78,7 +78,25 @@ const ARCH_OVERRIDE: Record<PaperArchetype, Partial<BrainParams>> = {
   exit: { ladder: [[0.12, 0.25], [0.25, 0.25], [0.4, 0.25], [0.6, 0.25]], wCurve: 0.9 },
   dip: { wMom: 0.2, wRev: 1.2, dipPct: 0.05, size: [0.25, 0.35] },
 };
-export const brainFor = (tier: Tier, arch: PaperArchetype): BrainParams => ({ ...TIER_BASE[tier], ...ARCH_OVERRIDE[arch] });
+export const brainFor = (tier: Tier, arch: PaperArchetype): BrainParams => ({ ...TIER_BASE[tier], ...TUNE.tier[tier], ...ARCH_OVERRIDE[arch], ...TUNE.arch[arch] });
+/** TUNING layer (balance as a config diff, spec Sec. 5 note): overrides on top of the spec table above, plus lobby-level knobs.
+ *  Everything here is listed against the spec in /workspace/paper-trading/tuning.md. Mutable only for scripts/paper-tune.mts. */
+export const TUNE: {
+  tier: Partial<Record<Tier, Partial<BrainParams>>>; arch: Partial<Record<PaperArchetype, Partial<BrainParams>>>;
+  /** per-bot size multiplier ~ lognormal(σ), mean-normalised to 1: a few bots bet big (whales / degens), most bet small */
+  aggSigma: Record<PaperDifficulty, number>;
+  /** added to every phase's backdrop mood, per lobby (the demand regime's strength) */
+  moodBias: Record<PaperDifficulty, number>;
+  /** curve-aware sizing: a buy is capped so it moves the price at most this much (0 = off). Public info (the HUD's price-move line) */
+  maxImpact: Record<Tier, number>;
+} = {
+  // Tuning v2 (Oct 31, scripts/paper-tune.mts + random search; rationale and every deviation from the spec table: docs/paper-tuning.md).
+  // Easy bots read a 6 s window and wait ~7 s between trades (spec: 2 s / 3 s) — the 2 s herd of 140 bots made ±50% second-scale whipsaws;
+  // Medium/Hard wait longer between trades (6 s / 10 s) and trade smaller minimums, so gas stops bleeding Medium and Hard stops herding.
+  tier: { easy: { windows: [6], cooldownS: 6.8 }, medium: { cooldownS: 6.3, minTradeUsd: 2.4 }, hard: { cooldownS: 10, buyTh: 0.26, minTradeUsd: 5.4 } },
+  arch: {},
+  aggSigma: { easy: 0.68, medium: 0.79, hard: 1.2 }, moodBias: { easy: -0.04, medium: -0.09, hard: 0.12 }, maxImpact: { easy: 0, medium: 0, hard: 0 },
+};
 /** backdrop phases (spec Sec. 4): mood biases every wallet's score equally; boundaries jitter ±15 s from the seed */
 export const PHASES = [
   { id: "discovery", start: 0, mood: [0.0, 0.25], vol: 1 },
@@ -111,7 +129,7 @@ export function paperConfig(d: PaperDifficulty, base: SimConfig = cloneConfig())
   return c;
 }
 
-export interface BotMeta { tier: Tier; arch: PaperArchetype; rating: number; p: BrainParams; react: number; peak: number; pos0: number; ladderHit: number; entryT: number; lastTradeT: number }
+export interface BotMeta { agg: number; tier: Tier; arch: PaperArchetype; rating: number; p: BrainParams; react: number; peak: number; pos0: number; ladderHit: number; entryT: number; lastTradeT: number }
 const clamp = (x: number, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, x));
 
 /** The ONE bot brain + lobby spawner (SimBrain). Also keeps the round's public history (mcap per block, VWAP, tax). */
@@ -139,10 +157,11 @@ export class PaperBrain implements SimBrain {
         b.cash = b.cash0 = this.startCash;   // equal start (spawn's lognormal is σ 0, hype 1 — pinned anyway)
         const p = this.jitter(run, brainFor(tier, a)), [r0, r1] = RATING_BAND[tier];
         b.nextT = p.activeFrom[0] + run.rng() * (p.activeFrom[1] - p.activeFrom[0]);
-        this.meta.set(b.id, { tier, arch: a, rating: Math.round(r0 + run.rng() * (r1 - r0)), p, react: p.reactS[0] + run.rng() * (p.reactS[1] - p.reactS[0]), peak: 0, pos0: 0, ladderHit: 0, entryT: 0, lastTradeT: -1e9 });
+        const sg = TUNE.aggSigma[this.difficulty], z = Math.sqrt(-2 * Math.log(1 - run.rng())) * Math.cos(2 * Math.PI * run.rng()), agg = sg > 0 ? Math.exp(sg * z - sg * sg / 2) : 1;
+        this.meta.set(b.id, { agg, tier, arch: a, rating: Math.round(r0 + run.rng() * (r1 - r0)), p, react: p.reactS[0] + run.rng() * (p.reactS[1] - p.reactS[0]), peak: 0, pos0: 0, ladderHit: 0, entryT: 0, lastTradeT: -1e9 });
       }
     });
-    this.phases = PHASES.map((ph, i) => ({ id: ph.id, start: i === 0 ? 0 : ph.start + (run.rng() * 30 - 15), mood: ph.mood[0] + run.rng() * (ph.mood[1] - ph.mood[0]), vol: ph.vol }));
+    this.phases = PHASES.map((ph, i) => ({ id: ph.id, start: i === 0 ? 0 : ph.start + (run.rng() * 30 - 15), mood: ph.mood[0] + run.rng() * (ph.mood[1] - ph.mood[0]) + TUNE.moodBias[this.difficulty], vol: ph.vol }));
     this.hist.push(run.m.mcap());
     run.on(({ trade }) => { if (trade) this.onTrade(run, trade); });
   }
@@ -232,7 +251,9 @@ export class PaperBrain implements SimBrain {
   private sizeBuy(run: SimRun, b: Bot, M: BotMeta, conviction: number) {
     const p = M.p, price = run.m.price(), gas = run.cfg.player.botGasUsd ?? 0, sc = this.startCash;
     const room = Math.max(0, p.maxPos * p.maxEntries * sc - b.pos.size * price);
-    let usd = Math.min(b.cash - gas, room, sc * SIZE_SCALE[this.difficulty] * (p.size[0] + (p.size[1] - p.size[0]) * conviction));
+    let usd = Math.min(b.cash - gas, room, sc * SIZE_SCALE[this.difficulty] * M.agg * (p.size[0] + (p.size[1] - p.size[0]) * conviction));
+    const mi = TUNE.maxImpact[M.tier];
+    if (mi > 0 && usd > 0 && run.m.impact(usd, "buy") > 1 + mi) { let lo = 0, hi = usd; for (let k = 0; k < 16; k++) { const mid = (lo + hi) / 2; if (run.m.impact(mid, "buy") <= 1 + mi) lo = mid; else hi = mid; } usd = lo; }
     if (p.roundAmounts) { const lim = b.cash - gas, presets = [10, 25, 50, 100].filter((x) => x <= lim); usd = presets.length ? presets.reduce((a, x) => (Math.abs(x - usd) < Math.abs(a - usd) ? x : a)) : 0; }
     return Math.max(0, usd);
   }

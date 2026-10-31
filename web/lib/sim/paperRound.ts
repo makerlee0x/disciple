@@ -59,11 +59,16 @@ export function standings(run: SimRun, brain: PaperBrain): Standing[] {
   return rows;
 }
 
-/** money check: start money = Σ cash + curve reserve / pool quote + fees + sniper tax + gas (+ floor) — tested */
+/** money check: start money = Σ cash + curve reserve (or pool quote + floor after ASCEND) + fees + sniper tax + gas — tested both sides of ASCEND */
 export function moneyCheck(run: SimRun, brain: PaperBrain) {
   const start = START_CASH[brain.difficulty] * (run.bots.length) + run.player.cash0;
   const cash = run.bots.reduce((a, b) => a + b.cash, 0) + run.player.cash;
-  return { start, cash, fees: brain.totals.fees, gas: brain.totals.gas, snipeTax: brain.totals.snipeTax, reserve: run.m.phase === "curve" ? run.m.reserveAt(run.m.g) : null };
+  // after ASCEND the curve reserve lives in the pool: full-range quote (L0·√p) + the locked floor bands' USDG
+  const P = run.m.pool, fl = P ? P.floorState() : null;
+  const reserve = run.m.phase === "curve" || !P ? run.m.reserveAt(run.m.g) : P.L0 * P.s + fl!.quote;
+  /** tokens outside wallets: unsold curve supply, or the pool's full-range + floor-band tokens */
+  const unheld = run.m.phase === "curve" || !P ? run.m.S - run.m.sold : P.L0 / P.s + fl!.tokens;
+  return { start, cash, fees: brain.totals.fees, gas: brain.totals.gas, snipeTax: brain.totals.snipeTax, reserve, unheld, phase: run.m.phase };
 }
 
 /** the player's best round trip: largest realized PnL booked on a single sell */
@@ -108,6 +113,8 @@ export function tradesCsv(run: SimRun, brain: PaperBrain) {
 }
 
 /** scripted players for the tuning suite (spec Sec. 11) — they act through playerTrade(), the same path as the UI */
+/** decent persona sizing (tuning v2): share of cash per entry, max price move per buy */
+export const PERSONA_TUNE = { decentFrac: 0.7, decentImpact: 0.06, decentTrend: 0.065, decentStop: 0.16, decentTrail: 0.39, decentOpen: 3 };
 export type Persona = "novice" | "decent" | "strong";
 export interface PersonaState { peak: number; entry: number; ladder: number; last: number }
 export const newPersonaState = (): PersonaState => ({ peak: 0, entry: 0, ladder: 0, last: -1e9 });
@@ -119,6 +126,9 @@ export function personaAct(run: SimRun, brain: PaperBrain, who: Persona, s: Pers
   const preset = [10, 25, 50, 100].filter((x) => x <= P.cash - gas);
   const size = (f: number) => { const v = sc * f; return preset.length ? preset.reduce((a, x) => (Math.abs(x - v) < Math.abs(a - v) ? x : a)) : 0; };
   const buy = (usd: number) => { if (usd >= 1 && usd <= P.cash - gas) run.playerTrade("buy", usd); };
+  /** the largest $ (≤ cap) whose buy moves the price at most `pct` — the HUD's "price move: buy ▲x%" line */
+  const impactCap = (cap: number, pct: number) => { let lo = 0, hi = Math.max(0, cap); if (run.m.impact(hi, "buy") <= 1 + pct) return Math.floor(hi);
+    for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (run.m.impact(mid, "buy") <= 1 + pct) lo = mid; else hi = mid; } return Math.floor(lo); };
   const sell = (frac: number) => { if (P.pos.size > 0 && P.cash >= gas) run.playerTrade("sell", 0, { frac }); };
   if (who === "novice") {
     if (mom > 0.05 && rand() < 0.3 && P.cash > 11) buy(size(0.25));
@@ -126,12 +136,21 @@ export function personaAct(run: SimRun, brain: PaperBrain, who: Persona, s: Pers
     return;
   }
   if (who === "decent") {
-    if (P.pos.size === 0 && mom > 0.04 && run.t > 8 && P.cash > 11) { buy(Math.min(P.cash * 0.4, size(0.4))); s.entry = m; s.ladder = 0; return; }
+    // DECENT (spec Sec. 11: momentum entries, −15% stop, ladders out). Tuning v2 (Oct 30): a decent human sizes a big share (v2b: 70%) of
+    // their cash (any amount, the custom field, not only the $10–$100 presets), takes 1/3 off at +40% and +100%, and trails
+    // the last third (v2b: −39% from the peak) instead of selling out at +50%, so one +300% run can carry the round; it
+    // re-enters after a 20 s cooldown, and caps a buy so it moves the price ≤ 6% (it reads the HUD's price-move line). (v1 sold 100% by +50% on 40% of cash, capped at the $100 preset ⇒ 10% of a Hard stack.)
+    // v2b: it may take the opening push (t > 3 s, before any 30 s trend exists), sizes ~70% of cash per entry, and it reads the chart, not the last tick: every signal uses a 6 s average (the minute candle a human eyeballs),
+    // and entries need a 30 s trend (> +8%) as well as a fresh 10 s push, so it doesn't chase one-tick spikes.
+    const T = PERSONA_TUNE; let sm = 0; for (let i = 0; i < 6; i++) sm += back(i); sm /= 6;
+    const trend = sm / back(30) - 1, cool = run.t - s.last > 20;
+    if (P.pos.size === 0 && cool && mom > 0.04 && (run.t > 30 ? trend > T.decentTrend : run.t > T.decentOpen) && P.cash > 2) { buy(impactCap(P.cash * T.decentFrac, T.decentImpact)); s.entry = sm; s.peak = sm; s.ladder = 0; s.last = run.t; return; }
     if (P.pos.size > 0) {
-      const g = m / s.entry - 1;
-      if (g < -0.15) { sell(1); return; }
-      if (s.ladder === 0 && g > 0.25) { s.ladder = 1; sell(0.5); return; }
-      if (s.ladder === 1 && g > 0.5) { s.ladder = 2; sell(1); }
+      s.peak = Math.max(s.peak, sm); const g = sm / s.entry - 1;
+      if (g < -T.decentStop && s.ladder === 0) { sell(1); s.last = run.t; return; }
+      if (s.ladder === 0 && g > 0.4) { s.ladder = 1; sell(1 / 3); return; }
+      if (s.ladder === 1 && g > 1) { s.ladder = 2; sell(0.5); return; }
+      if (s.ladder >= 1 && sm < s.peak * (1 - T.decentTrail)) { sell(1); s.last = run.t; return; }
     }
     return;
   }
