@@ -7,7 +7,8 @@ import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
 import { holderLabelText, type HolderLabel } from "@/lib/flight/holders";
 import { GRAD_BADGE } from "@/lib/flight/tiers";
-import { updateLayout, useDomCard } from "@/lib/game/cardLayoutStore";
+import { updateLayout, useCanvasCards, useDomCard } from "@/lib/game/cardLayoutStore";
+import { chatPillPlace } from "@/lib/gamechat/pillPlace";
 import { restoreCard } from "@/lib/game/cardLayout";
 
 /**
@@ -139,11 +140,27 @@ export default function GameChat({ coin }: { coin: string }) {
     addEventListener("pointermove", mv); addEventListener("pointerup", up);
   };
 
+  // CHAT pill stays clear of the bottom trade bar (canvas controls card) at any content width
+  const canvasCards = useCanvasCards();
+  const pillRef = useRef<HTMLButtonElement | null>(null);
+  const [pillPos, setPillPos] = useState({ right: 344, bottom: 20 });
+  useEffect(() => {
+    const place = () => {
+      const c = canvasCards.cards.controls, wrap = document.querySelector(".flight-wrap")?.getBoundingClientRect();
+      const bar = c && !c.min && !c.closed && wrap ? { x: c.x + wrap.left, y: c.y + wrap.top, w: c.w, h: c.h } : null;
+      const b = pillRef.current?.getBoundingClientRect();
+      const next = chatPillPlace(innerWidth, innerHeight, b?.width || 120, b?.height || 30, bar);
+      setPillPos((p) => (p.right === next.right && p.bottom === next.bottom ? p : next));
+    };
+    place(); addEventListener("resize", place); addEventListener("apsidebar", place);
+    return () => { removeEventListener("resize", place); removeEventListener("apsidebar", place); };
+  }, [canvasCards, open, unread]);
   if (!api) return null;
   const st = STATE[conn];
+  const pill = pillPos;
   if (!open) return (
     <button data-testid="chat-open" onClick={() => { if (card.hidden) updateLayout((l) => restoreCard(l, "chat")); setOpen(true); }} title="Open chat"
-      style={{ position: "fixed", right: 344, bottom: 20, zIndex: 33, height: 30, padding: "0 12px", borderRadius: 15, cursor: "pointer", font: `bold 12px ${mono}`,
+      ref={pillRef} style={{ position: "fixed", right: pill.right, bottom: pill.bottom, zIndex: 33, height: 30, padding: "0 12px", borderRadius: 15, cursor: "pointer", font: `bold 12px ${mono}`,
         color: "#e8ecff", background: "rgba(10,12,28,.72)", border: "1px solid rgba(255,231,163,.45)" }}>
       <span style={{ color: st.c }}>●</span> CHAT{unread > 0 ? ` · ${unread > 99 ? "99+" : unread}` : ""}
     </button>
