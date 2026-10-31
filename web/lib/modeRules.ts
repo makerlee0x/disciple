@@ -72,7 +72,7 @@ export const MODE_SELECTED_COPY: Record<number, string> = {
 export const MODE_DEFAULT_CHIP = "RECOMMENDED";
 /** Helper text under the picker (BRAND r1). */
 export const MODE_HELPER =
-  "Pick how your rocket's crew can fight. The mode is set at launch and can't be changed. It only applies on the curve: after graduation, every rocket trades the same.";
+  "Pick how your rocket's crew can fight. The mode is set at launch and can't be changed. It only applies on the curve: after it ascends, every rocket trades the same.";
 /** Tooltip on the GAME MODE label (BRAND r1). */
 export const MODE_TOOLTIP =
   "Holding cap: the most one wallet can hold of a rocket while it's on the curve. On Easy and Hard the cap grows as the rocket climbs. If a BOOST would take you past it, it fills up to the cap and the rest comes back to you. Selling frees up room.";

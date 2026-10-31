@@ -69,9 +69,9 @@ export function FloorBinsCard({ view, nowMcap, onClose, compact }: { view: Floor
       <div className={s.legend}>
         <span><i className={`${s.sw} ${s.swTop}`} />Top layer <b>{fmtUsd(view.topUsd)}</b></span>
         <span><i className={`${s.sw} ${s.swBottom}`} />Bottom layer <b>{fmtUsd(view.bottomUsd)}</b></span>
-        <span><i className={`${s.sw} ${s.swGhost}`} />At graduation</span>
+        <span><i className={`${s.sw} ${s.swGhost}`} />When ascended</span>
       </div>
-      <p className={s.note}>Locked at graduation. It buys the coin if the price falls into it.</p>
+      <p className={s.note}>Locked when the coin ascended. It buys the coin if the price falls into it.</p>
     </section>
   );
 }
