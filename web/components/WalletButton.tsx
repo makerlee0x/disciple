@@ -20,7 +20,7 @@ import {
   legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
-import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
+import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
@@ -162,6 +162,17 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     addEventListener(PROFILE_CHANGED_EVENT, changed);
     return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
   }, [addr, ownerAddr]);
+
+  // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
+  useEffect(() => {
+    const id: WalletId | null = addr ? { address: addr, name: uname } : null;
+    (window as unknown as { __walletId?: WalletId | null }).__walletId = id;
+    dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: id }));
+  }, [addr, uname]);
+  useEffect(() => () => {
+    (window as unknown as { __walletId?: WalletId | null }).__walletId = null;
+    dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: null }));
+  }, []);
 
   const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
   async function run(label: string, f: () => Promise<unknown>) {
