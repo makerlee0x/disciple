@@ -124,3 +124,55 @@ Easy lobby: no change. Found by random search (seeds 3000/5000), validated on he
 
 Misses: Medium decent wins ≈1% (target 5–10%) and top-10 29% (just under 30). #1 in Medium is usually a bot or strong riding the ASCEND run; decent's fixed stop/trail exits before that. Every bot config that made the winner's gain small enough for decent to win pushed decent's top-10 above 35%. Alternative (search candidate #4 Medium): 1.5% / 36.5%, strong 22%.
 Caveats: Hard lobby now rarely ascends (~2%); Easy/Medium-tier bots lose money in Hard; Medium novice top-10 ≈20%; strong wins Easy 3.5 < Medium 14 ≈ Hard 14; test bands use 30 seeds (7000–7029), so Hard decent top-10 band is 5–25% and the Hard top-10 order check allows 7 pts noise; graduated-round adapter check now uses the Medium lobby.
+
+## v3 (Oct 31, #225) — round ends at ascension + practice ascension bonus pool
+
+**Round end.** When the curve ascends, the round stops (`SimRun` `endOnGraduate`, `endedAt`): standings freeze, rank is by net worth, and the results card shows. Trades after that fail with "round over".
+
+**Practice ascension pool** (paper mode only; the real game has no such bonus). Constants are in `lib/sim/paper.ts`:
+- `ASCENSION_POOL` = Easy $135, Medium $500, Hard $1,000 (1× the stack; at 2× a wash trader beat its fees in Medium).
+- `ASCENSION_TOP` = 3, `ASCENSION_VOLUME_CREDIT` = 0.10, and `ASCENSION_SPLIT` = `"prorata"`, which can be swapped to `[0.5, 0.3, 0.2]`.
+- score = max(0, heldTokens × avgEntry) + 0.10 × traded volume $. A sell removes avgEntry × tokens sold, not the proceeds. Only a score above 0 qualifies, and ties go to the earlier first buy.
+- The top 3 split the pool. Fewer than 3 qualifiers split all of it. It is paid as USDG cash at ascension and nothing is paid if the coin doesn't ascend. There is no cap and no vesting.
+- Bots see the live top-3 race through the `poolG`, `poolHold`, `wPool` and `poolPosK` params (defaults are off/neutral; the tuned lobbies don't use them, see misses).
+
+**Tuning.** Only `SIZE_SCALE` changed, from 0.7 / 0.225 / 0.171 to 0.5 / 0.18 / 0.23. Personas and stacks are unchanged.
+
+Validated on 120 held-out seeds (7000 and 9000, 60 each):
+
+| lobby | player | win | top-10 | top-3 bonus | ascend | avg bonus |
+|---|---|---|---|---|---|---|
+| Easy | decent | 17% | 42% | 1% | 13% | $0.4 |
+| Easy | strong | 0% | 18% | 0% | 14% | $0 |
+| Easy | novice | 0% | 1% | 6% | 15% | $2.7 |
+| Medium | decent | 5% | 41% | 0% | 41% | $0 |
+| Medium | strong | 12.5% | 75% | 14.5% | 40% | $23 |
+| Medium | novice | 13% | 66% | 53.5% | 55% | $125 |
+| Hard | decent | 1.5% | 9% | 0% | 34.5% | $0 |
+| Hard | strong | 0% | 21% | 3% | 33% | $8 |
+| Hard | novice | 13.5% | 44% | 45% | 47.5% | $189 |
+
+**Wash trader** (buys and sells a slice of the stack every 2 s; 20 seeds per lobby; cost = fees + gas + slippage):
+
+| lobby | slice | bonus | cost |
+|---|---|---|---|
+| Easy | 3% | $0 | $1,522 |
+| Easy | 10% | $126 | $1,937 |
+| Easy | 20% | $194 | $2,462 |
+| Medium | 3% | $0 | $1,987 |
+| Medium | 10% | $768 | $2,860 |
+| Medium | 20% | $469 | $3,561 |
+| Hard | 3% | $901 | $2,231 |
+| Hard | 10% | $0 | $3,990 |
+| Hard | 20% | $776 | $6,764 |
+
+It loses money everywhere.
+
+**Misses.**
+- Easy decent top-10 is 42% (target 50–60%).
+- Hard decent top-10 is 9% (target 10–15%).
+- Strong wins are not Easy > Medium > Hard (0 / 12.5 / 0%), and Hard strong is 0% (target 10–20%).
+- The novice wins about 13% in Medium and Hard.
+- Cause: with the round ending at ascension, buy-and-hold rides the curve to the finish. In ascended rounds the novice's early momentum buys win and the strong player's profit ladder exits too early. Pool-aware bot knobs (holding near ascension, sizing up for the race) all pushed Hard ascension to 100% without stopping the novice. Raising Hard bot cash would put the player out of the top 10 by net worth.
+- The difficulty test now asserts Hard > Easy bot PnL only in the Hard lobby; Easy diamond-hands also win the Easy lobby.
+- The band test uses seeds 7000–7059, which overlap the validation set.
