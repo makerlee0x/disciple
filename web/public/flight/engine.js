@@ -356,8 +356,9 @@ function feedUnown(feed,me){ for(const r of feed) if(r.own&&!(me&&r.tr===me)){ r
    newest first), below any live rows already there, deduped by tx[:logIndex]; dollars only (fillUsd = USDG paid/received). */
 function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
   for(const f of fills){ if(n>=max) break; if(!f||(seen&&(seen.has(f.tx+':'+f.logIndex)||seen.has(f.tx)))) continue;
+    const tx=String(f.tx||'').toLowerCase(); if(tx&&feed.some(r=>r.tx===tx)) continue;   // fix batch (Oct 31): own row already drawn from its receipt
     const u=fillUsd(f); if(!(u>0)) continue; const mine=!!me&&String(f.trader||'').toLowerCase()===me;
-    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader); r.hist=1; if(f.ts>0) r.at=+f.ts; feed.push(r); out.push(r); n++; }
+    const r=feedTradeRow(f.side==='sell'?'sell':'buy',u,mine?'(you)':null,f.trader); r.hist=1; if(f.ts>0) r.at=+f.ts; if(tx) r.tx=tx; feed.push(r); out.push(r); n++; }
   feed.length=Math.min(feed.length,7); return out; }
 /* narrow screens (phones): the right HUD column (status box + TOP HOLDERS) would sit on top of the MARKET CAP panel
    (20..400 × 18..148) → start it below that panel. Desktop (W ≥ 740) unchanged. FlightCanvas applies the same floor to
@@ -1532,6 +1533,10 @@ function realHolders(){ const h=S.holders; if(!h) return null; const m=markMcap(
   const map=r=>{ const mine=!!r.mine||(!!me&&r.address===me); const usd=r.pct>0&&m>0?r.pct/100*m:(+r.usd||0);
     return {who:mine?'you':(r.name||short(r.address)),address:r.address,usd,pct:+r.pct||0,label:r.label||null,mine}; };
   return {items:h.rows.filter(r=>!r.label).map(map), system:h.rows.filter(r=>r.label).map(map), asOfBlock:h.asOfBlock??null}; }
+/* desktop TOP HOLDERS card (fix batch, Oct 31): the labelled pool / curve / locker / burn rows on top, as on the phone list and
+   the chat HOLDERS tab (lee 9:19 PM CT): greyed, no rank, never counted or ranked as a holder. n lines in all; once there is a
+   ranked holder at least one line stays for it. */
+function kothLines(top,sys,n=3){ const s=(sys||[]).slice(0,Math.max(0,Math.min((sys||[]).length,top.length?n-1:n))); return {sys:s,ranked:top.slice(0,n-s.length)}; }
 function topFuelers(){ if(S.t-_topT<0.5&&_top.length) return _top; _topT=S.t;
   const h=realHolders(); _top=h?h.items.map(r=>[r.who,r.usd]):Object.entries(S.fuelers).sort((a,b)=>b[1]-a[1]); return _top; }
 let _twT=-1, _twSrc=null, _twLen=-1, _tw=[]; const TW_LIST=[]; let _pvRef=null, _pvObj=null;
@@ -1784,7 +1789,9 @@ function drawHud(){
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='holders') drawPhoneHolders(PH,top,kothTitle); }
   else if (!docked&&cardBegin('holders',RX,RT+STATUS_DY,CW,96)){ panel(RX,RT+STATUS_DY,CW,96);
   ctx.fillStyle='#ffe7a3'; ctx.font='bold 12px ui-monospace,monospace'; ctx.fillText(kothTitle,RX+16,RT+STATUS_DY+20);
-  top.slice(0,3).forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+i*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); ctx.restore(); }
+  const kl=kothLines(top,S.holders?(realHolders()||{}).system:null);
+  kl.sys.forEach((r,j)=>{ ctx.fillStyle='rgba(220,228,255,.5)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText(` · ${(holderKindText(r.label)||String(r.label)).padEnd(11)} ${fmtUsd(r.usd)}`,RX+16,RT+STATUS_DY+40+j*18); });
+  kl.ranked.forEach(([w,v],i)=>{ ctx.fillStyle=w==='you'?'#9ff3c8':'rgba(220,228,255,.85)'; ctx.font='11px ui-monospace,monospace'; const ky=RT+STATUS_DY+40+(kl.sys.length+i)*18; if(i===0) drawIcon('crown',RX+16,ky-10,12,ctx.fillStyle); ctx.fillText(`${i===0?'  ':' '+(i+1)} ${w.padEnd(11)} ${fmtUsd(v)}`,RX+16,ky); }); ctx.restore(); }
   // bottom-left: trade feed (compact)
   if (PH){ if(PH.drawer&&PH.body&&PH.sheet==='feed') drawPhoneFeed(PH); }
   else if (cardBegin('trades',20,H-160,310,140)){ const FX=20, FY=H, FW=310;
@@ -2614,7 +2621,8 @@ function chartMine(side,m,tx){ const C=chartState(), k=tx?String(tx).toLowerCase
    · feed swap first → drawn from the swap; its $ is the receipt's when the swap carried none.
    Sells are never filtered by $ size (MIN_SHOT is a buy-side minimum only). */
 S.rcpt=new Map(); S.rcptDrawn=new Set();
-function ownSellSwap(e){ if(!e||(e.side!=='sell'&&e.side!=='buy')||!e.mine||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
+function ownSellSwap(e){ if(!e||(e.side!=='sell'&&e.side!=='buy')||!e.txHash) return e; const k=String(e.txHash).toLowerCase();
+  if(!e.mine){ const r0=S.rcpt.get(k); if(!(r0&&r0.trader&&e.trader&&String(e.trader).toLowerCase()===r0.trader&&S.rcptDrawn.has(k))) return e; }   // fix batch (Oct 31): our receipt's trader ⇒ our swap, even before the engine knows the wallet
   if(S.rcptDrawn.has(k)){ S.confirmed.mcap=e.mcap; S.confirmed.lastSwapTs=performance.now(); try{ chartState().seen.add(e.logIndex!=null?e.txHash+':'+e.logIndex:e.txHash); chartTick(e.mcap*(isLive()?1:(S.simF||1)),0,e.side); }catch(_){} return null; }
   const r=S.rcpt.get(k); if(!(e.usd>0)&&r&&r.usd>0) e={...e,usd:r.usd};
   S.rcptDrawn.add(k); return e; }
@@ -2627,18 +2635,25 @@ function rcptSellImpactPct(d,usd){ const x=d&&d.impactPct; if(typeof x==='number
   return r>0&&Number.isFinite(r)?Math.abs(r-1)*100:0; }
 /* @bombimpact-end */
 function onFillReceipt(d){ if(!d||!d.txHash||(d.side!=='sell'&&d.side!=='buy')) return; const usd=+d.usd; if(!(usd>=0)||!Number.isFinite(usd)) return; const k=String(d.txHash).toLowerCase();
-  S.rcpt.set(k,{usd}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
+  S.rcpt.set(k,{usd,trader:typeof d.trader==='string'?d.trader.toLowerCase():undefined}); if(S.rcpt.size>200) S.rcpt.delete(S.rcpt.keys().next().value);
   if(S.rcptDrawn.has(k)) return;   // the feed swap already drew it
   S.rcptDrawn.add(k); if(S.rcptDrawn.size>400) S.rcptDrawn=new Set(Array.from(S.rcptDrawn).slice(-200));
-  if(d.side==='buy'){ ownBuyReceipt(usd,k); return; }
+  try{ chartState().seen.add(k); }catch(_){}   // the /api/trades backfill (chart + TRADES seed) then skips this tx
+  if(d.side==='buy'){ ownBuyReceipt(usd,k,d); return; }
   const m=markMcap(); if(m>0){ chartTick(m,usd,'sell'); chartMine('sell',m,k); }
   if(usd>0){ momNote('sell',usd); const fs=S.fullStackNext; S.fullStackNext=false; noteSell({side:'sell',usd,impactPct:rcptSellImpactPct(d,usd),trader:null,mine:true,fullStack:fs}); }
-  { const pre=`▼ DUMP ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({txt:pre+'(you)',c:'#ffb0c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
+  S.feed.unshift(feedOwnRow(d,'sell',usd)); S.feed.length=Math.min(S.feed.length,7); }
+/* fix batch (Oct 31): the own TRADES row, straight from the decoded receipt the send returned (no wait for the log poll):
+   hash, side, $, tokens, price ($ / token), time. Same text as before; own: un-tagged on sign-out / switch (feedUnown).
+   The polled swap for this tx is then dropped by hash (ownSellSwap), the history seed by tx (feedSeedFills). */
+function feedOwnRow(d,side,usd){ const pre=`${side==='buy'?'▲ BOOST':'▼ DUMP'} ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `, tok=+(d&&d.tokens);
+  return {txt:pre+'(you)',c:side==='buy'?'#9ff3c8':'#ffb0c8',own:1,pre,tr:S.wallet||undefined,t:1,at:Date.now(),tx:String(d&&d.txHash||'').toLowerCase()||undefined,
+    side,usd,tokens:tok>0?tok:undefined,price:tok>0&&usd>0?usd/tok:undefined}; }
 /* own BUY at confirm (trade speed): the public feed lags the sequencer ~0.7 s, so the decoded receipt draws the own buy NOW
    (marker + candle volume + TRADES row + fueler credit); the feed swap for that tx later only moves the price. */
-function ownBuyReceipt(usd,k){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
+function ownBuyReceipt(usd,k,d){ const m=markMcap(); if(m>0){ chartTick(m,usd,'buy'); chartMine('buy',m,k); }
   if(!(usd>0)) return; S.fuelers.you=(S.fuelers.you||0)+usd; award('first','FIRST FLAME','first confirmed thrust'); momNote('buy',usd); S.volEma+=usd; S.buyEma+=usd;
-  { const pre=`▲ BOOST ${(usd<10?fmtShot(usd):fmtUsd(usd)).padStart(7)}  `; S.feed.unshift({txt:pre+'(you)',c:'#9ff3c8',own:1,pre,tr:S.wallet||undefined}); /* own: un-tagged on sign-out / switch (feedUnown) */ } S.feed.length=Math.min(S.feed.length,7); }
+  S.feed.unshift(feedOwnRow(d||{txHash:k},'buy',usd)); S.feed.length=Math.min(S.feed.length,7); }
 addEventListener('disciple:fillreceipt',e=>onFillReceipt(e.detail));
 /* @sellfill-end */
 /* pool label like Uniswap: $BASE/QUOTE fee% (total fee = LP fee + hook fee) */

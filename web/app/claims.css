@@ -126,7 +126,6 @@
 .cl-coin-pill button, .cl-coin-pill a { appearance: none; border: 0; cursor: pointer; font: 700 12px var(--dsc-font-ui); padding: 6px 12px; border-radius: 999px;
   background: linear-gradient(180deg, #F6D47E, #E2AA34); color: #1A1305; text-decoration: none; }
 .cl-coin-pill.crew button { background: linear-gradient(180deg, #DDE1E7, #B5BBC5); color: #0B0C0E; }
-.cl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsc-gold); box-shadow: 0 0 10px var(--dsc-gold); }
 .cl-coin-feed { font: 500 12px var(--dsc-font-ui); color: var(--dsc-muted); padding: 4px 12px; border-radius: 999px; background: rgba(11, 12, 14, .7); border: 1px solid var(--dsc-border); }
 .cl-coin-feed strong { color: var(--dsc-up); }
 
