@@ -15,7 +15,7 @@
  *    layout, clamped to the viewport). Phone: fills the drawer's CHART tab body (touch pan / pinch, chips, volume).
  *  - look (lee, Oct 30 reskin): the old engine chart-map's game skin (engine.js CHART_STYLE before #211) — Guild Wars
  *    bevelled frame + Georgia title bar, pressed-bevel interval buttons, translucent plot over the sky, 8–9 px mono labels,
- *    linear mcap axis (floored at $0) on a dark strip, gold current-value tag, dashed gold tier thresholds (FLIGHT_TIERS) and the pulsing
+ *    linear mcap axis (floored at $0) on a dark strip, gold current-value tag, no tier thresholds (removed: too busy) and the pulsing
  *    mint ring on the live candle (a DOM overlay positioned from the chart's coordinates each frame).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +24,6 @@ import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fm
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
 import { getLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
-import { FLIGHT_TIERS } from "@/lib/flight/tiers";
 
 /* the old chart-map skin: engine.js CHART_STYLE (main before #211), same HUD palette as PnlHud / the tier bar */
 const C = {
@@ -58,7 +57,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const [hover, setHover] = useState<Candle | null>(null), [last, setLast] = useState<Candle | null>(null), [mark, setMark] = useState<number | null>(null);
   const [phone, setPhone] = useState(false), [ready, setReady] = useState(false), roRef = useRef<ResizeObserver | null>(null);
   const liveRef = useRef<{ line: IPriceLine | null }>({ line: null });
-  const paneRef = useRef<HTMLDivElement>(null), stripRef = useRef<HTMLDivElement>(null), ringRef = useRef<HTMLDivElement>(null), vlineRef = useRef<HTMLDivElement>(null), tierRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const paneRef = useRef<HTMLDivElement>(null), stripRef = useRef<HTMLDivElement>(null), ringRef = useRef<HTMLDivElement>(null), vlineRef = useRef<HTMLDivElement>(null);
   const layout = useCardLayout(), card = layout.chart;
 
   // ---- mounted ⇒ the engine stops drawing its canvas chart (engine.js @domchart, worker-mirrored global)
@@ -148,8 +147,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         // the live value is our own price line below (white dotted line + gold tag, dark text — the old current-value tag)
         lastValueVisible: false, priceLineVisible: false,
       });
-      // tier thresholds (old chart: dashed gold, labelled); price lines never stretch the autoscale ⇒ only tiers in view show
-      for (const t of FLIGHT_TIERS) candle.createPriceLine({ price: t.lo, color: C.tier, lineWidth: 1, lineStyle: lc.LineStyle.Dashed, axisLabelVisible: false, title: "" });   // names: DOM labels (tierRefs)
+      // no tier threshold lines / labels on the chart (lee: too busy); the tier lives in the HUD
       const vol = chart.addSeries(lc.HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
       chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
       chart.subscribeCrosshairMove((p: MouseEventParams) => { setHover(p.time != null ? byTime.current.get(Number(p.time)) ?? null : null); });
@@ -217,11 +215,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
       const h = chartRef.current, pane = paneRef.current, ring = ringRef.current, vl = vlineRef.current, strip = stripRef.current; if (!h || !pane || !ring || !vl || !strip) return;
       const c = candlesRef.current[candlesRef.current.length - 1], aw = h.chart.priceScale("right").width(), th = h.chart.timeScale().height();
       const x = c ? h.chart.timeScale().timeToCoordinate(c.time as UTCTimestamp) : null, y = c ? h.candle.priceToCoordinate(c.close) : null;
-      const ty = FLIGHT_TIERS.map((t) => h.candle.priceToCoordinate(t.lo)), ph = pane.clientHeight;
-      const k = `${aw}|${th}|${x}|${y}|${ph}|${ty.join(",")}`; if (k === prev) return; prev = k;
-      // tier names on their dashed thresholds, left-aligned above the line (old chart-map)
-      ty.forEach((v, i) => { const el = tierRefs.current[i]; if (!el) return; const ok = v != null && v > 22 && v < ph - 2;
-        el.style.display = ok ? "block" : "none"; if (ok) el.style.transform = `translateY(${Math.round(v!) - 11}px)`; });
+      const k = `${aw}|${th}|${x}|${y}`; if (k === prev) return; prev = k;
       strip.style.width = `${aw}px`; strip.style.bottom = `${th}px`; pane.style.right = `${aw}px`; pane.style.bottom = `${th}px`;
       const on = x != null && y != null; ring.style.display = vl.style.display = on ? "block" : "none";
       if (on) { ring.style.transform = `translate(${Math.round(x!)}px, ${Math.round(y!)}px)`; vl.style.transform = `translateX(${Math.round(x!)}px)`; } };
@@ -286,8 +280,6 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         {/* live candle: old "Warzone" vertical line + glowing pulsing mint ring (clipped to the price pane) */}
         <div ref={paneRef} aria-hidden style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, overflow: "hidden", pointerEvents: "none", zIndex: 2 }}>
           <div ref={vlineRef} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 1, marginLeft: -0.5, background: "rgba(255,255,255,.22)", display: "none" }} />
-          {FLIGHT_TIERS.map((t, i) => <span key={t.name} ref={(el) => { tierRefs.current[i] = el; }} data-testid="dex-tier"
-            style={{ position: "absolute", left: 4, top: 0, display: "none", font: `${phone ? 9 : 8}px ${mono}`, color: "rgba(255,231,163,.85)", whiteSpace: "nowrap", textShadow: "0 1px 2px #000" }}>{t.name}</span>)}
           <div ref={ringRef} data-testid="dex-live-ring" style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, display: "none" }}>
             <span className="dex-ring" /><span className="dex-ring dex-ring2" /><span className="dex-dot" />
           </div>
