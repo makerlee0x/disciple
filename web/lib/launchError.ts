@@ -19,11 +19,21 @@ const REASON: Record<string, string> = {
   Bundler: "the launch service is busy",
 };
 
+/**
+ * True when the launch outcome is unknown (still confirming: receipt timeout, lost stream, unclear send). The launch may
+ * still land, so /create keeps the Launch button locked; only a definite failure (cancel, refused, pre-send check,
+ * connection error before sending) releases it.
+ */
+export function launchStillConfirming(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown; extra?: { unclear?: unknown } } | null;
+  return e?.code === "Timeout" || e?.extra?.unclear === true || e?.message === PENDING_MSG;
+}
+
 export function launchErrorMessage(err: unknown): string {
   const code = (err as { code?: unknown })?.code;
   const shown = playerError(err);
   if (shown === CANCELLED_MSG) return CANCELLED_MSG;
-  if (shown === PENDING_MSG || code === "Timeout") return LAUNCH_PENDING_MSG;
+  if (shown === PENDING_MSG || launchStillConfirming(err)) return LAUNCH_PENDING_MSG;
   if (isTransportError(err)) return NETWORK_MSG;
   if (shown !== REJECTED_MSG) return shown;   // specific plain copy: not enough cash, wallet cap, First BOOST too big, …
   const reason = typeof code === "string" ? REASON[code] : undefined;

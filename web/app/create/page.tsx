@@ -28,7 +28,7 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import Icon from "@/components/icons/Icon";
 import { playerError } from "@/lib/playerError";
 import { IMAGE_COPY, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
-import { launchErrorMessage } from "@/lib/launchError";
+import { launchErrorMessage, launchStillConfirming } from "@/lib/launchError";
 
 const inputCls =
   "w-full rounded-xl border border-[rgba(201,206,214,.35)] bg-[rgba(22,24,28,.8)] px-3 py-2 text-[#E8EAEE] outline-none focus:border-[rgba(201,206,214,.7)]";
@@ -74,10 +74,11 @@ export default function LaunchRocketPage() {
   const setMsg = (text: string | null) => setStatus(text == null ? null : { text, ok: false });
   const setLaunched = (text: string) => setStatus({ text, ok: true });
   // One click = one launch: the ref blocks re-entry synchronously (state alone lags a render, so rapid clicks / Enter
-  // presses got through and an Easy launch fired 4 times). Held from the first await until the launch fails; after a
-  // launch went through it stays held (the page is leaving for the rocket).
+  // presses got through and an Easy launch fired 4 times). Held from the click until the launch lands or clearly fails.
+  // keepLockedRef: the launch went through (the page is leaving for the rocket) or is still confirming (it may still
+  // land, so a re-click could launch twice): the lock is never released.
   const launchingRef = useRef(false);
-  const launchedRef = useRef(false);
+  const keepLockedRef = useRef(false);
   const [launching, setLaunching] = useState(false);
   // #103 follow-up: sign in BEFORE launching (the launch, First BOOST and fees must land on the DISCIPLE account).
   // Signed out ⇒ the submit button opens sign-in instead of failing at launch time with SignInRequired.
@@ -145,13 +146,13 @@ export default function LaunchRocketPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (launchingRef.current || launchedRef.current) return;
+    if (launchingRef.current || keepLockedRef.current) return;
     launchingRef.current = true;
     setLaunching(true);
     try {
       await launch();
     } finally {
-      if (!launchedRef.current) { launchingRef.current = false; setLaunching(false); }
+      if (!keepLockedRef.current) { launchingRef.current = false; setLaunching(false); }
     }
   }
 
@@ -225,7 +226,7 @@ export default function LaunchRocketPage() {
         mode: priv ? LaunchMode.TRENCH_WARFARE : LAUNCH_ABI_SHAPE === "modes" ? gameMode : undefined,
         private: priv,
       });
-      launchedRef.current = true;
+      keepLockedRef.current = true;
       if (fr && isDeployed() && !priv) {
         const me = await activeAddress();
         if (fr.toLowerCase() !== me.toLowerCase()) {
@@ -244,6 +245,7 @@ export default function LaunchRocketPage() {
     } catch (err) {
       if (!isDeployed()) { setMsg("Launches aren't open on this network yet."); return; }
       console.warn("[disciple] launch failed", { private: privateLaunch, imageUri, message: String((err as Error)?.message ?? err).slice(0, 500), code: (err as { code?: unknown })?.code });
+      if (launchStillConfirming(err)) keepLockedRef.current = true;   // unknown outcome: stay locked
       setMsg(launchErrorMessage(err));
     }
   }

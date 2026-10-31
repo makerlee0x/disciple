@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { LAUNCH_FAILED_REASON, LAUNCH_PENDING_MSG, launchErrorMessage } from "../lib/launchError";
+import { LAUNCH_FAILED_REASON, LAUNCH_PENDING_MSG, launchErrorMessage, launchStillConfirming } from "../lib/launchError";
 import { LAUNCH_FAILED_MSG } from "../lib/launchImage";
 import { CANCELLED_MSG } from "../lib/playerError";
 import { NETWORK_MSG, PENDING_MSG, REJECTED_MSG } from "../lib/aa/relayOp";
@@ -34,9 +34,19 @@ test("generic failure ⇒ a short plain reason, else the old fallback; never the
   for (const s of [LAUNCH_PENDING_MSG, LAUNCH_FAILED_REASON("it failed the final check"), LAUNCH_FAILED_REASON("it was refused at the last step"), LAUNCH_FAILED_REASON("the launch service is busy")])
     assert.doesNotMatch(s, JARGON, s);
 });
-test("create page: ref guard (sync), button disabled + pending label while launching", () => {
+test("still confirming (unknown outcome) keeps the lock; only a definite failure releases it", () => {
+  assert.equal(launchStillConfirming(new ProtocolError("Timeout", PENDING_MSG)), true);
+  assert.equal(launchStillConfirming(Object.assign(new Error("receipt timeout"), { code: "Timeout", extra: { unclear: true } })), true);
+  assert.equal(launchStillConfirming(new Error(PENDING_MSG)), true);
+  for (const e of [new Error("User rejected the request."), new ProtocolError("Reverted", "reverted"), new ProtocolError("Estimate", REJECTED_MSG),
+    new ProtocolError("Bundler", REJECTED_MSG), new ProtocolError("InsufficientBalance", "Not enough cash."), Object.assign(new Error("HTTP request failed."), { name: "HttpRequestError" })])
+    assert.equal(launchStillConfirming(e), false, e.message);
+});
+test("create page: ref guard (sync), lock kept while still confirming, button disabled + pending label", () => {
   const src = readFileSync(new URL("../app/create/page.tsx", import.meta.url), "utf8");
-  assert.match(src, /if \(launchingRef\.current \|\| launchedRef\.current\) return;\n\s*launchingRef\.current = true;/);
+  assert.match(src, /if \(launchingRef\.current \|\| keepLockedRef\.current\) return;\n\s*launchingRef\.current = true;/);
+  assert.match(src, /finally \{\n\s*if \(!keepLockedRef\.current\) \{ launchingRef\.current = false; setLaunching\(false\); \}/);
+  assert.match(src, /if \(launchStillConfirming\(err\)\) keepLockedRef\.current = true;/);
   assert.match(src, /disabled=\{!file \|\| launching\}/);
   assert.match(src, /"Launching…"/);
   assert.match(src, /setMsg\(launchErrorMessage\(err\)\)/);
