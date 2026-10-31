@@ -125,7 +125,7 @@
     "test:login-methods": "tsx --test scripts/test-login-methods.mts",
     "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts",
     "test:coin-fixes4": "tsx --test scripts/test-coin-fixes4.mts",
-    "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts"
+    "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts"
   },
   "dependencies": {
     "@aa-sdk/core": "^4.88.5",

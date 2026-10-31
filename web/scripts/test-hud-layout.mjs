@@ -9,12 +9,12 @@ const hudTopLayout = new Function(blk[1] + "\nreturn hudTopLayout;")();
 let bad = 0; const ok = (c, m) => { if (!c) { console.log("FAIL " + m); bad++; } };
 const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 let n = 0;
-for (const vw of [1280, 1366, 1440, 1536, 1680, 1920]) for (const side of [64, 220, 270]) for (const walletW of [0, 180, 300, 430]) for (const hdrB of [148, 176]) {
-  const W = vw - side, colTop = walletW ? 70 : 28, walletL = walletW ? W - 20 - walletW : 0;
+for (const vw of [1280, 1366, 1440, 1536, 1680, 1920]) for (const side of [64, 220, 248, 270]) for (const walletW of [0, 180, 300, 430]) for (const hdrB of [148, 176]) for (const rows of [1, 3]) {
+  const W = vw - side, colTop = walletW ? (rows === 3 ? 140 : 70) : 28, walletL = walletW ? W - 20 - walletW : 0;
   const L = hudTopLayout({ W, AW: 472, AH: 108, CW: 310, hdrR: 400, hdrB, colTop, colH: 96, walletL });
   const hdr = { x: 20, y: 18, w: 380, h: hdrB - 18 }, ammo = { x: L.ax, y: L.ay, w: 472, h: 108 }, col = { x: L.RX, y: L.colTop, w: 310, h: 96 };
   const wallet = walletW ? { x: walletL, y: 0, w: walletW, h: colTop - 18 } : null;
-  const tag = `vw ${vw} side ${side} wallet ${walletW} hdrB ${hdrB}: ammo ${JSON.stringify(ammo)} col ${JSON.stringify(col)}`;
+  const tag = `vw ${vw} side ${side} wallet ${walletW}×${rows} rows hdrB ${hdrB}: ammo ${JSON.stringify(ammo)} col ${JSON.stringify(col)}`;
   ok(!hit(hdr, ammo), "header × BUY panel · " + tag);
   ok(!hit(ammo, col), "BUY panel × TOP HOLDERS · " + tag);
   ok(!wallet || !hit(ammo, wallet), "BUY panel × wallet strip · " + tag);

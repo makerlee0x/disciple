@@ -331,7 +331,7 @@ export default function FlightCanvas({ search }: Props) {
           display: none !important;
         }
         body.side-open .flight-wrap {
-          left: var(--ap-side-w, 270px) !important;
+          left: var(--ap-side-w, 248px) !important;
         }
         .ap-bc {
           position: fixed;
@@ -339,7 +339,7 @@ export default function FlightCanvas({ search }: Props) {
           transform: translateX(-50%);
         }
         body.side-open .ap-bc {
-          left: calc(50% + var(--ap-side-w, 270px) / 2) !important;
+          left: calc(50% + var(--ap-side-w, 248px) / 2) !important;
         }
         .ap-pill {
           padding: 6px 12px;

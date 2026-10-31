@@ -23,7 +23,7 @@ import type { AutoscaleInfo, IChartApi, IPriceLine, ISeriesApi, MouseEventParams
 import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
-import { getLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
+import { getSavedLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
 
 /* the old chart-map skin: engine.js CHART_STYLE (main before #211), same HUD palette as PnlHud / the tier bar */
 const C = {
@@ -87,7 +87,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
 
   // ---- M key (engine forwards it while the DOM chart is mounted): toggle the card
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ toggle?: boolean; on?: boolean | null }>).detail || {};
-      const cur = getLayout().chart, shown = !(cur?.closed || cur?.min), on = d.toggle ? !shown : !!d.on;
+      const cur = getSavedLayout().chart, shown = !(cur?.closed || cur?.min), on = d.toggle ? !shown : !!d.on;
       updateLayout((l) => setCard(l, "chart", { closed: !on, min: false })); };
     addEventListener("disciple:chartmap", h); return () => removeEventListener("disciple:chartmap", h); }, []);
 
@@ -239,7 +239,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
     const s = clampSize("chart", { w: r.w0 + e.clientX - r.x0, h: r.h0 + e.clientY - r.y0 }, innerWidth, innerHeight);
     updateLayout((l) => setCard(l, "chart", { dx: l.chart?.dx ?? 0, dy: l.chart?.dy ?? 0, w: s.w, h: s.h }), false); };
   const rsUp = (e: React.PointerEvent) => { const r = rs.current; if (!r || r.pid !== e.pointerId) return; rs.current = null;
-    const s = clampSize("chart", getLayout().chart, innerWidth, innerHeight);
+    const s = clampSize("chart", getSavedLayout().chart, innerWidth, innerHeight);
     updateLayout((l) => setCard(l, "chart", { dx: off.dx, dy: off.dy, w: s.w, h: s.h })); };
   const rsReset = () => updateLayout((l) => setCard(l, "chart", { w: 0, h: 0 }));
 

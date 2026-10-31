@@ -7,9 +7,12 @@
  * (what you dragged) and clamped at display time against the current viewport, so shrinking the window never loses a card
  * and growing it back restores the spot you chose. Phones ignore the layout (their drawers / sheets own the screen).
  */
+import { SLOT_IDS, type SlotId } from "@/lib/game/slots";
 export type CardId = "header" | "holders" | "trades" | "controls" | "chart" | "pnl" | "chat";
 /** w / h: a RESIZED card's size (resizable cards only — today the DEX chart); absent = the card's default size */
-export type CardState = { dx: number; dy: number; min?: boolean; closed?: boolean; w?: number; h?: number };
+/** slot / order (PR #221 snap-to-grid, lib/game/slots): where a moved card lives — the slot it was dropped in and its place in
+ *  that slot's stack. dx / dy: legacy raw offsets (migrated to a slot on first sight) or the live offset while dragging. */
+export type CardState = { dx: number; dy: number; min?: boolean; closed?: boolean; w?: number; h?: number; slot?: SlotId; order?: number };
 export type Layout = Partial<Record<CardId, CardState>>;
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -42,7 +45,8 @@ export function parseLayout(raw: string | null | undefined): Layout {
     if (o.closed === true) s.closed = true;
     const rz = RESIZABLE[id];
     if (rz) { const w = num(o.w), h = num(o.h); if (w > 0 && h > 0) { s.w = Math.max(rz.minW, w); s.h = Math.max(rz.minH, h); } }
-    if (s.dx || s.dy || s.min || s.closed || s.w) out[id] = s;
+    if (typeof o.slot === "string" && (SLOT_IDS as string[]).includes(o.slot)) { s.slot = o.slot as SlotId; s.order = num(o.order); s.dx = 0; s.dy = 0; }
+    if (s.dx || s.dy || s.min || s.closed || s.w || s.slot) out[id] = s;
   }
   return out;
 }
@@ -60,7 +64,8 @@ export function setCard(l: Layout, id: CardId, patch: Partial<CardState>): Layou
   if (!next.min) delete next.min;
   if (!next.closed) delete next.closed;
   if (!(next.w && next.h && RESIZABLE[id])) { delete next.w; delete next.h; }
-  if (!next.dx && !next.dy && !next.min && !next.closed && !next.w) delete out[id]; else out[id] = next;
+  if (!next.slot) { delete next.slot; delete next.order; }
+  if (!next.dx && !next.dy && !next.min && !next.closed && !next.w && !next.slot) delete out[id]; else out[id] = next;
   return out;
 }
 export const restoreCard = (l: Layout, id: CardId) => setCard(l, id, { min: false, closed: false });
