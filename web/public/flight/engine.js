@@ -1721,6 +1721,23 @@ function cardPublish(){ if(CLEAN||phoneHud(W,CLEAN)) for(const k in CARD_RECTS) 
   const sig=W+'x'+H+JSON.stringify(CARD_RECTS); if(sig===CARD_SIG) return; CARD_SIG=sig;
   dispatchEvent(new CustomEvent('disciple:cardrects',{detail:{W,H,cards:JSON.parse(JSON.stringify(CARD_RECTS))}})); }
 /* @cards-end */
+/* @hud-layout:start — desktop top row (header card · BUY/SELL ammo panel · right column) inside the AVAILABLE canvas
+   width, so nothing overlaps whatever the sidebar's width is (the canvas already starts at the sidebar edge: W is the
+   content width, never a hard-coded 270 / 220) or the site's wallet strip (cash / total cards; walletL = its left edge
+   in canvas px, colTop = the top below it). Pure (test: scripts/test-hud-layout.mjs).
+   1. ammo panel: centred between the header card and the right column when there's room (as before);
+   2. else right of the header card, as far right as the canvas allows; if that still runs under the wallet strip it
+      drops below the strip, and if it runs into the right column the column moves down below the panel;
+   3. a canvas too narrow even for header + panel side by side: the panel goes under the header card. */
+function hudTopLayout(o){ const W=o.W, AW=o.AW, AH=o.AH, CW=o.CW, G=o.gap??14, M=20, hdrR=o.hdrR, hdrB=o.hdrB, top=o.top??18;
+  const RX=W-M-CW, colTop0=o.colTop, wl=Number.isFinite(o.walletL)&&o.walletL>0?o.walletL:W;
+  let ax=Math.round(Math.max(hdrR+10,Math.min((W-AW)/2,RX-G-AW))), ay=top, colTop=colTop0;
+  if (ax+AW>W-M) ax=Math.max(M,W-M-AW);
+  if (ax<hdrR+10) ay=Math.max(ay,hdrB+10);                                     // 3. no room beside the header card
+  else if (ax+AW>wl-8) ay=Math.max(ay,colTop0-4);                               // 2. under the wallet strip (cash / total)
+  if (ax+AW>RX-G+1&&ay<colTop+o.colH&&ay+AH>colTop) colTop=Math.max(colTop,ay+AH+10);   // column below the panel
+  return {ax,ay,RX,colTop}; }
+/* @hud-layout:end */
 function drawHud(){
   for(const k in CARD_RECTS) if(k!=='chart') delete CARD_RECTS[k];   /* re-registered by this frame's cards (chart: chartRect) */
   const m=shownMcap(), a=S.displayAlt, ti=clamp(Math.floor(mcapToAlt(m)),0,TIERS.length-1), t=TIERS[ti];   // same price the PnL marks against
@@ -1745,6 +1762,10 @@ function drawHud(){
   if(!CLEAN){   /* clean (replay) mode: no status / KOTH / feed / controls / ammo text */
   // top-right column starts below the site's wallet strip + the Share/Exit row (FlightCanvas measures it)
   S.hudRT=S.hudRT==null?Math.max(18,+window.__hudRT||0):lerp(S.hudRT,Math.max(18,+window.__hudRT||0),0.15); let RT=hudColTop(W,Math.round(S.hudRT)), RX=W-330, CW=310;   // eased: no HUD jump when the wallet strip changes height
+  const AW=472, AH=108, HB=(CARD_RECTS.header?CARD_RECTS.header.y+CARD_RECTS.header.h:148+coinIdRowH());
+  const LY=PH?null:hudTopLayout({W,AW,AH,CW,hdrR:Math.max(0,(+window.__hudLeft||0)-(+window.__wrapL||0))+400,hdrB:HB,colTop:RT,colH:96+(!(source instanceof DiscipleSource)?100:0),walletL:+window.__walletL});
+  if (LY){ RT=LY.colTop; RX=LY.RX; }
+  if (!PH&&LY){ const sig=RT+','+LY.ax+','+LY.ay+','+W; if(S._hudColPub!==sig){ S._hudColPub=sig; try{ dispatchEvent(new CustomEvent('disciple:hudcol',{detail:{top:RT,W,ammo:{x:LY.ax,y:LY.ay,w:AW,h:AH}}})); }catch(_){} } }   // FlightCanvas: CrewPanel / GameChat stack under it
   if (PH&&PH.drawer&&PH.body&&/^(feed|holders|chart)$/.test(PH.sheet||'')) drawPhoneBodyBg(PH);   // phone: canvas tabs paint the drawer body
   // DISCIPLE status box ('curve events / block # / HOLDING · no trades'): not on a coin page (lee, Oct 30 cleanup) —
   // TOP HOLDERS moves up into its slot (STATUS_DY = 0; FlightCanvas --ap-status-h keeps GameChat in step)
@@ -1781,7 +1802,7 @@ function drawHud(){
   let TOX=Math.round((W-300)/2), TOY=PH?PH.pillTop+(S.phoneTierLabel?76:58):136;   // achievement toasts: phone = under the MCAP pill
   if (PH) AMMO_HIT.forEach(R=>{ R.x=-1e9; R.y=-1e9; R.w=0; R.h=0; }); else {   // phone v3: no canvas preset chips (amounts live in the BOOST / DUMP sheets)
   // top-centre: ammo tiles (mouse-clickable — see AMMO_HIT / pointer handlers)
-  const AW=472, ax=Math.round(Math.max(410,Math.min((W-AW)/2,RX-14-AW))), ay=18; panel(ax,ay,AW,108);
+  const ax=LY.ax, ay=LY.ay; panel(ax,ay,AW,AH);   // @hud-layout (hudTopLayout)
   ctx.fillStyle='rgba(200,210,255,.7)'; ctx.font='11px ui-monospace,monospace'; ctx.fillText('BUY',ax+12,ay+16); ctx.fillStyle='rgba(200,210,255,.45)'; ctx.font='10px ui-monospace,monospace'; ctx.fillText('· select ('+MODES[0].key+'–'+MODES[MODES.length-1].key+'), then BOOST / SPACE',ax+40,ay+16);
   { const hv=S.ammoHover; ctx.textAlign='right';
     if(hv>=0&&hv<MODES.length){ const wt=S.buyWarn.texts[hv]; ctx.fillStyle=wt?(S.buyWarn.over[hv]?'#ffb0c8':'#ffe7a3'):'#9ff3c8'; ctx.fillText(wt||`click to select ${fmtShot(MODES[hv].usd)}`,ax+AW-12,ay+16); }

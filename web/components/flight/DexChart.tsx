@@ -23,7 +23,19 @@ import type { AutoscaleInfo, IChartApi, IPriceLine, ISeriesApi, MouseEventParams
 import { addTick, bucketOf, buildCandles, cleanTicks, defaultTf, chartTicker, fmtMcap, fmtVol, isTf, markLast, TFS, type Candle, type Tf, type Tick } from "@/lib/chart/candles";
 import { fetchHistory } from "@/lib/chart/history";
 import { clampOffset, clampSize, RESIZABLE, setCard } from "@/lib/game/cardLayout";
-import { getLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
+import { chartCap, type Box } from "@/lib/game/slots";
+import { overlayBlocked } from "@/lib/game/sidebarOverlay";
+
+/** PR #221: the chart never grows past its cap (≤34% of the canvas width, ≤45% of its height) nor into the centre lane */
+function capChart(s: { w: number; h: number }, x?: number): { w: number; h: number } {
+  if (typeof window === "undefined") return s;
+  const r = document.getElementById("wrap")?.getBoundingClientRect(), lane = (window as unknown as { __hudLane?: Box }).__hudLane;
+  if (!r || !(r.width > 0)) return s;
+  // an open overlay sidebar covers the left edge: the chart is laid out from its right edge (where the slots start)
+  const c = chartCap(r.width, r.height, x == null ? x : Math.max(x, overlayBlocked() + 20), lane, innerWidth);
+  return { w: Math.min(s.w, c.w), h: Math.min(s.h, c.h) };
+}
+import { getSavedLayout, isPhoneUI, updateLayout, useCardLayout } from "@/lib/game/cardLayoutStore";
 
 /* the old chart-map skin: engine.js CHART_STYLE (main before #211), same HUD palette as PnlHud / the tier bar */
 const C = {
@@ -78,16 +90,16 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   }, []);
   const rz = RESIZABLE.chart!;
   const size = useMemo(() => {
-    if (card?.w && card?.h) return clampSize("chart", card, vp.vw, vp.vh);
+    if (card?.w && card?.h) return capChart(clampSize("chart", card, vp.vw, vp.vh), vp.x + (card.dx || 0));   // saved sizes clamped on load / resize
     const room = vp.floor - vp.y;   // default: fit between the PnL card and the trades feed (min height when there is no room)
-    return clampSize("chart", { w: rz.defW, h: Math.min(rz.defH, Math.max(rz.minH, room)) }, vp.vw, vp.vh);
+    return capChart(clampSize("chart", { w: rz.defW, h: Math.min(rz.defH, Math.max(rz.minH, room)) }, vp.vw, vp.vh), vp.x);
   }, [card, vp, rz]);
   const off = useMemo(() => (card ? clampOffset({ x: vp.x, y: vp.y, ...size }, card, vp.vw, vp.vh) : { dx: 0, dy: 0 }), [card, vp, size]);
   const hidden = !phone && !!(card?.min || card?.closed);
 
   // ---- M key (engine forwards it while the DOM chart is mounted): toggle the card
   useEffect(() => { const h = (e: Event) => { const d = (e as CustomEvent<{ toggle?: boolean; on?: boolean | null }>).detail || {};
-      const cur = getLayout().chart, shown = !(cur?.closed || cur?.min), on = d.toggle ? !shown : !!d.on;
+      const cur = getSavedLayout().chart, shown = !(cur?.closed || cur?.min), on = d.toggle ? !shown : !!d.on;
       updateLayout((l) => setCard(l, "chart", { closed: !on, min: false })); };
     addEventListener("disciple:chartmap", h); return () => removeEventListener("disciple:chartmap", h); }, []);
 
@@ -236,10 +248,10 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
   const rsDown = (e: React.PointerEvent) => { e.preventDefault(); e.stopPropagation(); rs.current = { x0: e.clientX, y0: e.clientY, w0: size.w, h0: size.h, pid: e.pointerId };
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* */ } };
   const rsMove = (e: React.PointerEvent) => { const r = rs.current; if (!r || r.pid !== e.pointerId) return;
-    const s = clampSize("chart", { w: r.w0 + e.clientX - r.x0, h: r.h0 + e.clientY - r.y0 }, innerWidth, innerHeight);
+    const s = capChart(clampSize("chart", { w: r.w0 + e.clientX - r.x0, h: r.h0 + e.clientY - r.y0 }, innerWidth, innerHeight), boxRef.current?.getBoundingClientRect().left);
     updateLayout((l) => setCard(l, "chart", { dx: l.chart?.dx ?? 0, dy: l.chart?.dy ?? 0, w: s.w, h: s.h }), false); };
   const rsUp = (e: React.PointerEvent) => { const r = rs.current; if (!r || r.pid !== e.pointerId) return; rs.current = null;
-    const s = clampSize("chart", getLayout().chart, innerWidth, innerHeight);
+    const s = capChart(clampSize("chart", getSavedLayout().chart, innerWidth, innerHeight), boxRef.current?.getBoundingClientRect().left);
     updateLayout((l) => setCard(l, "chart", { dx: off.dx, dy: off.dy, w: s.w, h: s.h })); };
   const rsReset = () => updateLayout((l) => setCard(l, "chart", { w: 0, h: 0 }));
 
