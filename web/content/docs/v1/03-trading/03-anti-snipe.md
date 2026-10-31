@@ -23,12 +23,12 @@ The tax steps down once per second, counted in whole seconds from the launch blo
 ## What it applies to
 
 - **BOOSTs only.** DUMPs never pay it.
-- **The bonding curve only.** There is no anti-snipe after graduation.
+- **The bonding curve only.** There is no anti-snipe after ascension.
 - **Not the creator's First BOOST.** That pays only the 1% fee (plus the creator's own tax).
 
 ## Where it goes
 
-The tax is held by the curve, outside the price. At graduation it goes into the rocket's locked liquidity (LockedLP's compound bucket, which is added to the locked position over time; it is not part of the graduation floor). If the rocket hasn't graduated 30 days after launch, anyone can send it to the community rewards vault. See [Rewards vault](/docs/fees/rewards-vault).
+The tax is held by the curve, outside the price. At ascension it goes into the rocket's locked liquidity (LockedLP's compound bucket, which is added to the locked position over time; it is not part of the ascension floor). If the rocket hasn't ascended 30 days after launch, anyone can send it to the community rewards vault. See [Rewards vault](/docs/fees/rewards-vault).
 
 ## Why it exists
 

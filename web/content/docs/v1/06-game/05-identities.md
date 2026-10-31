@@ -19,8 +19,8 @@ Your playstyle earns a tag. Tags are worked out from your trades and may change 
 | **Bomber** | 8+ bombs of Grenade size or bigger |
 | **Nuker** | 2+ Nukes or Atoms |
 | **Launcher** | 1+ rocket launched |
-| **Dev Supporter** | 1+ launched rocket that graduated |
-| **Crew Captain** | Top booster on 2+ graduated rockets |
+| **Dev Supporter** | 1+ launched rocket that ascended |
+| **Crew Captain** | Top booster on 2+ ascended rockets |
 | **Gate Keeper** | 3+ BOOSTs that helped a rocket reach Outer Space |
 | **Kingmaker** | Early BOOSTs on 2+ rockets that reached Morning Stars or higher |
 | **Farmer** | 5,000+ points with realized PnL of $50 or less |

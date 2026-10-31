@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
+import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/session";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import { SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, walletCtaLabel } from "@/lib/walletCta";
 
@@ -80,6 +81,14 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
   const [open, setOpen] = useState(!isGame);
   const [ready, setReady] = useState(false);
   const [logoutNote, setLogoutNote] = useState(false);
+  // Sign out only while signed in: false until Privy reports ready+authenticated (or a session exists), so no flash on load
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    const sync = () => setSignedIn(privyAuthenticated() || !!aaSession());
+    sync();
+    const a = onPrivy(sync), b = onSessionChange(sync);
+    return () => { a(); b(); };
+  }, []);
   // Phones: the wallet pill's signed-out action ("Play") lives here instead of the top bar (see lib/walletCta.ts).
   const [cta, setCta] = useState<string | null>(null);
   useEffect(() => {
@@ -269,6 +278,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             </span>
             <span className="lb">Help</span>
           </button>
+          {signedIn && (
           <button
             type="button"
             title="Sign out"
@@ -279,6 +289,7 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
             </span>
             <span className="lb">Sign out</span>
           </button>
+          )}
         </div>
       </aside>
       <button
