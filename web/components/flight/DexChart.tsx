@@ -246,7 +246,7 @@ export default function DexChart({ coin, ticker, simEvent }: { coin: string; tic
     const h = chartRef.current; if (!h) return;
     const lc = last?.close, show = mark != null && lc != null && Math.abs(mark / lc - 1) > 0.001;
     if (!show) { if (h.paper) { h.candle.removePriceLine(h.paper); h.paper = null; } return; }
-    const o = { price: mark!, color: "rgba(255,231,163,.7)", lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dotted, axisLabelVisible: true, title: "PAPER", axisLabelColor: C.frameMid, axisLabelTextColor: C.gold };
+    const o = { price: mark!, color: "rgba(255,231,163,.7)", lineWidth: 1 as const, lineStyle: h.lc.LineStyle.Dotted, axisLabelVisible: true, title: simEvent ? "" : "PAPER", axisLabelColor: C.frameMid, axisLabelTextColor: C.gold };
     if (h.paper) h.paper.applyOptions(o); else h.paper = h.candle.createPriceLine(o);
   }, [mark, last]);
 

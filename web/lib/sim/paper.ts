@@ -48,7 +48,7 @@ export const RATING_BAND: Record<Tier, [number, number]> = { easy: [800, 1200], 
  *  (~$6.5K net buy pressure ascends the curve vs $20K–$200K gross lobby cash). Symmetric: how bots bet, not what they may do. */
 /** tuning-script override only (scripts/paper-tune.mts botCashK); empty in the app */
 export const BOT_CASH_K_OVERRIDE: Record<string, number> = {};
-export const ELITE_N = 5;
+export const ELITE_N = 5, ELITE_MAX = 40, ELITE_STAKE = 1.5, SHARP_TP = 0.15, SHARP_SL = 0.3;   // eliteK > 1: round(ELITE_N·E) elites (≤ ELITE_MAX), each with E× stack, take an early position
 export const LEADERS_N = 10;
 export const SIZE_SCALE: Record<PaperDifficulty, number> = { easy: 0.5, medium: 0.18, hard: 0.23 }; // v3 (round ends at ascension): 0.5 / 0.18 / 0.23; // v1: 1 / 0.13 / 0.11; v2: 0.87 / 0.15 / 0.15 (Easy at $100 stacks); v2.2 medium 0.237
 export const NOISE_TRADE_SHARE = 0.25;
@@ -185,8 +185,10 @@ export class PaperBrain implements SimBrain {
   get pool() { return ASCENSION_POOL[this.difficulty]; }
   /** adaptive (Elo-style) handicap: bot start stacks × botCashK (sizing still keys off the lobby stack). Set before init. */
   botCashK = BOT_CASH_K_OVERRIDE["_"] ?? 1;
-  /** eliteK < 1: the current top-LEADERS_N bots by worth get careful (skip / bank), the adaptive lever for the #1 spot */
+  /** eliteK < 1: the current top-LEADERS_N bots by PnL get careful (skip / bank), the adaptive lever for the #1 spot */
   leaders = new Set<number>();
+  /** eliteK > 1 elites: open one early position (ELITE_STAKE × start cash the block the anti-snipe tax ends), then take +15% / stop −30% */
+  elite = new Set<number>(); eliteIn = new Set<number>();
   /** extra stack multiple (eliteK > 1) for the ELITE_N highest-aggression bots (the adaptive win-rate lever; botCashK steers top-10) */
   eliteK = 1;
   constructor(public difficulty: PaperDifficulty, public botCount = 200) { this.botCashK = BOT_CASH_K_OVERRIDE[difficulty] ?? this.botCashK; }
@@ -207,7 +209,7 @@ export class PaperBrain implements SimBrain {
         this.meta.set(b.id, { agg, tier, arch: a, rating: Math.round(r0 + run.rng() * (r1 - r0)), p, react: p.reactS[0] + run.rng() * (p.reactS[1] - p.reactS[0]), peak: 0, pos0: 0, ladderHit: 0, entryT: 0, lastTradeT: -1e9 });
       }
     });
-    if (this.eliteK > 1) [...run.bots].sort((x, y) => this.meta.get(y.id)!.agg - this.meta.get(x.id)!.agg || x.id - y.id).slice(0, ELITE_N).forEach((b) => { b.cash *= this.eliteK; b.cash0 = b.cash; });
+    if (this.eliteK > 1) [...run.bots].sort((x, y) => this.meta.get(y.id)!.agg - this.meta.get(x.id)!.agg || x.id - y.id).slice(0, Math.min(ELITE_MAX, Math.round(ELITE_N * this.eliteK))).forEach((b) => this.elite.add(b.id));
     this.phases = PHASES.map((ph, i) => ({ id: ph.id, start: i === 0 ? 0 : ph.start + (run.rng() * 30 - 15), mood: ph.mood[0] + run.rng() * (ph.mood[1] - ph.mood[0]) + TUNE.moodBias[this.difficulty], vol: ph.vol }));
     this.hist.push(run.m.mcap());
     run.on(({ trade }) => { if (trade) this.onTrade(run, trade); });
@@ -248,9 +250,10 @@ export class PaperBrain implements SimBrain {
     for (const x of this.race) { this.bonus.set(x.wallet, x.payout); const a = x.wallet === "you" ? run.player : run.bots.find((b) => b.wallet === x.wallet)!; a.cash += x.payout; }   // USDG cash
   }
   afterBlock(run: SimRun) {
+    if (this.elite.size && !this.eliteIn.size && run.m.antiSnipe(run.t) === 0) for (const b of run.bots) if (this.elite.has(b.id)) { this.buy(run, b, Math.min(b.cash * 0.9, this.startCash * ELITE_STAKE)); this.eliteIn.add(b.id); const M = this.meta.get(b.id)!; M.lastTradeT = run.t; M.pos0 = b.pos.size; M.entryT = run.t; M.peak = run.m.price(); }   // elites: in as soon as the launch anti-snipe tax is off
     if (!this.bonusPaid && run.m.phase === "curve") this.race = splitPool(this.contributors(run), this.pool);
     this.hist.push(run.m.mcap());
-    if (this.eliteK < 1 && this.hist.length % 10 === 0) { const px = run.m.price(); this.leaders = new Set([...run.bots].sort((x, y) => (y.cash + y.pos.size * px) - (x.cash + x.pos.size * px)).slice(0, LEADERS_N).map((b) => b.id)); }
+    if (this.eliteK < 1 && this.hist.length % 10 === 0) { const px = run.m.price(); this.leaders = new Set([...run.bots].sort((x, y) => (y.cash + y.pos.size * px - y.cash0) - (x.cash + x.pos.size * px - x.cash0)).slice(0, LEADERS_N).map((b) => b.id)); }
     let i = 0; for (let k = 0; k < this.phases.length; k++) if (run.t >= this.phases[k].start) i = k;
     if (i !== this.phaseIdx) { this.phaseIdx = i; const ph = this.phases[i]; this.mood = ph.mood; this.vol = ph.vol; this.phaseLog.push({ id: ph.id, t: run.t }); }
   }
@@ -271,6 +274,9 @@ export class PaperBrain implements SimBrain {
     if (b.pos.size > 0) M.peak = Math.max(M.peak, price);
     if (run.t - M.lastTradeT < p.cooldownS) return;
     const n0 = run.trades.length, had = b.pos.size;
+    if (this.eliteIn.has(b.id)) {   // sharps: take +SHARP_TP or stop at −SHARP_SL from their opening entry, then sit out (the profitable bots a passive player has to beat)
+      if (b.pos.size > 0) { const g = price / (b.pos.costBasis / Math.max(1e-12, b.pos.size)) - 1; if (g > SHARP_TP || g < -SHARP_SL) this.sell(run, b, b.pos.size); }
+      return; }
     if (this.eliteK < 1 && this.leaders.has(b.id) && run.rng() < 1 - this.eliteK) { if (b.pos.size > 0 && run.rng() < 0.15) this.sell(run, b, b.pos.size * 0.3); }   // a leader gets careful: skips, trims
     else this.inner(run, b, M, now, price);
     if (run.trades.length !== n0) { M.lastTradeT = run.t; if (had <= 0 && b.pos.size > 0) { M.pos0 = b.pos.size; M.ladderHit = 0; M.entryT = run.t; M.peak = run.m.price(); } else if (b.pos.size > had && M.ladderHit === 0) M.pos0 = b.pos.size; }
@@ -321,7 +327,7 @@ export class PaperBrain implements SimBrain {
     return p.wMom * mom + p.wRev * rev + p.wCurve * curve + p.wMood * this.mood + jitter;
   }
   private sizeBuy(run: SimRun, b: Bot, M: BotMeta, conviction: number) {
-    const p = M.p, price = run.m.price(), gas = run.cfg.player.botGasUsd ?? 0, sc = this.startCash;
+    const p = M.p, price = run.m.price(), gas = run.cfg.player.botGasUsd ?? 0, sc = b.cash0 || this.startCash;   // sizes scale with the bot's own stack (adaptive bankroll ⇒ PnL scale)
     const near = p.poolPosK !== 1 && run.m.phase === "curve" && run.m.g > p.poolG;
     const room = Math.max(0, p.maxPos * (near ? p.poolPosK : 1) * p.maxEntries * sc - b.pos.size * price);
     let usd = Math.min(b.cash - gas, room, sc * SIZE_SCALE[this.difficulty] * M.agg * (p.size[0] + (p.size[1] - p.size[0]) * conviction));

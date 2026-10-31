@@ -24,7 +24,7 @@ export const BANDS: Record<Skill, Record<PaperDifficulty, { win: [number, number
 export const ANCHOR_R: Record<Skill, number> = { novice: 950, decent: 1500, strong: 1940 };
 /** within ±PLATEAU of an anchor the target is that tier's band exactly */
 export const PLATEAU = 200;
-export const RATING = { ema: 0.35, eta: 0.25, couple: 1.5, clamp: 2.5, kMin: 0.5, kMax: 4, start: 1500 };
+export const RATING = { ema: 0.35, eta: 0.25, couple: 1.5, clamp: 4, kMin: 0.05, kMax: 8, start: 1500 };
 
 export interface PlayerRating { R: number; n: number; /** log handicaps per lobby (integral state) */ logK: Record<PaperDifficulty, number>; logE: Record<PaperDifficulty, number> }
 export const newRating = (): PlayerRating => ({ R: RATING.start, n: 0, logK: { easy: 0, medium: 0, hard: 0 }, logE: { easy: 0, medium: 0, hard: 0 } });
@@ -56,14 +56,15 @@ export function behaviourScore(run: SimRun, brain: PaperBrain): number | null {
 
 /** the handicap for the next round in lobby d */
 export function handicapFor(r: PlayerRating, d: PaperDifficulty) {
-  return { botCashK: clamp(Math.exp(BASE_LOGK[d](r.R) + r.logK[d]), RATING.kMin, RATING.kMax), eliteK: Math.exp(BASE_LOGE[d](r.R) + r.logE[d]) };
+  const E = Math.exp(BASE_LOGE[d](r.R) + r.logE[d]);
+  return { botCashK: clamp(Math.exp(BASE_LOGK[d](r.R) + r.logK[d]), RATING.kMin, RATING.kMax), eliteK: E };
 }
 /** starting bankroll multiple per lobby by rating (rough calibration, v4); the controllers correct from here */
 const lerp3 = (n: number, dd: number, s: number) => (R: number) => R <= ANCHOR_R.decent ? Math.log(n) + (Math.log(dd) - Math.log(n)) * clamp((R - ANCHOR_R.novice) / (ANCHOR_R.decent - ANCHOR_R.novice), 0, 1)
   : Math.log(dd) + (Math.log(s) - Math.log(dd)) * clamp((R - ANCHOR_R.decent) / (ANCHOR_R.strong - ANCHOR_R.decent), 0, 1);
 /** starting elite multiple by rating (Hard novice starts with richer elites so an early lucky round is rarer) */
 export const BASE_LOGE: Record<PaperDifficulty, (R: number) => number> = { easy: lerp3(1, 1, 1), medium: lerp3(1, 1, 1), hard: lerp3(3, 1, 1) };
-export const BASE_LOGK: Record<PaperDifficulty, (R: number) => number> = { easy: lerp3(0.65, 0.85, 0.6), medium: lerp3(2, 1, 0.55), hard: lerp3(3, 0.85, 0.6) };
+export const BASE_LOGK: Record<PaperDifficulty, (R: number) => number> = { easy: lerp3(0.65, 1.2, 0.6), medium: lerp3(1, 1, 0.55), hard: lerp3(1, 0.85, 0.6) };
 
 /** set the handicap on a fresh brain (before SimRun init) */
 export function applyHandicap(brain: PaperBrain, r: PlayerRating) { const h = handicapFor(r, brain.difficulty); brain.botCashK = h.botCashK; brain.eliteK = h.eliteK; return h; }
@@ -73,7 +74,12 @@ export function updateRating(r: PlayerRating, d: PaperDifficulty, res: { rank: n
   const o: PlayerRating = { R: r.R, n: r.n + 1, logK: { ...r.logK }, logE: { ...r.logE } };
   if (res.s != null) { const Rs = 800 + 1200 * res.s; o.R = r.n === 0 ? Rs : r.R + RATING.ema * (Rs - r.R); }
   const t = targetFor(d, o.R), win = res.rank === 1 ? 1 : 0, top10 = res.rank <= 10 ? 1 : 0;
-  o.logK[d] = clamp(o.logK[d] + RATING.eta * ((top10 - t.top10) + RATING.couple * clamp((o.R - ANCHOR_R.decent) / (ANCHOR_R.strong - ANCHOR_R.decent), 0, 1) * (win - t.win)), -RATING.clamp, RATING.clamp);   // player too high → richer bots
-  o.logE[d] = clamp(o.logE[d] + RATING.eta * 2 * (win - t.win), -RATING.clamp, RATING.clamp);
+  // novice side (wN: 1 at novice → 0 at decent): bankroll can't push a buy-and-hold novice down under PnL ranking (richer bots ⇒ the coin ascends ⇒
+  // the holder profits), so there the elite count/stack (E) steers top-10 too and K stays at its base
+  const wN = clamp((ANCHOR_R.decent - o.R) / (ANCHOR_R.decent - ANCHOR_R.novice), 0, 1);
+  const sW = clamp((o.R - ANCHOR_R.decent) / (ANCHOR_R.strong - ANCHOR_R.decent), 0, 1);
+  const dK = RATING.eta * ((top10 - t.top10) + RATING.couple * sW * (win - t.win));   // player too high → richer (bigger-sizing) bots
+  o.logK[d] = clamp(o.logK[d] + dK, -RATING.clamp, RATING.clamp);
+  o.logE[d] = clamp(o.logE[d] + RATING.eta * (2 * (win - t.win) + 3 * wN * (top10 - t.top10)), -RATING.clamp, RATING.clamp);
   return o;
 }
