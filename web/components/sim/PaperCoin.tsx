@@ -92,7 +92,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
     ? snipeState({ launchTs: SIM_LAUNCH_TS, nowSec: SIM_LAUNCH_TS + run.t, startPct: run.cfg.launch.antiSnipeStartBps / 100, windowSec: run.cfg.launch.antiSnipeDurationS, bpsBySec: run.cfg.launch.antiSnipeBpsBySec })
     : null;
   const left = run ? minutes.current * 60 - run.t : 0;
-  // paper-only practice ascension pool (lib/sim/paper ASCENSION_POOL): live top-3 race + your score / rank
+  // paper-only ascension pool (lib/sim/paper ASCENSION_POOL): live top-3 race + your score / rank
   const ps = run && b && phase === "run" ? playerPoolStatus(run, b) : null;
   const raceName = (w: string) => (w === "you" ? "you" : botDisplayName(w));
 
@@ -106,7 +106,8 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
           <TrampWallPanel key={`tw${runN}`} token="SIMULATOR" adapter={twAdapter} owner={SIM_ME} supply={run?.m.S} simulator />
           <TradeBridge token="SIMULATOR" storagePrefix={SIM_STORAGE.swapPrefix} />
           <SnipeChip state={snipe} />
-          {!phone && <LeaderboardCard rows={st} />}
+          {!phone && <LeaderboardCard rows={st} clock={phase === "run" && run ? clock(left) : undefined} low={left < 60}
+            pool={phase === "run" && b ? { size: b.pool, top: b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} ${money(x.payout)}`).join(" · "), rank: ps?.rank, est: ps?.est } : undefined} />}
           <CardChrome extraCards={PAPER_CARDS} />
         </>
       )}
@@ -115,25 +116,18 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
           <b data-testid="paper-clock" style={{ fontSize: 14, color: left < 60 ? "#ff9fb8" : "#e8ecff" }}>⏱ {clock(left)}</b>
           <span data-testid="paper-board" style={{ color: "#8fd8ff", fontWeight: 800 }}>#{me?.rank}/{st.length}</span>
           <span style={{ opacity: 0.75, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>1. {top?.kind === "human" ? "YOU" : top?.name} {top ? money(top.worth) : ""}</span>
-          {b && <span data-testid="paper-pool" style={{ color: "#ffd24a", whiteSpace: "nowrap" }}>Practice pool {money(b.pool)}{ps?.rank ? ` · #${ps.rank}` : ""}</span>}
-          <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 6px", fontSize: 11 }} onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>
+          {b && <span data-testid="paper-pool" style={{ color: "#ffd24a", whiteSpace: "nowrap" }}>Pool {money(b.pool)}{ps?.rank ? ` · #${ps.rank}` : ""}</span>}
+          {dev && <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 6px", fontSize: 11 }} onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>}
         </div>); })()}
+      {phase === "run" && run && phone && <span data-testid="paper-badge" style={{ ...mono, position: "fixed", top: 18, left: 52, zIndex: 32, background: "linear-gradient(90deg, #ffd24a, #ff5c8a)", color: "#14121f", borderRadius: 999, padding: "2px 9px", fontSize: 10, fontWeight: 900, letterSpacing: 1.5, whiteSpace: "nowrap" }}>FLIGHT SIMULATOR</span>}
       {phase === "run" && run && !phone && (
-        <div data-testid="paper-countdown" style={{ ...panel, position: "fixed", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 32, padding: "5px 10px", fontSize: 12, display: "flex", gap: 8, alignItems: "center", borderColor: PAPER_COLOR[difficulty] }}>
-          <b style={{ color: PAPER_COLOR[difficulty] }}>PAPER · {PAPER_LABEL[b?.difficulty ?? difficulty]}</b>
-          <span data-testid="paper-clock" style={{ fontSize: 15, fontWeight: 900, color: left < 60 ? "#ff9fb8" : "#e8ecff" }}>⏱ {clock(left)}</span>
-          <span style={{ opacity: 0.7 }}>{run.bots.length} bots · {run.m.phase === "curve" ? `curve ${(run.m.g * 100).toFixed(0)}%` : "ASCENDED"}</span>
-          {SPEEDS.map((s) => <button key={s} data-testid={`paper-speed-${s}`} style={{ ...btn(speed === s), padding: "2px 6px", fontSize: 11 }} onClick={() => setSpeed(s)}>{s}×</button>)}
-          <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "2px 6px", fontSize: 11 }} title="end the round now" onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>
-          {dev && <button style={{ ...btn(false, "#ffd24a"), padding: "2px 6px", fontSize: 11 }} onClick={exportJson}>JSON</button>}
-          <span style={{ opacity: 0.5, fontSize: 10 }}>simulated</span>
-        </div>
-      )}
-      {phase === "run" && run && b && !phone && (
-        <div data-testid="paper-pool" style={{ ...panel, position: "fixed", top: 46, left: "50%", transform: "translateX(-50%)", zIndex: 32, padding: "4px 10px", fontSize: 11, display: "flex", gap: 10, alignItems: "center", borderColor: "#ffd24a" }}>
-          <b style={{ color: "#ffd24a" }}>Practice ascension pool {money(b.pool)}</b>
-          <span style={{ opacity: 0.8 }}>Top 3: {b.race.length ? b.race.map((x, i) => `${i + 1}. ${raceName(x.wallet)} ${money(x.payout)}`).join(" · ") : "—"}</span>
-          <span data-testid="paper-pool-me" style={{ color: "#8fd8ff" }}>You: {money(ps?.contrib ?? 0)}{ps?.rank ? ` · #${ps.rank}` : ""}{ps?.est ? ` · est. +${money(ps.est).slice(1)}` : ""}</span>
+        <div style={{ position: "fixed", top: 6, left: "calc(var(--ap-rail-w, 64px) + 22px)", zIndex: 32, display: "flex", gap: 6, alignItems: "center" }}>
+          <span data-testid="paper-badge" style={{ ...mono, background: "linear-gradient(90deg, #ffd24a, #ff5c8a)", color: "#14121f", borderRadius: 999, padding: "2px 10px", fontSize: 10, fontWeight: 900, letterSpacing: 1.5, whiteSpace: "nowrap" }}>FLIGHT SIMULATOR</span>
+          {dev && <>
+            {SPEEDS.map((s) => <button key={s} data-testid={`paper-speed-${s}`} style={{ ...btn(speed === s), padding: "1px 5px", fontSize: 10 }} onClick={() => setSpeed(s)}>{s}×</button>)}
+            <button data-testid="paper-end" style={{ ...btn(false, "#ffb0c8"), padding: "1px 5px", fontSize: 10 }} title="end the round now" onClick={() => { if (drv.current) drv.current.ended = true; }}>■</button>
+            <button style={{ ...btn(false, "#ffd24a"), padding: "1px 5px", fontSize: 10 }} onClick={exportJson}>JSON</button>
+          </>}
         </div>
       )}
       {phase === "pick" && (
@@ -141,7 +135,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
           <div style={{ ...panel, width: "min(620px, 96vw)", padding: 22 }}>
             <div style={{ fontSize: 11, letterSpacing: 3, color: "#8fd8ff" }}>PAPER TRADING</div>
             <div style={{ fontSize: 24, fontWeight: 900, margin: "4px 0 6px" }}>You vs 200 bots · 10 minutes</div>
-            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 14 }}>A simulated coin on the real curve: fees, sniper tax, ASCEND into the pool, tramps &amp; walls. Everyone starts with the same cash; most money at the bell wins. No wallet, no chain — nothing is real.</div>
+            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 14 }}>A coin on the real curve: fees, sniper tax, ASCEND into the pool, tramps &amp; walls. Everyone starts with the same cash; most money at the bell wins.</div>
             <div style={{ display: "grid", gap: 8 }}>
               {PAPER_DIFFS.map((x) => (
                 <button key={x} data-testid={`paper-diff-${x}`} onClick={() => setDifficulty(x)} style={{ ...mono, textAlign: "left", cursor: "pointer", padding: "10px 12px", borderRadius: 10, color: "#e8ecff",
@@ -156,7 +150,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
               {SPEEDS.map((s) => <button key={s} style={btn(speed === s)} onClick={() => setSpeed(s)}>{s}×</button>)}
               <button data-testid="paper-start" style={{ ...btn(true, PAPER_COLOR[difficulty]), padding: "10px 26px", fontSize: 15, marginLeft: "auto" }} onClick={() => start()}>PLAY ▸</button>
             </div>
-            <div style={{ fontSize: 10, opacity: 0.5, marginTop: 10 }}>SPACE = BOOST (buy) · SHIFT = DUMP (sell) · same keys as a live coin. Simulated data.</div>
+            <div style={{ fontSize: 10, opacity: 0.5, marginTop: 10 }}>SPACE = BOOST (buy) · SHIFT = DUMP (sell) · same keys as a live coin.</div>
           </div>
         </div>
       )}
@@ -173,14 +167,13 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
               {st.slice(0, 5).map((r) => <BoardRow key={r.wallet} r={r} />)}
               {st.findIndex((r) => r.kind === "human") >= 5 && <BoardRow r={st.find((r) => r.kind === "human")!} />}
             </div>
-            {results.player.bonus > 0 && <div data-testid="paper-bonus" style={{ fontSize: 13, fontWeight: 800, color: "#ffd24a", marginBottom: 6 }}>Ascension bonus +{money(results.player.bonus).slice(1)} <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>(practice only)</span></div>}
+            {results.player.bonus > 0 && <div data-testid="paper-bonus" style={{ fontSize: 13, fontWeight: 800, color: "#ffd24a", marginBottom: 6 }}>Ascension bonus +{money(results.player.bonus).slice(1)}</div>}
             <div style={{ fontSize: 11, opacity: 0.6, marginTop: 8 }}>peak {fmt(results.peakMcap)} · {results.graduated ? `ASCENDED at ${clock(results.graduationSec!)}` : "never ascended"} · {results.trades} trades</div>
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button data-testid="paper-again" style={btn(true)} onClick={() => start()}>⟲ Play again</button>
               <button style={btn()} onClick={() => { drv.current?.stop(); setPhase("pick"); }}>change difficulty</button>
               {dev && <><button style={{ ...btn(false, "#ffd24a"), marginLeft: "auto" }} onClick={exportJson}>JSON</button><button style={btn(false, "#ffd24a")} onClick={exportCsv}>CSV</button></>}
             </div>
-            <div style={{ fontSize: 10, opacity: 0.5, marginTop: 10 }}>Simulated round: no wallet, chain or real money.</div>
           </div>
         </div>
       )}
@@ -189,7 +182,7 @@ export default function PaperCoin({ initial }: { initial: { difficulty?: string;
 }
 
 /** LEADERBOARD snap-grid card (CardChrome extraCards "board"): top 8 + your rank, by cash + position value */
-function LeaderboardCard({ rows }: { rows: Standing[] }) {
+function LeaderboardCard({ rows, clock, low, pool }: { rows: Standing[]; clock?: string; low?: boolean; pool?: { size: number; top: string; rank?: number; est?: number } }) {
   const ref = useRef<HTMLDivElement | null>(null), card = useDomCard("board", ref);
   const me = rows.find((r) => r.kind === "human");
   if (!rows.length) return null;
@@ -197,7 +190,10 @@ function LeaderboardCard({ rows }: { rows: Standing[] }) {
     <div ref={ref} data-card="board" data-testid="paper-board" className="paper-board"
       style={{ ...panel, position: "fixed", left: "calc(var(--ap-rail-w, 64px) + 22px)", bottom: 150, width: 262, padding: "8px 10px", zIndex: 21, fontSize: 11,
         transform: card.transform, display: card.hidden ? "none" : undefined }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><b style={{ letterSpacing: 1, color: "#ffd24a" }}>LEADERBOARD</b><span style={{ opacity: 0.6 }}>{me ? `you #${me.rank}/${rows.length}` : ""}</span></div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><b style={{ letterSpacing: 1, color: "#ffd24a" }}>LEADERBOARD</b><span style={{ opacity: 0.6 }}>{clock && <b data-testid="paper-clock" style={{ opacity: 1, color: low ? "#ff9fb8" : "#e8ecff", marginRight: 6 }}>⏱ {clock}</b>}{me ? `you #${me.rank}/${rows.length}` : ""}</span></div>
+      {pool && <div data-testid="paper-pool" style={{ color: "#ffd24a", fontSize: 10, marginBottom: 4, lineHeight: "13px" }}>
+        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Pool {money(pool.size)} · {pool.top || "—"}</div>
+        <div data-testid="paper-pool-me" style={{ color: "#8fd8ff" }}>You {pool.rank ? `#${pool.rank}` : "—"}{pool.est ? ` · est. +${money(pool.est).slice(1)}` : ""}</div></div>}
       {rows.slice(0, 8).map((r) => <BoardRow key={r.wallet} r={r} />)}
       {me && me.rank > 8 && <><div style={{ opacity: 0.4, textAlign: "center", lineHeight: "8px" }}>⋯</div><BoardRow r={me} /></>}
     </div>
