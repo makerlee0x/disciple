@@ -11,9 +11,9 @@ import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
-import {BridgeEngine} from "./BridgeEngine.sol";
+import {DiscipleEngine} from "./DiscipleEngine.sol";
 
-/// @title Shared storage for Disciple (`BridgeLaunchHook`) and its facets
+/// @title Shared storage for Disciple (`DiscipleHook`) and its facets
 /// @dev Facets `delegatecall` into the hook, so every facet inherits this and adds no state
 ///      variables of its own. Immutables live in the executing bytecode: construct each facet
 ///      with the same manager, USDG, default vault, lzRead endpoint, and engine as the hook.
@@ -36,7 +36,7 @@ abstract contract BridgeStorage {
     address public immutable vault;
     address public immutable lz;
     /// @dev Stateless math. Immutable. Holds nothing.
-    BridgeEngine public immutable engine;
+    DiscipleEngine public immutable engine;
     Currency internal immutable usdgC;
 
     struct Pool {
@@ -79,6 +79,13 @@ abstract contract BridgeStorage {
         uint256 openTakenY;
         uint256 blockFee; // LP fee from this block, not yet in `feeIndex`
         uint256 redeemedEligible; // opening shares burned this block (excluded from the fee denominator)
+        /// @dev Decayed-and-added USDG volume. Only trades and time move it. Time is the only decrease.
+        uint256 revVolume;
+        uint64 revAt;
+        uint64 revHalfLife;
+        uint256 revRedLineWad;
+        /// @dev TVL at the first touch of this block. A later deposit cannot enlarge the fee denominator.
+        uint256 revOpenTvl;
         BridgeCurve.S curve;
         PoolKey key;
     }
@@ -103,6 +110,10 @@ abstract contract BridgeStorage {
         uint16 morphoCapBps;
         /// @dev May replace the vault after 48h or pull it immediately. Zero disables the key.
         address vaultAdmin;
+        /// @dev 0 selects REV_HALF_LIFE. Fixed for the life of the pool. Allowed 60 seconds to 7 days.
+        uint64 revHalfLife;
+        /// @dev 0 selects REV_RED_LINE_WAD. Fixed for the life of the pool. Volume / TVL, WAD.
+        uint256 revRedLineWad;
     }
 
     /// @notice Exact size and direction that maximizes mark-to-anchor profit after the current fee.
@@ -125,7 +136,9 @@ abstract contract BridgeStorage {
         uint256 poolPriceWad;
         int256 priceGapBps; // (pool − anchor) / anchor, signed bps
         int256 imbalanceBps; // (coin at anchor − USDG) / TVL, signed bps
-        uint256 suggestedFeeBps; // fee for bridging coin *in* (a sell into this pool)
+        /// @dev Rev fee a dust swap would pay right now, after staleness. Same in both directions.
+        ///      Not a subsidy for bridging coin in.
+        uint256 suggestedFeeBps;
         bool stale;
         bool graduated;
     }
@@ -216,7 +229,7 @@ abstract contract BridgeStorage {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        BridgeEngine engine_
+        DiscipleEngine engine_
     ) {
         if (usdgDecimals_ > 18 || address(engine_) == address(0)) revert BadCreate();
         if (IERC4626(vault_).asset() != usdg_) revert VaultAsset();
@@ -247,7 +260,21 @@ abstract contract BridgeStorage {
         ctx.floorBps = p.floorBps;
         ctx.maxUsdgOut = cap < room ? cap : room;
         ctx.totalShares = p.totalShares;
-        ctx.boostWad = BridgeFee.boostWad(BridgeCurve.tvl(s), ctx.gradTvl);
+        uint256 vNow = BridgeCurve.tvl(s);
+        ctx.boostWad = BridgeFee.boostWad(vNow, ctx.gradTvl);
+        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
+        ctx.revVolume = engine.decayed(p.revVolume, dt, p.revHalfLife);
+        ctx.revRedLineWad = p.revRedLineWad;
+        ctx.revTvl = _revDenom(p, vNow);
+    }
+
+    /// @dev Same-block deposit must not enlarge the denominator. A same-block shrink uses the smaller TVL,
+    ///      which only raises the fee. Across blocks a deposit that is still here is the real denominator.
+    function _revDenom(Pool storage p, uint256 current) internal view returns (uint256) {
+        if (p.openBlock == uint64(block.number) && p.revOpenTvl != 0 && p.revOpenTvl < current) {
+            return p.revOpenTvl;
+        }
+        return current;
     }
 
     /// @notice Memory book priced off the live anchor. Does not write storage.

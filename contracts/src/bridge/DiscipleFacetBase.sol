@@ -13,11 +13,11 @@ import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
-import {BridgeEngine} from "./BridgeEngine.sol";
+import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {BridgeStorage} from "./BridgeStorage.sol";
 
 /// @dev Write-side helpers shared by Disciple's swap, LP, and vault facets. No state variables.
-abstract contract BridgeFacetBase is BridgeStorage {
+abstract contract DiscipleFacetBase is BridgeStorage {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
     using CurrencyLibrary for Currency;
@@ -32,7 +32,7 @@ abstract contract BridgeFacetBase is BridgeStorage {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        BridgeEngine engine_
+        DiscipleEngine engine_
     ) BridgeStorage(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
         self = address(this);
     }
@@ -90,6 +90,15 @@ abstract contract BridgeFacetBase is BridgeStorage {
         p.openTakenX = 0;
         p.openTakenY = 0;
         p.redeemedEligible = 0;
+        p.revOpenTvl = BridgeCurve.tvl(p.curve);
+    }
+
+    /// @dev Add `notion` after decaying. No path subtracts volume except the time decay inside `engine.decayed`.
+    function _noteRev(Pool storage p, uint256 notion) internal {
+        if (notion == 0) return;
+        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
+        p.revVolume = engine.decayed(p.revVolume, dt, p.revHalfLife) + notion;
+        p.revAt = uint64(block.timestamp);
     }
 
     function _mintShares(Pool storage p, PoolId id, address to, uint256 added, uint256 coinNorm, uint256 usdgNorm)

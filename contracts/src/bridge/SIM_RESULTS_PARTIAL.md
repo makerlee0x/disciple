@@ -2,7 +2,7 @@
 
 Status: **complete**. The moving-anchor campaign finished. Every variant ran for both searchers, in both the active-coin and dead-coin scenarios, at 7, 90, and 365 days. **No rows are pending.**
 
-This file is the artifact requested for review. The suite is `BridgeLaunchSimTest` tests `test_simActive` and `test_simDead` (both passed). An earlier attempt aborted with `EvmError: MemoryLimitOOG` after the first profiles; the numbers below are from the rerun that resets EVM memory once per day. The curve path is the same. Nothing in this file is on-chain behavior. Overshoot, LEVAMM, the Dutch gap, and the fee drip are simulator-only.
+This file is the artifact requested for review. The suite is `DiscipleSimTest` tests `test_simActive` and `test_simDead` (both passed). An earlier attempt aborted with `EvmError: MemoryLimitOOG` after the first profiles; the numbers below are from the rerun that resets EVM memory once per day. The curve path is the same. Nothing in this file is on-chain behavior. Overshoot, LEVAMM, the Dutch gap, and the fee drip are simulator-only.
 
 ## Setup
 

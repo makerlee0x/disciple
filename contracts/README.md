@@ -53,7 +53,7 @@ forge script script/Deploy.s.sol --tc Deploy --rpc-url "$ROBINHOOD_RPC_URL" --br
 | `src/AntiSnipe.sol` | LEGACY fee schedule (FeeMath.snipeBps: 99%→0% over 7s); unused by v2 curves | §2; LOCKED #9 |
 | `src/ReferralRegistry.sol` | First-touch; $10 USDG gate hooks | §4; LOCKED #18–#19 |
 | `src/Migration.sol` | Real same-tx v4 migrate (no-jump sqrtPrice, full-range → LockedLP) | §2; LOCKED #5, #17 |
-| `src/DiscipleHook.sol` | Post-grad 1% swap fee → FeeRouter 33/33/33/1 (**pool LP fee = 0**) | §3; LOCKED #11,#16 |
+| `src/AscensionHook.sol` | Post-grad 1% swap fee → FeeRouter 33/33/33/1 (**pool LP fee = 0**) | §3; LOCKED #11,#16 |
 | `src/QuoteProbe.sol` | Quote probe (honeypot/FoT reject; STRATEGY/WETH/USDG always-pass) | §6; LOCKED #31–#32 |
 | `src/LockedLP.sol` | Forever v4 LP owner; removeLiquidity reverts; unlock-seed | §3; LOCKED #16–#17 |
 | `src/LockedLP.sol` | Permanent lock + fee collect stub; `removeLiquidity` reverts | §3; LOCKED #16–#17 |

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title Curve trade event (emitted by every BondingCurve pre-grad). DiscipleHook emits the post-grad variant in
+/// @title Curve trade event (emitted by every BondingCurve pre-grad). AscensionHook emits the post-grad variant in
 ///        IHookTradeEvents (same name and fields, last field = sqrtPriceAfter instead of mcapAfterUsd).
 interface ITradeEvents {
     /// @param token        Launch token
@@ -33,12 +33,12 @@ interface ITradeEvents {
     );
 }
 
-/// @title Post-graduation trade event (emitted by DiscipleHook on every v4 swap)
+/// @title Post-graduation trade event (emitted by AscensionHook on every v4 swap)
 /// @notice Same fields as ITradeEvents.Trade except the last one: the hook emits the raw v4 `sqrtPriceAfter` instead of
 ///         a USD mcap (gas G-1: no on-chain QuotePricer TWAP call per swap). Different signature => different topic0:
 ///         Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160).
-///         Off-chain USD mcap = DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd), with quoteUsd from
-///         DiscipleHook.quoteUsdOf(poolId) (live) or the coin's launch-time QuotePriced value.
+///         Off-chain USD mcap = AscensionHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd), with quoteUsd from
+///         AscensionHook.quoteUsdOf(poolId) (live) or the coin's launch-time QuotePriced value.
 interface IHookTradeEvents {
     /// @param sqrtPriceAfter v4 pool sqrtPriceX96 after the swap (slot0). Other params: see ITradeEvents.Trade.
     event Trade(

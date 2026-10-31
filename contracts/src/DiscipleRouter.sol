@@ -10,7 +10,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {CurrencySettler} from "./libraries/CurrencySettler.sol";
 import {LockedLP} from "./LockedLP.sol";
-import {DiscipleHook} from "./DiscipleHook.sol";
+import {AscensionHook} from "./AscensionHook.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
@@ -66,7 +66,7 @@ interface IUsdgCurve {
 /// @notice Pre-grad trades go to the token's BondingCurve directly; post-grad trades go here.
 ///         Users approve this router once per asset (or use the *WithPermit variants) — no custody.
 ///         For quotes use the official Uniswap V4Quoter (quoteExactInputSingle with the pool key from
-///         `poolKeyOf(token)`); the DiscipleHook 1% fee is applied inside the simulated swap.
+///         `poolKeyOf(token)`); the AscensionHook 1% fee is applied inside the simulated swap.
 contract DiscipleRouter is IUnlockCallback {
     using CurrencySettler for Currency;
     using StateLibrary for IPoolManager;
@@ -725,7 +725,7 @@ contract DiscipleRouter is IUnlockCallback {
         (out,,,, impact,) = abi.decode(r, (uint256, uint256, uint256, uint256, uint256, uint256));
     }
 
-    /// @dev Same |Δp|/p metric as DiscipleHook.impactBpsFromSqrt, with the non-USDG side as the priced asset.
+    /// @dev Same |Δp|/p metric as AscensionHook.impactBpsFromSqrt, with the non-USDG side as the priced asset.
     function _impactFromSqrt(uint160 sb, uint160 sa, bool assetIsC0) private pure returns (uint256) {
         if (sb == 0 || sa == 0) return 0;
         uint256 d = sa > sb ? uint256(sa - sb) : uint256(sb - sa);
@@ -737,8 +737,8 @@ contract DiscipleRouter is IUnlockCallback {
     function _hopImpact(Hop memory h, uint160 sb) private view returns (uint256) {
         (uint160 sa,,,) = poolManager.getSlot0(h.key.toId());
         if (h.disciple) {
-            (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(h.key.toId());
-            return DiscipleHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) == tokenAddr);
+            (address tokenAddr,,,,) = AscensionHook(hook).metaOf(h.key.toId());
+            return AscensionHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) == tokenAddr);
         }
         return _impactFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) != usdg);
     }
@@ -837,20 +837,20 @@ contract DiscipleRouter is IUnlockCallback {
         }
         (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
         // token is c0 iff buying means zeroForOne == false
-        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(d.key.toId());
+        (address tokenAddr,,,,) = AscensionHook(hook).metaOf(d.key.toId());
         // Audit #13 / G-1: live quote/USD via the hook view (falls back to launch price). The hook Trade event emits
         // sqrtPriceAfter; off-chain USD mcap from it with this same price equals this quote.
-        uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
+        uint256 qpx = AscensionHook(hook).quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
-        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
-        uint256 mcap = DiscipleHook(hook).mcapUsdFromSqrt(sa, tokenIsC0, qpx);
+        uint256 impact = AscensionHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
+        uint256 mcap = AscensionHook(hook).mcapUsdFromSqrt(sa, tokenIsC0, qpx);
         revert QuoteResult(out, impact, mcap);
     }
 
     function _checkImpact(PoolKey memory key, uint160 sb) private view {
         (uint160 sa,,,) = poolManager.getSlot0(key.toId());
-        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(key.toId());
-        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(key.currency0) == tokenAddr);
+        (address tokenAddr,,,,) = AscensionHook(hook).metaOf(key.toId());
+        uint256 impact = AscensionHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(key.currency0) == tokenAddr);
         uint256 cap = maxImpactBps;
         if (impact > cap) revert PriceImpactTooHigh(impact, cap);
     }

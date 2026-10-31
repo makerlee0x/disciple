@@ -11,8 +11,8 @@ import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
-import {BridgeEngine} from "./BridgeEngine.sol";
-import {BridgeFacetBase} from "./BridgeFacetBase.sol";
+import {DiscipleEngine} from "./DiscipleEngine.sol";
+import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
 interface IBridgeAdminOps {
     function pullShortfall(PoolId id, uint256 shortNorm) external returns (bool);
@@ -20,10 +20,10 @@ interface IBridgeAdminOps {
 }
 
 /// @title Disciple swap facet
-/// @notice `beforeSwap` for Disciple (`BridgeLaunchHook`). Quotes the curve and settles ERC-6909 claims.
+/// @notice `beforeSwap` for Disciple (`DiscipleHook`). Quotes the curve and settles ERC-6909 claims.
 ///         Vault pulls and the post-trade rebalance `delegatecall` the admin facet so this contract
 ///         stays deployable.
-contract BridgeSwapFacet is BridgeFacetBase {
+contract DiscipleSwapFacet is DiscipleFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
 
@@ -35,9 +35,9 @@ contract BridgeSwapFacet is BridgeFacetBase {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        BridgeEngine engine_,
+        DiscipleEngine engine_,
         address adminFacet_
-    ) BridgeFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
+    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {
         if (adminFacet_ == address(0)) revert BadCreate();
         adminFacet = adminFacet_;
     }
@@ -88,6 +88,8 @@ contract BridgeSwapFacet is BridgeFacetBase {
         }
 
         p.curve = s;
+        // Gross USDG of the fill. Buys: the input. Sells: proceeds before the fee. Decay cannot go backwards.
+        _noteRev(p, specIsCoin ? f.usdgOut + f.fee : f.usdgIn);
         // Park the LP's fee until the next block so shares minted in this one cannot collect it.
         if (f.toLp > 0) p.blockFee += f.toLp;
         p.tipBudget += f.tip;

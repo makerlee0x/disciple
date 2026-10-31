@@ -17,7 +17,7 @@ import {TrampWallManager} from "../src/TrampWallManager.sol";
 import {QuoteProbe} from "../src/QuoteProbe.sol";
 import {QuotePricer} from "../src/QuotePricer.sol";
 import {DiscipleRouter} from "../src/DiscipleRouter.sol";
-import {DiscipleHook} from "../src/DiscipleHook.sol";
+import {AscensionHook} from "../src/AscensionHook.sol";
 import {RewardsVault} from "../src/RewardsVault.sol";
 import {UsdgDepositNotifier} from "../src/UsdgDepositNotifier.sol";
 import {AnonLauncher} from "../src/addons/AnonLauncher.sol";
@@ -146,8 +146,8 @@ contract Deploy is Script {
         );
         bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
         (address hookAddr, bytes32 salt) =
-            HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, ctorArgs);
-        DiscipleHook hook = new DiscipleHook{salt: salt}(manager, feeRouter, address(0), deployer);
+            HookMiner.find(CREATE2_DEPLOYER, flags, type(AscensionHook).creationCode, ctorArgs);
+        AscensionHook hook = new AscensionHook{salt: salt}(manager, feeRouter, address(0), deployer);
         require(address(hook) == hookAddr, "Deploy: hook address mismatch");
 
         Migration migration = new Migration(deployer, address(lockedLP), o.manager, address(hook));
@@ -267,7 +267,7 @@ contract Deploy is Script {
 
         console2.log("PoolManager", o.manager);
         console2.log("V4Quoter", o.quoter);
-        console2.log("DiscipleHook", o.hook);
+        console2.log("AscensionHook", o.hook);
         console2.log("DiscipleRouter", o.router);
         console2.log("TrampWallManager", o.trampWall);
         console2.log("CurveDeployer", o.curveDeployer);
@@ -303,7 +303,7 @@ contract Deploy is Script {
         address deployer,
         address treasury,
         FeeRouter feeRouter,
-        DiscipleHook hook,
+        AscensionHook hook,
         Launchpad launchpad,
         Migration migration,
         QuotePricer pricer,

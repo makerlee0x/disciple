@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Deploy} from "../../script/Deploy.s.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
@@ -23,12 +23,12 @@ contract DeployConfigTest is Test {
         assertEq(address(UsdgDepositNotifier(o.depositNotifier).usdg()), o.usdg);
 
         // #10 only DiscipleRouter is trusted for hookData attribution
-        assertTrue(DiscipleHook(o.hook).isTrustedRouter(o.router));
-        assertFalse(DiscipleHook(o.hook).isTrustedRouter(ur));
+        assertTrue(AscensionHook(o.hook).isTrustedRouter(o.router));
+        assertFalse(AscensionHook(o.hook).isTrustedRouter(ur));
 
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration
         assertEq(Migration(o.migration).launchpad(), o.launchpad);
-        assertEq(DiscipleHook(o.hook).migration(), o.migration);
+        assertEq(AscensionHook(o.hook).migration(), o.migration);
 
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);

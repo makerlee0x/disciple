@@ -6,7 +6,7 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";

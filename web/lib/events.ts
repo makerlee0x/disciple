@@ -2,12 +2,12 @@
  * DISCIPLE FLOW event listener → normalized ProtocolEvents.
  *  Launchpad: Launched, LaunchTierContext, CreatorTransferred
  *  BondingCurve (per coin): Trade (pre-grad), GraduatedToV4 (→ "Graduate")
- *  DiscipleHook (all coins, filtered by indexed token): Trade (post-grad v4 swaps, any router)
+ *  AscensionHook (all coins, filtered by indexed token): Trade (post-grad v4 swaps, any router)
  * Trade.impactBps / mcapAfterUsd come straight from chain and drive bomb tiers + the chart.
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
 import { decodeEventLog, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
+import { bondingCurveAbi, ascensionHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
 import { attachRefunds, playerUsd, usdgAmounts, usdgIndex, usdgKey, type UsdgRefundArgs, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
 import { publishTraderName } from "./nameLookup";
@@ -357,7 +357,7 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   if (hook !== "0x0000000000000000000000000000000000000000") {
     const h = pollLogs({
       pc, fromBlock: start,
-      fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
+      fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: hook, abi: ascensionHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
       onLogs: (logs) => inOrder(async () => { const k = await hookCtx; for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k, usdgOf(l))); }),
     });
     stops.push(h.stop); kicks.push(h.kick); pollers.push(h);
@@ -446,7 +446,7 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
   const router = deployment().router;
   const [curveLogs, hookLogs, routerLogs, refundLogs] = await Promise.all([
     pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock, toBlock: "latest" }),
-    pc.getContractEvents({ address: deployment().hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock, toBlock: "latest" }),
+    pc.getContractEvents({ address: deployment().hook, abi: ascensionHookAbi, eventName: "Trade", args: { token }, fromBlock, toBlock: "latest" }),
     router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])
       : pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock, toBlock: "latest" }).catch(() => []),
     router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])

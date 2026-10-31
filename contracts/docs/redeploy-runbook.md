@@ -19,7 +19,7 @@ Stack base is main@38e8802e. main has moved 8 commits since (b904b011 at time of
 | 2 | #127 steep curve + floor | feat/steep-curve-floor → #121 | #121 | AUDIT: SHIP; retarget to main after #121 merges |
 | 3 | this PR (redeploy prep) | feat/redeploy-prep → #127 | #127 | scripts + runbook + the two #115 cherry-picks below; AUDIT fixes in section 11 |
 | 3a | #115 6-dec USDG (b6a91177, 80b06f22 only) | cherry-picked into this PR as 2f55717a, 06d46f16 | – | **required before the redeploy** (AUDIT Medium: `5 ether` launch-fee cap = $5T at 6 dec). Src only; tests rewritten for this stack's 18-dec harness |
-| 3b | #115 rest (96a2ec13 harness, fdc8b837 deploy, 421e7a9e, test commits) | test/usdg-6dec → main | after this stack | optional, not needed to deploy. On conflict take this stack's `Deploy.s.sol` / `script/redeploy/*` (fdc8b837 overlaps); AnonLauncher/DiscipleHook src is identical to the cherry-picks |
+| 3b | #115 rest (96a2ec13 harness, fdc8b837 deploy, 421e7a9e, test commits) | test/usdg-6dec → main | after this stack | optional, not needed to deploy. On conflict take this stack's `Deploy.s.sol` / `script/redeploy/*` (fdc8b837 overlaps); AnonLauncher/AscensionHook src is identical to the cherry-picks |
 | 4 | #129 SITE steep curve web | site/steep-curve-web → #127 | #127 | one known FAIL until engine.js is regenerated (GAME) |
 | 5 | #128 GAME sim retune | game/sim-retune-steep-curve → #127 | #127, land with/after #129 | regenerates `web/public/flight/engine.js` |
 | 6 | #106 USDG paymaster | feat/usdg-paymaster → main | – (deploy needs the new USDG + ReferralRegistry) | rebase on main after #128 |
@@ -88,7 +88,7 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # sources env.testnet + secrets; for
 
 `Deploy.s.sol` order (one script, 51 txs on the fork):
 1. Mock USDG (DevToken, 6 dec, public `mint`), test STRATEGY (18 dec), STRATEGY/USDG pricer pool at $0.00245 (~$1M per side; fee 3000, spacing 60, no hooks).
-2. ReferralRegistry → LockedLP → FeeRouter (`referralSink` = 0) → DiscipleHook (CREATE2, mined flags) → Migration (+ LockedLP/Hook wiring).
+2. ReferralRegistry → LockedLP → FeeRouter (`referralSink` = 0) → AscensionHook (CREATE2, mined flags) → Migration (+ LockedLP/Hook wiring).
 3. DiscipleRouter, TrampWallManager, AntiSnipe (legacy, unused by v2 curves), Launchpad (pre-computed address), UsdgDepositNotifier.
 4. QuotePricer (+ USDG routing), LoginGate (`PVE_ATTESTER`), QuoteProbe, CurveDeployer, `setDefaultQuote(STRATEGY)`.
 5. Add-ons: RewardsVault (+ FeeRouter wiring, owner `REWARDS_VAULT_OWNER`), `hook.setPricer`, AnonLauncher v2 (fee 0.25 USDG = 250000 raw), MarketLens.
@@ -180,7 +180,7 @@ Record the acceptance tx hash in the deployments json `note`. Fork rehearsal 202
 | Var | Value |
 |-----|-------|
 | `NEXT_PUBLIC_RHT_LAUNCHPAD` | Launchpad |
-| `NEXT_PUBLIC_RHT_HOOK` | DiscipleHook |
+| `NEXT_PUBLIC_RHT_HOOK` | AscensionHook |
 | `NEXT_PUBLIC_RHT_ROUTER` | DiscipleRouter |
 | `NEXT_PUBLIC_RHT_FEE_ROUTER` | FeeRouter |
 | `NEXT_PUBLIC_RHT_REFERRAL_REGISTRY` | ReferralRegistry |

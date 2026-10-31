@@ -240,9 +240,9 @@ contract AuditRegression is IntegrationBase {
     // ── #12 hook.setMigration front-run ──
     function test_audit12_setMigrationAdminOnlyAndOnce() public {
         vm.prank(attacker);
-        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
+        vm.expectRevert(AscensionHook.OnlyAdmin.selector);
         hook.setMigration(attacker);
-        vm.expectRevert(bytes("DiscipleHook: mig"));
+        vm.expectRevert(bytes("AscensionHook: mig"));
         hook.setMigration(attacker); // admin, but already wired
     }
 

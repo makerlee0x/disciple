@@ -35,36 +35,61 @@ library BridgeArb {
         }
     }
 
+    /// @dev The rev fee steps with size, so a one-wei derivative walk can stop on a rounding
+    ///      wiggle far below the peak. A doubling grid finds the right octave. A ternary search
+    ///      inside that octave settles the size. The result has to beat half of itself.
     function _best(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 hi, bool buy)
         private
         pure
         returns (uint256 bestIn, uint256 bestOut, uint256 bestP)
     {
         if (hi == 0) return (0, 0, 0);
-        uint256 lo;
-        uint256 right = hi;
-        while (lo + 1 < right) {
-            uint256 mid = (lo + right) >> 1;
-            (uint256 pMid,) = _profit(s, ctx, mid, buy);
-            (uint256 pNext,) = _profit(s, ctx, mid + 1, buy);
-            if (pNext > pMid) lo = mid + 1;
-            else right = mid;
+        uint256 probe = hi < 1e15 ? hi : 1e15;
+        uint256 prev;
+        while (probe != 0 && probe != prev) {
+            (uint256 p, uint256 out) = _profit(s, ctx, probe, buy);
+            if (p > bestP) {
+                bestP = p;
+                bestOut = out;
+                bestIn = probe;
+            }
+            if (probe == hi) break;
+            prev = probe;
+            probe = probe > hi / 2 ? hi : probe * 2;
         }
-        (bestP, bestOut) = _profit(s, ctx, lo, buy);
-        bestIn = bestP == 0 ? 0 : lo;
+        if (bestIn < 2) return (bestIn, bestOut, bestP);
+        uint256 lo = bestIn >> 1;
+        uint256 right = bestIn > hi / 2 ? hi : bestIn << 1;
+        if (lo == 0) lo = 1;
+        for (uint256 i; i < 24 && lo + 1 < right; ++i) {
+            uint256 span = right - lo;
+            uint256 m1 = lo + span / 3;
+            uint256 m2 = right - span / 3;
+            if (m1 == 0 || m2 == 0 || m1 == m2) break;
+            (uint256 p1,) = _profit(s, ctx, m1, buy);
+            (uint256 p2,) = _profit(s, ctx, m2, buy);
+            if (p1 < p2) lo = m1;
+            else right = m2;
+        }
+        (uint256 pLo, uint256 outLo) = _profit(s, ctx, lo, buy);
+        if (pLo > bestP) {
+            bestP = pLo;
+            bestOut = outLo;
+            bestIn = lo;
+        }
         (uint256 pRight, uint256 outRight) = _profit(s, ctx, right, buy);
         if (pRight > bestP) {
             bestP = pRight;
             bestOut = outRight;
             bestIn = right;
         }
-        if (right < hi) {
-            (uint256 pHi, uint256 outHi) = _profit(s, ctx, hi, buy);
-            if (pHi > bestP) {
-                bestP = pHi;
-                bestOut = outHi;
-                bestIn = hi;
-            }
+        for (uint256 i; i < 6 && bestIn > 1; ++i) {
+            uint256 half = bestIn >> 1;
+            (uint256 halfP, uint256 halfOut) = _profit(s, ctx, half, buy);
+            if (halfP <= bestP) break;
+            bestP = halfP;
+            bestOut = halfOut;
+            bestIn = half;
         }
     }
 

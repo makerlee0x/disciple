@@ -76,6 +76,6 @@ At graduation (Outer Space, $33,333) the graduating buy atomically:
 
 1. Initializes a v4 pool at the curve-end `sqrtPriceX96` (no price jump).
 2. Seeds a **full-range** position with remaining tokens + curve quote (+ fee escrow), owned by **LockedLP**.
-3. Registers the pool on **DiscipleHook** (pool fee **0**; hook takes **1%** → FeeRouter 33/33/33/1).
+3. Registers the pool on **AscensionHook** (pool fee **0**; hook takes **1%** → FeeRouter 33/33/33/1).
 
 See constitution §2 / LOCKED #5, #17.

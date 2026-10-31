@@ -10,7 +10,7 @@ This is a lightweight indexer built on viem, SQLite (better-sqlite3) and `node:h
 |---|---|
 | Launchpad | `Launched`, `QuotePriced`, `MetadataUpdated`, `CreatorTransferred`, `LaunchTierContext`, `LaunchMode` (v4: `coins.mode` 0 TRENCH / 1 PVE / 2 PVP) |
 | BondingCurve (each coin) | `Trade` (ends in `mcapAfterUsd`), `GraduatedToV4`, `AltitudeUpdate`, `TierBreak` (PR #44), v4 PVE: `ProfitTaxCharged`, `HolderRewardsClaimed` |
-| DiscipleHook | `Trade` (post-grad; v4 emits the `IHookTradeEvents` overload ending in `uint160 sqrtPriceAfter` → mcap/price computed in `src/usd.ts` via `mcapUsdFromSqrt`/`priceWadFromSqrt`; older hooks end in `mcapAfterUsd`), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
+| AscensionHook | `Trade` (post-grad; v4 emits the `IHookTradeEvents` overload ending in `uint160 sqrtPriceAfter` → mcap/price computed in `src/usd.ts` via `mcapUsdFromSqrt`/`priceWadFromSqrt`; older hooks end in `mcapAfterUsd`), `AltitudeUpdate`, `TierBreak` (PR #44). `LPDonation` was removed in PR #44 and is no longer decoded |
 | Migration | `Migrated` |
 | TrampWallManager | `TrampPlaced`, `WallPlaced`, `Filled`, `Cancelled`, `KeeperTipPaid` (PR #44), `FeesClaimed` (≤v3 only) |
 | FeeRouter | `TradeFeeRouted` (audit #11 ABI: feeToken, feeIsQuote, creator, referralPayee, kolPayee + kolShare; per-payee rows in `fee_credits`), `CreatorFeesClaimed`, `CreatorTokenFeesClaimed` (v4, launch-token units), `ReferrerFeesClaimed`, `SnipeFeeRoutedToLP` (≤v2), `SnipeFeeRouted` (70/30, v3) |

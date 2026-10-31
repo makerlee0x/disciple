@@ -7,7 +7,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {TrampWallManager} from "../../src/TrampWallManager.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
@@ -196,7 +196,7 @@ contract JitTwapTest is IntegrationBase {
         twm.setKeeperTipBps(100);
         assertEq(twm.keeperTipBps(), 100);
         vm.prank(alice);
-        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
+        vm.expectRevert(AscensionHook.OnlyAdmin.selector);
         hook.setLiquidityManager(alice, true);
     }
 

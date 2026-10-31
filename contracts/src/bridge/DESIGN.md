@@ -2,7 +2,7 @@
 
 Disciple is a Uniswap v4 hook that bootstraps a new liquidity pool from a tiny seed through incentivized arbitrage. It uses an onchain bonding curve anchored to an existing pool's price, compounds every fee back into the pool, and earns Morpho yield on idle USDG once the pool graduates.
 
-The contract is `BridgeLaunchHook`. This repo already has a `DiscipleHook` (the post-graduation 1% fee hook), so this hook, its engine, and its facets keep the `Bridge*` names.
+The contract is `DiscipleHook`. Its engine is `DiscipleEngine`. Writes go through `DiscipleSwapFacet`, `DiscipleLpFacet`, and `DiscipleAdminFacet`, which share `DiscipleFacetBase`. The curve, fee, arb search, and storage libraries keep the `Bridge*` names (`BridgeCurve`, `BridgeFee`, `BridgeConstants`, `BridgeArb`, `BridgeV3Anchor`, `BridgeStorage`). `AscensionHook` is the post-graduation 1% fee hook. That name is a pure rename of the contract that used to be called `DiscipleHook`. The rename does not change its logic.
 
 One immutable hook. Many coin/USDG pools. The first coin is JESUS
 (`0x777A8DD86f0E29A28DAcf548Aebf42BB484daBBa` on Robinhood Chain). The hook does not
@@ -38,9 +38,9 @@ They do not fit this repo:
   v4.0.0 (`e50237c4`), which is before that refactor. The matching OZ tag (v1.0.0) is single-pool.
 - This hook serves many pools from one deployment. A singular `poolKey` cannot do that.
 
-The curve and the arb search live in `BridgeEngine`, a stateless contract with no admin.
-Swaps, LP accounting, and the vault admin live in three more contracts (`BridgeSwapFacet`,
-`BridgeLpFacet`, `BridgeAdminFacet`). The mined hook holds the storage and answers every
+The curve and the arb search live in `DiscipleEngine`, a stateless contract with no admin.
+Swaps, LP accounting, and the vault admin live in three more contracts (`DiscipleSwapFacet`,
+`DiscipleLpFacet`, `DiscipleAdminFacet`). The mined hook holds the storage and answers every
 view itself. Anything that writes is a `delegatecall` to a facet, so the pool manager, the
 vault, and the tokens still see the hook. Facet addresses are fixed in the hook constructor
 and cannot be replaced. That split is what keeps every deployed contract under the 24kb
@@ -50,7 +50,7 @@ So the same pattern is implemented directly on v4-core v4.0.0. v4 concentrated l
 disabled (`beforeAddLiquidity` / `beforeRemoveLiquidity` revert). `slot0` is a dummy set at
 tick 0 and is never read. The pool fee flag is dynamic, but the number v4 stores is not the
 fee users pay. Real fees are USDG taken inside the quote, because a single v4 pips fee cannot
-express a direction-based USDG fee that compounds into the book.
+express a volume-dependent USDG fee that compounds into the book.
 
 External `initialize` reverts. The hook initializes the pool itself; v4 skips
 `beforeInitialize` on that self-call.
@@ -86,13 +86,38 @@ TVL for fees, graduation, and the boost is `coin · anchor + USDG`. Never the po
 
 ## Fees
 
-Both sides pay in USDG.
+Both sides pay the same bps in USDG. Direction does not change the fee. There is no discount
+for a gap-closing trade and no extra charge for opening one.
+
+The growth cap is the old base schedule: 2% at TVL 0, linear in TVL to 0.3% at graduation.
+That cap is what a hot pool pays. A quiet pool pays a 0.3% floor at any size. At and after
+graduation the cap has met the floor, so the fee is 0.3%. Between the floor and the cap the
+fee is linear in recent volume.
+
+Recent volume is an accumulator. Each trade adds its USDG notional, including the trade
+being quoted, and the sum decays with a one-hour half-life (`2^(-dt / halfLife)`). The red
+line is half of the fee denominator: decayed volume of `0.5 × TVL` pins the fee at the cap.
+The denominator is the block-open TVL when that is smaller than the current TVL, so a
+same-block deposit cannot inflate TVL and cheapen the clip. The accumulator only grows when
+a trade adds notional and only shrinks by time. A wash can raise the fee. It cannot lower
+it. A pile-in during a quiet stretch pays more on the later clips of the same burst, because
+each clip is already in the sum the next clip reads.
+
+Half-life and red line are fixed at creation. Passing 0 uses the defaults (1 hour, 0.5×).
+The resolved half-life must sit in [60 seconds, 7 days]. The red line must sit in [0.01, 10]
+in WAD. There is no setter.
+
+The stale multiplier is unchanged and still cross-chain only: 1× for 30 minutes, then linear
+to 5× over the next 2 hours, hard cap 20%. The keeper tip and the creator cut are unchanged.
+`bridgeQuote.suggestedFeeBps` is the rev fee a dust swap would pay right now, the same number
+in both directions. It is not a subsidy for bridging coin in.
 
 | | |
 | --- | --- |
-| Base | 2% at TVL 0, linear to 0.3% at the graduation TVL |
-| Toward the anchor | half the base |
-| Away from the anchor | 1.5× the base |
+| Hot cap | 2% at TVL 0, linear to 0.3% at the graduation TVL. This is the fee when recent volume is at the red line. |
+| Quiet floor | 0.3% when recent volume is ~0, and the fee at and after graduation |
+| Red line | 0.5× the fee-denominator TVL. At or above it, the fee is the cap. |
+| Half-life | 1 hour. A quiet hour forgets half the recent flow. |
 | Stale | Cross-chain only. 1× for 30 minutes, linear to 5× over the next 2 hours, hard cap 20% |
 | Keeper tip | Cross-chain only. 10% of each fee, budget capped at $10, paid $1 only when a read was stale |
 | Creator | 10% of the fee, only after graduation. The only fee cut besides the keeper tip |
@@ -154,16 +179,17 @@ the same block does not change how many shares a deposit gets.
 Fees work the same way. A swap parks the LP's fee until the next block and then divides it
 by the shares that existed at the open (same-block mints are not in the denominator). A
 deposit, buy, and redeem in one transaction, including inside a flash loan, cannot collect
-the 3.3× fee weight. The parked fee is visible from `pendingFee` for shares that were
+the 5× fee weight. The parked fee is visible from `pendingFee` for shares that were
 already settled. If nobody eligible still holds when the block rolls, that fee moves to
 protocol inventory.
 
-The 3.3× → 1.2× boost (linear in TVL, finished at graduation, then stuck at 1.2×) multiplies the LP's
+The 5× → 1.2× boost (linear in TVL, finished at graduation, then stuck at 1.2×) multiplies the LP's
 weight when a fee is split into the fee index. It is not applied to principal and not applied
-when a swap re-splits inventory. Redeeming charges the base fee (plus staleness), not the
-directional fee. That fee stays with the protocol and the remaining LPs as principal. It is
-not run back through the boost. A depositor who trades against themselves and redeems gets
-back less than they put in.
+when a swap re-splits inventory. An early LP whose anchor-value matches the protocol seed
+has weight 5 against the seed's weight 1, so about 5/6 of the fee, and none of the principal.
+Redeeming charges the same rev fee a swap of that size would pay, plus staleness. That fee stays
+with the protocol and the remaining LPs as principal. It is not run back through the boost.
+A depositor who trades against themselves and redeems gets back less than they put in.
 
 While spot is below the anchor, a USDG deposit that would mint virtual coin is rejected
 (`DiscountDeposit`). Replacing virtual USDG with real USDG is allowed and does not move the
@@ -239,11 +265,14 @@ of the anchor the pool is on.
 | USDG floor | 20%, allowed 1–50% | Agreed dump backstop. 0% is not offered. |
 | Band | ±25% at or below $100 TVL, ±1.2% at graduation | Linear in ln(TVL): `0.25 − 0.238 · ln(v / 100) / ln(grad / 100)`. Equal TVL ratios take equal bites, so the band is still wide in the middle (±13.1% near $2,941, about ±8.8% at $10k) and hits ±1.2% only at graduation. Linear in TVL would still be about ±22% at $10k and then drop most of the remaining width near $86k. Linear in ln(band) would already be about ±5.5% at that log midpoint. The old 1/TVL depth was ±3.33% by $10k and then stuck. Unknown graduation does not deepen. |
 | Tail | `TAIL_K = 8e18`, exponent 30 | Emptying a side costs about 8/31 ≈ 26% extra on top of constant product. The g^30 shape matches the launchpad curve's steep tail. |
-| Base fee | 200 bps → 30 bps | 2% while tiny, linear in TVL to 0.3% at graduation. Not at $10k. This was already tied to graduation; it is unchanged. |
-| Direction | 0.5× toward, 1.5× away | Pays traders who close the gap, charges traders who open it. |
-| Stale | 30 min, then 2 hours up to 5×, cap 20% | Matches the TWAP window. The pool stays open. The cap stops a dead oracle becoming a 100% fee. |
+| Hot cap | 200 bps → 30 bps | 2% while tiny and busy, linear in TVL to 0.3% at graduation. This is the ceiling, not the quiet fee. |
+| Quiet floor | 30 bps | What a pool pays when recent volume is ~0, at any TVL. Also the fee once the cap has fallen to 0.3%. |
+| Red line | 0.5× denominator TVL | Decayed volume at this level pins the fee at the cap. Fixed at creation. Default when the create param is 0. Allowed 0.01×–10×. |
+| Half-life | 1 hour | The volume accumulator forgets half its weight per quiet hour. Fixed at creation. Default when 0. Allowed 60 seconds to 7 days. |
+| Direction | none | Buys and sells pay the same rev fee. Closing a gap is not discounted. |
+| Stale | 30 min, then 2 hours up to 5×, cap 20% | Matches the TWAP window. The pool stays open. The cap stops a dead oracle becoming a 100% fee. Cross-chain only. |
 | Tip | $1, 10% of fees, $10 budget | Covers a keeper's gas plus an lzRead fee with a small margin, and stops spam. |
-| Boost | 3.3× → 1.2× at graduation | Linear in TVL, same endpoint as the fee. Early LPs earn more of the fee. 1.2× never goes away. Principal is excluded. |
+| Boost | 5× → 1.2× at graduation | Linear in TVL. Early LPs earn more of the fee. 1.2× never goes away. Principal is excluded. |
 | Graduation | 12% of reference TVL | About $86.5k if the Ethereum JESUS pool is ~$721k (12% × $721k = $86,520). Latched. The band, the base fee, and the boost all finish here. |
 | Creator | 10% of fees after graduation | Only a redirectable claim. Not principal. |
 | Buffer | max($500, 5% TVL) | Ordinary sells survive a vault outage. $500 is the floor because a $77 book has no idle USDG yet. |
@@ -269,91 +298,25 @@ any, is a separate `tipSeed` and is not inventory.
 
 ## Simulator
 
-`test/bridge/BridgeLaunchSim.t.sol` runs the real curve. Seed is $77, all coin. Discount is
-33%. Anchor is $1. Graduation is $86,520 (12% of a $721,000 reference pool). Retail is a full
-$1,000/day of $5–$50, 50/50, and does not count toward the arb. A sell is forced into a buy
-while the pool holds under $1 of USDG. Arb trades when `|spot − anchor| / anchor` exceeds the
-base fee plus 0.5%, in clips of $1–$5,000, up to 16 per retail trade. Arb volume is the USDG
-that actually filled, not the clip that was attempted. The gap is sampled after each retail
-trade and before arb. `script/bridge/sim_bridge.py` prints the 7-day rows.
+`test/bridge/DiscipleSim.t.sol` runs the real curve. The moving-anchor campaign (active coin at 3% a day, dead coin at 0.1% a day, both searchers, every variant, days 7 / 90 / 365) is written out in `SIM_RESULTS_PARTIAL.md`. That run finished. No profile graduated. The tables there are the numbers to use.
 
-The base fee is still about 2% at these sizes (it reaches 0.3% only at $86,520), so a trade
-has to move the quote by about 2.5% before arb steps in. A $50 clip does that while the book
-is a few hundred dollars. It does not do it later. At $1,000 TVL the band is still ±16.9%
-(effective book about $5,900) and a $50 clip moves the quote about 0.8%, under the 2.5%
-slack. At graduation the ±1.2% band is a ~$7.2M book, and clearing 0.3% + 0.5% takes on the
-order of $58k of imbalance. $1,000/day of mixed retail cannot keep that gap open. The fade
-below is that fee, not the band collapsing back to the old ±3.33%-by-$10k curve.
+The previous static-anchor baseline is not re-run. It is the comparison column: day 7 TVL $310, avg gap 7.53%, arb $830/day, fees $35.34/day. Day 90 TVL $2,435, gap 1.74%, arb $338/day, fees $26.35/day. Day 365 TVL $7,970, gap 0.99%, arb $128/day, fees $21.64/day. Not graduated. Anchor fixed at $1, fee near 2% for the whole year.
 
-### Seven days
+Two searchers, separate profiles, same retail stream and the same oracle path. The outside searcher pays the pool fee plus 0.5%. The other pays the pool fee plus about 0.05%, which is gas. That second searcher is public. The hook does not assume the launching team runs it.
 
-| Day | Coin | USDG | TVL | Price | Band | Avg gap | Arb | Fees |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 76.37 | 20.95 | 97.32 | 1.0001 | 25.0% | 14.9% | 643.14 | 26.64 |
-| 2 | 91.90 | 34.78 | 126.68 | 0.9972 | 24.2% | 9.9% | 802.24 | 32.93 |
-| 3 | 109.11 | 50.46 | 159.58 | 0.9965 | 23.4% | 9.5% | 893.03 | 36.82 |
-| 4 | 129.26 | 66.86 | 196.12 | 0.9934 | 22.6% | 5.8% | 822.05 | 36.91 |
-| 5 | 143.39 | 90.93 | 234.32 | 1.0043 | 22.0% | 5.7% | 913.42 | 38.58 |
-| 6 | 164.81 | 107.69 | 272.50 | 1.0001 | 21.5% | 4.4% | 918.27 | 38.09 |
-| 7 | 175.04 | 135.02 | 310.06 | 1.0120 | 21.0% | 3.6% | 817.18 | 37.39 |
+On the moving anchor, the baseline (sliding 2%→0.3% cap, no rev fee) still ends near the old static run: active day 365 TVL about $8,006, arb $140/day, fees $21.90/day, effective fee 192 bps. The anchor itself finished at 0.5834. The dead baseline, with $100–$200/day of retail, ends at about $1,639, effective fee 197 bps, arb still $69/day because the book never got large enough for a 2% fee to shut the gap.
 
-Day 7 in wei: coin `175035768170176235164`, USDG `135021204793116739138`, TVL
-`310056972963292974302`, price `1011982407540918504`, fees `247360205008365748740`,
-arb volume `5809337970429528682376`, arb mark `214277382892961884537`, average pre-arb
-gap `75312949485880234` (7.53% over 264 samples).
+The rev fee keeps that arb alive on purpose. Active, outside searcher, day 365: TVL about $3,140, arb $429/day, fees $8.80/day, effective fee 61 bps, and about $309 of mark transferred to searchers over the year. The gas-only searcher trades even more (about $594/day) and the pool's cumulative mark against searchers is about −$65 (the pool is ahead on mark). Dead coin, outside searcher: TVL about $811 against the baseline's $1,639, arb $131/day, fees $2.06/day, effective fee 73 bps, about $488 of mark transferred. On a dead coin the baseline fee was already letting arb through, because the pool stayed small. The quiet floor makes those gaps cheaper and the book ends smaller.
 
-The closing print is 1.2% above the anchor, at about $310 TVL, with $135 of real USDG in
-the pool. That is the post-arb price. The gaps arb traded during the week averaged 7.5%,
-and day 7's own pre-arb average was 3.6%. It does not settle 1.2% under the way the old
-±3.33%-by-$10k curve did at $187. Arb volume averages about $830/day. Fees average about
-$35/day. The pool does not graduate. The arb mark ($214) is coin valued at the $1 anchor
-minus USDG spent, held by arbers, not a drain of the pool's USDG.
+Overshoot A–D did not push TVL through half the seed on this path. Week-one loop profit on the active coin is on the order of $20/day. By day 365 it is under $1/day. That is not a reason to add them. The same-timestamp round trip is the failure the variants were meant to expose, and this campaign is not a proof that a second wallet, or an atomic loop against a fresh relist, is safe. B's gap is capped under the round-trip fee, so the quoted edge is smaller than the cost of taking it. C only cools the wallet that just traded. D's decay does not run when no time has passed.
 
-### Ninety days and one year
+LEVAMM is the one that drains. Active, outside searcher, TVL fell through half the seed on day 14 (day 19 for the gas-only searcher) and finished near $30, with the quote about 93% under the anchor. Dead-coin LEV finished near $45, under the $77 seed, without crossing the half-seed line. The cumulative mark column on LEV is not cash removed from a $77 book. The quote sat so far under the oracle that each buy is marked as if the coin were still worth the anchor. TVL is the cash number. An all-coin seed must not use this quote.
 
-The same path, continued. "Avg gap", "Arb / day", and "Fees / day" are that week's pre-arb
-mean and that week's totals divided by 7. Day 365 is a one-day bucket.
+Dutch (no max gap, size shrinks as the quote drifts, bid and ask independent) did not drain. Active, outside searcher, day 365 TVL about $3,380, searcher profit about −$1.46/day, pool mark about −$67 (the pool gained). The gas-only searcher shows a larger mark gain for the pool and a negative daily profit, which is the size cap doing its job: a late fill is a small slice, and taking it does not clear the searcher's cost once impact and the fee are counted. Dead Dutch ends near $1,071, ahead of the rev-fee book and behind the baseline, with about $237 of mark transferred over the year. The tail, the seed guard, and the 20% floor still bind on every fill.
 
-| Day | TVL | Price | Band | Avg gap | Arb / day | Fees / day |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 7 | 310 | 1.012 | 21.0% | 7.53% | 830 | 35.34 |
-| 14 | 556 | 1.006 | 19.0% | 2.77% | 748 | 35.14 |
-| 21 | 771 | 1.001 | 17.8% | 1.76% | 542 | 30.72 |
-| 28 | 966 | 1.019 | 17.0% | 1.33% | 394 | 27.73 |
-| 35 | 1,147 | 0.977 | 16.4% | 1.13% | 298 | 25.74 |
-| 42 | 1,316 | 1.001 | 15.9% | 1.03% | 232 | 24.25 |
-| 49 | 1,495 | 1.002 | 15.5% | 1.07% | 296 | 25.57 |
-| 56 | 1,663 | 1.001 | 15.1% | 1.14% | 231 | 24.01 |
-| 63 | 1,825 | 1.005 | 14.8% | 1.01% | 181 | 23.13 |
-| 70 | 1,977 | 0.987 | 14.5% | 0.92% | 103 | 21.68 |
-| 77 | 2,129 | 0.995 | 14.2% | 0.90% | 126 | 21.93 |
-| 84 | 2,294 | 0.977 | 14.0% | 0.95% | 176 | 23.15 |
-| 112 | 2,912 | 0.992 | 13.1% | 0.78% | 78 | 21.01 |
-| 140 | 3,502 | 0.984 | 12.5% | 0.68% | 47 | 20.31 |
-| 168 | 4,081 | 0.995 | 11.9% | 0.66% | 0 | 19.18 |
-| 196 | 4,641 | 0.998 | 11.5% | 0.57% | 0 | 19.05 |
-| 224 | 5,241 | 0.986 | 11.1% | 0.67% | 157 | 22.04 |
-| 252 | 5,818 | 1.018 | 10.7% | 0.58% | 0 | 19.41 |
-| 280 | 6,360 | 1.007 | 10.4% | 0.27% | 0 | 18.84 |
-| 308 | 6,881 | 1.000 | 10.1% | 0.36% | 0 | 18.36 |
-| 336 | 7,405 | 0.991 | 9.9% | 0.81% | 0 | 18.54 |
-| 364 | 7,951 | 1.018 | 9.6% | 1.04% | 0 | 19.08 |
-| 365 | 7,970 | 1.019 | 9.6% | 1.81% | 0 | 18.62 |
+The fee drip tracks the rev-fee book. On the dead coin it barely moves the result, because there is little surplus coin above the seed to sell. The subsidy cannot exceed fees already earned.
 
-Ninety days ends at TVL $2,434.72, price 0.9861 (1.4% under the anchor), band ±13.8%. Over
-3,309 samples the average pre-arb gap is 1.74%. Arb volume is $30,441.04 ($338.23/day).
-Fees are $2,371.17 ($26.35/day). Arb mark is $373.24. Not graduated.
-
-One year ends at TVL $7,970.06 (9.2% of graduation), price 1.0188, band ±9.6%. Over 13,514
-samples the average pre-arb gap is 0.99%. Arb volume is $46,787.09 ($128.18/day). Fees are
-$7,900.38 ($21.64/day). Arb mark is $425.26. Not graduated. Stopped at day 365.
-
-Arb stays about $750–$830/day for the first two weeks, while TVL is under about $560 and the
-pre-arb gap is still a few percent. It is a few hundred dollars a day through roughly $1,700
-TVL, then mostly $50–$180 a day through roughly $3,500. After about $4,000 many weeks have no
-arb, with an occasional week still clearing $150 (day 224). The band is still ±9.6% at day
-365, so the book is not flat. A day's mixed $1,000 flow just no longer opens a gap wider than
-the fee (still about 1.8%) plus 0.5%. Reaching $86,520 on this flow takes longer than a year.
+What goes in the contract: the rev fee (0.3% floor, hot cap sliding from 2% to 0.3%, red line 0.5× TVL, one-hour half-life) and the 5×→1.2× LP boost. No direction discount. No bridge-fee subsidy. Overshoot, LEVAMM, Dutch, and the drip stay in the simulator. That recommendation does not depend on anyone on the launching team running the 0.05% searcher. The outside searcher is enough to see the rev fee keep gaps tradable, and enough to see what that costs the book.
 
 ## Deviations from the wording of the spec
 
@@ -394,5 +357,6 @@ The following were asked about and are deliberately not built:
 - A lower fee for small trades.
 - On-chain progress or milestone tracking.
 - Gap events.
+- Overshoot / relist, a LEVAMM value-mix quote, a Dutch bid/ask that drifts off the anchor, and a fee-funded drip. Those were simulated. See the simulator section. They are not in the hook.
 
 Nothing in the quote, the fee schedule, or the events implements those.

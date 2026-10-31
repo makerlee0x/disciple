@@ -4,12 +4,13 @@ pragma solidity 0.8.26;
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeArb} from "./libraries/BridgeArb.sol";
+import {BridgeFee} from "./libraries/BridgeFee.sol";
 
 /// @title Disciple curve and arb math
-/// @notice Stateless quotes for Disciple (`BridgeLaunchHook`). The hook keeps custody and calls here so
+/// @notice Stateless quotes for Disciple (`DiscipleHook`). The hook keeps custody and calls here so
 ///         Disciple deploys under the 24kb limit. This contract holds no tokens, has no admin, and its
 ///         address is fixed on the hook at construction. Calling it directly only runs the quote.
-contract BridgeEngine {
+contract DiscipleEngine {
     function buy(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 usdgGross)
         external
         pure
@@ -55,5 +56,19 @@ contract BridgeEngine {
         uint256 cost = Math.mulDiv(sold.coinIn, s.anchor, 1e18);
         if (sold.usdgOut <= cost) return (0, 0);
         return (sold.usdgOut, sold.usdgOut - cost);
+    }
+
+    /// @dev External so the hook and the LP facet do not inline the decay series into their bytecode.
+    function decayed(uint256 volume, uint256 dt, uint256 halfLife) external pure returns (uint256) {
+        return BridgeFee.decayed(volume, dt, halfLife);
+    }
+
+    /// @dev Rev fee before the staleness multiplier. Same helper the curve uses.
+    function feeBps(uint256 tvl, uint256 gradTvl, uint256 volume, uint256 redLineWad, uint256 tvlRef)
+        external
+        pure
+        returns (uint256)
+    {
+        return BridgeFee.revBps(tvl, gradTvl, volume, redLineWad, tvlRef);
     }
 }

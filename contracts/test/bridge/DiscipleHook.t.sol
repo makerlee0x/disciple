@@ -10,14 +10,14 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC6909Claims} from "@uniswap/v4-core/src/interfaces/external/IERC6909Claims.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {IEthAnchor} from "../../src/bridge/interfaces/IEthAnchor.sol";
-import {BridgeLaunchHook} from "../../src/bridge/BridgeLaunchHook.sol";
+import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
 import {BridgeFixture} from "./BridgeFixture.sol";
 import {MockERC20} from "./mocks/BridgeMocks.sol";
 
-contract BridgeLaunchHookTest is BridgeFixture {
+contract DiscipleHookTest is BridgeFixture {
     using CurrencyLibrary for Currency;
 
     function setUp() public {
@@ -41,7 +41,8 @@ contract BridgeLaunchHookTest is BridgeFixture {
         assertEq(hook.curve(id).x, 77e18);
         BridgeStorage.BridgeQuote memory q = hook.bridgeQuote(id);
         assertLt(q.priceGapBps, 0);
-        assertGt(q.suggestedFeeBps, 0);
+        // Quiet book, either side of the anchor: the floor. Not a discount for bridging coin in.
+        assertEq(q.suggestedFeeBps, C.FEE_FLOOR_BPS);
         assertFalse(q.stale);
         assertFalse(q.graduated);
         assertEq(bytes4(lz.lastCallData()), IEthAnchor.latest.selector);
@@ -100,21 +101,107 @@ contract BridgeLaunchHookTest is BridgeFixture {
         assertGt(k.fee, 0);
     }
 
-    function test_buyClimbsAndDirectionalFee() public {
+    function test_buyClimbsAndRevFeePilesIn() public {
         (, uint256 buyFee,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
-        assertApproxEqAbs(buyFee, 0.1e18, 0.02e18); // ~1% toward the anchor (half of 2%)
+        assertGt(buyFee, (10e18 * C.FEE_FLOOR_BPS) / 10_000, "the clip itself revs off the floor");
+        assertLt(buyFee, (10e18 * C.FEE_TINY_BPS) / 10_000, "one clip on the seed does not pin the cap");
 
-        usdg.mint(address(this), 10e18);
+        usdg.mint(address(this), 20e18);
         _buy(key, address(coin), 10e18);
         assertGt(hook.spotPrice(id), 0.67e18);
         assertLt(hook.spotPrice(id), 1e18);
 
+        (, uint256 second,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
+        assertGt(second, buyFee, "a pile-in in the same block pays more");
+        (uint256 vol,,,,) = hook.revState(id);
+        assertGt(vol, 9e18);
+
         coin.mint(address(this), 5e18);
-        (, uint256 sellFee,, uint256 used) = hook.quoteExactIn(key, _sellZfo(), 2e18);
-        uint256 sellBps = (sellFee * 10_000) / used;
+        (uint256 sellOut, uint256 sellFee,, uint256 used) = hook.quoteExactIn(key, _sellZfo(), 2e18);
+        assertGt(used, 0);
+        uint256 sellBps = (sellFee * 10_000) / (sellOut + sellFee);
         uint256 buyBps = (buyFee * 10_000) / 10e18;
-        assertGt(sellBps, buyBps, "selling away from the anchor pays more");
+        assertGt(sellBps, buyBps, "later volume pays more; direction is not a discount");
         _solvent(id, address(coin));
+    }
+
+    function test_washOnlyRaisesTheAccumulator() public {
+        (, uint256 quiet,,) = hook.quoteExactIn(key, _buyZfo(), 5e18);
+        usdg.mint(address(this), 15e18);
+        _buy(key, address(coin), 10e18);
+        (uint256 vol1,,,,) = hook.revState(id);
+        (, uint256 afterBuy,,) = hook.quoteExactIn(key, _buyZfo(), 5e18);
+        assertGt(afterBuy, quiet);
+        uint256 got = coin.balanceOf(address(this));
+        assertGt(got, 0);
+        // A slice of the fill. Dumping the whole purchase back into the 20% floor is a
+        // different question; any positive sell is enough to show the accumulator only rises.
+        uint256 piece = got / 5;
+        (,, bool capped, uint256 used) = hook.quoteExactIn(key, _sellZfo(), piece);
+        uint256 sellAmt = capped ? used : piece;
+        assertGt(sellAmt, 0);
+        assertLe(sellAmt, got);
+        _sell(key, address(coin), sellAmt);
+        (uint256 vol2,,,,) = hook.revState(id);
+        assertGt(vol2, vol1, "selling the coins back only adds volume");
+        (, uint256 afterRound,,) = hook.quoteExactIn(key, _buyZfo(), 5e18);
+        assertGe(afterRound, afterBuy);
+        _solvent(id, address(coin));
+    }
+
+    function test_sameBlockDepositDoesNotCheapenTheFee() public {
+        (, uint256 feeA,,) = hook.quoteExactIn(key, _buyZfo(), 10e18);
+        MockERC20 c2 = _newCoin("TWO", 18);
+        (PoolKey memory k2, PoolId id2) = _create(c2, 77e18, 0, C.FLOOR_BPS, C.DISCOUNT_BPS, 0, 0);
+        _price(id2, 1e18, 725_000e18);
+        usdg.mint(address(this), 40e18);
+        hook.deposit(id2, 0, 40e18);
+        bool zfo = Currency.unwrap(k2.currency0) != address(c2);
+        (, uint256 feeB,,) = hook.quoteExactIn(k2, zfo, 10e18);
+        // Open TVL is the seed. A $40 deposit in this block must not dilute the clip toward ~0.6%.
+        assertApproxEqAbs(feeB, feeA, 0.002e18);
+        assertGt(feeB, 0.065e18);
+        (,,,, uint256 openTvl) = hook.revState(id2);
+        assertLt(openTvl, 90e18);
+        assertGt(BridgeCurve.tvl(hook.curve(id2)), openTvl);
+    }
+
+    function test_revKnobsAreFixedAtCreation() public {
+        (,, uint64 half, uint256 red,) = hook.revState(id);
+        assertEq(half, uint64(C.REV_HALF_LIFE));
+        assertEq(red, C.REV_RED_LINE_WAD);
+        usdg.mint(address(this), 5e18);
+        _buy(key, address(coin), 5e18);
+        (,, uint64 half2, uint256 red2,) = hook.revState(id);
+        assertEq(half2, half);
+        assertEq(red2, red);
+
+        MockERC20 bad = _newCoin("SHORT", 18);
+        bad.mint(address(this), 10e18);
+        bad.approve(address(hook), type(uint256).max);
+        vm.expectRevert(BridgeStorage.BadCreate.selector);
+        hook.createPool(_params(address(bad), 10e18, 30, 0));
+
+        MockERC20 custom = _newCoin("CUSTOM", 18);
+        custom.mint(address(this), 10e18);
+        custom.approve(address(hook), type(uint256).max);
+        (, PoolId cid) = hook.createPool(_params(address(custom), 10e18, uint64(2 hours), 1e18));
+        (,, uint64 ch, uint256 cr,) = hook.revState(cid);
+        assertEq(ch, uint64(2 hours));
+        assertEq(cr, 1e18);
+    }
+
+    function test_noDirectionDiscountOnceAboveTheAnchor() public {
+        _climb();
+        assertGe(hook.spotPrice(id), 1e18);
+        vm.warp(block.timestamp + 8 hours);
+        // Refresh the anchor so the stale multiplier is not what this test is measuring.
+        _price(id, hook.curve(id).anchor, 725_000e18);
+        BridgeStorage.BridgeQuote memory q = hook.bridgeQuote(id);
+        assertGe(q.poolPriceWad, q.anchorPriceWad);
+        // Eight half-lives forget the climb. The suggested fee is the floor, not half the cap.
+        assertLe(q.suggestedFeeBps, C.FEE_FLOOR_BPS + 5);
+        assertGe(q.suggestedFeeBps, C.FEE_FLOOR_BPS);
     }
 
     function test_staleFeedRaisesTheFee() public {
@@ -171,7 +258,7 @@ contract BridgeLaunchHookTest is BridgeFixture {
         uint256 usdgBefore = usdg.balanceOf(address(this));
         (uint256 cOut, uint256 uOut) = hook.redeem(id, sh);
         assertEq(cOut, 0, "redeem does not pay seed coin");
-        assertLt(uOut, 20e18, "redeem fee comes out of principal, not a 3.3x boost");
+        assertLt(uOut, 20e18, "redeem fee comes out of principal, not a 5x boost");
         assertEq(coin.balanceOf(address(this)), coinBefore);
         assertLt(usdg.balanceOf(address(this)), usdgBefore + 20e18);
         _solvent(id, address(coin));
@@ -228,7 +315,7 @@ contract BridgeLaunchHookTest is BridgeFixture {
         if (leftover > 0) (bid,,,) = hook.quoteExactIn(key, _sellZfo(), leftover);
         uint256 end = usdg.balanceOf(attacker) + bid;
         vm.stopPrank();
-        assertLe(end, start, "round trip including the 3.3x fee weight loses money");
+        assertLe(end, start, "round trip including the 5x fee weight loses money");
         _solvent(id, address(coin));
     }
 
@@ -404,6 +491,31 @@ contract BridgeLaunchHookTest is BridgeFixture {
         return Currency.unwrap(key.currency0) == address(coin);
     }
 
+    function _params(address c, uint256 coinSeed, uint64 half, uint256 red)
+        internal
+        view
+        returns (BridgeStorage.CreateParams memory)
+    {
+        return BridgeStorage.CreateParams({
+            coin: c,
+            creator: address(this),
+            floorBps: C.FLOOR_BPS,
+            discountBps: C.DISCOUNT_BPS,
+            outflowCapBps: 0,
+            outflowWindow: 0,
+            remoteEid: 30101,
+            remoteOracle: address(0xE7E7),
+            anchorKind: 0,
+            v3Pool: address(0),
+            coinSeed: coinSeed,
+            tipSeed: 0,
+            morphoCapBps: 10_000,
+            vaultAdmin: address(0),
+            revHalfLife: half,
+            revRedLineWad: red
+        });
+    }
+
     function _climb() internal {
         usdg.mint(address(this), 80e18);
         for (uint256 i; i < 40 && hook.spotPrice(id) < 1e18; ++i) {
@@ -442,7 +554,7 @@ contract BridgeLaunchHookTest is BridgeFixture {
     }
 }
 
-contract BridgeLaunchHookDec6Test is BridgeFixture {
+contract DiscipleHookDec6Test is BridgeFixture {
     function test_sixDecimalUsdg() public {
         _deployStack(6);
         coin = _newCoin("JESUS", 18);

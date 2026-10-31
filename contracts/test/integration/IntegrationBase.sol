@@ -19,7 +19,7 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {V4Deploy} from "../helpers/V4Deploy.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {AscensionHook} from "../../src/AscensionHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -81,7 +81,7 @@ abstract contract IntegrationBase is Test {
     FeeRouter internal feeRouter;
     Migration internal migration;
     Launchpad internal launchpad;
-    DiscipleHook internal hook;
+    AscensionHook internal hook;
     IPoolManager internal manager;
     PoolSwapTest internal swapRouter;
     QuoteProbe internal quoteProbe;
@@ -224,7 +224,7 @@ abstract contract IntegrationBase is Test {
         return out;
     }
 
-    /// @dev DiscipleHook compound reference needs REF_MIN_AGE (60 s) of history after graduation.
+    /// @dev AscensionHook compound reference needs REF_MIN_AGE (60 s) of history after graduation.
     function _warpRefReady() internal {
         vm.warp(vm.getBlockTimestamp() + 61);
         vm.roll(vm.getBlockNumber() + 1);

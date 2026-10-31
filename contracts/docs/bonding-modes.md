@@ -182,7 +182,7 @@ UIs should not count it as "in the pool" until compounded.
 
 ## Follow-up fixes (open risks from PR #75)
 
-### Block-start anchored compound guard (DiscipleHook / LockedLP)
+### Block-start anchored compound guard (AscensionHook / LockedLP)
 
 - The hook packs `{uint8 tier, uint64 anchorBlock, uint160 anchorSqrt}` into ONE slot per pool (the old
   `altitudeTierOf` slot). The pool's first swap of each block stores the pre-swap `sqrtPriceX96` (block-start price);
@@ -193,7 +193,7 @@ UIs should not count it as "in the pool" until compounded.
   (audit #1) stays in place.
 - `LockedLP.flush` (permissionless) uses the block-start anchor as its reference when the pool already traded in the
   current block. Otherwise it behaves as before.
-- New views: `DiscipleHook.blockAnchor(PoolId) → (uint64 block, uint160 sqrtPriceX96)`.
+- New views: `AscensionHook.blockAnchor(PoolId) → (uint64 block, uint160 sqrtPriceX96)`.
   `altitudeTierOf(PoolId)` keeps its ABI (it is now a function instead of a public mapping).
 - Cross-block manipulation is handled by the multi-block reference below (audit round-2 HIGH-1).
 - Gas (exact, `--isolate`): non-compounding swaps pay +949 when they are not the first swap of the block, and +3,902 when they are the pool's first swap of the block. Compound-ready swaps pay +2,752 / +5,685. See gas-report.md. The reference is chosen by |Δ sqrtP|, which at the 3% scale ranks deviations the same way the ratio does.
@@ -263,10 +263,10 @@ UIs should not count it as "in the pool" until compounded.
 
 ## Gas G-1: hook Trade event carries sqrtPriceAfter (ABI change)
 
-- `DiscipleHook` no longer computes a USD mcap per swap (that was a `QuotePricer.quotePriceUsd` TWAP call, ~29k gas on a
+- `AscensionHook` no longer computes a USD mcap per swap (that was a `QuotePricer.quotePriceUsd` TWAP call, ~29k gas on a
   STRATEGY-quoted coin). Its `Trade` event keeps every field except the last one:
   ```solidity
-  // IHookTradeEvents (src/interfaces/ITradeEvents.sol), emitted by DiscipleHook only
+  // IHookTradeEvents (src/interfaces/ITradeEvents.sol), emitted by AscensionHook only
   event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt,
       uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps,
       uint160 sqrtPriceAfter);
@@ -275,7 +275,7 @@ UIs should not count it as "in the pool" until compounded.
   `BondingCurve` (pre-grad) still emits `ITradeEvents.Trade(..., uint256 mcapAfterUsd)`. The two have **different
   topic0s**, so indexers must decode both (viem `parseAbi` accepts both overloads).
 - `sqrtPriceAfter` is the pool's `sqrtPriceX96` after the swap. USD mcap off-chain:
-  `DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd)` (pure). Use `quoteUsdOf(poolId)` for the live price;
+  `AscensionHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, quoteUsd)` (pure). Use `quoteUsdOf(poolId)` for the live price;
   `DiscipleRouter.quoteExactIn` returns exactly that, test `test_audit13_quoteMcapMatchesTradeEvent`. Or use the
   launch-time `QuotePriced` value, which matches `AltitudeUpdate.mcapUsd`.
 - Altitude/tier: `AltitudeUpdate.mcapUsd`, `TierBreak` and `altitudeTierOf` post-grad now use the pool's launch-time

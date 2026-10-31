@@ -14,7 +14,7 @@ Design source: anypair/docs/anon-launch-v0.md (ideas 1-4, no ZK). UI copy: **pse
 
 ## mcapNow fix
 - `BondingCurve.mcapNow/marketCapUsd/priceNow/spotPriceWad` now read v4 slot0 after graduation and multiply by the live `QuotePricer` (through `Launchpad.pricer()`). The old version returned the frozen curve-end value of $33K.
-- `DiscipleHook` Trade-event mcap uses `pricer` (admin-settable) live, with a fallback to the launch-time price.
+- `AscensionHook` Trade-event mcap uses `pricer` (admin-settable) live, with a fallback to the launch-time price.
 - Live contracts are immutable. The new curve code applies only after a new `CurveDeployer` is set, and the hook change needs a hook redeploy. Neither was done. Existing coins can use `MarketLens.market(token)` today.
 
 ## Privacy leaks (unchanged from design §5)

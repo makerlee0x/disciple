@@ -44,6 +44,12 @@ library BridgeCurve {
         uint256 maxUsdgOut; // min(floor room, outflow room); type(uint256).max if uncapped by the caller
         uint256 totalShares;
         uint256 boostWad;
+        /// @dev Volume accumulator already decayed to this timestamp. Does not include the trade being quoted.
+        uint256 revVolume;
+        /// @dev 0 keeps the sliding cap and skips the rev floor. Hooks set this at pool creation.
+        uint256 revRedLineWad;
+        /// @dev Denominator for volume / TVL. 0 uses the curve TVL inside `revBps`.
+        uint256 revTvl;
     }
 
     struct Fill {
@@ -311,7 +317,7 @@ library BridgeCurve {
             f.capped = true;
             return (s, f);
         }
-        uint256 bps = _bps(s, ctx, f.spotBefore, usdgGross, true, dxCap);
+        uint256 bps = _tradeFee(s, ctx, usdgGross);
         uint256 fee = Math.mulDiv(usdgGross, bps, C.BPS, Math.Rounding.Ceil);
         if (fee >= usdgGross) fee = usdgGross - 1;
         uint256 net = usdgGross - fee;
@@ -370,11 +376,7 @@ library BridgeCurve {
             f.capped = true;
             return (s, f);
         }
-        uint256 spotAfterGuess = _spotAfterSell(s, dx, gross);
-        uint256 bps = BridgeFee.applyStale(
-            BridgeFee.directional(BridgeFee.baseFeeBps(tvl(s), ctx.gradTvl), f.spotBefore, spotAfterGuess, s.anchor),
-            ctx.age
-        );
+        uint256 bps = _tradeFee(s, ctx, gross);
         uint256 fee = Math.mulDiv(gross, bps, C.BPS, Math.Rounding.Ceil);
         if (fee > gross) fee = gross;
         f.coinIn = dx;
@@ -440,26 +442,11 @@ library BridgeCurve {
 
     // ───────────────────────────── internals ─────────────────────────
 
-    function _bps(S memory s, Ctx memory ctx, uint256 spotBefore, uint256 usdgGross, bool buying, uint256 dxCap)
-        private
-        pure
-        returns (uint256 bps)
-    {
-        uint256 base = BridgeFee.baseFeeBps(tvl(s), ctx.gradTvl);
-        // Provisional direction from a fee-less fill, then one refinement.
-        uint256 net = usdgGross;
-        uint256 dx = buying ? coinOut(s, net > 0 ? net : 0) : 0;
-        if (dx > dxCap) dx = dxCap;
-        uint256 spotAfter = spotBefore;
-        if (dx > 0) {
-            // Memory assignment is a reference. Clone before scratching, or the quote mutates the book.
-            S memory t = _clone(s);
-            t.x -= dx;
-            uint256 spent = buyCost(s, dx);
-            t.y += spent;
-            spotAfter = spot(t);
-        }
-        bps = BridgeFee.applyStale(BridgeFee.directional(base, spotBefore, spotAfter, s.anchor), ctx.age);
+    /// @dev Same bps either direction. `notion` is this clip's USDG gross, so a burst revs inside the clip.
+    function _tradeFee(S memory s, Ctx memory ctx, uint256 notion) private pure returns (uint256) {
+        return BridgeFee.applyStale(
+            BridgeFee.revBps(tvl(s), ctx.gradTvl, ctx.revVolume + notion, ctx.revRedLineWad, ctx.revTvl), ctx.age
+        );
     }
 
     function _grossFromNet(uint256 net, uint256 bps) private pure returns (uint256) {
@@ -532,14 +519,6 @@ library BridgeCurve {
         c.lpX = s.lpX;
         c.lpY = s.lpY;
         c.initialSeed = s.initialSeed;
-    }
-
-    function _spotAfterSell(S memory s, uint256 dx, uint256 gross) private pure returns (uint256) {
-        S memory t = _clone(s);
-        t.x += dx;
-        if (gross > t.y) return spot(s);
-        t.y -= gross;
-        return spot(t);
     }
 
     function _dxToAnchor(S memory s) private pure returns (uint256) {

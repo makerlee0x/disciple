@@ -9,17 +9,17 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
-import {BridgeEngine} from "./BridgeEngine.sol";
+import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {ILzRead} from "./interfaces/ILzRead.sol";
 import {IEthAnchor} from "./interfaces/IEthAnchor.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {BridgeFacetBase} from "./BridgeFacetBase.sol";
+import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
 /// @title Disciple vault facet
 /// @notice Price updates, the Morpho cap, the loss pull, and the narrow vault admin for Disciple
-///         (`BridgeLaunchHook`). Called through the hook. `pullShortfall` and `afterTrade` are how a
+///         (`DiscipleHook`). Called through the hook. `pullShortfall` and `afterTrade` are how a
 ///         swap reaches the vault without copying this code into the swap facet.
-contract BridgeAdminFacet is BridgeFacetBase {
+contract DiscipleAdminFacet is DiscipleFacetBase {
     using SafeERC20 for IERC20;
 
     constructor(
@@ -28,8 +28,8 @@ contract BridgeAdminFacet is BridgeFacetBase {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        BridgeEngine engine_
-    ) BridgeFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {}
+        DiscipleEngine engine_
+    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {}
 
     /// @notice Ask LayerZero to read `IEthAnchor.latest` on the pool's remote oracle.
     ///         The caller pays the native lzRead fee and never submits a price.

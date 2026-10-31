@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IMigration} from "./interfaces/IMigration.sol";
 import {LockedLP} from "./LockedLP.sol";
-import {DiscipleHook} from "./DiscipleHook.sol";
+import {AscensionHook} from "./AscensionHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -25,7 +25,7 @@ interface ICurveRecord {
 
 /// @title Atomic migrate to locked Uniswap v4 (§2 / LOCKED #5, #17) — LOCKED 2026-10-15
 /// @notice Same-tx: initialize pool at curve-end sqrtPriceX96 (no jump), seed full-range LP into LockedLP.
-/// @dev Fee design: pool LP fee = 0; DiscipleHook takes 1% on swaps → FeeRouter 33/33/33/1.
+/// @dev Fee design: pool LP fee = 0; AscensionHook takes 1% on swaps → FeeRouter 33/33/33/1.
 ///      Justification: one fee path matching curve-era routing; avoids stacking pool+hook fees;
 ///      LockedLP holds depth forever; LOCKED #16 LP-fee→treasury is N/A with 0 pool fee.
 contract Migration is IMigration, Owned2Step {
@@ -38,7 +38,7 @@ contract Migration is IMigration, Owned2Step {
 
     LockedLP public immutable lockedLP;
     IPoolManager public immutable poolManager;
-    DiscipleHook public immutable hook;
+    AscensionHook public immutable hook;
     /// @notice Launchpad registry: the only legitimate migrate caller is `launchpad.curveOf(token)` (audit #1).
     address public launchpad;
 
@@ -65,7 +65,7 @@ contract Migration is IMigration, Owned2Step {
     constructor(address owner_, address lockedLP_, address poolManager_, address hook_) Owned2Step(owner_) {
         lockedLP = LockedLP(lockedLP_);
         poolManager = IPoolManager(poolManager_);
-        hook = DiscipleHook(hook_);
+        hook = AscensionHook(hook_);
     }
 
     /// @notice One-time wire of the Launchpad (deployed after Migration because Launchpad stores it immutably).

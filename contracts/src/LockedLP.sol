@@ -30,9 +30,9 @@ interface ISwapInTx {
 
 /// @title Permanently locked v4 LP owner (§3 / LOCKED #16–#17)
 /// @notice Owns the full-range v4 position forever. removeLiquidity always reverts.
-/// @dev Pool LP fee is 0; trade fees taken by DiscipleHook. collectFees is a no-op residual for #16.
+/// @dev Pool LP fee is 0; trade fees taken by AscensionHook. collectFees is a no-op residual for #16.
 ///      LP auto-compound: after graduation the 33% LP share of the 1% hook fee lands in two per-coin buckets
-///      (token side from buys, quote side from sells). On every swap DiscipleHook calls compoundFromHook (the
+///      (token side from buys, quote side from sells). On every swap AscensionHook calls compoundFromHook (the
 ///      PoolManager is already unlocked by the swapper); once the matched liquidity passes minCompoundPpm of the
 ///      position it is added to the SAME locked full-range position (same ticks + salt), each currency settled
 ///      immediately (sync → transfer → settle), and the unmatched remainder carries forward. flush() does the
@@ -105,7 +105,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 tokenAmount; // tokens it has bought (USDG converts to tokens as price falls through it)
     }
 
-    /// @notice DiscipleHook (only caller of compoundFromHook; also the swappedInTx oracle for flush).
+    /// @notice AscensionHook (only caller of compoundFromHook; also the swappedInTx oracle for flush).
     address public hook;
     /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.1%
     ///         (audit G-5: was 0.005%, which compounded ~every other buy at ~44k gas; fees still bucket every trade).
@@ -325,7 +325,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         // Include any escrowed quote into the quote side of the seed
         // (caller already transferred primary amounts via addLockedLiquidity)
 
-        // Initialize pool at curve-end price (no jump). Audit #2: no try/catch — DiscipleHook.beforeInitialize
+        // Initialize pool at curve-end price (no jump). Audit #2: no try/catch — AscensionHook.beforeInitialize
         // only lets this contract initialize, so a pre-initialized (mispriced) pool cannot exist.
         poolManager.initialize(key, sqrtPriceX96);
 
@@ -377,7 +377,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     // ── LP auto-compound ─────────────────────────────────────────────────────
 
-    /// @notice Called by DiscipleHook.afterSwap (PoolManager already unlocked by the swapper). The hook wraps this
+    /// @notice Called by AscensionHook.afterSwap (PoolManager already unlocked by the swapper). The hook wraps this
     ///         in try/catch with a gas cap, so any revert here only skips the add — never the user's swap.
     /// @param refSwap  this swap's pre-swap sqrtPriceX96
     /// @param refBlock the pool's block-start sqrtPriceX96

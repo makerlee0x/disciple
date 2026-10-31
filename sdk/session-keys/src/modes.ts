@@ -60,7 +60,7 @@ export const curveModesAbi = parseAbi([
   "error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps)",
 ]);
 
-/** DiscipleHook: block-start anchor + 60s time-weighted EMA reference (compound guard) + altitude tier. */
+/** AscensionHook: block-start anchor + 60s time-weighted EMA reference (compound guard) + altitude tier. */
 export const hookAnchorAbi = parseAbi([
   "function blockAnchor(bytes32 id) view returns (uint64 blockNumber, uint160 sqrtPriceX96)",
   "function priceReference(bytes32 id) view returns (int32 emaTickX256, uint40 emaTime, uint40 refSince, uint8 obs, bool ready)",
@@ -68,9 +68,9 @@ export const hookAnchorAbi = parseAbi([
   "function altitudeTierOf(bytes32 id) view returns (uint8)",
 ]);
 
-/** Trade events. BondingCurve (pre-grad) ends with `uint256 mcapAfterUsd`; DiscipleHook (post-grad, gas G-1) ends with
+/** Trade events. BondingCurve (pre-grad) ends with `uint256 mcapAfterUsd`; AscensionHook (post-grad, gas G-1) ends with
  *  `uint160 sqrtPriceAfter` (different topic0). Decode both. Hook USD mcap off-chain:
- *  DiscipleHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, DiscipleHook.quoteUsdOf(poolId)).
+ *  AscensionHook.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0, AscensionHook.quoteUsdOf(poolId)).
  *  Never derive price/mcap from priceBeforeX18/priceAfterX18: floored to single digits when the quote has 6 decimals
  *  (USDG — FLOW #115). Curve: mcapAfterUsd; hook: sqrtPriceAfter. */
 export const tradeEventsAbi = parseAbi([

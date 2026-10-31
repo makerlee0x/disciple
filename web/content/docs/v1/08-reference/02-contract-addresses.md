@@ -11,7 +11,7 @@ section: Reference
 
 ## DISCIPLE
 
-Addresses will be published after the redeploy. The DISCIPLE contracts are Launchpad, CurveDeployer, DiscipleHook, DiscipleRouter, Migration, LockedLP, FeeRouter, AntiSnipe, ReferralRegistry, RewardsVault, QuotePricer, QuoteProbe, TrampWallManager, AnonLauncher and MarketLens.
+Addresses will be published after the redeploy. The DISCIPLE contracts are Launchpad, CurveDeployer, AscensionHook, DiscipleRouter, Migration, LockedLP, FeeRouter, AntiSnipe, ReferralRegistry, RewardsVault, QuotePricer, QuoteProbe, TrampWallManager, AnonLauncher and MarketLens.
 
 Each rocket also has its own BondingCurve. Find it from the Launchpad (`curveOf(token)`) or on the rocket's page.
 

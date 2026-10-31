@@ -12,12 +12,12 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
-import {BridgeLaunchHook} from "../../src/bridge/BridgeLaunchHook.sol";
+import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
-import {BridgeEngine} from "../../src/bridge/BridgeEngine.sol";
-import {BridgeLpFacet} from "../../src/bridge/BridgeLpFacet.sol";
-import {BridgeAdminFacet} from "../../src/bridge/BridgeAdminFacet.sol";
-import {BridgeSwapFacet} from "../../src/bridge/BridgeSwapFacet.sol";
+import {DiscipleEngine} from "../../src/bridge/DiscipleEngine.sol";
+import {DiscipleLpFacet} from "../../src/bridge/DiscipleLpFacet.sol";
+import {DiscipleAdminFacet} from "../../src/bridge/DiscipleAdminFacet.sol";
+import {DiscipleSwapFacet} from "../../src/bridge/DiscipleSwapFacet.sol";
 import {MockERC20, MockVault, MockLzRead} from "./mocks/BridgeMocks.sol";
 
 contract BridgeFixture is Test {
@@ -27,16 +27,16 @@ contract BridgeFixture is Test {
     );
 
     IPoolManager public manager;
-    BridgeLaunchHook public hook;
+    DiscipleHook public hook;
     PoolSwapTest public swapper;
     MockERC20 public usdg;
     MockERC20 public coin;
     MockVault public vault;
     MockLzRead public lz;
-    BridgeEngine public engine;
-    BridgeLpFacet public lpFacet;
-    BridgeAdminFacet public adminFacet;
-    BridgeSwapFacet public swapFacet;
+    DiscipleEngine public engine;
+    DiscipleLpFacet public lpFacet;
+    DiscipleAdminFacet public adminFacet;
+    DiscipleSwapFacet public swapFacet;
     PoolKey public key;
     PoolId public id;
 
@@ -45,10 +45,10 @@ contract BridgeFixture is Test {
         vault = new MockVault(usdg);
         lz = new MockLzRead();
         manager = IPoolManager(address(new PoolManager(address(this))));
-        engine = new BridgeEngine();
-        lpFacet = new BridgeLpFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
-        adminFacet = new BridgeAdminFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
-        swapFacet = new BridgeSwapFacet(
+        engine = new DiscipleEngine();
+        lpFacet = new DiscipleLpFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
+        adminFacet = new DiscipleAdminFacet(manager, address(usdg), address(vault), address(lz), usdgDec, engine);
+        swapFacet = new DiscipleSwapFacet(
             manager, address(usdg), address(vault), address(lz), usdgDec, engine, address(adminFacet)
         );
         bytes memory args = abi.encode(
@@ -63,8 +63,8 @@ contract BridgeFixture is Test {
             address(adminFacet)
         );
         (address predicted, bytes32 salt) =
-            HookMiner.find(address(this), HOOK_FLAGS, type(BridgeLaunchHook).creationCode, args);
-        hook = new BridgeLaunchHook{salt: salt}(
+            HookMiner.find(address(this), HOOK_FLAGS, type(DiscipleHook).creationCode, args);
+        hook = new DiscipleHook{salt: salt}(
             manager,
             address(usdg),
             address(vault),
@@ -113,7 +113,9 @@ contract BridgeFixture is Test {
                 coinSeed: coinSeed,
                 tipSeed: tipSeed,
                 morphoCapBps: 10_000,
-                vaultAdmin: address(0)
+                vaultAdmin: address(0),
+                revHalfLife: 0,
+                revRedLineWad: 0
             })
         );
     }

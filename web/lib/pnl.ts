@@ -300,7 +300,7 @@ export function shrinkToWallet(p: Position, walletTokens: number): Position {
 
 /**
  * One indexed on-chain fill of THIS account in THIS coin (lib/trades Fill, the /api/trades?coin=&wallet= rows): bonding-curve
- * buys / sells and, after graduation, the coin's v4 pool swaps (DiscipleHook Trade events, venue "hook").
+ * buys / sells and, after graduation, the coin's v4 pool swaps (AscensionHook Trade events, venue "hook").
  */
 export type ChainFill = { side: "buy" | "sell"; tokens: number; usd: number; usdIn?: number; usdOut?: number; ts?: number; block?: number; logIndex?: number };
 const chainUsd = (f: ChainFill) => { const v = f.side === "sell" ? (f.usdOut ?? f.usd) : (f.usdIn ?? f.usd); return Number.isFinite(v) && v > 0 ? v : 0; };   // = lib/trades playerUsd (kept import-free)

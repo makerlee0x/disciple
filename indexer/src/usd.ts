@@ -5,7 +5,7 @@ import { mcapUsdFromSqrt, TOTAL_SUPPLY } from "./math.js";
  *  - curve Trade (all stacks) and pre-v4 hook Trade: mcap = the event's mcapAfterUsd (launch-time quote price).
  *  - v4 hook Trade (IHookTradeEvents): no mcapAfterUsd; the event carries the pool's sqrtPriceAfter, so
  *    mcap = math.mcapUsdFromSqrt(sqrtPriceAfter, tokenIsC0 = token < quote, launch quote USD, total supply) — the same
- *    formula as DiscipleHook.mcapUsdFromSqrt, full precision.
+ *    formula as AscensionHook.mcapUsdFromSqrt, full precision.
  *  - price ($/token) = mcap / supply in every case — never the floored priceAfterX18 / priceWad (single digits for
  *    6-dec quotes like USDG; FLOW #115), which is only a last resort when the event carries neither mcap source. Everything downstream (trades rows, coin_stats, candles, listCoins last_mcap, holdings
  *    lastPriceUsd) reads what this returns.

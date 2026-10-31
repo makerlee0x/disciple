@@ -2,7 +2,7 @@ import { parseAbi } from "viem";
 
 const TRADE =
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint256 mcapAfterUsd)";
-/** v4 DiscipleHook (IHookTradeEvents): same name/fields but the last one is the raw v4 sqrtPriceAfter → different topic0.
+/** v4 AscensionHook (IHookTradeEvents): same name/fields but the last one is the raw v4 sqrtPriceAfter → different topic0.
  *  Curves (and pre-v4 hooks) keep TRADE. decodeEventLog picks the overload by topic0; tell them apart by the arg name. */
 export const HOOK_TRADE =
   "event Trade(address indexed token, address indexed trader, bool isBuy, uint256 quoteAmt, uint256 tokenAmt, uint256 fee, uint256 snipeFee, uint256 priceBeforeX18, uint256 priceAfterX18, uint256 impactBps, uint160 sqrtPriceAfter)";

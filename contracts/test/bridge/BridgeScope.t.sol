@@ -8,7 +8,7 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC6909Claims} from "@uniswap/v4-core/src/interfaces/external/IERC6909Claims.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {BridgeLaunchHook} from "../../src/bridge/BridgeLaunchHook.sol";
+import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeCurve} from "../../src/bridge/libraries/BridgeCurve.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
@@ -191,7 +191,9 @@ contract BridgeVaultAdminTest is BridgeFixture {
                 coinSeed: 77e18,
                 tipSeed: 5e18,
                 morphoCapBps: 1_000,
-                vaultAdmin: admin
+                vaultAdmin: admin,
+                revHalfLife: 0,
+                revRedLineWad: 0
             })
         );
         _price(pid, 1e18, 725_000e18);

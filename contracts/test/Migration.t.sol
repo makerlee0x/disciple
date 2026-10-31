@@ -18,7 +18,7 @@ import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {Token} from "../src/Token.sol";
 import {BondingCurve} from "../src/BondingCurve.sol";
 import {V4Deploy} from "./helpers/V4Deploy.sol";
-import {DiscipleHook} from "../src/DiscipleHook.sol";
+import {AscensionHook} from "../src/AscensionHook.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
@@ -58,7 +58,7 @@ contract MigrationTest is Test {
     AntiSnipe internal antiSnipe;
     Migration internal migration;
     Launchpad internal launchpad;
-    DiscipleHook internal hook;
+    AscensionHook internal hook;
     IPoolManager internal manager;
     PoolSwapTest internal swapRouter;
 

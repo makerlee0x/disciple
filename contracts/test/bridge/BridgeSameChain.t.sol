@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {BridgeLaunchHook} from "../../src/bridge/BridgeLaunchHook.sol";
+import {DiscipleHook} from "../../src/bridge/DiscipleHook.sol";
 import {BridgeStorage} from "../../src/bridge/BridgeStorage.sol";
 import {BridgeV3Anchor} from "../../src/bridge/libraries/BridgeV3Anchor.sol";
 import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.sol";
@@ -101,7 +101,7 @@ contract BridgeSameChainTest is BridgeFixture {
         _buy(k, address(c), 10e18);
         uint256 creator = hook.creatorFees(pid);
         assertGt(creator, 0);
-        assertLt(creator, 0.3e18, "10% of a ~2% fee, not a protocol cut of the notional");
+        assertLt(creator, 0.3e18, "creator cut is a slice of the fee, not the notional");
         assertEq(hook.curve(pid).y - yBefore + creator, 10e18, "creator is the only skim");
     }
 
@@ -141,7 +141,9 @@ contract BridgeSameChainTest is BridgeFixture {
                 coinSeed: 10e18,
                 tipSeed: 0,
                 morphoCapBps: 10_000,
-                vaultAdmin: address(0)
+                vaultAdmin: address(0),
+                revHalfLife: 0,
+                revRedLineWad: 0
             })
         );
 
@@ -167,7 +169,9 @@ contract BridgeSameChainTest is BridgeFixture {
                 coinSeed: 10e18,
                 tipSeed: 0,
                 morphoCapBps: 10_000,
-                vaultAdmin: address(0)
+                vaultAdmin: address(0),
+                revHalfLife: 0,
+                revRedLineWad: 0
             })
         );
     }
@@ -194,7 +198,9 @@ contract BridgeSameChainTest is BridgeFixture {
                 coinSeed: coinSeed,
                 tipSeed: 0,
                 morphoCapBps: 10_000,
-                vaultAdmin: address(0)
+                vaultAdmin: address(0),
+                revHalfLife: 0,
+                revRedLineWad: 0
             })
         );
     }

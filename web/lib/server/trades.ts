@@ -2,7 +2,7 @@ import "server-only";
 /**
  * Trade indexer → Upstash (lib/server/kv). Vercel-friendly: no watcher; `indexTrades()` scans
  * [cursor+1, latest] in chunks under a time budget, called by /api/chat/cron and on demand by /api/trades.
- * Source (from deployment().fromBlock): every Trade log emitted by the DiscipleHook (post-grad) or a Launchpad BondingCurve
+ * Source (from deployment().fromBlock): every Trade log emitted by the AscensionHook (post-grad) or a Launchpad BondingCurve
  *   (pre-grad; verified via launchpad.curveOf(token)). v4 has TWO Trade signatures (different topic0): the curve's ends
  *   in `uint256 mcapAfterUsd`, the hook's in `uint160 sqrtPriceAfter` (gas G-1) — both are fetched and decoded.
  * Keys:
@@ -17,7 +17,7 @@ import "server-only";
  *   trades:reindex:lock        reindexFills run lock (60s)
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
+import { bondingCurveAbi, ascensionHookAbi, discipleRouterAbi, launchpadAbi } from "@/lib/abi";
 import { deployment, ZERO } from "@/lib/chains";
 import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
@@ -28,7 +28,7 @@ import { usdgDecimals } from "@/lib/usdg";
 
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
 const CURVE_TRADE = getAbiItem({ abi: bondingCurveAbi, name: "Trade" });
-const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
+const HOOK_TRADE = getAbiItem({ abi: ascensionHookAbi, name: "Trade" });
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
 const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
 const USDG_REFUND = getAbiItem({ abi: discipleRouterAbi, name: "UsdgRefund" });

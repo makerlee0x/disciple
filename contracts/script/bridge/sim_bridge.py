@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Run the 7-day launch sim against the Solidity curve and print the SIM_ lines.
+"""Run the Disciple launch sim and print the MILESTONE lines.
 
 The math lives in BridgeCurve / BridgeFee. This wrapper does not reimplement it.
-The 90-day and 365-day runs are test_sim90Days and test_simUntilGraduationOrYear.
+test_simActive and test_simDead are the full moving-anchor campaign.
 """
 
 import os
@@ -20,20 +20,20 @@ def main() -> int:
         "forge",
         "test",
         "--match-contract",
-        "BridgeLaunchSimTest",
+        "DiscipleSimTest",
         "--match-test",
-        "test_sim7Days",
+        "test_simActive|test_simDead",
         "-vv",
+        "--offline",
     ]
     proc = subprocess.run(cmd, cwd=CONTRACTS, env=env, text=True, capture_output=True)
     sys.stderr.write(proc.stderr)
-    lines = [ln for ln in proc.stdout.splitlines() if "SIM_" in ln]
+    lines = [ln for ln in proc.stdout.splitlines() if "MILESTONE " in ln]
     if not lines:
         sys.stdout.write(proc.stdout)
         return proc.returncode or 1
     for ln in lines:
-        # forge prefixes logs with spaces; keep the message body.
-        idx = ln.find("SIM_")
+        idx = ln.find("MILESTONE ")
         print(ln[idx:])
     return proc.returncode
 

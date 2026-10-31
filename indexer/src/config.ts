@@ -55,7 +55,7 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
   const c = d.contracts;
   return {
     id, fromBlock,
-    launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.DiscipleHook, migration: c.Migration,
+    launchpad: c.Launchpad, feeRouter: c.FeeRouter, hook: c.AscensionHook, migration: c.Migration,
     trampWallManager: c.TrampWallManager, quotePricer: c.QuotePricer, lockedLP: c.LockedLP,
     anonLauncher: c.AnonLauncher ?? d.addons?.AnonLauncher?.address,
     anonLauncherLegacy: d.addons?.AnonLauncherLegacy?.address,

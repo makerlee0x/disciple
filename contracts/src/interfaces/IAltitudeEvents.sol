@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title Altitude stream (emitted by BondingCurve pre-grad and DiscipleHook post-grad, right after every Trade)
+/// @title Altitude stream (emitted by BondingCurve pre-grad and AscensionHook post-grad, right after every Trade)
 /// @notice Altitude is SPOT. Pre-grad (BondingCurve): `mcapUsd` equals the preceding Trade.mcapAfterUsd. Post-grad
-///         (DiscipleHook): `mcapUsd` = spot mcap from the preceding Trade.sqrtPriceAfter at the pool's LAUNCH-TIME
+///         (AscensionHook): `mcapUsd` = spot mcap from the preceding Trade.sqrtPriceAfter at the pool's LAUNCH-TIME
 ///         quote/USD price (no live oracle call per swap, gas G-1). `tier` is the 0..17 index of the constitution
 ///         ladder (web/lib/config.ts TIERS).
 interface IAltitudeEvents {

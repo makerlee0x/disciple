@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-/// @title Defaults for Disciple (`BridgeLaunchHook`)
+/// @title Defaults for Disciple (`DiscipleHook`)
 /// @notice One immutable hook, many coin/USDG pools. Nothing here is an admin knob.
 ///         Reasoning for each value lives in `../DESIGN.md`.
 library BridgeConstants {
@@ -20,10 +20,25 @@ library BridgeConstants {
     /// @dev 2% while the pool is tiny.
     uint256 internal constant FEE_TINY_BPS = 200;
     /// @dev 0.3% once pool TVL reaches the graduation threshold (12% of the Ethereum pool).
+    ///      Also the quiet floor of the rev fee: a pool with no recent volume pays this at any size.
     uint256 internal constant FEE_GRAD_BPS = 30;
+    uint256 internal constant FEE_FLOOR_BPS = FEE_GRAD_BPS;
     /// @dev Hard cap after the staleness multiplier, so a dead oracle cannot turn the pool into a honeypot.
     uint256 internal constant FEE_ABS_CAP_BPS = 2_000;
-    /// @dev Trades that close the gap to the anchor pay half the base fee; trades that open it pay 1.5x.
+
+    // ── Rev fee (volume) ────────────────────────────────────────────────────
+    /// @dev Default half-life of the volume accumulator. One hour of quiet forgets half the recent flow.
+    uint256 internal constant REV_HALF_LIFE = 1 hours;
+    uint256 internal constant REV_HALF_LIFE_MIN = 60;
+    uint256 internal constant REV_HALF_LIFE_MAX = 7 days;
+    /// @dev Decayed volume equal to half the fee-denominator TVL pins the fee at the growth cap.
+    ///      A steady $1,000/day on a few-thousand-dollar pool stays near the floor. A burst of about
+    ///      half the pool inside the window hits the cap and cools until the accumulator decays.
+    uint256 internal constant REV_RED_LINE_WAD = 0.5e18;
+    uint256 internal constant REV_RED_LINE_MIN = 0.01e18;
+    uint256 internal constant REV_RED_LINE_MAX = 10e18;
+    /// @dev ln(2) in WAD, for the fractional half of an exponential decay.
+    uint256 internal constant LN2_WAD = 693_147_180_559_945_309;
 
     // ── Stale anchor ────────────────────────────────────────────────────────
     /// @dev The anchor is a 30-minute TWAP. Cross-chain, a stored quote older than this is stale.
@@ -46,7 +61,7 @@ library BridgeConstants {
     uint256 internal constant TIP_BUDGET_CAP = 10e18; // $10
 
     // ── LP boost (fee weight only) ──────────────────────────────────────────
-    uint256 internal constant BOOST_START_WAD = 33e17; // 3.3x
+    uint256 internal constant BOOST_START_WAD = 5e18; // 5x at launch, fee weight only
     uint256 internal constant BOOST_END_WAD = 12e17; // 1.2x, reached at graduation TVL and then stuck
 
     // ── Price band ──────────────────────────────────────────────────────────

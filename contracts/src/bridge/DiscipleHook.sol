@@ -13,7 +13,7 @@ import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
 import {BridgeV3Anchor} from "./libraries/BridgeV3Anchor.sol";
-import {BridgeEngine} from "./BridgeEngine.sol";
+import {DiscipleEngine} from "./DiscipleEngine.sol";
 import {ILzReadConsumer} from "./interfaces/ILzRead.sol";
 import {BridgeStorage} from "./BridgeStorage.sol";
 
@@ -28,12 +28,12 @@ interface IBridgeHandle {
 ///         graduates. One deployment quotes many coin/USDG pools. Each pool picks an anchor once, at
 ///         creation: a LayerZero lzRead of a remote 30-minute TWAP, or a same-chain read of a Uniswap v3
 ///         pool's `observe`. v4 concentrated liquidity is disabled, and every swap is quoted in
-///         `beforeSwap`. See `DESIGN.md`. The contract name stays `BridgeLaunchHook` because `DiscipleHook`
-///         is already the post-graduation fee hook in this repo.
+///         `beforeSwap`. See `DESIGN.md`. This contract is `DiscipleHook`. The post-graduation 1% fee
+///         hook in this repo is `AscensionHook`.
 /// @dev Storage lives here. Writes `delegatecall` a facet whose address is fixed at construction:
 ///      swaps, LP accounting, and the vault admin. Views run here so they stay `staticcall`-able.
 ///      No facet can be replaced. The v4 `slot0` price is a dummy and is never read.
-contract BridgeLaunchHook is BridgeStorage, IHooks, ILzReadConsumer {
+contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
     using PoolIdLibrary for PoolKey;
 
     address public immutable swapFacet;
@@ -46,7 +46,7 @@ contract BridgeLaunchHook is BridgeStorage, IHooks, ILzReadConsumer {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        BridgeEngine engine_,
+        DiscipleEngine engine_,
         address swapFacet_,
         address lpFacet_,
         address adminFacet_
@@ -170,9 +170,23 @@ contract BridgeLaunchHook is BridgeStorage, IHooks, ILzReadConsumer {
                 : -int256(Math.mulDiv(s.y - coinVal, C.BPS, v));
         }
         uint256 gradTvl = refTvl == 0 ? 0 : Math.mulDiv(refTvl, C.GRAD_NUM, C.GRAD_DEN);
-        uint256 base = BridgeFee.baseFeeBps(v, gradTvl);
-        uint256 dir = q.poolPriceWad > s.anchor ? base / 2 : (q.poolPriceWad < s.anchor ? base + base / 2 : base);
-        q.suggestedFeeBps = BridgeFee.applyStale(dir, p.anchorKind == C.ANCHOR_V3 ? 0 : age);
+        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
+        uint256 vol = engine.decayed(p.revVolume, dt, p.revHalfLife);
+        // Dust size: the fee a quiet book charges, not a discount for bridging coin in.
+        q.suggestedFeeBps = BridgeFee.applyStale(
+            engine.feeBps(v, gradTvl, vol, p.revRedLineWad, _revDenom(p, v)), p.anchorKind == C.ANCHOR_V3 ? 0 : age
+        );
+    }
+
+    /// @notice Rev-fee knobs and the accumulator. `halfLife` and `redLineWad` are fixed at creation.
+    function revState(PoolId id)
+        external
+        view
+        returns (uint256 volume, uint64 at, uint64 halfLife, uint256 redLineWad, uint256 openTvl)
+    {
+        Pool storage p = pools[id];
+        if (!p.exists) revert UnknownPool();
+        return (p.revVolume, p.revAt, p.revHalfLife, p.revRedLineWad, p.revOpenTvl);
     }
 
     /// @notice Exact-in quote. `capped` means the requested input hits the seed guard or the USDG floor;

@@ -24,7 +24,7 @@ const lc = (a: string) => a.toLowerCase();
 
 // 1) addresses
 const want: Record<string, string> = {
-  launchpad: dep.contracts.Launchpad, hook: dep.contracts.DiscipleHook, router: dep.contracts.DiscipleRouter, feeRouter: dep.contracts.FeeRouter,
+  launchpad: dep.contracts.Launchpad, hook: dep.contracts.AscensionHook, router: dep.contracts.DiscipleRouter, feeRouter: dep.contracts.FeeRouter,
   referralRegistry: dep.contracts.ReferralRegistry, lockedLP: dep.contracts.LockedLP, quotePricer: dep.contracts.QuotePricer, quoteProbe: dep.contracts.QuoteProbe,
   migration: dep.contracts.Migration, antiSnipe: dep.contracts.AntiSnipe, trampWallManager: dep.contracts.TrampWallManager, marketLens: dep.contracts.MarketLens,
   loginGate: dep.contracts.LoginGate, usdgDepositNotifier: dep.contracts.UsdgDepositNotifier,

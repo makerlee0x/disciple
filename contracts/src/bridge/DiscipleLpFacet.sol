@@ -14,13 +14,13 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {BridgeConstants as C} from "./libraries/BridgeConstants.sol";
 import {BridgeCurve} from "./libraries/BridgeCurve.sol";
 import {BridgeFee} from "./libraries/BridgeFee.sol";
-import {BridgeEngine} from "./BridgeEngine.sol";
-import {BridgeFacetBase} from "./BridgeFacetBase.sol";
+import {DiscipleEngine} from "./DiscipleEngine.sol";
+import {DiscipleFacetBase} from "./DiscipleFacetBase.sol";
 
 /// @title Disciple LP facet
-/// @notice Create, deposit, redeem, and the keeper callback for Disciple (`BridgeLaunchHook`).
+/// @notice Create, deposit, redeem, and the keeper callback for Disciple (`DiscipleHook`).
 ///         Runs as the hook via `delegatecall`. v4 still sees the hook address.
-contract BridgeLpFacet is BridgeFacetBase {
+contract DiscipleLpFacet is DiscipleFacetBase {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
 
@@ -30,8 +30,8 @@ contract BridgeLpFacet is BridgeFacetBase {
         address vault_,
         address lz_,
         uint8 usdgDecimals_,
-        BridgeEngine engine_
-    ) BridgeFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {}
+        DiscipleEngine engine_
+    ) DiscipleFacetBase(manager_, usdg_, vault_, lz_, usdgDecimals_, engine_) {}
 
     function createPool(CreateParams calldata c) external returns (PoolKey memory key, PoolId id) {
         _onlyDelegate();
@@ -58,6 +58,10 @@ contract BridgeLpFacet is BridgeFacetBase {
             if (c.outflowCapBps == 0 || c.outflowCapBps > C.BPS) revert BadCreate();
         }
         if (c.morphoCapBps > C.BPS) revert BadCreate();
+        uint64 half = c.revHalfLife == 0 ? uint64(C.REV_HALF_LIFE) : c.revHalfLife;
+        if (half < C.REV_HALF_LIFE_MIN || half > C.REV_HALF_LIFE_MAX) revert BadCreate();
+        uint256 red = c.revRedLineWad == 0 ? C.REV_RED_LINE_WAD : c.revRedLineWad;
+        if (red < C.REV_RED_LINE_MIN || red > C.REV_RED_LINE_MAX) revert BadCreate();
 
         uint8 coinDec = IERC20Metadata(c.coin).decimals();
         if (coinDec > 18) revert BadCreate();
@@ -96,6 +100,9 @@ contract BridgeLpFacet is BridgeFacetBase {
         p.poolVault = vault;
         p.morphoCapBps = c.morphoCapBps;
         p.vaultAdmin = c.vaultAdmin;
+        p.revHalfLife = half;
+        p.revRedLineWad = red;
+        p.revAt = uint64(block.timestamp);
         p.key = key;
         // `init` takes memory. Assigning the copy is what actually stores the seed.
         BridgeCurve.S memory seeded;
@@ -159,7 +166,7 @@ contract BridgeLpFacet is BridgeFacetBase {
         sharesMinted = abi.decode(ret, (uint256));
     }
 
-    /// @notice Redeem `shares` now. Pays the current base fee (plus staleness) on the value removed.
+    /// @notice Redeem `shares` now. Pays the rev fee (plus staleness) on the value removed.
     function redeem(PoolId id, uint256 shares) external returns (uint256 coinRaw, uint256 usdgRaw) {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
@@ -431,14 +438,23 @@ contract BridgeLpFacet is BridgeFacetBase {
         uint256 outY,
         uint256 credit,
         uint256 spotP
-    ) internal view returns (uint256 userX, uint256 userY, uint256 paidCredit, uint256 wfee) {
+    ) internal returns (uint256 userX, uint256 userY, uint256 paidCredit, uint256 wfee) {
         if (outX > s.x) outX = s.x;
         uint256 principal = s.protoY + s.lpY;
         if (outY > principal) outY = principal;
 
         uint256 value = outY + credit + (spotP == 0 ? 0 : Math.mulDiv(outX, spotP, C.WAD));
         uint256 age = p.anchorKind == C.ANCHOR_V3 ? 0 : _age(p);
-        uint256 bps = BridgeFee.applyStale(BridgeFee.baseFeeBps(BridgeCurve.tvl(s), _gradTvl(p)), age);
+        uint256 vNow = BridgeCurve.tvl(s);
+        uint256 dt = p.revAt == 0 || block.timestamp <= uint256(p.revAt) ? 0 : block.timestamp - uint256(p.revAt);
+        uint256 vol = engine.decayed(p.revVolume, dt, p.revHalfLife);
+        uint256 bps = BridgeFee.applyStale(
+            engine.feeBps(vNow, _gradTvl(p), vol + value, p.revRedLineWad, _revDenom(p, vNow)), age
+        );
+        if (value != 0) {
+            p.revVolume = vol + value;
+            p.revAt = uint64(block.timestamp);
+        }
         wfee = value == 0 ? 0 : Math.mulDiv(value, bps, C.BPS, Math.Rounding.Ceil);
 
         uint256 left = wfee;
