@@ -131,7 +131,8 @@ abstract contract BridgeStorage {
         address refHook;
         /// @dev Self-sample only. Ignored: the hook derives it from `coin < USDG`.
         bool refCoinIs0;
-        /// @dev 0 selects `TICK_SPACING` (60). A second pool for the same coin picks another spacing.
+        /// @dev 0 selects `TICK_SPACING` (60). Another spacing in range is another pool for the same
+        ///      coin. Creation is permissionless, multiple pools per coin.
         int24 tickSpacing;
         /// @dev Uniswap v3 fee tier. Required for `ANCHOR_V3`. The pool must be the factory's pool for it.
         uint24 v3Fee;

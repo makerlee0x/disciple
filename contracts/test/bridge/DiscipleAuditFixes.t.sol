@@ -240,12 +240,22 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         hook.createPool(_sample(c, PoolId.unwrap(wrong.toId()), coin0));
     }
 
-    function test_frontRunCreateDoesNotBlockTheCoin() public {
+    /// @notice Permissionless, multiple pools per coin. A second caller, who is not the fee wallet,
+    ///         can open another pool for the same coin by picking another tick spacing.
+    function test_permissionlessMultiplePoolsPerCoin() public {
         MockERC20 c = _newCoin("SALT", 18);
-        c.mint(address(this), 30e18);
+        c.mint(address(this), 20e18);
         c.approve(address(hook), type(uint256).max);
         hook.createPool(_plain(c, 10e18, 0));
-        hook.createPool(_plain(c, 10e18, 120));
+
+        address anyone = address(0xA11CE);
+        c.mint(anyone, 10e18);
+        vm.startPrank(anyone);
+        c.approve(address(hook), type(uint256).max);
+        BridgeStorage.CreateParams memory second = _plain(c, 10e18, 120);
+        second.creator = address(this);
+        hook.createPool(second);
+        vm.stopPrank();
     }
 
     function test_staleAnchorBlocksTheSwapAndNotTheRedeem() public {

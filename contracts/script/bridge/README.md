@@ -2,7 +2,7 @@
 
 This script deploys `DiscipleEngine`, `DiscipleAdminFacet`, `DiscipleCreateFacet`, `DiscipleLpFacet`, `DiscipleSwapFacet`, a small CREATE2 helper, and the mined `DiscipleHook`. When `LZ` is unset it also deploys `DiscipleLzRead` against `LZ_ENDPOINT`. It deploys `AnchorLens` unless `DEPLOY_LENS=0`. It does not create a pool. It does not set the endpoint's read library or DVN config. It does not broadcast by itself. `forge script` sends transactions only when you add `--broadcast`.
 
-It has not been run against Robinhood Chain testnet or Ethereum Sepolia.
+It has not been run against Robinhood Chain testnet or Ethereum Sepolia. Pool creation is permissionless, multiple pools per coin, and is not part of this script. Anyone can call `createPool` for any coin. The creator argument is that pool's fee wallet. There is no creator allowlist. `tickSpacing` distinguishes pools for one coin, and the reference checks still apply.
 
 Graduation is not a deploy-time parameter. Status turns on once pool TVL has stayed at or above 12% of that pool's smoothed reference TVL for 77 continuous minutes, and it turns off once pool TVL has stayed below that same line for 77 continuous minutes. The window is fixed. There is no percent band. Before graduation, and again after status turns off, the whole fee compounds for LPs. While status is on, each fee is 33% creator, 33% LPs, 33% permanent locked liquidity, and 1% hook builder. The builder address is the `BUILDER` deploy parameter. Only that address can hand the role off, in two steps. Pool creators cannot. Idle USDG stays in the pool. The script does not create a pool and does not perform either step.
 

@@ -84,6 +84,8 @@ contract DiscipleHook is BridgeStorage, IHooks, ILzReadConsumer {
 
     // ───────────────────────────── writes (forwarded) ────────────────
 
+    /// @notice Permissionless, multiple pools per coin. Anyone can create a pool for any coin.
+    ///         Creator identity is not checked. `tickSpacing` distinguishes pools for one coin.
     function createPool(CreateParams calldata) external returns (PoolKey memory, PoolId) {
         _forward(createFacet);
     }

@@ -31,12 +31,17 @@ contract DiscipleCreateFacet is DiscipleFacetBase {
         address v3Factory_
     ) DiscipleFacetBase(manager_, usdg_, lz_, usdgDecimals_, engine_, v3Factory_) {}
 
+    /// @notice Permissionless, multiple pools per coin. Anyone can create a pool for any coin.
+    ///         The caller is not checked, and `creator` is only the fee wallet (any non-zero address).
+    ///         There is no creator allowlist. `tickSpacing` of 0 is 60; any other spacing in range is
+    ///         another pool for the same coin. The reference is still validated.
     function createPool(CreateParams calldata c) external returns (PoolKey memory key, PoolId id) {
         _onlyDelegate();
         if (_locked) revert Reentrancy();
         _locked = true;
 
         if (c.coin == address(0) || c.coin == usdg || c.coin.code.length == 0) revert BadCreate();
+        // Fee wallet for this pool. Any non-zero address. Not compared to the caller.
         if (c.creator == address(0)) revert BadCreate();
         if (!engine.anchorOk(c.anchorKind, c.remoteOracle, c.v3Pool, c.refPoolId, c.refHook, c.tipSeed, c.remoteEid)) {
             revert BadCreate();
@@ -122,8 +127,9 @@ contract DiscipleCreateFacet is DiscipleFacetBase {
         _locked = false;
     }
 
-    /// @dev The reference has to be the pool it claims to be. A squatter's fake v3 pool, a wrong
-    ///      pair, or a hook the builder has not allowed cannot be attached.
+    /// @dev The reference has to be the pool it claims to be. A v3 address that is not the factory
+    ///      pool, a wrong pair, or a hook the builder has not allowed cannot be attached.
+    ///      Creation stays permissionless, multiple pools per coin.
     function _checkRef(CreateParams calldata c) internal view {
         uint8 k = c.anchorKind;
         if (k == C.ANCHOR_V3) {
