@@ -82,6 +82,20 @@ contract DiscipleHook is IHooks {
         DiscipleBook.poke(_env(), id);
     }
 
+    /// @dev The current creator recipient only. No admin. `next` must be non-zero.
+    function transferCreator(PoolId id, address next) external {
+        DiscipleBook.transferCreator(id, next);
+    }
+
+    /// @dev First call records `seenAt`. A later call does not move it. v2 and v4 creates read this.
+    function witnessSource(bytes32 key) external {
+        DiscipleBook.witnessSource(key);
+    }
+
+    function sourceKey(uint8 kind, address ref, bytes32 refId) external pure returns (bytes32) {
+        return DiscipleBook.sourceKey(kind, ref, refId);
+    }
+
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert BridgeStorage.OnlyPoolManager();
         uint8 op = abi.decode(data, (uint8));
@@ -108,10 +122,11 @@ contract DiscipleHook is IHooks {
         return BridgeStorage.layout().pools[id].ethTvl;
     }
 
-    function dutchState(PoolId id) external view returns (uint64 drift, uint64 bidAt, uint64 askAt) {
+    function dutchState(PoolId id) external view returns (uint256 bidGap, uint256 askGap, uint64 dutchAt) {
         BridgeStorage.Pool storage p = BridgeStorage.layout().pools[id];
         if (!p.exists) revert BridgeStorage.UnknownPool();
-        return (p.dutchDrift, p.dutchBidAt, p.dutchAskAt);
+        (bidGap, askGap) = DiscipleBook.accruedGaps(id);
+        dutchAt = p.dutchAt;
     }
 
     function floorState(PoolId id) external view returns (uint256, uint256) {

@@ -298,7 +298,7 @@ contract DiscipleSimTest is Test {
         assertGt(arbMark, mark1, "buying coin back toward the mix is paid");
     }
 
-    /// @dev A reference that outgrows the pool turns status off after the window. A later shrink turns it back on.
+    /// @dev Status flips in the call that crosses. A grown reference turns it off. A later shrink turns it back on.
     function test_statusTurnsOffWhenTheReferenceOutgrowsThePool() public {
         _reset(COST_OUTSIDE, MODE_BASE, VOL_ACTIVE, false);
         s.y = GRAD;
@@ -308,22 +308,13 @@ contract DiscipleSimTest is Test {
         refPath = 1;
         clock = 300 days;
         _touchGrad();
-        assertTrue(graduated, "the first reading under the target starts the off-window");
-        clock += C.GRADUATION_WINDOW - 1 minutes;
-        _touchGrad();
-        assertTrue(graduated, "inside the window, status stays on");
-        clock += 2 minutes;
-        _touchGrad();
-        assertFalse(graduated, "a full window under a grown reference turns status off");
+        assertFalse(graduated, "a target above the pool turns status off in this call");
         assertEq(offN, 1);
 
         refPath = 2;
         clock = 365 days;
         _touchGrad();
-        assertFalse(graduated, "the first reading back over the target starts the on-window");
-        clock += C.GRADUATION_WINDOW;
-        _touchGrad();
-        assertTrue(graduated, "a shrunk reference re-graduates the same pool");
+        assertTrue(graduated, "a shrunk reference re-graduates in this call");
         assertEq(offN, 1);
         assertEq(gradDay, 1, "grad day stays the first time status turned on");
     }
@@ -972,13 +963,25 @@ contract DiscipleSimTest is Test {
         return gap > 0.99e18 ? 0.99e18 : gap;
     }
 
-    /// @dev Same cap as `BridgeFee.dutchCap`: the safety cap, scaled down to 20% at the live target.
+    /// @dev The hook no longer caps a Dutch slice. This copy is only the simulator's old offer size:
+    ///      `min($50, max(TVL / 20, $1))`, then scaled to 20% at the live target.
     function _dutchOffer(uint256 gap) internal view returns (uint256) {
         if (gap == 0) return 0;
         uint256 offered = Math.mulDiv(edgeWad, C.WAD, gap);
-        uint256 cap = BridgeFee.dutchCap(BridgeCurve.tvl(s), _target());
+        uint256 cap = _legacyDutchCap(BridgeCurve.tvl(s), _target());
         if (offered > cap) offered = cap;
         return offered;
+    }
+
+    function _legacyDutchCap(uint256 tvl, uint256 gradTvl) internal pure returns (uint256 cap) {
+        cap = tvl / 20;
+        if (cap < 1e18) cap = 1e18;
+        if (cap > 50e18) cap = 50e18;
+        if (gradTvl == 0 || tvl == 0) return cap;
+        uint256 progress = tvl >= gradTvl ? C.WAD : Math.mulDiv(tvl, C.WAD, gradTvl);
+        uint256 keep = C.WAD - Math.mulDiv(progress, C.WAD - 0.2e18, C.WAD);
+        cap = Math.mulDiv(cap, keep, C.WAD);
+        if (cap == 0) cap = 1;
     }
 
     function _dutchBuy(uint256 usdgIn, uint8 actor) internal returns (uint256 filled) {
@@ -1381,18 +1384,11 @@ contract DiscipleSimTest is Test {
         }
     }
 
-    /// @dev Same machine as `DiscipleMath.stepGrad`, on the sim clock and the fixed 77-minute window.
-    ///      Fee, boost, and Dutch size keep using live progress either way.
+    /// @dev Same machine as `DiscipleMath.stepGrad`. Status flips in this call. There is no window.
     ///      `gradDay` stays the first day status turns on. `offN` counts later turns off.
     function _touchGrad() internal {
         uint8 edge;
-        uint64 above;
-        uint64 below;
-        (graduated, above, below, edge) = DiscipleMath.stepGrad(
-            BridgeCurve.tvl(s), _target(), graduated, uint64(aboveSince), uint64(belowSince), clock
-        );
-        aboveSince = above;
-        belowSince = below;
+        (graduated, edge) = DiscipleMath.stepGrad(BridgeCurve.tvl(s), _target(), graduated);
         if (edge == 1 && gradDay == 0) gradDay = _dayNow();
         if (edge == 2) offN += 1;
     }

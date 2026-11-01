@@ -19,18 +19,18 @@ import {BridgeConstants as C} from "./BridgeConstants.sol";
 ///
 ///         TVL for the self-sample is a zero-width liquidity proxy: `2 * in-range quote`. It is
 ///         manipulable by adding in-range liquidity. The stored TVL is then smoothed with a
-///         30-minute half-life, capped per step, and graduated status then waits out the 77-minute
-///         window. The price itself is a 30-minute TWAP with no spot fallback.
+///         30-minute half-life, capped per step. The price itself is a 30-minute TWAP of past-block
+///         ticks. There is no spot fallback and no per-sample move cap.
 ///
-///         Sampling follows the v3 observation rule. The first sample is only a candidate: it is
-///         not accrued, and a later block starts the ring at the tick it sees then, so a pushed
-///         first tick never enters the mean. Once the ring is live, a new block accrues the tick
-///         observed in the prior block for the elapsed time (no equality check — a trend still
-///         moves), then stores the current tick as the next candidate. A second sample in the same
-///         block only replaces that candidate, so a push, poke, and push-back in one transaction
-///         does not weight the TWAP. The mean is not trusted until `MIN_SAMPLES` points exist and
-///         the oldest is at least `TWAP_WINDOW` old. `peek` applies the same accrual in memory, so
-///         a quote matches the sample a swap would write.
+///         The current slot0 tick is only a pending sample. Consult projects `accrualTick`, which
+///         was installed from a previous block's pending tick, and never the pending tick. A later
+///         block accrues that past tick over the elapsed time, then installs the old pending tick
+///         for future intervals and stores the new slot0 as pending. The first sample in a block
+///         wins. A later sample in the same block does not replace it, so a push, poke, and
+///         push-back cannot change the price this transaction reads. The poisoned pending tick can
+///         color the interval after the confirming sample. That residual is accepted. There is no
+///         move cap. The mean is not trusted until `MIN_SAMPLES` points exist and the oldest is at
+///         least `TWAP_WINDOW` old. `peek` applies the same accrual in memory.
 ///
 /// @dev Internal. `DiscipleAnchor` is the deployed library. This file is inlined there, not on its own.
 library BridgeV4Anchor {
@@ -44,7 +44,8 @@ library BridgeV4Anchor {
         uint32 lastTs;
         int24 lastTick;
         int56 cum;
-        /// @dev Slot0 seen in `observedBlock`. It accrues on a later block. This block's tick does not.
+        /// @dev First slot0 of `observedBlock`. It is not accrued. The next block installs it as
+        ///      `lastTick` for intervals that start then. A second sample in the block does not replace it.
         int24 observedTick;
         uint64 observedBlock;
         /// @dev False until a later block has confirmed that a sample exists. The first tick is dropped.
@@ -116,10 +117,9 @@ library BridgeV4Anchor {
         return _consult(next, obs, w, sqrtP, liq, coinIs0, coinDec, quoteDec);
     }
 
-    /// @dev First sample is stored and not accrued. A later block starts the ring at the tick it
-    ///      sees, discarding the unconfirmed candidate. After that, a new block accrues the prior
-    ///      block's tick for the elapsed time and the current tick becomes the next candidate.
-    ///      The same block only replaces the candidate.
+    /// @dev First sample is pending only. A later block accrues `lastTick` (a tick installed from
+    ///      an earlier block) and then installs the old pending tick for the future. The same block
+    ///      keeps the first pending tick.
     function advance(Ring memory ring, int24 tick, uint32 nowT, uint64 bn)
         internal
         pure
@@ -139,14 +139,12 @@ library BridgeV4Anchor {
             ring.observedBlock = bn;
             return (ring, w);
         }
-        if (bn == ring.observedBlock) {
-            ring.observedTick = tick;
-            return (ring, w);
-        }
+        // One sample per block. The first tick stays pending. A push and a push-back do not replace it.
+        if (bn == ring.observedBlock) return (ring, w);
         if (!ring.started) {
             ring.started = true;
             ring.lastTs = nowT;
-            ring.lastTick = tick;
+            ring.lastTick = ring.observedTick;
             ring.cum = 0;
             ring.observedTick = tick;
             ring.observedBlock = bn;
@@ -157,8 +155,7 @@ library BridgeV4Anchor {
             w.word = _pack(nowT, 0);
             return (ring, w);
         }
-        if (nowT != ring.lastTs) {
-            ring.lastTick = ring.observedTick;
+        if (nowT > ring.lastTs) {
             int256 projected = int256(ring.cum) + int256(ring.lastTick) * int256(uint256(nowT - ring.lastTs));
             if (projected > type(int56).max || projected < type(int56).min) {
                 ring.observedTick = tick;
@@ -173,8 +170,10 @@ library BridgeV4Anchor {
             if (ring.count < CARD) ring.count += 1;
             ring.cum = cumNow;
             ring.lastTs = nowT;
-            ring.lastTick = tick;
         }
+        // The tick we just finished accruing stays in `cum`. The pending tick from the previous
+        // block becomes the accrual tick for the next interval, with zero duration in this one.
+        ring.lastTick = ring.observedTick;
         ring.observedTick = tick;
         ring.observedBlock = bn;
         return (ring, w);
@@ -232,6 +231,14 @@ library BridgeV4Anchor {
     }
 
     /// @dev Quote-token TVL of a zero-width in-range position: both sides valued in the quote.
+    function inRangeQuote(uint160 sqrtPriceX96, uint128 liquidity, bool coinIs0, uint8 quoteDec)
+        internal
+        pure
+        returns (uint256)
+    {
+        return _tvl(sqrtPriceX96, liquidity, coinIs0, quoteDec);
+    }
+
     function _tvl(uint160 sqrtPriceX96, uint128 liquidity, bool coinIs0, uint8 quoteDec)
         private
         pure

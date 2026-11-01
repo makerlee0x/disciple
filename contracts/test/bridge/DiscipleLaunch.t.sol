@@ -18,7 +18,7 @@ import {BridgeConstants as C} from "../../src/bridge/libraries/BridgeConstants.s
 import {BridgeFixture} from "./BridgeFixture.sol";
 import {MockERC20, MockV2Pair} from "./mocks/BridgeMocks.sol";
 
-/// @notice Dutch quotes, the progress-only fee, the status time window, and v4 anchors.
+/// @notice Dutch quotes, the progress-only fee, immediate graduation, and v2/v4 anchors.
 contract DiscipleLaunchTest is BridgeFixture {
     using PoolIdLibrary for PoolKey;
 
@@ -42,141 +42,85 @@ contract DiscipleLaunchTest is BridgeFixture {
     function test_dutchDriftsBothWaysAndResetsTogether() public {
         skip(1 hours);
         (uint256 gap, uint256 bid, uint256 ask, uint256 size1,, uint256 fee1) = hook.dutchQuote(id);
-        assertApproxEqAbs(gap, 0.01e18, 1e12, "default drift is 1% of the anchor per hour");
-        assertApproxEqAbs(bid, 1.01e18, 1e6);
-        assertApproxEqAbs(ask, 0.99e18, 1e6);
-        assertGt(size1, 1e18);
-        assertLe(size1, 77e18 / 20 + 1, "the slice is capped at 5% of TVL");
+        uint256 hourGap = C.DUTCH_RATE * 1 hours;
+        assertEq(gap, hourGap, "both sides reach 77% in 12 hours");
+        assertApproxEqAbs(bid, Math.mulDiv(1e18, C.WAD + hourGap, C.WAD), 1e12);
+        assertApproxEqAbs(ask, Math.mulDiv(1e18, C.WAD - hourGap, C.WAD), 1e12);
+        assertApproxEqAbs(size1, BridgeCurve.tvl(hook.curve(id)), 1, "the quoted size is pool depth");
         assertEq(fee1, BridgeFee.baseFeeBps(BridgeCurve.tvl(hook.curve(id)), _target()));
 
-        skip(9 hours);
+        skip(5 hours);
         (uint256 gap2,,, uint256 size2,, uint256 fee2) = hook.dutchQuote(id);
         assertGt(gap2, gap);
-        assertLt(size2, size1, "a wider gap offers less");
+        assertEq(size2, size1, "a wider gap is not a smaller slice");
         assertEq(fee2, fee1, "the fee does not rise with the gap");
+        assertLt(gap2, C.DUTCH_GAP_CAP);
 
-        // Ask is 0.90, still above the 0.67 curve, so a buy walks the curve. Only the ask clock resets.
         usdg.mint(address(this), 2e18);
         uint256 spotBefore = hook.spotPrice(id);
         _buy(key, address(coin), 1e18);
-        assertGt(hook.spotPrice(id), spotBefore);
         (uint256 afterBuy, uint256 bidAfter, uint256 askAfter,,,) = hook.dutchQuote(id);
-        assertEq(afterBuy, 0, "a buy closes the ask");
-        assertGt(bidAfter, hook.curve(id).anchor, "the bid keeps drifting");
-        assertEq(askAfter, hook.curve(id).anchor);
+        assertEq(bidAfter, hook.curve(id).anchor, "a buy restarts the bid");
+        assertLt(afterBuy, gap2, "a buy consumes the ask in proportion to size");
+        // Less remaining discount means a higher ask, closer to the anchor.
+        assertGt(askAfter, Math.mulDiv(hook.curve(id).anchor, C.WAD - gap2, C.WAD));
+        // Six hours puts the ask under the 0.67 launch price, so the fill is Dutch and spot is put back.
+        if (gap2 > 0.33e18) assertApproxEqRel(hook.spotPrice(id), spotBefore, 0.02e18);
 
-        skip(40 hours);
-        (uint256 wide, uint256 bidW, uint256 askW, uint256 sizeW,,) = hook.dutchQuote(id);
-        assertGt(wide, 0.33e18, "the ask has fallen through the launch price");
+        skip(12 hours);
+        (uint256 wide, uint256 bidW, uint256 askW,,,) = hook.dutchQuote(id);
+        assertEq(wide, C.DUTCH_GAP_CAP, "the ask gap stops at 77%");
         assertGt(bidW, hook.curve(id).anchor);
         assertLt(askW, hook.spotPrice(id));
-        assertLt(sizeW, size2);
-
-        uint256 spot = hook.spotPrice(id);
-        uint256 coinBefore = coin.balanceOf(address(this));
-        usdg.mint(address(this), sizeW);
-        _buy(key, address(coin), sizeW);
-        assertGt(coin.balanceOf(address(this)), coinBefore);
-        (uint256 closed, uint256 bidClosed,,,,) = hook.dutchQuote(id);
-        if (sizeW >= C.DUTCH_MIN_SLICE) {
-            assertEq(closed, 0, "a buy at the minimum notional closes the ask");
-        } else {
-            assertGt(closed, 0, "a fill under the minimum notional leaves the ask clock running");
-        }
-        assertGt(bidClosed, hook.curve(id).anchor, "the bid clock was not the side that filled");
-        // The slice is retargeted back onto the curve, so one Dutch fill does not walk the spot to the ask.
-        assertApproxEqRel(hook.spotPrice(id), spot, 0.02e18);
-        assertGe(hook.curve(id).x, hook.curve(id).seedFloor, "the seed guard still binds");
+        uint256 twelve = C.DUTCH_RATE * 12 hours;
+        assertLt(twelve, C.DUTCH_GAP_CAP, "integer division lands a few wei under 77% at exactly 12 hours");
     }
 
     function test_graduationReversesAndIncentivesFollowProgress() public {
         _openBook();
-        uint256 lowFee = hook.bridgeQuote(id).suggestedFeeBps;
-        assertLt(lowFee, 80, "over the line, the fee is already the low end");
-        _finishWindow(true);
         assertTrue(hook.bridgeQuote(id).graduated);
+        assertEq(hook.bridgeQuote(id).suggestedFeeBps, C.FEE_GRAD_BPS);
 
         usdg.mint(address(this), 5e18);
         _buy(key, address(coin), 1e18);
         uint256 cut = hook.creatorFees(id);
         assertGt(cut, 0, "the creator cut is on while status is on");
-        skip(1 hours);
-        (,,, uint256 tight,,) = hook.dutchQuote(id);
 
-        // Twelve half-lives put the reference smooth on $2M. Status is still on: this call only
-        // starts the off-window. The fee and the Dutch slice have already stepped back up.
-        skip(6 hours);
-        _price(id, hook.curve(id).anchor, 2_000_000e18);
-        assertTrue(hook.bridgeQuote(id).graduated, "the first reading under the target does not flip");
-        uint256 highFee = hook.bridgeQuote(id).suggestedFeeBps;
-        assertGt(highFee, 150, "progress raises the fee before status turns off");
-        assertGt(highFee, lowFee);
-        _buy(key, address(coin), 1e18);
-        // The hour that opens the Dutch quote is inside the 77-minute off-window.
-        skip(1 hours);
-        (,,, uint256 reopened,,) = hook.dutchQuote(id);
-        assertGt(reopened, tight, "lower progress reopens the Dutch slice");
-        hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "one hour under the target does not flip");
-        assertGt(hook.bridgeQuote(id).suggestedFeeBps, 150, "the fee stays stepped up while status is still on");
-
-        skip(C.GRADUATION_WINDOW - 1 hours - 1 minutes);
-        hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "inside the window, status stays on");
-        skip(1 minutes);
         uint256 poker = usdg.balanceOf(address(this));
         hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated, "a full window under the target turns status off");
         assertEq(usdg.balanceOf(address(this)), poker, "poke pays the caller nothing");
+
+        _dropUnder();
+        assertFalse(hook.bridgeQuote(id).graduated, "dropping under the target turns status off in this call");
+        assertGt(hook.bridgeQuote(id).suggestedFeeBps, C.FEE_GRAD_BPS, "the fee steps up with progress");
         uint256 paused = hook.creatorFees(id);
+        usdg.mint(address(this), 1e18);
         _buy(key, address(coin), 1e18);
         assertEq(hook.creatorFees(id), paused, "the creator cut pauses while status is off");
 
-        // Protocol inventory has to be over the target. An LP deposit is not inventory.
-        coin.mint(address(this), 250_000e18);
-        hook.deposit(id, 250_000e18, 0);
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated, "a deposit is not graduation TVL");
-        _easeTo(400e18);
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated, "the first reading back over the target does not flip");
-        uint256 roundTrip = usdg.balanceOf(address(this));
-        hook.poke(id);
-        assertEq(usdg.balanceOf(address(this)), roundTrip, "a second poke in the block pays nothing");
-        skip(C.GRADUATION_WINDOW - 1 minutes);
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated, "inside the window, a deposit cannot re-graduate");
-        skip(1 minutes);
-        hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "a full window over the target turns status back on");
+        usdg.mint(address(this), 2_000e18);
+        hook.deposit(id, 0, 2_000e18);
+        assertTrue(hook.bridgeQuote(id).graduated, "an LP deposit that crosses the target graduates immediately");
     }
 
-    function test_dipInsideTheWindowDoesNotChangeStatus() public {
+    function test_dipTurnsStatusOffImmediately() public {
         _openBook();
-        _finishWindow(true);
         uint256 feeOn = hook.bridgeQuote(id).suggestedFeeBps;
-        skip(6 hours);
-        // One smooth step is capped, so the reference has to move far enough that this step alone
-        // puts the target above pool TVL, and the way back has to fit in the same 77 minutes.
-        _price(id, hook.curve(id).anchor, 2_000e18);
-        assertTrue(hook.bridgeQuote(id).graduated, "the first reading under the target starts the off-window");
-        assertGt(hook.bridgeQuote(id).suggestedFeeBps, feeOn, "the fee steps up before status turns off");
-        skip(30 minutes);
-        _price(id, hook.curve(id).anchor, 1e18);
-        assertTrue(hook.bridgeQuote(id).graduated, "crossing back inside the window clears the clock");
-        skip(C.GRADUATION_WINDOW);
+        assertEq(feeOn, C.FEE_GRAD_BPS);
+        _dropUnder();
+        assertFalse(hook.bridgeQuote(id).graduated);
+        assertGt(hook.bridgeQuote(id).suggestedFeeBps, feeOn);
         hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated, "a cleared clock does not flip on a later poke");
+        assertFalse(hook.bridgeQuote(id).graduated, "a later poke does not turn status back on");
     }
 
     function test_regraduationRestoresTheCreatorCut() public {
         _openBook();
-        _finishWindow(true);
         _dropUnder();
         assertFalse(hook.bridgeQuote(id).graduated);
         uint256 paused = hook.creatorFees(id);
-        _easeTo(400e18);
-        _finishWindow(true);
+        usdg.mint(address(this), 2_000e18);
+        hook.deposit(id, 0, 2_000e18);
         assertTrue(hook.bridgeQuote(id).graduated, "crossing back above the target re-graduates");
         usdg.mint(address(this), 2e18);
         _buy(key, address(coin), 1e18);
@@ -198,7 +142,6 @@ contract DiscipleLaunchTest is BridgeFixture {
 
     function test_graduatedSplitLocksLiquidityAndRevertsWhenStatusTurnsOff() public {
         _openBook();
-        _finishWindow(true);
         assertTrue(hook.bridgeQuote(id).graduated);
 
         uint256 amount = 1e18;
@@ -250,7 +193,6 @@ contract DiscipleLaunchTest is BridgeFixture {
 
     function test_noBuilderRoleAndCreatorStaysPut() public {
         _openBook();
-        _finishWindow(true);
         usdg.mint(address(this), 1e18);
         _buy(key, address(coin), 1e18);
         uint256 locked = hook.curve(id).lockedY;
@@ -287,25 +229,16 @@ contract DiscipleLaunchTest is BridgeFixture {
         (ok,) = address(hook).call(abi.encodeWithSignature(sig, a, b));
     }
 
-    function test_crossingBackResetsTheGraduationTimer() public {
-        _openBook();
-        assertFalse(hook.bridgeQuote(id).graduated, "the catch-up starts the window");
-        skip(30 minutes);
+    function test_crossingBackFlipsInTheSameCall() public {
+        _fresh(12_000e18);
+        assertFalse(hook.bridgeQuote(id).graduated, "the seed is under 12% of a $12k reference");
+        usdg.mint(address(this), 2_000e18);
+        hook.deposit(id, 0, 2_000e18);
+        assertTrue(hook.bridgeQuote(id).graduated, "crossing up flips in this call");
+        hook.redeem(id, hook.sharesOf(id, address(this)));
+        assertFalse(hook.bridgeQuote(id).graduated, "crossing back down flips in this call");
         hook.poke(id);
         assertFalse(hook.bridgeQuote(id).graduated);
-
-        // The next reading is already under the line, so time spent over the target does not graduate.
-        skip(6 hours);
-        _price(id, 1e18, 2_000_000e18);
-        assertFalse(hook.bridgeQuote(id).graduated);
-        _easeTo(400e18);
-        assertFalse(hook.bridgeQuote(id).graduated, "re-crossing starts a new window");
-        skip(C.GRADUATION_WINDOW - 1 minutes);
-        hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated);
-        skip(1 minutes);
-        hook.poke(id);
-        assertTrue(hook.bridgeQuote(id).graduated);
     }
 
     function test_v2ReservesFeedTheRing() public {
@@ -314,12 +247,14 @@ contract DiscipleLaunchTest is BridgeFixture {
         pair.setReserves(1_000_000e18, 1_000_000e18);
         usdg.mint(address(pair), 50_000e18);
         v2Factory.setPair(address(c), address(usdg), address(pair));
+        hook.witnessSource(hook.sourceKey(C.ANCHOR_V2, address(pair), bytes32(0)));
+        skip(C.MIN_REF_AGE);
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
         (, PoolId pid) = hook.createPool(_v2(address(c), address(pair), 10e18));
         assertEq(hook.anchorKind(pid), C.ANCHOR_V2);
         assertEq(hook.curve(pid).anchor, 0, "a cold ring is not a 30-minute TWAP");
-        _warmSample(pid);
+        _warmV2(pid);
         assertEq(hook.curve(pid).anchor, 1e18);
         assertEq(hook.spotPrice(pid), 0.67e18);
         (uint256 price, uint256 tvl) = hook.liveAnchor(pid);
@@ -331,24 +266,7 @@ contract DiscipleLaunchTest is BridgeFixture {
 
     function test_v4SelfSampleWaitsForItsOwnRing() public {
         MockERC20 c = _newCoin("SAMPLE", 18);
-        bool coin0 = address(c) < address(usdg);
-        PoolKey memory ref = PoolKey({
-            currency0: Currency.wrap(coin0 ? address(c) : address(usdg)),
-            currency1: Currency.wrap(coin0 ? address(usdg) : address(c)),
-            fee: 3000,
-            tickSpacing: 60,
-            hooks: IHooks(address(0))
-        });
-        manager.initialize(ref, TickMath.getSqrtPriceAtTick(0));
-        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
-        c.mint(address(this), 1e24);
-        usdg.mint(address(this), 1e24);
-        c.approve(address(lp), type(uint256).max);
-        usdg.approve(address(lp), type(uint256).max);
-        lp.modifyLiquidity(
-            ref, IPoolManager.ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: 1e18, salt: 0}), ""
-        );
-
+        PoolKey memory ref = _openV4Ref(c, address(0), 3000);
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
         (, PoolId pid) = hook.createPool(_v4(address(c), 10e18, PoolId.unwrap(ref.toId()), address(0)));
@@ -358,7 +276,7 @@ contract DiscipleLaunchTest is BridgeFixture {
         assertEq(hook.spotPrice(pid), 0.67e18);
         (uint256 price, uint256 tvl) = hook.liveAnchor(pid);
         assertEq(price, 1e18);
-        assertGt(tvl, 0);
+        assertGt(tvl, C.MIN_REF_TVL);
         assertFalse(hook.bridgeQuote(pid).stale);
     }
 
@@ -367,25 +285,9 @@ contract DiscipleLaunchTest is BridgeFixture {
     ///      tick when the next block still shows it.
     function test_v4SelfSampleIgnoresAnInTxPush() public {
         MockERC20 c = _newCoin("PUSH", 18);
-        bool coin0 = address(c) < address(usdg);
-        PoolKey memory ref = PoolKey({
-            currency0: Currency.wrap(coin0 ? address(c) : address(usdg)),
-            currency1: Currency.wrap(coin0 ? address(usdg) : address(c)),
-            fee: 3000,
-            tickSpacing: 60,
-            hooks: IHooks(address(0))
-        });
-        manager.initialize(ref, TickMath.getSqrtPriceAtTick(0));
-        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
-        c.mint(address(this), 1e24);
-        usdg.mint(address(this), 1e24);
-        c.approve(address(lp), type(uint256).max);
-        usdg.approve(address(lp), type(uint256).max);
+        PoolKey memory ref = _openV4Ref(c, address(0), 3000);
         c.approve(address(swapper), type(uint256).max);
         usdg.approve(address(swapper), type(uint256).max);
-        lp.modifyLiquidity(
-            ref, IPoolManager.ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: 1e18, salt: 0}), ""
-        );
 
         c.mint(address(this), 10e18);
         c.approve(address(hook), type(uint256).max);
@@ -455,7 +357,7 @@ contract DiscipleLaunchTest is BridgeFixture {
         p.refHooks = refHooks;
     }
 
-    /// @dev Several later blocks, then a 30-minute span, before the self-sample mean is trusted.
+    /// @dev v4 create already stored a pending tick. Three later samples make the ring ready.
     function _warmSample(PoolId pid) internal {
         this.nextBlock();
         hook.poke(pid);
@@ -467,8 +369,49 @@ contract DiscipleLaunchTest is BridgeFixture {
         hook.poke(pid);
     }
 
-    function _target() internal pure returns (uint256) {
-        return (725_000e18 * C.GRAD_NUM) / C.GRAD_DEN;
+    /// @dev v2 create stores a cumulative and does not record a tick. Four later timestamps are required.
+    function _warmV2(PoolId pid) internal {
+        this.nextBlock();
+        skip(1);
+        hook.poke(pid);
+        this.nextBlock();
+        skip(1);
+        hook.poke(pid);
+        this.nextBlock();
+        skip(1);
+        hook.poke(pid);
+        this.nextBlock();
+        skip(30 minutes);
+        hook.poke(pid);
+    }
+
+    /// @dev In-range liquidity worth at least $12k, witnessed, then aged 7 days.
+    function _openV4Ref(MockERC20 c, address refHooks, uint24 fee) internal returns (PoolKey memory ref) {
+        bool coin0 = address(c) < address(usdg);
+        ref = PoolKey({
+            currency0: Currency.wrap(coin0 ? address(c) : address(usdg)),
+            currency1: Currency.wrap(coin0 ? address(usdg) : address(c)),
+            fee: fee,
+            tickSpacing: 60,
+            hooks: IHooks(refHooks)
+        });
+        manager.initialize(ref, TickMath.getSqrtPriceAtTick(0));
+        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
+        c.mint(address(this), 1e24);
+        usdg.mint(address(this), 1e24);
+        c.approve(address(lp), type(uint256).max);
+        usdg.approve(address(lp), type(uint256).max);
+        lp.modifyLiquidity(
+            ref,
+            IPoolManager.ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: 20_000e18, salt: 0}),
+            ""
+        );
+        hook.witnessSource(hook.sourceKey(C.ANCHOR_V4, address(0), PoolId.unwrap(ref.toId())));
+        skip(C.MIN_REF_AGE);
+    }
+
+    function _target() internal view returns (uint256) {
+        return (hook.smoothedReference(id) * C.GRAD_NUM) / C.GRAD_DEN;
     }
 
     function _swapRef(PoolKey memory ref, bool zeroForOne, uint160 limit) internal {
@@ -499,7 +442,10 @@ contract DiscipleLaunchTest is BridgeFixture {
 
     function _fresh(uint256 refTvl) internal {
         coin = _newCoin("GRAD", 18);
+        // The first poke is the smooth reading. Set it here; a later same-block `_price` cannot.
+        createRefTvl = refTvl;
         (key, id) = _create(coin, 77e18, 0, C.FLOOR_BPS, C.DISCOUNT_BPS, 0, 0);
+        createRefTvl = 20_000e18;
         _price(id, 1e18, refTvl);
     }
 
@@ -511,50 +457,17 @@ contract DiscipleLaunchTest is BridgeFixture {
     }
 
     function _openBook() internal {
-        // 12% of $400 is $48. The $77 seed is already over it. The price update starts the clock.
-        _fresh(400e18);
-        assertFalse(hook.bridgeQuote(id).graduated, "the first over-reading starts the window");
-    }
-
-    /// @dev Walk the capped smooth toward `refTvl`. Stop on the write that puts protocol inventory
-    ///      back over the target, so the on-clock starts at that timestamp and a later 77-minute wait
-    ///      is measured from the crossing. Continuing would itself run the window out.
-    function _easeTo(uint256 refTvl) internal {
-        uint256 px = hook.curve(id).anchor;
-        if (px == 0) px = 1e18;
-        for (uint256 i; i < 64; ++i) {
-            if (hook.bridgeQuote(id).stale || hook.curve(id).anchor == 0) _price(id, px, refTvl);
-            if (_inventoryOver()) return;
-            uint256 smooth = hook.smoothedReference(id);
-            uint256 gap = smooth > refTvl ? smooth - refTvl : refTvl - smooth;
-            if (refTvl != 0 && gap * 20 <= refTvl) return;
-            skip(30 minutes);
-        }
-    }
-
-    function _inventoryOver() internal view returns (bool) {
-        BridgeCurve.S memory s = hook.curve(id);
-        uint256 v = Math.mulDiv(s.protoX, s.anchor, C.WAD) + s.protoY + s.lockedY + s.feePot;
-        uint256 target = (hook.smoothedReference(id) * C.GRAD_NUM) / C.GRAD_DEN;
-        return target != 0 && v >= target;
-    }
-
-    /// @dev The window is already running. `turningOn` is the side this wait should reach.
-    function _finishWindow(bool turningOn) internal {
-        skip(C.GRADUATION_WINDOW - 1 minutes);
-        hook.poke(id);
-        assertEq(hook.bridgeQuote(id).graduated, !turningOn, "inside the window, status does not flip");
-        skip(1 minutes);
-        hook.poke(id);
-        assertEq(hook.bridgeQuote(id).graduated, turningOn);
+        // $12k reference, target $1,440. The $77 seed is under it. A $2k deposit crosses and flips.
+        _fresh(12_000e18);
+        assertFalse(hook.bridgeQuote(id).graduated);
+        usdg.mint(address(this), 2_000e18);
+        hook.deposit(id, 0, 2_000e18);
+        assertTrue(hook.bridgeQuote(id).graduated);
     }
 
     function _dropUnder() internal {
-        skip(6 hours);
-        _price(id, hook.curve(id).anchor, 2_000_000e18);
-        assertTrue(hook.bridgeQuote(id).graduated, "the off-window starts on the first under-reading");
-        skip(C.GRADUATION_WINDOW);
-        hook.poke(id);
+        uint256 sh = hook.sharesOf(id, address(this));
+        if (sh > 0) hook.redeem(id, sh);
         assertFalse(hook.bridgeQuote(id).graduated);
     }
 

@@ -22,6 +22,11 @@ interface IUniswapV3FactoryView {
     function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
 }
 
+interface IUniswapV3Liquidity {
+    function liquidity() external view returns (uint128);
+    function increaseObservationCardinalityNext(uint16 observationCardinalityNext) external;
+}
+
 interface IUniswapV3Slot0 {
     function slot0()
         external
@@ -61,11 +66,12 @@ library BridgeV3Anchor {
 
         uint32[] memory ago = new uint32[](2);
         ago[0] = uint32(C.TWAP_WINDOW);
-        ago[1] = 0;
+        ago[1] = 1;
         (int56[] memory cumulatives,) = IUniswapV3PoolLike(pool).observe(ago);
         // Upcast before subtracting. The int56 cumulative is allowed to wrap; the delta is not.
+        // secondsAgo of 1 excludes this block. The divisor is the actual elapsed time, not 1800.
         int256 delta = int256(cumulatives[1]) - int256(cumulatives[0]);
-        int256 window = int256(uint256(C.TWAP_WINDOW));
+        int256 window = int256(uint256(C.TWAP_WINDOW - 1));
         int256 mean = delta / window;
         // Round toward -infinity so a negative partial tick is not truncated toward zero.
         if (delta < 0 && delta % window != 0) mean -= 1;
@@ -80,14 +86,15 @@ library BridgeV3Anchor {
         tvlWad = Math.mulDiv(coinBal, priceWad, C.WAD) + quoteBal;
     }
 
-    /// @dev Mean tick over `TWAP_WINDOW` from two cumulatives. Zero when the mean is not a tick.
-    function priceFromDelta(int56 newer, int56 older, bool coin0, uint8 coinDec, uint8 quoteDec)
+    /// @dev Mean tick over `window` seconds from two cumulatives. Zero when the mean is not a tick.
+    function priceFromDelta(int56 newer, int56 older, uint256 windowSec, bool coin0, uint8 coinDec, uint8 quoteDec)
         internal
         pure
         returns (uint256)
     {
+        if (windowSec == 0) return 0;
         int256 delta = int256(newer) - int256(older);
-        int256 window = int256(uint256(C.TWAP_WINDOW));
+        int256 window = int256(windowSec);
         int256 mean = delta / window;
         if (delta < 0 && delta % window != 0) mean -= 1;
         if (mean < int256(TickMath.MIN_TICK) || mean > int256(TickMath.MAX_TICK)) return 0;

@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
@@ -37,13 +38,16 @@ contract BridgeFixture is Test {
     PoolKey public key;
     PoolId public id;
     mapping(PoolId => MockV3Pool) internal v3Of;
+    /// @dev In-range quote TVL pinned before create. The first smooth reading is this one; a same-block
+    ///      `_price` does not replace it.
+    uint256 internal createRefTvl = 20_000e18;
 
     function _deployStack(uint8 usdgDec) internal {
         usdg = new MockERC20("USDG", "USDG", usdgDec);
         v2Factory = new MockV2Factory();
         v3Factory = new MockV3Factory();
         manager = IPoolManager(address(new PoolManager(address(this))));
-        if (block.timestamp < 31 minutes) vm.warp(31 minutes);
+        if (block.timestamp < 8 days) vm.warp(8 days);
         bytes memory args = abi.encode(manager, address(usdg), usdgDec, address(v2Factory), address(v3Factory));
         (address predicted, bytes32 salt) = _mineHook(args);
         hook = new DiscipleHook{salt: salt}(manager, address(usdg), usdgDec, address(v2Factory), address(v3Factory));
@@ -97,6 +101,10 @@ contract BridgeFixture is Test {
         c.approve(address(hook), type(uint256).max);
         usdg.approve(address(hook), type(uint256).max);
         MockV3Pool pool = _registerV3(c);
+        pool.pin(0);
+        pool.setLiquidity(
+            _liqFor(createRefTvl, TickMath.getSqrtPriceAtTick(0), address(c) < address(usdg), usdg.decimals())
+        );
         (k, poolId) = hook.createPool(
             BridgeStorage.CreateParams({
                 coin: address(c),
@@ -140,9 +148,23 @@ contract BridgeFixture is Test {
         bool coin0 = pool.token0() == coinAddr;
         int24 tick = _tickFor(priceWad, coin0, IERC20Metadata(coinAddr).decimals(), usdg.decimals());
         pool.pin(tick);
+        pool.setLiquidity(_liqFor(ethTvl, TickMath.getSqrtPriceAtTick(tick), coin0, usdg.decimals()));
         deal(coinAddr, address(pool), 0);
         deal(quote, address(pool), _quoteRaw(ethTvl));
         hook.poke(poolId);
+    }
+
+    /// @dev Invert the zero-width quote proxy so `liquidity()` is worth about `tvlWad` of quote.
+    function _liqFor(uint256 tvlWad, uint160 sqrtP, bool coin0, uint8 quoteDec) internal pure returns (uint128) {
+        if (tvlWad < 12_000e18) tvlWad = 12_000e18;
+        uint256 quoteRaw = quoteDec >= 18 ? tvlWad / 10 ** (quoteDec - 18) : tvlWad * 10 ** (18 - quoteDec);
+        uint256 half = quoteRaw / 2;
+        if (half == 0) half = 1;
+        uint256 q96 = uint256(1) << 96;
+        uint256 liq = coin0 ? Math.mulDiv(half, q96, uint256(sqrtP)) : Math.mulDiv(half, uint256(sqrtP), q96);
+        if (liq == 0) liq = 1;
+        if (liq > type(uint128).max) liq = type(uint128).max;
+        return uint128(liq);
     }
 
     function _quoteRaw(uint256 wad) internal view returns (uint256) {

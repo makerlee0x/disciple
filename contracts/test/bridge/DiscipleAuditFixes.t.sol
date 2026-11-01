@@ -126,51 +126,54 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         _price(id, 1e18, 725_000e18);
     }
 
-    function test_multiSellHoldsTheFloor() public {
+    function test_multiSellStopsWhenPrincipalIsSpent() public {
         usdg.mint(address(this), 40e18);
         _buy(key, address(coin), 8e18);
-        (uint256 markBefore, uint256 principalBefore) = hook.floorState(id);
+        (uint256 mark, uint256 principalBefore) = hook.floorState(id);
+        assertEq(mark, 0, "there is no principal baseline");
         assertGt(principalBefore, 0);
-        assertGe(principalBefore, markBefore);
         coin.mint(address(this), 1_000e18);
-        uint256 slice = _maxSell();
-        assertGt(slice, 0);
-        assertLt(slice, 1_000e18, "the floor caps the sell");
-        this.execSell(slice);
+        bool zfo = Currency.unwrap(key.currency0) == address(coin);
+        (uint256 out,, bool capped, uint256 used) = hook.quoteExactIn(key, zfo, 1_000e18);
+        assertGt(used, 0);
+        assertLe(out, principalBefore, "a sell cannot pay more than principal");
+        if (capped) assertLt(used, 1_000e18, "inventory, not a price floor, caps the sell");
+        this.execSell(used);
         vm.roll(block.number + 1);
-        vm.expectRevert();
-        this.execRawSell(1e18);
-        skip(1 hours);
-        _freshen(id);
-        try this.execSell(1e18) {} catch {}
-        (uint256 mark, uint256 principal) = hook.floorState(id);
-        assertGe(principal, (mark * C.FLOOR_BPS) / C.BPS, "a later block still respects the baseline");
-        assertGt(principal, principalBefore / 10, "they do not drain to a few percent");
+        _drain(zfo);
+        (uint256 markAfter, uint256 principal) = hook.floorState(id);
+        assertEq(markAfter, 0);
+        assertLt(principal, principalBefore / 5, "principal can be spent down");
     }
 
-    function test_multiSellInOneTransactionHoldsTheFloor() public {
+    function test_multiSellInOneTransactionStopsAtPrincipal() public {
         usdg.mint(address(this), 40e18);
         _buy(key, address(coin), 8e18);
+        uint256 principalBefore = hook.curve(id).protoY + hook.curve(id).lpY;
         coin.mint(address(this), 1_000e18);
-        uint256 slice = _maxSell();
-        this.execSell(slice);
-        vm.expectRevert();
-        this.execSell(1e18);
-        (uint256 mark, uint256 principal) = hook.floorState(id);
-        assertGe(principal, (mark * C.FLOOR_BPS) / C.BPS);
+        bool zfo = Currency.unwrap(key.currency0) == address(coin);
+        (uint256 out,, bool capped, uint256 used) = hook.quoteExactIn(key, zfo, 1_000e18);
+        assertGt(used, 0);
+        assertLe(out, principalBefore);
+        if (capped) assertLt(used, 1_000e18);
+        this.execSell(used);
+        _drain(zfo);
+        (uint256 mark,) = hook.floorState(id);
+        assertEq(mark, 0);
+        assertLt(hook.curve(id).protoY + hook.curve(id).lpY, principalBefore / 5, "principal can be spent down");
     }
 
-    function test_sellThenSameBlockRedeemHoldsTheFloor() public {
+    function test_sellThenSameBlockRedeemIsProRata() public {
         usdg.mint(address(this), 40e18);
         _buy(key, address(coin), 8e18);
         uint256 sh = hook.deposit(id, 0, 6e18);
         coin.mint(address(this), 1_000e18);
         uint256 slice = _maxSell();
         this.execSell(slice);
-        vm.expectRevert(BridgeStorage.ExceedsCap.selector);
-        hook.redeem(id, sh);
-        (uint256 mark, uint256 principal) = hook.floorState(id);
-        assertGe(principal, (mark * C.FLOOR_BPS) / C.BPS);
+        (uint256 cOut, uint256 uOut) = hook.redeem(id, sh);
+        assertGt(cOut + uOut, 0, "a redeem is not blocked by a floor");
+        (uint256 mark,) = hook.floorState(id);
+        assertEq(mark, 0);
     }
 
     function test_redeemSurvivesARevertingOracle() public {
@@ -257,6 +260,7 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         usdg.mint(address(this), 30e18);
         uint256 sh = hook.deposit(id, 0, 10e18);
         skip(31 minutes);
+        v3Of[id].setBroken(true);
         assertTrue(hook.bridgeQuote(id).stale);
         vm.expectRevert();
         this.execRawSell(1e18);
@@ -264,44 +268,45 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         assertGt(cOut + uOut, 0);
     }
 
-    function test_depositWaitPokeWithdrawDoesNotGraduate() public {
-        coin.mint(address(this), 1_000_000e18);
-        uint256 sh = hook.deposit(id, 1_000_000e18, 0);
+    function test_smallDepositDoesNotGraduate() public {
+        coin.mint(address(this), 100e18);
+        uint256 sh = hook.deposit(id, 100e18, 0);
         hook.poke(id);
         skip(C.GRADUATION_WINDOW + 1 minutes);
         hook.poke(id);
-        assertFalse(hook.bridgeQuote(id).graduated);
+        assertFalse(hook.bridgeQuote(id).graduated, "a deposit under the target does not graduate");
         hook.redeem(id, sh);
         assertFalse(hook.bridgeQuote(id).graduated);
     }
 
     function test_zeroTargetIsBelowOnceGraduated() public view {
-        (bool on,, uint64 below,) = DiscipleMath.stepGrad(100e18, 0, true, 0, 0, 1_000);
-        assertTrue(on);
-        assertEq(below, 1_000);
-        (bool off,,,) = DiscipleMath.stepGrad(100e18, 0, true, 0, 1_000, 1_000 + C.GRADUATION_WINDOW);
-        assertFalse(off);
-        (bool still,,,) = DiscipleMath.stepGrad(100e18, 0, false, 0, 0, 1_000);
+        (bool on, uint8 edge) = DiscipleMath.stepGrad(100e18, 0, true);
+        assertFalse(on, "target 0 drops a graduated pool in this call");
+        assertEq(edge, 2);
+        (bool still, uint8 none) = DiscipleMath.stepGrad(100e18, 0, false);
         assertFalse(still);
+        assertEq(none, 0);
     }
 
     function test_oneReadingCannotJumpTheSmooth() public {
+        uint256 before = hook.smoothedReference(id);
         skip(31 minutes);
-        _price(id, 1e18, 1_000e18);
+        _price(id, 1e18, 725_000e18);
         uint256 smooth = hook.smoothedReference(id);
-        assertGt(smooth, 1_000e18);
-        assertLt(smooth, 725_000e18, "one step cannot snap onto a donated reading");
+        assertGt(smooth, before, "the new reading does move the smooth");
+        assertLt(smooth, 725_000e18, "one step cannot snap onto the new reading");
     }
 
-    function test_dustFillDoesNotResetTheOtherClock() public {
+    function test_dustFillConsumesTheAskAndResetsTheBid() public {
         skip(2 hours);
-        (uint64 drift, uint64 bidAt, uint64 askAt) = hook.dutchState(id);
-        assertEq(drift, uint64(C.DUTCH_DRIFT_DEFAULT));
+        (uint256 bidGap, uint256 askGap,) = hook.dutchState(id);
+        assertGt(askGap, 0);
+        assertEq(bidGap, askGap);
         usdg.mint(address(this), 1e18);
         _buy(key, address(coin), 0.5e18);
-        (, uint64 bidAfter, uint64 askAfter) = hook.dutchState(id);
-        assertEq(bidAfter, bidAt);
-        assertEq(askAfter, askAt, "under the minimum notional, neither clock resets");
+        (uint256 bidAfter, uint256 askAfter,) = hook.dutchState(id);
+        assertEq(bidAfter, 0, "a dust buy restarts the bid");
+        assertLt(askAfter, askGap, "a dust buy consumes ask in proportion to size");
     }
 
     function test_hookCannotHoldOrRescueEth() public {
@@ -337,6 +342,16 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         v3Factory.setPool(address(c), address(usdg), 3000, address(0));
         vm.expectRevert(BridgeStorage.BadCreate.selector);
         hook.createPool(missing);
+    }
+
+    function _drain(bool zfo) internal {
+        for (uint256 i; i < 6; ++i) {
+            uint256 bal = coin.balanceOf(address(this));
+            if (bal == 0) return;
+            (,, bool capN, uint256 usedN) = hook.quoteExactIn(key, zfo, bal);
+            if (usedN == 0 || capN) return;
+            this.execSell(usedN);
+        }
     }
 
     function _maxSell() internal view returns (uint256 used) {
@@ -404,6 +419,8 @@ contract DiscipleAuditFixesTest is BridgeFixture {
         address t0 = address(c) < address(usdg) ? address(c) : address(usdg);
         address t1 = address(c) < address(usdg) ? address(usdg) : address(c);
         MockV3Pool pool = new MockV3Pool(t0, t1, 0);
+        pool.pin(0);
+        pool.setLiquidity(20_000e18);
         v3Factory.setPool(address(c), address(usdg), 3000, address(pool));
         p.coin = address(c);
         p.creator = address(this);

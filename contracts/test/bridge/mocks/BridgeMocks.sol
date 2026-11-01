@@ -83,20 +83,36 @@ contract MockV2Pair {
     address public immutable token1;
     uint112 public reserve0;
     uint112 public reserve1;
+    uint32 public blockTimestampLast;
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
 
     constructor(address a, address b) {
         require(a != address(0) && b != address(0) && a != b, "pair");
         token0 = a < b ? a : b;
         token1 = a < b ? b : a;
+        blockTimestampLast = uint32(block.timestamp);
     }
 
+    /// @dev Uniswap v2 `_update`: accrue the previous reserves, then store the new ones.
+    ///      A second write in the same timestamp adds nothing, so a same-block push never enters the cumulative.
     function setReserves(uint112 r0, uint112 r1) external {
+        uint32 nowT = uint32(block.timestamp);
+        uint32 elapsed;
+        unchecked {
+            elapsed = nowT - blockTimestampLast;
+        }
+        if (elapsed > 0 && reserve0 != 0 && reserve1 != 0) {
+            price0CumulativeLast += ((uint256(reserve1) << 112) / uint256(reserve0)) * uint256(elapsed);
+            price1CumulativeLast += ((uint256(reserve0) << 112) / uint256(reserve1)) * uint256(elapsed);
+        }
         reserve0 = r0;
         reserve1 = r1;
+        blockTimestampLast = nowT;
     }
 
     function getReserves() external view returns (uint112, uint112, uint32) {
-        return (reserve0, reserve1, uint32(block.timestamp));
+        return (reserve0, reserve1, blockTimestampLast);
     }
 }
 
@@ -125,6 +141,8 @@ contract MockV3Pool {
     int24 public spotTick;
     bool public broken;
     bool public absurd;
+    uint128 public liq = 20_000e18;
+    uint16 public cardinalityNext = 2;
     Point[] internal points;
 
     error OldObservation();
@@ -139,9 +157,22 @@ contract MockV3Pool {
         points.push(Point({t: nowT, cum: 0, tick: tick_}));
     }
 
-    /// @dev Leave a single observation so `slot0` cardinality is below the hook's minimum.
+    function setLiquidity(uint128 next) external {
+        liq = next;
+    }
+
+    function liquidity() external view returns (uint128) {
+        return liq;
+    }
+
+    function increaseObservationCardinalityNext(uint16 next) external {
+        if (next > cardinalityNext) cardinalityNext = next;
+    }
+
+    /// @dev Leave a single observation at the current timestamp so a 7-day `observe` reverts.
     function dropToOne() external {
-        while (points.length > 1) points.pop();
+        while (points.length > 0) points.pop();
+        points.push(Point({t: uint32(block.timestamp), cum: 0, tick: spotTick}));
     }
 
     function setBroken(bool on) external {
@@ -153,11 +184,12 @@ contract MockV3Pool {
         absurd = on;
     }
 
-    /// @dev Rewrite history so the whole 31-minute window is `tick_`. The TWAP is that tick immediately.
+    /// @dev Rewrite history so the last 8 days are `tick_`. A 7-day `observe` and a 30-minute `observe` both succeed.
     function pin(int24 tick_) external {
         while (points.length > 0) points.pop();
         uint32 nowT = uint32(block.timestamp);
-        uint32 start = nowT - uint32(31 minutes);
+        require(nowT >= 8 days, "pin clock");
+        uint32 start = nowT - uint32(8 days);
         points.push(Point({t: start, cum: 0, tick: tick_}));
         int56 cumNow;
         unchecked {
@@ -167,6 +199,7 @@ contract MockV3Pool {
         spotTick = tick_;
         broken = false;
         absurd = false;
+        if (cardinalityNext < 1800) cardinalityNext = 1800;
     }
 
     /// @dev Full Uniswap v3 `slot0`. Cardinality is the number of stored points.
@@ -184,7 +217,7 @@ contract MockV3Pool {
         )
     {
         uint16 card = uint16(points.length);
-        return (TickMath.getSqrtPriceAtTick(spotTick), spotTick, 0, card, card, 0, true);
+        return (TickMath.getSqrtPriceAtTick(spotTick), spotTick, 0, card, cardinalityNext, 0, true);
     }
 
     /// @notice Move the spot. A change in the same timestamp has zero duration, so the TWAP does not move.

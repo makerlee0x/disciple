@@ -70,7 +70,7 @@ contract BridgeSameChainTest is BridgeFixture {
         usdg.mint(address(v3), 500_000e18);
         (uint256 priceAfter, uint256 tvlAfter) = hook.liveAnchor(id);
         assertEq(priceAfter, priceBefore);
-        assertGt(tvlAfter, tvlBefore + 400_000e18);
+        assertEq(tvlAfter, tvlBefore, "in-range liquidity, not a token donation, is the TVL");
     }
 
     function test_noStaleFeeAndNoTipSkim() public {
@@ -93,17 +93,13 @@ contract BridgeSameChainTest is BridgeFixture {
     function test_graduationUsesReferenceTvlAndSplitsTheFee() public {
         MockERC20 c = _newCoin("GRAD", 18);
         MockV3Pool small = new MockV3Pool(address(c), address(usdg), 0);
-        usdg.mint(address(small), 100e18);
-        c.mint(address(small), 100e18);
-        vm.warp(block.timestamp + 30 minutes);
-        small.setTick(0);
         v3Factory.setPool(address(c), address(usdg), 3000, address(small));
-        (PoolKey memory k, PoolId pid) = _createV3(c, small, 77e18, 0);
-        // Reference TVL = 200. Graduation is 12% = 24. The $77 seed is already over that,
-        // but status waits out the pool's window and a poke.
+        (PoolKey memory k, PoolId pid) = _createV3(c, small, 77e18, 12_000e18);
+        // $12k reference, target $1,440. The $77 seed is under it until an LP deposit crosses.
         assertFalse(hook.bridgeQuote(pid).graduated);
-        skip(C.GRADUATION_WINDOW);
-        hook.poke(pid);
+        usdg.mint(address(this), 2_000e18);
+        usdg.approve(address(hook), type(uint256).max);
+        hook.deposit(pid, 0, 2_000e18);
         assertTrue(hook.bridgeQuote(pid).graduated);
 
         uint256 yBefore = hook.curve(pid).y;
@@ -197,6 +193,9 @@ contract BridgeSameChainTest is BridgeFixture {
         returns (PoolKey memory k, PoolId poolId)
     {
         if (referenceUsdg > 0) usdg.mint(address(pool), referenceUsdg);
+        pool.pin(pool.spotTick());
+        uint256 gate = referenceUsdg < 12_000e18 ? 12_000e18 : referenceUsdg;
+        pool.setLiquidity(uint128(gate / 2));
         c.mint(address(this), coinSeed);
         c.approve(address(hook), type(uint256).max);
         (k, poolId) = hook.createPool(

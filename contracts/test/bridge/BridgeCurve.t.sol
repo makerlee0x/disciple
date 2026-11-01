@@ -86,44 +86,11 @@ contract BridgeCurveTest is Test {
         assertGe(BridgeCurve.spot(s), s.anchor);
     }
 
-    function test_bandIsWideWhenTinyAndTightOnlyAtGraduation() public pure {
-        uint256 grad = 86_520e18; // 12% of a ~$721k reference pool
-        assertEq(BridgeCurve.bandWad(0, grad), C.BAND_START_WAD);
-        assertEq(BridgeCurve.bandWad(C.BAND_TINY_TVL, grad), C.BAND_START_WAD);
-        assertEq(BridgeCurve.bandWad(grad, grad), C.BAND_END_WAD);
-        assertEq(BridgeCurve.bandWad(grad * 2, grad), C.BAND_END_WAD);
-        assertEq(BridgeCurve.bandWad(50_000e18, 0), C.BAND_START_WAD, "no reference TVL stays wide");
-        // Geometric mean of $100 and $86,520 is the halfway point on a log TVL axis.
-        // Linear-in-ln puts the band at the arithmetic mean of 25% and 3.33% there.
-        uint256 midTvl = 2_941e18;
-        uint256 mid = BridgeCurve.bandWad(midTvl, grad);
-        uint256 expect = (C.BAND_START_WAD + C.BAND_END_WAD) / 2;
-        assertApproxEqRel(mid, expect, 0.02e18);
-        // $10k is still a wide book. ±3.33% is the graduation end, not the $10k band.
-        assertGt(BridgeCurve.bandWad(10_000e18, grad), 0.05e18);
-        assertLt(BridgeCurve.bandWad(10_000e18, grad), C.BAND_START_WAD);
-        // A larger reference is a larger target, so the same pool TVL is less progress and a wider band.
-        assertGt(BridgeCurve.bandWad(50_000e18, 120_000e18), BridgeCurve.bandWad(50_000e18, grad));
-        assertGt(BridgeFee.baseFeeBps(50_000e18, 120_000e18), BridgeFee.baseFeeBps(50_000e18, grad));
-        assertGt(BridgeFee.dutchCap(50_000e18, 120_000e18), BridgeFee.dutchCap(50_000e18, grad));
-        assertLt(BridgeFee.dutchCap(grad, grad), BridgeFee.dutchCap(grad / 10, grad));
-    }
-
-    function test_graduationDepthIsAboutThreePointThreePercent() public pure {
+    function test_feeStillSlidesWithProgress() public pure {
         uint256 grad = 86_520e18;
-        BridgeCurve.S memory s = _fresh();
-        s.x = grad / 2;
-        s.protoX = s.x;
-        s.y = grad / 2;
-        s.protoY = s.y;
-        s.vx = 0;
-        s.vy = 0;
-        s.depthUsd = 0;
-        BridgeCurve.retarget(s, s.anchor);
-        BridgeCurve.deepen(s, grad);
-        uint256 yEff = s.y + s.vy;
-        uint256 full = Math.mulDiv(BridgeCurve.tvl(s), C.WAD, yEff);
-        assertApproxEqRel(full, C.BAND_END_WAD, 0.02e18);
+        assertGt(BridgeFee.baseFeeBps(50_000e18, 120_000e18), BridgeFee.baseFeeBps(50_000e18, grad));
+        assertEq(BridgeFee.boostWad(0, grad), 7e18);
+        assertEq(BridgeFee.boostWad(grad, grad), C.BOOST_END_WAD);
     }
 
     function test_shallowBookMovesMoreThanFlatBook() public pure {
@@ -141,7 +108,6 @@ contract BridgeCurveTest is Test {
         flat.vx = 0;
         flat.vy = 0;
         flat.depthUsd = 0;
-        BridgeCurve.deepen(flat, c.gradTvl);
         uint256 f0 = BridgeCurve.spot(flat);
         (flat,) = BridgeCurve.buyExactIn(flat, 5e18, c);
         uint256 flatMove = BridgeCurve.spot(flat) - f0;
@@ -227,15 +193,14 @@ contract BridgeCurveTest is Test {
         assertLt(sellF.usdgOut, buyF.usdgIn);
     }
 
-    function test_usdgFloorCutsTheDump() public pure {
+    function test_noFloorLetsADumpSpendPrincipal() public pure {
         BridgeCurve.S memory s = _fresh();
         s.y = 1_000e18;
         s.protoY = 1_000e18;
         BridgeCurve.Ctx memory c = _ctx();
-        c.maxUsdgOut = BridgeCurve.floorRoom(s, c.floorBps);
-        uint256 floorAmt = (BridgeCurve.principalY(s) * c.floorBps) / C.BPS;
+        uint256 before = BridgeCurve.principalY(s);
         (s,) = BridgeCurve.sellExactIn(s, s.x * 100, c);
-        assertGe(BridgeCurve.principalY(s), floorAmt);
+        assertLt(BridgeCurve.principalY(s), before / 5, "a dump is not stopped at 20%");
     }
 
     function test_boostWeightsFeesNotADeposit() public pure {
@@ -256,15 +221,12 @@ contract BridgeCurveTest is Test {
         assertEq(s.y, 0, "recenter does not move real USDG");
     }
 
-    function test_oversizedUsdgDepositBelowAnchorReverts() public {
+    function test_oversizedUsdgDepositBelowAnchorKeepsSpot() public pure {
         BridgeCurve.S memory s = _fresh();
-        // Virtual USDG is ~$51. A $1,000 deposit would pin the discount.
-        vm.expectRevert(BridgeCurve.DiscountDeposit.selector);
-        this.addUsd(s, 1_000e18);
-    }
-
-    function addUsd(BridgeCurve.S memory s, uint256 dy) external pure {
-        BridgeCurve.addLiquidity(s, 0, dy);
+        uint256 p = BridgeCurve.spot(s);
+        BridgeCurve.addLiquidity(s, 0, 1_000e18);
+        assertEq(BridgeCurve.spot(s), p, "a deposit is not blocked and does not jump the quote");
+        assertEq(s.lpY, 1_000e18);
     }
 
     function test_depositAboveAnchorMayBeLarge() public pure {
@@ -279,26 +241,6 @@ contract BridgeCurveTest is Test {
         assertApproxEqAbs(BridgeCurve.spot(s), p, 2);
     }
 
-    function test_depthDoesNotRatchetDown() public pure {
-        BridgeCurve.S memory s = _fresh();
-        s.y = 5_000e18;
-        s.protoY = s.y;
-        s.x = 5_000e18;
-        s.protoX = s.x;
-        s.depthUsd = 0;
-        BridgeCurve.retarget(s, s.anchor);
-        BridgeCurve.deepen(s, 87_000e18);
-        uint256 yEff = s.y + s.vy;
-        s.depthUsd = BridgeCurve.tvl(s);
-        // A later smaller TVL must not be fed to deepen as a new high. Call with the same state.
-        uint256 vx = s.vx;
-        uint256 vy = s.vy;
-        BridgeCurve.deepen(s, 87_000e18);
-        assertEq(s.vx, vx);
-        assertEq(s.vy, vy);
-        assertGt(yEff, s.y);
-    }
-
     /// forge-config: default.fuzz.runs = 64
     function testFuzz_sellProceedsMonotone(uint256 a, uint256 b) public pure {
         BridgeCurve.S memory s = _fresh();
@@ -308,6 +250,21 @@ contract BridgeCurveTest is Test {
         b = bound(b, 1e12, s.x * 5);
         if (a > b) (a, b) = (b, a);
         assertLe(BridgeCurve.sellProceeds(s, a), BridgeCurve.sellProceeds(s, b));
+    }
+
+    function test_sellThatWouldTakeTheFeePotIsCapped() public pure {
+        BridgeCurve.S memory s = _fresh();
+        BridgeCurve.addLiquidity(s, 0, 30e18);
+        // Fee pot sits in `y` and is not principal. A dump must not spend it.
+        s.feePot = 10e18;
+        s.y += 10e18;
+        uint256 principal = BridgeCurve.principalY(s);
+        assertEq(principal, 30e18);
+        (, BridgeCurve.Fill memory f) = BridgeCurve.sellExactIn(s, 200e18, _ctx());
+        assertTrue(f.capped, "a sell larger than principal is cut");
+        assertGt(f.coinIn, 0);
+        assertLt(f.coinIn, 200e18);
+        assertLe(f.usdgOut + f.fee, principal);
     }
 
     /// forge-config: default.fuzz.runs = 64
