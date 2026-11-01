@@ -23,10 +23,6 @@ library BridgeConstants {
     /// @dev One smooth step closes at most this much of the half-life. A reading after idle time,
     ///      or one donation, cannot jump the stored TVL the rest of the way.
     uint256 internal constant SMOOTH_STEP = 10 minutes;
-    /// @dev The principal high-water mark decays toward the live principal with this half-life.
-    ///      A same-second sequence does not decay, so repeated sells cannot walk under the floor.
-    uint256 internal constant MARK_HALF_LIFE = 1 days;
-
     // ── Stale anchor ────────────────────────────────────────────────────────
     /// @dev The anchor is a 30-minute TWAP. A stored quote older than this is stale for every kind.
     ///      Curve trades stop until a poke refreshes it. Redeems do not. Staleness does not change the fee.
@@ -42,16 +38,8 @@ library BridgeConstants {
     uint8 internal constant ANCHOR_V4 = 2;
 
     // ── LP boost (fee weight only) ──────────────────────────────────────────
-    uint256 internal constant BOOST_START_WAD = 5e18; // 5x at launch, fee weight only
+    uint256 internal constant BOOST_START_WAD = 7e18; // 7x at launch, fee weight only
     uint256 internal constant BOOST_END_WAD = 12e17; // 1.2x, reached at graduation TVL and then stuck
-
-    // ── Price band ──────────────────────────────────────────────────────────
-    /// @dev Full-pool move at or below BAND_TINY_TVL. Trading the whole book moves spot about 25%.
-    uint256 internal constant BAND_START_WAD = 0.25e18;
-    /// @dev Full-pool move once TVL reaches the pool's own graduation target. About ±3.33%.
-    uint256 internal constant BAND_END_WAD = 0.0333e18;
-    /// @dev "Tiny". At or below this TVL the band stays at BAND_START. The $77 seed is under it.
-    uint256 internal constant BAND_TINY_TVL = 100e18;
 
     // ── Graduation / fee split ──────────────────────────────────────────────
     uint256 internal constant GRAD_NUM = 12;
@@ -60,53 +48,54 @@ library BridgeConstants {
     ///      Before graduation the whole fee compounds for LPs. There is no builder share.
     uint256 internal constant FEE_CREATOR_BPS = 3_333;
     uint256 internal constant FEE_LOCKED_BPS = 3_333;
-    /// @dev Fixed. Status turns on after spot pool TVL has stayed at or above the live target for
-    ///      this long, and off after it has stayed strictly below that target for the same wait.
-    ///      One threshold, 100%. Not set per pool. Longer than a flash loan or a same-block round
-    ///      trip, so those cannot toggle the fee split. Depth, fee, boost, and Dutch size do not
-    ///      wait on it.
-    uint256 internal constant GRADUATION_WINDOW = 77 minutes;
+    /// @dev Status flips in the same call that crosses the live target. There is no time window.
+    ///      Pool TVL for that check is every coin and USDG in the book, LP deposits included.
 
     // ── Dutch quotes ────────────────────────────────────────────────────────
-    /// @dev Wad of gap per second. 0 at creation selects the default, about 1% of the anchor per hour.
-    ///      Allowed range is about 0.1% to 10% of the anchor per hour. Fixed for the life of the pool.
-    ///      Integer division, so an hour of the default is 2800 wei under 0.01e18.
-    uint256 internal constant DUTCH_DRIFT_DEFAULT = uint256(0.01e18) / 1 hours;
-    uint256 internal constant DUTCH_DRIFT_MIN = uint256(0.001e18) / 1 hours;
-    uint256 internal constant DUTCH_DRIFT_MAX = uint256(0.1e18) / 1 hours;
-    /// @dev USDG offered at a gap of 1.0 (100% of the anchor), before the slice cap. Size = edge / gap.
-    uint256 internal constant DUTCH_EDGE_WAD = 0.25e18;
-    /// @dev One taker cannot buy or sell more than this much USDG of the drifted quote, before
-    ///      progress scales the cap down.
-    uint256 internal constant DUTCH_MAX_SLICE = 50e18;
-    /// @dev And not more than 5% of pool TVL. The cap is at least $1, so a tiny pool still quotes.
-    uint256 internal constant DUTCH_MIN_SLICE = 1e18;
-    /// @dev Share of the safety cap still offered at 100% progress. The rest closes linearly with
-    ///      `poolTVL / gradTvl` and reopens when the live target rises.
-    uint256 internal constant DUTCH_PROGRESS_FLOOR_WAD = 0.2e18;
-    /// @dev The ask price stops at 1% of the anchor. The size keeps using the raw gap, so it still shrinks.
-    uint256 internal constant DUTCH_ASK_CAP = 0.99e18;
+    /// @dev Remaining gap is capped here so the ask `anchor * (1 - gap)` stays positive.
+    ///      77% of the anchor, both sides.
+    uint256 internal constant DUTCH_GAP_CAP = 0.77e18;
+    /// @dev Linear gap per second. Integer division, so exactly 12 hours lands a few wei under the cap.
+    uint256 internal constant DUTCH_RATE = uint256(0.77e18) / 12 hours;
+    /// @dev Share of the price improvement versus the anchor, charged on top of the sliding fee
+    ///      while the pool is not graduated. 7,700 bps is 77%, which is never more than the improvement.
+    uint256 internal constant ARB_FEE_BPS = 7_700;
+
+    // ── Reference quality ───────────────────────────────────────────────────
+    /// @dev In-range (v3/v4) or whole-pool (v2) USDG value a source must show. Below this, create
+    ///      reverts and a later read does not refresh the anchor.
+    uint256 internal constant MIN_REF_TVL = 12_000e18;
+    /// @dev v3 must `observe` this far back. v2 and v4 use a permissionless witness instead.
+    uint256 internal constant MIN_REF_AGE = 7 days;
+    /// @dev Asked of the v3 source at create so a 30-minute `observe` can succeed on 1-second blocks.
+    uint16 internal constant V3_CARDINALITY_NEXT = 1800;
 
     // ── Curve shape ─────────────────────────────────────────────────────────
-    /// @dev Recommended launch discount. 33% below the anchor = 0.67x. Creators pass this explicitly.
+    /// @dev Launch discount. 33% below the anchor = 0.67x. The same for every pool. `CreateParams.discountBps` is ignored.
     uint16 internal constant DISCOUNT_BPS = 3_300;
-    /// @dev USDG floor, pinned. 20% of the principal baseline must remain. Not a creator range.
-    uint16 internal constant FLOOR_BPS = 2_000;
-    /// @dev Same-chain v3 `observe` history. A pool with a shorter cardinality cannot be a reference.
-    uint16 internal constant MIN_V3_CARDINALITY = 2;
     /// @dev The last half of the original seed cannot be bought while the marginal price is below the anchor.
     uint256 internal constant SEED_FLOOR_BPS = 5_000;
     /// @dev g^30 tail strength. At f = 1 the extra cost is about TAIL_K/31 of the CP cost (~26% when TAIL_K = 8).
     uint256 internal constant TAIL_K = 8e18;
 
+    /// @dev Not read by the hook. Create ignores a passed floor, outflow, drift, and discount.
+    ///      The names stay so older call sites still compile. Graduation does not wait, and there
+    ///      is no price band and no Dutch slice.
+    uint16 internal constant FLOOR_BPS = 2_000;
+    uint256 internal constant GRADUATION_WINDOW = 77 minutes;
+    uint32 internal constant OUTFLOW_PER_BLOCK = 1;
+    uint32 internal constant OUTFLOW_PER_HOUR = 3600;
+    uint16 internal constant OUTFLOW_CAP_DEFAULT_BPS = 2_000;
+    uint256 internal constant DUTCH_DRIFT_DEFAULT = uint256(0.01e18) / 1 hours;
+    uint256 internal constant DUTCH_DRIFT_MIN = uint256(0.001e18) / 1 hours;
+    uint256 internal constant DUTCH_DRIFT_MAX = uint256(0.1e18) / 1 hours;
+    uint256 internal constant DUTCH_MIN_SLICE = 1e18;
+    uint256 internal constant BAND_START_WAD = 0.25e18;
+    uint256 internal constant BAND_END_WAD = 0.0333e18;
+    uint256 internal constant BAND_TINY_TVL = 100e18;
+    uint16 internal constant MIN_V3_CARDINALITY = 2;
+
     uint256 internal constant SHARE_OFFSET = 1e6;
     int24 internal constant TICK_SPACING = 60;
     uint256 internal constant MAX_NEWTON = 96;
-
-    /// @dev Per-pool outflow window. 1 = per block, 3600 = per hour. Anything else is rejected.
-    ///      Passing 0 for both the window and the cap selects 20% per hour. The cap cannot be turned off.
-    uint32 internal constant OUTFLOW_PER_BLOCK = 1;
-    uint32 internal constant OUTFLOW_PER_HOUR = 3600;
-    /// @dev Default outflow cap when the creator passes zeros. 20% of principal per window.
-    uint16 internal constant OUTFLOW_CAP_DEFAULT_BPS = 2_000;
 }

@@ -68,8 +68,8 @@ library DiscipleLp {
     {
         (BridgeCurve.S memory s,,) = DiscipleBook.referenced(env, id);
         BridgeStorage.Pool storage p = BridgeStorage.layout().pools[id];
-        uint256 bidGap = _gapAt(p, p.dutchBidAt);
-        gapWad = _gapAt(p, p.dutchAskAt);
+        (uint256 bidGap, uint256 askGap) = DiscipleBook.accruedGaps(id);
+        gapWad = askGap;
         uint256 tvl = DiscipleMath.tvlOf(s);
         uint256 target = _target(p);
         (bidWad, askWad, bidUsdg, askUsdg) = DiscipleMath.preview(s.anchor, tvl, target, bidGap, gapWad);
@@ -110,7 +110,10 @@ library DiscipleLp {
         bool exactCoinIn = zeroForOne == p.coinIs0;
         BridgeCurve.Ctx memory ctx = DiscipleBook.tradeCtx(id, s);
         uint256 norm = _toNorm(amountIn, exactCoinIn ? p.coinDec : env.usdgDec);
-        uint256 gap = exactCoinIn ? _gapAt(p, p.dutchBidAt) : _gapAt(p, p.dutchAskAt);
+        uint256 q = exactCoinIn ? Math.mulDiv(norm, s.anchor, C.WAD) : norm;
+        (,,, uint256 gap) = DiscipleMath.advanceDutch(
+            p.bidGap, p.askGap, p.dutchAt, q, DiscipleMath.tvlOf(s), exactCoinIn, block.timestamp
+        );
         BridgeCurve.Fill memory f;
         (, f) = DiscipleMath.trade(s, ctx, norm, exactCoinIn, gap);
         capped = f.capped;
@@ -129,8 +132,7 @@ library DiscipleLp {
         if (s.anchor == 0) return q;
         BridgeStorage.Pool storage p = BridgeStorage.layout().pools[id];
         BridgeCurve.Ctx memory ctx = DiscipleBook.tradeCtx(id, s);
-        uint256 bidGap = _gapAt(p, p.dutchBidAt);
-        uint256 askGap = _gapAt(p, p.dutchAskAt);
+        (uint256 bidGap, uint256 askGap) = DiscipleBook.accruedGaps(id);
         (bool buyCoin, uint256 normIn,, uint256 profit) = DiscipleMath.quote(s, ctx, bidGap, askGap);
         q.buyCoin = buyCoin;
         if (normIn == 0 || profit == 0) return q;
@@ -178,11 +180,10 @@ library DiscipleLp {
             usdgC.take(env.poolManager, address(this), usdgGot, true);
             DiscipleBook.credit(id, usdgNorm);
         }
+        if (usdgNorm > 0) DiscipleBook.moveDutch(id, usdgNorm, false);
         uint256 added = usdgNorm + Math.mulDiv(coinNorm, p.curve.anchor, C.WAD);
         p.curve = DiscipleMath.addLiquidity(p.curve, coinNorm, usdgNorm);
-        DiscipleBook.bumpOutflow(id);
         uint256 minted = DiscipleBook.mintShares(id, lp, added, coinNorm, usdgNorm);
-        DiscipleBook.touchMark(id);
         DiscipleBook.touchGrad(id);
         DiscipleBook.requireReserve(id);
         emit BridgeStorage.Deposited(id, lp, minted, coinNorm, usdgNorm);
@@ -196,7 +197,6 @@ library DiscipleLp {
         BridgeStorage.Pool storage p = l.pools[id];
         if (!p.exists) revert BridgeStorage.UnknownPool();
         if (sh == 0 || sh > l.sharesOf[id][lp]) revert BridgeStorage.Amount();
-        DiscipleBook.touchMark(id);
         DiscipleBook.rollBlock(id);
         DiscipleBook.promote(id, lp);
         DiscipleBook.checkpoint(id, lp);
@@ -322,9 +322,6 @@ library DiscipleLp {
         if (outX > s.x) outX = s.x;
         uint256 principal = s.protoY + s.lpY;
         if (outY > principal) outY = principal;
-        uint256 floorAmt = (p.principalMark * C.FLOOR_BPS) / C.BPS;
-        uint256 floorRoom = principal > floorAmt ? principal - floorAmt : 0;
-        if (outY > floorRoom) revert BridgeStorage.ExceedsCap();
         uint256 value = outY + credit + (spotP == 0 ? 0 : Math.mulDiv(outX, spotP, C.WAD));
         uint256 target = p.smoothedTvl == 0 ? 0 : Math.mulDiv(p.smoothedTvl, C.GRAD_NUM, C.GRAD_DEN);
         uint256 bps = DiscipleMath.feeBps(DiscipleMath.tvlOf(s), target);
@@ -445,11 +442,6 @@ library DiscipleLp {
     function _claimsTo(DiscipleBook.Env memory env, Currency c, uint256 raw, address to) private {
         c.settle(env.poolManager, address(this), raw, true);
         c.take(env.poolManager, to, raw, false);
-    }
-
-    function _gapAt(BridgeStorage.Pool storage p, uint64 stamp) private view returns (uint256) {
-        if (stamp == 0 || p.dutchDrift == 0 || block.timestamp <= uint256(stamp)) return 0;
-        return (block.timestamp - uint256(stamp)) * uint256(p.dutchDrift);
     }
 
     function _target(BridgeStorage.Pool storage p) private view returns (uint256) {

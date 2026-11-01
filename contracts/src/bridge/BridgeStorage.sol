@@ -23,9 +23,6 @@ library BridgeStorage {
         uint8 coinDec;
         address coin;
         address creator;
-        uint16 floorBps;
-        uint16 outflowCapBps;
-        uint32 outflowWindow;
         uint8 anchorKind;
         /// @dev v2 pair or v3 pool. Zero for a v4 anchor.
         address refPool;
@@ -40,9 +37,6 @@ library BridgeStorage {
         uint256 creatorAccrued;
         uint256 totalShares;
         uint256 feeIndex;
-        uint32 outflowStart;
-        uint256 outflowUsed;
-        uint256 outflowBasis;
         uint64 openBlock;
         uint256 openSpot;
         uint256 openLpX;
@@ -52,17 +46,15 @@ library BridgeStorage {
         uint256 openTakenY;
         uint256 blockFee;
         uint256 redeemedEligible;
-        uint64 dutchBidAt;
-        uint64 dutchAskAt;
-        uint64 dutchDrift;
-        uint64 aboveSince;
-        uint64 belowSince;
+        /// @dev Remaining Dutch gap, wad, after the last fill. Time since `dutchAt` accrues both sides
+        ///      up to `DUTCH_GAP_CAP`. A buy consumes `askGap` and clears `bidGap`. A sell does the opposite.
+        uint256 bidGap;
+        uint256 askGap;
+        uint64 dutchAt;
         uint64 smoothAt;
         uint256 smoothedTvl;
         BridgeCurve.S curve;
         PoolKey key;
-        uint256 principalMark;
-        uint64 principalMarkAt;
     }
 
     struct CreateParams {
@@ -83,6 +75,14 @@ library BridgeStorage {
         uint24 refFee;
         int24 refTickSpacing;
         address refHooks;
+    }
+
+    /// @dev Prior-block v2 cumulative checkpoint. Not a spot reserve reading.
+    struct V2Sample {
+        uint32 ts;
+        uint256 price0Cum;
+        uint256 price1Cum;
+        bool init;
     }
 
     struct ArbQuote {
@@ -115,6 +115,11 @@ library BridgeStorage {
         mapping(PoolId => mapping(uint64 => uint256)) indexAtBlock;
         mapping(bytes32 => BridgeV4Anchor.Ring) rings;
         mapping(bytes32 => mapping(uint16 => uint256)) obs;
+        /// @dev First successful `witnessSource`. v2 and v4 have no onchain birthday, so create requires
+        ///      this to be at least 7 days old. A caller can only start the clock, not skip it.
+        mapping(bytes32 => uint64) seenAt;
+        /// @dev Last v2 cumulative sample. One per block. The ring stores the tick of the completed interval.
+        mapping(bytes32 => V2Sample) v2Sample;
         uint256 usdgClaimsNorm;
         bool locked;
     }
@@ -168,4 +173,6 @@ library BridgeStorage {
     event Graduated(PoolId indexed id, uint256 poolTvl, uint256 ethTvl);
     event Ungraduated(PoolId indexed id, uint256 poolTvl, uint256 target);
     event CreatorClaimed(PoolId indexed id, address indexed to, uint256 amount);
+    event CreatorTransferred(PoolId indexed id, address indexed previous, address indexed next);
+    event SourceWitnessed(bytes32 indexed key, uint64 seenAt);
 }

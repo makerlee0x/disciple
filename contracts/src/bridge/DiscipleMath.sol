@@ -132,50 +132,12 @@ library DiscipleMath {
         return BridgeFee.decayed(amount, dt, halfLife);
     }
 
-    function stepGrad(
-        uint256 poolTvl,
-        uint256 target,
-        bool graduated,
-        uint64 aboveSince,
-        uint64 belowSince,
-        uint256 timestamp
-    ) public pure returns (bool newGrad, uint64 newAbove, uint64 newBelow, uint8 edge) {
-        uint256 nowTs = timestamp == 0 ? 1 : timestamp;
-        newGrad = graduated;
-        newAbove = aboveSince;
-        newBelow = belowSince;
-        uint256 wait = C.GRADUATION_WINDOW;
+    /// @dev Status flips in this call. `target == 0` is below the line, so a graduated pool drops out
+    ///      and the arb fee comes back on. `edge` is 1 on the way up and 2 on the way down.
+    function stepGrad(uint256 poolTvl, uint256 target, bool graduated) public pure returns (bool newGrad, uint8 edge) {
         bool over = target != 0 && poolTvl >= target;
-        if (!newGrad) {
-            if (!over) {
-                newAbove = 0;
-                return (newGrad, newAbove, newBelow, 0);
-            }
-            if (newAbove == 0) {
-                newAbove = uint64(nowTs);
-                return (newGrad, newAbove, newBelow, 0);
-            }
-            if (nowTs >= uint256(newAbove) + wait) {
-                newGrad = true;
-                newBelow = 0;
-                edge = 1;
-            }
-            return (newGrad, newAbove, newBelow, edge);
-        }
-        if (over) {
-            newBelow = 0;
-            return (newGrad, newAbove, newBelow, 0);
-        }
-        if (newBelow == 0) {
-            newBelow = uint64(nowTs);
-            return (newGrad, newAbove, newBelow, 0);
-        }
-        if (nowTs >= uint256(newBelow) + wait) {
-            newGrad = false;
-            newAbove = 0;
-            newBelow = 0;
-            edge = 2;
-        }
+        if (over == graduated) return (graduated, 0);
+        return (over, over ? 1 : 2);
     }
 
     /// @dev Before graduation the whole fee is the LP share. While graduated: 3,333 creator, 3,333
@@ -191,11 +153,42 @@ library DiscipleMath {
         return BridgeFee.baseFeeBps(tvl, gradTvl);
     }
 
-    /// @dev 0 input selects the default. 0 output means the value is outside the allowed range.
-    function normalizeDrift(uint64 dutchDrift) public pure returns (uint64) {
-        if (dutchDrift == 0) return uint64(C.DUTCH_DRIFT_DEFAULT);
-        if (uint256(dutchDrift) < C.DUTCH_DRIFT_MIN || uint256(dutchDrift) > C.DUTCH_DRIFT_MAX) return 0;
-        return dutchDrift;
+    /// @dev Both gaps accrue from the same timestamp, then cap at 77%.
+    function accrueGap(uint256 gap, uint64 at, uint256 nowTs) public pure returns (uint256) {
+        if (gap > C.DUTCH_GAP_CAP) gap = C.DUTCH_GAP_CAP;
+        if (at == 0 || nowTs <= uint256(at)) return gap;
+        uint256 add = (nowTs - uint256(at)) * C.DUTCH_RATE;
+        if (add >= C.DUTCH_GAP_CAP || gap >= C.DUTCH_GAP_CAP - add) return C.DUTCH_GAP_CAP;
+        return gap + add;
+    }
+
+    /// @dev Linear consumption against pool depth. A clip at least as large as `depth` ends at zero.
+    ///      The average is the value-weighted gap the fill is quoted at. Splitting sees a smaller gap.
+    function consumeGap(uint256 gap, uint256 q, uint256 depth) public pure returns (uint256 avg, uint256 endGap) {
+        if (gap == 0 || q == 0) return (0, gap);
+        if (depth == 0 || q >= depth) {
+            if (depth == 0) return (0, 0);
+            return (Math.mulDiv(gap, depth, q * 2), 0);
+        }
+        endGap = Math.mulDiv(gap, depth - q, depth);
+        avg = (gap + endGap) / 2;
+    }
+
+    /// @dev Accrue, consume the side this fill takes, and restart the other side at zero.
+    function advanceDutch(uint256 bid, uint256 ask, uint64 at, uint256 q, uint256 depth, bool sellCoin, uint256 nowTs)
+        public
+        pure
+        returns (uint256 newBid, uint256 newAsk, uint64 newAt, uint256 avg)
+    {
+        bid = accrueGap(bid, at, nowTs);
+        ask = accrueGap(ask, at, nowTs);
+        if (sellCoin) (avg, bid) = consumeGap(bid, q, depth);
+        else (avg, ask) = consumeGap(ask, q, depth);
+        if (sellCoin) ask = 0;
+        else bid = 0;
+        newBid = bid;
+        newAsk = ask;
+        newAt = uint64(nowTs == 0 ? 1 : nowTs);
     }
 
     function _trade(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 amount, bool sellCoin, uint256 gap)
@@ -204,48 +197,86 @@ library DiscipleMath {
         returns (BridgeCurve.S memory, BridgeCurve.Fill memory)
     {
         BridgeCurve.Ctx memory local = _copy(ctx);
-        if (amount == 0 || gap == 0 || s.anchor == 0) {
-            if (sellCoin) return BridgeCurve.sellExactIn(s, amount, local);
-            return BridgeCurve.buyExactIn(s, amount, local);
+        uint256 lVal = local.useOpen ? local.openLpVal : BridgeCurve.lpValue(s);
+        uint256 pVal = BridgeCurve.protoValue(s);
+        uint256 shares = local.useOpen ? local.openShares : local.totalShares;
+        BridgeCurve.S memory out;
+        BridgeCurve.Fill memory f;
+        if (amount == 0 || s.anchor == 0) {
+            if (sellCoin) (out, f) = BridgeCurve.sellExactIn(s, amount, local);
+            else (out, f) = BridgeCurve.buyExactIn(s, amount, local);
+            return _arb(out, f, local, sellCoin, lVal, pVal, shares);
         }
         uint256 resting = BridgeCurve.spot(s);
         if (resting == 0) resting = s.anchor;
-        (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg) =
-            _sizes(s.anchor, BridgeCurve.tvl(s), ctx.gradTvl, gap);
-        if (sellCoin) {
-            if (bid <= resting || bidUsdg == 0) return BridgeCurve.sellExactIn(s, amount, local);
-            uint256 maxCoin = Math.mulDiv(bidUsdg, C.WAD, bid);
-            if (maxCoin == 0) return BridgeCurve.sellExactIn(s, amount, local);
-            uint256 slice = amount < maxCoin ? amount : maxCoin;
-            BridgeCurve.S memory trial = BridgeCurve.clone(s);
-            BridgeCurve.retarget(trial, bid);
-            BridgeCurve.Fill memory a;
-            (trial, a) = BridgeCurve.sellExactIn(trial, slice, local);
-            if (a.capped || a.coinIn != slice || a.usdgOut == 0) return BridgeCurve.sellExactIn(s, amount, local);
-            BridgeCurve.retarget(trial, resting);
-            a.spotAfter = BridgeCurve.spot(trial);
-            if (slice == amount) return (trial, a);
-            if (a.usdgOut < local.maxUsdgOut) local.maxUsdgOut -= a.usdgOut;
-            else local.maxUsdgOut = 0;
-            BridgeCurve.Fill memory b;
-            (trial, b) = BridgeCurve.sellExactIn(trial, amount - slice, local);
-            return (trial, _merge(a, b));
+        uint256 px = _dutchPrice(s.anchor, gap, sellCoin);
+        bool better = sellCoin ? px > resting : (px != 0 && px < resting);
+        if (!better || gap == 0) {
+            if (sellCoin) (out, f) = BridgeCurve.sellExactIn(s, amount, local);
+            else (out, f) = BridgeCurve.buyExactIn(s, amount, local);
+            return _arb(out, f, local, sellCoin, lVal, pVal, shares);
         }
-        if (ask == 0 || ask >= resting || askUsdg == 0) return BridgeCurve.buyExactIn(s, amount, local);
-        uint256 buySlice = amount < askUsdg ? amount : askUsdg;
+        // The whole clip is quoted at the average Dutch price, then the book is put back on the
+        // resting spot. Gap consumption, not a slice cap, is what stops a repeated fill.
         BridgeCurve.S memory book = BridgeCurve.clone(s);
-        BridgeCurve.retarget(book, ask);
-        BridgeCurve.Fill memory bought;
-        (book, bought) = BridgeCurve.buyExactIn(book, buySlice, local);
-        if (bought.capped || bought.usdgIn != buySlice || bought.coinOut == 0) {
-            return BridgeCurve.buyExactIn(s, amount, local);
+        BridgeCurve.retarget(book, px);
+        if (sellCoin) (book, f) = BridgeCurve.sellExactIn(book, amount, local);
+        else (book, f) = BridgeCurve.buyExactIn(book, amount, local);
+        bool filled = sellCoin ? f.coinIn == amount && f.usdgOut != 0 : f.usdgIn == amount && f.coinOut != 0;
+        if (f.capped || !filled) {
+            if (sellCoin) (out, f) = BridgeCurve.sellExactIn(s, amount, local);
+            else (out, f) = BridgeCurve.buyExactIn(s, amount, local);
+            return _arb(out, f, local, sellCoin, lVal, pVal, shares);
         }
         BridgeCurve.retarget(book, resting);
-        bought.spotAfter = BridgeCurve.spot(book);
-        if (buySlice == amount) return (book, bought);
-        BridgeCurve.Fill memory rest;
-        (book, rest) = BridgeCurve.buyExactIn(book, amount - buySlice, local);
-        return (book, _merge(bought, rest));
+        f.spotAfter = BridgeCurve.spot(book);
+        return _arb(book, f, local, sellCoin, lVal, pVal, shares);
+    }
+
+    /// @dev Arb fee is 77% of the improvement left after the sliding fee. It is not charged while
+    ///      graduated. The arb portion cannot exceed the improvement. It is not capped against the
+    ///      sliding fee, so the two together can be larger than the improvement.
+    function _arb(
+        BridgeCurve.S memory s,
+        BridgeCurve.Fill memory f,
+        BridgeCurve.Ctx memory ctx,
+        bool sellCoin,
+        uint256 lVal,
+        uint256 pVal,
+        uint256 shares
+    ) private pure returns (BridgeCurve.S memory, BridgeCurve.Fill memory) {
+        if (ctx.graduated || s.anchor == 0) return (s, f);
+        if (!sellCoin) {
+            if (f.coinOut == 0 || f.usdgIn == 0) return (s, f);
+            uint256 mark = Math.mulDiv(f.coinOut, s.anchor, C.WAD);
+            if (mark <= f.usdgIn) return (s, f);
+            uint256 arb = Math.mulDiv(mark - f.usdgIn, C.ARB_FEE_BPS, C.BPS);
+            if (arb == 0) return (s, f);
+            uint256 coins = Math.mulDiv(arb, C.WAD, s.anchor);
+            if (coins > f.coinOut) coins = f.coinOut;
+            if (coins == 0) return (s, f);
+            f.coinOut -= coins;
+            f.arb = arb;
+            BridgeCurve.creditCoin(s, coins, lVal, pVal, ctx.boostWad, shares);
+            return (s, f);
+        }
+        if (f.usdgOut == 0 || f.coinIn == 0) return (s, f);
+        uint256 cost = Math.mulDiv(f.coinIn, s.anchor, C.WAD);
+        if (f.usdgOut <= cost) return (s, f);
+        uint256 sellArb = Math.mulDiv(f.usdgOut - cost, C.ARB_FEE_BPS, C.BPS);
+        if (sellArb > f.usdgOut) sellArb = f.usdgOut;
+        if (sellArb == 0) return (s, f);
+        f.usdgOut -= sellArb;
+        f.arb = sellArb;
+        f.toLp += BridgeCurve.compound(s, sellArb, lVal, pVal, ctx.boostWad, shares);
+        return (s, f);
+    }
+
+    function _dutchPrice(uint256 anchor, uint256 gap, bool sellCoin) private pure returns (uint256) {
+        if (anchor == 0 || gap == 0) return anchor;
+        if (gap > C.DUTCH_GAP_CAP) gap = C.DUTCH_GAP_CAP;
+        if (sellCoin) return Math.mulDiv(anchor, C.WAD + gap, C.WAD);
+        return Math.mulDiv(anchor, C.WAD - gap, C.WAD);
     }
 
     function _markBuy(BridgeCurve.S memory s, BridgeCurve.Ctx memory ctx, uint256 amount, uint256 gap)
@@ -272,57 +303,17 @@ library DiscipleMath {
         return (f.usdgOut - cost, f.coinIn, f.usdgOut);
     }
 
-    function _sizes(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap)
-        private
-        pure
-        returns (uint256 bid, uint256 ask, uint256 bidUsdg, uint256 askUsdg)
-    {
-        if (anchor == 0 || gap == 0) return (anchor, anchor, 0, 0);
-        bid = Math.mulDiv(anchor, C.WAD + gap, C.WAD);
-        uint256 priceGap = gap > C.DUTCH_ASK_CAP ? C.DUTCH_ASK_CAP : gap;
-        ask = Math.mulDiv(anchor, C.WAD - priceGap, C.WAD);
-        uint256 cap = BridgeFee.dutchCap(tvl, gradTvl);
-        uint256 offered = Math.mulDiv(C.DUTCH_EDGE_WAD, C.WAD, gap);
-        if (offered > cap) offered = cap;
-        bidUsdg = offered;
-        askUsdg = offered;
-    }
-
-    function _side(uint256 anchor, uint256 tvl, uint256 gradTvl, uint256 gap, bool bid)
+    /// @dev Price at the accrued gap. `usdg` is the depth that would consume the gap, not a slice cap.
+    function _side(uint256 anchor, uint256 tvl, uint256, uint256 gap, bool bid)
         private
         pure
         returns (uint256 price, uint256 usdg)
     {
         if (anchor == 0 || gap == 0) return (anchor, 0);
-        if (bid) {
-            price = Math.mulDiv(anchor, C.WAD + gap, C.WAD);
-        } else {
-            uint256 priceGap = gap > C.DUTCH_ASK_CAP ? C.DUTCH_ASK_CAP : gap;
-            price = Math.mulDiv(anchor, C.WAD - priceGap, C.WAD);
-        }
-        uint256 cap = BridgeFee.dutchCap(tvl, gradTvl);
-        uint256 offered = Math.mulDiv(C.DUTCH_EDGE_WAD, C.WAD, gap);
-        if (offered > cap) offered = cap;
-        usdg = offered;
-    }
-
-    function _merge(BridgeCurve.Fill memory a, BridgeCurve.Fill memory b)
-        private
-        pure
-        returns (BridgeCurve.Fill memory f)
-    {
-        f.coinIn = a.coinIn + b.coinIn;
-        f.coinOut = a.coinOut + b.coinOut;
-        f.usdgIn = a.usdgIn + b.usdgIn;
-        f.usdgOut = a.usdgOut + b.usdgOut;
-        f.fee = a.fee + b.fee;
-        f.creator = a.creator + b.creator;
-        f.locked = a.locked + b.locked;
-        f.compound = a.compound + b.compound;
-        f.toLp = a.toLp + b.toLp;
-        f.spotBefore = a.spotBefore;
-        f.spotAfter = b.spotAfter == 0 ? a.spotAfter : b.spotAfter;
-        f.capped = b.capped;
+        if (gap > C.DUTCH_GAP_CAP) gap = C.DUTCH_GAP_CAP;
+        if (bid) price = Math.mulDiv(anchor, C.WAD + gap, C.WAD);
+        else price = Math.mulDiv(anchor, C.WAD - gap, C.WAD);
+        usdg = tvl;
     }
 
     function _copy(BridgeCurve.Ctx memory c) private pure returns (BridgeCurve.Ctx memory o) {

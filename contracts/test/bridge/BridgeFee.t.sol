@@ -46,14 +46,14 @@ contract BridgeFeeTest is Test {
     function test_boostDecaysToFloor() public pure {
         uint256 grad = 86_520e18;
         assertEq(BridgeFee.boostWad(0, grad), C.BOOST_START_WAD);
-        assertEq(BridgeFee.boostWad(0, 0), C.BOOST_START_WAD, "unknown graduation stays at 5x");
-        assertEq(C.BOOST_START_WAD, 5e18);
+        assertEq(BridgeFee.boostWad(0, 0), C.BOOST_START_WAD, "unknown graduation stays at 7x");
+        assertEq(C.BOOST_START_WAD, 7e18);
         assertEq(BridgeFee.boostWad(grad, grad), C.BOOST_END_WAD);
         assertEq(BridgeFee.boostWad(grad * 5, grad), C.BOOST_END_WAD);
         uint256 mid = BridgeFee.boostWad(grad / 2, grad);
         assertGt(mid, C.BOOST_END_WAD);
         assertLt(mid, C.BOOST_START_WAD);
-        // $10k of an $86.5k graduation is still most of the way toward 5x (about 4.6x).
+        // $10k of an $86.5k graduation is still most of the way toward 7x.
         assertGt(BridgeFee.boostWad(10_000e18, grad), 4e18);
     }
 }

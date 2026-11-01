@@ -34,7 +34,7 @@ library BridgeFee {
         return Math.mulDiv(v, _expNeg(z), C.WAD);
     }
 
-    /// @notice 5x at TVL 0, linear to 1.2x at `gradTvl`. Unknown graduation stays at 5x.
+    /// @notice 7x at TVL 0, linear to 1.2x at `gradTvl`. Unknown graduation stays at 7x.
     ///         While pool TVL is at or above the live target the weight stays 1.2x. A higher target
     ///         puts it back on the line. Fee weight only. Never applied to principal.
     function boostWad(uint256 tvl, uint256 gradTvl) internal pure returns (uint256) {
@@ -42,21 +42,6 @@ library BridgeFee {
             return gradTvl == 0 ? C.BOOST_START_WAD : C.BOOST_END_WAD;
         }
         return C.BOOST_END_WAD + ((C.BOOST_START_WAD - C.BOOST_END_WAD) * (gradTvl - tvl)) / gradTvl;
-    }
-
-    /// @notice Safety cap on one Dutch slice, then scaled by progress toward the live target.
-    ///         The safety cap is `min($50, max(TVL/20, $1))`. Progress `poolTVL / gradTvl` multiplies
-    ///         it from 100% at a new pool down to `DUTCH_PROGRESS_FLOOR_WAD` (20%) at the target.
-    ///         `gradTvl == 0` does not scale down. A larger reference lowers progress and reopens the cap.
-    function dutchCap(uint256 tvl, uint256 gradTvl) internal pure returns (uint256 cap) {
-        cap = tvl / 20;
-        if (cap < C.DUTCH_MIN_SLICE) cap = C.DUTCH_MIN_SLICE;
-        if (cap > C.DUTCH_MAX_SLICE) cap = C.DUTCH_MAX_SLICE;
-        if (gradTvl == 0 || tvl == 0) return cap;
-        uint256 progress = tvl >= gradTvl ? C.WAD : Math.mulDiv(tvl, C.WAD, gradTvl);
-        uint256 keep = C.WAD - Math.mulDiv(progress, C.WAD - C.DUTCH_PROGRESS_FLOOR_WAD, C.WAD);
-        cap = Math.mulDiv(cap, keep, C.WAD);
-        if (cap == 0) cap = 1;
     }
 
     /// @dev exp(-z) for z in WAD, z < ln(2). Twelve terms. If a term would underflow the sum, stop

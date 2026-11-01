@@ -72,15 +72,15 @@ library BridgeCurve {
         uint256 toLp; // portion of `compound` credited to the LP fee index
         uint256 spotBefore;
         uint256 spotAfter;
-        bool capped; // exact-in could not consume the full amount (seed guard / floor)
+        bool capped; // exact-in could not consume the full amount (seed guard or inventory)
+        /// @dev 77% of the improvement versus the anchor. Zero while graduated. On top of `fee`.
+        uint256 arb;
     }
 
     error ZeroSeed();
     error BadDiscount();
     error ZeroAnchor();
     error Insufficient();
-    /// @dev USDG added while spot is below the anchor would mint virtual coin and freeze the discount.
-    error DiscountDeposit();
 
     // ───────────────────────────── views ─────────────────────────────
 
@@ -149,102 +149,6 @@ library BridgeCurve {
         uint256 next = Math.mulDiv(spot(s), newAnchor, s.anchor);
         s.anchor = newAnchor;
         _retarget(s, next);
-    }
-
-    /// @notice Once spot is at or above the anchor, grow virtual depth with the TVL high-water.
-    ///         The full-pool band is ±25% at or below $100 TVL and narrows to ±3.33% only at `gradTvl`.
-    ///         Never shallows: a flash deposit cannot flatten the book, and a later withdrawal cannot
-    ///         re-open the discount. `gradTvl == 0` (anchor TVL not read yet) does not deepen.
-    ///         One call walks all the way to the band. Trades use `_deepenForTrade` so a single clip
-    ///         cannot jump the launch book to the target and then unwind the difference.
-    function deepen(S memory s, uint256 gradTvl) internal pure {
-        _deepen(s, gradTvl, true, 0);
-    }
-
-    /// @dev A trade may add the virtual USDG its own notional justifies (`budget / band`), and no more.
-    ///      Repeated trades settle on the band. The clip that is about to be quoted cannot sell into a
-    ///      book this call has just flattened.
-    function _deepenForTrade(S memory s, uint256 gradTvl, uint256 budget) private pure {
-        _deepen(s, gradTvl, false, budget);
-    }
-
-    function _deepen(S memory s, uint256 gradTvl, bool full, uint256 budget) private pure {
-        if (s.anchor == 0 || gradTvl == 0) return;
-        uint256 p = spot(s);
-        if (p < s.anchor) return;
-        uint256 v = tvl(s);
-        if (full && v <= s.depthUsd) return;
-        if (!full && budget == 0) return;
-        uint256 yEff = s.y + s.vy;
-        uint256 target = _targetYEff(v, gradTvl);
-        if (!full && target > yEff) {
-            uint256 band = bandWad(v, gradTvl);
-            uint256 grow = band == 0 ? budget : Math.mulDiv(budget, C.WAD, band);
-            uint256 stepped = yEff + grow;
-            if (stepped < target) target = stepped;
-        }
-        if (target > yEff && target > s.y) {
-            uint256 xTarget = Math.mulDiv(target, C.WAD, p);
-            if (xTarget > s.x) {
-                s.vx = xTarget - s.x;
-                s.vy = target - s.y;
-            }
-        }
-        if (v > s.depthUsd) s.depthUsd = v;
-    }
-
-    /// @notice Width of the full-pool move, in WAD. Trading inventory worth `tvl` moves spot by about this.
-    /// @dev Linear in ln(TVL), not in TVL. From `BAND_TINY_TVL` ($100) to `gradTvl` the band falls in a
-    ///      straight line on a log TVL axis, from ±25% to ±3.33%. That stays wider through the middle than
-    ///      the old `1/TVL` depth (which was already at 3.33% by $10k) and wider than interpolating
-    ///      log(band) itself. Below $100 the band stays at ±25%. At and above the live target it stays at ±3.33%.
-    function bandWad(uint256 v, uint256 gradTvl) internal pure returns (uint256) {
-        if (gradTvl == 0 || v <= C.BAND_TINY_TVL) return C.BAND_START_WAD;
-        if (v >= gradTvl) return C.BAND_END_WAD;
-        if (gradTvl <= C.BAND_TINY_TVL) return C.BAND_END_WAD;
-        uint256 lnNum = _lnWad(Math.mulDiv(v, C.WAD, C.BAND_TINY_TVL));
-        uint256 lnDen = _lnWad(Math.mulDiv(gradTvl, C.WAD, C.BAND_TINY_TVL));
-        if (lnDen == 0) return C.BAND_END_WAD;
-        uint256 t = Math.mulDiv(lnNum, C.WAD, lnDen);
-        if (t > C.WAD) t = C.WAD;
-        return C.BAND_START_WAD - Math.mulDiv(C.BAND_START_WAD - C.BAND_END_WAD, t, C.WAD);
-    }
-
-    /// @dev Effective USDG book so a trade the size of `v` moves spot by `bandWad(v)`.
-    function _targetYEff(uint256 v, uint256 gradTvl) private pure returns (uint256) {
-        uint256 band = bandWad(v, gradTvl);
-        if (band == 0) return v;
-        return Math.mulDiv(v, C.WAD, band);
-    }
-
-    /// @dev ln(x) for a WAD-scaled x >= 1e18. WAD-scaled result. Used only to shape the band.
-    function _lnWad(uint256 x) private pure returns (uint256) {
-        if (x <= C.WAD) return 0;
-        return Math.mulDiv(_log2Wad(x), 693_147_180_559_945_309, C.WAD);
-    }
-
-    /// @dev log2(x / 1e18) in WAD, x >= 1e18.
-    function _log2Wad(uint256 x) private pure returns (uint256 result) {
-        uint256 integer;
-        uint256 guard;
-        while (x >= 2 * C.WAD && guard < 256) {
-            x >>= 1;
-            integer += C.WAD;
-            unchecked {
-                ++guard;
-            }
-        }
-        uint256 y = x;
-        uint256 bit = C.WAD / 2;
-        for (uint256 i; i < 60 && bit > 0; ++i) {
-            y = Math.mulDiv(y, y, C.WAD);
-            if (y >= 2 * C.WAD) {
-                result += bit;
-                y >>= 1;
-            }
-            bit >>= 1;
-        }
-        result += integer;
     }
 
     // ───────────────────────────── quotes ────────────────────────────
@@ -324,9 +228,6 @@ library BridgeCurve {
     ///         guard-sized spend is consumed — callers that must take the full specified amount (v4 swaps)
     ///         should revert on `capped`.
     function buyExactIn(S memory s, uint256 usdgGross, Ctx memory ctx) internal pure returns (S memory, Fill memory f) {
-        // Walk toward the band by this clip only. A sell does not deepen, so the unwind
-        // is quoted on the book this buy already traded against.
-        _deepenForTrade(s, ctx.gradTvl, usdgGross);
         f.spotBefore = spot(s);
         if (usdgGross == 0 || s.anchor == 0) return (s, f);
         uint256 dxCap = maxCoinOut(s);
@@ -366,11 +267,12 @@ library BridgeCurve {
         return (s, f);
     }
 
-    /// @notice Exact-in sell of `dx` coin. Caps to the floor / outflow via `ctx.maxUsdgOut`.
+    /// @notice Exact-in sell of `dx` coin. There is no USDG floor. The only cap is spendable principal
+    ///         (fee pot and locked liquidity are not principal). A sell is never blocked by a price floor.
     function sellExactIn(S memory s, uint256 dx, Ctx memory ctx) internal pure returns (S memory, Fill memory f) {
         f.spotBefore = spot(s);
         if (dx == 0 || s.anchor == 0 || principalY(s) == 0) return (s, f);
-        uint256 room = floorRoomAbs(s, _floorAmt(s, ctx));
+        uint256 room = principalY(s);
         if (ctx.maxUsdgOut < room) room = ctx.maxUsdgOut;
         uint256 gross = sellProceeds(s, dx);
         if (gross > room) {
@@ -412,23 +314,38 @@ library BridgeCurve {
     }
 
     /// @notice Spot-preserving liquidity add. The depositor owns exactly the tokens they put in
-    ///         (anchor-valued shares are minted by the hook). Virtuals move so the quote does not jump,
-    ///         which is what stops "deposit USDG, steal discounted coin, redeem".
-    /// @dev Below the anchor, real USDG may only replace virtual USDG (plus the virtual that backs any
-    ///      coin deposited alongside it). A larger USDG deposit would mint virtual coin and pin the
-    ///      discount, so the whole seed could be bought without the price climbing. That reverts.
+    ///         (anchor-valued shares are minted by the hook). Virtuals move so the quote does not jump.
+    ///         A USDG deposit is never rejected for being large.
     function addLiquidity(S memory s, uint256 dx, uint256 dy) internal pure {
         uint256 p = spot(s);
-        uint256 yEff = s.y + s.vy;
         s.x += dx;
         s.y += dy;
         s.lpX += dx;
         s.lpY += dy;
-        if (p != 0 && s.anchor != 0 && p < s.anchor) {
-            uint256 yWant = yEff + Math.mulDiv(p, dx, C.WAD);
-            if (s.y > yWant) revert DiscountDeposit();
-        }
         if (p != 0) _retarget(s, p);
+    }
+
+    /// @dev Fresh USDG already destined for the pool. Same split as a pre-graduation fee: no creator, no lock.
+    function compound(S memory s, uint256 amount, uint256 lVal, uint256 pVal, uint256 boostWad, uint256 totalShares)
+        internal
+        pure
+        returns (uint256 toLp)
+    {
+        return _allocate(s, amount, lVal, pVal, boostWad, totalShares);
+    }
+
+    /// @dev Coins that a buy kept in the pool. Split with the same weights as `compound`.
+    function creditCoin(S memory s, uint256 coins, uint256 lVal, uint256 pVal, uint256 boostWad, uint256 totalShares)
+        internal
+        pure
+    {
+        if (coins == 0) return;
+        uint256 lw = Math.mulDiv(lVal, boostWad, C.WAD);
+        uint256 toLp;
+        if (totalShares != 0 && lw != 0) toLp = Math.mulDiv(coins, lw, lw + pVal);
+        s.x += coins;
+        s.lpX += toLp;
+        s.protoX += coins - toLp;
     }
 
     /// @notice Remove `dx` coin and `dy` USDG from the LP pot and retarget so spot is unchanged.

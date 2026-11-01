@@ -52,22 +52,10 @@ library DiscipleBook {
         l.locked = true;
         if (c.coin == address(0) || c.coin == env.usdg || c.coin.code.length == 0) revert BridgeStorage.BadCreate();
         if (c.creator == address(0)) revert BridgeStorage.BadCreate();
-        if (c.floorBps != C.FLOOR_BPS) revert BridgeStorage.BadCreate();
-        if (c.discountBps < 1_000 || c.discountBps > 5_000) revert BridgeStorage.BadCreate();
         if (c.coinSeed == 0) revert BridgeStorage.BadCreate();
         if (c.anchorKind > C.ANCHOR_V4) revert BridgeStorage.BadCreate();
-        uint16 capBps = c.outflowCapBps;
-        uint32 window = c.outflowWindow;
-        if (capBps == 0 && window == 0) {
-            capBps = C.OUTFLOW_CAP_DEFAULT_BPS;
-            window = C.OUTFLOW_PER_HOUR;
-        } else {
-            if (window != C.OUTFLOW_PER_BLOCK && window != C.OUTFLOW_PER_HOUR) revert BridgeStorage.BadCreate();
-            if (capBps == 0 || capBps > C.BPS) revert BridgeStorage.BadCreate();
-        }
+        // Discount, floor, outflow, and drift on `c` are ignored. The discount is 33% for every pool.
         _checkRef(env, c);
-        uint64 drift = DiscipleMath.normalizeDrift(c.dutchDrift);
-        if (drift == 0) revert BridgeStorage.BadCreate();
 
         uint8 coinDec = IERC20Metadata(c.coin).decimals();
         if (coinDec > 18) revert BridgeStorage.BadCreate();
@@ -94,28 +82,23 @@ library DiscipleBook {
         p.coinDec = coinDec;
         p.coin = c.coin;
         p.creator = c.creator;
-        p.floorBps = c.floorBps;
-        p.outflowCapBps = capBps;
-        p.outflowWindow = window;
         p.anchorKind = c.anchorKind;
         p.refPool = c.refPool;
         p.refFee = c.refFee;
         p.refTickSpacing = c.refTickSpacing;
         p.refHooks = c.refHooks;
-        p.refCoinIs0 = coinIs0;
+        p.refCoinIs0 = c.anchorKind == C.ANCHOR_V4 ? c.coin < env.usdg : coinIs0;
         p.refPoolId = c.refPoolId;
-        p.dutchDrift = drift;
-        uint64 opened = block.timestamp == 0 ? 1 : uint64(block.timestamp);
-        p.dutchBidAt = opened;
-        p.dutchAskAt = opened;
+        p.dutchAt = _stamp();
         p.key = key;
-        p.curve = DiscipleMath.init(coinNorm, uint256(c.discountBps) * 1e14);
+        p.curve = DiscipleMath.init(coinNorm, uint256(C.DISCOUNT_BPS) * 1e14);
         _persist(env, p);
+        if (c.anchorKind == C.ANCHOR_V3 && p.curve.anchor == 0) revert BridgeStorage.BadCreate();
         _touchGrad(id, p);
 
         env.poolManager.initialize(key, SQRT_1);
         env.poolManager.unlock(abi.encode(BridgeStorage.OP_SEED, PoolId.unwrap(id), coinGot));
-        emit BridgeStorage.PoolCreated(id, c.coin, c.creator, c.floorBps, c.discountBps, coinNorm, c.anchorKind);
+        emit BridgeStorage.PoolCreated(id, c.coin, c.creator, 0, C.DISCOUNT_BPS, coinNorm, c.anchorKind);
         l.locked = false;
     }
 
@@ -126,7 +109,6 @@ library DiscipleBook {
         if (!p.exists) revert BridgeStorage.UnknownPool();
         l.locked = true;
         _persist(env, p);
-        _touchMark(p);
         _touchGrad(id, p);
         l.locked = false;
     }
@@ -151,24 +133,24 @@ library DiscipleBook {
         PoolId id = key.toId();
         BridgeStorage.Pool storage p = l.pools[id];
         if (!p.exists) revert BridgeStorage.UnknownPool();
-        if (p.curve.anchor != 0 && (p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER)) {
-            revert BridgeStorage.Stale();
-        }
         _persist(env, p);
         if (p.curve.anchor == 0) revert BridgeStorage.NoAnchor();
+        if (p.updatedAt == 0 || block.timestamp >= p.updatedAt + C.STALE_AFTER) revert BridgeStorage.Stale();
         _rollBlock(p, id);
 
         bool specIsCoin = params.zeroForOne ? p.coinIs0 : !p.coinIs0;
         (bool mintLp, address recipient) = _decodeHookData(hookData, sender);
-        _touchMark(p);
         BridgeCurve.S memory s = p.curve;
         BridgeCurve.Ctx memory ctx = _ctx(p, s);
-        _rollOutflow(p);
 
         uint256 specNorm = _toNorm(specRaw, specIsCoin ? p.coinDec : env.usdgDec);
-        uint256 gap = specIsCoin ? _gapAt(p, p.dutchBidAt) : _gapAt(p, p.dutchAskAt);
+        uint256 q = specIsCoin ? Math.mulDiv(specNorm, s.anchor, C.WAD) : specNorm;
+        uint256 avg;
+        (p.bidGap, p.askGap, p.dutchAt, avg) = DiscipleMath.advanceDutch(
+            p.bidGap, p.askGap, p.dutchAt, q, DiscipleMath.tvlOf(s), specIsCoin, block.timestamp
+        );
         BridgeCurve.Fill memory f;
-        (s, f) = DiscipleMath.trade(s, ctx, specNorm, specIsCoin, gap);
+        (s, f) = DiscipleMath.trade(s, ctx, specNorm, specIsCoin, avg);
         if (f.capped) revert BridgeStorage.ExceedsCap();
         if (specIsCoin) {
             if (f.coinIn != specNorm || f.usdgOut == 0) revert BridgeStorage.ZeroOutput();
@@ -177,17 +159,8 @@ library DiscipleBook {
         }
 
         p.curve = s;
-        if (!specIsCoin) _bumpOutflowBasis(p);
-        uint64 nowS = _stamp();
-        if (specIsCoin) {
-            if (f.usdgOut >= C.DUTCH_MIN_SLICE) p.dutchBidAt = nowS;
-        } else if (f.usdgIn >= C.DUTCH_MIN_SLICE) {
-            p.dutchAskAt = nowS;
-        }
         if (f.toLp > 0) p.blockFee += f.toLp;
         p.creatorAccrued += f.creator;
-        if (specIsCoin) _consumeOutflow(p, f.usdgOut);
-
         uint256 unspecRaw;
         if (!mintLp) {
             unspecRaw = specIsCoin ? _toRaw(f.usdgOut, env.usdgDec) : _toRaw(f.coinOut, p.coinDec);
@@ -233,20 +206,12 @@ library DiscipleBook {
         return _mintShares(BridgeStorage.layout().pools[id], id, to, added, coinNorm, usdgNorm);
     }
 
-    function touchMark(PoolId id) public {
-        _touchMark(BridgeStorage.layout().pools[id]);
-    }
-
     function touchGrad(PoolId id) public {
         _touchGrad(id, BridgeStorage.layout().pools[id]);
     }
 
     function requireReserve(PoolId id) public view {
         _requireReserve(BridgeStorage.layout().pools[id]);
-    }
-
-    function bumpOutflow(PoolId id) public {
-        _bumpOutflowBasis(BridgeStorage.layout().pools[id]);
     }
 
     function promote(PoolId id, address user) public {
@@ -284,8 +249,8 @@ library DiscipleBook {
 
     function floorState(PoolId id) public view returns (uint256 mark, uint256 principal) {
         BridgeStorage.Pool storage p = BridgeStorage.layout().pools[id];
-        mark = _markNow(p);
         principal = p.curve.protoY + p.curve.lpY;
+        mark = 0;
     }
 
     function curve(Env memory env, PoolId id) public view returns (BridgeCurve.S memory s) {
@@ -320,20 +285,32 @@ library DiscipleBook {
         return "";
     }
 
-    function _checkRef(Env memory env, BridgeStorage.CreateParams memory c) internal view {
+    function _checkRef(Env memory env, BridgeStorage.CreateParams memory c) internal {
         uint8 k = c.anchorKind;
         if (k == C.ANCHOR_V2) {
             if (!DiscipleAnchor.v2Matches(env.v2Factory, c.refPool, c.coin, env.usdg)) {
                 revert BridgeStorage.BadCreate();
             }
-        } else if (k == C.ANCHOR_V3) {
-            if (!DiscipleAnchor.v3Ready(env.v3Factory, c.refPool, c.coin, env.usdg, c.refFee)) {
+            if (!_aged(k, c.refPool, bytes32(0))) revert BridgeStorage.BadCreate();
+            uint8 coinDec = _dec(c.coin);
+            // Create-time reserves are a size gate only. The trading anchor is the cumulative TWAP.
+            (bool ok, uint256 px) =
+                DiscipleAnchor.v2SpotPrice(env.v2Factory, c.refPool, c.coin, env.usdg, coinDec, env.usdgDec);
+            if (!ok) revert BridgeStorage.BadCreate();
+            if (DiscipleAnchor.v2Tvl(c.refPool, c.coin, env.usdg, coinDec, env.usdgDec, px) < C.MIN_REF_TVL) {
                 revert BridgeStorage.BadCreate();
             }
+        } else if (k == C.ANCHOR_V3) {
+            if (!DiscipleAnchor.v3FactoryMatch(env.v3Factory, c.refPool, c.coin, env.usdg, c.refFee)) {
+                revert BridgeStorage.BadCreate();
+            }
+            if (!DiscipleAnchor.prepareV3(c.refPool)) revert BridgeStorage.BadCreate();
         } else if (k == C.ANCHOR_V4) {
             if (c.refPoolId == bytes32(0) || c.refTickSpacing <= 0 || c.refTickSpacing > MAX_SPACING) {
                 revert BridgeStorage.BadCreate();
             }
+            if (!DiscipleAnchor.hookAllowed(c.refHooks)) revert BridgeStorage.BadCreate();
+            if (!_aged(k, address(0), c.refPoolId)) revert BridgeStorage.BadCreate();
             bool ref0 = c.coin < env.usdg;
             PoolKey memory refKey = PoolKey({
                 currency0: Currency.wrap(ref0 ? c.coin : env.usdg),
@@ -343,7 +320,25 @@ library DiscipleBook {
                 hooks: IHooks(c.refHooks)
             });
             if (PoolId.unwrap(refKey.toId()) != c.refPoolId) revert BridgeStorage.BadCreate();
+            (bool ok,, uint160 sqrtP, uint128 liq) = DiscipleAnchor.v4Slot(env.poolManager, c.refPoolId);
+            if (!ok) revert BridgeStorage.BadCreate();
+            // Current sqrt is the size gate only. No past sample exists yet, so it is not the anchor.
+            uint256 tvl = DiscipleAnchor.inRangeQuote(sqrtP, liq, ref0, env.usdgDec);
+            if (tvl < C.MIN_REF_TVL) revert BridgeStorage.BadCreate();
         }
+    }
+
+    function _aged(uint8 kind, address ref, bytes32 refId) internal view returns (bool) {
+        uint64 seen = BridgeStorage.layout().seenAt[_sourceKey(kind, ref, refId)];
+        return seen != 0 && block.timestamp >= uint256(seen) + C.MIN_REF_AGE;
+    }
+
+    function _sourceKey(uint8 kind, address ref, bytes32 refId) internal pure returns (bytes32) {
+        return keccak256(abi.encode(kind, ref, refId));
+    }
+
+    function _dec(address token) internal view returns (uint8) {
+        return IERC20Metadata(token).decimals();
     }
 
     function _persist(Env memory env, BridgeStorage.Pool storage p) internal {
@@ -355,9 +350,7 @@ library DiscipleBook {
             return;
         }
         if (k == C.ANCHOR_V2) {
-            (bool ok, int24 tick) = DiscipleAnchor.v2Tick(env.v2Factory, p.refPool, p.coin, env.usdg);
-            if (!ok) return;
-            _record(p, tick);
+            _sampleV2(p);
             (bool ready, uint256 price,) = _storedPrice(p, 0, 0, env.usdgDec);
             if (!ready || price == 0) return;
             uint256 tvl = DiscipleAnchor.v2Tvl(p.refPool, p.coin, env.usdg, p.coinDec, env.usdgDec, price);
@@ -385,11 +378,13 @@ library DiscipleBook {
         bytes32 raw = PoolId.unwrap(p.key.toId());
         BridgeStorage.Layout storage l = BridgeStorage.layout();
         if (k == C.ANCHOR_V2) {
-            (bool ok, int24 tick) = DiscipleAnchor.v2Tick(env.v2Factory, p.refPool, p.coin, env.usdg);
-            if (!ok) return (false, 0, 0);
-            (BridgeV4Anchor.Ring memory next, BridgeV4Anchor.Write memory w) =
-                DiscipleAnchor.advance(l.rings[raw], tick, uint32(block.timestamp), uint64(block.number));
-            (ready, price,) = DiscipleAnchor.consult(next, l.obs[raw], w, 0, 0, p.refCoinIs0, p.coinDec, env.usdgDec);
+            (bool sampled, int24 tick) = _v2TickView(p);
+            BridgeV4Anchor.Ring memory ring = l.rings[raw];
+            BridgeV4Anchor.Write memory w;
+            if (sampled) {
+                (ring, w) = DiscipleAnchor.advance(ring, tick, uint32(block.timestamp), uint64(block.number));
+            }
+            (ready, price,) = DiscipleAnchor.consult(ring, l.obs[raw], w, 0, 0, p.refCoinIs0, p.coinDec, env.usdgDec);
             if (!ready || price == 0) return (false, 0, 0);
             tvl = DiscipleAnchor.v2Tvl(p.refPool, p.coin, env.usdg, p.coinDec, env.usdgDec, price);
             return (true, price, tvl);
@@ -438,7 +433,37 @@ library DiscipleBook {
         return PoolId.unwrap(refKey.toId()) == p.refPoolId;
     }
 
+    function _sampleV2(BridgeStorage.Pool storage p) internal {
+        (bool ok, uint256 p0, uint256 p1) = DiscipleAnchor.v2Accrued(p.refPool);
+        if (!ok) return;
+        (bool sampled, int24 tick) = _v2TickView(p);
+        BridgeStorage.V2Sample storage sample = BridgeStorage.layout().v2Sample[PoolId.unwrap(p.key.toId())];
+        if (sample.init && sample.ts == uint32(block.timestamp)) return;
+        sample.init = true;
+        sample.ts = uint32(block.timestamp);
+        sample.price0Cum = p0;
+        sample.price1Cum = p1;
+        if (sampled) _record(p, tick);
+    }
+
+    /// @dev True when this block should append one cumulative interval. The first call only stores the cum.
+    function _v2TickView(BridgeStorage.Pool storage p) internal view returns (bool sampled, int24 tick) {
+        (bool ok, uint256 p0, uint256 p1) = DiscipleAnchor.v2Accrued(p.refPool);
+        if (!ok) return (false, 0);
+        BridgeStorage.V2Sample memory sample = BridgeStorage.layout().v2Sample[PoolId.unwrap(p.key.toId())];
+        if (!sample.init || sample.ts == uint32(block.timestamp)) return (false, 0);
+        uint32 dt;
+        unchecked {
+            dt = uint32(block.timestamp) - sample.ts;
+        }
+        bool coin0 = DiscipleAnchor.v2Coin0(p.refPool, p.coin);
+        uint256 newer = coin0 ? p0 : p1;
+        uint256 older = coin0 ? sample.price0Cum : sample.price1Cum;
+        return DiscipleAnchor.v2IntervalTick(newer, older, dt, !coin0);
+    }
+
     function _applyAnchor(BridgeStorage.Pool storage p, uint256 price, uint256 tvl) internal {
+        if (tvl < C.MIN_REF_TVL) return;
         if (price != p.curve.anchor) p.curve = DiscipleMath.onAnchor(p.curve, price);
         p.updatedAt = block.timestamp;
         p.ethTvl = tvl;
@@ -482,15 +507,11 @@ library DiscipleBook {
         view
         returns (BridgeCurve.Ctx memory ctx)
     {
-        uint256 floorAmt = (_markNow(p) * C.FLOOR_BPS) / C.BPS;
         uint256 target = _gradTvl(p);
-        (, uint256 room, uint256 principal,, uint256 boost) = DiscipleMath.measures(s, floorAmt, p.graduated, target);
-        uint256 cap = _outflowLeft(p, principal);
+        (,,,, uint256 boost) = DiscipleMath.measures(s, 0, p.graduated, target);
         ctx.gradTvl = target;
         ctx.graduated = p.graduated;
-        ctx.floorBps = p.floorBps;
-        ctx.principalFloor = floorAmt;
-        ctx.maxUsdgOut = cap < room ? cap : room;
+        ctx.maxUsdgOut = type(uint256).max;
         ctx.totalShares = p.totalShares;
         ctx.useOpen = true;
         if (p.openBlock == uint64(block.number)) {
@@ -501,16 +522,6 @@ library DiscipleBook {
             ctx.openShares = p.totalShares;
         }
         ctx.boostWad = boost;
-    }
-
-    function _markNow(BridgeStorage.Pool storage p) internal view returns (uint256) {
-        uint256 principal = p.curve.protoY + p.curve.lpY;
-        uint256 mark = p.principalMark;
-        if (mark == 0 || principal >= mark) return principal;
-        uint256 at = uint256(p.principalMarkAt);
-        uint256 dt = at == 0 || block.timestamp <= at ? 0 : block.timestamp - at;
-        if (dt == 0) return mark;
-        return principal + DiscipleMath.decayed(mark - principal, dt, C.MARK_HALF_LIFE);
     }
 
     function _rollBlock(BridgeStorage.Pool storage p, PoolId id) internal {
@@ -592,30 +603,12 @@ library DiscipleBook {
         l.freshBlock[id][user] = 0;
     }
 
-    function _touchMark(BridgeStorage.Pool storage p) internal {
-        uint256 principal = p.curve.protoY + p.curve.lpY;
-        uint256 mark = p.principalMark;
-        uint64 nowS = _stamp();
-        if (mark == 0 || principal >= mark) {
-            p.principalMark = principal;
-            p.principalMarkAt = nowS;
-            return;
-        }
-        uint256 dt = block.timestamp > uint256(p.principalMarkAt) ? block.timestamp - uint256(p.principalMarkAt) : 0;
-        if (dt == 0) return;
-        p.principalMark = principal + DiscipleMath.decayed(mark - principal, dt, C.MARK_HALF_LIFE);
-        p.principalMarkAt = nowS;
-    }
-
     function _touchGrad(PoolId id, BridgeStorage.Pool storage p) internal {
         BridgeCurve.S memory s = p.curve;
-        uint256 v = Math.mulDiv(s.protoX, s.anchor, C.WAD) + s.protoY + s.lockedY + s.feePot;
+        uint256 v = DiscipleMath.tvlOf(s);
         uint256 target = _gradTvl(p);
-        (bool grad, uint64 above, uint64 below, uint8 edge) =
-            DiscipleMath.stepGrad(v, target, p.graduated, p.aboveSince, p.belowSince, block.timestamp);
+        (bool grad, uint8 edge) = DiscipleMath.stepGrad(v, target, p.graduated);
         p.graduated = grad;
-        p.aboveSince = above;
-        p.belowSince = below;
         if (edge == 1) emit BridgeStorage.Graduated(id, v, p.smoothedTvl);
         else if (edge == 2) emit BridgeStorage.Ungraduated(id, v, target);
     }
@@ -688,39 +681,6 @@ library DiscipleBook {
         got = IERC20(token).balanceOf(address(this)) - beforeBal;
     }
 
-    function _rollOutflow(BridgeStorage.Pool storage p) internal {
-        if (p.outflowWindow == 0 || p.outflowCapBps == 0) return;
-        bool expired = p.outflowWindow == C.OUTFLOW_PER_BLOCK
-            ? block.number != p.outflowStart
-            : block.timestamp >= uint256(p.outflowStart) + p.outflowWindow;
-        if (!expired && p.outflowStart != 0) return;
-        p.outflowStart = p.outflowWindow == C.OUTFLOW_PER_BLOCK ? uint32(block.number) : uint32(block.timestamp);
-        p.outflowUsed = 0;
-        p.outflowBasis = p.curve.protoY + p.curve.lpY;
-    }
-
-    function _consumeOutflow(BridgeStorage.Pool storage p, uint256 norm) internal {
-        if (p.outflowWindow == 0 || norm == 0) return;
-        p.outflowUsed += norm;
-    }
-
-    function _bumpOutflowBasis(BridgeStorage.Pool storage p) internal {
-        if (p.outflowWindow == 0 || p.outflowCapBps == 0) return;
-        uint256 principal = p.curve.protoY + p.curve.lpY;
-        if (principal > p.outflowBasis) p.outflowBasis = principal;
-    }
-
-    function _outflowLeft(BridgeStorage.Pool storage p, uint256 principal) internal view returns (uint256) {
-        if (p.outflowWindow == 0 || p.outflowCapBps == 0) return type(uint256).max;
-        bool expired = p.outflowStart == 0
-            || (p.outflowWindow == C.OUTFLOW_PER_BLOCK
-                    ? block.number != p.outflowStart
-                    : block.timestamp >= uint256(p.outflowStart) + p.outflowWindow);
-        if (expired) return (principal * p.outflowCapBps) / C.BPS;
-        uint256 cap = (p.outflowBasis * p.outflowCapBps) / C.BPS;
-        return cap > p.outflowUsed ? cap - p.outflowUsed : 0;
-    }
-
     function _decodeHookData(bytes memory hookData, address sender) internal pure returns (bool mintLp, address to) {
         if (hookData.length == 0) return (false, sender);
         (mintLp, to) = abi.decode(hookData, (bool, address));
@@ -742,9 +702,41 @@ library DiscipleBook {
         if (!p.exists) revert BridgeStorage.UnknownPool();
     }
 
-    function _gapAt(BridgeStorage.Pool storage p, uint64 stamp) internal view returns (uint256) {
-        if (stamp == 0 || p.dutchDrift == 0 || block.timestamp <= uint256(stamp)) return 0;
-        return (block.timestamp - uint256(stamp)) * uint256(p.dutchDrift);
+    /// @dev Same gap update a buy or sell of `q` USDG would write. `q == 0` does nothing.
+    function moveDutch(PoolId id, uint256 q, bool sellCoin) public {
+        if (q == 0) return;
+        BridgeStorage.Pool storage p = BridgeStorage.layout().pools[id];
+        uint256 depth = DiscipleMath.tvlOf(p.curve);
+        (p.bidGap, p.askGap, p.dutchAt,) =
+            DiscipleMath.advanceDutch(p.bidGap, p.askGap, p.dutchAt, q, depth, sellCoin, block.timestamp);
+    }
+
+    function transferCreator(PoolId id, address next) public {
+        if (next == address(0)) revert BridgeStorage.BadCreate();
+        BridgeStorage.Pool storage p = _pool(id);
+        if (msg.sender != p.creator) revert BridgeStorage.OnlyCreator();
+        address prev = p.creator;
+        p.creator = next;
+        emit BridgeStorage.CreatorTransferred(id, prev, next);
+    }
+
+    function witnessSource(bytes32 key) public {
+        if (key == bytes32(0)) revert BridgeStorage.BadCreate();
+        BridgeStorage.Layout storage l = BridgeStorage.layout();
+        if (l.seenAt[key] != 0) return;
+        uint64 seen = _stamp();
+        l.seenAt[key] = seen;
+        emit BridgeStorage.SourceWitnessed(key, seen);
+    }
+
+    function sourceKey(uint8 kind, address ref, bytes32 refId) public pure returns (bytes32) {
+        return _sourceKey(kind, ref, refId);
+    }
+
+    function accruedGaps(PoolId id) public view returns (uint256 bid, uint256 ask) {
+        BridgeStorage.Pool storage p = _pool(id);
+        bid = DiscipleMath.accrueGap(p.bidGap, p.dutchAt, block.timestamp);
+        ask = DiscipleMath.accrueGap(p.askGap, p.dutchAt, block.timestamp);
     }
 
     function _stamp() internal view returns (uint64) {
