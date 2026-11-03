@@ -142,7 +142,7 @@ contract DiscipleReadSafetyTest is BridgeFixture {
     }
 
     function test_oversizedJumpRevertsAndExactBoundApplies() public {
-        vm.warp(block.timestamp + 31 minutes);
+        vm.warp(vm.getBlockTimestamp() + 31 minutes);
         vm.deal(address(this), 1 ether);
         uint256 fee = lz.fee();
         hook.updatePrice{value: fee}(id);
@@ -160,7 +160,7 @@ contract DiscipleReadSafetyTest is BridgeFixture {
         lz.deliver(guid, abi.encode(uint256(1.2e18), uint256(725_000e18)));
         assertEq(hook.curve(id).anchor, 1.2e18);
 
-        vm.warp(block.timestamp + 31 minutes);
+        vm.warp(vm.getBlockTimestamp() + 31 minutes);
         hook.updatePrice{value: fee}(id);
         bytes32 later = lz.lastGuid();
         uint256 tooFar = 1.2e18 + ((1.2e18 * C.ANCHOR_MOVE_BPS) / C.BPS) + 1;
