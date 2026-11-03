@@ -12,3 +12,11 @@ export const walletCtaLabel = (): string | null =>
   typeof window === "undefined" ? null : ((window as unknown as { __walletCta?: string | null }).__walletCta ?? null);
 /** Sidebar "Settings" item → GAME's settings menu (components/flight/SettingsMenu.tsx listens on window). */
 export const SETTINGS_OPEN_EVENT = "disciple:settings-open";
+
+/** The signed-in wallet's identity for the Sidebar's account card (premium-ui-r1): display only, published by the wallet
+ *  pill (it already resolves the address + claimed name). CustomEvent<WalletId | null>; null when signed out. */
+export type WalletId = { address: string; name: string | null };
+export const WALLET_ID_EVENT = "disciple:wallet-id";
+/** Last published identity (for a Sidebar that mounts after the pill). */
+export const walletId = (): WalletId | null =>
+  typeof window === "undefined" ? null : ((window as unknown as { __walletId?: WalletId | null }).__walletId ?? null);

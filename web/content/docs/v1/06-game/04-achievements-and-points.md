@@ -11,7 +11,7 @@ There are **43 achievements** in **8 categories**:
 
 | Category | For |
 |---|---|
-| Flight | Altitude and graduations you've flown |
+| Flight | Altitude and ascensions you've flown |
 | Crew | Joining and backing crews |
 | Bombs | Bombs you've dropped, from First Grenade to Atom Bomber |
 | Conviction | Holding through drawdowns |

@@ -7,12 +7,13 @@ import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { tradeErrorKind, balanceHint, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, bumpBalance } from "@/lib/protocol-viem";
+import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance } from "@/lib/protocol-viem";
+import { withinBudget, COLD_READ_BUDGET_MS } from "@/lib/rpc/readTransport";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, type TradeMs } from "@/lib/flight/tradeSpeed";
 // TODO(#140): once SITE #140 (lib/trade/timing.ts) is on the base, add:
 //   import { markTradeClick } from "@/lib/trade/timing";  setTradeClickMark(markTradeClick);   (setTradeClickMark from tradeSpeed)
-import { freshSellBalance, sellAmount, sellAmountFor } from "@/lib/flight/liveSell";
+import { freshSellBalance, sellAmount, sellAmountFor, tapSellBalance } from "@/lib/flight/liveSell";
 import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
 import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
@@ -282,12 +283,16 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
       try {
         linePress.current = pressId;
         say(`${side === "buy" ? "▲" : "▼"} ${fmtMoney(usd)} ${isSmartMode() ? "· sending…" : "· confirm in wallet…"}`);
-        // % sells size from the (polled, ≤5 s) balance hint; $ shots from the cached launch quote price ⇒ no reads when warm
-        let amountIn = side === "sell" && o?.frac && o.frac > 0 ? BigInt(0) : await shotAmountIn(pc, token as Address, side, usd);
+        // Zero-wait (lee Oct 30): $ shots from memory (USDG buys 1:1, $ sells at the last sell quote's price), % sells from
+        // the tracked balance; a cold value (nothing in memory) is ONE bounded race read (coldClient), never the sequential failover path
+        const pct = side === "sell" && !!(o?.all || (o?.frac && o.frac > 0));
+        let amountIn = pct ? BigInt(0) : shotAmountNow(pc, token as Address, side, usd)
+          ?? await withinBudget(shotAmountIn(coldClient(), token as Address, side, usd), COLD_READ_BUDGET_MS, "shot");
         // bag (hoisted): sells: the wallet balance this sell was sized from → PnL HUD splits tracked / untracked pro-rata
         if (side === "sell") {
           const me = await activeAddress();
-          const bal = await freshSellBalance(() => ownBalance(pc, token as Address, me, () => tokenBalance(pc, token as Address, me)), () => ownHint(pc, token as Address, me, 60_000), lastOwnTradeAt.current);
+          const tracked = OWN.get(token as Address, me) ?? balanceNow(pc, token as Address, me)?.v;
+          const { bal } = await tapSellBalance(tracked, () => withinBudget(tokenBalance(coldClient(), token as Address, me), COLD_READ_BUDGET_MS, "sell-balance"));
           if (bal === BigInt(0)) { say("NO TOKENS IN WALLET"); return { ok: false, reason: "NO TOKENS IN WALLET" }; }
           bag = units(bal);
           // % of the UNRESERVED balance (wallet − tokens pending DUMPs are already selling): 50 % then 50 % = 75 % total, always.
@@ -414,7 +419,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   // signs and sends with no chain reads. Optimistic UI: "sent" the moment the op is submitted (disciple:op).
   useEffect(() => {
     if (!live) return;
-    let alive = true; const pc = publicClient();
+    let alive = true, probeN = 0; const pc = publicClient();
     const tick = async () => {
       if (!alive || document.hidden) return;
       try {
@@ -423,9 +428,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
         const me = await activeAddress();
         const bal = me ? await ownHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
         const sellFrac = (cfgRef.current.sells[sellSelRef.current] ?? 25) / 100;
+        // every 3rd tick also a probe at another size per side: two sizes fit the route's depth (lib/trade/quoteModel),
+        // so a tap of ANY size — and every tap behind our own in-flight trades — prices from memory
+        const probe = ++probeN % 3 === 0;
         await Promise.all([
-          shotAmountIn(pc, token as Address, "buy", usd).then((a) => warmRoute(pc, token as Address, "buy", a)),
+          shotAmountIn(pc, token as Address, "buy", usd).then((a) => Promise.all([warmRoute(pc, token as Address, "buy", a), probe ? warmRoute(pc, token as Address, "buy", a * BigInt(2)) : null])),
           bal > BigInt(0) ? warmRoute(pc, token as Address, "sell", sellAmount(bal, sellFrac)) : null,
+          bal > BigInt(0) && probe ? warmRoute(pc, token as Address, "sell", sellAmount(bal, sellFrac >= 0.5 ? sellFrac / 2 : Math.min(1, sellFrac * 2))) : null,
         ]);
       } catch { /* next tick */ }
     };

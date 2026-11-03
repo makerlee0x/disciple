@@ -14,7 +14,7 @@ section: Reference
 | **Base** | The coin a rocket is paired with and priced in. STRATEGY by default. |
 | **Board** | To buy into a rocket. |
 | **Bomb** | A DUMP, shown on the chart. Its size is set by price impact. |
-| **Bonding curve** | The formula market a rocket trades on before graduation. |
+| **Bonding curve** | The formula market a rocket trades on before ascension. |
 | **BOOST** | Buy. It lifts the rocket. |
 | **BUNKER** | A bomb with 5–12% price impact. |
 | **Call sign** | A rocket's ticker, like $HALO. Locked at launch. |
@@ -23,7 +23,7 @@ section: Reference
 | **Crew** | Everyone who holds a rocket. Everyone aboard flies together. |
 | **CRUISE** | A bomb with 12–25% price impact. |
 | **DUMP** | Sell. It drops a bomb. |
-| **Graduation** | Reaching $33,333 with 84% sold. The rocket moves to Uniswap v4 and its liquidity is locked forever. |
+| **Ascension** | Reaching $33,333 with 84% sold. The rocket moves to Uniswap v4 and its liquidity is locked forever. |
 | **GRENADE** | A bomb with 2–5% price impact. |
 | **Hold bonus** | A points multiplier, up to ×2.5, for holding a rocket in profit. Points only, never money. Coming soon: not yet applied to points. |
 | **Identity** | A playstyle tag earned from your trades, like Believer or Trencher. |
@@ -31,10 +31,10 @@ section: Reference
 | **Launch Pad** | The first altitude tier ($3K–$12K). Not to be confused with the Launchpad page. |
 | **Launchpad** | The home page that lists rockets. |
 | **Launch mode** | PvE, PvP or Trench Warfare: a rocket's curve rules, picked at launch. Coming. |
-| **LockedLP** | The contract that owns every graduated liquidity position. It has no remove function. |
-| **Near orbit** | A Launchpad filter for rockets close to graduation. |
+| **LockedLP** | The contract that owns every ascended liquidity position. It has no remove function. |
+| **Near orbit** | A Launchpad filter for rockets close to ascension. |
 | **NUKE** | A bomb with 25–50% price impact. |
-| **Outer Space** | The graduation tier, from $33,333. |
+| **Outer Space** | The ascension tier, from $33,333. |
 | **Pair** | A rocket and its base. |
 | **Normie** | A pilot with no identity yet, and the prestige-0 label. |
 | **Pilot** | A trader. |
@@ -48,9 +48,9 @@ section: Reference
 | **Simulator** | Free paper trading against bots. |
 | **Thrust** | The visual force of a BOOST. |
 | **Touch grass** | A calm, market-cap-only flight view. |
-| **Tramp** | A limit buy below the price on a graduated rocket. |
+| **Tramp** | A limit buy below the price on an ascended rocket. |
 | **Trench Warfare** | The hardest mode: no guardrails. |
 | **Trencher** | A fast in-and-out trader. |
 | **USDG** | A dollar stablecoin on Robinhood Chain. mUSDG on testnet. |
 | **Verified** | A checkmark the team grants after reviewing a rocket. |
-| **Wall** | A limit sell above the price on a graduated rocket. |
+| **Wall** | A limit sell above the price on an ascended rocket. |

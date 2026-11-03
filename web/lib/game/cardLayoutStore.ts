@@ -10,26 +10,40 @@ import { clampOffset, loadLayout, saveLayout, type CardId, type Layout } from "@
 
 type Win = { __cardLayout?: Layout };
 let layout: Layout = {}, account: string | null = null, started = false;
+/** PR #221 snap-to-grid: the slot flow (CardChrome → lib/game/slots) turns slot assignments into drawn offsets; the engine
+ *  and the DOM cards get the SAVED layout with those offsets merged in (overflow = no room anywhere ⇒ hidden, not saved). */
+export type FlowOffsets = Partial<Record<CardId, { dx: number; dy: number; hide?: boolean }>>;
+let flow: FlowOffsets = {}, merged: Layout = {};
 const subs = new Set<(l: Layout) => void>();
 const ls = () => (typeof localStorage !== "undefined" ? localStorage : null);
+function merge(): Layout {
+  const out: Layout = { ...layout };
+  for (const k of Object.keys(flow) as CardId[]) { const f = flow[k]!, c = out[k] || { dx: 0, dy: 0 };
+    out[k] = { ...c, dx: f.dx, dy: f.dy, ...(f.hide ? { closed: true } : {}) }; }
+  return out;
+}
 function publish() {
   if (typeof window === "undefined") return;
-  (window as unknown as Win).__cardLayout = layout;
-  dispatchEvent(new CustomEvent("disciple:cardlayout", { detail: layout }));
-  for (const f of subs) f(layout);
+  merged = merge();
+  (window as unknown as Win).__cardLayout = merged;
+  dispatchEvent(new CustomEvent("disciple:cardlayout", { detail: merged }));
+  for (const f of subs) f(merged);
 }
+export const getSavedLayout = () => layout;
+export function setFlowOffsets(f: FlowOffsets) { if (JSON.stringify(f) === JSON.stringify(flow)) return; flow = f; publish(); }
 function start() {
   if (started || typeof window === "undefined") return;
   started = true;
   layout = loadLayout(ls(), null); publish();
   onWallet((a) => { const n = a ? a.toLowerCase() : null; if (n === account) return; account = n; layout = loadLayout(ls(), account); publish(); });
 }
-export const getLayout = () => layout;
+/** what is on screen (saved layout + slot flow) */
+export const getLayout = () => merged;
 /** persist=false while dragging (memory + engine only); the pointerup commits */
 export function updateLayout(f: (l: Layout) => Layout, persist = true) { start(); layout = f(layout); if (persist) saveLayout(ls(), account, layout); publish(); }
 export function useCardLayout(): Layout {
-  const [l, setL] = useState<Layout>(layout);
-  useEffect(() => { start(); setL(layout); subs.add(setL); return () => { subs.delete(setL); }; }, []);
+  const [l, setL] = useState<Layout>(merged);
+  useEffect(() => { start(); setL(merged); subs.add(setL); return () => { subs.delete(setL); }; }, []);
   return l;
 }
 export const isPhoneUI = () => typeof document !== "undefined" && (document.documentElement.classList.contains("ap-phone") || !!window.matchMedia?.("(max-width: 760px)").matches);

@@ -11,7 +11,7 @@ A rocket can carry a per-wallet holding cap while it's on the curve.
 
 - **Default: no cap.** The team can set a protocol-wide cap for new launches (0–100% of supply).
 - **Fixed per rocket.** The cap in force at launch applies for that rocket's whole curve. Changes affect new rockets only.
-- **Curve only.** No cap after graduation.
+- **Curve only.** No cap after ascension.
 - **No exemptions** when a cap is set.
 - Older testnet rockets (from earlier deploys) carry a fixed 7% cap.
 
@@ -31,10 +31,10 @@ Every trade also has a deadline. A trade that lands too late reverts.
 
 These two checks are DISCIPLE's MEV protection.
 
-## Max price impact (after graduation)
+## Max price impact (after ascension)
 
 Trades through the DISCIPLE router revert if one swap would move the pool price by more than **50%**. Split a very large trade into smaller ones. [CONFIRM: FLOW — PR #75 also applies the router's 50% cap to curve trades routed through it; confirm before release.]
 
 ## Always live
 
-There is no pause. Curves and graduated pools are always open.
+There is no pause. Curves and ascended pools are always open.

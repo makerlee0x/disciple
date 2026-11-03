@@ -81,6 +81,8 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const walletRef = useRef(wallet);
   walletRef.current = wallet;
+  // sign-out / account switch: drop the previous account's live wallet balance (YOUR POSITION never shows it for another account)
+  useEffect(() => { walletRef.current = null; setWallet(null); }, [account]);
 
   // this account's ledger for this coin; another account / signed out ⇒ its own (often empty) ledger, never the last one's
   useEffect(() => {

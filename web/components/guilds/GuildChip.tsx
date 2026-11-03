@@ -35,14 +35,16 @@ export function GuildMark({ guild, size = 24 }: { guild: Pick<GuildTag, "tag" | 
  * Guild tag chip (BRAND guilds-r1): inline (mark + TAG, next to names in feeds/lists), md / lg ("GUILD" + TAG: profile).
  * Marks render at 12px+ only; below that, the text alone.
  */
-export default function GuildChip({ guild, size = "inline" }: { guild: Pick<GuildTag, "tag" | "mark"> | null | undefined; size?: "inline" | "md" | "lg" }) {
+export default function GuildChip({ guild, size = "inline", markOnly = false }: { guild: Pick<GuildTag, "tag" | "mark"> | null | undefined; size?: "inline" | "md" | "lg"; markOnly?: boolean }) {
   if (!guild) return null;
   const px = size === "lg" ? 16 : size === "md" ? 14 : 12;
+  // markOnly (account pill): the mark alone, the tag stays in the tooltip + for screen readers. A tag that matches the
+  // username ("@jesus" + "J JESUS") read as the name shown twice (lee, Oct 30).
   return (
-    <span className={`guild-chip guild-chip-${size}`} title={GUILD_COPY.wear(guild.tag)} data-testid="guild-chip">
+    <span className={`guild-chip guild-chip-${size}${markOnly ? " guild-chip-markonly" : ""}`} title={GUILD_COPY.wear(guild.tag)} data-testid="guild-chip">
       <GuildMark guild={guild} size={px} />
-      {size !== "inline" && <span className="guild-chip-word">GUILD</span>}
-      <span className="guild-chip-tag">{guild.tag}</span>
+      {!markOnly && size !== "inline" && <span className="guild-chip-word">GUILD</span>}
+      <span className={markOnly ? "sr-only" : "guild-chip-tag"}>{guild.tag}</span>
     </span>
   );
 }
@@ -66,7 +68,7 @@ export function useGuildTag(address: string | null | undefined): GuildTag | null
 }
 
 /** Inline chip for a wallet (looks the tag up). Renders nothing when the wallet has no guild. */
-export function GuildTagFor({ address, size = "inline" }: { address: string | null | undefined; size?: "inline" | "md" | "lg" }) {
+export function GuildTagFor({ address, size = "inline", markOnly = false }: { address: string | null | undefined; size?: "inline" | "md" | "lg"; markOnly?: boolean }) {
   const tag = useGuildTag(address);
-  return <GuildChip guild={tag} size={size} />;
+  return <GuildChip guild={tag} size={size} markOnly={markOnly} />;
 }

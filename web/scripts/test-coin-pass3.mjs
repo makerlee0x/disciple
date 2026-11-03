@@ -51,7 +51,7 @@ console.log("— 4. movable cards (engine)");
   ok(JSON.stringify(cardOff(r, { dx: 5000, dy: 5000 }, 1366, 768)) === JSON.stringify({ dx: 1366 - 310 - 20, dy: 768 - 140 - 600 }), "dragged past the right / bottom edge ⇒ clamped inside");
   ok(JSON.stringify(cardOff(r, { dx: -999, dy: -999 }, 1366, 768)) === JSON.stringify({ dx: -20, dy: -600 }), "past the left / top edge ⇒ clamped at 0,0");
   ok(cardOff({ x: 20, y: 18, w: 380, h: 190 }, { dx: 300, dy: 0 }, 300, 768).dx === -20, "card wider than the window pins to the left");
-  for (const id of ["header", "holders", "trades", "controls"]) ok(new RegExp(`cardBegin\\('${id}',`).test(eng), `canvas card '${id}' drawn through cardBegin (offset / min / close)`);
+  for (const id of ["header", "trades", "controls"]) ok(new RegExp(`cardBegin\\('${id}',`).test(eng), `canvas card '${id}' drawn through cardBegin (offset / min / close)`);
   ok(/data-card="chart"/.test(rd("components/flight/DexChart.tsx")) && /chart: '\[data-card="chart"\]'/.test(rd("components/flight/CardChrome.tsx")), "chart card: the DOM DexChart (data-card=chart) located by CardChrome");
   ok(/drawChartMap\(\); cardPublish\(\);/.test(eng) && /dispatchEvent\(new CustomEvent\('disciple:cardrects'/.test(eng), "engine publishes the drawn card rects (on change)");
   ok(/addEventListener\('disciple:cardlayout'/.test(eng) && /"disciple:cardlayout"/.test(rd("lib/flight/workerBridge.ts")) && /"__cardLayout"/.test(rd("lib/flight/workerBridge.ts")), "layout reaches the engine live (event, worker-forwarded) and at boot (global)");
@@ -68,7 +68,7 @@ console.log("— 5. only the active tab renders");
   // engine: the canvas TOP HOLDERS box never draws under an open dock, even before disciple:chatdock arrives
   const kd = new Function("S", "window", eng.match(/function kothDockedNow\(\)\{[^\n]*\}/)[0] + "\nreturn kothDockedNow;");
   ok(kd({ kothDocked: false }, { __chatDockOpen: true })() === true && kd({ kothDocked: true }, {})() === true && kd({ kothDocked: false }, {})() === false, "kothDockedNow: event OR window flag");
-  ok(/const docked=kothDockedNow\(\); if \(docked\) pushHolders\(top,kothTitle\);/.test(eng) && /else if \(!docked&&cardBegin\('holders'/.test(eng), "canvas TOP HOLDERS drawn only when the dock is not open");
+  ok(!/cardBegin\('holders'/.test(eng) && /\n  pushHolders\(top,kothTitle\);/.test(eng), "no canvas TOP HOLDERS card (lee Oct 31); holders always pushed to the chat HOLDERS tab");
   ok(/lastHolders\.current === 0 \|\| quiet > 3000/.test(gc) && /\}, 400\);/.test(gc), "re-announce every 400 ms until the first holders push (was 3 s)"); }
 
 // ───────────── 6. rocket height = f(price) ─────────────

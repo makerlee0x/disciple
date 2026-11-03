@@ -20,7 +20,7 @@ export const FIRST_BOOST_COPY = {
   pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,
   estimate: (tokens: string, ticker: string, pct: string) => `≈ ${tokens} $${ticker} (${pct} of supply)`,
   modeCap: (mode: string, pct: string) => `${mode} launch: your First BOOST can be up to ${pct} of the coins.`,
-  easyLock: "On Easy, your First BOOST stays locked until the rocket graduates. Coins you buy later are free to sell.",
+  easyLock: "On Easy, your First BOOST stays locked until the rocket ASCENDS. Coins you buy later are free to sell.",
   pveLogin: "Easy needs a verified email, Google or X login to BOOST. Yours is verified, so you're good to go.",
   pveLoginUnverified: "Easy needs a verified email, Google or X login to BOOST, and yours isn't verified yet. Sign in with one, or set First BOOST to 0.",
   // #99: /api/pve/attest verifies the Privy login and relays LoginGate.attest when you launch.

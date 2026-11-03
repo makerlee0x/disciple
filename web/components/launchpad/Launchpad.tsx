@@ -18,7 +18,7 @@ const TABS: { k: Tab; label: string; hint: string }[] = [
   { k: "altitude", label: "Altitude", hint: "Highest market cap first" },
   { k: "new", label: "New", hint: "Freshest launches" },
   { k: "active", label: "Active", hint: "Most 24h volume" },
-  { k: "near", label: "Near orbit", hint: "≥60% of the way to graduation" },
+  { k: "near", label: "Near orbit", hint: "≥60% of the way to ascension" },
   { k: "graduated", label: "Ascended", hint: "Past Outer Space" },
 ];
 const PAIRS = [

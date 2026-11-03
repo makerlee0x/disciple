@@ -10,7 +10,7 @@ import { ENTRYPOINT_V07 } from "../aa/constants";
 
 const DEPOSIT_TTL_MS = 10_000;
 const epAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
-const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true } }) });
+const pc = createPublicClient({ chain: robinhoodTestnet, transport: http(undefined, { fetchOptions: { keepalive: true }, timeout: 3000, retryCount: 1 })   /* job 9: bounded pre-send (viem default 10 s × 3 retries) */ });
 let cache: { pm: string; bal: bigint; at: number } | undefined;
 let inflight: Promise<bigint> | undefined;
 

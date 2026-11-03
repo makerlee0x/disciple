@@ -5,7 +5,7 @@
 :root {
   --background: var(--dsc-bg);
   --foreground: var(--dsc-text);
-  --ap-side-w: 270px;
+  --ap-side-w: 248px; /* premium-ui-r1 sidebar width (was 270px) */
   --ap-rail-w: 64px;
   --ap-topbar-h: 56px;
   --ap-ink: var(--dsc-bg);
@@ -27,8 +27,10 @@ body.game {
   height: 100%;
 }
 
-/* —— Sidebar —— */
+/* —— Sidebar (premium-ui-r1: BRAND mockups/premium-ui-r1/src/premium.css .side / .nav / .acct) —— */
 #apSide {
+  --ap-hair: rgba(201, 206, 214, 0.10);
+  --ap-hair-2: rgba(201, 206, 214, 0.16);
   position: fixed;
   left: 0;
   top: 0;
@@ -37,31 +39,33 @@ body.game {
   width: var(--ap-side-w);
   display: flex;
   flex-direction: column;
-  padding: 18px 16px 16px;
+  gap: 24px;
+  padding: 20px 16px 16px;
   box-sizing: border-box;
-  background: var(--dsc-surface);
-  border-right: 1px solid var(--dsc-border);
-  border-radius: 0 0 0 28px;
-  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45), 0 0 40px rgba(201, 206, 214, 0.06);
-  color: #E8EAEE;
-  font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #0E0F12, #0C0D10);
+  border-right: 0;
+  box-shadow: inset -1px 0 0 var(--ap-hair);
+  color: var(--dsc-text);
+  font: 14px/1.4 var(--dsc-font-ui);
+  -webkit-font-smoothing: antialiased;
   transition: width var(--dsc-duration-base) var(--dsc-easing-standard), padding var(--dsc-duration-base) var(--dsc-easing-standard), transform var(--dsc-duration-base) var(--dsc-easing-standard);
   overflow: hidden;
 }
 #apSide.collapsed {
   width: var(--ap-rail-w);
-  padding: 14px 10px 12px;
+  padding: 20px 0 16px;
+  align-items: center;
+  gap: 16px;
 }
 #apSide .ap-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 4px 18px;
+  height: 40px;
+  padding: 0 0 0 6px;
   flex: 0 0 auto;
-  min-height: 44px;
 }
-/* DISCIPLE v1 brand: 04-3 mark + W1 wordmark lockup (light colorway on dark).
-   Lockup ≥96px wide; collapsed rail uses the mark alone (≥24px). No glows/containers. */
+/* DISCIPLE v1 brand: 04-3 mark + W1 wordmark lockup (light colorway on dark). Collapsed rail uses the mark alone. */
 #apSide .ap-logo {
   display: flex;
   align-items: center;
@@ -69,213 +73,297 @@ body.game {
   min-width: 0;
   text-decoration: none;
 }
-#apSide .ap-logo img {
-  display: block;
-  height: auto;
-}
-#apSide .ap-lockup {
-  width: 176px;
-  max-width: 100%;
-}
-#apSide .ap-mark {
-  display: none !important;
-  width: 32px;
-}
-#apSide.collapsed .ap-lockup {
-  display: none !important;
-}
-#apSide.collapsed .ap-mark {
-  display: block !important;
-}
+#apSide .ap-logo img { display: block; }
+#apSide .ap-lockup { height: 38px; width: auto; max-width: 100%; margin-left: -8px; }
+#apSide .ap-mark { display: none !important; width: 30px; height: 30px; }
+#apSide.collapsed .ap-lockup { display: none !important; }
+#apSide.collapsed .ap-mark { display: block !important; }
 #apSide .ap-tog {
   all: unset;
   cursor: pointer;
   margin-left: auto;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--dsc-radius-md);
   display: grid;
   place-items: center;
-  color: var(--dsc-primary);
-  font-size: 18px;
-  border: 1px solid transparent;
+  color: var(--dsc-muted);
 }
-#apSide .ap-tog:hover {
-  background: rgba(201, 206, 214, 0.12);
-  border-color: rgba(201, 206, 214, 0.35);
-}
-#apSide.collapsed .ap-brand {
-  flex-direction: column;
+#apSide .ap-tog:hover { background: rgba(201, 206, 214, 0.06); color: var(--dsc-text); }
+#apSide .ap-tog:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: 2px; }
+#apSide .ap-tog > span { display: grid; place-items: center; }
+#apSide .ap-tog .ap-tog-close { display: none; }
+#apSide.collapsed .ap-brand { flex-direction: column; height: auto; gap: 12px; padding: 0; }
+#apSide.collapsed .ap-tog { margin-left: 0; }
+/* the one Launch button: silver, top of the menu; the silver + on the rail */
+#apSide .ap-launch {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding-bottom: 12px;
+  border-radius: var(--dsc-radius-md);
+  border: 1px solid var(--dsc-primary);
+  background: var(--dsc-primary);
+  color: var(--dsc-on-light);
+  font: 600 14px/1 var(--dsc-font-ui);
+  white-space: nowrap;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 0 rgba(0, 0, 0, 0.4);
+  transition: background var(--dsc-duration-fast) var(--dsc-easing-standard);
 }
-#apSide.collapsed .ap-tog {
-  margin-left: 0;
-}
+#apSide .ap-launch:hover { background: var(--dsc-text); }
+#apSide .ap-launch:focus-visible { outline: 2px solid var(--dsc-text); outline-offset: 2px; }
+#apSide .ap-launch .lb { font-size: 14px; font-weight: 600; }
+#apSide.collapsed .ap-launch { width: 40px; height: 40px; padding: 0; gap: 0; }
 #apSide .ap-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   flex: 0 0 auto;
-  padding: 0 0 8px;
 }
-#apSide .ap-nav button,
+#apSide .ap-nav-you { margin-top: 8px; }
+/* short desktop windows: the open menu scrolls instead of clipping the account card */
+#apSide:not(.collapsed) { overflow-y: auto; scrollbar-width: thin; }
+#apSide .ap-grp {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: var(--dsc-tracking-eyebrow, .08em);
+  text-transform: uppercase;
+  color: #6E737D;
+  padding: 0 12px 8px;
+  white-space: nowrap;
+}
+#apSide.collapsed .ap-grp { display: none; }
 #apSide .ap-nav a,
 #apSide .ap-foot button,
 #apSide .ap-foot a {
   all: unset;
   box-sizing: border-box;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 42px;
+  height: 40px;
   padding: 0 12px;
-  border-radius: 12px;
-  color: var(--ap-muted);
+  border-radius: var(--dsc-radius-md);
+  color: #B4B8C1;
+  font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--dsc-duration-fast) var(--dsc-easing-standard), color var(--dsc-duration-fast) var(--dsc-easing-standard), box-shadow var(--dsc-duration-fast) var(--dsc-easing-standard);
+  transition: background var(--dsc-duration-fast) var(--dsc-easing-standard), color var(--dsc-duration-fast) var(--dsc-easing-standard);
   text-decoration: none;
 }
-#apSide .ap-nav button:hover,
+#apSide .ap-nav a .ic,
+#apSide .ap-foot button .ic,
+#apSide .ap-foot a .ic { color: #7D828C; }
 #apSide .ap-nav a:hover,
 #apSide .ap-foot button:hover,
-#apSide .ap-foot a:hover {
-  background: rgba(201, 206, 214, 0.1);
-  color: var(--dsc-text);
-}
-#apSide .ap-nav a.on,
-#apSide .ap-nav button.on,
-#apSide .ap-foot a.on,
-#apSide .ap-foot button.on {
-  color: var(--dsc-primary);
-  background: rgba(201, 206, 214, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(201, 206, 214, 0.35);
-  text-shadow: 0 0 10px rgba(201, 206, 214, 0.45);
+#apSide .ap-foot a:hover { background: rgba(201, 206, 214, 0.04); color: var(--dsc-text); }
+#apSide .ap-nav a:focus-visible,
+#apSide .ap-foot button:focus-visible,
+#apSide .ap-foot a:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: -2px; }
+/* active: 2px silver edge + 6% fill, no glow */
+#apSide .ap-nav a.on { color: var(--dsc-text); background: rgba(201, 206, 214, 0.06); }
+#apSide .ap-nav a.on .ic { color: var(--dsc-text); }
+#apSide .ap-nav a.on::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--dsc-primary);
 }
 #apSide .ic {
-  width: 24px;
-  flex: 0 0 24px;
-  text-align: center;
+  width: 20px;
+  flex: 0 0 20px;
   line-height: 1;
-  color: inherit;
   display: grid;
   place-items: center;
 }
 #apSide .lb {
   opacity: 1;
   transition: opacity var(--dsc-duration-fast) var(--dsc-easing-standard);
-  font-size: 13.5px;
-  font-weight: 500;
 }
-#apSide.collapsed .lb {
-  opacity: 0;
-  width: 0;
-  overflow: hidden;
-  padding: 0;
-}
-#apSide.collapsed .ap-nav button,
+#apSide.collapsed .lb { opacity: 0; width: 0; overflow: hidden; padding: 0; position: absolute; }
 #apSide.collapsed .ap-nav a,
 #apSide.collapsed .ap-foot button,
 #apSide.collapsed .ap-foot a {
   justify-content: center;
   padding: 0;
   gap: 0;
-  width: 44px;
+  width: 40px;
   margin: 0 auto;
 }
-#apSide .ap-promo {
-  margin: 12px 0 auto;
-  padding: 16px 14px 14px;
-  border-radius: var(--dsc-radius-2xl);
-  background: linear-gradient(
-    165deg,
-    rgba(180, 150, 240, 0.28),
-    rgba(201, 206, 214, 0.12) 45%,
-    color-mix(in srgb, var(--dsc-border) 55%, transparent)
-  );
-  border: 1px solid rgba(201,206,214,0.35);
-  box-shadow: inset 0 0 24px rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.25);
+#apSide.collapsed .ap-nav a.on::before { display: none; }
+#apSide.collapsed .ap-nav-you { margin-top: 0; }
+#apSide .ap-spacer { flex: 1 1 auto; min-height: 0; }
+#apSide .ap-foot { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; margin-bottom: -12px; }
+#apSide.collapsed .ap-foot { margin-bottom: 0; }
+/* who you are: picture, name, guild tag, settings in one card */
+#apSide .ap-me {
+  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: 8px;
-  transition: opacity var(--dsc-duration-base) var(--dsc-easing-standard), max-height var(--dsc-duration-base) var(--dsc-easing-standard), margin var(--dsc-duration-base) var(--dsc-easing-standard), padding var(--dsc-duration-base) var(--dsc-easing-standard);
-  overflow: hidden;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--dsc-radius-lg);
+  border: 1px solid var(--ap-hair);
 }
-#apSide .ap-promo h3 {
-  margin: 0;
-  font: 400 14px/1.35 var(--dsc-font-display);
+#apSide .ap-me-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--dsc-text);
-  text-shadow: 0 0 10px rgba(201, 206, 214, 0.4);
+  text-decoration: none;
+  border-radius: var(--dsc-radius-md);
 }
-#apSide .ap-promo p {
-  margin: 0;
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: rgba(230, 228, 255, 0.72);
-}
-#apSide .ap-promo .ap-cta {
+#apSide .ap-me-id:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: 2px; }
+#apSide .ap-me-who { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+#apSide .ap-me-nm { font-size: 14px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+#apSide .ap-me-gear {
   all: unset;
   box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--dsc-radius-md);
+  color: var(--dsc-muted);
   cursor: pointer;
-  margin-top: 6px;
-  padding: 10px 18px;
+}
+#apSide .ap-me-gear:hover { background: rgba(201, 206, 214, 0.06); color: var(--dsc-text); }
+#apSide .ap-me-gear:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: 0; }
+#apSide .ap-av {
+  position: relative;
+  flex: none;
+  border-radius: 50%;
+  padding: 2px;
+  box-sizing: border-box;
+  background: rgba(201, 206, 214, 0.55);
+  display: block;
+}
+#apSide .ap-av img,
+#apSide .ap-av .ap-av-in {
   width: 100%;
-  text-align: center;
-  border-radius: 12px;
-  background: linear-gradient(180deg, var(--dsc-surface-2), var(--dsc-surface));
-  color: #fff;
-  font: bold 12px ui-sans-serif, system-ui, sans-serif;
-  border: 1px solid rgba(201, 206, 214, 0.35);
-  box-shadow: 0 0 16px rgba(201, 206, 214, 0.12);
-  text-decoration: none;
-}
-#apSide .ap-promo .ap-cta:hover {
-  background: linear-gradient(180deg, var(--dsc-border), var(--dsc-surface-2));
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--dsc-bg);
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  background: var(--dsc-surface);
   color: var(--dsc-text);
+  font: 600 13px/1 var(--dsc-font-ui);
 }
-#apSide.collapsed .ap-promo {
-  opacity: 0;
-  max-height: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  pointer-events: none;
+#apSide.collapsed .ap-me { padding: 0; border: 0; }
+#apSide.collapsed .ap-me-who,
+#apSide.collapsed .ap-me-gear { display: none; }
+/* the desktop card has the gear, so the Settings row only shows on phones / the rail / signed out */
+@media (min-width: 761px) {
+  #apSide:not(.collapsed) .ap-foot .ap-set.has-me { display: none; }
 }
-#apSide .ap-foot {
+/* signed out: one card, one Sign in button */
+#apSide .ap-join {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  flex: 0 0 auto;
-  padding-top: 10px;
-  border-top: 1px solid rgba(201, 206, 214, 0.15);
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ap-hair);
+  border-radius: var(--dsc-radius-lg);
 }
-#apSide.collapsed .ap-foot {
-  border-top-color: transparent;
-  padding-top: 6px;
+#apSide .ap-join-p { margin: 0; font-size: 13px; line-height: 18px; color: var(--dsc-muted); }
+#apSide .ap-join-btn {
+  all: unset;
+  box-sizing: border-box;
+  margin-top: 4px;
+  height: 40px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--dsc-radius-md);
+  border: 1px solid var(--ap-hair-2);
+  color: var(--dsc-text);
+  font: 500 14px/1 var(--dsc-font-ui);
+  cursor: pointer;
+  white-space: nowrap;
 }
+#apSide .ap-join-btn:hover { background: rgba(201, 206, 214, 0.06); }
+#apSide .ap-join-btn:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: 2px; }
+#apSide.collapsed .ap-join { display: none; }
 #apReopen {
   display: none;
   position: fixed;
-  left: 10px;
-  top: 12px;
+  left: 8px;
+  top: 8px;
   z-index: 31;
   width: 40px;
   height: 40px;
   place-items: center;
-  border-radius: 12px;
-  border: 1px solid rgba(201, 206, 214, 0.45);
-  background: color-mix(in srgb, var(--dsc-surface) 85%, transparent);
-  color: var(--dsc-primary);
-  font-size: 18px;
+  border-radius: var(--dsc-radius-md);
+  border: 0;
+  background: transparent;
+  color: var(--dsc-text);
   cursor: pointer;
-  box-shadow: 0 0 16px rgba(201, 206, 214, 0.2);
 }
+#apReopen:focus-visible { outline: 2px solid var(--dsc-border-color-focus, #C9CED6); outline-offset: 0; }
 body.side-hidden #apReopen {
   display: grid;
 }
+/* Phone top-bar Launch (non-game routes, lee Q6): right of the menu button; desktop has the sidebar's Launch */
+.ap-phone-launch { display: none; }
+.ap-scrim { display: none; }
+@media (max-width: 760px) {
+  body.side-hidden .ap-phone-launch {
+    position: fixed;
+    left: 52px;
+    top: 10px;
+    z-index: 31;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 36px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    border-radius: var(--dsc-radius-md);
+    border: 1px solid var(--dsc-primary);
+    background: var(--dsc-primary);
+    color: var(--dsc-on-light);
+    font: 600 13px/1 var(--dsc-font-ui);
+    text-decoration: none;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+}
+/* ...and the wallet strip (right-aligned, wraps on phones) keeps clear of the menu button + Launch: before, its full-width
+ * box sat over the menu button once signed in, so the drawer could not be opened by tapping it */
+@media (max-width: 760px) {
+  body.side-hidden:not(.game) [aria-label="wallet"] { max-width: calc(100vw - 160px) !important; }
+}
+/* Game routes (coin / flight), desktop (GAME #221 / lee): the open sidebar OVERLAYS the game. No push: body.side-open is
+ * not set there (Sidebar.tsx), so the canvas and the rail-pinned cards stay put (the #219 --ap-rail-w push is gone); the
+ * panel slides over the left edge above the HUD, with its premium shadow. No backdrop (it dimmed the game). GAME keeps the
+ * left 248px of its HUD clear via <html data-sidebar-overlay="open"> / the disciple:sidebar-overlay event. */
+@media (min-width: 761px) {
+  body.side-overlay #apSide:not(.collapsed) {
+    z-index: 62; /* above the coin name (60) and card chrome (61); below GAME modals (75, 80) */
+    box-shadow: inset -1px 0 0 var(--ap-hair-2), 24px 0 64px rgba(0, 0, 0, .55);
+    animation: ap-overlay-in var(--dsc-duration-base, 180ms) var(--dsc-easing-standard, ease-out);
+  }
+}
+@keyframes ap-overlay-in { from { transform: translateX(-24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (max-width: 760px) {
   #apSide.collapsed {
     width: 0;
@@ -284,6 +372,34 @@ body.side-hidden #apReopen {
     box-shadow: none;
     transform: translateX(-100%);
   }
+  /* phone drawer (r1 phone mock): 316px, you first, Launch in the top bar instead (game routes keep it in the drawer) */
+  #apSide:not(.collapsed) {
+    width: min(316px, 86vw);
+    padding: 12px 16px 24px;
+    gap: 22px;
+    background: linear-gradient(180deg, #0F1013, #0C0D10);
+    box-shadow: inset -1px 0 0 var(--ap-hair-2), var(--dsc-shadow-xl, 0 24px 64px rgba(0, 0, 0, .6));
+  }
+  #apSide .ap-brand { height: 44px; padding-left: 0; }
+  #apSide .ap-lockup { height: 34px; }
+  #apSide .ap-tog .ap-tog-menu { display: none; }
+  #apSide .ap-tog .ap-tog-close { display: grid; }
+  #apSide .ap-me,
+  #apSide .ap-join { order: 1; }
+  #apSide .ap-me { padding: 14px; }
+  #apSide .ap-me-gear { display: none; }
+  #apSide .ap-launch { order: 2; }
+  #apSide .ap-launch:not(.ap-launch-game) { display: none; }
+  #apSide .ap-nav { order: 3; }
+  #apSide .ap-nav-you { order: 4; margin-top: 4px; }
+  #apSide .ap-spacer { order: 5; }
+  #apSide .ap-foot { order: 6; margin-bottom: 0; }
+  #apSide .ap-join-btn { background: var(--dsc-primary); border-color: var(--dsc-primary); color: var(--dsc-on-light); font-weight: 600; height: 44px; }
+  #apSide:not(.collapsed) { z-index: 62; }
+  .ap-scrim { display: block; position: fixed; inset: 0; z-index: 61; background: rgba(11, 12, 14, 0.72); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+  #apSide .ap-nav a { height: 48px; font-size: 16px; }
+  #apSide .ap-foot button,
+  #apSide .ap-foot a { height: 48px; font-size: 15px; }
 }
 
 /* Main content offset */
@@ -333,12 +449,10 @@ body.home.home-top .ap-topbar { background: transparent; border-bottom-color: tr
   #apSide .ap-tog.ap-tog-mobile { display: grid; }
 }
 /* Phones (< 740px = PhoneHud PHONE_W): the wallet's signed-out pill ("Play") leaves the top bar so GAME's ✕ owns the
-   top-right corner; the same action is a Sidebar item (lib/walletCta.ts). Desktop keeps the pill, no Sidebar item. */
-#apSide .ap-foot .ap-side-cta { display: none; }
+   top-right corner; the same action is the Sidebar's Sign in card button (lib/walletCta.ts). Desktop shows both. */
 @media (max-width: 739.98px) {
   [aria-label="wallet"] .ap-wallet-cta { display: none !important; }
-  #apSide .ap-foot .ap-side-cta { display: flex; }
-  /* the drawer's extra items (Play, Settings) must stay reachable on short phones */
+  /* the drawer's items (Play, Settings) must stay reachable on short phones */
   /* the open drawer sits above the flight HUD (coin chip / wallet z 60, phone trade bar z 40) so its items are tappable */
   #apSide:not(.collapsed) { overflow-y: auto; overscroll-behavior: contain; z-index: 62; }
 }
@@ -1608,6 +1722,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .guild-chip-lg { height: 28px; padding: 0 10px; font-size: 13px; gap: 7px; }
 .guild-chip-word { font-weight: 500; color: rgba(232,234,238,.6); }
 .guild-chip-tag { font-weight: 600; }
+.guild-chip-markonly { padding: 0 3px; gap: 0; }
 .guild-mark { position: relative; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 4px; vertical-align: middle; }
 .guild-mark-ring { box-shadow: inset 0 0 0 1px rgba(201,206,214,.35); }
 .guild-mark-logo { width: 100%; height: 100%; object-fit: cover; display: block; }

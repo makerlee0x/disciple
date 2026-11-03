@@ -52,14 +52,15 @@ const B40 = "0xef21000000000000000000000000000000008e30";
   ok(E.nameOf("bot_alice") === "bot_alice", "sim bot names pass through");
   win.__discipleNames = { [A]: "@verylongusername99" }; ok(E.nameOf(A.toUpperCase().replace("0X", "0x")) === "@verylonguse", "site map, case-insensitive, one @, ≤11 chars: " + E.nameOf(A));
   const r = E.feedTradeRow("buy", 25, null, B40); ok(r.txt.endsWith("0xef21…8e30") && r.tr === B40, "live row keeps its trader for relabel");
-  const you = E.feedTradeRow("sell", 4, "(you)", ME); ok(you.txt.endsWith("(you)") && !you.tr, "player row: '(you)', never relabelled");
+  const you = E.feedTradeRow("sell", 4, "(you)", ME); ok(you.txt.endsWith("(you)") && you.own === 1 && you.tr === ME, "player row: '(you)', keeps its wallet (un-tagged on sign-out / switch)");
+  E.feedRelabel([you]); ok(you.txt.endsWith("(you)"), "player row never relabelled by names");
   E.NAMES[B40] = "whale"; E.feedRelabel([r, you]); ok(r.txt.endsWith("@whale") && you.txt.endsWith("(you)"), "late name (disciple:names) relabels the row: " + r.txt);
   ok(r.txt.length <= 38, "named row fits the 38-char feed width"); }
 ok(/addEventListener\('disciple:names',[^\n]*NAMES\[[^\n]*feedRelabel\(S\.feed\)/.test(eng), "engine listens to disciple:names → NAMES + relabel");
 ok(/S\.feed\.unshift\(feedTradeRow\(e\.side,e\.usd,e\.mine\?/.test(eng) && !/\?short\(e\.trader\):'#'\+e\.block/.test(eng), "live feed row uses names (no short(e.trader))");
 ok(/txt:`\$\{up\?'▲':'▼'\} \$\{nameOf\(e\.trader\)\}/.test(eng), "trade floater uses names");
 ok(/chartSeedK\(C\.k,fs,keep\); C\.hist=2;\s*\n\s*feedHistNames\(feedSeedFills\(S\.feed,fills,/.test(eng), "chartBackfill seeds the TRADES feed");
-ok(/\/api\/profile\/username\?address='\+a/.test(eng), "seeded rows look up their names (same API as lib/nameLookup)");
+ok(/dispatchEvent\(new CustomEvent\('disciple:names-want'/.test(eng) && !/fetch\('\/api\/profile\/username/.test(eng), "seeded rows ask the site for names (lib/nameLookup cache via 'disciple:names-want'), no direct fetch");
 ok(/"disciple:names"/.test(wb.match(/const INBOUND = \[[^\]]*\]/)[0]), "worker renderer receives disciple:names");
 // ── 3. narrow HUD column
 { const E = mk();

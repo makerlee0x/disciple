@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
@@ -19,7 +20,7 @@ import {
   legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
-import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT } from "@/lib/walletCta";
+import { WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
@@ -162,6 +163,17 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
     return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
   }, [addr, ownerAddr]);
 
+  // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
+  useEffect(() => {
+    const id: WalletId | null = addr ? { address: addr, name: uname } : null;
+    (window as unknown as { __walletId?: WalletId | null }).__walletId = id;
+    dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: id }));
+  }, [addr, uname]);
+  useEffect(() => () => {
+    (window as unknown as { __walletId?: WalletId | null }).__walletId = null;
+    dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: null }));
+  }, []);
+
   const fail = (e: unknown) => setErr(playerError(e).slice(0, 160));
   async function run(label: string, f: () => Promise<unknown>) {
     setErr(""); setBusy(label);
@@ -257,7 +269,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
               )}
               <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                 style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} /></>}
+                {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && <> <GuildTagFor address={addr} markOnly /></>}
               </button>
               {/* coin page cleanup (lee, Oct 30): no ✕ next to the chip; Sign out lives in the account menu + Sidebar */}
             </>
@@ -294,7 +306,7 @@ export default function WalletButton({ compact = false }: { compact?: boolean } 
         {addr && acct && smart && (
           <div aria-label="account" role="menu" style={{ ...popover, minWidth: 160, fontSize: 11 }}>
             <a role="menuitem" href="/profile" onClick={() => setAcct(false)} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Profile</a>
-            <a role="menuitem" href={SETTINGS_HREF} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</a>
+            <Link role="menuitem" href={SETTINGS_HREF} scroll={false} onClick={(e) => { setAcct(false); onSettingsClick(e); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Settings</Link>
             <button role="menuitem" type="button" onClick={() => { setAcct(false); run("", disconnect); }} style={{ ...pill, background: "rgba(255,255,255,.08)", textAlign: "center" }}>Sign out</button>
           </div>
         )}

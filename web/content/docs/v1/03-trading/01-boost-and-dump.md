@@ -16,8 +16,8 @@ On DISCIPLE, buying is **BOOST** and selling is **DUMP**.
 
 You always trade at the market. Where that market is depends on the rocket's phase:
 
-- **Before graduation:** against the rocket's bonding curve. See [Bonding curve](/docs/curve).
-- **After graduation:** against the rocket's Uniswap v4 pool, through the DISCIPLE router. See [Graduation](/docs/curve/graduation).
+- **Before ascension:** against the rocket's bonding curve. See [Bonding curve](/docs/curve).
+- **After ascension:** against the rocket's Uniswap v4 pool, through the DISCIPLE router. See [Ascension](/docs/curve/graduation).
 
 The buttons work the same in both phases.
 

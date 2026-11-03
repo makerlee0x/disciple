@@ -31,8 +31,11 @@ export function withPaymasterApprove(calls: Call[], usdg: Address, paymaster: Ad
   return [paymasterApproveCall(usdg, paymaster, maxTokenCost), ...rest];
 }
 
+/** Per pm_* request (the server signs locally; a healthy round trip is ~50–150 ms). */
+export const PM_TIMEOUT_MS = 6000;
 async function rpc<T>(url: string, method: string, op: UserOp, chainId: number): Promise<T> {
-  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: [op, ENTRYPOINT_V07, `0x${chainId.toString(16)}`, {}] }) });
+  // bounded (job 9): a hung paymaster endpoint must not stall a tap; the timeout surfaces as "trading unavailable"
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: [op, ENTRYPOINT_V07, `0x${chainId.toString(16)}`, {}] }), signal: AbortSignal.timeout(PM_TIMEOUT_MS) });
   const j = await r.json().catch(() => ({ error: { code: -32098, message: `paymaster response unreadable (HTTP ${r.status})` } })) as { result?: T; error?: { code: number; message: string; data?: unknown } };
   if (j.error) throw new PaymasterRpcError(j.error.message, j.error.code, j.error.data);
   return j.result as T;
@@ -71,7 +74,7 @@ export class AllowanceCache {
   invalidate(sender: Address) { this.m.delete(sender.toLowerCase()); }
   set(a: Allowance) { this.m.set(a.disciple.sender.toLowerCase(), a); }
   private async fetchOne(sender: Address): Promise<Allowance | undefined> {
-    const r = await fetch(this.o.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "pm_getPaymasterAllowance", params: [sender, ENTRYPOINT_V07, `0x${this.o.chainId.toString(16)}`] }) });
+    const r = await fetch(this.o.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "pm_getPaymasterAllowance", params: [sender, ENTRYPOINT_V07, `0x${this.o.chainId.toString(16)}`] }), signal: AbortSignal.timeout(PM_TIMEOUT_MS) });
     const j = await r.json().catch(() => ({})) as { result?: Allowance };
     return j.result?.disciple?.kind === "allowance" ? j.result : undefined;
   }

@@ -14,7 +14,7 @@ export type HolderLabel = "pool" | "curve" | "locker" | "burn" | null;
 export const HOLDER_LABEL_TEXT: Record<Exclude<HolderLabel, null>, string> = { pool: "Pool", locker: "Locked LP", burn: "Burned", curve: "Bonding curve" };
 export const holderLabelText = (l: HolderLabel | undefined): string => (l ? HOLDER_LABEL_TEXT[l] : "");
 
-export interface HolderRow { address: string; balance: string; tokens: number; pct: number; usd: number; label: HolderLabel; mine: boolean }
+export interface HolderRow { address: string; balance: string; tokens: number; pct: number; usd: number; label: HolderLabel; mine: boolean; /** display name (HoldersBridge: @username → default call sign → short address) */ name?: string }
 export interface HoldersSnapshot { rows: HolderRow[]; asOfBlock: number | null; source: "api" | "balances"; at: number }
 export interface ApiHolder { address: string; balance: string; pct?: number; usd?: number; label?: HolderLabel | string | null; /** SITE #158 tag: pool | locker | burn | holder (holder = a player wallet: never labelled) */ kind?: HolderKind | string | null }
 

@@ -19,8 +19,9 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
  * Private-profile identity strip: unique username (referral handle), X connect, wallet address.
  * `hideUsername`: the Settings modal on /profile, where the username is edited in Edit profile instead; the username
  * shows read-only here with the 24h change rule / when the next change is allowed (server's nextAllowedAt, local time).
+ * `usernameOnly`: the Settings popup (lee, Oct 30): just the editable username block (same claim / cooldown flow).
  */
-export default function ProfileIdentity({ hideUsername = false }: { hideUsername?: boolean } = {}) {
+export default function ProfileIdentity({ hideUsername = false, usernameOnly = false }: { hideUsername?: boolean; usernameOnly?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
   const [username, setUsername] = useState("");
   const [draft, setDraft] = useState("");
@@ -105,6 +106,7 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
           {cooldownNote}
         </div>}
 
+        {!usernameOnly && <>
         <div className="pid-block">
           <span className="pid-label">WALLET</span>
           <div className="pid-value mono">
@@ -147,6 +149,7 @@ export default function ProfileIdentity({ hideUsername = false }: { hideUsername
             </> : <span className="muted">Sign in to get one</span>}
           </div>
         </div>
+        </>}
       </div>
       {IS_STATIC_PREVIEW && <p className="muted tiny">Static preview: usernames are saved in this browser only (no uniqueness check).</p>}
     </section>

@@ -18,12 +18,14 @@ import { AAError, userOpHash, type Call, type GasMode, type OwnerSigner, type Us
 import { ENTRYPOINT_V07 } from "./constants";
 import type { TradeTiming } from "../trade/timing";
 import { withBlock } from "../trade/readFloor";
-import { appReadTransport } from "../rpc/readTransport";
+import { appReadTransport, withinBudget } from "../rpc/readTransport";
 import { BUNDLE_REVERTED, PENDING_MSG, REJECTED_MSG, keptOpRef, logRelayOp, logTradeError, relayOpRef } from "./relayOp";
 import { AllowanceCache, payGasInUsdg, PaymasterRpcError, type PaymasterFields } from "./paymasterClient";
 import { relaySend, relayUnclear } from "./relayClient";
 import type { RelayErrorData, RelayTimeoutExtra, RelayUnclearInfo } from "./relayTypes";
 import { PaymasterCapCache, fallbackUsdgDecimals, peekReserve, reserveOrDerived, type GasOpKind, type WarmAllowance } from "./gasReserve";
+/** A cold fee cache (first op before aaWarm answered) waits at most this long (job 9: no tap stalls on a hung RPC). */
+const COLD_FEES_MS = 1500;
 /** ≈ one RH block (~165 ms): the retry cadence after a pre-flight saw a lagging node (was a fixed 700 ms sleep). */
 export const NEXT_BLOCK_MS = 170;
 const nextBlock = () => new Promise((res) => setTimeout(res, NEXT_BLOCK_MS));
@@ -209,6 +211,9 @@ function absUrl(u: string) {
   return /^https?:/.test(u) ? u : new URL(u, typeof location !== "undefined" ? location.origin : "http://localhost:3000").toString();
 }
 
+/** Upper bound on the graduation-buy estimateGas before falling back to the fixed grad gas. */
+export const GRAD_GAS_BUDGET_MS = 2000;
+
 export class Mav2Account {
   gasMode: GasMode | "unknown";
   /** Parallel nonce keys: every op gets a fresh 152-bit key (seq 0) ⇒ the nonce is known locally, ops never collide. */
@@ -365,7 +370,8 @@ export class Mav2Account {
   /** gradSessionGas(eth_estimateGas of the calls as the EntryPoint runs them); never cached (curve state moves). */
   private async gradGas(sender: Address, calls: Call[]): Promise<GasLimits> {
     const data = encodeFunctionData({ abi: execAbi, functionName: "executeBatch", args: [calls.map((c) => ({ target: c.to, value: c.value ?? BigInt(0), data: c.data }))] });
-    const est = await this.o.pc.estimateGas({ account: ENTRYPOINT_V07, to: sender, data }).catch(() => null);
+    // bounded: a hung estimate falls back to the fixed GRAD_STATIC_GAS (gradSessionGas(null)) instead of stalling the tap
+    const est = await withinBudget(this.o.pc.estimateGas({ account: ENTRYPOINT_V07, to: sender, data }), GRAD_GAS_BUDGET_MS, "grad-gas").catch(() => null);
     return gradSessionGas(est);
   }
 
@@ -392,7 +398,7 @@ export class Mav2Account {
     // latency: cold fee cache on the fast path ⇒ wait for ONE fee read (~0.1 s) instead of dropping to the multi-second
     // standard flow (estimate + eth_sendUserOperation + receipt polling). Launches keep their fresh un-doubled fees.
     const fees = launch ? await fetchFees(client as unknown as FeeClient).catch(() => undefined)
-      : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas && this.syncOk !== false ? await FEES.get(() => fetchFees(client as unknown as FeeClient)).catch(() => undefined) : undefined);
+      : FEES.peek(() => fetchFees(client as unknown as FeeClient)) ?? (gas && this.syncOk !== false ? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees").catch(() => undefined) : undefined);
     const overrides = { nonce, ...(gas ?? {}), ...(fees ?? {}) };
     const fail = async (e: unknown): Promise<never> => {
       const m = (e as { details?: string; shortMessage?: string; message?: string });
@@ -414,7 +420,7 @@ export class Mav2Account {
     // ---- USDG gas (DisciplePaymaster): quote → exact approve first → signed paymasterData → relay
     if (this.usdgGasFor(as)) {
       const pm = this.o.usdgGas!;
-      const f = fees ?? await FEES.get(() => fetchFees(client as unknown as FeeClient));
+      const f = fees ?? await withinBudget(FEES.get(() => fetchFees(client as unknown as FeeClient)), COLD_FEES_MS, "fees");
       // Frozen after the first build ⇒ every phase prices the same gas. A session op can't be estimated without its
       // signed paymasterAndData (the policy checks approve == maxTokenCost), and sessions imply a deployed account:
       // static limits. Owner ops estimate execution once (self-bundler: no prefund check) with the placeholder approve.
@@ -445,14 +451,15 @@ export class Mav2Account {
         }
         // client-side paymasterData checks (paymaster.ts) — real reverts from estimation still go through fail()
         const em = (e as Error)?.message ?? String(e);
-        if (/^paymaster|fetch failed|failed to fetch|networkerror/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: em.split("\n")[0].slice(0, 300) });
+        if (/^paymaster|fetch failed|failed to fetch|networkerror|timeout|aborted/i.test(em)) throw new AAError("Bundler", TRADING_UNAVAILABLE, { detail: em.split("\n")[0].slice(0, 300) });
         return fail(e);
       }
       if (!gas && !launch && !grad && limits && !calls.some((c) => c.data.length < 10)) this.gas.set(kind, limits);
       const t1 = now();
       const hash = userOpHash(wire, this.o.chain.id);
       if (this.syncOk !== false) {
-        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient });
+        tt?.mark("send");   // tap → send (job 9): the USDG-gas path never marked it (ms.quote was missing on prod trades)
+        const r = await this.relaySync(wire, hash, { sender, kind, calls, as, feeRetry, opts: o, fail, t0, t1, t2: t1, gasMode: "usdg", feeClient: client as unknown as FeeClient, tt });
         if (r) return r;
       }
       return this.sendRaw(wire, hash, kind, t0, fail, "usdg", o.pressId);

@@ -5,9 +5,9 @@ section: Trading
 ---
 # Tramps and walls
 
-> **Graduated rockets only. Practice mode for now.** On testnet, the tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
+> **Ascended rockets only. Practice mode for now.** On testnet, the tramp/wall panel places practice orders in your browser, not on-chain. On-chain tramps and walls are coming. The rules below are how the contract works.
 
-Tramps and walls are limit orders on a graduated rocket's Uniswap v4 pool.
+Tramps and walls are limit orders on an ascended rocket's Uniswap v4 pool.
 
 | | **Tramp** | **Wall** |
 |---|---|---|

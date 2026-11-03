@@ -139,7 +139,7 @@ test("DexChart reskin: the old chart-map game skin (CHART_STYLE palette, Georgia
   assert.match(src, /Georgia/); assert.match(src, /PriceScaleMode\.Normal/); assert.doesNotMatch(src, /Logarithmic/, "straight (linear) scale");
   assert.match(src, /minValue = Math\.max\(0, r\.priceRange\.minValue\)/, "autoscale floored at $0"); assert.match(src, /v < 0 \? "" : fmtMcap\(v\)/, "no negative mcap labels");
   assert.match(src, /axisLabelColor: C\.gold, axisLabelTextColor: C\.tagFg/, "gold current-value tag, dark text");
-  assert.match(src, /for \(const t of FLIGHT_TIERS\) candle\.createPriceLine\(/, "tier thresholds as price lines");
+  assert.doesNotMatch(src, /FLIGHT_TIERS|tierRefs|dex-tier/, "no tier threshold lines / labels (lee: too busy)");
   assert.match(src, /data-testid="dex-live-ring"/); assert.match(src, /@keyframes dexPulse/); assert.match(src, /prefers-reduced-motion/);
   assert.match(src, /pointerEvents: "none", zIndex: 2/, "overlay never eats pan / pinch / crosshair input");
   assert.doesNotMatch(src, /ABCDEFGH|GRID_COLS/, "no A–H / 1–5 grid labels");

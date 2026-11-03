@@ -26,7 +26,7 @@ import type { TradeTiming } from "../trade/timing";
 import { SESSION_PENDING } from "../trade/reservations";
 import { SPEND_LIMIT_MSG } from "./relayOp";
 import { WATCH_MS } from "../trade/pendingWatch";
-import { appReadTransport } from "../rpc/readTransport";
+import { appReadTransport, withinBudget } from "../rpc/readTransport";
 import { cachedHealth, createLoginSetup, isOneTapOff, onchainHealth, renewalDelayMs, setOneTapOff, storageLease, tradeSigner, type SessionHealth } from "./loginSetup";
 
 /** Bundler goes through our server proxy (/api/bundler → Alchemy, no gas policy); override with NEXT_PUBLIC_AA_BUNDLER_URL. */
@@ -637,7 +637,8 @@ let userEndedOneTap = false;
 async function strictSessionTrades(me: Address): Promise<{ strict: boolean; deployed: boolean | undefined }> {
   if (TRADE_OWNER_FALLBACK || !ONE_TAP_AUTO || !oneTapAvailable() || !sa || !state || state.kind === "eoa" || userEndedOneTap) return { strict: false, deployed: sa?.deployed };
   if (sa.deployed === undefined) {
-    const code = await publicClient().getCode({ address: me }).catch(() => null);   // undefined = no code (viem)
+    // bounded (job 9): unknown after 1 s ⇒ stays undefined (re-asked next tap), never a stalled tap
+    const code = await withinBudget(publicClient().getCode({ address: me }), 1000, "getCode").catch(() => null);   // undefined = no code (viem)
     if (code !== null) sa.deployed = !!code && code !== "0x";
   }
   return { strict: true, deployed: sa.deployed };

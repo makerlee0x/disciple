@@ -22,10 +22,10 @@ Every number in one place. Values are for the current testnet deploy unless mark
 |---|---|
 | Curve type | Constant product, virtual reserves, steep finish |
 | Start market cap | $3,333 |
-| Graduation market cap | $33,333 (Outer Space) |
+| Ascension market cap | $33,333 (Outer Space) |
 | Sold on the curve | 84.24% (842,400) |
 | Locked forever in the Uniswap v4 LP | 15.76% (157,600) + base raised (pool ≈ $5.25K) |
-| Base raised at graduation (USDG base) | ≈ $6,455, net of fees |
+| Base raised at ascension (USDG base) | ≈ $6,455, net of fees |
 
 ## Fees
 
@@ -33,10 +33,10 @@ Every number in one place. Values are for the current testnet deploy unless mark
 |---|---|
 | Trade fee | 1% of every BOOST and DUMP |
 | Split of the trade fee | 33% creator · 33% locked liquidity · 33% treasury · 1% referrer |
-| Graduated pool LP fee | 0% |
+| Ascended pool LP fee | 0% |
 | Creator tax | 0–7%, set at launch, curve trades only |
 | Sniper tax | 99% at launch, 25% at 1s, 3% at 2s, 0 from 7s (one step per second), BOOSTs only, curve only |
-| Sniper tax destination | Locked liquidity at graduation (compound bucket) · rewards vault if not graduated in 30 days |
+| Sniper tax destination | Locked liquidity at ascension (compound bucket) · rewards vault if not ascended in 30 days |
 | Creator launch buy | Exempt from anti-snipe |
 
 ## Limits
@@ -66,9 +66,9 @@ Every number in one place. Values are for the current testnet deploy unless mark
 | Over-cap BOOST | Partial fill + refund | Partial fill + refund | — |
 | Max BOOST / DUMP | None | None | None |
 | Crew tip | 0.777% when profit > 0.5% of market cap | None | None |
-| First BOOST max | 1.2%, locked to graduation | 3.33% | 0.77% |
+| First BOOST max | 1.2%, locked to ascension | 3.33% | 0.77% |
 | Login to BOOST | Yes | No | No |
-| Sniper tax | 99% → 0 over 7 s (per-second table), escrowed: locked LP at graduation, RewardsVault after 30 days if not | same | same |
+| Sniper tax | 99% → 0 over 7 s (per-second table), escrowed: locked LP at ascension, RewardsVault after 30 days if not | same | same |
 
 ## Altitude
 
