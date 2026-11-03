@@ -157,7 +157,7 @@ contract BoostQueueTest is Test {
 
     function test_boostFrontTailAndMiddle() public pure {
         uint256 r = 1_000e18;
-        assertEq(BoostQueue.boostBps(0, 1, r), 70_000, "a tiny front position gets 7x");
+        assertApproxEqAbs(BoostQueue.boostBps(0, 1, r), 70_000, 1, "a tiny front position gets 7x (less a rounding unit)");
         assertEq(BoostQueue.boostBps(r, 1e18, r), 12_000, "at the end of the range: 1.2x");
         assertEq(BoostQueue.boostBps(5 * r, 1e18, r), 12_000, "past the range: 1.2x");
         assertEq(BoostQueue.boostBps(r / 2, 0, r), 41_000, "halfway point: 4.1x");
@@ -175,9 +175,16 @@ contract BoostQueueTest is Test {
     function testFuzz_splittingDoesNotChangeWeight(uint96 aheadAmt, uint96 a, uint96 b, uint96 range) public pure {
         uint256 whole = BoostQueue.weight(aheadAmt, uint256(a) + b, range);
         uint256 split = BoostQueue.weight(aheadAmt, a, range) + BoostQueue.weight(uint256(aheadAmt) + a, b, range);
-        // Same dollars in the same place in line carry the same weight, up to one unit of rounding
-        // per piece. Splitting a position into wallets gains nothing.
-        assertApproxEqAbs(split, whole, 2);
+        // Same shares in the same place in line carry exactly the same weight: weights are differences of one
+        // rounded prefix potential, so they telescope. Splitting a position into wallets gains nothing.
+        assertEq(split, whole);
+    }
+
+    function testFuzz_weightsSumToPotential(uint96 a, uint96 b, uint96 c, uint96 range) public pure {
+        uint256 total = uint256(a) + b + c;
+        uint256 sum = BoostQueue.weight(0, a, range) + BoostQueue.weight(a, b, range)
+            + BoostQueue.weight(uint256(a) + b, c, range);
+        assertEq(sum, BoostQueue.potential(total, range), "position weights sum to F(total), the denominator");
     }
 
     function test_weightIsBoostTimesSize() public pure {

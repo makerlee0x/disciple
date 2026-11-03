@@ -71,21 +71,23 @@ library BoostQueue {
     }
 
     /// @notice A position's boost weight: the 7x -> 1.2x schedule integrated over the span
-    ///         [aheadAmt, aheadAmt + size) of the line, in bps x amount. Fee accounting uses this
-    ///         directly, so there is no per-position averaging loss. `range` is where the slide
-    ///         reaches 1.2x. All three are in the same unit (shares or dollars).
+    ///         [aheadAmt, aheadAmt + size) of the line, in bps x amount. `range` is where the slide reaches 1.2x.
+    ///         All three are in the same unit (shares). Computed as a difference of one rounded prefix potential,
+    ///         so adjacent spans telescope exactly: splitting a position never changes the combined weight, and
+    ///         the weights of every position sum to potential(total).
     function weight(uint256 aheadAmt, uint256 size, uint256 range) internal pure returns (uint256) {
         if (size == 0) return 0;
-        if (range == 0 || aheadAmt >= range) return TAIL_BPS * size;
-        uint256 end = aheadAmt + size;
-        uint256 x1 = end < range ? end : range;
-        uint256 w = x1 - aheadAmt; // part of the span on the slide
-        // Integral of (FRONT - SLIDE * x / range) over [aheadAmt, x1]
-        //   = FRONT * w - SLIDE * w * (aheadAmt + x1) / (2 * range).
-        // aheadAmt + x1 <= 2 * range, so the subtraction never underflows.
-        // mulDiv keeps the product exact in 512 bits, so any uint128-sized inputs are safe.
-        uint256 slide = FRONT_BPS * w - Math.mulDiv(SLIDE_BPS * w, aheadAmt + x1, 2 * range);
-        return slide + (end > range ? TAIL_BPS * (end - range) : 0);
+        return potential(aheadAmt + size, range) - potential(aheadAmt, range);
+    }
+
+    /// @notice F(z) = integral of the schedule from 0 to z, rounded down. Non-decreasing in z.
+    ///         F(z) = 7z - 2.9 z^2 / range for z <= range, then F(range) + 1.2 (z - range); in bps.
+    function potential(uint256 z, uint256 range) internal pure returns (uint256) {
+        if (range == 0) return TAIL_BPS * z;
+        uint256 x = z < range ? z : range;
+        // SLIDE * x^2 / (2 * range) rounded up, so F rounds down. x <= range keeps it below FRONT * x.
+        uint256 f = FRONT_BPS * x - Math.mulDiv(SLIDE_BPS * x, x, 2 * range, Math.Rounding.Ceil);
+        return z > range ? f + TAIL_BPS * (z - range) : f;
     }
 
     /// @notice The average boost of a span in bps of 1x (for display). A zero-size span reports the
@@ -95,7 +97,9 @@ library BoostQueue {
             if (range == 0 || aheadAmt >= range) return TAIL_BPS;
             return FRONT_BPS - (SLIDE_BPS * aheadAmt) / range;
         }
-        return weight(aheadAmt, size, range) / size;
+        uint256 b = weight(aheadAmt, size, range) / size;
+        // Prefix rounding can put a tiny span a unit outside the schedule; clamp for display.
+        return b < TAIL_BPS ? TAIL_BPS : (b > FRONT_BPS ? FRONT_BPS : b);
     }
 
     function _prefix(Queue storage q, uint256 i) private view returns (uint256 s) {
