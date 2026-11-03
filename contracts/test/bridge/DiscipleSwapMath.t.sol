@@ -5,6 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleSwapMath as M} from "../../src/bridge/libraries/DiscipleSwapMath.sol";
 import {DiscipleSwapMathVectors as V} from "./DiscipleSwapMathVectors.sol";
+import {DiscipleSwapMathGptVectors as GV} from "./DiscipleSwapMathGptVectors.sol";
 
 /// @dev External wrappers so reverts and gas can be measured per call.
 contract SwapMathHarness {
@@ -67,6 +68,22 @@ contract DiscipleSwapMathTest is Test {
             } else {
                 assertGe(got, c.exactBound, string.concat("vector ", vm.toString(i), " charges less than exact"));
             }
+        }
+    }
+
+    /// GPT's 20 independently computed trades. Never above GPT's ideal output (beyond its 18-digit precision), and
+    /// within 1e-12 of it, or 1e-6 on the two dust trades (1e-6 quote into a 500/500 pool).
+    function test_gptVectors() public view {
+        GV.Gpt[] memory g = GV.all();
+        for (uint256 i = 0; i < g.length; i++) {
+            GV.Gpt memory c = g[i];
+            (uint256 kb, uint256 ks) = h.slopes(c.pRef, c.t, c.g);
+            (uint256 pa, uint256 pb) = M.matchBounds(c.srcAsk, c.srcBid, 1);
+            uint256 got = c.fn == 0 ? h.buyExactIn(c.u, c.v, kb, pa, c.amount) : h.sellExactIn(c.u, c.v, ks, pb, c.amount);
+            string memory id = string.concat("GPT vector T", vm.toString(i + 1));
+            assertLe(got, c.ideal + c.ideal / 1e16 + 1, string.concat(id, " pays more than ideal"));
+            uint256 tol = c.ideal < 1e15 ? c.ideal / 1e6 : c.ideal / 1e12;
+            assertGe(got + tol, c.ideal, string.concat(id, " too far below ideal"));
         }
     }
 
@@ -202,9 +219,11 @@ contract DiscipleSwapMathTest is Test {
         (uint256 u, uint256 v, uint256 kb, uint256 pa,,) = _state(seed);
         q = bound(q, 1, u / 2);
         uint256 cost = h.buyExactOut(u, v, kb, pa, q);
-        // Paying the exact-out quote through exact-in never yields fewer than ~q coins (both carry pool slack).
+        // Paying the exact-out quote through exact-in returns q coins, less both quotes' pool-side slack. The slack
+        // is bounded by a few wei plus ~1e-15 of the reserve (not of the trade), so on dust trades it can be a large
+        // share of q; the bound below is the real guarantee: ~1e-13 of the coin reserve.
         uint256 got = h.buyExactIn(u, v, kb, pa, cost);
-        assertGe(got + 2 + q / 1e11, q);
+        assertGe(got + 2 + u / 1e13, q);
     }
 
     // ---- reverts ---------------------------------------------------------------------------------
