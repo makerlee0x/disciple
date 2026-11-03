@@ -97,7 +97,7 @@ contract DiscipleSwapMathTest is Test {
         assertGe(h.premium(h0, 30, 10), h.premium(h0, 30, 11), "never rises with time");
     }
 
-    function test_markupIsInputFee() public view {
+    function test_markupIsInputFee() public {
         // G = 1 / (1 - 0.3%) so a buyer's quote, after the fee comes off the input, prices at the curve.
         assertEq(h.markup(WAD, 3000), Math.mulDiv(WAD, 1e6, 997_000, Math.Rounding.Ceil));
         vm.expectRevert(M.BadParams.selector);
