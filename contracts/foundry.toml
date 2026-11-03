@@ -21,6 +21,16 @@ remappings = [
     "v4-periphery/=lib/v4-periphery/",
 ]
 
+# Fast local builds/tests with the Solar compiler: `FOUNDRY_PROFILE=solar forge test --isolate`.
+# Dev loop ONLY. Solar codegen is experimental; never deploy, snapshot gas or check EIP-170 sizes with this
+# profile. Separate out/cache so it never mixes with solc artifacts. See README "Fast builds with Solar".
+[profile.solar]
+solc = "script/solar-solc.sh"
+out = "out-solar"
+cache_path = "cache-solar"
+# 2264 = Solar's "code generation is experimental" warning, expected under this profile
+ignored_error_codes = [2264]
+
 # Robinhood Chain (EVM) — placeholders until RH chain IDs / RPCs are published
 [rpc_endpoints]
 robinhood = "${ROBINHOOD_RPC_URL}"

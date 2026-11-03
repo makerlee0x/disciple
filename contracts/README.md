@@ -27,6 +27,25 @@ forge build
 forge test
 ```
 
+### Fast builds with Solar (dev loop only)
+
+A cold solc via-IR build takes many minutes. [Solar](https://github.com/paradigmxyz/solar) builds the whole project in
+seconds, so you can use it while iterating:
+
+```bash
+cargo install solar-compiler --locked   # needs rustc 1.98+; or set SOLAR_BIN=/path/to/solar
+FOUNDRY_PROFILE=solar forge test --isolate
+```
+
+Rules:
+
+- Solar codegen is experimental. **Never deploy, broadcast, snapshot gas or check contract sizes with the `solar`
+  profile.** Its bytecode, gas and sizes differ from solc's.
+- Before merging and before any deploy, run the default (solc) profile: `forge build --sizes` and
+  `forge test --isolate`. A green Solar run does not prove the solc build is correct.
+- The profile writes to `out-solar/` and `cache-solar/`, so it never mixes with solc artifacts.
+- Gas benches that use `vm.lastCallGas()` need a forge that matches forge-std v1.17.
+
 Deploy stub (anvil / RH RPC):
 
 ```bash
