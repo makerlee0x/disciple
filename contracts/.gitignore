@@ -12,3 +12,5 @@ lib/
 lcov.info
 gas-report.txt
 deployments/fork/
+cache-solar/
+out-solar/
