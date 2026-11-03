@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 /// @title Disciple's FIFO LP boost queue
 /// @notice LP positions form one first-in-first-out line per pool, ordered by deposit. A position's
 ///         boost depends on how much sits ahead of it: 7x at the front, sliding linearly to 1.2x at
@@ -81,7 +83,8 @@ library BoostQueue {
         // Integral of (FRONT - SLIDE * x / range) over [aheadAmt, x1]
         //   = FRONT * w - SLIDE * w * (aheadAmt + x1) / (2 * range).
         // aheadAmt + x1 <= 2 * range, so the subtraction never underflows.
-        uint256 slide = FRONT_BPS * w - (SLIDE_BPS * w * (aheadAmt + x1)) / (2 * range);
+        // mulDiv keeps the product exact in 512 bits, so any uint128-sized inputs are safe.
+        uint256 slide = FRONT_BPS * w - Math.mulDiv(SLIDE_BPS * w, aheadAmt + x1, 2 * range);
         return slide + (end > range ? TAIL_BPS * (end - range) : 0);
     }
 
