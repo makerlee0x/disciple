@@ -126,6 +126,7 @@
     "test:bounded-steps": "tsx --conditions=react-server --test scripts/test-bounded-steps.mts",
     "test:tooltip": "TSX_TSCONFIG_PATH=scripts/tsconfig.dom-test.json tsx --test scripts/test-tooltip.mts",
     "test:coin-fixes4": "tsx --test scripts/test-coin-fixes4.mts",
+    "test:pair-whitelist": "tsx --test scripts/test-pair-whitelist.mts",
     "test:hud-layout": "node scripts/test-hud-layout.mjs && tsx scripts/test-chat-pill.mts && tsx scripts/test-slots.mts"
   },
   "dependencies": {

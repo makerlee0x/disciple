@@ -3,6 +3,7 @@ Pair-art asset generator (offline; outputs are committed). Port of disciple-shot
 + v7/v8 tweaks (coin at 90%, silver chrome rim, group centered, haze behind/below only; grain on the sky only — logos and coin squares stay clean).
 
   python3 scripts/pair-art/gen.py [SRC_DIR]
+  PAIRS=meme,torch python3 scripts/pair-art/gen.py SRC_DIR   # only those logos/coins (no sky / squares)
 
 Writes (under web/public):
   pairs/<tk>.png        512px square base-pair logo (full-bleed; shown inside a circle)
@@ -72,6 +73,9 @@ LOGOS = {
     "ai": lambda: full(S_("ai.png")), "boner": lambda: full(S_("boner.png")), "pons": lambda: full(S_("pons.png")),
     "moo": lambda: full(S_("moo.png")), "orbio": lambda: full(S_("orbio.png"), (0, 0, 0)), "zzz": lambda: full(S_("zzz.png"), (0, 0, 0)),
     "delta": lambda: full(S_("delta.png")), "shroom": lambda: full(S_("shroom.png")), "bow": lambda: full(S_("bow.png")),
+    # pair whitelist (lee 2026-10-29), DexScreener (Robinhood) images
+    **{tk: (lambda tk=tk: full(S_(f"{tk}.png"))) for tk in
+       ("meme", "schiffy", "inu", "monitor", "spacehood", "hookr", "priors", "abyss", "torch", "net", "cashcat", "hmm")},
     "googl": lambda: full(S_("googl.png"), (255, 255, 255), 0.66),
     "tsla": lambda: full(S_("tsla.png"), (226, 30, 40)),
     "nvda": lambda: nvda_eye(),
@@ -170,11 +174,14 @@ def mono_square(txt, ci, n=256, seed=0):
 
 if __name__ == "__main__":
     lp, cp, sp = mk("pairs"), mk("pairs", "coin"), mk("pairs", "sm")
+    only = [t for t in os.environ.get("PAIRS", "").split(",") if t]
     for tk, fn in LOGOS.items():
+        if only and tk not in only: continue
         logo = fn(); logo.convert("RGB").save(os.path.join(lp, f"{tk}.png"), optimize=True)
         with_shadow(rimcoin(logo), 256).save(os.path.join(cp, f"{tk}.webp"), quality=88, method=6)
         small(logo).save(os.path.join(sp, f"{tk}.webp"), quality=90, method=6)
         print("pair", tk)
+    if only: sys.exit(0)
     ap = mk("pair-art"); sky_bg().save(os.path.join(ap, "sky.webp"), quality=80, method=6)
     qp = mk("pair-art", "sq")
     words = ["HA", "LI", "SE", "PE", "CH", "PS", "MA", "EX", "ZI", "GO", "EM", "VE", "RE", "AB", "OR", "NI", "CU", "LA", "CO", "GL", "SA", "HY", "AR", "LU"]

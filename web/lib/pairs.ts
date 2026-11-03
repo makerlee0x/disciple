@@ -1,29 +1,23 @@
 /**
- * Curated quote-token list for the /create pair picker (FOMO-style token list).
- * Only tokens with a real address on the active chain are listed. Anything else → "Paste ERC-20".
+ * Curated quote-token list for the /create pair picker (FOMO-style token list): the launch pair whitelist
+ * (lib/pairWhitelist), STRATEGY first as the default. No USDG / ETH / pasted ERC-20 (lee 2026-10-29).
  */
-import { ACTIVE_CHAIN, ZERO, deployment } from "./chains";
-import { STRATEGY_TOKEN } from "./config";
+import { ACTIVE_CHAIN } from "./chains";
+import { basePair } from "./pairArt";
+import { pairWhitelist } from "./pairWhitelist";
 import type { Address } from "./protocol";
 
 export interface PairOption {
   symbol: string; name: string; address: Address; note: string; recommended?: boolean; tint: string;
+  /** pair-art key: /public/pairs/<tk>.png (lib/pairArt pairLogo) */
+  tk: string;
 }
 
 export function recommendedPairs(): PairOption[] {
-  const d = deployment();
   const testnet = ACTIVE_CHAIN.id === 46630;
-  const out: PairOption[] = [];
-  const strat = (d.defaultQuote && d.defaultQuote !== ZERO ? d.defaultQuote : STRATEGY_TOKEN.address) as Address;
-  out.push({
-    symbol: "STRATEGY", name: testnet ? "Strategy Coin (test)" : "Strategy Coin", address: strat,
-    note: "Default pair · launchpad default quote", recommended: true, tint: "#C9CED6",
-  });
-  if (d.usdg && d.usdg !== ZERO) {
-    out.push({
-      symbol: testnet ? "mUSDG" : "USDG", name: testnet ? "Test USDG" : "Global Dollar", address: d.usdg,
-      note: "Stablecoin pair · rockets priced in dollars", tint: "#9ff3c8",
-    });
-  }
-  return out;
+  return pairWhitelist(ACTIVE_CHAIN.id).map((p, i) => ({
+    symbol: p.symbol, name: testnet && i === 0 ? `${p.name} (test)` : p.name, address: p.address, tk: p.tk,
+    note: i === 0 ? "Default pair" : "Community coin",
+    recommended: i === 0, tint: basePair(p.symbol)?.tint ?? "#C9CED6",
+  }));
 }
