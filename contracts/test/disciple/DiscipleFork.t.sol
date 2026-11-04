@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -10,10 +11,10 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {IERC20Minimal} from "@uniswap/v4-core/src/interfaces/external/IERC20Minimal.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
 import {ILzRead} from "../../src/bridge/interfaces/ILzRead.sol";
+import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
 
 interface IPairTokens {
     function token0() external view returns (address);
@@ -24,60 +25,72 @@ interface IDec {
     function decimals() external view returns (uint8);
 }
 
-/// @notice Fork test on Robinhood Chain: a Disciple pool beside each real source pool, swapped both ways and
-///         deposited into against live state. Skips unless ROBINHOOD_RPC_URL is set.
+/// @notice Fork test: a Disciple pool beside each real source pool, priced off its live state, swapped both ways and
+///         deposited into. Skips unless FORK_RPC is set. Run it once per chain.
+///
+///         The Disciple pool's own two tokens are stand-in ERC20s with the source tokens' decimals (so odd real
+///         tokens, native ETH legs or tokens `deal` cannot mint never block the run). Prices come from the real
+///         source pool; that is what this test exercises.
 ///
 ///         Env:
-///           ROBINHOOD_RPC_URL   the RPC (never commit it)
-///           FORK_QUOTE          the quote token (e.g. WETH or a stablecoin)
-///           FORK_V2             comma list of v2 pair addresses (optional)
-///           FORK_V3             comma list of v3 pool addresses (optional)
-///           FORK_V4_MANAGER     the chain's v4 PoolManager (needed for v4 sources; else a fresh one is deployed)
-///           FORK_V4_IDS         comma list of v4 pool ids (optional, with FORK_V4_COINS in the same order)
-///           FORK_V4_COINS       the non-quote token of each v4 pool
-///           FORK_BLOCK          block to fork at (optional, default latest)
+///           FORK_RPC          the chain's RPC (never commit it)
+///           FORK_V2           comma list of v2 pair addresses (optional)
+///           FORK_V3           comma list of v3 pool addresses (optional)
+///           FORK_V4_IDS       comma list of v4 pool ids (optional; tokens found from the Initialize event)
+///           FORK_V4_MANAGER   the chain's v4 PoolManager (defaults to Robinhood Chain's)
+///           FORK_BLOCK        block to fork at (optional, default latest)
 contract DiscipleForkTest is Test {
     uint160 internal constant FLAGS = uint160(
         Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
     );
     uint256 internal constant Q128 = 1 << 128;
+    /// @dev Uniswap v4 PoolManager on Robinhood Chain (4663), deployed at block 9070.
+    address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+    uint256 internal constant RH_PM_BLOCK = 9070;
+    bytes32 internal constant INITIALIZE_TOPIC =
+        keccak256("Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)");
 
-    IPoolManager manager;
-    Disciple hook;
-    PoolSwapTest swapper;
-    address quote;
     bool forked;
+    uint256 failures;
 
     function setUp() public {
-        string memory rpc = vm.envOr("ROBINHOOD_RPC_URL", string(""));
+        string memory rpc = vm.envOr("FORK_RPC", string(""));
         if (bytes(rpc).length == 0) return;
         uint256 blk = vm.envOr("FORK_BLOCK", uint256(0));
         if (blk == 0) vm.createSelectFork(rpc);
         else vm.createSelectFork(rpc, blk);
         forked = true;
-        quote = vm.envAddress("FORK_QUOTE");
-        address m = vm.envOr("FORK_V4_MANAGER", address(0));
-        manager = m == address(0) ? IPoolManager(address(new PoolManager(address(this)))) : IPoolManager(m);
-        bytes memory args = abi.encode(manager, quote, ILzRead(address(0)));
-        hook = new Disciple{salt: _mine(args)}(manager, quote, ILzRead(address(0)));
-        swapper = new PoolSwapTest(manager);
+        emit log_named_uint("chain id", block.chainid);
         emit log_named_uint("forked at block", block.number);
     }
 
     function test_fork_v2Sources() public {
         if (!forked) return;
         address[] memory pairs = vm.envOr("FORK_V2", ",", new address[](0));
+        IPoolManager m = IPoolManager(address(new PoolManager(address(this))));
         for (uint256 i = 0; i < pairs.length; i++) {
-            _runPair(1, pairs[i]);
+            address t0 = IPairTokens(pairs[i]).token0();
+            address t1 = IPairTokens(pairs[i]).token1();
+            Disciple.Source memory s;
+            s.kind = 1;
+            s.v2Fee = 3000;
+            s.target = pairs[i];
+            _run(m, s, t0, t1, vm.toString(pairs[i]));
         }
     }
 
     function test_fork_v3Sources() public {
         if (!forked) return;
         address[] memory pools = vm.envOr("FORK_V3", ",", new address[](0));
+        IPoolManager m = IPoolManager(address(new PoolManager(address(this))));
         for (uint256 i = 0; i < pools.length; i++) {
-            _runPair(2, pools[i]);
+            address t0 = IPairTokens(pools[i]).token0();
+            address t1 = IPairTokens(pools[i]).token1();
+            Disciple.Source memory s;
+            s.kind = 2;
+            s.target = pools[i];
+            _run(m, s, t0, t1, vm.toString(pools[i]));
         }
     }
 
@@ -85,53 +98,75 @@ contract DiscipleForkTest is Test {
         if (!forked) return;
         bytes32[] memory ids = vm.envOr("FORK_V4_IDS", ",", new bytes32[](0));
         if (ids.length == 0) return;
-        address[] memory coins = vm.envAddress("FORK_V4_COINS", ",");
-        require(coins.length == ids.length, "FORK_V4_COINS must match FORK_V4_IDS");
-        require(vm.envOr("FORK_V4_MANAGER", address(0)) != address(0), "v4 sources need FORK_V4_MANAGER");
+        // the hook reads v4 sources through its own PoolManager, so it must sit on the chain's real one
+        address pm = vm.envOr("FORK_V4_MANAGER", RH_POOL_MANAGER);
+        require(pm.code.length > 0, "no PoolManager at FORK_V4_MANAGER on this chain");
         for (uint256 i = 0; i < ids.length; i++) {
+            (address c0, address c1) = _v4Tokens(pm, ids[i]);
             Disciple.Source memory s;
             s.kind = 3;
-            s.coinIs0 = coins[i] < quote;
-            s.target = address(manager);
+            s.target = pm;
             s.v4Id = ids[i];
-            _run(coins[i], s, vm.toString(ids[i]));
+            _run(IPoolManager(pm), s, c0, c1, vm.toString(ids[i]));
         }
     }
 
     // -----------------------------------------------------------------------------------------
 
-    function _runPair(uint8 kind, address src) internal {
-        address t0 = IPairTokens(src).token0();
-        address t1 = IPairTokens(src).token1();
-        require(t0 == quote || t1 == quote, "source does not hold FORK_QUOTE");
-        address c = t0 == quote ? t1 : t0;
-        Disciple.Source memory s;
-        s.kind = kind;
-        s.coinIs0 = c == t0;
-        s.v2Fee = 3000;
-        s.target = src;
-        _run(c, s, vm.toString(src));
+    /// @dev currency0 / currency1 of a v4 pool from its Initialize event.
+    function _v4Tokens(address pm, bytes32 id) internal view returns (address c0, address c1) {
+        bytes32[] memory topics = new bytes32[](2);
+        topics[0] = INITIALIZE_TOPIC;
+        topics[1] = id;
+        uint256 from = pm == RH_POOL_MANAGER ? RH_PM_BLOCK : 0;
+        Vm.EthGetLogs[] memory logs = vm.eth_getLogs(from, block.number, pm, topics);
+        require(logs.length == 1, "v4 pool id not found on this PoolManager");
+        c0 = address(uint160(uint256(logs[0].topics[2])));
+        c1 = address(uint160(uint256(logs[0].topics[3])));
     }
 
-    function _run(address c, Disciple.Source memory s, string memory label) internal {
-        emit log_string(string.concat("---- source ", label));
-        uint8 cd = IDec(c).decimals();
-        uint8 qd = IDec(quote).decimals();
-        // seed: 1,000 whole coins and plenty of quote (trimmed to 50/50 by the hook)
-        uint256 coinIn = 1000 * 10 ** cd;
-        deal(c, address(this), coinIn * 10);
-        deal(quote, address(this), type(uint128).max);
-        IERC20Minimal(c).approve(address(hook), type(uint256).max);
-        IERC20Minimal(quote).approve(address(hook), type(uint256).max);
-        IERC20Minimal(c).approve(address(swapper), type(uint256).max);
-        IERC20Minimal(quote).approve(address(swapper), type(uint256).max);
+    function _dec(address t) internal view returns (uint8) {
+        if (t == address(0)) return 18; // native ETH
+        return IDec(t).decimals();
+    }
 
+    function _sym(address t) internal view returns (string memory) {
+        if (t == address(0)) return "ETH";
+        (bool ok, bytes memory r) = t.staticcall(abi.encodeWithSignature("symbol()"));
+        return ok && r.length >= 64 ? abi.decode(r, (string)) : vm.toString(t);
+    }
+
+    /// @dev Coin = source token0, quote = token1. A fresh hook per source (the quote token is a hook immutable).
+    function _run(IPoolManager m, Disciple.Source memory s, address t0, address t1, string memory label) internal {
+        emit log_string(string.concat("---- source ", label, "  ", _sym(t0), " / ", _sym(t1)));
+        uint8 cd = _dec(t0);
+        uint8 qd = _dec(t1);
+        s.coinIs0 = true;
+        MockERC20 coin = new MockERC20("COIN", "COIN", cd);
+        MockERC20 quote = new MockERC20("QUOTE", "QUOTE", qd);
+        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)));
+        Disciple hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)));
+        PoolSwapTest swapper = new PoolSwapTest(m);
+        coin.mint(address(this), type(uint128).max);
+        quote.mint(address(this), type(uint128).max);
+        coin.approve(address(hook), type(uint256).max);
+        quote.approve(address(hook), type(uint256).max);
+        coin.approve(address(swapper), type(uint256).max);
+        quote.approve(address(swapper), type(uint256).max);
+
+        // seed: 1,000 whole coins and plenty of quote (trimmed to 50/50 at the source price)
         (PoolKey memory key, PoolId id) = hook.createPool(
-            Disciple.CreateParams({coin: c, fee: 3000, src: s, coinIn: coinIn, quoteIn: type(uint128).max / 4})
+            Disciple.CreateParams({
+                coin: address(coin),
+                fee: 3000,
+                src: s,
+                coinIn: 1000 * 10 ** cd,
+                quoteIn: type(uint128).max / 4
+            })
         );
         Disciple.PoolView memory v = hook.poolState(id);
         uint256 a = v.anchorX128;
-        emit log_named_decimal_uint("  anchor (quote per coin)", _human(a, cd, qd), 18);
+        emit log_named_decimal_uint("  source price (quote per coin)", _human(a, cd, qd), 18);
         emit log_named_decimal_uint("  seed coin", v.coinReserve, cd);
         emit log_named_decimal_uint("  seed quote", v.quoteReserve, qd);
         assertGt(a, 0);
@@ -139,26 +174,25 @@ contract DiscipleForkTest is Test {
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 60); // premium faded
 
-        // buy with 1% of the quote reserve, sell 1% of the coin reserve
+        // buy with 1% of the quote reserve, then sell 1% of the coin reserve
         uint256 qIn = v.quoteReserve / 100;
-        uint256 c0 = IERC20Minimal(c).balanceOf(address(this));
+        uint256 b0 = coin.balanceOf(address(this));
         uint256 g = gasleft();
-        _swap(key, c, true, qIn);
+        _swap(swapper, key, address(coin), true, qIn);
         emit log_named_uint("  buy gas (incl. router)", g - gasleft());
-        uint256 got = IERC20Minimal(c).balanceOf(address(this)) - c0;
-        uint256 paidPerCoin = Math.mulDiv(qIn, Q128, got);
-        emit log_named_decimal_uint("  buy price", _human(paidPerCoin, cd, qd), 18);
-        assertGe(paidPerCoin, a, "buy at or above the anchor");
-        assertLe(paidPerCoin, Math.mulDiv(a, 105, 100), "buy within 5% of the anchor");
+        uint256 got = coin.balanceOf(address(this)) - b0;
+        uint256 paid = Math.mulDiv(qIn, Q128, got);
+        emit log_named_decimal_uint("  buy price", _human(paid, cd, qd), 18);
+        assertGe(paid, a, "buy at or above the source price");
+        assertLe(paid, Math.mulDiv(a, 105, 100), "buy within 5% of the source price");
 
         uint256 cIn = v.coinReserve / 100;
-        uint256 q0 = IERC20Minimal(quote).balanceOf(address(this));
-        _swap(key, c, false, cIn);
-        uint256 qGot = IERC20Minimal(quote).balanceOf(address(this)) - q0;
-        uint256 recvPerCoin = Math.mulDiv(qGot, Q128, cIn);
-        emit log_named_decimal_uint("  sell price", _human(recvPerCoin, cd, qd), 18);
-        assertLe(recvPerCoin, a, "sell at or below the anchor");
-        assertGe(recvPerCoin, Math.mulDiv(a, 95, 100), "sell within 5% of the anchor");
+        b0 = quote.balanceOf(address(this));
+        _swap(swapper, key, address(coin), false, cIn);
+        uint256 recv = Math.mulDiv(quote.balanceOf(address(this)) - b0, Q128, cIn);
+        emit log_named_decimal_uint("  sell price", _human(recv, cd, qd), 18);
+        assertLe(recv, a, "sell at or below the source price");
+        assertGe(recv, Math.mulDiv(a, 95, 100), "sell within 5% of the source price");
 
         // an LP joins and leaves in the next block
         vm.roll(block.number + 1);
@@ -170,7 +204,7 @@ contract DiscipleForkTest is Test {
         emit log_named_decimal_uint("  end quote", v.quoteReserve, qd);
     }
 
-    function _swap(PoolKey memory key, address c, bool buy, uint256 amtIn) internal {
+    function _swap(PoolSwapTest swapper, PoolKey memory key, address c, bool buy, uint256 amtIn) internal {
         bool coinIs0 = Currency.unwrap(key.currency0) == c;
         bool zeroForOne = buy ? !coinIs0 : coinIs0;
         swapper.swap(
