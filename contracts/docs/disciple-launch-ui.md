@@ -73,6 +73,14 @@ function createPool(CreateParams calldata) external payable returns (PoolKey mem
 Fee default for the UI: a suggestion, not decided. Sims put a busy same-chain pool's best plain fee near 1%
 (`fee = 10_000`), beside a 0.3% source. All sim figures are simulated.
 
+## Cross-chain launch: start the source count (automatic step)
+
+For a cross-chain pool whose home source is a **v4** pool, the launch flow also calls, on the **home chain**,
+`DisciplePushSender.track(poolManager, sourceKey)` (anyone may call it; it is a no-op if already tracked). It counts
+the source's real TVL so graduation and the creator fee use the real number. It is a separate transaction on the
+home chain (the wallet switches network), so do it right after `createPool`. Until it runs, that source reports the
+in-range estimate, which reads high. v2 and v3 home sources need nothing.
+
 ## Finding pools
 
 - `poolsOf(currency0, currency1)` (sorted addresses) is how many Disciple pools the pair has. Pool *n*'s key is:
