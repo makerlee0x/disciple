@@ -102,8 +102,9 @@ in-range estimate, which reads high. v2 and v3 home sources need nothing.
     latched in an earlier block, not the live quote.
   - `graduated`: the pool has reached 12% of the source's TVL at least once. From then on LP fees are paid out
     (claimable); before it, everything compounds. This one does not switch back.
-  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid, against the
-    larger of the last two source TVL readings, so a source drained for a single reading earns the creator nothing.
+  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid, against a
+    source TVL gate that rises with any reading but falls at most 40% a day, so pulling source liquidity briefly
+    earns the creator nothing. A source that really shrinks turns the cut on within a few days.
   - `srcTvl`: the source's real TVL in quote units, the number Uniswap shows. v2: reserves. v3: the pool's token
     balances. v4: the hook counts the pool's liquidity ranges itself, 4 storage reads on the first trade of each
     block, and refreshes when a pass finishes (about 20 to 40 busy blocks for tick spacing 60 or 200; 0 means the

@@ -89,6 +89,10 @@ contract Disciple is IHooks, IUnlockCallback {
     uint256 internal constant WALK_STEPS = 4;
     /// @dev Largest cross-chain decimal shift (10^36 fits any realistic price or TVL product).
     int8 internal constant MAX_SHIFT = 36;
+    /// @dev The creator-cut TVL gate falls at most 40% of itself per day (linear within each update).
+    uint256 internal constant GATE_FALL_BPS = 4000;
+    uint256 internal constant BPS_ = 10_000;
+    uint256 internal constant DAY = 1 days;
     uint256 internal constant WALK_INIT_STEPS = 256;
     /// @dev A recovering pushed price may be this old on arrival.
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
@@ -135,7 +139,8 @@ contract Disciple is IHooks, IUnlockCallback {
         uint256 premRefX128; // same chain premium reset reference
         uint64 premAt;
         uint256 srcTvl; // source TVL in quote raw (graduation); 0 = not known yet
-        uint256 gateTvl; // TVL the creator cut is judged against: max of the last two source readings
+        uint256 gateTvl; // TVL the creator cut is judged against: rises with any reading, falls at most GATE_FALL a day
+        uint64 gateAt; // when gateTvl was last updated
         address x; // same chain: leg 1's other token (the quote, or X for two-hop)
         DP.Walk walk; // same-chain v4 leg 1: the depth counter that measures its TVL
         uint256 tank; // ETH for refreshes
@@ -300,6 +305,8 @@ contract Disciple is IHooks, IUnlockCallback {
             (uint256 spot,, uint256 s1) = _sourceSpot(p);
             if (spot == 0) revert NoAnchor();
             p.srcTvl = _sourceTvl(p, s1, spot);
+            p.gateTvl = p.srcTvl;
+            p.gateAt = uint64(block.timestamp);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
             p.anchorX128 = spot;
@@ -501,7 +508,7 @@ contract Disciple is IHooks, IUnlockCallback {
             if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
             uint256 tvl = _sourceTvl(p, s1, spot);
             p.anchorX128 = p.sampleX128;
-            p.gateTvl = _gate(p.srcTvl, tvl);
+            _gate(p, tvl);
             p.srcTvl = tvl;
             BK.settle(p.book, p.anchorX128, p.gateTvl, true);
             p.settledBlock = uint64(block.number);
@@ -595,6 +602,8 @@ contract Disciple is IHooks, IUnlockCallback {
             p.anchorX128 = price;
             p.obsAt = observedAt;
             p.srcTvl = tvl;
+            p.gateTvl = tvl;
+            p.gateAt = uint64(block.timestamp);
             uint256 sx = p.seedX;
             uint256 sy = p.seedY;
             p.seedX = 0;
@@ -614,7 +623,7 @@ contract Disciple is IHooks, IUnlockCallback {
         // a heartbeat is paid only if the pool traded since the last price (maker, 2026-11-04); a 1% move always
         if (p.book.dx == 0 && p.book.dy == 0) ageAtRequest = 0;
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
-        p.gateTvl = _gate(p.srcTvl, tvl);
+        _gate(p, tvl);
         BK.settle(p.book, price, p.gateTvl, !wasLocal);
         uint256 old = p.anchorX128;
         p.anchorX128 = price;
@@ -653,10 +662,17 @@ contract Disciple is IHooks, IUnlockCallback {
         return sh > MAX_SHIFT || sh < -MAX_SHIFT;
     }
 
-    /// @dev The creator cut is judged against the larger of the previous and the current source TVL, so a source
-    ///      drained for a single reading cannot switch it on (review D-02). 0 = unknown, ignored.
-    function _gate(uint256 prev, uint256 cur) internal pure returns (uint256) {
-        return cur > prev ? cur : prev;
+    /// @dev The TVL the creator cut is judged against (review D-02 and its re-check): it rises at once with any
+    ///      reading but falls at most GATE_FALL_BPS of itself per day, so pulling source liquidity for a block (or a
+    ///      v4 counter visit) does not move it. Lowering it takes a source that really stays smaller; any honest
+    ///      reading in between resets it. 0 = unknown.
+    function _gate(Pool storage p, uint256 cur) internal {
+        uint256 g = p.gateTvl;
+        uint256 dt = block.timestamp - p.gateAt;
+        uint256 fall = dt >= DAY * BPS_ / GATE_FALL_BPS ? g : Math.mulDiv(g, GATE_FALL_BPS * dt, BPS_ * DAY);
+        g -= fall;
+        p.gateTvl = cur > g ? cur : g;
+        p.gateAt = uint64(block.timestamp);
     }
 
     // ---------------------------------------------------------------------------------------------

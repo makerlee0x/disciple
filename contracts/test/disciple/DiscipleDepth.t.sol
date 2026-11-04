@@ -412,11 +412,12 @@ contract DiscipleDepthTest is Test {
         (cx, cy) = hook.claimCreator(id);
         assertEq(cx + cy, 0, "no creator cut while below 12%");
 
-        // the source shrinks back: the cut returns once two readings agree (max of last and current TVL)
+        // the source shrinks back: the creator-cut gate falls at most 40% a day, so the cut returns days later
         pair.set(1_000_000e18, 2_000_000e18);
         _next();
         _trade(key);
-        assertFalse(hook.poolState(id).creatorOn, "one low reading is not enough");
+        assertFalse(hook.poolState(id).creatorOn, "a lower reading does not drop the gate at once");
+        vm.warp(block.timestamp + 3 days);
         _next();
         _trade(key);
         assertTrue(hook.poolState(id).creatorOn);

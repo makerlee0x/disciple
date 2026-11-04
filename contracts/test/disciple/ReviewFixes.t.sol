@@ -62,6 +62,39 @@ contract ReviewFixesTest is DiscipleTest {
         assertEq(cx + cy, 0, "no creator cut");
     }
 
+    /// D-02 re-check: the one-transaction dip repeated on consecutive blocks still pays nothing.
+    function test_review_D02_repeatedAtomicDipsPayNothing() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18);
+        for (uint256 i = 0; i < 5; i++) {
+            _nextBlock();
+            pair.set(1000e18, 2000e18); // pull
+            hook.withdraw(id, 1, 0, 0); // first touch of the block reads the low TVL
+            pair.set(1_000_000e18, 2_000_000e18); // put back
+            assertFalse(hook.poolState(id).creatorOn);
+            vm.warp(block.timestamp + 31);
+            _swap(key, true, -int256(50e18));
+            _swap(key, false, -int256(20e18));
+        }
+        _nextBlock();
+        hook.withdraw(id, 1, 0, 0);
+        (uint256 cx, uint256 cy) = hook.claimCreator(id);
+        assertEq(cx + cy, 0, "no creator cut");
+    }
+
+    /// D-02: the gate follows a source that really stays smaller, within days.
+    function test_review_D02_gateFollowsALastingDrop() public {
+        (PoolKey memory key, PoolId id) = _createSame(1000e18, 2000e18); // 4k vs 4M source
+        _nextBlock();
+        pair.set(1000e18, 2000e18); // the source really shrinks to 4k and stays
+        hook.withdraw(id, 1, 0, 0);
+        assertFalse(hook.poolState(id).creatorOn);
+        vm.warp(block.timestamp + 3 days);
+        _nextBlock();
+        hook.withdraw(id, 1, 0, 0);
+        assertTrue(hook.poolState(id).creatorOn);
+        key;
+    }
+
     /// D-02: a real 12% pool still pays the creator.
     function test_review_D02_realTwelvePercentPaysCreator() public {
         (PoolKey memory key, PoolId id) = _createSame(300_000e18, 600_000e18); // 1.2M vs 4M source
