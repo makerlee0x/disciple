@@ -12,20 +12,46 @@ import {
 } from "./ILayerZeroEndpointV2Lite.sol";
 
 /// @title DisciplePushSender
-/// @notice Route: any LayerZero chain -> any other (Robinhood -> Ethereum, Base <-> Arbitrum, HyperEVM, ...), as a
-///         normal LayerZero message. Deploy one per home chain. Anyone calls `push`; it reads the source itself and
-///         sends the raw state to a DisciplePushReceiver, which trusts only this sender for this chain's eid.
+/// @notice Route: any LayerZero chain -> any other (Ethereum -> Robinhood in v0), as a normal LayerZero message.
+///         Deploy one per home chain. Anyone calls `push`; it reads every requested source itself and sends their raw
+///         state in ONE message to a DisciplePushReceiver, which trusts only this sender for this chain's eid.
 ///
-///         No owner and no delegate. Its DVN/library config can be fixed once in the constructor; otherwise the
-///         endpoint's defaults for each pathway apply (check they are live: some new pathways default to a dead DVN).
-///         Keeper cost carried in the message: LayerZero fee + PUSH_GAS * basefee, paid back on the pool's chain by
-///         the receiver only where both chains use ETH for gas (see DisciplePushReceiver).
+///         Batching (maker, 2026-11-04: per-pool messages cost too much): one message carries any number of
+///         sources, and each source lists the pools priced from it on the destination. The message's whole cost is
+///         split evenly over all listed pools, so ten pools on one source pay a tenth each.
+///
+///         Keeper cost carried in the message: the LayerZero fee plus this transaction's gas, measured here
+///         (intrinsic + calldata at its ABI length + execution) at basefee only, so priority fees and padded
+///         calldata cannot inflate it. No owner and no delegate; the DVN/executor config is fixed at construction.
 contract DisciplePushSender is DiscipleSourceReader {
-    uint256 public constant PUSH_GAS = 150_000;
+    /// @dev Gas not visible to gasleft(): the 21k intrinsic cost, the endpoint's refund of excess fee, the event.
+    uint256 public constant OVERHEAD_GAS = 30_000;
+    /// @dev endpoint.send after the quote (library, DVN and executor jobs, nonce, event) plus the second encode,
+    ///      per message. Calibrated on the Ethereum fork; the read, encode and quote before it are measured live.
+    uint256 public constant SEND_GAS = 70_000;
+
+    struct Req {
+        uint8 kind;
+        address target;
+        bytes32 v4Id;
+        PoolId[] pools; // destination pools priced from this source
+    }
+
+    /// @dev One source's observation as sent. Must match DisciplePushReceiver.Obs.
+    struct Obs {
+        uint8 kind;
+        address target;
+        bytes32 v4Id;
+        uint256 a;
+        uint256 b;
+        PoolId[] pools;
+    }
 
     ILayerZeroEndpointV2Lite public immutable endpoint;
 
-    event Pushed(uint32 indexed dstEid, PoolId indexed id, bytes32 guid, uint256 a, uint256 b, address keeper);
+    event Pushed(uint32 indexed dstEid, bytes32 guid, uint256 sources, uint256 pools, uint256 cost, address keeper);
+
+    error Empty();
 
     constructor(ILayerZeroEndpointV2Lite endpoint_, LibConfig[] memory config) {
         endpoint = endpoint_;
@@ -34,38 +60,53 @@ contract DisciplePushSender is DiscipleSourceReader {
         }
     }
 
-    /// @notice LayerZero fee for a push with `gas` for the receiver's lzReceive on the destination.
-    function quote(uint32 dstEid, bytes32 receiver, PoolId id, uint8 kind, address target, bytes32 v4Id, uint128 gas)
-        external
-        view
-        returns (uint256)
-    {
-        (uint256 a, uint256 b) = read(kind, target, v4Id);
-        return endpoint.quote(_params(dstEid, receiver, _message(id, kind, target, v4Id, a, b, 0), gas), address(this))
-            .nativeFee;
+    /// @notice LayerZero fee for a push of `reqs` with `gas` for the receiver's lzReceive on the destination.
+    function quote(uint32 dstEid, bytes32 receiver, Req[] calldata reqs, uint128 gas) external view returns (uint256) {
+        (Obs[] memory obs,) = _read(reqs);
+        return endpoint.quote(_params(dstEid, receiver, _message(obs, 0), gas), address(this)).nativeFee;
     }
 
-    function push(uint32 dstEid, bytes32 receiver, PoolId id, uint8 kind, address target, bytes32 v4Id, uint128 gas)
+    function push(uint32 dstEid, bytes32 receiver, Req[] calldata reqs, uint128 gas)
         external
         payable
         returns (bytes32 guid)
     {
-        (uint256 a, uint256 b) = read(kind, target, v4Id);
-        // the fee does not depend on the cost field (fixed-size encoding), so quote with 0 and fill it in after
-        MessagingParams memory mp = _params(dstEid, receiver, _message(id, kind, target, v4Id, a, b, 0), gas);
+        uint256 g0 = gasleft();
+        (Obs[] memory obs, uint256 n) = _read(reqs);
+        // the fee does not depend on the cost field (fixed-size word), so quote with 0 and fill it in after
+        MessagingParams memory mp = _params(dstEid, receiver, _message(obs, 0), gas);
         uint256 fee = endpoint.quote(mp, address(this)).nativeFee;
-        mp.message = _message(id, kind, target, v4Id, a, b, fee + PUSH_GAS * block.basefee);
+        uint256 used = g0 - gasleft();
+        uint256 cost = fee + (used + SEND_GAS + OVERHEAD_GAS + 16 * _abiLen(reqs)) * block.basefee;
+        mp.message = _message(obs, cost);
         MessagingReceipt memory r = endpoint.send{value: msg.value}(mp, msg.sender);
         guid = r.guid;
-        emit Pushed(dstEid, id, guid, a, b, msg.sender);
+        emit Pushed(dstEid, guid, obs.length, n, cost, msg.sender);
     }
 
-    function _message(PoolId id, uint8 kind, address target, bytes32 v4Id, uint256 a, uint256 b, uint256 cost)
-        internal
-        view
-        returns (bytes memory)
-    {
-        return abi.encode(id, kind, target, v4Id, a, b, uint64(block.timestamp), msg.sender, cost);
+    function _read(Req[] calldata reqs) internal view returns (Obs[] memory obs, uint256 n) {
+        if (reqs.length == 0) revert Empty();
+        obs = new Obs[](reqs.length);
+        for (uint256 i = 0; i < reqs.length; i++) {
+            Req calldata q = reqs[i];
+            if (q.pools.length == 0) revert Empty();
+            (uint256 a, uint256 b) = read(q.kind, q.target, q.v4Id);
+            obs[i] = Obs(q.kind, q.target, q.v4Id, a, b, q.pools);
+            n += q.pools.length;
+        }
+    }
+
+    /// @dev Message: (observedAt, keeper, cost for the whole message, observations).
+    function _message(Obs[] memory obs, uint256 cost) internal view returns (bytes memory) {
+        return abi.encode(uint64(block.timestamp), msg.sender, cost, obs);
+    }
+
+    /// @dev ABI length of push's calldata for these requests (what an honest caller sends; padding is not counted).
+    function _abiLen(Req[] calldata reqs) internal pure returns (uint256 len) {
+        len = 4 + 32 * 6; // selector, 4 head words, array offset + length
+        for (uint256 i = 0; i < reqs.length; i++) {
+            len += 32 * (6 + reqs[i].pools.length); // offset, 3 words + pools offset, pools length, pools
+        }
     }
 
     /// @dev Executor option type 3: lzReceive with `gas` (no native drop).

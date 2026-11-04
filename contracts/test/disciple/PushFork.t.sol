@@ -14,6 +14,8 @@ import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiv
 import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
 import {ILayerZeroEndpointV2Lite, Origin} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
 import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
+import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
+import {LibConfig} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
 
 interface IEndpointFull {
     function defaultSendLibrary(uint32 eid) external view returns (address);
@@ -54,6 +56,8 @@ contract PushForkTest is Test {
         uint64 nonce;
         uint64 observedAt;
         uint256 fee;
+        uint256 gas;
+        uint256 basefee;
     }
 
     uint256 eth;
@@ -78,10 +82,12 @@ contract PushForkTest is Test {
         // ---- Ethereum: sender with the v0 config
         vm.selectFork(eth);
         address ethLib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
-        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSendToRobinhood(ethLib));
+        // live DVN set, zero-fee self-executor: the keeper commits and executes on Robinhood itself
+        LibConfig[] memory cfg = _ethCfg(ethLib, address(new DiscipleSelfExecutor()), false);
+        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), cfg);
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(sender), ethLib, V0.RH_EID, 2)),
-            keccak256(V0.ethSendToRobinhood(ethLib)[0].params[0].config),
+            keccak256(cfg[0].params[0].config),
             "send config stored"
         );
         vm.deal(keeper, 10 ether);
@@ -92,14 +98,14 @@ contract PushForkTest is Test {
         _deployRobinhood();
         assertEq(
             keccak256(IEndpointFull(V0.RH_ENDPOINT).getConfig(address(receiver), rhLib, V0.ETH_EID, 2)),
-            keccak256(V0.rhReceiveFromEthereum(rhLib)[0].params[0].config),
+            keccak256(_rhCfg(rhLib)[0].params[0].config),
             "receive config stored"
         );
 
         // ---- opening price
         _syncEthClock();
         Packet memory p = _push();
-        emit log_named_uint("LayerZero fee, Ethereum -> Robinhood (wei)", p.fee);
+        emit log_named_uint("LayerZero fee, live DVNs + self-executor (wei)", p.fee);
         vm.selectFork(rh);
         vm.warp(uint256(p.observedAt) + 75); // 5 blocks + DVN + executor
         _checkConfigIsEnforced(p);
@@ -128,10 +134,12 @@ contract PushForkTest is Test {
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(hb), address(receiver), hb.guid, hb.message, "");
         emit log_named_uint("Robinhood execution gas, heartbeat", g - gasleft());
         assertEq(hook.poolState(pid).ageOrBlock, 75, "heartbeat accepted");
-        uint256 cost = _cost(hb.message);
+        uint256 cost = _cost(hb.message) + 150_000 * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
-        assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + push gas) * 1.2");
-        emit log_named_uint("cost carried (LZ fee + 150k * Ethereum basefee)", _cost(hb.message));
+        assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + measured gas + RH delivery) * 1.2");
+        emit log_named_uint("cost carried (LZ fee + measured Ethereum gas)", _cost(hb.message));
+        emit log_named_uint("Ethereum basefee (wei)", hb.basefee);
+        emit log_named_uint("keeper push gas on Ethereum (measured by the test)", hb.gas);
         emit log_named_uint("refund paid on Robinhood (wei)", cost * 12 / 10);
     }
 
@@ -145,7 +153,7 @@ contract PushForkTest is Test {
         bool[] memory ethGas = new bool[](1);
         (eids[0], senders[0], ethGas[0]) = (V0.ETH_EID, address(sender), true);
         receiver = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, ethGas, V0.rhReceiveFromEthereum(rhLib)
+            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, ethGas, _rhCfg(rhLib)
         );
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("WETH", "WETH", 18);
@@ -171,10 +179,15 @@ contract PushForkTest is Test {
     function _push() internal returns (Packet memory p) {
         vm.selectFork(eth);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
-        p.fee = sender.quote(V0.RH_EID, to, pid, 1, pair, bytes32(0), RECEIVE_GAS);
+        DisciplePushSender.Req[] memory r = _reqs(1, 1);
+        r[0].pools[0] = pid;
+        p.fee = sender.quote(V0.RH_EID, to, r, RECEIVE_GAS);
         vm.recordLogs();
         vm.prank(keeper);
-        sender.push{value: p.fee}(V0.RH_EID, to, pid, 1, pair, bytes32(0), RECEIVE_GAS);
+        uint256 g = gasleft();
+        sender.push{value: p.fee}(V0.RH_EID, to, r, RECEIVE_GAS);
+        p.gas = g - gasleft();
+        p.basefee = block.basefee;
         p.observedAt = uint64(vm.getBlockTimestamp());
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes memory packet;
@@ -205,7 +218,7 @@ contract PushForkTest is Test {
     /// @dev Too few DVNs, or too few confirmations, cannot commit: the v0 config is what decides.
     function _checkConfigIsEnforced(Packet memory p) internal {
         bytes32 h = keccak256(abi.encodePacked(p.guid, p.message));
-        (address[] memory req,) = V0.rhDvns();
+        (address[] memory req,,) = V0.rhLiveDvns();
         uint256 snap = vm.snapshotState();
         for (uint256 i = 0; i < req.length; i++) {
             vm.prank(req[i]);
@@ -228,7 +241,7 @@ contract PushForkTest is Test {
 
     function _verifyAs(Packet memory p, uint64 conf) internal {
         bytes32 h = keccak256(abi.encodePacked(p.guid, p.message));
-        (address[] memory req, address[] memory opt) = V0.rhDvns();
+        (address[] memory req, address[] memory opt,) = V0.rhLiveDvns();
         for (uint256 i = 0; i < req.length; i++) {
             vm.prank(req[i]);
             IReceiveUln(rhLib).verify(p.header, h, conf);
@@ -251,8 +264,84 @@ contract PushForkTest is Test {
     }
 
     function _cost(bytes memory message) internal pure returns (uint256 c) {
-        (,,,,,,,, c) =
-            abi.decode(message, (PoolId, uint8, address, bytes32, uint256, uint256, uint64, address, uint256));
+        (,, c) = abi.decode(message, (uint64, address, uint256));
+    }
+
+    function _ethCfg(address lib, address executor, bool lean) internal pure returns (LibConfig[] memory) {
+        (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.ethLeanDvns() : V0.ethLiveDvns();
+        return V0.ethSend(lib, executor, req, opt, th);
+    }
+
+    function _rhCfg(address lib) internal pure returns (LibConfig[] memory) {
+        (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
+        return V0.rhReceive(lib, req, opt, th);
+    }
+
+    /// @dev `sources` copies of the v2 source, each listing `perSource` pool ids.
+    function _reqs(uint256 sources, uint256 perSource) internal view returns (DisciplePushSender.Req[] memory r) {
+        r = new DisciplePushSender.Req[](sources);
+        for (uint256 i = 0; i < sources; i++) {
+            r[i].kind = 1;
+            r[i].target = pair;
+            r[i].pools = new PoolId[](perSource);
+            for (uint256 j = 0; j < perSource; j++) {
+                r[i].pools[j] = PoolId.wrap(keccak256(abi.encode(i, j)));
+            }
+        }
+    }
+
+    /// @notice Ethereum only: what one message costs, by DVN set, executor, and batch size. For each it quotes the
+    ///         LayerZero fee and executes a real send, measuring the keeper's Ethereum gas. Logs a matrix; asserts
+    ///         only that the sender's own gas estimate is not below the measured gas.
+    function test_fork_quoteMatrix() public {
+        string memory ethRpc = vm.envOr("FORK_RPC_ETH", string(""));
+        if (bytes(ethRpc).length == 0) return;
+        pair = vm.envOr("PUSH_V2", address(0x8f1B19622a888c53C8eE4F7D7B4Dc8F574ff9068));
+        vm.createSelectFork(ethRpc);
+        keeper = makeAddr("keeper");
+        vm.deal(keeper, 100 ether);
+        address lib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
+        address self = address(new DiscipleSelfExecutor());
+        bytes32 to = bytes32(uint256(0xD15C1));
+        emit log_named_uint("Ethereum basefee (wei)", block.basefee);
+        uint8[3] memory sizes = [uint8(1), 5, 10];
+        for (uint256 c = 0; c < 4; c++) {
+            bool lean = c >= 2;
+            address ex = c % 2 == 1 ? self : address(0);
+            DisciplePushSender s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), _ethCfg(lib, ex, lean));
+            emit log_string(
+                string.concat(
+                    "---- DVNs ", lean ? "lean (2 required)" : "live (2 + 2 of 3)", ", executor ",
+                    ex == address(0) ? "LayerZero (paid)" : "self (zero fee)"
+                )
+            );
+            for (uint256 k = 0; k < 3; k++) {
+                DisciplePushSender.Req[] memory r = _reqs(sizes[k], 1);
+                uint256 fee = s.quote(V0.RH_EID, to, r, uint128(100_000 + 90_000 * uint256(sizes[k])));
+                vm.recordLogs();
+                vm.prank(keeper);
+                uint256 g = gasleft();
+                s.push{value: fee}(V0.RH_EID, to, r, uint128(100_000 + 90_000 * uint256(sizes[k])));
+                uint256 used = g - gasleft() + 21_000 + 16 * (4 + 32 * (6 + 7 * uint256(sizes[k])));
+                uint256 carried = _pushedCost();
+                emit log_named_uint(string.concat("  sources ", vm.toString(sizes[k]), ": LZ fee (wei)"), fee);
+                emit log_named_uint(string.concat("  sources ", vm.toString(sizes[k]), ": Ethereum gas (measured)"), used);
+                emit log_named_uint(
+                    string.concat("  sources ", vm.toString(sizes[k]), ": total per source (wei)"),
+                    (fee + used * block.basefee) / sizes[k]
+                );
+                assertGe(carried, fee + used * block.basefee * 9 / 10, "carried cost tracks the measured cost");
+                vm.roll(block.number + 1);
+            }
+        }
+    }
+
+    function _pushedCost() internal returns (uint256 c) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 t = keccak256("Pushed(uint32,bytes32,uint256,uint256,uint256,address)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == t) (, , , c) = abi.decode(logs[i].data, (bytes32, uint256, uint256, uint256));
+        }
     }
 
     function _mine(bytes memory args) internal view returns (bytes32) {

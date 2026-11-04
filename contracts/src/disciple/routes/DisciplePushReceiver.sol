@@ -37,6 +37,7 @@ contract DisciplePushReceiver {
 
     event PeerAdded(uint32 indexed eid, address sender, bool ethGas);
     event OwnerChanged(address owner);
+    event Undelivered(PoolId indexed id);
 
     constructor(
         ILayerZeroEndpointV2Lite endpoint_,
@@ -94,22 +95,38 @@ contract DisciplePushReceiver {
         emit PeerAdded(eid, sender, ethGas_);
     }
 
+    /// @dev One source's observation as received. Must match DisciplePushSender.Obs.
+    struct Obs {
+        uint8 kind;
+        address target;
+        bytes32 v4Id;
+        uint256 a;
+        uint256 b;
+        PoolId[] pools;
+    }
+
+    /// @notice Delivers one batched message: every source's observation to every pool listed for it. The message's
+    ///         cost is split evenly over the listed pools; each pool refunds its share only if it accepts the price
+    ///         under its own rules. One pool refusing or failing does not stop the others.
     function lzReceive(Origin calldata o, bytes32, bytes calldata message, address, bytes calldata) external payable {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint();
         if (o.sender == bytes32(0) || peers[o.srcEid] != o.sender) revert UnknownPeer();
-        (
-            PoolId id,
-            uint8 kind,
-            address target,
-            bytes32 v4Id,
-            uint256 a,
-            uint256 b,
-            uint64 observedAt,
-            address keeper,
-            uint256 cost
-        ) = abi.decode(message, (PoolId, uint8, address, bytes32, uint256, uint256, uint64, address, uint256));
-        if (!ethGas[o.srcEid]) cost = 0;
-        hook.onBridgePrice(id, o.srcEid, kind, target, v4Id, a, b, observedAt, keeper, cost);
+        (uint64 observedAt, address keeper, uint256 cost, Obs[] memory obs) =
+            abi.decode(message, (uint64, address, uint256, Obs[]));
+        uint256 n;
+        for (uint256 i = 0; i < obs.length; i++) {
+            n += obs[i].pools.length;
+        }
+        uint256 share = ethGas[o.srcEid] && n > 0 ? cost / n : 0;
+        for (uint256 i = 0; i < obs.length; i++) {
+            Obs memory x = obs[i];
+            for (uint256 j = 0; j < x.pools.length; j++) {
+                try hook.onBridgePrice(x.pools[j], o.srcEid, x.kind, x.target, x.v4Id, x.a, x.b, observedAt, keeper, share) {}
+                catch {
+                    emit Undelivered(x.pools[j]);
+                }
+            }
+        }
     }
 
     /// @notice LayerZero asks this before the first message on a pathway.

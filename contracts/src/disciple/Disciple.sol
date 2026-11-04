@@ -82,8 +82,9 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     uint256 internal constant BRIDGE_RECOVERY_AGE = 20 minutes;
     /// @dev Cap on one bridge-push refund, so a gas spike on the parent chain cannot drain the tank.
     uint256 internal constant MAX_PUSH_REFUND = 0.002 ether;
-    /// @dev Rollup-side gas of a native-bridge delivery (retryable auto-redeem or OP deposit), added to the keeper's
-    ///      cost at this chain's basefee. The sender's own figure covers only the parent-chain side.
+    /// @dev This chain's gas for delivering a pushed price to one pool (the bridge's auto-redeem, or the keeper's own
+    ///      LayerZero commit + execute), added to the keeper's cost at this chain's basefee. The sender's figure
+    ///      covers only the home-chain side.
     uint256 internal constant BRIDGE_L2_GAS = 150_000;
     /// @dev Arbitrum-stack L1-to-L2 sender alias offset.
     uint160 internal constant ALIAS_OFFSET = uint160(0x1111000000000000000000000000000000001111);
@@ -564,7 +565,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             (price, tvl) = _shift(s.decShift, price, tvl);
         }
         uint256 ageAtSend = p.live && observedAt > p.obsAt ? observedAt - p.obsAt : 0;
-        if (viaBridge) keeperCost += BRIDGE_L2_GAS * block.basefee;
+        keeperCost += BRIDGE_L2_GAS * block.basefee;
         if (keeperCost > MAX_PUSH_REFUND) keeperCost = MAX_PUSH_REFUND;
         _accept(p, id, price, tvl, observedAt, keeper, keeperCost, ageAtSend, BRIDGE_RECOVERY_AGE);
         _locked = false;
