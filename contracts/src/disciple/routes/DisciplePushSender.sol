@@ -17,8 +17,15 @@ import {
 ///         state in ONE message to a DisciplePushReceiver, which trusts only this sender for this chain's eid.
 ///
 ///         Batching (maker, 2026-11-04: per-pool messages cost too much): one message carries any number of
-///         sources, and each source lists the pools priced from it on the destination. The message's whole cost is
-///         split evenly over all listed pools, so ten pools on one source pay a tenth each.
+///         sources, and each source lists the pools priced from it on the destination (at most MAX_POOLS
+///         listings). The message's whole cost is split evenly over all listings, so ten pools on one source pay a
+///         tenth each. A listing the pool refuses (wrong source, not newer, a duplicate) refunds nothing, so a keeper
+///         should list only pools that will accept: same source, and older than this observation.
+///
+///         Delivery with DiscipleSelfExecutor: nobody is paid to execute on the destination, so after the DVNs have
+///         verified, anyone calls commitVerification and endpoint.lzReceive there (script/disciple/DeliverV0Push).
+///         The refund always goes to the keeper who sent and paid here, whoever delivers; it is paid only on
+///         delivery, so the sender has the incentive to deliver, and anyone else can take over if it does not.
 ///
 ///         Keeper cost carried in the message: the LayerZero fee plus this transaction's gas, measured here
 ///         (intrinsic + calldata at its ABI length + execution) at basefee only, so priority fees and padded
@@ -29,7 +36,10 @@ contract DisciplePushSender is DiscipleSourceReader {
     /// @dev endpoint.send after the quote (library, DVN and executor jobs, nonce, event) plus the second encode,
     ///      per message, warm (a sender's very first message also pays cold storage, ~120k more, unrefunded).
     ///      Calibrated on the Ethereum fork; the read, encode and quote before it are measured live.
-    uint256 public constant SEND_GAS = 110_000; // fork, 2026-11-04: carried 151k vs 189k measured at 70k
+    uint256 public constant SEND_GAS = 125_000; // fork, 2026-11-04: covers the heaviest config (live DVNs, paid
+    // executor, 1 source: 274k measured); the lean self-executed config is over-carried by ~15k gas
+    /// @dev Pool listings per message: bounds the receiver's loop and the message size.
+    uint256 public constant MAX_POOLS = 64;
 
     struct Req {
         uint8 kind;
@@ -53,6 +63,7 @@ contract DisciplePushSender is DiscipleSourceReader {
     event Pushed(uint32 indexed dstEid, bytes32 guid, uint256 sources, uint256 pools, uint256 cost, address keeper);
 
     error Empty();
+    error TooMany();
 
     constructor(ILayerZeroEndpointV2Lite endpoint_, LibConfig[] memory config) {
         endpoint = endpoint_;
@@ -95,6 +106,7 @@ contract DisciplePushSender is DiscipleSourceReader {
             obs[i] = Obs(q.kind, q.target, q.v4Id, a, b, q.pools);
             n += q.pools.length;
         }
+        if (n > MAX_POOLS) revert TooMany();
     }
 
     /// @dev Message: (observedAt, keeper, cost for the whole message, observations).

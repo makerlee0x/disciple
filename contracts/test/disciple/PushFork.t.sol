@@ -130,9 +130,12 @@ contract PushForkTest is Test {
         vm.warp(uint256(hb.observedAt) + 75);
         _verifyAndCommit(hb, 5);
         uint256 kb = keeper.balance;
+        address other = makeAddr("another keeper"); // takeover: delivery by someone other than the sender
         g = gasleft();
+        vm.prank(other);
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(hb), address(receiver), hb.guid, hb.message, "");
         emit log_named_uint("Robinhood execution gas, heartbeat", g - gasleft());
+        assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 75, "heartbeat accepted");
         uint256 cost = _cost(hb.message) + 150_000 * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
