@@ -320,7 +320,11 @@ contract PushForkReverseTest is Test {
 
     receive() external payable {}
 
+    /// @dev The basefee a pranked caller's call sees (keepers push and deliver under vm.prank). Foundry 1.9.0 shows
+    ///      called contracts a basefee of 0 in that case although the test contract reads the fork block's value.
     function _bf() internal returns (uint256) {
-        return new BasefeeProbe().get();
+        BasefeeProbe probe = new BasefeeProbe();
+        vm.prank(address(0xBEEF));
+        return probe.get();
     }
 }
