@@ -155,7 +155,7 @@ contract DiscipleTest is Test {
         pair = new MockPair();
         home = new MockEndpoint(HOME_EID);
         local = new MockEndpoint(30101);
-        pushSender = new DisciplePushSender(home, new LibConfig[](0));
+        pushSender = new DisciplePushSender(home, new LibConfig[](0), 125_000);
         receiver = _receiver(address(pushSender));
         // source: coin is token0 of the pair; price 2 quote per coin
         pair.set(1_000_000e18, 2_000_000e18);
@@ -653,7 +653,7 @@ contract DiscipleTest is Test {
 
         // a sender that is not the registered peer for that chain
         pair.set(1_000_000e18, 2_500_000e18);
-        DisciplePushSender rogue = new DisciplePushSender(home, new LibConfig[](0));
+        DisciplePushSender rogue = new DisciplePushSender(home, new LibConfig[](0), 125_000);
         vm.deal(address(this), 1 ether);
         rogue.push{value: 1 ether}(30101, bytes32(0), _req(address(pair), id), 200_000);
         bytes memory m = home.lastMessage();
@@ -850,7 +850,7 @@ contract DiscipleTest is Test {
         (, PoolId id) = _createPush(HOME_EID, 0.05 ether);
         _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
         uint256 a = hook.poolState(id).anchorX128;
-        DisciplePushSender other = new DisciplePushSender(home, new LibConfig[](0));
+        DisciplePushSender other = new DisciplePushSender(home, new LibConfig[](0), 125_000);
 
         // an existing peer can never be replaced
         vm.expectRevert(DisciplePushReceiver.PeerSet.selector);

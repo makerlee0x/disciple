@@ -82,11 +82,11 @@ contract PushForkReverseTest is Test {
         emit log_string(lean ? "DVN set: lean (2 required)" : "DVN set: live (2 + 2 of 3)");
 
         // ---- Robinhood: sender with the rhSend config, zero-fee self-executor
-        vm.selectFork(rh);
+        _select(rh);
         address rhLib = IEndpointFull(V0.RH_ENDPOINT).defaultSendLibrary(V0.ETH_EID);
         (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.rhLeanDvns() : V0.rhLiveDvns();
         LibConfig[] memory cfg = V0.rhSend(rhLib, address(new DiscipleSelfExecutor()), req, opt, th);
-        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), cfg);
+        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), cfg, V0.sendGas(lean, true));
         assertEq(
             keccak256(IEndpointFull(V0.RH_ENDPOINT).getConfig(address(sender), rhLib, V0.ETH_EID, 2)),
             keccak256(_resolved(cfg[0].params[0].config)),
@@ -96,7 +96,7 @@ contract PushForkReverseTest is Test {
         (uint256 a,) = sender.read(3, RH_POOL_MANAGER, v4Id);
 
         // ---- Ethereum: receiver + combined hook + a pool priced off the Robinhood source
-        vm.selectFork(eth);
+        _select(eth);
         _deployEthereum();
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(receiver), ethLib, V0.RH_EID, 2)),
@@ -110,7 +110,7 @@ contract PushForkReverseTest is Test {
         _syncRhClock();
         Packet memory p = _push();
         emit log_named_uint("LayerZero fee on Robinhood (wei)", p.fee);
-        vm.selectFork(eth);
+        _select(eth);
         vm.warp(uint256(p.observedAt) + 30); // 20 Robinhood blocks + DVNs + keeper
         _checkConfigIsEnforced(p);
         _verifyAndCommit(p, CONF);
@@ -131,7 +131,9 @@ contract PushForkReverseTest is Test {
             key,
             IPoolManager.SwapParams({
                 zeroForOne: zf,
-                amountSpecified: -int256(1e6),
+                // ~0.06% of the quote reserve. A trade under ~1e-15 of the reserves rounds to zero output (the curve's
+                // LN_SLACK) and reverts ZeroOutput, which is what the old 1e6-vs-1e36 sizing hit.
+                amountSpecified: -int256(1e16),
                 sqrtPriceLimitX96: zf ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
@@ -140,7 +142,7 @@ contract PushForkReverseTest is Test {
         vm.warp(uint256(p.observedAt) + 59 minutes + 30);
         _syncRhClock();
         Packet memory hb = _push();
-        vm.selectFork(eth);
+        _select(eth);
         vm.warp(uint256(hb.observedAt) + 30);
         _verifyAndCommit(hb, CONF);
         uint256 kb = keeper.balance;
@@ -193,12 +195,12 @@ contract PushForkReverseTest is Test {
         quote.approve(address(swapper), type(uint256).max);
         quoteToken = address(quote);
         (key, pid) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e36, quoteIn: 1e36, srcKey: _noKey(), srcKey2: _noKey()})
+            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e24, quoteIn: 1e20, srcKey: _noKey(), srcKey2: _noKey()})
         );
     }
 
     function _push() internal returns (Packet memory p) {
-        vm.selectFork(rh);
+        _select(rh);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
         DisciplePushSender.Req[] memory r = new DisciplePushSender.Req[](1);
         r[0].kind = 3;
@@ -280,7 +282,7 @@ contract PushForkReverseTest is Test {
 
     function _syncRhClock() internal {
         uint256 now_ = vm.getBlockTimestamp();
-        vm.selectFork(rh);
+        _select(rh);
         if (now_ > vm.getBlockTimestamp()) vm.warp(now_);
         vm.roll(block.number + 1);
     }
@@ -317,4 +319,12 @@ contract PushForkReverseTest is Test {
     }
 
     receive() external payable {}
+
+    /// @dev Select a fork and pin its basefee. Foundry 1.9.0 shows a forked block's basefee to the test contract and to
+    ///      view calls but gives state-changing calls a basefee of 0 unless vm.fee sets it (test/disciple/BasefeeDiag).
+    ///      The sender and the hook price gas at block.basefee, so without the pin their gas refunds come out 0.
+    function _select(uint256 fork) internal {
+        vm.selectFork(fork);
+        vm.fee(block.basefee);
+    }
 }

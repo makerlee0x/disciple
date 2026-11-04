@@ -40,6 +40,14 @@ library DiscipleRoutesV0 {
     uint32 internal constant CONFIG_TYPE_EXECUTOR = 1;
     uint32 internal constant CONFIG_TYPE_ULN = 2;
     uint32 internal constant MAX_MESSAGE_SIZE = 10_000;
+
+    /// @dev DisciplePushSender.sendGas per config: gas of endpoint.send not visible to the sender's own measurement,
+    ///      for a transaction starting cold (as on chain). Ethereum fork, Foundry 1.9.0, 2026-11-04, sized so the
+    ///      carried gas is at or just above the measured gas for 1 source (test_fork_quoteMatrix).
+    function sendGas(bool lean, bool selfExecutor) internal pure returns (uint256) {
+        if (lean) return selfExecutor ? 127_000 : 148_000;
+        return selfExecutor ? 190_000 : 211_000;
+    }
     uint8 internal constant NIL_DVN_COUNT = type(uint8).max;
 
     // ---- DVN sets, Ethereum side (sorted ascending)

@@ -96,13 +96,13 @@ contract PushForkTest is Test {
         keeper = makeAddr("keeper");
 
         // ---- Ethereum: sender with the v0 config
-        vm.selectFork(eth);
+        _select(eth);
         address ethLib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
         // live DVN set, zero-fee self-executor: the keeper commits and executes on Robinhood itself
         lean = keccak256(bytes(vm.envOr("PUSH_DVNS", string("live")))) == keccak256("lean");
         emit log_string(lean ? "DVN set: lean (2 required)" : "DVN set: live (2 + 2 of 3)");
         LibConfig[] memory cfg = _ethCfg(ethLib, address(new DiscipleSelfExecutor()), lean);
-        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), cfg);
+        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), cfg, V0.sendGas(lean, true));
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(sender), ethLib, V0.RH_EID, 2)),
             keccak256(_resolved(cfg[0].params[0].config)),
@@ -112,7 +112,7 @@ contract PushForkTest is Test {
         (uint256 a, uint256 b) = sender.read(1, pair, bytes32(0));
 
         // ---- Robinhood: receiver + hook + push pool
-        vm.selectFork(rh);
+        _select(rh);
         _deployRobinhood();
         assertEq(
             keccak256(IEndpointFull(V0.RH_ENDPOINT).getConfig(address(receiver), rhLib, V0.ETH_EID, 2)),
@@ -124,7 +124,7 @@ contract PushForkTest is Test {
         _syncEthClock();
         Packet memory p = _push();
         emit log_named_uint("LayerZero fee, live DVNs + self-executor (wei)", p.fee);
-        vm.selectFork(rh);
+        _select(rh);
         vm.warp(uint256(p.observedAt) + 75); // 5 blocks + DVN + executor
         _checkConfigIsEnforced(p);
         _verifyAndCommit(p, 5);
@@ -155,7 +155,7 @@ contract PushForkTest is Test {
         vm.warp(uint256(p.observedAt) + 59 minutes + 30);
         _syncEthClock();
         Packet memory hb = _push();
-        vm.selectFork(rh);
+        _select(rh);
         vm.warp(uint256(hb.observedAt) + 75);
         _verifyAndCommit(hb, 5);
         uint256 kb = keeper.balance;
@@ -213,7 +213,7 @@ contract PushForkTest is Test {
     }
 
     function _push() internal returns (Packet memory p) {
-        vm.selectFork(eth);
+        _select(eth);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
         DisciplePushSender.Req[] memory r = _reqs(1, 1);
         r[0].pools[0] = pid;
@@ -295,7 +295,7 @@ contract PushForkTest is Test {
 
     function _syncEthClock() internal {
         uint256 now_ = vm.getBlockTimestamp();
-        vm.selectFork(eth);
+        _select(eth);
         if (now_ > vm.getBlockTimestamp()) vm.warp(now_);
         vm.roll(block.number + 1);
     }
@@ -339,6 +339,7 @@ contract PushForkTest is Test {
         if (bytes(ethRpc).length == 0) return;
         pair = vm.envOr("PUSH_V2", address(0x8f1B19622a888c53C8eE4F7D7B4Dc8F574ff9068));
         vm.createSelectFork(ethRpc);
+        vm.fee(block.basefee); // see _select
         keeper = makeAddr("keeper");
         vm.deal(keeper, 100 ether);
         address lib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
@@ -349,7 +350,9 @@ contract PushForkTest is Test {
         for (uint256 c = 0; c < 4; c++) {
             bool lean = c >= 2;
             address ex = c % 2 == 1 ? self : address(0);
-            DisciplePushSender s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), _ethCfg(lib, ex, lean));
+            DisciplePushSender s = new DisciplePushSender(
+                ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), _ethCfg(lib, ex, lean), V0.sendGas(lean, ex != address(0))
+            );
             emit log_string(
                 string.concat(
                     "---- DVNs ", lean ? "lean (2 required)" : "live (2 + 2 of 3)", ", executor ",
@@ -379,7 +382,13 @@ contract PushForkTest is Test {
                     string.concat("  sources ", vm.toString(sizes[k]), ": total per source (wei)"),
                     (fee + used * block.basefee) / sizes[k]
                 );
-                assertGe(carried, fee + used * block.basefee * 9 / 10, "carried cost tracks the measured cost");
+                emit log_named_uint(
+                    string.concat("  sources ", vm.toString(sizes[k]), ": carried gas / measured gas (bps)"),
+                    (carried - fee) * 10_000 / (used * block.basefee)
+                );
+                // V0.sendGas is sized so the keeper is never under-refunded, and over-carried by at most 5%
+                assertGe(carried, fee + used * block.basefee, "carried cost covers the measured cost");
+                assertLe(carried, fee + used * block.basefee * 105 / 100, "carried cost within 5% of measured");
                 vm.roll(block.number + 1);
             }
         }
@@ -413,4 +422,12 @@ contract PushForkTest is Test {
     }
 
     receive() external payable {}
+
+    /// @dev Select a fork and pin its basefee. Foundry 1.9.0 shows a forked block's basefee to the test contract and to
+    ///      view calls but gives state-changing calls a basefee of 0 unless vm.fee sets it (test/disciple/BasefeeDiag).
+    ///      The sender and the hook price gas at block.basefee, so without the pin their gas refunds come out 0.
+    function _select(uint256 fork) internal {
+        vm.selectFork(fork);
+        vm.fee(block.basefee);
+    }
 }

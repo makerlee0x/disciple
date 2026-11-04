@@ -33,14 +33,9 @@ import {
 contract DisciplePushSender is DiscipleSourceReader {
     /// @dev Gas not visible to gasleft(): the 21k intrinsic cost, the endpoint's refund of excess fee, the event.
     uint256 public constant OVERHEAD_GAS = 30_000;
-    /// @dev endpoint.send after the quote (library, DVN and executor jobs, nonce, event) plus the second encode,
-    ///      per message, warm (a sender's very first message also pays cold storage, ~120k more, unrefunded).
-    ///      Calibrated on the Ethereum fork; the read, encode and quote before it are measured live.
-    uint256 public constant SEND_GAS = 125_000; // fork, 2026-11-04: covers the heaviest config (live DVNs, paid
-    // executor, 1 source: 274k measured); the lean self-executed config is over-carried by ~15k gas
     /// @dev Extra send-side gas per source (the payload is hashed, copied and logged inside the endpoint and
-    ///      library). Fork, 2026-11-04: 5 sources fell ~17k short without it.
-    uint256 public constant SEND_GAS_PER_SOURCE = 5_000;
+    ///      library). Ethereum fork, Foundry 1.9.0 (cold accounts per transaction, as on chain), 2026-11-04.
+    uint256 public constant SEND_GAS_PER_SOURCE = 9_500;
     /// @dev Pool listings per message: bounds the receiver's loop and the message size.
     uint256 public constant MAX_POOLS = 64;
 
@@ -62,14 +57,19 @@ contract DisciplePushSender is DiscipleSourceReader {
     }
 
     ILayerZeroEndpointV2Lite public immutable endpoint;
+    /// @dev endpoint.send after the quote (library, DVN and executor jobs, nonce, event, cold accounts) plus the
+    ///      second encode, per message. Depends on the DVN/executor config fixed at construction, so it is set with
+    ///      it: DiscipleRoutesV0.sendGas. The read, encode and quote before the send are measured live.
+    uint256 public immutable sendGas;
 
     event Pushed(uint32 indexed dstEid, bytes32 guid, uint256 sources, uint256 pools, uint256 cost, address keeper);
 
     error Empty();
     error TooMany();
 
-    constructor(ILayerZeroEndpointV2Lite endpoint_, LibConfig[] memory config) {
+    constructor(ILayerZeroEndpointV2Lite endpoint_, LibConfig[] memory config, uint256 sendGas_) {
         endpoint = endpoint_;
+        sendGas = sendGas_;
         for (uint256 i = 0; i < config.length; i++) {
             endpoint_.setConfig(address(this), config[i].lib, config[i].params);
         }
@@ -95,8 +95,8 @@ contract DisciplePushSender is DiscipleSourceReader {
         MessagingParams memory mp = _params(dstEid, receiver, _message(obs, 0), gas);
         uint256 fee = endpoint.quote(mp, address(this)).nativeFee;
         uint256 used = g0 - gasleft();
-        uint256 sendGas = SEND_GAS + SEND_GAS_PER_SOURCE * reqs.length;
-        uint256 cost = fee + (used + sendGas + OVERHEAD_GAS + 16 * _abiLen(reqs)) * block.basefee;
+        uint256 sg = sendGas + SEND_GAS_PER_SOURCE * reqs.length;
+        uint256 cost = fee + (used + sg + OVERHEAD_GAS + 16 * _abiLen(reqs)) * block.basefee;
         mp.message = _message(obs, cost);
         MessagingReceipt memory r = endpoint.send{value: msg.value}(mp, msg.sender);
         guid = r.guid;
