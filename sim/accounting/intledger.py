@@ -173,13 +173,15 @@ class Ledger:
         else:
             Q, self.L = 0, self.L - E
         V = self.value(M)
+        # creator cut judged now, before paying this interval (review D-02); LP payouts latch after
+        on = self.creator_on
+        if tvl > 0:
+            on = self.creator_on = V * 10_000 >= self.TARGET_BPS * tvl
         # Spec: nothing is distributed if Q >= V. We also hold back Q > V/2 (a pathological one-interval gain) so the
         # 1/(V - D) terms stay bounded; it stays in share value pro rata.
         if 0 < Q and 2 * Q <= V:
             self._distribute(Q, V)
-        if tvl > 0:  # creator cut reversible, LP payouts latch (maker, 2026-11-04)
-            self.creator_on = self.value(M) * 10_000 >= self.TARGET_BPS * tvl
-            self.graduated = self.graduated or self.creator_on
+        self.graduated = self.graduated or on
         return Q
 
     def _distribute(self, D, V):

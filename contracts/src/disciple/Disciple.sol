@@ -54,7 +54,7 @@ interface IV3PoolLike {
 ///         a 1% home move or a 59.5-min heartbeat and are refunded their cost plus 20% from the pool's ETH tank (a
 ///         heartbeat only if the pool traded since the last price). lzRead and the rollup-bridge route were cut
 ///         from v0 (maker, 2026-11-04). The spread widens after 60 min; after 2 h the pool enters local mode (re-centres, drops the band,
-///         keeps trading). A fresh read under 120 s old ends local mode and re-centres again. The pool never
+///         keeps trading). A fresh push under 20 min old (PUSH_RECOVERY_AGE) ends local mode and re-centres again. The pool never
 ///         stops trading.
 ///
 ///         Curve and fills: DiscipleSwapMath. Price rules: DisciplePrice. LP books: DiscipleLedger.
@@ -87,6 +87,8 @@ contract Disciple is IHooks, IUnlockCallback {
     uint24 internal constant MAX_FEE = 100_000;
     /// @dev v4 source depth counter: storage reads per block (first touch) and at createPool (creator pays).
     uint256 internal constant WALK_STEPS = 4;
+    /// @dev Largest cross-chain decimal shift (10^36 fits any realistic price or TVL product).
+    int8 internal constant MAX_SHIFT = 36;
     uint256 internal constant WALK_INIT_STEPS = 256;
     /// @dev A recovering pushed price may be this old on arrival.
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
@@ -106,7 +108,8 @@ contract Disciple is IHooks, IUnlockCallback {
         uint32 remoteEid; // 0 = same chain; else the home chain's LayerZero eid
         address target; // v2 pair / v3 pool; for v4 the PoolManager (remote: the remote manager)
         bytes32 v4Id; // v4 source pool id
-        int8 decShift; // cross chain: price * 10^decShift converts home raw units to local raw units
+        int8 decShift; // cross chain: price * 10^decShift converts home raw quote-per-coin to local raw units
+        int8 tvlShift; // cross chain: TVL * 10^tvlShift converts home raw quote units to local raw quote units
         bool push; // must be true for a cross-chain pool (LayerZero push from a sender on chain `remoteEid`)
         uint8 kind2; // leg 2 kind, 0 = none
         bool xIs0; // X is token0 of leg 2
@@ -132,6 +135,7 @@ contract Disciple is IHooks, IUnlockCallback {
         uint256 premRefX128; // same chain premium reset reference
         uint64 premAt;
         uint256 srcTvl; // source TVL in quote raw (graduation); 0 = not known yet
+        uint256 gateTvl; // TVL the creator cut is judged against: max of the last two source readings
         address x; // same chain: leg 1's other token (the quote, or X for two-hop)
         DP.Walk walk; // same-chain v4 leg 1: the depth counter that measures its TVL
         uint256 tank; // ETH for refreshes
@@ -253,6 +257,10 @@ contract Disciple is IHooks, IUnlockCallback {
         Source calldata s = cp.src;
         if (s.kind < SRC_V2 || s.kind > SRC_V4 || s.kind2 > SRC_V4) revert BadParams();
         if (s.push != (s.remoteEid != 0) || (s.push && (pushReceiver == address(0) || s.kind2 != 0))) {
+            revert BadParams();
+        }
+        // decimal shifts: zero on the same chain, bounded on a remote one (so a pool can never be stuck unpriced)
+        if (s.remoteEid == 0 ? (s.decShift != 0 || s.tvlShift != 0) : (_badShift(s.decShift) || _badShift(s.tvlShift))) {
             revert BadParams();
         }
 
@@ -493,8 +501,9 @@ contract Disciple is IHooks, IUnlockCallback {
             if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
             uint256 tvl = _sourceTvl(p, s1, spot);
             p.anchorX128 = p.sampleX128;
+            p.gateTvl = _gate(p.srcTvl, tvl);
             p.srcTvl = tvl;
-            BK.settle(p.book, p.anchorX128, tvl, true);
+            BK.settle(p.book, p.anchorX128, p.gateTvl, true);
             p.settledBlock = uint64(block.number);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
@@ -552,7 +561,8 @@ contract Disciple is IHooks, IUnlockCallback {
         bool fits = kind == SRC_V2 || (a <= type(uint160).max && b <= type(uint128).max);
         if (p.exists && route && fits && s.kind == kind && s.target == target && s.v4Id == v4Id) {
             (price, tvl) = s.kind == SRC_V2 ? _v2(a, b, s.coinIs0) : _concentrated(uint160(a), uint128(b), s.coinIs0);
-            (price, tvl) = _shift(s.decShift, price, tvl);
+            price = _shift(s.decShift, price);
+            tvl = _shift(s.tvlShift, tvl);
         }
         uint256 ageAtSend = p.live && observedAt > p.obsAt ? observedAt - p.obsAt : 0;
         if (keeperCost > MAX_PUSH_REFUND) keeperCost = MAX_PUSH_REFUND;
@@ -604,7 +614,8 @@ contract Disciple is IHooks, IUnlockCallback {
         // a heartbeat is paid only if the pool traded since the last price (maker, 2026-11-04); a 1% move always
         if (p.book.dx == 0 && p.book.dy == 0) ageAtRequest = 0;
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
-        BK.settle(p.book, price, tvl, !wasLocal);
+        p.gateTvl = _gate(p.srcTvl, tvl);
+        BK.settle(p.book, price, p.gateTvl, !wasLocal);
         uint256 old = p.anchorX128;
         p.anchorX128 = price;
         p.obsAt = observedAt;
@@ -630,10 +641,22 @@ contract Disciple is IHooks, IUnlockCallback {
         emit PriceAccepted(id, price, observedAt, refund, wasLocal);
     }
 
-    function _shift(int8 sh, uint256 price, uint256 tvl) internal pure returns (uint256, uint256) {
-        if (sh > 0) return (price * 10 ** uint8(sh), tvl * 10 ** uint8(sh));
-        if (sh < 0) return (price / 10 ** uint8(-sh), tvl / 10 ** uint8(-sh));
-        return (price, tvl);
+    /// @dev v * 10^sh; |sh| <= MAX_SHIFT (checked at creation). An overflowing product reads as 0 (refused).
+    function _shift(int8 sh, uint256 v) internal pure returns (uint256) {
+        if (sh < 0) return v / 10 ** uint8(-sh);
+        if (sh == 0) return v;
+        uint256 m = 10 ** uint8(sh);
+        return v > type(uint256).max / m ? 0 : v * m;
+    }
+
+    function _badShift(int8 sh) internal pure returns (bool) {
+        return sh > MAX_SHIFT || sh < -MAX_SHIFT;
+    }
+
+    /// @dev The creator cut is judged against the larger of the previous and the current source TVL, so a source
+    ///      drained for a single reading cannot switch it on (review D-02). 0 = unknown, ignored.
+    function _gate(uint256 prev, uint256 cur) internal pure returns (uint256) {
+        return cur > prev ? cur : prev;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -656,9 +679,19 @@ contract Disciple is IHooks, IUnlockCallback {
     /// @notice Burn principal shares `s` and compound balance `bal` from a lot, paid in both tokens pro rata.
     function withdraw(PoolId id, uint256 lot, uint256 s, uint256 bal) external lock returns (uint256 x, uint256 y) {
         Pool storage p = _live(id);
-        // Same chain settles first. Cross chain exits mid-interval at actual reserves and forfeits the interval.
-        if (p.src.remoteEid == 0) _latchSame(p);
-        (x, y) = BK.withdraw(p.book, lot, msg.sender, s, bal);
+        // Same chain settles first. Cross chain exits mid-interval at actual reserves (which already hold its share
+        // of the open trades) and forfeits the interval: the open flows shrink with the capital that left, so the
+        // remaining LPs are later credited only their own share (review D-01).
+        if (p.src.remoteEid == 0) {
+            _settleForCapital(p);
+            (x, y) = BK.withdraw(p.book, lot, msg.sender, s, bal);
+        } else {
+            uint256 st = p.book.sp + p.book.b;
+            (x, y) = BK.withdraw(p.book, lot, msg.sender, s, bal);
+            uint256 left = p.book.sp + p.book.b;
+            p.book.dx = p.book.dx * int256(left) / int256(st);
+            p.book.dy = p.book.dy * int256(left) / int256(st);
+        }
         _moves(_pair(p, x, y, msg.sender, false));
         emit Withdrawn(id, msg.sender, lot, x, y);
     }
@@ -691,6 +724,9 @@ contract Disciple is IHooks, IUnlockCallback {
     function _settleForCapital(Pool storage p) internal {
         if (p.src.remoteEid == 0) {
             _latchSame(p);
+            // trades earlier in this block: close them now, at the mark the next block would use (this block's
+            // source sample), so capital joining or leaving never shares in fees earned before it (review D-01)
+            if (p.book.dx != 0 || p.book.dy != 0) BK.settle(p.book, p.sampleX128, p.gateTvl, true);
         } else if (p.book.dx != 0 || p.book.dy != 0 || p.local) {
             // cross chain: open trades are marked at the next fresh price; join after it lands
             revert PendingTrades();

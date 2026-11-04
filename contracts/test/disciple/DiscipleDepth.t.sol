@@ -403,7 +403,7 @@ contract DiscipleDepthTest is Test {
         // the source grows 10x: the pool is now 3% of it
         pair.set(10_000_000e18, 20_000_000e18);
         _next();
-        _trade(key); // settles the last on-block (still paid), then turns the cut off
+        _trade(key); // the larger TVL is seen at payout: no cut for the last block, cut off
         assertFalse(hook.poolState(id).creatorOn);
         assertTrue(hook.poolState(id).graduated, "LP payouts stay on");
         hook.claimCreator(id);
@@ -412,8 +412,11 @@ contract DiscipleDepthTest is Test {
         (cx, cy) = hook.claimCreator(id);
         assertEq(cx + cy, 0, "no creator cut while below 12%");
 
-        // the source shrinks back: the cut returns
+        // the source shrinks back: the cut returns once two readings agree (max of last and current TVL)
         pair.set(1_000_000e18, 2_000_000e18);
+        _next();
+        _trade(key);
+        assertFalse(hook.poolState(id).creatorOn, "one low reading is not enough");
         _next();
         _trade(key);
         assertTrue(hook.poolState(id).creatorOn);

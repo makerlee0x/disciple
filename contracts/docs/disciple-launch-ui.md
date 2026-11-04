@@ -36,7 +36,8 @@ struct Source {
     uint32 remoteEid;  // 0 for same chain
     address target;    // leg 1: v2 pair / v3 pool; for v4 the PoolManager
     bytes32 v4Id;      // leg 1 v4 PoolId
-    int8 decShift;     // 0 (cross chain only)
+    int8 decShift;     // cross chain: price * 10^decShift = local raw quote-per-coin; 0 on the same chain
+    int8 tvlShift;     // cross chain: TVL * 10^tvlShift = local raw quote; 0 on the same chain (|shift| <= 36)
     bool push;         // false (cross chain only)
     uint8 kind2;       // leg 2 kind, 0 = mirror (no leg 2)
     bool xIs0;         // X is token0 / currency0 of leg 2
@@ -101,13 +102,13 @@ in-range estimate, which reads high. v2 and v3 home sources need nothing.
     latched in an earlier block, not the live quote.
   - `graduated`: the pool has reached 12% of the source's TVL at least once. From then on LP fees are paid out
     (claimable); before it, everything compounds. This one does not switch back.
-  - `creatorOn`: the creator's 12% cut applies right now. It is on only while the pool is at or above 12% of the
-    source, rechecked every block, so draining the source for a block earns the creator nothing lasting.
+  - `creatorOn`: the creator's 12% cut applies right now. It is judged when each interval is paid, against the
+    larger of the last two source TVL readings, so a source drained for a single reading earns the creator nothing.
   - `srcTvl`: the source's real TVL in quote units, the number Uniswap shows. v2: reserves. v3: the pool's token
     balances. v4: the hook counts the pool's liquidity ranges itself, 4 storage reads on the first trade of each
     block, and refreshes when a pass finishes (about 20 to 40 busy blocks for tick spacing 60 or 200; 0 means the
-    first pass is not done yet). Two-hop: leg 1's TVL, converted at leg 2. Cross-chain pools still use the home
-    chain's in-range estimate.
+    first pass is not done yet). Two-hop: leg 1's TVL, converted at leg 2. Cross-chain: the home sender sends the real TVL;
+    the pool's `tvlShift` converts it to local quote units (separate from the price's `decShift`).
   - `tank`, `local`, `ageOrBlock` as a timestamp: cross-chain only. On a same-chain pool `ageOrBlock` is the last
     settled block.
 - `lotState(id, lot)` returns `owner, principal, compounded, claimX, claimY`. It is **not a view**, because it

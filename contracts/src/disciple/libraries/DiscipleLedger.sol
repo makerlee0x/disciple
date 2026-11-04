@@ -16,7 +16,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///           while a cross-chain pool is in local mode: results then stay in share value pro rata.
 ///         - Below graduation everything compounds. Graduation latches once pool value >= 12% of the source TVL;
 ///           after it LPs are paid in kind into escrow. The creator takes 12% (paid out, or compounded if they
-///           choose) only while the pool is at or above that 12%, rechecked every settlement.
+///           choose) of an interval only if the pool is at or above that 12% when the interval is settled.
 ///         - Boost: principal lots form one FIFO line, weighted 7x at the front sliding linearly to 1.2x at the back
 ///           (F(z) = 7z - 2.9 z^2 / S). Compounded earnings are a separate class weighted a flat 1.2x. `restake`
 ///           turns a lot's compounded balance into a new principal lot at the back.
@@ -143,17 +143,19 @@ library DiscipleLedger {
             bk.lossCarry = uint256(int256(l) - e);
         }
         uint256 v = value(bk, markX128);
+        // The creator cut is judged NOW, before paying this interval (review D-02): a source that has recovered
+        // since the last settlement gets no cut. A zero TVL means "not known yet" and leaves it as it is.
+        bool on = bk.creatorOn;
+        if (sourceTvl > 0) {
+            on = v * BPS >= TARGET_BPS * sourceTvl;
+            bk.creatorOn = on;
+        }
         // Spec: nothing is distributed if Q >= V. Q > V/2 is also held back (it stays in share value pro rata) so
         // the 1/(V - D) terms stay bounded.
         if (q > 0 && 2 * q <= v) _distribute(bk, q, v);
-        // maker, 2026-11-04: the creator's cut is reversible (on only while the pool is >= 12% of the source);
-        // LP payouts latch at the first crossing, which keeps the boost accounting exact. A zero TVL means "not
-        // known yet" and leaves both as they are. Applies from the next interval.
-        if (sourceTvl > 0) {
-            bool on = value(bk, markX128) * BPS >= TARGET_BPS * sourceTvl;
-            bk.creatorOn = on;
-            if (on) bk.graduated = true;
-        }
+        // LP payouts latch at the first crossing (from the next interval), which keeps the boost accounting exact.
+        // The creator's cut is reversible (maker, 2026-11-04), checked above.
+        if (on) bk.graduated = true;
     }
 
     function _distribute(Book storage bk, uint256 d, uint256 v) private {

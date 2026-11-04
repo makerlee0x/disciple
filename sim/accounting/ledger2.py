@@ -54,14 +54,15 @@ class Pool:
         M, tvl = Fr(M), Fr(tvl)
         Q = max(Fr(0), self.E - self.L); self.L = max(Fr(0), self.L - self.E); self.E = Fr(0)
         V = self.V(M)
+        on = self.creator_on
+        if tvl > 0:
+            on = self.creator_on = V >= TARGET * tvl
         if Q > 0:
             if Q >= V:
                 self.events.append(("non_distributable", Q))
             else:
                 self._distribute(Q, V, M)
-        if tvl > 0:  # creator cut reversible, LP payouts latch (maker, 2026-11-04)
-            self.creator_on = self.V(M) >= TARGET * tvl
-            self.graduated = self.graduated or self.creator_on
+        self.graduated = self.graduated or on
         return Q
 
     def _distribute(self, D, V, M):

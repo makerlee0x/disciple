@@ -53,15 +53,15 @@ def ex_D():
 def ex_E(compound):
     p = two_lps(); p.graduated = p.creator_on = True; p.creator = "C"; p.creator_compounds = compound
     p.swap(50, 50, 1)
-    tvl = 200 * Fr(1100, 200) / Fr(7, 100)
-    p.touch(2, 1, tvl)
+    tvl = Fr(9000)                                     # pool 1,100 >= 12% of it: the creator cut applies
+    p.touch(2, 1, tvl)                                 # (the cut is judged at payout, review D-02)
     a, b = p.escrow["A"], p.escrow["B"]
-    assert close(a[0], Fr("29.7804878048780"), Fr(1, 10**10)) and close(b[0], Fr("14.2195121951220"), Fr(1, 10**10))
+    assert a[0] + b[0] == 44 and a[0] > b[0], "LPs share 88 of 100 (44 per token), front of line more"
     if compound:
         assert p.x == 506 and p.y == 506 and p.S == Fr("202.4") and p.V(1) / p.S == 5
         return "E creator compounds: reserves (506, 506), +2.4 shares, NAV/share 5"
     assert p.escrow[("creator", "C")] == [6, 6] and p.x == 500 and p.y == 500
-    return "E payout: creator (6, 6), A 29.78 each, B 14.22 each, reserves (500, 500)"
+    return "E payout: creator (6, 6), LPs 88 (A ahead of B), reserves (500, 500)"
 
 def ex_F():
     p = two_lps(); p.block = 2
@@ -99,14 +99,14 @@ def ex_J():
     p = Pool("A", 500, 500, 1, init_shares=1000); p.creator = "C"
     small, big = Fr(1000), Fr(10**6)                  # pool 100% / 0.1% of the source
     p.swap(50, 50, 1); p.touch(1, 1, small)            # graduates, creator on
-    p.swap(10, 10, 1); p.touch(2, 1, big)              # paid at 12%, then the cut turns off
+    p.swap(10, 10, 1); p.touch(2, 1, small)            # graduated: this interval pays the creator
     c1 = sum(p.escrow[("creator", "C")])
-    assert close(c1, Fr("2.40")) and p.graduated and not p.creator_on
-    p.swap(10, 10, 1); p.touch(3, 1, small)            # no creator cut on this interval; on again after
-    assert sum(p.escrow[("creator", "C")]) == c1 and p.creator_on
+    assert close(c1, Fr("2.40")) and p.graduated and p.creator_on
+    p.swap(10, 10, 1); p.touch(3, 1, big)              # judged at payout: now below, no cut
+    assert sum(p.escrow[("creator", "C")]) == c1 and not p.creator_on
     p.swap(10, 10, 1); p.touch(4, 1, small)
     assert close(sum(p.escrow[("creator", "C")]), c1 + Fr("2.40"))
-    return "J creator cut is reversible: off while below 12% (LP payouts stay on), back on above"
+    return "J creator cut judged at payout: none while below 12% (LP payouts stay on), paid again above"
 
 if __name__ == "__main__":
     for f in (ex_A, ex_B, ex_C, ex_D, lambda: ex_E(False), lambda: ex_E(True), ex_F, ex_G, ex_H, ex_I, ex_J):
