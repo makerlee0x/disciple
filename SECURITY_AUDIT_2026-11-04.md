@@ -49,7 +49,7 @@ A caller can name a funded third-party sender and submit invalid account data/si
 
 **Locations:** `web/package.json:142`, `pnpm-lock.yaml`, `web/next.config.mjs`.
 
-The web application pins **Next.js 14.2.35** and uses the App Router/Server Components. The registry audit of the locked production graph returns outstanding high-severity runtime advisories, including App Router/Server Components denial-of-service advisories. It also identifies affected transitive dependency versions. Evidence is preserved in `evidence/dependency-audit.json`.
+The web application pins **Next.js 14.2.35** and uses the App Router/Server Components. The registry audit of the locked production graph returns outstanding high-severity runtime advisories, including App Router/Server Components denial-of-service advisories. It also identifies affected transitive dependency versions. The exact registry output was retained with the local audit workpapers.
 
 Examples:
 
@@ -99,7 +99,7 @@ Host: localhost
 Connection: close
 ```
 
-It exits with status **1**, `TypeError: Invalid URL`, at `api.ts:525`. See `evidence/indexer-malformed-request.txt`. An unused mock database was sufficient because the failure occurs before route/database access.
+It exits with status **1**, `TypeError: Invalid URL`, at `api.ts:525`. An unused mock database was sufficient because the failure occurs before route/database access.
 
 **Impact:** unauthenticated API and indexing outage if the request reaches Node. A reverse proxy that rejects malformed absolute-form targets may block this exact packet; a directly exposed service is affected. Process supervision can restart it but does not fix repeated disruption. The production image uses Node 20; the explicit process-exit reproduction used Node 24.22.1, whose default unhandled-rejection behavior produced the captured result.
 
@@ -150,15 +150,15 @@ The web application supplies wallet/AA flows, API proxies, the optional self-bun
 
 This was a repository-wide security review focused on production attack surfaces. Manual review covered the fund-moving protocol core and libraries, migration/locked liquidity/fees, launchpad hook/router, session policy/SDK, paymaster, original private-launch add-on, web authentication and gas services, image/SSRF boundaries, rate limiting/shared storage, indexer ingestion/API, configuration and deployment controls. UI/renderer code was scanned for unsafe DOM and input-to-execution paths. Generated ABIs, artifacts, images and vendored dependencies were not independently audited line by line. Existing internal security documents were treated as claims to verify, not evidence that a fix works.
 
-- Exact dependencies were used; solc 0.8.26 binary was SHA-256 verified against the official manifest. Default optimizer/via-IR/Cancun configuration was retained, Forge 1.7.1, four runner threads.
+- Exact dependencies were used; the solc 0.8.26 binary was SHA-256 verified against the official manifest. Default optimizer/via-IR/Cancun configuration was retained. The conclusive full run used the repository-pinned Forge 1.9.0 with isolated, single-thread execution.
 - Three added Solidity reproductions passed, using actual local EntryPoint and PoolManager instances where relevant. Three server-level reproductions completed (relay trust, signature failure and indexer crash); an additional event-catalog check confirmed F-08. These assert vulnerable behavior, not post-fix safety.
 - Selected existing web security/wallet regressions: **195 passes, one skipped test, zero failures across 15 scripts**. SDK: **8 passes**. Web lint passed with one existing image-performance warning; web TypeScript checking passed. The skipped paymaster case is not counted as validated live behavior.
 - Indexer: **54 passes, one failed configuration fixture; typecheck passed**. Dependency advisory scan was completed against the locked production graph.
-- The full Solidity baseline outcome is recorded in `evidence/contracts-baseline.txt` and the final validation note below. Do not infer full-suite success from the three added reproductions alone.
-- No transactions were broadcast, no live service attacked, no secrets exposed, and no audited application source, original tests, dependency declarations, lockfiles or deployment flags changed. Findings and reproductions are in the sibling `/workspace/disciple-main-audit` directory.
+- The conclusive full Solidity run completed **645 tests with zero failures or skips**. The final validation note records a parallel-run anomaly and its resolution; do not infer full-suite success from the three added reproductions alone.
+- No transactions were broadcast, no live service attacked, no secrets exposed, and no audited application source, original tests, dependency declarations, lockfiles or deployment flags changed. This Markdown report is the only tracked repository addition.
 
 Security fixes and deployment configuration were not implemented: this task requested an audit. The remaining step is remediation followed by independent regression review and target-chain integration checks. Absence of a reported issue in another module is not a proof of safety.
 
 ## Validation completion note
 
-Full Solidity suite: pending final result capture.
+The conclusive Forge 1.9.0 run using solc 0.8.26, `--isolate` and `--threads 1` completed **645 passes, zero failures, zero skips**. A preceding four-thread isolated run reported 644 passes and one generic `EvmError: Revert` in `DeployConfigTest.test_deployScriptWiring`; the same test passed immediately in a verbose isolated rerun, and the final single-thread full run passed. This appears to be parallel-run flakiness in the deployment-script test rather than a reproducible wiring failure, but CI should keep the deployment audit serialized or make its environment mutation concurrency-safe.
