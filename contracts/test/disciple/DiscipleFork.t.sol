@@ -174,14 +174,15 @@ contract DiscipleForkTest is Test {
         s.target = x.target;
         s.v4Id = x.kind == 3 ? PoolId.unwrap(x.v4Key.toId()) : bytes32(0);
 
-        bytes memory args = abi.encode(m, quote, ILzRead(address(0)), address(0), address(0));
-        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, ILzRead(address(0)), address(0), address(0));
+        (address f2, address f3) = _factories();
+        bytes memory args = abi.encode(m, quote, ILzRead(address(0)), address(0), address(0), f2, f3);
+        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, ILzRead(address(0)), address(0), address(0), f2, f3);
         PoolSwapTest swapper = new PoolSwapTest(m);
         _fund(coin, quote, address(hook), address(swapper));
 
         uint256 coinSeed = 1000 * 10 ** cd;
         (PoolKey memory key, PoolId id) = hook.createPool(
-            Disciple.CreateParams({coin: coin, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4})
+            Disciple.CreateParams({coin: coin, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4, srcKey: x.v4Key})
         );
         Disciple.PoolView memory v = hook.poolState(id);
         emit log_named_decimal_uint("  source spot (quote per coin)", _human(v.anchorX128, cd, qd), 18);
@@ -598,6 +599,16 @@ contract DiscipleForkTest is Test {
             assertEq(cc, v.coinReserve, "coin claims == coin reserve");
             assertEq(cq, v.quoteReserve, "quote claims == quote reserve");
         }
+    }
+
+    /// @dev Set by the local (no-RPC) run: a factory that knows its dry-run pair.
+    address internal localV2Factory;
+
+    /// @dev Uniswap v2 / v3 factories the hook checks same-chain sources against (env, or Ethereum's).
+    function _factories() internal view returns (address f2, address f3) {
+        if (localV2Factory != address(0)) return (localV2Factory, address(0));
+        f2 = vm.envOr("FORK_V2_FACTORY", block.chainid == 1 ? 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f : address(0));
+        f3 = vm.envOr("FORK_V3_FACTORY", block.chainid == 1 ? 0x1F98431c8aD98523631AE4a59f267346ea31F984 : address(0));
     }
 
     function _erc20(address t) internal view returns (address) {

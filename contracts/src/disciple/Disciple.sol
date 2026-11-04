@@ -22,6 +22,16 @@ import {ILzRead, ILzReadConsumer} from "../bridge/interfaces/ILzRead.sol";
 
 interface IV2PairLike {
     function getReserves() external view returns (uint112, uint112, uint32);
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+}
+
+interface IV2FactoryLike {
+    function getPair(address, address) external view returns (address);
+}
+
+interface IV3FactoryLike {
+    function getPool(address, address, uint24) external view returns (address);
 }
 
 interface IV3PoolLike {
@@ -59,9 +69,10 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     // Constants
     // ---------------------------------------------------------------------------------------------
 
-    uint8 public constant SRC_V2 = 1;
-    uint8 public constant SRC_V3 = 2;
-    uint8 public constant SRC_V4 = 3;
+    /// @dev Source kinds for `Source.kind`: 1 = v2, 2 = v3, 3 = v4.
+    uint8 internal constant SRC_V2 = 1;
+    uint8 internal constant SRC_V3 = 2;
+    uint8 internal constant SRC_V4 = 3;
 
     uint256 internal constant Q128 = 1 << 128;
     uint256 internal constant WAD = 1e18;
@@ -143,6 +154,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         Source src;
         uint256 coinIn;
         uint256 quoteIn;
+        PoolKey srcKey; // same-chain v4 source only: its key, which must hash to `src.v4Id`
     }
 
     /// @dev One token movement inside an unlock: `into` the pool's claims from `who`, or out of them to `who`.
@@ -162,6 +174,11 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     /// @notice The DisciplePushReceiver beside this hook (0 = LayerZero push off). It authenticates the LayerZero
     ///         message and its home-chain sender, then calls `onBridgePrice` with the home chain's eid.
     address public immutable pushReceiver;
+    /// @notice Same-chain v2 / v3 sources must be pools of these factories (0 = that kind is off).
+    address public immutable v2Factory;
+    address public immutable v3Factory;
+    /// @notice Disciple pools per coin so far. Pool n of a coin has tickSpacing n, so a pair is never squatted.
+    mapping(address coin => uint256) public poolsOf;
 
     mapping(PoolId => Pool) internal pools;
     mapping(bytes32 guid => PoolId) public guidPool;
@@ -208,13 +225,23 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         _locked = false;
     }
 
-    constructor(IPoolManager manager_, address quote_, ILzRead lz_, address bridgeSender_, address pushReceiver_) {
+    constructor(
+        IPoolManager manager_,
+        address quote_,
+        ILzRead lz_,
+        address bridgeSender_,
+        address pushReceiver_,
+        address v2Factory_,
+        address v3Factory_
+    ) {
         if (address(manager_) == address(0) || quote_ == address(0)) revert BadParams();
         poolManager = manager_;
         quote = quote_;
         lz = lz_;
         bridgeSender = bridgeSender_;
         pushReceiver = pushReceiver_;
+        v2Factory = v2Factory_;
+        v3Factory = v3Factory_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -246,12 +273,16 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             revert BadParams();
         }
 
+        if (s.remoteEid == 0) _checkSource(cp);
+
         bool coinIs0 = cp.coin < quote;
+        // the PoolManager refuses tickSpacing above 32767, and a wrapped value lands on an existing pool
+        uint256 n = ++poolsOf[cp.coin];
         key = PoolKey({
             currency0: Currency.wrap(coinIs0 ? cp.coin : quote),
             currency1: Currency.wrap(coinIs0 ? quote : cp.coin),
             fee: 0,
-            tickSpacing: 60,
+            tickSpacing: int24(int256(n)),
             hooks: IHooks(address(this))
         });
         id = key.toId();
@@ -294,6 +325,30 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
 
         poolManager.initialize(key, uint160(1 << 96));
         emit Created(id, cp.coin, msg.sender, s.remoteEid, cp.fee);
+    }
+
+    /// @dev A same-chain source must be a real pool of exactly this coin and quote, oriented as `src.coinIs0` says:
+    ///      v2 / v3 through their factory, v4 through its key (never one of this hook's own pools).
+    function _checkSource(CreateParams calldata cp) internal view {
+        Source calldata s = cp.src;
+        address t0;
+        address t1;
+        if (s.kind == SRC_V4) {
+            if (keccak256(abi.encode(cp.srcKey)) != s.v4Id || address(cp.srcKey.hooks) == address(this)) {
+                revert BadParams();
+            }
+            (t0, t1) = (Currency.unwrap(cp.srcKey.currency0), Currency.unwrap(cp.srcKey.currency1));
+        } else {
+            t0 = IV2PairLike(s.target).token0();
+            t1 = IV2PairLike(s.target).token1();
+            // a zero factory has no code, so the call reverts: that source kind is off
+            address real = s.kind == SRC_V2
+                ? IV2FactoryLike(v2Factory).getPair(t0, t1)
+                : IV3FactoryLike(v3Factory).getPool(t0, t1, IV3PoolLike(s.target).fee());
+            if (real != s.target) revert BadParams();
+        }
+        (address c, address q) = s.coinIs0 ? (t0, t1) : (t1, t0);
+        if (c != cp.coin || q != quote) revert BadParams();
     }
 
     /// @dev Trim the seed to 50/50 by value at `spot` and open the books. `from` pays the trimmed seed into the

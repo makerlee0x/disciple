@@ -7,6 +7,14 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
 import {DiscipleForkTest, ForkDryRunPair} from "./DiscipleFork.t.sol";
 
+contract LocalV2Factory {
+    mapping(address => mapping(address => address)) public getPair;
+
+    function set(address pair, address a, address b) external {
+        (getPair[a][b], getPair[b][a]) = (pair, pair);
+    }
+}
+
 /// @notice The fork test's whole pipeline (two-leg arbs, LP control, entitlement, drain-and-reconcile) against a
 ///         local v2 pair, so it runs without an RPC. The real-source evidence still comes from the fork runs.
 contract DiscipleForkLocalTest is DiscipleForkTest {
@@ -28,6 +36,9 @@ contract DiscipleForkLocalTest is DiscipleForkTest {
         a.mint(address(pair), 1_000_000e18);
         b.mint(address(pair), quoteDepth);
         pair.sync();
+        LocalV2Factory f = new LocalV2Factory();
+        f.set(address(pair), address(a), address(b));
+        localV2Factory = address(f);
         PoolKey memory none;
         _run(m, Src({kind: 1, target: address(pair), v4Key: none, t0: address(a), t1: address(b)}), "local v2");
     }

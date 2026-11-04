@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {_noKey} from "./NoKey.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -160,8 +161,8 @@ contract PushForkTest is Test {
         );
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("WETH", "WETH", 18);
-        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(0), address(receiver));
-        hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(0), address(receiver));
+        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(0), address(receiver), address(0), address(0));
+        hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(0), address(receiver), address(0), address(0));
         receiver.bind(IDisciplePriceTarget(address(hook)));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
@@ -175,7 +176,7 @@ contract PushForkTest is Test {
         s.push = true;
         vm.deal(address(this), 1 ether);
         (, pid) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29})
+            Disciple.CreateParams({coin: address(coin), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey()})
         );
     }
 
