@@ -11,15 +11,17 @@ import {ILayerZeroEndpointV2Lite, Origin, LibConfig} from "./ILayerZeroEndpointV
 ///         hands the raw source state to the hook with the source chain's eid; the hook checks the pool's home
 ///         chain and source and applies the usual freshness, order and replay rules.
 ///
-///         No owner. Peers (one sender per source chain) and whether that chain pays gas in ETH are fixed at
-///         construction. The hook is bound once by the deployer (the hook's address depends on this contract's, so
-///         it cannot be a constructor argument); after that nothing can change.
+///         Add-only owner (maker, 2026-11-04). Peers (one sender per source chain) and whether that chain pays gas
+///         in ETH can be set at construction, and the owner can later ADD a peer for a source chain that has none,
+///         with that chain's DVN config. A peer, once set, can never be changed or removed, so a pool priced from an
+///         existing chain can never be redirected. The owner can hand over or renounce the role. The hook is bound
+///         once by the owner (the hook's address depends on this contract's, so it cannot be a constructor argument).
 ///         Keeper refunds: the sender's cost is in its chain's gas token. It is passed through only for chains
 ///         whose gas token is ETH, like the hook's (Ethereum, Robinhood, Arbitrum, Base); otherwise zero, so a
 ///         HyperEVM keeper is not refunded in mismatched units.
 contract DisciplePushReceiver {
     ILayerZeroEndpointV2Lite public immutable endpoint;
-    address public immutable deployer;
+    address public owner;
     IDisciplePriceTarget public hook;
 
     mapping(uint32 eid => bytes32 sender) public peers;
@@ -28,6 +30,13 @@ contract DisciplePushReceiver {
     error OnlyEndpoint();
     error UnknownPeer();
     error AlreadyBound();
+    error OnlyOwner();
+    error PeerSet();
+    error BadPeer();
+    error ForeignConfig();
+
+    event PeerAdded(uint32 indexed eid, address sender, bool ethGas);
+    event OwnerChanged(address owner);
 
     constructor(
         ILayerZeroEndpointV2Lite endpoint_,
@@ -37,20 +46,52 @@ contract DisciplePushReceiver {
         LibConfig[] memory config
     ) {
         endpoint = endpoint_;
-        deployer = msg.sender;
+        owner = msg.sender;
+        if (eids.length != senders.length || eids.length != ethGas_.length) revert BadPeer();
         for (uint256 i = 0; i < eids.length; i++) {
-            peers[eids[i]] = bytes32(uint256(uint160(senders[i])));
-            ethGas[eids[i]] = ethGas_[i];
+            _addPeer(eids[i], senders[i], ethGas_[i]);
         }
         for (uint256 i = 0; i < config.length; i++) {
             endpoint_.setConfig(address(this), config[i].lib, config[i].params);
         }
     }
 
-    /// @notice One-time binding to the hook. Deployer only; final.
-    function bind(IDisciplePriceTarget hook_) external {
-        if (msg.sender != deployer || address(hook) != address(0)) revert AlreadyBound();
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert OnlyOwner();
+        _;
+    }
+
+    /// @notice One-time binding to the hook. Owner only; final.
+    function bind(IDisciplePriceTarget hook_) external onlyOwner {
+        if (address(hook) != address(0)) revert AlreadyBound();
         hook = hook_;
+    }
+
+    /// @notice Switch on a new source chain: its sender, whether it pays gas in ETH, and its DVN/library config.
+    ///         Only for a chain with no peer yet, and the config may only name that chain, so nothing already live
+    ///         can be changed.
+    function addPeer(uint32 eid, address sender, bool ethGas_, LibConfig[] calldata config) external onlyOwner {
+        _addPeer(eid, sender, ethGas_);
+        for (uint256 i = 0; i < config.length; i++) {
+            for (uint256 j = 0; j < config[i].params.length; j++) {
+                if (config[i].params[j].eid != eid) revert ForeignConfig();
+            }
+            endpoint.setConfig(address(this), config[i].lib, config[i].params);
+        }
+    }
+
+    /// @notice Hand the add-only role to someone else, or to address(0) to renounce it for good.
+    function setOwner(address next) external onlyOwner {
+        owner = next;
+        emit OwnerChanged(next);
+    }
+
+    function _addPeer(uint32 eid, address sender, bool ethGas_) private {
+        if (sender == address(0) || eid == 0) revert BadPeer();
+        if (peers[eid] != bytes32(0)) revert PeerSet();
+        peers[eid] = bytes32(uint256(uint160(sender)));
+        ethGas[eid] = ethGas_;
+        emit PeerAdded(eid, sender, ethGas_);
     }
 
     function lzReceive(Origin calldata o, bytes32, bytes calldata message, address, bytes calldata) external payable {
