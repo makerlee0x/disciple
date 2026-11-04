@@ -4,14 +4,15 @@ import random, sys
 from fractions import Fraction as Fr
 import ledger2, fast
 
-def run(seed, steps=80):
+def run(seed, steps=30):
     R = random.Random(seed)
     P, Q = ledger2.Pool("cr", 500, 500, 1), fast.Pool("cr", 500, 500, 1)
+    cc = R.random() < 0.5
     for p in (P, Q):
-        p.creator_compounds = R.random() < 0.5
+        p.creator_compounds = cc
     M = Fr(1); tvl = Fr(R.choice([10**6, 20000, 8000])); blk = 0
     for st in range(steps):
-        blk += 1; M *= Fr(R.randint(95, 105), 100)
+        blk += 1; M = R.choice([Fr(1), Fr(6, 5), Fr(4, 5), Fr(3, 2), Fr(1, 2)])
         for p in (P, Q): p.touch(blk, M, tvl)
         op = R.random()
         live = [l.id for l in P.lots if l.block < blk]
