@@ -19,7 +19,9 @@ struct UlnConfig {
 }
 
 /// @title DiscipleRoutesV0
-/// @notice v0 cross-chain wiring (maker, 2026-11-04): Ethereum -> Robinhood Chain over LayerZero push. Robinhood's
+/// @notice v0 cross-chain wiring (maker, 2026-11-04): LayerZero push both ways between Ethereum and Robinhood
+///         Chain. Ethereum -> Robinhood: ethSend + rhReceive. Robinhood -> Ethereum: rhSend + ethReceive (one
+///         combined hook on Ethereum takes both same-chain sources and pushed Robinhood prices). Robinhood's
 ///         endpoint defaults to a dead DVN on every pathway, so the sender and receiver set their own ULN config at
 ///         construction. DVN sets are the ones a live Ethereum <-> Robinhood OApp
 ///         (0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34) uses; confirmations lowered to 5 Ethereum blocks (~1 min),
@@ -29,7 +31,12 @@ library DiscipleRoutesV0 {
     uint32 internal constant RH_EID = 30416;
     address internal constant ETH_ENDPOINT = 0x1a44076050125825900e736c501f859c50fE728c;
     address internal constant RH_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B;
+    /// @dev Ethereum -> Robinhood: 5 Ethereum blocks (~1 min), maker's choice.
     uint64 internal constant CONFIRMATIONS = 5;
+    /// @dev Robinhood -> Ethereum: 20 Robinhood blocks (~2 s at ~100 ms blocks). Robinhood's sequencer orders
+    ///      blocks and does not reorg in normal operation; 20 is LayerZero's usual default for Arbitrum-stack
+    ///      chains. To check against the live OApp's Robinhood send config before launch.
+    uint64 internal constant RH_CONFIRMATIONS = 20;
     uint32 internal constant CONFIG_TYPE_EXECUTOR = 1;
     uint32 internal constant CONFIG_TYPE_ULN = 2;
     uint32 internal constant MAX_MESSAGE_SIZE = 10_000;
@@ -68,7 +75,9 @@ library DiscipleRoutesV0 {
         threshold = 0;
     }
 
-    /// @dev Robinhood-side counterparts of the live set (receive from Ethereum).
+    /// @dev Robinhood-side counterparts of the live set (receive from Ethereum). The same DVN contracts sign the
+    ///      reverse pathway: a DVN is one contract per chain for both sending and verifying, so Robinhood -> Ethereum
+    ///      sends with rh*Dvns and Ethereum verifies with the matching eth*Dvns.
     function rhLiveDvns() internal pure returns (address[] memory req, address[] memory opt, uint8 threshold) {
         req = new address[](2);
         req[0] = 0x80008dB0e86e421C50AaB5f5B5eBa904e9A54b69;
@@ -92,11 +101,40 @@ library DiscipleRoutesV0 {
         c = new LibConfig[](1);
         c[0].lib = sendLib;
         c[0].params = new SetConfigParam[](executor == address(0) ? 1 : 2);
-        c[0].params[0] = SetConfigParam(RH_EID, CONFIG_TYPE_ULN, _uln(req, opt, threshold));
+        c[0].params[0] = SetConfigParam(RH_EID, CONFIG_TYPE_ULN, _uln(CONFIRMATIONS, req, opt, threshold));
         if (executor != address(0)) {
             c[0].params[1] =
                 SetConfigParam(RH_EID, CONFIG_TYPE_EXECUTOR, abi.encode(ExecutorConfig(MAX_MESSAGE_SIZE, executor)));
         }
+    }
+
+    /// @dev Robinhood SendUln302 config for messages to Ethereum (RH_CONFIRMATIONS). `executor` as in ethSend; a
+    ///      DiscipleSelfExecutor on Robinhood makes the keeper commit and execute on Ethereum itself.
+    function rhSend(address sendLib, address executor, address[] memory req, address[] memory opt, uint8 threshold)
+        internal
+        pure
+        returns (LibConfig[] memory c)
+    {
+        c = new LibConfig[](1);
+        c[0].lib = sendLib;
+        c[0].params = new SetConfigParam[](executor == address(0) ? 1 : 2);
+        c[0].params[0] = SetConfigParam(ETH_EID, CONFIG_TYPE_ULN, _uln(RH_CONFIRMATIONS, req, opt, threshold));
+        if (executor != address(0)) {
+            c[0].params[1] =
+                SetConfigParam(ETH_EID, CONFIG_TYPE_EXECUTOR, abi.encode(ExecutorConfig(MAX_MESSAGE_SIZE, executor)));
+        }
+    }
+
+    /// @dev Ethereum ReceiveUln302 config for messages from Robinhood. Must match rhSend's DVNs and confirmations.
+    function ethReceive(address receiveLib, address[] memory req, address[] memory opt, uint8 threshold)
+        internal
+        pure
+        returns (LibConfig[] memory c)
+    {
+        c = new LibConfig[](1);
+        c[0].lib = receiveLib;
+        c[0].params = new SetConfigParam[](1);
+        c[0].params[0] = SetConfigParam(RH_EID, CONFIG_TYPE_ULN, _uln(RH_CONFIRMATIONS, req, opt, threshold));
     }
 
     /// @dev Robinhood ReceiveUln302 config for messages from Ethereum. Must match the send side's DVNs and
@@ -109,13 +147,13 @@ library DiscipleRoutesV0 {
         c = new LibConfig[](1);
         c[0].lib = receiveLib;
         c[0].params = new SetConfigParam[](1);
-        c[0].params[0] = SetConfigParam(ETH_EID, CONFIG_TYPE_ULN, _uln(req, opt, threshold));
+        c[0].params[0] = SetConfigParam(ETH_EID, CONFIG_TYPE_ULN, _uln(CONFIRMATIONS, req, opt, threshold));
     }
 
-    function _uln(address[] memory req, address[] memory opt, uint8 threshold) private pure returns (bytes memory) {
+    function _uln(uint64 confirmations, address[] memory req, address[] memory opt, uint8 threshold) private pure returns (bytes memory) {
         return abi.encode(
             UlnConfig({
-                confirmations: CONFIRMATIONS,
+                confirmations: confirmations,
                 requiredDVNCount: uint8(req.length),
                 // ULN reads a count of 0 as "use the endpoint default" (a dead DVN on Robinhood); 255 means none
                 optionalDVNCount: opt.length == 0 ? NIL_DVN_COUNT : uint8(opt.length),

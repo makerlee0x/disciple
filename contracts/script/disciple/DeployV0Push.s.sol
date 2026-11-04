@@ -18,8 +18,10 @@ interface IEndpointLibs {
     function defaultReceiveLibrary(uint32 eid) external view returns (address);
 }
 
-/// @title v0 deploy: Ethereum -> Robinhood LayerZero push
-/// @notice Two steps, two chains. Nothing broadcasts without `--broadcast`.
+/// @title v0 deploy: LayerZero push, Ethereum -> Robinhood and Robinhood -> Ethereum
+/// @notice Ethereum -> Robinhood is steps 1-2; Robinhood -> Ethereum is steps 3-4. Nothing broadcasts without
+///   `--broadcast`. NOTHING DEPLOYS ON ETHEREUM UNTIL THE AUDIT (maker, 2026-11-04): steps 1 and 4 refuse to
+///   broadcast unless AUDITED=1 is set; a dry run (no --broadcast) works without it.
 ///   Env for both steps: DVN_SET = "live" (default; the live OApp's 2 + 2-of-3) or "lean" (2 required, none
 ///   optional: LayerZero Labs + one more, ~0.000004 ETH of DVN fees). Use the same value on both chains.
 ///   1. On Ethereum:  forge script script/disciple/DeployV0Push.s.sol --sig "sender()" --rpc-url $ETH_RPC
@@ -32,11 +34,34 @@ interface IEndpointLibs {
 ///      mines and deploys the Disciple hook with that receiver (no lzRead adapter on Robinhood yet, no bridge
 ///      sender: out of v0), and binds the receiver to the hook. The deployer keeps the receiver's add-only owner
 ///      role (adds new source chains later; can renounce).
+///   3. On Robinhood: forge script script/disciple/DeployV0Push.s.sol --sig "rhSender()" --rpc-url $RH_RPC
+///      Deploys DisciplePushSender with the Robinhood send config (20 confirmations) for Ethereum, and with
+///      SELF_EXECUTOR=1 (default) a zero-fee DiscipleSelfExecutor on Robinhood: keepers commit and execute on
+///      Ethereum themselves.
+///   4. On Ethereum: AUDITED=1 PUSH_SENDER=<step 3 address>
+///      forge script script/disciple/DeployV0Push.s.sol --sig "ethereum()" --rpc-url $ETH_RPC
+///      Deploys DisciplePushReceiver (peer: Robinhood -> PUSH_SENDER, ETH gas) with the matching receive config,
+///      mines and deploys ONE combined Disciple hook (USDG quote, v2 + v3 + v4 same-chain sources, and pushed
+///      Robinhood prices), and binds the receiver. Overrides: QUOTE, POOL_MANAGER, V2_FACTORY, V3_FACTORY.
 contract DeployV0Push is Script {
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+    address internal constant ETH_POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    address internal constant ETH_USDG = 0xe343167631d89B6Ffc58B88d6b7fB0228795491D;
+    address internal constant ETH_V2_FACTORY = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
+    address internal constant ETH_V3_FACTORY = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
+    uint160 internal constant FLAGS = uint160(
+        Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+            | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
+    );
 
-    function sender() external returns (DisciplePushSender s) {
+    /// @dev maker's rule: no Ethereum deploy before the audit. A dry run is fine.
+    modifier auditGate() {
+        require(block.chainid != 1 || vm.envOr("AUDITED", uint256(0)) == 1, "Ethereum deploys wait for the audit");
+        _;
+    }
+
+    function sender() external auditGate returns (DisciplePushSender s) {
         require(block.chainid == 1, "run on Ethereum");
         address lib = IEndpointLibs(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
         bool lean = keccak256(bytes(vm.envOr("DVN_SET", string("live")))) == keccak256("lean");
@@ -82,6 +107,51 @@ contract DeployV0Push is Script {
         vm.stopBroadcast();
         console2.log("DisciplePushReceiver (Robinhood)", address(r));
         console2.log("Disciple hook (Robinhood)", address(hook));
+        console2.log("receive library", lib);
+    }
+
+    function rhSender() external returns (DisciplePushSender s) {
+        require(block.chainid == 4663, "run on Robinhood Chain");
+        address lib = IEndpointLibs(V0.RH_ENDPOINT).defaultSendLibrary(V0.ETH_EID);
+        bool lean = keccak256(bytes(vm.envOr("DVN_SET", string("live")))) == keccak256("lean");
+        (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.rhLeanDvns() : V0.rhLiveDvns();
+        vm.startBroadcast();
+        address ex = vm.envOr("SELF_EXECUTOR", uint256(1)) == 1 ? address(new DiscipleSelfExecutor()) : address(0);
+        s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), V0.rhSend(lib, ex, req, opt, th));
+        vm.stopBroadcast();
+        console2.log("DiscipleSelfExecutor (Robinhood, 0 = paid executor)", ex);
+        console2.log("DisciplePushSender (Robinhood)", address(s));
+        console2.log("send library", lib);
+    }
+
+    function ethereum() external auditGate returns (Disciple hook, DisciplePushReceiver r) {
+        require(block.chainid == 1, "run on Ethereum");
+        address pushSender = vm.envAddress("PUSH_SENDER");
+        address quote = vm.envOr("QUOTE", ETH_USDG);
+        IPoolManager pm = IPoolManager(vm.envOr("POOL_MANAGER", ETH_POOL_MANAGER));
+        address v2f = vm.envOr("V2_FACTORY", ETH_V2_FACTORY);
+        address v3f = vm.envOr("V3_FACTORY", ETH_V3_FACTORY);
+        address lib = IEndpointLibs(V0.ETH_ENDPOINT).defaultReceiveLibrary(V0.RH_EID);
+        uint32[] memory eids = new uint32[](1);
+        address[] memory senders = new address[](1);
+        bool[] memory eth = new bool[](1);
+        (eids[0], senders[0], eth[0]) = (V0.RH_EID, pushSender, true);
+        bool lean = keccak256(bytes(vm.envOr("DVN_SET", string("live")))) == keccak256("lean");
+        (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.ethLeanDvns() : V0.ethLiveDvns();
+
+        vm.startBroadcast();
+        r = new DisciplePushReceiver(
+            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th)
+        );
+        bytes memory args = abi.encode(pm, quote, address(r), v2f, v3f);
+        (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, FLAGS, type(Disciple).creationCode, args);
+        hook = new Disciple{salt: salt}(pm, quote, address(r), v2f, v3f);
+        require(address(hook) == want, "hook address");
+        r.bind(IDisciplePriceTarget(address(hook)));
+        vm.stopBroadcast();
+        require(address(hook).code.length <= 24_576, "over EIP-170");
+        console2.log("DisciplePushReceiver (Ethereum)", address(r));
+        console2.log("Disciple hook (Ethereum, combined)", address(hook));
         console2.log("receive library", lib);
     }
 }
