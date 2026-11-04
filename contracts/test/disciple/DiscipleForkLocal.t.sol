@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
+import {MockERC20} from "./mocks/Mocks.sol";
 import {DiscipleForkTest, ForkDryRunPair} from "./DiscipleFork.t.sol";
 
 contract LocalV2Factory {

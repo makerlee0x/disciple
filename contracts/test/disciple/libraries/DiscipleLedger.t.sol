@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DiscipleLedger as LG} from "../../src/bridge/libraries/DiscipleLedger.sol";
+import {DiscipleLedger as LG} from "../../../src/disciple/libraries/DiscipleLedger.sol";
 import {DiscipleLedgerVectors as LV} from "./DiscipleLedgerVectors.sol";
 
 contract LedgerHarness {

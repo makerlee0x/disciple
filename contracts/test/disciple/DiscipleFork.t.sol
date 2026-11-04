@@ -15,8 +15,7 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
-import {ILzRead} from "../../src/bridge/interfaces/ILzRead.sol";
-import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
+import {MockERC20} from "./mocks/Mocks.sol";
 
 interface IPairTokens {
     function token0() external view returns (address);
@@ -175,8 +174,8 @@ contract DiscipleForkTest is Test {
         s.v4Id = x.kind == 3 ? PoolId.unwrap(x.v4Key.toId()) : bytes32(0);
 
         (address f2, address f3) = _factories();
-        bytes memory args = abi.encode(m, quote, ILzRead(address(0)), address(0), address(0), f2, f3);
-        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, ILzRead(address(0)), address(0), address(0), f2, f3);
+        bytes memory args = abi.encode(m, quote, address(0), f2, f3);
+        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, address(0), f2, f3);
         PoolSwapTest swapper = new PoolSwapTest(m);
         _fund(coin, quote, address(hook), address(swapper));
 

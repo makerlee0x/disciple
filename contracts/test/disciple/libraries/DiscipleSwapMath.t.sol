@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {DiscipleSwapMath as M} from "../../src/bridge/libraries/DiscipleSwapMath.sol";
+import {DiscipleSwapMath as M} from "../../../src/disciple/libraries/DiscipleSwapMath.sol";
 import {DiscipleSwapMathVectors as V} from "./DiscipleSwapMathVectors.sol";
 import {DiscipleSwapMathGptVectors as GV} from "./DiscipleSwapMathGptVectors.sol";
 

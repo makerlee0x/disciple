@@ -6,7 +6,6 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
-import {ILzRead} from "../../src/bridge/interfaces/ILzRead.sol";
 
 interface IMeta {
     function symbol() external view returns (string memory);
@@ -14,8 +13,7 @@ interface IMeta {
 }
 
 /// @title Same-chain Disciple deploy (v0)
-/// @notice Deploys one Disciple hook that serves same-chain pools only: no lzRead adapter, no bridge sender, no push
-///         receiver. Every cross-chain `createPool` reverts with BadParams on this deployment, and `msg.value` must be
+/// @notice Deploys one Disciple hook that serves same-chain pools only (no push receiver). Every cross-chain `createPool` reverts with BadParams on this deployment, and `msg.value` must be
 ///         0, so no ETH tank or TJAR is involved. One deployment per quote token.
 ///
 ///         maker (2026-11-04): one combined hook per chain. On Robinhood that is DeployV0Push.robinhood() (same-chain
@@ -74,9 +72,7 @@ contract DeploySameChain is Script {
         require(c.v2Factory == address(0) || c.v2Factory.code.length != 0, "V2_FACTORY has no code");
         require(c.v3Factory == address(0) || c.v3Factory.code.length != 0, "V3_FACTORY has no code");
 
-        bytes memory args = abi.encode(
-            IPoolManager(c.pm), c.quote, ILzRead(address(0)), address(0), address(0), c.v2Factory, c.v3Factory
-        );
+        bytes memory args = abi.encode(IPoolManager(c.pm), c.quote, address(0), c.v2Factory, c.v3Factory);
         bytes memory init = abi.encodePacked(type(Disciple).creationCode, args);
 
         vm.startBroadcast();
@@ -128,8 +124,6 @@ contract DeploySameChain is Script {
         require(address(hook.poolManager()) == c.pm, "pool manager");
         require(hook.quote() == c.quote, "quote");
         require(hook.v2Factory() == c.v2Factory && hook.v3Factory() == c.v3Factory, "factories");
-        require(address(hook.lz()) == address(0), "lzRead must be off");
-        require(hook.bridgeSender() == address(0), "bridge sender must be off");
         require(hook.pushReceiver() == address(0), "push receiver must be off");
         require(uint160(address(hook)) & Hooks.ALL_HOOK_MASK == FLAGS, "hook flags");
         require(address(hook).code.length <= EIP170, "over EIP-170");

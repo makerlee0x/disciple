@@ -2,7 +2,7 @@
 GPT's convention is G = (1+g) H with the source fee g on both the Disciple quote and the source quotes (0.3%, or 1%
 on T10/T20), source mid = anchor, match edge 1bp, T = 1 (T = 2 on T10/T20). The contract uses G = H/(1-f) in
 production; these vectors pass G directly so both conventions are covered.
-Run: python3 gpt_vectors.py ../../contracts/test/bridge/"""
+Run: python3 gpt_vectors.py ../../contracts/test/disciple/libraries/"""
 import sys
 from engine import *
 E = 10**18

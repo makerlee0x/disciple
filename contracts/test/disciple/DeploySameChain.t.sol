@@ -11,7 +11,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
-import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
+import {MockERC20} from "./mocks/Mocks.sol";
 import {DeploySameChain} from "../../script/disciple/DeploySameChain.s.sol";
 import {MockPair, MockV2Factory} from "./Disciple.t.sol";
 
@@ -88,19 +88,14 @@ contract DeploySameChainTest is Test {
             Disciple.CreateParams({coin: address(coin), fee: 10_000, src: s, coinIn: 100e18, quoteIn: 200e18, srcKey: _noKey()});
 
         // cross chain is off on this deployment, every route
-        Disciple.Source memory xs = s; // memory structs alias: build a separate one for the cross-chain probes
-        xs = Disciple.Source(s.kind, s.coinIs0, s.v2Fee, 30101, s.target, s.v4Id, s.lens, s.decShift, s.push);
+        // memory structs alias: build a separate one for the cross-chain probes
+        Disciple.Source memory xs = Disciple.Source(s.kind, s.coinIs0, s.v2Fee, 30101, s.target, s.v4Id, s.decShift, true);
         Disciple.CreateParams memory x =
             Disciple.CreateParams({coin: address(coin), fee: 10_000, src: xs, coinIn: 100e18, quoteIn: 200e18, srcKey: _noKey()});
-        x.src.lens = address(0x1E45);
-        vm.expectRevert(Disciple.BadParams.selector);
+        vm.expectRevert(Disciple.BadParams.selector); // push pool, but no receiver on this deployment
         hook.createPool{value: 1 ether}(x);
-        x.src.push = true;
-        vm.expectRevert(Disciple.BadParams.selector);
-        hook.createPool(x);
         x.src.push = false;
-        x.src.remoteEid = hook.BRIDGE_EID();
-        vm.expectRevert(Disciple.BadParams.selector);
+        vm.expectRevert(Disciple.BadParams.selector); // a remote pool that is not push
         hook.createPool(x);
         // no ETH on a same-chain pool
         vm.deal(address(this), 1 ether);

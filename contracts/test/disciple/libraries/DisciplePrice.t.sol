@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {DisciplePrice as P} from "../../src/bridge/libraries/DisciplePrice.sol";
+import {DisciplePrice as P} from "../../../src/disciple/libraries/DisciplePrice.sol";
 
 contract PriceHarness {
     function baseLog(uint256 f) external pure returns (uint256) {

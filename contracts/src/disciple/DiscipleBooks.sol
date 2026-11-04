@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {DiscipleLedger as LG} from "../bridge/libraries/DiscipleLedger.sol";
+import {DiscipleLedger as LG} from "./libraries/DiscipleLedger.sol";
 
 /// @title DiscipleBooks
 /// @notice Linked (external) entry points for the LP ledger, so the hook stays under the 24 KB code limit. Each call
