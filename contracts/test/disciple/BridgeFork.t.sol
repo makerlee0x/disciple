@@ -103,8 +103,8 @@ contract BridgeForkTest is Test {
         uint256 tank0 = hook.poolState(pid).tank;
         (bool ok, uint256 l2Gas) = _deliver(t, 5 minutes);
         assertTrue(ok, "ticket executes");
-        emit log_named_uint("rollup-side execution gas (onBridgePrice)", l2Gas);
-        assertLe(l2Gas, 150_000, "BRIDGE_L2_GAS covers the measured execution");
+        // the opening push creates the pool's books and pays no refund, so BRIDGE_L2_GAS is not meant to cover it
+        emit log_named_uint("rollup-side execution gas, opening push (not refunded)", l2Gas);
         Disciple.PoolView memory v = hook.poolState(pid);
         assertTrue(v.live, "initialization: first push opens the pool, 5 minutes after observation");
         assertEq(v.anchorX128, (b << 128) / a, "anchor = reserve1 / reserve0, as read on Ethereum");
@@ -117,8 +117,10 @@ contract BridgeForkTest is Test {
         Ticket memory hb = _pushOnEthereum();
         vm.selectFork(rh);
         kb = keeper.balance;
-        (ok,) = _deliver(hb, 2 minutes);
+        (ok, l2Gas) = _deliver(hb, 2 minutes);
         assertTrue(ok);
+        emit log_named_uint("rollup-side execution gas, heartbeat (refunded)", l2Gas);
+        assertLe(l2Gas, 150_000, "BRIDGE_L2_GAS covers a refunded delivery");
         assertEq(hook.poolState(pid).ageOrBlock, 2 minutes, "heartbeat accepted");
         uint256 cost = _carried(hb.data) + 150_000 * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
@@ -204,7 +206,7 @@ contract BridgeForkTest is Test {
                     abi.decode(logs[i].data, (address, uint8, address, bytes32, uint256, uint64));
                 assertEq(inbox, RH_INBOX);
                 assertEq(kind, 9, "L1MessageType_submitRetryableTx");
-                assertEq(from, address(sender), "bridge records the sender (aliased on the rollup)");
+                assertEq(from, address(uint160(address(sender)) + ALIAS), "bridge records the aliased sender");
                 bridgeHash = h;
             }
         }
