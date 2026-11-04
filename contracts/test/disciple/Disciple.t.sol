@@ -737,6 +737,59 @@ contract DiscipleTest is Test {
         hook.createPool(Disciple.CreateParams({coin: address(coin), fee: FEE, src: s, coinIn: 1e18, quoteIn: 3e18}));
     }
 
+
+    function test_lzReceiverAddOnlyOwner() public {
+        (, PoolId id) = _createPush(HOME_EID, 0.05 ether);
+        _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
+        uint256 a = hook.poolState(id).anchorX128;
+        DisciplePushSender other = new DisciplePushSender(home, new LibConfig[](0));
+
+        // an existing peer can never be replaced
+        vm.expectRevert(DisciplePushReceiver.PeerSet.selector);
+        receiver.addPeer(HOME_EID, address(other), true, new LibConfig[](0));
+        // only the owner adds
+        vm.prank(address(0xBAD));
+        vm.expectRevert(DisciplePushReceiver.OnlyOwner.selector);
+        receiver.addPeer(30184, address(other), true, new LibConfig[](0));
+        // config for a new chain may not touch another chain's pathway
+        LibConfig[] memory cfg = new LibConfig[](1);
+        cfg[0].lib = address(0x11B);
+        cfg[0].params = new SetConfigParam[](1);
+        cfg[0].params[0] = SetConfigParam(HOME_EID, 2, "");
+        vm.expectRevert(DisciplePushReceiver.ForeignConfig.selector);
+        receiver.addPeer(30184, address(other), true, cfg);
+
+        // a new source chain (Base) switched on later, with its own config, no hook redeploy
+        cfg[0].params[0] = SetConfigParam(30184, 2, "");
+        uint256 c0 = local.configs();
+        receiver.addPeer(30184, address(other), true, cfg);
+        assertEq(local.configs(), c0 + 1);
+        assertEq(receiver.peers(30184), bytes32(uint256(uint160(address(other)))));
+        (, PoolId baseId) = hook.createPool{value: 0.01 ether}(
+            Disciple.CreateParams({coin: address(usd2()), fee: FEE, src: _pushSrc(30184), coinIn: 1000e18, quoteIn: 3000e18})
+        );
+        bytes32 to = bytes32(uint256(uint160(address(receiver))));
+        other.push{value: 0.01 ether}(30101, to, baseId, 1, address(pair), bytes32(0), 200_000);
+        local.deliver(address(receiver), 30184, address(other), home.lastMessage());
+        assertTrue(hook.poolState(baseId).live, "new chain prices its pool");
+        // the new sender cannot price the Robinhood pool
+        assertEq(hook.poolState(id).anchorX128, a);
+
+        // renounce: nothing can be added any more
+        receiver.setOwner(address(0));
+        vm.expectRevert(DisciplePushReceiver.OnlyOwner.selector);
+        receiver.addPeer(30110, address(other), true, new LibConfig[](0));
+    }
+
+    MockERC20 internal coin2;
+
+    function usd2() internal returns (MockERC20) {
+        coin2 = new MockERC20("COIN2", "COIN2", 18);
+        coin2.mint(address(this), 1e30);
+        coin2.approve(address(hook), type(uint256).max);
+        return coin2;
+    }
+
     // -----------------------------------------------------------------------------------------
     // OP Stack portal (Ethereum -> Base) reuses the bridge path with its own sender
     // -----------------------------------------------------------------------------------------
