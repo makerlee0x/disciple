@@ -206,8 +206,8 @@ contract TjarForkTest is Test {
         IPoolManager m = IPoolManager(RH_POOL_MANAGER);
         coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("QUOTE", "QUOTE", 18);
-        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)));
-        hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)));
+        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(0));
+        hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(0));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
         coin.approve(address(hook), type(uint256).max);

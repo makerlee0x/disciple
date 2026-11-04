@@ -14,6 +14,8 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
 import {ILzRead} from "../../src/bridge/interfaces/ILzRead.sol";
 import {MockERC20, MockLzRead} from "../bridge/mocks/BridgeMocks.sol";
+import {DiscipleBridgeSender, IInbox} from "../../src/disciple/DiscipleBridgeSender.sol";
+import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/disciple/DisciplePoolTank.sol";
 
 /// @notice A v2 pair whose reserves the test sets.
 contract MockPair {
@@ -27,6 +29,36 @@ contract MockPair {
 
     function getReserves() external view returns (uint112, uint112, uint32) {
         return (r0, r1, 0);
+    }
+}
+
+/// @notice Records the retryable ticket instead of bridging it; the test delivers it as the aliased sender.
+contract MockInbox is IInbox {
+    address public lastTo;
+    bytes public lastData;
+    uint256 public lastValue;
+    uint256 public n;
+
+    function createRetryableTicket(address to, uint256, uint256, address, address, uint256, uint256, bytes calldata data)
+        external
+        payable
+        returns (uint256)
+    {
+        (lastTo, lastData, lastValue) = (to, data, msg.value);
+        return ++n;
+    }
+}
+
+contract MockWETH is MockERC20 {
+    constructor() MockERC20("WETH", "WETH", 18) {}
+
+    function deposit() external payable {
+        _mint(msg.sender, msg.value);
+    }
+
+    function withdraw(uint256 a) external {
+        _burn(msg.sender, a);
+        payable(msg.sender).transfer(a);
     }
 }
 
@@ -51,6 +83,8 @@ contract DiscipleTest is Test {
     MockERC20 coin;
     MockPair pair;
     MockLzRead lz;
+    MockInbox inbox;
+    DiscipleBridgeSender sender;
     address lp = address(0xA11CE);
 
     function setUp() public {
@@ -61,11 +95,13 @@ contract DiscipleTest is Test {
         coin = new MockERC20("COIN", "COIN", 18);
         lz = new MockLzRead();
         pair = new MockPair();
+        inbox = new MockInbox();
+        sender = new DiscipleBridgeSender(inbox);
         // source: coin is token0 of the pair; price 2 quote per coin
         pair.set(1_000_000e18, 2_000_000e18);
-        bytes memory args = abi.encode(manager, address(usd), ILzRead(address(lz)));
+        bytes memory args = abi.encode(manager, address(usd), ILzRead(address(lz)), address(sender));
         bytes32 salt = _mine(args);
-        hook = new Disciple{salt: salt}(manager, address(usd), ILzRead(address(lz)));
+        hook = new Disciple{salt: salt}(manager, address(usd), ILzRead(address(lz)), address(sender));
         swapper = new PoolSwapTest(manager);
         _fund(address(this), 1e30);
         _fund(lp, 1e30);
@@ -361,6 +397,117 @@ contract DiscipleTest is Test {
         assertEq(v.anchorX128, Q128 * 21 / 10);
         vm.prank(lp);
         hook.deposit(id, 10e18, 30e18);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // parent-chain push through the rollup bridge
+    // -----------------------------------------------------------------------------------------
+
+    function _bridgeSrc() internal view returns (Disciple.Source memory s) {
+        s = _src(0);
+        s.remoteEid = hook.BRIDGE_EID();
+    }
+
+    function _createBridge(uint256 eth) internal returns (PoolKey memory key, PoolId id) {
+        (key, id) = hook.createPool{value: eth}(
+            Disciple.CreateParams({coin: address(coin), fee: FEE, src: _bridgeSrc(), coinIn: 1000e18, quoteIn: 3000e18})
+        );
+    }
+
+    /// @dev A keeper pushes on the parent chain; the rollup delivers the ticket after `delay` seconds.
+    function _push(PoolId id, address keeper, uint256 delay) internal returns (bool ok) {
+        vm.deal(keeper, 1 ether);
+        vm.prank(keeper);
+        sender.push{value: 0.0005 ether}(address(hook), id, 1, address(pair), bytes32(0), 1, 1, 1);
+        vm.warp(block.timestamp + delay);
+        address to = inbox.lastTo();
+        bytes memory data = inbox.lastData();
+        vm.prank(address(uint160(address(sender)) + uint160(0x1111000000000000000000000000000000001111)));
+        (ok,) = to.call(data);
+    }
+
+    function test_bridgePushOpensPoolAndUpdates() public {
+        (PoolKey memory key, PoolId id) = _createBridge(0.05 ether);
+        assertFalse(hook.poolState(id).live);
+        assertEq(hook.poolState(id).tank, 0.05 ether, "all ETH to the tank");
+        assertTrue(_push(id, address(0xC0FFEE), 300));
+        Disciple.PoolView memory v = hook.poolState(id);
+        assertTrue(v.live, "first push opens the pool");
+        assertEq(v.anchorX128, Q128 * 2);
+        assertEq(v.ageOrBlock, 300, "age counts from the parent-chain observation");
+        _swap(key, true, -int256(10e18));
+
+        // price moves 3% on the parent chain: accepted, keeper refunded (cost * 1.2) on the rollup
+        pair.set(1_000_000e18, 2_060_000e18);
+        Keeper k = new Keeper();
+        uint256 b0 = address(k).balance;
+        vm.fee(10 gwei);
+        assertTrue(_push(id, address(k), 120));
+        assertEq(hook.poolState(id).anchorX128, Q128 * 206 / 100);
+        uint256 cost = 0.0005 ether + 130_000 * 10 gwei;
+        assertEq(address(k).balance, b0 + 1 ether - 0.0005 ether + cost * 12 / 10, "refund = cost * 1.2");
+    }
+
+    function test_bridgeRejectsForgedOldAndMismatched() public {
+        (, PoolId id) = _createBridge(0.05 ether);
+        assertTrue(_push(id, address(0xC0FFEE), 60));
+
+        // only the sender's alias may deliver
+        vm.expectRevert(Disciple.OnlyBridge.selector);
+        hook.onBridgePrice(id, 1, address(pair), bytes32(0), 1e18, 9e18, uint64(block.timestamp), address(this), 0);
+        vm.prank(address(sender)); // un-aliased is not the rollup's sender either
+        vm.expectRevert(Disciple.OnlyBridge.selector);
+        hook.onBridgePrice(id, 1, address(pair), bytes32(0), 1e18, 9e18, uint64(block.timestamp), address(this), 0);
+
+        // a re-redeemed (replayed) ticket carries an old observation: ignored
+        address aliased = address(uint160(address(sender)) + uint160(0x1111000000000000000000000000000000001111));
+        bytes memory oldTicket = inbox.lastData();
+        pair.set(1_000_000e18, 2_500_000e18);
+        assertTrue(_push(id, address(0xC0FFEE), 60));
+        uint256 a = hook.poolState(id).anchorX128;
+        vm.prank(aliased);
+        (bool ok,) = address(hook).call(oldTicket);
+        assertTrue(ok);
+        assertEq(hook.poolState(id).anchorX128, a, "replay ignored");
+
+        // a push that read a different source than the pool's is ignored
+        MockPair other = new MockPair();
+        other.set(1e18, 100e18);
+        vm.prank(address(0xC0FFEE));
+        sender.push{value: 0}(address(hook), id, 1, address(other), bytes32(0), 1, 1, 1);
+        vm.warp(block.timestamp + 30);
+        bytes memory wrong = inbox.lastData();
+        vm.prank(aliased);
+        (ok,) = address(hook).call(wrong);
+        assertTrue(ok);
+        assertEq(hook.poolState(id).anchorX128, a, "wrong source ignored");
+    }
+
+    function test_bridgeNoSwapTriggeredSendAndRecoveryWindow() public {
+        (PoolKey memory key, PoolId id) = _createBridge(0.05 ether);
+        assertTrue(_push(id, address(0xC0FFEE), 60));
+        uint256 n0 = lz.n();
+        vm.warp(block.timestamp + 2 hours + 1);
+        _swap(key, true, -int256(5e18)); // stale: local mode, and no LayerZero send for a bridge pool
+        assertEq(lz.n(), n0);
+        assertTrue(hook.poolState(id).local);
+        // a bridge delivery 15 minutes after observation still ends local mode (lzRead allows 2 minutes)
+        assertTrue(_push(id, address(0xC0FFEE), 15 minutes));
+        assertFalse(hook.poolState(id).local, "recovered over the bridge");
+    }
+
+    function test_poolTankFlushesWethIntoTank() public {
+        (, PoolId id) = _createCross(1000e18, 2000e18, 0.001 ether);
+        MockWETH weth = new MockWETH();
+        DisciplePoolTank tank = new DisciplePoolTank(IWETH9(address(weth)), IDiscipleTank(address(hook)), id);
+        weth.deposit{value: 0.3 ether}();
+        weth.transfer(address(tank), 0.3 ether); // what a TJAR releaser does
+        (bool ok,) = address(tank).call{value: 0.1 ether}("");
+        assertTrue(ok);
+        uint256 t0 = hook.poolState(id).tank;
+        vm.prank(address(0xBEEF)); // anyone
+        assertEq(tank.flush(), 0.4 ether);
+        assertEq(hook.poolState(id).tank, t0 + 0.4 ether);
     }
 
     // -----------------------------------------------------------------------------------------

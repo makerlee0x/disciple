@@ -75,6 +75,15 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     uint256 internal constant REQUEST_TIMEOUT = 10 minutes;
     /// @dev Pool fee bounds, in pips.
     uint24 internal constant MAX_FEE = 100_000;
+    /// @dev `Source.remoteEid` marking a pool priced off its parent chain (Ethereum for Robinhood Chain) through the
+    ///      rollup's own bridge: a permissionless sender there reads the source and drops it in the delayed inbox.
+    uint32 public constant BRIDGE_EID = type(uint32).max;
+    /// @dev Bridge deliveries take minutes, so a recovering bridge price may be this old on arrival.
+    uint256 internal constant BRIDGE_RECOVERY_AGE = 20 minutes;
+    /// @dev Cap on one bridge-push refund, so a gas spike on the parent chain cannot drain the tank.
+    uint256 internal constant MAX_PUSH_REFUND = 0.002 ether;
+    /// @dev Arbitrum-stack L1-to-L2 sender alias offset.
+    uint160 internal constant ALIAS_OFFSET = uint160(0x1111000000000000000000000000000000001111);
 
     // ---------------------------------------------------------------------------------------------
     // Storage
@@ -84,7 +93,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         uint8 kind; // SRC_V2 / SRC_V3 / SRC_V4
         bool coinIs0; // the coin is token0 of the source
         uint24 v2Fee; // pips, v2 only (v3 and v4 read their own)
-        uint32 remoteEid; // 0 = same chain; otherwise the LayerZero endpoint id of the home chain
+        uint32 remoteEid; // 0 = same chain; BRIDGE_EID = parent-chain push over the rollup bridge; else LZ eid
         address target; // v2 pair / v3 pool; for v4 the PoolManager (remote: the remote manager)
         bytes32 v4Id; // v4 source pool id
         address lens; // remote AnchorLens (cross chain only)
@@ -142,6 +151,9 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     IPoolManager public immutable poolManager;
     address public immutable quote;
     ILzRead public immutable lz;
+    /// @notice The DiscipleBridgeSender on the parent chain (0 = bridge pricing off). Its messages arrive from its
+    ///         aliased address.
+    address public immutable bridgeSender;
 
     mapping(PoolId => Pool) internal pools;
     mapping(bytes32 guid => PoolId) public guidPool;
@@ -179,6 +191,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     error ExternalInit();
     error HookNotImplemented();
     error ZeroOutput();
+    error OnlyBridge();
 
     modifier lock() {
         if (_locked) revert Reentrancy();
@@ -187,11 +200,12 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         _locked = false;
     }
 
-    constructor(IPoolManager manager_, address quote_, ILzRead lz_) {
+    constructor(IPoolManager manager_, address quote_, ILzRead lz_, address bridgeSender_) {
         if (address(manager_) == address(0) || quote_ == address(0)) revert BadParams();
         poolManager = manager_;
         quote = quote_;
         lz = lz_;
+        bridgeSender = bridgeSender_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -215,7 +229,11 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         if (cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
         Source calldata s = cp.src;
         if (s.kind < SRC_V2 || s.kind > SRC_V4) revert BadParams();
-        if (s.remoteEid != 0 && (address(lz) == address(0) || s.lens == address(0))) revert BadParams();
+        if (s.remoteEid == BRIDGE_EID) {
+            if (bridgeSender == address(0)) revert BadParams();
+        } else if (s.remoteEid != 0 && (address(lz) == address(0) || s.lens == address(0))) {
+            revert BadParams();
+        }
 
         bool coinIs0 = cp.coin < quote;
         key = PoolKey({
@@ -252,10 +270,15 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             _pull(quote, cp.quoteIn);
             p.seedX = cp.coinIn;
             p.seedY = cp.quoteIn;
-            uint256 fee = lz.quoteRead(_readCmd(p));
-            if (msg.value < fee) revert BadParams();
-            p.tank = msg.value - fee;
-            _send(p, id, address(0), fee);
+            if (s.remoteEid == BRIDGE_EID) {
+                // the first push from the parent chain opens the pool; all ETH goes to the tank
+                p.tank = msg.value;
+            } else {
+                uint256 fee = lz.quoteRead(_readCmd(p));
+                if (msg.value < fee) revert BadParams();
+                p.tank = msg.value - fee;
+                _send(p, id, address(0), fee);
+            }
         }
 
         poolManager.initialize(key, uint160(1 << 96));
@@ -413,7 +436,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             p.tX128 = PR.recentre(p.book.x, p.book.y);
             emit LocalMode(id, true);
         }
-        if (age >= PR.HEARTBEAT) _autoRefresh(p, id);
+        if (age >= PR.HEARTBEAT && p.src.remoteEid != BRIDGE_EID) _autoRefresh(p, id);
         (uint256 g, bool bandOn) = PR.markup(p.fee, age);
         (kb, ks) = SM.slopes(a, p.tX128, g);
         (pb, ps) = PR.band(a, g, bandOn);
@@ -444,7 +467,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     ///         refunds the fee plus 20%.
     function updatePrice(PoolId id) external payable lock returns (bytes32 guid) {
         Pool storage p = _known(id);
-        if (p.src.remoteEid == 0) revert SameChain();
+        if (p.src.remoteEid == 0 || p.src.remoteEid == BRIDGE_EID) revert SameChain();
         Pending storage q = p.pending;
         if (q.guid != bytes32(0) && block.timestamp < uint256(q.requestedAt) + REQUEST_TIMEOUT) {
             revert RequestPending();
@@ -495,13 +518,67 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         guidPool[guid] = PoolId.wrap(bytes32(0));
         delete p.pending;
         (uint256 price, uint256 tvl) = _decode(p, result);
-        uint64 observedAt = q.requestedAt;
-        if (price == 0) {
-            emit PriceRejected(id, guid);
-            _locked = false;
+        _accept(p, id, price, tvl, q.requestedAt, q.keeper, q.lzFee, q.ageAtRequest, PR.MAX_RECOVERY_AGE);
+        _locked = false;
+    }
+
+    /// @notice A price pushed from the parent chain through the rollup bridge (retryable ticket). Only the
+    ///         DiscipleBridgeSender's aliased address. The sender read the source itself in the same transaction,
+    ///         so `a`/`b` are raw source state (v2: reserve0, reserve1; v3/v4: sqrtPriceX96, liquidity) observed at
+    ///         `observedAt`. The source fields must match the pool's. Order and replay: only an observation newer
+    ///         than the last accepted one is taken; a late or re-redeemed ticket is ignored.
+    function onBridgePrice(
+        PoolId id,
+        uint8 kind,
+        address target,
+        bytes32 v4Id,
+        uint256 a,
+        uint256 b,
+        uint64 observedAt,
+        address keeper,
+        uint256 keeperCost
+    ) external {
+        if (bridgeSender == address(0) || msg.sender != address(uint160(bridgeSender) + ALIAS_OFFSET)) {
+            revert OnlyBridge();
+        }
+        if (_locked) revert Reentrancy();
+        _locked = true;
+        Pool storage p = pools[id];
+        Source storage s = p.src;
+        uint256 price;
+        uint256 tvl;
+        if (p.exists && s.remoteEid == BRIDGE_EID && s.kind == kind && s.target == target && s.v4Id == v4Id) {
+            (price, tvl) = s.kind == SRC_V2 ? _v2(a, b, s.coinIs0) : _concentrated(uint160(a), uint128(b), s.coinIs0);
+            (price, tvl) = _shift(s.decShift, price, tvl);
+        }
+        uint256 ageAtSend = p.live && observedAt > p.obsAt ? observedAt - p.obsAt : 0;
+        if (keeperCost > MAX_PUSH_REFUND) keeperCost = MAX_PUSH_REFUND;
+        _accept(p, id, price, tvl, observedAt, keeper, keeperCost, ageAtSend, BRIDGE_RECOVERY_AGE);
+        _locked = false;
+    }
+
+    /// @dev Take a delivered observation: first price opens the pool; otherwise the update or recovery gate, the
+    ///      deferred-mark settle, re-centre on recovery, and the keeper refund (cost * 1.2 if due) from the tank.
+    function _accept(
+        Pool storage p,
+        PoolId id,
+        uint256 price,
+        uint256 tvl,
+        uint64 observedAt,
+        address keeper,
+        uint256 cost,
+        uint256 ageAtRequest,
+        uint256 maxRecoveryAge
+    ) internal {
+        if (price == 0 || !p.exists) {
+            emit PriceRejected(id, bytes32(0));
             return;
         }
         if (!p.live) {
+            if (observedAt > block.timestamp) {
+                emit PriceRejected(id, bytes32(0));
+                return;
+            }
             p.anchorX128 = price;
             p.obsAt = observedAt;
             p.srcTvl = tvl;
@@ -511,14 +588,14 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             p.seedY = 0;
             _goLive(p, sx, sy, price, address(this));
             emit PriceAccepted(id, price, observedAt, 0, false);
-            _locked = false;
             return;
         }
         bool wasLocal = p.local;
-        bool ok = wasLocal ? PR.recoveryOk(observedAt, p.obsAt, block.timestamp) : PR.updateOk(observedAt, p.obsAt, block.timestamp);
+        bool ok = wasLocal
+            ? PR.recoveryOkWithin(observedAt, p.obsAt, block.timestamp, maxRecoveryAge)
+            : PR.updateOk(observedAt, p.obsAt, block.timestamp);
         if (!ok) {
-            emit PriceRejected(id, guid);
-            _locked = false;
+            emit PriceRejected(id, bytes32(0));
             return;
         }
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
@@ -533,12 +610,12 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             emit LocalMode(id, false);
         }
         uint256 refund;
-        if (q.keeper != address(0)) {
-            refund = PR.refund(old, price, q.ageAtRequest, q.lzFee);
+        if (keeper != address(0)) {
+            refund = PR.refund(old, price, ageAtRequest, cost);
             if (refund > p.tank) refund = p.tank;
             if (refund > 0) {
                 p.tank -= refund;
-                (bool sent,) = q.keeper.call{value: refund, gas: 30_000}("");
+                (bool sent,) = keeper.call{value: refund, gas: 30_000}("");
                 if (!sent) {
                     p.tank += refund;
                     refund = 0;
@@ -546,7 +623,6 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             }
         }
         emit PriceAccepted(id, price, observedAt, refund, wasLocal);
-        _locked = false;
     }
 
     function _readCmd(Pool storage p) internal view returns (ILzRead.EvmRead memory cmd) {
@@ -576,14 +652,13 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             else (sqrtP, liq) = abi.decode(r, (uint160, uint128));
             (price, tvl) = _concentrated(sqrtP, liq, s.coinIs0);
         }
-        int8 sh = s.decShift;
-        if (sh > 0) {
-            price *= 10 ** uint8(sh);
-            tvl *= 10 ** uint8(sh);
-        } else if (sh < 0) {
-            price /= 10 ** uint8(-sh);
-            tvl /= 10 ** uint8(-sh);
-        }
+        (price, tvl) = _shift(s.decShift, price, tvl);
+    }
+
+    function _shift(int8 sh, uint256 price, uint256 tvl) internal pure returns (uint256, uint256) {
+        if (sh > 0) return (price * 10 ** uint8(sh), tvl * 10 ** uint8(sh));
+        if (sh < 0) return (price / 10 ** uint8(-sh), tvl / 10 ** uint8(-sh));
+        return (price, tvl);
     }
 
     // ---------------------------------------------------------------------------------------------

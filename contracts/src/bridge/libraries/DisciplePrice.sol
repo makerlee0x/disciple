@@ -146,9 +146,18 @@ library DisciplePrice {
     ///         local mode began, not from the future, and at most MAX_RECOVERY_AGE old on arrival. A failed check
     ///         leaves the pool trading in local mode.
     function recoveryOk(uint256 observedAt, uint256 lastObservedAt, uint256 nowTs) internal pure returns (bool) {
+        return recoveryOkWithin(observedAt, lastObservedAt, nowTs, MAX_RECOVERY_AGE);
+    }
+
+    /// @notice `recoveryOk` with a path-specific maximum age on arrival (a rollup bridge delivers in minutes).
+    function recoveryOkWithin(uint256 observedAt, uint256 lastObservedAt, uint256 nowTs, uint256 maxAge)
+        internal
+        pure
+        returns (bool)
+    {
         if (observedAt <= lastObservedAt || observedAt > nowTs) return false;
         if (observedAt < lastObservedAt + LOCAL_AFTER) return false;
-        return nowTs - observedAt <= MAX_RECOVERY_AGE;
+        return nowTs - observedAt <= maxAge;
     }
 
     /// @notice Whether an observation may replace the anchor outside local mode: strictly newer and not from the
