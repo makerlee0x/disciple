@@ -14,4 +14,4 @@ module, not an efficient implementation.
 - Two guards are added beyond the spec:
   - 1e6 shares can never be withdrawn, so the pool never drains to rounding dust.
   - An interval gain above half the pool value is not distributed; it stays in share value pro rata. This keeps the 1/(V - D) terms bounded.
-- Below 1e12 principal shares, the slide's quadratic term is skipped. The most that can overpay is dust.
+- The slide's quadratic term applies at every principal size. (An earlier cut-off below 1e12 principal shares paid every share the front weight; with a 6-decimal quote a $5,000 pool paid out 1.7x its earnings. Removed 2026-11-04.)

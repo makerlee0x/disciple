@@ -9,6 +9,7 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
 import {ILzRead} from "../../src/bridge/interfaces/ILzRead.sol";
 import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
+import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/disciple/DisciplePoolTank.sol";
 
 /// @dev TJAR factory on Robinhood Chain. Its source is not verified to us; the call below was read from its bytecode
 ///      and a traced call: selector 0x63d23abd(resource, resourceRecipient, threshold, owner, address, salt)
@@ -62,26 +63,6 @@ interface IMessageLibLite {
     function version() external view returns (uint64, uint8, uint8);
 }
 
-/// @notice Stand-in for the PoolTank the hook's natspec mentions (not in src yet). The TJAR releaser pays WETH by
-///         plain ERC-20 transfer, so something must unwrap it and call `fundTank`. Anyone can poke `flush`.
-contract PoolTankAdapter {
-    IWETH public immutable weth;
-    Disciple public immutable hook;
-    PoolId public immutable id;
-
-    constructor(IWETH w, Disciple h, PoolId i) {
-        (weth, hook, id) = (w, h, i);
-    }
-
-    function flush() external {
-        uint256 b = weth.balanceOf(address(this));
-        if (b != 0) weth.withdraw(b);
-        hook.fundTank{value: address(this).balance}(id);
-    }
-
-    receive() external payable {}
-}
-
 /// @notice Robinhood Chain fork checks for the cross-chain plumbing: the real TJAR factory, and whether LayerZero
 ///         lzRead exists there. Skips unless FORK_RPC is set (never commit it).
 contract TjarForkTest is Test {
@@ -112,7 +93,7 @@ contract TjarForkTest is Test {
     function test_fork_tjarRefillsTank() public {
         if (!forked) return;
         (Disciple hook, PoolId id, MockERC20 coin) = _pool();
-        PoolTankAdapter adapter = new PoolTankAdapter(IWETH(RH_WETH), hook, id);
+        DisciplePoolTank adapter = new DisciplePoolTank(IWETH9(RH_WETH), IDiscipleTank(address(hook)), id);
         uint256 threshold = 0.001 ether;
 
         uint256 g = gasleft();
@@ -206,8 +187,8 @@ contract TjarForkTest is Test {
         IPoolManager m = IPoolManager(RH_POOL_MANAGER);
         coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("QUOTE", "QUOTE", 18);
-        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(0));
-        hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(0));
+        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(0), address(0));
+        hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(0), address(0));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
         coin.approve(address(hook), type(uint256).max);

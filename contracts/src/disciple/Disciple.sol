@@ -82,6 +82,9 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     uint256 internal constant BRIDGE_RECOVERY_AGE = 20 minutes;
     /// @dev Cap on one bridge-push refund, so a gas spike on the parent chain cannot drain the tank.
     uint256 internal constant MAX_PUSH_REFUND = 0.002 ether;
+    /// @dev Rollup-side gas of a native-bridge delivery (retryable auto-redeem or OP deposit), added to the keeper's
+    ///      cost at this chain's basefee. The sender's own figure covers only the parent-chain side.
+    uint256 internal constant BRIDGE_L2_GAS = 150_000;
     /// @dev Arbitrum-stack L1-to-L2 sender alias offset.
     uint160 internal constant ALIAS_OFFSET = uint160(0x1111000000000000000000000000000000001111);
 
@@ -98,6 +101,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         bytes32 v4Id; // v4 source pool id
         address lens; // remote AnchorLens (cross chain only)
         int8 decShift; // cross chain: price * 10^decShift converts home raw units to local raw units
+        bool push; // cross chain over LayerZero push (a sender on chain `remoteEid`) instead of lzRead
     }
 
     struct Pending {
@@ -154,6 +158,9 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     /// @notice The DiscipleBridgeSender on the parent chain (0 = bridge pricing off). Its messages arrive from its
     ///         aliased address.
     address public immutable bridgeSender;
+    /// @notice The DisciplePushReceiver beside this hook (0 = LayerZero push off). It authenticates the LayerZero
+    ///         message and its home-chain sender, then calls `onBridgePrice` with the home chain's eid.
+    address public immutable pushReceiver;
 
     mapping(PoolId => Pool) internal pools;
     mapping(bytes32 guid => PoolId) public guidPool;
@@ -200,12 +207,13 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         _locked = false;
     }
 
-    constructor(IPoolManager manager_, address quote_, ILzRead lz_, address bridgeSender_) {
+    constructor(IPoolManager manager_, address quote_, ILzRead lz_, address bridgeSender_, address pushReceiver_) {
         if (address(manager_) == address(0) || quote_ == address(0)) revert BadParams();
         poolManager = manager_;
         quote = quote_;
         lz = lz_;
         bridgeSender = bridgeSender_;
+        pushReceiver = pushReceiver_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -230,7 +238,9 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         Source calldata s = cp.src;
         if (s.kind < SRC_V2 || s.kind > SRC_V4) revert BadParams();
         if (s.remoteEid == BRIDGE_EID) {
-            if (bridgeSender == address(0)) revert BadParams();
+            if (bridgeSender == address(0) || s.push) revert BadParams();
+        } else if (s.push) {
+            if (pushReceiver == address(0) || s.remoteEid == 0) revert BadParams();
         } else if (s.remoteEid != 0 && (address(lz) == address(0) || s.lens == address(0))) {
             revert BadParams();
         }
@@ -270,8 +280,8 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             _pull(quote, cp.quoteIn);
             p.seedX = cp.coinIn;
             p.seedY = cp.quoteIn;
-            if (s.remoteEid == BRIDGE_EID) {
-                // the first push from the parent chain opens the pool; all ETH goes to the tank
+            if (s.remoteEid == BRIDGE_EID || s.push) {
+                // the first pushed price opens the pool; all ETH goes to the tank
                 p.tank = msg.value;
             } else {
                 uint256 fee = lz.quoteRead(_readCmd(p));
@@ -436,7 +446,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             p.tX128 = PR.recentre(p.book.x, p.book.y);
             emit LocalMode(id, true);
         }
-        if (age >= PR.HEARTBEAT && p.src.remoteEid != BRIDGE_EID) _autoRefresh(p, id);
+        if (age >= PR.HEARTBEAT && p.src.remoteEid != BRIDGE_EID && !p.src.push) _autoRefresh(p, id);
         (uint256 g, bool bandOn) = PR.markup(p.fee, age);
         (kb, ks) = SM.slopes(a, p.tX128, g);
         (pb, ps) = PR.band(a, g, bandOn);
@@ -467,7 +477,7 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
     ///         refunds the fee plus 20%.
     function updatePrice(PoolId id) external payable lock returns (bytes32 guid) {
         Pool storage p = _known(id);
-        if (p.src.remoteEid == 0 || p.src.remoteEid == BRIDGE_EID) revert SameChain();
+        if (p.src.remoteEid == 0 || p.src.remoteEid == BRIDGE_EID || p.src.push) revert SameChain();
         Pending storage q = p.pending;
         if (q.guid != bytes32(0) && block.timestamp < uint256(q.requestedAt) + REQUEST_TIMEOUT) {
             revert RequestPending();
@@ -522,13 +532,15 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         _locked = false;
     }
 
-    /// @notice A price pushed from the parent chain through the rollup bridge (retryable ticket). Only the
-    ///         DiscipleBridgeSender's aliased address. The sender read the source itself in the same transaction,
+    /// @notice A pushed price. Two routes: the parent chain's rollup bridge (caller = the bridge sender's alias,
+    ///         `srcEid` ignored) or LayerZero push (caller = pushReceiver, `srcEid` = the home chain, which must be
+    ///         the pool's). The sender read the source itself in the same transaction,
     ///         so `a`/`b` are raw source state (v2: reserve0, reserve1; v3/v4: sqrtPriceX96, liquidity) observed at
     ///         `observedAt`. The source fields must match the pool's. Order and replay: only an observation newer
     ///         than the last accepted one is taken; a late or re-redeemed ticket is ignored.
     function onBridgePrice(
         PoolId id,
+        uint32 srcEid,
         uint8 kind,
         address target,
         bytes32 v4Id,
@@ -538,20 +550,21 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
         address keeper,
         uint256 keeperCost
     ) external {
-        if (bridgeSender == address(0) || msg.sender != address(uint160(bridgeSender) + ALIAS_OFFSET)) {
-            revert OnlyBridge();
-        }
+        bool viaBridge = bridgeSender != address(0) && msg.sender == address(uint160(bridgeSender) + ALIAS_OFFSET);
+        if (!viaBridge && (pushReceiver == address(0) || msg.sender != pushReceiver)) revert OnlyBridge();
         if (_locked) revert Reentrancy();
         _locked = true;
         Pool storage p = pools[id];
         Source storage s = p.src;
         uint256 price;
         uint256 tvl;
-        if (p.exists && s.remoteEid == BRIDGE_EID && s.kind == kind && s.target == target && s.v4Id == v4Id) {
+        bool route = viaBridge ? s.remoteEid == BRIDGE_EID : (s.push && s.remoteEid == srcEid);
+        if (p.exists && route && s.kind == kind && s.target == target && s.v4Id == v4Id) {
             (price, tvl) = s.kind == SRC_V2 ? _v2(a, b, s.coinIs0) : _concentrated(uint160(a), uint128(b), s.coinIs0);
             (price, tvl) = _shift(s.decShift, price, tvl);
         }
         uint256 ageAtSend = p.live && observedAt > p.obsAt ? observedAt - p.obsAt : 0;
+        if (viaBridge) keeperCost += BRIDGE_L2_GAS * block.basefee;
         if (keeperCost > MAX_PUSH_REFUND) keeperCost = MAX_PUSH_REFUND;
         _accept(p, id, price, tvl, observedAt, keeper, keeperCost, ageAtSend, BRIDGE_RECOVERY_AGE);
         _locked = false;
