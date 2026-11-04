@@ -667,6 +667,8 @@ contract Disciple is IHooks, ILzReadConsumer, IUnlockCallback {
             emit PriceRejected(id, bytes32(0));
             return;
         }
+        // a heartbeat is paid only if the pool traded since the last price (maker, 2026-11-04); a 1% move always
+        if (p.book.dx == 0 && p.book.dy == 0) ageAtRequest = 0;
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
         BK.settle(p.book, price, tvl, !wasLocal);
         uint256 old = p.anchorX128;

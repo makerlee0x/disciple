@@ -859,15 +859,15 @@ contract DiscipleTest is Test {
         // two sources, three pools: two pools on `pair`, one on `pair2`, all in one message
         MockPair pair2 = new MockPair();
         pair2.set(1_000_000e18, 5_000_000e18);
-        (, PoolId p1) = _createPush(HOME_EID, 0.05 ether);
+        (PoolKey memory k1, PoolId p1) = _createPush(HOME_EID, 0.05 ether);
         MockERC20 c2 = usd2();
         Disciple.Source memory s = _pushSrc(HOME_EID);
-        (, PoolId p2) = hook.createPool{value: 0.05 ether}(
+        (PoolKey memory k2, PoolId p2) = hook.createPool{value: 0.05 ether}(
             Disciple.CreateParams({coin: address(c2), fee: 10_000, src: s, coinIn: 1000e18, quoteIn: 3000e18, srcKey: _noKey()})
         );
         MockERC20 c3 = usd2();
         s.target = address(pair2);
-        (, PoolId p3) = hook.createPool{value: 0.05 ether}(
+        (PoolKey memory k3, PoolId p3) = hook.createPool{value: 0.05 ether}(
             Disciple.CreateParams({coin: address(c3), fee: FEE, src: s, coinIn: 1000e18, quoteIn: 3000e18, srcKey: _noKey()})
         );
         DisciplePushSender.Req[] memory r = new DisciplePushSender.Req[](2);
@@ -894,7 +894,20 @@ contract DiscipleTest is Test {
         assertEq(hook.poolState(p2).anchorX128, Q128 * 2, "p2 priced from pair, same message");
         assertEq(hook.poolState(p3).anchorX128, Q128 * 5, "p3 priced from pair2, same message");
 
-        // a heartbeat for all three: each pool refunds only its quarter of the message cost (4 listings)
+        // an idle hour: the heartbeat is accepted but refunds nothing (no trades since the last price)
+        vm.warp(vm.getBlockTimestamp() + 59 minutes + 30);
+        uint256 tIdle = hook.poolState(p1).tank;
+        vm.prank(address(k));
+        pushSender.push{value: lzFee}(30101, to, r, 300_000);
+        vm.warp(vm.getBlockTimestamp() + 30);
+        local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
+        assertEq(hook.poolState(p1).ageOrBlock, 30, "idle heartbeat accepted");
+        assertEq(hook.poolState(p1).tank, tIdle, "idle heartbeat not refunded");
+
+        // all three trade, then a heartbeat: each pool refunds only its quarter of the message cost (4 listings)
+        _swap(k1, true, -int256(1e18));
+        _swap(k2, true, -int256(1e18));
+        _swap(k3, true, -int256(1e18));
         vm.warp(vm.getBlockTimestamp() + 59 minutes + 30);
         uint256 b0 = address(k).balance;
         uint256 t1 = hook.poolState(p1).tank;
@@ -911,7 +924,7 @@ contract DiscipleTest is Test {
 
 
     function test_lzPushDuplicatesTooManyAndTakeover() public {
-        (, PoolId id) = _createPush(HOME_EID, 0.05 ether);
+        (PoolKey memory key, PoolId id) = _createPush(HOME_EID, 0.05 ether);
         _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
 
@@ -923,6 +936,7 @@ contract DiscipleTest is Test {
 
         // a pool listed twice: the first listing is accepted and refunded, the duplicate is refused (not newer)
         // and refunds nothing, so the keeper recovers half the message cost
+        _swap(key, true, -int256(1e18)); // traded, so the heartbeat is refundable
         DisciplePushSender.Req[] memory dup = _req(address(pair), id);
         dup[0].pools = new PoolId[](2);
         (dup[0].pools[0], dup[0].pools[1]) = (id, id);
@@ -995,6 +1009,7 @@ contract DiscipleTest is Test {
         coin2 = new MockERC20("COIN2", "COIN2", 18);
         coin2.mint(address(this), 1e30);
         coin2.approve(address(hook), type(uint256).max);
+        coin2.approve(address(swapper), type(uint256).max);
         return coin2;
     }
 
