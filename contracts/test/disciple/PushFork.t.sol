@@ -5,6 +5,9 @@ import {_noKey} from "./NoKey.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
@@ -80,6 +83,9 @@ contract PushForkTest is Test {
     PoolId pid;
     address rhLib;
     bool lean;
+    PoolSwapTest swapper;
+    PoolKey key;
+    address quoteToken;
 
     function test_fork_pushEthereumToRobinhoodLz() public {
         string memory ethRpc = vm.envOr("FORK_RPC_ETH", string(""));
@@ -135,7 +141,18 @@ contract PushForkTest is Test {
         vm.expectRevert();
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(p), address(receiver), p.guid, p.message, "");
 
-        // ---- heartbeat, refunded from the tank
+        // ---- a trade, then the heartbeat: refunded from the tank (an idle pool's heartbeat pays nothing)
+        bool zf = Currency.unwrap(key.currency0) == quoteToken; // buy coin with quote
+        swapper.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: zf,
+                amountSpecified: -int256(1e18),
+                sqrtPriceLimitX96: zf ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
         vm.warp(uint256(p.observedAt) + 59 minutes + 30);
         _syncEthClock();
         Packet memory hb = _push();
@@ -187,7 +204,11 @@ contract PushForkTest is Test {
         s.remoteEid = V0.ETH_EID;
         s.push = true;
         vm.deal(address(this), 1 ether);
-        (, pid) = hook.createPool{value: 0.05 ether}(
+        swapper = new PoolSwapTest(m);
+        coin.approve(address(swapper), type(uint256).max);
+        quote.approve(address(swapper), type(uint256).max);
+        quoteToken = address(quote);
+        (key, pid) = hook.createPool{value: 0.05 ether}(
             Disciple.CreateParams({coin: address(coin), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey()})
         );
     }
