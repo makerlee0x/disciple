@@ -315,6 +315,14 @@ contract PushForkTest is Test {
                     ex == address(0) ? "LayerZero (paid)" : "self (zero fee)"
                 )
             );
+            // one warm-up message: a sender's first send also pays cold storage, which the estimate leaves out
+            {
+                DisciplePushSender.Req[] memory w = _reqs(1, 1);
+                uint256 wf = s.quote(V0.RH_EID, to, w, 190_000);
+                vm.prank(keeper);
+                s.push{value: wf}(V0.RH_EID, to, w, 190_000);
+                vm.roll(block.number + 1);
+            }
             for (uint256 k = 0; k < 3; k++) {
                 DisciplePushSender.Req[] memory r = _reqs(sizes[k], 1);
                 uint256 fee = s.quote(V0.RH_EID, to, r, uint128(100_000 + 90_000 * uint256(sizes[k])));

@@ -49,12 +49,21 @@ library DiscipleRoutesV0 {
         threshold = 2;
     }
 
-    /// @dev Lean set: two required, no optional. ~0.000004 ETH of DVN fees. Its Robinhood-side counterparts must be
-    ///      confirmed from live PayloadVerified pairs before deploy; they are passed in, not assumed.
+    /// @dev Lean set: two required, no optional. ~0.000004 ETH of DVN fees. Robinhood side: rhLeanDvns.
     function ethLeanDvns() internal pure returns (address[] memory req, address[] memory opt, uint8 threshold) {
         req = new address[](2);
         req[0] = 0x380275805876Ff19055EA900CDb2B46a94ecF20D;
         req[1] = 0x589dEDbD617e0CBcB916A9223F4d1300c294236b; // LayerZero Labs
+        opt = new address[](0);
+        threshold = 0;
+    }
+
+    /// @dev Robinhood-side counterparts of the lean set, matched by signer sets on live traffic (2026-11-04):
+    ///      ETH 0x589d (LayerZero Labs) -> RH 0xd01a; ETH 0x3802 -> RH 0x1258.
+    function rhLeanDvns() internal pure returns (address[] memory req, address[] memory opt, uint8 threshold) {
+        req = new address[](2);
+        req[0] = 0x1258A278519c7f4bd997a9c3BFd4Aa802a028D89;
+        req[1] = 0xd01ae6905d48315f7bE10C7330aeCF8360Ef5b12;
         opt = new address[](0);
         threshold = 0;
     }

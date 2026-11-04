@@ -27,8 +27,9 @@ contract DisciplePushSender is DiscipleSourceReader {
     /// @dev Gas not visible to gasleft(): the 21k intrinsic cost, the endpoint's refund of excess fee, the event.
     uint256 public constant OVERHEAD_GAS = 30_000;
     /// @dev endpoint.send after the quote (library, DVN and executor jobs, nonce, event) plus the second encode,
-    ///      per message. Calibrated on the Ethereum fork; the read, encode and quote before it are measured live.
-    uint256 public constant SEND_GAS = 70_000;
+    ///      per message, warm (a sender's very first message also pays cold storage, ~120k more, unrefunded).
+    ///      Calibrated on the Ethereum fork; the read, encode and quote before it are measured live.
+    uint256 public constant SEND_GAS = 110_000; // fork, 2026-11-04: carried 151k vs 189k measured at 70k
 
     struct Req {
         uint8 kind;

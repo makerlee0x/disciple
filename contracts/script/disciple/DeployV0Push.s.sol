@@ -22,7 +22,7 @@ interface IEndpointLibs {
 /// @title v0 deploy: Ethereum -> Robinhood LayerZero push
 /// @notice Two steps, two chains. Nothing broadcasts without `--broadcast`.
 ///   Env for both steps: DVN_SET = "live" (default; the live OApp's 2 + 2-of-3) or "lean" (2 required, none
-///   optional; then RH_DVNS = the matching Robinhood DVNs, sorted, comma separated, confirmed from live traffic).
+///   optional: LayerZero Labs + one more, ~0.000004 ETH of DVN fees). Use the same value on both chains.
 ///   1. On Ethereum:  forge script script/disciple/DeployV0Push.s.sol --sig "sender()" --rpc-url $ETH_RPC
 ///      Deploys DisciplePushSender with the v0 send config (5 confirmations) for Robinhood. SELF_EXECUTOR=1
 ///      (default) also deploys a zero-fee DiscipleSelfExecutor and points the config at it: keepers then commit and
@@ -65,7 +65,7 @@ contract DeployV0Push is Script {
         vm.startBroadcast();
         bool lean = keccak256(bytes(vm.envOr("DVN_SET", string("live")))) == keccak256("lean");
         (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
-        if (lean) (req, opt, th) = (vm.envAddress("RH_DVNS", ","), new address[](0), 0);
+        if (lean) (req, opt, th) = V0.rhLeanDvns();
         LibConfig[] memory cfg = V0.rhReceive(lib, req, opt, th);
         r = new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg);
         bytes memory args = abi.encode(pm, quote, ILzRead(address(0)), address(0), address(r));
