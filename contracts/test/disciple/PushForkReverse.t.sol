@@ -19,7 +19,7 @@ import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceRead
 import {ILayerZeroEndpointV2Lite, Origin, LibConfig} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
 import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
 import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
-import {IEndpointFull, IReceiveUln, UlnConfigLite} from "./PushFork.t.sol";
+import {IEndpointFull, IReceiveUln, UlnConfigLite, BasefeeProbe} from "./PushFork.t.sol";
 
 /// @notice Two-fork test of the v0 Robinhood -> Ethereum LayerZero push (the mirror of PushFork), on the real
 ///         endpoints and libraries. Forks only: nothing is deployed on a live chain (maker: no Ethereum deploy
@@ -153,12 +153,12 @@ contract PushForkReverseTest is Test {
         emit log_named_uint("Ethereum execution gas, heartbeat", g - gasleft());
         assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 30, "heartbeat accepted");
-        uint256 cost = _cost(hb.message) + 150_000 * block.basefee;
+        uint256 cost = _cost(hb.message) + 150_000 * _bf();
         if (cost > 0.002 ether) cost = 0.002 ether;
         assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + Robinhood gas + ETH delivery) * 1.2");
         emit log_named_uint("cost carried from Robinhood (LZ fee + measured gas)", _cost(hb.message));
         emit log_named_uint("keeper push gas on Robinhood", hb.gas);
-        emit log_named_uint("Ethereum basefee (wei)", block.basefee);
+        emit log_named_uint("Ethereum basefee (wei)", _bf());
         emit log_named_uint("refund paid on Ethereum (wei)", cost * 12 / 10);
     }
 
@@ -319,4 +319,8 @@ contract PushForkReverseTest is Test {
     }
 
     receive() external payable {}
+
+    function _bf() internal returns (uint256) {
+        return new BasefeeProbe().get();
+    }
 }

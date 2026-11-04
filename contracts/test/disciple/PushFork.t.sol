@@ -52,6 +52,14 @@ struct UlnConfigLite {
     address[] optionalDVNs;
 }
 
+/// @dev Reads block.basefee from inside a called contract. Some Foundry versions (seen on 1.9.0) give called contracts
+///      a different basefee than the test contract reads, so expected refunds use what contracts actually see.
+contract BasefeeProbe {
+    function get() external view returns (uint256) {
+        return block.basefee;
+    }
+}
+
 contract PushForkTest is Test {
     bytes32 internal constant PACKET_SENT = keccak256("PacketSent(bytes,bytes,address)");
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
@@ -166,7 +174,7 @@ contract PushForkTest is Test {
         emit log_named_uint("Robinhood execution gas, heartbeat", g - gasleft());
         assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 75, "heartbeat accepted");
-        uint256 cost = _cost(hb.message) + 150_000 * block.basefee;
+        uint256 cost = _cost(hb.message) + 150_000 * _bf();
         if (cost > 0.002 ether) cost = 0.002 ether;
         assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + measured gas + RH delivery) * 1.2");
         emit log_named_uint("cost carried (LZ fee + measured Ethereum gas)", _cost(hb.message));
@@ -223,7 +231,7 @@ contract PushForkTest is Test {
         uint256 g = gasleft();
         sender.push{value: p.fee}(V0.RH_EID, to, r, RECEIVE_GAS);
         p.gas = g - gasleft();
-        p.basefee = block.basefee;
+        p.basefee = _bf();
         p.observedAt = uint64(vm.getBlockTimestamp());
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes memory packet;
@@ -344,7 +352,7 @@ contract PushForkTest is Test {
         address lib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
         address self = address(new DiscipleSelfExecutor());
         bytes32 to = bytes32(uint256(0xD15C1));
-        emit log_named_uint("Ethereum basefee (wei)", block.basefee);
+        emit log_named_uint("Ethereum basefee (wei)", _bf());
         uint8[3] memory sizes = [uint8(1), 5, 10];
         for (uint256 c = 0; c < 4; c++) {
             bool lean = c >= 2;
@@ -377,9 +385,9 @@ contract PushForkTest is Test {
                 emit log_named_uint(string.concat("  sources ", vm.toString(sizes[k]), ": Ethereum gas (measured)"), used);
                 emit log_named_uint(
                     string.concat("  sources ", vm.toString(sizes[k]), ": total per source (wei)"),
-                    (fee + used * block.basefee) / sizes[k]
+                    (fee + used * _bf()) / sizes[k]
                 );
-                assertGe(carried, fee + used * block.basefee * 9 / 10, "carried cost tracks the measured cost");
+                assertGe(carried, fee + used * _bf() * 9 / 10, "carried cost tracks the measured cost");
                 vm.roll(block.number + 1);
             }
         }
@@ -413,4 +421,8 @@ contract PushForkTest is Test {
     }
 
     receive() external payable {}
+
+    function _bf() internal returns (uint256) {
+        return new BasefeeProbe().get();
+    }
 }
