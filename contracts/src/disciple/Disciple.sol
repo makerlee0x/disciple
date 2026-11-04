@@ -96,15 +96,21 @@ contract Disciple is IHooks, IUnlockCallback {
     // Storage
     // ---------------------------------------------------------------------------------------------
 
+    /// @dev Leg 1 is a pool of the coin and a token X. With no leg 2 (`kind2 == 0`, the mirror case) X is the quote.
+    ///      With leg 2 (same chain only) it is a pool of X and the quote, and the price is leg 1 x leg 2 (two-hop).
+    ///      Native ETH in a pool counts as `weth`.
     struct Source {
-        uint8 kind; // SRC_V2 / SRC_V3 / SRC_V4
-        bool coinIs0; // the coin is token0 of the source
-        uint24 v2Fee; // pips, v2 only (v3 and v4 read their own)
+        uint8 kind; // leg 1: SRC_V2 / SRC_V3 / SRC_V4
+        bool coinIs0; // the coin is token0 of leg 1
         uint32 remoteEid; // 0 = same chain; else the home chain's LayerZero eid
         address target; // v2 pair / v3 pool; for v4 the PoolManager (remote: the remote manager)
         bytes32 v4Id; // v4 source pool id
         int8 decShift; // cross chain: price * 10^decShift converts home raw units to local raw units
         bool push; // must be true for a cross-chain pool (LayerZero push from a sender on chain `remoteEid`)
+        uint8 kind2; // leg 2 kind, 0 = none
+        bool xIs0; // X is token0 of leg 2
+        address target2; // leg 2 v2 pair / v3 pool (v4: unused)
+        bytes32 v4Id2; // leg 2 v4 pool id
     }
 
     struct Pool {
@@ -114,6 +120,7 @@ contract Disciple is IHooks, IUnlockCallback {
         bool local; // cross chain local mode
         uint24 fee; // pips
         address coin;
+        address quote;
         Source src;
         uint256 tX128; // curve seed ratio T (quote raw per coin raw, X128)
         uint256 anchorX128; // A
@@ -132,11 +139,13 @@ contract Disciple is IHooks, IUnlockCallback {
 
     struct CreateParams {
         address coin;
+        address quote; // any ERC20 other than the coin
         uint24 fee; // Disciple fee in pips
         Source src;
         uint256 coinIn;
         uint256 quoteIn;
-        PoolKey srcKey; // same-chain v4 source only: its key, which must hash to `src.v4Id`
+        PoolKey srcKey; // same-chain v4 leg 1 only: its key, which must hash to `src.v4Id`
+        PoolKey srcKey2; // same-chain v4 leg 2 only: its key, which must hash to `src.v4Id2`
     }
 
     /// @dev One token movement inside an unlock: `into` the pool's claims from `who`, or out of them to `who`.
@@ -148,15 +157,17 @@ contract Disciple is IHooks, IUnlockCallback {
     }
 
     IPoolManager public immutable poolManager;
-    address public immutable quote;
     /// @notice The DisciplePushReceiver beside this hook (0 = LayerZero push off). It authenticates the LayerZero
     ///         message and its home-chain sender, then calls `onBridgePrice` with the home chain's eid.
     address public immutable pushReceiver;
     /// @notice Same-chain v2 / v3 sources must be pools of these factories (0 = that kind is off).
     address public immutable v2Factory;
     address public immutable v3Factory;
-    /// @notice Disciple pools per coin so far. Pool n of a coin has tickSpacing n, so a pair is never squatted.
-    mapping(address coin => uint256) public poolsOf;
+    /// @notice Native ETH in a same-chain source pool counts as this token (the chain's WETH).
+    address public immutable weth;
+    /// @notice Disciple pools per pair so far, by sorted (currency0, currency1). Pool n of a pair has tickSpacing n,
+    ///         so a pair is never squatted.
+    mapping(address => mapping(address => uint256)) public poolsOf;
 
     mapping(PoolId => Pool) internal pools;
     bool internal _locked;
@@ -165,7 +176,9 @@ contract Disciple is IHooks, IUnlockCallback {
     // Events and errors
     // ---------------------------------------------------------------------------------------------
 
-    event Created(PoolId indexed id, address indexed coin, address indexed creator, uint32 remoteEid, uint24 fee);
+    event Created(
+        PoolId indexed id, address indexed coin, address quote, address indexed creator, uint32 remoteEid, uint24 fee
+    );
     event Swapped(PoolId indexed id, address indexed sender, bool buy, uint256 coinAmt, uint256 quoteAmt);
     event Deposited(PoolId indexed id, address indexed owner, uint256 lot, uint256 shares, uint256 x, uint256 y);
     event Withdrawn(PoolId indexed id, address indexed owner, uint256 lot, uint256 x, uint256 y);
@@ -201,17 +214,17 @@ contract Disciple is IHooks, IUnlockCallback {
 
     constructor(
         IPoolManager manager_,
-        address quote_,
         address pushReceiver_,
         address v2Factory_,
-        address v3Factory_
+        address v3Factory_,
+        address weth_
     ) {
-        if (address(manager_) == address(0) || quote_ == address(0)) revert BadParams();
+        if (address(manager_) == address(0)) revert BadParams();
         poolManager = manager_;
-        quote = quote_;
         pushReceiver = pushReceiver_;
         v2Factory = v2Factory_;
         v3Factory = v3Factory_;
+        weth = weth_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -231,20 +244,24 @@ contract Disciple is IHooks, IUnlockCallback {
     ///         the rest refunded. Cross chain: both tokens are held until the first pushed price lands (any ETH sent
     ///         goes to the pool's tank); then the seed is trimmed the same way.
     function createPool(CreateParams calldata cp) external payable lock returns (PoolKey memory key, PoolId id) {
-        if (cp.coin == address(0) || cp.coin == quote || cp.fee == 0 || cp.fee > MAX_FEE) revert BadParams();
-        if (cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
+        address quote = cp.quote;
+        if (cp.coin == address(0) || quote == address(0) || cp.coin == quote) revert BadParams();
+        if (cp.fee == 0 || cp.fee > MAX_FEE || cp.coinIn == 0 || cp.quoteIn == 0) revert BadParams();
         Source calldata s = cp.src;
-        if (s.kind < SRC_V2 || s.kind > SRC_V4) revert BadParams();
-        if (s.push != (s.remoteEid != 0) || (s.push && pushReceiver == address(0))) revert BadParams();
+        if (s.kind < SRC_V2 || s.kind > SRC_V4 || s.kind2 > SRC_V4) revert BadParams();
+        if (s.push != (s.remoteEid != 0) || (s.push && (pushReceiver == address(0) || s.kind2 != 0))) {
+            revert BadParams();
+        }
 
         if (s.remoteEid == 0) _checkSource(cp);
 
         bool coinIs0 = cp.coin < quote;
+        (address c0, address c1) = coinIs0 ? (cp.coin, quote) : (quote, cp.coin);
         // the PoolManager refuses tickSpacing above 32767, and a wrapped value lands on an existing pool
-        uint256 n = ++poolsOf[cp.coin];
+        uint256 n = ++poolsOf[c0][c1];
         key = PoolKey({
-            currency0: Currency.wrap(coinIs0 ? cp.coin : quote),
-            currency1: Currency.wrap(coinIs0 ? quote : cp.coin),
+            currency0: Currency.wrap(c0),
+            currency1: Currency.wrap(c1),
             fee: 0,
             tickSpacing: int24(int256(n)),
             hooks: IHooks(address(this))
@@ -255,6 +272,7 @@ contract Disciple is IHooks, IUnlockCallback {
         p.exists = true;
         p.coinIs0 = coinIs0;
         p.coin = cp.coin;
+        p.quote = quote;
         p.fee = cp.fee;
         p.src = s;
         p.book.creator = msg.sender;
@@ -281,31 +299,46 @@ contract Disciple is IHooks, IUnlockCallback {
         }
 
         poolManager.initialize(key, uint160(1 << 96));
-        emit Created(id, cp.coin, msg.sender, s.remoteEid, cp.fee);
+        emit Created(id, cp.coin, quote, msg.sender, s.remoteEid, cp.fee);
     }
 
-    /// @dev A same-chain source must be a real pool of exactly this coin and quote, oriented as `src.coinIs0` says:
-    ///      v2 / v3 through their factory, v4 through its key (never one of this hook's own pools).
+    /// @dev A same-chain source is real pools only: leg 1 holds the coin and X (the quote when there is no leg 2),
+    ///      leg 2 holds X and the quote, each oriented as the source says. v2 / v3 are checked through their factory,
+    ///      v4 through its key (never one of this hook's own pools). Native ETH counts as `weth`.
     function _checkSource(CreateParams calldata cp) internal view {
         Source calldata s = cp.src;
+        (address a, address x) = _legTokens(s.kind, s.target, s.v4Id, cp.srcKey, s.coinIs0);
+        if (a != cp.coin) revert BadParams();
+        if (s.kind2 != 0) {
+            (address x2, address q) = _legTokens(s.kind2, s.target2, s.v4Id2, cp.srcKey2, s.xIs0);
+            if (x2 != x) revert BadParams();
+            x = q;
+        }
+        if (x != cp.quote) revert BadParams();
+    }
+
+    /// @dev A verified pool's (base, other) tokens, native ETH mapped to `weth`.
+    function _legTokens(uint8 kind, address target, bytes32 v4Id, PoolKey calldata k, bool baseIs0)
+        internal
+        view
+        returns (address base, address other)
+    {
         address t0;
         address t1;
-        if (s.kind == SRC_V4) {
-            if (keccak256(abi.encode(cp.srcKey)) != s.v4Id || address(cp.srcKey.hooks) == address(this)) {
-                revert BadParams();
-            }
-            (t0, t1) = (Currency.unwrap(cp.srcKey.currency0), Currency.unwrap(cp.srcKey.currency1));
+        if (kind == SRC_V4) {
+            if (keccak256(abi.encode(k)) != v4Id || address(k.hooks) == address(this)) revert BadParams();
+            (t0, t1) = (Currency.unwrap(k.currency0), Currency.unwrap(k.currency1));
         } else {
-            t0 = IV2PairLike(s.target).token0();
-            t1 = IV2PairLike(s.target).token1();
+            t0 = IV2PairLike(target).token0();
+            t1 = IV2PairLike(target).token1();
             // a zero factory has no code, so the call reverts: that source kind is off
-            address real = s.kind == SRC_V2
+            address real = kind == SRC_V2
                 ? IV2FactoryLike(v2Factory).getPair(t0, t1)
-                : IV3FactoryLike(v3Factory).getPool(t0, t1, IV3PoolLike(s.target).fee());
-            if (real != s.target) revert BadParams();
+                : IV3FactoryLike(v3Factory).getPool(t0, t1, IV3PoolLike(target).fee());
+            if (real != target) revert BadParams();
         }
-        (address c, address q) = s.coinIs0 ? (t0, t1) : (t1, t0);
-        if (c != cp.coin || q != quote) revert BadParams();
+        if (t0 == address(0)) t0 = weth;
+        (base, other) = baseIs0 ? (t0, t1) : (t1, t0);
     }
 
     /// @dev Trim the seed to 50/50 by value at `spot` and open the books. `from` pays the trimmed seed into the
@@ -323,10 +356,10 @@ contract Disciple is IHooks, IUnlockCallback {
         BK.init(p.book, creator, x, y, spot);
         p.tX128 = PR.recentre(x, y);
         p.live = true;
-        _moves(_pair(p.coin, x, y, from, true));
+        _moves(_pair(p, x, y, from, true));
         if (from == address(this)) {
             if (xIn > x) _push(p.coin, creator, xIn - x);
-            if (yIn > y) _push(quote, creator, yIn - y);
+            if (yIn > y) _push(p.quote, creator, yIn - y);
         }
     }
 
@@ -394,7 +427,7 @@ contract Disciple is IHooks, IUnlockCallback {
         }
 
         Currency coinC = Currency.wrap(p.coin);
-        Currency quoteC = Currency.wrap(quote);
+        Currency quoteC = Currency.wrap(p.quote);
         Currency inC = sell ? coinC : quoteC;
         Currency outC = sell ? quoteC : coinC;
         uint256 inAmt = sell ? coinAmt : quoteAmt;
@@ -597,7 +630,7 @@ contract Disciple is IHooks, IUnlockCallback {
         uint256 ty_;
         (lot, shares, tx_, ty_) = BK.deposit(p.book, msg.sender, maxX, maxY);
         if (shares == 0) revert ZeroOutput();
-        _moves(_pair(p.coin, tx_, ty_, msg.sender, true));
+        _moves(_pair(p, tx_, ty_, msg.sender, true));
         emit Deposited(id, msg.sender, lot, shares, tx_, ty_);
     }
 
@@ -607,7 +640,7 @@ contract Disciple is IHooks, IUnlockCallback {
         // Same chain settles first. Cross chain exits mid-interval at actual reserves and forfeits the interval.
         if (p.src.remoteEid == 0) _latchSame(p);
         (x, y) = BK.withdraw(p.book, lot, msg.sender, s, bal);
-        _moves(_pair(p.coin, x, y, msg.sender, false));
+        _moves(_pair(p, x, y, msg.sender, false));
         emit Withdrawn(id, msg.sender, lot, x, y);
     }
 
@@ -623,7 +656,7 @@ contract Disciple is IHooks, IUnlockCallback {
     function claim(PoolId id, uint256 lot) external lock returns (uint256 x, uint256 y) {
         Pool storage p = _live(id);
         (x, y) = BK.claim(p.book, lot, msg.sender);
-        _moves(_pair(p.coin, x, y, msg.sender, false));
+        _moves(_pair(p, x, y, msg.sender, false));
         emit Claimed(id, msg.sender, x, y);
     }
 
@@ -632,7 +665,7 @@ contract Disciple is IHooks, IUnlockCallback {
         Pool storage p = _live(id);
         (x, y) = BK.claimCreator(p.book);
         address to = p.book.creator;
-        _moves(_pair(p.coin, x, y, to, false));
+        _moves(_pair(p, x, y, to, false));
         emit Claimed(id, to, x, y);
     }
 
@@ -652,6 +685,8 @@ contract Disciple is IHooks, IUnlockCallback {
     // ---------------------------------------------------------------------------------------------
 
     struct PoolView {
+        address coin;
+        address quote;
         bool live;
         bool local;
         bool graduated;
@@ -669,6 +704,8 @@ contract Disciple is IHooks, IUnlockCallback {
     function poolState(PoolId id) external view returns (PoolView memory v) {
         Pool storage p = _known(id);
         LG.Book storage b = p.book;
+        v.coin = p.coin;
+        v.quote = p.quote;
         v.live = p.live;
         v.local = p.local;
         v.graduated = b.graduated;
@@ -697,21 +734,38 @@ contract Disciple is IHooks, IUnlockCallback {
     // Source reads
     // ---------------------------------------------------------------------------------------------
 
-    /// @dev Same-chain source spot (X128 quote raw per coin raw), its fee in pips, and TVL in quote raw.
+    /// @dev Same-chain source spot (X128 quote raw per coin raw), its fee in pips, and TVL in quote raw. Two-hop:
+    ///      spot = leg 1 x leg 2, fee = both legs' fees compounded (rounded up), TVL = leg 1's, converted at leg 2.
     function _sourceSpot(Pool storage p) internal view returns (uint256 spot, uint24 fee, uint256 tvl) {
         Source storage s = p.src;
-        if (s.kind == SRC_V2) {
-            (uint112 r0, uint112 r1,) = IV2PairLike(s.target).getReserves();
-            (spot, tvl) = _v2(r0, r1, s.coinIs0);
-            fee = s.v2Fee == 0 ? 3000 : s.v2Fee;
-        } else if (s.kind == SRC_V3) {
-            (uint160 sqrtP,,,,,,) = IV3PoolLike(s.target).slot0();
-            (spot, tvl) = _concentrated(sqrtP, IV3PoolLike(s.target).liquidity(), s.coinIs0);
-            fee = IV3PoolLike(s.target).fee();
+        (spot, fee, tvl) = _leg(s.kind, s.target, s.v4Id, s.coinIs0);
+        if (s.kind2 != 0) {
+            (uint256 s2, uint24 f2,) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
+            spot = Math.mulDiv(spot, s2, Q128);
+            tvl = Math.mulDiv(tvl, s2, Q128);
+            uint256 f = uint256(fee) + f2 - uint256(fee) * f2 / 1e6;
+            fee = f >= 1e6 ? 999_999 : uint24(f);
+        }
+    }
+
+    /// @dev One pool's spot (X128 other raw per base raw), fee in pips (v2: Uniswap's 0.3%), TVL in other raw.
+    function _leg(uint8 kind, address target, bytes32 v4Id, bool baseIs0)
+        internal
+        view
+        returns (uint256 spot, uint24 fee, uint256 tvl)
+    {
+        if (kind == SRC_V2) {
+            (uint112 r0, uint112 r1,) = IV2PairLike(target).getReserves();
+            (spot, tvl) = _v2(r0, r1, baseIs0);
+            fee = 3000;
+        } else if (kind == SRC_V3) {
+            (uint160 sqrtP,,,,,,) = IV3PoolLike(target).slot0();
+            (spot, tvl) = _concentrated(sqrtP, IV3PoolLike(target).liquidity(), baseIs0);
+            fee = IV3PoolLike(target).fee();
         } else {
-            PoolId pid = PoolId.wrap(s.v4Id);
+            PoolId pid = PoolId.wrap(v4Id);
             (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(poolManager, pid);
-            (spot, tvl) = _concentrated(sqrtP, StateLibrary.getLiquidity(poolManager, pid), s.coinIs0);
+            (spot, tvl) = _concentrated(sqrtP, StateLibrary.getLiquidity(poolManager, pid), baseIs0);
             fee = lpFee;
         }
         if (fee >= 1e6) fee = 999_999;
@@ -822,14 +876,14 @@ contract Disciple is IHooks, IUnlockCallback {
         if (!p.live) revert NotLive();
     }
 
-    function _pair(address coin, uint256 x, uint256 y, address who, bool into)
+    function _pair(Pool storage p, uint256 x, uint256 y, address who, bool into)
         internal
         view
         returns (Move[] memory m)
     {
         m = new Move[](2);
-        m[0] = Move(coin, who, x, into);
-        m[1] = Move(quote, who, y, into);
+        m[0] = Move(p.coin, who, x, into);
+        m[1] = Move(p.quote, who, y, into);
     }
 
     /// @dev Run token movements between ERC20 and the pool's claims in one PoolManager unlock.

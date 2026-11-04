@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {_noKey} from "./NoKey.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -169,19 +170,18 @@ contract DiscipleForkTest is Test {
         Disciple.Source memory s;
         s.kind = x.kind;
         s.coinIs0 = true; // the source's token0 is our coin
-        s.v2Fee = 3000;
         s.target = x.target;
         s.v4Id = x.kind == 3 ? PoolId.unwrap(x.v4Key.toId()) : bytes32(0);
 
         (address f2, address f3) = _factories();
-        bytes memory args = abi.encode(m, quote, address(0), f2, f3);
-        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, address(0), f2, f3);
+        bytes memory args = abi.encode(m, address(0), f2, f3, _weth());
+        Disciple hook = new Disciple{salt: _mine(args)}(m, address(0), f2, f3, _weth());
         PoolSwapTest swapper = new PoolSwapTest(m);
         _fund(coin, quote, address(hook), address(swapper));
 
         uint256 coinSeed = 1000 * 10 ** cd;
         (PoolKey memory key, PoolId id) = hook.createPool(
-            Disciple.CreateParams({coin: coin, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4, srcKey: x.v4Key})
+            Disciple.CreateParams({coin: coin, quote: quote, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4, srcKey: x.v4Key, srcKey2: _noKey()})
         );
         Disciple.PoolView memory v = hook.poolState(id);
         emit log_named_decimal_uint("  source spot (quote per coin)", _human(v.anchorX128, cd, qd), 18);
@@ -619,6 +619,13 @@ contract DiscipleForkTest is Test {
         if (localV2Factory != address(0)) return (localV2Factory, address(0));
         f2 = vm.envOr("FORK_V2_FACTORY", block.chainid == 1 ? 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f : address(0));
         f3 = vm.envOr("FORK_V3_FACTORY", block.chainid == 1 ? 0x1F98431c8aD98523631AE4a59f267346ea31F984 : address(0));
+    }
+
+    /// @dev The chain's WETH, which native ETH in a source counts as.
+    function _weth() internal view returns (address) {
+        if (block.chainid == 4663) return RH_WETH;
+        if (block.chainid == 1) return ETH_WETH;
+        return vm.envOr("FORK_WETH", address(0));
     }
 
     function _erc20(address t) internal view returns (address) {

@@ -189,8 +189,8 @@ contract PushForkTest is Test {
         );
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("WETH", "WETH", 18);
-        bytes memory args = abi.encode(m, address(quote), address(receiver), address(0), address(0));
-        hook = new Disciple{salt: _mine(args)}(m, address(quote), address(receiver), address(0), address(0));
+        bytes memory args = abi.encode(m, address(receiver), address(0), address(0), address(0));
+        hook = new Disciple{salt: _mine(args)}(m, address(receiver), address(0), address(0), address(0));
         receiver.bind(IDisciplePriceTarget(address(hook)));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
@@ -208,7 +208,7 @@ contract PushForkTest is Test {
         quote.approve(address(swapper), type(uint256).max);
         quoteToken = address(quote);
         (key, pid) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey()})
+            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey(), srcKey2: _noKey()})
         );
     }
 

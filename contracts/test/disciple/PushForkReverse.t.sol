@@ -173,8 +173,8 @@ contract PushForkReverseTest is Test {
             new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, ethGas, _ethCfg());
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("USDG", "USDG", 6);
-        bytes memory args = abi.encode(m, address(quote), address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY);
-        hook = new Disciple{salt: _mine(args)}(m, address(quote), address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY);
+        bytes memory args = abi.encode(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
+        hook = new Disciple{salt: _mine(args)}(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
         receiver.bind(IDisciplePriceTarget(address(hook)));
         coin.mint(address(this), 1e40);
         quote.mint(address(this), 1e40);
@@ -193,7 +193,7 @@ contract PushForkReverseTest is Test {
         quote.approve(address(swapper), type(uint256).max);
         quoteToken = address(quote);
         (key, pid) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), fee: 3000, src: s, coinIn: 1e36, quoteIn: 1e36, srcKey: _noKey()})
+            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e36, quoteIn: 1e36, srcKey: _noKey(), srcKey2: _noKey()})
         );
     }
 
