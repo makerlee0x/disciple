@@ -35,6 +35,7 @@ contract DisciplePushReceiver {
     uint256 public constant POOL_GAS = 157_000;
 
     error OnlyEndpoint();
+    error NoValue();
     error UnknownPeer();
     error AlreadyBound();
     error OnlyOwner();
@@ -119,6 +120,8 @@ contract DisciplePushReceiver {
     ///         under its own rules. One pool refusing or failing does not stop the others.
     function lzReceive(Origin calldata o, bytes32, bytes calldata message, address, bytes calldata) external payable {
         if (msg.sender != address(endpoint)) revert OnlyEndpoint();
+        // nothing here can pass ETH on, so a delivery carrying value is refused (retry it without value)
+        if (msg.value != 0) revert NoValue();
         if (o.sender == bytes32(0) || peers[o.srcEid] != o.sender) revert UnknownPeer();
         (uint64 observedAt, address keeper, uint256 cost, Obs[] memory obs) =
             abi.decode(message, (uint64, address, uint256, Obs[]));

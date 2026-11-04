@@ -445,6 +445,8 @@ contract Disciple is IHooks, IUnlockCallback {
         Currency outC = sell ? quoteC : coinC;
         uint256 inAmt = sell ? coinAmt : quoteAmt;
         uint256 outAmt = sell ? quoteAmt : coinAmt;
+        // both sides must fit the int128 swap delta (scanner finding, 2026-11-04)
+        if (inAmt > uint128(type(int128).max) || outAmt > uint128(type(int128).max)) revert BadParams();
         // claims only: the PoolManager need not hold the input token yet (the swapper pays after the hook runs)
         inC.take(poolManager, address(this), inAmt, true);
         outC.settle(poolManager, address(this), outAmt, true);
@@ -546,7 +548,9 @@ contract Disciple is IHooks, IUnlockCallback {
         uint256 price;
         uint256 tvl;
         bool route = s.push && s.remoteEid == srcEid;
-        if (p.exists && route && s.kind == kind && s.target == target && s.v4Id == v4Id) {
+        // a pushed v3/v4 state must fit (sqrtPriceX96, liquidity); anything larger is refused, never truncated
+        bool fits = kind == SRC_V2 || (a <= type(uint160).max && b <= type(uint128).max);
+        if (p.exists && route && fits && s.kind == kind && s.target == target && s.v4Id == v4Id) {
             (price, tvl) = s.kind == SRC_V2 ? _v2(a, b, s.coinIs0) : _concentrated(uint160(a), uint128(b), s.coinIs0);
             (price, tvl) = _shift(s.decShift, price, tvl);
         }

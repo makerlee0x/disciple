@@ -680,6 +680,11 @@ contract DiscipleTest is Test {
         pair.set(1_000_000e18, 2_000_000e18);
         local.deliver(address(receiver), HOME_EID, address(pushSender), old);
         assertEq(hook.poolState(id).anchorX128, a2, "replay ignored");
+        // a delivery that carries ETH is refused (nothing could pass it on)
+        vm.deal(address(local), 1 ether);
+        vm.prank(address(local));
+        vm.expectRevert(DisciplePushReceiver.NoValue.selector);
+        receiver.lzReceive{value: 1}(o, bytes32(0), last, address(0), "");
         // the hook is bound once
         vm.expectRevert(DisciplePushReceiver.AlreadyBound.selector);
         receiver.bind(IDisciplePriceTarget(address(this)));
