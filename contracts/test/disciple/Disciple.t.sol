@@ -808,6 +808,43 @@ contract DiscipleTest is Test {
         emit log_named_uint("home cost carried for 2 sources / 4 listings (wei at 1 gwei)", carried);
     }
 
+
+    function test_lzPushDuplicatesTooManyAndTakeover() public {
+        (, PoolId id) = _createPush(HOME_EID, 0.05 ether);
+        _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
+        bytes32 to = bytes32(uint256(uint160(address(receiver))));
+
+        // more than MAX_POOLS listings: refused at the sender, nothing sent
+        DisciplePushSender.Req[] memory big = _req(address(pair), id);
+        big[0].pools = new PoolId[](65);
+        vm.expectRevert(DisciplePushSender.TooMany.selector);
+        pushSender.push{value: 1 ether}(30101, to, big, 200_000);
+
+        // a pool listed twice: the first listing is accepted and refunded, the duplicate is refused (not newer)
+        // and refunds nothing, so the keeper recovers half the message cost
+        DisciplePushSender.Req[] memory dup = _req(address(pair), id);
+        dup[0].pools = new PoolId[](2);
+        (dup[0].pools[0], dup[0].pools[1]) = (id, id);
+        vm.warp(vm.getBlockTimestamp() + 59 minutes + 30);
+        vm.fee(1 gwei);
+        Keeper k = new Keeper();
+        vm.deal(address(k), 1 ether);
+        uint256 lzFee = home.FEE();
+        vm.prank(address(k));
+        pushSender.push{value: lzFee}(30101, to, dup, 200_000);
+        uint256 carried = _msgCost(home.lastMessage());
+        vm.warp(vm.getBlockTimestamp() + 30);
+        uint256 t0 = hook.poolState(id).tank;
+        bytes memory m = home.lastMessage();
+        // takeover: someone other than the sending keeper delivers on the destination
+        vm.prank(address(0xD311));
+        local.deliver(address(receiver), HOME_EID, address(pushSender), m);
+        uint256 each = (carried / 2 + 150_000 * 1 gwei) * 12 / 10;
+        assertEq(t0 - hook.poolState(id).tank, each, "one listing refunded");
+        assertEq(address(k).balance, 1 ether - lzFee + each, "the sending keeper is paid, not the deliverer");
+        assertEq(address(0xD311).balance, 0);
+    }
+
     function test_lzReceiverAddOnlyOwner() public {
         (, PoolId id) = _createPush(HOME_EID, 0.05 ether);
         _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
