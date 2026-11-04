@@ -191,7 +191,7 @@ contract DiscipleForkTest is Test {
         _conserve(m, hook, id, coin, quote);
 
         vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 60); // premium faded
+        vm.warp(vm.getBlockTimestamp() + 60); // premium faded
 
         // 1-2. matched-size quotes, all from this same state
         uint256 qIn = v.quoteReserve / 100;
@@ -513,7 +513,7 @@ contract DiscipleForkTest is Test {
 
     function _nextBlockSame() internal {
         vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 60);
+        vm.warp(vm.getBlockTimestamp() + 60);
     }
 
     // -----------------------------------------------------------------------------------------
