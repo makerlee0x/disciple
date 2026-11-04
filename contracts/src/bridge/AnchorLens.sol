@@ -41,4 +41,21 @@ contract AnchorLens {
         (sqrtPriceX96, tick,,) = StateLibrary.getSlot0(pm, id);
         liquidity = StateLibrary.getLiquidity(pm, id);
     }
+
+    /// @notice One v3 `slot0` sample plus in-range liquidity (the v1 Disciple hook's cross-chain read).
+    function readV3Slot(address pool) external view returns (uint160 sqrtPriceX96, uint128 liquidity) {
+        (bool ok, bytes memory r) = pool.staticcall(abi.encodeWithSignature("slot0()"));
+        require(ok && r.length >= 32, "slot0");
+        sqrtPriceX96 = abi.decode(r, (uint160));
+        (ok, r) = pool.staticcall(abi.encodeWithSignature("liquidity()"));
+        require(ok && r.length >= 32, "liquidity");
+        liquidity = abi.decode(r, (uint128));
+    }
+
+    /// @notice A v2 pair's reserves (the v1 Disciple hook's cross-chain read).
+    function readV2(address pair) external view returns (uint256 reserve0, uint256 reserve1) {
+        (bool ok, bytes memory r) = pair.staticcall(abi.encodeWithSignature("getReserves()"));
+        require(ok && r.length >= 64, "reserves");
+        (reserve0, reserve1) = abi.decode(r, (uint256, uint256));
+    }
 }
