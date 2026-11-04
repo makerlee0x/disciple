@@ -10,7 +10,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
 import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
@@ -37,7 +37,7 @@ interface IReceiveUln {
 /// @notice Two-fork test of the v0 Ethereum -> Robinhood LayerZero push, on the real endpoints and libraries:
 ///           Ethereum: DisciplePushSender with the v0 send config (live DVN set, 5 confirmations); a keeper pushes
 ///                     a real v2 source's state; the test captures the real PacketSent bytes.
-///           Robinhood: DisciplePushReceiver with the matching receive config, beside a real Disciple hook on the real
+///           Robinhood: DisciplePushReceiver with the matching receive config, beside a real DiscipleHook hook on the real
 ///                     PoolManager. The test acts as the Robinhood DVNs (verify on the real ReceiveUln302), commits,
 ///                     and executes through the real endpoint, unchanged bytes.
 ///         Asserts: config stored on both libraries; too few DVNs or too few confirmations cannot commit; the price
@@ -78,7 +78,7 @@ contract PushForkTest is Test {
     address keeper;
     DisciplePushSender sender;
     DisciplePushReceiver receiver;
-    Disciple hook;
+    DiscipleHook hook;
     PoolId pid;
     address rhLib;
     bool lean;
@@ -131,7 +131,7 @@ contract PushForkTest is Test {
         uint256 g = gasleft();
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(p), address(receiver), p.guid, p.message, "");
         emit log_named_uint("Robinhood execution gas, opening price", g - gasleft());
-        Disciple.PoolView memory v = hook.poolState(pid);
+        DiscipleHook.PoolView memory v = hook.poolState(pid);
         assertTrue(v.live, "pushed price opens the pool");
         assertEq(v.anchorX128, (b << 128) / a, "anchor = reserve1 / reserve0, as read on Ethereum");
         assertEq(v.ageOrBlock, 75);
@@ -190,13 +190,13 @@ contract PushForkTest is Test {
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("WETH", "WETH", 18);
         bytes memory args = abi.encode(m, address(receiver), address(0), address(0), address(0));
-        hook = new Disciple{salt: _mine(args)}(m, address(receiver), address(0), address(0), address(0));
+        hook = new DiscipleHook{salt: _mine(args)}(m, address(receiver), address(0), address(0), address(0));
         receiver.bind(IDisciplePriceTarget(address(hook)));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
         coin.approve(address(hook), type(uint256).max);
         quote.approve(address(hook), type(uint256).max);
-        Disciple.Source memory s;
+        DiscipleHook.Source memory s;
         s.kind = 1;
         s.coinIs0 = true;
         s.target = pair;
@@ -208,7 +208,7 @@ contract PushForkTest is Test {
         quote.approve(address(swapper), type(uint256).max);
         quoteToken = address(quote);
         (key, pid) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey(), srcKey2: _noKey()})
         );
     }
 
@@ -411,7 +411,7 @@ contract PushForkTest is Test {
     }
 
     function _mine(bytes memory args) internal view returns (bytes32) {
-        bytes32 initHash = keccak256(abi.encodePacked(type(Disciple).creationCode, args));
+        bytes32 initHash = keccak256(abi.encodePacked(type(DiscipleHook).creationCode, args));
         for (uint256 i = 0; i < 3_000_000; i++) {
             address x = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(i), initHash))))

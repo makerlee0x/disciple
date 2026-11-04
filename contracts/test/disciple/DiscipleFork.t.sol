@@ -15,7 +15,7 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 
 interface IPairTokens {
@@ -167,7 +167,7 @@ contract DiscipleForkTest is Test {
         uint8 cd = IDec(coin).decimals();
         uint8 qd = IDec(quote).decimals();
 
-        Disciple.Source memory s;
+        DiscipleHook.Source memory s;
         s.kind = x.kind;
         s.coinIs0 = true; // the source's token0 is our coin
         s.target = x.target;
@@ -175,15 +175,15 @@ contract DiscipleForkTest is Test {
 
         (address f2, address f3) = _factories();
         bytes memory args = abi.encode(m, address(0), f2, f3, _weth());
-        Disciple hook = new Disciple{salt: _mine(args)}(m, address(0), f2, f3, _weth());
+        DiscipleHook hook = new DiscipleHook{salt: _mine(args)}(m, address(0), f2, f3, _weth());
         PoolSwapTest swapper = new PoolSwapTest(m);
         _fund(coin, quote, address(hook), address(swapper));
 
         uint256 coinSeed = 1000 * 10 ** cd;
         (PoolKey memory key, PoolId id) = hook.createPool(
-            Disciple.CreateParams({coin: coin, quote: quote, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4, srcKey: x.v4Key, srcKey2: _noKey()})
+            DiscipleHook.CreateParams({coin: coin, quote: quote, fee: 3000, src: s, coinIn: coinSeed, quoteIn: _bal(quote) / 4, srcKey: x.v4Key, srcKey2: _noKey()})
         );
-        Disciple.PoolView memory v = hook.poolState(id);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         emit log_named_decimal_uint("  source spot (quote per coin)", _human(v.anchorX128, cd, qd), 18);
         emit log_named_decimal_uint("  seed coin", v.coinReserve, cd);
         emit log_named_decimal_uint("  seed quote", v.quoteReserve, qd);
@@ -225,7 +225,7 @@ contract DiscipleForkTest is Test {
     function _quotes(
         PoolSwapTest swapper,
         PoolKey memory key,
-        Disciple,
+        DiscipleHook,
         Src memory x,
         address coin,
         address quote,
@@ -330,7 +330,7 @@ contract DiscipleForkTest is Test {
         ok = ok && mid > 0;
     }
 
-    /// @dev Exact-in on Disciple; returns the output from this contract's balance change.
+    /// @dev Exact-in on DiscipleHook; returns the output from this contract's balance change.
     function _disSwap(PoolSwapTest swapper, PoolKey memory key, address coin, address quote, bool buy, uint256 amtIn)
         internal
         returns (uint256)
@@ -357,7 +357,7 @@ contract DiscipleForkTest is Test {
     ///          claims equal what is left.
     function _lpChecks(
         IPoolManager m,
-        Disciple hook,
+        DiscipleHook hook,
         PoolSwapTest swapper,
         PoolKey memory key,
         PoolId id,
@@ -365,7 +365,7 @@ contract DiscipleForkTest is Test {
         address quote,
         uint256 qIn
     ) internal {
-        Disciple.PoolView memory v = hook.poolState(id);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         address lp = makeAddr("lp");
         _give(lp, coin, quote, address(hook), v.coinReserve, v.quoteReserve);
 
@@ -448,7 +448,7 @@ contract DiscipleForkTest is Test {
 
     function _reconcile(
         IPoolManager m,
-        Disciple hook,
+        DiscipleHook hook,
         PoolSwapTest swapper,
         PoolKey memory key,
         PoolId id,
@@ -456,7 +456,7 @@ contract DiscipleForkTest is Test {
         address quote,
         address lp
     ) internal {
-        Disciple.PoolView memory v = hook.poolState(id);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         // a deposit big enough to pass 12% of the source TVL, so the post-graduation books are exercised
         uint256 need = v.srcTvl * 13 / 100;
         uint256 have = Math.mulDiv(v.coinReserve, v.anchorX128, Q128) + v.quoteReserve;
@@ -514,7 +514,7 @@ contract DiscipleForkTest is Test {
         emit log_named_uint("  drained: quote left (raw)", hq2);
     }
 
-    function _dep(Disciple hook, PoolId id, address lp, address, address, uint256 c, uint256 q)
+    function _dep(DiscipleHook hook, PoolId id, address lp, address, address, uint256 c, uint256 q)
         internal
         returns (uint256 lot, uint256 sh)
     {
@@ -598,8 +598,8 @@ contract DiscipleForkTest is Test {
 
     /// @dev The hook's claims hold exactly the pool's reserves (plus escrow and the creator's claim, which only
     ///      exist after graduation). One Disciple pool per hook here, so the claims are this pool's alone.
-    function _conserve(IPoolManager m, Disciple hook, PoolId id, address coin, address quote) internal view {
-        Disciple.PoolView memory v = hook.poolState(id);
+    function _conserve(IPoolManager m, DiscipleHook hook, PoolId id, address coin, address quote) internal view {
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         uint256 cc = m.balanceOf(address(hook), uint256(uint160(coin)));
         uint256 cq = m.balanceOf(address(hook), uint256(uint160(quote)));
         if (v.graduated) {
@@ -712,7 +712,7 @@ contract DiscipleForkTest is Test {
     }
 
     function _mine(bytes memory args) internal view returns (bytes32) {
-        bytes32 initHash = keccak256(abi.encodePacked(type(Disciple).creationCode, args));
+        bytes32 initHash = keccak256(abi.encodePacked(type(DiscipleHook).creationCode, args));
         for (uint256 i = 0; i < 3_000_000; i++) {
             address a = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(i), initHash))))

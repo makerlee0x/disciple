@@ -11,7 +11,7 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
 import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
@@ -26,7 +26,7 @@ import {IEndpointFull, IReceiveUln, UlnConfigLite} from "./PushFork.t.sol";
 ///         before the audit).
 ///           Robinhood: DisciplePushSender with the rhSend config (20 confirmations, self-executor); a keeper pushes
 ///                      a real Robinhood v4 pool's state; the test captures the real PacketSent bytes.
-///           Ethereum:  DisciplePushReceiver with the ethReceive config, bound to ONE combined Disciple hook on the
+///           Ethereum:  DisciplePushReceiver with the ethReceive config, bound to ONE combined DiscipleHook hook on the
 ///                      real Ethereum PoolManager with the real v2 and v3 factories. The test acts as the Ethereum
 ///                      DVNs on the real ReceiveUln302, commits, and executes through the real endpoint.
 ///         Asserts: config stored on both libraries; too few DVNs or confirmations cannot commit; the price opens
@@ -63,7 +63,7 @@ contract PushForkReverseTest is Test {
     address keeper;
     DisciplePushSender sender;
     DisciplePushReceiver receiver;
-    Disciple hook;
+    DiscipleHook hook;
     PoolId pid;
     address ethLib;
     bool lean;
@@ -119,7 +119,7 @@ contract PushForkReverseTest is Test {
         uint256 g = gasleft();
         IEndpointFull(V0.ETH_ENDPOINT).lzReceive(_origin(p), address(receiver), p.guid, p.message, "");
         emit log_named_uint("Ethereum execution gas, opening price", g - gasleft());
-        Disciple.PoolView memory v = hook.poolState(pid);
+        DiscipleHook.PoolView memory v = hook.poolState(pid);
         assertTrue(v.live, "pushed price opens the pool");
         assertEq(v.anchorX128, Math.mulDiv(a, a, 1 << 64), "anchor = sqrtP^2 as read on Robinhood");
         assertEq(v.ageOrBlock, 30);
@@ -273,7 +273,7 @@ contract PushForkReverseTest is Test {
             ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, ethGas, _ethCfg(), V0.destMsgGas(lean)
         );
         bytes memory args = abi.encode(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
-        hook = new Disciple{salt: _mine(args)}(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
+        hook = new DiscipleHook{salt: _mine(args)}(m, address(receiver), ETH_V2_FACTORY, ETH_V3_FACTORY, address(0));
         receiver.bind(IDisciplePriceTarget(address(hook)));
         vm.deal(address(this), 10 ether);
         swapper = new PoolSwapTest(m);
@@ -291,7 +291,7 @@ contract PushForkReverseTest is Test {
         quote.approve(address(hook), type(uint256).max);
         coin.approve(address(swapper), type(uint256).max);
         quote.approve(address(swapper), type(uint256).max);
-        Disciple.Source memory s;
+        DiscipleHook.Source memory s;
         s.kind = 3; // v4 on Robinhood
         s.coinIs0 = true;
         s.target = RH_POOL_MANAGER;
@@ -299,7 +299,7 @@ contract PushForkReverseTest is Test {
         s.remoteEid = V0.RH_EID;
         s.push = true;
         (k, id) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e24, quoteIn: 1e20, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e24, quoteIn: 1e20, srcKey: _noKey(), srcKey2: _noKey()})
         );
         quoteOf[PoolId.unwrap(id)] = address(quote);
     }
@@ -434,7 +434,7 @@ contract PushForkReverseTest is Test {
     }
 
     function _mine(bytes memory args) internal view returns (bytes32) {
-        bytes32 initHash = keccak256(abi.encodePacked(type(Disciple).creationCode, args));
+        bytes32 initHash = keccak256(abi.encodePacked(type(DiscipleHook).creationCode, args));
         for (uint256 i = 0; i < 3_000_000; i++) {
             address x = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(i), initHash))))

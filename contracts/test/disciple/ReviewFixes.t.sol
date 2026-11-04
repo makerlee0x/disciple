@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {DiscipleTest} from "./Disciple.t.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 import {_noKey} from "./NoKey.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -19,7 +19,7 @@ contract ReviewFixesTest is DiscipleTest {
         vm.warp(block.timestamp + 31);
         _swap(key, true, -int256(50e18));
         _swap(key, false, -int256(20e18));
-        Disciple.PoolView memory v = hook.poolState(id);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         vm.prank(lp);
         (uint256 lot,) = hook.deposit(id, v.coinReserve, v.quoteReserve);
         _nextBlock();
@@ -115,34 +115,34 @@ contract ReviewFixesTest is DiscipleTest {
         MockERC20 localCoin = new MockERC20("local coin", "LC", 6);
         localCoin.mint(address(this), 1000e6);
         localCoin.approve(address(hook), type(uint256).max);
-        Disciple.Source memory s = _pushSrc(HOME_EID);
+        DiscipleHook.Source memory s = _pushSrc(HOME_EID);
         s.decShift = 12; // home coin 18 decimals, local 6; quote 18 on both
         s.tvlShift = 0;
         (, PoolId id) = hook.createPool(
-            Disciple.CreateParams({
+            DiscipleHook.CreateParams({
                 coin: address(localCoin), quote: address(usd), fee: FEE, src: s,
                 coinIn: 1000e6, quoteIn: 2000e18, srcKey: _noKey(), srcKey2: _noKey()
             })
         );
         _lzPush(id, address(0xC0FFEE), 0, HOME_EID);
-        Disciple.PoolView memory v = hook.poolState(id);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         assertEq(v.anchorX128, 2 * Q128 * 1e12);
         assertEq(v.srcTvl, 4_000_000e18, "TVL in local quote units");
     }
 
     /// D-03: out-of-range shifts are refused at creation, and same-chain pools take none.
     function test_review_D03_shiftBounds() public {
-        Disciple.Source memory s = _pushSrc(HOME_EID);
+        DiscipleHook.Source memory s = _pushSrc(HOME_EID);
         s.tvlShift = -128;
-        vm.expectRevert(Disciple.BadParams.selector);
+        vm.expectRevert(DiscipleHook.BadParams.selector);
         hook.createPool{value: 0.01 ether}(_cp(s, _noKey()));
         s.tvlShift = 0;
         s.decShift = 37;
-        vm.expectRevert(Disciple.BadParams.selector);
+        vm.expectRevert(DiscipleHook.BadParams.selector);
         hook.createPool{value: 0.01 ether}(_cp(s, _noKey()));
-        Disciple.Source memory same = _src(0);
+        DiscipleHook.Source memory same = _src(0);
         same.decShift = 1;
-        vm.expectRevert(Disciple.BadParams.selector);
+        vm.expectRevert(DiscipleHook.BadParams.selector);
         hook.createPool(_cp(same, _noKey()));
     }
 }

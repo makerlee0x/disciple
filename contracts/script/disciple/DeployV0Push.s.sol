@@ -5,7 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {DisciplePushSender} from "../../src/disciple/routes/DisciplePushSender.sol";
 import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiver.sol";
 import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
@@ -31,7 +31,7 @@ interface IEndpointLibs {
 ///   2. On Robinhood: PUSH_SENDER=<step 1 address>
 ///      forge script script/disciple/DeployV0Push.s.sol --sig "robinhood()" --rpc-url $RH_RPC
 ///      Deploys DisciplePushReceiver (peer: Ethereum -> PUSH_SENDER, ETH gas) with the matching receive config,
-///      mines and deploys the Disciple hook with that receiver (no lzRead adapter on Robinhood yet, no bridge
+///      mines and deploys the DiscipleHook hook with that receiver (no lzRead adapter on Robinhood yet, no bridge
 ///      sender: out of v0), and binds the receiver to the hook. The deployer keeps the receiver's add-only owner
 ///      role (adds new source chains later; can renounce).
 ///   3. On Robinhood: forge script script/disciple/DeployV0Push.s.sol --sig "rhSender()" --rpc-url $RH_RPC
@@ -41,7 +41,7 @@ interface IEndpointLibs {
 ///   4. On Ethereum: AUDITED=1 PUSH_SENDER=<step 3 address>
 ///      forge script script/disciple/DeployV0Push.s.sol --sig "ethereum()" --rpc-url $ETH_RPC
 ///      Deploys DisciplePushReceiver (peer: Robinhood -> PUSH_SENDER, ETH gas) with the matching receive config,
-///      mines and deploys ONE combined Disciple hook (any quote per pool, v2 + v3 + v4 same-chain sources incl. two-hop, and pushed
+///      mines and deploys ONE combined DiscipleHook hook (any quote per pool, v2 + v3 + v4 same-chain sources incl. two-hop, and pushed
 ///      Robinhood prices), and binds the receiver. Overrides: POOL_MANAGER, V2_FACTORY, V3_FACTORY, WETH.
 contract DeployV0Push is Script {
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
@@ -78,7 +78,7 @@ contract DeployV0Push is Script {
         console2.log("send library", lib);
     }
 
-    function robinhood() external returns (Disciple hook, DisciplePushReceiver r) {
+    function robinhood() external returns (DiscipleHook hook, DisciplePushReceiver r) {
         require(block.chainid == 4663, "run on Robinhood Chain");
         address pushSender = vm.envAddress("PUSH_SENDER");
         IPoolManager pm = IPoolManager(vm.envOr("POOL_MANAGER", RH_POOL_MANAGER));
@@ -103,13 +103,13 @@ contract DeployV0Push is Script {
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
-        (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(Disciple).creationCode, args);
-        hook = new Disciple{salt: salt}(pm, address(r), v2f, v3f, weth);
+        (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, args);
+        hook = new DiscipleHook{salt: salt}(pm, address(r), v2f, v3f, weth);
         require(address(hook) == want, "hook address");
         r.bind(IDisciplePriceTarget(address(hook)));
         vm.stopBroadcast();
         console2.log("DisciplePushReceiver (Robinhood)", address(r));
-        console2.log("Disciple hook (Robinhood)", address(hook));
+        console2.log("DiscipleHook hook (Robinhood)", address(hook));
         console2.log("receive library", lib);
     }
 
@@ -129,7 +129,7 @@ contract DeployV0Push is Script {
         console2.log("send library", lib);
     }
 
-    function ethereum() external auditGate returns (Disciple hook, DisciplePushReceiver r) {
+    function ethereum() external auditGate returns (DiscipleHook hook, DisciplePushReceiver r) {
         require(block.chainid == 1, "run on Ethereum");
         address pushSender = vm.envAddress("PUSH_SENDER");
         IPoolManager pm = IPoolManager(vm.envOr("POOL_MANAGER", ETH_POOL_MANAGER));
@@ -149,14 +149,14 @@ contract DeployV0Push is Script {
             ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th), V0.destMsgGas(lean)
         );
         bytes memory args = abi.encode(pm, address(r), v2f, v3f, weth);
-        (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, FLAGS, type(Disciple).creationCode, args);
-        hook = new Disciple{salt: salt}(pm, address(r), v2f, v3f, weth);
+        (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, FLAGS, type(DiscipleHook).creationCode, args);
+        hook = new DiscipleHook{salt: salt}(pm, address(r), v2f, v3f, weth);
         require(address(hook) == want, "hook address");
         r.bind(IDisciplePriceTarget(address(hook)));
         vm.stopBroadcast();
         require(address(hook).code.length <= 24_576, "over EIP-170");
         console2.log("DisciplePushReceiver (Ethereum)", address(r));
-        console2.log("Disciple hook (Ethereum, combined)", address(hook));
+        console2.log("DiscipleHook hook (Ethereum, combined)", address(hook));
         console2.log("receive library", lib);
     }
 }

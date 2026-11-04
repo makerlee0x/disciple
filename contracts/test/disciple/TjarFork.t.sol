@@ -7,7 +7,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 import {DisciplePoolTank, IWETH9, IDiscipleTank} from "../../src/disciple/DisciplePoolTank.sol";
 
@@ -92,7 +92,7 @@ contract TjarForkTest is Test {
     ///         once the WETH is unwrapped into `fundTank`. Paid straight to the hook, the WETH is stranded.
     function test_fork_tjarRefillsTank() public {
         if (!forked) return;
-        (Disciple hook, PoolId id, MockERC20 coin) = _pool();
+        (DiscipleHook hook, PoolId id, MockERC20 coin) = _pool();
         DisciplePoolTank adapter = new DisciplePoolTank(IWETH9(RH_WETH), IDiscipleTank(address(hook)), id);
         uint256 threshold = 0.001 ether;
 
@@ -141,7 +141,7 @@ contract TjarForkTest is Test {
     /// @notice Same flow with the hook itself as the recipient: the WETH arrives but the tank does not move.
     function test_fork_tjarStraightToHookStrandsWeth() public {
         if (!forked) return;
-        (Disciple hook, PoolId id,) = _pool();
+        (DiscipleHook hook, PoolId id,) = _pool();
         uint256 threshold = 0.001 ether;
         (, address rel) = Tjar.deploy(TJAR_FACTORY, RH_WETH, address(hook), threshold, address(0xdead), 1);
         address searcher = makeAddr("searcher");
@@ -183,17 +183,17 @@ contract TjarForkTest is Test {
 
     // -----------------------------------------------------------------------------------------
 
-    function _pool() internal returns (Disciple hook, PoolId id, MockERC20 coin) {
+    function _pool() internal returns (DiscipleHook hook, PoolId id, MockERC20 coin) {
         IPoolManager m = IPoolManager(RH_POOL_MANAGER);
         coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("QUOTE", "QUOTE", 18);
         bytes memory args = abi.encode(m, address(0xB1D6E), address(0), address(0), address(0));
-        hook = new Disciple{salt: _mine(args)}(m, address(0xB1D6E), address(0), address(0), address(0));
+        hook = new DiscipleHook{salt: _mine(args)}(m, address(0xB1D6E), address(0), address(0), address(0));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
         coin.approve(address(hook), type(uint256).max);
         quote.approve(address(hook), type(uint256).max);
-        Disciple.Source memory s;
+        DiscipleHook.Source memory s;
         // a push-priced pool (tanks only matter cross chain; 0xB1D6E stands in for the receiver); it never goes live here, the tank still fills
         s.kind = 3;
         s.coinIs0 = true;
@@ -202,12 +202,12 @@ contract TjarForkTest is Test {
         s.remoteEid = 30101;
         s.push = true;
         (, id) = hook.createPool(
-            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e28, srcKey: _noKey(), srcKey2: _noKey()})
+            DiscipleHook.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e28, srcKey: _noKey(), srcKey2: _noKey()})
         );
     }
 
     function _mine(bytes memory args) internal view returns (bytes32) {
-        bytes32 initHash = keccak256(abi.encodePacked(type(Disciple).creationCode, args));
+        bytes32 initHash = keccak256(abi.encodePacked(type(DiscipleHook).creationCode, args));
         for (uint256 i = 0; i < 3_000_000; i++) {
             address a = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(i), initHash))))

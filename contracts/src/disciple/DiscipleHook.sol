@@ -61,7 +61,7 @@ interface IV3PoolLike {
 ///         v4 concentrated liquidity is disabled; every swap is quoted in `beforeSwap`.
 ///         Custody: pool liquidity is held as the hook's ERC-6909 claims inside the PoolManager, so a swap only
 ///         mints and burns claims. Deposits, withdrawals and claims convert to and from ERC20 in one unlock.
-contract Disciple is IHooks, IUnlockCallback {
+contract DiscipleHook is IHooks, IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using CurrencySettler for Currency;
     using LG for LG.Book;

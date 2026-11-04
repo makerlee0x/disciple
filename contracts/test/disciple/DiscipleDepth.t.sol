@@ -14,7 +14,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
-import {Disciple} from "../../src/disciple/Disciple.sol";
+import {DiscipleHook} from "../../src/disciple/DiscipleHook.sol";
 import {DiscipleDepth as DP} from "../../src/disciple/libraries/DiscipleDepth.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
 import {DiscipleSourceReader} from "../../src/disciple/routes/DiscipleSourceReader.sol";
@@ -101,7 +101,7 @@ contract DiscipleDepthTest is Test {
     MockERC20 coin;
     MockERC20 usd;
     Factory2 v2f;
-    Disciple hook;
+    DiscipleHook hook;
 
     function setUp() public {
         vm.roll(100);
@@ -113,7 +113,7 @@ contract DiscipleDepthTest is Test {
         usd = new MockERC20("USD", "USD", 18);
         v2f = new Factory2();
         bytes memory args = abi.encode(manager, address(0), address(v2f), address(0), address(0));
-        hook = new Disciple{salt: _mine(args)}(manager, address(0), address(v2f), address(0), address(0));
+        hook = new DiscipleHook{salt: _mine(args)}(manager, address(0), address(v2f), address(0), address(0));
         coin.mint(address(this), 1e40);
         usd.mint(address(this), 1e40);
         coin.approve(address(liq), type(uint256).max);
@@ -125,7 +125,7 @@ contract DiscipleDepthTest is Test {
     }
 
     function _mine(bytes memory args) internal view returns (bytes32) {
-        bytes32 initHash = keccak256(abi.encodePacked(type(Disciple).creationCode, args));
+        bytes32 initHash = keccak256(abi.encodePacked(type(DiscipleHook).creationCode, args));
         for (uint256 i = 0; i < 3_000_000; i++) {
             address a = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(i), initHash))))
@@ -241,19 +241,19 @@ contract DiscipleDepthTest is Test {
     // the hook
     // -----------------------------------------------------------------------------------------
 
-    function _v4Source(PoolKey memory k) internal view returns (Disciple.Source memory s) {
+    function _v4Source(PoolKey memory k) internal view returns (DiscipleHook.Source memory s) {
         s.kind = 3;
         s.coinIs0 = Currency.unwrap(k.currency0) == address(coin);
         s.target = address(manager);
         s.v4Id = PoolId.unwrap(k.toId());
     }
 
-    function _cp(Disciple.Source memory s, PoolKey memory k, uint256 c, uint256 q)
+    function _cp(DiscipleHook.Source memory s, PoolKey memory k, uint256 c, uint256 q)
         internal
         view
-        returns (Disciple.CreateParams memory)
+        returns (DiscipleHook.CreateParams memory)
     {
-        return Disciple.CreateParams({
+        return DiscipleHook.CreateParams({
             coin: address(coin), quote: address(usd), fee: 3000, src: s, coinIn: c, quoteIn: q, srcKey: k, srcKey2: _noKey()
         });
     }
@@ -283,7 +283,7 @@ contract DiscipleDepthTest is Test {
         _add(k, t - 60, t + 60, 1e22); // one tight range
         (uint256 b0, uint256 b1) = _bal(k); // before the Disciple seed joins the manager's balances
         (, PoolId id) = hook.createPool(_cp(_v4Source(k), k, 100e18, 200e18));
-        Disciple.PoolView memory v = hook.poolState(id);
+        DiscipleHook.PoolView memory v = hook.poolState(id);
         (uint256 bc, uint256 bq) = coinIs0 ? (b0, b1) : (b1, b0);
         uint256 real = bc * v.anchorX128 / Q128 + bq;
         assertApproxEqRel(v.srcTvl, real, 1e12, "srcTvl = real tokens in USD");
@@ -314,7 +314,7 @@ contract DiscipleDepthTest is Test {
         Pair2 pair = new Pair2(address(coin), address(usd));
         pair.set(1_000_000e18, 2_000_000e18);
         v2f.add(pair);
-        Disciple.Source memory s;
+        DiscipleHook.Source memory s;
         s.kind = 1;
         s.coinIs0 = true;
         s.target = address(pair);
@@ -386,7 +386,7 @@ contract DiscipleDepthTest is Test {
         Pair2 pair = new Pair2(address(coin), address(usd));
         pair.set(1_000_000e18, 2_000_000e18); // TVL 4M USD
         v2f.add(pair);
-        Disciple.Source memory s;
+        DiscipleHook.Source memory s;
         s.kind = 1;
         s.coinIs0 = true;
         s.target = address(pair);

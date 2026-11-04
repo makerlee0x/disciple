@@ -6,7 +6,7 @@ import {IDisciplePriceTarget} from "./DiscipleSourceReader.sol";
 import {ILayerZeroEndpointV2Lite, Origin, LibConfig} from "./ILayerZeroEndpointV2Lite.sol";
 
 /// @title DisciplePushReceiver
-/// @notice Sits beside one Disciple hook and receives LayerZero push messages. Accepts a message only from the
+/// @notice Sits beside one DiscipleHook hook and receives LayerZero push messages. Accepts a message only from the
 ///         endpoint, and only if it came from the DisciplePushSender registered for that source chain. Then it
 ///         hands the raw source state to the hook with the source chain's eid; the hook checks the pool's home
 ///         chain and source and applies the usual freshness, order and replay rules.
