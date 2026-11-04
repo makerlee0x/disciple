@@ -131,7 +131,9 @@ contract PushForkReverseTest is Test {
             key,
             IPoolManager.SwapParams({
                 zeroForOne: zf,
-                amountSpecified: -int256(1e6),
+                // ~0.06% of the quote reserve. A trade under ~1e-15 of the reserves rounds to zero output (the curve's
+                // LN_SLACK) and reverts ZeroOutput, which is what the old 1e6-vs-1e36 sizing hit.
+                amountSpecified: -int256(1e16),
                 sqrtPriceLimitX96: zf ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
@@ -193,7 +195,7 @@ contract PushForkReverseTest is Test {
         quote.approve(address(swapper), type(uint256).max);
         quoteToken = address(quote);
         (key, pid) = hook.createPool{value: 0.05 ether}(
-            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e36, quoteIn: 1e36, srcKey: _noKey(), srcKey2: _noKey()})
+            Disciple.CreateParams({coin: address(coin), quote: address(quote), fee: 3000, src: s, coinIn: 1e24, quoteIn: 1e20, srcKey: _noKey(), srcKey2: _noKey()})
         );
     }
 
