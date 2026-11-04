@@ -620,13 +620,25 @@ contract DiscipleTest is Test {
         );
     }
 
+    function _req(address target, PoolId id) internal pure returns (DisciplePushSender.Req[] memory r) {
+        r = new DisciplePushSender.Req[](1);
+        r[0].kind = 1;
+        r[0].target = target;
+        r[0].pools = new PoolId[](1);
+        r[0].pools[0] = id;
+    }
+
+    function _msgCost(bytes memory m) internal pure returns (uint256 c) {
+        (,, c) = abi.decode(m, (uint64, address, uint256));
+    }
+
     /// @dev A keeper calls the sender on the home chain; LayerZero delivers it on the pool's chain after `delay`.
     function _lzPush(PoolId id, address keeper, uint256 delay, uint32 srcEid) internal {
         vm.deal(keeper, 1 ether);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
-        uint256 fee = pushSender.quote(30101, to, id, 1, address(pair), bytes32(0), 200_000);
+        uint256 fee = pushSender.quote(30101, to, _req(address(pair), id), 200_000);
         vm.prank(keeper);
-        pushSender.push{value: fee}(30101, to, id, 1, address(pair), bytes32(0), 200_000);
+        pushSender.push{value: fee}(30101, to, _req(address(pair), id), 200_000);
         vm.warp(block.timestamp + delay);
         local.deliver(address(receiver), srcEid, address(pushSender), home.lastMessage());
     }
@@ -643,13 +655,16 @@ contract DiscipleTest is Test {
         assertEq(v.ageOrBlock, 40);
         _swap(key, true, -int256(10e18));
 
-        // 3% move at home: accepted, keeper paid (LayerZero fee + PUSH_GAS * basefee) * 1.2
+        // 3% move at home: accepted, keeper paid (LayerZero fee + measured home gas + local delivery gas) * 1.2
         pair.set(1_000_000e18, 2_060_000e18);
         Keeper k = new Keeper();
         vm.fee(5 gwei);
         _lzPush(id, address(k), 60, HOME_EID);
         assertEq(hook.poolState(id).anchorX128, Q128 * 206 / 100);
-        uint256 cost = home.FEE() + 150_000 * 5 gwei;
+        uint256 carried = _msgCost(home.lastMessage());
+        assertGt(carried, home.FEE() + 50_000 * 5 gwei, "home gas is counted");
+        assertLt(carried, home.FEE() + 250_000 * 5 gwei);
+        uint256 cost = carried + 150_000 * 5 gwei;
         assertEq(address(k).balance, 1 ether - home.FEE() + cost * 12 / 10, "refund = cost * 1.2");
         // no lzRead path for a push pool
         vm.expectRevert(Disciple.SameChain.selector);
@@ -673,7 +688,7 @@ contract DiscipleTest is Test {
         pair.set(1_000_000e18, 2_500_000e18);
         DisciplePushSender rogue = new DisciplePushSender(home, new LibConfig[](0));
         vm.deal(address(this), 1 ether);
-        rogue.push{value: 1 ether}(30101, bytes32(0), id, 1, address(pair), bytes32(0), 200_000);
+        rogue.push{value: 1 ether}(30101, bytes32(0), _req(address(pair), id), 200_000);
         bytes memory m = home.lastMessage();
         vm.expectRevert(DisciplePushReceiver.UnknownPeer.selector);
         local.deliver(address(receiver), HOME_EID, address(rogue), m);
@@ -686,7 +701,7 @@ contract DiscipleTest is Test {
         MockPair other = new MockPair();
         other.set(1e18, 100e18);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
-        pushSender.push{value: 0.01 ether}(30101, to, id, 1, address(other), bytes32(0), 200_000);
+        pushSender.push{value: 0.01 ether}(30101, to, _req(address(other), id), 200_000);
         local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
         assertEq(hook.poolState(id).anchorX128, a, "wrong source ignored");
         // a replay of an older message is ignored
@@ -738,6 +753,61 @@ contract DiscipleTest is Test {
     }
 
 
+
+    function test_lzPushBatchesSourcesAndSplitsCost() public {
+        // two sources, three pools: two pools on `pair`, one on `pair2`, all in one message
+        MockPair pair2 = new MockPair();
+        pair2.set(1_000_000e18, 5_000_000e18);
+        (, PoolId p1) = _createPush(HOME_EID, 0.05 ether);
+        MockERC20 c2 = usd2();
+        Disciple.Source memory s = _pushSrc(HOME_EID);
+        (, PoolId p2) = hook.createPool{value: 0.05 ether}(
+            Disciple.CreateParams({coin: address(c2), fee: 10_000, src: s, coinIn: 1000e18, quoteIn: 3000e18})
+        );
+        MockERC20 c3 = usd2();
+        s.target = address(pair2);
+        (, PoolId p3) = hook.createPool{value: 0.05 ether}(
+            Disciple.CreateParams({coin: address(c3), fee: FEE, src: s, coinIn: 1000e18, quoteIn: 3000e18})
+        );
+        DisciplePushSender.Req[] memory r = new DisciplePushSender.Req[](2);
+        r[0].kind = 1;
+        r[0].target = address(pair);
+        r[0].pools = new PoolId[](2);
+        (r[0].pools[0], r[0].pools[1]) = (p1, p2);
+        r[1].kind = 1;
+        r[1].target = address(pair2);
+        r[1].pools = new PoolId[](2);
+        (r[1].pools[0], r[1].pools[1]) = (p3, p1); // p1 listed under the wrong source: refused, others unaffected
+        bytes32 to = bytes32(uint256(uint160(address(receiver))));
+        vm.fee(1 gwei);
+        Keeper k = new Keeper();
+        vm.deal(address(k), 1 ether);
+        uint256 lzFee = home.FEE();
+        vm.prank(address(k));
+        pushSender.push{value: lzFee}(30101, to, r, 300_000);
+        vm.warp(vm.getBlockTimestamp() + 30);
+        uint256 nMsgs = home.nonce();
+        local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
+        assertEq(home.nonce(), nMsgs);
+        assertEq(hook.poolState(p1).anchorX128, Q128 * 2, "p1 priced from pair");
+        assertEq(hook.poolState(p2).anchorX128, Q128 * 2, "p2 priced from pair, same message");
+        assertEq(hook.poolState(p3).anchorX128, Q128 * 5, "p3 priced from pair2, same message");
+
+        // a heartbeat for all three: each pool refunds only its quarter of the message cost (4 listings)
+        vm.warp(vm.getBlockTimestamp() + 59 minutes + 30);
+        uint256 b0 = address(k).balance;
+        uint256 t1 = hook.poolState(p1).tank;
+        vm.prank(address(k));
+        pushSender.push{value: lzFee}(30101, to, r, 300_000);
+        vm.warp(vm.getBlockTimestamp() + 30);
+        uint256 carried = _msgCost(home.lastMessage());
+        local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
+        uint256 each = (carried / 4 + 150_000 * 1 gwei) * 12 / 10;
+        assertEq(t1 - hook.poolState(p1).tank, each, "p1 pays one share (its wrong-source listing is ignored)");
+        assertEq(address(k).balance, b0 - home.FEE() + 3 * each, "three accepted listings refunded");
+        emit log_named_uint("home cost carried for 2 sources / 4 listings (wei at 1 gwei)", carried);
+    }
+
     function test_lzReceiverAddOnlyOwner() public {
         (, PoolId id) = _createPush(HOME_EID, 0.05 ether);
         _lzPush(id, address(0xC0FFEE), 40, HOME_EID);
@@ -769,7 +839,7 @@ contract DiscipleTest is Test {
             Disciple.CreateParams({coin: address(usd2()), fee: FEE, src: _pushSrc(30184), coinIn: 1000e18, quoteIn: 3000e18})
         );
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
-        other.push{value: 0.01 ether}(30101, to, baseId, 1, address(pair), bytes32(0), 200_000);
+        other.push{value: 0.01 ether}(30101, to, _req(address(pair), baseId), 200_000);
         local.deliver(address(receiver), 30184, address(other), home.lastMessage());
         assertTrue(hook.poolState(baseId).live, "new chain prices its pool");
         // the new sender cannot price the Robinhood pool

@@ -4,6 +4,11 @@ pragma solidity 0.8.26;
 import {LibConfig, SetConfigParam} from "./ILayerZeroEndpointV2Lite.sol";
 
 /// @notice LayerZero ULN config (same layout as LayerZero's UlnConfig). DVN lists must be sorted ascending.
+struct ExecutorConfig {
+    uint32 maxMessageSize;
+    address executor;
+}
+
 struct UlnConfig {
     uint64 confirmations;
     uint8 requiredDVNCount;
@@ -25,55 +30,90 @@ library DiscipleRoutesV0 {
     address internal constant ETH_ENDPOINT = 0x1a44076050125825900e736c501f859c50fE728c;
     address internal constant RH_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B;
     uint64 internal constant CONFIRMATIONS = 5;
+    uint32 internal constant CONFIG_TYPE_EXECUTOR = 1;
     uint32 internal constant CONFIG_TYPE_ULN = 2;
+    uint32 internal constant MAX_MESSAGE_SIZE = 10_000;
+    uint8 internal constant NIL_DVN_COUNT = type(uint8).max;
 
-    /// @dev Ethereum SendUln302 config for messages to Robinhood (eid 30416).
-    function ethSendToRobinhood(address sendLib) internal pure returns (LibConfig[] memory c) {
-        address[] memory req = new address[](2);
-        req[0] = 0x589dEDbD617e0CBcB916A9223F4d1300c294236b;
+    // ---- DVN sets, Ethereum side (sorted ascending)
+
+    /// @dev The live OApp's set: 2 required + 2 of 3 optional. Measured ~0.000116 ETH of DVN fees per message.
+    function ethLiveDvns() internal pure returns (address[] memory req, address[] memory opt, uint8 threshold) {
+        req = new address[](2);
+        req[0] = 0x589dEDbD617e0CBcB916A9223F4d1300c294236b; // LayerZero Labs
         req[1] = 0x8bD47CbD47980Cc6f3f8451FA7586548014b10dB;
-        address[] memory opt = new address[](3);
+        opt = new address[](3);
         opt[0] = 0x380275805876Ff19055EA900CDb2B46a94ecF20D;
         opt[1] = 0x394fe81886BaF6e2d5BEe37ffA24b07133C320c6;
         opt[2] = 0xa59BA433ac34D2927232918Ef5B2eaAfcF130BA5;
-        c = _one(sendLib, RH_EID, req, opt);
+        threshold = 2;
     }
 
-    /// @dev Robinhood ReceiveUln302 config for messages from Ethereum (eid 30101).
-    function rhReceiveFromEthereum(address receiveLib) internal pure returns (LibConfig[] memory c) {
-        address[] memory req = new address[](2);
+    /// @dev Lean set: two required, no optional. ~0.000004 ETH of DVN fees. Its Robinhood-side counterparts must be
+    ///      confirmed from live PayloadVerified pairs before deploy; they are passed in, not assumed.
+    function ethLeanDvns() internal pure returns (address[] memory req, address[] memory opt, uint8 threshold) {
+        req = new address[](2);
+        req[0] = 0x380275805876Ff19055EA900CDb2B46a94ecF20D;
+        req[1] = 0x589dEDbD617e0CBcB916A9223F4d1300c294236b; // LayerZero Labs
+        opt = new address[](0);
+        threshold = 0;
+    }
+
+    /// @dev Robinhood-side counterparts of the live set (receive from Ethereum).
+    function rhLiveDvns() internal pure returns (address[] memory req, address[] memory opt, uint8 threshold) {
+        req = new address[](2);
         req[0] = 0x80008dB0e86e421C50AaB5f5B5eBa904e9A54b69;
         req[1] = 0xd01ae6905d48315f7bE10C7330aeCF8360Ef5b12;
-        address[] memory opt = new address[](3);
+        opt = new address[](3);
         opt[0] = 0x0Ffe02DF012299A370D5dd69298A5826EAcaFdF8;
         opt[1] = 0x1258A278519c7f4bd997a9c3BFd4Aa802a028D89;
         opt[2] = 0x786804435F1a9F583cA0cd7A4584eBBFcAE35855;
-        c = _one(receiveLib, ETH_EID, req, opt);
+        threshold = 2;
     }
 
-    /// @dev The Robinhood-side DVNs, for tests that act as them.
-    function rhDvns() internal pure returns (address[] memory req, address[] memory opt) {
-        LibConfig[] memory c = rhReceiveFromEthereum(address(0));
-        UlnConfig memory u = abi.decode(c[0].params[0].config, (UlnConfig));
-        return (u.requiredDVNs, u.optionalDVNs);
-    }
+    // ---- configs
 
-    function _one(address lib, uint32 eid, address[] memory req, address[] memory opt)
-        private
+    /// @dev Ethereum SendUln302 config for messages to Robinhood. `executor` 0 keeps the default (paid) executor;
+    ///      a DiscipleSelfExecutor makes the keeper finish delivery itself.
+    function ethSend(address sendLib, address executor, address[] memory req, address[] memory opt, uint8 threshold)
+        internal
         pure
         returns (LibConfig[] memory c)
     {
-        UlnConfig memory u = UlnConfig({
-            confirmations: CONFIRMATIONS,
-            requiredDVNCount: uint8(req.length),
-            optionalDVNCount: uint8(opt.length),
-            optionalDVNThreshold: 2,
-            requiredDVNs: req,
-            optionalDVNs: opt
-        });
         c = new LibConfig[](1);
-        c[0].lib = lib;
+        c[0].lib = sendLib;
+        c[0].params = new SetConfigParam[](executor == address(0) ? 1 : 2);
+        c[0].params[0] = SetConfigParam(RH_EID, CONFIG_TYPE_ULN, _uln(req, opt, threshold));
+        if (executor != address(0)) {
+            c[0].params[1] =
+                SetConfigParam(RH_EID, CONFIG_TYPE_EXECUTOR, abi.encode(ExecutorConfig(MAX_MESSAGE_SIZE, executor)));
+        }
+    }
+
+    /// @dev Robinhood ReceiveUln302 config for messages from Ethereum. Must match the send side's DVNs and
+    ///      confirmations.
+    function rhReceive(address receiveLib, address[] memory req, address[] memory opt, uint8 threshold)
+        internal
+        pure
+        returns (LibConfig[] memory c)
+    {
+        c = new LibConfig[](1);
+        c[0].lib = receiveLib;
         c[0].params = new SetConfigParam[](1);
-        c[0].params[0] = SetConfigParam(eid, CONFIG_TYPE_ULN, abi.encode(u));
+        c[0].params[0] = SetConfigParam(ETH_EID, CONFIG_TYPE_ULN, _uln(req, opt, threshold));
+    }
+
+    function _uln(address[] memory req, address[] memory opt, uint8 threshold) private pure returns (bytes memory) {
+        return abi.encode(
+            UlnConfig({
+                confirmations: CONFIRMATIONS,
+                requiredDVNCount: uint8(req.length),
+                // ULN reads a count of 0 as "use the endpoint default" (a dead DVN on Robinhood); 255 means none
+                optionalDVNCount: opt.length == 0 ? NIL_DVN_COUNT : uint8(opt.length),
+                optionalDVNThreshold: threshold,
+                requiredDVNs: req,
+                optionalDVNs: opt
+            })
+        );
     }
 }

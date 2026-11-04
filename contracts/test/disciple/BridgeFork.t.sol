@@ -193,7 +193,7 @@ contract BridgeForkTest is Test {
         sender.push{value: value}(address(hook), pid, 1, pair, bytes32(0), sub, L2_GAS_LIMIT, L2_MAX_FEE);
         t.ethGas = g - gasleft();
         t.ethBasefee = block.basefee;
-        t.observedAt = uint64(block.timestamp);
+        t.observedAt = uint64(vm.getBlockTimestamp());
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes memory msgData;
         bytes32 bridgeHash;
@@ -233,7 +233,7 @@ contract BridgeForkTest is Test {
     /// @dev The rollup's auto-redeem: the ticket's own bytes, from the sender's alias, `delay` after observation.
     function _deliver(Ticket memory t, uint256 delay) internal returns (bool ok, uint256 gasUsed) {
         uint256 at = uint256(t.observedAt) + delay;
-        if (at > block.timestamp) vm.warp(at);
+        if (at > vm.getBlockTimestamp()) vm.warp(at);
         vm.prank(address(uint160(address(sender)) + ALIAS));
         uint256 g = gasleft();
         (ok,) = t.to.call{gas: t.gasLimit}(t.data);
@@ -242,9 +242,9 @@ contract BridgeForkTest is Test {
 
     /// @dev Bring Ethereum's clock to Robinhood's (plus `ahead`), so an observation there is "now" here.
     function _syncEthClock(uint256 ahead) internal {
-        uint256 now_ = block.timestamp + ahead;
+        uint256 now_ = vm.getBlockTimestamp() + ahead;
         vm.selectFork(eth);
-        if (now_ > block.timestamp) vm.warp(now_);
+        if (now_ > vm.getBlockTimestamp()) vm.warp(now_);
         vm.roll(block.number + 1);
     }
 

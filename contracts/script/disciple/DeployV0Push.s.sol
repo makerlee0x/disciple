@@ -12,6 +12,7 @@ import {DisciplePushReceiver} from "../../src/disciple/routes/DisciplePushReceiv
 import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceReader.sol";
 import {ILayerZeroEndpointV2Lite, LibConfig} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
 import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
+import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
 
 interface IEndpointLibs {
     function defaultSendLibrary(uint32 eid) external view returns (address);
@@ -20,8 +21,12 @@ interface IEndpointLibs {
 
 /// @title v0 deploy: Ethereum -> Robinhood LayerZero push
 /// @notice Two steps, two chains. Nothing broadcasts without `--broadcast`.
+///   Env for both steps: DVN_SET = "live" (default; the live OApp's 2 + 2-of-3) or "lean" (2 required, none
+///   optional; then RH_DVNS = the matching Robinhood DVNs, sorted, comma separated, confirmed from live traffic).
 ///   1. On Ethereum:  forge script script/disciple/DeployV0Push.s.sol --sig "sender()" --rpc-url $ETH_RPC
-///      Deploys DisciplePushSender with the v0 send config (live DVN set, 5 confirmations) for Robinhood.
+///      Deploys DisciplePushSender with the v0 send config (5 confirmations) for Robinhood. SELF_EXECUTOR=1
+///      (default) also deploys a zero-fee DiscipleSelfExecutor and points the config at it: keepers then commit and
+///      execute on Robinhood themselves. SELF_EXECUTOR=0 keeps LayerZero's paid executor.
 ///   2. On Robinhood: PUSH_SENDER=<step 1 address> QUOTE=<quote token>
 ///      forge script script/disciple/DeployV0Push.s.sol --sig "robinhood()" --rpc-url $RH_RPC
 ///      Deploys DisciplePushReceiver (peer: Ethereum -> PUSH_SENDER, ETH gas) with the matching receive config,
@@ -35,9 +40,13 @@ contract DeployV0Push is Script {
     function sender() external returns (DisciplePushSender s) {
         require(block.chainid == 1, "run on Ethereum");
         address lib = IEndpointLibs(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
+        bool lean = keccak256(bytes(vm.envOr("DVN_SET", string("live")))) == keccak256("lean");
+        (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.ethLeanDvns() : V0.ethLiveDvns();
         vm.startBroadcast();
-        s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSendToRobinhood(lib));
+        address ex = vm.envOr("SELF_EXECUTOR", uint256(1)) == 1 ? address(new DiscipleSelfExecutor()) : address(0);
+        s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSend(lib, ex, req, opt, th));
         vm.stopBroadcast();
+        console2.log("DiscipleSelfExecutor (Ethereum, 0 = paid executor)", ex);
         console2.log("DisciplePushSender (Ethereum)", address(s));
         console2.log("send library", lib);
     }
@@ -54,9 +63,11 @@ contract DeployV0Push is Script {
         (eids[0], senders[0], eth[0]) = (V0.ETH_EID, pushSender, true);
 
         vm.startBroadcast();
-        r = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, V0.rhReceiveFromEthereum(lib)
-        );
+        bool lean = keccak256(bytes(vm.envOr("DVN_SET", string("live")))) == keccak256("lean");
+        (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
+        if (lean) (req, opt, th) = (vm.envAddress("RH_DVNS", ","), new address[](0), 0);
+        LibConfig[] memory cfg = V0.rhReceive(lib, req, opt, th);
+        r = new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg);
         bytes memory args = abi.encode(pm, quote, ILzRead(address(0)), address(0), address(r));
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
