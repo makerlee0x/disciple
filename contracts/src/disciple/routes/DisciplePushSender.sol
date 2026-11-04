@@ -38,6 +38,9 @@ contract DisciplePushSender is DiscipleSourceReader {
     ///      Calibrated on the Ethereum fork; the read, encode and quote before it are measured live.
     uint256 public constant SEND_GAS = 125_000; // fork, 2026-11-04: covers the heaviest config (live DVNs, paid
     // executor, 1 source: 274k measured); the lean self-executed config is over-carried by ~15k gas
+    /// @dev Extra send-side gas per source (the payload is hashed, copied and logged inside the endpoint and
+    ///      library). Fork, 2026-11-04: 5 sources fell ~17k short without it.
+    uint256 public constant SEND_GAS_PER_SOURCE = 5_000;
     /// @dev Pool listings per message: bounds the receiver's loop and the message size.
     uint256 public constant MAX_POOLS = 64;
 
@@ -89,7 +92,8 @@ contract DisciplePushSender is DiscipleSourceReader {
         MessagingParams memory mp = _params(dstEid, receiver, _message(obs, 0), gas);
         uint256 fee = endpoint.quote(mp, address(this)).nativeFee;
         uint256 used = g0 - gasleft();
-        uint256 cost = fee + (used + SEND_GAS + OVERHEAD_GAS + 16 * _abiLen(reqs)) * block.basefee;
+        uint256 sendGas = SEND_GAS + SEND_GAS_PER_SOURCE * reqs.length;
+        uint256 cost = fee + (used + sendGas + OVERHEAD_GAS + 16 * _abiLen(reqs)) * block.basefee;
         mp.message = _message(obs, cost);
         MessagingReceipt memory r = endpoint.send{value: msg.value}(mp, msg.sender);
         guid = r.guid;
