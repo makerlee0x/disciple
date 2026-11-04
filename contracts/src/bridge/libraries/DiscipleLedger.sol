@@ -36,8 +36,6 @@ library DiscipleLedger {
     uint256 internal constant CREATOR_BPS = 1200;
     /// @dev Shares that can never be withdrawn, so the pool never drains to rounding dust.
     uint256 internal constant MIN_SHARES = 1e6;
-    /// @dev Below this much principal the slide's quadratic term is skipped (it would overpay dust at most).
-    uint256 internal constant MIN_SP_SLIDE = 1e12;
 
     uint8 internal constant SH = 0;
     uint8 internal constant CX = 1;
@@ -197,7 +195,9 @@ library DiscipleLedger {
 
     function _accrue(Book storage bk, uint8 k, uint256 q) private {
         bk.a1[k] += q;
-        if (bk.sp >= MIN_SP_SLIDE) bk.a2[k] += Math.mulDiv(q, K2, bk.sp, Math.Rounding.Ceil);
+        // The slide's quadratic term always applies while there is principal; skipping it would pay every share
+        // the 7x front weight and distribute more than was earned.
+        if (bk.sp > 0) bk.a2[k] += Math.mulDiv(q, K2, bk.sp, Math.Rounding.Ceil);
     }
 
     // ---------------------------------------------------------------------------------------------

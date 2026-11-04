@@ -60,6 +60,10 @@ contract MockInbox is IInbox {
         (lastTo, lastData, lastValue) = (to, data, msg.value);
         return ++n;
     }
+
+    function calculateRetryableSubmissionFee(uint256 len, uint256 baseFee) external view returns (uint256) {
+        return (1400 + 6 * len) * (baseFee == 0 ? block.basefee : baseFee);
+    }
 }
 
 contract MockWETH is MockERC20 {
@@ -527,11 +531,12 @@ contract DiscipleTest is Test {
         pair.set(1_000_000e18, 2_060_000e18);
         Keeper k = new Keeper();
         uint256 b0 = address(k).balance;
-        vm.fee(10 gwei);
+        vm.fee(1 gwei);
         assertTrue(_push(id, address(k), 120));
         assertEq(hook.poolState(id).anchorX128, Q128 * 206 / 100);
-        uint256 cost = 0.0005 ether + 130_000 * 10 gwei;
-        assertEq(address(k).balance, b0 + 1 ether - 0.0005 ether + cost * 12 / 10, "refund = cost * 1.2");
+        // net cost only: the ticket prepayment's unused part is the rollup's refund, not the pool's
+        uint256 cost = (1400 + 6 * 324) * 1 gwei + 130_000 * 1 gwei + 150_000 * 1 gwei;
+        assertEq(address(k).balance, b0 + 1 ether - 0.0005 ether + cost * 12 / 10, "refund = net cost * 1.2");
     }
 
     function test_bridgeRejectsForgedOldAndMismatched() public {

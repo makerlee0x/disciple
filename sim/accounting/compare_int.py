@@ -7,7 +7,7 @@ from fractions import Fraction as Fr
 import fast
 from intledger import Ledger, Q128
 
-E18 = 10**18
+E18 = 10**18  # raw units per whole token; main() also runs 10**6 (a 6-decimal quote such as USDC)
 
 
 def X(M):
@@ -83,7 +83,8 @@ def run(seed, steps=40):
         qs, qb, qc = Q.lot_view(l.id)
         for name, a, e in (("s", qs, s), ("b", qb, b), ("cx", qc[0], claim[0]), ("cy", qc[1], claim[1])):
             r = rel(a, e, scale)
-            assert r <= 1e-12, (seed, l.id, name, "integer pays more than exact", r)
+            # "beyond dust": 1e-12 of reserves, or a few raw units when the token has few decimals
+            assert r <= max(1e-12, 10 / float(scale)), (seed, l.id, name, "integer pays more than exact", r)
             worst = max(worst, abs(r))
         tot_claim[0] += qc[0]; tot_claim[1] += qc[1]
     assert tot_claim[0] <= Q.escrow[0] and tot_claim[1] <= Q.escrow[1], (seed, "claims exceed escrow")
@@ -94,7 +95,9 @@ def run(seed, steps=40):
 
 if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 40
-    res = [run(sd) for sd in range(n)]
-    ok = [r for r in res if r is not None]
-    print(f"{len(ok)}/{n} histories ok ({sum(g for g, _ in ok)} graduated); worst |int - exact| / reserves = "
-          f"{max(w for _, w in ok):.2e}")
+    for unit in (10**18, 10**6):
+        E18 = unit
+        res = [run(sd) for sd in range(n)]
+        ok = [r for r in res if r is not None]
+        print(f"unit 1e{len(str(unit)) - 1}: {len(ok)}/{n} histories ok ({sum(g for g, _ in ok)} graduated); "
+              f"worst |int - exact| / reserves = {max(w for _, w in ok):.2e}")

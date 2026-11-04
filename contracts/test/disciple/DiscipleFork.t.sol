@@ -204,40 +204,16 @@ contract DiscipleForkTest is Test {
         if (q.srcSellOk) emit log_named_decimal_uint("  source sell (executed)", _human(q.srcSell, cd, qd), 18);
         else emit log_string("  source sell: source swap reverted (router or hook restriction)");
         assertGe(q.disBuy, q.disSell, "Disciple ask >= bid");
-        // no profitable round trip at this size: buy on one venue, sell on the other
-        if (q.srcSellOk) assertGe(q.disBuy, q.srcSell, "no arb: buy Disciple, sell source");
-        if (q.srcBuyOk) assertLe(q.disSell, q.srcBuy, "no arb: buy source, sell Disciple");
+        // 2. no profitable round trip: real two-leg trades, the first leg's exact output fed into the second
+        _arbs(swapper, key, x, coin, quote, v.coinReserve, v.quoteReserve);
 
         // actually trade both ways so the books move, then check conservation
         _swap(swapper, key, coin, true, qIn);
         _swap(swapper, key, coin, false, cIn);
         _conserve(m, hook, id, coin, quote);
 
-        // 3. LP: same-block in and out returns no more than it put in
-        v = hook.poolState(id);
-        uint256 mark = v.anchorX128;
-        address lp = makeAddr("lp");
-        _give(lp, coin, quote, address(hook), v.coinReserve / 5, v.quoteReserve / 5);
-        uint256 before = _value(lp, coin, quote, mark);
-        vm.startPrank(lp);
-        (uint256 lot, uint256 sh) = hook.deposit(id, v.coinReserve / 10, v.quoteReserve / 10);
-        hook.withdraw(id, lot, sh, 0);
-        vm.stopPrank();
-        assertLe(_value(lp, coin, quote, mark), before, "same-block round trip is not profitable");
-
-        // next-block exit after trades in between: value back within 2% of value in, at the source mark
-        vm.prank(lp);
-        (lot, sh) = hook.deposit(id, v.coinReserve / 10, v.quoteReserve / 10);
-        uint256 inValue = before - _value(lp, coin, quote, mark);
-        _swap(swapper, key, coin, true, qIn / 2);
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 12);
-        uint256 mid = _value(lp, coin, quote, mark);
-        vm.prank(lp);
-        hook.withdraw(id, lot, sh, 0);
-        uint256 outValue = _value(lp, coin, quote, mark) - mid;
-        emit log_named_decimal_uint("  LP next-block value out / in (1e18 = flat)", outValue * 1e18 / inValue, 18);
-        assertApproxEqRel(outValue, inValue, 0.02e18, "next-block LP value");
+        // 3. LP accounting
+        _lpChecks(m, hook, swapper, key, id, coin, quote, qIn);
 
         // 4. conservation after everything
         _conserve(m, hook, id, coin, quote);
@@ -275,6 +251,269 @@ contract DiscipleForkTest is Test {
         (ok, out) = _srcSwap(x, true, cIn); // pay token0 (coin), get quote
         if (ok && out > 0) (q.srcSellOk, q.srcSell) = (true, Math.mulDiv(out, Q128, cIn));
         vm.revertToState(snap);
+    }
+
+
+    // -----------------------------------------------------------------------------------------
+    // two-leg arbitrage
+    // -----------------------------------------------------------------------------------------
+
+    /// @dev Every ordering at three sizes (0.1%, 1%, 5% of the Disciple side being drained), each from the same
+    ///      state, within one block, in two states: Disciple untouched this block (the first leg latches it) and
+    ///      Disciple already touched (latched before the source moves). Leg 2 spends exactly leg 1's output.
+    ///      Native-ETH legs count WETH and ETH at par.
+    function _arbs(
+        PoolSwapTest swapper,
+        PoolKey memory key,
+        Src memory x,
+        address coin,
+        address quote,
+        uint256 cr,
+        uint256 qr
+    ) internal {
+        uint16[3] memory bps = [uint16(10), 100, 500];
+        for (uint256 w = 0; w < 2; w++) {
+            for (uint256 i = 0; i < 3; i++) {
+                uint256 qIn = qr * bps[i] / 10_000;
+                uint256 cIn = cr * bps[i] / 10_000;
+                for (uint8 order = 0; order < 4; order++) {
+                    uint256 snap = vm.snapshotState();
+                    if (w == 1) _swap(swapper, key, coin, true, qr / 1_000_000 + 1); // touch Disciple first
+                    (bool ok, uint256 start, uint256 end) = _arb(swapper, key, x, coin, quote, order, qIn, cIn);
+                    vm.revertToState(snap);
+                    if (!ok) {
+                        emit log_named_uint("  arb skipped (source leg reverted), order", order);
+                        continue;
+                    }
+                    if (i == 1 && w == 0) {
+                        emit log_named_uint("  arb order", order);
+                        emit log_named_decimal_uint("    end / start at 1% size (1e18 = flat)", end * 1e18 / start, 18);
+                    }
+                    assertLe(end, start, "two-leg round trip must not end with more of the starting token");
+                }
+            }
+        }
+    }
+
+    /// @dev order 0: quote -> Disciple buy -> source sell -> quote
+    ///      order 1: quote -> source buy -> Disciple sell -> quote
+    ///      order 2: coin -> Disciple sell -> source buy -> coin
+    ///      order 3: coin -> source sell -> Disciple buy -> coin
+    function _arb(
+        PoolSwapTest swapper,
+        PoolKey memory key,
+        Src memory x,
+        address coin,
+        address quote,
+        uint8 order,
+        uint256 qIn,
+        uint256 cIn
+    ) internal returns (bool ok, uint256 start, uint256 end) {
+        uint256 mid;
+        if (order == 0) {
+            start = qIn;
+            mid = _disSwap(swapper, key, coin, quote, true, qIn);
+            (ok, end) = _srcSwap(x, true, mid);
+        } else if (order == 1) {
+            start = qIn;
+            (ok, mid) = _srcSwap(x, false, qIn);
+            if (ok && mid > 0) end = _disSwap(swapper, key, coin, quote, false, mid);
+        } else if (order == 2) {
+            start = cIn;
+            mid = _disSwap(swapper, key, coin, quote, false, cIn);
+            (ok, end) = _srcSwap(x, false, mid);
+        } else {
+            start = cIn;
+            (ok, mid) = _srcSwap(x, true, cIn);
+            if (ok && mid > 0) end = _disSwap(swapper, key, coin, quote, true, mid);
+        }
+        ok = ok && mid > 0;
+    }
+
+    /// @dev Exact-in on Disciple; returns the output from this contract's balance change.
+    function _disSwap(PoolSwapTest swapper, PoolKey memory key, address coin, address quote, bool buy, uint256 amtIn)
+        internal
+        returns (uint256)
+    {
+        address outT = buy ? coin : quote;
+        uint256 b0 = _bal(outT);
+        _swap(swapper, key, coin, buy, amtIn);
+        return _bal(outT) - b0;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // LP accounting
+    // -----------------------------------------------------------------------------------------
+
+    /// @dev (a) No-trade control: deposit, next block, withdraw. Loss bounded in token units (<= 1 wei per token:
+    ///          one ceil on the deposit, one floor on the withdrawal).
+    ///      (b) Known profitable flow: an LP joins behind the creator, a trader round-trips on Disciple (pays the
+    ///          spread twice, coin flow nets to zero so the earning is exact in quote), next block settles. The LP's
+    ///          entitlement = its principal's pro-rata value + its boost-weighted share of the earning, where weights
+    ///          are the line's slide F(z) = 7z - 2.9z^2/S (no compound class yet). Asserted against the books and
+    ///          then the tokens actually paid.
+    ///      (c) Full reconciliation by draining: every lot withdraws principal and compound balance (and claims,
+    ///          if graduated); total paid out + what is left equals total paid in, token by token, and the hook's
+    ///          claims equal what is left.
+    function _lpChecks(
+        IPoolManager m,
+        Disciple hook,
+        PoolSwapTest swapper,
+        PoolKey memory key,
+        PoolId id,
+        address coin,
+        address quote,
+        uint256 qIn
+    ) internal {
+        Disciple.PoolView memory v = hook.poolState(id);
+        address lp = makeAddr("lp");
+        _give(lp, coin, quote, address(hook), v.coinReserve, v.quoteReserve);
+
+        // (a) no-trade control
+        _nextBlockSame();
+        uint256 c0 = IERC20Lite(coin).balanceOf(lp);
+        uint256 q0 = IERC20Lite(quote).balanceOf(lp);
+        vm.prank(lp);
+        (uint256 lot, uint256 sh) = hook.deposit(id, v.coinReserve / 10, v.quoteReserve / 10);
+        _nextBlockSame();
+        vm.prank(lp);
+        hook.withdraw(id, lot, sh, 0);
+        uint256 lossC = c0 - IERC20Lite(coin).balanceOf(lp);
+        uint256 lossQ = q0 - IERC20Lite(quote).balanceOf(lp);
+        emit log_named_uint("  LP no-trade control: coin lost (raw units)", lossC);
+        emit log_named_uint("  LP no-trade control: quote lost (raw units)", lossQ);
+        assertLe(lossC, 1, "no-trade rounding <= 1 wei coin");
+        assertLe(lossQ, 1, "no-trade rounding <= 1 wei quote");
+        (, uint256 cs, uint256 cb,,) = hook.lotState(id, lot);
+        assertEq(cs + cb, 0, "nothing left behind");
+
+        // (b) known profitable flow
+        _nextBlockSame();
+        v = hook.poolState(id);
+        uint256 sp = v.principal; // principal ahead of the LP in the line
+        uint256 b = v.compounded; // compound class (earlier earnings), weighted a flat 1.2x
+        vm.prank(lp);
+        (lot, sh) = hook.deposit(id, v.coinReserve / 4, v.quoteReserve / 4);
+        _nextBlockSame();
+        uint256 qb = _bal(quote);
+        uint256 got = _disSwap(swapper, key, coin, quote, true, qIn);
+        _disSwap(swapper, key, coin, quote, false, got); // coin back exactly: dx = 0
+        uint256 earn = qb - _bal(quote); // what the trader lost = the pool's earning, in quote
+        emit log_named_uint("  known profitable flow: pool earned (quote raw)", earn);
+        assertGt(earn, 0);
+        _nextBlockSame();
+        vm.prank(lp);
+        hook.withdraw(id, lot, 0, 0); // first touch of the block settles the interval, moves nothing
+        v = hook.poolState(id);
+        uint256 vNow = Math.mulDiv(v.coinReserve, v.anchorX128, Q128) + v.quoteReserve;
+        uint256 total = sp + sh; // S: all principal
+        // LP's slice of the line: F(S) - F(sp), F(z) = 7z - 2.9 z^2 / S; the whole line weighs 4.1 S
+        uint256 wLp = 7 * sh * 1e18 - Math.mulDiv(29e17, total * total - sp * sp, total);
+        uint256 wAll = 41e17 * total + 12e17 * b;
+        uint256 principalValue = Math.mulDiv(vNow - earn, sh, total + b);
+        uint256 expected = principalValue + Math.mulDiv(earn, wLp, wAll);
+        (, uint256 ls, uint256 lb,,) = hook.lotState(id, lot);
+        uint256 st = v.principal + v.compounded;
+        uint256 entitled = Math.mulDiv(vNow, ls + lb, st);
+        emit log_named_decimal_uint("  LP entitlement / expected (1e18 = exact)", entitled * 1e18 / expected, 18);
+        emit log_named_decimal_uint(
+            "  LP share of the earning (boost-weighted)", Math.mulDiv(1e18, wLp, wAll), 18
+        );
+        assertApproxEqAbs(entitled, expected, 4 + expected / 1e12, "LP entitlement = pro-rata principal + weighted earning");
+        assertLe(entitled, expected + 1, "rounding never favours the LP");
+        c0 = IERC20Lite(coin).balanceOf(lp);
+        q0 = IERC20Lite(quote).balanceOf(lp);
+        vm.prank(lp);
+        hook.withdraw(id, lot, ls, lb);
+        uint256 paid = Math.mulDiv(IERC20Lite(coin).balanceOf(lp) - c0, v.anchorX128, Q128)
+            + (IERC20Lite(quote).balanceOf(lp) - q0);
+        assertApproxEqAbs(paid, entitled, 2 + entitled / 1e15, "tokens paid = entitlement");
+        assertLe(paid, entitled + 1);
+        _conserve(m, hook, id, coin, quote);
+
+        // (c) graduate, earn, then drain everything and reconcile token by token
+        _reconcile(m, hook, swapper, key, id, coin, quote, lp);
+    }
+
+    function _reconcile(
+        IPoolManager m,
+        Disciple hook,
+        PoolSwapTest swapper,
+        PoolKey memory key,
+        PoolId id,
+        address coin,
+        address quote,
+        address lp
+    ) internal {
+        Disciple.PoolView memory v = hook.poolState(id);
+        // a deposit big enough to pass 12% of the source TVL, so the post-graduation books are exercised
+        uint256 need = v.srcTvl * 13 / 100;
+        uint256 have = Math.mulDiv(v.coinReserve, v.anchorX128, Q128) + v.quoteReserve;
+        uint256 mult = need > have ? need / have + 1 : 1;
+        _give(lp, coin, quote, address(hook), v.coinReserve * mult + 1, v.quoteReserve * mult + 1);
+        _nextBlockSame();
+        (uint256 lot,) = _dep(hook, id, lp, coin, quote, v.coinReserve * mult, v.quoteReserve * mult);
+        _nextBlockSame();
+        // profitable flow after graduation (graduation latches at this block's settle)
+        for (uint256 r = 0; r < 3; r++) {
+            uint256 got = _disSwap(swapper, key, coin, quote, true, v.quoteReserve / 50);
+            _disSwap(swapper, key, coin, quote, false, got);
+            _nextBlockSame();
+        }
+        vm.prank(lp);
+        hook.withdraw(id, lot, 0, 0); // settle
+        v = hook.poolState(id);
+        emit log_named_string("  graduated", v.graduated ? "yes" : "no");
+        // drain: LP lot, creator lot (keeps MIN_SHARES), claims, creator cut
+        uint256 lots = v.lots;
+        for (uint256 i = 1; i <= lots; i++) {
+            (address owner, uint256 s, uint256 b,,) = hook.lotState(id, i);
+            if (s + b == 0) {
+                (,,, uint256 cx0, uint256 cy0) = hook.lotState(id, i);
+                if (cx0 + cy0 > 0) {
+                    vm.prank(owner);
+                    hook.claim(id, i);
+                }
+                continue;
+            }
+            if (i == 1) s -= 1e6; // MIN_SHARES stay
+            vm.startPrank(owner);
+            hook.withdraw(id, i, s, b);
+            (,,, uint256 cx, uint256 cy) = hook.lotState(id, i);
+            if (cx + cy > 0) hook.claim(id, i);
+            vm.stopPrank();
+        }
+        try hook.claimCreator(id) {} catch {} // reverts only when there is nothing to pay
+        v = hook.poolState(id);
+        uint256 hc2 = m.balanceOf(address(hook), uint256(uint160(coin)));
+        uint256 hq2 = m.balanceOf(address(hook), uint256(uint160(quote)));
+        // with every lot, claim and creator cut paid out, the claims left are the books left plus rounding dust
+        // kept by the pool (escrow is reserved rounding up, paid out rounding down)
+        assertGe(hc2, v.coinReserve, "after draining: coin claims cover the reserve");
+        assertGe(hq2, v.quoteReserve, "after draining: quote claims cover the reserve");
+        // Dust is counted in value: a share unit is one raw quote unit of value, so one share unit of rounding can
+        // be many coin wei. Unowned value left must be a few raw quote units per payout.
+        uint256 dustValue = Math.mulDiv(hc2 - v.coinReserve, v.anchorX128, Q128, Math.Rounding.Ceil)
+            + (hq2 - v.quoteReserve);
+        emit log_named_uint("  drained: unowned value (raw quote units)", dustValue);
+        assertLe(dustValue, 2 * lots + 8, "only rounding dust unaccounted");
+        emit log_named_uint("  drained: unowned coin dust (raw)", hc2 - v.coinReserve);
+        emit log_named_uint("  drained: unowned quote dust (raw)", hq2 - v.quoteReserve);
+        emit log_named_uint("  drained: coin left (raw)", hc2);
+        emit log_named_uint("  drained: quote left (raw)", hq2);
+    }
+
+    function _dep(Disciple hook, PoolId id, address lp, address, address, uint256 c, uint256 q)
+        internal
+        returns (uint256 lot, uint256 sh)
+    {
+        vm.prank(lp);
+        (lot, sh) = hook.deposit(id, c, q);
+    }
+
+    function _nextBlockSame() internal {
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 60);
     }
 
     // -----------------------------------------------------------------------------------------

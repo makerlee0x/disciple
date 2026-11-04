@@ -222,11 +222,12 @@ class Ledger:
             self.x -= cx
             self.y -= cy
 
-    MIN_SP_SLIDE = 10**12  # below this much principal the slide's quadratic term is skipped (overpays dust at most)
-
     def _accrue(self, k, q):
+        # The slide's quadratic term always applies while there is principal. (An earlier cut-off at 1e12
+        # principal skipped it, which pays every principal share the 7x front weight: with a 6-decimal quote a
+        # $5,000 pool distributed 1.7x its earnings. Found by the fork test's entitlement check, 2026-11-04.)
         self.A1[k] += q
-        if self.Sp >= self.MIN_SP_SLIDE:
+        if self.Sp > 0:
             self.A2[k] += mul_div_up(q, K2, self.Sp)
 
     # ---- capital changes (caller settles first) -------------------------------------------------------
