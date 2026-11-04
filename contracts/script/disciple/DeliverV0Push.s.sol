@@ -16,7 +16,8 @@ interface IReceiveUlnCommit {
     function commitVerification(bytes calldata packetHeader, bytes32 payloadHash) external;
 }
 
-/// @title Deliver a self-executed Ethereum -> Robinhood push on Robinhood
+/// @title Deliver a self-executed push on its destination: Ethereum -> Robinhood on Robinhood, or
+///        Robinhood -> Ethereum on Ethereum (run with that chain's RPC)
 /// @notice The keeper's second step when the sender uses DiscipleSelfExecutor. After the push's Ethereum
 ///         transaction has 5 confirmations and the DVNs have verified on Robinhood (each DVN's PayloadVerified event
 ///         on the ReceiveUln302), run:
@@ -27,7 +28,8 @@ interface IReceiveUlnCommit {
 ///         nothing, if the DVNs have not verified yet or the packet was already delivered.
 contract DeliverV0Push is Script {
     function run() external {
-        require(block.chainid == 4663, "run on Robinhood Chain");
+        require(block.chainid == 4663 || block.chainid == 1, "run on Robinhood Chain or Ethereum");
+        bool here = block.chainid == 4663; // true: Ethereum -> Robinhood; false: Robinhood -> Ethereum
         bytes memory packet = vm.envBytes("PACKET");
         require(packet.length > 113, "PACKET");
         // PacketV1: version(1) nonce(8) srcEid(4) sender(32) dstEid(4) receiver(32) | guid(32) | message
@@ -54,11 +56,15 @@ contract DeliverV0Push is Script {
             receiver := mload(add(p, 49))
             guid := mload(add(p, 81))
         }
-        require(srcEid == V0.ETH_EID && dstEid == V0.RH_EID, "not an Ethereum -> Robinhood packet");
-        address lib = IEndpointDeliver(V0.RH_ENDPOINT).defaultReceiveLibrary(V0.ETH_EID);
+        address endpoint = here ? V0.RH_ENDPOINT : V0.ETH_ENDPOINT;
+        require(
+            here ? (srcEid == V0.ETH_EID && dstEid == V0.RH_EID) : (srcEid == V0.RH_EID && dstEid == V0.ETH_EID),
+            "packet is not addressed to this chain"
+        );
+        address lib = IEndpointDeliver(endpoint).defaultReceiveLibrary(srcEid);
         vm.startBroadcast();
         IReceiveUlnCommit(lib).commitVerification(header, keccak256(abi.encodePacked(guid, message)));
-        IEndpointDeliver(V0.RH_ENDPOINT).lzReceive(
+        IEndpointDeliver(endpoint).lzReceive(
             Origin(srcEid, sender, nonce), address(uint160(uint256(receiver))), guid, message, ""
         );
         vm.stopBroadcast();
