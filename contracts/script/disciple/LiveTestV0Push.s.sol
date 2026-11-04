@@ -74,7 +74,9 @@ contract LiveTestV0Push is Script {
         vm.startBroadcast();
         address ex = address(new DiscipleSelfExecutor());
         DisciplePushSender s =
-            new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSend(lib, ex, req, opt, th));
+            new DisciplePushSender(
+                ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSend(lib, ex, req, opt, th), V0.sendGas(true, true)
+            );
         vm.stopBroadcast();
         console2.log("PUSH_SENDER (Ethereum)", address(s));
     }

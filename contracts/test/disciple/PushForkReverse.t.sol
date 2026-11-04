@@ -19,7 +19,7 @@ import {IDisciplePriceTarget} from "../../src/disciple/routes/DiscipleSourceRead
 import {ILayerZeroEndpointV2Lite, Origin, LibConfig} from "../../src/disciple/routes/ILayerZeroEndpointV2Lite.sol";
 import {DiscipleRoutesV0 as V0} from "../../src/disciple/routes/DiscipleRoutesV0.sol";
 import {DiscipleSelfExecutor} from "../../src/disciple/routes/DiscipleSelfExecutor.sol";
-import {IEndpointFull, IReceiveUln, UlnConfigLite, BasefeeProbe} from "./PushFork.t.sol";
+import {IEndpointFull, IReceiveUln, UlnConfigLite} from "./PushFork.t.sol";
 
 /// @notice Two-fork test of the v0 Robinhood -> Ethereum LayerZero push (the mirror of PushFork), on the real
 ///         endpoints and libraries. Forks only: nothing is deployed on a live chain (maker: no Ethereum deploy
@@ -82,11 +82,11 @@ contract PushForkReverseTest is Test {
         emit log_string(lean ? "DVN set: lean (2 required)" : "DVN set: live (2 + 2 of 3)");
 
         // ---- Robinhood: sender with the rhSend config, zero-fee self-executor
-        vm.selectFork(rh);
+        _select(rh);
         address rhLib = IEndpointFull(V0.RH_ENDPOINT).defaultSendLibrary(V0.ETH_EID);
         (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.rhLeanDvns() : V0.rhLiveDvns();
         LibConfig[] memory cfg = V0.rhSend(rhLib, address(new DiscipleSelfExecutor()), req, opt, th);
-        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), cfg);
+        sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), cfg, V0.sendGas(lean, true));
         assertEq(
             keccak256(IEndpointFull(V0.RH_ENDPOINT).getConfig(address(sender), rhLib, V0.ETH_EID, 2)),
             keccak256(_resolved(cfg[0].params[0].config)),
@@ -96,7 +96,7 @@ contract PushForkReverseTest is Test {
         (uint256 a,) = sender.read(3, RH_POOL_MANAGER, v4Id);
 
         // ---- Ethereum: receiver + combined hook + a pool priced off the Robinhood source
-        vm.selectFork(eth);
+        _select(eth);
         _deployEthereum();
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(receiver), ethLib, V0.RH_EID, 2)),
@@ -110,7 +110,7 @@ contract PushForkReverseTest is Test {
         _syncRhClock();
         Packet memory p = _push();
         emit log_named_uint("LayerZero fee on Robinhood (wei)", p.fee);
-        vm.selectFork(eth);
+        _select(eth);
         vm.warp(uint256(p.observedAt) + 30); // 20 Robinhood blocks + DVNs + keeper
         _checkConfigIsEnforced(p);
         _verifyAndCommit(p, CONF);
@@ -142,7 +142,7 @@ contract PushForkReverseTest is Test {
         vm.warp(uint256(p.observedAt) + 59 minutes + 30);
         _syncRhClock();
         Packet memory hb = _push();
-        vm.selectFork(eth);
+        _select(eth);
         vm.warp(uint256(hb.observedAt) + 30);
         _verifyAndCommit(hb, CONF);
         uint256 kb = keeper.balance;
@@ -153,12 +153,12 @@ contract PushForkReverseTest is Test {
         emit log_named_uint("Ethereum execution gas, heartbeat", g - gasleft());
         assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 30, "heartbeat accepted");
-        uint256 cost = _cost(hb.message) + 150_000 * _bf();
+        uint256 cost = _cost(hb.message) + 150_000 * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
         assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + Robinhood gas + ETH delivery) * 1.2");
         emit log_named_uint("cost carried from Robinhood (LZ fee + measured gas)", _cost(hb.message));
         emit log_named_uint("keeper push gas on Robinhood", hb.gas);
-        emit log_named_uint("Ethereum basefee (wei)", _bf());
+        emit log_named_uint("Ethereum basefee (wei)", block.basefee);
         emit log_named_uint("refund paid on Ethereum (wei)", cost * 12 / 10);
     }
 
@@ -200,7 +200,7 @@ contract PushForkReverseTest is Test {
     }
 
     function _push() internal returns (Packet memory p) {
-        vm.selectFork(rh);
+        _select(rh);
         bytes32 to = bytes32(uint256(uint160(address(receiver))));
         DisciplePushSender.Req[] memory r = new DisciplePushSender.Req[](1);
         r[0].kind = 3;
@@ -282,7 +282,7 @@ contract PushForkReverseTest is Test {
 
     function _syncRhClock() internal {
         uint256 now_ = vm.getBlockTimestamp();
-        vm.selectFork(rh);
+        _select(rh);
         if (now_ > vm.getBlockTimestamp()) vm.warp(now_);
         vm.roll(block.number + 1);
     }
@@ -320,11 +320,11 @@ contract PushForkReverseTest is Test {
 
     receive() external payable {}
 
-    /// @dev The basefee a pranked caller's call sees (keepers push and deliver under vm.prank). Foundry 1.9.0 shows
-    ///      called contracts a basefee of 0 in that case although the test contract reads the fork block's value.
-    function _bf() internal returns (uint256) {
-        BasefeeProbe probe = new BasefeeProbe();
-        vm.prank(address(0xBEEF));
-        return probe.get();
+    /// @dev Select a fork and pin its basefee. Foundry 1.9.0 shows a forked block's basefee to the test contract and to
+    ///      view calls but gives state-changing calls a basefee of 0 unless vm.fee sets it (test/disciple/BasefeeDiag).
+    ///      The sender and the hook price gas at block.basefee, so without the pin their gas refunds come out 0.
+    function _select(uint256 fork) internal {
+        vm.selectFork(fork);
+        vm.fee(block.basefee);
     }
 }

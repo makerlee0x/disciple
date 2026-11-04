@@ -69,7 +69,9 @@ contract DeployV0Push is Script {
         (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.ethLeanDvns() : V0.ethLiveDvns();
         vm.startBroadcast();
         address ex = vm.envOr("SELF_EXECUTOR", uint256(1)) == 1 ? address(new DiscipleSelfExecutor()) : address(0);
-        s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSend(lib, ex, req, opt, th));
+        s = new DisciplePushSender(
+            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), V0.ethSend(lib, ex, req, opt, th), V0.sendGas(lean, ex != address(0))
+        );
         vm.stopBroadcast();
         console2.log("DiscipleSelfExecutor (Ethereum, 0 = paid executor)", ex);
         console2.log("DisciplePushSender (Ethereum)", address(s));
@@ -118,7 +120,9 @@ contract DeployV0Push is Script {
         (address[] memory req, address[] memory opt, uint8 th) = lean ? V0.rhLeanDvns() : V0.rhLiveDvns();
         vm.startBroadcast();
         address ex = vm.envOr("SELF_EXECUTOR", uint256(1)) == 1 ? address(new DiscipleSelfExecutor()) : address(0);
-        s = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), V0.rhSend(lib, ex, req, opt, th));
+        s = new DisciplePushSender(
+            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), V0.rhSend(lib, ex, req, opt, th), V0.sendGas(lean, ex != address(0))
+        );
         vm.stopBroadcast();
         console2.log("DiscipleSelfExecutor (Robinhood, 0 = paid executor)", ex);
         console2.log("DisciplePushSender (Robinhood)", address(s));
