@@ -7,7 +7,7 @@ from intledger import Ledger, Q128
 
 E18 = 10**18
 # op codes: 0 settle(mark, tvl, distribute)  1 swap(dx, dy)  2 deposit(owner, dx, dy)  3 withdraw(id, s, b)
-#           4 restake(id)  5 claim(id)
+#           4 restake(id)  5 claim(id)  6 poke(id) (a checkpoint: it changes rounding, so it is replayed too)
 
 
 def X(M):
@@ -39,6 +39,8 @@ def history(seed, steps=30):
             pass
         elif op == 5:
             L.claim(a)
+        elif op == 6:
+            return L.lot_view(a)
 
     for st in range(steps):
         do(0, M, tvl, 1)
@@ -60,14 +62,14 @@ def history(seed, steps=30):
             do(2, 1000 + st, amt, int(amt * Mf * 2))
         elif r < 0.75:
             i = R.choice(ids)
-            s, b, _ = L.lot_view(i)
+            s, b, _ = do(6, i)
             s, b = s * R.choice([0, 1, 2]) // 2, b * R.choice([0, 1, 3]) // 3
             if s + b > 0 and L.Sp + L.B - s - b >= 10**7:
                 do(0, M, tvl, 1)
                 do(3, i, s, b)
         elif r < 0.85:
             i = R.choice(ids)
-            if L.lot_view(i)[1] > 0:
+            if do(6, i)[1] > 0:
                 do(0, M, tvl, 1)
                 do(4, i)
         else:

@@ -22,6 +22,7 @@ contract LedgerHarness {
         else if (code == 3) bk.withdraw(uint256(a), bk.lots[uint256(a)].owner, uint256(b), uint256(c));
         else if (code == 4) bk.restake(uint256(a), bk.lots[uint256(a)].owner);
         else if (code == 5) bk.claim(uint256(a), bk.lots[uint256(a)].owner);
+        else if (code == 6) bk.poke(uint256(a));
     }
 
     function poke(uint256 id) external returns (uint256, uint256, uint256, uint256) {
