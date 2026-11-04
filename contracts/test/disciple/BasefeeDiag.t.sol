@@ -49,5 +49,22 @@ contract BasefeeDiagTest is Test {
         emit log_named_uint("11 after txGasPrice(basefee), state-changing call", a.write());
         vm.prank(address(0xBEEF));
         emit log_named_uint("12 after txGasPrice, call under prank", a.write());
+
+        // fork switching, as the push tests do
+        string memory rh = vm.envOr("FORK_RPC_RH", string(""));
+        if (bytes(rh).length == 0) return;
+        uint256 eth = vm.activeFork();
+        uint256 r = vm.createSelectFork(rh);
+        BasefeeReader c = new BasefeeReader();
+        emit log_named_uint("13 RH fork, test contract", block.basefee);
+        emit log_named_uint("14 RH fork, state-changing call", c.write());
+        vm.prank(address(0xBEEF));
+        emit log_named_uint("15 RH fork, call under prank", c.write());
+        vm.selectFork(eth);
+        emit log_named_uint("16 back on ETH, test contract", block.basefee);
+        emit log_named_uint("17 back on ETH, state-changing call", a.write());
+        vm.prank(address(0xBEEF));
+        emit log_named_uint("18 back on ETH, call under prank", a.write());
+        vm.selectFork(r);
     }
 }
