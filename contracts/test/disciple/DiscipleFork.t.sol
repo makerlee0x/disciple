@@ -38,6 +38,7 @@ interface IDec {
 ///           FORK_V3           comma list of v3 pool addresses (optional)
 ///           FORK_V4_IDS       comma list of v4 pool ids (optional; tokens found from the Initialize event)
 ///           FORK_V4_MANAGER   the chain's v4 PoolManager (defaults to Robinhood Chain's)
+///           FORK_V4_INIT_BLOCKS  each v4 pool's Initialize block, same order (optional; for capped eth_getLogs)
 ///           FORK_BLOCK        block to fork at (optional, default latest)
 contract DiscipleForkTest is Test {
     uint160 internal constant FLAGS = uint160(
@@ -101,8 +102,10 @@ contract DiscipleForkTest is Test {
         // the hook reads v4 sources through its own PoolManager, so it must sit on the chain's real one
         address pm = vm.envOr("FORK_V4_MANAGER", RH_POOL_MANAGER);
         require(pm.code.length > 0, "no PoolManager at FORK_V4_MANAGER on this chain");
+        // optional: each pool's Initialize block, for RPC plans that cap eth_getLogs ranges (Alchemy free: 10 blocks)
+        uint256[] memory initBlocks = vm.envOr("FORK_V4_INIT_BLOCKS", ",", new uint256[](0));
         for (uint256 i = 0; i < ids.length; i++) {
-            (address c0, address c1) = _v4Tokens(pm, ids[i]);
+            (address c0, address c1) = _v4Tokens(pm, ids[i], initBlocks.length > i ? initBlocks[i] : 0);
             Disciple.Source memory s;
             s.kind = 3;
             s.target = pm;
@@ -114,12 +117,14 @@ contract DiscipleForkTest is Test {
     // -----------------------------------------------------------------------------------------
 
     /// @dev currency0 / currency1 of a v4 pool from its Initialize event.
-    function _v4Tokens(address pm, bytes32 id) internal view returns (address c0, address c1) {
+    function _v4Tokens(address pm, bytes32 id, uint256 initBlock) internal view returns (address c0, address c1) {
         bytes32[] memory topics = new bytes32[](2);
         topics[0] = INITIALIZE_TOPIC;
         topics[1] = id;
         uint256 from = pm == RH_POOL_MANAGER ? RH_PM_BLOCK : 0;
-        Vm.EthGetLogs[] memory logs = vm.eth_getLogs(from, block.number, pm, topics);
+        uint256 to = block.number;
+        if (initBlock != 0) (from, to) = (initBlock, initBlock);
+        Vm.EthGetLogs[] memory logs = vm.eth_getLogs(from, to, pm, topics);
         require(logs.length == 1, "v4 pool id not found on this PoolManager");
         c0 = address(uint160(uint256(logs[0].topics[2])));
         c1 = address(uint160(uint256(logs[0].topics[3])));
