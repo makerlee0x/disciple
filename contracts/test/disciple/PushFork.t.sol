@@ -41,6 +41,15 @@ interface IReceiveUln {
 ///         Asserts: config stored on both libraries; too few DVNs or too few confirmations cannot commit; the price
 ///         opens the pool; a heartbeat is refunded; the endpoint refuses a second execution.
 ///         Skips unless FORK_RPC_ETH and FORK_RPC_RH are set. Env: PUSH_V2 (Ethereum v2 pair; default JESUS/WETH)
+struct UlnConfigLite {
+    uint64 confirmations;
+    uint8 requiredDVNCount;
+    uint8 optionalDVNCount;
+    uint8 optionalDVNThreshold;
+    address[] requiredDVNs;
+    address[] optionalDVNs;
+}
+
 contract PushForkTest is Test {
     bytes32 internal constant PACKET_SENT = keccak256("PacketSent(bytes,bytes,address)");
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
@@ -91,7 +100,7 @@ contract PushForkTest is Test {
         sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), cfg);
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(sender), ethLib, V0.RH_EID, 2)),
-            keccak256(cfg[0].params[0].config),
+            keccak256(_resolved(cfg[0].params[0].config)),
             "send config stored"
         );
         vm.deal(keeper, 10 ether);
@@ -102,7 +111,7 @@ contract PushForkTest is Test {
         _deployRobinhood();
         assertEq(
             keccak256(IEndpointFull(V0.RH_ENDPOINT).getConfig(address(receiver), rhLib, V0.ETH_EID, 2)),
-            keccak256(_rhCfg(rhLib)[0].params[0].config),
+            keccak256(_resolved(_rhCfg(rhLib)[0].params[0].config)),
             "receive config stored"
         );
 
@@ -354,6 +363,14 @@ contract PushForkTest is Test {
                 vm.roll(block.number + 1);
             }
         }
+    }
+
+    /// @dev The library stores an empty optional set as NIL (255) but getConfig reads it back as 0 optional DVNs.
+    function _resolved(bytes memory raw) internal pure returns (bytes memory) {
+        UlnConfigLite memory c = abi.decode(raw, (UlnConfigLite));
+        if (c.optionalDVNCount == type(uint8).max) c.optionalDVNCount = 0;
+        if (c.requiredDVNCount == type(uint8).max) c.requiredDVNCount = 0;
+        return abi.encode(c);
     }
 
     function _pushedCost() internal returns (uint256 c) {
