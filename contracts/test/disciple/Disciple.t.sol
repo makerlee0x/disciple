@@ -513,7 +513,9 @@ contract DiscipleTest is Test {
         address to = inbox.lastTo();
         bytes memory data = inbox.lastData();
         vm.prank(address(uint160(address(sender)) + uint160(0x1111000000000000000000000000000000001111)));
+        uint256 g = gasleft();
         (ok,) = to.call(data);
+        emit log_named_uint("bridge delivery gas (onBridgePrice)", g - gasleft());
     }
 
     function test_bridgePushOpensPoolAndUpdates() public {
