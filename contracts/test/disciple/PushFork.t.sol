@@ -70,6 +70,7 @@ contract PushForkTest is Test {
     Disciple hook;
     PoolId pid;
     address rhLib;
+    bool lean;
 
     function test_fork_pushEthereumToRobinhoodLz() public {
         string memory ethRpc = vm.envOr("FORK_RPC_ETH", string(""));
@@ -84,7 +85,9 @@ contract PushForkTest is Test {
         vm.selectFork(eth);
         address ethLib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
         // live DVN set, zero-fee self-executor: the keeper commits and executes on Robinhood itself
-        LibConfig[] memory cfg = _ethCfg(ethLib, address(new DiscipleSelfExecutor()), false);
+        lean = keccak256(bytes(vm.envOr("PUSH_DVNS", string("live")))) == keccak256("lean");
+        emit log_string(lean ? "DVN set: lean (2 required)" : "DVN set: live (2 + 2 of 3)");
+        LibConfig[] memory cfg = _ethCfg(ethLib, address(new DiscipleSelfExecutor()), lean);
         sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), cfg);
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(sender), ethLib, V0.RH_EID, 2)),
@@ -222,13 +225,14 @@ contract PushForkTest is Test {
     /// @dev Too few DVNs, or too few confirmations, cannot commit: the v0 config is what decides.
     function _checkConfigIsEnforced(Packet memory p) internal {
         bytes32 h = keccak256(abi.encodePacked(p.guid, p.message));
-        (address[] memory req,,) = V0.rhLiveDvns();
+        (address[] memory req,,) = _rhDvns();
         uint256 snap = vm.snapshotState();
-        for (uint256 i = 0; i < req.length; i++) {
+        // live: required only (optional threshold not met); lean: one of the two required missing
+        for (uint256 i = 0; i < (lean ? 1 : req.length); i++) {
             vm.prank(req[i]);
             IReceiveUln(rhLib).verify(p.header, h, 5);
         }
-        vm.expectRevert(); // optional threshold 2 not met
+        vm.expectRevert();
         IReceiveUln(rhLib).commitVerification(p.header, h);
         vm.revertToState(snap);
         snap = vm.snapshotState();
@@ -245,12 +249,12 @@ contract PushForkTest is Test {
 
     function _verifyAs(Packet memory p, uint64 conf) internal {
         bytes32 h = keccak256(abi.encodePacked(p.guid, p.message));
-        (address[] memory req, address[] memory opt,) = V0.rhLiveDvns();
+        (address[] memory req, address[] memory opt, uint8 th) = _rhDvns();
         for (uint256 i = 0; i < req.length; i++) {
             vm.prank(req[i]);
             IReceiveUln(rhLib).verify(p.header, h, conf);
         }
-        for (uint256 i = 0; i < 2; i++) {
+        for (uint256 i = 0; i < th; i++) {
             vm.prank(opt[i]);
             IReceiveUln(rhLib).verify(p.header, h, conf);
         }
@@ -276,9 +280,13 @@ contract PushForkTest is Test {
         return V0.ethSend(lib, executor, req, opt, th);
     }
 
-    function _rhCfg(address lib) internal pure returns (LibConfig[] memory) {
-        (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
+    function _rhCfg(address lib) internal view returns (LibConfig[] memory) {
+        (address[] memory req, address[] memory opt, uint8 th) = _rhDvns();
         return V0.rhReceive(lib, req, opt, th);
+    }
+
+    function _rhDvns() internal view returns (address[] memory, address[] memory, uint8) {
+        return lean ? V0.rhLeanDvns() : V0.rhLiveDvns();
     }
 
     /// @dev `sources` copies of the v2 source, each listing `perSource` pool ids.
