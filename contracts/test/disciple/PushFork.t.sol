@@ -5,6 +5,9 @@ import {_noKey} from "./NoKey.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
@@ -41,6 +44,15 @@ interface IReceiveUln {
 ///         Asserts: config stored on both libraries; too few DVNs or too few confirmations cannot commit; the price
 ///         opens the pool; a heartbeat is refunded; the endpoint refuses a second execution.
 ///         Skips unless FORK_RPC_ETH and FORK_RPC_RH are set. Env: PUSH_V2 (Ethereum v2 pair; default JESUS/WETH)
+struct UlnConfigLite {
+    uint64 confirmations;
+    uint8 requiredDVNCount;
+    uint8 optionalDVNCount;
+    uint8 optionalDVNThreshold;
+    address[] requiredDVNs;
+    address[] optionalDVNs;
+}
+
 contract PushForkTest is Test {
     bytes32 internal constant PACKET_SENT = keccak256("PacketSent(bytes,bytes,address)");
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
@@ -70,6 +82,10 @@ contract PushForkTest is Test {
     Disciple hook;
     PoolId pid;
     address rhLib;
+    bool lean;
+    PoolSwapTest swapper;
+    PoolKey key;
+    address quoteToken;
 
     function test_fork_pushEthereumToRobinhoodLz() public {
         string memory ethRpc = vm.envOr("FORK_RPC_ETH", string(""));
@@ -84,11 +100,13 @@ contract PushForkTest is Test {
         vm.selectFork(eth);
         address ethLib = IEndpointFull(V0.ETH_ENDPOINT).defaultSendLibrary(V0.RH_EID);
         // live DVN set, zero-fee self-executor: the keeper commits and executes on Robinhood itself
-        LibConfig[] memory cfg = _ethCfg(ethLib, address(new DiscipleSelfExecutor()), false);
+        lean = keccak256(bytes(vm.envOr("PUSH_DVNS", string("live")))) == keccak256("lean");
+        emit log_string(lean ? "DVN set: lean (2 required)" : "DVN set: live (2 + 2 of 3)");
+        LibConfig[] memory cfg = _ethCfg(ethLib, address(new DiscipleSelfExecutor()), lean);
         sender = new DisciplePushSender(ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), cfg);
         assertEq(
             keccak256(IEndpointFull(V0.ETH_ENDPOINT).getConfig(address(sender), ethLib, V0.RH_EID, 2)),
-            keccak256(cfg[0].params[0].config),
+            keccak256(_resolved(cfg[0].params[0].config)),
             "send config stored"
         );
         vm.deal(keeper, 10 ether);
@@ -99,7 +117,7 @@ contract PushForkTest is Test {
         _deployRobinhood();
         assertEq(
             keccak256(IEndpointFull(V0.RH_ENDPOINT).getConfig(address(receiver), rhLib, V0.ETH_EID, 2)),
-            keccak256(_rhCfg(rhLib)[0].params[0].config),
+            keccak256(_resolved(_rhCfg(rhLib)[0].params[0].config)),
             "receive config stored"
         );
 
@@ -123,7 +141,18 @@ contract PushForkTest is Test {
         vm.expectRevert();
         IEndpointFull(V0.RH_ENDPOINT).lzReceive(_origin(p), address(receiver), p.guid, p.message, "");
 
-        // ---- heartbeat, refunded from the tank
+        // ---- a trade, then the heartbeat: refunded from the tank (an idle pool's heartbeat pays nothing)
+        bool zf = Currency.unwrap(key.currency0) == quoteToken; // buy coin with quote
+        swapper.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: zf,
+                amountSpecified: -int256(1e18),
+                sqrtPriceLimitX96: zf ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
         vm.warp(uint256(p.observedAt) + 59 minutes + 30);
         _syncEthClock();
         Packet memory hb = _push();
@@ -175,7 +204,11 @@ contract PushForkTest is Test {
         s.remoteEid = V0.ETH_EID;
         s.push = true;
         vm.deal(address(this), 1 ether);
-        (, pid) = hook.createPool{value: 0.05 ether}(
+        swapper = new PoolSwapTest(m);
+        coin.approve(address(swapper), type(uint256).max);
+        quote.approve(address(swapper), type(uint256).max);
+        quoteToken = address(quote);
+        (key, pid) = hook.createPool{value: 0.05 ether}(
             Disciple.CreateParams({coin: address(coin), fee: 3000, src: s, coinIn: 1000e18, quoteIn: 1e29, srcKey: _noKey()})
         );
     }
@@ -222,13 +255,14 @@ contract PushForkTest is Test {
     /// @dev Too few DVNs, or too few confirmations, cannot commit: the v0 config is what decides.
     function _checkConfigIsEnforced(Packet memory p) internal {
         bytes32 h = keccak256(abi.encodePacked(p.guid, p.message));
-        (address[] memory req,,) = V0.rhLiveDvns();
+        (address[] memory req,,) = _rhDvns();
         uint256 snap = vm.snapshotState();
-        for (uint256 i = 0; i < req.length; i++) {
+        // live: required only (optional threshold not met); lean: one of the two required missing
+        for (uint256 i = 0; i < (lean ? 1 : req.length); i++) {
             vm.prank(req[i]);
             IReceiveUln(rhLib).verify(p.header, h, 5);
         }
-        vm.expectRevert(); // optional threshold 2 not met
+        vm.expectRevert();
         IReceiveUln(rhLib).commitVerification(p.header, h);
         vm.revertToState(snap);
         snap = vm.snapshotState();
@@ -245,12 +279,12 @@ contract PushForkTest is Test {
 
     function _verifyAs(Packet memory p, uint64 conf) internal {
         bytes32 h = keccak256(abi.encodePacked(p.guid, p.message));
-        (address[] memory req, address[] memory opt,) = V0.rhLiveDvns();
+        (address[] memory req, address[] memory opt, uint8 th) = _rhDvns();
         for (uint256 i = 0; i < req.length; i++) {
             vm.prank(req[i]);
             IReceiveUln(rhLib).verify(p.header, h, conf);
         }
-        for (uint256 i = 0; i < 2; i++) {
+        for (uint256 i = 0; i < th; i++) {
             vm.prank(opt[i]);
             IReceiveUln(rhLib).verify(p.header, h, conf);
         }
@@ -276,9 +310,13 @@ contract PushForkTest is Test {
         return V0.ethSend(lib, executor, req, opt, th);
     }
 
-    function _rhCfg(address lib) internal pure returns (LibConfig[] memory) {
-        (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
+    function _rhCfg(address lib) internal view returns (LibConfig[] memory) {
+        (address[] memory req, address[] memory opt, uint8 th) = _rhDvns();
         return V0.rhReceive(lib, req, opt, th);
+    }
+
+    function _rhDvns() internal view returns (address[] memory, address[] memory, uint8) {
+        return lean ? V0.rhLeanDvns() : V0.rhLiveDvns();
     }
 
     /// @dev `sources` copies of the v2 source, each listing `perSource` pool ids.
@@ -346,6 +384,14 @@ contract PushForkTest is Test {
                 vm.roll(block.number + 1);
             }
         }
+    }
+
+    /// @dev The library stores an empty optional set as NIL (255) but getConfig reads it back as 0 optional DVNs.
+    function _resolved(bytes memory raw) internal pure returns (bytes memory) {
+        UlnConfigLite memory c = abi.decode(raw, (UlnConfigLite));
+        if (c.optionalDVNCount == type(uint8).max) c.optionalDVNCount = 0;
+        if (c.requiredDVNCount == type(uint8).max) c.requiredDVNCount = 0;
+        return abi.encode(c);
     }
 
     function _pushedCost() internal returns (uint256 c) {
