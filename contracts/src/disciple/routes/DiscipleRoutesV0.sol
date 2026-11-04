@@ -44,6 +44,13 @@ library DiscipleRoutesV0 {
     /// @dev DisciplePushSender.sendGas per config: gas of endpoint.send not visible to the sender's own measurement,
     ///      for a transaction starting cold (as on chain). Ethereum fork, Foundry 1.9.0, 2026-11-04, sized so the
     ///      carried gas is at or just above the measured gas for 1 source (test_fork_quoteMatrix).
+    /// @dev DisciplePushReceiver.msgGas per receive DVN set: the keeper's commitVerification transaction (grows with
+    ///      the DVNs checked) plus the fixed part of its lzReceive transaction. Ethereum fork, Foundry 1.9.0,
+    ///      2026-11-04 (test_fork_destinationCost).
+    function destMsgGas(bool lean) internal pure returns (uint256) {
+        return lean ? 225_000 : 249_000;
+    }
+
     function sendGas(bool lean, bool selfExecutor) internal pure returns (uint256) {
         if (lean) return selfExecutor ? 127_000 : 148_000;
         return selfExecutor ? 190_000 : 211_000;

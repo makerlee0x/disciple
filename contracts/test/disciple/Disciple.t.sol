@@ -194,7 +194,7 @@ contract DiscipleTest is Test {
         bool[] memory eth = new bool[](2);
         (eids[0], senders[0], eth[0]) = (HOME_EID, from, true);
         (eids[1], senders[1], eth[1]) = (HYPE_EID, from, false);
-        r = new DisciplePushReceiver(local, eids, senders, eth, new LibConfig[](0));
+        r = new DisciplePushReceiver(local, eids, senders, eth, new LibConfig[](0), 100_000);
     }
 
     function _fund(address who, uint256 amt) internal {
@@ -634,7 +634,8 @@ contract DiscipleTest is Test {
         uint256 carried = _msgCost(home.lastMessage());
         assertGt(carried, home.FEE() + 50_000 * 5 gwei, "home gas is counted");
         assertLt(carried, home.FEE() + 250_000 * 5 gwei);
-        uint256 cost = carried + 150_000 * 5 gwei;
+        uint256 cost = carried + (receiver.msgGas() + receiver.POOL_GAS()) * 5 gwei;
+        if (cost > 0.002 ether) cost = 0.002 ether; // the hook's per-refund cap (MAX_PUSH_REFUND)
         assertEq(address(k).balance, 1 ether - home.FEE() + cost * 12 / 10, "refund = cost * 1.2");
     }
 
@@ -802,7 +803,7 @@ contract DiscipleTest is Test {
         vm.warp(vm.getBlockTimestamp() + 30);
         uint256 carried = _msgCost(home.lastMessage());
         local.deliver(address(receiver), HOME_EID, address(pushSender), home.lastMessage());
-        uint256 each = (carried / 4 + 150_000 * 1 gwei) * 12 / 10;
+        uint256 each = (carried / 4 + (receiver.msgGas() / 4 + receiver.POOL_GAS()) * 1 gwei) * 12 / 10;
         assertEq(t1 - hook.poolState(p1).tank, each, "p1 pays one share (its wrong-source listing is ignored)");
         assertEq(address(k).balance, b0 - home.FEE() + 3 * each, "three accepted listings refunded");
         emit log_named_uint("home cost carried for 2 sources / 4 listings (wei at 1 gwei)", carried);
@@ -840,7 +841,7 @@ contract DiscipleTest is Test {
         // takeover: someone other than the sending keeper delivers on the destination
         vm.prank(address(0xD311));
         local.deliver(address(receiver), HOME_EID, address(pushSender), m);
-        uint256 each = (carried / 2 + 150_000 * 1 gwei) * 12 / 10;
+        uint256 each = (carried / 2 + (receiver.msgGas() / 2 + receiver.POOL_GAS()) * 1 gwei) * 12 / 10;
         assertEq(t0 - hook.poolState(id).tank, each, "one listing refunded");
         assertEq(address(k).balance, 1 ether - lzFee + each, "the sending keeper is paid, not the deliverer");
         assertEq(address(0xD311).balance, 0);

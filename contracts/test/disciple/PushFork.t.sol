@@ -166,7 +166,7 @@ contract PushForkTest is Test {
         emit log_named_uint("Robinhood execution gas, heartbeat", g - gasleft());
         assertEq(other.balance, 0, "the deliverer is not paid; the sending keeper is");
         assertEq(hook.poolState(pid).ageOrBlock, 75, "heartbeat accepted");
-        uint256 cost = _cost(hb.message) + 150_000 * block.basefee;
+        uint256 cost = _cost(hb.message) + (receiver.msgGas() + receiver.POOL_GAS()) * block.basefee;
         if (cost > 0.002 ether) cost = 0.002 ether;
         assertEq(keeper.balance - kb, cost * 12 / 10, "keeper refunded (LZ fee + measured gas + RH delivery) * 1.2");
         emit log_named_uint("cost carried (LZ fee + measured Ethereum gas)", _cost(hb.message));
@@ -185,7 +185,7 @@ contract PushForkTest is Test {
         bool[] memory ethGas = new bool[](1);
         (eids[0], senders[0], ethGas[0]) = (V0.ETH_EID, address(sender), true);
         receiver = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, ethGas, _rhCfg(rhLib)
+            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, ethGas, _rhCfg(rhLib), V0.destMsgGas(lean)
         );
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("WETH", "WETH", 18);

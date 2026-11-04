@@ -94,7 +94,7 @@ contract DeployV0Push is Script {
         (address[] memory req, address[] memory opt, uint8 th) = V0.rhLiveDvns();
         if (lean) (req, opt, th) = V0.rhLeanDvns();
         LibConfig[] memory cfg = V0.rhReceive(lib, req, opt, th);
-        r = new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg);
+        r = new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg, V0.destMsgGas(lean));
         // same-chain sources on Robinhood: v4 only unless a v2 / v3 factory is given
         address v2f = vm.envOr("V2_FACTORY", address(0));
         address v3f = vm.envOr("V3_FACTORY", address(0));
@@ -146,7 +146,7 @@ contract DeployV0Push is Script {
 
         vm.startBroadcast();
         r = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th)
+            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th), V0.destMsgGas(lean)
         );
         bytes memory args = abi.encode(pm, address(r), v2f, v3f, weth);
         (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, FLAGS, type(Disciple).creationCode, args);

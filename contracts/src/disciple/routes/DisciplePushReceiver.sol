@@ -26,6 +26,13 @@ contract DisciplePushReceiver {
 
     mapping(uint32 eid => bytes32 sender) public peers;
     mapping(uint32 eid => bool) public ethGas;
+    /// @dev This chain's keeper gas per message, shared by its listed pools: the keeper's commitVerification
+    ///      transaction plus the fixed part of its lzReceive transaction (each with 21k and calldata). Depends on the
+    ///      receive DVN set, so it is set at construction: DiscipleRoutesV0.destMsgGas.
+    uint256 public immutable msgGas;
+    /// @dev This chain's keeper gas per listed pool inside lzReceive (the hook's delivery, its refund transfer and
+    ///      the pool's calldata). Ethereum fork, Foundry 1.9.0 (cold, as on chain), 2026-11-04.
+    uint256 public constant POOL_GAS = 157_000;
 
     error OnlyEndpoint();
     error UnknownPeer();
@@ -44,9 +51,11 @@ contract DisciplePushReceiver {
         uint32[] memory eids,
         address[] memory senders,
         bool[] memory ethGas_,
-        LibConfig[] memory config
+        LibConfig[] memory config,
+        uint256 msgGas_
     ) {
         endpoint = endpoint_;
+        msgGas = msgGas_;
         owner = msg.sender;
         if (eids.length != senders.length || eids.length != ethGas_.length) revert BadPeer();
         for (uint256 i = 0; i < eids.length; i++) {
@@ -117,7 +126,10 @@ contract DisciplePushReceiver {
         for (uint256 i = 0; i < obs.length; i++) {
             n += obs[i].pools.length;
         }
-        uint256 share = ethGas[o.srcEid] && n > 0 ? cost / n : 0;
+        if (n == 0) return;
+        // each listed pool: its share of the home-chain cost (ETH-gas homes only) plus this chain's delivery cost,
+        // the per-message part split evenly; the pool refunds it (* 1.2) only if it accepts the price
+        uint256 share = (ethGas[o.srcEid] ? cost / n : 0) + (msgGas / n + POOL_GAS) * block.basefee;
         for (uint256 i = 0; i < obs.length; i++) {
             Obs memory x = obs[i];
             for (uint256 j = 0; j < x.pools.length; j++) {

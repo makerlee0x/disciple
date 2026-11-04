@@ -93,7 +93,7 @@ contract LiveTestV0Push is Script {
         (eids[0], senders[0], eth[0]) = (V0.RH_EID, pushSender, true);
         vm.startBroadcast();
         DisciplePushReceiver r = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th)
+            ILayerZeroEndpointV2Lite(V0.ETH_ENDPOINT), eids, senders, eth, V0.ethReceive(lib, req, opt, th), V0.destMsgGas(true)
         );
         PriceRecorder rec = new PriceRecorder(address(r));
         r.bind(IDisciplePriceTarget(address(rec)));
@@ -134,7 +134,7 @@ contract LiveTestV0Push is Script {
         (eids[0], senders[0], eth[0]) = (V0.ETH_EID, pushSender, true);
         vm.startBroadcast();
         DisciplePushReceiver r = new DisciplePushReceiver(
-            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, V0.rhReceive(lib, req, opt, th)
+            ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, V0.rhReceive(lib, req, opt, th), V0.destMsgGas(true)
         );
         PriceRecorder rec = new PriceRecorder(address(r));
         r.bind(IDisciplePriceTarget(address(rec)));

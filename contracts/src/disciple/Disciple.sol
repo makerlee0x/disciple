@@ -92,9 +92,6 @@ contract Disciple is IHooks, IUnlockCallback {
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
     /// @dev Cap on one push refund, so a gas spike on the home chain cannot drain the tank.
     uint256 internal constant MAX_PUSH_REFUND = 0.002 ether;
-    /// @dev This chain's gas for delivering a pushed price to one pool (the keeper's own LayerZero commit + execute),
-    ///      added to the keeper's cost at this chain's basefee. The sender's figure covers only the home-chain side.
-    uint256 internal constant PUSH_L2_GAS = 150_000;
 
     // ---------------------------------------------------------------------------------------------
     // Storage
@@ -554,7 +551,6 @@ contract Disciple is IHooks, IUnlockCallback {
             (price, tvl) = _shift(s.decShift, price, tvl);
         }
         uint256 ageAtSend = p.live && observedAt > p.obsAt ? observedAt - p.obsAt : 0;
-        keeperCost += PUSH_L2_GAS * block.basefee;
         if (keeperCost > MAX_PUSH_REFUND) keeperCost = MAX_PUSH_REFUND;
         _accept(p, id, price, tvl, observedAt, keeper, keeperCost, ageAtSend, PUSH_RECOVERY_AGE);
         _locked = false;
