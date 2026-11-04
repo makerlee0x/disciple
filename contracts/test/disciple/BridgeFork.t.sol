@@ -204,7 +204,7 @@ contract BridgeForkTest is Test {
                     abi.decode(logs[i].data, (address, uint8, address, bytes32, uint256, uint64));
                 assertEq(inbox, RH_INBOX);
                 assertEq(kind, 9, "L1MessageType_submitRetryableTx");
-                assertEq(from, address(sender), "bridge records the sender (aliased on the rollup)");
+                assertEq(from, address(uint160(address(sender)) + ALIAS), "bridge records the aliased sender");
                 bridgeHash = h;
             }
         }
