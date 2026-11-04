@@ -40,7 +40,7 @@ library DiscipleSwapMath {
     uint256 internal constant EXP_SLACK = 2;
     /// @dev expWad reverts at or above this input.
     uint256 internal constant EXP_MAX = 135305999368893231589;
-    /// @dev expWad(-x) returns 0 at or beyond this x.
+    /// @dev expWad(-x) returns 0 at or beyond this x (used by the pow helpers).
     uint256 internal constant EXP_ZERO = 41446531673892822313;
 
     error TradeTooLarge();
@@ -147,13 +147,13 @@ library DiscipleSwapMath {
     // Pricing inputs
     // ---------------------------------------------------------------------------------------------
 
-    /// @notice H = 1 + h0 * exp(-elapsed / tau), WAD, rounded up. h0 == 0 turns the premium off.
+    /// @notice H = 1 + h0 * (1 - elapsed / tau) for elapsed < tau, else 1. WAD, rounded up (linear fade).
+    ///         h0 == 0 turns the premium off.
     function premium(uint256 h0, uint256 tau, uint256 elapsed) internal pure returns (uint256) {
         if (h0 == 0) return WAD;
         if (tau == 0) revert BadParams();
-        uint256 x = Math.mulDiv(elapsed, WAD, tau);
-        if (x >= EXP_ZERO) return WAD + 1;
-        return WAD + Math.mulDiv(h0, uint256(FPM.expWad(-int256(x))) + EXP_SLACK, WAD, Math.Rounding.Ceil);
+        if (elapsed >= tau) return WAD;
+        return WAD + Math.mulDiv(h0, tau - elapsed, tau, Math.Rounding.Ceil);
     }
 
     /// @notice G = H / (1 - f), WAD, rounded up. Fee in pips.

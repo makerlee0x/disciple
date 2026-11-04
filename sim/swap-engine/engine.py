@@ -107,11 +107,10 @@ def sell_exact_out(u0, v0, k, p, w):
 
 # ---- pricing inputs ----------------------------------------------------------------------
 def premium(h0, tau, elapsed):
-    """H = 1 + h0 * exp(-elapsed/tau), WAD, rounded up."""
+    """H = 1 + h0 * (1 - elapsed/tau) for elapsed < tau, else 1. WAD, rounded up (linear fade)."""
     if h0 == 0: return WAD
-    x = elapsed * WAD // tau
-    if x >= 41446531673892822313: return WAD + 1
-    return WAD + mulDivUp(h0, expWad(-x) + EXP_SLACK, WAD)
+    if elapsed >= tau: return WAD
+    return WAD + mulDivUp(h0, tau - elapsed, tau)
 
 def markup(H, fee):
     """G = H / (1 - f), fee in pips (1e6 = 100%), rounded up."""

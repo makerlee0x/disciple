@@ -108,9 +108,11 @@ contract DiscipleSwapMathTest is Test {
         assertEq(h.premium(0, 30, 0), WAD, "off");
         assertGe(h.premium(h0, 30, 0), WAD + h0, "fresh: full 4%");
         assertLe(h.premium(h0, 30, 0), WAD + h0 + 1);
-        // after one tau: 4% / e = 1.4715...%
-        assertApproxEqAbs(h.premium(h0, 30, 30), WAD + 14715177646857694, 1e3);
-        assertEq(h.premium(h0, 30, 1 days), WAD + 1, "decayed: within a wei of 1x");
+        // linear fade: half way through, half the premium; gone at tau and after
+        assertEq(h.premium(h0, 30, 15), WAD + h0 / 2, "half way");
+        assertEq(h.premium(h0, 30, 29), WAD + Math.mulDiv(h0, 1, 30, Math.Rounding.Ceil), "last second");
+        assertEq(h.premium(h0, 30, 30), WAD, "faded at tau");
+        assertEq(h.premium(h0, 30, 1 days), WAD, "faded");
         assertGe(h.premium(h0, 30, 10), h.premium(h0, 30, 11), "never rises with time");
     }
 

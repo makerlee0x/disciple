@@ -34,7 +34,9 @@ for i, s, x, y, a, C, H, T, ideal in ROWS:
     u, v, amt = int(D(x) * E), int(D(y) * E), int(D(a) * E)
     TX = Q128 * T; pref = int(D(C) * T * Q128)
     fee = 10_000 if i in ("T10", "T20") else 3_000
-    Hw = premium(4 * 10**16, 30, 30) if H == "age30" else int(D(H) * E)
+    # GPT's age30 rows used the old exponential fade: H = 1 + 0.04/e. Kept as a literal so the vectors stay
+    # GPT's independent numbers after the premium became linear (they now just exercise an arbitrary H).
+    Hw = WAD + 14715177646857693 if H == "age30" else int(D(H) * E)
     G = mulDivUp(Hw, 10**6 + fee, 10**6)
     ask, bid = mulDiv(pref, 10**6, 10**6 - fee), mulDiv(pref, 10**6 - fee, 10**6)
     kb, ks = slopes(pref, TX, G); pa, pb = match_bounds(ask, bid, 1)
