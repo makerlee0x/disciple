@@ -68,13 +68,16 @@ contract DeployV0Push is Script {
         if (lean) (req, opt, th) = V0.rhLeanDvns();
         LibConfig[] memory cfg = V0.rhReceive(lib, req, opt, th);
         r = new DisciplePushReceiver(ILayerZeroEndpointV2Lite(V0.RH_ENDPOINT), eids, senders, eth, cfg);
-        bytes memory args = abi.encode(pm, quote, ILzRead(address(0)), address(0), address(r));
+        // same-chain sources on Robinhood: v4 only unless a v2 / v3 factory is given
+        address v2f = vm.envOr("V2_FACTORY", address(0));
+        address v3f = vm.envOr("V3_FACTORY", address(0));
+        bytes memory args = abi.encode(pm, quote, ILzRead(address(0)), address(0), address(r), v2f, v3f);
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
         (address want, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(Disciple).creationCode, args);
-        hook = new Disciple{salt: salt}(pm, quote, ILzRead(address(0)), address(0), address(r));
+        hook = new Disciple{salt: salt}(pm, quote, ILzRead(address(0)), address(0), address(r), v2f, v3f);
         require(address(hook) == want, "hook address");
         r.bind(IDisciplePriceTarget(address(hook)));
         vm.stopBroadcast();
