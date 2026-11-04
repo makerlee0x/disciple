@@ -28,12 +28,22 @@ contract DiscipleForkLocalTest is DiscipleForkTest {
         _local(18, 600e18);
     }
 
+    /// @dev A $2.4M seed beside a thin 6-decimal source graduates at once (the fork's WETH/USDG case): the earning
+    ///      is paid out as claims, not compounded.
+    function test_local_v2PipelineGraduatesAtSeed() public {
+        _localWith(5000e18, 6, 12_000_000e6);
+    }
+
     function _local(uint8 qd, uint256 quoteDepth) internal {
+        _localWith(1_000_000e18, qd, quoteDepth);
+    }
+
+    function _localWith(uint256 coinDepth, uint8 qd, uint256 quoteDepth) internal {
         IPoolManager m = IPoolManager(address(new PoolManager(address(this))));
         MockERC20 a = new MockERC20("COIN", "COIN", 18);
         MockERC20 b = new MockERC20("QUOTE", "QUOTE", qd);
         ForkDryRunPair pair = new ForkDryRunPair(address(a), address(b));
-        a.mint(address(pair), 1_000_000e18);
+        a.mint(address(pair), coinDepth);
         b.mint(address(pair), quoteDepth);
         pair.sync();
         LocalV2Factory f = new LocalV2Factory();

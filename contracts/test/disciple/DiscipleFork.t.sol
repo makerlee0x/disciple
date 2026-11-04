@@ -413,9 +413,20 @@ contract DiscipleForkTest is Test {
         uint256 wAll = 41e17 * total + 12e17 * b;
         uint256 principalValue = Math.mulDiv(vNow - earn, sh, total + b);
         uint256 expected = principalValue + Math.mulDiv(earn, wLp, wAll);
-        (, uint256 ls, uint256 lb,,) = hook.lotState(id, lot);
+        (, uint256 ls, uint256 lb, uint256 cx, uint256 cy) = hook.lotState(id, lot);
         uint256 st = v.principal + v.compounded;
         uint256 entitled = Math.mulDiv(vNow, ls + lb, st);
+        if (v.graduated) {
+            // Graduated (a big seed beside a thin source can graduate at once): the earning leaves the reserves.
+            // The creator takes 12%, LPs get 88% boost-weighted as escrowed claims; shares keep the principal.
+            uint256 claimV = Math.mulDiv(cx, v.anchorX128, Q128) + cy;
+            uint256 wantClaim = Math.mulDiv(earn * 88 / 100, wLp, wAll);
+            emit log_named_decimal_uint("  graduated: LP claim / expected (1e18 = exact)", claimV * 1e18 / wantClaim, 18);
+            assertApproxEqAbs(entitled, Math.mulDiv(vNow, sh, total + b), 4 + entitled / 1e12, "graduated: shares = principal");
+            assertApproxEqRel(claimV, wantClaim, 1e15, "graduated: LP claim = 88% of its weighted earning");
+            assertLe(claimV, wantClaim + 2, "rounding never favours the LP");
+            return; // the drain-and-reconcile below assumes a pool that graduates later
+        }
         emit log_named_decimal_uint("  LP entitlement / expected (1e18 = exact)", entitled * 1e18 / expected, 18);
         emit log_named_decimal_uint(
             "  LP share of the earning (boost-weighted)", Math.mulDiv(1e18, wLp, wAll), 18
