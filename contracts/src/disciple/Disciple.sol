@@ -17,6 +17,7 @@ import {CurrencySettler} from "../libraries/CurrencySettler.sol";
 import {DiscipleSwapMath as SM} from "./libraries/DiscipleSwapMath.sol";
 import {DisciplePrice as PR} from "./libraries/DisciplePrice.sol";
 import {DiscipleLedger as LG} from "./libraries/DiscipleLedger.sol";
+import {DiscipleDepth as DP} from "./libraries/DiscipleDepth.sol";
 import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 
 interface IV2PairLike {
@@ -84,6 +85,9 @@ contract Disciple is IHooks, IUnlockCallback {
     uint256 internal constant MATCH_EDGE_BPS = 1;
     /// @dev Pool fee bounds, in pips.
     uint24 internal constant MAX_FEE = 100_000;
+    /// @dev v4 source depth counter: storage reads per block (first touch) and at createPool (creator pays).
+    uint256 internal constant WALK_STEPS = 4;
+    uint256 internal constant WALK_INIT_STEPS = 256;
     /// @dev A recovering pushed price may be this old on arrival.
     uint256 internal constant PUSH_RECOVERY_AGE = 20 minutes;
     /// @dev Cap on one push refund, so a gas spike on the home chain cannot drain the tank.
@@ -130,7 +134,9 @@ contract Disciple is IHooks, IUnlockCallback {
         uint64 sampleBlock;
         uint256 premRefX128; // same chain premium reset reference
         uint64 premAt;
-        uint256 srcTvl; // source TVL in quote raw (graduation)
+        uint256 srcTvl; // source TVL in quote raw (graduation); 0 = not known yet
+        address x; // same chain: leg 1's other token (the quote, or X for two-hop)
+        DP.Walk walk; // same-chain v4 leg 1: the depth counter that measures its TVL
         uint256 tank; // ETH for refreshes
         uint256 seedX; // cross chain: creator's seed, held until the first price
         uint256 seedY;
@@ -253,7 +259,8 @@ contract Disciple is IHooks, IUnlockCallback {
             revert BadParams();
         }
 
-        if (s.remoteEid == 0) _checkSource(cp);
+        address x1;
+        if (s.remoteEid == 0) x1 = _checkSource(cp);
 
         bool coinIs0 = cp.coin < quote;
         (address c0, address c1) = coinIs0 ? (cp.coin, quote) : (quote, cp.coin);
@@ -279,8 +286,15 @@ contract Disciple is IHooks, IUnlockCallback {
 
         if (s.remoteEid == 0) {
             if (msg.value != 0) revert SameChain();
-            (uint256 spot,,) = _sourceSpot(p);
+            p.x = x1;
+            if (s.kind == SRC_V4) {
+                // the creator pays for a first full count; most pools finish inside it
+                p.walk.spacing = cp.srcKey.tickSpacing;
+                BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_INIT_STEPS);
+            }
+            (uint256 spot,, uint256 s1) = _sourceSpot(p);
             if (spot == 0) revert NoAnchor();
+            p.srcTvl = _sourceTvl(p, s1, spot);
             p.sampleX128 = spot;
             p.sampleBlock = uint64(block.number);
             p.anchorX128 = spot;
@@ -305,10 +319,12 @@ contract Disciple is IHooks, IUnlockCallback {
     /// @dev A same-chain source is real pools only: leg 1 holds the coin and X (the quote when there is no leg 2),
     ///      leg 2 holds X and the quote, each oriented as the source says. v2 / v3 are checked through their factory,
     ///      v4 through its key (never one of this hook's own pools). Native ETH counts as `weth`.
-    function _checkSource(CreateParams calldata cp) internal view {
+    function _checkSource(CreateParams calldata cp) internal view returns (address x1) {
         Source calldata s = cp.src;
-        (address a, address x) = _legTokens(s.kind, s.target, s.v4Id, cp.srcKey, s.coinIs0);
+        address a;
+        (a, x1) = _legTokens(s.kind, s.target, s.v4Id, cp.srcKey, s.coinIs0);
         if (a != cp.coin) revert BadParams();
+        address x = x1;
         if (s.kind2 != 0) {
             (address x2, address q) = _legTokens(s.kind2, s.target2, s.v4Id2, cp.srcKey2, s.xIs0);
             if (x2 != x) revert BadParams();
@@ -470,10 +486,13 @@ contract Disciple is IHooks, IUnlockCallback {
     ///      an earlier block as the anchor and settle the last interval at it. Then sample the live source for the
     ///      next block. Returns the live spot and the source fee for the match boundary.
     function _latchSame(Pool storage p) internal returns (uint256 spot, uint24 srcFee) {
-        uint256 tvl;
-        (spot, srcFee, tvl) = _sourceSpot(p);
+        uint256 s1;
+        (spot, srcFee, s1) = _sourceSpot(p);
         if (spot == 0) revert NoAnchor();
         if (p.sampleBlock < block.number) {
+            Source storage s = p.src;
+            if (s.kind == SRC_V4) BK.walk(p.walk, poolManager, PoolId.wrap(s.v4Id), WALK_STEPS);
+            uint256 tvl = _sourceTvl(p, s1, spot);
             p.anchorX128 = p.sampleX128;
             p.srcTvl = tvl;
             BK.settle(p.book, p.anchorX128, tvl, true);
@@ -690,6 +709,7 @@ contract Disciple is IHooks, IUnlockCallback {
         bool live;
         bool local;
         bool graduated;
+        bool creatorOn;
         uint256 coinReserve;
         uint256 quoteReserve;
         uint256 anchorX128;
@@ -709,6 +729,7 @@ contract Disciple is IHooks, IUnlockCallback {
         v.live = p.live;
         v.local = p.local;
         v.graduated = b.graduated;
+        v.creatorOn = b.creatorOn;
         v.coinReserve = b.x;
         v.quoteReserve = b.y;
         v.anchorX128 = p.anchorX128;
@@ -734,41 +755,63 @@ contract Disciple is IHooks, IUnlockCallback {
     // Source reads
     // ---------------------------------------------------------------------------------------------
 
-    /// @dev Same-chain source spot (X128 quote raw per coin raw), its fee in pips, and TVL in quote raw. Two-hop:
-    ///      spot = leg 1 x leg 2, fee = both legs' fees compounded (rounded up), TVL = leg 1's, converted at leg 2.
-    function _sourceSpot(Pool storage p) internal view returns (uint256 spot, uint24 fee, uint256 tvl) {
+    /// @dev Same-chain source spot (X128 quote raw per coin raw), its fee in pips, and leg 1's own spot (X raw
+    ///      per coin raw). Two-hop: spot = leg 1 x leg 2, fee = both legs' fees compounded (rounded up).
+    function _sourceSpot(Pool storage p) internal view returns (uint256 spot, uint24 fee, uint256 s1) {
         Source storage s = p.src;
-        (spot, fee, tvl) = _leg(s.kind, s.target, s.v4Id, s.coinIs0);
+        (spot, fee) = _leg(s.kind, s.target, s.v4Id, s.coinIs0);
+        s1 = spot;
         if (s.kind2 != 0) {
-            (uint256 s2, uint24 f2,) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
+            (uint256 s2, uint24 f2) = _leg(s.kind2, s.target2, s.v4Id2, s.xIs0);
             spot = Math.mulDiv(spot, s2, Q128);
-            tvl = Math.mulDiv(tvl, s2, Q128);
             uint256 f = uint256(fee) + f2 - uint256(fee) * f2 / 1e6;
             fee = f >= 1e6 ? 999_999 : uint24(f);
         }
     }
 
-    /// @dev One pool's spot (X128 other raw per base raw), fee in pips (v2: Uniswap's 0.3%), TVL in other raw.
+    /// @dev One pool's spot (X128 other raw per base raw) and fee in pips (v2: Uniswap's 0.3%).
     function _leg(uint8 kind, address target, bytes32 v4Id, bool baseIs0)
         internal
         view
-        returns (uint256 spot, uint24 fee, uint256 tvl)
+        returns (uint256 spot, uint24 fee)
     {
         if (kind == SRC_V2) {
             (uint112 r0, uint112 r1,) = IV2PairLike(target).getReserves();
-            (spot, tvl) = _v2(r0, r1, baseIs0);
+            (spot,) = _v2(r0, r1, baseIs0);
             fee = 3000;
         } else if (kind == SRC_V3) {
             (uint160 sqrtP,,,,,,) = IV3PoolLike(target).slot0();
-            (spot, tvl) = _concentrated(sqrtP, IV3PoolLike(target).liquidity(), baseIs0);
+            (spot,) = _concentrated(sqrtP, 0, baseIs0);
             fee = IV3PoolLike(target).fee();
         } else {
-            PoolId pid = PoolId.wrap(v4Id);
-            (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(poolManager, pid);
-            (spot, tvl) = _concentrated(sqrtP, StateLibrary.getLiquidity(poolManager, pid), baseIs0);
+            (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(poolManager, PoolId.wrap(v4Id));
+            (spot,) = _concentrated(sqrtP, 0, baseIs0);
             fee = lpFee;
         }
         if (fee >= 1e6) fee = 999_999;
+    }
+
+    /// @dev Same-chain source TVL in quote raw: the real tokens in leg 1, valued at leg 1's spot `s1`, converted to
+    ///      the quote at the full spot for two-hop. v2: its reserves. v3: the pool's token balances (what Uniswap
+    ///      shows; unclaimed fees make it read slightly high). v4: the depth counter's last finished pass (0 until
+    ///      the first pass finishes, which leaves graduation as it is).
+    function _sourceTvl(Pool storage p, uint256 s1, uint256 spot) internal view returns (uint256 tvl) {
+        Source storage s = p.src;
+        uint256 b;
+        uint256 o;
+        if (s.kind == SRC_V2) {
+            (uint112 r0, uint112 r1,) = IV2PairLike(s.target).getReserves();
+            (b, o) = s.coinIs0 ? (r0, r1) : (r1, r0);
+        } else if (s.kind == SRC_V3) {
+            b = IERC20Minimal(p.coin).balanceOf(s.target);
+            o = IERC20Minimal(p.x).balanceOf(s.target);
+        } else {
+            DP.Walk storage w = p.walk;
+            if (!w.done) return 0;
+            (b, o) = s.coinIs0 ? (w.tot0, w.tot1) : (w.tot1, w.tot0);
+        }
+        tvl = Math.mulDiv(b, s1, Q128) + o;
+        if (s.kind2 != 0) tvl = Math.mulDiv(tvl, spot, s1);
     }
 
     function _v2(uint256 r0, uint256 r1, bool coinIs0) internal pure returns (uint256 spot, uint256 tvl) {

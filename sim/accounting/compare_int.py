@@ -26,6 +26,8 @@ def run(seed, steps=40):
     worst = 0.0
     for st in range(steps):
         blk += 1
+        if R.random() < 0.15:  # source TVL moves, so graduation can turn on and off again
+            tvl = Fr(R.choice([10**6, 20000, 8000, 3000]))
         # block boundary: settle the old block at its mark, then latch the new mark
         P.settle(M, tvl); Q.settle(X(M), int(tvl * E18))
         M = R.choice([Fr(1), Fr(6, 5), Fr(4, 5), Fr(3, 2), Fr(1, 2)])

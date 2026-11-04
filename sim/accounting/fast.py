@@ -28,7 +28,7 @@ class Pool:
         self.x, self.y = Fr(x), Fr(y)
         self.creator, self.creator_compounds = creator, False
         self.lots, self.next_id, self.block, self.sealed = [], 1, block, block
-        self.E = self.L = Fr(0); self.graduated = False
+        self.E = self.L = Fr(0); self.graduated = False; self.creator_on = False
         self.Sp = Fr(0); self.B = Fr(0); self.I = Fr(1)
         self.A1 = {k: Fr(0) for k in SETS}; self.A2 = {k: Fr(0) for k in SETS}
         self.T = {"cx": Fr(0), "cy": Fr(0)}
@@ -87,13 +87,14 @@ class Pool:
         V = self.V(M)
         if 0 < Q < V:
             self._distribute(Q, V)
-        if not self.graduated and tvl > 0 and self.V(M) >= TARGET * tvl:
-            self.graduated = True
+        if tvl > 0:  # creator cut reversible, LP payouts latch (maker, 2026-11-04)
+            self.creator_on = self.V(M) >= TARGET * tvl
+            self.graduated = self.graduated or self.creator_on
         return Q
 
     def _distribute(self, D, V):
         Stot = self.Sp + self.B
-        c = CREATOR_CUT if self.graduated else Fr(0)
+        c = CREATOR_CUT if self.graduated and self.creator_on else Fr(0)
         LP = (1 - c) * D
         Ubase = (V - D) / Stot
         W = Fr(41, 10) * self.Sp + Fr(6, 5) * self.B
@@ -108,7 +109,9 @@ class Pool:
             self.T["cx"] += Fr(6, 5) * q["cx"]; self.T["cy"] += Fr(6, 5) * q["cy"]
             x0, y0 = self.x, self.y
             self.x -= cx; self.y -= cy
-            if self.creator_compounds:
+            if c == 0:
+                pass
+            elif self.creator_compounds:
                 if self.creator_lot is None:
                     self.creator_lot = self._new_lot(self.creator)
                 cl = self.creator_lot; self._checkpoint(cl)

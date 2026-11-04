@@ -15,8 +15,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         - Settle every block and before any deposit, withdrawal or restake. The hook passes `distribute = false`
 ///           while a cross-chain pool is in local mode: results then stay in share value pro rata.
 ///         - Below graduation everything compounds. Graduation latches once pool value >= 12% of the source TVL;
-///           after it the creator takes 12% (paid out, or compounded if they choose) and LPs are paid in kind into
-///           escrow.
+///           after it LPs are paid in kind into escrow. The creator takes 12% (paid out, or compounded if they
+///           choose) only while the pool is at or above that 12%, rechecked every settlement.
 ///         - Boost: principal lots form one FIFO line, weighted 7x at the front sliding linearly to 1.2x at the back
 ///           (F(z) = 7z - 2.9 z^2 / S). Compounded earnings are a separate class weighted a flat 1.2x. `restake`
 ///           turns a lot's compounded balance into a new principal lot at the back.
@@ -68,6 +68,7 @@ library DiscipleLedger {
         uint256 lossCarry;
         bool graduated;
         bool creatorCompounds;
+        bool creatorOn; // the creator's cut applies (pool >= 12% of the source at the last settlement)
         address creator;
         uint256 sp; // total principal shares
         uint256 b; // total compound balance (share units)
@@ -145,8 +146,13 @@ library DiscipleLedger {
         // Spec: nothing is distributed if Q >= V. Q > V/2 is also held back (it stays in share value pro rata) so
         // the 1/(V - D) terms stay bounded.
         if (q > 0 && 2 * q <= v) _distribute(bk, q, v);
-        if (!bk.graduated && sourceTvl > 0 && value(bk, markX128) * BPS >= TARGET_BPS * sourceTvl) {
-            bk.graduated = true;
+        // maker, 2026-11-04: the creator's cut is reversible (on only while the pool is >= 12% of the source);
+        // LP payouts latch at the first crossing, which keeps the boost accounting exact. A zero TVL means "not
+        // known yet" and leaves both as they are. Applies from the next interval.
+        if (sourceTvl > 0) {
+            bool on = value(bk, markX128) * BPS >= TARGET_BPS * sourceTvl;
+            bk.creatorOn = on;
+            if (on) bk.graduated = true;
         }
     }
 
@@ -162,7 +168,7 @@ library DiscipleLedger {
             bk.b += Math.mulDiv(lp, st, v - d, Math.Rounding.Ceil);
             return;
         }
-        uint256 cd = Math.mulDiv(d, CREATOR_BPS, BPS, Math.Rounding.Ceil);
+        uint256 cd = bk.creatorOn ? Math.mulDiv(d, CREATOR_BPS, BPS, Math.Rounding.Ceil) : 0;
         uint256 lpAmt = d - cd;
         uint256 x0 = bk.x;
         uint256 y0 = bk.y;
@@ -176,6 +182,7 @@ library DiscipleLedger {
         bk.y -= ey;
         bk.escrowX += ex;
         bk.escrowY += ey;
+        if (cd == 0) return;
         if (bk.creatorCompounds) {
             if (bk.creatorLot == 0) bk.creatorLot = _newLot(bk, bk.creator);
             uint256 cl = bk.creatorLot;

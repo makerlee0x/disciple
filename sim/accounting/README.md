@@ -10,7 +10,7 @@ module, not an efficient implementation.
 
 - `intledger.py` is the exact algorithm `contracts/src/disciple/libraries/DiscipleLedger.sol` runs: integer fixed point, with every rounding against the LP.
 - `python3 compare_int.py 40` checks it against `fast.py` (exact rationals) on random histories. In 40/40 histories the worst error is 6.6e-18 of reserves. The integer version never pays an LP more than the exact model, and claims never exceed escrow.
-- `python3 gen_ledger_vectors.py ../../contracts/test/disciple/libraries/` writes `DiscipleLedgerVectors.sol`: 8 histories and 778 ops. `DiscipleLedger.t.sol` replays them, and every number must match bit for bit.
+- `python3 gen_ledger_vectors.py ../../contracts/test/disciple/libraries/` writes `DiscipleLedgerVectors.sol`: 8 histories and 842 ops. `DiscipleLedger.t.sol` replays them, and every number must match bit for bit.
 - Two guards are added beyond the spec:
   - 1e6 shares can never be withdrawn, so the pool never drains to rounding dust.
   - An interval gain above half the pool value is not distributed; it stays in share value pro rata. This keeps the 1/(V - D) terms bounded.

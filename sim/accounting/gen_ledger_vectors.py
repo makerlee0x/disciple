@@ -43,6 +43,8 @@ def history(seed, steps=30):
             return L.lot_view(a)
 
     for st in range(steps):
+        if R.random() < 0.15:  # source TVL moves, so graduation can turn on and off again
+            tvl = R.choice([10**6, 20000, 8000, 3000]) * E18
         do(0, M, tvl, 1)
         Mf = R.choice([Fr(1), Fr(6, 5), Fr(4, 5), Fr(3, 2), Fr(1, 2)])
         M = X(Mf)

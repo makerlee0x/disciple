@@ -27,7 +27,7 @@ class Pool:
         self.x, self.y = Fr(x), Fr(y)
         self.creator, self.creator_compounds = creator, False
         self.lots, self.next_id, self.block, self.sealed = [], 1, block, block
-        self.E = self.L = Fr(0); self.graduated = False
+        self.E = self.L = Fr(0); self.graduated = False; self.creator_on = False
         self.escrow = {}; self.events = []
         self.creator_lot = None
         self._new_lot(creator, Fr(x) * Fr(M) + Fr(y))
@@ -59,13 +59,14 @@ class Pool:
                 self.events.append(("non_distributable", Q))
             else:
                 self._distribute(Q, V, M)
-        if not self.graduated and tvl > 0 and self.V(M) >= TARGET * tvl:
-            self.graduated = True
+        if tvl > 0:  # creator cut reversible, LP payouts latch (maker, 2026-11-04)
+            self.creator_on = self.V(M) >= TARGET * tvl
+            self.graduated = self.graduated or self.creator_on
         return Q
 
     def _distribute(self, D, V, M):
         S, Stot = self.S, self.S + self.B
-        c = CREATOR_CUT if self.graduated else Fr(0)
+        c = CREATOR_CUT if self.graduated and self.creator_on else Fr(0)
         LP = (1 - c) * D
         Ubase = (V - D) / Stot
         W = Fr(41, 10) * S + Fr(6, 5) * self.B
@@ -81,7 +82,9 @@ class Pool:
         else:
             for l, r in alloc:
                 self._escrow(l.id, x0 * r / V, y0 * r / V)
-            if self.creator_compounds:
+            if c == 0:
+                pass
+            elif self.creator_compounds:
                 if self.creator_lot is None:
                     self.creator_lot = self._new_lot(self.creator, 0)
                 self.creator_lot.b += c * D / Ubase

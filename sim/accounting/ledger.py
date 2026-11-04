@@ -39,7 +39,7 @@ class Pool:
         self.x, self.y = Fr(x), Fr(y)
         self.creator, self.creator_compounds = creator, False
         self.lots, self.next_id = [], 1
-        self.E = Fr(0); self.L = Fr(0); self.graduated = False
+        self.E = Fr(0); self.L = Fr(0); self.graduated = False; self.creator_on = False
         self.escrow = {}                       # owner -> [coin, quote]
         self.events = []
         self.block = block; self.sealed_block = block
@@ -96,15 +96,18 @@ class Pool:
                 self.events.append(("non_distributable", Q))
             else:
                 self._distribute(Q, V, S, M, src_tvl)
-        if not self.graduated and src_tvl > 0 and self.V(M) >= TARGET * src_tvl:
-            self.graduated = True                                  # latched, applies to the next interval
-            self.events.append(("graduated", self.V(M)))
+        if src_tvl > 0:                                            # applies to the next interval
+            on = self.V(M) >= TARGET * src_tvl                     # creator cut reversible, LP payouts latch
+            if on and not self.graduated:
+                self.events.append(("graduated", self.V(M)))
+            self.creator_on = on
+            self.graduated = self.graduated or on
         return Q
 
     def _distribute(self, D, V, S, M, src_tvl):
         U = V / S
         R = BOOST_RANGE * src_tvl / U                              # boost range in shares, frozen here
-        c = CREATOR_CUT if self.graduated else Fr(0)
+        c = CREATOR_CUT if self.graduated and self.creator_on else Fr(0)
         lp_reward = (1 - c) * D
         U_base = (V - D) / S
         W = F(S, R)
@@ -121,7 +124,9 @@ class Pool:
             x0, y0 = self.x, self.y
             for lot, r in alloc:
                 self._escrow(lot.owner, x0 * r / V, y0 * r / V)
-            if self.creator_compounds:
+            if c == 0:
+                pass
+            elif self.creator_compounds:
                 self._add_lot(self.creator, c * D / U_base)
             else:
                 self._escrow(("creator", self.creator), x0 * c * D / V, y0 * c * D / V)

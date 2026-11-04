@@ -87,14 +87,19 @@ Fee default for the UI: a suggestion, not decided. Sims put a busy same-chain po
 
 ## Reading a pool
 
-- `poolState(id)` returns `coin, quote, live, local, graduated, coinReserve, quoteReserve, anchorX128, ageOrBlock, tank, srcTvl,
-  principal, compounded, lots`.
+- `poolState(id)` returns `coin, quote, live, local, graduated, creatorOn, coinReserve, quoteReserve, anchorX128,
+  ageOrBlock, tank, srcTvl, principal, compounded, lots`.
   - Price in quote per coin: `anchorX128 / 2^128 * 10^(coinDecimals - quoteDecimals)`. The anchor is the source price
     latched in an earlier block, not the live quote.
-  - `graduated`: the pool reached about 12% of the source's TVL. After that, fees are paid out (12% to the creator,
-    88% to LPs); before it, everything compounds. `srcTvl` is a proxy: on v3/v4 it counts in-range liquidity as
-    full-range, so it reads high and graduation comes later than "12% of real TVL". Two-hop: leg 1's TVL, converted
-    at leg 2.
+  - `graduated`: the pool has reached 12% of the source's TVL at least once. From then on LP fees are paid out
+    (claimable); before it, everything compounds. This one does not switch back.
+  - `creatorOn`: the creator's 12% cut applies right now. It is on only while the pool is at or above 12% of the
+    source, rechecked every block, so draining the source for a block earns the creator nothing lasting.
+  - `srcTvl`: the source's real TVL in quote units, the number Uniswap shows. v2: reserves. v3: the pool's token
+    balances. v4: the hook counts the pool's liquidity ranges itself, 4 storage reads on the first trade of each
+    block, and refreshes when a pass finishes (about 20 to 40 busy blocks for tick spacing 60 or 200; 0 means the
+    first pass is not done yet). Two-hop: leg 1's TVL, converted at leg 2. Cross-chain pools still use the home
+    chain's in-range estimate.
   - `tank`, `local`, `ageOrBlock` as a timestamp: cross-chain only. On a same-chain pool `ageOrBlock` is the last
     settled block.
 - `lotState(id, lot)` returns `owner, principal, compounded, claimX, claimY`. It is **not a view**, because it

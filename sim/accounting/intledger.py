@@ -83,6 +83,7 @@ class Ledger:
         self.dx = self.dy = 0
         self.L = 0
         self.graduated = False
+        self.creator_on = False
         self.Sp = 0
         self.B = 0
         self.I = RAY
@@ -176,8 +177,9 @@ class Ledger:
         # 1/(V - D) terms stay bounded; it stays in share value pro rata.
         if 0 < Q and 2 * Q <= V:
             self._distribute(Q, V)
-        if not self.graduated and tvl > 0 and self.value(M) * 10_000 >= self.TARGET_BPS * tvl:
-            self.graduated = True
+        if tvl > 0:  # creator cut reversible, LP payouts latch (maker, 2026-11-04)
+            self.creator_on = self.value(M) * 10_000 >= self.TARGET_BPS * tvl
+            self.graduated = self.graduated or self.creator_on
         return Q
 
     def _distribute(self, D, V):
@@ -193,7 +195,7 @@ class Ledger:
             self._accrue("sh", q)
             self.B += mul_div_up(LP, St, V - D)
             return
-        cD = mul_div_up(D, self.CREATOR_BPS, 10_000)
+        cD = mul_div_up(D, self.CREATOR_BPS, 10_000) if self.creator_on else 0
         LP = D - cD
         x0, y0 = self.x, self.y
         qx = mul_div(10 * LP * x0, RAY, W10 * V)
@@ -207,7 +209,9 @@ class Ledger:
         self.y -= ey
         self.escrow[0] += ex
         self.escrow[1] += ey
-        if self.creator_compounds:
+        if cD == 0:
+            pass
+        elif self.creator_compounds:
             if self.creator_lot is None:
                 self.creator_lot = self._new_lot(self.creator)
             cl = self.creator_lot

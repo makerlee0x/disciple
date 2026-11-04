@@ -8,10 +8,10 @@ def close(a, b, eps=Fr(1, 10**12)):
 BIG = 10**9   # a source TVL that never triggers graduation
 
 def ex_A():
-    p = Pool("creator", 500, 500, 1); p.graduated = True
+    p = Pool("creator", 500, 500, 1); p.graduated = p.creator_on = True
     for blk, e in ((1, -40), (2, 25), (3, 30)):
         p.swap(e, 0, 1)          # pool receives e coin worth e at M=1 (pure earnings for the test)
-        p.touch(blk + 1, 1, BIG)
+        p.touch(blk + 1, 1, 1000)  # pool = 100% of the source: stays graduated, creator on
         if blk == 1: assert p.L == 40
         if blk == 2: assert p.L == 15 and not p.escrow
     cr = p.escrow[("creator", "creator")]; lp = p.escrow["creator"]
@@ -51,7 +51,7 @@ def ex_D():
     return "D compounding: A +13.5366 sh, B +6.4634 sh, S 220, NAV/share 5"
 
 def ex_E(compound):
-    p = two_lps(); p.graduated = True; p.creator = "C"; p.creator_compounds = compound
+    p = two_lps(); p.graduated = p.creator_on = True; p.creator = "C"; p.creator_compounds = compound
     p.swap(50, 50, 1)
     tvl = 200 * Fr(1100, 200) / Fr(7, 100)
     p.touch(2, 1, tvl)
@@ -95,6 +95,19 @@ def ex_I():
     assert close(sum(p.escrow[("creator", "C")]), Fr("2.40")) and close(sum(p.escrow["A"]), Fr("17.60"))
     return "I graduation is not retroactive: first 100 all to LPs, next 20 pays creator 2.40"
 
+def ex_J():
+    p = Pool("A", 500, 500, 1, init_shares=1000); p.creator = "C"
+    small, big = Fr(1000), Fr(10**6)                  # pool 100% / 0.1% of the source
+    p.swap(50, 50, 1); p.touch(1, 1, small)            # graduates, creator on
+    p.swap(10, 10, 1); p.touch(2, 1, big)              # paid at 12%, then the cut turns off
+    c1 = sum(p.escrow[("creator", "C")])
+    assert close(c1, Fr("2.40")) and p.graduated and not p.creator_on
+    p.swap(10, 10, 1); p.touch(3, 1, small)            # no creator cut on this interval; on again after
+    assert sum(p.escrow[("creator", "C")]) == c1 and p.creator_on
+    p.swap(10, 10, 1); p.touch(4, 1, small)
+    assert close(sum(p.escrow[("creator", "C")]), c1 + Fr("2.40"))
+    return "J creator cut is reversible: off while below 12% (LP payouts stay on), back on above"
+
 if __name__ == "__main__":
-    for f in (ex_A, ex_B, ex_C, ex_D, lambda: ex_E(False), lambda: ex_E(True), ex_F, ex_G, ex_H, ex_I):
+    for f in (ex_A, ex_B, ex_C, ex_D, lambda: ex_E(False), lambda: ex_E(True), ex_F, ex_G, ex_H, ex_I, ex_J):
         print("PASS", f())
