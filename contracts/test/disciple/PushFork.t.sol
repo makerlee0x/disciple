@@ -175,7 +175,7 @@ contract PushForkTest is Test {
         vm.recordLogs();
         vm.prank(keeper);
         sender.push{value: p.fee}(V0.RH_EID, to, pid, 1, pair, bytes32(0), RECEIVE_GAS);
-        p.observedAt = uint64(block.timestamp);
+        p.observedAt = uint64(vm.getBlockTimestamp());
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes memory packet;
         for (uint256 i = 0; i < logs.length; i++) {
@@ -244,9 +244,9 @@ contract PushForkTest is Test {
     }
 
     function _syncEthClock() internal {
-        uint256 now_ = block.timestamp;
+        uint256 now_ = vm.getBlockTimestamp();
         vm.selectFork(eth);
-        if (now_ > block.timestamp) vm.warp(now_);
+        if (now_ > vm.getBlockTimestamp()) vm.warp(now_);
         vm.roll(block.number + 1);
     }
 
