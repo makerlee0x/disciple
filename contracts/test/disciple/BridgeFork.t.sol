@@ -8,7 +8,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {Disciple} from "../../src/disciple/Disciple.sol";
-import {DiscipleBridgeSender, IInbox} from "../../src/disciple/DiscipleBridgeSender.sol";
+import {DiscipleBridgeSender, IInbox} from "../../src/disciple/routes/DiscipleBridgeSender.sol";
 import {ILzRead} from "../../src/bridge/interfaces/ILzRead.sol";
 import {MockERC20} from "../bridge/mocks/BridgeMocks.sol";
 
@@ -66,8 +66,8 @@ contract BridgeForkTest is Test {
         IPoolManager m = IPoolManager(RH_POOL_MANAGER);
         MockERC20 coin = new MockERC20("COIN", "COIN", 18);
         MockERC20 quote = new MockERC20("WETH", "WETH", 18);
-        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(sender));
-        Disciple hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(sender));
+        bytes memory args = abi.encode(m, address(quote), ILzRead(address(0)), address(sender), address(0));
+        Disciple hook = new Disciple{salt: _mine(args)}(m, address(quote), ILzRead(address(0)), address(sender), address(0));
         coin.mint(address(this), 1e30);
         quote.mint(address(this), 1e30);
         coin.approve(address(hook), type(uint256).max);
@@ -83,7 +83,7 @@ contract BridgeForkTest is Test {
         if (observedAt > block.timestamp) vm.warp(observedAt); // the forks' clocks differ slightly
         vm.warp(block.timestamp + 300); // ~minutes of bridge delay
         vm.prank(address(uint160(address(sender)) + ALIAS));
-        hook.onBridgePrice(pid, 1, pair, bytes32(0), a, b, observedAt, keeper, value);
+        hook.onBridgePrice(pid, 0, 1, pair, bytes32(0), a, b, observedAt, keeper, value);
         Disciple.PoolView memory v = hook.poolState(pid);
         assertTrue(v.live, "push opened the pool");
         assertEq(v.anchorX128, (b << 128) / a, "anchor = reserve1 / reserve0");

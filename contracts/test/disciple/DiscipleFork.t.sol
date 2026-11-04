@@ -174,8 +174,8 @@ contract DiscipleForkTest is Test {
         s.target = x.target;
         s.v4Id = x.kind == 3 ? PoolId.unwrap(x.v4Key.toId()) : bytes32(0);
 
-        bytes memory args = abi.encode(m, quote, ILzRead(address(0)), address(0));
-        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, ILzRead(address(0)), address(0));
+        bytes memory args = abi.encode(m, quote, ILzRead(address(0)), address(0), address(0));
+        Disciple hook = new Disciple{salt: _mine(args)}(m, quote, ILzRead(address(0)), address(0), address(0));
         PoolSwapTest swapper = new PoolSwapTest(m);
         _fund(coin, quote, address(hook), address(swapper));
 
