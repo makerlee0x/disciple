@@ -87,6 +87,9 @@ contract DisciplePushSender is DiscipleSourceReader {
         returns (bytes32 guid)
     {
         uint256 g0 = gasleft();
+        for (uint256 i = 0; i < reqs.length; i++) {
+            _walk(reqs[i].kind, reqs[i].target, reqs[i].v4Id);
+        }
         (Obs[] memory obs, uint256 n) = _read(reqs);
         // the fee does not depend on the cost field (fixed-size word), so quote with 0 and fill it in after
         MessagingParams memory mp = _params(dstEid, receiver, _message(obs, 0), gas);

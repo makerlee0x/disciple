@@ -17,6 +17,28 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {Disciple} from "../../src/disciple/Disciple.sol";
 import {DiscipleDepth as DP} from "../../src/disciple/libraries/DiscipleDepth.sol";
 import {MockERC20} from "./mocks/Mocks.sol";
+import {DiscipleSourceReader} from "../../src/disciple/routes/DiscipleSourceReader.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+contract ReaderHarness is DiscipleSourceReader {
+    function walk(uint8 kind, address target, bytes32 v4Id) external {
+        _walk(kind, target, v4Id);
+    }
+}
+
+contract V3Like {
+    address public token0;
+    address public token1;
+    uint160 sqrtP;
+
+    constructor(address a, address b, uint160 p) {
+        (token0, token1, sqrtP) = (a, b, p);
+    }
+
+    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
+        return (sqrtP, 0, 0, 0, 0, 0, true);
+    }
+}
 
 contract WalkHarness {
     DP.Walk public w;
@@ -307,6 +329,48 @@ contract DiscipleDepthTest is Test {
         emit log_named_uint("v2 source: first swap in block, incl. router", f2);
         emit log_named_uint("v2 source: first-in-block extra", f2 - s2);
         emit log_named_uint("counter cost (v4 extra - v2 extra, approx)", (first - second) - (f2 - s2));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // the cross-chain sender sends real TVL
+    // -----------------------------------------------------------------------------------------
+
+    /// @dev The hook's TVL from (sqrtP, L) in token1 units: 2 L sqrtP / 2^96.
+    function _tvl1(uint256 sqrtP, uint256 l) internal pure returns (uint256) {
+        return 2 * Math.mulDiv(l, sqrtP, 1 << 96);
+    }
+
+    function test_senderSendsRealV4TvlOnceTracked() public {
+        PoolKey memory k = _richSource(60, 6931);
+        (uint256 b0, uint256 b1) = _bal(k);
+        ReaderHarness r = new ReaderHarness();
+        bytes32 id = PoolId.unwrap(k.toId());
+        (uint256 a, uint256 bUntracked) = r.read(3, address(manager), id);
+        uint256 real = Math.mulDiv(b0, a * a, 1 << 192) + b1;
+        assertGt(_tvl1(a, bUntracked), 0);
+        r.track(address(manager), k);
+        (, uint256 b) = r.read(3, address(manager), id);
+        assertApproxEqRel(_tvl1(a, b), real, 1e12, "tracked: real TVL");
+        // a push keeps counting: new liquidity shows after the next pass
+        _add(k, 6000, 7200, 1e21);
+        (b0, b1) = _bal(k);
+        real = Math.mulDiv(b0, a * a, 1 << 192) + b1;
+        for (uint256 i = 0; i < 200; i++) {
+            r.walk(3, address(manager), id);
+        }
+        (, b) = r.read(3, address(manager), id);
+        assertApproxEqRel(_tvl1(a, b), real, 1e12, "refreshed");
+    }
+
+    function test_senderSendsV3Balances() public {
+        uint160 p = TickMath.getSqrtPriceAtTick(6931); // ~2 token1 per token0
+        V3Like v3 = new V3Like(address(coin), address(usd), p);
+        coin.mint(address(v3), 1000e18);
+        usd.mint(address(v3), 500e18);
+        ReaderHarness r = new ReaderHarness();
+        (uint256 a, uint256 b) = r.read(2, address(v3), bytes32(0));
+        uint256 real = Math.mulDiv(1000e18, uint256(p) * p, 1 << 192) + 500e18;
+        assertApproxEqRel(_tvl1(a, b), real, 1e12);
     }
 
     // -----------------------------------------------------------------------------------------
